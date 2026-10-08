@@ -232,6 +232,7 @@ export interface AssistantChatProps {
       title: string;
       preview: string;
       messageCount: number;
+      titleSource?: "fallback";
     },
   ) => void;
   /** Callback to generate a title from the first user message, on the model it was sent with */

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { getMcpDirectoryWidgetResourceUri } from "@agent-native/core/mcp";
 import {
   buildEmbedStartPath,
   COOKIE_NAME,
@@ -74,7 +75,7 @@ async function captureWidgetFailure(
   });
 }
 
-test("a Content body paints from a scoped ticket in a nested widget frame", async ({
+test("a scoped read-only Content widget body paints in a nested frame", async ({
   browser,
   baseURL,
   page,
@@ -127,7 +128,7 @@ test("a Content body paints from a scoped ticket in a nested widget frame", asyn
   }
   const scope = createMcpDirectoryWidgetReadCapability({
     appId: "content",
-    resourceUri: "ui://content/shell-v67",
+    resourceUri: getMcpDirectoryWidgetResourceUri("content"),
     resourceIds,
     actionArguments,
   });
@@ -221,16 +222,20 @@ test("a Content body paints from a scoped ticket in a nested widget frame", asyn
             const observed = new Set(
               actionResponses.map(({ action }) => action),
             );
-            return [
-              "get-document",
-              "get-preview-document-draft",
-              "list-comments",
-              "list-resource-suggestions",
-            ].every((action) => observed.has(action));
+            return observed.has("get-document");
           },
           { timeout: 20_000 },
         )
         .toBe(true);
+      for (const action of [
+        "get-preview-document-draft",
+        "list-comments",
+        "list-resource-suggestions",
+      ]) {
+        expect(
+          actionResponses.map(({ action: observed }) => observed),
+        ).not.toContain(action);
+      }
       expect(
         actionResponses.filter(
           ({ action }) => action === "list-document-properties",

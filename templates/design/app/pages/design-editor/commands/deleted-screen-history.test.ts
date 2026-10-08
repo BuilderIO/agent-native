@@ -1198,6 +1198,15 @@ describe("screen deletion history identity", () => {
       invalidateQueries: vi.fn(),
       setQueryData: vi.fn(),
     } as unknown as QueryClient;
+    const selectionRevisionRef = ref(0);
+    const setActiveFileId = vi.fn();
+    const setOverviewSelectedScreenIds = vi.fn();
+    const setSelectedElement = vi.fn();
+    const setSelectedLayerIdsState = vi.fn();
+    let rejectDeleteMutation: (reason: Error) => void = () => {};
+    const deleteMutation = new Promise<never>((_, reject) => {
+      rejectDeleteMutation = reject;
+    });
     const designDataJsonRef = ref<Record<string, unknown>>({
       canvasFrames: {
         [file.id]: { x: 10, y: 20, width: 300, height: 600, z: 0 },
@@ -1220,7 +1229,7 @@ describe("screen deletion history identity", () => {
       redoOrder: redoOrderRef.current,
     };
 
-    await runDeleteFiles(
+    const deletion = runDeleteFiles(
       {
         activeFile: file,
         canvasFrameGeometryById: designDataJsonRef.current
@@ -1233,11 +1242,7 @@ describe("screen deletion history identity", () => {
         contentRedoStackRef,
         contentUndoSelectionStackRef,
         contentUndoStackRef,
-        deleteFileMutation: {
-          mutateAsync: vi
-            .fn()
-            .mockRejectedValue(new Error("temporary failure")),
-        } as any,
+        deleteFileMutation: { mutateAsync: vi.fn(() => deleteMutation) } as any,
         fileCreationRedoStackRef,
         fileCreationUndoStackRef,
         fileDeletionUndoStackRef,
@@ -1252,15 +1257,38 @@ describe("screen deletion history identity", () => {
         localContentUndoStackRef,
         queryClient,
         redoOrderRef,
-        setActiveFileId: vi.fn(),
-        setSelectedElement: vi.fn(),
-        setSelectedLayerIdsState: vi.fn(),
+        overviewSelectedScreenIds: [file.id],
+        selectedElement: null,
+        selectedLayerIdsState: [],
+        selectionRevisionRef,
+        setActiveFileId,
+        setOverviewSelectedScreenIds,
+        setSelectedElement,
+        setSelectedLayerIdsState,
         syncUndoRedoState: vi.fn(),
         t: (key: string) => key,
         writeFrameGeometrySnapshot: vi.fn(),
       },
       [file],
     );
+
+    selectionRevisionRef.current += 1;
+    const currentSelectedElement = {} as ElementInfo;
+    setOverviewSelectedScreenIds(["new-screen"]);
+    setSelectedElement(currentSelectedElement);
+    setSelectedLayerIdsState(["new-layer"]);
+    rejectDeleteMutation(new Error("temporary failure"));
+    await deletion;
+
+    expect(setActiveFileId).not.toHaveBeenCalledWith(file.id);
+    expect(setOverviewSelectedScreenIds).toHaveBeenCalledTimes(2);
+    expect(setOverviewSelectedScreenIds).toHaveBeenLastCalledWith([
+      "new-screen",
+    ]);
+    expect(setSelectedElement).toHaveBeenCalledTimes(2);
+    expect(setSelectedElement).toHaveBeenLastCalledWith(currentSelectedElement);
+    expect(setSelectedLayerIdsState).toHaveBeenCalledTimes(2);
+    expect(setSelectedLayerIdsState).toHaveBeenLastCalledWith(["new-layer"]);
 
     expect(contentUndoStackRef.current).toBe(initialStacks.contentUndo);
     expect(contentRedoStackRef.current).toBe(initialStacks.contentRedo);

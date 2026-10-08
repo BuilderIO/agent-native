@@ -24,7 +24,9 @@ This skill covers only what is specific to the legacy scheduled path: the
 
 1. User asks for something recurring via the agent chat
 2. Agent uses `manage-jobs` tool (action: "create") to write a job file at `jobs/<name>.md`
-3. A scheduler polls every 60 seconds and finds due jobs
+3. A scheduler tick finds due jobs about once a minute. Long-running servers
+   fire it in-process; Netlify, Vercel, and Cloudflare fire it from a platform
+   trigger the build emits; AWS Lambda has no trigger, so jobs never fire there
 4. Due jobs enter the shared background-automation runner, on the same
    execution lifecycle as event automations
 5. Job results are saved as chat threads

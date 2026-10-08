@@ -27,6 +27,124 @@ export interface InsertSlideVideoOptions {
   position?: SlideImageDropPosition;
   objectId?: string;
   label?: string;
+  geometry?: SlideVideoGeometry;
+}
+
+export interface SlideVideoGeometry {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export interface PendingSlideVideoPreview {
+  objectId: string;
+  label: string;
+  statusLabel: string;
+  geometry: SlideVideoGeometry;
+}
+
+export function initialSlideVideoGeometry(
+  position?: SlideImageDropPosition,
+): SlideVideoGeometry {
+  const width = VIDEO_WIDTH;
+  const height = VIDEO_HEIGHT;
+  return {
+    left: Math.max(0, Math.round((position?.x ?? 640) - width / 2)),
+    top: Math.max(0, Math.round((position?.y ?? 360) - height / 2)),
+    width,
+    height,
+  };
+}
+
+export function insertPendingSlideVideoPlaceholder(
+  content: string,
+  preview: PendingSlideVideoPreview,
+): string {
+  const doc = parseSlideContent(content);
+  if (findPendingVideoPlaceholder(doc, preview.objectId)) return content;
+
+  const placeholder = doc.createElement("div");
+  placeholder.className = "fmd-video-upload-placeholder skeleton-shimmer";
+  placeholder.setAttribute("data-slide-object-id", preview.objectId);
+  placeholder.setAttribute(
+    "data-slide-video-upload-placeholder",
+    preview.objectId,
+  );
+  placeholder.setAttribute("role", "status");
+  placeholder.setAttribute("aria-busy", "true");
+  placeholder.setAttribute(
+    "aria-label",
+    `${preview.statusLabel} ${preview.label}`.trim(),
+  );
+  placeholder.setAttribute("style", videoGeometryStyle(preview.geometry));
+
+  const slideRoot = doc.body.querySelector<HTMLElement>(".fmd-slide");
+  if (slideRoot) {
+    slideRoot.appendChild(placeholder);
+  } else {
+    doc.body.append(placeholder);
+  }
+
+  return doc.body.innerHTML;
+}
+
+export function hasPendingSlideVideoPlaceholder(
+  content: string,
+  objectId: string,
+): boolean {
+  return Boolean(
+    findPendingVideoPlaceholder(parseSlideContent(content), objectId),
+  );
+}
+
+export function capturePendingSlideVideoGeometry(
+  content: string,
+  preview: PendingSlideVideoPreview,
+): PendingSlideVideoPreview {
+  const placeholder = findPendingVideoPlaceholder(
+    parseSlideContent(content),
+    preview.objectId,
+  );
+  if (!placeholder) return preview;
+
+  const style = placeholder.style;
+  const geometry = {
+    left: Number.parseFloat(style.left),
+    top: Number.parseFloat(style.top),
+    width: Number.parseFloat(style.width),
+    height: Number.parseFloat(style.height),
+  };
+  if (Object.values(geometry).some((value) => !Number.isFinite(value))) {
+    return preview;
+  }
+  return { ...preview, geometry };
+}
+
+export function stripPendingSlideVideoPlaceholders(
+  content: string,
+  objectIds: readonly string[],
+): string {
+  if (objectIds.length === 0) return content;
+  const doc = parseSlideContent(content);
+  let changed = false;
+  for (const objectId of objectIds) {
+    for (const placeholder of Array.from(
+      doc.querySelectorAll<HTMLElement>(
+        "[data-slide-video-upload-placeholder]",
+      ),
+    )) {
+      if (
+        placeholder.getAttribute("data-slide-video-upload-placeholder") !==
+        objectId
+      ) {
+        continue;
+      }
+      placeholder.remove();
+      changed = true;
+    }
+  }
+  return changed ? doc.body.innerHTML : content;
 }
 
 export type VideoPlaybackMode = "click" | "autoplay";
@@ -111,9 +229,8 @@ export function insertDroppedVideoIntoSlideHtml(
     "text/html",
   );
   const video = doc.createElement("video");
-  const position = options.position ?? { x: 640, y: 360 };
-  const left = Math.max(0, Math.round(position.x - VIDEO_WIDTH / 2));
-  const top = Math.max(0, Math.round(position.y - VIDEO_HEIGHT / 2));
+  const geometry =
+    options.geometry ?? initialSlideVideoGeometry(options.position);
 
   video.setAttribute("src", src);
   video.setAttribute("controls", "");
@@ -129,26 +246,59 @@ export function insertDroppedVideoIntoSlideHtml(
   video.className = "fmd-video-uploaded";
   video.setAttribute(
     "style",
-    `position: absolute; left: ${left}px; top: ${top}px; width: ${VIDEO_WIDTH}px; height: ${VIDEO_HEIGHT}px; max-width: none; max-height: none; margin: 0; object-fit: contain; box-sizing: border-box; z-index: 1;`,
+    videoGeometryStyle(geometry) + " object-fit: contain;",
   );
 
   const slideRoot = doc.body.querySelector<HTMLElement>(".fmd-slide");
   if (slideRoot) {
-    if (!hasStyleProperty(slideRoot.getAttribute("style") ?? "", "position")) {
-      slideRoot.setAttribute(
-        "style",
-        `${(slideRoot.getAttribute("style") ?? "").trim().replace(/;+\s*$/, "")}; position: relative;`.replace(
-          /^;\s*/,
-          "",
-        ),
-      );
-    }
+    ensureSlideRootIsPositioned(slideRoot);
     slideRoot.appendChild(video);
   } else {
     doc.body.append(doc.createTextNode("\n\n"), video);
   }
 
   return doc.body.innerHTML;
+}
+
+function parseSlideContent(content: string): Document {
+  return new DOMParser().parseFromString(
+    `<body>${content}</body>`,
+    "text/html",
+  );
+}
+
+function findPendingVideoPlaceholder(
+  doc: Document,
+  objectId: string,
+): HTMLElement | null {
+  return (
+    Array.from(
+      doc.querySelectorAll<HTMLElement>(
+        "[data-slide-video-upload-placeholder]",
+      ),
+    ).find(
+      (element) =>
+        element.getAttribute("data-slide-video-upload-placeholder") ===
+        objectId,
+    ) ?? null
+  );
+}
+
+function videoGeometryStyle(geometry: SlideVideoGeometry): string {
+  return `position: absolute; left: ${geometry.left}px; top: ${geometry.top}px; width: ${geometry.width}px; height: ${geometry.height}px; max-width: none; max-height: none; margin: 0; box-sizing: border-box; z-index: 1;`;
+}
+
+function ensureSlideRootIsPositioned(slideRoot: HTMLElement): void {
+  if (hasStyleProperty(slideRoot.getAttribute("style") ?? "", "position")) {
+    return;
+  }
+  slideRoot.setAttribute(
+    "style",
+    `${(slideRoot.getAttribute("style") ?? "").trim().replace(/;+\s*$/, "")}; position: relative;`.replace(
+      /^;\s*/,
+      "",
+    ),
+  );
 }
 
 function createSlideObjectId(): string {

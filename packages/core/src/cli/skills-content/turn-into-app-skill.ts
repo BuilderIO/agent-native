@@ -703,10 +703,11 @@ again after every restart for a fresh clock. A nonzero exit means the server or 
 read \`.tmp/dev.log\` and fix that before any screenshot. The log prints \`Local: http://localhost:<port>/\` before the
 server can answer; a 503 or a "Dev server is restarting" page is not yours to
 fix. Stop the server with \`kill $(cat .tmp/dev.pid)\`, which also stops its
-children. Stop it before you change \`.env\` and start it again afterwards: an
-in-place reload after an \`.env\` change loops on the local database lock and
-serves 500s. After editing \`server/plugins/*\` or adding a dependency, poll
-again, and restart if \`/\` does not reflect the change. The scaffold's
+children. Vite restarts the dev server when \`.env\` changes; the framework closes
+the worker's database clients during shutdown so the restarted server can
+reopen the same local database. Wait for that restart, then poll again. After
+editing \`server/plugins/*\` or adding a dependency, poll again, and restart if
+\`/\` does not reflect the change. The scaffold's
 \`pnpm dev\` runs the same server and also opens a browser tab.
 
 ## Checks and build

@@ -124,7 +124,7 @@ const messages = {
     googleOAuthNotConfigured:
       "Google OAuth não está configurado para esta implantação.",
     googlePickerNeedsKeys:
-      "Google Picker precisa de GOOGLE_PICKER_API_KEY e GOOGLE_PICKER_APP_ID.",
+      "لم يتم إعداد تصفح ملفات Google Drive. لا يزال بإمكانك استيراد المستند بلصق رابطه.",
     imageUploadFailed: "Falha ao enviar imagem",
     imageUploadNeedsBuilder:
       "اربط تخزين الكائنات لتحميل الصور: اربط Builder.io (مجانًا) أو أضف مفاتيح التخزين المتوافقة مع S3 ضمن الإعدادات ← تحميل الملفات.",
@@ -792,6 +792,10 @@ const messages = {
     exportFailed: "Error al exportar",
     agentRunFailed:
       "فشل تشغيل الوكيل قبل إنشاء أي شرائح. راجع التفاصيل في الدردشة، ثم حاول مرة أخرى.",
+    generationFailed:
+      "لم يتم إنشاء الشرائح. راجع التفاصيل في الدردشة، ثم حاول مرة أخرى.",
+    generationOutcomeUnresolved:
+      "تعذر علينا التأكد مما إذا كانت الشرائح قد أُنشئت. تحقق من العرض أو الدردشة، ثم حاول مرة أخرى.",
     deckHasNoSlides: "لا توجد شرائح في هذا العرض التقديمي.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",

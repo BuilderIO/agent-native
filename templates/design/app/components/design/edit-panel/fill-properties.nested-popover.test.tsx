@@ -234,6 +234,35 @@ describe("FillProperties — existing layer fill popover", () => {
     ).not.toBeNull();
   });
 
+  it("opens the picker for a newly added background layer", () => {
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+    act(() => {
+      root.render(
+        <StatefulSolidFill
+          onStyleChange={onStyleChange}
+          onStylesChange={onStylesChange}
+        />,
+      );
+    });
+
+    expect(document.querySelector('button[aria-label="Solid"]')).toBeNull();
+
+    const addFillButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="editPanel.labels.addFill"]',
+    );
+    expect(addFillButton).not.toBeNull();
+    act(() => addFillButton!.click());
+
+    expect(onStylesChange).toHaveBeenCalledWith(
+      expect.objectContaining({ backgroundImage: expect.any(String) }),
+      undefined,
+    );
+    expect(
+      document.querySelector('button[aria-label="Solid"][aria-pressed="true"]'),
+    ).not.toBeNull();
+  });
+
   it("keeps the picker open and commits solid-to-gradient as one patch", () => {
     const onStyleChange = vi.fn();
     const onStylesChange = vi.fn();

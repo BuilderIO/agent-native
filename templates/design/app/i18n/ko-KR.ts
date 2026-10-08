@@ -929,6 +929,9 @@ export default {
         figmaPasteFailed: "Figma 붙여넣기 가져오기 실패",
         uploadFailed: "파일 업로드 실패",
         invalidFigFile: ".fig로 끝나는 파일을 선택하세요.",
+        unsupportedFileType: ".fig, .html 또는 .htm 파일을 선택하세요.",
+        importBusy:
+          "다른 가져오기가 진행 중입니다. 먼저 완료하거나 취소하세요.",
         figFileTooLarge:
           "이 .fig 파일은 너무 큽니다. 업로드는 {{max}}MB까지 지원됩니다. Figma에서 원하는 프레임만 새 파일로 복사한 뒤 그 파일을 .fig로 내보내거나, 'Figma에서 붙여넣기'를 사용하세요.",
       },
@@ -968,7 +971,17 @@ export default {
     saveTemplate: "템플릿 저장",
     templateSaved: "템플릿을 라이브러리에 저장했습니다",
     templateSaveFailed: "이 템플릿을 저장할 수 없습니다",
-    clickToRename: "클릭하여 이름 바꾸기",
+    fileMenu: {
+      pendingEditsBlocked:
+        "복제하기 전에 보류 중인 시각적 편집을 적용하거나 취소하세요.",
+      designs: "디자인",
+      rename: "이름 바꾸기",
+      duplicate: "복제",
+      versionHistory: "버전 기록",
+      import: "가져오기…",
+      delete: "삭제",
+      deleteError: "이 디자인을 삭제할 수 없습니다",
+    },
     collaborators: "공동 작업자",
     share: "공유",
     signUpToSave: "가입",
@@ -989,6 +1002,10 @@ export default {
       draw: "그리다",
       interact: "Interact",
       screens: "화면",
+    },
+    topBar: {
+      modeDesign: "디자인",
+      modeSwitch: "편집기 모드",
     },
     fileTabs: "Files",
     tools: {

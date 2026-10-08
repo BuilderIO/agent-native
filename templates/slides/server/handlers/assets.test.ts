@@ -1,12 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockUploadFile = vi.hoisted(() => vi.fn());
+const mockDeleteUploadedFile = vi.hoisted(() => vi.fn());
+const mockRecordOrphanedVideoAssetCleanup = vi.hoisted(() => vi.fn());
+const mockDeleteOrphanedVideoAssetCleanup = vi.hoisted(() => vi.fn());
+const mockListOrphanedVideoAssetCleanups = vi.hoisted(() => vi.fn());
 const mockValues = vi.hoisted(() => vi.fn());
+const mockSelectLimit = vi.hoisted(() => vi.fn());
+const mockDeleteWhere = vi.hoisted(() => vi.fn());
+const mockEq = vi.hoisted(() => vi.fn((...args: unknown[]) => args));
 const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
 const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
+const mockUploadedAssets = vi.hoisted(() => ({
+  id: "uploaded_assets.id",
+  filename: "uploaded_assets.filename",
+  url: "uploaded_assets.url",
+  type: "uploaded_assets.type",
+  size: "uploaded_assets.size",
+  provider: "uploaded_assets.provider",
+  uploadSessionId: "uploaded_assets.upload_session_id",
+  orgId: "uploaded_assets.org_id",
+  ownerEmail: "uploaded_assets.owner_email",
+}));
 
 vi.mock("@agent-native/core/file-upload", () => ({
   uploadFile: mockUploadFile,
+  deleteUploadedFile: mockDeleteUploadedFile,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -15,16 +34,35 @@ vi.mock("@agent-native/core/server", () => ({
     mockRunWithRequestContext(...args),
 }));
 
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
+  and: (...args: unknown[]) => args,
+  desc: (...args: unknown[]) => args,
+  eq: (...args: unknown[]) => mockEq(...args),
+  notLike: (...args: unknown[]) => args,
+}));
+
 vi.mock("../db/index.js", () => ({
   getDb: () => ({
     insert: () => ({ values: mockValues }),
+    delete: () => ({ where: mockDeleteWhere }),
+    select: () => ({
+      from: () => ({ where: () => ({ limit: mockSelectLimit }) }),
+    }),
   }),
-  schema: { uploadedAssets: {} },
+  schema: { uploadedAssets: mockUploadedAssets },
+}));
+
+vi.mock("../lib/chunked-upload-session.js", () => ({
+  recordOrphanedVideoAssetCleanup: mockRecordOrphanedVideoAssetCleanup,
+  deleteOrphanedVideoAssetCleanup: mockDeleteOrphanedVideoAssetCleanup,
+  listOrphanedVideoAssetCleanups: mockListOrphanedVideoAssetCleanups,
 }));
 
 import {
   canSaveAsUploadedAsset,
   canSaveAsUploadedVideoAsset,
+  reapOrphanedVideoAssetObjects,
   uploadImageAsset,
   uploadVideoAsset,
 } from "./assets";
@@ -36,8 +74,21 @@ beforeEach(() => {
     provider: "builder",
     url: "https://cdn.builder.io/logo.svg",
   });
+  mockDeleteUploadedFile.mockReset();
+  mockDeleteUploadedFile.mockResolvedValue(true);
+  mockRecordOrphanedVideoAssetCleanup.mockReset();
+  mockRecordOrphanedVideoAssetCleanup.mockResolvedValue("cleanup-1");
+  mockDeleteOrphanedVideoAssetCleanup.mockReset();
+  mockDeleteOrphanedVideoAssetCleanup.mockResolvedValue(undefined);
+  mockListOrphanedVideoAssetCleanups.mockReset();
+  mockListOrphanedVideoAssetCleanups.mockResolvedValue([]);
   mockValues.mockReset();
   mockValues.mockResolvedValue(undefined);
+  mockSelectLimit.mockReset();
+  mockSelectLimit.mockResolvedValue([]);
+  mockDeleteWhere.mockReset();
+  mockDeleteWhere.mockResolvedValue(undefined);
+  mockEq.mockClear();
   mockGetRequestOrgId.mockReset();
   mockGetRequestOrgId.mockReturnValue(undefined);
   mockRunWithRequestContext.mockReset();
@@ -778,19 +829,31 @@ describe("uploaded video validation", () => {
 
   it("stores video files in the configured object storage with the active org", async () => {
     mockGetRequestOrgId.mockReturnValue("active-org");
+    mockUploadFile.mockResolvedValue({
+      provider: "s3",
+      id: "uploads/provider-object-1.mp4",
+      url: "https://cdn.example.com/clip.mp4",
+    });
 
-    await expect(
-      uploadVideoAsset({
-        email: "owner@example.com",
-        originalName: "clip.mp4",
-        data: mp4,
-      }),
-    ).resolves.toMatchObject({
+    const uploaded = await uploadVideoAsset({
+      email: "owner@example.com",
+      originalName: "clip.mp4",
+      data: mp4,
+    });
+    expect(uploaded).toMatchObject({
       filename: "clip.mp4",
       type: "video/mp4",
       size: mp4.length,
-      url: "https://cdn.builder.io/logo.svg",
+      url: "https://cdn.example.com/clip.mp4",
     });
+    expect(uploaded.id).not.toBe("uploads/provider-object-1.mp4");
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: uploaded.id,
+        providerObjectId: "uploads/provider-object-1.mp4",
+        orgId: "active-org",
+      }),
+    );
 
     expect(mockUploadFile).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -804,5 +867,377 @@ describe("uploaded video validation", () => {
       { userEmail: "owner@example.com", orgId: "active-org" },
       expect.any(Function),
     );
+  });
+
+  it("returns the existing uploaded video for a completed upload session", async () => {
+    const completed = {
+      id: "video-asset-1",
+      filename: "clip.mp4",
+      url: "https://cdn.example.com/clip.mp4",
+      type: "video/mp4",
+      size: 4,
+      provider: "s3",
+    };
+    mockSelectLimit
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([completed]);
+    mockUploadFile.mockResolvedValue({
+      provider: "s3",
+      id: "uploads/provider-object-1.mp4",
+      url: completed.url,
+    });
+
+    const first = await uploadVideoAsset({
+      email: "owner@example.com",
+      originalName: "clip.mp4",
+      data: mp4,
+      uploadSessionId: "session-1",
+    });
+    const replay = await uploadVideoAsset({
+      email: "owner@example.com",
+      originalName: "clip.mp4",
+      data: mp4,
+      uploadSessionId: "session-1",
+    });
+
+    expect(replay).toEqual(completed);
+    expect(mockUploadFile).toHaveBeenCalledTimes(1);
+    expect(mockValues).toHaveBeenCalledTimes(1);
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: first.id,
+        ownerEmail: "owner@example.com",
+        uploadSessionId: "session-1",
+      }),
+    );
+  });
+
+  it("scopes completed upload lookup to the authenticated owner", async () => {
+    mockGetRequestOrgId.mockReturnValue("active-org");
+    mockSelectLimit.mockResolvedValueOnce([]);
+
+    await uploadVideoAsset({
+      email: "owner@example.com",
+      originalName: "clip.mp4",
+      data: mp4,
+      uploadSessionId: "session-1",
+    });
+
+    expect(mockSelectLimit).toHaveBeenCalledTimes(1);
+    expect(mockEq).toHaveBeenCalledWith(
+      mockUploadedAssets.ownerEmail,
+      "owner@example.com",
+    );
+    expect(mockEq).toHaveBeenCalledWith(
+      mockUploadedAssets.uploadSessionId,
+      "session-1",
+    );
+    expect(mockEq).toHaveBeenCalledWith(mockUploadedAssets.orgId, "active-org");
+  });
+
+  it("cleans a provider object when the asset row insert fails", async () => {
+    const insertError = new Error("asset row insert failed");
+    mockGetRequestOrgId.mockReturnValue("active-org");
+    mockUploadFile.mockResolvedValue({
+      provider: "s3",
+      id: "provider-object-1",
+      url: "https://cdn.example.com/clip.mp4",
+    });
+    mockValues.mockRejectedValueOnce(insertError);
+
+    await expect(
+      uploadVideoAsset({
+        email: "owner@example.com",
+        originalName: "clip.mp4",
+        data: mp4,
+        uploadSessionId: "session-1",
+      }),
+    ).rejects.toBe(insertError);
+
+    expect(mockRecordOrphanedVideoAssetCleanup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "owner@example.com",
+        orgId: "active-org",
+        provider: "s3",
+        providerObjectId: "provider-object-1",
+        uploadSessionId: "session-1",
+      }),
+    );
+    expect(mockDeleteUploadedFile).toHaveBeenCalledWith("s3", {
+      id: "provider-object-1",
+      url: "https://cdn.example.com/clip.mp4",
+    });
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgId: "active-org" },
+      expect.any(Function),
+    );
+    expect(mockDeleteOrphanedVideoAssetCleanup).toHaveBeenCalledWith(
+      "cleanup-1",
+    );
+  });
+
+  it("returns the winning upload when a concurrent insert already committed", async () => {
+    const completed = {
+      id: "video-asset-1",
+      filename: "clip.mp4",
+      url: "https://cdn.example.com/clip.mp4",
+      type: "video/mp4",
+      size: 4,
+      provider: "s3",
+    };
+    mockGetRequestOrgId.mockReturnValue("active-org");
+    mockSelectLimit
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([completed]);
+    mockUploadFile.mockResolvedValue({
+      provider: "s3",
+      id: "duplicate-provider-object",
+      url: "https://cdn.example.com/duplicate.mp4",
+    });
+    mockValues.mockRejectedValueOnce(new Error("unique constraint conflict"));
+
+    await expect(
+      uploadVideoAsset({
+        email: "owner@example.com",
+        originalName: "clip.mp4",
+        data: mp4,
+        uploadSessionId: "session-1",
+      }),
+    ).resolves.toEqual(completed);
+    expect(mockDeleteUploadedFile).toHaveBeenCalledWith("s3", {
+      id: "duplicate-provider-object",
+      url: "https://cdn.example.com/duplicate.mp4",
+    });
+  });
+
+  it("keeps an asset when its insert committed but its acknowledgement was lost", async () => {
+    mockGetRequestOrgId.mockReturnValue("active-org");
+    mockSelectLimit.mockResolvedValueOnce([]);
+    mockValues.mockImplementationOnce(
+      async (inserted: Record<string, unknown>) => {
+        mockSelectLimit.mockResolvedValueOnce([
+          {
+            id: inserted.id,
+            filename: inserted.filename,
+            url: inserted.url,
+            type: inserted.type,
+            size: inserted.size,
+            provider: inserted.provider,
+          },
+        ]);
+        throw new Error("insert acknowledgement was lost");
+      },
+    );
+
+    await expect(
+      uploadVideoAsset({
+        email: "owner@example.com",
+        originalName: "clip.mp4",
+        data: mp4,
+        uploadSessionId: "session-1",
+      }),
+    ).resolves.toMatchObject({
+      filename: "clip.mp4",
+      type: "video/mp4",
+      url: "https://cdn.builder.io/logo.svg",
+    });
+
+    expect(mockRecordOrphanedVideoAssetCleanup).not.toHaveBeenCalled();
+    expect(mockDeleteUploadedFile).not.toHaveBeenCalled();
+  });
+
+  it("does not delete a multipart object when its insert result cannot be checked", async () => {
+    const insertError = new Error("insert acknowledgement was lost");
+    mockGetRequestOrgId.mockReturnValue("active-org");
+    mockUploadFile.mockResolvedValue({
+      provider: "s3",
+      id: "provider-object-1",
+      url: "https://cdn.example.com/clip.mp4",
+    });
+    mockSelectLimit.mockRejectedValueOnce(new Error("database unavailable"));
+    mockValues.mockRejectedValueOnce(insertError);
+
+    await expect(
+      uploadVideoAsset({
+        email: "owner@example.com",
+        originalName: "clip.mp4",
+        data: mp4,
+      }),
+    ).rejects.toBe(insertError);
+
+    expect(mockRecordOrphanedVideoAssetCleanup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assetId: expect.any(String),
+        preserveIfAssetExists: true,
+        uploadSessionId: null,
+      }),
+    );
+    expect(mockDeleteUploadedFile).not.toHaveBeenCalled();
+  });
+
+  it("keeps a committed multipart upload when its insert acknowledgement is lost", async () => {
+    mockValues.mockImplementationOnce(
+      async (inserted: Record<string, unknown>) => {
+        mockSelectLimit.mockResolvedValueOnce([
+          {
+            id: inserted.id,
+            filename: inserted.filename,
+            url: inserted.url,
+            type: inserted.type,
+            size: inserted.size,
+            provider: inserted.provider,
+          },
+        ]);
+        throw new Error("insert acknowledgement was lost");
+      },
+    );
+
+    const result = await uploadVideoAsset({
+      email: "owner@example.com",
+      originalName: "clip.mp4",
+      data: mp4,
+    });
+
+    expect(result).toMatchObject({
+      filename: "clip.mp4",
+      type: "video/mp4",
+      url: "https://cdn.builder.io/logo.svg",
+    });
+    expect(mockRecordOrphanedVideoAssetCleanup).not.toHaveBeenCalled();
+    expect(mockDeleteUploadedFile).not.toHaveBeenCalled();
+  });
+
+  it("preserves a committed video when retrying uncertain cleanup", async () => {
+    mockListOrphanedVideoAssetCleanups.mockResolvedValueOnce([
+      {
+        key: "cleanup-uncertain",
+        cleanup: {
+          version: 1,
+          ownerEmail: "owner@example.com",
+          orgId: "active-org",
+          assetId: "asset-committed",
+          preserveIfAssetExists: true,
+          provider: "s3",
+          providerObjectId: "provider-object-1",
+          url: "https://cdn.example.com/clip.mp4",
+          uploadSessionId: "session-1",
+          createdAt: "2026-10-07T00:00:00.000Z",
+        },
+      },
+    ]);
+    mockSelectLimit.mockResolvedValueOnce([
+      {
+        id: "asset-committed",
+        filename: "clip.mp4",
+        url: "https://cdn.example.com/clip.mp4",
+        type: "video/mp4",
+        size: 4,
+        provider: "s3",
+      },
+    ]);
+
+    await reapOrphanedVideoAssetObjects("owner@example.com", "active-org");
+
+    expect(mockDeleteUploadedFile).not.toHaveBeenCalled();
+    expect(mockDeleteWhere).not.toHaveBeenCalled();
+    expect(mockDeleteOrphanedVideoAssetCleanup).toHaveBeenCalledWith(
+      "cleanup-uncertain",
+    );
+  });
+
+  it("retains uncertain cleanup when the database is still unavailable", async () => {
+    mockListOrphanedVideoAssetCleanups.mockResolvedValueOnce([
+      {
+        key: "cleanup-uncertain",
+        cleanup: {
+          version: 1,
+          ownerEmail: "owner@example.com",
+          orgId: "active-org",
+          assetId: "asset-committed",
+          preserveIfAssetExists: true,
+          provider: "s3",
+          providerObjectId: "provider-object-1",
+          url: "https://cdn.example.com/clip.mp4",
+          uploadSessionId: "session-1",
+          createdAt: "2026-10-07T00:00:00.000Z",
+        },
+      },
+    ]);
+    mockSelectLimit.mockRejectedValueOnce(new Error("database unavailable"));
+
+    await reapOrphanedVideoAssetObjects("owner@example.com", "active-org");
+
+    expect(mockDeleteUploadedFile).not.toHaveBeenCalled();
+    expect(mockDeleteWhere).not.toHaveBeenCalled();
+    expect(mockDeleteOrphanedVideoAssetCleanup).not.toHaveBeenCalled();
+  });
+
+  it("removes a discarded asset row before retrying its object cleanup", async () => {
+    mockListOrphanedVideoAssetCleanups.mockResolvedValueOnce([
+      {
+        key: "cleanup-1",
+        cleanup: {
+          version: 1,
+          ownerEmail: "owner@example.com",
+          orgId: "active-org",
+          assetId: "asset-1",
+          provider: "s3",
+          providerObjectId: "provider-object-1",
+          url: "https://cdn.example.com/clip.mp4",
+          uploadSessionId: null,
+          createdAt: "2026-10-07T00:00:00.000Z",
+        },
+      },
+    ]);
+    mockDeleteUploadedFile.mockResolvedValueOnce(false);
+
+    await uploadVideoAsset({
+      email: "owner@example.com",
+      orgId: "active-org",
+      originalName: "clip.mp4",
+      data: mp4,
+    });
+
+    expect(mockDeleteWhere).toHaveBeenCalledTimes(1);
+    expect(mockDeleteWhere).toHaveBeenCalledWith([
+      ["uploaded_assets.id", "asset-1"],
+      ["uploaded_assets.owner_email", "owner@example.com"],
+      ["uploaded_assets.org_id", "active-org"],
+    ]);
+    expect(mockDeleteUploadedFile).toHaveBeenCalledWith("s3", {
+      id: "provider-object-1",
+      url: "https://cdn.example.com/clip.mp4",
+    });
+    expect(mockDeleteOrphanedVideoAssetCleanup).not.toHaveBeenCalled();
+  });
+
+  it("keeps retryable cleanup metadata when duplicate object deletion fails", async () => {
+    const completed = {
+      id: "video-asset-1",
+      filename: "clip.mp4",
+      url: "https://cdn.example.com/clip.mp4",
+      type: "video/mp4",
+      size: 4,
+      provider: "s3",
+    };
+    mockGetRequestOrgId.mockReturnValue("active-org");
+    mockSelectLimit
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([completed]);
+    mockValues.mockRejectedValueOnce(new Error("unique constraint conflict"));
+    mockDeleteUploadedFile.mockResolvedValue(false);
+
+    await expect(
+      uploadVideoAsset({
+        email: "owner@example.com",
+        originalName: "clip.mp4",
+        data: mp4,
+        uploadSessionId: "session-1",
+      }),
+    ).resolves.toEqual(completed);
+    expect(mockRecordOrphanedVideoAssetCleanup).toHaveBeenCalledTimes(1);
+    expect(mockDeleteOrphanedVideoAssetCleanup).not.toHaveBeenCalled();
   });
 });

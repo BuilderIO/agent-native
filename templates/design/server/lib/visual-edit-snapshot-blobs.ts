@@ -2,7 +2,7 @@ import {
   deletePrivateBlob,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
-import { eq } from "drizzle-orm";
+import { eq, inArray, notInArray } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import type { DesignDataMutationTransaction } from "./design-data-mutation.js";
@@ -39,7 +39,7 @@ export function parseVisualEditSnapshotBlobHandle(
 
 export async function deleteVisualEditSnapshotBlobs(
   values: readonly (string | null | undefined)[],
-): Promise<void> {
+): Promise<boolean> {
   const db = getDb();
   const table = schema.designVisualEditSnapshotBlobCleanup;
   const handles = [...new Set(values.filter((value) => value != null))];
@@ -50,10 +50,28 @@ export async function deleteVisualEditSnapshotBlobs(
       .onConflictDoNothing();
   }
 
-  const pending = await db
-    .select({ blobHandle: table.blobHandle })
-    .from(table)
-    .limit(CLEANUP_BATCH_SIZE);
+  const prioritized = handles.length
+    ? await db
+        .select({ blobHandle: table.blobHandle })
+        .from(table)
+        .where(inArray(table.blobHandle, handles))
+        .limit(CLEANUP_BATCH_SIZE)
+    : [];
+  const backlogCapacity = CLEANUP_BATCH_SIZE - prioritized.length;
+  const backlog =
+    backlogCapacity === 0
+      ? []
+      : handles.length
+        ? await db
+            .select({ blobHandle: table.blobHandle })
+            .from(table)
+            .where(notInArray(table.blobHandle, handles))
+            .limit(backlogCapacity)
+        : await db
+            .select({ blobHandle: table.blobHandle })
+            .from(table)
+            .limit(backlogCapacity);
+  const pending = [...prioritized, ...backlog];
   for (const { blobHandle } of pending) {
     try {
       const result = await deletePrivateBlob(
@@ -73,6 +91,30 @@ export async function deleteVisualEditSnapshotBlobs(
       );
     }
   }
+
+  const remaining = handles.length
+    ? await db
+        .select({ blobHandle: table.blobHandle })
+        .from(table)
+        .where(inArray(table.blobHandle, handles))
+        .limit(handles.length)
+    : await db
+        .select({ blobHandle: table.blobHandle })
+        .from(table)
+        .limit(CLEANUP_BATCH_SIZE);
+  return remaining.length > 0;
+}
+
+export async function queueVisualEditSnapshotBlobCleanup(
+  values: readonly (string | null | undefined)[],
+): Promise<void> {
+  const handles = [...new Set(values.filter((value) => value != null))];
+  if (!handles.length) return;
+  const table = schema.designVisualEditSnapshotBlobCleanup;
+  await getDb()
+    .insert(table)
+    .values(handles.map((blobHandle) => ({ blobHandle })))
+    .onConflictDoNothing();
 }
 
 export async function queueVisualEditSnapshotBlobCleanupInTransaction(

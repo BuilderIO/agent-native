@@ -136,6 +136,7 @@ const CHECK_NAMES = [
   "build",
   "trusted_acceptance",
   "scaffold",
+  "builder_code_starter_scaffold",
   "ssr_boot",
   "guards",
   "qa_static",
@@ -667,6 +668,8 @@ function buildChecks(
       chatChanged ||
       calendarChanged ||
       hasPath(changedPaths, "templates/dispatch/"),
+    // The bundled Builder Code starter is a layer in core over templates/chat.
+    builder_code_starter_scaffold: coreChanged || chatChanged,
     ssr_boot:
       ssrBootSharedPackageChanged(changedPaths) ||
       contentChanged ||

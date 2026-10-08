@@ -29,7 +29,7 @@ test("reads only what a turn body names at the top level", () => {
     readTurnSelection(JSON.stringify({ model: LUNA, engine: OPENAI })),
     { model: LUNA, engine: OPENAI },
   );
-  // The Chat template's composer puts the engine in metadata, which the server ignores.
+  // Metadata alone is not evidence; only the top-level request field counts.
   assert.deepEqual(
     readTurnSelection(
       JSON.stringify({ model: LUNA, metadata: { engine: OPENAI } }),
