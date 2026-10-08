@@ -601,6 +601,10 @@ describe("createAgentNativeChatRuntime", () => {
       ["agent-native.session_last_activity", String(Date.now())],
     ]);
     vi.stubGlobal("window", {
+      location: {
+        href: "https://app.example.test/chat",
+        origin: "https://app.example.test",
+      },
       localStorage: {
         getItem: (key: string) => storage.get(key) ?? null,
         setItem: (key: string, value: string) => storage.set(key, value),
@@ -624,6 +628,46 @@ describe("createAgentNativeChatRuntime", () => {
           "x-agent-native-session-id",
         ),
       ).toBe("browser-session-42");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("omits the browser analytics session from cross-origin agent chat requests", async () => {
+    const storage = new Map<string, string>([
+      ["agent-native.session_id", "browser-session-42"],
+      ["agent-native.session_last_activity", String(Date.now())],
+    ]);
+    vi.stubGlobal("window", {
+      location: {
+        href: "https://app.example.test/chat",
+        origin: "https://app.example.test",
+      },
+      localStorage: {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => storage.set(key, value),
+      },
+    });
+    try {
+      const apiUrl = "https://chat.example.test/_agent-native/agent-chat";
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(sseResponse([{ type: "done" }]));
+      const runtime = createAgentNativeChatRuntime({
+        apiUrl,
+        fetch: fetchMock as typeof fetch,
+      });
+      const session = await runtime.createSession();
+      await drain(
+        (await session.startTurn({ prompt: "Create a slide" })).events,
+      );
+
+      const chatRequest = fetchMock.mock.calls.find(
+        ([input]) => String(input) === apiUrl,
+      )?.[1];
+      expect(
+        new Headers(chatRequest?.headers).get("x-agent-native-session-id"),
+      ).toBeNull();
     } finally {
       vi.unstubAllGlobals();
     }
@@ -2472,50 +2516,71 @@ describe("createAgentNativeChatRuntime", () => {
   it("uses the configured streaming origin after minting a same-origin token", async () => {
     const apiUrl = "/_agent-native/agent-chat";
     const streamingUrl = "https://stream.example.test/agent-chat";
-    const fetchMock = vi.fn(
-      async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        if (url === `${apiUrl}/stream-token`) {
-          return Response.json({ token: "short-lived-token" });
-        }
-        if (url === streamingUrl) {
+    const storage = new Map<string, string>([
+      ["agent-native.session_id", "browser-session-42"],
+      ["agent-native.session_last_activity", String(Date.now())],
+    ]);
+    vi.stubGlobal("window", {
+      location: {
+        href: "https://app.example.test/chat",
+        origin: "https://app.example.test",
+      },
+      localStorage: {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => storage.set(key, value),
+      },
+    });
+    try {
+      const fetchMock = vi.fn(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url === `${apiUrl}/stream-token`) {
+            return Response.json({ token: "short-lived-token" });
+          }
+          if (url === streamingUrl) {
+            return sseResponse([
+              { type: "text", text: "streamed" },
+              { type: "done" },
+            ]);
+          }
           return sseResponse([
-            { type: "text", text: "streamed" },
+            { type: "text", text: "primary" },
             { type: "done" },
           ]);
-        }
-        return sseResponse([
-          { type: "text", text: "primary" },
-          { type: "done" },
-        ]);
-      },
-    );
-    const runtime = createAgentNativeChatRuntime({
-      apiUrl,
-      streamingUrl,
-      fetch: fetchMock as typeof fetch,
-    });
+        },
+      );
+      const runtime = createAgentNativeChatRuntime({
+        apiUrl,
+        streamingUrl,
+        fetch: fetchMock as typeof fetch,
+      });
 
-    const session = await runtime.createSession({
-      threadId: "thread-streaming",
-    });
-    await drain((await session.startTurn({ prompt: "Stream this" })).events);
+      const session = await runtime.createSession({
+        threadId: "thread-streaming",
+      });
+      await drain((await session.startTurn({ prompt: "Stream this" })).events);
 
-    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
-      `${apiUrl}/stream-token`,
-      streamingUrl,
-    ]);
-    const tokenRequest = fetchMock.mock.calls[0]?.[1];
-    const streamRequest = fetchMock.mock.calls[1]?.[1];
-    expect(tokenRequest).toMatchObject({
-      method: "GET",
-      credentials: "same-origin",
-      cache: "no-store",
-    });
-    expect(new Headers(streamRequest?.headers).get("Authorization")).toBe(
-      "Bearer short-lived-token",
-    );
-    expect(streamRequest?.credentials).toBe("omit");
+      expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+        `${apiUrl}/stream-token`,
+        streamingUrl,
+      ]);
+      const tokenRequest = fetchMock.mock.calls[0]?.[1];
+      const streamRequest = fetchMock.mock.calls[1]?.[1];
+      expect(tokenRequest).toMatchObject({
+        method: "GET",
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      expect(new Headers(streamRequest?.headers).get("Authorization")).toBe(
+        "Bearer short-lived-token",
+      );
+      expect(
+        new Headers(streamRequest?.headers).get("x-agent-native-session-id"),
+      ).toBeNull();
+      expect(streamRequest?.credentials).toBe("omit");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("falls back to the primary route when the streaming origin cannot connect", async () => {
