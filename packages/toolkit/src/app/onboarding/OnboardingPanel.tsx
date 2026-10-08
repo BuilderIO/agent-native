@@ -2,6 +2,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  createOnboardingCorrelationId,
   trackOnboardingEvent,
   useOnboarding,
 } from "@agent-native/core/client/onboarding/use-onboarding";
@@ -90,7 +91,7 @@ export function OnboardingPanel({
     if (stepViewRef.current?.key !== activeStep.id) {
       stepViewRef.current = {
         key: activeStep.id,
-        id: window.crypto.randomUUID(),
+        id: createOnboardingCorrelationId(),
       };
     }
     trackOnboardingEvent("onboarding_step_viewed", {

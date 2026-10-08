@@ -51,6 +51,7 @@ vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
 }));
 
 vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  createOnboardingCorrelationId: () => "test-onboarding-correlation-id",
   setCustomKeyOnboardingAttempt: mocks.setCustomKeyOnboardingAttempt,
   trackOnboardingEvent: mocks.trackOnboardingEvent,
   useOnboarding: mocks.useOnboarding,

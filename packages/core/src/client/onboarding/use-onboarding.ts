@@ -25,6 +25,7 @@ import {
 const seenOnboardingEvents = new Set<string>();
 const CUSTOM_KEY_ATTEMPT_STORAGE_KEY =
   "agent-native.onboarding.custom_keys_attempt";
+let onboardingCorrelationSequence = 0;
 const ONBOARDING_SUMMARY_TIMEOUT_MS = 15_000;
 const ONBOARDING_SUMMARY_REUSE_MS = 5_000;
 
@@ -52,6 +53,15 @@ type CustomKeyOutcomeResult =
   | "unavailable"
   | "session_mismatch"
   | "duplicate";
+
+export function createOnboardingCorrelationId(): string {
+  const cryptoApi = globalThis.crypto;
+  if (typeof cryptoApi?.randomUUID === "function") {
+    return cryptoApi.randomUUID();
+  }
+  onboardingCorrelationSequence += 1;
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${onboardingCorrelationSequence.toString(36)}`;
+}
 
 function readCustomKeyOnboardingAttempt(): CustomKeyAttemptRead {
   if (typeof window === "undefined") return { kind: "unavailable" };
@@ -138,6 +148,29 @@ export function trackCustomKeyOnboardingOutcome(
     }
   }
   return "tracked";
+}
+
+export function useCustomKeyOnboardingAttemptLifecycle(): void {
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const handlePageHide = (event: PageTransitionEvent) => {
+      if (!event.persisted) {
+        trackCustomKeyOnboardingOutcome("credential_abandoned");
+      }
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      mountedRef.current = false;
+      queueMicrotask(() => {
+        if (!mountedRef.current) {
+          trackCustomKeyOnboardingOutcome("credential_abandoned");
+        }
+      });
+    };
+  }, []);
 }
 
 type SharedSummaryRead = {

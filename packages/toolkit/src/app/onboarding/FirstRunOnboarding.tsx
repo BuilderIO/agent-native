@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/client/onboarding/first-run-registry";
 import { saveFirstRunOnboardingRole } from "@agent-native/core/client/onboarding/first-run-status";
 import {
+  createOnboardingCorrelationId,
   setCustomKeyOnboardingAttempt,
   trackOnboardingEvent,
   useOnboarding,
@@ -314,7 +315,7 @@ export function FirstRunOnboarding({
     (methodId: FirstRunSetupMethodId, methodKind: "builder" | "manual") => {
       if (previewMode || typeof window === "undefined") return null;
       const attempt = {
-        id: window.crypto.randomUUID(),
+        id: createOnboardingCorrelationId(),
         methodId,
         outcomeTracked: false,
       };
@@ -378,7 +379,7 @@ export function FirstRunOnboarding({
     );
     const key = [step.step_id, step.extension_id, step.step_index].join(":");
     if (stepViewRef.current?.key !== key) {
-      stepViewRef.current = { key, id: window.crypto.randomUUID() };
+      stepViewRef.current = { key, id: createOnboardingCorrelationId() };
     }
     trackOnboardingEvent("onboarding_step_viewed", {
       ...step,

@@ -17,9 +17,11 @@ vi.mock("../analytics.js", () => ({
 
 import {
   __resetOnboardingSummaryReadsForTests,
+  createOnboardingCorrelationId,
   setCustomKeyOnboardingAttempt,
   trackCustomKeyOnboardingOutcome,
   trackOnboardingEvent,
+  useCustomKeyOnboardingAttemptLifecycle,
   useOnboarding,
   type UseOnboardingResult,
 } from "./use-onboarding.js";
@@ -450,6 +452,93 @@ describe("trackOnboardingEvent", () => {
       "session_mismatch",
     );
     expect(trackEventMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("useCustomKeyOnboardingAttemptLifecycle", () => {
+  let container: HTMLDivElement;
+  let root: Root | null;
+
+  function Harness() {
+    useCustomKeyOnboardingAttemptLifecycle();
+    return null;
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    trackEventMock.mockReset();
+    analyticsSessionIdMock.mockReturnValue("browser-session-42");
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    if (root) act(() => root?.unmount());
+    root = null;
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("preserves the attempt during a back-forward cache pagehide", async () => {
+    setCustomKeyOnboardingAttempt("attempt-bfcache");
+    await act(async () => root?.render(<Harness />));
+
+    const event = new Event("pagehide");
+    Object.defineProperty(event, "persisted", { value: true });
+    act(() => window.dispatchEvent(event));
+
+    expect(trackEventMock).not.toHaveBeenCalled();
+    expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe("tracked");
+  });
+
+  it("records abandonment when the settings route unmounts", async () => {
+    setCustomKeyOnboardingAttempt("attempt-route-exit");
+    await act(async () => root?.render(<Harness />));
+    await act(async () => {
+      root?.unmount();
+      root = null;
+      await Promise.resolve();
+    });
+
+    expect(trackEventMock).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        onboarding_attempt_id: "attempt-route-exit",
+        outcome: "credential_abandoned",
+      }),
+    );
+  });
+
+  it("uses fallback correlation IDs without crypto.randomUUID", () => {
+    vi.stubGlobal("crypto", {});
+
+    const first = createOnboardingCorrelationId();
+    const second = createOnboardingCorrelationId();
+
+    expect(first).not.toBe(second);
+    expect(first).toMatch(/^[a-z0-9-]+$/);
+  });
+
+  it("does not treat Strict Mode effect replay as abandonment", async () => {
+    setCustomKeyOnboardingAttempt("attempt-strict-mode");
+    await act(async () => {
+      root?.render(
+        <React.StrictMode>
+          <Harness />
+        </React.StrictMode>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(trackEventMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root?.unmount();
+      root = null;
+      await Promise.resolve();
+    });
+    expect(trackEventMock).toHaveBeenCalledTimes(1);
   });
 });
 
