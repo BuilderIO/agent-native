@@ -18,6 +18,11 @@ export interface EditorSaveQueue {
   failure: { reason: unknown } | null;
 }
 
+const recordingSaveQueues = new Map<
+  string,
+  Partial<Record<EditSaveKind, EditorSaveQueue>>
+>();
+
 export function createEditorSaveQueue(): EditorSaveQueue {
   return { tail: Promise.resolve(), pending: 0, failure: null };
 }
@@ -43,6 +48,37 @@ export function enqueueEditorSave<T>(
     if (queue.pending === 0) queue.failure = null;
   };
   queue.tail = result.then(settle, settle);
+  return result;
+}
+
+export function enqueueRecordingEditorSave<T>(
+  recordingId: string,
+  kind: EditSaveKind,
+  save: () => Promise<T>,
+): Promise<T> {
+  let queues = recordingSaveQueues.get(recordingId);
+  if (!queues) {
+    queues = {};
+    recordingSaveQueues.set(recordingId, queues);
+  }
+
+  let queue = queues[kind];
+  if (!queue) {
+    queue = createEditorSaveQueue();
+    queues[kind] = queue;
+  }
+
+  const result = enqueueEditorSave(queue, save);
+  const removeIfIdle = () => {
+    if (queue.pending !== 0) return;
+    const currentQueues = recordingSaveQueues.get(recordingId);
+    if (currentQueues?.[kind] !== queue) return;
+    delete currentQueues[kind];
+    if (Object.keys(currentQueues).length === 0) {
+      recordingSaveQueues.delete(recordingId);
+    }
+  };
+  void result.then(removeIfIdle, removeIfIdle);
   return result;
 }
 

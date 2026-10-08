@@ -60,9 +60,8 @@ async function writeAppStateClient(key: string, value: unknown): Promise<void> {
 import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import {
   beginEditorSave,
-  createEditorSaveQueue,
   createEditorSaveLedger,
-  enqueueEditorSave,
+  enqueueRecordingEditorSave,
   finishEditorSave,
   isLatestEditorSave,
   removeEditorHistoryEntry,
@@ -366,8 +365,6 @@ export function EditorLayout({
   const [burning, setBurning] = useState(false);
   const [saveStatus, setSaveStatus] = useState<EditorSaveStatus>("ready");
   const editSaveLedgerRef = useRef(createEditorSaveLedger());
-  const trimSaveQueueRef = useRef(createEditorSaveQueue());
-  const overlaySaveQueueRef = useRef(createEditorSaveQueue());
   const burnStorageCheckInFlightRef = useRef(false);
   const burnToastRef = useRef<string | number | null>(null);
   const undoStackRef = useRef<EditSnapshot[]>([]);
@@ -875,7 +872,7 @@ export function EditorLayout({
       const saveGeneration = beginEditSave("trims");
       let succeeded = false;
       try {
-        await enqueueEditorSave(trimSaveQueueRef.current, async () => {
+        await enqueueRecordingEditorSave(recordingId, "trims", async () => {
           await setTrims.mutateAsync({ recordingId, trims: next.trims });
           await playerDataQuery.refetch();
         });
@@ -1024,7 +1021,7 @@ export function EditorLayout({
       const saveGeneration = beginEditSave("overlays");
       let succeeded = false;
       try {
-        await enqueueEditorSave(overlaySaveQueueRef.current, async () => {
+        await enqueueRecordingEditorSave(recordingId, "overlays", async () => {
           await setOverlays.mutateAsync({
             recordingId,
             overlays: overlays as Record<string, unknown>[],

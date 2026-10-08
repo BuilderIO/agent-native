@@ -5,6 +5,7 @@ import {
   createEditorSaveLedger,
   createEditorSaveQueue,
   enqueueEditorSave,
+  enqueueRecordingEditorSave,
   finishEditorSave,
   isLatestEditorSave,
   removeEditorHistoryEntry,
@@ -158,5 +159,56 @@ describe("editor save queue", () => {
 
     await expect(nextBatch).resolves.toBe("saved");
     expect(persisted).toEqual(["new edit"]);
+  });
+
+  it("shares an in-flight queue across editor mounts for the same recording", async () => {
+    const firstStarted = deferred();
+    const finishFirst = deferred();
+    const writes: string[] = [];
+
+    const older = enqueueRecordingEditorSave(
+      "recording-queue-test",
+      "trims",
+      async () => {
+        firstStarted.resolve();
+        await finishFirst.promise;
+        writes.push("older editor");
+      },
+    );
+    await firstStarted.promise;
+
+    const newer = enqueueRecordingEditorSave(
+      "recording-queue-test",
+      "trims",
+      async () => {
+        writes.push("reopened editor");
+      },
+    );
+    const otherRecording = enqueueRecordingEditorSave(
+      "another-recording-queue-test",
+      "trims",
+      async () => {
+        writes.push("other recording");
+      },
+    );
+    const otherKind = enqueueRecordingEditorSave(
+      "recording-queue-test",
+      "overlays",
+      async () => {
+        writes.push("independent overlays");
+      },
+    );
+
+    await Promise.all([otherRecording, otherKind]);
+    expect(writes).toEqual(["other recording", "independent overlays"]);
+
+    finishFirst.resolve();
+    await Promise.all([older, newer]);
+    expect(writes).toEqual([
+      "other recording",
+      "independent overlays",
+      "older editor",
+      "reopened editor",
+    ]);
   });
 });
