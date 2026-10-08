@@ -29,6 +29,8 @@ npx agent-native upgrade --codemods
 
 `--codemods` supported rewrites को default रूप से apply करता है। केवल preview देखने और files न लिखने के लिए `--dry-run` जोड़ें। Apply करने से पहले diff और warnings देखें। `--yes` compatibility के लिए स्वीकार है और behavior नहीं बदलता। `migration-manifest` को disable नहीं किया जा सकता। `planned` entries केवल warnings हैं और rewrite नहीं होतीं। Active entries findings हैं; codemod उन्हें तभी rewrite करता है जब destination export installed हो। हटाए गए exports के लिए manual migration चाहिए। Finding में दिए गए guide या [Core 0.198.0 migration guide](/docs/upgrading-core-ui) का पालन करें। इसमें `ts-morph` और optional feature packages सूचीबद्ध हैं। JSON `guardsRun` में वास्तव में चलाए गए guards सूचीबद्ध होते हैं।
 
-CLI हर नए app और workspace में `pnpm doctor` तथा `pnpm agent-native:doctor` commands जोड़ता है। Workspace root से चलाने पर `apps/<name>` के हर app की जाँच होती है। Findings मिलने पर builds डिफ़ॉल्ट रूप से fail होती हैं; `failOnBuild: false` केवल reviewed exception के रूप में उपयोग करें।
+`agent-native doctor` `server-plugin-default-export` भी चलाता है, जो `server/plugins/` से Nitro द्वारा लोड की गई हर उस फ़ाइल को पकड़ता है जिसमें runtime default export नहीं है। Nitro हर plugin का default export कॉल करता है, इसलिए typecheck पास होने पर भी production build `[MISSING_EXPORT]` के साथ विफल होता है। `export default defineNitroPlugin(...)` का उपयोग करें, या केवल registration वाला कोड `server/` में ले जाकर किसी plugin से import करें।
+
+CLI हर नए app और workspace में `pnpm agent-native:doctor` command जोड़ता है। Workspace root से चलाने पर `apps/<name>` के हर app की जाँच होती है। Findings मिलने पर builds डिफ़ॉल्ट रूप से fail होती हैं; `failOnBuild: false` केवल reviewed exception के रूप में उपयोग करें।
 
 `planned` चिह्नित entries केवल warnings के रूप में दिखती हैं और rewrite नहीं होतीं। Active entries findings होती हैं; codemod उन्हें तभी rewrite करता है जब destination export installed हो।

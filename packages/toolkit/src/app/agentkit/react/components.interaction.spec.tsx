@@ -1011,6 +1011,74 @@ describe("AgentKitChat interactions", () => {
     }
   });
 
+  it("attaches dropped SVGs and names rejected drops without the accept list", async () => {
+    const transport: AgentTransport = {
+      capabilities: { uploads: true },
+      async startRun() {
+        return { runId: "run-svg" };
+      },
+      async *subscribeToRun() {},
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({ transport });
+    const onAttachmentError = vi.fn();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    const dropOnChat = async (file: File) => {
+      const drop = new Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(drop, "dataTransfer", {
+        value: { types: ["Files"], files: [file], dropEffect: "none" },
+      });
+      await act(async () => {
+        container.querySelector(".agentkit-chat")?.dispatchEvent(drop);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-svg">
+            <AgentKitChat composerProps={{ onAttachmentError }} />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
+
+      await dropOnChat(
+        new File(['<svg xmlns="http://www.w3.org/2000/svg"/>'], "logo.svg", {
+          type: "image/svg+xml",
+        }),
+      );
+      expect(container.textContent).toContain("logo.svg");
+      expect(onAttachmentError).not.toHaveBeenCalled();
+
+      await dropOnChat(
+        new File(["zip"], "archive.zip", { type: "application/zip" }),
+      );
+      expect(onAttachmentError).toHaveBeenCalledWith(
+        "archive.zip: Could not add the dropped file. Try a different format.",
+      );
+    } finally {
+      await act(async () => {
+        root.unmount();
+        await Promise.resolve();
+      });
+      container.remove();
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
   it("disables transcript file drops when the host disables uploads", async () => {
     const transport: AgentTransport = {
       capabilities: { uploads: true },

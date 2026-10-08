@@ -1144,6 +1144,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "仍在等待{{stage}}。请求：{{action}}。",
+    widgetDocumentLoadStage: "已保存的页面正文",
+    widgetDraftCheckStage: "页面草稿恢复",
+    widgetEditorInitStage: "富文本编辑器初始化",
     iconPickerIcons: "图标",
     iconPickerEmoji: "表情符号",
     iconPickerRecent: "最近",
@@ -1416,9 +1420,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "未选择页面",
-    signedInAs: "当前登录账号：{{email}}",
+    pageNoAccess: "你没有此页面的访问权限",
+    pageMissing: "此页面不存在",
+    pageInTrash: "此页面在回收站中",
+    pageInTrashAskOwner: "请让所有者恢复它。",
+    openTrash: "打开回收站",
     goToMyPages: "前往我的页面",
-    switchAccount: "切换账号",
     noPageDescription: "从侧边栏选择页面，或创建新页面开始。",
     newPage: "新页面",
     createFailed: "创建页面失败",

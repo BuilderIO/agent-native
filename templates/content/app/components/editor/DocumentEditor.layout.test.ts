@@ -32,6 +32,7 @@ import {
   documentTitleWidthChanged,
   documentEditorTitleRegionClassName,
   enqueueDocumentSave,
+  enqueueRecoveryDraftTitleSync,
   isDocumentLoadUnavailableError,
   isSuggestionConflictActionError,
   isSuggestionStaleActionError,
@@ -74,6 +75,7 @@ import {
   compactToolbarBreadcrumbItems,
   firstSelectableBreadcrumbMenuItemId,
 } from "./DocumentToolbar";
+import { runPageSaveIfSessionActive } from "./pageSession";
 import {
   markdownSuggestionOperation,
   markdownSuggestionOperations,
@@ -515,9 +517,15 @@ describe("document editor layout", () => {
       source.indexOf("const handleSuggestionAnchorsChange"),
       source.indexOf("const [selectedSuggestionId"),
     );
+    const visualEditor = readFileSync(
+      new URL("./VisualEditor.tsx", import.meta.url),
+      "utf8",
+    );
 
-    expect(handler).toContain("if (isSuggesting) return");
     expect(handler).toContain("sameSuggestionAnchorIds(current, next)");
+    expect(visualEditor).toContain(
+      "applySuggestionsRef.current?.(!suggestingRef.current)",
+    );
   });
 
   it("keeps suggestion history notifications out of the parent render loop", () => {
@@ -651,6 +659,101 @@ describe("document editor layout", () => {
     );
   });
 
+  // editor-isolation.mounted.test.tsx mounts the editor with this wiring.
+  it("keeps the canonical reconcile path away from the Suggesting draft", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /contentRevision=\{\s*isLocalFileDocument \|\|\s*!suggestionEditorIsolation\.reconcileCanonical\s*\?\s*null\s*:/,
+    );
+    expect(source).toMatch(
+      /onBaseAwareReconcile=\{\s*suggestionEditorIsolation\.reconcileCanonical\s*\?\s*handleBaseAwareReconcile\s*:\s*undefined\s*\}/,
+    );
+    expect(source).toMatch(
+      /onRemoteSnapshotChange=\{\s*suggestionEditorIsolation\.reconcileCanonical\s*\?\s*handleRemoteSnapshotChange\s*:\s*undefined\s*\}/,
+    );
+    expect(source).toMatch(
+      /contentUpdatedAt=\{[^}]*:\s*suggestionEditorIsolation\.contentUpdatedAt\s*\}/,
+    );
+    expect(source).toMatch(
+      /visualEditorInstanceKey\(\{\s*documentId,\s*documentUpdatedAt:\s*suggestionEditorIsolation\.contentUpdatedAt,/,
+    );
+    expect(source).not.toMatch(/documentUpdatedAt:\s*document\.updatedAt/);
+  });
+
+  // After unmount no timer can run a follow-up save, so a final flush that
+  // finds a save in flight must wait for it and then save the newer draft.
+  it("saves the newer draft after an in-flight save when no timer can follow", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /if \(\s*autosave &&\s*queueSuggestionAutosave\([^)]*\)\s*\)\s*return null;\s*await inFlight;/,
+    );
+  });
+
+  // A commenter cannot reject, so before withdrawal an author who edited their
+  // suggestion back to the Page could not leave Suggesting at all.
+  it("withdraws an edited suggestion reverted to the Page when Suggesting ends", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    ).replace(/\r\n/g, "\n");
+    const persist = source.slice(
+      source.indexOf("const persistSuggestionDraft"),
+      source.indexOf("const flushSuggestionDraft = "),
+    );
+    const amendmentGate =
+      "if (suggestionAmendmentConflict || amendmentTargetIsResolved) {";
+    const empty = persist.slice(
+      persist.indexOf("if (base.existingSuggestion) {"),
+      persist.indexOf(amendmentGate),
+    );
+    // A rejection this tab already saw must not keep a reverted suggestion
+    // from ending: only the amendment after the withdrawal waits on it.
+    expect(persist.indexOf(amendmentGate)).toBeGreaterThan(
+      persist.indexOf("const withdrawn = await saveUnlessSuggestionChanged("),
+    );
+    expect(persist.slice(0, persist.indexOf("try {"))).not.toContain(
+      "amendmentTargetIsResolved",
+    );
+    expect(empty).toMatch(
+      /if \(operations\.length === 0\) \{[\s\S]*?if \(keepMode\) \{[\s\S]*?return null;\s*\}\s*const withdrawn = await saveUnlessSuggestionChanged\(\s*existing,/,
+    );
+    expect(empty).toMatch(
+      /decision: "withdrawn",[\s\S]*?observedBase: existing\.baseRevision,\s*observedRevision: existing\.revision,/,
+    );
+    expect(empty).toMatch(
+      /withdrawn\.status === "changed"\) \{\s*setSuggestionAmendmentConflict\(true\);\s*return null;/,
+    );
+    expect(empty).toContain(
+      "return saved(new Map<string, ResourceSuggestion>());",
+    );
+    expect(persist).not.toMatch(
+      /base\.existingSuggestion && draft === base\.baseContent/,
+    );
+  });
+
+  it("keys every suggestion amendment by the revision it observed", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const persist = source.slice(
+      source.indexOf("const persistSuggestionDraft"),
+      source.indexOf("const flushSuggestionDraft = "),
+    );
+    expect(
+      persist.match(
+        /idempotencyKey(?:: | = )suggestionAmendmentIdempotencyKey\(/g,
+      ),
+    ).toHaveLength(2);
+    expect(persist).not.toContain("suggestionAmendmentKeysRef.current.get(");
+  });
+
   it("recognizes resolved amendment targets and action conflicts", () => {
     expect(
       suggestionAmendmentTargetIsResolved("suggestion-1", [
@@ -675,17 +778,22 @@ describe("document editor layout", () => {
       new URL("./DocumentEditor.tsx", import.meta.url),
       "utf8",
     ).replace(/\r\n/g, "\n");
-    const flush = source.slice(
-      source.indexOf("const flushSuggestionDraft"),
-      source.indexOf("const startSuggestionDraft"),
+    const persist = source.slice(
+      source.indexOf("const persistSuggestionDraft"),
+      source.indexOf("const flushSuggestionDraft = "),
     );
-    expect(
-      flush.indexOf("suggestionDraft === base.initialContent"),
-    ).toBeLessThan(
-      flush.indexOf("suggestionAmendmentConflict || amendmentTargetIsResolved"),
+    const unchangedAmendment = persist.indexOf("draft === base.initialContent");
+    expect(unchangedAmendment).toBeGreaterThan(-1);
+    expect(unchangedAmendment).toBeLessThan(
+      persist.search(
+        /suggestionAmendmentConflict \|\|\s*amendmentTargetIsResolved/,
+      ),
     );
-    expect(source).toContain(
-      "amendmentDraftIsDirty && suggestionAmendmentConflict",
+    expect(source).toMatch(
+      /suggestionDraftConflicted =\s*suggestionAmendmentConflict &&\s*\(amendmentDraftIsDirty \|\| !suggestionBaseRef\.current\?\.existingSuggestion\)/,
+    );
+    expect(source).toMatch(
+      /suggestionDraftSaveFailed \|\|\s*suggestionDraftConflicted\) \? \(/,
     );
   });
 
@@ -1432,7 +1540,7 @@ describe("document editor layout", () => {
       "utf8",
     );
     const handler = source.slice(
-      source.indexOf("const handleContentChange"),
+      source.indexOf("const queueEditorContentSave"),
       source.indexOf("const handleImmediateContentChange"),
     );
     expect(handler).toContain("localContentRef.current = newContent");
@@ -1447,7 +1555,7 @@ describe("document editor layout", () => {
       "utf8",
     );
     const handler = source.slice(
-      source.indexOf("const handleContentChange"),
+      source.indexOf("const queueEditorContentSave"),
       source.indexOf("const handleImmediateContentChange"),
     );
     expect(handler).toContain("if (updateReconcileDraft(newContent)) {");
@@ -1748,6 +1856,51 @@ describe("document editor layout", () => {
     ).toEqual({ view: "error", admittedDocumentId: null });
   });
 
+  it("keeps the access screen mounted through a retry it started", () => {
+    const retry = {
+      documentId: "document-a",
+      admittedDocumentId: null,
+      isDocumentCreationPending: false,
+      isManualRetrying: true,
+      isAccessRetrying: true,
+      hasLoadFailure: false,
+    };
+    // In flight: React Query clears the error while a query without data
+    // refetches.
+    expect(
+      documentEditorLoadState({
+        ...retry,
+        hasDocument: false,
+        isFetchedAfterMount: false,
+        isFetching: true,
+        isError: false,
+        error: null,
+      }),
+    ).toEqual({ view: "unavailable", admittedDocumentId: null });
+    // Succeeded, but the retry hasn't finished yet.
+    expect(
+      documentEditorLoadState({
+        ...retry,
+        hasDocument: true,
+        isFetchedAfterMount: true,
+        isFetching: false,
+        isError: false,
+        error: null,
+      }),
+    ).toEqual({ view: "unavailable", admittedDocumentId: null });
+    // Failed for a reason other than access.
+    expect(
+      documentEditorLoadState({
+        ...retry,
+        hasDocument: false,
+        isFetchedAfterMount: true,
+        isFetching: false,
+        isError: true,
+        error: { status: 500 },
+      }),
+    ).toEqual({ view: "error", admittedDocumentId: null });
+  });
+
   it("shows a retryable error when a seeded document's first fetch times out", () => {
     expect(
       documentEditorLoadState({
@@ -1898,7 +2051,7 @@ describe("document editor layout", () => {
     );
     expect(source).toContain("queryKey: documentQueryKey(documentId, {");
     expect(source).toContain("await documentQuery.refetch()");
-    expect(source).toContain("retrying={manualRetryDocumentId === documentId}");
+    expect(source).toContain("retrying={isManualRetrying}");
   });
 
   it("resizes the title to its content and reacts only to width changes", () => {
@@ -1957,6 +2110,33 @@ describe("document editor layout", () => {
     ]);
   });
 
+  it("abandons a retry that reaches the save queue after its editor unmounts", async () => {
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const queueRef = { current: Promise.resolve() };
+    let active = true;
+    const persistRetry = vi.fn().mockResolvedValue({ contentPersisted: true });
+    const first = enqueueDocumentSave(queueRef, async () => {
+      await firstGate;
+      return "first";
+    });
+    const retry = enqueueDocumentSave(queueRef, () =>
+      runPageSaveIfSessionActive(() => active, persistRetry),
+    );
+
+    active = false;
+    releaseFirst();
+
+    await expect(first).resolves.toBe("first");
+    await expect(retry).resolves.toEqual({
+      contentPersisted: false,
+      outcome: "abandoned",
+    });
+    expect(persistRetry).not.toHaveBeenCalled();
+  });
+
   it("continues the save queue after an earlier request fails", async () => {
     const queueRef = { current: Promise.resolve() };
     const first = enqueueDocumentSave(queueRef, async () => {
@@ -1966,6 +2146,50 @@ describe("document editor layout", () => {
 
     await expect(first).rejects.toThrow("network interrupted");
     await expect(second).resolves.toBe("latest");
+  });
+
+  it("does not re-retain stale content from a queued peer-title sync", async () => {
+    const queueRef = { current: Promise.resolve() };
+    let currentDraft = {
+      title: "Original title",
+      content: "A",
+      supersedable: true,
+    };
+    const retained: (typeof currentDraft)[] = [];
+    const persist = async (draft: typeof currentDraft) => {
+      currentDraft = draft;
+      retained.push({ ...draft });
+    };
+
+    await enqueueDocumentSave(queueRef, async () => persist(currentDraft));
+
+    const peerTitle = "Peer title";
+    const newerDraft = {
+      title: peerTitle,
+      content: "A+B",
+      supersedable: false,
+    };
+    const newerRetention = enqueueDocumentSave(queueRef, async () =>
+      persist(newerDraft),
+    );
+    const titleSync = enqueueRecoveryDraftTitleSync(
+      queueRef,
+      peerTitle,
+      () => currentDraft,
+      async (draft) => persist({ ...draft, title: peerTitle }),
+    );
+
+    await Promise.all([newerRetention, titleSync]);
+
+    expect(retained).toEqual([
+      {
+        title: "Original title",
+        content: "A",
+        supersedable: true,
+      },
+      newerDraft,
+    ]);
+    expect(currentDraft).toEqual(newerDraft);
   });
 
   it("keeps the first title edit writable after canonical creation advances the optimistic timestamp", () => {
@@ -2606,8 +2830,12 @@ describe("document editor layout", () => {
     ).replace(/\r\n/g, "\n");
 
     expect(documentEditorSource).toContain(
-      "const collabEnabled = !isLocalFileDocument;",
+      "const mcpDirectoryWidgetReadOnly =\n    document.mcpDirectoryWidgetReadOnly === true;",
     );
+    expect(documentEditorSource).toContain(
+      "const collabEnabled = shouldUseLiveDocumentCollaboration({",
+    );
+    expect(documentEditorSource).toContain("mcpDirectoryWidgetReadOnly,");
     expect(documentEditorSource).toContain(
       "const collabDocumentId =\n    collabEnabled && !isDocumentCreationPending(document)",
     );
@@ -2976,9 +3204,7 @@ describe("document editor layout", () => {
     expect(source).toContain(
       "const readyDocument = await prepareSuggestionDraftDocument()",
     );
-    expect(source).toContain(
-      "suggestionDraftOperations(base, suggestionDraft)",
-    );
+    expect(source).toContain("suggestionDraftOperations(base, draft)");
     expect(source).toContain("createSuggestionProposal.mutateAsync(request)");
     expect(source).toContain("suggestions: pending.map((operation) => ({");
     expect(source).toContain("operations: [operation]");
@@ -3026,12 +3252,16 @@ describe("document editor layout", () => {
       "utf8",
     );
 
-    expect(source).toContain("if (isSubmittingSuggestions) return");
-    expect(source).toContain("setIsSubmittingSuggestions(true)");
+    expect(source).toContain(
+      "if (!autosave && isSubmittingSuggestions) return",
+    );
+    expect(source).toContain("if (!autosave) setIsSubmittingSuggestions(true)");
     expect(source).toMatch(
       /suggestionEditorIsolation\.editable &&\s+!isStartingSuggestion &&\s+!isSubmittingSuggestions/,
     );
-    expect(source).toContain("setIsSubmittingSuggestions(false)");
+    expect(source).toContain(
+      "if (!autosave) setIsSubmittingSuggestions(false)",
+    );
   });
 
   it("keeps Suggesting enabled while accept and reject reconcile", () => {

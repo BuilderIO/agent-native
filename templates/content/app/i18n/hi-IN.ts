@@ -1046,6 +1046,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "अब भी {{stage}} का इंतज़ार हो रहा है। अनुरोध: {{action}}।",
+    widgetDocumentLoadStage: "सहेजे गए पेज का मुख्य भाग",
+    widgetDraftCheckStage: "पेज ड्राफ़्ट की बहाली",
+    widgetEditorInitStage: "रिच-टेक्स्ट एडिटर के शुरू होने",
     iconPickerIcons: "आइकन",
     iconPickerEmoji: "इमोजी",
     iconPickerRecent: "हाल के",
@@ -1327,9 +1331,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "कोई page selected नहीं",
-    signedInAs: "{{email}} के रूप में साइन इन हैं",
+    pageNoAccess: "आपके पास इस पेज का एक्सेस नहीं है",
+    pageMissing: "यह पेज मौजूद नहीं है",
+    pageInTrash: "यह पेज ट्रैश में है",
+    pageInTrashAskOwner: "मालिक से इसे रीस्टोर करने के लिए कहें।",
+    openTrash: "ट्रैश खोलें",
     goToMyPages: "मेरे पेज पर जाएं",
-    switchAccount: "खाता बदलें",
     noPageDescription: "sidebar से page चुनें या नया बनाएं।",
     newPage: "नया page",
     createFailed: "page create नहीं हो सका",

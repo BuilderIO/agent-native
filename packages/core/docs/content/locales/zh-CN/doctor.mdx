@@ -29,6 +29,8 @@ npx agent-native upgrade --codemods
 
 `--codemods` 默认会应用受支持的重写。添加 `--dry-run` 可只预览而不写入文件。应用前请检查 diff 和警告。`--yes` 为兼容性保留，不会改变行为。`migration-manifest` 无法禁用。`planned` 条目只作为警告显示，不会被重写。Active 条目会作为问题报告；codemod 仅在目标 export 已安装时才会重写。已删除的 export 需要手动迁移。请按照 finding 中的指南操作，或参阅列出 `ts-morph` 和可选功能包的 [Core 0.198.0 迁移指南](/docs/upgrading-core-ui)。JSON `guardsRun` 会列出实际运行的 guard。
 
-CLI 会为每个新建的 app 和 workspace 添加 `pnpm doctor` 与 `pnpm agent-native:doctor` 命令。从 workspace 根目录运行时，会检查 `apps/<name>` 下的每个 app。发现问题时，build 默认会失败；只有经过审查的例外才应使用 `failOnBuild: false`。
+`agent-native doctor` 还会运行 `server-plugin-default-export`，它会找出 Nitro 从 `server/plugins/` 加载、但没有运行时默认导出的文件。Nitro 会调用每个 plugin 的默认导出，因此即使 typecheck 通过，生产构建也会以 `[MISSING_EXPORT]` 失败。请使用 `export default defineNitroPlugin(...)`，或将仅做注册的代码移到 `server/` 并从某个 plugin 中导入。
+
+CLI 会为每个新建的 app 和 workspace 添加 `pnpm agent-native:doctor` 命令。从 workspace 根目录运行时，会检查 `apps/<name>` 下的每个 app。发现问题时，build 默认会失败；只有经过审查的例外才应使用 `failOnBuild: false`。
 
 标记为 `planned` 的条目只会作为警告显示，不会被重写。active 条目会作为问题报告；codemod 仅在目标 export 已安装时才会重写。

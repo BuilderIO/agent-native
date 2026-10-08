@@ -464,10 +464,14 @@ export function FirstRunOnboarding({
       trackFirstRunSetupOutcome(attempt, "failed", "account_exists");
       return;
     }
-    if (connectFlow.error) {
+    if (connectFlow.terminalError) {
       trackFirstRunSetupOutcome(attempt, "failed", "connection_error");
     }
-  }, [connectFlow.accountExists, connectFlow.connecting, connectFlow.error]);
+  }, [
+    connectFlow.accountExists,
+    connectFlow.connecting,
+    connectFlow.terminalError,
+  ]);
   const canActivateBuilderFreeCredits =
     connectFlow.agentNativeProvisioningEnabled;
   const retryOnboardingCompletion = useCallback(() => {
@@ -746,15 +750,6 @@ export function FirstRunOnboarding({
                     {t("agentChat.onboarding.builderSignInWithAccount")}
                   </button>
                 </div>
-                {connectFlow.error && !connectFlow.statusResolved && (
-                  <p
-                    role="status"
-                    data-testid="first-run-builder-status-error"
-                    className="text-center text-xs text-destructive"
-                  >
-                    {connectFlow.error}
-                  </p>
-                )}
               </section>
 
               <section className="flex flex-col gap-5 rounded-2xl border border-border bg-card p-6">
@@ -996,18 +991,40 @@ export function FirstRunOnboarding({
                 {t("common.cancel")}
               </button>
             )}
-            {connectFlow.error && (
-              <div className="mt-4 flex flex-col items-center gap-2">
-                <p className="text-xs text-destructive">{connectFlow.error}</p>
-                <button
-                  type="button"
-                  className={secondaryButtonClass}
-                  onClick={() => setScreen("choice")}
-                >
-                  Try again
-                </button>
-              </div>
+            {connectFlow.statusUnavailable &&
+              connectFlow.connecting &&
+              !connectFlow.terminalError && (
+                <p className="mt-4 text-xs text-destructive" role="alert">
+                  {t(
+                    "agentChat.settingsShell.integrations.builderStatusFailed",
+                  )}
+                </p>
+              )}
+            {connectFlow.terminalError && connectFlow.connecting && (
+              <p className="mt-4 text-xs text-destructive" role="alert">
+                {connectFlow.terminalError}
+              </p>
             )}
+            {!connectFlow.connecting &&
+              (connectFlow.statusUnavailable || connectFlow.terminalError) && (
+                <div className="mt-4 flex flex-col items-center gap-2">
+                  <p className="text-xs text-destructive" role="alert">
+                    {connectFlow.terminalError ??
+                      t(
+                        "agentChat.settingsShell.integrations.builderStatusFailed",
+                      )}
+                  </p>
+                  <button
+                    type="button"
+                    className={secondaryButtonClass}
+                    onClick={() =>
+                      handleBuilder(builderConnectionMode === "provision")
+                    }
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
           </>
         )}
       </div>

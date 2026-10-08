@@ -1,4 +1,5 @@
-import type { A2AApprovedAction, Task } from "../a2a/types.js";
+import { canonicalA2AAudience } from "../a2a/audience.js";
+import type { Task } from "../a2a/types.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
@@ -328,7 +329,9 @@ async function createA2AClientForAskApp(
 }> {
   const { A2AClient } = await import("../a2a/client.js");
   const { resolveA2ACallerAuth } = await import("../a2a/caller-auth.js");
-  const auth = await resolveA2ACallerAuth();
+  const auth = await resolveA2ACallerAuth({
+    audience: canonicalA2AAudience(origin),
+  });
   const metadata: Record<string, unknown> = {};
   if (auth.userEmail) metadata.userEmail = auth.userEmail;
   if (auth.orgDomain) metadata.orgDomain = auth.orgDomain;
@@ -406,7 +409,6 @@ async function askAppIdempotencyKey(
   issuerApp: string,
   issuerAudience: string,
   message: string,
-  approvedActions?: A2AApprovedAction[],
 ): Promise<string> {
   const requestId = getRequestContext()?.mcpRequestId;
   if (!requestId) return `ask-app:${globalThis.crypto.randomUUID()}`;
@@ -420,7 +422,6 @@ async function askAppIdempotencyKey(
         issuerApp,
         issuerAudience,
         message,
-        approvedActions: approvedActions ?? [],
       }),
     ),
   );
@@ -437,7 +438,6 @@ async function submitAskAppA2ATask(
   issuerAudience: string,
   message: string,
   maxWaitMs: number,
-  approvedActions?: A2AApprovedAction[],
 ): Promise<AskAppTaskResult> {
   const deadline = maxWaitMs > 0 ? Date.now() + maxWaitMs : undefined;
   const submissionDeadline =
@@ -452,7 +452,6 @@ async function submitAskAppA2ATask(
     issuerApp,
     issuerAudience,
     message,
-    approvedActions,
   );
   const task = await client.send(
     {
@@ -464,7 +463,6 @@ async function submitAskAppA2ATask(
       metadata,
       idempotencyKey,
       deadlineMs: submissionDeadline,
-      ...(approvedActions?.length ? { approvedActions } : {}),
     },
   );
   const finalOrRunning = await waitForA2ATask(client, task, deadline);
@@ -1000,7 +998,6 @@ async function routeAskOverA2A(
     issuerAudience?: string;
     maxWaitMs?: number;
     requestOrigin?: string;
-    approvedActions?: A2AApprovedAction[];
   },
 ): Promise<
   | {
@@ -1028,19 +1025,20 @@ async function routeAskOverA2A(
       options.issuerAudience,
       message,
       options.maxWaitMs ?? ASK_APP_DEFAULT_INLINE_WAIT_MS,
-      options.approvedActions,
     );
   }
   const { callAgent } = await import("../a2a/client.js");
   const { resolveA2ACallerAuth } = await import("../a2a/caller-auth.js");
-  const auth = await resolveA2ACallerAuth();
+  const auth = await resolveA2ACallerAuth({
+    audience: canonicalA2AAudience(origin),
+  });
   const response = await callAgent(origin, message, {
     apiKey: auth.apiKey,
     userEmail: auth.userEmail,
+    orgId: auth.orgId,
     orgDomain: auth.orgDomain,
     orgSecret: auth.orgSecret,
     requestOrigin: options?.requestOrigin,
-    approvedActions: options?.approvedActions,
     timeoutMs: 5 * 60_000,
   });
   return { app: id, routedVia: "a2a", response, verification: "unverified" };
@@ -1131,19 +1129,6 @@ function askAppTool(
           description:
             "Maximum time to wait inline before returning a taskHandle. Hosted MCP clamps this to 20000ms.",
         },
-        approvedActions: {
-          type: "array",
-          description:
-            "Exact downstream tool calls the user explicitly authorized in this chat. Never infer authorization or include a different action.",
-          items: {
-            type: "object",
-            properties: {
-              tool: { type: "string" },
-              input: { type: "object", additionalProperties: true },
-            },
-            required: ["tool", "input"],
-          },
-        } as any,
       },
       ["message"],
     ),
@@ -1162,10 +1147,6 @@ function askAppTool(
       const maxWaitMs = isExplicitAsyncAsk(args.async)
         ? 0
         : boundedAskAppWaitMs(args.maxWaitMs);
-      const approvedActions = Array.isArray(args.approvedActions)
-        ? (args.approvedActions as A2AApprovedAction[])
-        : undefined;
-
       const targetApp = await resolveTargetAppOrigin(config, requestedApp);
       if (targetApp) {
         try {
@@ -1179,7 +1160,6 @@ function askAppTool(
               issuerAudience: issuerAudience ?? undefined,
               maxWaitMs,
               requestOrigin: targetApp.origin,
-              approvedActions,
             },
           );
         } catch (err: any) {
@@ -1209,7 +1189,6 @@ function askAppTool(
                 issuerAudience: issuerAudience ?? undefined,
                 maxWaitMs,
                 requestOrigin: dirMatch.url,
-                approvedActions,
               },
             );
           } catch (err: any) {
@@ -1247,7 +1226,6 @@ function askAppTool(
           issuerAudience ?? "",
           message,
           maxWaitMs,
-          approvedActions,
         );
       }
 

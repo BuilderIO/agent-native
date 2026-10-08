@@ -1056,6 +1056,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "ما زلنا بانتظار {{stage}}. الطلب: {{action}}.",
+    widgetDocumentLoadStage: "محتوى الصفحة المحفوظة",
+    widgetDraftCheckStage: "استعادة مسودة الصفحة",
+    widgetEditorInitStage: "تهيئة محرر النص المنسق",
     iconPickerIcons: "الأيقونات",
     iconPickerEmoji: "الرموز التعبيرية",
     iconPickerRecent: "الأخيرة",
@@ -1340,9 +1344,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "لم يتم تحديد صفحة",
-    signedInAs: "تم تسجيل الدخول باسم {{email}}",
+    pageNoAccess: "ليست لديك صلاحية الوصول إلى هذه الصفحة",
+    pageMissing: "هذه الصفحة غير موجودة",
+    pageInTrash: "هذه الصفحة في المهملات",
+    pageInTrashAskOwner: "اطلب من المالك استعادتها.",
+    openTrash: "فتح المهملات",
     goToMyPages: "الانتقال إلى صفحاتي",
-    switchAccount: "تبديل الحساب",
     noPageDescription: "اختر صفحة من الشريط الجانبي أو أنشئ واحدة جديدة.",
     newPage: "صفحة جديدة",
     createFailed: "فشل إنشاء الصفحة",

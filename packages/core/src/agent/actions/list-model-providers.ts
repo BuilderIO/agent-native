@@ -21,6 +21,11 @@ import {
   resolveDefaultAgentEngineAuthority,
   type DefaultAgentEngineSource,
 } from "../default-agent-engine.js";
+import { registerBuiltinEngines } from "../engine/builtin.js";
+import {
+  getAgentEngineEntry,
+  isDeploymentEngineUsableForRequest,
+} from "../engine/registry.js";
 
 export type ModelProviderKeyScope = "user" | "org";
 
@@ -53,6 +58,8 @@ export interface ModelProviderKey {
 export interface ModelProviderEntry {
   provider: AgentProviderId;
   label: string;
+  /** A usable deployment fallback when no saved key at the default-model scope takes precedence. */
+  deploymentConfigured: boolean;
   /** The organization's key, or null when it has none. */
   org: ModelProviderKey | null;
   /** The caller's own key, or null when they have none. */
@@ -111,6 +118,11 @@ interface StoredRow {
   scopeId: string;
 }
 
+interface ScopeProviderKeys {
+  keys: Map<AgentProviderId, ModelProviderKey>;
+  endpointProviders: Set<AgentProviderId>;
+}
+
 /**
  * The stored rows the credential resolver reads for one listing scope, in its
  * precedence order. Legacy `workspace` rows power chats like the first-class
@@ -135,7 +147,7 @@ async function readScopeKeys(
   scope: ModelProviderKeyScope,
   scopeId: string,
   reveal: boolean,
-): Promise<Map<AgentProviderId, ModelProviderKey>> {
+): Promise<ScopeProviderKeys> {
   const names = providerKeyNames();
   const keys = names.flatMap(({ primary, endpoint }) =>
     endpoint ? [...primary, endpoint] : primary,
@@ -151,8 +163,12 @@ async function readScopeKeys(
     endpoint: ReadSecretResult | null;
     legacy: boolean;
   }> = [];
+  const endpointProviders = new Set<AgentProviderId>();
   for (const entry of names) {
     for (const [index, rows] of reads.entries()) {
+      if (entry.endpoint && firstPresent(rows, [entry.endpoint])) {
+        endpointProviders.add(entry.option.id);
+      }
       const row = firstPresent(rows, entry.primary);
       if (!row) continue;
       found.push({
@@ -205,7 +221,7 @@ async function readScopeKeys(
       ...(legacy ? { legacyWorkspaceRow: true as const } : {}),
     });
   }
-  return result;
+  return { keys: result, endpointProviders };
 }
 
 export default defineAction({
@@ -221,19 +237,49 @@ export default defineAction({
 
     const role = orgId ? await readOrgMemberRole(orgId, email) : null;
     const manages = orgId ? canManageOrg(role) : false;
+    registerBuiltinEngines();
 
-    const [personal, org, restricted, defaultRead, authority] =
-      await Promise.all([
-        readScopeKeys("user", email, true),
-        orgId
-          ? readScopeKeys("org", orgId, manages)
-          : Promise.resolve(new Map<AgentProviderId, ModelProviderKey>()),
-        orgId
-          ? isPersonalProviderKeyUseRestricted({ email, orgId, role })
-          : Promise.resolve(false),
-        readDefaultAgentEngineSettingDetailed({ userEmail: email, orgId }),
-        resolveDefaultAgentEngineAuthority({ userEmail: email, orgId }),
-      ]);
+    const [
+      personal,
+      org,
+      restricted,
+      defaultRead,
+      authority,
+      deploymentStates,
+    ] = await Promise.all([
+      readScopeKeys("user", email, true),
+      orgId
+        ? readScopeKeys("org", orgId, manages)
+        : Promise.resolve({
+            keys: new Map<AgentProviderId, ModelProviderKey>(),
+            endpointProviders: new Set<AgentProviderId>(),
+          }),
+      orgId
+        ? isPersonalProviderKeyUseRestricted({ email, orgId, role })
+        : Promise.resolve(false),
+      readDefaultAgentEngineSettingDetailed({ userEmail: email, orgId }),
+      resolveDefaultAgentEngineAuthority({ userEmail: email, orgId }),
+      Promise.all(
+        AGENT_PROVIDER_CATALOG.map(async (option) => {
+          const engine = getAgentEngineEntry(option.engine);
+          return [
+            option.id,
+            engine ? await isDeploymentEngineUsableForRequest(engine) : false,
+          ] as const;
+        }),
+      ),
+    ]);
+    const deploymentConfigured = new Map(
+      deploymentStates.map(([provider, configured]) => {
+        const defaultScope = orgId ? org : personal;
+        return [
+          provider,
+          configured &&
+            !defaultScope.keys.has(provider) &&
+            !defaultScope.endpointProviders.has(provider),
+        ] as const;
+      }),
+    );
 
     const stored = defaultRead.value;
     const engine =
@@ -249,8 +295,9 @@ export default defineAction({
       providers: AGENT_PROVIDER_CATALOG.map((option) => ({
         provider: option.id,
         label: option.label,
-        org: org.get(option.id) ?? null,
-        personal: personal.get(option.id) ?? null,
+        deploymentConfigured: deploymentConfigured.get(option.id) ?? false,
+        org: org.keys.get(option.id) ?? null,
+        personal: personal.keys.get(option.id) ?? null,
       })),
       hasOrganization: !!orgId,
       canManageOrg: manages,

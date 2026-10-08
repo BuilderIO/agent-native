@@ -1059,6 +1059,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "{{stage}}を待機しています。リクエスト: {{action}}。",
+    widgetDocumentLoadStage: "保存済みページの本文",
+    widgetDraftCheckStage: "ページ下書きの復元",
+    widgetEditorInitStage: "リッチテキストエディターの初期化",
     iconPickerIcons: "アイコン",
     iconPickerEmoji: "絵文字",
     iconPickerRecent: "最近",
@@ -1352,9 +1356,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "ページが選択されていません",
-    signedInAs: "ログイン中のアカウント: {{email}}",
+    pageNoAccess: "このページへのアクセス権がありません",
+    pageMissing: "このページは存在しません",
+    pageInTrash: "このページはゴミ箱にあります",
+    pageInTrashAskOwner: "所有者に復元を依頼してください。",
+    openTrash: "ゴミ箱を開く",
     goToMyPages: "自分のページへ",
-    switchAccount: "アカウントを切り替える",
     noPageDescription:
       "サイドバーからページを選ぶか、新しいページを作成してください。",
     newPage: "新しいページ",

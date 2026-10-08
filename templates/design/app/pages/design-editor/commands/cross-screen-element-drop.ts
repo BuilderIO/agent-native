@@ -272,7 +272,7 @@ export interface CrossScreenElementDropArgs {
   canEditLiveBoard?: boolean;
   clearPendingOverviewLayerSelectionTimer: () => void;
   codeLayerOwnerByNodeIdRef: RefObject<
-    Map<
+    ReadonlyMap<
       string,
       {
         fileId: string;
@@ -681,6 +681,7 @@ export function runCrossScreenElementDrop(
         pendingNodeId: targetAnchorPendingNodeId,
       },
       placement: targetAnchorPlacement ?? "inside",
+      dropMode: targetDropMode,
       gridPlacement: targetGridPlacement,
     });
     setRuntimeStructureDeleteRequest({
@@ -761,6 +762,7 @@ export function runCrossScreenElementDrop(
           pendingNodeId: targetAnchorPendingNodeId,
         },
         placement: targetAnchorPlacement ?? "inside",
+        dropMode: targetDropMode,
         gridPlacement: targetGridPlacement,
       });
       return;
@@ -1029,6 +1031,7 @@ export function runCrossScreenElementDrop(
         pendingNodeId: targetAnchorPendingNodeId,
       },
       placement: targetAnchorPlacement ?? "inside",
+      dropMode: targetDropMode,
       gridPlacement: targetGridPlacement,
     });
     return;

@@ -372,8 +372,27 @@ vi.mock("@/lib/pending-generation", () => ({
 let container: HTMLDivElement;
 let root: Root;
 
+function installLocalStorage() {
+  const values = new Map<string, string>();
+  const storage: Storage = {
+    get length() {
+      return values.size;
+    },
+    clear: () => values.clear(),
+    getItem: (key) => values.get(key) ?? null,
+    key: (index) => [...values.keys()][index] ?? null,
+    removeItem: (key) => values.delete(key),
+    setItem: (key, value) => values.set(key, value),
+  };
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: storage,
+  });
+}
+
 beforeEach(async () => {
-  localStorage.clear();
+  installLocalStorage();
+  window.localStorage.clear();
   (
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -643,6 +662,9 @@ describe("Index skip to editor", () => {
       canSubmit = await mocks.promptProps?.onBeforeSubmit?.();
     });
     expect(canSubmit).toBe(false);
+    expect(mocks.fetchAgentEngineConfiguredState).toHaveBeenCalledWith(true, {
+      fresh: true,
+    });
     expect(container.textContent).toContain(
       "agentChat.setup.providerStatusUnavailable",
     );
@@ -659,6 +681,23 @@ describe("Index skip to editor", () => {
       expect.objectContaining({ type: "agent-engine:configured-changed" }),
     );
     dispatch.mockRestore();
+  });
+
+  it("rechecks provider readiness before submit when a prior status said configured", async () => {
+    mocks.agentEngine = { state: "configured", missing: false };
+    await act(async () => root.render(<Index />));
+    mocks.fetchAgentEngineConfiguredState.mockResolvedValueOnce("missing");
+
+    let canSubmit = true;
+    await act(async () => {
+      canSubmit = await mocks.promptProps?.onBeforeSubmit?.();
+    });
+
+    expect(canSubmit).toBe(false);
+    expect(mocks.fetchAgentEngineConfiguredState).toHaveBeenCalledWith(true, {
+      fresh: true,
+    });
+    expect(container.textContent).toContain("Connect AI");
   });
 
   it("ignores a stale readiness check after the provider hook reports configured", async () => {
@@ -1092,8 +1131,9 @@ describe("home library", () => {
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
     ).toBe("navigation.templates");
+    expect(container.querySelectorAll('[role="tab"]')).toHaveLength(2);
     expect(container.textContent).toContain("navigation.templates");
-    expect(container.textContent).not.toContain("home.recent");
+    expect(container.textContent).toContain("home.recent");
     expect(container.querySelector('a[href="/templates"]')).not.toBeNull();
     mocks.ownCount = 1;
     await act(async () => root.render(<Index />));
@@ -1104,7 +1144,7 @@ describe("home library", () => {
     ).toBe("home.recent");
   });
 
-  it("defaults to Templates until the accessible-design summary completes", async () => {
+  it("keeps both tabs visible while the accessible-design summary is pending", async () => {
     await act(async () => root.unmount());
     mocks.ownCount = 1;
     mocks.ownStatus = "pending";
@@ -1115,7 +1155,8 @@ describe("home library", () => {
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
     ).toBe("navigation.templates");
-    expect(container.textContent).not.toContain("home.recent");
+    expect(container.querySelectorAll('[role="tab"]')).toHaveLength(2);
+    expect(container.textContent).toContain("home.recent");
 
     mocks.ownStatus = "success";
     await act(async () => root.render(<Index />));
@@ -1123,6 +1164,7 @@ describe("home library", () => {
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
     ).toBe("home.recent");
+    expect(window.localStorage.getItem("design-home-has-recents")).toBe("true");
   });
 
   it("does not server-render the home library", () => {
@@ -1169,6 +1211,7 @@ describe("home library", () => {
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
     ).toBe("navigation.templates");
+    expect(container.querySelectorAll('[role="tab"]')).toHaveLength(2);
     mocks.ownStatus = "error";
     await act(async () => root.render(<Index />));
     expect(
@@ -1180,6 +1223,45 @@ describe("home library", () => {
     expect(retry).not.toBeNull();
     await act(async () => retry?.click());
     expect(mocks.refetch).toHaveBeenCalled();
+  });
+
+  it("restores cached recents immediately and refreshes the cache after a successful read", async () => {
+    await act(async () => root.unmount());
+    window.localStorage.setItem("design-home-has-recents", "true");
+    mocks.ownCount = 1;
+    mocks.ownStatus = "pending";
+    root = createRoot(container);
+    await act(async () => root.render(<Index />));
+
+    expect(container.querySelectorAll('[role="tab"]')).toHaveLength(2);
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("home.recent");
+
+    mocks.ownStatus = "success";
+    await act(async () => root.render(<Index />));
+    expect(window.localStorage.getItem("design-home-has-recents")).toBe("true");
+
+    await act(async () => root.unmount());
+    mocks.ownCount = 0;
+    mocks.ownStatus = "pending";
+    root = createRoot(container);
+    await act(async () => root.render(<Index />));
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("home.recent");
+
+    mocks.ownStatus = "success";
+    await act(async () => root.render(<Index />));
+    expect(window.localStorage.getItem("design-home-has-recents")).toBe(
+      "false",
+    );
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("navigation.templates");
   });
 
   it("shows template errors with retry rather than an empty grid", async () => {

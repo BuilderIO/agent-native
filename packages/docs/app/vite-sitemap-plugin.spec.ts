@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import os from "node:os";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -7,6 +9,7 @@ import {
   SITE_URL,
   buildAgentWebPages,
   buildSitemapXml,
+  sitemapPlugin,
 } from "./vite-sitemap-plugin";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -88,6 +91,44 @@ describe("docs agent web generation", () => {
       const page = pages.find((candidate) => candidate.path === path);
       expect(page?.markdown?.length).toBeGreaterThan(500);
       expect(page?.markdownPath).toBeUndefined();
+    }
+  });
+
+  it("includes standalone Chat app creation guidance in generated llms.txt", () => {
+    const outputRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-web-"));
+    fs.mkdirSync(path.join(outputRoot, "build", "client"), { recursive: true });
+
+    try {
+      const plugin = sitemapPlugin();
+      const configResolved = plugin.configResolved;
+      const resolveConfig =
+        typeof configResolved === "function"
+          ? configResolved
+          : configResolved?.handler;
+      resolveConfig?.call({} as never, { root: outputRoot } as never);
+
+      const closeBundleHook = plugin.closeBundle;
+      const closeBundle =
+        typeof closeBundleHook === "function"
+          ? closeBundleHook
+          : closeBundleHook?.handler;
+      if (!closeBundle) {
+        throw new Error("Agent Web plugin has no closeBundle hook");
+      }
+      closeBundle.call({ info: () => {} } as never);
+
+      const llms = fs.readFileSync(
+        path.join(outputRoot, "build", "client", "llms.txt"),
+        "utf8",
+      );
+      expect(llms).toContain(
+        "npx --yes @agent-native/core@latest create <name> --standalone --template chat",
+      );
+      expect(llms).toContain(
+        "read AGENTS.md and the `build-an-app` and `adding-a-feature` skills",
+      );
+    } finally {
+      fs.rmSync(outputRoot, { recursive: true, force: true });
     }
   });
 

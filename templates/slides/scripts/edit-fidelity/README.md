@@ -29,6 +29,8 @@ Run the job's focused line-edge caret check for in-place slide text editing:
 
 ```bash
 pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa
+pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --browser webkit
+pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --browser firefox
 ```
 
 Run the Chromium IME Escape regression in an in-place slide text session:
@@ -63,12 +65,27 @@ pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --browser webkit
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --browser firefox
 ```
 
+Rerun one authoring parity case while debugging it by matching a substring of
+its case ID:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --authoring-case paragraph-bullet-delete
+```
+
 Run slash, Markdown, list, and Docs-shaped paste with undo/redo against
 representative source slides from the selected corpus. The gate requires
-absolute positioning, flex/grid, styled list rows, and a viewport-scaled slide;
-it saves and reloads each result and compares canonical markup plus
-outside-block style/geometry. On the largest corpus slide, it reports Event
-Timing keydown-to-paint p95 and warns when it exceeds 16 ms. Since Event Timing
+absolute positioning, flex/grid, styled list rows, and a viewport-scaled slide.
+It also checks fractional-height lists inside transformed, bottom-anchored
+absolute wrappers and roots, so subpixel size reservation cannot move the
+surrounding layout; the wrapper rect is checked within one 1/64 CSS-pixel step
+after each flow. Styled bullet-row markers keep a separate style check when the
+surrounding row is treated as the edited visual block. Imported PPTX paragraphs
+may reflow within their fixed text object when authoring inserts a block; the
+gate allows only the measured downstream flow while keeping the object, its
+styles, and every other slide object fixed. It saves and reloads each result and
+compares canonical markup plus outside-block style/geometry. On the largest
+corpus slide, it reports Event Timing keydown-to-paint p95 and warns
+when it exceeds 16 ms. Since Event Timing
 omits entries below 16 ms, the report uses all keydowns and shows a `<=16 ms`
 bound when the p95 is below that threshold. It gates the p95 time from keydown
 through the first animation frame and forced layout at 16 ms only when Event
@@ -91,6 +108,10 @@ invariants, and prints the seed plus a bounded operation log on failure. Use
 `--seeds 20` for the pre-merge cross-browser soak; seeds rotate through
 synthetic, absolute, flex/grid, semantic-list, imported flex bullet-row, imported
 paragraph bullet-row, and scaled committed-corpus text targets:
+
+Random operations use Playwright keyboard input. The full undo/redo drain starts
+with a Playwright shortcut in each direction, then dispatches the editor's same
+keydown handler in-page and checks caret and markup after every history step.
 
 ```bash
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seeds 20
@@ -155,8 +176,12 @@ because it creates and rewrites decks.
 | `--ime-escape`                 | Verify composing Escape does not exit an in-place slide text edit session                                                          |
 | `--text-surface-qa`            | Exercise Slides text fields, IME, paste, undo/redo, and slide switching in synthetic decks; defaults to Chromium                   |
 | `--authoring`                  | Exercise slash commands, Markdown shortcuts, and list authoring in synthetic decks; defaults to Chromium                           |
+| `--authoring-case <id>`        | With `--authoring`, run only cases whose ID contains `<id>`                                                                        |
 | `--authoring-corpus`           | Exercise slash, Markdown, and list authoring against corpus layouts; checks save/reload, outside-block fidelity, and input latency |
+| `--authoring-source <id>`      | Focus `--authoring-corpus` on one selected layout source                                                                           |
+| `--authoring-flow <flow>`      | Focus `--authoring-corpus` on `slash`, `shortcut`, `list`, or `paste`                                                              |
 | `--authoring-fuzz`             | Run deterministic mixed-operation authoring soak; `--seed`, `--steps` (default 500), and `--seeds` select the run                  |
+| `--line-key-platform <os>`     | Emulate an OS and use its caret keys for reproduction; choices are `darwin`, `linux`, and `win32`                                  |
 | `--browser`                    | Browser for authoring, fuzz, or text-surface QA; choices are `chromium`, `webkit`, `firefox`, with Chromium as default             |
 
 Exit codes:

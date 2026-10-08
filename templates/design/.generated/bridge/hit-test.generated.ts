@@ -1374,6 +1374,7 @@ export const hitTestBridgeScript: string = `"use strict";
             type: "agent-native:hit-test-result",
             correlationId,
             anchorNodeId,
+            anchorParentNodeId: result && result.anchor.parentElement ? getNodeId(result.anchor.parentElement) || void 0 : void 0,
             targetAnchorProvenance,
             pendingNodeId: pendingNodeId || void 0,
             anchorSelector: anchorSelector || void 0,

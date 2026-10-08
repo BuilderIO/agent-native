@@ -807,7 +807,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var host = ensureEditorChromeHost();
     editorChromeHostObserver?.disconnect();
     editorChromeDocumentObserver?.disconnect();
-    editorChromeHostObserver = new MutationObserver(repairEditorChromeHost);
+    editorChromeHostObserver = new MutationObserver(function () {
+      if (
+        !editorChromeHost ||
+        editorChromeNodes.some(function (node) {
+          return node.parentNode !== editorChromeHost;
+        })
+      ) {
+        repairEditorChromeHost();
+      }
+    });
     editorChromeHostObserver.observe(host, { childList: true });
     editorChromeDocumentObserver = new MutationObserver(function () {
       if (
@@ -909,6 +918,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       "",
     );
     chromeTransitionStyle.textContent =
+      // The scale vars live on the root; left inheritable, every write
+      // restyles the whole document, deferred into the next time it scrolls in.
+      '@property --agent-native-editor-chrome-scale-x{syntax:"<number>";inherits:false;initial-value:1}' +
+      '@property --agent-native-editor-chrome-scale-y{syntax:"<number>";inherits:false;initial-value:1}' +
+      '@property --agent-native-editor-chrome-line-scale{syntax:"<number>";inherits:false;initial-value:1}' +
       "html{overflow:clip}" +
       '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}' +
       '[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}' +
@@ -917,7 +931,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       "[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}" +
       "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}" +
       "[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}" +
-      '[data-agent-native-runtime-locked="true"]{outline:calc(1px * var(--agent-native-editor-chrome-line-scale, 1)) dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}' +
+      // guard:allow-raw-color — renders inside the design document, which has no app theme tokens.
+      '[data-agent-native-runtime-locked="true"]{outline:1px dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}' +
       "[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}" +
       "[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}" +
       '[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}' +
@@ -1165,19 +1180,46 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return 1 / Math.max(0.05, Math.max(editorChromeScaleX, editorChromeScaleY));
   }
 
+  function syncEditorChromeScaleVar(name: string, value: string): void {
+    var style = document.documentElement.style;
+    if (style.getPropertyValue(name) !== value) style.setProperty(name, value);
+  }
+
+  var chromeLineStyle: HTMLStyleElement | null = null;
+
+  function syncEditorChromeLineStyle(lineScale: string): void {
+    if (!chromeLineStyle || !chromeLineStyle.isConnected) {
+      chromeLineStyle = document.createElement("style");
+      chromeLineStyle.setAttribute(
+        "data-agent-native-editor-chrome-line-style",
+        "",
+      );
+      (document.head || document.documentElement).appendChild(chromeLineStyle);
+    }
+    var text =
+      '[data-agent-native-runtime-locked="true"]{outline-width:calc(1px * ' +
+      lineScale +
+      ")!important}";
+    if (chromeLineStyle.textContent !== text) {
+      chromeLineStyle.textContent = text;
+    }
+  }
+
   function syncEditorChromeScaleVars(): void {
-    document.documentElement.style.setProperty(
+    syncEditorChromeScaleVar(
       "--agent-native-editor-chrome-scale-x",
       String(chromeScaleX()),
     );
-    document.documentElement.style.setProperty(
+    syncEditorChromeScaleVar(
       "--agent-native-editor-chrome-scale-y",
       String(chromeScaleY()),
     );
-    document.documentElement.style.setProperty(
+    var lineScale = String(chromeLineScale());
+    syncEditorChromeScaleVar(
       "--agent-native-editor-chrome-line-scale",
-      String(chromeLineScale()),
+      lineScale,
     );
+    syncEditorChromeLineStyle(lineScale);
   }
 
   function escapeIdent(value: unknown): string {
@@ -3203,6 +3245,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function scheduleRuntimeLayerSnapshot(): void {
+    if (!runtimeLayerSnapshotEnabled) return;
     if (runtimeLayerSnapshotTimer !== null) {
       window.clearTimeout(runtimeLayerSnapshotTimer);
     }
@@ -4157,6 +4200,219 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return el.closest('svg[data-an-primitive="boolean"]') || el.parentElement;
     }
     return el.parentElement;
+  }
+
+  function positionReferenceRectForElement(
+    el: Element,
+    fixedWithoutContainingBlock: boolean,
+  ) {
+    if (fixedWithoutContainingBlock) {
+      var fixedRoot = el.ownerDocument.documentElement;
+      return {
+        x: window.scrollX || window.pageXOffset || 0,
+        y: window.scrollY || window.pageYOffset || 0,
+        width: fixedRoot.clientWidth,
+        height: fixedRoot.clientHeight,
+      };
+    }
+    var ancestor = el.parentElement;
+    while (ancestor) {
+      if (ancestor.getAttribute("data-an-primitive") === "frame") {
+        return rectInfoForElement(ancestor);
+      }
+      ancestor = ancestor.parentElement;
+    }
+    var root = el.ownerDocument.documentElement;
+    return {
+      x: 0,
+      y: 0,
+      width: root.clientWidth,
+      height: root.clientHeight,
+    };
+  }
+
+  function multiplyPositionTransforms(
+    left: { a: number; b: number; c: number; d: number },
+    right: { a: number; b: number; c: number; d: number },
+  ) {
+    return {
+      a: left.a * right.a + left.c * right.b,
+      b: left.b * right.a + left.d * right.b,
+      c: left.a * right.c + left.c * right.d,
+      d: left.b * right.c + left.d * right.d,
+    };
+  }
+
+  function positionElementTransform(styles: CSSStyleDeclaration) {
+    var transform =
+      styles.transform === "none"
+        ? { a: 1, b: 0, c: 0, d: 1 }
+        : new DOMMatrixReadOnly(styles.transform);
+    var result = {
+      a: transform.a,
+      b: transform.b,
+      c: transform.c,
+      d: transform.d,
+    };
+    var scaleValue = styles.getPropertyValue("scale");
+    if (scaleValue && scaleValue !== "none") {
+      var scaleParts = scaleValue.trim().split(/\s+/);
+      var scaleX = Number.parseFloat(scaleParts[0] || "1");
+      var scaleY = Number.parseFloat(scaleParts[1] || scaleParts[0] || "1");
+      result = multiplyPositionTransforms(
+        { a: scaleX, b: 0, c: 0, d: scaleY },
+        result,
+      );
+    }
+    var rotateValue = styles.getPropertyValue("rotate");
+    if (rotateValue && rotateValue !== "none") {
+      var rotateParts = rotateValue.trim().split(/\s+/);
+      var angle = rotateParts[rotateParts.length - 1] || "0deg";
+      var axis = rotateParts.length > 1 ? rotateParts[0] : "z";
+      var rotateFunction =
+        axis === "x" || axis === "y" ? "rotate" + axis.toUpperCase() : "rotate";
+      var rotation = new DOMMatrixReadOnly(rotateFunction + "(" + angle + ")");
+      result = multiplyPositionTransforms(
+        { a: rotation.a, b: rotation.b, c: rotation.c, d: rotation.d },
+        result,
+      );
+    }
+    var zoom = Number.parseFloat(styles.getPropertyValue("zoom"));
+    if (Number.isFinite(zoom) && zoom !== 1) {
+      result = multiplyPositionTransforms(
+        { a: zoom, b: 0, c: 0, d: zoom },
+        result,
+      );
+    }
+    return result;
+  }
+
+  function establishesPositioningContext(styles: CSSStyleDeclaration) {
+    var translate = styles.getPropertyValue("translate");
+    var rotate = styles.getPropertyValue("rotate");
+    var scale = styles.getPropertyValue("scale");
+    var backdropFilter = styles.getPropertyValue("backdrop-filter");
+    return (
+      (translate !== "" && translate !== "none") ||
+      (rotate !== "" && rotate !== "none") ||
+      (scale !== "" && scale !== "none") ||
+      styles.transform !== "none" ||
+      styles.perspective !== "none" ||
+      styles.filter !== "none" ||
+      (backdropFilter !== "" && backdropFilter !== "none") ||
+      /(?:^|\s)(?:layout|paint|strict|content)(?:\s|$)/.test(styles.contain) ||
+      /transform|perspective|filter|contain/.test(styles.willChange) ||
+      styles.contentVisibility === "auto"
+    );
+  }
+
+  type PositionComputedStylesCache = WeakMap<Element, CSSStyleDeclaration>;
+
+  function positionComputedStylesForElement(
+    el: Element,
+    cache: PositionComputedStylesCache,
+  ) {
+    var cached = cache.get(el);
+    if (cached) return cached;
+    var styles = window.getComputedStyle(el);
+    cache.set(el, styles);
+    return styles;
+  }
+
+  function positionContainingBlockForElement(
+    el: Element,
+    cache: PositionComputedStylesCache,
+  ) {
+    var fixed =
+      positionComputedStylesForElement(el, cache).position === "fixed";
+    var containingBlock: Element | null = null;
+    var ancestor = el.parentElement;
+    while (ancestor) {
+      var styles = positionComputedStylesForElement(ancestor, cache);
+      if (
+        (fixed && establishesPositioningContext(styles)) ||
+        (!fixed &&
+          (styles.position !== "static" ||
+            establishesPositioningContext(styles)))
+      ) {
+        containingBlock = ancestor;
+        break;
+      }
+      ancestor = ancestor.parentElement;
+    }
+
+    var transform = { a: 1, b: 0, c: 0, d: 1 };
+    for (
+      ancestor = containingBlock;
+      ancestor;
+      ancestor = ancestor.parentElement
+    ) {
+      transform = multiplyPositionTransforms(
+        positionElementTransform(
+          positionComputedStylesForElement(ancestor, cache),
+        ),
+        transform,
+      );
+    }
+
+    if (!containingBlock) {
+      return {
+        origin: fixed
+          ? {
+              x: window.scrollX || window.pageXOffset || 0,
+              y: window.scrollY || window.pageYOffset || 0,
+            }
+          : { x: 0, y: 0 },
+        transform: transform,
+        hasContainingBlock: false,
+      };
+    }
+
+    var htmlContainingBlock = containingBlock as HTMLElement;
+    var quaddedContainingBlock = containingBlock as Element & {
+      getBoxQuads?: (options?: { box?: string }) => Array<{
+        p1: { x: number; y: number };
+      }>;
+    };
+    var paddingQuad = quaddedContainingBlock.getBoxQuads?.({
+      box: "padding",
+    })?.[0];
+    var scrollX = htmlContainingBlock.scrollLeft || 0;
+    var scrollY = htmlContainingBlock.scrollTop || 0;
+    if (paddingQuad) {
+      return {
+        origin: {
+          x:
+            paddingQuad.p1.x +
+            window.scrollX -
+            transform.a * scrollX -
+            transform.c * scrollY,
+          y:
+            paddingQuad.p1.y +
+            window.scrollY -
+            transform.b * scrollX -
+            transform.d * scrollY,
+        },
+        transform: transform,
+        hasContainingBlock: true,
+      };
+    }
+
+    var rect = rectInfoForElement(containingBlock);
+    return {
+      origin: {
+        x:
+          rect.x +
+          transform.a * (htmlContainingBlock.clientLeft - scrollX) +
+          transform.c * (htmlContainingBlock.clientTop - scrollY),
+        y:
+          rect.y +
+          transform.b * (htmlContainingBlock.clientLeft - scrollX) +
+          transform.d * (htmlContainingBlock.clientTop - scrollY),
+      },
+      transform: transform,
+      hasContainingBlock: true,
+    };
   }
 
   function autoLayoutParentInfo(el: Element) {
@@ -6181,8 +6437,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     el: Element,
     portableComputedStylesCache?: PortableStyleComputedStylesCache,
     includePortableStyleSnapshot = true,
+    sharedPositionComputedStylesCache?: PositionComputedStylesCache,
   ): unknown {
     var cs = window.getComputedStyle(el);
+    var positionComputedStylesCache =
+      sharedPositionComputedStylesCache || new WeakMap();
+    positionComputedStylesCache.set(el, cs);
     var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
     var boundingRect = rectInfoForElement(el);
     var componentName = componentNameForElement(el);
@@ -6191,6 +6451,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var parentStyles = designParent
       ? window.getComputedStyle(designParent)
       : null;
+    if (designParent && parentStyles) {
+      positionComputedStylesCache.set(designParent, parentStyles);
+    }
+    var positionCoordinateContext = positionContainingBlockForElement(
+      el,
+      positionComputedStylesCache,
+    );
+    var positionReferenceRect = positionReferenceRectForElement(
+      el,
+      cs.position === "fixed" && !positionCoordinateContext.hasContainingBlock,
+    );
     var authoredSizeStyles = collectAuthoredSizeStyles(el);
     var parentDisplay = parentStyles ? parentStyles.display : undefined;
     var runtimeOnlyClone = isRuntimeOnlyClone(el);
@@ -6304,6 +6575,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       parentBoundingRect: designParent
         ? rectInfoForElement(designParent)
         : undefined,
+      positionReferenceRect: positionReferenceRect,
+      positionContainingBlockOrigin: positionCoordinateContext.origin,
+      positionContainingBlockTransform: positionCoordinateContext.transform,
       textContent: el.textContent ? el.textContent.slice(0, 200) : undefined,
       textContentTruncated: el.textContent
         ? el.textContent.length > 200
@@ -6564,6 +6838,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     includePortableStyleSnapshot = true,
   ): unknown[] {
     var targets = collectSelectableElements(deep);
+    var positionComputedStylesCache: PositionComputedStylesCache =
+      new WeakMap();
     if (atPoint) {
       targets = targets.filter(function (el) {
         return documentSpaceBoundsContainPoint(el, atPoint);
@@ -6571,14 +6847,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (!includePortableStyleSnapshot) {
       return targets.map(function (target) {
-        return getElementInfo(target, undefined, false);
+        return getElementInfo(
+          target,
+          undefined,
+          false,
+          positionComputedStylesCache,
+        );
       });
     }
     portableStyleProbeDocument();
     var portableComputedStylesCache = createPortableStyleComputedStylesCache();
     try {
       return targets.map(function (target) {
-        return getElementInfo(target, portableComputedStylesCache, true);
+        return getElementInfo(
+          target,
+          portableComputedStylesCache,
+          true,
+          positionComputedStylesCache,
+        );
       });
     } finally {
       if (portableComputedStylesCache) {
@@ -6687,6 +6973,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:2px;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 25%,transparent);pointer-events:auto;cursor:" +
       cursor +
       ";";
+    if (pos.length === 2) handle.style.zIndex = "4";
     if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
     if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
     if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
@@ -7966,6 +8253,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function recordSourceSubtree(root: Node): void {
+    if (root.nodeType === 1 && isTemplateCloneElement(root as Element)) return;
+    recordSourceTree(root);
+  }
+
+  // Callers have already ruled out a template-clone ancestor, so each child
+  // only needs its own check — re-walking ancestors per node is quadratic.
+  function recordSourceTree(root: Node): void {
     if (
       root.nodeType === 1 &&
       ((root as Element).hasAttribute("data-agent-native-edit-overlay") ||
@@ -7975,18 +8269,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       return;
     }
-    if (root.nodeType === 1 && isTemplateCloneElement(root as Element)) return;
     recordSourceOwnership(root);
     if (root.nodeType !== 1) return;
     var template = templateContentOf(root as Element);
     if (template) {
       var held = template.childNodes;
-      for (var t = 0; t < held.length; t += 1) recordSourceSubtree(held[t]!);
+      for (var t = 0; t < held.length; t += 1) recordSourceTree(held[t]!);
       return;
     }
+    var hasTemplateChild = !!(root as Element).querySelector(
+      ":scope > template",
+    );
     var children = (root as Element).childNodes;
     for (var i = 0; i < children.length; i += 1) {
-      recordSourceSubtree(children[i]!);
+      var child = children[i]!;
+      if (
+        hasTemplateChild &&
+        child.nodeType === 1 &&
+        repeatTemplateOwning(child as Element)
+      ) {
+        continue;
+      }
+      recordSourceTree(child);
     }
   }
 
@@ -8084,6 +8388,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     previousSource: string,
     nextSource: string,
   ): void {
+    // An unchanged source leaves every declaration as-is; the full merge would
+    // only rewrite the attribute in normalized form, dirtying style for nothing.
+    if (previousSource === nextSource) return;
     var previousOwned: Record<string, string> = {};
     styleDeclarations(previousSource).forEach(function (entry) {
       previousOwned[entry[0]] = entry[1];
@@ -8879,6 +9186,59 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     highlightOverlay.style.display = "none";
     hideMeasurements();
     refreshOverlays();
+  }
+
+  // Morphs one subtree to its new source without re-parsing the document.
+  // Refuses anything the full document path would defer or reset.
+  function replaceSourceNode(
+    nodeId: unknown,
+    html: unknown,
+    sourceProvenanceValue: unknown,
+  ): boolean {
+    var sourceProvenance = normalizeSourceDocumentProvenance(
+      sourceProvenanceValue,
+    );
+    if (
+      typeof nodeId !== "string" ||
+      typeof html !== "string" ||
+      !sourceProvenance ||
+      activeTextEditEl ||
+      suspendedTextEditRange ||
+      pendingRuntimeDocumentUpdate ||
+      activeNodeHtmlPreview ||
+      lastSourceHeadHtml === null
+    ) {
+      return false;
+    }
+    var matches = document.querySelectorAll(
+      '[data-agent-native-node-id="' + escapeAttribute(nodeId) + '"]',
+    );
+    var template = document.createElement("template");
+    template.innerHTML = html;
+    var current = matches.length === 1 ? matches[0] : null;
+    var next = template.content.firstElementChild;
+    if (
+      !current ||
+      !next ||
+      template.content.childElementCount !== 1 ||
+      isOverlayElement(current) ||
+      !isSourceOwned(current) ||
+      current.nodeName !== next.nodeName ||
+      current.namespaceURI !== next.namespaceURI ||
+      scopeDirectiveChanged(current, next)
+    ) {
+      return false;
+    }
+    morphElement(current, next, scopedMorphContext(current, next));
+    hydrateVectorEndpointMarkers();
+    applyLayerStateSelectors();
+    publishSourceDocumentProvenance(sourceProvenance);
+    if (selectedEl && selectedEl.isConnected) {
+      positionOverlay(selectionOverlay, selectedEl);
+      postElementSelect(selectedEl);
+    }
+    refreshOverlays();
+    return true;
   }
 
   function hideSpacingOverlay(): void {
@@ -10762,6 +11122,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           pos === hoveredRadiusHandleKey || pos === activeRadiusHandleKey;
         handle.style.visibility = isRadiusHandleVisible ? "visible" : "hidden";
         handle.style.pointerEvents = isRadiusHandleVisible ? "auto" : "none";
+        handle.style.zIndex = isRadiusHandleVisible ? "5" : "2";
         handle.style.width = size + "px";
         handle.style.height = size + "px";
         handle.style.borderWidth = 1.5 * line + "px";
@@ -25836,6 +26197,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           // otherwise pull focus back into the editable so the keystroke
           // lands as text — and never reaches host shortcuts.
           if (!isEditorTypingTarget(activeNow)) {
+            if (e.key === "Delete" || e.key === "Backspace") {
+              var unfocusedEditHotkey = {
+                key: e.key,
+                code: e.code,
+                metaKey: !!e.metaKey,
+                ctrlKey: !!e.ctrlKey,
+                shiftKey: !!e.shiftKey,
+                altKey: !!e.altKey,
+                repeat: !!e.repeat,
+              };
+              stopNativeInteraction(e);
+              if (finishActiveTextEdit) finishActiveTextEdit(true);
+              postDesignHotkey(unfocusedEditHotkey);
+              return;
+            }
             try {
               activeTextEditEl.focus();
               collapseSelectionIntoContents(activeTextEditEl);
@@ -28158,6 +28534,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         rejectInsert("anchor-is-subject");
         return;
       }
+      var insertContainer =
+        insertPlacement === "inside"
+          ? insertAnchor
+          : insertAnchor.parentElement;
+      var preserveAbsoluteInsert = Boolean(
+        e.data.dropMode === "absolute-container" &&
+        !insertGridPlacement &&
+        isAbsolutePrimitiveContainer(insertContainer),
+      );
       var insertTarget = {
         anchor: insertAnchor,
         placement: insertPlacement,
@@ -28167,8 +28552,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             : insertAnchor.parentElement!,
         ),
         dropMode:
-          insertPlacement === "inside" &&
-          isAbsolutePrimitiveContainer(insertAnchor)
+          preserveAbsoluteInsert ||
+          (insertPlacement === "inside" &&
+            isAbsolutePrimitiveContainer(insertAnchor))
             ? "absolute-container"
             : "flow-insert",
         gridPlacement: insertGridPlacement || undefined,
@@ -28377,6 +28763,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       if (e.data.applied) {
+        if (moveWasInsert && move.el && move.el.isConnected) {
+          move.el.removeAttribute("data-agent-native-transient-drag-clone");
+        }
         if (!moveWasInsert && move.el && move.el.isConnected && move.target) {
           applyRuntimeReorder(move.el, move.target);
           selectedEl = move.el;
@@ -28451,6 +28840,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         Boolean(e.data.preserveTextEditingSession),
         e.data.sourceProvenance,
       );
+      return;
+    }
+    if (e.data.type === "replace-source-node") {
+      if (
+        !replaceSourceNode(e.data.nodeId, e.data.html, e.data.sourceProvenance)
+      ) {
+        (window.parent as Window).postMessage(
+          { type: "replace-source-node-rejected" },
+          "*",
+        );
+      }
       return;
     }
     if (e.data.type === "node-html-preview") {
@@ -28925,7 +29325,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   hydrateVectorEndpointMarkers();
 
   captureInitialSourceOwnership();
-  if (runtimeLayerSnapshotEnabled) scheduleRuntimeLayerSnapshot();
+  scheduleRuntimeLayerSnapshot();
   if (document.readyState === "complete") {
     scheduleScreenRootStyleSnapshot();
   } else {

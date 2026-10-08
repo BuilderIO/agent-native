@@ -345,6 +345,7 @@ describe("fetchReportPanelData", () => {
     expect(data.get("slow")).toEqual({
       status: "query-failed",
       message: "Panel query timed out after 0s",
+      timedOut: true,
     });
     expect(data.get("fast")).toEqual({
       status: "rows",

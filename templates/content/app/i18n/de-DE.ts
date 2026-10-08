@@ -1090,6 +1090,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "Warte weiterhin auf {{stage}}. Anfrage: {{action}}.",
+    widgetDocumentLoadStage: "den Inhalt der gespeicherten Seite",
+    widgetDraftCheckStage: "die Wiederherstellung des Seitenentwurfs",
+    widgetEditorInitStage: "die Initialisierung des Rich-Text-Editors",
     iconPickerIcons: "Symbole",
     iconPickerEmoji: "Emoji",
     iconPickerRecent: "Zuletzt verwendet",
@@ -1390,9 +1394,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "Keine Seite ausgewählt",
-    signedInAs: "Angemeldet als {{email}}",
+    pageNoAccess: "Du hast keinen Zugriff auf diese Seite",
+    pageMissing: "Diese Seite gibt es nicht",
+    pageInTrash: "Diese Seite liegt im Papierkorb",
+    pageInTrashAskOwner: "Bitte den Eigentümer, sie wiederherzustellen.",
+    openTrash: "Papierkorb öffnen",
     goToMyPages: "Zu meinen Seiten",
-    switchAccount: "Konto wechseln",
     noPageDescription:
       "Wähle eine Seite in der Seitenleiste oder erstelle eine neue.",
     newPage: "Neue Seite",

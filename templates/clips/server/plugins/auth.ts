@@ -1,8 +1,8 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
 import { PRERENDERED_PUBLIC_PAGE_PATHS } from "../../shared/prerendered-public-paths.js";
 
-export default createAuthPlugin({
+export default createToolkitAuthPlugin({
   maxAge: 60 * 60 * 24 * 90,
   workspaceAppPublicPaths: ["/"],
   mountGoogleOAuthRoutes: false,

@@ -190,6 +190,12 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   // A missing connect-token row reads as "not revoked", so revoke, never delete.
   { table: "mcp_connect_tokens", column: "owner_email", offboard: "revoke" },
   { table: "mcp_connect_tokens", column: "created_by" },
+  // The accountable owner outlives their account: the principal stays governed and its owner reads as stale.
+  {
+    table: "service_principal_policies",
+    column: "owner_email",
+    offboard: "retain",
+  },
   { table: "mcp_oauth_codes", column: "owner_email", offboard: "delete" },
   {
     table: "mcp_oauth_codes",
@@ -214,6 +220,15 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "custom_api_providers", column: "scope_id", mode: "custom-scope" },
   { table: "staged_datasets", column: "owner_email" },
   { table: "resources", column: "owner", mode: "owner" },
+  // A request under an old address can't be approved for the new one, and a
+  // removed member's requests have no one to grant.
+  {
+    table: "resource_access_requests",
+    column: "requester_email",
+    emailChange: "delete",
+    offboard: "delete",
+  },
+  { table: "resource_access_requests", column: "owner_email" },
   { table: "agent_review_comments", column: "author_email" },
   { table: "agent_review_comments", column: "owner_email" },
   { table: "agent_review_notification_deliveries", column: "recipient_email" },
