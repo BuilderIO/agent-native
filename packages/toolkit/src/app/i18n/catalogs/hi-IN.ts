@@ -664,6 +664,10 @@ const messages: ToolkitAgentChatTranslation = {
   "feedback.thumbsDown": "नापसंद",
   "feedback.thumbsUp": "पसंद",
   "feedback.tooSlow": "बहुत धीमा",
+  "feedback.reasonMisread": "मेरा अनुरोध गलत समझा",
+  "feedback.reasonNotDone": "पूरा होने की बात कही, पर हुआ नहीं",
+  "feedback.reasonWrongNumbers": "गलत आँकड़े",
+  "feedback.copyDetails": "विवरण कॉपी करें",
   "feedback.whatWentWrong": "क्या गलत हुआ?",
   "feedback.wrongTool": "गलत टूल",
   "header.switchToCli": "CLI पर जाएँ",
@@ -1117,6 +1121,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Builder.io सेट अप हो रहा है",
   "recovery.copyDebug": "डीबग जानकारी कॉपी करें",
   "recovery.copyFailed": "कॉपी नहीं हो सका",
+  "recovery.continueUnavailable":
+    "यह रन अब जारी नहीं रखा जा सकता। आगे बढ़ने के लिए एक संदेश भेजें।",
   "recovery.retryAttachmentUnavailable":
     "इस अनुरोध में ऐसी फ़ाइल थी जिसे दोबारा नहीं भेजा जा सकता। उसे संदेश बॉक्स में फिर से जोड़ें, फिर कोशिश करें।",
   "recovery.deferredSubmissionFailed":
@@ -1141,6 +1147,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.stuckWithDuration":
     "{{seconds}} सेकंड से कोई प्रगति नहीं हुई। सर्वर टाइमआउट या कनेक्शन टूटने की वजह से एजेंट रुक सकता है।",
   "recovery.stuckRetrying": "अपने आप फिर से प्रयास किया जा रहा है।",
+  "recovery.statusUnreadable":
+    "इस चैट की जाँच के लिए सर्वर से संपर्क नहीं हो पा रहा है। हो सकता है यह पूरा हो चुका हो। हम कोशिश करते रहेंगे।",
+  "recovery.statusMismatch":
+    "सर्वर के अनुसार यह चैट अब नहीं चल रही है। परिणाम देखने के लिए पुनः लोड करें।",
+  "recovery.reload": "पुनः लोड करें",
   "recovery.statusCheckFailed":
     "यह जाँचने के लिए सर्वर से संपर्क नहीं हो सका कि एजेंट अभी काम कर रहा है या नहीं। दोबारा प्रयास करने के लिए अपना संदेश फिर भेजें।",
   "recovery.streamEnded":
@@ -1752,6 +1763,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.adminOnly":
     "सिर्फ़ संगठन के मालिक और एडमिन फ़ाइल स्टोरेज बदल सकते हैं।",
   "settings.audit.action": "कार्रवाई",
+  "settings.audit.agentVia": "{{protocol}} के ज़रिए एजेंट",
   "settings.audit.allApps": "सभी ऐप",
   "settings.audit.app": "ऐप",
   "settings.audit.changedBy": "बदलने वाला",

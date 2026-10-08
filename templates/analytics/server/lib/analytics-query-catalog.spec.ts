@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { rankAnalyticsQueryCatalog } from "./analytics-query-catalog";
+import {
+  rankAnalyticsQueryCatalog,
+  relevanceTerms,
+  searchTerms,
+} from "./analytics-query-catalog";
 import { loadDashboardSeed } from "./dashboard-seeds";
 
 describe("analytics query catalog", () => {
@@ -586,5 +590,33 @@ describe("analytics query catalog", () => {
       kind: "data-dictionary",
       id: "signup",
     });
+  });
+
+  it('drops stop words before stemming so "this" is not a term', () => {
+    expect(searchTerms("what is this app")).toEqual(["app"]);
+    expect(searchTerms("translate this to Spanish")).toEqual([
+      "translate",
+      "spanish",
+    ]);
+  });
+
+  it("keeps only terms specific enough to make a reference relevant", () => {
+    expect(relevanceTerms("what's our NRR")).toEqual(["nrr"]);
+    expect(relevanceTerms("Q3 bookings")).toEqual(["booking"]);
+    expect(relevanceTerms("ok do it")).toEqual([]);
+    expect(relevanceTerms("how do I share a dashboard")).toEqual(["share"]);
+  });
+
+  it("does not count a term found inside a longer word as matched", () => {
+    const [match] = rankAnalyticsQueryCatalog({
+      search: "ear",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        { id: "early", metric: "Early access signups", approved: true },
+      ],
+    });
+
+    expect(match).toMatchObject({ id: "early", matchedTerms: [] });
   });
 });

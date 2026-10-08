@@ -1,0 +1,6 @@
+---
+"@agent-native/core": patch
+"@agent-native/toolkit": patch
+---
+
+A chat that still shows a run as running after the server stopped tracking it now reloads the thread and refreshes the app's data, instead of waiting for the user to retry; a status check that cannot reach the server shows its own notice rather than "running" or "done". Threads created without a request org adopt their run's org so Human Review can open them, and a one-time migration backfills existing ones. A classifier that cannot run now emits `$ai_sentiment_failed` with a coarse reason, a failed trace write is counted and logged once per run, a thumbs-down for a run with no persisted trace is saved instead of answering 404, and the thumbs-down popover gains reason chips and Copy details. A run that ends `connection_required` now leaves a note for the thread's next run (named providers, who can connect them) so the agent stops retrying the same unconnected provider, and the card says who can grant it. Pre-model reference retrieval and the per-turn screen, URL and selection blocks report a typed status (`ok`, `empty`, `timed_out`, `failed`) and add a one-line context note only when degraded; traces record the context statuses and the requested reasoning effort. Tool search ranks an exact tool-name query first.

@@ -550,22 +550,13 @@ export function validateMcpDirectoryProfile(
       `[agent-native] MCP directory widget read "${unprofiledWidgetReadAction}" must be listed in its scoped read category.`,
     );
   }
-  const widgetTargetNames = Object.keys(profile?.widgetTargets ?? {});
   if (profile && profile.widgets !== false && profile.widgetTargets) {
-    const missingTarget = widgetActionNames.find(
-      (name) => !profile?.widgetTargets?.[name],
-    );
-    const unknownTarget = widgetTargetNames.find(
+    const unknownTarget = Object.keys(profile.widgetTargets).find(
       (name) => !widgetActionNames.includes(name),
     );
-    if (missingTarget || unknownTarget) {
+    if (unknownTarget) {
       throw new McpDirectoryProfileValidationError(
-        `[agent-native] MCP directory widget target resolvers must match the listed widget actions (missing: ${missingTarget ?? "none"}; unknown: ${unknownTarget ?? "none"}).`,
-      );
-    }
-    if (widgetActionNames.length > 0 && !profile?.widgetTargets) {
-      throw new McpDirectoryProfileValidationError(
-        "[agent-native] MCP directory widgets require a server-owned target resolver for every widget action.",
+        `[agent-native] MCP directory widget target "${unknownTarget}" must name a listed action with an mcpApp resource. Listed widget actions without a target resolver serve as plain tools.`,
       );
     }
   }
@@ -1671,7 +1662,7 @@ function safeUiSegment(value: string | undefined, fallback: string): string {
 }
 
 const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v65";
-const MCP_DIRECTORY_APP_RESOURCE_SHELL_VERSION = "shell-v67";
+const MCP_DIRECTORY_APP_RESOURCE_SHELL_VERSION = "shell-v68";
 
 export function getMcpDirectoryWidgetResourceUri(
   appId: string | undefined,
@@ -1951,6 +1942,16 @@ async function resolveMcpAppResource(
 ): Promise<ResolvedMcpAppResource | null> {
   const resource = entry.mcpApp?.resource;
   if (!resource) return null;
+  // Directory widgets open a host pane on every call, so only the profile's
+  // widgetTargets (create/present tools) attach one; a read tool whose action
+  // still carries mcpApp.resource for the non-directory surface must not.
+  const widgetTargets = config.directoryProfile?.widgetTargets;
+  if (
+    config.catalogMode === "directory" &&
+    (!widgetTargets || !Object.hasOwn(widgetTargets, actionName))
+  ) {
+    return null;
+  }
   const resolvedUri = getMcpAppResourceUri(config, actionName, entry);
   if (!resolvedUri) return null;
   const description = resource.description ?? entry.tool.description;
@@ -2783,16 +2784,19 @@ export async function createMCPServerForRequest(
               entry.tool.description ??
               name;
             const title = agentNativeToolTitle(name, entry.tool.title);
-            const annotations: Record<string, unknown> = directoryCatalog
-              ? { title, ...entry.mcpAnnotations }
-              : {
-                  title,
-                  readOnlyHint: entry.readOnly === true,
-                  destructiveHint:
-                    entry.publicAgent?.isConsequential === true ||
-                    entry.needsApproval !== undefined,
-                  openWorldHint: false,
-                };
+            const annotations: Record<string, unknown> = {
+              title,
+              ...(entry.mcpAnnotations ??
+                (directoryCatalog
+                  ? undefined
+                  : {
+                      readOnlyHint: entry.readOnly === true,
+                      destructiveHint:
+                        entry.publicAgent?.isConsequential === true ||
+                        entry.needsApproval !== undefined,
+                      openWorldHint: false,
+                    })),
+            };
             if (directoryCatalog) {
               delete annotations["agent-native/producesOpenLink"];
             } else if (hasLink) {

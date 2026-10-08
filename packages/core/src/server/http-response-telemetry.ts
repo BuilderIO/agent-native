@@ -92,6 +92,7 @@ interface HttpRequestTelemetryState {
   requestSequence: number;
   frameworkReadyWaitMs: number;
   db: DatabaseRequestTelemetry;
+  dbMeasured: boolean;
   startupDb?: DatabaseRequestTelemetry;
 }
 
@@ -432,6 +433,7 @@ async function emitTelemetry(
           db_url_hash: db.urlHash,
           db_neon_endpoint: db.neon?.endpointId,
           db_neon_pooled: db.neon?.pooled,
+          db_measured: state.dbMeasured,
           db_operation_count: state.db.operationCount,
           db_query_count: state.db.queryCount,
           db_rows_returned: state.db.rowsReturned,
@@ -612,6 +614,7 @@ function logSlowRequest(
       module_to_request_ms: moduleToRequestMs(state),
       process_age_ms: state.processAgeAtStartMs,
       framework_ready_wait_ms: Math.round(state.frameworkReadyWaitMs),
+      db_measured: state.dbMeasured,
       db_ms: Math.round(state.db.operationWallMs),
       db_connect_ms: Math.round(state.db.connectTotalMs),
       db_operation_count: state.db.operationCount,
@@ -664,10 +667,11 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
       requestSequence: ++processState.requestSequence,
       frameworkReadyWaitMs: 0,
       db: createDatabaseRequestTelemetry(),
+      dbMeasured: false,
     };
     (event.context as Record<PropertyKey, unknown>)[REQUEST_TELEMETRY_KEY] =
       state;
-    enterDatabaseRequestTelemetry(state.db);
+    state.dbMeasured = enterDatabaseRequestTelemetry(state.db);
     try {
       event.res.headers.set(REQUEST_ID_HEADER, state.requestId);
       event.res.errHeaders.set(REQUEST_ID_HEADER, state.requestId);

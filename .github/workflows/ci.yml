@@ -103,7 +103,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.lint == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -423,7 +423,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -460,9 +460,20 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
+      - name: Run focused Screen selection history regressions
+        working-directory: templates/design
+        timeout-minutes: 10
+        env:
+          E2E_RUN_ID: design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          pnpm exec playwright test \
+            e2e/parity-selection-history-delete-screen.spec.ts \
+            --grep "deleting a selected child layer keeps its owning Screen|undo restores a child layer with its additive Screen selection|marquee-selecting child elements after a Screen pick deletes only the elements|undoing a canvas element click restores its explicit Screen target for Delete|failed Screen deletion keeps the explicit Screen target for retry|a newer layer selection survives failed Screen deletion settlement|Shift-marquee adds a hit Screen to the existing Delete selection|a newer Screen pick survives failed Screen deletion settlement|a newer sidebar Screen selection survives failed Screen deletion settlement|Select All Screens survives failed Screen deletion settlement|marquee selection persists and deletes Screens after a prior layer selection|deep-select marquee over a Screen deletes only the child|Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete|Shift-marquee reselecting an owner Screen makes Delete target the Screen" \
+            --workers=1
+
       - name: Run focused Design regression cases
         working-directory: templates/design
-        timeout-minutes: 7
+        timeout-minutes: 15
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}

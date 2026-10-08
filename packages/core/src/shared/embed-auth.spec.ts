@@ -10,7 +10,7 @@ import {
 describe("MCP directory widget read capabilities", () => {
   const capability = {
     appId: "design",
-    resourceUri: "ui://design/shell-v67",
+    resourceUri: "ui://design/shell-v68",
     resourceIds: { designId: "design-123" },
     actionArguments: {
       "get-design-snapshot": { designId: "design-123" },
@@ -25,7 +25,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(scope, {
         actionName: "get-design-snapshot",
         appId: "design",
-        resourceUri: "ui://design/shell-v67",
+        resourceUri: "ui://design/shell-v68",
         args: { designId: "design-123" },
         allowedArgumentNames: ["designId"],
       }),
@@ -34,14 +34,14 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(scope, {
         actionName: "get-design-snapshot",
         appId: "slides",
-        resourceUri: "ui://design/shell-v67",
+        resourceUri: "ui://design/shell-v68",
         args: { designId: "design-123" },
         allowedArgumentNames: ["designId"],
       }),
     ).toBe(false);
     const contentScope = createMcpDirectoryWidgetReadCapability({
       appId: "content",
-      resourceUri: "ui://content/shell-v67",
+      resourceUri: "ui://content/shell-v68",
       resourceIds: { databaseId: "database-123", documentId: "document-123" },
       actionArguments: {
         "get-content-database": {
@@ -60,7 +60,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(contentScope, {
         actionName: "get-content-database",
         appId: "content",
-        resourceUri: "ui://content/shell-v67",
+        resourceUri: "ui://content/shell-v68",
         args: { databaseId: "database-123", limit: "100" },
         allowedArgumentNames: ["databaseId", "documentId", "limit"],
       }),
@@ -69,7 +69,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(contentScope, {
         actionName: "get-content-database",
         appId: "content",
-        resourceUri: "ui://content/shell-v67",
+        resourceUri: "ui://content/shell-v68",
         args: { documentId: "document-123", limit: 5_000 },
         allowedArgumentNames: ["databaseId", "documentId", "limit"],
       }),
@@ -78,7 +78,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(contentScope, {
         actionName: "get-content-database",
         appId: "content",
-        resourceUri: "ui://content/shell-v67",
+        resourceUri: "ui://content/shell-v68",
         args: { databaseId: "database-123", documentId: "another-document" },
         allowedArgumentNames: ["databaseId", "documentId", "limit"],
       }),
@@ -87,7 +87,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(contentScope, {
         actionName: "query-content-database-items",
         appId: "content",
-        resourceUri: "ui://content/shell-v67",
+        resourceUri: "ui://content/shell-v68",
         args: {
           documentId: "document-123",
           limit: "50",
@@ -100,7 +100,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(contentScope, {
         actionName: "query-content-database-items",
         appId: "content",
-        resourceUri: "ui://content/shell-v67",
+        resourceUri: "ui://content/shell-v68",
         args: { limit: "50", tableQuery: { search: "launch" } },
         allowedArgumentNames: ["documentId", "limit", "tableQuery"],
       }),
@@ -109,7 +109,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(contentScope, {
         actionName: "query-content-database-items",
         appId: "content",
-        resourceUri: "ui://content/shell-v67",
+        resourceUri: "ui://content/shell-v68",
         args: {
           documentId: "document-123",
           limit: "50",
@@ -123,7 +123,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(contentScope, {
         actionName: "get-content-database",
         appId: "content",
-        resourceUri: "ui://content/shell-v67",
+        resourceUri: "ui://content/shell-v68",
         args: { databaseId: "database-123", limit: "5001" },
         allowedArgumentNames: ["databaseId", "documentId", "limit"],
       }),
@@ -132,7 +132,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(contentScope, {
         actionName: "get-content-database",
         appId: "content",
-        resourceUri: "ui://content/shell-v67",
+        resourceUri: "ui://content/shell-v68",
         args: { databaseId: "database-123", limit: "100.5" },
         allowedArgumentNames: ["databaseId", "documentId", "limit"],
       }),
@@ -141,7 +141,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(contentScope, {
         actionName: "get-content-database",
         appId: "content",
-        resourceUri: "ui://content/shell-v67",
+        resourceUri: "ui://content/shell-v68",
         args: { databaseId: "database-123", limit: "-1" },
         allowedArgumentNames: ["databaseId", "documentId", "limit"],
       }),
@@ -159,7 +159,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(scope, {
         actionName: "get-design-snapshot",
         appId: "design",
-        resourceUri: "ui://design/shell-v67",
+        resourceUri: "ui://design/shell-v68",
         args: { designId: "different-design" },
         allowedArgumentNames: ["designId"],
       }),
@@ -213,7 +213,7 @@ describe("MCP directory widget read capabilities", () => {
         {
           actionName: "get-design-snapshot",
           appId: "design",
-          resourceUri: "ui://design/shell-v67",
+          resourceUri: "ui://design/shell-v68",
           args: { designId: "design-123" },
           allowedArgumentNames: ["designId"],
         },
@@ -225,7 +225,7 @@ describe("MCP directory widget read capabilities", () => {
         {
           actionName: "get-design-snapshot",
           appId: "design",
-          resourceUri: "ui://design/shell-v67",
+          resourceUri: "ui://design/shell-v68",
           args: { designId: "design-123" },
           allowedArgumentNames: ["designId"],
         },
@@ -237,7 +237,7 @@ describe("MCP directory widget read capabilities", () => {
         {
           actionName: "get-design-snapshot",
           appId: "design",
-          resourceUri: "ui://design/shell-v67",
+          resourceUri: "ui://design/shell-v68",
           args: { designId: "design-123" },
           allowedArgumentNames: ["designId"],
         },
@@ -253,7 +253,7 @@ describe("MCP directory widget read capabilities", () => {
   it("supports an explicitly scoped read action with no input arguments", () => {
     const scope = createMcpDirectoryWidgetReadCapability({
       appId: "content",
-      resourceUri: "ui://content/shell-v67",
+      resourceUri: "ui://content/shell-v68",
       resourceIds: { documentId: "document-123" },
       actionArguments: { "list-content-spaces": {} },
     });
@@ -262,7 +262,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(scope, {
         actionName: "list-content-spaces",
         appId: "content",
-        resourceUri: "ui://content/shell-v67",
+        resourceUri: "ui://content/shell-v68",
         args: {},
         allowedArgumentNames: [],
       }),
@@ -271,7 +271,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(scope, {
         actionName: "list-content-spaces",
         appId: "content",
-        resourceUri: "ui://content/shell-v67",
+        resourceUri: "ui://content/shell-v68",
         args: { unexpected: true },
         allowedArgumentNames: [],
       }),

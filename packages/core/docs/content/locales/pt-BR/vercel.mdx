@@ -196,6 +196,38 @@ npx vercel deploy --prebuilt --prod
 O vínculo do projeto e as variáveis salvas continuam no lugar, então você não precisa
 repetir o Passo 3.
 
+## Trabalho agendado {#vercel-scheduled-work}
+
+Automações agendadas, automações por evento na fila e a limpeza de execuções
+interrompidas acontecem em uma varredura executada uma vez por minuto. O build
+adiciona um [cron job da Vercel](https://vercel.com/docs/cron-jobs) que chama a
+varredura em `/_agent-native/jobs/_process-sweep`. Um build de espaço de
+trabalho adiciona um cron job por app, em
+`/<app-id>/_agent-native/jobs/_process-sweep`.
+
+Defina `CRON_SECRET` nas variáveis de ambiente do projeto antes de implantar. A
+Vercel o envia como bearer token em cada requisição de cron, e a varredura
+rejeita toda requisição sem ele. Gere um valor com `openssl rand -hex 32`.
+
+- **Somente produção.** A Vercel executa cron jobs na implantação de produção,
+  nunca em prévias, então os agendamentos não disparam em uma prévia. A página
+  **Automations** informa isso.
+- **No Hobby, uma vez por dia.** A Vercel rejeita uma implantação Hobby cujo
+  cron job rode mais de uma vez por dia. Defina
+  `AGENT_NATIVE_VERCEL_CRON_SCHEDULE` no ambiente de build com uma expressão
+  diária, como `0 9 * * *`. No Hobby, a execução também pode acontecer a
+  qualquer momento dentro dessa hora. Com uma varredura por dia, automações
+  agendadas e acionadas por eventos esperam até um dia, então use o Pro ou outro
+  host quando o horário importar.
+- **Duração da função.** A varredura executa os trabalhos vencidos dentro da
+  invocação de função do cron job, então um trabalho é interrompido ao atingir a
+  duração máxima da função (300 segundos por padrão).
+- **Sem novas tentativas.** A Vercel não repete uma invocação de cron que
+  falhou. A varredura roda de novo no próximo horário agendado.
+
+Veja [Como o agendador é executado](/docs/recurring-jobs#how-scheduler-runs)
+para os outros hosts.
+
 ## O que vem a seguir {#whats-next}
 
 - [**Implantação: Variáveis de Ambiente**](/docs/deployment-environment-variables) - a lista completa de configurações de produção

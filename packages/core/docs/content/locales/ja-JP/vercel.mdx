@@ -159,6 +159,19 @@ npx vercel deploy --prebuilt --prod
 
 プロジェクトのリンクと保存した変数はそのまま残るため、ステップ 3 を繰り返す必要はありません。
 
+## スケジュールされた作業 {#vercel-scheduled-work}
+
+スケジュールされた自動化、キューに入ったイベント自動化、中断された実行のクリーンアップは、すべて 1 分に 1 回のスイープで行われます。ビルドは、`/_agent-native/jobs/_process-sweep` のスイープを呼び出す [Vercel cron job](https://vercel.com/docs/cron-jobs) を追加します。ワークスペースビルドでは、アプリごとに 1 つの cron job が `/<app-id>/_agent-native/jobs/_process-sweep` に追加されます。
+
+デプロイ前に、プロジェクトの環境変数に `CRON_SECRET` を設定してください。Vercel は各 cron リクエストでこれを bearer トークンとして送信し、スイープはこれを持たないリクエストをすべて拒否します。値は `openssl rand -hex 32` で生成してください。
+
+- **本番のみ。** Vercel は cron job を本番デプロイでのみ実行し、プレビューでは実行しないため、プレビューではスケジュールが起動しません。**Automations** ページにもその旨が表示されます。
+- **Hobby は 1 日 1 回。** Vercel は、cron job が 1 日に複数回実行される Hobby デプロイを拒否します。ビルド環境で `AGENT_NATIVE_VERCEL_CRON_SCHEDULE` を `0 9 * * *` のような 1 日 1 回の式に設定してください。また Hobby では、その 1 時間内の任意の時刻に実行されることがあります。スイープが 1 日 1 回の場合、スケジュールされた自動化とイベントトリガーの自動化は最大 1 日待つことになるため、タイミングが重要な場合は Pro または別のホストを使用してください。
+- **関数の実行時間。** スイープは実行時刻を迎えたジョブを cron job の関数呼び出しの中で実行するため、ジョブは関数の最大実行時間 (デフォルトは 300 秒) で打ち切られます。
+- **再試行なし。** Vercel は失敗した cron 呼び出しを再試行しません。スイープは次のスケジュール時刻に再び実行されます。
+
+他のホストについては、[スケジューラの実行方法](/docs/recurring-jobs#how-scheduler-runs) を参照してください。
+
 ## 次のステップ {#whats-next}
 
 - [**デプロイ環境変数**](/docs/deployment-environment-variables) - 本番設定の完全な一覧

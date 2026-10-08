@@ -819,6 +819,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Builder.io wird eingerichtet",
   "recovery.copyDebug": "Debug-Informationen kopieren",
   "recovery.copyFailed": "Kopieren fehlgeschlagen",
+  "recovery.continueUnavailable":
+    "Dieser Lauf kann nicht mehr fortgesetzt werden. Sende eine Nachricht, um weiterzumachen.",
   "recovery.retryAttachmentUnavailable":
     "Diese Anfrage enthielt eine Datei, die sich nicht erneut senden lässt. Füge sie im Nachrichtenfeld erneut hinzu und versuche es noch einmal.",
   "recovery.deferredSubmissionFailed":
@@ -845,6 +847,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.stuckWithDuration":
     "Seit {{seconds}} s kein Fortschritt. Der Agent hat möglicherweise ein Server-Timeout erreicht oder die Verbindung verloren.",
   "recovery.stuckRetrying": "Automatischer erneuter Versuch läuft.",
+  "recovery.statusUnreadable":
+    "Der Server ist nicht erreichbar, um diesen Chat zu prüfen. Er ist möglicherweise bereits fertig. Wir versuchen es weiter.",
+  "recovery.statusMismatch":
+    "Laut Server läuft dieser Chat nicht mehr. Lade neu, um das Ergebnis zu sehen.",
+  "recovery.reload": "Neu laden",
   "recovery.statusCheckFailed":
     "Der Server war nicht erreichbar, um zu prüfen, ob der Agent noch arbeitet. Sende deine Nachricht erneut, um es noch einmal zu versuchen.",
   "recovery.streamEnded":
@@ -1322,6 +1329,10 @@ const messages: ToolkitAgentChatTranslation = {
   "feedback.thumbsDown": "Daumen runter",
   "feedback.thumbsUp": "Daumen hoch",
   "feedback.tooSlow": "Zu langsam",
+  "feedback.reasonMisread": "Meine Anfrage missverstanden",
+  "feedback.reasonNotDone": "Als erledigt gemeldet, war es aber nicht",
+  "feedback.reasonWrongNumbers": "Falsche Zahlen",
+  "feedback.copyDetails": "Details kopieren",
   "feedback.whatWentWrong": "Was ist schiefgelaufen?",
   "feedback.wrongTool": "Falsches Tool",
   "contextMeter.ariaLabel":
@@ -1876,6 +1887,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.adminOnly":
     "Nur Inhaber und Admins der Organisation können den Dateispeicher ändern.",
   "settings.audit.action": "Aktion",
+  "settings.audit.agentVia": "Agent über {{protocol}}",
   "settings.audit.allApps": "Alle Apps",
   "settings.audit.app": "App",
   "settings.audit.changedBy": "Geändert von",

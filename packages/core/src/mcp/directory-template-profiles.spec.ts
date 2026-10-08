@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { Client } from "@modelcontextprotocol/client";
+import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { describe, expect, it } from "vitest";
 
 import { CHATGPT_DIRECTORY_PROFILE as contentProfile } from "../../../../templates/content/server/lib/chatgpt-directory-tools.js";
@@ -171,7 +173,7 @@ describe("ChatGPT directory template profiles", () => {
         createMcpDirectoryWidgetReadCapability,
         normalizeMcpDirectoryWidgetReadActionArguments,
       } = await import("../shared/embed-auth.js");
-      const resourceUri = "ui://content/shell-v67";
+      const resourceUri = "ui://content/shell-v68";
       const pageBootReads = [
         ["get-document", { id: documentId }],
         ["get-content-navigation-context", { id: documentId }],
@@ -326,6 +328,57 @@ describe("ChatGPT directory template profiles", () => {
         }),
       ).resolves.toBeDefined();
 
+      const server = await createMCPServerForRequest(
+        serverConfig,
+        {
+          userEmail: "reviewer@example.test",
+          identityAssurance: "user",
+          orgId: null,
+          orgDomain: undefined,
+        },
+        { origin: profile.widgetDomain, transport: "http" },
+      );
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair();
+      const client = new Client({
+        name: "directory-profile-spec",
+        version: "1",
+      });
+      await Promise.all([
+        client.connect(clientTransport),
+        server.connect(serverTransport),
+      ]);
+      try {
+        const { tools } = await client.listTools();
+        const widgetTargetNames = Object.keys(profile.widgetTargets).sort();
+        const widgetToolNames = tools
+          .filter((tool) => typeof tool._meta?.ui?.resourceUri === "string")
+          .map((tool) => tool.name)
+          .sort();
+        expect(widgetToolNames).toEqual(widgetTargetNames);
+        expect(
+          tools
+            .filter((tool) => /^(?:list|get|search)-/.test(tool.name))
+            .filter(
+              (tool) =>
+                tool._meta?.ui !== undefined ||
+                tool._meta?.["openai/outputTemplate"] !== undefined,
+            )
+            .map((tool) => tool.name),
+        ).toEqual([]);
+        const sessionTool = tools.find(
+          (tool) => tool.name === "create_embed_session",
+        );
+        expect(
+          [
+            ...((sessionTool?.inputSchema.properties?.sourceTool as any)
+              ?.enum ?? []),
+          ].sort(),
+        ).toEqual(widgetTargetNames);
+      } finally {
+        await Promise.all([client.close(), server.close()]);
+      }
+
       if (appId === "content") {
         const privateRead = "query-content-database-items";
         expect(profile.connectorCatalog).not.toContain(privateRead);
@@ -471,7 +524,7 @@ describe("ChatGPT directory template profiles", () => {
           mcpAnnotations: writeAnnotations,
           mcpApp: {
             resource: {
-              uri: "ui://content/shell-v67",
+              uri: "ui://content/shell-v68",
               title: "Document",
               html: "<html></html>",
             },
@@ -579,6 +632,66 @@ describe("ChatGPT directory template profiles", () => {
         },
       }),
     ).toThrow(/unlisted, explicitly scoped, public GET action/);
+  });
+
+  it("serves a listed widget action without a target as a plain tool and rejects unknown targets", () => {
+    const annotations = {
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    };
+    const widgetAction = {
+      tool: { description: "Create one document." },
+      readOnly: false,
+      mcpAnnotations: annotations,
+      mcpApp: {
+        resource: {
+          uri: "ui://content/shell-v68",
+          title: "Document",
+          html: "<html></html>",
+        },
+      },
+      run: async () => ({ id: "doc-1" }),
+    };
+    const plainAction = {
+      tool: { description: "Read one document." },
+      readOnly: false,
+      mcpAnnotations: annotations,
+      run: async () => ({ id: "doc-1" }),
+    };
+    const target = () => ({
+      targetPath: "/page/doc-1",
+      resourceIds: { documentId: "doc-1" },
+    });
+    const config = {
+      name: "content",
+      description: "Content directory.",
+      catalogMode: "directory" as const,
+      actions: {
+        "create-document": widgetAction,
+        "get-document-snapshot": widgetAction,
+        "get-document": plainAction,
+      },
+      directoryProfile: {
+        connectorCatalog: [
+          "create-document",
+          "get-document-snapshot",
+          "get-document",
+        ],
+        widgetTargets: { "create-document": target },
+      },
+    };
+
+    expect(() => validateMcpDirectoryProfile(config)).not.toThrow();
+    expect(() =>
+      validateMcpDirectoryProfile({
+        ...config,
+        directoryProfile: {
+          ...config.directoryProfile,
+          widgetTargets: { "create-document": target, "get-document": target },
+        },
+      }),
+    ).toThrow(/widget target "get-document" must name a listed action/);
   });
 
   it("requires read routes before widget tools run and preserves legacy tool discovery", () => {
