@@ -93,7 +93,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   }),
 }));
 
-import { DeleteKeyDialog, ServiceKeyDialog } from "./ApiKeyDialogs.js";
+import {
+  DeleteKeyDialog,
+  KeyValueDialog,
+  ServiceKeyDialog,
+} from "./ApiKeyDialogs.js";
 import ApiKeysSettingsPage from "./ApiKeysSettingsPage.js";
 
 function entry(overrides: Partial<ApiKeyEntry>): ApiKeyEntry {
@@ -439,6 +443,64 @@ describe("ApiKeysSettingsPage", () => {
     );
     expect(outcomes).toContain("credential_saved");
     expect(outcomes).not.toContain("credential_validated");
+  });
+
+  it("keeps a key attempt open to the save outcome while saving", async () => {
+    let resolveSave!: () => void;
+    clientMock.save.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveSave = resolve;
+      }),
+    );
+    const onOpenChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <KeyValueDialog
+            open
+            onOpenChange={onOpenChange}
+            dialog={{ mode: "add" }}
+            listing={listing()}
+            orgName="Acme"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const [name, value] = [
+      ...dialog.querySelectorAll("input"),
+    ] as HTMLInputElement[];
+    await act(async () => typeInto(name!, "CUSTOM_API_KEY"));
+    await act(async () => typeInto(value!, "fake-custom-value"));
+    await act(async () => {
+      dialog
+        .querySelector("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+    expect(clientMock.save).toHaveBeenCalledWith({
+      name: "CUSTOM_API_KEY",
+      value: "fake-custom-value",
+      registered: false,
+      shared: false,
+    });
+
+    await act(async () => buttonByText("Close", dialog).click());
+    await act(async () => buttonByText("Cancel", dialog).click());
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(
+      onboardingOutcomeMock.mock.calls.map(([outcome]) => outcome),
+    ).not.toContain("credential_skipped");
+
+    await act(async () => resolveSave());
+    await vi.waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    const outcomes = onboardingOutcomeMock.mock.calls.map(
+      ([outcome]) => outcome,
+    );
+    expect(outcomes).toContain("credential_saved");
+    expect(outcomes).not.toContain("credential_skipped");
   });
 
   it("opens Add key for a #secrets:KEY link to a key nobody saved", async () => {

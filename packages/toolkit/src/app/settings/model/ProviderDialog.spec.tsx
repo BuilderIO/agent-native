@@ -23,6 +23,7 @@ const keyMock = vi.hoisted(() => ({
   deleteAgentEngineProviderSettings: vi.fn(),
 }));
 const callActionMock = vi.hoisted(() => vi.fn());
+const onboardingOutcomeMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (name: string) => ({
@@ -41,6 +42,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("@agent-native/core/client/agent-engine-key", () => keyMock);
+
+vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  trackCustomKeyOnboardingOutcome: onboardingOutcomeMock,
+}));
 
 vi.mock("@agent-native/core/client/org", () => ({
   useOrg: () => ({ data: { orgName: "Acme" }, isLoading: false }),
@@ -187,6 +192,7 @@ describe("ProviderDialog", () => {
       .mockReset()
       .mockResolvedValue(undefined);
     callActionMock.mockReset().mockResolvedValue({});
+    onboardingOutcomeMock.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -304,6 +310,50 @@ describe("ProviderDialog", () => {
       ).toContain("Vault is unavailable.");
     });
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it("keeps a provider attempt open to the save outcome while saving", async () => {
+    let resolveSave!: () => void;
+    keyMock.saveAgentEngineProviderSettings.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveSave = resolve;
+      }),
+    );
+    keyMock.fetchProviderModels.mockResolvedValue({
+      ok: true,
+      provider: "anthropic",
+      models: ["claude-sonnet-5"],
+      checkedAt: 1,
+    });
+    const { onOpenChange } = render({ provider: "anthropic" });
+
+    typeInto(inputByLabel("API key"), "sk-ant-test-0000");
+    await vi.waitFor(() => {
+      expect(button("Add provider").disabled).toBe(false);
+    });
+    await act(async () => button("Add provider").click());
+    await vi.waitFor(() => {
+      expect(keyMock.saveAgentEngineProviderSettings).toHaveBeenCalled();
+    });
+
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    await act(async () => button("Close").click());
+    await act(async () => button("Cancel").click());
+    expect(dialog.isConnected).toBe(true);
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(
+      onboardingOutcomeMock.mock.calls.map(([outcome]) => outcome),
+    ).not.toContain("credential_skipped");
+
+    await act(async () => {
+      resolveSave();
+      await vi.waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    });
+    const outcomes = onboardingOutcomeMock.mock.calls.map(
+      ([outcome]) => outcome,
+    );
+    expect(outcomes).toContain("credential_saved");
+    expect(outcomes).not.toContain("credential_skipped");
   });
 
   it("locks members to a personal key", async () => {

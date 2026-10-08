@@ -135,20 +135,42 @@ function unique(models: readonly string[]): string[] {
  * the checked models in one step.
  */
 export function ProviderDialog(props: ProviderDialogProps) {
+  const savePending = useRef(false);
+  const dismiss = () => {
+    if (savePending.current) return;
+    trackCustomKeyOnboardingOutcome("credential_skipped");
+    props.onOpenChange(false);
+  };
+
   return (
     <Dialog
       open={props.open}
       onOpenChange={(open) => {
-        if (!open) trackCustomKeyOnboardingOutcome("credential_skipped");
-        props.onOpenChange(open);
+        if (open) props.onOpenChange(true);
+        else dismiss();
       }}
     >
-      {props.open ? <ProviderDialogContent {...props} /> : null}
+      {props.open ? (
+        <ProviderDialogContent
+          {...props}
+          onDismiss={dismiss}
+          onSavingChange={(saving) => {
+            savePending.current = saving;
+          }}
+        />
+      ) : null}
     </Dialog>
   );
 }
 
-function ProviderDialogContent(props: ProviderDialogProps) {
+interface ProviderDialogInternalProps {
+  onDismiss: () => void;
+  onSavingChange: (saving: boolean) => void;
+}
+
+function ProviderDialogContent(
+  props: ProviderDialogProps & ProviderDialogInternalProps,
+) {
   const t = useT();
   const listing = useActionQuery<ModelProvidersListing>(
     "list-model-providers" as never,
@@ -216,7 +238,7 @@ function ProviderDialogContent(props: ProviderDialogProps) {
   );
 }
 
-interface FormProps extends ProviderDialogProps {
+interface FormProps extends ProviderDialogProps, ProviderDialogInternalProps {
   title: string;
   listing: ModelProvidersListing;
   models: ProviderModelsRead;
@@ -229,6 +251,8 @@ function ProviderDialogForm({
   serviceLabel,
   providers: providerChoices,
   onOpenChange,
+  onDismiss,
+  onSavingChange,
   onSaved,
   onRemoved,
   title,
@@ -455,6 +479,7 @@ function ProviderDialogForm({
       mode !== "manage" || !sameModels(checked, initialSelection ?? []);
 
     setSaving(true);
+    onSavingChange(true);
     let keySaved = false;
     try {
       if (replacing) {
@@ -501,6 +526,7 @@ function ProviderDialogForm({
       }
     } finally {
       setSaving(false);
+      onSavingChange(false);
     }
   };
 
@@ -519,11 +545,7 @@ function ProviderDialogForm({
           {t(`${K}restricted`)}
         </p>
         <DialogFooter>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => onOpenChange(false)}
-          >
+          <Button type="button" variant="secondary" onClick={onDismiss}>
             {t(`${K}cancel`)}
           </Button>
         </DialogFooter>
@@ -776,11 +798,7 @@ function ProviderDialogForm({
               {t(`${K}removeProvider`)}
             </Button>
           ) : null}
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => onOpenChange(false)}
-          >
+          <Button type="button" variant="secondary" onClick={onDismiss}>
             {t(`${K}cancel`)}
           </Button>
           <Button type="submit" disabled={saving || !ready}>

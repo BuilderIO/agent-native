@@ -84,15 +84,30 @@ export interface KeyValueDialogProps {
 
 /** Add key (Name, Value, Available to), or Replace value on a saved key. */
 export function KeyValueDialog(props: KeyValueDialogProps) {
+  const savePending = useRef(false);
+  const dismiss = () => {
+    if (savePending.current) return;
+    trackCustomKeyOnboardingOutcome("credential_skipped");
+    props.onOpenChange(false);
+  };
+
   return (
     <Dialog
       open={props.open}
       onOpenChange={(open) => {
-        if (!open) trackCustomKeyOnboardingOutcome("credential_skipped");
-        props.onOpenChange(open);
+        if (open) props.onOpenChange(true);
+        else dismiss();
       }}
     >
-      {props.open ? <KeyValueDialogContent {...props} /> : null}
+      {props.open ? (
+        <KeyValueDialogContent
+          {...props}
+          onDismiss={dismiss}
+          onSavingChange={(saving) => {
+            savePending.current = saving;
+          }}
+        />
+      ) : null}
     </Dialog>
   );
 }
@@ -121,11 +136,16 @@ function FormError({ message }: { message: string | null }) {
 
 function KeyValueDialogContent({
   onOpenChange,
+  onDismiss = () => onOpenChange(false),
+  onSavingChange,
   dialog,
   listing,
   orgName,
   onSaved,
-}: KeyValueDialogProps) {
+}: KeyValueDialogProps & {
+  onDismiss?: () => void;
+  onSavingChange?: (saving: boolean) => void;
+}) {
   const t = useT();
   const queryClient = useQueryClient();
   const mounted = useMounted();
@@ -182,6 +202,7 @@ function KeyValueDialogContent({
   const save = async () => {
     if (saving || !valid) return;
     setSaving(true);
+    onSavingChange?.(true);
     setError(null);
     try {
       await saveApiKeyValue({
@@ -199,6 +220,7 @@ function KeyValueDialogContent({
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
+      onSavingChange?.(false);
     }
   };
 
@@ -339,11 +361,7 @@ function KeyValueDialogContent({
         ) : null}
         <FormError message={error} />
         <DialogFooter className="gap-2 sm:space-x-0">
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => onOpenChange(false)}
-          >
+          <Button type="button" variant="secondary" onClick={onDismiss}>
             {t(`${M}cancel`)}
           </Button>
           <Button type="submit" disabled={saving || !valid}>
