@@ -40,6 +40,7 @@ export type AgentInvocationErrorCode =
   | "invalid-response"
   | "unsupported-action"
   | "self-call"
+  | "discovery-failed"
   | "not-found";
 
 export class AgentInvocationError extends Error {
@@ -50,9 +51,16 @@ export class AgentInvocationError extends Error {
   constructor(
     code: AgentInvocationErrorCode,
     message: string,
-    options?: { target?: string; availableAgents?: DiscoveredAgent[] },
+    options?: {
+      target?: string;
+      availableAgents?: DiscoveredAgent[];
+      cause?: unknown;
+    },
   ) {
-    super(message);
+    super(
+      message,
+      options?.cause === undefined ? undefined : { cause: options.cause },
+    );
     this.name = "AgentInvocationError";
     this.code = code;
     this.target = options?.target;
@@ -178,7 +186,10 @@ export async function resolveAgentInvocationTarget(
   const findAgent = options.runtime?.findAgent ?? defaultFindAgent;
   const discoverAgents =
     options.runtime?.discoverAgents ?? defaultDiscoverAgents;
-  const discoveryOptions = { includePersonalAgents: true };
+  const discoveryOptions = {
+    includePersonalAgents: true,
+    requireReadableAgentSources: true,
+  };
   const requestContext = getRequestContext();
   const resolveWithCaller = async <T>(read: () => Promise<T>): Promise<T> => {
     if (
@@ -199,11 +210,22 @@ export async function resolveAgentInvocationTarget(
       read,
     );
   };
-  const agent = await resolveWithCaller(() =>
+  const readAgentSource = async <T>(read: () => Promise<T>): Promise<T> => {
+    try {
+      return await resolveWithCaller(read);
+    } catch (cause) {
+      throw new AgentInvocationError(
+        "discovery-failed",
+        `Error: Could not read connected-agent sources while resolving "${cleanTarget}". No request was sent to another agent.`,
+        { target: cleanTarget, cause },
+      );
+    }
+  };
+  const agent = await readAgentSource(() =>
     findAgent(cleanTarget, options.selfAppId, discoveryOptions),
   );
   if (!agent) {
-    const availableAgents = await resolveWithCaller(() =>
+    const availableAgents = await readAgentSource(() =>
       discoverAgents(options.selfAppId, discoveryOptions),
     );
     const available = availableAgents.map((a) => a.name).join(", ");

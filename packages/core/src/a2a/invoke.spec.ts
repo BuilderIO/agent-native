@@ -108,6 +108,7 @@ describe("invokeAgent", () => {
 
     expect(rt.findAgent).toHaveBeenCalledWith("mail", "calendar", {
       includePersonalAgents: true,
+      requireReadableAgentSources: true,
     });
     expect(rt.callAgent).toHaveBeenCalledWith(
       "https://mail.agent-native.test",
@@ -127,7 +128,10 @@ describe("invokeAgent", () => {
       findAgent: vi.fn(async (_target, _selfAppId, options) => {
         expect(getRequestUserEmail()).toBe("alice@example.test");
         expect(getRequestOrgId()).toBe("org-123");
-        expect(options).toEqual({ includePersonalAgents: true });
+        expect(options).toEqual({
+          includePersonalAgents: true,
+          requireReadableAgentSources: true,
+        });
         return {
           id: "personal-agent",
           name: "Personal Agent",
@@ -490,6 +494,27 @@ describe("invokeAgent", () => {
       message:
         'Error: Agent "missing" not found. Available agents: Mail, Calendar',
     });
+  });
+
+  it("reports registry read failures instead of claiming the agent is missing", async () => {
+    const cause = new Error("agent resources are unavailable");
+    const rt = runtime({
+      findAgent: vi.fn(async () => {
+        throw cause;
+      }),
+    });
+
+    await expect(
+      resolveAgentInvocationTarget("mail", { runtime: rt }),
+    ).rejects.toMatchObject({
+      name: "AgentInvocationError",
+      code: "discovery-failed",
+      target: "mail",
+      cause,
+      message:
+        'Error: Could not read connected-agent sources while resolving "mail". No request was sent to another agent.',
+    });
+    expect(rt.discoverAgents).not.toHaveBeenCalled();
   });
 
   it("rejects non-http URL targets instead of treating them as names", async () => {
