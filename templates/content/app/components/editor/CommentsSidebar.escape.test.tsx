@@ -459,6 +459,11 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
     expect(source).toContain(
       "const restoreTarget = utilityPanelSheetTriggerRef.current;",
     );
+    expect(source).toContain("utilityPanelFocusFallbackRef.current");
+    expect(source).toContain("utilityPanelRegionWasOpenRef.current");
+    expect(source).toContain(
+      "utilityPanelFocusFallbackRef={utilityPanelFocusFallbackRef}",
+    );
     expect(source).toContain(
       "utilityPanelFocusGenerationRef.current !== focusGeneration",
     );
