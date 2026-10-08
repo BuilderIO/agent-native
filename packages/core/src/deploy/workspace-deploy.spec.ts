@@ -13,11 +13,17 @@ import {
   runWorkspaceDeploy,
 } from "./workspace-deploy.js";
 
+const INVALID_DIRECTORY_BASE_LOG = Symbol.for(
+  "agent-native.workspace.invalid-directory-base",
+);
+
 let tmpDir: string;
 let previousAppBasePath: string | undefined;
 let previousAppUrl: string | undefined;
 let previousA2ASecret: string | undefined;
 let previousBetterAuthUrl: string | undefined;
+let previousDeployUrl: string | undefined;
+let previousUrl: string | undefined;
 let previousCfPages: string | undefined;
 let previousDatabaseUrl: string | undefined;
 let previousUnpooledDatabaseUrl: string | undefined;
@@ -27,6 +33,10 @@ let previousIntegrationDurableDispatch: string | undefined;
 let previousDisableRecurringJobs: string | undefined;
 let previousNitroPreset: string | undefined;
 let previousVercel: string | undefined;
+let previousVercelEnv: string | undefined;
+let previousVercelUrl: string | undefined;
+let previousVercelBranchUrl: string | undefined;
+let previousVercelProjectProductionUrl: string | undefined;
 let previousViteWorkspaceAppsJson: string | undefined;
 let previousViteAgentNativeFeedbackUrl: string | undefined;
 let previousViteAppBasePath: string | undefined;
@@ -47,6 +57,9 @@ let previousDurableBackground: string | undefined;
 let execFile: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  delete (globalThis as Record<PropertyKey, unknown>)[
+    INVALID_DIRECTORY_BASE_LOG
+  ];
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-workspace-deploy-"));
   execFile = vi.fn(((_cmd, args, options) => {
     if (Array.isArray(args) && args[0] === "--filter") {
@@ -64,6 +77,8 @@ beforeEach(() => {
   previousAppUrl = process.env.APP_URL;
   previousA2ASecret = process.env.A2A_SECRET;
   previousBetterAuthUrl = process.env.BETTER_AUTH_URL;
+  previousDeployUrl = process.env.DEPLOY_URL;
+  previousUrl = process.env.URL;
   previousCfPages = process.env.CF_PAGES;
   previousDatabaseUrl = process.env.DATABASE_URL;
   previousUnpooledDatabaseUrl = process.env.NETLIFY_DATABASE_URL_UNPOOLED;
@@ -75,6 +90,11 @@ beforeEach(() => {
     process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
   previousNitroPreset = process.env.NITRO_PRESET;
   previousVercel = process.env.VERCEL;
+  previousVercelEnv = process.env.VERCEL_ENV;
+  previousVercelUrl = process.env.VERCEL_URL;
+  previousVercelBranchUrl = process.env.VERCEL_BRANCH_URL;
+  previousVercelProjectProductionUrl =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL;
   previousViteWorkspaceAppsJson =
     process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
   previousViteAgentNativeFeedbackUrl =
@@ -105,6 +125,8 @@ beforeEach(() => {
   delete process.env.APP_URL;
   delete process.env.A2A_SECRET;
   delete process.env.BETTER_AUTH_URL;
+  delete process.env.DEPLOY_URL;
+  delete process.env.URL;
   delete process.env.CF_PAGES;
   delete process.env.DATABASE_URL;
   delete process.env.NETLIFY_DATABASE_URL_UNPOOLED;
@@ -114,6 +136,10 @@ beforeEach(() => {
   delete process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
   delete process.env.NITRO_PRESET;
   delete process.env.VERCEL;
+  delete process.env.VERCEL_ENV;
+  delete process.env.VERCEL_URL;
+  delete process.env.VERCEL_BRANCH_URL;
+  delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
   delete process.env.VITE_AGENT_NATIVE_FEEDBACK_URL;
   delete process.env.VITE_APP_BASE_PATH;
@@ -134,10 +160,15 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  delete (globalThis as Record<PropertyKey, unknown>)[
+    INVALID_DIRECTORY_BASE_LOG
+  ];
   restoreEnv("APP_BASE_PATH", previousAppBasePath);
   restoreEnv("APP_URL", previousAppUrl);
   restoreEnv("A2A_SECRET", previousA2ASecret);
   restoreEnv("BETTER_AUTH_URL", previousBetterAuthUrl);
+  restoreEnv("DEPLOY_URL", previousDeployUrl);
+  restoreEnv("URL", previousUrl);
   restoreEnv("CF_PAGES", previousCfPages);
   restoreEnv("DATABASE_URL", previousDatabaseUrl);
   restoreEnv("NETLIFY_DATABASE_URL_UNPOOLED", previousUnpooledDatabaseUrl);
@@ -153,6 +184,13 @@ afterEach(() => {
   );
   restoreEnv("NITRO_PRESET", previousNitroPreset);
   restoreEnv("VERCEL", previousVercel);
+  restoreEnv("VERCEL_ENV", previousVercelEnv);
+  restoreEnv("VERCEL_URL", previousVercelUrl);
+  restoreEnv("VERCEL_BRANCH_URL", previousVercelBranchUrl);
+  restoreEnv(
+    "VERCEL_PROJECT_PRODUCTION_URL",
+    previousVercelProjectProductionUrl,
+  );
   restoreEnv(
     "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
     previousViteWorkspaceAppsJson,
@@ -1495,6 +1533,7 @@ describe("workspace deploy", () => {
   it("uses public workspace URLs before loopback gateways when building apps", async () => {
     process.env.APP_URL = "https://workspace.example.test";
     process.env.WORKSPACE_GATEWAY_URL = "http://127.0.0.1:8080";
+    process.env.VITE_WORKSPACE_GATEWAY_URL = "http://127.0.0.1:8080";
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "mail");
 
@@ -1515,9 +1554,18 @@ describe("workspace deploy", () => {
     expect(dispatchCall?.env?.VITE_WORKSPACE_OAUTH_ORIGIN).toBe(
       "https://workspace.example.test",
     );
-    expect(dispatchCall?.env?.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
-      "https://workspace.example.test",
+    expect(dispatchCall?.env?.AGENT_NATIVE_ORG_DIRECTORY_URL).toBeUndefined();
+    const dispatchServer = fs.readFileSync(
+      path.join(
+        tmpDir,
+        ".netlify",
+        "functions-internal",
+        "dispatch-server",
+        "dispatch-server.mjs",
+      ),
+      "utf8",
     );
+    expect(dispatchServer).toContain('new URL("/dispatch", baseUrl)');
     expect(
       JSON.parse(dispatchCall?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]"),
     ).toEqual([
@@ -1546,6 +1594,232 @@ describe("workspace deploy", () => {
         protectedPaths: [],
       },
     ]);
+  });
+
+  it("uses the deployed URL when a build used a loopback URL", async () => {
+    process.env.APP_URL = "http://127.0.0.2:8888";
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    expect(
+      buildCallForApp("dispatch")?.env?.AGENT_NATIVE_ORG_DIRECTORY_URL,
+    ).toBeUndefined();
+    process.env.URL = "https://beta.example.test";
+    const dispatchEntry = path.join(
+      tmpDir,
+      ".netlify",
+      "functions-internal",
+      "dispatch-server",
+      "dispatch-server.mjs",
+    );
+    await import(
+      `${pathToFileURL(dispatchEntry).href}?runtime-url=${Date.now()}`
+    );
+
+    expect(process.env.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
+      "https://beta.example.test/dispatch",
+    );
+  });
+
+  it("skips local and unspecified addresses in favor of a public URL", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    process.env.URL = "https://beta.example.test";
+    const dispatchEntry = path.join(
+      tmpDir,
+      ".netlify",
+      "functions-internal",
+      "dispatch-server",
+      "dispatch-server.mjs",
+    );
+    const localUrls = [
+      "http://localhost.",
+      "http://api.localhost.",
+      "http://127.0.0.2",
+      "http://[::ffff:127.0.0.2]",
+      "http://0.0.0.0:8888",
+      "http://[::]:8888",
+    ];
+
+    for (const [index, localUrl] of localUrls.entries()) {
+      process.env.APP_URL = localUrl;
+      delete process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
+      await import(
+        `${pathToFileURL(dispatchEntry).href}?loopback-alias=${index}`
+      );
+
+      expect(process.env.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
+        "https://beta.example.test/dispatch",
+      );
+    }
+  });
+
+  it("prefers the Dispatch URL over a separate OAuth origin", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    process.env.WORKSPACE_OAUTH_ORIGIN = "https://oauth.example.test";
+    process.env.VITE_WORKSPACE_OAUTH_ORIGIN = "https://oauth.example.test";
+    process.env.URL = "https://dispatch.example.test";
+    const dispatchEntry = path.join(
+      tmpDir,
+      ".netlify",
+      "functions-internal",
+      "dispatch-server",
+      "dispatch-server.mjs",
+    );
+    await import(
+      `${pathToFileURL(dispatchEntry).href}?oauth-origin=${Date.now()}`
+    );
+
+    expect(process.env.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
+      "https://dispatch.example.test/dispatch",
+    );
+  });
+
+  it("skips an invalid runtime URL and uses the gateway alias", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    process.env.APP_URL = "not-a-url";
+    process.env.VITE_WORKSPACE_GATEWAY_URL = "https://beta.example.test";
+    const dispatchEntry = path.join(
+      tmpDir,
+      ".netlify",
+      "functions-internal",
+      "dispatch-server",
+      "dispatch-server.mjs",
+    );
+    await expect(
+      import(`${pathToFileURL(dispatchEntry).href}?invalid-url=${Date.now()}`),
+    ).resolves.toBeDefined();
+
+    expect(process.env.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
+      "https://beta.example.test/dispatch",
+    );
+  });
+
+  it("uses the Vercel deployment URL when no public base is configured", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "vercel",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    process.env.VERCEL = "1";
+    process.env.VERCEL_URL = "workspace-abc.vercel.app";
+    const dispatchEntry = path.join(
+      tmpDir,
+      ".vercel",
+      "output",
+      "functions",
+      "dispatch-server.func",
+      "index.mjs",
+    );
+    await import(
+      `${pathToFileURL(dispatchEntry).href}?vercel-url=${Date.now()}`
+    );
+
+    expect(process.env.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
+      "https://workspace-abc.vercel.app/dispatch",
+    );
+  });
+
+  it("uses the project production URL for Vercel production deployments", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "vercel",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    process.env.VERCEL = "1";
+    process.env.VERCEL_ENV = "production";
+    process.env.VERCEL_URL = "workspace-deployment-abc.vercel.app";
+    process.env.VERCEL_BRANCH_URL = "workspace-branch.vercel.app";
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = "workspace.example.com";
+    const dispatchEntry = path.join(
+      tmpDir,
+      ".vercel",
+      "output",
+      "functions",
+      "dispatch-server.func",
+      "index.mjs",
+    );
+    await import(
+      `${pathToFileURL(dispatchEntry).href}?vercel-production-url=${Date.now()}`
+    );
+
+    expect(process.env.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
+      "https://workspace.example.com/dispatch",
+    );
+  });
+
+  it("logs invalid runtime URLs once while serving requests", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    process.env.APP_URL = "not-a-url";
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const dispatchEntry = path.join(
+      tmpDir,
+      ".netlify",
+      "functions-internal",
+      "dispatch-server",
+      "dispatch-server.mjs",
+    );
+    const module = await import(
+      `${pathToFileURL(dispatchEntry).href}?invalid-runtime=${Date.now()}`
+    );
+    try {
+      await module.default(
+        new Request("https://workspace.example.test/dispatch"),
+      );
+      await module.default(
+        new Request("https://workspace.example.test/dispatch"),
+      );
+
+      expect(log).toHaveBeenCalledTimes(1);
+    } finally {
+      log.mockRestore();
+    }
+    expect(process.env).not.toHaveProperty("AGENT_NATIVE_ORG_DIRECTORY_URL");
   });
 
   it("does not synthesize a Dispatch directory for a workspace without Dispatch", async () => {

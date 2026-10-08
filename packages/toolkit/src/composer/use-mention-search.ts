@@ -12,6 +12,7 @@ export function useMentionSearch(
   const resolveRequestPath = resolvePathOverride ?? resolvePath;
   const [items, setItems] = useState<MentionItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [settledQuery, setSettledQuery] = useState<string | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [revision, setRevision] = useState(0);
   const retry = useCallback(() => setRevision((value) => value + 1), []);
@@ -24,6 +25,7 @@ export function useMentionSearch(
     if (!enabled) {
       setItems([]);
       setIsLoading(false);
+      setSettledQuery(null);
       return;
     }
 
@@ -33,6 +35,7 @@ export function useMentionSearch(
 
     setItems([]);
     setIsLoading(true);
+    setSettledQuery(null);
 
     const debounceMs = query.length === 0 ? 0 : 150;
 
@@ -101,6 +104,10 @@ export function useMentionSearch(
             receive(line);
           }
         }
+        // Only a completed search settles its query: a failed one is unknown,
+        // not empty, and must not read as "nothing matches".
+        if (id === requestIdRef.current && !abort.signal.aborted)
+          setSettledQuery(query);
       } catch (err: unknown) {
         if (abort.signal.aborted) return;
         if (id === requestIdRef.current)
@@ -119,5 +126,5 @@ export function useMentionSearch(
     };
   }, [query, enabled, resolveRequestPath, revision]);
 
-  return { items, isLoading, error, retry };
+  return { items, isLoading, error, retry, settledQuery };
 }

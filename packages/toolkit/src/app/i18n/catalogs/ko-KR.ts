@@ -667,6 +667,10 @@ const messages: ToolkitAgentChatTranslation = {
   "feedback.thumbsDown": "싫어요",
   "feedback.thumbsUp": "좋아요",
   "feedback.tooSlow": "너무 느림",
+  "feedback.reasonMisread": "요청을 잘못 이해함",
+  "feedback.reasonNotDone": "완료했다고 했지만 완료되지 않음",
+  "feedback.reasonWrongNumbers": "숫자가 틀림",
+  "feedback.copyDetails": "세부정보 복사",
   "feedback.whatWentWrong": "무엇이 잘못되었나요?",
   "feedback.wrongTool": "잘못된 도구",
   "header.switchToCli": "CLI로 전환",
@@ -1153,6 +1157,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.stuckWithDuration":
     "{{seconds}}초 동안 진행이 없습니다. 에이전트가 서버 시간 제한에 걸렸거나 연결이 끊겼을 수 있습니다.",
   "recovery.stuckRetrying": "자동으로 다시 시도하는 중입니다.",
+  "recovery.statusUnreadable":
+    "서버에 연결할 수 없어 이 채팅의 상태를 확인하지 못했습니다. 이미 완료되었을 수 있습니다. 계속 시도합니다.",
+  "recovery.statusMismatch":
+    "서버에 따르면 이 채팅은 더 이상 실행 중이 아닙니다. 새로고침하여 결과를 확인하세요.",
+  "recovery.reload": "새로고침",
   "recovery.statusCheckFailed":
     "에이전트가 아직 작업 중인지 확인하기 위해 서버에 연결할 수 없습니다. 메시지를 다시 보내 재시도하세요.",
   "recovery.streamEnded":

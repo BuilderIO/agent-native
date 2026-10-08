@@ -66,6 +66,10 @@ const HANDLER_REL_BY_PRESET = {
   "aws-lambda": ".output/server/index.mjs",
 };
 
+// A single-sample backstop, not a tuned limit: the same bundle measures 1.7s to
+// 3.2s across CI runners, so a healthy template must sit well under this. If one
+// drifts toward it, profile its module-scope work instead of raising the number
+// (Plan reached ~3s because defineAction converted every action schema at import).
 const IMPORT_BUDGET_MS = 3_000;
 
 const PAGE_FUNCTION_BUDGET_MB = 80;

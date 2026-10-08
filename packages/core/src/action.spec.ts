@@ -660,6 +660,24 @@ describe("defineAction schema mode — agentInputSchema (advertised-only overrid
     const params = action.tool.parameters as any;
     expect(Object.keys(params.properties)).toEqual(["title", "count"]);
   });
+
+  it("never converts the full schema to JSON Schema when agentInputSchema is set", () => {
+    const fullSchema = z.object({ title: z.string(), count: z.number() });
+    const jsonSchema = (fullSchema as any)["~standard"].jsonSchema;
+    const convert = vi.spyOn(jsonSchema, "input");
+
+    const action = defineAction({
+      description: "create widget",
+      schema: fullSchema,
+      agentInputSchema: z.object({ title: z.string() }),
+      run: async () => "ok",
+    });
+
+    expect(convert).not.toHaveBeenCalled();
+    expect(Object.keys((action.tool.parameters as any).properties)).toEqual([
+      "title",
+    ]);
+  });
 });
 
 describe("defineAction schema mode — runtime validation wrapper", () => {
