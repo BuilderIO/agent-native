@@ -621,27 +621,21 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const fallbackStart = regressionCases.indexOf("            *)");
   assert.ok(positionOneStart >= 0 && positionTwoStart > positionOneStart);
   assert.ok(fallbackStart > positionTwoStart);
-  assert.deepEqual(
-    fixedLocations(positionOneStart, positionTwoStart),
-    [
-      "e2e/pasted-svg-image-inspector.spec.ts:656",
-      "e2e/pasted-svg-image-inspector.spec.ts:693",
-      "e2e/position-alignment.spec.ts:361",
-      "e2e/position-alignment.spec.ts:431",
-      "e2e/position-alignment.spec.ts:509",
-    ],
-  );
-  assert.deepEqual(
-    fixedLocations(positionTwoStart, fallbackStart),
-    [
-      "e2e/position-alignment.spec.ts:570",
-      "e2e/position-alignment.spec.ts:615",
-      "e2e/position-alignment.spec.ts:661",
-      "e2e/position-alignment.spec.ts:708",
-      "e2e/position-alignment.spec.ts:740",
-      "e2e/position-alignment.spec.ts:780",
-    ],
-  );
+  assert.deepEqual(fixedLocations(positionOneStart, positionTwoStart), [
+    "e2e/pasted-svg-image-inspector.spec.ts:656",
+    "e2e/pasted-svg-image-inspector.spec.ts:693",
+    "e2e/position-alignment.spec.ts:361",
+    "e2e/position-alignment.spec.ts:431",
+    "e2e/position-alignment.spec.ts:509",
+  ]);
+  assert.deepEqual(fixedLocations(positionTwoStart, fallbackStart), [
+    "e2e/position-alignment.spec.ts:570",
+    "e2e/position-alignment.spec.ts:615",
+    "e2e/position-alignment.spec.ts:661",
+    "e2e/position-alignment.spec.ts:708",
+    "e2e/position-alignment.spec.ts:740",
+    "e2e/position-alignment.spec.ts:780",
+  ]);
   assert.ok(
     regressionCases.includes(
       "E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
