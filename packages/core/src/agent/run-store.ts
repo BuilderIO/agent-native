@@ -2395,7 +2395,10 @@ export async function getRunByThread(
   const markerPriority = options?.turnId
     ? `CASE WHEN dispatch_mode = 'turn-abort' THEN 0 ELSE 1 END`
     : `CASE WHEN dispatch_mode = 'turn-abort' THEN 1 ELSE 0 END`;
-  const sql = `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, terminal_reason, diag_stage, error_code, in_flight_since FROM agent_runs WHERE thread_id = ?${turnClause}${statusClause} ORDER BY ${markerPriority}, started_at DESC LIMIT 1`;
+  const continuationOrder = options?.turnId
+    ? `, COALESCE(continuation_order, 0) DESC`
+    : "";
+  const sql = `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, terminal_reason, diag_stage, error_code, in_flight_since FROM agent_runs WHERE thread_id = ?${turnClause}${statusClause} ORDER BY ${markerPriority}${continuationOrder}, started_at DESC LIMIT 1`;
   const args = options?.turnId ? [threadId, options.turnId] : [threadId];
   const { rows } = await client.execute({ sql, args });
   if (rows.length === 0) return null;

@@ -16,6 +16,7 @@ import {
   type AgentChatRuntimeMessage,
   type AgentChatRuntimeToolCall,
   type AgentChatRuntimeTurn,
+  type AgentChatRuntimeTurnInput,
 } from "./runtime.js";
 
 async function* streamRuntimeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
@@ -403,6 +404,66 @@ describe("createHttpAgentChatRuntime", () => {
     ).toMatchObject({
       prompt: "Continue",
     });
+  });
+
+  it("uses the named turn input after another turn starts in the session", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "done", reason: "tool-use" }]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "done", reason: "complete" }]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "done", reason: "complete" }]),
+      );
+    let continuationInput: AgentChatRuntimeTurnInput | undefined;
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: fetchMock as typeof fetch,
+      continueTurn: ({ continuation, previousTurn, startTurn }) => {
+        continuationInput = previousTurn;
+        return startTurn({
+          ...previousTurn,
+          prompt: continuation.prompt,
+        });
+      },
+    });
+    const session = await runtime.createSession({ id: "thread-1" });
+    const approvalTurn = await session.startTurn({
+      prompt: "Approval prompt",
+      queuePromotion: {
+        messageId: "approval-message",
+        claimId: "approval-claim",
+        turnId: "approval-turn",
+      },
+      metadata: { turnOwner: "approval" },
+    });
+    await drain(approvalTurn.events);
+
+    const laterTurn = await session.startTurn({
+      prompt: "Queued prompt",
+      queuePromotion: {
+        messageId: "queued-message",
+        claimId: "queued-claim",
+        turnId: "queued-turn",
+      },
+      metadata: { turnOwner: "queued" },
+    });
+    await drain(laterTurn.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: approvalTurn.id,
+      prompt: "Continue approval",
+    });
+
+    expect(continuationInput).toMatchObject({
+      prompt: "Approval prompt",
+      metadata: { turnOwner: "approval" },
+    });
+    expect(continuation?.id).toBe(approvalTurn.id);
+    await drain(continuation!.events);
   });
 });
 

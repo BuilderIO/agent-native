@@ -1044,6 +1044,13 @@ function isBenignHttpError(
   ) {
     return true;
   }
+  // The runtime maps this lookup's 404 response to the explicit missing state.
+  if (
+    status === 404 &&
+    new URL(url).pathname === "/_agent-native/agent-chat/runs/latest"
+  ) {
+    return true;
+  }
   if (status === 404 && url.includes("/_agent-native/speculation-rules.json")) {
     return true;
   }

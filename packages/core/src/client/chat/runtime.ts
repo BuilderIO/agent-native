@@ -857,11 +857,7 @@ export interface CreateHttpAgentChatRuntimeOptions<
       runId?: string;
     },
   ) => TEvent | readonly TEvent[] | null;
-  /**
-   * Continues a paused turn through the same transport. The callback receives
-   * the most recent turn input so protocol-specific adapters can preserve the
-   * conversation context without teaching UI layers how to replay a request.
-   */
+  /** Continues a paused turn using that turn's original request context. */
   readonly continueTurn?: (input: {
     session: AgentChatRuntimeSessionSummary;
     continuation: AgentChatRuntimeContinueInput;
@@ -1387,13 +1383,22 @@ export function createHttpAgentChatRuntime<
       updatedAt: new Date().toISOString(),
       metadata: input?.metadata,
     };
-    let previousTurn: AgentChatRuntimeTurnInput | undefined;
+    let latestTurn: AgentChatRuntimeTurnInput | undefined;
+    const previousTurns = new Map<string, AgentChatRuntimeTurnInput>();
+    const forgetTurnContext = (
+      turnId: string,
+      turn: AgentChatRuntimeTurnInput,
+    ) => {
+      if (previousTurns.get(turnId) === turn) previousTurns.delete(turnId);
+      if (latestTurn === turn) latestTurn = undefined;
+    };
 
     const startTurn = async (
       turn: AgentChatRuntimeTurnInput,
     ): Promise<AgentChatRuntimeTurn<TEvent>> => {
-      previousTurn = turn;
       const turnId = turn.queuePromotion?.turnId ?? createRuntimeId("turn");
+      latestTurn = turn;
+      previousTurns.set(turnId, turn);
       const { controller, cleanup } = createAbortController(turn.abortSignal);
       const endpoint =
         typeof options.endpoint === "function"
@@ -1420,22 +1425,32 @@ export function createHttpAgentChatRuntime<
         });
       } catch (error) {
         cleanup();
+        forgetTurnContext(turnId, turn);
         throw withTurnId(error, turnId);
       }
       if (!response.ok) {
         cleanup();
+        forgetTurnContext(turnId, turn);
         throw withTurnId(await readHttpRuntimeError(response), turnId);
       }
 
       const runId = response.headers.get("X-Run-Id") ?? undefined;
       const events = (async function* () {
         try {
-          yield* streamResponseEvents(response, {
+          for await (const event of streamResponseEvents(response, {
             sessionId,
             turnId,
             runId,
             mapEvent,
-          });
+          })) {
+            if (
+              event.type === "done" &&
+              asRecord(event)?.reason !== "tool-use"
+            ) {
+              forgetTurnContext(turnId, turn);
+            }
+            yield event;
+          }
         } finally {
           cleanup();
         }
@@ -1494,7 +1509,9 @@ export function createHttpAgentChatRuntime<
           options.continueTurn!({
             session: summary,
             continuation,
-            previousTurn,
+            previousTurn: continuation.turnId
+              ? previousTurns.get(continuation.turnId)
+              : latestTurn,
             startTurn,
           })
       : undefined;
@@ -1514,7 +1531,10 @@ export function createHttpAgentChatRuntime<
         messages: input?.messages,
         resumeState: input?.resumeState,
       }),
-      dispose: () => undefined,
+      dispose: () => {
+        previousTurns.clear();
+        latestTurn = undefined;
+      },
     };
   };
 

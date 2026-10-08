@@ -7,8 +7,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createServer, type Plugin, type ViteDevServer } from "vite";
 import { describe, expect, it } from "vitest";
 
-import { agentNative } from "./client.js";
-
 type ProbeResult = {
   rows: Array<{ id: number; value: string }>;
 };
@@ -192,17 +190,33 @@ describe("Nitro PGlite dev lifecycle", () => {
     const slowQueryPath = path.join(testRoot, "slow-query");
     const slowQueryStartedPath = path.join(testRoot, "slow-query-started");
     const slowQueryCompletedPath = path.join(testRoot, "slow-query-completed");
+    const replacementConfigureEnteredPath = path.join(
+      testRoot,
+      "replacement-configure-entered",
+    );
+    const replacementListenHandledPath = path.join(
+      testRoot,
+      "replacement-listen-handled",
+    );
+    const replacementListenFailurePath = path.join(
+      testRoot,
+      "replacement-listen-failure",
+    );
     const previousCwd = process.cwd();
     const previousDatabaseUrl = process.env.DATABASE_URL;
     let server: ViteDevServer | undefined;
     let serverRestarts = 0;
     let serverListens = 0;
     let serverConfigurations = 0;
+    const configuredInlineConfigs = new Set<object>();
+    const nitroLifecyclePlugins = new Set<Plugin>();
     let databaseCloseAcknowledgements = 0;
     let databaseCloseRequests = 0;
     let resumeRequestsToDrop = 0;
     let deferNextResumeRequest = false;
+    let deferNextReplacementConfiguration = false;
     let releaseDeferredResumeRequest: (() => void) | undefined;
+    let releaseDeferredReplacementConfiguration: (() => void) | undefined;
     let restoreCloseAcknowledgements: (() => void) | undefined;
     let restoreNitroSend: (() => void) | undefined;
     let restoreShutdownRaceListener: (() => void) | undefined;
@@ -213,6 +227,15 @@ describe("Nitro PGlite dev lifecycle", () => {
     fs.mkdirSync(path.join(testRoot, "server", "routes"), {
       recursive: true,
     });
+    fs.writeFileSync(
+      path.join(testRoot, "vite.config.ts"),
+      `import { agentNative } from ${JSON.stringify(
+        pathToFileURL(path.join(coreRoot, "src/vite/client.ts")).href,
+      )};
+
+export default { plugins: agentNative() };
+`,
+    );
     fs.symlinkSync(
       path.join(workspaceRoot, "node_modules"),
       path.join(testRoot, "node_modules"),
@@ -273,8 +296,14 @@ export default async () => {
 
     const lifecycleObserver: Plugin = {
       name: "pglite-restart-test-observer",
-      configureServer(server) {
+      async configureServer(server) {
         serverConfigurations++;
+        configuredInlineConfigs.add(server.config.inlineConfig);
+        const lifecyclePlugin = server.config.plugins.find(
+          (plugin) =>
+            plugin.name === "agent-native-nitro-dev-environment-close",
+        );
+        if (lifecyclePlugin) nitroLifecyclePlugins.add(lifecyclePlugin);
         server.httpServer?.once("close", () => {
           serverRestarts++;
         });
@@ -312,6 +341,29 @@ export default async () => {
             send.call(hot, payload);
           };
         }
+        if (!deferNextReplacementConfiguration) return;
+
+        deferNextReplacementConfiguration = false;
+        fs.writeFileSync(replacementConfigureEnteredPath, "entered");
+        await new Promise<void>((resolve) => {
+          releaseDeferredReplacementConfiguration = resolve;
+        });
+        const listen = server.listen.bind(server);
+        server.listen = async (...args) => {
+          try {
+            return await listen(...args);
+          } catch (error) {
+            fs.writeFileSync(
+              replacementListenFailurePath,
+              error instanceof Error
+                ? `${"code" in error ? String(error.code) : ""}: ${error.message}`
+                : String(error),
+            );
+            throw error;
+          } finally {
+            fs.writeFileSync(replacementListenHandledPath, "handled");
+          }
+        };
       },
     };
 
@@ -319,9 +371,11 @@ export default async () => {
       process.env.DATABASE_URL = `pglite:${databaseDir}`;
       process.chdir(testRoot);
       server = await createServer({
+        configFile: path.join(testRoot, "vite.config.ts"),
+        configLoader: "runner",
         logLevel: "silent",
         optimizeDeps: { noDiscovery: true, include: [] },
-        plugins: [...agentNative(), lifecycleObserver],
+        plugins: [lifecycleObserver],
         root: testRoot,
         server: {
           fs: { allow: [workspaceRoot, coreRoot] },
@@ -360,6 +414,8 @@ export default async () => {
       );
       fs.rmSync(pauseProbePath, { force: true });
       const acknowledgementsBeforeRestart = databaseCloseAcknowledgements;
+      const restartsBeforeEnvChange = serverRestarts;
+      const listensBeforeEnvChange = serverListens;
       resumeRequestsToDrop = 2;
       deferNextResumeRequest = true;
 
@@ -369,8 +425,8 @@ export default async () => {
       expect(databaseCloseAcknowledgements).toBeGreaterThan(
         acknowledgementsBeforeRestart,
       );
-      expect(serverRestarts).toBeGreaterThan(0);
-      expect(serverListens).toBeGreaterThan(1);
+      expect(serverRestarts).toBeGreaterThan(restartsBeforeEnvChange);
+      expect(serverListens).toBeGreaterThan(listensBeforeEnvChange);
       expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
         false,
       );
@@ -413,6 +469,8 @@ export default async () => {
       expect(serverRestarts).toBeGreaterThan(restartsBeforeOverlappingRestart);
       expect(serverListens).toBeGreaterThan(listensBeforeOverlappingRestart);
       expect(restarted.rows).toEqual([{ id: 1, value: "persisted" }]);
+      expect(configuredInlineConfigs.size).toBe(1);
+      expect(nitroLifecyclePlugins.size).toBeGreaterThan(1);
       expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
         true,
       );
@@ -553,10 +611,77 @@ export default async () => {
       restoreCloseAcknowledgements();
       restoreCloseAcknowledgements = undefined;
       server = undefined;
+
+      server = await createServer({
+        configFile: path.join(testRoot, "vite.config.ts"),
+        configLoader: "runner",
+        logLevel: "silent",
+        optimizeDeps: { noDiscovery: true, include: [] },
+        plugins: [lifecycleObserver],
+        root: testRoot,
+        server: {
+          fs: { allow: [workspaceRoot, coreRoot] },
+          host: "127.0.0.1",
+          port: 0,
+        },
+      });
+      await server.listen();
+
+      const replacementBaseUrl = server.resolvedUrls?.local[0];
+      if (!replacementBaseUrl) {
+        throw new Error("Vite did not report its replacement dev URL");
+      }
+      const replacementProbeUrl = new URL("probe", replacementBaseUrl).href;
+      const replacementReady = await waitForProbe(
+        replacementProbeUrl,
+        () => true,
+      );
+      expect(replacementReady.rows).toEqual([{ id: 1, value: "persisted" }]);
+      expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
+        true,
+      );
+
+      const configurationsBeforeReplacement = serverConfigurations;
+      const listensBeforeReplacement = serverListens;
+      const restartsBeforeReplacement = serverRestarts;
+      deferNextReplacementConfiguration = true;
+      fs.writeFileSync(envFile, "VITE_RESTART_TOKEN=shutdown-during-create\n");
+      await waitForFile(replacementConfigureEnteredPath, 20_000);
+      expect(serverConfigurations).toBeGreaterThan(
+        configurationsBeforeReplacement,
+      );
+
+      const replacementShutdownStartedAt = Date.now();
+      await server.close();
+      expect(Date.now() - replacementShutdownStartedAt).toBeLessThan(20_000);
+      expect(serverRestarts).toBe(restartsBeforeReplacement + 1);
+      expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
+        false,
+      );
+      expect(server.httpServer?.listening).toBe(false);
+
+      const releaseReplacementConfiguration =
+        releaseDeferredReplacementConfiguration;
+      if (!releaseReplacementConfiguration) {
+        throw new Error("The replacement configure barrier was lost");
+      }
+      releaseDeferredReplacementConfiguration = undefined;
+      releaseReplacementConfiguration();
+      await waitForFile(replacementListenHandledPath, 20_000);
+      expect(fs.readFileSync(replacementListenFailurePath, "utf8")).toContain(
+        "AGENT_NATIVE_VITE_RESTART_CANCELLED",
+      );
+      expect(serverListens).toBe(listensBeforeReplacement);
+      expect(server.httpServer?.listening).toBe(false);
+      server = undefined;
     } finally {
       const releaseResumeRequest = releaseDeferredResumeRequest;
       releaseDeferredResumeRequest = undefined;
       releaseResumeRequest?.();
+      const releaseReplacementConfiguration =
+        releaseDeferredReplacementConfiguration;
+      releaseDeferredReplacementConfiguration = undefined;
+      releaseReplacementConfiguration?.();
       restoreShutdownRaceListener?.();
       restoreCloseAcknowledgements?.();
       restoreNitroSend?.();
