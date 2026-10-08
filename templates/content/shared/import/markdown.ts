@@ -1066,26 +1066,10 @@ class MarkdownConverter {
 
   private linkMark(url: string, title: string | null): PMMark | null {
     if (title) this.notes.add("link-title-dropped", title);
-    const reference = classifyImportReference(this.sourcePath, url);
-    switch (reference.kind) {
-      case "remote":
-      case "anchor":
-        return { type: "link", attrs: { href: reference.url } };
-      case "relative":
-        return {
-          type: "link",
-          attrs: { href: this.slot({ role: "link", reference, written: url }) },
-        };
-      case "outside":
-        this.notes.add("link-target-not-imported", url);
-        return { type: "link", attrs: { href: url } };
-      case "data-url":
-        this.notes.add("link-removed", describeDataUrl(reference.url));
-        return null;
-      case "unsupported":
-        this.notes.add("link-removed", url);
-        return null;
-    }
+    const href = importedLinkHref(this.sourcePath, url, this.notes, (slot) =>
+      this.slot(slot),
+    );
+    return href === null ? null : { type: "link", attrs: { href } };
   }
 
   private htmlImage(token: Extract<HtmlToken, { type: "open" }>): PMNode {
@@ -1125,6 +1109,35 @@ class MarkdownConverter {
     return typeof start === "number" && typeof end === "number"
       ? this.source.slice(start, end)
       : "";
+  }
+}
+
+/**
+ * The href an imported link keeps, or null when only its text survives. Both
+ * readers go through here so neither can keep a scheme the other drops.
+ */
+function importedLinkHref(
+  sourcePath: string,
+  written: string,
+  notes: ImportNoteBag,
+  slot: (value: ImportReferenceSlot) => string,
+): string | null {
+  const reference = classifyImportReference(sourcePath, written);
+  switch (reference.kind) {
+    case "remote":
+    case "anchor":
+      return reference.url;
+    case "relative":
+      return slot({ role: "link", reference, written });
+    case "outside":
+      notes.add("link-target-not-imported", written);
+      return written;
+    case "data-url":
+      notes.add("link-removed", describeDataUrl(reference.url));
+      return null;
+    case "unsupported":
+      notes.add("link-removed", written);
+      return null;
   }
 }
 
@@ -1169,16 +1182,15 @@ function convertNfm(
         };
       }
     }
-    for (const mark of node.marks ?? []) {
-      const href = mark.attrs?.href;
-      if (mark.type !== "link" || typeof href !== "string") continue;
-      const reference = classifyImportReference(sourcePath, href);
-      if (reference.kind === "relative") {
-        mark.attrs = {
-          ...mark.attrs,
-          href: slot({ role: "link", reference, written: href }),
-        };
-      }
+    if (node.marks?.length) {
+      node.marks = node.marks.flatMap((mark) => {
+        const written = mark.attrs?.href;
+        if (mark.type !== "link" || typeof written !== "string") return [mark];
+        const href = importedLinkHref(sourcePath, written, notes, slot);
+        return href === null
+          ? []
+          : [{ ...mark, attrs: { ...mark.attrs, href } }];
+      });
     }
     for (const child of node.content ?? []) visit(child);
   };

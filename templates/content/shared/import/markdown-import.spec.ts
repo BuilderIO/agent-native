@@ -399,6 +399,42 @@ describe("Markdown import", () => {
     expect(page.report.notes).toEqual([]);
   });
 
+  it("drops the same links from Content Markdown as from other Markdown", () => {
+    const page = importMarkdown(
+      [
+        '<callout icon="💡" color="blue_bg">',
+        "\t[Run me](javascript:alert(1)) and [notes](data:text/plain,SECRET)",
+        "</callout>",
+        "[Docs](https://example.com/docs) and [API](../api.md)",
+      ].join("\n"),
+      { sourcePath: "launch-plan.md" },
+    );
+
+    expect(page.dialect).toBe("nfm");
+    const hrefs = nodesOfType(page.doc, "text").flatMap((node) =>
+      (node.marks ?? [])
+        .filter((mark) => mark.type === "link")
+        .map((mark) => [node.text, mark.attrs?.href]),
+    );
+    expect(hrefs).toEqual([
+      ["Docs", "https://example.com/docs"],
+      ["API", "../api.md"],
+    ]);
+    expect(textOf(nodesOfType(page.doc, "notionCallout")[0])).toBe(
+      "Run me and notes",
+    );
+    const notes = Object.fromEntries(
+      page.report.notes.map((note) => [note.kind, note.samples]),
+    );
+    expect(notes["link-removed"]).toEqual([
+      "javascript:alert(1)",
+      "text/plain (1 KB, embedded)",
+    ]);
+    expect(notes["link-target-not-imported"]).toEqual(["../api.md"]);
+    expect(JSON.stringify(page.report)).not.toContain("SECRET");
+    expectEditorAccepts(page);
+  });
+
   it("indents an untabbed NFM container body instead of dropping it", () => {
     const page = importMarkdown(UNTABBED_CALLOUT_NFM);
 
