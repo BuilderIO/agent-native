@@ -456,6 +456,83 @@ describe("createHttpAgentChatRuntime", () => {
     });
   });
 
+  it("preserves retryable failure context until a continuation succeeds", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "error",
+            error: "Temporary failure",
+            retryable: true,
+          },
+          { type: "done", reason: "error" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "done", reason: "complete" }]),
+      );
+    const continuedInputs: Array<AgentChatRuntimeTurnInput | undefined> = [];
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: fetchMock as typeof fetch,
+      continueTurn: ({ continuation, previousTurn, startTurn }) => {
+        continuedInputs.push(previousTurn);
+        if (!previousTurn) {
+          return {
+            id: continuation.turnId ?? "missing-previous-turn",
+            sessionId: "thread-1",
+            events:
+              (async function* (): AsyncIterable<AgentChatRuntimeEvent> {})(),
+          };
+        }
+        return startTurn({
+          ...previousTurn,
+          prompt: continuation.prompt,
+        });
+      },
+    });
+    const session = await runtime.createSession({ id: "thread-1" });
+    const originalMessages: AgentChatRuntimeMessage[] = [
+      {
+        id: "prior-user",
+        role: "user",
+        content: [{ type: "text", text: "Earlier context" }],
+      },
+    ];
+    const first = await session.startTurn({
+      prompt: "Original question",
+      messages: originalMessages,
+      model: "agent-model",
+      reasoningEffort: "high",
+      temperature: 0.2,
+      providerOptions: { source: "browser" },
+    });
+    await drain(first.events);
+
+    const retry = await session.continueTurn?.({
+      turnId: first.id,
+      prompt: "Retry question",
+    });
+    expect(retry).toBeDefined();
+    await drain(retry!.events);
+
+    await session.continueTurn?.({
+      turnId: first.id,
+      prompt: "Retry again",
+    });
+
+    expect(continuedInputs[0]).toMatchObject({
+      prompt: "Original question",
+      messages: originalMessages,
+      model: "agent-model",
+      reasoningEffort: "high",
+      temperature: 0.2,
+      providerOptions: { source: "browser" },
+    });
+    expect(continuedInputs[1]).toBeUndefined();
+  });
+
   it("uses the named turn input after another turn starts in the session", async () => {
     const fetchMock = vi
       .fn()

@@ -1349,6 +1349,11 @@ function withTurnId(error: unknown, turnId: string): unknown {
   return error;
 }
 
+function isRetryableRuntimeFailure(error: unknown): boolean {
+  const record = asRecord(error);
+  return (record?.retryable ?? record?.recoverable) === true;
+}
+
 export function createHttpAgentChatRuntime<
   TEvent extends AgentChatRuntimeEventBase = AgentChatRuntimeKnownEvent,
 >(
@@ -1428,17 +1433,23 @@ export function createHttpAgentChatRuntime<
         });
       } catch (error) {
         cleanup();
-        forgetTurnContext(turnId, turn);
+        if (!isRetryableRuntimeFailure(error)) {
+          forgetTurnContext(turnId, turn);
+        }
         throw withTurnId(error, turnId);
       }
       if (!response.ok) {
         cleanup();
-        forgetTurnContext(turnId, turn);
-        throw withTurnId(await readHttpRuntimeError(response), turnId);
+        const error = await readHttpRuntimeError(response);
+        if (!isRetryableRuntimeFailure(error)) {
+          forgetTurnContext(turnId, turn);
+        }
+        throw withTurnId(error, turnId);
       }
 
       const runId = response.headers.get("X-Run-Id") ?? undefined;
       const events = (async function* () {
+        let retryableFailure = false;
         try {
           for await (const event of streamResponseEvents(response, {
             sessionId,
@@ -1446,11 +1457,17 @@ export function createHttpAgentChatRuntime<
             runId,
             mapEvent,
           })) {
-            if (
-              event.type === "done" &&
-              asRecord(event)?.reason !== "tool-use"
-            ) {
-              forgetTurnContext(turnId, turn);
+            if (event.type === "error") {
+              retryableFailure = isRetryableRuntimeFailure(event);
+            } else if (event.type === "done") {
+              const reason = asRecord(event)?.reason;
+              if (
+                reason !== "tool-use" &&
+                reason !== "interrupted" &&
+                !(reason === "error" && retryableFailure)
+              ) {
+                forgetTurnContext(turnId, turn);
+              }
             }
             yield event;
           }
@@ -1508,15 +1525,30 @@ export function createHttpAgentChatRuntime<
     };
 
     const continueTurn = options.continueTurn
-      ? (continuation: AgentChatRuntimeContinueInput = {}) =>
-          options.continueTurn!({
+      ? async (continuation: AgentChatRuntimeContinueInput = {}) => {
+          let previousTurnId = continuation.turnId;
+          const previousTurn = previousTurnId
+            ? previousTurns.get(previousTurnId)
+            : latestTurn;
+          if (!previousTurnId && previousTurn) {
+            for (const [turnId, turn] of previousTurns) {
+              if (turn === previousTurn) {
+                previousTurnId = turnId;
+                break;
+              }
+            }
+          }
+          const continuedTurn = await options.continueTurn!({
             session: summary,
             continuation,
-            previousTurn: continuation.turnId
-              ? previousTurns.get(continuation.turnId)
-              : latestTurn,
+            previousTurn,
             startTurn,
-          })
+          });
+          if (previousTurn && previousTurnId) {
+            forgetTurnContext(previousTurnId, previousTurn);
+          }
+          return continuedTurn;
+        }
       : undefined;
 
     return {
