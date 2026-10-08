@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   success: vi.fn(),
   warning: vi.fn(),
   error: vi.fn(),
+  loading: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: (name: string) => ({
@@ -37,7 +38,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 vi.mock("react-router", () => ({ useNavigate: () => mocks.navigate }));
 vi.mock("sonner", () => ({
-  toast: { success: mocks.success, warning: mocks.warning, error: mocks.error },
+  toast: {
+    success: mocks.success,
+    warning: mocks.warning,
+    error: mocks.error,
+    loading: mocks.loading,
+  },
 }));
 vi.mock("@/lib/figma-connection", () => ({
   FIGMA_ACCESS_TOKEN_SECRET_KEY: "FIGMA_ACCESS_TOKEN",
@@ -238,6 +244,10 @@ describe("home Figma import", () => {
   it("hands the exact selected file directly to a new design's existing import panel", async () => {
     const file = new File(["test fixture"], "example.fig");
     await chooseFile(file);
+    expect(mocks.loading).toHaveBeenCalledExactlyOnceWith(
+      "designEditor.import.figImportAnalyzing",
+      { id: "design-fig-import-progress", description: "example.fig" },
+    );
     expect(mocks.create).toHaveBeenCalledExactlyOnceWith({
       title: "example",
       projectType: "prototype",
@@ -263,6 +273,9 @@ describe("home Figma import", () => {
     await chooseFile(file);
     expect(mocks.navigate).not.toHaveBeenCalled();
     expect(readPendingDesignImport("file-design")).toBeUndefined();
+    expect(mocks.error.mock.lastCall?.[1]).toMatchObject({
+      id: "design-fig-import-progress",
+    });
     const retry = mocks.error.mock.lastCall?.[1]?.action.onClick;
     expect(retry).toBeTypeOf("function");
     await act(async () => retry());

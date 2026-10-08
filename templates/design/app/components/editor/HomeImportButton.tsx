@@ -28,7 +28,10 @@ import {
 import { validateFigUploadFile } from "@/lib/design-file-upload";
 import { importResultNotification } from "@/lib/design-import";
 import { FIGMA_ACCESS_TOKEN_SECRET_KEY } from "@/lib/figma-connection";
-import { setPendingDesignImport } from "@/lib/pending-import";
+import {
+  FIG_IMPORT_TOAST_ID,
+  setPendingDesignImport,
+} from "@/lib/pending-import";
 
 export function HomeImportButton() {
   const t = useT();
@@ -61,6 +64,10 @@ export function HomeImportButton() {
     }
     pending.current = true;
     setBusy(true);
+    toast.loading(t("designEditor.import.figImportAnalyzing"), {
+      id: FIG_IMPORT_TOAST_ID,
+      description: file.name,
+    });
     try {
       const result = await create.mutateAsync({
         title: file.name.replace(/\.fig$/i, "") || t("home.untitledDesign"),
@@ -72,6 +79,8 @@ export function HomeImportButton() {
       void navigate(`/design/${result.id}?panel=import`);
     } catch (cause) {
       toast.error(actionErrorMessage(cause) ?? t("home.failedToCreateDesign"), {
+        id: FIG_IMPORT_TOAST_ID,
+        description: undefined,
         action: {
           label: t("homeContext.retry"),
           onClick: () => void importFile(file),

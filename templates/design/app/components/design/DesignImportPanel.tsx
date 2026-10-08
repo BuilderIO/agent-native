@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import {
   MAX_FIG_UPLOAD_BYTES,
@@ -58,6 +59,7 @@ import {
   readPendingDesignImport,
   clearPendingDesignImport,
   claimPendingDesignImport,
+  FIG_IMPORT_TOAST_ID,
 } from "@/lib/pending-import";
 import { cn } from "@/lib/utils";
 
@@ -174,6 +176,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     setFigUploadPhase("uploading");
     setFigSaveCount(null);
     if (figFileInputRef.current) figFileInputRef.current.value = "";
+    toast.dismiss(FIG_IMPORT_TOAST_ID);
   }, []);
 
   const finishImport = useCallback(
@@ -444,6 +447,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
 
       setFigUploadName(file.name);
       setFigUploadProgress(0);
+      setFigUploadPhase("decoding");
       setFigUploadBusy(true);
       try {
         let prepared: PreparedFigImport;
@@ -573,6 +577,30 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     figUploadBusy ||
     Boolean(figImportPreview) ||
     figmaConnectionBusy;
+
+  const figUploadStatus =
+    figUploadPhase === "decoding"
+      ? t("designEditor.import.figImportAnalyzing")
+      : figUploadPhase === "rendering" || figUploadProgress === 100
+        ? t("designEditor.import.figUploadProcessing")
+        : figSaveCount
+          ? t("designEditor.import.figImportSaving", {
+              saved: formatNumber(figSaveCount.saved),
+              total: formatNumber(figSaveCount.total),
+            })
+          : t("designEditor.import.figUploadUploading", {
+              progress: figUploadProgress ?? 0,
+            });
+
+  // This panel stays mounted but hidden when another left tab opens, so the
+  // toast is what keeps a long import visible.
+  useEffect(() => {
+    if (!figUploadBusy || !figUploadName) return;
+    toast.loading(figUploadStatus, {
+      id: FIG_IMPORT_TOAST_ID,
+      description: figUploadName,
+    });
+  }, [figUploadBusy, figUploadName, figUploadStatus]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
@@ -944,27 +972,14 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
                   aria-live="polite"
                 >
                   <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                    <Spinner className="size-3 shrink-0" />
                     <span
                       className="min-w-0 flex-1 truncate"
                       title={figUploadName}
                     >
                       {figUploadName}
                     </span>
-                    <span className="tabular-nums">
-                      {figUploadPhase === "decoding"
-                        ? t("designEditor.import.figImportAnalyzing")
-                        : figUploadPhase === "rendering" ||
-                            figUploadProgress === 100
-                          ? t("designEditor.import.figUploadProcessing")
-                          : figSaveCount
-                            ? t("designEditor.import.figImportSaving", {
-                                saved: formatNumber(figSaveCount.saved),
-                                total: formatNumber(figSaveCount.total),
-                              })
-                            : t("designEditor.import.figUploadUploading", {
-                                progress: figUploadProgress ?? 0,
-                              })}
-                    </span>
+                    <span className="tabular-nums">{figUploadStatus}</span>
                   </div>
                   <div
                     role="progressbar"

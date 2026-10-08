@@ -1,5 +1,9 @@
 export type PendingDesignImport = { kind: "file"; file: File };
 
+// Shared by the home picker and the editor's import panel so one loading toast
+// spans creating the design, opening the editor, and the import itself.
+export const FIG_IMPORT_TOAST_ID = "design-fig-import-progress";
+
 const pendingImports = new Map<
   string,
   { value: PendingDesignImport; started: boolean }

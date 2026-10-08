@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   error: vi.fn(),
   success: vi.fn(),
+  loading: vi.fn(),
+  dismiss: vi.fn(),
   onImport: vi.fn(),
   queryClient: { invalidateQueries: vi.fn().mockResolvedValue(undefined) },
   fileStorageStatus: {
@@ -52,7 +54,13 @@ vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", () => ({
 }));
 vi.mock("react-router", () => ({ useNavigate: () => mocks.navigate }));
 vi.mock("sonner", () => ({
-  toast: { error: mocks.error, success: mocks.success, warning: vi.fn() },
+  toast: {
+    error: mocks.error,
+    success: mocks.success,
+    warning: vi.fn(),
+    loading: mocks.loading,
+    dismiss: mocks.dismiss,
+  },
 }));
 vi.mock("@/lib/fig-client-import", () => ({
   prepareFigImport: (...args: unknown[]) => mocks.prepare(...args),
@@ -149,6 +157,25 @@ describe("home-picked .fig handoff", () => {
     expect(readPendingDesignImport("home-design")).toBeUndefined();
     await remount();
     expect(mocks.prepare).toHaveBeenCalledOnce();
+  });
+  it("shows a loading toast for the whole import and dismisses it when the import finishes", async () => {
+    let finishDecode!: () => void;
+    mocks.prepare.mockImplementation(async (_file, onProgress) => {
+      onProgress({ phase: "decoding" });
+      await new Promise<void>((resolve) => (finishDecode = resolve));
+      return prepared();
+    });
+    await render();
+    await vi.waitFor(() =>
+      expect(mocks.loading).toHaveBeenLastCalledWith(
+        "designEditor.import.figImportAnalyzing",
+        { id: "design-fig-import-progress", description: "picked.fig" },
+      ),
+    );
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+    await act(async () => finishDecode());
+    await vi.waitFor(() => expect(mocks.onImport).toHaveBeenCalledOnce());
+    expect(mocks.dismiss).toHaveBeenCalledWith("design-fig-import-progress");
   });
   it("does not auto-repeat a failed import after rerender or remount and retries the same file only on request", async () => {
     mocks.import.mockRejectedValueOnce(
