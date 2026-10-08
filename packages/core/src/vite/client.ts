@@ -2164,7 +2164,10 @@ async function hasValidEmbedRuntimeToken(
   );
   if (tokens.length === 0) return false;
 
-  const hostname = getForwardedRequestHostnameFromHeaders(req.headers);
+  const hostname = getForwardedRequestHostnameFromHeaders(
+    req.headers,
+    req.socket?.remoteAddress,
+  );
   for (const token of tokens) {
     if (await resolveEmbedSessionTokenForHost(token, hostname)) {
       return true;

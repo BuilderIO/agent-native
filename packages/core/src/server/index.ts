@@ -848,6 +848,10 @@ export {
   resolveAppRuntimeUrl,
 } from "./app-url.js";
 export {
+  getForwardedRequestOrigin,
+  getForwardedRequestURL,
+} from "./request-origin.js";
+export {
   getConfiguredAppBasePath,
   normalizeAppBasePath,
   withConfiguredAppBasePath,
