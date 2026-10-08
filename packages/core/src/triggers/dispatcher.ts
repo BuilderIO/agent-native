@@ -39,8 +39,9 @@ import {
   type RecurringSweepContext,
 } from "../jobs/sweep-hooks.js";
 import {
+  resourceFingerprintAllOwners,
   resourceGetByPath,
-  resourceListAllOwners,
+  resourceListAllOwnersWithFingerprint,
   resourcePutIfCurrent,
   type Resource,
 } from "../resources/store.js";
@@ -122,16 +123,34 @@ const DURABLE_TRIGGER_SWEEP_QUERY_OPTIONS: AutomationTriggerQueueQueryOptions =
     timeoutMs: DURABLE_TRIGGER_SWEEP_QUERY_TIMEOUT_MS,
   };
 const EVENT_AUTOMATION_NAMES_TTL_MS = 60_000;
+// How long a cached "no automation" answer is trusted before a cheap
+// fingerprint read checks whether another instance changed jobs/.
+const EVENT_AUTOMATION_CHECK_INTERVAL_MS = 5_000;
+// The check sits in front of every event's dispatch, so it must fail fast and
+// then step aside: after a failure, events take the full read until this
+// passes, instead of each retrying a stalled query first.
+const EVENT_AUTOMATION_CHECK_TIMEOUT_MS = 2_000;
+let _eventAutomationCheckRetryAt = 0;
 let _deps: TriggerDispatcherDeps | null = null;
 let _anyEventSubscriptionId: string | null = null;
 // null = not loaded, or invalidated by a refresh. Never read as "no automations".
-let _eventAutomationNames: { names: Set<string>; loadedAt: number } | null =
-  null;
+// `fingerprint` describes exactly the rows `names` was read from, so a matching
+// fingerprint read proves `names` is current, even after an undo restores
+// earlier rows.
+let _eventAutomationNames: {
+  names: Set<string>;
+  loadedAt: number;
+  checkedAt: number;
+  fingerprint: string;
+} | null = null;
+let _inflightEventAutomationCheck: Promise<Set<string> | null> | null = null;
+let _eventAutomationScanCount = 0;
 // Bumped by each refresh so a read that started earlier cannot overwrite the
 // newer snapshot when it finishes later.
 let _eventAutomationGeneration = 0;
 let _inflightEventAutomationScan: {
   generation: number;
+  seq: number;
   scan: Promise<Resource[]>;
 } | null = null;
 let _triggerQueueWorkerStarted = false;
@@ -314,6 +333,9 @@ export async function initTriggerDispatcher(
   // function any query here outlives the response and the frozen instance
   // thaws into a timeout. Automations load on the first emitted event instead.
   _eventAutomationNames = null;
+  _inflightEventAutomationCheck = null;
+  _eventAutomationCheckRetryAt = 0;
+  _inflightEventAutomationScan = null;
   _eventAutomationGeneration += 1;
   if (_anyEventSubscriptionId) unsubscribe(_anyEventSubscriptionId);
   _anyEventSubscriptionId = subscribeAll(handleAnyEvent);
@@ -678,16 +700,21 @@ function listEventAutomationResources(): Promise<Resource[]> {
   const generation = _eventAutomationGeneration;
   const inflight = _inflightEventAutomationScan;
   if (inflight?.generation === generation) return inflight.scan;
-  const scan = resourceListAllOwners("jobs/").then((jobResources) => {
-    if (generation === _eventAutomationGeneration) {
-      _eventAutomationNames = {
-        names: eventAutomationNames(jobResources),
-        loadedAt: Date.now(),
-      };
-    }
-    return jobResources;
-  });
-  _inflightEventAutomationScan = { generation, scan };
+  const seq = ++_eventAutomationScanCount;
+  const scan = resourceListAllOwnersWithFingerprint("jobs/").then(
+    ({ resources, fingerprint }) => {
+      if (generation === _eventAutomationGeneration) {
+        _eventAutomationNames = {
+          names: eventAutomationNames(resources),
+          loadedAt: Date.now(),
+          checkedAt: Date.now(),
+          fingerprint,
+        };
+      }
+      return resources;
+    },
+  );
+  _inflightEventAutomationScan = { generation, seq, scan };
   void scan
     .finally(() => {
       if (_inflightEventAutomationScan?.scan === scan) {
@@ -718,6 +745,79 @@ function cachedEventAutomationNames(): Set<string> | null {
     : null;
 }
 
+/** A jobs scan that began after scan number `seq` was handed out. */
+async function scanStartedAfter(seq: number): Promise<Resource[]> {
+  for (;;) {
+    const inflight = _inflightEventAutomationScan;
+    if (
+      !inflight ||
+      inflight.seq > seq ||
+      inflight.generation !== _eventAutomationGeneration
+    ) {
+      return listEventAutomationResources();
+    }
+    await inflight.scan.then(
+      () => undefined,
+      () => undefined,
+    );
+  }
+}
+
+/**
+ * Event names as of a fingerprint read made by this call. Rejects when jobs
+ * cannot be read.
+ */
+async function readCurrentEventAutomationNames(
+  options: { timeoutMs?: number } = {},
+): Promise<Set<string>> {
+  for (;;) {
+    const generation = _eventAutomationGeneration;
+    const fingerprint = await resourceFingerprintAllOwners("jobs/", options);
+    // Counted after the read returns: a scan that began while it was running
+    // may have read jobs/ before a write the fingerprint already includes.
+    const scansBefore = _eventAutomationScanCount;
+    if (generation !== _eventAutomationGeneration) continue;
+    const cached = _eventAutomationNames;
+    if (cached?.fingerprint === fingerprint) {
+      cached.checkedAt = Date.now();
+      return cached.names;
+    }
+    const names = eventAutomationNames(await scanStartedAfter(scansBefore));
+    if (generation !== _eventAutomationGeneration) continue;
+    return names;
+  }
+}
+
+/**
+ * Cached names, re-verified at most every few seconds. `null` means unknown
+ * (cold, expired, or the check failed), never "no automations".
+ */
+function checkedEventAutomationNames(): Promise<Set<string> | null> {
+  const cached = _eventAutomationNames;
+  const names = cachedEventAutomationNames();
+  if (!cached || !names) return Promise.resolve(null);
+  if (Date.now() - cached.checkedAt < EVENT_AUTOMATION_CHECK_INTERVAL_MS) {
+    return Promise.resolve(names);
+  }
+  if (Date.now() < _eventAutomationCheckRetryAt) return Promise.resolve(null);
+  _inflightEventAutomationCheck ??= readCurrentEventAutomationNames({
+    timeoutMs: EVENT_AUTOMATION_CHECK_TIMEOUT_MS,
+  })
+    .catch((err: unknown) => {
+      _eventAutomationCheckRetryAt =
+        Date.now() + EVENT_AUTOMATION_CHECK_INTERVAL_MS;
+      console.warn(
+        "[triggers] Could not check cached event automations; reading them in full:",
+        err,
+      );
+      return null;
+    })
+    .finally(() => {
+      _inflightEventAutomationCheck = null;
+    });
+  return _inflightEventAutomationCheck;
+}
+
 /**
  * Reloads which events have automations, e.g. after one is defined or
  * deleted. `false` means the load failed; the next event reads fresh.
@@ -737,14 +837,12 @@ export async function refreshEventSubscriptions(): Promise<boolean> {
 /**
  * Whether an enabled event automation in this app listens for `eventName`.
  * Only a cached `true` is reused: callers act on `false` by discarding work
- * (Mail advances its history cursor), so `false` always comes from a fresh
- * read. Rejects when automations cannot be read.
+ * (Mail advances its history cursor), so `false` is always backed by a
+ * fingerprint read made by this call. Rejects when automations cannot be read.
  */
 export async function hasEventAutomation(eventName: string): Promise<boolean> {
   if (cachedEventAutomationNames()?.has(eventName)) return true;
-  return eventAutomationNames(await currentEventAutomationResources()).has(
-    eventName,
-  );
+  return (await readCurrentEventAutomationNames()).has(eventName);
 }
 
 /**
@@ -764,9 +862,9 @@ async function handleAnyEvent(
   payload: unknown,
   eventMeta: EventMeta,
 ): Promise<void> {
-  // A cold cache costs no extra read or failure point: handleEvent's own scan
-  // loads it.
-  if (cachedEventAutomationNames()?.has(eventName) === false) return;
+  // Unknown names cost no extra failure point: handleEvent's own scan reloads
+  // them.
+  if ((await checkedEventAutomationNames())?.has(eventName) === false) return;
   await handleEvent(eventName, payload, eventMeta);
 }
 

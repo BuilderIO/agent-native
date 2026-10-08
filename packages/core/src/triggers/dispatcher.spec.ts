@@ -20,6 +20,10 @@ import {
 } from "./event-queue.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
+const resourceFingerprintAllOwnersMock = vi.hoisted(() => vi.fn());
+// The fingerprint of the rows a scan read; the default matches the default
+// fingerprint read, i.e. jobs/ unchanged since the scan.
+const scanFingerprintMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
 const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
@@ -294,6 +298,11 @@ vi.mock("../resources/store.js", () => ({
       ? owner.slice("__organization__:".length)
       : null,
   resourceListAllOwners: resourceListAllOwnersMock,
+  resourceFingerprintAllOwners: resourceFingerprintAllOwnersMock,
+  resourceListAllOwnersWithFingerprint: async (prefix: string) => {
+    const resources = await resourceListAllOwnersMock(prefix);
+    return { resources, fingerprint: await scanFingerprintMock() };
+  },
   resourceGetByPath: resourceGetByPathMock,
   resourcePut: resourcePutMock,
   resourcePutIfCurrent: resourcePutIfCurrentMock,
@@ -637,6 +646,9 @@ Respond to the concurrent event.`,
         emittedAt: new Date().toISOString(),
       },
     );
+    await vi.waitFor(() =>
+      expect(resourceListAllOwnersMock).toHaveBeenCalledOnce(),
+    );
 
     await expect(refreshEventSubscriptions()).resolves.toBe(true);
     resolveStale([]);
@@ -704,6 +716,9 @@ Respond to the concurrent event.`,
         }),
     );
     const answer = hasEventAutomation("test.event.fired");
+    await vi.waitFor(() =>
+      expect(resourceListAllOwnersMock).toHaveBeenCalledOnce(),
+    );
 
     await expect(refreshEventSubscriptions()).resolves.toBe(true);
     resolveStale([]);
@@ -718,6 +733,8 @@ Respond to the concurrent event.`,
       getSystemPrompt: async () => "system",
     });
     resourceListAllOwnersMock.mockResolvedValueOnce([]);
+    resourceFingerprintAllOwnersMock.mockResolvedValueOnce("before-define");
+    scanFingerprintMock.mockResolvedValueOnce("before-define");
     await expect(hasEventAutomation("test.event.fired")).resolves.toBe(false);
 
     // Another instance defines the automation; this one's cache is still fresh.
@@ -726,7 +743,7 @@ Respond to the concurrent event.`,
     expect(resourceListAllOwnersMock).toHaveBeenCalledTimes(2);
   });
 
-  it("reloads automations defined by another instance after the cache expires", async () => {
+  it("picks up an automation another instance created once the fingerprint check is due", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
     vi.useFakeTimers();
     try {
@@ -742,18 +759,248 @@ Respond to the concurrent event.`,
       resourceListAllOwnersMock.mockResolvedValueOnce([]);
       await busEventHandler("test.event.fired")({}, meta("before-define"));
 
-      await vi.advanceTimersByTimeAsync(59_000);
-      await busEventHandler("test.event.fired")({}, meta("cached-negative"));
+      // Another instance defines the automation.
+      resourceFingerprintAllOwnersMock.mockResolvedValue("after-define");
+      await vi.advanceTimersByTimeAsync(4_000);
+      await busEventHandler("test.event.fired")({}, meta("within-interval"));
+      expect(resourceFingerprintAllOwnersMock).not.toHaveBeenCalled();
       expect(triggerQueueMocks.enqueue).not.toHaveBeenCalled();
 
       await vi.advanceTimersByTimeAsync(1_000);
-      await busEventHandler("test.event.fired")({}, meta("after-expiry"));
+      await busEventHandler("test.event.fired")({}, meta("after-check"));
+      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledOnce();
+      expect(triggerQueueMocks.enqueue).toHaveBeenCalledOnce();
       expect(triggerQueueMocks.enqueue).toHaveBeenCalledWith(
-        expect.objectContaining({ eventId: "after-expiry" }),
+        expect.objectContaining({ eventId: "after-check" }),
       );
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("keeps skipping unwatched events without a full read while the fingerprint is unchanged", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    vi.useFakeTimers();
+    try {
+      await initTriggerDispatcher({
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+      });
+      await expect(hasEventAutomation("unwatched.event")).resolves.toBe(false);
+      expect(resourceListAllOwnersMock).toHaveBeenCalledOnce();
+
+      for (let check = 0; check < 3; check += 1) {
+        await vi.advanceTimersByTimeAsync(5_000);
+        await Promise.all(
+          ["burst-a", "burst-b"].map((eventId) =>
+            busEventHandler("unwatched.event")(
+              {},
+              {
+                owner: "alice+triggers@agent-native.test",
+                eventId,
+                emittedAt: new Date().toISOString(),
+              },
+            ),
+          ),
+        );
+      }
+
+      expect(resourceListAllOwnersMock).toHaveBeenCalledOnce();
+      // One read by hasEventAutomation, then one shared read per interval.
+      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledTimes(4);
+      expect(triggerQueueMocks.enqueue).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("falls back to the full read when the fingerprint check fails, and backs off retrying it", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await initTriggerDispatcher({
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+      });
+      const meta = (eventId: string) => ({
+        owner: "alice+triggers@agent-native.test",
+        eventId,
+        emittedAt: new Date().toISOString(),
+      });
+      resourceListAllOwnersMock.mockResolvedValueOnce([]);
+      await busEventHandler("test.event.fired")({}, meta("before-define"));
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      resourceFingerprintAllOwnersMock.mockRejectedValueOnce(
+        new Error("DB query timed out after 15000ms"),
+      );
+      await busEventHandler("test.event.fired")({}, meta("check-failed"));
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("Could not check cached event automations"),
+        expect.any(Error),
+      );
+      expect(resourceListAllOwnersMock).toHaveBeenCalledTimes(2);
+      expect(triggerQueueMocks.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ eventId: "check-failed" }),
+      );
+      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledWith("jobs/", {
+        timeoutMs: 2_000,
+      });
+
+      // Until the retry time, events skip the check and take the full read.
+      await busEventHandler("test.event.fired")({}, meta("during-backoff"));
+      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledOnce();
+      expect(resourceListAllOwnersMock).toHaveBeenCalledTimes(3);
+      expect(triggerQueueMocks.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ eventId: "during-backoff" }),
+      );
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      await busEventHandler("test.event.fired")({}, meta("after-backoff"));
+      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not trust a fingerprint for names read from a different state, even if an undo restores it", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    vi.useFakeTimers();
+    try {
+      await initTriggerDispatcher({
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+      });
+      const meta = (eventId: string) => ({
+        owner: "alice+triggers@agent-native.test",
+        eventId,
+        emittedAt: new Date().toISOString(),
+      });
+      resourceFingerprintAllOwnersMock.mockResolvedValue("enabled-state");
+      scanFingerprintMock.mockResolvedValue("enabled-state");
+      await expect(hasEventAutomation("test.event.fired")).resolves.toBe(true);
+
+      // The automation is disabled; this event's own scan sees that.
+      resourceListAllOwnersMock.mockResolvedValueOnce([]);
+      scanFingerprintMock.mockResolvedValueOnce("disabled-state");
+      await busEventHandler("test.event.fired")({}, meta("while-disabled"));
+      expect(triggerQueueMocks.enqueue).not.toHaveBeenCalled();
+
+      // An undo restores the exact earlier rows, so the fingerprint matches
+      // the one verified for the enabled names.
+      await vi.advanceTimersByTimeAsync(5_000);
+      await busEventHandler("test.event.fired")({}, meta("after-undo"));
+
+      expect(triggerQueueMocks.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ eventId: "after-undo" }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("pairs a scan with the rows it read even when jobs/ changes and is undone around it", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    // Every fingerprint read sees the enabled rows: the automation is disabled
+    // only while the scan reads jobs/, and an undo restores the exact rows.
+    resourceFingerprintAllOwnersMock.mockResolvedValue("enabled-state");
+    let scannedState = "enabled-state";
+    scanFingerprintMock.mockImplementation(async () => scannedState);
+    resourceListAllOwnersMock.mockImplementationOnce(async () => {
+      scannedState = "disabled-state";
+      return [];
+    });
+    await expect(hasEventAutomation("test.event.fired")).resolves.toBe(false);
+
+    await expect(hasEventAutomation("test.event.fired")).resolves.toBe(true);
+  });
+
+  it("does not reuse a scan that began while the fingerprint read was running", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    let resolveFingerprint!: (value: string) => void;
+    resourceFingerprintAllOwnersMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveFingerprint = resolve;
+        }),
+    );
+    const answer = hasEventAutomation("test.event.fired");
+    await vi.waitFor(() =>
+      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledOnce(),
+    );
+
+    let resolveConcurrentScan!: (value: unknown[]) => void;
+    resourceListAllOwnersMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveConcurrentScan = resolve;
+        }),
+    );
+    // This scan reads jobs/ before the automation is written; the fingerprint
+    // read that is still running sees the write.
+    const concurrentEvent = busEventHandler("unrelated.event")(
+      {},
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "concurrent-event",
+        emittedAt: new Date().toISOString(),
+      },
+    );
+    await vi.waitFor(() =>
+      expect(resourceListAllOwnersMock).toHaveBeenCalledOnce(),
+    );
+    resolveFingerprint("after-define");
+    resolveConcurrentScan([]);
+    await concurrentEvent;
+
+    await expect(answer).resolves.toBe(true);
+    expect(resourceListAllOwnersMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts a new full read after a changed fingerprint instead of reusing one that began earlier", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    let resolveEarlyScan!: (value: unknown[]) => void;
+    resourceListAllOwnersMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveEarlyScan = resolve;
+        }),
+    );
+    // A cold-cache event starts a scan before the automation exists.
+    const earlyEvent = busEventHandler("test.event.fired")(
+      {},
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "early-event",
+        emittedAt: new Date().toISOString(),
+      },
+    );
+    await vi.waitFor(() =>
+      expect(resourceListAllOwnersMock).toHaveBeenCalledOnce(),
+    );
+
+    const answer = hasEventAutomation("test.event.fired");
+    await Promise.resolve();
+    resolveEarlyScan([]);
+    await earlyEvent;
+
+    await expect(answer).resolves.toBe(true);
+    expect(resourceListAllOwnersMock).toHaveBeenCalledTimes(2);
   });
 
   it("rejects delegated policy ids that could inject trigger frontmatter", () => {
@@ -776,6 +1023,8 @@ Respond to the concurrent event.`,
     vi.clearAllMocks();
     isProductionServerlessRuntimeMock.mockReturnValue(false);
     triggerQueueMocks.reset();
+    resourceFingerprintAllOwnersMock.mockResolvedValue("fingerprint-unchanged");
+    scanFingerprintMock.mockResolvedValue("fingerprint-unchanged");
     dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
     getDbExecMock.mockReturnValue({ execute: dbExecuteMock });
     resourceListAllOwnersMock.mockResolvedValue([
