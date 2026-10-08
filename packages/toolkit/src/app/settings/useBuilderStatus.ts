@@ -1067,6 +1067,7 @@ export function useBuilderConnectFlow(
     let cancelled = false;
     let refreshGeneration = 0;
     const refresh = async () => {
+      const errorRevisionAtStart = errorRevisionRef.current;
       const generation = ++refreshGeneration;
       const isCurrentRefresh = () => generation === refreshGeneration;
       const s = await fetchStatus();
@@ -1074,7 +1075,9 @@ export function useBuilderConnectFlow(
       setHasFetchedStatus(true);
       setStatusReadSettledCount((count) => count + 1);
       if (!s) {
-        markStatusUnavailable();
+        if (errorRevisionRef.current === errorRevisionAtStart) {
+          markStatusUnavailable();
+        }
         return;
       }
       if (statusUnavailableRef.current) {

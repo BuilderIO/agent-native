@@ -1121,6 +1121,16 @@ export function shouldShowFirstRunStorageSetup({
   );
 }
 
+export function shouldPersistFirstRunStorageSetupDismissal({
+  firstRunStorageSetup,
+  connectStorageRequested,
+}: {
+  firstRunStorageSetup: boolean;
+  connectStorageRequested: boolean;
+}): boolean {
+  return firstRunStorageSetup || connectStorageRequested;
+}
+
 export default function RecordRoute() {
   const t = useT();
   const navigate = useNavigate();
@@ -3754,7 +3764,12 @@ export default function RecordRoute() {
   const showStorageStatusUnavailable =
     storageQuery.isError && storageSetupRequested;
   const skipStorageSetup = () => {
-    if (firstRunStorageSetup) {
+    if (
+      shouldPersistFirstRunStorageSetupDismissal({
+        firstRunStorageSetup,
+        connectStorageRequested,
+      })
+    ) {
       saveFirstRunStorageSetupDismissal();
       setFirstRunStorageSetupDismissal("dismissed");
     }

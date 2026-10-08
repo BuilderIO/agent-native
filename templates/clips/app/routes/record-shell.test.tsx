@@ -17,6 +17,7 @@ import {
   RecorderRouteStatus,
   RecordingErrorCard,
   RecordingLeaveChoices,
+  shouldPersistFirstRunStorageSetupDismissal,
   shouldRedirectToStorageSetupHome,
   shouldShowFirstRunStorageSetup,
 } from "./record";
@@ -84,6 +85,19 @@ describe("record route lifecycle shell", () => {
         connectStorageRequested: false,
       }),
     ).toBe(true);
+  });
+
+  it.each([
+    {
+      label: "the first-run prompt",
+      input: { firstRunStorageSetup: true, connectStorageRequested: false },
+    },
+    {
+      label: "a storage setup link",
+      input: { firstRunStorageSetup: false, connectStorageRequested: true },
+    },
+  ])("persists a skipped storage choice for $label", ({ input }) => {
+    expect(shouldPersistFirstRunStorageSetupDismissal(input)).toBe(true);
   });
 
   it.each([
