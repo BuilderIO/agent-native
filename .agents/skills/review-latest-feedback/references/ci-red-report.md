@@ -35,14 +35,19 @@ the test-level evidence and disposition for every fingerprint in its body.
 Reuse the same open E2E issue on later reports, update it with every new or
 unmatched run and fingerprint, and preserve unresolved failures after they age
 out of the report's five-day window. A row is covered only when the issue body
-lists its fingerprint or its run URL/id together with the workflow; a matching
-title alone is not enough. Add each unmatched row to the aggregate before
-marking it owned. Never create a separate issue per test, fingerprint, shard,
-or run. If only per-fingerprint E2E issues are open, reuse one as the aggregate
+lists its exact fingerprint; a run URL or ID together with the workflow covers
+only that specific occurrence and leaves every other run in the grouped row
+actionable. A matching title alone is not enough. Add each unmatched
+fingerprint and occurrence to the aggregate before marking it owned. Never
+create a separate issue per test, fingerprint, shard, or run. If only
+per-fingerprint E2E issues are open, reuse one as the aggregate
 and link the others; do not create another E2E issue or close duplicates unless
-the current sweep explicitly authorizes closure. Mark the aggregate recovered
-after every listed failure is verified recovered or fixed, and close it only
-when issue closure is explicitly authorized.
+the current sweep explicitly authorizes closure. Mark a listed failure
+recovered only after a later passing run of the same workflow and
+test/fingerprint or a verified fix with a passing rerun; aging out of the
+report is not recovery. Mark the aggregate recovered only after every listed
+failure meets that evidence bar, and close it only when issue closure is
+explicitly authorized.
 
 Quarantine only with a named owner, expiry, and linked tracking issue. A green
 result produced by quarantine is a defect. Follow quarantined rows until fixed
