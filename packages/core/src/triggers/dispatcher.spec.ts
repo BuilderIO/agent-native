@@ -21,6 +21,9 @@ import {
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourceFingerprintAllOwnersMock = vi.hoisted(() => vi.fn());
+// The fingerprint of the rows a scan read; the default matches the default
+// fingerprint read, i.e. jobs/ unchanged since the scan.
+const scanFingerprintMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
 const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
@@ -296,6 +299,10 @@ vi.mock("../resources/store.js", () => ({
       : null,
   resourceListAllOwners: resourceListAllOwnersMock,
   resourceFingerprintAllOwners: resourceFingerprintAllOwnersMock,
+  resourceListAllOwnersWithFingerprint: async (prefix: string) => {
+    const resources = await resourceListAllOwnersMock(prefix);
+    return { resources, fingerprint: await scanFingerprintMock() };
+  },
   resourceGetByPath: resourceGetByPathMock,
   resourcePut: resourcePutMock,
   resourcePutIfCurrent: resourcePutIfCurrentMock,
@@ -727,6 +734,7 @@ Respond to the concurrent event.`,
     });
     resourceListAllOwnersMock.mockResolvedValueOnce([]);
     resourceFingerprintAllOwnersMock.mockResolvedValueOnce("before-define");
+    scanFingerprintMock.mockResolvedValueOnce("before-define");
     await expect(hasEventAutomation("test.event.fired")).resolves.toBe(false);
 
     // Another instance defines the automation; this one's cache is still fresh.
@@ -760,8 +768,7 @@ Respond to the concurrent event.`,
 
       await vi.advanceTimersByTimeAsync(1_000);
       await busEventHandler("test.event.fired")({}, meta("after-check"));
-      // The check, then the read that verifies the rescan.
-      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledTimes(2);
+      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledOnce();
       expect(triggerQueueMocks.enqueue).toHaveBeenCalledOnce();
       expect(triggerQueueMocks.enqueue).toHaveBeenCalledWith(
         expect.objectContaining({ eventId: "after-check" }),
@@ -799,9 +806,8 @@ Respond to the concurrent event.`,
       }
 
       expect(resourceListAllOwnersMock).toHaveBeenCalledOnce();
-      // hasEventAutomation reads before and after its scan, then one shared
-      // read per interval.
-      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledTimes(5);
+      // One read by hasEventAutomation, then one shared read per interval.
+      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledTimes(4);
       expect(triggerQueueMocks.enqueue).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
@@ -845,7 +851,7 @@ Respond to the concurrent event.`,
     }
   });
 
-  it("does not trust a fingerprint for names that changed after it was verified, even if an undo restores it", async () => {
+  it("does not trust a fingerprint for names read from a different state, even if an undo restores it", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
     vi.useFakeTimers();
     try {
@@ -859,10 +865,12 @@ Respond to the concurrent event.`,
         emittedAt: new Date().toISOString(),
       });
       resourceFingerprintAllOwnersMock.mockResolvedValue("enabled-state");
+      scanFingerprintMock.mockResolvedValue("enabled-state");
       await expect(hasEventAutomation("test.event.fired")).resolves.toBe(true);
 
       // The automation is disabled; this event's own scan sees that.
       resourceListAllOwnersMock.mockResolvedValueOnce([]);
+      scanFingerprintMock.mockResolvedValueOnce("disabled-state");
       await busEventHandler("test.event.fired")({}, meta("while-disabled"));
       expect(triggerQueueMocks.enqueue).not.toHaveBeenCalled();
 
@@ -879,23 +887,23 @@ Respond to the concurrent event.`,
     }
   });
 
-  it("leaves a scan unverified when jobs/ changed while it ran", async () => {
+  it("pairs a scan with the rows it read even when jobs/ changes and is undone around it", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
     await initTriggerDispatcher({
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
     });
-    let jobsState = "enabled-state";
-    resourceFingerprintAllOwnersMock.mockImplementation(async () => jobsState);
-    // The automation is disabled after the fingerprint read, before the scan.
+    // Every fingerprint read sees the enabled rows: the automation is disabled
+    // only while the scan reads jobs/, and an undo restores the exact rows.
+    resourceFingerprintAllOwnersMock.mockResolvedValue("enabled-state");
+    let scannedState = "enabled-state";
+    scanFingerprintMock.mockImplementation(async () => scannedState);
     resourceListAllOwnersMock.mockImplementationOnce(async () => {
-      jobsState = "disabled-state";
+      scannedState = "disabled-state";
       return [];
     });
     await expect(hasEventAutomation("test.event.fired")).resolves.toBe(false);
 
-    // The automation is re-enabled with the exact earlier rows.
-    jobsState = "enabled-state";
     await expect(hasEventAutomation("test.event.fired")).resolves.toBe(true);
   });
 
@@ -1001,6 +1009,7 @@ Respond to the concurrent event.`,
     isProductionServerlessRuntimeMock.mockReturnValue(false);
     triggerQueueMocks.reset();
     resourceFingerprintAllOwnersMock.mockResolvedValue("fingerprint-unchanged");
+    scanFingerprintMock.mockResolvedValue("fingerprint-unchanged");
     dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
     getDbExecMock.mockReturnValue({ execute: dbExecuteMock });
     resourceListAllOwnersMock.mockResolvedValue([

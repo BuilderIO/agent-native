@@ -132,6 +132,33 @@ describe("resourceFingerprintAllOwners", () => {
     expect(await resourceFingerprintAllOwners(prefix)).not.toBe(before);
   });
 
+  it("gives a scan the same fingerprint the fingerprint read reports for those rows", async () => {
+    const {
+      resourceFingerprintAllOwners,
+      resourceListAllOwnersWithFingerprint,
+      resourcePut,
+    } = await import("./store.js");
+    const prefix = `jobs/scan-match-${Math.random().toString(36).slice(2)}/`;
+    await resourcePut("alice+scan@agent-native.test", `${prefix}a.md`, "plain");
+    await resourcePut(
+      "bob+scan@agent-native.test",
+      `${prefix}b.md`,
+      "naïve café — 日本語 🚀",
+    );
+
+    const scan = await resourceListAllOwnersWithFingerprint(prefix);
+    expect(scan.resources.map((resource) => resource.path).sort()).toEqual([
+      `${prefix}a.md`,
+      `${prefix}b.md`,
+    ]);
+    expect(scan.fingerprint).toBe(await resourceFingerprintAllOwners(prefix));
+
+    await resourcePut("alice+scan@agent-native.test", `${prefix}a.md`, "edit");
+    expect(await resourceFingerprintAllOwners(prefix)).not.toBe(
+      scan.fingerprint,
+    );
+  });
+
   it("does not change when nothing was written", async () => {
     const { resourceFingerprintAllOwners, resourcePut } =
       await import("./store.js");

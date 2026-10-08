@@ -2622,50 +2622,84 @@ export async function resourceEffectiveContext(
   };
 }
 
+function resourceFingerprint(
+  rows: Array<{
+    id: string;
+    owner: string;
+    path: string;
+    updatedAt: number;
+    contentMd5: string;
+  }>,
+  localResources: ResourceMeta[],
+): string {
+  const sqlPart = rows
+    .map(
+      (row) =>
+        `${row.id}|${row.owner}|${row.path}|${row.updatedAt}|${row.contentMd5}`,
+    )
+    .sort()
+    .join("\n");
+  const localPart = localResources
+    .map((resource) => `${resource.path}@${resource.updatedAt}`)
+    .sort()
+    .join("\n");
+  return crypto
+    .createHash("sha256")
+    .update(`${sqlPart}\n--\n${localPart}`)
+    .digest("hex");
+}
+
 /**
  * A cheap change detector for everything `resourceListAllOwners(pathPrefix)`
  * reads: any insert, update, delete, move or snapshot restore of a SQL row
- * changes it, including a same-size edit in the same millisecond, because the
- * digest covers each row's content. Only the digest leaves the database.
- * Local workspace files are tracked by path and modification time.
+ * changes it, including a same-size edit in the same millisecond. Content is
+ * hashed in the database, so only short per-row digests are transferred.
+ * Local workspace files are tracked by path and modification time. Equal to
+ * the fingerprint `resourceListAllOwnersWithFingerprint` returns for the same
+ * state.
  */
 export async function resourceFingerprintAllOwners(
   pathPrefix: string,
 ): Promise<string> {
   await ensureTable();
   const { rows } = await getDbExec().execute({
-    sql: `SELECT COUNT(*) AS row_count, md5(COALESCE(string_agg(id || '|' || owner || '|' || path || '|' || updated_at::text || '|' || md5(COALESCE(content, '')), ',' ORDER BY id), '')) AS digest FROM resources WHERE path LIKE ? ESCAPE '!'`,
+    sql: `SELECT id, owner, path, updated_at, md5(COALESCE(content, '')) AS content_md5 FROM resources WHERE path LIKE ? ESCAPE '!'`,
     args: [prefixLike(pathPrefix)],
   });
-  const row = rows[0];
-  if (!row?.digest) {
-    throw new Error("Resource fingerprint query returned no digest.");
-  }
-  const local = (await localWorkspaceResourceMetas(pathPrefix))
-    .map((resource) => `${resource.path}@${resource.updatedAt}`)
-    .sort()
-    .join("|");
-  const localHash = crypto.createHash("sha1").update(local).digest("hex");
-  return `${row.row_count}:${row.digest}:${localHash}`;
+  return resourceFingerprint(
+    rows.map((row) => ({
+      id: row.id as string,
+      owner: row.owner as string,
+      path: row.path as string,
+      updatedAt: Number(row.updated_at),
+      contentMd5: row.content_md5 as string,
+    })),
+    await localWorkspaceResourceMetas(pathPrefix),
+  );
 }
 
-export async function resourceListAllOwners(
-  pathPrefix: string,
-  options: { includeShadowedWorkspaceRows?: boolean } = {},
-): Promise<Resource[]> {
+async function readAllOwners(pathPrefix: string): Promise<{
+  rows: Record<string, unknown>[];
+  localMetas: ResourceMeta[];
+  localResources: Resource[];
+}> {
   await ensureTable();
-  const client = getDbExec();
-  const { rows } = await client.execute({
+  const { rows } = await getDbExec().execute({
     sql: `SELECT * FROM resources WHERE path LIKE ? ESCAPE '!'`,
     args: [prefixLike(pathPrefix)],
   });
+  const localMetas = await localWorkspaceResourceMetas(pathPrefix);
   const localResources = (
-    await Promise.all(
-      (
-        await localWorkspaceResourceMetas(pathPrefix)
-      ).map((resource) => resourceGet(resource.id)),
-    )
+    await Promise.all(localMetas.map((resource) => resourceGet(resource.id)))
   ).filter((resource): resource is Resource => !!resource);
+  return { rows, localMetas, localResources };
+}
+
+function mergeAllOwners(
+  rows: Record<string, unknown>[],
+  localResources: Resource[],
+  includeShadowedWorkspaceRows: boolean | undefined,
+): Resource[] {
   const localPaths = new Set(localResources.map((resource) => resource.path));
   return [
     ...localResources,
@@ -2673,11 +2707,51 @@ export async function resourceListAllOwners(
       .map(rowToResource)
       .filter(
         (resource) =>
-          options.includeShadowedWorkspaceRows ||
+          includeShadowedWorkspaceRows ||
           resource.owner !== WORKSPACE_OWNER ||
           !localPaths.has(resource.path),
       ),
   ];
+}
+
+export async function resourceListAllOwners(
+  pathPrefix: string,
+  options: { includeShadowedWorkspaceRows?: boolean } = {},
+): Promise<Resource[]> {
+  const { rows, localResources } = await readAllOwners(pathPrefix);
+  return mergeAllOwners(
+    rows,
+    localResources,
+    options.includeShadowedWorkspaceRows,
+  );
+}
+
+/**
+ * `resourceListAllOwners` plus the fingerprint of exactly the rows that one
+ * read returned, so a later `resourceFingerprintAllOwners` match proves the
+ * list is unchanged.
+ */
+export async function resourceListAllOwnersWithFingerprint(
+  pathPrefix: string,
+): Promise<{ resources: Resource[]; fingerprint: string }> {
+  const { rows, localMetas, localResources } = await readAllOwners(pathPrefix);
+  const fingerprint = resourceFingerprint(
+    rows.map((row) => ({
+      id: row.id as string,
+      owner: row.owner as string,
+      path: row.path as string,
+      updatedAt: Number(row.updated_at),
+      contentMd5: crypto
+        .createHash("md5")
+        .update((row.content as string | null) ?? "", "utf8")
+        .digest("hex"),
+    })),
+    localMetas,
+  );
+  return {
+    resources: mergeAllOwners(rows, localResources, false),
+    fingerprint,
+  };
 }
 
 export async function resourceMove(
