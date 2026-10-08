@@ -126,6 +126,11 @@ const EVENT_AUTOMATION_NAMES_TTL_MS = 60_000;
 // How long a cached "no automation" answer is trusted before a cheap
 // fingerprint read checks whether another instance changed jobs/.
 const EVENT_AUTOMATION_CHECK_INTERVAL_MS = 5_000;
+// The check sits in front of every event's dispatch, so it must fail fast and
+// then step aside: after a failure, events take the full read until this
+// passes, instead of each retrying a stalled query first.
+const EVENT_AUTOMATION_CHECK_TIMEOUT_MS = 2_000;
+let _eventAutomationCheckRetryAt = 0;
 let _deps: TriggerDispatcherDeps | null = null;
 let _anyEventSubscriptionId: string | null = null;
 // null = not loaded, or invalidated by a refresh. Never read as "no automations".
@@ -329,6 +334,7 @@ export async function initTriggerDispatcher(
   // thaws into a timeout. Automations load on the first emitted event instead.
   _eventAutomationNames = null;
   _inflightEventAutomationCheck = null;
+  _eventAutomationCheckRetryAt = 0;
   _inflightEventAutomationScan = null;
   _eventAutomationGeneration += 1;
   if (_anyEventSubscriptionId) unsubscribe(_anyEventSubscriptionId);
@@ -761,10 +767,12 @@ async function scanStartedAfter(seq: number): Promise<Resource[]> {
  * Event names as of a fingerprint read made by this call. Rejects when jobs
  * cannot be read.
  */
-async function readCurrentEventAutomationNames(): Promise<Set<string>> {
+async function readCurrentEventAutomationNames(
+  options: { timeoutMs?: number } = {},
+): Promise<Set<string>> {
   for (;;) {
     const generation = _eventAutomationGeneration;
-    const fingerprint = await resourceFingerprintAllOwners("jobs/");
+    const fingerprint = await resourceFingerprintAllOwners("jobs/", options);
     // Counted after the read returns: a scan that began while it was running
     // may have read jobs/ before a write the fingerprint already includes.
     const scansBefore = _eventAutomationScanCount;
@@ -791,8 +799,13 @@ function checkedEventAutomationNames(): Promise<Set<string> | null> {
   if (Date.now() - cached.checkedAt < EVENT_AUTOMATION_CHECK_INTERVAL_MS) {
     return Promise.resolve(names);
   }
-  _inflightEventAutomationCheck ??= readCurrentEventAutomationNames()
+  if (Date.now() < _eventAutomationCheckRetryAt) return Promise.resolve(null);
+  _inflightEventAutomationCheck ??= readCurrentEventAutomationNames({
+    timeoutMs: EVENT_AUTOMATION_CHECK_TIMEOUT_MS,
+  })
     .catch((err: unknown) => {
+      _eventAutomationCheckRetryAt =
+        Date.now() + EVENT_AUTOMATION_CHECK_INTERVAL_MS;
       console.warn(
         "[triggers] Could not check cached event automations; reading them in full:",
         err,

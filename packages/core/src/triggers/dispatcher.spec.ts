@@ -814,7 +814,7 @@ Respond to the concurrent event.`,
     }
   });
 
-  it("falls back to the full read when the fingerprint check fails", async () => {
+  it("falls back to the full read when the fingerprint check fails, and backs off retrying it", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -845,6 +845,21 @@ Respond to the concurrent event.`,
       expect(triggerQueueMocks.enqueue).toHaveBeenCalledWith(
         expect.objectContaining({ eventId: "check-failed" }),
       );
+      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledWith("jobs/", {
+        timeoutMs: 2_000,
+      });
+
+      // Until the retry time, events skip the check and take the full read.
+      await busEventHandler("test.event.fired")({}, meta("during-backoff"));
+      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledOnce();
+      expect(resourceListAllOwnersMock).toHaveBeenCalledTimes(3);
+      expect(triggerQueueMocks.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ eventId: "during-backoff" }),
+      );
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      await busEventHandler("test.event.fired")({}, meta("after-backoff"));
+      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledTimes(2);
     } finally {
       warn.mockRestore();
       vi.useRealTimers();

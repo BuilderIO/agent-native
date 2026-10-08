@@ -1198,6 +1198,20 @@ async function _doEnsureTable(): Promise<void> {
     );
   });
 
+  // The (path, owner) unique index uses the default operator class, which a
+  // prefix LIKE cannot use under a non-C collation; the trigger dispatcher
+  // reads jobs/ by prefix every few seconds.
+  await ensureIndexExists(
+    "resources_path_pattern_idx",
+    `CREATE INDEX IF NOT EXISTS resources_path_pattern_idx ON resources (path text_pattern_ops)`,
+  ).catch((err) => {
+    // coercion-ok: absence of an index degrades latency, never correctness
+    console.warn(
+      "[resources] could not ensure resources_path_pattern_idx; prefix reads such as the jobs/ fingerprint will full-scan:",
+      (err as Error)?.message ?? err,
+    );
+  });
+
   // Migrate both shipped paths without touching edited copies. The legacy
   // path wins duplicate-name resolution in existing workspaces.
   // This marker stays separate from the shared seed version so it cannot
@@ -2660,11 +2674,15 @@ function resourceFingerprint(
  */
 export async function resourceFingerprintAllOwners(
   pathPrefix: string,
+  options: { timeoutMs?: number } = {},
 ): Promise<string> {
   await ensureTable();
   const { rows } = await getDbExec().execute({
     sql: `SELECT id, owner, path, updated_at, md5(COALESCE(content, '')) AS content_md5 FROM resources WHERE path LIKE ? ESCAPE '!'`,
     args: [prefixLike(pathPrefix)],
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
   });
   return resourceFingerprint(
     rows.map((row) => ({
