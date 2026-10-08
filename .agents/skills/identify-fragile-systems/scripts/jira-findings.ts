@@ -65,7 +65,10 @@ main(async (args) => {
         f,
         why: overlap(
           r.system,
-          r.topFiles.map((t) => t.path),
+          [
+            ...(r.focus ?? []).map((t) => t.path),
+            ...r.topFiles.map((t) => t.path),
+          ],
           f,
         ),
       }))

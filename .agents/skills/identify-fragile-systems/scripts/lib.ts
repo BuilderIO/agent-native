@@ -13,6 +13,7 @@ export interface Config {
   baseBranch: string;
   windowHours: number;
   lookbackDays: number;
+  bugLookbackDays: number;
   reFixDays: number;
   minWindowCommits: number;
   maxHotSystems: number;
@@ -28,7 +29,7 @@ export interface Config {
     issueType: string;
     label: string;
     podField: string;
-    podValue: string;
+    podOptionId: string;
     propertyKey: string;
     sightingCooldownDays: number;
     maxNewTicketsPerRun: number;
@@ -75,8 +76,9 @@ export function parseArgs(argv: string[]): Args {
       out._.push(arg);
       continue;
     }
-    const [key, inline] = arg.slice(2).split("=", 2);
-    if (inline !== undefined) out[key] = inline;
+    const eq = arg.indexOf("=");
+    const key = eq === -1 ? arg.slice(2) : arg.slice(2, eq);
+    if (eq !== -1) out[key] = arg.slice(eq + 1);
     else if (argv[i + 1] && !argv[i + 1].startsWith("--")) out[key] = argv[++i];
     else out[key] = true;
   }
@@ -152,7 +154,14 @@ export function run(
 }
 
 export function runId(args: Args): string {
-  return argString(args, "run") ?? new Date().toISOString().slice(0, 10);
+  const id = argString(args, "run") ?? new Date().toISOString().slice(0, 10);
+  // The id becomes a directory under dataDir and plansDir.
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id) || id.includes("..")) {
+    throw new ScriptError(
+      `--run must be a plain id like 2026-10-08, got "${id}"`,
+    );
+  }
+  return id;
 }
 
 export function runDir(config: Config, id: string): string {
@@ -165,6 +174,10 @@ export function plansDir(config: Config, id: string): string {
   const dir = path.join(repoRoot(), config.plansDir, id);
   mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+export function isBugRun(config: Config, id: string): boolean {
+  return existsSync(path.join(repoRoot(), config.dataDir, id, "bug.json"));
 }
 
 export function readJson<T>(file: string): T {

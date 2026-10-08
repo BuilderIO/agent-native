@@ -1,9 +1,12 @@
 ---
 name: identify-fragile-systems
 description: >-
-  Nightly refactor review: find systems the last day's commits hit hardest,
-  test three weeks of history to tell fragile from fast-moving, write a plan
-  per systemic fix, and file deduplicated Jira tickets. Use for /identify-fragile-systems.
+  Find fragile systems and file deduplicated refactor tickets. Two entry
+  points: the nightly review of the last day's commits, and a bug report
+  (GitHub issue, Jira ticket, or pasted text) to decide whether the bug is a
+  one-off or a symptom of a pattern worth fixing at the root. Use for
+  /identify-fragile-systems, or proactively when handed a bug report and asked
+  whether something deeper is wrong.
 user-invocable: true
 scope: dev
 metadata:
@@ -12,7 +15,16 @@ metadata:
 
 # Identify Fragile Systems
 
-Built to run unattended once a day. Every data step is a script in `scripts/`.
+## Pick a mode
+
+- **Nightly**: no bug report given. Follow [Steps](#steps). Built to run
+  unattended once a day.
+- **Bug report**: you were given a report, issue, ticket, or pasted
+  message. Follow [Bug-report mode](#bug-report-mode). It reuses the same
+  scripts, history, dedup, plans, and Jira lifecycle, scoped to the files the
+  bug lives in.
+
+Built to run unattended. Every data step is a script in `scripts/`.
 Do not write one-off scripts, and do not hand-roll git, `gh`, or Jira calls.
 If a script is missing a capability, extend the script, then use it.
 
@@ -44,7 +56,8 @@ never a pass: report it.
 
 ## Steps
 
-1. **Preflight**: `doctor.ts`. Stop on exit 2 and report which check failed.
+1. **Preflight**: `doctor.ts`. Stop on any nonzero exit and report which
+   check failed. Exit 1 is a known bad state, such as a missing permission.
    A `run-link` warning means you must set `FRAGILITY_RUN_URL`, or pass
    `--run-url` to the upsert.
 2. **Collect**: `collect.ts`. This step takes about 15 seconds. It writes
@@ -58,9 +71,12 @@ never a pass: report it.
 4. **Dedup early**: `jira-findings.ts`. It writes `jira-matches.json`. For
    each hot system matched to an existing ticket, run
    `jira-sighting.ts --key <KEY> --system <system> --apply` and do not
-   re-plan it. The one exception is when the diffs show a different root
-   problem: then write a new plan with a new slug and name the related
-   ticket in it.
+   re-plan it. The exceptions:
+   - The ticket was resolved as fixed. `jira-sighting` refuses it, because
+     a hot system after a fix is a recurrence. Write a plan and upsert it,
+     which opens a linked recurrence ticket.
+   - The diffs show a different root problem. Write a new plan with a new
+     slug, and name the related ticket in it.
 5. **Investigate** the unmatched systems in score order. Spend effort on
    `likely-fragile`, `mixed`, and high-scoring `settling`. Skip `coupled`
    unless the coupling itself is the defect, for example a hand-edited
@@ -85,18 +101,67 @@ never a pass: report it.
    for example `{"<system>": "fast-moving: Clips recorder launch, fixes follow #6992"}`.
 8. **File**: `jira-upsert.ts --plan <file>` (a dry run), then add `--apply`.
    The script handles every case:
-   - No ticket exists: it creates one in ENG as a Task, with Pod Agent
-     Native, label `refactor-findings`, the plan attached, and the run
-     link.
+   - No ticket exists: it creates one in ENG as a Task, with the
+     Agent-Native Pod, label `refactor-findings`, the plan attached, and
+     the run link.
    - The ticket is open: it records a sighting, and comments at most once
      per cooldown.
    - The ticket was fixed: it opens a linked recurrence ticket.
-   - The ticket was declined: it records the sighting only.
+   - The ticket was declined: it records the sighting, comments at most
+     once every four cooldowns, and never re-files it.
 
    If you judge a plan to duplicate a ticket under a different fingerprint,
    pass `--duplicate-of KEY`.
 9. **Summarize**: `summarize.ts` writes the plans folder's `README.md`.
    Exit 1 means some hot system is still undecided, so go back to step 7.
+
+## Bug-report mode
+
+The question is not "what is broken" but "is this bug a one-off, or one
+instance of a pattern that will keep producing bugs". One run per report.
+
+1. **Preflight**: `doctor.ts`, same rules as nightly.
+2. **Intake**: `bug-intake.ts --issue <N|url> | --jira <KEY|url> | --file <path> | --text "<report>"`.
+   It writes `bug.json` and prints the run id (`bug-gh-123`,
+   `bug-eng-456`, or `bug-<date>-<hash>`). Pass that id as `--run` to every
+   later step. `bug.json` is what puts the other scripts into bug mode.
+3. **Split symptoms**: a report often lists several. Treat each as its own
+   symptom with its own verdict. Name them with short labels.
+4. **Locate**: for each symptom, find the code path from the working tree.
+   Name the files the defect lives in and, if you can, the line. Reproducing
+   is welcome but optional. Never change product code.
+5. **Collect**: `collect.ts --run <id>`. In a bug run the lookback defaults
+   to `bugLookbackDays` (60) and window PR metadata is skipped.
+6. **Score the focus**: `analyze.ts --run <id> --focus <file,file> --keywords <word,word>`.
+   `--focus` takes the files from step 4, across all symptoms. It scores
+   the systems that contain them against the repo baseline and lists every
+   lookback fix to each focus file. `--keywords` lists fixes anywhere
+   whose subject matches, which is how you find the same bug class landing in
+   another template. Re-run it as your focus sharpens.
+7. **Dedup early**: `jira-findings.ts --run <id>`. If an existing ticket's
+   mechanism covers a symptom, record
+   `jira-sighting.ts --key <KEY> --system <system> --note "<how this bug is an instance>" --apply`.
+   A bug-run sighting always comments once, because a real bug is new
+   evidence. The symptom's verdict is `known`.
+8. **Investigate** each remaining symptom:
+   - Read the earlier fixes to the focus files with `pr.ts`. Did one of
+     them fix the same mechanism? Did it regress here?
+   - Search the working tree for the faulty construct elsewhere: the same
+     helper misuse, the same unguarded call, the same parallel copy of a core
+     primitive. Sibling sites carrying the bug today count as instances.
+   - Decide using "Bug reports" in `references/rubric.md`.
+9. **Plan if pattern**: `new-plan.ts --run <id> --slug ... --systems ...`
+   as in nightly step 6. The scaffold adds a Trigger section for the bug.
+   Prefer a slug the nightly run would also choose, so both converge on one
+   fingerprint. Then `jira-upsert.ts --plan <file>`, then add `--apply`.
+10. **Record a verdict per symptom**:
+    `bug-verdict.ts --run <id> --symptom <label> --verdict one-off|pattern|known --root-cause "<file:line, what goes wrong>" --reason "<why>"`,
+    plus `--fix "<local fix>"` for one-off, `--plan <file>` for pattern
+    (with `--unfiled "<why>"` if it has no ticket), or `--ticket KEY` for known.
+11. **Summarize**: `summarize.ts --run <id>`. Exit 1 means no verdict yet.
+
+Report, per symptom: the verdict, the root cause with file:line, and the
+local fix or the ticket link. Lead with what the reporter needs to know.
 
 ## Outputs
 

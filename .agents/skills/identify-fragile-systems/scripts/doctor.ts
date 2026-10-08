@@ -91,7 +91,10 @@ main(async () => {
         `issue type ${config.jira.issueType} not in ${config.jira.projectKey}`,
       );
     const fields = await jira.request<{
-      fields: { fieldId: string; allowedValues?: { value?: string }[] }[];
+      fields: {
+        fieldId: string;
+        allowedValues?: { id: string; value?: string }[];
+      }[];
     }>(
       "GET",
       `/rest/api/3/issue/createmeta/${config.jira.projectKey}/issuetypes/${type.id}?maxResults=200`,
@@ -101,10 +104,15 @@ main(async () => {
       throw new Error(
         `${config.jira.podField} is not on the ${config.jira.issueType} create screen`,
       );
-    if (!pod.allowedValues?.some((v) => v.value === config.jira.podValue)) {
-      throw new Error(`"${config.jira.podValue}" is not an allowed Pod value`);
+    const option = pod.allowedValues?.find(
+      (v) => v.id === config.jira.podOptionId,
+    );
+    if (!option) {
+      throw new Error(
+        `Pod option ${config.jira.podOptionId} is not allowed on ${config.jira.issueType}`,
+      );
     }
-    return `Pod ${config.jira.podField} accepts "${config.jira.podValue}"`;
+    return `Pod ${config.jira.podField} option ${option.id} is "${option.value}"`;
   });
   await check(
     "run-link",

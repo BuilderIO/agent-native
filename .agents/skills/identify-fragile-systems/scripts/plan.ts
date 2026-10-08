@@ -14,6 +14,8 @@ export interface PlanMeta {
   windowCommits: number | null;
   lookbackFixes: number | null;
   runId: string;
+  trigger: "nightly" | "bug";
+  source: string | null;
   jira: string | null;
   summary: string;
 }
@@ -56,6 +58,8 @@ export function readPlan(file: string): { meta: PlanMeta; body: string } {
     windowCommits: num("windowCommits"),
     lookbackFixes: num("lookbackFixes"),
     runId: str("runId"),
+    trigger: str("trigger") === "bug" ? "bug" : "nightly",
+    source: str("source") && str("source") !== "null" ? str("source") : null,
     jira: str("jira") && str("jira") !== "null" ? str("jira") : null,
     summary: str("summary"),
   };

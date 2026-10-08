@@ -39,9 +39,35 @@ the diffs and classify the system by what the fixes do.
 
 A system that mostly changes as a side effect of other work, such as a
 docs registry, a CI lane classifier, or a shared barrel, is not fragile
-code. Plan it only if every feature *must* hand-edit it and those edits
+code. Plan it only if every feature _must_ hand-edit it and those edits
 keep breaking, for example a lane that misses new paths. In that case the
 fix is to generate or derive it.
+
+## Bug reports: one-off or pattern
+
+The reported bug is one instance. A pattern needs at least one more,
+from history or from the code as it stands today.
+
+Call it a **pattern** when any of these hold, and you can name the mechanism:
+
+- An earlier fix in the lookback addressed the same mechanism on the focus
+  files, or the same mechanism in a sibling template. The bug is a
+  regression or a repeat.
+- The faulty construct exists at other call sites today, so the same bug
+  is latent elsewhere. Cite file:line for at least one.
+- The defect comes from a contract that invites it: a failure coerced into
+  a clean value, a template's copy of a core primitive, or an implicit state
+  machine. See the fragility signs above.
+- The focus system scores `likely-fragile` and the diffs agree.
+
+Call it a **one-off** when the defect is local: a wrong condition, a typo, a
+missing case specific to one feature, an environment or config slip. No
+earlier fix of the same kind, no sibling sites. A one-off still gets a root
+cause and a suggested fix, so the report is answered.
+
+One report can hold both: several symptoms with different verdicts. A
+symptom whose cause is a recent feature still settling is usually a one-off.
+Say so, because the nightly run will catch it if the fixes keep coming.
 
 ## Confidence
 

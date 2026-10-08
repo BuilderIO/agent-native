@@ -2,7 +2,9 @@
 //   no ticket          → create (Pod, label, plan attached, run link)
 //   open ticket        → record a sighting; comment + attach the new plan at most once per cooldown
 //   fixed ticket       → create a recurrence ticket linked to the old one
-//   declined ticket    → record the sighting only; never re-create
+//   declined ticket    → record the sighting; rare comment; never re-create
+// A bug-triggered plan always comments on an existing ticket (once per run):
+// a real bug traced to the pattern is new evidence, not nightly noise.
 // Dry-run unless --apply. Re-running after a partial failure finishes the job.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -16,6 +18,8 @@ import {
   isOpen,
   Jira,
   mergeSighting,
+  planAttachmentPattern,
+  runMarker,
   runLink,
   type Sighting,
 } from "./jira.ts";
@@ -78,11 +82,13 @@ main(async (args) => {
     verdict: meta.verdict,
     windowCommits: meta.windowCommits,
     lookbackFixes: meta.lookbackFixes,
+    source: meta.source,
   };
+  const bugTriggered = meta.trigger === "bug";
   const action = decide(
     match,
     config.jira.sightingCooldownDays,
-    Boolean(args["force-comment"]),
+    Boolean(args["force-comment"]) || bugTriggered,
   );
   const attachmentName = `${path.basename(file, ".md")}-${meta.runId}.md`;
   const plan = {
@@ -134,20 +140,30 @@ main(async (args) => {
   } else {
     key = match!.key;
     const existing = await currentProperty(jira, key, config.jira.propertyKey);
-    if (action === "sighting-comment") {
+    // Each write checks what a previous partial run already did, so a re-run
+    // after a failure finishes the job instead of repeating it.
+    const commented = await jira.hasRunComment(key, meta.runId);
+    if (action === "sighting-comment" && !commented) {
       await jira.comment(
         key,
         sightingComment(meta, link, attachmentName, match!),
       );
-      await jira.attach(key, file, attachmentName);
     } else if (
       action === "declined-sighting" &&
-      shouldNudgeDeclined(existing, config.jira.sightingCooldownDays * 4)
+      !commented &&
+      (bugTriggered ||
+        shouldNudgeDeclined(existing, config.jira.sightingCooldownDays * 4))
     ) {
       await jira.comment(key, declinedComment(meta, link));
     }
+    const planFiles = match!.attachments.filter((a) =>
+      planAttachmentPattern(path.basename(file, ".md")).test(a),
+    );
+    const wantsThisRun = action === "sighting-comment";
     if (
-      !match!.attachments.some((a) => a.startsWith(path.basename(file, ".md")))
+      wantsThisRun
+        ? !planFiles.includes(attachmentName)
+        : planFiles.length === 0
     ) {
       await jira.attach(key, file, attachmentName);
     }
@@ -219,7 +235,8 @@ async function create(
   link: string | null,
   previous: Finding | null,
 ): Promise<string> {
-  const { projectKey, issueType, label, podField, podValue } = jira.config.jira;
+  const { projectKey, issueType, label, podField, podOptionId } =
+    jira.config.jira;
   const summary = `[${meta.area}] Refactor: ${meta.title}`.slice(0, 250);
   const facts: AdfNode[][] = [
     [
@@ -227,11 +244,19 @@ async function create(
         `Verdict: ${meta.verdict}, confidence ${meta.confidence}, score ${meta.score ?? "n/a"}.`,
       ),
     ],
-    [
-      adf.text(
-        `Signal: ${meta.windowCommits ?? "?"} commits in the review window, ${meta.lookbackFixes ?? "?"} fixes in the lookback.`,
-      ),
-    ],
+    meta.trigger === "bug"
+      ? [
+          adf.text("Triggered by bug report: "),
+          sourceText(meta.source),
+          adf.text(
+            `. ${meta.lookbackFixes ?? "?"} fixes in the lookback on these systems.`,
+          ),
+        ]
+      : [
+          adf.text(
+            `Signal: ${meta.windowCommits ?? "?"} commits in the review window, ${meta.lookbackFixes ?? "?"} fixes in the lookback.`,
+          ),
+        ],
     [adf.text("Systems: "), adf.code(meta.systems.join(", "))],
     link
       ? [adf.text("Analysis run: "), adf.text(link, link)]
@@ -253,7 +278,7 @@ async function create(
       issuetype: { name: issueType },
       summary,
       labels: [label],
-      [podField]: [{ value: podValue }],
+      [podField]: [{ id: podOptionId }],
       description: adf.doc(
         adf.p(adf.text(meta.summary)),
         adf.bullets(...facts),
@@ -271,30 +296,54 @@ function sightingComment(
   match: Finding,
 ): AdfNode {
   const first = match.sightings[0];
+  const lead =
+    meta.trigger === "bug"
+      ? [
+          adf.text("Bug report "),
+          sourceText(meta.source),
+          adf.text(
+            ` traced to this pattern in ${runMarker(meta.runId)}: ${meta.summary}`,
+          ),
+        ]
+      : [
+          adf.text(
+            `Seen again in ${runMarker(meta.runId)}: ${meta.verdict}, score ${meta.score ?? "n/a"}, ${meta.windowCommits ?? "?"} window commits, ${meta.lookbackFixes ?? "?"} lookback fixes.`,
+          ),
+        ];
   return adf.doc(
+    adf.p(...lead),
     adf.p(
       adf.text(
-        `Seen again in fragility run ${meta.runId}: ${meta.verdict}, score ${meta.score ?? "n/a"}, ${meta.windowCommits ?? "?"} window commits, ${meta.lookbackFixes ?? "?"} lookback fixes.`,
-      ),
-    ),
-    adf.p(
-      adf.text(
-        `${match.sightings.length + 1} sightings${first ? ` since ${first.date}` : ""}. Updated plan attached as ${attachment}. `,
+        `${match.sightingCount + 1} sightings${first ? ` since ${first.date}` : ""}. Updated plan attached as ${attachment}. `,
       ),
       ...(link ? [adf.text("Run", link)] : []),
     ),
   );
 }
 
+function sourceText(source: string | null): AdfNode {
+  if (!source) return adf.text("unlinked report");
+  return /^https?:\/\//.test(source)
+    ? adf.text(source, source)
+    : adf.text(source);
+}
+
 function declinedComment(meta: PlanMeta, link: string | null): AdfNode {
-  return adf.doc(
-    adf.p(
-      adf.text(
-        `This area still scores as ${meta.verdict} (score ${meta.score ?? "n/a"}) in run ${meta.runId}. No new ticket was opened because this one was declined. `,
-      ),
-      ...(link ? [adf.text("Run", link)] : []),
-    ),
-  );
+  const lead =
+    meta.trigger === "bug"
+      ? [
+          adf.text("Bug report "),
+          sourceText(meta.source),
+          adf.text(
+            ` traced to this declined pattern in ${runMarker(meta.runId)}. No new ticket was opened; consider reopening. `,
+          ),
+        ]
+      : [
+          adf.text(
+            `This area still scores as ${meta.verdict} (score ${meta.score ?? "n/a"}) in ${runMarker(meta.runId)}. No new ticket was opened because this one was declined. `,
+          ),
+        ];
+  return adf.doc(adf.p(...lead, ...(link ? [adf.text("Run", link)] : [])));
 }
 
 function readResults(

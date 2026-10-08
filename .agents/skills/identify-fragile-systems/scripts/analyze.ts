@@ -4,24 +4,32 @@
 // Scores are percentiles against every active system in the repo, because this
 // codebase is fix-heavy everywhere and absolute thresholds flag all of it.
 // The verdict is a triage label for the agent, not a conclusion.
-import { writeFileSync } from "node:fs";
+import { existsSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import type { BugReport } from "./bug-intake.ts";
 import type { Collected, Commit } from "./collect.ts";
 import {
+  type Args,
+  argString,
   classifySubject,
   compile,
+  isBugRun,
   loadConfig,
   main,
   readJson,
   rel,
+  repoRoot,
   runDir,
   runId,
+  ScriptError,
   systemOf,
   writeJson,
 } from "./lib.ts";
 
 const SWEEP_SYSTEMS = 12;
+const TEST_FILE =
+  /(\.(test|spec)\.[cm]?[jt]sx?$)|(^|\/)(e2e|__tests__|tests?)\//;
 const POPULATION_MIN_COMMITS = 8;
 const DAY = 86_400_000;
 
@@ -59,6 +67,20 @@ interface Metrics {
   weekly: { start: string; commits: number; fixes: number }[];
 }
 
+export interface CommitRef {
+  sha: string;
+  pr: number | null;
+  date: string;
+  subject: string;
+}
+
+export interface FocusFile {
+  path: string;
+  commits: number;
+  fixes: number;
+  fixCommits: CommitRef[];
+}
+
 export interface SystemReport {
   system: string;
   window: {
@@ -72,16 +94,19 @@ export interface SystemReport {
   verdict: Verdict;
   reasons: string[];
   topFiles: FileStat[];
-  recentFixes: {
-    sha: string;
-    pr: number | null;
-    date: string;
-    subject: string;
-  }[];
+  recentFixes: CommitRef[];
+  focus?: FocusFile[];
 }
 
 export interface Analysis {
   runId: string;
+  mode: "nightly" | "bug";
+  bug: { title: string; ref: string; url: string | null } | null;
+  focus: string[];
+  related: {
+    keywords: string[];
+    commits: (CommitRef & { systems: string[]; touchesFocus: boolean })[];
+  } | null;
   head: string;
   windowStart: string;
   windowEnd: string;
@@ -102,13 +127,10 @@ export interface Analysis {
 
 type Touch = { commit: Commit; files: Commit["files"]; primary: boolean };
 
-const TEST_FILE =
-  /(\.(test|spec)\.[cm]?[jt]sx?$)|(^|\/)(e2e|__tests__|tests?)\//;
-
 main((args) => {
   if (args.help) {
     console.log(
-      "analyze --run <id>   (reads commits.json, writes analysis.json + analysis.md)",
+      "analyze --run <id> [--focus <file,file>] [--keywords <word,word>]   (reads commits.json, writes analysis.json + analysis.md)\n  --focus scores the systems containing these files instead of the window's hot systems; required in a bug run.\n  --keywords lists lookback fixes anywhere whose subject matches, to find the same bug class elsewhere.",
     );
     return;
   }
@@ -116,6 +138,17 @@ main((args) => {
   const id = runId(args);
   const dir = runDir(config, id);
   const data = readJson<Collected>(path.join(dir, "commits.json"));
+  const bug = isBugRun(config, id)
+    ? readJson<BugReport>(path.join(dir, "bug.json"))
+    : null;
+  const focus = listArg(args, "focus").map((f) => f.replace(/^\.\//, ""));
+  const keywords = listArg(args, "keywords");
+  if (bug && focus.length === 0) {
+    throw new ScriptError(
+      "bug run: pass --focus <file,file> with the files the defect lives in",
+    );
+  }
+  assertFocusFiles(focus, data);
 
   const ignoredSubject = compile(config.ignoreSubjects);
   const ignoredPath = compile(config.ignorePaths);
@@ -156,10 +189,12 @@ main((args) => {
       const substantive = files.filter((f) => !mechanical(f.path));
       if (substantive.length === 0) share.mechanical++;
       mechanicalShare.set(system, share);
-      if (substantive.length)
+      // A commit that only edits a system's tests says nothing about its code.
+      const code = substantive.filter((f) => !TEST_FILE.test(f.path));
+      if (code.length)
         touches.set(system, [
           ...(touches.get(system) ?? []),
-          { commit, files: substantive, primary: files.length === largest },
+          { commit, files: code, primary: files.length === largest },
         ]);
     }
   }
@@ -189,18 +224,54 @@ main((args) => {
     ]),
   ) as Record<(typeof keys)[number], number[]>;
 
-  const hot = all
-    .filter((s) => s.window.commits >= config.minWindowCommits)
-    .sort(
-      (a, b) =>
-        b.window.commits + b.window.fixes - (a.window.commits + a.window.fixes),
-    )
-    .slice(0, config.maxHotSystems)
-    .map((s) => judge(s, sorted))
-    .sort((a, b) => b.score - a.score);
+  const measuredBySystem = new Map(all.map((s) => [s.system, s]));
+  const focusSystems = [...new Set(focus.map((f) => systemOf(f, config)))];
+  const hot: SystemReport[] = focus.length
+    ? focusSystems
+        .map((system) => ({
+          ...judge(
+            measuredBySystem.get(system) ??
+              measure(
+                system,
+                touches.get(system) ?? [],
+                data,
+                config.reFixDays,
+              ),
+            sorted,
+          ),
+          focus: focus
+            .filter((f) => systemOf(f, config) === system)
+            .map((f) => focusFile(f, data.commits, ignoredSubject)),
+        }))
+        .sort((a, b) => b.score - a.score)
+    : all
+        .filter((s) => s.window.commits >= config.minWindowCommits)
+        .sort(
+          (a, b) =>
+            b.window.commits +
+            b.window.fixes -
+            (a.window.commits + a.window.fixes),
+        )
+        .slice(0, config.maxHotSystems)
+        .map((s) => judge(s, sorted))
+        .sort((a, b) => b.score - a.score);
 
   const analysis: Analysis = {
     runId: id,
+    mode: bug ? "bug" : "nightly",
+    bug: bug
+      ? { title: bug.title, ref: bug.source.ref, url: bug.source.url }
+      : null,
+    focus,
+    related: keywords.length
+      ? {
+          keywords,
+          commits: relatedFixes(keywords, data.commits, focus, config, {
+            ignoredSubject,
+            ignoredPath,
+          }),
+        }
+      : null,
     head: data.head,
     windowStart: data.windowStart,
     windowEnd: data.windowEnd,
@@ -223,11 +294,98 @@ main((args) => {
     `${rel(md)}: ${hot.length} hot systems (baseline: ${population.length} systems, repo fix ratio ${pct(analysis.baseline.repoFixRatio)})`,
   );
   for (const r of hot) {
+    for (const f of r.focus ?? [])
+      console.log(
+        `  focus ${f.path}: ${f.commits} commits, ${f.fixes} fixes in the lookback`,
+      );
     console.log(
       `  ${String(r.score).padStart(3)}  ${r.verdict.padEnd(19)} ${r.system}  window ${r.window.commits}c/${r.window.fixes}f  lookback ${r.lookback.commits}c/${r.lookback.fixes}f  weekly fixes ${r.lookback.weekly.map((w) => w.fixes).join("→")}`,
     );
   }
 });
+
+function listArg(args: Args, key: string): string[] {
+  return (argString(args, key) ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function assertFocusFiles(focus: string[], data: Collected): void {
+  const known = new Set(
+    data.commits.flatMap((c) => c.files.map((f) => f.path)),
+  );
+  const bad = focus.filter((f) => {
+    const abs = path.join(repoRoot(), f);
+    const isFile = existsSync(abs) && statSync(abs).isFile();
+    return !isFile && !known.has(f);
+  });
+  if (bad.length) {
+    throw new ScriptError(
+      `--focus takes repo-relative file paths; not a file in the working tree or the lookback: ${bad.join(", ")}`,
+    );
+  }
+}
+
+function commitRef(commit: Commit): CommitRef {
+  return {
+    sha: commit.sha.slice(0, 9),
+    pr: commit.pr,
+    date: commit.date.slice(0, 10),
+    subject: commit.subject,
+  };
+}
+
+function focusFile(
+  file: string,
+  commits: Commit[],
+  ignoredSubject: (s: string) => boolean,
+): FocusFile {
+  const touching = commits.filter(
+    (c) => !ignoredSubject(c.subject) && c.files.some((f) => f.path === file),
+  );
+  const fixes = touching.filter(isFix);
+  return {
+    path: file,
+    commits: touching.length,
+    fixes: fixes.length,
+    fixCommits: fixes.map(commitRef),
+  };
+}
+
+function relatedFixes(
+  keywords: string[],
+  commits: Commit[],
+  focus: string[],
+  config: ReturnType<typeof loadConfig>,
+  filters: {
+    ignoredSubject: (s: string) => boolean;
+    ignoredPath: (s: string) => boolean;
+  },
+): NonNullable<Analysis["related"]>["commits"] {
+  const escaped = keywords.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const pattern = new RegExp(`\\b(${escaped.join("|")})`, "i");
+  const focusSet = new Set(focus);
+  return commits
+    .filter(
+      (c) =>
+        isFix(c) &&
+        !filters.ignoredSubject(c.subject) &&
+        pattern.test(c.subject),
+    )
+    .slice(0, 50)
+    .map((c) => {
+      const files = c.files.filter((f) => !filters.ignoredPath(f.path));
+      return {
+        ...commitRef(c),
+        systems: [...new Set(files.map((f) => systemOf(f.path, config)))].slice(
+          0,
+          5,
+        ),
+        touchesFocus: files.some((f) => focusSet.has(f.path)),
+      };
+    });
+}
 
 function isFix(commit: Commit): boolean {
   return commit.kind === "fix" || commit.kind === "revert";
@@ -244,8 +402,8 @@ function measure(
   data: Collected,
   reFixDays: number,
 ): Measured {
-  const ordered = [...list].sort((a, b) =>
-    a.commit.date.localeCompare(b.commit.date),
+  const ordered = [...list].sort(
+    (a, b) => Date.parse(a.commit.date) - Date.parse(b.commit.date),
   );
   const start = Date.parse(data.lookbackStart);
   const end = Date.parse(data.windowEnd);
@@ -265,7 +423,6 @@ function measure(
     let reFixed = false;
     let followUp = false;
     for (const file of changed) {
-      if (TEST_FILE.test(file.path)) continue;
       const stat = files.get(file.path) ?? {
         path: file.path,
         commits: 0,
@@ -365,12 +522,7 @@ function measure(
     recentFixes: fixList
       .slice(-10)
       .reverse()
-      .map(({ commit }) => ({
-        sha: commit.sha.slice(0, 9),
-        pr: commit.pr,
-        date: commit.date.slice(0, 10),
-        subject: commit.subject,
-      })),
+      .map(({ commit }) => commitRef(commit)),
   };
 }
 
@@ -463,10 +615,18 @@ function quantile(sorted: number[], q: number): number {
 }
 
 function renderMarkdown(a: Analysis): string {
+  const scope = a.bug
+    ? [
+        `Bug report: ${a.bug.url ? `[${a.bug.title}](${a.bug.url})` : a.bug.title} (${a.bug.ref}). Lookback from ${a.lookbackStart} to ${a.windowEnd}. Head \`${a.head.slice(0, 9)}\`.`,
+        `Systems below are the ones containing the focus files (${a.focus.map((f) => `\`${f}\``).join(", ")}). Window counts do not apply to a bug run.`,
+      ]
+    : [
+        `Window ${a.windowStart} to ${a.windowEnd}. Lookback from ${a.lookbackStart}. Head \`${a.head.slice(0, 9)}\`. PR metadata: ${a.prMetadata}.`,
+      ];
   const lines = [
     `# Fragility triage ${a.runId}`,
     "",
-    `Window ${a.windowStart} to ${a.windowEnd}. Lookback from ${a.lookbackStart}. Head \`${a.head.slice(0, 9)}\`. PR metadata: ${a.prMetadata}.`,
+    ...scope,
     `Baseline: ${a.baseline.systems} systems with ${POPULATION_MIN_COMMITS}+ lookback commits; repo-wide fix ratio ${pct(a.baseline.repoFixRatio)}.`,
     `Excluded: ${a.excluded.releaseCommits} release or dependency commits, ${a.excluded.sweepCommits} sweep commits touching more than ${SWEEP_SYSTEMS} systems, mechanical systems: ${a.excluded.mechanicalSystems.join(", ") || "none"}.`,
     "",
@@ -483,6 +643,13 @@ function renderMarkdown(a: Analysis): string {
   for (const r of a.hotSystems) {
     lines.push("", `## \`${r.system}\` — ${r.verdict} (${r.score})`, "");
     for (const reason of r.reasons) lines.push(`- ${reason}`);
+    for (const f of r.focus ?? []) {
+      lines.push(
+        "",
+        `Focus file \`${f.path}\`: ${f.commits} commits, ${f.fixes} fixes in the lookback.`,
+      );
+      for (const c of f.fixCommits) lines.push(`- ${c.date} ${c.subject}`);
+    }
     lines.push(
       "",
       "Top files (commits / fixes / re-fixes / weeks with a fix):",
@@ -496,6 +663,21 @@ function renderMarkdown(a: Analysis): string {
     for (const c of r.window.prs) lines.push(`- ${c.subject}`);
     lines.push("", "Recent fixes in lookback:");
     for (const f of r.recentFixes) lines.push(`- ${f.date} ${f.subject}`);
+  }
+  if (a.related) {
+    lines.push(
+      "",
+      `## Fixes matching ${a.related.keywords.map((k) => `"${k}"`).join(", ")}`,
+      "",
+      "The same bug class landing in other systems points to a shared root cause. Subjects only; read the diffs before counting one.",
+      "",
+    );
+    if (a.related.commits.length === 0) lines.push("- none");
+    for (const c of a.related.commits) {
+      lines.push(
+        `- ${c.date} ${c.subject} — ${c.systems.map((s) => `\`${s}\``).join(", ")}${c.touchesFocus ? " (touches a focus file)" : ""}`,
+      );
+    }
   }
   return `${lines.join("\n")}\n`;
 }

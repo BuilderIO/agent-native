@@ -16,6 +16,7 @@ export interface Finding {
   systems: string[];
   paths: string[];
   sightings: Sighting[];
+  sightingCount: number;
   attachments: string[];
 }
 
@@ -26,6 +27,7 @@ export interface Sighting {
   verdict: string | null;
   windowCommits: number | null;
   lookbackFixes: number | null;
+  source?: string | null;
 }
 
 export interface FindingProperty {
@@ -34,6 +36,7 @@ export interface FindingProperty {
   paths: string[];
   firstSeen: string;
   lastSeen: string;
+  sightingCount: number;
   sightings: Sighting[];
 }
 
@@ -76,6 +79,9 @@ export class Jira {
       headers["Content-Type"] = "application/json";
       payload = JSON.stringify(body);
     }
+    // A POST that fails mid-flight may already have been applied, so only
+    // idempotent methods are retried; 429 means Jira rejected the request.
+    const idempotent = method !== "POST";
     for (let attempt = 0; ; attempt++) {
       let response: Response;
       try {
@@ -86,13 +92,15 @@ export class Jira {
           signal: AbortSignal.timeout(45_000),
         });
       } catch (error) {
-        if (attempt < 2) continue;
+        if (idempotent && attempt < 2) continue;
         throw new ScriptError(
-          `Jira ${method} ${route} unreachable: ${(error as Error).message}`,
+          `Jira ${method} ${route} unreachable: ${(error as Error).message}${idempotent ? "" : "; outcome unknown, re-run to reconcile"}`,
           2,
         );
       }
-      if ((response.status === 429 || response.status >= 500) && attempt < 3) {
+      const retryable =
+        response.status === 429 || (idempotent && response.status >= 500);
+      if (retryable && attempt < 3) {
         const wait =
           Number(response.headers.get("retry-after") ?? 2 ** attempt) * 1000;
         await new Promise((resolve) =>
@@ -170,6 +178,8 @@ export class Jira {
       systems: property?.systems ?? [],
       paths: property?.paths ?? [],
       sightings: property?.sightings ?? [],
+      sightingCount:
+        property?.sightingCount ?? property?.sightings?.length ?? 0,
       attachments: (issue.fields.attachment ?? []).map((a) => a.filename),
     };
   }
@@ -201,11 +211,30 @@ export class Jira {
     );
   }
 
+  async hasRunComment(key: string, runId: string): Promise<boolean> {
+    const res = await this.request<{ comments: { body: unknown }[] }>(
+      "GET",
+      `/rest/api/3/issue/${key}/comment?maxResults=100&orderBy=-created`,
+    );
+    return (res?.comments ?? []).some((c) =>
+      adfText(c.body).includes(runMarker(runId)),
+    );
+  }
+
   async comment(key: string, doc: AdfNode): Promise<void> {
     await this.request("POST", `/rest/api/3/issue/${key}/comment`, {
       body: doc,
     });
   }
+}
+
+export function runMarker(runId: string): string {
+  return `fragility run ${runId}`;
+}
+
+export function planAttachmentPattern(planBase: string): RegExp {
+  const escaped = planBase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped}-[A-Za-z0-9._-]+\\.md$`);
 }
 
 export function isDeclined(finding: Finding): boolean {
@@ -232,11 +261,13 @@ export function runLink(): { url: string | null; source: string } {
 
 export function mergeSighting(
   existing: FindingProperty | null,
-  base: Omit<FindingProperty, "firstSeen" | "lastSeen" | "sightings">,
+  base: Pick<FindingProperty, "fingerprint" | "systems" | "paths">,
   sighting: Sighting,
 ): FindingProperty {
+  const previous = existing?.sightings ?? [];
+  const repeat = previous.some((s) => s.runId === sighting.runId);
   const sightings = [
-    ...(existing?.sightings ?? []).filter((s) => s.runId !== sighting.runId),
+    ...previous.filter((s) => s.runId !== sighting.runId),
     sighting,
   ].slice(-60);
   return {
@@ -248,6 +279,8 @@ export function mergeSighting(
     ),
     firstSeen: existing?.firstSeen ?? sighting.date,
     lastSeen: sighting.date,
+    sightingCount:
+      (existing?.sightingCount ?? previous.length) + (repeat ? 0 : 1),
     sightings,
   };
 }
@@ -293,7 +326,7 @@ interface RawIssue {
   properties?: Record<string, unknown>;
 }
 
-function adfText(node: unknown): string {
+export function adfText(node: unknown): string {
   if (!node || typeof node !== "object") return "";
   const n = node as { text?: string; content?: unknown[] };
   return (n.text ?? "") + (n.content ?? []).map(adfText).join(" ");

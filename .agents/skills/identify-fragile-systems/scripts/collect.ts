@@ -9,6 +9,7 @@ import {
   argString,
   classifySubject,
   type CommitKind,
+  isBugRun,
   loadConfig,
   main,
   prNumber,
@@ -68,13 +69,16 @@ const RECORD = "\x1e";
 main(async (args) => {
   if (args.help) {
     console.log(
-      "collect --run <id> [--until <iso>] [--window-hours N] [--lookback-days N] [--no-fetch] [--no-prs]",
+      "collect --run <id> [--until <iso>] [--window-hours N] [--lookback-days N] [--no-fetch] [--no-prs]\n  In a bug run (bug.json present) the lookback defaults to bugLookbackDays and window PRs are skipped.",
     );
     return;
   }
   const config = loadConfig();
   const id = runId(args);
   const ref = `origin/${config.baseBranch}`;
+  // A bug run has no review window; it needs a longer history for the
+  // files the bug lives in, and no window PR metadata.
+  const bug = isBugRun(config, id);
 
   let fetched = false;
   if (!args["no-fetch"]) {
@@ -90,7 +94,19 @@ main(async (args) => {
   if (Number.isNaN(until.getTime()))
     throw new ScriptError("--until is not a valid date");
   const windowHours = argNumber(args, "window-hours", config.windowHours);
-  const lookbackDays = argNumber(args, "lookback-days", config.lookbackDays);
+  const lookbackDays = argNumber(
+    args,
+    "lookback-days",
+    bug ? config.bugLookbackDays : config.lookbackDays,
+  );
+  if (!(windowHours > 0) || !(lookbackDays > 0)) {
+    throw new ScriptError(
+      "--window-hours and --lookback-days must be positive",
+    );
+  }
+  if (windowHours > lookbackDays * 24) {
+    throw new ScriptError("the review window must fit inside the lookback");
+  }
   const windowStart = new Date(until.getTime() - windowHours * 3_600_000);
   const lookbackStart = new Date(until.getTime() - lookbackDays * 86_400_000);
 
@@ -143,9 +159,11 @@ main(async (args) => {
   const windowPrs = [
     ...new Set(commits.filter((c) => c.inWindow && c.pr).map((c) => c.pr!)),
   ];
-  const prs: Collected["prs"] = args["no-prs"]
-    ? { status: "unavailable", error: "skipped with --no-prs" }
-    : fetchPrs(config.repo, windowPrs);
+  const prs: Collected["prs"] = bug
+    ? { status: "unavailable", error: "bug run: no review window" }
+    : args["no-prs"]
+      ? { status: "unavailable", error: "skipped with --no-prs" }
+      : fetchPrs(config.repo, windowPrs);
 
   const out: Collected = {
     runId: id,
@@ -163,7 +181,7 @@ main(async (args) => {
 
   const inWindow = commits.filter((c) => c.inWindow).length;
   console.log(
-    `${rel(file)}: ${commits.length} commits in ${lookbackDays}d lookback, ${inWindow} in the ${windowHours}h window; PR metadata ${prs.status}${prs.status === "ok" ? ` (${prs.items.length}/${windowPrs.length})` : `: ${prs.error}`}`,
+    `${rel(file)}: ${bug ? "bug run, " : ""}${commits.length} commits in ${lookbackDays}d lookback, ${inWindow} in the ${windowHours}h window; PR metadata ${prs.status}${prs.status === "ok" ? ` (${prs.items.length}/${windowPrs.length})` : `: ${prs.error}`}`,
   );
 });
 
