@@ -1823,6 +1823,72 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     warn.mockRestore();
   });
 
+  it("keeps stopped tasks cancelled during reconciliation and retries progress completion", async () => {
+    await seedTask("stop-cancel-reconcile");
+    const task = appState.get("agent-task:stop-cancel-reconcile");
+    task.parentThreadId = "parent-stop-cancel";
+    appState.set("agent-task:stop-cancel-reconcile", task);
+    const row = queueRows.find(
+      (candidate) => candidate.task_id === "stop-cancel-reconcile",
+    );
+    if (!row) throw new Error("missing queued task row");
+    row.status = "running";
+    completeProgressRunMock.mockRejectedValueOnce(
+      new Error("progress store unavailable"),
+    );
+    getProgressRunMock.mockResolvedValue({ status: "running" });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun("run-task-stop-cancel-reconcile"),
+      );
+
+      const stopped = appState.get("agent-task:stop-cancel-reconcile");
+      expect(stopped).toMatchObject({
+        status: "errored",
+        summary: "Task stopped.",
+        terminalProgressStatus: "cancelled",
+        terminalEffectsReconciled: false,
+      });
+      expect(completeProgressRunMock).toHaveBeenNthCalledWith(
+        1,
+        "run-task-stop-cancel-reconcile",
+        OWNER,
+        "cancelled",
+        expect.objectContaining({ step: "Task stopped." }),
+      );
+
+      const reconciled = await runWithRequestContext({ userEmail: OWNER }, () =>
+        getTask("stop-cancel-reconcile"),
+      );
+
+      expect(reconciled).toMatchObject({
+        status: "errored",
+        summary: "Task stopped.",
+        terminalProgressStatus: "cancelled",
+        terminalEffectsReconciled: true,
+        parentCompletionEnqueued: true,
+      });
+      expect(completeProgressRunMock).toHaveBeenCalledTimes(2);
+      expect(completeProgressRunMock.mock.calls[1]).toMatchObject([
+        "run-task-stop-cancel-reconcile",
+        OWNER,
+        "cancelled",
+        expect.objectContaining({ step: "Task stopped." }),
+      ]);
+      expect(
+        appState.get(
+          "parent-completion:parent-stop-cancel:inj-stop-cancel-reconcile",
+        ),
+      ).toBeUndefined();
+      expect(hasNotificationWithMetadataMock).not.toHaveBeenCalled();
+      expect(insertNotificationMock).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("returns the stored task when direct-read reconciliation fails", async () => {
     await seedTask("reconcile-read-failure");
     const storedTask = appState.get("agent-task:reconcile-read-failure");
@@ -2160,6 +2226,175 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       expect(abortRunMock).toHaveBeenCalledTimes(1);
     } finally {
       finishLoop();
+      await processing;
+      timer.mockRestore();
+    }
+  });
+
+  it("revokes a same-attempt failed queue lease while its local run is active", async () => {
+    let heartbeatTick: (() => void) | undefined;
+    const timer = vi.spyOn(globalThis, "setInterval").mockImplementation(((
+      callback: () => void,
+    ) => {
+      heartbeatTick = callback;
+      return { unref: vi.fn() } as unknown as ReturnType<typeof setInterval>;
+    }) as typeof setInterval);
+    let markLoopStarted!: () => void;
+    const loopStarted = new Promise<void>((resolve) => {
+      markLoopStarted = resolve;
+    });
+    let finishLoop!: () => void;
+    const loopFinished = new Promise<void>((resolve) => {
+      finishLoop = resolve;
+    });
+    runAgentLoopMock.mockImplementation(async () => {
+      markLoopStarted();
+      await loopFinished;
+    });
+    await seedTask("failed-heartbeat-lease");
+    const runId = "run-task-failed-heartbeat-lease-a1-c0";
+    getRunMock.mockImplementation((candidate: string) =>
+      candidate === runId ? { runId, status: "running" } : null,
+    );
+
+    const processing = processAgentTeamRun({
+      taskId: "failed-heartbeat-lease",
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    try {
+      await loopStarted;
+      const row = queueRows.find(
+        (candidate) => candidate.task_id === "failed-heartbeat-lease",
+      );
+      if (!row) throw new Error("missing claimed task row");
+      expect(row.attempts).toBe(1);
+      row.status = "failed";
+
+      heartbeatTick?.();
+      await vi.waitFor(() =>
+        expect(abortRunMock).toHaveBeenCalledWith(runId, "superseded"),
+      );
+    } finally {
+      finishLoop();
+      await processing;
+      timer.mockRestore();
+    }
+  });
+
+  it("propagates a remote Stop through the failed queue projection", async () => {
+    let heartbeatTick: (() => void) | undefined;
+    const timer = vi.spyOn(globalThis, "setInterval").mockImplementation(((
+      callback: () => void,
+    ) => {
+      heartbeatTick = callback;
+      return { unref: vi.fn() } as unknown as ReturnType<typeof setInterval>;
+    }) as typeof setInterval);
+    let markLoopStarted!: () => void;
+    const loopStarted = new Promise<void>((resolve) => {
+      markLoopStarted = resolve;
+    });
+    let finishLoop!: () => void;
+    const loopFinished = new Promise<void>((resolve) => {
+      finishLoop = resolve;
+    });
+    runAgentLoopMock.mockImplementation(async () => {
+      markLoopStarted();
+      await loopFinished;
+    });
+    await seedTask("remote-stop-heartbeat");
+    const runId = "run-task-remote-stop-heartbeat-a1-c0";
+    getRunMock.mockImplementation((candidate: string) =>
+      candidate === runId ? { runId, status: "running" } : null,
+    );
+
+    const processing = processAgentTeamRun({
+      taskId: "remote-stop-heartbeat",
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    try {
+      await loopStarted;
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun("run-task-remote-stop-heartbeat"),
+      );
+      expect(abortRunMock).toHaveBeenCalledWith(runId, "user");
+      expect(appState.get("agent-task:remote-stop-heartbeat")).toMatchObject({
+        summary: "Task stopped.",
+        terminalProgressStatus: "cancelled",
+      });
+      expect(
+        (await queue.getAgentTeamRunDispatchState("remote-stop-heartbeat"))
+          ?.status,
+      ).toBe("failed");
+
+      abortRunMock.mockClear();
+      heartbeatTick?.();
+      await vi.waitFor(() =>
+        expect(abortRunMock).toHaveBeenCalledWith(runId, "user"),
+      );
+    } finally {
+      finishLoop();
+      await processing;
+      timer.mockRestore();
+    }
+  });
+
+  it("does not abort a local run that is already in terminal finalization", async () => {
+    let heartbeatTick: (() => void) | undefined;
+    const timer = vi.spyOn(globalThis, "setInterval").mockImplementation(((
+      callback: () => void,
+    ) => {
+      heartbeatTick = callback;
+      return { unref: vi.fn() } as unknown as ReturnType<typeof setInterval>;
+    }) as typeof setInterval);
+    let markProgressStarted!: () => void;
+    const progressStarted = new Promise<void>((resolve) => {
+      markProgressStarted = resolve;
+    });
+    let finishProgress!: () => void;
+    const progressFinished = new Promise<void>((resolve) => {
+      finishProgress = resolve;
+    });
+    completeProgressRunMock.mockImplementation(async () => {
+      markProgressStarted();
+      await progressFinished;
+      return { status: "succeeded" };
+    });
+    getProgressRunMock.mockResolvedValue({ status: "running" });
+    await seedTask("terminal-heartbeat-lease");
+    const runId = "run-task-terminal-heartbeat-lease-a1-c0";
+    getRunMock.mockImplementation((candidate: string) =>
+      candidate === runId ? { runId, status: "completed" } : null,
+    );
+
+    const processing = processAgentTeamRun({
+      taskId: "terminal-heartbeat-lease",
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+    const dispatchReadsBeforeHeartbeat = dispatchStateReadCount;
+
+    try {
+      await progressStarted;
+      const row = queueRows.find(
+        (candidate) => candidate.task_id === "terminal-heartbeat-lease",
+      );
+      if (!row) throw new Error("missing terminal task row");
+      expect(row.attempts).toBe(1);
+      row.status = "failed";
+
+      heartbeatTick?.();
+      await vi.waitFor(() =>
+        expect(dispatchStateReadCount).toBeGreaterThan(
+          dispatchReadsBeforeHeartbeat,
+        ),
+      );
+      expect(abortRunMock).not.toHaveBeenCalled();
+    } finally {
+      finishProgress();
       await processing;
       timer.mockRestore();
     }

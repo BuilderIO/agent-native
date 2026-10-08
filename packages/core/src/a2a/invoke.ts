@@ -324,7 +324,11 @@ export async function invokeAgent(
       ...(continuation ? { continuation } : {}),
     };
   }
-  const authOptions = await resolveInvocationAuth(target, options.userEmail);
+  const authOptions = await resolveInvocationAuth(
+    target,
+    options.userEmail,
+    options.orgId,
+  );
   const callAgent = options.runtime?.callAgent ?? defaultCallAgent;
   const responseText = await callAgent(target.url, promptToSend, {
     ...(auth
@@ -390,7 +394,11 @@ export async function invokeAgentAction(
   }
   const callAction = options.runtime?.callAction ?? defaultCallAction;
   const auth = invocationAuthByTarget.get(target);
-  const authOptions = await resolveInvocationAuth(target, options.userEmail);
+  const authOptions = await resolveInvocationAuth(
+    target,
+    options.userEmail,
+    options.orgId,
+  );
   const result = await callAction(target.url, action, input, {
     ...(auth
       ? { apiKey: authOptions.token }
@@ -413,12 +421,13 @@ export async function invokeAgentAction(
 async function resolveInvocationAuth(
   target: ResolvedAgentInvocationTarget,
   userEmail?: string,
+  orgId?: string,
 ): Promise<{ token?: string }> {
   const auth = invocationAuthByTarget.get(target);
   if (!auth) return {};
   const token = await resolveRemoteAgentToken(auth, {
     userEmail: userEmail || getRequestUserEmail(),
-    orgId: getRequestOrgId(),
+    orgId: orgId ?? getRequestOrgId(),
   });
   return { token };
 }

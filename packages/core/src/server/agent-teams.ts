@@ -647,7 +647,13 @@ async function failReconciledTask(
   checkExpectedUpdatedAt = true,
 ): Promise<AgentTask> {
   let progressReconciled = true;
+  let cancelled = progressStatus === "cancelled";
+  let terminalProgressStatus = progressStatus;
   const markFailed = async () => {
+    const currentTask = await loadTask(task.taskId);
+    if (currentTask) Object.assign(task, currentTask);
+    cancelled ||= isCancelledAgentTask(task);
+    terminalProgressStatus = cancelled ? "cancelled" : progressStatus;
     task.status = "errored";
     task.summary = task.summary || task.preview || message;
     task.error = task.error || message;
@@ -655,9 +661,9 @@ async function failReconciledTask(
     task.completedAt = Date.now();
     task.terminalEffectsVersion = 1;
     task.terminalEffectsReconciled = false;
-    task.terminalProgressStatus = progressStatus;
-    task.parentCompletionEnqueued = !task.parentThreadId;
-    if (task.parentThreadId) {
+    task.terminalProgressStatus = terminalProgressStatus;
+    task.parentCompletionEnqueued = !task.parentThreadId || cancelled;
+    if (task.parentThreadId && !cancelled) {
       await appendParentCompletionInjection(task.parentThreadId, task, {
         taskStatus: "errored",
         summary: task.summary,
@@ -669,7 +675,7 @@ async function failReconciledTask(
       progressReconciled = await completeTaskProgressRun(
         task,
         ownerEmail,
-        progressStatus,
+        terminalProgressStatus,
         message,
       );
     }
@@ -699,9 +705,10 @@ async function failReconciledTask(
       },
     );
     if (!result.current) return task;
-    const notificationReconciled = ownerEmail
-      ? await ensureTaskCompletionNotification(task, ownerEmail)
-      : true;
+    const notificationReconciled =
+      ownerEmail && !cancelled
+        ? await ensureTaskCompletionNotification(task, ownerEmail)
+        : true;
     if (progressReconciled && notificationReconciled) {
       await markTerminalTaskEffectsReconciled(task, expectedDispatch.attempts);
     }
@@ -710,9 +717,10 @@ async function failReconciledTask(
 
   await markFailed();
   await completeAgentTeamRun(task.taskId, "failed");
-  const notificationReconciled = ownerEmail
-    ? await ensureTaskCompletionNotification(task, ownerEmail)
-    : true;
+  const notificationReconciled =
+    ownerEmail && !cancelled
+      ? await ensureTaskCompletionNotification(task, ownerEmail)
+      : true;
   const dispatch = await getAgentTeamRunDispatchState(task.taskId);
   if (dispatch && progressReconciled && notificationReconciled) {
     await markTerminalTaskEffectsReconciled(task, dispatch.attempts);
@@ -1055,6 +1063,14 @@ function formatTaskPhase(task: AgentTask): string {
 
 type TerminalProgressStatus = "succeeded" | "failed" | "cancelled";
 
+function isCancelledAgentTask(task: AgentTask): boolean {
+  return (
+    task.terminalProgressStatus === "cancelled" ||
+    task.summary === "Task stopped." ||
+    task.summary.startsWith("Task stopped:")
+  );
+}
+
 function taskProgressMetadata(task: AgentTask): Record<string, unknown> {
   return {
     kind: "agent-team",
@@ -1150,7 +1166,11 @@ async function reconcileTerminalProgress(
       task,
       ownerEmail,
       task.terminalProgressStatus ??
-        (task.status === "completed" ? "succeeded" : "failed"),
+        (isCancelledAgentTask(task)
+          ? "cancelled"
+          : task.status === "completed"
+            ? "succeeded"
+            : "failed"),
       task.summary || task.error || "Task finished.",
     );
   } catch (error) {
@@ -1255,12 +1275,16 @@ async function reconcileTerminalTaskEffects(
           effectsPending = false;
           return;
         }
+        if (currentTask) Object.assign(task, currentTask);
+        const cancelled = isCancelledAgentTask(task);
         if (task.parentThreadId && !task.parentCompletionEnqueued) {
-          await appendParentCompletionInjection(task.parentThreadId, task, {
-            taskStatus: task.status === "completed" ? "completed" : "errored",
-            summary: task.summary || task.error || "Task finished.",
-            hitContinuationLimit: task.hitContinuationLimit,
-          });
+          if (!cancelled) {
+            await appendParentCompletionInjection(task.parentThreadId, task, {
+              taskStatus: task.status === "completed" ? "completed" : "errored",
+              summary: task.summary || task.error || "Task finished.",
+              hitContinuationLimit: task.hitContinuationLimit,
+            });
+          }
           task.parentCompletionEnqueued = true;
           await saveTask(task);
         }
@@ -1274,13 +1298,14 @@ async function reconcileTerminalTaskEffects(
       { statuses: ["done", "failed"] },
     );
     if (result.current && effectsPending && progressReconciled) {
-      const notificationReconciled = ownerEmail
-        ? await ensureTaskCompletionNotification(
-            task,
-            ownerEmail,
-            task.hitContinuationLimit,
-          )
-        : true;
+      const notificationReconciled =
+        ownerEmail && !isCancelledAgentTask(task)
+          ? await ensureTaskCompletionNotification(
+              task,
+              ownerEmail,
+              task.hitContinuationLimit,
+            )
+          : true;
       if (notificationReconciled) {
         await markTerminalTaskEffectsReconciled(task, dispatch.attempts);
       }
@@ -1999,10 +2024,10 @@ export async function processAgentTeamRun(
   let lastSuccessfulHeartbeatAt = Date.now();
   let leaseLost = false;
   let heartbeatInFlight: Promise<void> | undefined;
-  const markLeaseLost = () => {
+  const markLeaseLost = (reason = "superseded") => {
     if (leaseLost) return;
     leaseLost = true;
-    abortRun(runId, "superseded");
+    abortRun(runId, reason);
   };
   activeTaskRunIds.set(opts.taskId, runId);
   const heartbeat = setInterval(() => {
@@ -2013,8 +2038,44 @@ export async function processAgentTeamRun(
           const dispatch = await getAgentTeamRunDispatchState(opts.taskId);
           if (
             dispatch?.attempts === claimedAttempts &&
-            dispatch.status !== "running"
+            (dispatch.status === "queued" || dispatch.status === "done")
           ) {
+            lastSuccessfulHeartbeatAt = Date.now();
+            return;
+          }
+          if (
+            dispatch?.attempts === claimedAttempts &&
+            dispatch.status === "failed"
+          ) {
+            const localRun = getRun(runId);
+            let reason = "superseded";
+            try {
+              const task = await runWithRequestContext(
+                {
+                  userEmail: claimed.ownerEmail ?? undefined,
+                  orgId: claimed.orgId ?? undefined,
+                },
+                () => loadTask(opts.taskId),
+              );
+              if (task && isCancelledAgentTask(task)) {
+                reason = "user";
+              }
+            } catch (error) {
+              console.warn(
+                `[agent-teams] could not read task ${opts.taskId} while revoking a failed lease:`,
+                describeDbError(error),
+              );
+              // A terminal queue transition still revokes this lease if its
+              // task projection cannot be read.
+            }
+            if (
+              reason === "user" ||
+              !localRun ||
+              localRun.status === "running"
+            ) {
+              markLeaseLost(reason);
+              return;
+            }
             lastSuccessfulHeartbeatAt = Date.now();
             return;
           }
@@ -2817,6 +2878,10 @@ export async function stopAgentTeamBackgroundRun(
   task.error = task.summary;
   task.currentStep = "";
   task.completedAt = Date.now();
+  task.terminalEffectsVersion = 1;
+  task.terminalEffectsReconciled = false;
+  task.terminalProgressStatus = "cancelled";
+  task.parentCompletionEnqueued = !task.parentThreadId;
   await saveTask(task);
   const ownerEmail = getRequestUserEmail();
   if (ownerEmail) {

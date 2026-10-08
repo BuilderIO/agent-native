@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getRequestUserEmail } from "../server/request-context.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+  runWithRequestContext,
+} from "../server/request-context.js";
 import { ANTHROPIC_MANAGED_AGENTS_METADATA_KEY } from "./anthropic-managed-agents.js";
 import {
   AgentInvocationError,
@@ -122,6 +126,7 @@ describe("invokeAgent", () => {
     const rt = runtime({
       findAgent: vi.fn(async (_target, _selfAppId, options) => {
         expect(getRequestUserEmail()).toBe("alice@example.test");
+        expect(getRequestOrgId()).toBe("org-123");
         expect(options).toEqual({ includePersonalAgents: true });
         return {
           id: "personal-agent",
@@ -151,29 +156,38 @@ describe("invokeAgent", () => {
     const auth = { type: "bearer" as const, credentialRef: "mail-token" };
     const callAgent = vi.fn(async () => "sent");
     const rt = runtime({
-      findAgent: vi.fn(async () => ({
-        id: "mail",
-        name: "Mail",
-        description: "Send and search email",
-        url: "https://mail.agent-native.test",
-        color: "#2563eb",
-        auth,
-      })),
+      findAgent: vi.fn(async () => {
+        expect(getRequestOrgId()).toBe("explicit-org");
+        return {
+          id: "mail",
+          name: "Mail",
+          description: "Send and search email",
+          url: "https://mail.agent-native.test",
+          color: "#2563eb",
+          auth,
+        };
+      }),
       callAgent,
     });
     resolveRemoteAgentTokenMock.mockResolvedValue("resolved-mail-token");
 
-    const result = await invokeAgent({
-      target: "mail",
-      prompt: "Draft the update",
-      apiKey: "stale-caller-token",
-      userEmail: "alice@example.test",
-      runtime: rt,
-    });
+    const result = await runWithRequestContext({ orgId: "ambient-org" }, () =>
+      invokeAgent({
+        target: "mail",
+        prompt: "Draft the update",
+        apiKey: "stale-caller-token",
+        userEmail: "alice@example.test",
+        orgId: "explicit-org",
+        runtime: rt,
+      }),
+    );
 
     expect(resolveRemoteAgentTokenMock).toHaveBeenCalledWith(
       auth,
-      expect.objectContaining({ userEmail: "alice@example.test" }),
+      expect.objectContaining({
+        userEmail: "alice@example.test",
+        orgId: "explicit-org",
+      }),
     );
     expect(callAgent).toHaveBeenCalledWith(
       "https://mail.agent-native.test",
@@ -326,26 +340,40 @@ describe("invokeAgent", () => {
       output: "ok",
     }));
     const rt = runtime({
-      findAgent: vi.fn(async () => ({
-        id: "analytics",
-        name: "Analytics",
-        description: "Read calls",
-        url: "https://analytics.agent-native.test",
-        color: "#2563eb",
-        auth,
-      })),
+      findAgent: vi.fn(async () => {
+        expect(getRequestOrgId()).toBe("explicit-org");
+        return {
+          id: "analytics",
+          name: "Analytics",
+          description: "Read calls",
+          url: "https://analytics.agent-native.test",
+          color: "#2563eb",
+          auth,
+        };
+      }),
       callAction,
     });
     resolveRemoteAgentTokenMock.mockResolvedValue("resolved-analytics-token");
 
-    const result = await invokeAgentAction({
-      target: "analytics",
-      action: "gong-calls",
-      input: { company: "Edmunds" },
-      apiKey: "stale-caller-token",
-      userEmail: "alice@example.test",
-      runtime: rt,
-    });
+    const result = await runWithRequestContext({ orgId: "ambient-org" }, () =>
+      invokeAgentAction({
+        target: "analytics",
+        action: "gong-calls",
+        input: { company: "Edmunds" },
+        apiKey: "stale-caller-token",
+        userEmail: "alice@example.test",
+        orgId: "explicit-org",
+        runtime: rt,
+      }),
+    );
+
+    expect(resolveRemoteAgentTokenMock).toHaveBeenCalledWith(
+      auth,
+      expect.objectContaining({
+        userEmail: "alice@example.test",
+        orgId: "explicit-org",
+      }),
+    );
 
     expect(callAction).toHaveBeenCalledWith(
       "https://analytics.agent-native.test",
