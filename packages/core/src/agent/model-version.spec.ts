@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { BUILDER_MODEL_CONFIG } from "./model-config.js";
 import {
+  getModelOptionLabel,
   upgradeBuilderModelAlias,
   upgradeModelForProvider,
 } from "./model-version.js";
@@ -52,5 +53,22 @@ describe("upgradeModelForProvider", () => {
     expect(
       upgradeModelForProvider("claude-sonnet-5", supportedModels, "anthropic"),
     ).toBeUndefined();
+  });
+});
+
+describe("getModelOptionLabel", () => {
+  it("uses the selected engine when it can show the effective model", () => {
+    expect(
+      getModelOptionLabel("gpt-5.6-luna", {
+        name: "anthropic",
+        label: "Anthropic",
+        defaultModel: "claude-sonnet-5-5",
+        supportedModels: ["claude-sonnet-5-5"],
+      }),
+    ).toBe("GPT-5.6 Luna → Claude Sonnet 5.5 · Anthropic");
+  });
+
+  it("formats malformed GPT IDs without throwing", () => {
+    expect(getModelOptionLabel("gpt-5--luna")).toBe("gpt-5--luna");
   });
 });

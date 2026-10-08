@@ -152,7 +152,7 @@ const MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {
   "openai/gpt-5.5": 128_000,
   "openai/gpt-5.4": 128_000,
   "openai/gpt-5.4-mini": 128_000,
-  "openai/gpt-5.1-codex-mini": 40_000,
+  "openai/gpt-5.1-codex-mini": 128_000,
 
   "gpt-6-sol": 128_000,
   "gpt-6.1-sol": 128_000,
@@ -163,11 +163,11 @@ const MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {
   "gpt-5.5": 128_000,
   "gpt-5.4": 128_000,
   "gpt-5.4-mini": 128_000,
-  "gpt-5.1-codex-mini": 40_000,
+  "gpt-5.1-codex-mini": 128_000,
   "gpt-5-5": 128_000,
   "gpt-5-4": 128_000,
   "gpt-5-4-mini": 128_000,
-  "gpt-5-1-codex-mini": 40_000,
+  "gpt-5-1-codex-mini": 128_000,
 };
 
 const DEFAULT_MAX_OUTPUT_TOKENS_CEILING = 64_000;

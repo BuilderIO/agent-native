@@ -1,5 +1,5 @@
 import { CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS } from "@agent-native/core/agent/model-config";
-import { getBuilderModelOptionLabel } from "@agent-native/core/agent/model-version";
+import { getModelOptionLabel } from "@agent-native/core/agent/model-version";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import type { Resource } from "@agent-native/core/client/resources/use-resources";
 import {
@@ -184,11 +184,7 @@ function FrontmatterBar({
             {model !== "inherit" &&
               !CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS.some(
                 (option) => option.value === model,
-              ) && (
-                <option value={model}>
-                  {getBuilderModelOptionLabel(model)}
-                </option>
-              )}
+              ) && <option value={model}>{getModelOptionLabel(model)}</option>}
           </select>
         ) : null}
       </div>

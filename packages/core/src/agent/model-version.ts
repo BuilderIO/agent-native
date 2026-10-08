@@ -19,8 +19,9 @@ export interface NormalizeModelOptions {
   acceptsCustomModels?: boolean;
 }
 
-interface ModelEngineConfig {
+export interface ModelEngineConfig {
   name: string;
+  label?: string;
   defaultModel: string;
   supportedModels: readonly string[];
   acceptsCustomModels?: boolean;
@@ -189,21 +190,32 @@ function displayModelName(model: string): string {
   if (!gpt) return model;
 
   const version = gpt[2] ? `${gpt[1]}.${gpt[2]}` : gpt[1];
-  const tier = gpt[3]
-    ? ` ${gpt[3]
-        .split("-")
+  const tierParts = gpt[3]?.split("-");
+  if (tierParts?.some((part) => !part)) return model;
+  const tier = tierParts?.length
+    ? ` ${tierParts
         .map((part) => part[0].toUpperCase() + part.slice(1))
         .join(" ")}`
     : "";
   return `GPT-${version}${tier}`;
 }
 
-export function getBuilderModelOptionLabel(model: string): string {
-  const effectiveModel = normalizeModelForEngine(
-    { name: "builder", ...BUILDER_MODEL_CONFIG },
-    model,
-  );
+export function getModelOptionLabel(
+  model: string,
+  engine?: ModelEngineConfig,
+): string {
+  if (!engine) return displayModelName(model);
+
+  const effectiveModel = normalizeModelForEngine(engine, model);
   const effectiveLabel = displayModelName(effectiveModel);
   if (effectiveModel === model) return effectiveLabel;
-  return `${displayModelName(model)} → ${effectiveLabel} · Builder`;
+  return `${displayModelName(model)} → ${effectiveLabel} · ${engine.label ?? engine.name}`;
+}
+
+export function getBuilderModelOptionLabel(model: string): string {
+  return getModelOptionLabel(model, {
+    name: "builder",
+    label: "Builder",
+    ...BUILDER_MODEL_CONFIG,
+  });
 }

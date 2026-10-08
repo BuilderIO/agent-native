@@ -151,8 +151,7 @@ describe("ResourceEditor markdown editing", () => {
       Array.from(modelPicker.options).some(
         (option) =>
           option.value === "claude-haiku-4-5-20251001" &&
-          option.textContent ===
-            "Claude Haiku 4.5 → Claude Haiku 5.5 · Builder",
+          option.textContent === "Claude Haiku 4.5",
       ),
     ).toBe(true);
     expect(
@@ -162,7 +161,7 @@ describe("ResourceEditor markdown editing", () => {
     ).toBe(true);
   });
 
-  it("shows the Builder fallback for a saved model outside its catalog", () => {
+  it("shows the saved model label outside its curated options", () => {
     act(() => {
       root.render(
         <ResourceEditor
@@ -184,6 +183,6 @@ describe("ResourceEditor markdown editing", () => {
       Array.from(modelPicker.options).find(
         (option) => option.value === "claude-fable-5",
       )?.textContent,
-    ).toBe("Claude Fable 5 → GPT-6 Luna · Builder");
+    ).toBe("Claude Fable 5");
   });
 });

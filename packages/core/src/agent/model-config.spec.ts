@@ -514,7 +514,7 @@ describe("getMaxOutputTokensForModel", () => {
       "gpt-5-1-codex-mini",
       "openai/gpt-5.1-codex-mini",
     ]) {
-      expect(getMaxOutputTokensForModel(model)).toBe(40_000);
+      expect(getMaxOutputTokensForModel(model)).toBe(128_000);
     }
   });
 
