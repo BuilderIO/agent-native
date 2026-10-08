@@ -1548,6 +1548,50 @@ export default {
     devtoolsNoNetwork: "इस सत्र में कोई नेटवर्क गतिविधि कैप्चर नहीं हुई।",
     devtoolsNoConsoleMatches: "मौजूदा फ़िल्टर से मेल खाने वाला कोई कंसोल संदेश नहीं है।",
     devtoolsNoNetworkMatches: "मौजूदा फ़िल्टर से मेल खाने वाला कोई अनुरोध नहीं है।",
+    storyboardSelectionCoverage:
+      "{{total}} रीप्ले सेशन में से {{selected}} चुने गए ({{percent}})।",
+    storyboardSelectHint: "स्टोरीबोर्ड बनाने के लिए अधिकतम 3 सेशन चुनें।",
+    clearStoryboardSelection: "चयन हटाएँ",
+    createStoryboard: "स्टोरीबोर्ड बनाएँ",
+    selectReplayForStoryboard: "स्टोरीबोर्ड के लिए रीप्ले {{id}} चुनें",
+    storyboardDesignId: "Design ID (वैकल्पिक)",
+    storyboardTitle: "स्टोरीबोर्ड का शीर्षक",
+    storyboardDefaultTitle: "सेशन रीप्ले स्टोरीबोर्ड",
+    storyboardTimestamps: "टाइमस्टैम्प (अधिकतम 3, कॉमा से अलग)",
+    storyboardReplayPreview: "रीप्ले पूर्वावलोकन",
+    storyboardStartingCapture: "ब्राउज़र कैप्चर चयनकर्ता में यह Analytics टैब चुनें।",
+    storyboardLoadingReplay: "रीप्ले {{replayId}} लोड हो रहा है…",
+    storyboardCapturingFrame:
+      "{{current}} / {{total}} कैप्चर हो रहा है · {{replayId}} · {{timestamp}}",
+    storyboardSendingToDesign: "स्क्रीनशॉट Design को भेजे जा रहे हैं…",
+    storyboardComplete: "{{screenshots}} स्क्रीनशॉट Design में जोड़े गए।",
+    storyboardTimestampError: "mm:ss, hh:mm:ss या mm:ss.mmm का उपयोग करें।",
+    storyboardTimestampRequired:
+      "हर चुने गए रीप्ले के लिए कम से कम एक टाइमस्टैम्प दर्ज करें।",
+    storyboardTimestampLimit: "हर रीप्ले के लिए अधिकतम 3 टाइमस्टैम्प चुनें।",
+    storyboardDuplicateTimestamp: "डुप्लिकेट टाइमस्टैम्प हटाएँ।",
+    storyboardScreenshotLimit: "अधिकतम 9 स्क्रीनशॉट चुनें।",
+    storyboardReplayLimit: "अधिकतम 3 सेशन रीप्ले चुनें।",
+    storyboardCaptureFailed: "स्क्रीनशॉट कैप्चर नहीं हो सका।",
+    storyboardCanceled: "कैप्चर रद्द किया गया।",
+    storyboardReplayIncomplete:
+      "रीप्ले {{replayId}} में अनुपलब्ध इवेंट हैं; एक्सपोर्ट रोक दिया गया।",
+    storyboardViewportUnavailable: "रिकॉर्ड किए गए व्यूपोर्ट के आयाम उपलब्ध नहीं हैं।",
+    storyboardTimestampOutOfRange:
+      "टाइमस्टैम्प रीप्ले {{replayId}} की अवधि से बाहर है।",
+    storyboardScreenshotTooLarge: "एक स्क्रीनशॉट 5 MB की सीमा से बड़ा है।",
+    storyboardBatchTooLarge: "स्क्रीनशॉट बैच 20 MB की सीमा से बड़ा है।",
+    storyboardRouteUnavailable:
+      "{{timestamp}} पर रीप्ले {{replayId}} का रूट उपलब्ध नहीं है।",
+    storyboardNoDesignResponse: "Design ने स्टोरीबोर्ड का परिणाम नहीं लौटाया।",
+    storyboardTemporaryCleanupPending:
+      "स्टोरीबोर्ड सहेजा गया, लेकिन अस्थायी स्क्रीनशॉट फ़ाइलें हटाई नहीं जा सकीं।",
+    storyboardUnexpectedResponse:
+      "स्क्रीनशॉट निर्यात से अपठनीय प्रतिक्रिया मिली। फिर से प्रयास करें।",
+    openStoryboard: "Design में स्टोरीबोर्ड खोलें",
+    cancelStoryboardCapture: "कैप्चर रद्द करें",
+    captureToDesign: "कैप्चर करके Design में जोड़ें",
+    storyboardSelectAnalyticsTab: "ब्राउज़र कैप्चर चयनकर्ता में यह Analytics टैब चुनें।",
   },
   catalog: {
     description: "स्रोत-नियंत्रित डैशबोर्ड आपके कार्यक्षेत्र में स्थापित करने के लिए तैयार हैं।",

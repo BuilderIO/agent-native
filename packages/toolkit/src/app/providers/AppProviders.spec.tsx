@@ -253,6 +253,35 @@ describe("AppProviders session gate", () => {
     expect(publicMarkup).not.toContain("data-agent-native-session-bootstrap");
   });
 
+  it("marks an MCP App widget before the server-rendered skeleton can paint a sidebar", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    const markup = renderToStaticMarkup(
+      <AppProviders
+        queryClient={new QueryClient()}
+        i18n={false}
+        skeletonLayout="prompt-library"
+      >
+        <div>content</div>
+      </AppProviders>,
+    );
+    const publicMarkup = renderToStaticMarkup(
+      <AppProviders queryClient={new QueryClient()} i18n={false} isPublicPath>
+        <div>content</div>
+      </AppProviders>,
+    );
+
+    const bootScript = markup.indexOf("data-agent-native-mcp-widget-boot");
+    expect(bootScript).toBeGreaterThan(-1);
+    expect(bootScript).toBeLessThan(
+      markup.indexOf('data-agent-native-app-skeleton="true"'),
+    );
+    expect(markup).toContain(
+      "html[data-agent-native-mcp-widget] [data-agent-native-app-skeleton] > :not(style)",
+    );
+    expect(publicMarkup).not.toContain("data-agent-native-mcp-widget-boot");
+  });
+
   it("defaults public-path i18n to the non-persisting runtime so localization never resolves the session", () => {
     useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 

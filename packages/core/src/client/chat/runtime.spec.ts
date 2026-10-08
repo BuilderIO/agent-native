@@ -2096,6 +2096,31 @@ describe("createAgentNativeChatRuntime", () => {
     });
   });
 
+  it("forwards the selected engine from turn metadata", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      engine: "configured-engine",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+    const turn = await session.startTurn({
+      prompt: "Use the selected engine",
+      metadata: { engine: "selected-engine" },
+    });
+    await drain(turn.events);
+
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)),
+    ).toMatchObject({
+      message: "Use the selected engine",
+      engine: "selected-engine",
+      metadata: { engine: "selected-engine" },
+    });
+  });
+
   it("forwards the submitted AgentKit message ID to durable chat persistence", async () => {
     const fetchMock = vi
       .fn()

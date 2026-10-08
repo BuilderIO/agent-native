@@ -31,6 +31,58 @@ export function shouldDeferLineupRecenterToCameraCommand(args: {
   );
 }
 
+/**
+ * Screen a focused first layout lands on: the selected one, else the one the
+ * route asked for, else the active one, else the first.
+ */
+export function resolveFocusedLineupScreenId(args: {
+  screenIds: readonly string[];
+  selectedScreenIds: readonly string[];
+  requestedScreenId?: string | null;
+  activeScreenId?: string | null;
+}): string | null {
+  const known = new Set(args.screenIds);
+  const preferred = [
+    ...args.selectedScreenIds,
+    args.requestedScreenId,
+    args.activeScreenId,
+  ].find((id): id is string => Boolean(id) && known.has(id as string));
+  return preferred ?? args.screenIds[0] ?? null;
+}
+
+/**
+ * Scale that fits a frame edge to edge across the pane width, never past
+ * `maxScale` (100% display zoom) so a narrow screen is not blown up to fill
+ * the pane. The frame itself sits flush against the top of the pane.
+ */
+export function getFocusedLineupScale(args: {
+  frameWidth: number;
+  availableWidth: number;
+  minScale: number;
+  maxScale: number;
+}): number {
+  const fit = args.availableWidth / Math.max(1, args.frameWidth);
+  return Math.max(args.minScale, Math.min(args.maxScale, fit));
+}
+
+/**
+ * Height a focused frame renders at so the pane below it is never empty: at
+ * least the pane's viewport height at the focused scale, so the screen's own
+ * layout reflows into the taller viewport the way a resized device frame does.
+ * A screen already taller than that keeps its height and scrolls.
+ */
+export function getFocusedLineupFillHeight(args: {
+  frameWidth: number;
+  frameHeight: number;
+  availableWidth: number;
+  viewportHeight: number;
+  minScale: number;
+  maxScale: number;
+}): number {
+  const scale = getFocusedLineupScale(args);
+  return Math.max(args.frameHeight, Math.ceil(args.viewportHeight / scale));
+}
+
 export function shouldSuppressLineupRecenter(args: {
   armed: LineupRecenterDuplicateArm | null;
   nowMs: number;
