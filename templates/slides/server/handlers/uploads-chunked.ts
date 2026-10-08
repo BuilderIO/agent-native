@@ -43,7 +43,8 @@ const STORAGE_NOT_CONNECTED: StorageUnavailable = {
 const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 const MAX_CHUNKS = 128;
 const SESSION_TTL_MS = 60 * 60 * 1000;
-const FINALIZATION_TTL_MS = SESSION_TTL_MS;
+const FINALIZATION_LEASE_MS = 60 * 60 * 1000;
+const FINALIZATION_HEARTBEAT_MS = 60 * 1000;
 
 class UploadSessionFinalizingError extends Error {}
 
@@ -129,25 +130,33 @@ async function reapExpiredChunkedUploads(): Promise<void> {
     sessions.map(async ({ sessionId, session }) => {
       const expiresAt = Date.parse(session.expiresAt);
       const finalizationExpiresAt = session.finalizingAt
-        ? Date.parse(session.finalizingAt) + FINALIZATION_TTL_MS
+        ? Date.parse(session.finalizationLeaseExpiresAt ?? "")
         : Number.NaN;
       const finalizationExpired =
         session.finalizingAt !== undefined &&
         (!Number.isFinite(finalizationExpiresAt) ||
           finalizationExpiresAt <= now);
+      if (session.finalizingAt && session.cleanupState !== "aborting") {
+        if (!finalizationExpired) return;
+        try {
+          await discardExpiredFinalization(sessionId, session);
+        } catch (error) {
+          console.warn("[slides-upload] expired finalization cleanup failed", {
+            sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        return;
+      }
       if (
         session.cleanupState !== "aborting" &&
-        ((session.finalizingAt && !finalizationExpired) ||
-          (!session.finalizingAt &&
-            Number.isFinite(expiresAt) &&
-            expiresAt > now))
+        Number.isFinite(expiresAt) &&
+        expiresAt > now
       ) {
         return;
       }
       try {
-        const cleaned = await discardSession(sessionId, session, {
-          allowFinalizing: finalizationExpired,
-        });
+        const cleaned = await discardSession(sessionId, session);
         if (!cleaned) {
           console.warn("[slides-upload] expired session cleanup incomplete", {
             sessionId,
@@ -182,6 +191,72 @@ async function cleanupCommittedSession(
       error: error instanceof Error ? error.message : String(error),
     });
   }
+}
+
+function startFinalizationLease(
+  sessionId: string,
+  initialSession: ChunkedUploadSession,
+) {
+  let session = initialSession;
+  let failure: Error | undefined;
+  let renewal = Promise.resolve();
+  const timer = setInterval(() => {
+    renewal = renewal
+      .then(async () => {
+        if (failure) return;
+        const nextSession = {
+          ...session,
+          finalizationLeaseExpiresAt: new Date(
+            Date.now() + FINALIZATION_LEASE_MS,
+          ).toISOString(),
+        };
+        if (
+          !(await compareAndSetChunkedUploadSession(
+            sessionId,
+            session,
+            nextSession,
+          ))
+        ) {
+          throw new Error("Upload session finalization lease was lost");
+        }
+        session = nextSession;
+      })
+      .catch((error) => {
+        failure = error instanceof Error ? error : new Error(String(error));
+      });
+  }, FINALIZATION_HEARTBEAT_MS);
+  timer.unref?.();
+
+  return {
+    async assertActive() {
+      await renewal;
+      if (failure) throw failure;
+    },
+    async stop() {
+      clearInterval(timer);
+      await renewal;
+      return failure;
+    },
+  };
+}
+
+async function discardExpiredFinalization(
+  sessionId: string,
+  session: ChunkedUploadSession,
+): Promise<boolean> {
+  const cleanupSession = { ...session, cleanupState: "aborting" as const };
+  if (
+    !(await compareAndSetChunkedUploadSession(
+      sessionId,
+      session,
+      cleanupSession,
+    ))
+  ) {
+    return true;
+  }
+  const cleaned = await cleanupChunks(cleanupSession);
+  if (cleaned) await deleteChunkedUploadSession(sessionId);
+  return cleaned;
 }
 
 export const startChunkedUpload = defineEventHandler(async (event) => {
@@ -375,7 +450,14 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
         ...session,
         chunks: { ...session.chunks, [chunkKey]: handle },
         chunkSizes: { ...session.chunkSizes, [chunkKey]: bytes.byteLength },
-        ...(isFinal ? { finalizingAt: new Date().toISOString() } : {}),
+        ...(isFinal
+          ? {
+              finalizingAt: new Date().toISOString(),
+              finalizationLeaseExpiresAt: new Date(
+                Date.now() + FINALIZATION_LEASE_MS,
+              ).toISOString(),
+            }
+          : {}),
       };
       if (
         !(await compareAndSetChunkedUploadSession(
@@ -439,6 +521,7 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
         return { error: "Upload is incomplete or has an invalid size" };
       }
 
+      const finalizationLease = startFinalizationLease(sessionId, session);
       let result;
       try {
         const parts = await Promise.all(
@@ -452,6 +535,7 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
         if (combined.byteLength !== session.declaredSize) {
           throw new Error("Assembled upload size does not match declaredSize");
         }
+        await finalizationLease.assertActive();
         result =
           session.uploadType === "video"
             ? await uploadVideoAsset({
@@ -468,6 +552,7 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
                 type: session.mimeType,
               });
       } catch (err) {
+        await finalizationLease.stop();
         await discardSession(sessionId, session, { allowFinalizing: true });
         const statusCode =
           typeof (err as { statusCode?: unknown })?.statusCode === "number"
@@ -477,6 +562,13 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
         return { error: err instanceof Error ? err.message : "Invalid upload" };
       }
 
+      const leaseFailure = await finalizationLease.stop();
+      if (leaseFailure) {
+        console.warn("[slides-upload] finalization lease ended during commit", {
+          sessionId,
+          error: leaseFailure.message,
+        });
+      }
       await cleanupCommittedSession(sessionId, session);
       return session.uploadType === "video" ? result : [result];
     },

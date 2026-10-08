@@ -178,6 +178,69 @@ describe("chunked reference uploads", () => {
     expect(mocks.createSession).toHaveBeenCalled();
   });
 
+  it("keeps a finalizing session while its lease is active", async () => {
+    const handle = {
+      id: "finalizing-blob",
+      provider: "public-upload:builder",
+      opaque: true,
+      encrypted: true,
+    };
+    mocks.listSessions.mockResolvedValue([
+      {
+        sessionId: "finalizing",
+        session: session({
+          uploadType: "video",
+          filename: "clip.mp4",
+          finalizingAt: new Date(Date.now() - 60_000).toISOString(),
+          finalizationLeaseExpiresAt: new Date(
+            Date.now() + 60_000,
+          ).toISOString(),
+          chunks: { "0": handle },
+          chunkSizes: { "0": 4 },
+        }),
+      },
+    ]);
+
+    await expect(startChunkedUpload({} as never)).resolves.toEqual({
+      sessionId: expect.any(String),
+      maxChunkBytes: 4 * 1024 * 1024,
+    });
+    expect(mocks.compareAndSetSession).not.toHaveBeenCalled();
+    expect(mocks.deleteBlob).not.toHaveBeenCalled();
+  });
+
+  it("does not reclaim a finalization after a concurrent lease renewal", async () => {
+    const handle = {
+      id: "finalizing-blob",
+      provider: "public-upload:builder",
+      opaque: true,
+      encrypted: true,
+    };
+    mocks.compareAndSetSession.mockResolvedValueOnce(false);
+    mocks.listSessions.mockResolvedValue([
+      {
+        sessionId: "finalizing",
+        session: session({
+          uploadType: "video",
+          filename: "clip.mp4",
+          finalizingAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
+          finalizationLeaseExpiresAt: new Date(
+            Date.now() - 60_000,
+          ).toISOString(),
+          chunks: { "0": handle },
+          chunkSizes: { "0": 4 },
+        }),
+      },
+    ]);
+
+    await expect(startChunkedUpload({} as never)).resolves.toEqual({
+      sessionId: expect.any(String),
+      maxChunkBytes: 4 * 1024 * 1024,
+    });
+    expect(mocks.compareAndSetSession).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteBlob).not.toHaveBeenCalled();
+  });
+
   it("starts a bounded video upload session with the requesting owner", async () => {
     mocks.readBody.mockResolvedValue({
       filename: "clip.mp4",
@@ -353,6 +416,56 @@ describe("chunked reference uploads", () => {
       expect.objectContaining({ finalizingAt: expect.any(String) }),
     );
     expect(mocks.deleteSession).toHaveBeenCalledWith("session-1");
+  });
+
+  it("returns a committed video when its finalization lease expires during storage", async () => {
+    const video = {
+      url: "https://media.example.com/clip.mp4",
+      filename: "clip.mp4",
+      type: "video/mp4",
+      size: 4,
+    };
+    let resolveUpload!: (value: typeof video) => void;
+    let markUploadStarted!: () => void;
+    const uploadStarted = new Promise<void>((resolve) => {
+      markUploadStarted = resolve;
+    });
+    mocks.getQuery.mockReturnValue({ index: "0", isFinal: "1" });
+    mocks.getSession.mockResolvedValue(
+      session({
+        uploadType: "video",
+        filename: "clip.mp4",
+        mimeType: "video/mp4",
+        declaredSize: 4,
+      }),
+    );
+    mocks.uploadVideoAsset.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveUpload = resolve;
+          markUploadStarted();
+        }),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    vi.useFakeTimers();
+    try {
+      const upload = uploadChunkedChunk({} as never);
+      await uploadStarted;
+      mocks.compareAndSetSession.mockResolvedValueOnce(false);
+      await vi.advanceTimersByTimeAsync(60_000);
+      resolveUpload(video);
+
+      await expect(upload).resolves.toEqual(video);
+      expect(warn).toHaveBeenCalledWith(
+        "[slides-upload] finalization lease ended during commit",
+        expect.objectContaining({ sessionId: "session-1" }),
+      );
+      expect(mocks.deleteSession).toHaveBeenCalledWith("session-1");
+    } finally {
+      vi.useRealTimers();
+      warn.mockRestore();
+    }
   });
 
   it("rejects a video upload session owned by a different user", async () => {
