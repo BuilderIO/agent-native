@@ -328,4 +328,20 @@ describe("reasonFromError", () => {
     expect(reasonFromError("plain")).toBe("plain");
     expect(reasonFromError(new Error(""))).toBe("unknown_error");
   });
+
+  it("never carries a URL query, which holds the replay agent_access token", () => {
+    const reason = reasonFromError(
+      new Error(
+        'page.goto: net::ERR_CONNECTION_REFUSED at https://analytics.example.com/sessions/rec_1?agent_access=SECRET.token&frame=1\nCall log:\n  - navigating to "https://analytics.example.com/sessions/rec_1?agent_access=SECRET.token"',
+      ),
+    );
+    expect(reason).toBe(
+      "net::ERR_CONNECTION_REFUSED at https://analytics.example.com/sessions/rec_1?[redacted]",
+    );
+    expect(
+      reasonFromError(
+        'Timeout navigating to "https://a.test/s/1?agent_access=SECRET&frame=1", waiting',
+      ),
+    ).not.toContain("SECRET");
+  });
 });

@@ -340,12 +340,15 @@ export function unauthenticatedMessage(appUrl: string): string {
 
 /**
  * A short, single-line reason from a Playwright or page error: no stack, no
- * "page.evaluate:" prefix.
+ * "page.evaluate:" prefix, and no URL query string. Navigation errors quote
+ * the frame URL, whose query carries the recording's `agent_access` token, and
+ * a reason is written to manifest.json.
  */
 export function reasonFromError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   const first = message
     .split("\n")[0]!
+    .replace(/(https?:\/\/[^\s"'?#]*)\?[^\s"'#]*/gi, "$1?[redacted]")
     .replace(/^page\.\w+:\s*/, "")
     .replace(/^Error:\s*/, "")
     .trim();

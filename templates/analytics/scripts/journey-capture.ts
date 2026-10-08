@@ -53,7 +53,7 @@ Options:
   --max-aspect <ratio>   Skip examples whose viewport width/height is above this
   --app-url <url>        Deployed Analytics app (default ${DEFAULT_APP_URL}, or AGENT_NATIVE_ANALYTICS_URL)
   --token <bearer>       Bearer for that app (default AGENT_NATIVE_TOKEN, then Codex's config.toml)
-  --upload               Store each PNG in the app's private storage and put an attachmentRef in the manifest
+  --upload               Store each PNG in the app's private storage and put an attachmentRef in the manifest (a frame that fails to upload is a failure, not a frame)
   --timeout-ms <ms>      Per recording load / per frame limit (default 60000)
   --dry-run              Print the plan (recordings, offsets, viewports) and render nothing
   --help
@@ -291,24 +291,9 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
           fail("screenshot_invalid");
           continue;
         }
-        const fileName = frameFileName(
-          item.nodeKey,
-          item.exampleIndex,
-          ctx.usedNames,
-        );
-        await writeFile(path.join(ctx.outDir, fileName), bytes);
-        const frame: ManifestFrame = {
-          nodeKey: item.nodeKey,
-          exampleIndex: item.exampleIndex,
-          recordingId: plan.recordingId,
-          offsetMs: item.offsetMs,
-          width: captured.width,
-          height: captured.height,
-          localPath: fileName,
-          capturedAt: captured.capturedAt,
-          ...(captured.route ? { route: captured.route } : {}),
-        };
-        ctx.frames.push(frame);
+        // With --upload a frame without its attachmentRef is a failure, not a
+        // frame: nothing is written or listed for it.
+        let attachmentRef: string | undefined;
         if (ctx.upload) {
           try {
             const uploaded = await callAppAction(
@@ -324,12 +309,31 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
             if (typeof uploaded.attachmentRef !== "string") {
               throw new Error("the app returned no attachmentRef");
             }
-            frame.attachmentRef = uploaded.attachmentRef;
+            attachmentRef = uploaded.attachmentRef;
           } catch (error) {
             if (error instanceof AuthError) throw error;
             fail(`upload_failed: ${reasonFromError(error)}`);
+            continue;
           }
         }
+        const fileName = frameFileName(
+          item.nodeKey,
+          item.exampleIndex,
+          ctx.usedNames,
+        );
+        await writeFile(path.join(ctx.outDir, fileName), bytes);
+        ctx.frames.push({
+          nodeKey: item.nodeKey,
+          exampleIndex: item.exampleIndex,
+          recordingId: plan.recordingId,
+          offsetMs: item.offsetMs,
+          width: captured.width,
+          height: captured.height,
+          localPath: fileName,
+          capturedAt: captured.capturedAt,
+          ...(captured.route ? { route: captured.route } : {}),
+          ...(attachmentRef ? { attachmentRef } : {}),
+        });
       } catch (error) {
         if (error instanceof AuthError) throw error;
         fail(reasonFromError(error));
@@ -349,15 +353,24 @@ async function runPool<T>(
   work: (item: T) => Promise<void>,
 ): Promise<void> {
   let next = 0;
+  let failure: { error: unknown } | undefined;
+  // A worker never rejects: the first failure stops new work, every worker
+  // drains, and only then is it rethrown, so the caller still holds every
+  // result the in-flight recordings produced.
   const worker = async () => {
-    while (next < items.length) {
+    while (!failure && next < items.length) {
       const item = items[next++]!;
-      await work(item);
+      try {
+        await work(item);
+      } catch (error) {
+        failure ??= { error };
+      }
     }
   };
   await Promise.all(
     Array.from({ length: Math.min(concurrency, items.length) }, worker),
   );
+  if (failure) throw failure.error;
 }
 
 function intOption(
@@ -534,6 +547,7 @@ async function main(argv: string[]): Promise<number> {
     frames: [],
     failures: [],
   };
+  let authError: AuthError | undefined;
   try {
     await runPool(plans, concurrency, async (plan) => {
       await renderRecording(ctx, plan);
@@ -545,20 +559,19 @@ async function main(argv: string[]): Promise<number> {
       );
     });
   } catch (error) {
-    if (error instanceof AuthError) {
-      console.error(error.message);
-      return 2;
-    }
-    throw error;
+    if (!(error instanceof AuthError)) throw error;
+    authError = error;
   } finally {
     await browser.close();
   }
 
   const manifest = await writeManifest(ctx.frames, ctx.failures);
-  const uploadedNone =
-    ctx.upload &&
-    manifest.frames.length > 0 &&
-    !manifest.frames.some((f) => f.attachmentRef);
+  if (authError) {
+    console.error(
+      `${authError.message}\nThe run stopped early; ${manifest.frames.length} frames captured before it are in ${manifestPath}.`,
+    );
+    return 2;
+  }
   console.log(
     JSON.stringify({
       manifest: manifestPath,
@@ -572,7 +585,7 @@ async function main(argv: string[]): Promise<number> {
       `${manifest.failures.length} frames failed; see "failures" in the manifest.`,
     );
   }
-  return uploadedNone ? 1 : exitCodeFor(manifest);
+  return exitCodeFor(manifest);
 }
 
 // The dev server imports every file under scripts/, so only a direct run
