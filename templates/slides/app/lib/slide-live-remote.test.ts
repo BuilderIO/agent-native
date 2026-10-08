@@ -85,6 +85,33 @@ describe("applyRemoteHtmlUnderEdit", () => {
     expect(root.querySelector('[data-slide-object-id="a"]')).toBe(edited);
   });
 
+  it("applies only the class delta and does not restore a class the live canvas dropped", () => {
+    const withClass = (n: number, id: string, classes: string) =>
+      `<div class="${classes}" data-slide-object-id="${id}" ${stamp(n)}>${id}</div>`;
+    const prev = slide(box(1, "a", "Alpha"), withClass(2, "b", "x y"));
+    const next = slide(box(1, "a", "Alpha"), withClass(2, "b", "x y z"));
+    const root = mount(prev);
+    const edited = startEditing(root, "a");
+    const other = root.querySelector<HTMLElement>(
+      '[data-slide-object-id="b"]',
+    )!;
+
+    expect(applyRemoteHtmlUnderEdit(root, edited, prev, next)).toBe("applied");
+    expect(other.className).toBe("x y z");
+
+    const live = mount(prev);
+    const liveEdited = startEditing(live, "a");
+    const liveOther = live.querySelector<HTMLElement>(
+      '[data-slide-object-id="b"]',
+    )!;
+    liveOther.classList.remove("y");
+
+    expect(applyRemoteHtmlUnderEdit(live, liveEdited, prev, next)).toBe(
+      "unsupported",
+    );
+    expect(liveOther.className).toBe("x");
+  });
+
   it("reports an overlap and writes nothing when the edited text changed too", () => {
     const prev = slide(box(1, "a", "Alpha"), box(2, "b", "Beta"));
     const next = slide(

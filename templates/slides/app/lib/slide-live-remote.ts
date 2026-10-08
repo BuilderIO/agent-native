@@ -140,7 +140,7 @@ export function applyRemoteHtmlUnderEdit(
         const before = new Set((prev ?? "").split(/\s+/).filter(Boolean));
         const after = new Set((next ?? "").split(/\s+/).filter(Boolean));
         for (const token of before) {
-          if (!after.has(token) && !have.has(token)) return "unsupported";
+          if (!have.has(token)) return "unsupported";
         }
       } else if (live.getAttribute(name) !== prev) {
         return "unsupported";
@@ -178,7 +178,9 @@ export function applyRemoteHtmlUnderEdit(
         for (const token of before) {
           if (!after.has(token)) live.classList.remove(token);
         }
-        for (const token of after) live.classList.add(token);
+        for (const token of after) {
+          if (!before.has(token)) live.classList.add(token);
+        }
         if (live.classList.length === 0) live.removeAttribute("class");
       } else if (next === null) {
         live.removeAttribute(name);

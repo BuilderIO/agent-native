@@ -1179,10 +1179,7 @@ function flushDeferredRemoteSyncs() {
   }
 }
 
-onInlineEditRemoteRetry((deckId) => {
-  inlineEditRemoteRetryDecks.add(deckId);
-  flushDeferredRemoteSyncs();
-});
+onInlineEditRemoteRetry(() => flushDeferredRemoteSyncs());
 
 // Slides whose pending save carries a merge of another writer's edits, with
 // the local draft the merge started from. Until the editor re-reads the merged

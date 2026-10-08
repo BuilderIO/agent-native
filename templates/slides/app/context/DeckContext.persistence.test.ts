@@ -4398,6 +4398,28 @@ describe("DeckContext deck creation persistence", () => {
         clearSlideEditingActive(initial.id, "slide-1");
       });
 
+      it("does not re-read the deck when a composition ends with nothing deferred", async () => {
+        const applier = vi.fn<InlineEditRemoteApplier>(() => "applied");
+        const { api, result, unregister } = await openEdit(applier);
+        const deckReads = () =>
+          api.fetchMock.mock.calls.filter(([url]) =>
+            requestString(url).includes("/_agent-native/actions/get-deck"),
+          ).length;
+        await act(async () => {
+          await result.current.refreshOpenDeck(initial.id);
+        });
+        const before = deckReads();
+
+        await act(async () => {
+          requestInlineEditRemoteRetry(initial.id);
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        });
+
+        expect(deckReads()).toBe(before);
+        unregister();
+        clearSlideEditingActive(initial.id, "slide-1");
+      });
+
       it("retries when the editor asks for a later attempt", async () => {
         let result_: "later" | "applied" = "later";
         const applier = vi.fn<InlineEditRemoteApplier>(() => result_);
