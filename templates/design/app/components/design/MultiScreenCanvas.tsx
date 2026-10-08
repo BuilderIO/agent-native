@@ -1156,6 +1156,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     };
   }, [boardFileId, boardSurfaceRenderGeometry]);
   const selectedIdsRef = useRef(selectedIds);
+  const selectedIdsChangeIntentRef = useRef<ElementSelectionIntent | null>(
+    null,
+  );
   const selectedElementScreenIdRef = useRef(selectedElementScreenId);
   useEffect(() => {
     selectedElementScreenIdRef.current = selectedElementScreenId;
@@ -1973,11 +1976,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   );
 
   const updateSelectedIds = useCallback(
-    (updater: (current: string[]) => string[]) => {
+    (
+      updater: (current: string[]) => string[],
+      intent?: ElementSelectionIntent,
+    ) => {
+      selectedIdsChangeIntentRef.current = intent ?? null;
       setSelectedIds((current) => {
         const next = dedupeIds(updater(current));
         if (sameIds(current, next)) {
           selectedIdsRef.current = current;
+          selectedIdsChangeIntentRef.current = null;
           return current;
         }
         selectedIdsRef.current = next;
@@ -2092,13 +2100,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     selectedIdsRef.current = selectedIds;
     if (isEchoOfPropSelection(selectedIds)) return;
-    onSelectionChangeRef.current?.(selectedIds);
+    const intent = selectedIdsChangeIntentRef.current ?? undefined;
+    if (intent === undefined) onSelectionChangeRef.current?.(selectedIds);
+    else onSelectionChangeRef.current?.(selectedIds, intent);
   }, [isEchoOfPropSelection, selectedIds]);
 
   useEffect(() => {
     if (isEchoOfPropSelection(selectedIds)) return;
-    onScreenSelectionChange?.(selectedIds);
+    const intent = selectedIdsChangeIntentRef.current ?? undefined;
+    if (intent?.source === "marquee" || dragState.current?.type === "marquee")
+      return;
+    if (intent === undefined) onScreenSelectionChange?.(selectedIds);
+    else onScreenSelectionChange?.(selectedIds, intent);
   }, [isEchoOfPropSelection, onScreenSelectionChange, selectedIds]);
+
+  useEffect(() => {
+    selectedIdsChangeIntentRef.current = null;
+  }, [selectedIds]);
 
   useEffect(() => {
     draftPrimitivesRef.current = draftPrimitives;
@@ -5593,7 +5611,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           cancelled: true,
           restoreHostSelection: true,
         });
-        updateSelectedIds(() => state.baseSelectedIds);
+        updateSelectedIds(() => state.baseSelectedIds, {
+          source: "marquee",
+          additive: state.additive,
+          shiftKey: state.additive,
+          metaKey: state.metaKey,
+          ctrlKey: state.ctrlKey,
+          cancelled: true,
+        });
         updateSelectedDraftIds(() => state.baseSelectedDraftIds);
       } else if (state.type === "pen-node") {
         const restoredPath = state.pathBefore
@@ -5760,6 +5785,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           : getCanvasPoint(clientX, clientY);
       const originCanvas = getCanvasPointFromCachedRect(e.clientX, e.clientY);
       const deepSelect = e.metaKey || e.ctrlKey;
+      const metaKey = e.metaKey;
+      const ctrlKey = e.ctrlKey;
+      const baseSelectedIds = [
+        ...(selectedScreenIds ?? selectedIdsRef.current),
+      ];
       const marqueeToken = ++marqueeLifecycleRef.current;
       let latestRect = normalizeRectFromPoints(originCanvas, originCanvas);
       let layerCandidates: CanvasLayerMarqueeCandidate[] = [];
@@ -5769,9 +5799,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         type: "marquee",
         originClient: { x: e.clientX, y: e.clientY },
         originCanvas,
-        baseSelectedIds: selectedIdsRef.current,
+        baseSelectedIds,
         baseSelectedDraftIds: selectedDraftIdsRef.current,
         additive: e.shiftKey,
+        metaKey,
+        ctrlKey,
         hasMoved: false,
       };
       const collectedScreenIds = new Set<string>();
@@ -5813,12 +5845,27 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           .join("|");
         if (!final && signature === lastLayerSelectionSignature) return;
         lastLayerSelectionSignature = signature;
-        onLayerMarqueeSelectionChange?.(selection, {
+        const intent: ElementSelectionIntent = {
           source: "marquee",
           additive: state.additive,
           shiftKey: state.additive,
+          metaKey,
+          ctrlKey,
+          baseSelectedScreenIds: state.baseSelectedIds,
           final: final === true,
-        });
+        };
+        if (final) {
+          const hitScreenIds = [...latestFullyEnclosedScreenIds];
+          const selectedScreenIds = state.additive
+            ? xorMarqueeSelection(state.baseSelectedIds, hitScreenIds)
+            : hitScreenIds;
+          intent.selectedScreenIds = selectedScreenIds;
+          intent.marqueeHitScreenIds = hitScreenIds;
+          intent.marqueeSelectedScreenIds = hitScreenIds.filter((id) =>
+            selectedScreenIds.includes(id),
+          );
+        }
+        onLayerMarqueeSelectionChange?.(selection, intent);
       };
       const collectForIntersectedScreens = (hitIds: string[]) => {
         const newIds = hitIds.filter(
@@ -5869,7 +5916,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       dragState.current = marqueeState;
       setMarquee({ ...originCanvas, width: 0, height: 0 });
       if (!e.shiftKey) {
-        updateSelectedIds(() => []);
+        updateSelectedIds(() => [], {
+          source: "marquee",
+          additive: false,
+          shiftKey: false,
+          metaKey,
+          ctrlKey,
+        });
         updateSelectedDraftIds(() => []);
         onLayerMarqueeSelectionChange?.([], {
           source: "marquee",
@@ -5945,11 +5998,22 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
         collectForIntersectedScreens(intersectedScreenIds);
 
-        updateSelectedIds(() =>
-          state.additive
-            ? xorMarqueeSelection(state.baseSelectedIds, hitIds)
-            : hitIds,
-        );
+        const selectedScreenIds = state.additive
+          ? xorMarqueeSelection(state.baseSelectedIds, hitIds)
+          : hitIds;
+        updateSelectedIds(() => selectedScreenIds, {
+          source: "marquee",
+          additive: state.additive,
+          shiftKey: state.additive,
+          metaKey,
+          ctrlKey,
+          baseSelectedScreenIds: state.baseSelectedIds,
+          marqueeHitScreenIds: hitIds,
+          selectedScreenIds,
+          marqueeSelectedScreenIds: hitIds.filter((id) =>
+            selectedScreenIds.includes(id),
+          ),
+        });
         updateSelectedDraftIds(() =>
           state.additive
             ? xorMarqueeSelection(state.baseSelectedDraftIds, hitDraftIds)
@@ -5963,7 +6027,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         if (state?.type === "marquee") {
           marqueeReleased = true;
           if (shouldClearSelectionOnEmptyCanvasClick(state)) {
-            updateSelectedIds(() => []);
+            updateSelectedIds(() => [], {
+              source: "marquee",
+              additive: false,
+              shiftKey: false,
+              final: true,
+              baseSelectedScreenIds: state.baseSelectedIds,
+              marqueeHitScreenIds: [],
+              selectedScreenIds: [],
+              marqueeSelectedScreenIds: [],
+            });
             updateSelectedDraftIds(() => []);
             onLayerMarqueeSelectionChange?.([], {
               source: "marquee",
@@ -6064,6 +6137,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       onLayerMarqueeSelectionChange,
       updateSelectedDraftIds,
       updateSelectedIds,
+      selectedScreenIds,
     ],
   );
 
@@ -7891,13 +7965,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const nextSelectedIds = currentSelectedIds.includes(id)
           ? currentSelectedIds.filter((selectedId) => selectedId !== id)
           : [...currentSelectedIds, id];
-        updateSelectedIds(() => nextSelectedIds);
+        updateSelectedIds(() => nextSelectedIds, {
+          source: "pointer",
+          additive: true,
+          shiftKey: true,
+          screenSelectionToggle: {
+            screenId: id,
+            selected: nextSelectedIds.includes(id),
+          },
+        });
         const nextPrimaryId =
           nextSelectedIds.length === 0
             ? null
             : nextSelectedIds.includes(id)
               ? id
               : (nextSelectedIds[nextSelectedIds.length - 1] ?? null);
+        // A membership-only toggle is reported by onSelectionChange; onPick
+        // also changes the active edit target and must stay tied to the primary.
         if (nextPrimaryId && nextPrimaryId !== activeId) {
           onPick(nextPrimaryId);
         }
