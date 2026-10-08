@@ -604,23 +604,63 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     Number.isInteger(stepTimeout) &&
-      stepTimeout <= 5 &&
-      jobTimeout >= stepTimeout + 4,
-    `focused Design tests need a five-minute cap and four minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
+      stepTimeout <= 4 &&
+      jobTimeout >= stepTimeout + 5,
+    `focused Design tests need a four-minute cap and five minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
   );
   assert.match(
     designJob,
-    /shard:\s*\[\s*inspector,\s*drag-1,\s*drag-2,\s*position-1,\s*position-2,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,?\s*\]/,
+    /shard:\s*\[\s*inspector-1,\s*inspector-2,\s*inspector-3,\s*drag-1,\s*drag-2,\s*position-1,\s*position-2,\s*position-3,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,?\s*\]/,
   );
   const fixedLocations = (start: number, end: number) =>
     [...regressionCases.slice(start, end).matchAll(/e2e\/[^ \n]+:\d+/g)].map(
       ([location]) => location,
     );
-  const positionOneStart = regressionCases.indexOf("            position-1)");
-  const positionTwoStart = regressionCases.indexOf("            position-2)");
-  const fallbackStart = regressionCases.indexOf("            *)");
-  assert.ok(positionOneStart >= 0 && positionTwoStart > positionOneStart);
-  assert.ok(fallbackStart > positionTwoStart);
+  const shardStart = (name: string) =>
+    regressionCases.indexOf(`            ${name})`);
+  const inspectorOneStart = shardStart("inspector-1");
+  const inspectorTwoStart = shardStart("inspector-2");
+  const inspectorThreeStart = shardStart("inspector-3");
+  const dragOneStart = shardStart("drag-1");
+  assert.ok(
+    inspectorOneStart >= 0 &&
+      inspectorTwoStart > inspectorOneStart &&
+      inspectorThreeStart > inspectorTwoStart &&
+      dragOneStart > inspectorThreeStart,
+  );
+  assert.deepEqual(fixedLocations(inspectorOneStart, inspectorTwoStart), [
+    "e2e/canvas-invariants.spec.ts:508",
+    "e2e/canvas-invariants.spec.ts:1286",
+    "e2e/inspector-styles.spec.ts:176",
+    "e2e/inspector-styles.spec.ts:238",
+    "e2e/inspector-styles.spec.ts:314",
+    "e2e/inspector-styles.spec.ts:426",
+  ]);
+  assert.deepEqual(fixedLocations(inspectorTwoStart, inspectorThreeStart), [
+    "e2e/inspector-styles.spec.ts:452",
+    "e2e/inspector-styles.spec.ts:541",
+    "e2e/inspector-styles.spec.ts:610",
+    "e2e/inspector-styles.spec.ts:667",
+    "e2e/inspector-styles.spec.ts:737",
+    "e2e/inspector-styles.spec.ts:798",
+  ]);
+  assert.deepEqual(fixedLocations(inspectorThreeStart, dragOneStart), [
+    "e2e/canvas-invariants.spec.ts:1170",
+    "e2e/canvas-invariants.spec.ts:1320",
+    "e2e/inspector-styles.spec.ts:833",
+    "e2e/inspector-styles.spec.ts:880",
+    "e2e/inspector-styles.spec.ts:999",
+  ]);
+  const positionOneStart = shardStart("position-1");
+  const positionTwoStart = shardStart("position-2");
+  const positionThreeStart = shardStart("position-3");
+  const fallbackStart = shardStart("*");
+  assert.ok(
+    positionOneStart >= 0 &&
+      positionTwoStart > positionOneStart &&
+      positionThreeStart > positionTwoStart &&
+      fallbackStart > positionThreeStart,
+  );
   assert.deepEqual(fixedLocations(positionOneStart, positionTwoStart), [
     "e2e/pasted-svg-image-inspector.spec.ts:656",
     "e2e/pasted-svg-image-inspector.spec.ts:693",
@@ -628,10 +668,12 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "e2e/position-alignment.spec.ts:431",
     "e2e/position-alignment.spec.ts:509",
   ]);
-  assert.deepEqual(fixedLocations(positionTwoStart, fallbackStart), [
+  assert.deepEqual(fixedLocations(positionTwoStart, positionThreeStart), [
     "e2e/position-alignment.spec.ts:570",
     "e2e/position-alignment.spec.ts:615",
     "e2e/position-alignment.spec.ts:661",
+  ]);
+  assert.deepEqual(fixedLocations(positionThreeStart, fallbackStart), [
     "e2e/position-alignment.spec.ts:708",
     "e2e/position-alignment.spec.ts:740",
     "e2e/position-alignment.spec.ts:780",
@@ -679,23 +721,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const selectedTests = [
     [
       "e2e/canvas-invariants.spec.ts",
-      383,
-      "X/Y match the element's real position, not 0,0",
-    ],
-    [
-      "e2e/canvas-invariants.spec.ts",
       508,
       "a child of an auto-layout parent still reports real geometry",
-    ],
-    [
-      "e2e/canvas-invariants.spec.ts",
-      538,
-      "setting X moves the element by exactly that amount",
-    ],
-    [
-      "e2e/canvas-invariants.spec.ts",
-      553,
-      "setting Y moves the element by exactly that amount",
     ],
     [
       "e2e/canvas-invariants.spec.ts",
@@ -711,6 +738,71 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       "e2e/canvas-invariants.spec.ts",
       1320,
       "basic authoring raises no uncaught page errors",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      176,
+      "text fills hide and restore without losing the original color",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      238,
+      "selection hide and Appearance visibility stay in sync with opacity",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      314,
+      "text gradient apply and removal survive reselection; box gradient editor persists",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      426,
+      "style layer row actions stay visible and toggle visibility state",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      452,
+      "typography edits update size and spacing inputs",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      541,
+      "search selects Lato Medium and keeps custom font names offline",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      610,
+      "numeric scrub handles use terse tooltips and drag from compact labels",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      667,
+      "numeric input applies Figma math and starts an Option scrub drag",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      737,
+      "appearance controls use droplet blend menu and inline independent corners",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      798,
+      "export rows add, remove, and reset when selection changes",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      833,
+      "resizing a selected element emits a visual-style-change payload",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      880,
+      "pointercancel restores a scrubbed value without adding a history step",
+    ],
+    [
+      "e2e/inspector-styles.spec.ts",
+      999,
+      "can capture a screenshot of inspector coverage via CDP",
     ],
     [
       "e2e/drag-and-drop.drag-feedback.spec.ts",
@@ -741,11 +833,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       "e2e/parity-selection.spec.ts",
       572,
       "selected nested frame drag from its grandchild tracks the pointer and persists",
-    ],
-    [
-      "e2e/inspector-styles.spec.ts",
-      833,
-      "resizing a selected element emits a visual-style-change payload",
     ],
     [
       "e2e/corner-radius-handle-drag.spec.ts",
@@ -816,7 +903,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     )[line - 1];
     assert.ok(sourceLine?.includes(`test(\"${title}\"`), location);
   }
-  assert.ok(regressionCases.includes("e2e/inspector-styles.spec.ts"));
 });
 
 test("a deleted Design E2E path runs the focused interaction suite", () => {

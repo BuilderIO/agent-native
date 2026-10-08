@@ -76,6 +76,8 @@ import {
   SETTINGS_VIEW_STATE_KEY,
 } from "../navigation/settings-redirects.js";
 import { shouldInferSentimentForTurn } from "../observability/sentiment.js";
+import { parseServiceIdentityEmail } from "../org/service-identity.js";
+import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import {
   completeRun as completeProgressRun,
   startRun as startProgressRun,
@@ -6509,6 +6511,33 @@ export async function runAgentLoop(opts: {
         };
       }
 
+      // Before approval, so a human is never asked to approve a call the
+      // principal's grant already forbids. Covers framework tools that bypass
+      // `defineAction`, which enforces the same grant for the actions.
+      const userEmail = opts.ownerEmail ?? getRequestUserEmail();
+      if (parseServiceIdentityEmail(userEmail)) {
+        const {
+          enforceServicePrincipalActionGrant,
+          ServicePrincipalRefusedError,
+        } = await import("../org/service-principal-guard.js");
+        try {
+          await enforceServicePrincipalActionGrant({
+            email: userEmail,
+            orgId: opts.orgId ?? getRequestOrgId() ?? null,
+            actionName: toolCall.name,
+            caller: opts.actionCaller ?? "tool",
+          });
+        } catch (error) {
+          if (
+            !(error instanceof ServicePrincipalRefusedError) ||
+            error.statusCode !== 403
+          ) {
+            throw error;
+          }
+          return declineToolCall(error.message);
+        }
+      }
+
       const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
       const approvalBinding: AgentApprovalBinding = {
         toolName: toolCall.name,
@@ -8730,7 +8759,8 @@ export async function chainServerDrivenContinuation(opts: {
     } catch (insertErr) {
       if (
         insertErr instanceof AgentTurnInitiatorMismatchError ||
-        insertErr instanceof AgentTurnInitiatorUnavailableError
+        insertErr instanceof AgentTurnInitiatorUnavailableError ||
+        insertErr instanceof ServicePrincipalRefusedError
       ) {
         throw insertErr;
       }
@@ -10476,6 +10506,7 @@ export function createProductionAgentHandler(
           });
           backgroundRowInserted = true;
         } catch (err) {
+          if (err instanceof ServicePrincipalRefusedError) throw err;
           console.error(
             "[agent-chat] background insertRun failed; falling back to inline:",
             err instanceof Error ? err.message : err,
@@ -10814,7 +10845,9 @@ export function createProductionAgentHandler(
           await insertRun(runId, effectiveThreadId, effectiveTurnId, {
             dispatchMode: "background",
             ...(turnInitiator ? { turnInitiator } : {}),
-          }).catch(() => {});
+          }).catch((error) => {
+            if (error instanceof ServicePrincipalRefusedError) throw error;
+          });
         }
         const won = await claimBackgroundRun(runId);
         if (!won) {
