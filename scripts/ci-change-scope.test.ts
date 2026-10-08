@@ -571,8 +571,14 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     return workflow.slice(start, next === -1 ? undefined : next);
   };
   const regressionCases = step("Run focused Design regression cases");
+  const changedSpecRegressions = step("Run changed Design E2E specs");
   const screenSelectionRegressions = step(
     "Run focused Screen selection history regressions",
+  );
+  assert.match(
+    changedSpecRegressions,
+    /^        if: startsWith\(matrix\.shard, 'changed-'\)$/m,
+    "changed-spec tests must run only on their dedicated shards",
   );
   assert.match(
     screenSelectionRegressions,
@@ -581,8 +587,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     regressionCases,
-    /^        if: \$\{\{ !startsWith\(matrix\.shard, 'screen-history-'\) \}\}$/m,
-    "focused Design selectors must not run on Screen-history shards",
+    /^        if: \$\{\{ !startsWith\(matrix\.shard, 'screen-history-'\) && !startsWith\(matrix\.shard, 'changed-'\) \}\}$/m,
+    "fixed Design regressions must not run on Screen-history or changed-spec shards",
   );
   assert.ok(
     screenSelectionRegressions.includes(
@@ -642,7 +648,13 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     [...regressionCases.matchAll(/--workers=(\d+)/g)].map(([, count]) =>
       Number(count),
     ),
-    [1, 1],
+    [1],
+  );
+  assert.deepEqual(
+    [...changedSpecRegressions.matchAll(/--workers=(\d+)/g)].map(([, count]) =>
+      Number(count),
+    ),
+    [1],
   );
   const designJobStart = workflow.indexOf(
     "  design-canvas-interaction-acceptance:\n",
@@ -673,6 +685,9 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const screenHistoryStepTimeout = Number(
     screenSelectionRegressions.match(/^        timeout-minutes: (\d+)$/m)?.[1],
   );
+  const changedSpecStepTimeout = Number(
+    changedSpecRegressions.match(/^        timeout-minutes: (\d+)$/m)?.[1],
+  );
   assert.ok(
     Number.isInteger(jobTimeout) && jobTimeout === 9,
     `Design acceptance job must have the exact nine-minute cap (got ${jobTimeout})`,
@@ -688,6 +703,12 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       screenHistoryStepTimeout === 5 &&
       jobTimeout >= screenHistoryStepTimeout + 4,
     `Screen-history tests need the exact five-minute cap and four minutes for setup (job ${jobTimeout}, step ${screenHistoryStepTimeout})`,
+  );
+  assert.ok(
+    Number.isInteger(changedSpecStepTimeout) &&
+      changedSpecStepTimeout === 6 &&
+      jobTimeout >= changedSpecStepTimeout + 3,
+    `changed-spec tests need the exact six-minute cap and three minutes for setup (job ${jobTimeout}, step ${changedSpecStepTimeout})`,
   );
   assert.match(
     designJob,
@@ -788,8 +809,18 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ),
   );
   assert.ok(
-    regressionCases.includes(
+    changedSpecRegressions.includes(
       'pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/6"',
+    ),
+  );
+  assert.ok(
+    changedSpecRegressions.includes(
+      "E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
+    ),
+  );
+  assert.ok(
+    changedSpecRegressions.includes(
+      "DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}",
     ),
   );
   assert.ok(
