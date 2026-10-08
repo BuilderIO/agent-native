@@ -43,6 +43,14 @@ const reportedStuckRunIds = new Set<string>();
 
 type BusyState = { type: "none" } | { type: "cancel" | "retry"; runId: string };
 
+// Only the click that set busy for `runId` may clear it.
+const releaseBusy =
+  (runId: string) =>
+  (current: BusyState): BusyState =>
+    current.type !== "none" && current.runId === runId
+      ? { type: "none" }
+      : current;
+
 type MaybeLockManager = {
   request<T>(
     name: string,
@@ -291,11 +299,7 @@ export function RunStuckBanner({
         stuckSinceMs: state.stuckSinceMs ?? null,
       });
       void abortRun(runId, "auto_stuck_retry").then((aborted) => {
-        setBusy((current) =>
-          current.type !== "none" && current.runId === runId
-            ? { type: "none" }
-            : current,
-        );
+        setBusy(releaseBusy(runId));
         if (aborted) onRetry?.(aborted);
       });
     });
@@ -363,7 +367,11 @@ export function RunStuckBanner({
       threadId: threadId ?? null,
       stuckSinceMs: state.stuckSinceMs ?? null,
     });
-    await abortRun(runId, "user_stuck_cancel");
+    // A replaced run clears busy through the state effect; a failed abort never
+    // replaces it, so the buttons would stay disabled for the same stuck run.
+    if (!(await abortRun(runId, "user_stuck_cancel"))) {
+      setBusy(releaseBusy(runId));
+    }
   };
 
   const handleRetry = async () => {
@@ -384,6 +392,7 @@ export function RunStuckBanner({
     });
     const aborted = await abortRun(runId, "user_stuck_retry");
     if (aborted) onRetry?.(aborted);
+    else setBusy(releaseBusy(runId));
   };
 
   const busyType = busy.type;

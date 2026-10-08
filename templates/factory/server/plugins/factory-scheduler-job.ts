@@ -1,3 +1,4 @@
+import type { BUILDER_MODEL_CONFIG } from "@agent-native/core/agent/model-config";
 import { subscribe } from "@agent-native/core/event-bus";
 import { notify } from "@agent-native/core/notifications";
 import { resolveOrgIdForEmail } from "@agent-native/core/org";
@@ -245,7 +246,11 @@ type AutomationSeed = {
   body: string;
 };
 
-const FACTORY_DEFAULT_MODEL = "gpt-5.6-luna";
+// Seeded without an engine, so the run engine normalizes it; typed against the
+// Builder catalog so a retired id fails typecheck instead of silently falling
+// back to the engine default.
+const FACTORY_DEFAULT_MODEL: (typeof BUILDER_MODEL_CONFIG.supportedModels)[number] =
+  "gpt-6-luna";
 const FACTORY_DEFAULT_REASONING_EFFORT = "high";
 const FACTORY_DEFAULT_MAX_ITERATIONS = 32;
 const FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS = 1_000_000;
