@@ -410,14 +410,22 @@ function looksLikeNfm(body: string): boolean {
   // One pass over the lines: a fence left open runs to the end of the file,
   // as in CommonMark, instead of being searched for again from every fence.
   const outsideCode: string[] = [];
-  let fence: string | null = null;
+  let fence: { run: string; indent: number } | null = null;
   for (const line of body.split("\n")) {
-    const run = /^[ \t]*(`{3,}|~{3,})(.*)$/.exec(line);
+    const run = /^([ \t]*)(`{3,}|~{3,})(.*)$/.exec(line);
     if (fence) {
       // Only a run as long as the opener, of the same character, closes it.
-      if (run?.[1].startsWith(fence) && !run[2].trim()) fence = null;
-    } else if (run && !(run[1][0] === "`" && run[2].includes("`"))) {
-      fence = run[1];
+      // A closer may sit three columns deeper than its container's text, so
+      // one more than three past the opener is still code.
+      if (
+        run?.[2].startsWith(fence.run) &&
+        /^[ \t]*$/.test(run[3]) &&
+        indentColumns(run[1]) <= fence.indent + 3
+      ) {
+        fence = null;
+      }
+    } else if (run && !(run[2][0] === "`" && run[3].includes("`"))) {
+      fence = { run: run[2], indent: indentColumns(run[1]) };
     } else {
       outsideCode.push(line);
     }
@@ -428,6 +436,15 @@ function looksLikeNfm(body: string): boolean {
     .map(withoutCodeSpans)
     .join("");
   return NFM_SIGNALS.some((signal) => signal.test(text));
+}
+
+/** Columns leading spaces and tabs span; a tab reaches the next multiple of four. */
+function indentColumns(whitespace: string): number {
+  let columns = 0;
+  for (const char of whitespace) {
+    columns = char === "\t" ? columns + 4 - (columns % 4) : columns + 1;
+  }
+  return columns;
 }
 
 /**
@@ -1186,10 +1203,8 @@ class MarkdownConverter {
       } else if (DROPPED_HTML_MEDIA.has(token.name)) {
         this.notes.add("unsupported-markdown", `<${token.name}>`);
       } else if (HIDDEN_HTML_ELEMENTS.has(token.name)) {
-        if (!token.selfClosing) {
-          state.hidden = { name: token.name, depth: 1 };
-          this.notes.add("hidden-html-dropped", `<${token.name}>`);
-        }
+        state.hidden = { name: token.name, depth: 1 };
+        this.notes.add("hidden-html-dropped", `<${token.name}>`);
       } else if (!token.selfClosing) {
         this.openHtmlElement(stack, token, "inline");
       }
@@ -1290,10 +1305,8 @@ class MarkdownConverter {
         continue;
       }
       if (token.type === "open" && HIDDEN_HTML_ELEMENTS.has(token.name)) {
-        if (!token.selfClosing) {
-          hidden = { name: token.name, depth: 1 };
-          this.notes.add("hidden-html-dropped", `<${token.name}>`);
-        }
+        hidden = { name: token.name, depth: 1 };
+        this.notes.add("hidden-html-dropped", `<${token.name}>`);
         continue;
       }
       if (DROPPED_HTML_MEDIA.has(token.name)) {

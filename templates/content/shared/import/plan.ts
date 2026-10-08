@@ -94,6 +94,30 @@ export function splitDataUrl(
 }
 
 /**
+ * The bytes a percent-encoded `data:` payload spells, or null when a `%` isn't
+ * followed by two hex digits. The bytes needn't be text: a PNG written this
+ * way starts `%89PNG`, which `decodeURIComponent` refuses as invalid UTF-8.
+ */
+export function percentDecodedBytes(payload: string): Uint8Array | null {
+  if (/%(?![0-9a-f]{2})/i.test(payload)) return null;
+  const encoded = new TextEncoder().encode(payload);
+  const bytes = new Uint8Array(encoded.length);
+  let length = 0;
+  for (let index = 0; index < encoded.length; index++) {
+    if (encoded[index] === 0x25) {
+      bytes[length++] = parseInt(
+        String.fromCharCode(encoded[index + 1], encoded[index + 2]),
+        16,
+      );
+      index += 2;
+    } else {
+      bytes[length++] = encoded[index];
+    }
+  }
+  return bytes.subarray(0, length);
+}
+
+/**
  * Decoded size of a `data:` URL, measured without decoding base64. One with
  * no payload, or a percent-encoded payload that can't be decoded, such as a
  * stray `%`, has no size, so the preview reports the image missing instead of
@@ -104,12 +128,8 @@ export function dataUrlByteLength(dataUrl: string): number | null {
   if (!parts) return null;
   const { base64, payload } = parts;
   if (!base64) {
-    try {
-      return new TextEncoder().encode(decodeURIComponent(payload)).length;
-    } catch (error) {
-      if (error instanceof URIError) return null;
-      throw error;
-    }
+    const bytes = percentDecodedBytes(payload);
+    return bytes ? bytes.length : null;
   }
   const padding = payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0;
   return Math.floor((payload.length * 3) / 4) - padding;
@@ -156,12 +176,19 @@ export function planMarkdownPages(input: {
   markdown: Array<{ path: string; text: string }>;
   imagePaths: ReadonlySet<string>;
 }): { pages: PlannedImportPage[]; tooLarge: string[] } {
+  // Files share one padding budget, so they're parsed in path order: the same
+  // files give the same pages in any order, as an import's fingerprint assumes.
   const tablePadding = newTablePaddingBudget();
+  const parsed = new Map(
+    [...input.markdown]
+      .sort((a, b) => (a.path < b.path ? -1 : 1))
+      .map(({ path, text }) => [
+        path,
+        parseMarkdownImport({ sourcePath: path, text, tablePadding }),
+      ]),
+  );
   const drafts = new Map(
-    input.markdown.map(({ path, text }) => [
-      path,
-      parseMarkdownImport({ sourcePath: path, text, tablePadding }),
-    ]),
+    input.markdown.map(({ path }) => [path, parsed.get(path)!]),
   );
   const importing = new Set(drafts.keys());
   const planned = new Map<string, ReturnType<typeof planPage>>();

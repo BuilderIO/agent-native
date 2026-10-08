@@ -73,16 +73,18 @@ export function tokenizeHtml(html: string): HtmlToken[] {
       tokens.push({ type: "close", name: match[1].toLowerCase() });
     } else if (match[2]) {
       const name = match[2].toLowerCase();
-      const selfClosing = match[4] === "/";
       tokens.push({
         type: "open",
         name,
         attrs: parseAttributes(match[3] ?? ""),
-        selfClosing,
+        // HTML ignores the slash on an element that isn't void, so
+        // `<template/>` still opens one, and everything up to its closing tag
+        // stays hidden.
+        selfClosing: match[4] === "/" && !HIDDEN_HTML_ELEMENTS.has(name),
       });
       // Script and style bodies are raw text: a `<` or `<!--` inside them
       // opens nothing, so the body runs to the element's own closing tag.
-      const rawTextClose = selfClosing ? undefined : RAW_TEXT_CLOSE.get(name);
+      const rawTextClose = RAW_TEXT_CLOSE.get(name);
       if (rawTextClose) {
         rawTextClose.lastIndex = last;
         const close = rawTextClose.exec(html);
@@ -118,9 +120,7 @@ export function afterHiddenToken(
   token: HtmlToken,
 ): HiddenHtmlElement | null {
   if (token.type === "open" && token.name === hidden.name) {
-    return token.selfClosing
-      ? hidden
-      : { name: hidden.name, depth: hidden.depth + 1 };
+    return { name: hidden.name, depth: hidden.depth + 1 };
   }
   if (token.type === "close" && token.name === hidden.name) {
     return hidden.depth > 1
@@ -138,7 +138,7 @@ export function htmlVisibleText(html: string): string {
     if (hidden) {
       hidden = afterHiddenToken(hidden, token);
     } else if (token.type === "open" && HIDDEN_HTML_ELEMENTS.has(token.name)) {
-      if (!token.selfClosing) hidden = { name: token.name, depth: 1 };
+      hidden = { name: token.name, depth: 1 };
     } else if (token.type === "text") {
       parts.push(token.text);
     } else if (token.type === "open" && token.name === "img") {

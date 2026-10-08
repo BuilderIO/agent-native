@@ -129,8 +129,10 @@ describe("Import planning", () => {
     expect(dataUrlByteLength("data:image/png;base64,AAAA")).toBe(3);
     expect(dataUrlByteLength("data:image/png;base64,AAA=")).toBe(2);
     expect(dataUrlByteLength("data:image/svg+xml,%3Csvg%3E")).toBe(5);
+    expect(dataUrlByteLength("data:image/png,%89PNG%0D%0A%1A%0A")).toBe(8);
+    expect(dataUrlByteLength("data:image/svg+xml,café")).toBe(5);
     expect(dataUrlByteLength("data:image/svg+xml,100%")).toBeNull();
-    expect(dataUrlByteLength("data:image/svg+xml,%FF")).toBeNull();
+    expect(dataUrlByteLength("data:image/svg+xml,%G0")).toBeNull();
     expect(dataUrlByteLength("data:image/png")).toBeNull();
   });
 
@@ -184,19 +186,27 @@ describe("Import planning", () => {
       `| ${Array.from({ length: 201 }, (_, index) => `c${index}`).join(" | ")} |`,
       ...Array.from({ length: 199 }, () => "| x |"),
     ].join("\n");
-    const { pages, tooLarge } = planMarkdownPages({
-      markdown: ["a.md", "b.md", "c.md"].map((path) => ({
-        path,
-        text: `# ${path}\n\n${paddedTable}`,
-      })),
-      imagePaths: new Set(),
-    });
+    for (const order of [
+      ["a.md", "b.md", "c.md"],
+      ["c.md", "b.md", "a.md"],
+    ]) {
+      const { pages, tooLarge } = planMarkdownPages({
+        markdown: order.map((path) => ({
+          path,
+          text: `# ${path}\n\n${paddedTable}`,
+        })),
+        imagePaths: new Set(),
+      });
 
-    const tables = (path: string) =>
-      pages
-        .find((page) => page.path === path)
-        ?.preview.doc.content?.filter((node) => node.type === "table").length;
-    expect(tooLarge).toEqual([]);
-    expect([tables("a.md"), tables("b.md"), tables("c.md")]).toEqual([1, 1, 0]);
+      const tables = (path: string) =>
+        pages
+          .find((page) => page.path === path)
+          ?.preview.doc.content?.filter((node) => node.type === "table").length;
+      expect(tooLarge).toEqual([]);
+      expect(pages.map((page) => page.path)).toEqual(order);
+      expect([tables("a.md"), tables("b.md"), tables("c.md")]).toEqual([
+        1, 1, 0,
+      ]);
+    }
   });
 });

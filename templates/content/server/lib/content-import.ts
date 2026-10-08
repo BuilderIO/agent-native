@@ -41,6 +41,7 @@ import {
   MAX_IMPORT_MARKDOWN_BYTES,
   MAX_IMPORT_PAGE_CHARACTERS,
   normalizeImportPath,
+  percentDecodedBytes,
   planMarkdownPages,
   splitDataUrl,
 } from "../../shared/import/plan.js";
@@ -219,6 +220,11 @@ export async function runContentImport(
       }
 
       const filled = stored.get(page.path)!;
+      const keepUploads = () => {
+        for (const request of page.uploads) {
+          if (request.kind === "data-url") usedUploads.add(assetKey(request));
+        }
+      };
       const { report, created } = await createImportedPage({
         db,
         ctx,
@@ -229,12 +235,9 @@ export async function runContentImport(
         destination,
         source: sourceFile(markdown, page.path),
         page: filled,
+        keepUploads,
       });
-      if (created) {
-        for (const request of page.uploads) {
-          if (request.kind === "data-url") usedUploads.add(assetKey(request));
-        }
-      }
+      if (created) keepUploads();
       pages.push(pageResult(page.path, { ...filled, report }, id));
     }
   } catch (error) {
@@ -455,14 +458,16 @@ async function uploadDataUrl(
   ownerEmail: string,
 ): Promise<FileUploadResult> {
   const parts = splitDataUrl(request.dataUrl);
-  // The preview reports an embedded image with no payload as missing, so
-  // only a planning bug sends one here.
-  if (!parts) {
-    throw new Error(`An embedded ${request.mediaType} image has no payload`);
+  const data = !parts
+    ? null
+    : parts.base64
+      ? Buffer.from(parts.payload, "base64")
+      : percentDecodedBytes(parts.payload);
+  // The preview reports an embedded image with no payload, or one that won't
+  // decode, as missing, so only a planning bug sends one here.
+  if (!data) {
+    throw new Error(`An embedded ${request.mediaType} image won't decode`);
   }
-  const data = parts.base64
-    ? Buffer.from(parts.payload, "base64")
-    : Buffer.from(decodeURIComponent(parts.payload), "utf8");
   const extension = request.mediaType.split("/")[1]?.split("+")[0] ?? "img";
   const uploaded = await uploadFile({
     data,
@@ -522,6 +527,8 @@ async function createImportedPage(input: {
   destination: ImportContentResult["destination"];
   source: IntakeMarkdown;
   page: ImportedPage;
+  /** Keeps the images uploaded for the page, which may have been saved. */
+  keepUploads: () => void;
 }): Promise<{ report: ImportedPageReport; created: boolean }> {
   const { db, ctx, actor, id, page, source } = input;
   const sourceSha256 = sha256(source.text);
@@ -654,8 +661,10 @@ async function createImportedPage(input: {
       .where(eq(schema.documentImports.documentId, id))
       .limit(1)
       .catch((lookupError: unknown) => {
-        // Without the record there's no telling whether another attempt kept
-        // this original, so it stays, and the first failure is reported.
+        // Without the record there's no telling whether this attempt's page
+        // was saved, or another attempt kept this original, so the original
+        // and the page's images stay, and the first failure is reported.
+        input.keepUploads();
         captureError(lookupError, {
           tags: { source: "content-import" },
           extra: { importId: input.importId, documentId: id },

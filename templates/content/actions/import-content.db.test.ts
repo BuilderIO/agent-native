@@ -540,6 +540,60 @@ describe("import-content", () => {
     expect(uploads.delete).not.toHaveBeenCalled();
   });
 
+  it("keeps the embedded image of a page that may have saved when it can't look the page up", async () => {
+    writeAppStateMock.mockImplementationOnce(async () => {
+      vi.spyOn(getDb(), "select").mockImplementationOnce(() => {
+        const lookup = {
+          from: () => lookup,
+          where: () => lookup,
+          limit: () => Promise.reject(new Error("connection reset")),
+        };
+        return lookup as never;
+      });
+      throw new Error("refresh failed");
+    });
+    const stopped = await asOwner(() =>
+      importContent.run({
+        files: [
+          {
+            name: "chart.md",
+            text: "# Chart\n\n![Chart](data:image/png;base64,AAAA)",
+          },
+        ],
+        parentId: PARENT_ID,
+        dryRun: false,
+      }),
+    ).catch((error: unknown) => error);
+    expect(stopped).toMatchObject({ errorCode: "IMPORT_INCOMPLETE" });
+    const [page] = await importedChildren();
+    expect(page.content).toMatch(/\/uploads\/embedded-\d+\.png/);
+    expect(uploads.delete).not.toHaveBeenCalled();
+    expect(blobs.delete).not.toHaveBeenCalled();
+  });
+
+  it("uploads the bytes a percent-encoded embedded image spells", async () => {
+    await asOwner(() =>
+      importContent.run({
+        files: [
+          {
+            name: "logo.md",
+            text: "# Logo\n\n![Logo](data:image/png,%89PNG%0D%0A%1A%0A)",
+          },
+        ],
+        parentId: PARENT_ID,
+        dryRun: false,
+      }),
+    );
+    const [[uploaded]] = uploads.upload.mock.calls as unknown as [
+      [{ data: Uint8Array }],
+    ];
+    expect([...uploaded.data]).toEqual([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ]);
+    const [page] = await importedChildren();
+    expect(page.content).toMatch(/\/uploads\/embedded-\d+\.png/);
+  });
+
   it("binds a key to one set of files when two applies with different files race", async () => {
     const apply = (name: string) =>
       asOwner(() =>

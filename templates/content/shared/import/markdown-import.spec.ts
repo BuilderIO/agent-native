@@ -963,6 +963,10 @@ ${"<span>".repeat(70)}deep
         "\n",
       ),
     ],
+    [
+      "after a fence line indented too far to close the fence",
+      ["```text", "    ```", "<callout>Example</callout>", "```"].join("\n"),
+    ],
   ])("reads a file with Content tags only %s as Markdown", (_, text) => {
     expect(importMarkdown(`# Notes\n\n${text}\n`).dialect).toBe("markdown");
   });
@@ -991,6 +995,27 @@ ${"<span>".repeat(70)}deep
     expect(textOf(page.doc)).toContain("text");
     expect(noteKinds(page)).toContain("hidden-html-dropped");
     expect(noteKinds(page)).not.toContain("text-not-landed");
+  });
+
+  it("keeps a template written with a closing slash hidden, as HTML does", () => {
+    const page = importMarkdown(
+      [
+        "<template><template/>a</template>outer secret</template>",
+        "",
+        "Visible <template/>inline secret</template> text",
+      ].join("\n"),
+    );
+
+    expect(textOf(page.doc)).not.toContain("secret");
+    expect(textOf(page.doc)).toContain("Visible");
+    expect(textOf(page.doc)).toContain("text");
+  });
+
+  it("samples a line of many data: words without rescanning it for each", () => {
+    // Searched from every `data:` for a comma, this line took minutes.
+    const page = importMarkdown(`${">".repeat(65)}${"data:".repeat(190_000)}`);
+
+    expect(noteKinds(page)).toEqual(["unsupported-markdown"]);
   });
 
   it("ends a script only at a closing tag with its exact name", () => {
