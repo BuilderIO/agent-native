@@ -17,27 +17,31 @@ requires logs or artifacts for case-level diagnosis. An incomplete or failed
 API query exits 2 and means **CI unavailable**, never an empty result.
 
 Keep every fingerprint in the recap, including its run count and run links.
-Classify each E2E fingerprint separately as **product regression**, **stale
-spec**, **harness flake**, or **infrastructure**, then reproduce locally and fix
-the owning boundary.
+Classify each fingerprint as **product regression**, **stale spec**, **harness
+flake**, or **infrastructure**, then reproduce locally and fix the owning
+boundary.
 
-Track the complete E2E failure set in one aggregate issue. One issue covers all
-E2E workflows, tests, shards, fingerprints, and runs in the report; keep the
-test-level evidence and disposition for every fingerprint in its body. Reuse
-the same open E2E issue on later reports and update its full failure list.
-Never create a separate issue per test, fingerprint, shard, or run. Search
-open PRs and tracking issues for every run id, workflow, or fingerprint; a
-matching aggregate E2E issue owns every listed E2E row, not only one run-ID
-occurrence. If only per-fingerprint issues are open, reuse one as the aggregate
-and link the other issue URLs as evidence; do not create another E2E issue or
-close duplicates unless the current sweep explicitly authorizes issue closure.
-Record the aggregate as recovered after all listed failures recover or are
-fixed; close it only when issue closure is explicitly authorized.
+Search open PRs and tracking issues for every run id, workflow, or fingerprint.
+For non-E2E rows, keep one tracking issue per fingerprint and reuse it across
+runs. A run-ID-only match owns only that occurrence; keep other unowned run IDs
+actionable. Mark an item **Owned elsewhere** only when an open item names its
+workflow or fingerprint, and link it. Close an issue only when issue closure is
+explicitly authorized.
 
-Keep non-E2E workflow incidents separately tracked. For those rows, a run-ID-
-only match owns only that occurrence; keep other unowned run IDs actionable.
-Mark an aggregate **Owned elsewhere** only when an open item names its workflow
-or fingerprint, and link it.
+For E2E rows, track the complete failure set in one aggregate issue covering
+all E2E workflows, tests, shards, fingerprints, and runs in the report. Keep
+the test-level evidence and disposition for every fingerprint in its body.
+Reuse the same open E2E issue on later reports, update it with every new or
+unmatched run and fingerprint, and preserve unresolved failures after they age
+out of the report's five-day window. A row is covered only when the issue body
+lists its fingerprint or its run URL/id together with the workflow; a matching
+title alone is not enough. Add each unmatched row to the aggregate before
+marking it owned. Never create a separate issue per test, fingerprint, shard,
+or run. If only per-fingerprint E2E issues are open, reuse one as the aggregate
+and link the others; do not create another E2E issue or close duplicates unless
+the current sweep explicitly authorizes closure. Mark the aggregate recovered
+after every listed failure is verified recovered or fixed, and close it only
+when issue closure is explicitly authorized.
 
 Quarantine only with a named owner, expiry, and linked tracking issue. A green
 result produced by quarantine is a defect. Follow quarantined rows until fixed
