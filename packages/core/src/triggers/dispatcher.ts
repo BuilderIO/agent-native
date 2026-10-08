@@ -742,9 +742,13 @@ export async function refreshEventSubscriptions(): Promise<boolean> {
  */
 export async function hasEventAutomation(eventName: string): Promise<boolean> {
   if (cachedEventAutomationNames()?.has(eventName)) return true;
-  return eventAutomationNames(await listEventAutomationResources()).has(
-    eventName,
-  );
+  // A refresh that lands mid-scan means the scan may predate a new
+  // automation; only an answer from a scan that is still current counts.
+  for (;;) {
+    const generation = _eventAutomationGeneration;
+    const names = eventAutomationNames(await listEventAutomationResources());
+    if (generation === _eventAutomationGeneration) return names.has(eventName);
+  }
 }
 
 async function handleAnyEvent(

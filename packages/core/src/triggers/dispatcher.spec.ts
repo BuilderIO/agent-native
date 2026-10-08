@@ -655,6 +655,27 @@ Respond to the concurrent event.`,
     );
   });
 
+  it("re-reads instead of answering from a scan a refresh invalidated mid-flight", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    let resolveStale!: (value: unknown[]) => void;
+    resourceListAllOwnersMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStale = resolve;
+        }),
+    );
+    const answer = hasEventAutomation("test.event.fired");
+
+    await expect(refreshEventSubscriptions()).resolves.toBe(true);
+    resolveStale([]);
+
+    await expect(answer).resolves.toBe(true);
+  });
+
   it("re-reads before reporting no automation so a stale cached negative is never trusted", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
     await initTriggerDispatcher({
