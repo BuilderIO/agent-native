@@ -183,7 +183,7 @@ export function isExpectedSaveReloadActionAbort(
       "/_agent-native/actions/get-lab-states",
       "/_agent-native/actions/get-deck-access-status",
     ].includes(pathname) &&
-    errorText === "NS_BINDING_ABORTED" &&
+    (errorText === "NS_BINDING_ABORTED" || errorText === "net::ERR_ABORTED") &&
     activePhase === "save/reload"
   );
 }

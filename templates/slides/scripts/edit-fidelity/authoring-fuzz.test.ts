@@ -667,8 +667,22 @@ it("ignores only the two expected action aborts during save/reload navigation", 
   expect(
     isExpectedSaveReloadActionAbort(
       "/_agent-native/actions/get-lab-states",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadActionAbort(
+      "/_agent-native/actions/get-deck-access-status",
       "net::ERR_ABORTED",
       "save/reload",
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadActionAbort(
+      "/_agent-native/actions/get-deck-access-status",
+      "net::ERR_ABORTED",
+      "step 12",
     ),
   ).toBe(false);
 });
