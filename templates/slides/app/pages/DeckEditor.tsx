@@ -139,6 +139,7 @@ import {
   type CommentThread,
 } from "@/hooks/use-slide-comments";
 import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
+import { useUndoSelection } from "@/hooks/use-undo-selection";
 import { getAspectRatioDims } from "@/lib/aspect-ratios";
 import { downloadDeckBackup, parseDeckBackup } from "@/lib/deck-backup";
 import {
@@ -219,7 +220,6 @@ import {
   shouldActivateRectangleTool,
   shouldActivateTextTool,
 } from "@/lib/text-tool-shortcut";
-import type { UndoSelectionRequest } from "@/lib/undo-reveal";
 import {
   discardUploadedSlideVideo,
   uploadSlideVideo,
@@ -2474,36 +2474,12 @@ export default function DeckEditor() {
     [deck, selectedSlideIds, widgetEmbed],
   );
 
-  // Undo/redo shows the slide it rewrote and re-selects what changed. The
-  // request travels with the slide update so the editor applies it to the
-  // DOM that already carries the restored content.
-  const [undoSelection, setUndoSelection] =
-    useState<UndoSelectionRequest | null>(null);
-  const undoSelectionSequenceRef = useRef(0);
-  const clearUndoSelection = useCallback(() => setUndoSelection(null), []);
-  const handleSlideSelectionRef = useRef(handleSlideSelection);
-  handleSlideSelectionRef.current = handleSlideSelection;
-  useEffect(
-    () =>
-      subscribeUndoReveal((reveal) => {
-        if (reveal.deckId !== id) return;
-        const currentSlideId = currentSlideRef.current?.id;
-        const rewritten =
-          reveal.slides.find((slide) => slide.slideId === currentSlideId) ??
-          reveal.slides[0];
-        if (!rewritten) return;
-        if (rewritten.slideId !== currentSlideId) {
-          handleSlideSelectionRef.current(rewritten.slideId);
-        }
-        undoSelectionSequenceRef.current += 1;
-        setUndoSelection({
-          sequence: undoSelectionSequenceRef.current,
-          slideId: rewritten.slideId,
-          targets: rewritten.targets,
-        });
-      }),
-    [id, subscribeUndoReveal],
-  );
+  const { undoSelection, clearUndoSelection } = useUndoSelection({
+    deckId: id,
+    subscribe: subscribeUndoReveal,
+    getCurrentSlideId: () => currentSlideRef.current?.id,
+    selectSlide: handleSlideSelection,
+  });
 
   const uploadImageAsset = useCallback(
     async (file: File): Promise<string> => {
