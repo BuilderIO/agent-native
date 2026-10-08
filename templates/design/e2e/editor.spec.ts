@@ -348,9 +348,7 @@ test("screen overview adds and targets frames from the unified breakpoint contro
       .click();
     await expect(page.locator("[data-screen-card]").first()).toBeVisible();
 
-    const breakpointControl = page.locator(
-      "[data-breakpoint-device-control]",
-    );
+    const breakpointControl = page.locator("[data-breakpoint-device-control]");
     await expect(
       breakpointControl.getByRole("button", { name: "Base" }),
     ).toHaveAttribute("aria-pressed", "true");
