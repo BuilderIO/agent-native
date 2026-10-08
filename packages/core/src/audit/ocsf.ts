@@ -270,7 +270,9 @@ export function auditEventToOcsf(event: AuditEvent): OcsfApiActivity {
     ...(detail ? { status_detail: detail } : {}),
     action_id: event.status === "denied" ? 2 : 1,
     action: event.status === "denied" ? "Denied" : "Allowed",
-    message: event.summary || `${event.action} (${event.status})`,
+    message:
+      redactTextToSummary(event.summary ?? "") ||
+      `${event.action} (${event.status})`,
     metadata: {
       version: OCSF_SCHEMA_VERSION,
       uid: event.id,

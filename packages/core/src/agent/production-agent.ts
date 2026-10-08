@@ -77,6 +77,7 @@ import {
 } from "../navigation/settings-redirects.js";
 import { shouldInferSentimentForTurn } from "../observability/sentiment.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
+import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import {
   completeRun as completeProgressRun,
   startRun as startProgressRun,
@@ -8758,7 +8759,8 @@ export async function chainServerDrivenContinuation(opts: {
     } catch (insertErr) {
       if (
         insertErr instanceof AgentTurnInitiatorMismatchError ||
-        insertErr instanceof AgentTurnInitiatorUnavailableError
+        insertErr instanceof AgentTurnInitiatorUnavailableError ||
+        insertErr instanceof ServicePrincipalRefusedError
       ) {
         throw insertErr;
       }
@@ -10504,6 +10506,7 @@ export function createProductionAgentHandler(
           });
           backgroundRowInserted = true;
         } catch (err) {
+          if (err instanceof ServicePrincipalRefusedError) throw err;
           console.error(
             "[agent-chat] background insertRun failed; falling back to inline:",
             err instanceof Error ? err.message : err,
@@ -10842,7 +10845,9 @@ export function createProductionAgentHandler(
           await insertRun(runId, effectiveThreadId, effectiveTurnId, {
             dispatchMode: "background",
             ...(turnInitiator ? { turnInitiator } : {}),
-          }).catch(() => {});
+          }).catch((error) => {
+            if (error instanceof ServicePrincipalRefusedError) throw error;
+          });
         }
         const won = await claimBackgroundRun(runId);
         if (!won) {

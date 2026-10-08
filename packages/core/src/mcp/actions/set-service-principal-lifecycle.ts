@@ -1,13 +1,12 @@
 /**
  * Suspend, retire, or resume an org service principal.
  *
- * The lifecycle write is what blocks new work (admission, tool dispatch, run
- * start read it). Suspended and retired also CONTAIN the principal: in-flight
- * agent runs it owns are aborted, and retired additionally revokes every
- * active token. The write comes first so nothing new starts while containment
- * runs, and a containment failure is returned (`containmentErrors`,
- * `contained: false`) rather than swallowed: a partial containment must not
- * read as complete.
+ * The committed lifecycle write is what blocks new work (admission, tool
+ * dispatch, and run start read it). Suspended and retired also contain the
+ * principal: in-flight agent runs it owns are aborted, and retired additionally
+ * revokes every active token. The write commits before containment runs, and a
+ * containment failure is returned (`containmentErrors`, `contained: false`)
+ * rather than swallowed: a partial containment must not read as complete.
  *
  * Owner/admin only, and not callable by the agent tool loop.
  */
@@ -25,6 +24,7 @@ import {
 import {
   SERVICE_PRINCIPAL_LIFECYCLES,
   ServicePrincipalRetiredError,
+  getServicePrincipalPolicy,
   setServicePrincipalLifecycle,
   withServicePrincipalLifecycleLock,
 } from "../../org/service-principal-policy.js";
@@ -84,26 +84,41 @@ export default defineAction({
     let policy;
     let abortedRuns = 0;
     let revokedTokens = 0;
+    let resumeBlocked = false;
+    let lifecycleCommitted = false;
     const containmentErrors: string[] = [];
     try {
       if (args.lifecycle !== "active") {
         await prepareServicePrincipalContainment();
-      }
-      if (args.lifecycle === "retired") {
-        await ensureConnectTables();
-      }
-      policy = await withServicePrincipalLifecycleLock(
-        caller.orgId,
-        serviceName,
-        async (db) => {
-          const saved = await setServicePrincipalLifecycle(
-            caller.orgId,
-            serviceName,
-            args.lifecycle,
-            { actorEmail: caller.email, reason: args.reason || null },
-            db,
-          );
-          if (args.lifecycle !== "active") {
+        if (args.lifecycle === "retired") await ensureConnectTables();
+        policy = await withServicePrincipalLifecycleLock(
+          caller.orgId,
+          serviceName,
+          (db) =>
+            setServicePrincipalLifecycle(
+              caller.orgId,
+              serviceName,
+              args.lifecycle,
+              { actorEmail: caller.email, reason: args.reason || null },
+              db,
+            ),
+        );
+        lifecycleCommitted = true;
+        policy = await withServicePrincipalLifecycleLock(
+          caller.orgId,
+          serviceName,
+          async (db) => {
+            const current = await getServicePrincipalPolicy(
+              caller.orgId,
+              serviceName,
+              db,
+            );
+            if (!current || current.lifecycle !== args.lifecycle) {
+              throw new ServiceTokenError(
+                "The service principal lifecycle changed concurrently. Read its current state before retrying.",
+                409,
+              );
+            }
             try {
               const contained = await containServicePrincipal(
                 caller.orgId,
@@ -114,27 +129,74 @@ export default defineAction({
             } catch (error) {
               containmentErrors.push(`abort runs: ${errorMessage(error)}`);
             }
-          }
-          if (args.lifecycle === "retired") {
-            try {
-              revokedTokens = await revokeServiceTokensByName(
-                caller.orgId,
-                serviceName,
-              );
-            } catch (error) {
-              containmentErrors.push(`revoke tokens: ${errorMessage(error)}`);
+            if (args.lifecycle === "retired") {
+              try {
+                revokedTokens = await revokeServiceTokensByName(
+                  caller.orgId,
+                  serviceName,
+                );
+              } catch (error) {
+                containmentErrors.push(`revoke tokens: ${errorMessage(error)}`);
+              }
             }
-          }
-          return saved;
-        },
-      );
+            return current;
+          },
+        );
+      } else {
+        policy = await withServicePrincipalLifecycleLock(
+          caller.orgId,
+          serviceName,
+          async (db) => {
+            const current = await getServicePrincipalPolicy(
+              caller.orgId,
+              serviceName,
+              db,
+            );
+            if (current?.lifecycle === "retired") {
+              throw new ServicePrincipalRetiredError();
+            }
+            if (current?.lifecycle === "suspended") {
+              try {
+                const contained = await containServicePrincipal(
+                  caller.orgId,
+                  serviceName,
+                );
+                abortedRuns = contained.abortedRuns;
+                containmentErrors.push(...contained.containmentErrors);
+              } catch (error) {
+                containmentErrors.push(`abort runs: ${errorMessage(error)}`);
+              }
+              if (containmentErrors.length > 0) {
+                resumeBlocked = true;
+                return current;
+              }
+            }
+            return setServicePrincipalLifecycle(
+              caller.orgId,
+              serviceName,
+              "active",
+              { actorEmail: caller.email, reason: args.reason || null },
+              db,
+            );
+          },
+        );
+        if (resumeBlocked) {
+          throw new ServiceTokenError(
+            "The service principal could not be resumed because containment is incomplete. Retry after its in-flight runs stop.",
+            503,
+          );
+        }
+      }
     } catch (error) {
       if (error instanceof ServicePrincipalRetiredError) {
         throw new ServiceTokenError(error.message, error.statusCode);
       }
+      if (error instanceof ServiceTokenError) throw error;
       console.error("[service-principal] Lifecycle write failed:", error);
       throw new ServiceTokenError(
-        "Could not change the service principal lifecycle. Nothing was changed; try again.",
+        lifecycleCommitted
+          ? "The lifecycle changed, but containment could not be confirmed. Retry the lifecycle request to finish containment."
+          : "Could not change the service principal lifecycle. Nothing was changed; try again.",
         503,
       );
     }

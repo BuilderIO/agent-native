@@ -62,12 +62,15 @@ const executeMock = vi.fn(
   },
 );
 let transactionActive = false;
+const transactionEvents: string[] = [];
 const transactionMock = vi.fn(async (run: (tx: any) => Promise<unknown>) => {
+  transactionEvents.push("begin");
   transactionActive = true;
   try {
     return await run({ execute: executeMock });
   } finally {
     transactionActive = false;
+    transactionEvents.push("commit");
   }
 });
 vi.mock("../../db/client.js", async (importOriginal) => ({
@@ -118,28 +121,32 @@ const token = (id: string, revokedAt: number | null = null, name = "ci") => ({
   ownerEmail: `svc-${name}@service.org-1`,
   revokedAt,
 });
+let currentPolicy: ReturnType<typeof policy>;
 
 beforeEach(() => {
   vi.clearAllMocks();
   transactionActive = false;
+  transactionEvents.length = 0;
   dbCalls.length = 0;
   setRole("admin");
   isOrgMemberMock.mockResolvedValue(true);
-  getPolicyMock.mockResolvedValue(policy());
+  currentPolicy = policy();
+  getPolicyMock.mockImplementation(async () => currentPolicy);
   listOrgServiceTokensMock.mockResolvedValue([token("t1")]);
   ensureConnectTablesMock.mockResolvedValue(undefined);
   revokeByNameMock.mockResolvedValue(0);
   upsertPolicyMock.mockImplementation(async (_o, _n, input) =>
     policy(input as any),
   );
-  setLifecycleMock.mockImplementation(async (_o, _n, lifecycle, change) =>
-    policy({
+  setLifecycleMock.mockImplementation(async (_o, _n, lifecycle, change) => {
+    currentPolicy = policy({
       lifecycle,
       lifecycleReason: change.reason,
       lifecycleChangedBy: change.actorEmail,
       lifecycleChangedAt: 1,
-    }),
-  );
+    });
+    return currentPolicy;
+  });
   containMock.mockResolvedValue({ abortedRuns: 2, containmentErrors: [] });
   prepareContainmentMock.mockResolvedValue(undefined);
 });
@@ -185,6 +192,8 @@ describe("governance actions are admin-only and out of the agent tool loop", () 
   it("holds the principal lifecycle lock through suspension containment", async () => {
     containMock.mockImplementationOnce(async () => {
       expect(transactionActive).toBe(true);
+      expect(transactionEvents).toEqual(["begin", "commit", "begin"]);
+      expect(currentPolicy.lifecycle).toBe("suspended");
       return { abortedRuns: 2, containmentErrors: [] };
     });
     await lifecycleAction.run(
@@ -376,7 +385,8 @@ describe("set-service-principal-lifecycle", () => {
     const order: string[] = [];
     setLifecycleMock.mockImplementationOnce(async (_o, _n, lifecycle) => {
       order.push("lifecycle");
-      return policy({ lifecycle });
+      currentPolicy = policy({ lifecycle });
+      return currentPolicy;
     });
     containMock.mockImplementationOnce(async () => {
       order.push("contain");
@@ -445,6 +455,40 @@ describe("set-service-principal-lifecycle", () => {
     expect(containMock).not.toHaveBeenCalled();
     expect(res).toMatchObject({ lifecycle: "active", contained: true });
     expect(recordAuditMock).not.toHaveBeenCalled();
+  });
+
+  it("contains stale runs under the lifecycle lock before resuming", async () => {
+    currentPolicy = policy({ lifecycle: "suspended" });
+    containMock.mockImplementationOnce(async () => {
+      expect(transactionActive).toBe(true);
+      return { abortedRuns: 1, containmentErrors: [] };
+    });
+
+    const res = await lifecycleAction.run(
+      { serviceName: "ci", lifecycle: "active" },
+      CTX(),
+    );
+
+    expect(containMock).toHaveBeenCalledWith("org-1", "ci");
+    expect(containMock.mock.invocationCallOrder[0]).toBeLessThan(
+      setLifecycleMock.mock.invocationCallOrder[0],
+    );
+    expect(res).toMatchObject({ lifecycle: "active", abortedRuns: 1 });
+  });
+
+  it("does not resume while a suspended principal still has uncontained runs", async () => {
+    currentPolicy = policy({ lifecycle: "suspended" });
+    containMock.mockResolvedValueOnce({
+      abortedRuns: 0,
+      containmentErrors: ["run-9: still running after abort"],
+    });
+
+    await expect(
+      lifecycleAction.run({ serviceName: "ci", lifecycle: "active" }, CTX()),
+    ).rejects.toMatchObject({ statusCode: 503 });
+
+    expect(setLifecycleMock).not.toHaveBeenCalled();
+    expect(currentPolicy.lifecycle).toBe("suspended");
   });
 
   it("surfaces a partial containment loudly instead of looking complete", async () => {

@@ -90,6 +90,17 @@ describe("auditEventToOcsf", () => {
     expect(out.status_detail).toMatch(/^Refused/);
   });
 
+  it("redacts credential-like values from exported summaries", () => {
+    const out = auditEventToOcsf(
+      event({
+        summary: "Created credential token=sk-live-000000000000000000000000",
+      }),
+    );
+
+    expect(out.message).toBe("Created credential token=[redacted]");
+    expect(out.message).not.toContain("sk-live-000000000000000000000000");
+  });
+
   it("keeps agent run, task, and parent lineage under unmapped", () => {
     const out = auditEventToOcsf(
       event({
