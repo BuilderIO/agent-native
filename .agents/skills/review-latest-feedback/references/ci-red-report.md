@@ -17,13 +17,25 @@ requires logs or artifacts for case-level diagnosis. An incomplete or failed
 API query exits 2 and means **CI unavailable**, never an empty result.
 
 Keep every fingerprint in the recap, including its run count and run links.
-Search open PRs and tracking issues for every run id, workflow, or fingerprint.
-A run-ID-only match owns only that occurrence; keep other unowned run IDs
-actionable. Mark the aggregate **Owned elsewhere** only when an open item names
-its workflow or fingerprint, and link it. Classify other fingerprints as
-**product regression**, **stale spec**, **harness flake**, or **infrastructure**.
-Reproduce locally and fix the owning boundary. Keep one tracking issue per
-fingerprint and close it on fix.
+Classify each E2E fingerprint separately as **product regression**, **stale
+spec**, **harness flake**, or **infrastructure**, then reproduce locally and fix
+the owning boundary.
+
+Track the complete E2E failure set in one aggregate issue. One issue covers all
+E2E workflows, tests, shards, fingerprints, and runs in the report; keep the
+test-level evidence and disposition for every fingerprint in its body. Reuse
+the same open E2E issue on later reports and update its full failure list.
+Never create a separate issue per test, fingerprint, shard, or run. Search
+open PRs and tracking issues for every run id, workflow, or fingerprint; a
+matching aggregate E2E issue owns every listed E2E row, not only one run-ID
+occurrence. If matching per-fingerprint issues already exist, link them as
+evidence and do not open more issues. Close the aggregate after all listed E2E
+failures recover or are fixed.
+
+Keep non-E2E workflow incidents separately tracked. For those rows, a run-ID-
+only match owns only that occurrence; keep other unowned run IDs actionable.
+Mark an aggregate **Owned elsewhere** only when an open item names its workflow
+or fingerprint, and link it.
 
 Quarantine only with a named owner, expiry, and linked tracking issue. A green
 result produced by quarantine is a defect. Follow quarantined rows until fixed
