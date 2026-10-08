@@ -675,13 +675,7 @@ export async function findAgent(
     );
     const workspaceAgent = findAgentInList(idOrName, workspaceAgents);
     if (workspaceAgent) return workspaceAgent;
-
-    const builtin = findAgentInList(
-      idOrName,
-      getBuiltinAgents(selfAppId, options),
-    );
-    if (!builtin) throw error;
-    return builtin;
+    throw error;
   }
 
   return findAgentInList(idOrName, agents);

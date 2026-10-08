@@ -1,4 +1,4 @@
-import { getDbExec } from "../db/client.js";
+import { getDbExec, withDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -196,23 +196,25 @@ export async function touchAgentTeamRun(
 export async function bumpAgentTeamContinuation(
   taskId: string,
   claimedAttempts?: number,
+  options: { requeue?: boolean } = {},
 ): Promise<number | null> {
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
+  const nextStatus = options.requeue === false ? "running" : "queued";
   const result =
     claimedAttempts !== undefined
       ? await client.execute({
           sql: `UPDATE agent_team_run_queue
-                  SET continuation_count = continuation_count + 1, status = 'queued', updated_at = ?
+                  SET continuation_count = continuation_count + 1, status = ?, updated_at = ?
                 WHERE task_id = ? AND status = 'running' AND attempts = ?`,
-          args: [now, taskId, claimedAttempts],
+          args: [nextStatus, now, taskId, claimedAttempts],
         })
       : await client.execute({
           sql: `UPDATE agent_team_run_queue
-                  SET continuation_count = continuation_count + 1, status = 'queued', updated_at = ?
+                  SET continuation_count = continuation_count + 1, status = ?, updated_at = ?
                 WHERE task_id = ? AND status = 'running'`,
-          args: [now, taskId],
+          args: [nextStatus, now, taskId],
         });
   if (getAffectedRowCount(result) === 0) return null;
   const { rows } = await client.execute({
@@ -221,6 +223,57 @@ export async function bumpAgentTeamContinuation(
   });
   if (rows.length === 0) return null;
   return Number((rows[0] as any).continuation_count ?? 0);
+}
+
+export async function requeueAgentTeamRunContinuation(
+  taskId: string,
+  claimedAttempts: number,
+): Promise<boolean> {
+  await ensureTable();
+  const result = await getDbExec().execute({
+    sql: `UPDATE agent_team_run_queue
+            SET status = 'queued', updated_at = ?
+          WHERE task_id = ? AND status = 'running' AND attempts = ?`,
+    args: [Date.now(), taskId, claimedAttempts],
+  });
+  return getAffectedRowCount(result) > 0;
+}
+
+export async function withCurrentAgentTeamRunAttempt<T>(
+  taskId: string,
+  claimedAttempts: number,
+  write: () => Promise<T>,
+  options: {
+    statuses?: readonly AgentTeamRunQueueStatus[];
+    expectedUpdatedAt?: number;
+  } = {},
+): Promise<{ current: false } | { current: true; value: T }> {
+  await ensureTable();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Agent Teams attempt fencing requires transactions.");
+  }
+
+  return client.transaction(async (tx) => {
+    const { rows } = await tx.execute({
+      sql: `SELECT status, attempts, updated_at FROM agent_team_run_queue WHERE task_id = ? FOR UPDATE`,
+      args: [taskId],
+    });
+    const row = rows[0];
+    const allowedStatuses = options.statuses ?? ["running"];
+    if (
+      !row ||
+      !allowedStatuses.includes(row.status) ||
+      Number(row.attempts) !== claimedAttempts ||
+      (options.expectedUpdatedAt !== undefined &&
+        Number(row.updated_at) !== options.expectedUpdatedAt)
+    ) {
+      return { current: false };
+    }
+
+    const value = await withDbExec(tx, write);
+    return { current: true, value };
+  });
 }
 
 export async function completeAgentTeamRun(

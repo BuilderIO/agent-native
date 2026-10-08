@@ -310,6 +310,7 @@ export interface StartRunOptions {
   userId?: string;
   attemptCount?: number;
   recoverChunkBoundaries?: boolean;
+  persistEvent?: (write: () => Promise<void>) => Promise<void>;
 }
 
 export interface RunChunkControl {
@@ -1358,6 +1359,12 @@ export function startRun(
     });
   };
 
+  const persistRunEvent = (runEvent: RunEvent): Promise<void> => {
+    const write = () =>
+      insertRunEvent(runId, runEvent.seq, JSON.stringify(runEvent.event));
+    return options?.persistEvent ? options.persistEvent(write) : write();
+  };
+
   const emitRunEvent = (
     runEvent: RunEvent,
     options?: { surfacePersistenceError?: boolean },
@@ -1380,11 +1387,7 @@ export function startRun(
 
     const thisInsert = persistenceChain.then(async () => {
       try {
-        await insertRunEvent(
-          runId,
-          runEvent.seq,
-          JSON.stringify(runEvent.event),
-        );
+        await persistRunEvent(runEvent);
       } catch (error) {
         if (!eventPersistenceErrorCaptured) {
           eventPersistenceErrorCaptured = true;
@@ -1393,11 +1396,7 @@ export function startRun(
             eventType: runEvent.event.type,
           });
         }
-        await insertRunEvent(
-          runId,
-          runEvent.seq,
-          JSON.stringify(runEvent.event),
-        );
+        await persistRunEvent(runEvent);
       }
     });
     persistenceChain = thisInsert;
@@ -1606,11 +1605,7 @@ export function startRun(
             );
             if (!eventPersistenceError) {
               try {
-                await insertRunEvent(
-                  runId,
-                  terminal.seq,
-                  JSON.stringify(terminal.event),
-                );
+                await persistRunEvent(terminal);
                 terminalPersistenceError = null;
               } catch (retryError) {
                 terminalPersistenceError = retryError;

@@ -65,7 +65,7 @@ const mockDb = {
       return affected(0);
     }
     if (s.includes("continuation_count = continuation_count + 1")) {
-      const [updatedAt, taskId, claimedAttempts] = args;
+      const [nextStatus, updatedAt, taskId, claimedAttempts] = args;
       const r = rows.find(
         (x) =>
           x.task_id === taskId &&
@@ -74,11 +74,24 @@ const mockDb = {
       );
       if (r) {
         r.continuation_count += 1;
-        r.status = "queued";
+        r.status = nextStatus;
         r.updated_at = updatedAt;
         return affected(1);
       }
       return affected(0);
+    }
+    if (s.includes("SET status = 'queued', updated_at = ?")) {
+      const [updatedAt, taskId, claimedAttempts] = args;
+      const row = rows.find(
+        (candidate) =>
+          candidate.task_id === taskId &&
+          candidate.status === "running" &&
+          candidate.attempts === claimedAttempts,
+      );
+      if (!row) return affected(0);
+      row.status = "queued";
+      row.updated_at = updatedAt;
+      return affected(1);
     }
     if (s.includes("AND status = ? AND attempts = ? AND updated_at = ?")) {
       const [status, updatedAt, taskId, expectedStatus, attempts, expectedAt] =
@@ -190,12 +203,33 @@ const mockDb = {
       const r = rows.find((x) => x.task_id === args[0]);
       return { rows: r ? [{ ...r }] : [], rowsAffected: 0 };
     }
+    if (
+      s.includes(
+        "SELECT status, attempts, updated_at FROM agent_team_run_queue",
+      )
+    ) {
+      const r = rows.find((x) => x.task_id === args[0]);
+      return {
+        rows: r
+          ? [
+              {
+                status: r.status,
+                attempts: r.attempts,
+                updated_at: r.updated_at,
+              },
+            ]
+          : [],
+        rowsAffected: 0,
+      };
+    }
     return affected(0);
   }),
+  transaction: vi.fn(async <T>(fn: (tx: any) => Promise<T>) => fn(mockDb)),
 };
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
+  withDbExec: (_exec: unknown, fn: () => unknown) => fn(),
   retryOnDdlRace: (fn: () => unknown) => fn(),
 }));
 
@@ -289,6 +323,83 @@ describe("agent_team_run_queue", () => {
     });
     expect(reclaimed).not.toBeNull();
     expect(reclaimed?.status).toBe("running");
+  });
+
+  it("fences persistence callbacks to the currently claimed attempt", async () => {
+    await enqueue("fenced-write");
+    const first = await queue.claimAgentTeamRun("fenced-write");
+    if (!first) throw new Error("run was not claimed");
+
+    let writes = 0;
+    await expect(
+      queue.withCurrentAgentTeamRunAttempt(
+        "fenced-write",
+        first.attempts,
+        async () => ++writes,
+      ),
+    ).resolves.toEqual({ current: true, value: 1 });
+
+    const row = rows.find((candidate) => candidate.task_id === "fenced-write");
+    if (!row) throw new Error("missing queue row");
+    row.updated_at = Date.now() - queue.RUN_DISPATCH_STUCK_AFTER_MS - 1;
+    const reclaimed = await queue.claimAgentTeamRun("fenced-write");
+    if (!reclaimed) throw new Error("stale run was not reclaimed");
+
+    await expect(
+      queue.withCurrentAgentTeamRunAttempt(
+        "fenced-write",
+        first.attempts,
+        async () => ++writes,
+      ),
+    ).resolves.toEqual({ current: false });
+    expect(writes).toBe(1);
+  });
+
+  it("requeues a continuation only for the current running attempt", async () => {
+    await enqueue("continuation-fence");
+    const claimed = await queue.claimAgentTeamRun("continuation-fence");
+    if (!claimed) throw new Error("run was not claimed");
+
+    await expect(
+      queue.requeueAgentTeamRunContinuation(
+        "continuation-fence",
+        claimed.attempts,
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      queue.getAgentTeamRunDispatchState("continuation-fence"),
+    ).resolves.toMatchObject({ status: "queued" });
+    await expect(
+      queue.requeueAgentTeamRunContinuation(
+        "continuation-fence",
+        claimed.attempts,
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it("rejects a stale reconciliation snapshot after a heartbeat", async () => {
+    await enqueue("stale-snapshot");
+    const claimed = await queue.claimAgentTeamRun("stale-snapshot");
+    if (!claimed) throw new Error("run was not claimed");
+    const row = rows.find(
+      (candidate) => candidate.task_id === "stale-snapshot",
+    );
+    if (!row) throw new Error("missing claimed queue row");
+    row.updated_at += 1;
+
+    let writes = 0;
+    await expect(
+      queue.withCurrentAgentTeamRunAttempt(
+        "stale-snapshot",
+        claimed.attempts,
+        async () => ++writes,
+        {
+          statuses: ["running"],
+          expectedUpdatedAt: claimed.updatedAt,
+        },
+      ),
+    ).resolves.toEqual({ current: false });
+    expect(writes).toBe(0);
   });
 
   it("completes a run terminally", async () => {

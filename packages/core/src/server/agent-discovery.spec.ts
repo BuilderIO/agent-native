@@ -154,12 +154,15 @@ describe("agent discovery", () => {
     );
   });
 
-  it("resolves a built-in agent when connected-agent resources are unavailable", async () => {
+  it("does not use a built-in when its connected-agent manifest is unreadable", async () => {
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "agent-discovery-workspace-"),
     );
     const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
-    resourceListMock.mockRejectedValue(new Error("resource store offline"));
+    resourceListMock.mockResolvedValue([
+      { id: "design-resource", path: "remote-agents/design.json" },
+    ]);
+    resourceGetMock.mockRejectedValue(new Error("resource unavailable"));
     process.env.APP_URL = "https://workspace.example.test";
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
       apps: [{ id: "briefs", name: "Briefs", path: "/briefs" }],
@@ -168,10 +171,29 @@ describe("agent discovery", () => {
     try {
       await expect(
         findAgent("design", "dispatch", { requireReadableAgentSources: true }),
-      ).resolves.toMatchObject({ id: "design" });
+      ).rejects.toThrow("Unable to read connected agent resources");
       await expect(
         findAgent("briefs", "dispatch", { requireReadableAgentSources: true }),
       ).resolves.toMatchObject({ id: "briefs" });
+      await expect(findAgent("design", "dispatch")).resolves.toMatchObject({
+        id: "design",
+      });
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves a built-in after complete strict discovery finds no override", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-discovery-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+
+    try {
+      await expect(
+        findAgent("design", "dispatch", { requireReadableAgentSources: true }),
+      ).resolves.toMatchObject({ id: "design" });
     } finally {
       cwdSpy.mockRestore();
       fs.rmSync(workspaceRoot, { recursive: true, force: true });
