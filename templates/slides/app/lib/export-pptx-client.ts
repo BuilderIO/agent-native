@@ -1255,7 +1255,7 @@ function stopPaint(color: string): { color: string; opacity?: string } {
     };
   }
   if (color.toLowerCase() === "transparent") {
-    return { color: "#000000", opacity: "0" };
+    return stopPaint("rgba(0, 0, 0, 0)");
   }
   const hex8 = color.match(/^#([\da-f]{6})([\da-f]{2})$/i);
   if (!hex8) return { color };
