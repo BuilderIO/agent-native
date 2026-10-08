@@ -602,7 +602,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designJob,
-    /shard:\s*\[\s*inspector,\s*drag-1,\s*drag-2,\s*position,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,?\s*\]/,
+    /shard:\s*\[\s*inspector-1,\s*inspector-2,\s*drag-1,\s*drag-2,\s*position,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,?\s*\]/,
   );
   assert.ok(
     regressionCases.includes(
@@ -815,7 +815,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     )[line - 1];
     assert.ok(sourceLine?.includes(`test(\"${title}\"`), location);
   }
-  assert.ok(regressionCases.includes("e2e/inspector-styles.spec.ts"));
 });
 
 test("a deleted Design E2E path runs the focused interaction suite", () => {

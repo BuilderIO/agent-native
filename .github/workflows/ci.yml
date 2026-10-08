@@ -429,7 +429,8 @@ jobs:
       matrix:
         shard:
           [
-            inspector,
+            inspector-1,
+            inspector-2,
             drag-1,
             drag-2,
             position,
@@ -494,16 +495,29 @@ jobs:
               pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/6"
               exit
               ;;
-            inspector)
+            inspector-1)
               fixed_specs=( \
                 e2e/canvas-invariants.spec.ts:508 \
                 e2e/canvas-invariants.spec.ts:1286 \
-                e2e/canvas-invariants.spec.ts:1170 \
-                e2e/canvas-invariants.spec.ts:1320 \
                 e2e/inspector-styles.spec.ts:176 \
                 e2e/inspector-styles.spec.ts:238 \
                 e2e/inspector-styles.spec.ts:314 \
                 e2e/inspector-styles.spec.ts:426 \
+                e2e/inspector-styles.spec.ts:452 \
+                e2e/inspector-styles.spec.ts:541 \
+              )
+              ;;
+            inspector-2)
+              fixed_specs=( \
+                e2e/canvas-invariants.spec.ts:1170 \
+                e2e/canvas-invariants.spec.ts:1320 \
+                e2e/inspector-styles.spec.ts:610 \
+                e2e/inspector-styles.spec.ts:667 \
+                e2e/inspector-styles.spec.ts:737 \
+                e2e/inspector-styles.spec.ts:798 \
+                e2e/inspector-styles.spec.ts:833 \
+                e2e/inspector-styles.spec.ts:880 \
+                e2e/inspector-styles.spec.ts:999 \
               )
               ;;
             drag-1)
@@ -512,10 +526,6 @@ jobs:
                 e2e/overview-wheel-zoom.spec.ts:185 \
                 e2e/drag-and-drop.drag-feedback.spec.ts:24 \
                 e2e/drag-and-drop.moving-by-drag.spec.ts:42 \
-                e2e/inspector-styles.spec.ts:452 \
-                e2e/inspector-styles.spec.ts:541 \
-                e2e/inspector-styles.spec.ts:610 \
-                e2e/inspector-styles.spec.ts:667 \
               )
               ;;
             drag-2)
@@ -524,11 +534,6 @@ jobs:
                 e2e/parity-selection.spec.ts:313 \
                 e2e/parity-selection.spec.ts:451 \
                 e2e/parity-selection.spec.ts:572 \
-                e2e/inspector-styles.spec.ts:737 \
-                e2e/inspector-styles.spec.ts:798 \
-                e2e/inspector-styles.spec.ts:833 \
-                e2e/inspector-styles.spec.ts:880 \
-                e2e/inspector-styles.spec.ts:999 \
               )
               ;;
             position)

@@ -78,6 +78,41 @@ describe("uploaded asset validation", () => {
     ).toBe(true);
   });
 
+  it("strips the standard SVG 1.1 doctype before uploading Excalidraw SVGs", async () => {
+    const svg = Buffer.from(
+      '<?xml version="1.0" standalone="no"?>\n' +
+        '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" ' +
+        '"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">\n' +
+        '<svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 20"><path d="M0 0h38" /></svg>',
+    );
+    const strippedSvg = new TextEncoder().encode(
+      svg
+        .toString("utf8")
+        .replace(
+          /<!DOCTYPE svg PUBLIC "-\/\/W3C\/\/DTD SVG 1\.1\/\/EN" "http:\/\/www\.w3\.org\/Graphics\/SVG\/1\.1\/DTD\/svg11\.dtd">/,
+          "",
+        ),
+    );
+
+    expect(
+      canSaveAsUploadedAsset({ originalName: "arrow.svg", data: svg }),
+    ).toBe(true);
+    await expect(
+      uploadImageAsset({
+        email: "owner@example.com",
+        originalName: "arrow.svg",
+        data: svg,
+        type: "image/svg+xml",
+      }),
+    ).resolves.toMatchObject({
+      type: "image/svg+xml",
+      size: strippedSvg.length,
+    });
+    expect(mockUploadFile).toHaveBeenCalledWith(
+      expect.objectContaining({ data: strippedSvg, filename: "arrow.svg" }),
+    );
+  });
+
   it("allows parameterized safe raster data URLs inside SVG assets", () => {
     expect(
       canSaveAsUploadedAsset({
@@ -182,6 +217,15 @@ describe("uploaded asset validation", () => {
         originalName: "xml-base.svg",
         data: Buffer.from(
           '<svg xml:base="https://example.com/"><use href="#icon" /></svg>',
+        ),
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedAsset({
+        originalName: "external-entity.svg",
+        data: Buffer.from(
+          '<!DOCTYPE svg [<!ENTITY remote SYSTEM "https://example.com/evil">]>' +
+            "<svg>&remote;</svg>",
         ),
       }),
     ).toBe(false);

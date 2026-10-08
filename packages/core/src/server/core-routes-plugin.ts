@@ -6067,16 +6067,35 @@ export function createCoreRoutesPlugin(
             return { error: "Unauthorized" };
           }
           const userEmail = session.email;
-          const result = await runWithRequestContext(
-            { userEmail, orgId: session.orgId },
-            () =>
-              uploadFile({
-                data: filePart.data,
-                filename: filePart.filename,
-                mimeType: filePart.type,
-                ownerEmail: userEmail,
-              }),
-          );
+          let result;
+          try {
+            result = await runWithRequestContext(
+              { userEmail, orgId: session.orgId },
+              () =>
+                uploadFile({
+                  data: filePart.data,
+                  filename: filePart.filename,
+                  mimeType: filePart.type,
+                  ownerEmail: userEmail,
+                }),
+            );
+          } catch (error) {
+            // A thrown provider error (e.g. an upstream API rejecting the
+            // request) carries its own `status`/`statusCode`, which h3 would
+            // otherwise surface verbatim to the client — indistinguishable
+            // from this route's own deliberate 4xx responses above and
+            // useless for the composer's generic "could not upload" copy.
+            // Normalize to one clear failure instead of leaking whatever
+            // status the active provider happened to respond with. Use 503
+            // (not 502/504) since gateway statuses get rewritten by the CDN
+            // layer anyway — see cdnSafeOriginStatus.
+            console.error("[file-upload] provider upload failed", error);
+            setResponseStatus(event, 503);
+            return {
+              error:
+                "The configured storage provider could not upload this file. Try again or check Settings → File uploads.",
+            };
+          }
 
           if (result) {
             setResponseStatus(event, 201);

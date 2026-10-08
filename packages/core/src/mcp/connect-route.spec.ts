@@ -363,6 +363,64 @@ describe("handleMcpConnect", () => {
       );
     });
 
+    it("emits inline scripts that parse", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({}), "/");
+      const body = await res.text();
+      const scripts = [...body.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+      expect(scripts.length).toBeGreaterThan(0);
+      for (const [, code] of scripts) {
+        expect(() => new Function(code)).not.toThrow();
+      }
+    });
+
+    it("renders the service-principal governance view, hidden until the org has principals", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({}), "/");
+      const body = await res.text();
+      expect(body).toContain(
+        '<details id="principals" class="connections hidden">',
+      );
+      expect(body).toContain("Service principals");
+      expect(body).toContain('"/_agent-native/actions"');
+      expect(body).toContain('ACTIONS + "/list-org-service-tokens"');
+      expect(body).toContain('"set-service-principal-lifecycle"');
+      expect(body).toContain("data.canManage");
+      expect(body).toContain("No owner or action grant is set.");
+      // Only missing-org/auth responses hide the view; a route 404 is shown.
+      expect(body).toContain(
+        "res.status === 400 || res.status === 401 || res.status === 403",
+      );
+      expect(body).not.toContain("res.status === 404");
+      expect(body).toContain("if (!USER_CODE) loadPrincipals();");
+
+      const localized = await (
+        await handleMcpConnect(ev({ acceptLanguage: "es-ES" }), "/")
+      ).text();
+      expect(localized).toContain("Principales de servicio");
+    });
+
+    it("uses the configured public framework prefix for service-principal actions", async () => {
+      const previousPrefix =
+        process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+      process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+        "/_platform";
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      try {
+        const res = await handleMcpConnect(ev({}), "/");
+        const body = await res.text();
+        expect(body).toContain('var ACTIONS = "/_platform/actions";');
+        expect(body).not.toContain('var ACTIONS = "/_agent-native/actions";');
+      } finally {
+        if (previousPrefix === undefined) {
+          delete process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+        } else {
+          process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+            previousPrefix;
+        }
+      }
+    });
+
     it("localizes the shared guide copy from the request language", async () => {
       getSessionMock.mockResolvedValue({ email: "u@example.com" });
       const res = await handleMcpConnect(ev({ acceptLanguage: "es-ES" }), "/");
