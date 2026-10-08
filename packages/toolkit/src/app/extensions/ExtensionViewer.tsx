@@ -1284,6 +1284,10 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
               pointerEvents: openPopoverCount > 0 ? "none" : "auto",
             }}
             onLoad={() => {
+              // While the srcDoc frame waits for its CSP lists it has no
+              // document yet, so this is the about:blank load. Keep the
+              // spinner up until the real document loads.
+              if (usesSrcDoc && !iframeSrcDoc) return;
               sendThemeToIframe();
               setTimeout(() => setIframeReady(true), 150);
             }}
