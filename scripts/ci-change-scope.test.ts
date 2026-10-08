@@ -593,6 +593,10 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     regressionCases.match(/^        timeout-minutes: (\d+)$/m)?.[1],
   );
   assert.ok(
+    stepTimeout >= 10,
+    "the focused Design cases need ten minutes for the slow position shard",
+  );
+  assert.ok(
     jobTimeout >= stepTimeout + 5,
     "job timeout must leave five minutes for setup around the focused test step",
   );
