@@ -255,6 +255,16 @@ const messages = {
     generateImage: "画像を生成",
     assetLibrary: "アセットライブラリ",
     imageOptions: "画像オプション",
+    videoPlayback: "動画再生",
+    autoplayVideo: "自動再生",
+    loopVideo: "動画をループ再生",
+    videoUploading: "動画をアップロード中…",
+    videoAdded: "動画を追加しました",
+    videoUploadFailed: "動画のアップロードに失敗しました",
+    videoUploadError: "この動画をアップロードできませんでした。",
+    videoFormatUnsupported: "対応形式は MP4 と WebM です。",
+    videoTooLarge: "動画のサイズは 50 MB 以下にしてください。",
+    videoUploadNeedsBuilder: "動画ストレージが設定されていません。",
     cropImage: "画像をトリミング",
     cropHandle: "画像の{{position}}をトリミング",
     diagrams: "図表",
@@ -308,6 +318,9 @@ const messages = {
     conflictStatus: "テキストの競合",
     conflictStatusDescription:
       "変更を保存する前に、競合しているテキストを確認してください。",
+    accessLost: "アクセス権を失いました",
+    accessLostDescription:
+      "このデッキへのアクセス権が変更されました。編集内容は画面に残っています。アクセスが復旧したら再試行するか、バックアップをダウンロードしてください。",
     reviewConflict: "競合を確認",
     conflictTitle: "スライド {{number}} でテキストが競合しています",
     conflictDescription:

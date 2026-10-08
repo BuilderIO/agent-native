@@ -12,7 +12,10 @@ import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import "../server/db/index.js";
-import { sanitizeCssValue } from "../app/lib/sanitize-slide-html.js";
+import {
+  sanitizeCssValue,
+  sanitizeSlideHtml,
+} from "../app/lib/sanitize-slide-html.js";
 import {
   safeGeneratedFilename,
   tenantExportDir,
@@ -28,20 +31,6 @@ import {
   DEFAULT_SLIDE_BACKGROUND,
   resolveSlideBackground,
 } from "../shared/slide-background.js";
-
-function sanitizeSlideContent(html: string): string {
-  return html
-    .replace(
-      /<(script|iframe|object|embed|form|meta|base|link)\b[\s\S]*?<\/\1>/gi,
-      "",
-    )
-    .replace(
-      /<(script|iframe|object|embed|form|meta|base|link)\b[^>]*\/?>/gi,
-      "",
-    )
-    .replace(/\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
-}
 
 function safeCssToken(
   value: unknown,
@@ -300,7 +289,7 @@ export function buildStandaloneHtml(
         designSystem,
       );
       const style = `display: ${i === 0 ? "flex" : "none"}; background: ${safeCssToken(standaloneBackgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND, builderTokenValues)}; ${standaloneDesignSystemVars(designSystem, slideBackground, builderTokenValues)}`;
-      return `<section class="slide" data-index="${i}" style="${escapeHtml(style)}">${sanitizeSlideContent(slide.content)}</section>`;
+      return `<section class="slide" data-index="${i}" style="${escapeHtml(style)}">${sanitizeSlideHtml(slide.content)}</section>`;
     })
     .join("\n");
 
@@ -488,6 +477,7 @@ export function buildStandaloneHtml(
 
       function showSlide(index) {
         if (index < 0 || index >= totalSlides) return;
+        slides[currentSlide].querySelectorAll('video').forEach(function(video) { video.pause(); });
         slides[currentSlide].style.display = 'none';
         currentSlide = index;
         slides[currentSlide].style.display = 'flex';
@@ -520,7 +510,29 @@ export function buildStandaloneHtml(
       window.addEventListener('resize', fitSlide);
       fitSlide();
 
+      function isMediaKeyboardEvent(e) {
+        if (e.target instanceof Element && e.target.closest('video, audio')) return true;
+        if (typeof e.composedPath === 'function' && e.composedPath().some(function(node) {
+          return node instanceof Element && node.closest('video, audio');
+        })) return true;
+        var active = document.activeElement;
+        return active instanceof Element && !!active.closest('video, audio');
+      }
+
+      function isMediaPlaybackKey(key) {
+        return (
+          key === ' ' ||
+          key === 'ArrowRight' ||
+          key === 'ArrowDown' ||
+          key === 'ArrowLeft' ||
+          key === 'ArrowUp' ||
+          key === 'Home' ||
+          key === 'End'
+        );
+      }
+
       document.addEventListener('keydown', function(e) {
+        if (isMediaKeyboardEvent(e) && isMediaPlaybackKey(e.key)) return;
         switch (e.key) {
           case 'ArrowRight':
           case 'ArrowDown':
@@ -563,6 +575,7 @@ export function buildStandaloneHtml(
       // Click to advance (left third = back, right two-thirds = forward)
       document.getElementById('viewport').addEventListener('click', function(e) {
         if (e.target.closest('.bottom-bar')) return;
+        if (e.target instanceof Element && e.target.closest('video, audio')) return;
         var rect = this.getBoundingClientRect();
         var x = e.clientX - rect.left;
         if (x < rect.width / 3) {
