@@ -6346,6 +6346,8 @@ export async function runAgentLoop(opts: {
         }
       };
       let toolDoneEmitted = false;
+      let actionInvoked = false;
+      let actionResultReceived = false;
       const emitToolDone = (
         event: Extract<AgentChatEvent, { type: "tool_done" }>,
       ) => {
@@ -7097,11 +7099,13 @@ export async function runAgentLoop(opts: {
             ...(opts.turnId ? { turnId: opts.turnId } : {}),
           };
           const requestContext = getRequestContext();
-          const invokeAction = () =>
-            actionEntry.run(
+          const invokeAction = () => {
+            actionInvoked = true;
+            return actionEntry.run(
               toolCall.input as Record<string, string>,
               actionContext,
             );
+          };
           const actionPromise = Promise.resolve(
             runWithRequestContext(
               {
@@ -7197,6 +7201,7 @@ export async function runAgentLoop(opts: {
               );
             }),
           ]);
+          actionResultReceived = true;
           const mcpResult = isMcpActionResult(raw) ? raw : null;
           const rawForAgent = mcpResult ? mcpResult.text : raw;
           if (
@@ -7483,7 +7488,9 @@ export async function runAgentLoop(opts: {
           ...(isError ? { isError: true } : {}),
           ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
           ...(isError
-            ? { completedSideEffect: false }
+            ? actionResultReceived && !actionIsReadOnly
+              ? { outcomeUnknown: true as const }
+              : { completedSideEffect: false }
             : receipt
               ? { completedSideEffect: receipt.changed }
               : !actionIsReadOnly
@@ -7528,7 +7535,9 @@ export async function runAgentLoop(opts: {
             input: toolCall.input as Record<string, unknown>,
             result,
             isError: true,
-            completedSideEffect: false,
+            ...(actionInvoked && !actionIsReadOnly
+              ? { outcomeUnknown: true as const }
+              : { completedSideEffect: false }),
           });
           recordToolResult(result, true);
         }
@@ -10556,12 +10565,14 @@ export function createProductionAgentHandler(
         const { getThread } = await import("../chat-threads/store.js");
         const { latestPromptTurnId, resumeThreadHistoryForRequest } =
           await import("./thread-data-builder.js");
-        const threadData = isReaperSuccessor
-          ? undefined
-          : (await getThread(effectiveThreadId))?.threadData;
-        const { messages: resumed, foundTurnPrompt } = isReaperSuccessor
-          ? { messages: [...messages], foundTurnPrompt: true }
-          : resumeThreadHistoryForRequest(threadData);
+        const threadData =
+          isReaperSuccessor && !continueOf
+            ? undefined
+            : (await getThread(effectiveThreadId))?.threadData;
+        const { messages: resumed, foundTurnPrompt } =
+          isReaperSuccessor && !continueOf
+            ? { messages: [...messages], foundTurnPrompt: true }
+            : resumeThreadHistoryForRequest(threadData);
         // A continuation always follows a stopped run, so a thread without
         // that turn's prompt means its history was lost, not that there was
         // none. A successor stays best-effort and resumes from what is there.

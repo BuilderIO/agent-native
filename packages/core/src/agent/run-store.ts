@@ -2728,6 +2728,36 @@ export interface CurrentTurnRunEvent {
   event: AgentChatEvent;
 }
 
+const CURRENT_TURN_EVENT_TYPES = {
+  text: true,
+  thinking: true,
+  suggestions: true,
+  rich_event: true,
+  activity: true,
+  tool_input_start: true,
+  tool_input_delta: true,
+  stream_keepalive: true,
+  model_stream: true,
+  tool_start: true,
+  tool_done: true,
+  approval_required: true,
+  connection_required: true,
+  agent_call: true,
+  agent_call_progress: true,
+  agent_call_text: true,
+  agent_call_activity: true,
+  agent_task: true,
+  agent_task_update: true,
+  agent_task_complete: true,
+  done: true,
+  error: true,
+  missing_api_key: true,
+  loop_limit: true,
+  tripwire: true,
+  auto_continue: true,
+  clear: true,
+} satisfies Record<AgentChatEvent["type"], true>;
+
 async function getCurrentTurnRunEvents(
   threadId: string,
   knownTurnId?: string,
@@ -2784,7 +2814,7 @@ async function getCurrentTurnRunEvents(
       typeof event !== "object" ||
       Array.isArray(event) ||
       typeof event.type !== "string" ||
-      !event.type ||
+      !Object.hasOwn(CURRENT_TURN_EVENT_TYPES, event.type) ||
       ((event.type === "tool_start" || event.type === "tool_done") &&
         (typeof event.tool !== "string" ||
           !event.tool ||
@@ -2793,7 +2823,10 @@ async function getCurrentTurnRunEvents(
         (!event.input ||
           typeof event.input !== "object" ||
           Array.isArray(event.input))) ||
-      (event.type === "tool_done" && typeof event.result !== "string")
+      (event.type === "tool_done" &&
+        (typeof event.result !== "string" ||
+          (event.outcomeUnknown !== undefined &&
+            event.outcomeUnknown !== true)))
     ) {
       throw new Error("Invalid current-turn ledger event");
     }

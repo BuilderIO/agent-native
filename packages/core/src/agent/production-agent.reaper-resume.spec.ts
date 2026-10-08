@@ -12,6 +12,13 @@ import type { AgentChatEvent } from "./types.js";
 const ledger = vi.hoisted(() =>
   vi.fn(async (): Promise<AgentChatEvent[]> => []),
 );
+const threadRead = vi.hoisted(() =>
+  vi.fn(async (): Promise<{ id: string; threadData: string } | null> => null),
+);
+vi.mock("../chat-threads/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../chat-threads/store.js")>()),
+  getThread: threadRead,
+}));
 vi.mock("./run-store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./run-store.js")>()),
   getCurrentTurnEventsForThread: ledger,
@@ -19,7 +26,8 @@ vi.mock("./run-store.js", async (importOriginal) => ({
 
 const { createProductionAgentHandler, AGENT_INTERNAL_CONTINUE_PROMPT } =
   await import("./production-agent.js");
-const { insertRun, getRunByThread } = await import("./run-store.js");
+const { insertRun, getRunByThread, getRunEventsSince } =
+  await import("./run-store.js");
 const EMAIL = { to: "customer@example.com", body: "Your refund is approved." };
 const START: AgentChatEvent = {
   type: "tool_start",
@@ -39,12 +47,15 @@ let sequence = 0;
 
 beforeEach(() => {
   ledger.mockReset();
+  threadRead.mockReset();
 });
 
 async function recover(
   events: AgentChatEvent[] | Error,
   ignoreContext: boolean | "after-read" = false,
   isRecovery: boolean | "client" = true,
+  failFinalization: boolean | "serialization" = false,
+  resumeContinue?: "auto" | "manual",
 ) {
   sequence++;
   const threadId = `reaper-thread-${sequence}`;
@@ -56,7 +67,14 @@ async function recover(
   if (events instanceof Error) ledger.mockRejectedValue(events);
   else ledger.mockResolvedValue(events);
   const seen: EngineMessage[][] = [];
-  const sendEmail = vi.fn(async () => "Sent a second email");
+  const sendEmail = vi.fn(async () => {
+    if (failFinalization === "serialization") {
+      const result: Record<string, unknown> = {};
+      result.self = result;
+      return result;
+    }
+    return "Sent a second email";
+  });
   const checkEmail = vi.fn(async () => "Provider receipt is inconclusive");
   const engine: AgentEngine = {
     name: "test",
@@ -141,11 +159,20 @@ async function recover(
         },
         readOnly: false,
         run: sendEmail,
+        ...(failFinalization === true
+          ? {
+              fileMutationProof: () => {
+                throw new Error("proof unavailable");
+              },
+            }
+          : {}),
       },
     },
   });
   const requestBody = {
-    message: "Send the refund email, then finish the refund.",
+    message: resumeContinue
+      ? AGENT_INTERNAL_CONTINUE_PROMPT
+      : "Send the refund email, then finish the refund.",
     threadId,
     turnId,
     ...(isRecovery === true ? { internalContinuation: true } : {}),
@@ -153,7 +180,34 @@ async function recover(
     ...(isRecovery !== "client"
       ? { __backgroundRun: { runId, turnId, payloadRef: true } }
       : {}),
+    ...(resumeContinue === "auto"
+      ? { autoContinueOfRunId: "stopped-run" }
+      : {}),
+    ...(resumeContinue === "manual" ? { continueOfRunId: "stopped-run" } : {}),
   };
+  if (resumeContinue) {
+    const { buildUserMessage, buildAssistantMessage } =
+      await import("./thread-data-builder.js");
+    threadRead.mockResolvedValue({
+      id: threadId,
+      threadData: JSON.stringify({
+        messages: [
+          {
+            message: buildUserMessage({
+              text: "Send the refund email, then finish the refund.",
+              turnId,
+            }),
+          },
+          {
+            message: buildAssistantMessage(
+              [START, DONE].map((event, seq) => ({ event, seq })),
+              "stopped-run",
+            ),
+          },
+        ],
+      }),
+    });
+  }
   const event = mockEvent(
     new Request("http://app.example.com/_agent-native/agent-chat", {
       method: "POST",
@@ -183,11 +237,60 @@ async function recover(
     response,
     threadId,
     turnId,
+    runId,
     run: await getRunByThread(threadId, { includeTerminal: true }),
   };
 }
 
 describe("reaper successor resume context", () => {
+  it.each(["auto", "manual"] as const)(
+    "recovers a killed %s continuation with its original prompt and unique tool ids",
+    async (trigger) => {
+      const result = await recover([START, DONE], false, true, false, trigger);
+      expect(JSON.stringify(result.seen[0])).toContain(
+        "Send the refund email, then finish the refund.",
+      );
+      const calls = result.seen[0]!.flatMap(({ content }) => content).filter(
+        (p) => p.type === "tool-call",
+      );
+      expect(calls).toHaveLength(1);
+      expect(result.sendEmail).not.toHaveBeenCalled();
+    },
+  );
+  it("omits the dead worker's recoverable terminal error while retaining its completed results", async () => {
+    const result = await recover([
+      START,
+      DONE,
+      {
+        type: "error",
+        error: "The agent stopped before it could finish",
+        errorCode: "stale_run",
+        recoverable: true,
+      },
+    ]);
+    expect(JSON.stringify(result.seen[0])).not.toContain(
+      "The agent stopped before it could finish",
+    );
+    expect(JSON.stringify(result.seen[0])).toContain(DONE.result);
+    expect(result.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it.each([true, "serialization"] as const)(
+    "keeps a write unknown after post-call processing fails (%s) and blocks a reworded recovery",
+    async (failure) => {
+      const first = await recover([], false, false, failure);
+      expect(first.sendEmail).toHaveBeenCalledTimes(1);
+      const events = (await getRunEventsSince(first.runId, -1)).map(
+        ({ eventData }) => JSON.parse(eventData) as AgentChatEvent,
+      );
+      const next = await recover(events, true);
+      expect(next.sendEmail).not.toHaveBeenCalled();
+      expect(JSON.stringify(next.seen[0])).toContain(
+        "Interrupted / unknown outcome",
+      );
+      expect(next.run?.terminalReason).toBe("error:write_tool_outcome_unknown");
+    },
+  );
   it("strips a client recovery marker before it can become a trusted dispatch payload", async () => {
     const result = await recover([], false, "client");
     expect(result.requestBody).not.toHaveProperty("__agentChatRecoveryOfRunId");

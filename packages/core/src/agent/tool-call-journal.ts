@@ -109,6 +109,10 @@ export function classifyToolCallJournal(
       const queue = openByTool.get(tool);
       const entry = takeMatchingOpenEntry(queue, event);
       if (entry) {
+        if (event.outcomeUnknown === true) {
+          queue!.push(entry);
+          continue;
+        }
         if (isNonCompletedToolDone(event)) {
           continue;
         }

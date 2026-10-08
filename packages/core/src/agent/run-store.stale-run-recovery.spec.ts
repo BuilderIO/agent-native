@@ -101,6 +101,7 @@ describe("recovery ledger integrity", () => {
     '{"type":"tool_start","input":{}}',
     '{"type":"tool_start","tool":"send-email"}',
     '{"type":"tool_done","tool":"send-email"}',
+    '{"type":"tool_start ","tool":"send-email","input":{}}',
   ])(
     "rejects a malformed event instead of returning partial history: %s",
     async (raw) => {

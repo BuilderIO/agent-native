@@ -15,19 +15,36 @@ export function buildTurnResumeContext(options: {
   journal: ToolCallJournal | null;
   events?: AgentChatEvent[];
 }): { messages: EngineMessage[]; journalNote: string | null } {
-  const messages = [...options.messages];
+  let messages = [...options.messages];
   if (options.events) {
     const assistant = buildAssistantMessage(
       options.events.map((event, seq) => ({ seq, event })),
       "durable-resume",
+      { suppressInternalContinuation: true },
     );
     if (assistant) {
-      messages.push(
-        ...threadDataToEngineMessages(
-          { messages: [{ message: assistant }] },
-          { includeToolCalls: true },
+      const ledgerMessages = threadDataToEngineMessages(
+        { messages: [{ message: assistant }] },
+        { includeToolCalls: true },
+      );
+      const ledgerCallIds = new Set(
+        ledgerMessages.flatMap(({ content }) =>
+          content.flatMap((part) =>
+            part.type === "tool-call" ? [part.id] : [],
+          ),
         ),
       );
+      messages = messages.flatMap((message) => {
+        const content = message.content.filter((part) =>
+          part.type === "tool-call"
+            ? !ledgerCallIds.has(part.id)
+            : part.type === "tool-result"
+              ? !ledgerCallIds.has(part.toolCallId)
+              : true,
+        );
+        return content.length > 0 ? [{ ...message, content }] : [];
+      });
+      messages.push(...ledgerMessages);
     }
   }
   return {
