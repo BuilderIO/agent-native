@@ -1,7 +1,8 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { EDGE_HANDLE_HIT_INWARD_PX } from "../app/components/design/multi-screen/handle-hit-zones";
-import { canvasZoom, expandAllLayers } from "./helpers";
+import { e2eBaseURL } from "./base-url";
+import { canvasZoom, expandAllLayers, gotoEditor } from "./helpers";
 
 const PAGE_H = 820;
 
@@ -60,10 +61,6 @@ async function newDesign(page: Page): Promise<string> {
   return id;
 }
 
-function toolbar(page: Page): Locator {
-  return page.locator("[data-design-bottom-toolbar]");
-}
-
 function layersTree(page: Page): Locator {
   return page.getByRole("tree", { name: "Layers" });
 }
@@ -78,21 +75,6 @@ function node(page: Page, id: string): Locator {
     .first()
     .contentFrame()
     .locator(`[data-agent-native-node-id="${id}"]`);
-}
-
-async function openEditor(page: Page, designId: string): Promise<void> {
-  await page.goto(`${baseURL}/design/${designId}`, {
-    waitUntil: "domcontentloaded",
-  });
-  await toolbar(page)
-    .locator('button[aria-label="Move"]')
-    .waitFor({ timeout: 45_000 });
-  await page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .waitFor({ timeout: 30_000 });
-  await expandAllLayers(page);
-  await page.waitForTimeout(500);
 }
 
 async function screenCard(page: Page) {
@@ -121,7 +103,6 @@ async function sweep(
   } finally {
     await page.keyboard.up(modifier);
   }
-  await page.waitForTimeout(2200);
 }
 
 test.use({ viewport: { width: 1600, height: 1000 } });
@@ -130,7 +111,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   baseURL =
     (testInfo.project.use.baseURL as string | undefined) ??
     process.env.E2E_BASE_URL ??
-    `http://127.0.0.1:${process.env.E2E_PORT ?? 9333}`;
+    e2eBaseURL();
 });
 
 test.describe("modifier-held marquee reachability", () => {
@@ -139,7 +120,8 @@ test.describe("modifier-held marquee reachability", () => {
     page,
   }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await gotoEditor(page, id);
+    await expandAllLayers(page);
     const a = (await node(page, "box-a").boundingBox())!;
     const b = (await node(page, "box-b").boundingBox())!;
     const card = await screenCard(page);
@@ -150,22 +132,23 @@ test.describe("modifier-held marquee reachability", () => {
       { x: b.x + b.width + 10 * px, y: b.y + b.height + 10 * px },
     );
 
-    const names = await selectedRows(page).allTextContents();
+    const names = () => selectedRows(page).allTextContents();
+    await expect.poll(async () => (await names()).join("|")).toContain("Box A");
+    await expect.poll(async () => (await names()).join("|")).toContain("Box B");
+    await expect
+      .poll(async () => (await names()).join("|"))
+      .not.toContain("Wrapper");
     expect(
-      names.join("|"),
+      (await names()).join("|"),
       "a background drag inside a frame must rubber-band, not pick the frame up",
     ).toContain("Box A");
-    expect(names.join("|")).toContain("Box B");
-    expect(
-      names.join("|"),
-      "the container the band was drawn inside must not be swept in — its outline covers the whole screen and reads as 'everything is selected'",
-    ).not.toContain("Wrapper");
   });
 
   // oracle: none — checks modifier-held marquee reachability; native Figma behavior is unmeasured.
   test("catches an element that has no id of its own", async ({ page }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await gotoEditor(page, id);
+    await expandAllLayers(page);
     const target = (await page
       .locator("iframe[data-design-preview-iframe]")
       .first()
@@ -184,12 +167,18 @@ test.describe("modifier-held marquee reachability", () => {
       },
     );
 
-    const swept = (await selectedRows(page).allTextContents()).join("|");
+    const swept = () =>
+      selectedRows(page)
+        .allTextContents()
+        .then((names) => names.join("|"));
+    await expect.poll(swept).toContain("Unnamed");
+    await expect.poll(swept).not.toContain("Wrapper");
+    const names = await swept();
     expect(
-      swept,
+      names,
       "an id attribute is a persistence detail; a click selects this element, so a band must too",
     ).toContain("Unnamed");
-    expect(swept, "the enclosing wrapper is not the target").not.toContain(
+    expect(names, "the enclosing wrapper is not the target").not.toContain(
       "Wrapper",
     );
   });
@@ -197,7 +186,8 @@ test.describe("modifier-held marquee reachability", () => {
   // oracle: none — checks modifier-held marquee reachability; native Figma behavior is unmeasured.
   test("catches a zero-height row", async ({ page }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await gotoEditor(page, id);
+    await expandAllLayers(page);
     const flat = (await node(page, "flat").boundingBox())!;
     const card = await screenCard(page);
     const px = await canvasZoom(page);
@@ -207,9 +197,13 @@ test.describe("modifier-held marquee reachability", () => {
       { x: flat.x + flat.width + 10 * px, y: flat.y + 30 * px },
     );
 
-    expect(
-      (await selectedRows(page).allTextContents()).join("|"),
-      "a zero-area box is still a layer",
-    ).toContain("Flat row");
+    const names = () =>
+      selectedRows(page)
+        .allTextContents()
+        .then((rows) => rows.join("|"));
+    await expect.poll(names).toContain("Flat row");
+    expect(await names(), "a zero-area box is still a layer").toContain(
+      "Flat row",
+    );
   });
 });
