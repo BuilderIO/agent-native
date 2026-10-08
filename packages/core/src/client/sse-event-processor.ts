@@ -883,6 +883,10 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   // flag re-POSTs the exact chain the server just refused to continue.
   if (ev.providerRetryable === false || ev.recoverable === false) return false;
 
+  // A recoverable server timeout is a continuation boundary, even though its
+  // visitor-facing message sounds terminal.
+  if (code === "run_timeout" && ev.recoverable === true) return true;
+
   // These messages can carry `recoverable: true` for banner rendering, but
   // repeating the request would retry the same rejected credential or a run
   // the user already stopped.

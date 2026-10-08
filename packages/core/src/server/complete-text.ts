@@ -232,6 +232,9 @@ export async function completeText(
     completionAbort.cleanup();
   }
 
+  const timeoutError = completionAbort.getTimeoutError();
+  if (timeoutError) throw timeoutError;
+
   const content = finalContent ?? [{ type: "text", text: streamedText }];
   return {
     text: contentText(content) || streamedText,

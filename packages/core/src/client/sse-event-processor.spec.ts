@@ -5331,6 +5331,19 @@ describe("auto-continue on a deployment that replaces the error message", () => 
     ).toBe(false);
   });
 
+  it("continues a recoverable run timeout despite stop wording", async () => {
+    const outcome = await readError({
+      error: "The agent run was stopped before it finished.",
+      errorCode: "run_timeout",
+      recoverable: true,
+    });
+
+    expect(outcome.continued).toBe(true);
+    if (outcome.continued) {
+      expect(outcome.signal.reason).toBe("run_timeout");
+    }
+  });
+
   for (const errorCode of [
     "rate_limit_exceeded",
     "credits-limit-reached",

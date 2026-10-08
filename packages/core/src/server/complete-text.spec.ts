@@ -168,6 +168,31 @@ describe("completeText", () => {
     });
   });
 
+  it("rejects partial output when the stream ends normally after timeout", async () => {
+    const engine = createFakeEngine(async function* (opts) {
+      const aborted = new Promise<void>((resolve) => {
+        opts.abortSignal.addEventListener("abort", () => resolve(), {
+          once: true,
+        });
+      });
+      yield { type: "text-delta", text: "partial" };
+      await aborted;
+    });
+
+    await expect(
+      completeText({
+        engine,
+        input: "Try.",
+        apiKey: "test-key",
+        timeoutMs: 1,
+      }),
+    ).rejects.toMatchObject({
+      name: "EngineError",
+      message: "completeText timed out after 1ms",
+      errorCode: "complete_text_timeout",
+    });
+  });
+
   it("requires input or messages", async () => {
     const engine = createFakeEngine(async function* () {
       yield { type: "stop", reason: "end_turn" };
