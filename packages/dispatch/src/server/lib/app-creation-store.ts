@@ -1986,6 +1986,7 @@ export async function updateWorkspaceAppMetadata(input: {
 }): Promise<WorkspaceAppSummary> {
   const appId = input.appId.trim();
   assertValidWorkspaceAppId(appId);
+  requireWorkspaceAppOrgId();
 
   const apps = await listWorkspaceApps({
     includeAgentCards: false,

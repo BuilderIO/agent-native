@@ -1022,6 +1022,25 @@ describe("listWorkspaceApps", () => {
       existsSync.mockRestore();
     });
 
+    it("rejects a metadata update without an org before writing anything", async () => {
+      stubNoPendingContext();
+      stubManifest([
+        { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+        { id: "tracker-app", name: "Tracker app", path: "/tracker-app" },
+      ]);
+      const execute = stubDb();
+      const settingsBefore = new Map(mocks.settings);
+
+      await expect(
+        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+          updateWorkspaceAppMetadata({ appId: "tracker-app", name: "Renamed" }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 400 });
+
+      expect(execute).not.toHaveBeenCalled();
+      expect(mocks.settings).toEqual(settingsBefore);
+    });
+
     it("rejects app creation without an org before reserving anything", async () => {
       const execute = stubDb();
 
