@@ -129,8 +129,10 @@ const EVENT_AUTOMATION_CHECK_INTERVAL_MS = 5_000;
 let _deps: TriggerDispatcherDeps | null = null;
 let _anyEventSubscriptionId: string | null = null;
 // null = not loaded, or invalidated by a refresh. Never read as "no automations".
-// `fingerprint` is never newer than `names`, so a matching fingerprint read
-// proves `names` is still complete; null means none is known yet.
+// `fingerprint` is only ever stored with the names it was verified against, so
+// a matching fingerprint read proves `names` is current; null means unverified.
+// An unverified pairing is not safe even when the fingerprint is older: an
+// undo (snapshot restore) can bring the old fingerprint back.
 let _eventAutomationNames: {
   names: Set<string>;
   loadedAt: number;
@@ -696,12 +698,16 @@ function listEventAutomationResources(): Promise<Resource[]> {
   const seq = ++_eventAutomationScanCount;
   const scan = resourceListAllOwners("jobs/").then((jobResources) => {
     if (generation === _eventAutomationGeneration) {
+      const names = eventAutomationNames(jobResources);
+      const previous = _eventAutomationNames;
       _eventAutomationNames = {
-        names: eventAutomationNames(jobResources),
+        names,
         loadedAt: Date.now(),
         checkedAt: Date.now(),
-        // An older fingerprint stays valid: at worst it forces one extra scan.
-        fingerprint: _eventAutomationNames?.fingerprint ?? null,
+        fingerprint:
+          previous && sameNames(previous.names, names)
+            ? previous.fingerprint
+            : null,
       };
     }
     return jobResources;
@@ -715,6 +721,10 @@ function listEventAutomationResources(): Promise<Resource[]> {
     })
     .catch(() => undefined);
   return scan;
+}
+
+function sameNames(a: Set<string>, b: Set<string>): boolean {
+  return a.size === b.size && [...a].every((name) => b.has(name));
 }
 
 function eventAutomationNames(jobResources: Resource[]): Set<string> {
@@ -776,8 +786,31 @@ async function readCurrentEventAutomationNames(): Promise<Set<string>> {
     // change the fingerprint already includes.
     const names = eventAutomationNames(await scanStartedAfter(scansBefore));
     if (generation !== _eventAutomationGeneration) continue;
-    if (_eventAutomationNames) _eventAutomationNames.fingerprint = fingerprint;
+    // The scan may include writes made after `fingerprint` was read. Pair them
+    // only if nothing changed across the scan; otherwise leave it unverified.
+    const scanned = _eventAutomationNames;
+    if (scanned && sameNames(scanned.names, names)) {
+      await verifyScannedFingerprint(scanned, fingerprint);
+    }
     return names;
+  }
+}
+
+async function verifyScannedFingerprint(
+  scanned: NonNullable<typeof _eventAutomationNames>,
+  fingerprint: string,
+): Promise<void> {
+  let after: string;
+  try {
+    after = await resourceFingerprintAllOwners("jobs/");
+  } catch (err) {
+    // The scan itself succeeded; it just stays unverified, so the next check
+    // scans again.
+    console.warn("[triggers] Could not verify the event automation scan:", err);
+    return;
+  }
+  if (after === fingerprint && _eventAutomationNames === scanned) {
+    scanned.fingerprint = fingerprint;
   }
 }
 
