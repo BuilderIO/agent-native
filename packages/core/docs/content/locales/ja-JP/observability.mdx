@@ -363,6 +363,8 @@ export default defineAppConfig({
 
 メトリクスでは、`gen_ai.tool.name` はフレームワークのアクション名または `other` になり、`gen_ai.request.model` はエンジンがサポート対象として挙げているモデル ID の場合のみその値、それ以外は `_OTHER` になります。そのため、アプリ定義のツールや呼び出し元が指定したモデル ID によって系列が無制限に増えることはありません。スパンには正確な値が残ります。
 
+`http.route` はすべてのリクエストに設定され、閉じた集合のいずれかの値になります。フレームワークのエンドポイントのルートテンプレート（`/_agent-native/auth/session`、`/_agent-native/agent-chat/runs/:runId/events`）、アクションが宣言したテンプレート、アプリ自身の Nitro ファイルルート（`/api/clips/:id`）、またはバケットです。バケットは、これらの名前空間内で一覧にないパスに対する `/_agent-native/*`、`/mcp/*`、`/.well-known/*`、その他の API パスに対する `/api/*`、ファイルリクエストに対する `static`、その他の `GET` または `HEAD` に対する `page`、そして `other` です。生のリクエストパスが記録されることはありません。`http.server` スパンにも同じ値が入ります。
+
 ## OpenTelemetry バックエンドへの接続 {#otel-provider}
 
 Core には OpenTelemetry の SDK もエクスポーターも含まれていません。アプリは独自の SDK プロバイダーを構築し、`@agent-native/core/server` の `registerObservabilityProvider()` で Core に渡します。Core は上記の[スパン](#otel)と[メトリクス](#otel-metrics)をそれらを通じて出力し、アプリのエクスポーターが任意の OTLP バックエンドへ送信します。

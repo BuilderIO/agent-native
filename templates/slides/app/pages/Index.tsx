@@ -156,7 +156,9 @@ import {
 } from "@/lib/import-uploaded-deck";
 import {
   findPromptReferenceDeckId,
+  getAutomaticReferenceDeckIdToRemove,
   resolveRetryReferenceDeckSelection,
+  withoutAutomaticReferenceDeck,
 } from "@/lib/new-deck-reference-selection";
 import type { UploadedFile } from "@/lib/prompt-file-uploads";
 import {
@@ -353,7 +355,7 @@ function readStoredReferenceSelection(): StoredReferenceSelectionResult {
     if (!parsed.success) return { state: "unreadable" };
     return {
       state: "available",
-      selection: parsed.data,
+      selection: withoutAutomaticReferenceDeck(parsed.data),
     };
   } catch {
     return { state: "unreadable" };
@@ -858,7 +860,6 @@ export default function Index({ active = true }: { active?: boolean }) {
     if (deckSearch.trim()) selectHomeLibraryTab("recent");
   }, [deckSearch, selectHomeLibraryTab]);
   const [storedDeckFilter, setStoredDeckFilter] = useState<DeckFilter>("mine");
-  const referenceDeckAutoRef = useRef(true);
   const [showSignInDialog, setShowSignInDialog] = useState(false);
   const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
   const { generating, submitAndConfirm: agentSubmit } = useAgentGenerating();
@@ -876,27 +877,20 @@ export default function Index({ active = true }: { active?: boolean }) {
         reference.kind === "design-system" &&
         designSystems.some((designSystem) => designSystem.id === reference.id),
     )?.id ?? null;
-  const lastUsedReferenceDeckId =
-    recentReferences.find(
-      (reference) =>
-        reference.kind === "deck" &&
-        decks.some((deck) => deck.id === reference.id),
-    )?.id ?? null;
   const initialDesignSystemId = systemsEnabled
     ? (lastUsedDesignSystemId ??
       effectiveDefaultDesignSystemId ??
       workspaceDesignSystemId)
     : null;
-  const initialReferenceDeckId = lastUsedReferenceDeckId;
+  const retryReferenceSelection =
+    generationRetryState?.retryReferenceSelection ??
+    newDeckRetryReferenceSelection;
   const composerContext = useSlidesComposerContext({
     active,
-    initialSelection:
-      generationRetryState?.retryReferenceSelection?.composerContext ??
-      newDeckRetryReferenceSelection?.composerContext,
+    initialSelection: retryReferenceSelection
+      ? withoutAutomaticReferenceDeck(retryReferenceSelection).composerContext
+      : undefined,
     defaultDesignSystemId: null,
-    defaultReferenceDeck: decks.find(
-      (deck) => deck.id === initialReferenceDeckId,
-    ),
     systems: designSystems,
     systemsError: designSystemsError,
     systemsLoading: designSystemsLoading,
@@ -1053,6 +1047,7 @@ export default function Index({ active = true }: { active?: boolean }) {
   const setNewDeckPromptOpen = useCallback(
     (open: boolean, options: { clearInitialPrompt?: boolean } = {}) => {
       setShowNewDeckPrompt(open);
+      if (open) setSelectedReferenceDeckId(null);
       if (!open) {
         if (options.clearInitialPrompt !== false) {
           setNewDeckInitialPrompt(null);
@@ -1123,11 +1118,6 @@ export default function Index({ active = true }: { active?: boolean }) {
   }, [active, setSignInDialogOpen]);
 
   useEffect(() => {
-    if (!showNewDeckPrompt || !referenceDeckAutoRef.current) return;
-    setSelectedReferenceDeckId(initialReferenceDeckId ?? null);
-  }, [initialReferenceDeckId, showNewDeckPrompt]);
-
-  useEffect(() => {
     if (!session) return;
     let saved: string | null = null;
     let savedContext: string | undefined;
@@ -1159,11 +1149,10 @@ export default function Index({ active = true }: { active?: boolean }) {
     savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, saved);
     clearPendingPromptForRetry();
     setNewDeckInitialPrompt({ text: saved, key: Date.now() });
-    referenceDeckAutoRef.current = true;
     setSelectedDesignSystemId(savedReferenceSelection?.designSystemId ?? null);
-    setSelectedReferenceDeckId(initialReferenceDeckId ?? null);
+    setSelectedReferenceDeckId(null);
     setShowNewDeckPrompt(true);
-  }, [initialReferenceDeckId, session]);
+  }, [session]);
 
   useEffect(() => {
     const state = location.state as DeckGenerationRetryState | null;
@@ -1171,7 +1160,11 @@ export default function Index({ active = true }: { active?: boolean }) {
     savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, state.retryPrompt);
     setNewDeckInitialPrompt({ text: state.retryPrompt, key: Date.now() });
     setNewDeckRetryFiles(state.retryFiles ?? []);
-    setNewDeckRetryReferenceSelection(state.retryReferenceSelection);
+    setNewDeckRetryReferenceSelection(
+      state.retryReferenceSelection
+        ? withoutAutomaticReferenceDeck(state.retryReferenceSelection)
+        : undefined,
+    );
     setNewDeckRetryContext(state.retryContext);
     setNewDeckRetryPrompt(state.retryPrompt);
     setNewDeckRetryRequiresExactPrompt(true);
@@ -1767,16 +1760,21 @@ export default function Index({ active = true }: { active?: boolean }) {
       const automaticReferenceDeckId =
         retryReferenceSelection?.automaticReferenceDeckId ??
         composerContext.automaticReferenceDeckId;
+      const automaticReferenceDeckIdToRemove =
+        getAutomaticReferenceDeckIdToRemove(
+          retryReferenceSelection,
+          automaticReferenceDeckId,
+        );
       const automaticReferenceDeckRemovedFromComposer =
-        Boolean(automaticReferenceDeckId) &&
+        Boolean(automaticReferenceDeckIdToRemove) &&
         options?.slidesContext !== undefined &&
         !options.slidesContext.references.some(
           (reference) =>
             reference.source === "slides" &&
-            reference.id === automaticReferenceDeckId,
+            reference.id === automaticReferenceDeckIdToRemove,
         );
       const replaceAutomaticDeckContext =
-        Boolean(automaticReferenceDeckId) &&
+        Boolean(automaticReferenceDeckIdToRemove) &&
         (!reusingRetryInputs ||
           Boolean(promptReferenceDeckId) ||
           automaticReferenceDeckRemovedFromComposer);
@@ -1787,22 +1785,23 @@ export default function Index({ active = true }: { active?: boolean }) {
               references: retryComposerContext.references.filter(
                 (reference) =>
                   reference.source !== "slides" ||
-                  reference.id !== automaticReferenceDeckId,
+                  reference.id !== automaticReferenceDeckIdToRemove,
               ),
             }
           : retryComposerContext;
       const generationContextItems =
         generationComposerContext !== retryComposerContext &&
-        automaticReferenceDeckId
+        automaticReferenceDeckIdToRemove
           ? retryContextItems?.filter(
-              (item) => item.key !== `slides:${automaticReferenceDeckId}:`,
+              (item) =>
+                item.key !== `slides:${automaticReferenceDeckIdToRemove}:`,
             )
           : retryContextItems;
       const hasExplicitComposerDeckReference =
         generationComposerContext?.references.some(
           (reference) =>
             reference.source === "slides" &&
-            reference.id !== automaticReferenceDeckId,
+            reference.id !== automaticReferenceDeckIdToRemove,
         ) ?? false;
       const { referenceDeckId, referenceDeckIdSource } =
         resolveRetryReferenceDeckSelection({
@@ -1819,7 +1818,9 @@ export default function Index({ active = true }: { active?: boolean }) {
         });
       const referenceSelection: NewDeckReferenceSelection = {
         ...(retryReferenceSelection ?? {}),
-        ...(automaticReferenceDeckId ? { automaticReferenceDeckId } : {}),
+        ...(automaticReferenceDeckId
+          ? { automaticReferenceDeckId: automaticReferenceDeckIdToRemove }
+          : {}),
         ...(referenceDeckId !== undefined ? { referenceDeckId } : {}),
         ...(referenceDeckIdSource ? { referenceDeckIdSource } : {}),
         ...(!reusingRetryInputs || carriedDeckMissing
@@ -2672,11 +2673,16 @@ export default function Index({ active = true }: { active?: boolean }) {
                   options?.slidesContext ?? composerContext.selection;
                 const automaticReferenceDeckId =
                   composerContext.automaticReferenceDeckId;
+                const automaticReferenceDeckIdToRemove =
+                  getAutomaticReferenceDeckIdToRemove(
+                    retryReferenceSelection,
+                    automaticReferenceDeckId,
+                  );
                 const hasExplicitComposerDeckReference =
                   slidesContext.references.some(
                     (reference) =>
                       reference.source === "slides" &&
-                      reference.id !== automaticReferenceDeckId,
+                      reference.id !== automaticReferenceDeckIdToRemove,
                   );
                 preservePromptForSignIn(prompt, {
                   context,
@@ -2691,8 +2697,12 @@ export default function Index({ active = true }: { active?: boolean }) {
                     : undefined,
                   referenceSelection: {
                     designSystemId: slidesContext.designSystemId,
-                    ...(automaticReferenceDeckId
-                      ? { automaticReferenceDeckId }
+                    ...(automaticReferenceDeckId ||
+                    retryReferenceSelection?.automaticReferenceDeckId
+                      ? {
+                          automaticReferenceDeckId:
+                            automaticReferenceDeckIdToRemove,
+                        }
                       : {}),
                     ...(hasExplicitComposerDeckReference
                       ? { referenceDeckIdSource: "selection" as const }
@@ -2915,9 +2925,6 @@ export default function Index({ active = true }: { active?: boolean }) {
         }
         defaultDesignSystemId={
           pendingDeck?.composerContext?.designSystemId ?? null
-        }
-        defaultReferenceDeckId={
-          pendingDeck?.referenceDeckId ?? initialReferenceDeckId
         }
         onDesignSystemsChanged={() => void refetchDesignSystems()}
         onSelect={handleReferenceSelect}

@@ -129,7 +129,14 @@ function ChatThreadRouteContent({
               onIntegrityReport: reportStreamIntegrity,
             }}
             threadId={resolvedThreadId}
-            labels={{ composerPlaceholder: t("chat.composerPlaceholder") }}
+            labels={{
+              composerPlaceholder: t("chat.composerPlaceholder"),
+              continueRun: t("agentChat.common.continue"), // i18n-key-ignore shared framework catalog
+              continueRunUnavailable: t(
+                // i18n-key-ignore shared framework catalog
+                "agentChat.recovery.continueUnavailable",
+              ),
+            }}
             slots={{
               emptyState: ChatEmptyState,
               message: ChatMessage,
@@ -549,7 +556,7 @@ function ChatCanvas({
   return (
     <AgentKitChat
       className="h-full"
-      title={thread.thread?.title ?? APP_TITLE}
+      title={thread.thread?.title?.trim() || APP_TITLE}
       toolbar={toolbar}
       emptyComposerPlacement="center"
       composerProps={{

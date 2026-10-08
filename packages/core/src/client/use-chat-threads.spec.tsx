@@ -2430,6 +2430,72 @@ describe("useChatThreads", () => {
     });
   });
 
+  it("uses a fallback title only when no saved title exists", async () => {
+    const sourceThread: ChatThreadSummary = {
+      id: "thread-1",
+      title: "",
+      preview: "",
+      messageCount: 0,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [sourceThread] });
+      }
+      if (url === "/chat/threads/thread-1" && init?.method === "PUT") {
+        return jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "fallback-title-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await hook!.saveThreadData("thread-1", {
+        threadData: "",
+        title: "Summarize the sprint",
+        preview: "Summarize the sprint",
+        titleSource: "fallback",
+      });
+    });
+    await act(async () => {
+      await hook!.saveThreadData("thread-1", {
+        threadData: "",
+        title: "A later prompt",
+        preview: "A later prompt",
+        titleSource: "fallback",
+      });
+    });
+
+    const saveCalls = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        url === "/chat/threads/thread-1" && init?.method === "PUT",
+    );
+    expect(
+      saveCalls.map(([, init]) => JSON.parse(init!.body as string).title),
+    ).toEqual(["Summarize the sprint", "Summarize the sprint"]);
+    expect(
+      hook!.threads.find((thread) => thread.id === "thread-1")?.title,
+    ).toBe("Summarize the sprint");
+  });
+
   it("materializes a new thread before saving a passive voice transcript", async () => {
     let putCount = 0;
     const scope: ChatThreadScope = {

@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
 describe("Design editor route Fast Refresh boundary", () => {
   const routeSource = readFileSync("app/routes/design.$id.tsx", "utf8");
 
@@ -63,7 +65,7 @@ describe("Design editor route Fast Refresh boundary", () => {
   });
 
   it("invalidates cached overview canvases for preview-only state changes", () => {
-    const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+    const editorSource = readDesignEditorSource();
     const sourceFile = ts.createSourceFile(
       "DesignEditor.tsx",
       editorSource,
@@ -115,7 +117,7 @@ describe("Design editor route Fast Refresh boundary", () => {
   });
 
   it("mirrors live selection chrome to the owning overview screen", () => {
-    const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+    const editorSource = readDesignEditorSource();
     const renderStart = editorSource.indexOf(
       "const renderEditableScreenContent = useCallback",
     );

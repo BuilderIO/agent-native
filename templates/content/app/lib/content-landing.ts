@@ -1,5 +1,6 @@
 import { writeClientAppState } from "@agent-native/core/client/application-state";
 import { callAction } from "@agent-native/core/client/hooks";
+import { isMcpDirectoryWidgetReadOnlyEmbed } from "@agent-native/core/client/host";
 import { hasSessionHint } from "@agent-native/core/client/use-session";
 import {
   CONTENT_LAST_LOCATION_STATE_KEY,
@@ -150,6 +151,9 @@ export function rememberContentLandingDocument(
       : targetOrDocumentId;
   const spaceId =
     typeof targetOrDocumentId === "string" ? undefined : spaceIdOrTitle;
+  // A directory widget cannot save a landing location (its read-only session
+  // refuses every state write), and there is no later visit to resume.
+  if (isMcpDirectoryWidgetReadOnlyEmbed()) return Promise.resolve();
   // The unscoped key is where /home returns, so every page open records it,
   // whatever space the page is in; the space key is where that space returns.
   const keys = [

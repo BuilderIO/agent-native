@@ -135,14 +135,15 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
       {
         id: "video-storage",
         label: "Object storage",
-        required: true,
+        required: false,
+        suggested: true,
         builderIncluded: true,
         keySummary: "Object storage",
         labelKey: "agentChat.onboarding.capability.clipsObjectStorage.label",
         keySummaryKey:
           "agentChat.onboarding.capability.clipsObjectStorage.label",
         whyKey: "agentChat.onboarding.capability.clipsObjectStorage.why",
-        why: "Recorded videos need durable object storage before they can be played back or shared.",
+        why: "Local recordings can be previewed and downloaded without storage. Connect object storage to keep Clips available across devices and share them.",
       },
       {
         id: "transcription",

@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { mockEvent } from "h3";
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import {
   AgentActionStopError,
@@ -25,6 +26,7 @@ import {
 } from "../file-upload/test-image-fixtures.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
+import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import {
   getRequestRunContext,
@@ -11343,6 +11345,91 @@ describe("runAgentLoop", () => {
     ]);
   });
 
+  it("lets the model correct an invented optional value by omitting it", async () => {
+    const execute = vi.fn(
+      async (_args: { from: string; accountEmails?: string[] }) => ({
+        events: [],
+      }),
+    );
+    const action = defineAction({
+      description: "List events",
+      schema: z.object({
+        from: z.string(),
+        accountEmails: z.array(z.string().email()).optional(),
+      }),
+      readOnly: true,
+      run: execute,
+    });
+    let attempts = 0;
+    const seenMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenMessages.push(structuredClone(opts.messages));
+        attempts += 1;
+        if (attempts <= 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: `call-${attempts}`,
+                name: "list-events",
+                input:
+                  attempts === 1
+                    ? { from: "2026-10-06", accountEmails: ["invalid-email"] }
+                    : { from: "2026-10-06" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+        } else {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        }
+      },
+    };
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: actionsToEngineTools({ "list-events": action }),
+      messages: [{ role: "user", content: [{ type: "text", text: "list" }] }],
+      actions: { "list-events": action },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+    const failure = seenMessages[1]
+      .flatMap((message) => message.content)
+      .find((part) => part.type === "tool-result");
+    expect(failure).toMatchObject({
+      type: "tool-result",
+      isError: true,
+      toolCallId: "call-1",
+    });
+    if (failure?.type !== "tool-result")
+      throw new Error("Missing validation feedback");
+    expect(failure.content).toContain("accountEmails.0");
+    expect(failure.content).toContain("accountEmails?");
+    expect(failure.content).toContain("? = optional");
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute.mock.calls[0][0]).toEqual({ from: "2026-10-06" });
+    expect(attempts).toBe(3);
+  });
+
   it("tells the model the expected signature when raw-schema validation rejects a write", async () => {
     const engine: AgentEngine = {
       name: "test",
@@ -13348,6 +13435,7 @@ describe("runAgentLoop", () => {
 
   const approvalEngine = (
     toolInput: Record<string, unknown> = { to: "a@b.com" },
+    toolName = "send-email",
   ): { engine: AgentEngine; streamCalls: () => number } => {
     let streamCalls = 0;
     const engine: AgentEngine = {
@@ -13371,7 +13459,7 @@ describe("runAgentLoop", () => {
               {
                 type: "tool-call" as const,
                 id: "approval-call-1",
-                name: "send-email",
+                name: toolName,
                 input: toolInput,
               },
             ],
@@ -13478,6 +13566,60 @@ describe("runAgentLoop", () => {
         message: "Waiting for your approval to run send-email.",
       },
     ]);
+  });
+
+  it("requires fresh approval before shared resource and organization-memory writes", async () => {
+    const entries = await createResourceScriptEntries();
+    const cases = [
+      {
+        name: "resources",
+        input: {
+          action: "write",
+          path: "LEARNINGS.md",
+          content: "Shared learning proposal",
+        },
+      },
+      {
+        name: "save-memory",
+        input: {
+          name: "coding-style",
+          type: "feedback",
+          description: "A shared preference",
+          content: "Shared learning proposal",
+          scope: "current-org",
+        },
+      },
+    ] as const;
+
+    for (const { name, input } of cases) {
+      const entry = entries[name];
+      expect(entry).toBeDefined();
+      if (!entry) throw new Error(`Missing ${name} action entry`);
+
+      const { engine } = approvalEngine(input, name);
+      const run = vi.fn(async () => "saved");
+      const events: any[] = [];
+
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: { [name]: { ...entry, run } },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      expect(run).not.toHaveBeenCalled();
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "approval_required",
+          tool: name,
+          allowPersistentApproval: false,
+        }),
+      );
+    }
   });
 
   it("does not run later tool calls in the same message while approval is pending", async () => {

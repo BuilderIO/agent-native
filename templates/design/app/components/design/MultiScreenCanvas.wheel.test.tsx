@@ -104,7 +104,7 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
         <MultiScreenCanvas
           screens={[]}
           zoom={100}
-          activeTool="move"
+          creation={{ activeTool: "move" }}
           onPick={() => {}}
         />,
       );
@@ -227,13 +227,14 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
           <MultiScreenCanvas
             screens={[]}
             zoom={zooming ? 3 : 2}
-            activeTool="move"
+            creation={{ activeTool: "move" }}
             onPick={() => {}}
-            boardFileId="board"
-            boardFrameGeometry={geometry}
-            boardFileContent={
-              '<html><body><div data-agent-native-node-id="shape" style="position:absolute;left:0;top:0;width:100px;height:100px"></div></body></html>'
-            }
+            board={{
+              boardFileId: "board",
+              boardFrameGeometry: geometry,
+              boardFileContent:
+                '<html><body><div data-agent-native-node-id="shape" style="position:absolute;left:0;top:0;width:100px;height:100px"></div></body></html>',
+            }}
           />,
         ),
       );
@@ -285,9 +286,9 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
         <MultiScreenCanvas
           screens={[]}
           zoom={100}
-          activeTool="move"
+          creation={{ activeTool: "move" }}
           onPick={() => {}}
-          onZoomChange={onZoomChange}
+          camera={{ onZoomChange }}
         />,
       );
     });

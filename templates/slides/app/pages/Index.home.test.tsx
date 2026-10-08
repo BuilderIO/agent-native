@@ -1154,10 +1154,8 @@ describe("Slides prompt-led home", () => {
       deleteDeck: vi.fn(),
     });
     await screen.findByRole("textbox", { name: "Presentation prompt" });
-    await waitFor(() =>
-      expect(contextOptions.mock.lastCall![0].defaultReferenceDeck?.id).toBe(
-        "shared",
-      ),
+    expect(contextOptions.mock.lastCall![0]).not.toHaveProperty(
+      "defaultReferenceDeck",
     );
     const attachments = {
       commit: vi.fn(),
@@ -1959,6 +1957,9 @@ describe("Slides prompt-led home", () => {
     });
     expect(promptProps.mock.lastCall![0].open).toBe(false);
     expect(referenceProps.mock.lastCall![0].open).toBe(true);
+    expect(referenceProps.mock.lastCall![0]).not.toHaveProperty(
+      "defaultReferenceDeckId",
+    );
 
     fireEvent.click(screen.getByRole("link", { name: "Open templates" }));
     await waitFor(() =>
@@ -2248,6 +2249,67 @@ describe("Slides prompt-led home", () => {
     );
     expect(agentSubmit.mock.calls[0][1]).not.toContain(
       "Automatic recent-deck context",
+    );
+  });
+
+  it("keeps selected deck context when a retry's automatic marker shares its id", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    const prompt = `Use this as a style reference: ${window.location.origin}/deck/own`;
+    const composerContext = {
+      designSystemId: null,
+      references: [
+        { source: "slides" as const, id: "shared", title: "Shared deck" },
+      ],
+    };
+    const contextItems = [
+      {
+        key: "slides:shared:",
+        title: "Shared deck",
+        context: "Explicitly selected deck context",
+        status: "ready" as const,
+      },
+    ];
+    renderHome(
+      {
+        decks: [ownDeck, sharedDeck],
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+      },
+      {
+        retryPrompt: prompt,
+        retryReferenceSelection: {
+          automaticReferenceDeckId: "shared",
+          referenceDeckId: "shared",
+          referenceDeckIdSource: "selection",
+          composerContext,
+          contextItems,
+        },
+      },
+    );
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        { slidesContext: composerContext, contextItems },
+      );
+    });
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    expect(agentSubmit.mock.calls[0][1]).toContain(
+      "Explicitly selected deck context",
+    );
+    expect(updateDeck).toHaveBeenCalledWith(
+      "new-deck",
+      expect.objectContaining({
+        generationContext: expect.objectContaining({
+          referenceDeckId: null,
+          composerContext,
+          contextItems,
+        }),
+      }),
     );
   });
 
@@ -2755,6 +2817,54 @@ describe("Slides prompt-led home", () => {
           composerContext,
           contextItems,
         }),
+      }),
+    );
+  });
+
+  it("removes a legacy automatic reference from a saved sign-in prompt", async () => {
+    signedIn.value = false;
+    const home = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const composerContext = {
+      designSystemId: null,
+      references: [
+        {
+          source: "slides" as const,
+          id: "recent-deck",
+          title: "Recent deck",
+        },
+        {
+          source: "website" as const,
+          id: "https://example.com",
+          title: "Example",
+          url: "https://example.com",
+        },
+      ],
+    };
+    sessionStorage.setItem("slides:pending-deck-prompt", "Continue");
+    sessionStorage.setItem(
+      "slides:pending-deck-reference-selection",
+      JSON.stringify({
+        automaticReferenceDeckId: "recent-deck",
+        composerContext,
+        contextItems: [
+          { key: "slides:recent-deck:", title: "Recent deck", context: "" },
+          {
+            key: "website:https://example.com:",
+            title: "Example",
+            context: "",
+          },
+        ],
+      }),
+    );
+
+    signedIn.value = true;
+    home.rerenderHome();
+
+    await waitFor(() =>
+      expect(contextOptions.mock.lastCall?.[0].initialSelection).toEqual({
+        designSystemId: null,
+        references: [composerContext.references[1]],
       }),
     );
   });

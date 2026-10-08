@@ -1898,7 +1898,6 @@ const esES = {
       heroDescription:
         "Plans es una herramienta de planificación visual gratuita y de código abierto para revisar el enfoque de tu agente de código, darle comentarios y entender los cambios de código mediante diagramas, wireframes y código anotado.",
       heroCta: "Planifica visualmente",
-      heroSecondaryCta: "Abrir Plans",
       useCasesHeading: "¿Qué puedes hacer con Plans?",
       useCasesBody:
         "Revisa un enfoque de implementación, perfecciona una interfaz o entiende un cambio ya realizado junto a tu agente de código.",

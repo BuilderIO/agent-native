@@ -11,6 +11,7 @@ import {
   canonicalizeAuthoringFuzzPersistence,
   createAuthoringFuzzPlan,
   formatAuthoringFuzzFailure,
+  isConflictResourceConsoleError,
   isBrowserSessionPath,
   isCaretScrollOnlyChange,
   lineNavigationKeys,
@@ -24,6 +25,29 @@ it("requires a markdown shortcut to add its result markup", () => {
   expect(() => assertShortcutMarkupAdded("bullet", 1, 1)).toThrow(
     "markdown shortcut did not produce bullet",
   );
+});
+
+it("recognizes resource conflicts with or without browser status text", () => {
+  expect(
+    isConflictResourceConsoleError(
+      "Failed to load resource: the server responded with a status of 409 ()",
+    ),
+  ).toBe(true);
+  expect(
+    isConflictResourceConsoleError(
+      "Failed to load resource: the server responded with a status of 409 (Conflict)",
+    ),
+  ).toBe(true);
+  expect(
+    isConflictResourceConsoleError(
+      "Failed to load resource: the server responded with a status of 404 ()",
+    ),
+  ).toBe(false);
+  expect(
+    isConflictResourceConsoleError(
+      "Failed to load resource: the server responded with a status of 503 ()",
+    ),
+  ).toBe(false);
 });
 
 const authoringSnapshot = (

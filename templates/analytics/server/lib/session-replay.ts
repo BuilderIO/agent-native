@@ -29,6 +29,7 @@ import {
   asc,
   desc,
   eq,
+  gt,
   gte,
   inArray,
   isNull,
@@ -39,6 +40,7 @@ import {
   sql,
 } from "drizzle-orm";
 
+import { isScreenshotSize } from "../../shared/png.js";
 import {
   isSessionFrictionSort,
   type SessionFriction,
@@ -61,6 +63,7 @@ import {
   touchPublicKeyLastUsedAt,
 } from "./first-party-analytics.js";
 import { MAX_SESSION_ID_LENGTH } from "./indexed-text.js";
+import type { JourneyRecording, RecordingViewport } from "./journey-tree.js";
 import { parseIngestBody } from "./request-errors.js";
 import {
   pruneSessionEventIndex,
@@ -70,6 +73,7 @@ import {
   finalizeReplayFriction,
   getSessionFrictionCoverageStart,
   pruneSessionFriction,
+  type ReadStoredReplayChunks,
   recordReplayFriction,
   sessionFrictionFilterConditions,
   sessionFrictionSortOrder,
@@ -195,6 +199,8 @@ export interface ParsedSessionReplayIngest {
   privacyMode: string;
   status: "active" | "completed";
   metadata: Record<string, unknown>;
+  /** Derived from the upload's rrweb events; never taken from client metadata. */
+  viewport?: RecordedReplayViewport | null;
   chunks: NormalizedSessionReplayChunk[];
 }
 
@@ -842,6 +848,98 @@ function numberFrom(...values: unknown[]): number | null {
   return null;
 }
 
+export interface ReplayViewport {
+  width: number;
+  height: number;
+}
+
+/**
+ * What an upload shows of the browser window: the first Meta size (null when
+ * this upload starts mid-recording) and the last known size.
+ */
+export interface RecordedReplayViewport {
+  first: ReplayViewport | null;
+  last: ReplayViewport;
+}
+
+const RRWEB_META_EVENT = 4;
+const RRWEB_VIEWPORT_RESIZE_SOURCE = 4;
+
+// The size is client-supplied and later sizes a headless browser, so a size no
+// screenshot could have is not stored.
+function replayViewportOf(
+  data: Record<string, unknown>,
+): ReplayViewport | null {
+  const width = Math.round(Number(data.width));
+  const height = Math.round(Number(data.height));
+  return isScreenshotSize(width, height) ? { width, height } : null;
+}
+
+/**
+ * The window size rrweb recorded: `first` from the first Meta event and `last`
+ * from the latest Meta or ViewportResize. Null when the events carry no size
+ * at all, which is not the same as a size that could not be read.
+ */
+export function extractReplayViewport(
+  events: readonly unknown[],
+): RecordedReplayViewport | null {
+  let first: ReplayViewport | null = null;
+  let last: ReplayViewport | null = null;
+  for (const event of events) {
+    const record = replayRecord(event);
+    const data = replayRecord(record.data);
+    const type = replayInteger(record.type);
+    const viewport =
+      type === RRWEB_META_EVENT ||
+      (type === RRWEB_INCREMENTAL_SNAPSHOT &&
+        replayInteger(data.source) === RRWEB_VIEWPORT_RESIZE_SOURCE)
+        ? replayViewportOf(data)
+        : null;
+    if (!viewport) continue;
+    if (type === RRWEB_META_EVENT && !first) first = viewport;
+    last = viewport;
+  }
+  return last ? { first, last } : null;
+}
+
+/**
+ * The stored size keeps the first Meta it ever saw. A resize says nothing
+ * about where a recording began, so without a first size nothing is stored.
+ */
+function mergeReplayViewport(
+  stored: unknown,
+  incoming: RecordedReplayViewport | null,
+): unknown {
+  if (!incoming) return stored;
+  const first =
+    replayViewportOf(replayRecord(replayRecord(stored).first)) ??
+    incoming.first;
+  return first ? { first, last: incoming.last } : stored;
+}
+
+/**
+ * The initial window size stored on a recording's metadata. `not_captured`
+ * means ingest never saw a Meta event (older recordings); `unreadable` means
+ * metadata exists but cannot be parsed.
+ */
+export function readRecordingViewport(
+  metadata: string | null,
+): RecordingViewport {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(metadata ?? "{}");
+  } catch {
+    return { status: "unreadable" };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { status: "unreadable" };
+  }
+  const stored = (parsed as Record<string, unknown>).viewport;
+  if (stored === undefined) return { status: "not_captured" };
+  const first = replayViewportOf(replayRecord(replayRecord(stored).first));
+  return first ? { status: "known", ...first } : { status: "unreadable" };
+}
+
 function inlineEventsForSignals(
   chunks: NormalizedSessionReplayChunk[],
 ): unknown[] {
@@ -961,6 +1059,7 @@ function deriveReplaySignals({
   networkErrorCount: number;
   rageClickCount: number;
   privacyMode: string;
+  viewport: RecordedReplayViewport | null;
 } {
   const events = inlineEventsForSignals(chunks);
   const pages = new Set<string>();
@@ -1034,6 +1133,7 @@ function deriveReplaySignals({
       replayString(body.privacy_mode) ||
       replayString(metadata.privacyMode) ||
       "unknown",
+    viewport: extractReplayViewport(events),
   };
 }
 
@@ -1077,7 +1177,11 @@ export function parseSessionReplayIngestPayload(
       400,
     );
   }
-  const metadata = replayRecord(body.metadata);
+  // `viewport` is server-derived from the rrweb events, so a client value
+  // never reaches the stored metadata.
+  const { viewport: _clientViewport, ...metadata } = replayRecord(
+    body.metadata,
+  );
   assertReplayMetadataCap(metadata);
 
   const directApp = replayString(body.app);
@@ -1172,6 +1276,7 @@ export function parseSessionReplayIngestPayload(
     privacyMode: signals.privacyMode,
     status,
     metadata,
+    viewport: signals.viewport,
     chunks,
   };
 }
@@ -1389,13 +1494,17 @@ function isVisibleSessionRecording(row: any): boolean {
   );
 }
 
-function mergeReplayMetadata(
+export function mergeReplayMetadata(
   existing: Record<string, unknown>,
   incoming: Record<string, unknown>,
+  viewport: RecordedReplayViewport | null = null,
 ): Record<string, unknown> {
-  const merged = { ...existing, ...incoming };
+  const { viewport: stored, ...rest } = existing;
+  const merged = { ...rest, ...incoming };
+  // The cap bounds caller metadata; the server-owned viewport is a few bytes.
   assertReplayMetadataCap(merged);
-  return merged;
+  const next = mergeReplayViewport(stored, viewport);
+  return next === undefined ? merged : { ...merged, viewport: next };
 }
 
 function replayRecordingChangeScope(row: {
@@ -1544,7 +1653,9 @@ export async function recordSessionReplayChunks(
         app: clampedInput.app,
         template: clampedInput.template,
         status: clampedInput.status,
-        metadata: JSON.stringify(clampedInput.metadata),
+        metadata: JSON.stringify(
+          mergeReplayMetadata({}, clampedInput.metadata, clampedInput.viewport),
+        ),
         lastIngestedAt: ingestedAt,
         ownerEmail: key.ownerEmail,
         orgId: key.orgId,
@@ -1711,6 +1822,7 @@ export async function recordSessionReplayChunks(
   const metadata = mergeReplayMetadata(
     parseRecordingMetadata(recording),
     clampedInput.metadata,
+    clampedInput.viewport,
   );
   const errorCount = Math.max(
     Number(recording.errorCount ?? 0),
@@ -1777,6 +1889,7 @@ export async function recordSessionReplayChunks(
     errorCount,
     rageClickCount,
     recordingEnded,
+    readStoredChunks: storedReplayChunkReader(recording.id),
     ingestedAt,
   });
 
@@ -1887,6 +2000,80 @@ export async function listSessionRecordings(
     .orderBy(desc(schema.sessionRecordings.startedAt))
     .limit(limit);
   return rows.map((row: any) => rowToSessionRecordingSummary(row));
+}
+
+const JOURNEY_RECORDING_BATCH = 400;
+const JOURNEY_RECORDINGS_PER_SESSION = 5;
+
+export interface JourneyRecordingsRead {
+  recordings: JourneyRecording[];
+  /** False when a batch hit its row ceiling or a row had no usable start time. */
+  complete: boolean;
+}
+
+/**
+ * The playable recordings the viewer can open for these analytics sessions,
+ * with the initial window size ingest stored. Readable recordings only: the
+ * same access, identity, and playable-events rules as the Sessions list.
+ */
+export async function listJourneyRecordings(
+  scope: SessionReplayScope,
+  sessionIds: readonly string[],
+  range: { fromIso: string; toIso: string },
+): Promise<JourneyRecordingsRead> {
+  const db = getDb() as any;
+  const r = schema.sessionRecordings;
+  const recordings: JourneyRecording[] = [];
+  let complete = true;
+  for (let i = 0; i < sessionIds.length; i += JOURNEY_RECORDING_BATCH) {
+    const batch = sessionIds.slice(i, i + JOURNEY_RECORDING_BATCH);
+    const limit = batch.length * JOURNEY_RECORDINGS_PER_SESSION;
+    const read = await db
+      .select({
+        id: r.id,
+        sessionId: r.sessionId,
+        startedAt: r.startedAt,
+        endedAt: r.endedAt,
+        durationMs: r.durationMs,
+        metadata: r.metadata,
+      })
+      .from(r)
+      .where(
+        and(
+          accessFilter(r, schema.sessionRecordingShares, {
+            userEmail: scope.userEmail,
+            orgId: scope.orgId ?? undefined,
+          }),
+          replayVisibleIdentityCondition(),
+          replayPlayableEventsCondition(),
+          inArray(r.sessionId, batch),
+          gte(r.startedAt, range.fromIso),
+          lte(r.startedAt, range.toIso),
+        ),
+      )
+      .orderBy(asc(r.startedAt), asc(r.id))
+      // One row past the ceiling tells a batch that ended there from one cut.
+      .limit(limit + 1);
+    if (read.length > limit) complete = false;
+    const rows = read.slice(0, limit);
+    for (const row of rows) {
+      const startedAtMs = Date.parse(row.startedAt);
+      const endedAtMs = row.endedAt ? Date.parse(row.endedAt) : null;
+      if (!Number.isFinite(startedAtMs) || Number.isNaN(endedAtMs)) {
+        complete = false;
+        continue;
+      }
+      recordings.push({
+        id: row.id,
+        sessionId: row.sessionId,
+        startedAtMs,
+        endedAtMs,
+        durationMs: row.durationMs ?? null,
+        viewport: readRecordingViewport(row.metadata),
+      });
+    }
+  }
+  return { recordings, complete };
 }
 
 export interface SessionRecordingPage {
@@ -2301,6 +2488,62 @@ function parseInlineReplayEvents(inlineData: string): unknown[] {
   } catch {
     return [{ data: inlineData }];
   }
+}
+
+/** A stored chunk's events as JSON text, or `null` when they cannot be read. */
+async function readStoredReplayChunkText(row: any): Promise<string | null> {
+  if (row.storageKind === "inline") {
+    return typeof row.inlineData === "string" ? row.inlineData : null;
+  }
+  const ref =
+    row.storageKind === "blob" ? decodeReplayBlobRef(row.storageRef) : null;
+  if (!ref) {
+    console.warn(
+      "[session-replay] A stored replay chunk has no readable storage reference; its recording reads as unmeasured:",
+      { recordingId: row.recordingId, seq: row.seq },
+    );
+    return null;
+  }
+  try {
+    const blob = await readPrivateBlob(ref.handle);
+    return gunzipSync(Buffer.from(blob.data)).toString("utf8");
+  } catch (error) {
+    console.warn(
+      "[session-replay] Could not read a stored replay chunk; its recording reads as unmeasured:",
+      { recordingId: row.recordingId, seq: row.seq },
+      error,
+    );
+    // coercion-ok: null is "unreadable"; friction leaves the recording unmeasured.
+    return null;
+  }
+}
+
+/**
+ * A recording's stored chunks in sequence order, read a page at a time so a
+ * long recording is never held in memory at once.
+ */
+function storedReplayChunkReader(recordingId: string): ReadStoredReplayChunks {
+  return async function* () {
+    const db = getDb() as any;
+    const c = schema.sessionReplayChunks;
+    let afterSeq = -1;
+    for (let read = 0; read < MAX_REPLAY_CHUNKS_PER_RECORDING; ) {
+      // guard:allow-unscoped -- the caller already holds this recording in its owner's scope, and the chunks feed only that recording's friction row.
+      const rows = await db
+        .select()
+        .from(c)
+        .where(and(eq(c.recordingId, recordingId), gt(c.seq, afterSeq)))
+        .orderBy(asc(c.seq))
+        .limit(MAX_REPLAY_CHUNKS_PER_REQUEST);
+      const texts = await Promise.all(rows.map(readStoredReplayChunkText));
+      for (const [index, row] of rows.entries()) {
+        yield { seq: row.seq, inlineData: texts[index]! };
+      }
+      if (rows.length < MAX_REPLAY_CHUNKS_PER_REQUEST) return;
+      read += rows.length;
+      afterSeq = rows[rows.length - 1].seq;
+    }
+  };
 }
 
 async function readStoredReplayEvents(row: any): Promise<unknown[]> {
@@ -2854,6 +3097,7 @@ export async function finalizeAbandonedSessionRecordings(
           rageClickCount: Number(row.rageClickCount ?? 0),
         },
         now.toISOString(),
+        storedReplayChunkReader(row.id),
       );
     } catch (error) {
       console.warn(
@@ -2869,7 +3113,9 @@ export async function finalizeAbandonedSessionRecordings(
       Number.isFinite(started) && Number.isFinite(ended)
         ? Math.max(0, ended - started)
         : (row.durationMs ?? null);
-    await db
+    // Reading a recording that fell behind can take a while, and an upload
+    // in the meantime reopens it; that recording stays active.
+    const completed = await db
       .update(schema.sessionRecordings)
       .set({
         status: "completed",
@@ -2877,8 +3123,15 @@ export async function finalizeAbandonedSessionRecordings(
         durationMs,
         updatedAt: now.toISOString(),
       })
-      .where(eq(schema.sessionRecordings.id, row.id));
-    finalized++;
+      .where(
+        and(
+          eq(schema.sessionRecordings.id, row.id),
+          eq(schema.sessionRecordings.status, "active"),
+          eq(schema.sessionRecordings.updatedAt, row.updatedAt),
+        ),
+      )
+      .returning({ id: schema.sessionRecordings.id });
+    if (completed.length) finalized++;
   }
 
   return { finalized };

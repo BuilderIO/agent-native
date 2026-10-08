@@ -126,8 +126,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "Omitir por ahora",
   "onboarding.saveRoleError": "No se pudo guardar tu rol.",
   "onboarding.builderCreateAccount": "Usar Builder.io",
-  "onboarding.builderSignInWithAccount":
-    "Iniciar sesión con una cuenta de Builder.io",
+  "onboarding.builderSignInWithAccount": "Usar Builder.io",
   "onboarding.builderActivateDescription":
     "Crea o reutiliza tu cuenta de Builder.io y activa sus créditos gratuitos con un solo clic.",
   "onboarding.builderActiveCredits":
@@ -159,7 +158,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "Términos de servicio",
   "onboarding.builderPrivacy": "Política de privacidad",
   "onboarding.builderConsentAnd": "y",
-  "onboarding.builderExistingAccount": "Tengo una cuenta de Builder.io",
+  "onboarding.builderExistingAccount": "Usar Builder.io",
   "onboarding.builderActivating":
     "Activando los créditos gratuitos de Builder.io",
   "onboarding.builderConnecting":
@@ -214,7 +213,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Almacenamiento de Builder o un bucket compatible con S3",
   "onboarding.capability.clipsObjectStorage.why":
-    "Los vídeos grabados necesitan almacenamiento de objetos duradero antes de poder reproducirse o compartirse.",
+    "Puedes grabar, previsualizar y descargar Clips sin almacenamiento. Conecta un almacenamiento de objetos duradero para tener las grabaciones disponibles en distintos dispositivos y compartirlas.",
   "onboarding.capability.clipsTranscription.keySummary":
     "Clave de proveedor de voz a texto",
   "onboarding.capability.about": "Acerca de {{label}}",
@@ -815,6 +814,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Configurando Builder.io",
   "recovery.copyDebug": "Copiar información de depuración",
   "recovery.copyFailed": "Error al copiar",
+  "recovery.continueUnavailable":
+    "Esta ejecución ya no se puede continuar. Envía un mensaje para seguir.",
   "recovery.retryAttachmentUnavailable":
     "Esta solicitud incluía un archivo que no se puede volver a enviar. Vuelve a adjuntarlo en el cuadro de mensaje y vuelve a intentarlo.",
   "recovery.deferredSubmissionFailed":
@@ -2216,7 +2217,7 @@ const messages: ToolkitAgentChatTranslation = {
     "No se pudo desconectar Builder.io.",
   "settingsShell.builder.disconnectTitle": "¿Desconectar Builder.io?",
   "settingsShell.builder.grantsFailed":
-    "No se pudieron leer las conexiones de Builder.io.",
+    "El estado de la conexión no está disponible. Vuelve a intentarlo para comprobarlo.",
   "settingsShell.builder.setupStartFailed":
     "No se pudo iniciar la configuración de Builder.io. Actualiza esta página e inténtalo de nuevo.",
   "settingsShell.builder.setupHostFailed":
@@ -2668,7 +2669,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "Acceso a modelos, automatización del navegador, almacenamiento de archivos e identidad del espacio de trabajo. Hay un plan gratuito.",
   "settingsShell.integrations.builderStatusFailed":
-    "No se pudo comprobar la conexión de Builder.io.",
+    "El estado de la conexión no está disponible. Vuelve a intentarlo para comprobarlo.",
   "settingsShell.integrations.category.analytics": "Analítica",
   "settingsShell.integrations.category.design": "Diseño",
   "settingsShell.integrations.category.engineering": "Ingeniería",
@@ -2822,6 +2823,11 @@ const messages: ToolkitAgentChatTranslation = {
     "El respaldo de la implementación está disponible. Usa tu propia cuenta de Builder.io para sustituirlo.",
   "settingsInfra.builderStorageHint":
     "El almacenamiento de objetos conserva los archivos subidos y permite reutilizar sus URL en todo el hilo. Usa Builder.io o el bucket compatible con S3 de abajo.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io está conectado, pero todavía no puede guardar archivos subidos. Vuelve a autorizarlo para permitir las cargas o configura un bucket abajo.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "No se pudo comprobar el acceso de carga de Builder.io. Vuelve a intentarlo o configura un bucket abajo.",
+  "settingsInfra.reconnectBuilderUploads": "Conceder acceso de carga",
   "settingsInfra.builderUnknown":
     "No se pudo comprobar la conexión con Builder.io.",
   "settingsInfra.manage": "Gestionar",

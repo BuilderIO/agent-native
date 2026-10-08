@@ -93,6 +93,15 @@ const matchesUnauthorizedPrPush = (text) =>
         !AFFIRMATIVE_PR_PUSH_REMINDER_RE.test(sentence),
     );
 
+const OWN_PR_REFERENCE = String.raw`(?:(?:my|our|your|yours)\s+own|own|my|our|your|yours)\s+(?:PRs?|pull requests?)`;
+const OWN_PR_COMMENT_AUTHORIZATION_RE = new RegExp(
+  String.raw`\b(?:don't|do not|doesn't|does not)\s+need\s+(?:any\s+)?(?:extra\s+)?(?:authorization|permission|approval)\b[^.!?\n]{0,90}\b${OWN_PR_REFERENCE}\b|\b${OWN_PR_REFERENCE}\b[^.!?\n]{0,90}\b(?:don't|do not|doesn't|does not)\s+need\s+(?:any\s+)?(?:extra\s+)?(?:authorization|permission|approval)\b|\bno\s+(?:extra\s+)?(?:authorization|permission|approval)(?:\s+is)?\s+needed\b[^.!?\n]{0,90}\b${OWN_PR_REFERENCE}\b|\b${OWN_PR_REFERENCE}\b[^.!?\n]{0,90}\b(?:authorization|permission|approval)\s+(?:isn't|is not)\s+needed\b`,
+  "i",
+);
+const matchesOwnPrCommentAuthorization = (text) =>
+  /\b(?:comments?|repl(?:y|ies)|respond|responses?)\b/i.test(text) &&
+  OWN_PR_COMMENT_AUTHORIZATION_RE.test(text);
+
 const BETA_PUBLISHER_OPERATION = String.raw`cancel(?:l?ed|l?ing|l?ations?)?|re-?dispatch(?:ed|ing)?|pin(?:ned|ning)?`;
 const BETA_PUBLISHER_RUN_INTERFERENCE_RE = new RegExp(
   [
@@ -1613,6 +1622,23 @@ const UNAUTHORIZED_PR_PUSH_REGEX_CASES = [
   [false, "Please push to a PR that you don't own."],
 ];
 
+const OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES = [
+  [
+    true,
+    "We don't need authorization for our own PRs; replies need no extra approval.",
+  ],
+  [true, "Replies on my own PR don't need permission."],
+  [
+    true,
+    "We don't need authorization for our own PRs; only other people's PR comments need authorization.",
+  ],
+  [true, "No authorization is needed for my PR comments."],
+  [false, "Never comment on someone else's PR without authorization."],
+  [false, "Don't comment on my PR without authorization."],
+  [false, "You don't need authorization for someone else's PR comments."],
+  [false, "My own PR was approved."],
+];
+
 const BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES = [
   [
     true,
@@ -2223,6 +2249,12 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.filter(
+      ([expected, message]) =>
+        matchesOwnPrCommentAuthorization(message) !== expected,
+    ),
+  );
+  failures.push(
     ...BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.filter(
       ([expected, message]) =>
         BETA_PUBLISHER_RUN_INTERFERENCE_RE.test(message) !== expected,
@@ -2334,7 +2366,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FIGMA_PARITY_UNMEASURED_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FIGMA_PARITY_UNMEASURED_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -2360,6 +2392,13 @@ const PATTERNS = [
     fixedBy:
       "AGENTS.md + ship + babysit-pr + review-latest-feedback (exact-PR authorization, 2026-09-28)",
     re: { test: matchesUnauthorizedPrPush },
+  },
+  {
+    key: "unauthorized-pr-comment",
+    label: "Had to clarify authorization for replies on our own PRs",
+    fixedBy:
+      "AGENTS.md + ship + ship-now + babysit-pr (own-PR review reply scope, 2026-10-08)",
+    re: { test: matchesOwnPrCommentAuthorization },
   },
   {
     key: "babysit-lease-blocks-work",
@@ -2651,6 +2690,13 @@ const PATTERNS = [
     fixedBy:
       "guard:no-default-chrome + .agents/skills/frontend-design (2026-08-12)",
     re: /\b(too much (text|copy|chrome)|too many (words|titles|headers|labels|sections)|so much text|text[ -]?heavy|text overload|(less|fewer|way less|trim the|bloated with|unnecessary) (text|copy)|too (wordy|verbose)|too keen to add|descriptions? everywhere|remove (the|that) (descriptions?|titles?|headers?|breadcrumbs?|eyebrows?|subtitles?|blurb|subtext|copy|top bar|bottom row)|(we|i) don'?t need (the|these|those|that|all|an?)[^.!?]{0,50}\b(text|titles?|headers?|sections?|descriptions?|eyebrows?|labels?|rows?|blocks?|copy|line|about)|don'?t show the (sub ?text|description|title)|eyebrows?\b|overwhelming|clutter(ed)?\b|too busy|in your face|minimal u[ix]|less info upfront|progressive disclosure)/i,
+  },
+  {
+    key: "starter-patch-drift",
+    label:
+      "Had to report the Builder Code starter breaking or drifting after a Chat change",
+    fixedBy: "guard:template-layers + pnpm template-layer rebase (2026-10-07)",
+    re: /\b((fusion|builder[- ]code|builder-agent-native-starter|starter)[^.!?]{0,40}\b(broke|breaks|broken|drift(ed|ing|s)?|out of sync|sync (failed|broke)|patch (failed|broke))|apply\.ts (failed|broke)|starter-patch)/i,
   },
   {
     key: "config-sprawl",

@@ -1,13 +1,45 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
 import {
   DOCKED_RIGHT_INSPECTOR_CLASSNAME,
   FLOATING_RIGHT_INSPECTOR_CLASSNAME,
   hasMinimalInspectorSelection,
+  rightInspectorCanvasInset,
   rightInspectorPanelClassName,
 } from "./minimal-inspector";
+import { readDesignEditorSource } from "./read-design-editor-source";
+
+describe("rightInspectorCanvasInset", () => {
+  it("reserves the panel width for a visible inspector", () => {
+    expect(
+      rightInspectorCanvasInset({
+        visible: true,
+        width: 240,
+        widgetEmbed: false,
+      }),
+    ).toBe(240);
+  });
+
+  it("reserves nothing when the inspector is hidden", () => {
+    expect(
+      rightInspectorCanvasInset({
+        visible: false,
+        width: 240,
+        widgetEmbed: false,
+      }),
+    ).toBe(0);
+  });
+
+  it("reserves nothing in a widget, so a wide pane keeps its full width when something is selected", () => {
+    expect(
+      rightInspectorCanvasInset({
+        visible: true,
+        width: 240,
+        widgetEmbed: true,
+      }),
+    ).toBe(0);
+  });
+});
 
 describe("hasMinimalInspectorSelection", () => {
   it("is false when nothing is selected", () => {
@@ -74,10 +106,7 @@ describe("rightInspectorPanelClassName", () => {
 });
 
 describe("DesignEditor minimal inspector wiring", () => {
-  const editorSource = readFileSync(
-    new URL("../DesignEditor.tsx", import.meta.url),
-    "utf8",
-  );
+  const editorSource = readDesignEditorSource();
 
   it("hides the manual right-sidebar toggle in minimal mode", () => {
     expect(editorSource).not.toContain('data-design-minimal-toggle="right"');
