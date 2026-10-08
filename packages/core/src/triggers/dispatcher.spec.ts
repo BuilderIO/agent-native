@@ -789,7 +789,8 @@ Respond to the concurrent event.`,
       await expect(hasEventAutomation("unwatched.event")).resolves.toBe(false);
       expect(resourceListAllOwnersMock).toHaveBeenCalledOnce();
 
-      for (let check = 0; check < 3; check += 1) {
+      // Past the 60s list lifetime: each matching check renews it.
+      for (let check = 0; check < 14; check += 1) {
         await vi.advanceTimersByTimeAsync(5_000);
         await Promise.all(
           ["burst-a", "burst-b"].map((eventId) =>
@@ -807,7 +808,7 @@ Respond to the concurrent event.`,
 
       expect(resourceListAllOwnersMock).toHaveBeenCalledOnce();
       // One read by hasEventAutomation, then one shared read per interval.
-      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledTimes(4);
+      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledTimes(15);
       expect(triggerQueueMocks.enqueue).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();

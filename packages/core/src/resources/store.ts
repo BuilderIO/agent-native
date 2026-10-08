@@ -4,7 +4,6 @@ import { getDbExec, type DbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
-  ensureIndexExistsConcurrently,
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
@@ -1201,12 +1200,15 @@ async function _doEnsureTable(): Promise<void> {
 
   // The (path, owner) unique index uses the default operator class, which a
   // prefix LIKE cannot use under a non-C collation; the trigger dispatcher
-  // reads jobs/ by prefix every few seconds. Built concurrently: this can run
-  // in a request against an existing, large table, and a plain build would
-  // block resource writes for its whole duration.
-  await ensureIndexExistsConcurrently(
+  // reads jobs/ by prefix every few seconds.
+  //
+  // NOT built CONCURRENTLY: this ensure path runs at release over the pooled
+  // Neon endpoint, where a transaction-pooled connection returns from
+  // `CREATE INDEX CONCURRENTLY` without creating anything (see the matching
+  // note in chat-threads/store.ts). A plain build is the form that lands.
+  await ensureIndexExists(
     "resources_path_pattern_idx",
-    `CREATE INDEX CONCURRENTLY IF NOT EXISTS resources_path_pattern_idx ON resources (path text_pattern_ops)`,
+    `CREATE INDEX IF NOT EXISTS resources_path_pattern_idx ON resources (path text_pattern_ops)`,
   ).catch((err) => {
     // coercion-ok: absence of an index degrades latency, never correctness
     console.warn(
@@ -2656,8 +2658,12 @@ function resourceFingerprint(
     )
     .sort()
     .join("\n");
+  // Local metadata carries the file's content hash, not just its mtime.
   const localPart = localResources
-    .map((resource) => `${resource.path}@${resource.updatedAt}`)
+    .map(
+      (resource) =>
+        `${resource.path}@${resource.updatedAt}@${resource.metadata ?? ""}`,
+    )
     .sort()
     .join("\n");
   return crypto
@@ -2671,7 +2677,8 @@ function resourceFingerprint(
  * reads: any insert, update, delete, move or snapshot restore of a SQL row
  * changes it, including a same-size edit in the same millisecond. Content is
  * hashed in the database, so only short per-row digests are transferred.
- * Local workspace files are tracked by path and modification time. Equal to
+ * Local workspace files are tracked by path, modification time and content
+ * hash. Equal to
  * the fingerprint `resourceListAllOwnersWithFingerprint` returns for the same
  * state.
  */

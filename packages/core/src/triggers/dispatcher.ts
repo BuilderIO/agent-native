@@ -779,7 +779,10 @@ async function readCurrentEventAutomationNames(
     if (generation !== _eventAutomationGeneration) continue;
     const cached = _eventAutomationNames;
     if (cached?.fingerprint === fingerprint) {
+      // The fingerprint covers every row and local file the list was read
+      // from, so a match renews the list as much as a fresh read would.
       cached.checkedAt = Date.now();
+      cached.loadedAt = cached.checkedAt;
       return cached.names;
     }
     const names = eventAutomationNames(await scanStartedAfter(scansBefore));
