@@ -2225,6 +2225,34 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toBe("Gateway error (no detail)");
   });
 
+  it("marks no-detail transient gateway codes as retryable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            code: "overloaded_error",
+            requestId: "req_overloaded",
+            privateDiagnostic: "must not be surfaced",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((event) => event.type === "stop");
+    expect(stop).toMatchObject({
+      reason: "error",
+      errorCode: "overloaded_error",
+      error: "Gateway error (no detail)",
+      providerRetryable: true,
+    });
+    expect(JSON.stringify(stop)).not.toContain("must not be surfaced");
+  });
+
   it("keeps no-detail invalid_request gateway errors terminal", async () => {
     vi.stubGlobal(
       "fetch",

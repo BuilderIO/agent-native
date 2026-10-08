@@ -519,8 +519,16 @@ const TRANSIENT_UPSTREAM_PATTERN =
 function isTransientGatewayFailure(
   rawMessage: string,
   status?: number,
+  structuredCode?: string,
 ): boolean {
   if (status !== undefined && RETRYABLE_GATEWAY_STATUSES.has(status)) {
+    return true;
+  }
+  if (
+    structuredCode &&
+    /^[a-z\d_.-]{1,64}$/i.test(structuredCode) &&
+    TRANSIENT_UPSTREAM_PATTERN.test(structuredCode)
+  ) {
     return true;
   }
   if (isBuilderGatewayInternalErrorMessage(rawMessage)) return true;
@@ -1043,7 +1051,12 @@ async function* parseJsonlStream(
               ...(isBareRejection ? { statusCode: 403 } : {}),
               ...(isInvalidRequest
                 ? { providerRetryable: false }
-                : isBareRejection || isTransientGatewayFailure(String(errMsg))
+                : isBareRejection ||
+                    isTransientGatewayFailure(
+                      String(errMsg),
+                      undefined,
+                      gatewayErrCode,
+                    )
                   ? { providerRetryable: true }
                   : {}),
               ...(gatewayRequestId ? { requestId: gatewayRequestId } : {}),
