@@ -179,6 +179,33 @@ describe("generate-home-suggestions", () => {
     );
   });
 
+  it("recognizes hosted gateway timeouts by error code", async () => {
+    mocks.completeText.mockRejectedValue(
+      Object.assign(
+        new Error(
+          "Builder gateway timed out after 10s before the hosting function limit.",
+        ),
+        { errorCode: "builder_gateway_timeout" },
+      ),
+    );
+
+    await expect(
+      action.run({}, { userEmail: "user@example.test" } as never),
+    ).resolves.toEqual({
+      status: "unavailable",
+      reason: "timeout",
+      suggestions: [],
+    });
+    expect(mocks.track).toHaveBeenCalledWith(
+      "home_suggestions_unavailable",
+      expect.objectContaining({
+        app_name: "design",
+        failure_code: "timeout",
+      }),
+      expect.objectContaining({ userEmail: "user@example.test" }),
+    );
+  });
+
   it("maps malformed model output to an upstream failure", async () => {
     mocks.completeText.mockResolvedValue({ text: "not json" });
 

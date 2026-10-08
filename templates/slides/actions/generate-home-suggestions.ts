@@ -60,6 +60,9 @@ function unavailableReason(
   if ("errorCode" in error && error.errorCode === "missing_credentials") {
     return "missing_credentials";
   }
+  if ("errorCode" in error && error.errorCode === "builder_gateway_timeout") {
+    return "timeout";
+  }
   if (
     error.message ===
     `completeText timed out after ${HOME_SUGGESTIONS_TIMEOUT_MS}ms`

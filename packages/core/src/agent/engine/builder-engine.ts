@@ -961,6 +961,7 @@ async function* parseJsonlStream(
             yield stop({
               error: errMsg,
               errorCode: errCode,
+              providerRetryable: false,
               ...(isCreditsLimitErrorCode(errCode)
                 ? { upgradeUrl: await buildUpgradeUrl() }
                 : {}),
