@@ -1777,6 +1777,65 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
+  it("advertises declared annotations on /mcp and derives undeclared ones", async () => {
+    const trashAction = defineAction({
+      description: "Move one item to recoverable Trash.",
+      parameters: {},
+      mcpTool: true,
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      run: async () => ({ ok: true }),
+    });
+    const readAction = defineAction({
+      description: "Read one item.",
+      parameters: {},
+      mcpTool: true,
+      readOnly: true,
+      run: async () => ({ ok: true }),
+    });
+    const { client } = await createModernClient({
+      ...config,
+      actions: { "trash-item": trashAction, "read-item": readAction },
+    });
+    try {
+      const { tools } = await client.listTools();
+      const byName = new Map(tools.map((tool) => [tool.name, tool]));
+      expect(byName.get("trash-item")?.annotations).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      });
+      expect(byName.get("read-item")?.annotations).toMatchObject({
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      });
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("rejects a non-boolean idempotentHint", () => {
+    expect(() =>
+      defineAction({
+        description: "Move one item to recoverable Trash.",
+        parameters: {},
+        mcpAnnotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: "yes" as unknown as boolean,
+          openWorldHint: false,
+        },
+        run: async () => ({ ok: true }),
+      }),
+    ).toThrow(/idempotentHint is an optional boolean/);
+  });
+
   it("can omit widgets from one directory profile without changing /mcp", async () => {
     const directoryAction = defineAction({
       description: "Create one workspace artifact.",

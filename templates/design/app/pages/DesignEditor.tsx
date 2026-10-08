@@ -333,7 +333,11 @@ import {
 } from "@/components/design/inspector";
 import { waitForShaderWriteToSettle } from "@/components/design/inspector/GlslShaderPanel";
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
-import { KeyboardShortcutsPanel } from "@/components/design/KeyboardShortcutsPanel";
+import {
+  isEditorHotkeyBlockedByShortcutsDialog,
+  isKeyboardShortcutsDialogTarget,
+  KeyboardShortcutsDialog,
+} from "@/components/design/KeyboardShortcutsDialog";
 import {
   LayersPanel,
   type LayersPanelFile,
@@ -554,6 +558,7 @@ import {
   journalDesignSaveOutboxEntry,
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
+import { isContentIndependentDesignQuery } from "@/lib/design-sync-invalidation";
 import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import {
   DESIGN_HISTORY_OPEN_EVENT,
@@ -4421,7 +4426,9 @@ function DesignEditor() {
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: ["action"],
-        predicate: (query) => query.queryKey[1] !== "get-design",
+        predicate: (query) =>
+          query.queryKey[1] !== "get-design" &&
+          !isContentIndependentDesignQuery(query.queryKey[1]),
       });
     },
   });
@@ -11486,6 +11493,7 @@ function DesignEditor() {
       if (event.key !== " " || event.code !== "Space") return;
       if (event.repeat) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (isKeyboardShortcutsDialogTarget(event.target)) return;
       if (isNativeKeyboardActivationTarget(event.target)) return;
       if (isDesignHotkeyEditableTarget(event.target)) return;
       if (canEditDesignRef.current) {
@@ -18839,6 +18847,8 @@ function DesignEditor() {
   ]);
 
   const shouldHandleEditorHotkey = useCallback((event: KeyboardEvent) => {
+    // The shortcuts dialog is modal: only its own open/close chord leaves it.
+    if (isEditorHotkeyBlockedByShortcutsDialog(event)) return false;
     const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
     const primary = event.metaKey || event.ctrlKey;
     const plainPasteHotkey =
@@ -27402,12 +27412,12 @@ function DesignEditor() {
               onMediaFiles={handleDesignMediaFiles}
               onCommentPin={handlePinToolToggle}
               onModeChange={handleModeChange}
-              shortcutsPanelOpen={keyboardShortcutsOpen}
             />
           )}
 
-        {!hostOwnsChrome && keyboardShortcutsOpen ? (
-          <KeyboardShortcutsPanel
+        {!hostOwnsChrome ? (
+          <KeyboardShortcutsDialog
+            open={keyboardShortcutsOpen}
             onClose={handleCloseKeyboardShortcuts}
             nudgeAmounts={editorPreferences.nudge}
             onNudgeAmountsChange={(nudge) =>

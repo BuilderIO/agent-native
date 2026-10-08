@@ -951,7 +951,12 @@ function mergeConflictedDraft(
       op.slideId === slideId &&
       typeof op.fields.content === "string"
     ) {
-      draft = op.fields.content;
+      // A rebased retry already carries the earlier remote's edits, which the
+      // confirmed base lacks; merging it again would read them as overlapping
+      // edits. The draft it was merged from is what derives from the base.
+      draft = mergedRetryOps.has(op)
+        ? (mergedSlideDrafts.get(deckId)?.get(slideId) ?? op.fields.content)
+        : op.fields.content;
     }
   }
   const base = confirmedSlideBaseContent(deckId, slideId);
@@ -1136,6 +1141,8 @@ function flushDeferredRemoteSyncs() {
 // merged text - is what the next write must be based on; otherwise the next
 // keystroke save would silently overwrite the merged-in edits.
 const mergedSlideDrafts = new Map<string, Map<string, string>>();
+// Rebased retry ops whose content is a merge result rather than a local draft.
+const mergedRetryOps = new WeakSet<GranularOp>();
 
 type SaveStateSnapshot = {
   saving: boolean;
@@ -2099,11 +2106,14 @@ function drainPendingDeckOps(
             const merged = mergedContent.get(op.slideId);
             if (merged !== undefined) {
               const drafts = mergedSlideDrafts.get(deckId) ?? new Map();
-              if (!drafts.has(op.slideId)) {
+              if (!mergedRetryOps.has(op)) {
                 drafts.set(op.slideId, rebasedOp.fields.content as string);
               }
               mergedSlideDrafts.set(deckId, drafts);
               rebasedOp.fields.content = merged;
+            }
+            if (merged !== undefined || mergedRetryOps.has(op)) {
+              mergedRetryOps.add(rebasedOp);
             }
             const remoteContent = remoteSlides.get(op.slideId)?.content;
             if (typeof remoteContent === "string") {

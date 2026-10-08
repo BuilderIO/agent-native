@@ -436,11 +436,12 @@ export class TabSet {
       this.savesInFlight++;
       this.sentAt.set(request, Date.now());
     }
-    // The collaboration poll is the only poll request without a cursor.
+    // The shared transport sends both `since` and `cursor`; the collaboration
+    // poll sends only one of them.
     if (
       url.pathname === POLL_PATH &&
-      url.searchParams.has("since") &&
-      !url.searchParams.has("cursor")
+      (url.searchParams.has("since") || url.searchParams.has("cursor")) &&
+      !(url.searchParams.has("since") && url.searchParams.has("cursor"))
     ) {
       record.collabPollTimes.push(Date.now());
     }

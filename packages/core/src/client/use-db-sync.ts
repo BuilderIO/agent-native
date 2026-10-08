@@ -126,12 +126,33 @@ function collabBoostWanted(): boolean {
   );
 }
 
-function noteCollaboratorActivity(events: SyncEvent[]): void {
+type CollabActivityEvent = {
+  source?: string;
+  resourceType?: string;
+  resourceId?: string;
+  requestSource?: string;
+};
+
+// The server mirrors every saved file into its Yjs doc under the "agent"
+// source, so a lone editor's own save comes back as a collab event that is not
+// from anyone else. Only a Yjs update a browser tab posted names its sender.
+function isHumanCollabUpdate(event: CollabActivityEvent): boolean {
+  return (
+    event.source === "collab" &&
+    typeof event.requestSource === "string" &&
+    event.requestSource !== "" &&
+    event.requestSource !== "agent"
+  );
+}
+
+function noteCollaboratorActivity(
+  events: readonly CollabActivityEvent[],
+): void {
   const ownSource = getBrowserTabId();
   const until = Date.now() + COLLAB_ACTIVITY_WINDOW_MS;
   for (const event of events) {
     if (
-      event.source !== "action" ||
+      (event.source !== "action" && !isHumanCollabUpdate(event)) ||
       typeof event.resourceType !== "string" ||
       event.resourceType === "" ||
       typeof event.resourceId !== "string" ||
@@ -144,6 +165,20 @@ function noteCollaboratorActivity(events: SyncEvent[]): void {
       collabActivityUntilByResource.set(key, until);
     }
   }
+}
+
+/**
+ * For a collab connection's own ~12 s poll. A viewer on a screen nobody else
+ * is on has no presence to notice, but that poll still carries the design's
+ * resource-scoped events from the other screens, and the shared transport is
+ * asleep on the 1-5 minute idle cadence until something wakes it.
+ */
+export function noteCollabPollActivity(
+  events: readonly CollabActivityEvent[],
+): void {
+  const wasWanted = collabBoostWanted();
+  noteCollaboratorActivity(events);
+  if (!wasWanted && collabBoostWanted()) notifyCollabBoostChange();
 }
 
 function collabBoostFresh(): boolean {

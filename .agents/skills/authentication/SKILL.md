@@ -206,6 +206,30 @@ without blocking the primary product experience. Place org UI inside the agent
 sidebar so the setup
 checklist, chat, and CLI stay usable during setup.
 
+## Org Service Principals
+
+An org service token authenticates as `svc-<name>@service.<orgId>`, always an
+implicit `member`. Its governance record (`org/service-principal-policy.ts`)
+names an accountable `ownerEmail`, `team`, `riskTier`, `purpose`, a `lifecycle`
+(`active` | `suspended` | `retired`), and `allowedActions`.
+
+- Read the record through `evaluateServicePrincipal` at every entry point that
+  admits a service identity; never query the table directly.
+- `allowedActions: null` is unrestricted, and a list is deny-by-default (exact
+  names or a trailing `*` prefix). An empty list grants nothing.
+- The grant is enforced at the action boundary (`defineAction` wrapper and agent
+  tool execution via `enforceServicePrincipalActionGrant`), so MCP, HTTP action
+  routes, and delegated `ask-agent` runs all honor it. Agent built-ins are
+  covered, so a list grant must name them.
+- No record means an ungoverned legacy principal: still active and unrestricted.
+  Tightening it is an explicit admin act.
+- An unreadable record fails closed with a 503. Never map a read failure to
+  "ungoverned" or "active".
+- `set-service-principal-policy` and `set-service-principal-lifecycle` are
+  owner/admin only and not agent tool-callable. Suspending or retiring also
+  aborts the principal's in-flight runs. Never let the agent or a service token
+  widen its own grant.
+
 ## A2A Identity
 
 Set a distinct `A2A_SECRET` (same value) on apps that must verify each other's

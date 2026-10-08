@@ -423,13 +423,14 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         shard:
           [
-            inspector,
+            inspector-1,
+            inspector-2,
             drag-1,
             drag-2,
             position,
@@ -461,7 +462,7 @@ jobs:
 
       - name: Run focused Design regression cases
         working-directory: templates/design
-        timeout-minutes: 7
+        timeout-minutes: 15
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
@@ -494,13 +495,29 @@ jobs:
               pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/6"
               exit
               ;;
-            inspector)
+            inspector-1)
               fixed_specs=( \
                 e2e/canvas-invariants.spec.ts:508 \
                 e2e/canvas-invariants.spec.ts:1286 \
+                e2e/inspector-styles.spec.ts:176 \
+                e2e/inspector-styles.spec.ts:238 \
+                e2e/inspector-styles.spec.ts:314 \
+                e2e/inspector-styles.spec.ts:426 \
+                e2e/inspector-styles.spec.ts:452 \
+                e2e/inspector-styles.spec.ts:541 \
+              )
+              ;;
+            inspector-2)
+              fixed_specs=( \
                 e2e/canvas-invariants.spec.ts:1170 \
                 e2e/canvas-invariants.spec.ts:1320 \
-                e2e/inspector-styles.spec.ts \
+                e2e/inspector-styles.spec.ts:610 \
+                e2e/inspector-styles.spec.ts:667 \
+                e2e/inspector-styles.spec.ts:737 \
+                e2e/inspector-styles.spec.ts:798 \
+                e2e/inspector-styles.spec.ts:833 \
+                e2e/inspector-styles.spec.ts:880 \
+                e2e/inspector-styles.spec.ts:999 \
               )
               ;;
             drag-1)

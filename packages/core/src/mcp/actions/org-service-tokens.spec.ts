@@ -7,10 +7,34 @@ vi.mock("../connect-route.js", () => ({
 
 const listOrgServiceTokensMock = vi.fn();
 const revokeOrgServiceTokenMock = vi.fn();
-vi.mock("../connect-store.js", () => ({
-  MAX_SERVICE_TOKEN_TTL_DAYS: 3650,
+vi.mock("../connect-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../connect-store.js")>()),
   listOrgServiceTokens: (...a: any[]) => listOrgServiceTokensMock(...a),
   revokeOrgServiceToken: (...a: any[]) => revokeOrgServiceTokenMock(...a),
+}));
+
+const getPolicyMock = vi.fn();
+const upsertPolicyMock = vi.fn();
+const listPoliciesMock = vi.fn();
+vi.mock("../../org/service-principal-policy.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../../org/service-principal-policy.js")
+  >()),
+  // The action boundary evaluates a service caller before its own checks run.
+  evaluateServicePrincipal: async () => ({
+    status: "ungoverned",
+    orgId: "org-1",
+    serviceName: "ci",
+  }),
+  getServicePrincipalPolicy: (...a: any[]) => getPolicyMock(...a),
+  upsertServicePrincipalPolicy: (...a: any[]) => upsertPolicyMock(...a),
+  listServicePrincipalPolicies: (...a: any[]) => listPoliciesMock(...a),
+}));
+
+const isOrgMemberMock = vi.fn();
+vi.mock("../../org/membership.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../org/membership.js")>()),
+  isOrgMember: (...a: any[]) => isOrgMemberMock(...a),
 }));
 
 const roleRows: Array<{ role: string }> = [];
@@ -67,6 +91,16 @@ beforeEach(() => {
   });
   listOrgServiceTokensMock.mockResolvedValue([]);
   revokeOrgServiceTokenMock.mockResolvedValue(true);
+  getPolicyMock.mockResolvedValue(null);
+  listPoliciesMock.mockResolvedValue([]);
+  isOrgMemberMock.mockResolvedValue(true);
+  upsertPolicyMock.mockImplementation(async (_org, name, input) => ({
+    serviceName: name,
+    lifecycle: "active",
+    ownerEmail: input.ownerEmail ?? null,
+    riskTier: input.riskTier ?? "medium",
+    allowedActions: input.allowedActions ?? null,
+  }));
 });
 
 describe("create-org-service-token", () => {
@@ -82,6 +116,37 @@ describe("create-org-service-token", () => {
   it("is not callable from the sandboxed agent tool loop", () => {
     expect(createAction.toolCallable).toBe(false);
     expect(revokeAction.toolCallable).toBe(false);
+  });
+
+  it("audits token creation and re-minting without inputs or credential data", () => {
+    const args = { name: "ci", ownerEmail: "owner@example.com" };
+    const result = {
+      id: "tok-1",
+      token: "svc-secret-value",
+      serviceName: "ci",
+      serviceEmail: "svc-ci@service.org-1",
+    };
+    const meta = {
+      caller: "http",
+      userEmail: "admin@example.com",
+      orgId: "org-1",
+    };
+    const audit = createAction.audit;
+    const target = audit?.target?.(args, result, meta);
+    const summary = audit?.summary?.(args, result, meta);
+
+    expect(audit?.recordInputs).toBe(false);
+    expect(target).toEqual({
+      type: "service-principal",
+      id: "ci",
+      orgId: "org-1",
+      visibility: "admins",
+    });
+    expect(summary).toBe("Created or re-minted an organization service token.");
+    expect(JSON.stringify({ target, summary })).not.toContain(result.token);
+    expect(JSON.stringify({ target, summary })).not.toContain(
+      result.serviceEmail,
+    );
   });
 
   it("mints for an org admin and returns the token exactly once", async () => {
@@ -112,6 +177,129 @@ describe("create-org-service-token", () => {
       { statusCode: 403 },
     );
     expect(mintOrgServiceTokenMock).not.toHaveBeenCalled();
+  });
+
+  it("births the principal governed: owner defaults to the creating admin, medium risk, unrestricted", async () => {
+    const res = await createAction.run({ name: "CI" }, CTX());
+    expect(upsertPolicyMock).toHaveBeenCalledWith("org-1", "ci", {
+      ownerEmail: "admin@example.com",
+    });
+    expect(res).toMatchObject({
+      ownerEmail: "admin@example.com",
+      riskTier: "medium",
+      allowedActions: null,
+    });
+  });
+
+  it("writes the governance fields passed at mint, validating the owner is an org member", async () => {
+    await createAction.run(
+      {
+        name: "ci",
+        ownerEmail: "Owner@Example.com",
+        team: "platform",
+        riskTier: "high",
+        purpose: "release automation",
+        allowedActions: ["list-*", "list-*", "get-plan"],
+      },
+      CTX(),
+    );
+    expect(isOrgMemberMock).toHaveBeenCalledWith("org-1", "owner@example.com");
+    expect(upsertPolicyMock).toHaveBeenCalledWith("org-1", "ci", {
+      ownerEmail: "owner@example.com",
+      team: "platform",
+      riskTier: "high",
+      purpose: "release automation",
+      allowedActions: ["list-*", "get-plan"],
+    });
+  });
+
+  it("keeps an existing owner when re-minting without governance fields", async () => {
+    getPolicyMock.mockResolvedValue({
+      lifecycle: "active",
+      ownerEmail: "owner@example.com",
+    });
+    await createAction.run({ name: "ci" }, CTX());
+    expect(upsertPolicyMock).toHaveBeenCalledWith("org-1", "ci", {});
+  });
+
+  it.each(["suspended", "retired"])(
+    "refuses to mint for a %s principal",
+    async (lifecycle) => {
+      getPolicyMock.mockResolvedValue({ lifecycle, ownerEmail: "o@x.com" });
+      await expect(
+        createAction.run({ name: "ci" }, CTX()),
+      ).rejects.toMatchObject({ statusCode: 409 });
+      expect(mintOrgServiceTokenMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("revokes the new token if the principal becomes inactive during minting", async () => {
+    upsertPolicyMock.mockResolvedValue({
+      serviceName: "ci",
+      lifecycle: "retired",
+      ownerEmail: "admin@example.com",
+      riskTier: "medium",
+      allowedActions: null,
+    });
+
+    await expect(createAction.run({ name: "ci" }, CTX())).rejects.toMatchObject(
+      {
+        statusCode: 409,
+        message: expect.stringContaining("The new token was revoked"),
+      },
+    );
+    expect(revokeOrgServiceTokenMock).toHaveBeenCalledWith("org-1", "tok-1");
+  });
+
+  it("fails closed when a token minted during a lifecycle change cannot be revoked", async () => {
+    upsertPolicyMock.mockResolvedValue({
+      serviceName: "ci",
+      lifecycle: "retired",
+      ownerEmail: "admin@example.com",
+      riskTier: "medium",
+      allowedActions: null,
+    });
+    revokeOrgServiceTokenMock.mockResolvedValue(false);
+
+    await expect(createAction.run({ name: "ci" }, CTX())).rejects.toMatchObject(
+      {
+        statusCode: 503,
+        message: expect.stringContaining("tok-1 could not be revoked"),
+      },
+    );
+    expect(revokeOrgServiceTokenMock).toHaveBeenCalledWith("org-1", "tok-1");
+  });
+
+  it("refuses a non-member or service identity owner before minting", async () => {
+    isOrgMemberMock.mockResolvedValue(false);
+    await expect(
+      createAction.run({ name: "ci", ownerEmail: "x@example.com" }, CTX()),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    await expect(
+      createAction.run(
+        { name: "ci", ownerEmail: "svc-other@service.org.example" },
+        CTX(),
+      ),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(mintOrgServiceTokenMock).not.toHaveBeenCalled();
+  });
+
+  it("answers an unreadable policy store with 503 rather than minting ungoverned", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    getPolicyMock.mockRejectedValue(new Error("db down"));
+    await expect(createAction.run({ name: "ci" }, CTX())).rejects.toMatchObject(
+      { statusCode: 503 },
+    );
+    expect(mintOrgServiceTokenMock).not.toHaveBeenCalled();
+  });
+
+  it("revokes the token when its governance record cannot be written", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    upsertPolicyMock.mockRejectedValue(new Error("write failed"));
+    await expect(createAction.run({ name: "ci" }, CTX())).rejects.toMatchObject(
+      { statusCode: 503 },
+    );
+    expect(revokeOrgServiceTokenMock).toHaveBeenCalledWith("org-1", "tok-1");
   });
 
   it("rejects a non-member (including synthetic service identities) with 403", async () => {
@@ -287,6 +475,91 @@ describe("list-org-service-tokens", () => {
       statusCode: 403,
     });
     expect(listOrgServiceTokensMock).not.toHaveBeenCalled();
+  });
+
+  it("merges tokens and policies into one principal per service name", async () => {
+    const tok = (
+      id: string,
+      serviceName: string,
+      revokedAt: number | null,
+    ) => ({
+      id,
+      jti: id,
+      ownerEmail: `svc-${serviceName}@service.org-1`,
+      orgId: "org-1",
+      label: serviceName,
+      kind: "service",
+      serviceName,
+      createdBy: "admin@example.com",
+      createdAt: 1,
+      lastUsedAt: null,
+      revokedAt,
+    });
+    listOrgServiceTokensMock.mockResolvedValue([
+      tok("t1", "legacy", null),
+      tok("t2", "ci", null),
+      tok("t3", "ci", 5),
+      tok("t4", "gone", 5),
+    ]);
+    listPoliciesMock.mockResolvedValue([
+      {
+        serviceName: "ci",
+        ownerEmail: "o@example.com",
+        team: "platform",
+        riskTier: "high",
+        purpose: "release",
+        lifecycle: "suspended",
+        allowedActions: ["list-*"],
+        lifecycleReason: "incident",
+        lifecycleChangedBy: "admin@example.com",
+        lifecycleChangedAt: 9,
+      },
+      { serviceName: "policy-only", lifecycle: "active", riskTier: "low" },
+    ]);
+    setRole("member");
+    const res = await listAction.run({}, CTX());
+    expect(res.canManage).toBe(false);
+    expect(res.principals.map((p: any) => p.serviceName)).toEqual([
+      "ci",
+      "gone",
+      "legacy",
+      "policy-only",
+    ]);
+    const byName = Object.fromEntries(
+      res.principals.map((p: any) => [p.serviceName, p]),
+    );
+    expect(byName.legacy).toMatchObject({
+      state: "ungoverned",
+      ownerEmail: null,
+      riskTier: null,
+      allowedActions: null,
+      serviceEmail: "svc-legacy@service.org-1",
+    });
+    expect(byName.ci).toMatchObject({
+      state: "suspended",
+      ownerEmail: "o@example.com",
+      team: "platform",
+      riskTier: "high",
+      allowedActions: ["list-*"],
+      lifecycleReason: "incident",
+      lifecycleChangedBy: "admin@example.com",
+      lifecycleChangedAt: 9,
+    });
+    expect(byName["policy-only"].state).toBe("active");
+    // `tokens` keeps its existing shape and revoked filter.
+    expect(res.tokens.map((t: any) => t.id)).toEqual(["t1", "t2"]);
+  });
+
+  it("tells admins they can manage", async () => {
+    expect((await listAction.run({}, CTX())).canManage).toBe(true);
+  });
+
+  it("answers an unreadable policy store with 503, not an all-ungoverned list", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    listPoliciesMock.mockRejectedValue(new Error("db down"));
+    await expect(listAction.run({}, CTX())).rejects.toMatchObject({
+      statusCode: 503,
+    });
   });
 });
 
