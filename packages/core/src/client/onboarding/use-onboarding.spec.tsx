@@ -595,7 +595,7 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
     ).toBeNull();
   });
 
-  it("records abandonment after a failed save settles following unmount", async () => {
+  it("defers page-exit abandonment until a pending save fails", async () => {
     setCustomKeyOnboardingAttempt("attempt-failed-save-after-unmount");
     await act(async () => root?.render(<Harness />));
 
@@ -607,11 +607,9 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
         }),
     );
 
-    await act(async () => {
-      root?.unmount();
-      root = null;
-      await Promise.resolve();
-    });
+    const event = new Event("pagehide");
+    Object.defineProperty(event, "persisted", { value: false });
+    act(() => window.dispatchEvent(event));
     expect(trackEventMock).not.toHaveBeenCalled();
 
     await act(async () => {

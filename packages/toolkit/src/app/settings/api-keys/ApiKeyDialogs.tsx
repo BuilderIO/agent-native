@@ -399,10 +399,29 @@ export interface ServiceKeyDialogProps {
  * from Infrastructure. Reads the listing the dialog needs itself.
  */
 export function ServiceKeyDialog(props: ServiceKeyDialogProps) {
+  const savePending = useRef(false);
+  const dismiss = () => {
+    if (savePending.current) return;
+    trackCustomKeyOnboardingOutcome("credential_skipped");
+    props.onOpenChange(false);
+  };
+
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+    <Dialog
+      open={props.open}
+      onOpenChange={(open) => {
+        if (open) props.onOpenChange(true);
+        else dismiss();
+      }}
+    >
       {props.open && props.keyName ? (
-        <ServiceKeyDialogContent {...props} />
+        <ServiceKeyDialogContent
+          {...props}
+          onDismiss={dismiss}
+          onSavingChange={(saving) => {
+            savePending.current = saving;
+          }}
+        />
       ) : null}
     </Dialog>
   );
@@ -413,7 +432,12 @@ function ServiceKeyDialogContent({
   keyName,
   mode,
   onSaved,
-}: ServiceKeyDialogProps) {
+  onDismiss = () => onOpenChange(false),
+  onSavingChange,
+}: ServiceKeyDialogProps & {
+  onDismiss?: () => void;
+  onSavingChange?: (saving: boolean) => void;
+}) {
   const t = useT();
   const org = useOrg();
   const listing = useActionQuery<ApiKeysListing>("list-api-keys" as never);
@@ -436,6 +460,8 @@ function ServiceKeyDialogContent({
         }
         listing={listing.data}
         orgName={org.data?.orgName ?? ""}
+        onDismiss={onDismiss}
+        onSavingChange={onSavingChange}
         {...(onSaved ? { onSaved } : {})}
       />
     );
@@ -484,11 +510,7 @@ function ServiceKeyDialogContent({
         </div>
       )}
       <DialogFooter className="gap-2 sm:space-x-0">
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => onOpenChange(false)}
-        >
+        <Button type="button" variant="secondary" onClick={onDismiss}>
           {t(`${M}cancel`)}
         </Button>
         <Button type="button" disabled>

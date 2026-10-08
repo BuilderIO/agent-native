@@ -612,6 +612,9 @@ describe("DeleteKeyDialog", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     callActionMock.mockReset();
+    clientMock.save.mockReset();
+    onboardingOutcomeMock.mockReset();
+    credentialSaveBoundaryMock.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -722,6 +725,84 @@ describe("DeleteKeyDialog", () => {
     });
     expect(onSaved).toHaveBeenCalled();
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("records a service-key attempt as skipped when canceled", async () => {
+    state.listing = listing({ canManageOrg: true });
+    const onOpenChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <ServiceKeyDialog
+            open
+            onOpenChange={onOpenChange}
+            keyName="VOYAGE_API_KEY"
+            mode="add"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    await act(async () => buttonByText("Cancel", dialog).click());
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onboardingOutcomeMock).toHaveBeenCalledWith("credential_skipped");
+  });
+
+  it("keeps a service-key attempt open to the save outcome while saving", async () => {
+    let resolveSave!: () => void;
+    clientMock.save.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveSave = resolve;
+      }),
+    );
+    state.listing = listing({ canManageOrg: true });
+    const onOpenChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <ServiceKeyDialog
+            open
+            onOpenChange={onOpenChange}
+            keyName="VOYAGE_API_KEY"
+            mode="add"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const [, value] = [
+      ...dialog.querySelectorAll("input"),
+    ] as HTMLInputElement[];
+    await act(async () => typeInto(value!, "fake-voyage-value"));
+    await act(async () => {
+      dialog
+        .querySelector("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+    await vi.waitFor(() => expect(clientMock.save).toHaveBeenCalled());
+
+    await act(async () => buttonByText("Close", dialog).click());
+    await act(async () => buttonByText("Cancel", dialog).click());
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(
+      onboardingOutcomeMock.mock.calls.map(([outcome]) => outcome),
+    ).not.toContain("credential_skipped");
+
+    await act(async () => {
+      resolveSave();
+      await vi.waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    });
+    const outcomes = onboardingOutcomeMock.mock.calls.map(
+      ([outcome]) => outcome,
+    );
+    expect(outcomes).toContain("credential_saved");
+    expect(outcomes).not.toContain("credential_skipped");
+    expect(credentialSaveBoundaryMock).toHaveBeenCalledTimes(1);
   });
 
   it("replaces a service's saved organization key from Manage", async () => {
