@@ -8,14 +8,15 @@ import {
   STALE_RUN_RECOVERY_MAX_SUCCESSORS_PER_TURN,
 } from "../agent/run-store.js";
 import type { AgentChatEvent } from "../agent/types.js";
+import { automationOutcomeMessagesForLocale } from "../localization/automation-outcome-messages.js";
 import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import type { LocaleCode } from "../localization/shared.js";
 import {
   organizationResourceOwner,
   type Resource,
 } from "../resources/store.js";
-import { automationNoOpReasonFromEvents } from "./actions/automation-no-op.js";
 import { withDeliveryNote } from "./automation-outcome.js";
+import { inspectAutomationWork } from "./automation-work-evidence.js";
 import {
   recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
@@ -105,7 +106,20 @@ export async function inspectAutomationRecovery(
   appId?: string,
 ): Promise<AutomationRecovery | null> {
   const lastRun = meta.lastRun ? Date.parse(meta.lastRun) : Number.NaN;
-  if (!Number.isFinite(lastRun)) return null;
+  if (!Number.isFinite(lastRun)) {
+    if (!meta.lastHistoryId) return null;
+    const deliveryNote = deliveryNoteForEvents(null);
+    return {
+      state: "unrecoverable",
+      status: "error",
+      error: withDeliveryNote(
+        automationRecoveryMessagesForLocale().stopped,
+        deliveryNote,
+      ),
+      errorCode: "automation_recovery_history_unavailable",
+      deliveryNote,
+    };
+  }
   const owner = automationHistoryOwner(
     resource,
     meta.runAs === "shared" ? resource.owner : meta.createdBy || resource.owner,
@@ -190,36 +204,59 @@ export async function inspectAutomationRecovery(
   }
   await reapIfStale(history.runId);
   const run = await getRunById(history.runId);
-  if (!run)
-    throw new Error(
-      `Automation worker ${history.runId} has no durable run record`,
-    );
+  const unavailable = (): AutomationRecovery => ({
+    state: "settle",
+    status: "error",
+    history,
+    error: withDeliveryNote(
+      automationRecoveryMessagesForLocale().stopped,
+      deliveryNoteForEvents(null),
+    ),
+    errorCode: "automation_recovery_worker_unavailable",
+    deliveryNote: deliveryNoteForEvents(null),
+  });
+  if (!run) return unavailable();
   if (run.status === "running") return { state: "active" };
   const ref = await getRunTurnRef(run.id);
-  if (!ref || ref.threadId !== history.threadId)
-    throw new Error(`Automation worker ${run.id} has no matching turn`);
+  if (!ref || ref.threadId !== history.threadId) return unavailable();
   if (run.status === "completed") {
     const events = await getCurrentTurnEventsForThread(
       ref.threadId,
       ref.turnId,
     );
-    const noOpReason = automationNoOpReasonFromEvents(events);
-    if (
-      noOpReason &&
-      !events.some(
-        (event) =>
-          event.type === "tool_done" &&
-          (event.isError || event.completedSideEffect === true),
-      )
-    )
+    const evidence = inspectAutomationWork(events);
+    if (evidence.status === "skipped")
       return {
         state: "settle",
         status: "skipped",
         history,
-        error: noOpReason,
+        error: evidence.reason,
       };
-    if (!meta.deliveryDestination)
-      return { state: "settle", status: "success", history };
+    if (
+      !meta.deliveryDestination ||
+      (evidence.status === "unconfirmed" && evidence.noOpDeclared)
+    ) {
+      if (evidence.status === "success")
+        return { state: "settle", status: "success", history };
+      const messages = automationOutcomeMessagesForLocale("en-US");
+      const message = meta.deliveryDestination
+        ? messages.emptyDelivery
+        : messages.noWork;
+      const detail = evidence.failedTool?.result;
+      const deliveryNote = deliveryNoteForEvents(events);
+      return {
+        state: "settle",
+        status: "error",
+        history,
+        error: withDeliveryNote(
+          `${message}${detail ? ` ${detail}` : ""}`,
+          deliveryNote,
+        ),
+        errorCode:
+          evidence.failedTool?.errorCode ?? "automation_no_confirmed_work",
+        deliveryNote,
+      };
+    }
     return {
       state: "settle",
       status: "error",
@@ -241,6 +278,21 @@ export async function inspectAutomationRecovery(
     (await countRunsForTurn(ref.threadId, ref.turnId)) <=
       STALE_RUN_RECOVERY_MAX_SUCCESSORS_PER_TURN
   ) {
+    if (!meta.enabled && !meta.lastRunManual) {
+      const events = await getCurrentTurnEventsForThread(
+        ref.threadId,
+        ref.turnId,
+      );
+      return {
+        state: "settle",
+        status: "skipped",
+        history,
+        error: automationDeliveryNote(
+          automationRecoveryMessagesForLocale().disabled,
+          events,
+        ),
+      };
+    }
     return {
       state: "resume",
       resume: {

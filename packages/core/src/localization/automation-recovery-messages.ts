@@ -6,6 +6,7 @@ import {
 } from "./shared.js";
 
 interface AutomationRecoveryMessages {
+  disabled: string;
   deliveryUnknown: string;
   leaseLost: string;
   stopped: string;
@@ -21,6 +22,7 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
   AutomationRecoveryMessages
 > = {
   "en-US": {
+    disabled: "Recovery stopped because this automation is disabled.",
     historyUnavailable:
       "The interrupted automation’s run history is missing or no longer matches this automation. Recovery stopped to avoid repeating completed steps.",
     deliveryUnknown:
@@ -38,6 +40,7 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
       "Delivery outcome is unknown because the run journal could not be read.",
   },
   "zh-CN": {
+    disabled: "此自动化已禁用，因此恢复已停止。",
     historyUnavailable:
       "中断的自动化的运行历史缺失或已不再与此自动化匹配。为避免重复已完成的步骤，恢复已停止。",
     deliveryUnknown:
@@ -51,6 +54,7 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
     unreadable: "无法读取运行日志，因此交付结果未知。",
   },
   "zh-TW": {
+    disabled: "此自動化已停用，因此復原已停止。",
     historyUnavailable:
       "中斷的自動化執行歷史遺失或已不再與此自動化相符。為避免重複已完成的步驟，復原已停止。",
     deliveryUnknown:
@@ -64,6 +68,8 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
     unreadable: "無法讀取執行日誌，因此交付結果未知。",
   },
   "es-ES": {
+    disabled:
+      "La recuperación se detuvo porque esta automatización está desactivada.",
     historyUnavailable:
       "El historial de ejecución de la automatización interrumpida no está disponible o ya no corresponde a esta automatización. La recuperación se detuvo para evitar repetir los pasos completados.",
     deliveryUnknown:
@@ -81,6 +87,8 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
       "El resultado de la entrega es desconocido porque no se pudo leer el registro de ejecución.",
   },
   "fr-FR": {
+    disabled:
+      "La reprise s’est arrêtée car cette automatisation est désactivée.",
     historyUnavailable:
       "L’historique d’exécution de l’automatisation interrompue est manquant ou ne correspond plus à cette automatisation. La reprise s’est arrêtée pour éviter de répéter les étapes terminées.",
     deliveryUnknown:
@@ -98,6 +106,8 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
       "Le résultat de la livraison est inconnu car le journal d’exécution n’a pas pu être lu.",
   },
   "de-DE": {
+    disabled:
+      "Die Wiederaufnahme wurde beendet, weil diese Automatisierung deaktiviert ist.",
     historyUnavailable:
       "Der Ausführungsverlauf der unterbrochenen Automatisierung fehlt oder passt nicht mehr zu dieser Automatisierung. Die Wiederherstellung wurde gestoppt, um abgeschlossene Schritte nicht zu wiederholen.",
     deliveryUnknown:
@@ -116,6 +126,8 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
       "Das Zustellungsergebnis ist unbekannt, weil das Ausführungsprotokoll nicht gelesen werden konnte.",
   },
   "pt-BR": {
+    disabled:
+      "A recuperação foi interrompida porque esta automação está desativada.",
     historyUnavailable:
       "O histórico de execução da automação interrompida está ausente ou não corresponde mais a esta automação. A recuperação parou para evitar repetir etapas concluídas.",
     deliveryUnknown:
@@ -133,6 +145,7 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
       "O resultado da entrega é desconhecido porque não foi possível ler o registro de execução.",
   },
   "ja-JP": {
+    disabled: "この自動化が無効になっているため、復旧を停止しました。",
     historyUnavailable:
       "中断された自動化の実行履歴が見つからないか、この自動化と一致しなくなっています。完了した手順を繰り返さないよう、復旧を停止しました。",
     deliveryUnknown:
@@ -148,6 +161,7 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
     unreadable: "実行ログを読み取れなかったため、配信結果は不明です。",
   },
   "ko-KR": {
+    disabled: "이 자동화가 비활성화되어 복구가 중지되었습니다.",
     historyUnavailable:
       "중단된 자동화의 실행 기록이 없거나 더 이상 이 자동화와 일치하지 않습니다. 완료된 단계를 반복하지 않도록 복구를 중지했습니다.",
     deliveryUnknown:
@@ -164,6 +178,7 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
     unreadable: "실행 기록을 읽을 수 없어 전달 결과를 알 수 없습니다.",
   },
   "hi-IN": {
+    disabled: "यह ऑटोमेशन अक्षम है, इसलिए पुनर्प्राप्ति रोक दी गई।",
     historyUnavailable:
       "रुके हुए ऑटोमेशन का रन इतिहास गायब है या अब इस ऑटोमेशन से मेल नहीं खाता। पूरे हो चुके चरण दोहराने से बचने के लिए रिकवरी रोक दी गई।",
     deliveryUnknown:
@@ -179,6 +194,7 @@ export const AUTOMATION_RECOVERY_MESSAGES: Record<
     unreadable: "रन जर्नल पढ़ा नहीं जा सका, इसलिए डिलीवरी का परिणाम अज्ञात है।",
   },
   "ar-SA": {
+    disabled: "توقفت الاستعادة لأن هذا التشغيل الآلي معطل.",
     historyUnavailable:
       "سجل تشغيل الأتمتة المتوقفة مفقود أو لم يعد مطابقًا لهذه الأتمتة. توقفت الاستعادة لتجنب تكرار الخطوات المكتملة.",
     deliveryUnknown:

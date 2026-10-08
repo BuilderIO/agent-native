@@ -200,6 +200,36 @@ const recoveryDeps = {
 };
 
 describe("stale automation run-lock recovery across trigger types", () => {
+  it("settles a disabled scheduled firing without starting its successor", async () => {
+    const fixture = interruptedScheduledJob();
+    fixture.resource.content = fixture.resource.content.replace(
+      "enabled: true",
+      "enabled: false",
+    );
+    const finish = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockResolvedValue();
+    try {
+      await processRecurringJobs(recoveryDeps);
+      expect(finish).toHaveBeenCalledWith(
+        fixture.history.id,
+        "skipped",
+        expect.stringContaining("disabled"),
+        undefined,
+        { requirePersisted: true },
+      );
+      expect(runAgentLoopMock).not.toHaveBeenCalled();
+      const stored = parseJobResource(resourcePutMock.mock.calls.at(-1)?.[2]);
+      expect(stored.meta).toMatchObject({
+        enabled: false,
+        lastStatus: "skipped",
+      });
+      expect(stored.meta.lastError).toContain("send-test-email");
+    } finally {
+      finish.mockRestore();
+      fixture.restore();
+    }
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
@@ -754,11 +784,21 @@ describe("stale automation run-lock recovery across trigger types", () => {
       try {
         await processRecurringJobs(recoveryDeps);
         expect(runAgentLoopMock).toHaveBeenCalledOnce();
-        expect(
-          resourcePutMock.mock.calls.every((call) => call[1] === healthy.path),
-        ).toBe(true);
+        const recoveryWrite = resourcePutMock.mock.calls.find(
+          (call) => call[1] === fixture.resource.path,
+        );
+        if (problem === "failed history write")
+          expect(recoveryWrite).toBeUndefined();
+        else
+          expect(parseJobResource(recoveryWrite?.[2]).meta).toMatchObject({
+            lastStatus: "error",
+            lastErrorCode: "automation_recovery_worker_unavailable",
+          });
         expect(recordAutomationSchedulerHealth).toHaveBeenLastCalledWith(
-          expect.objectContaining({ error: expect.any(String) }),
+          expect.objectContaining({
+            error:
+              problem === "failed history write" ? expect.any(String) : null,
+          }),
         );
         expect(parseJobResource(fixture.resource.content).meta.lastStatus).toBe(
           "running",

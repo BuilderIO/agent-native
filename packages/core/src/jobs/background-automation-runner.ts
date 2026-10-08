@@ -88,7 +88,6 @@ import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.j
 import automationNoOpAction, {
   AUTOMATION_NO_OP_TOOL,
   automationNoOpSchema,
-  automationNoOpReasonFromEvents,
 } from "./actions/automation-no-op.js";
 import {
   applyAutomationFailure,
@@ -106,6 +105,7 @@ import {
   automationHistoryOwner,
   type AutomationResume,
 } from "./automation-recovery.js";
+import { inspectAutomationWork } from "./automation-work-evidence.js";
 import { effectiveTimezone } from "./cron.js";
 import {
   recoveredFactoryOwnerOrgId,
@@ -348,10 +348,12 @@ export async function resolveBackgroundAutomationIdentity(
 }
 
 export function isBackgroundAutomationRunActive(
-  meta: Pick<JobFrontmatter, "lastRun" | "lastStatus">,
+  meta: Pick<JobFrontmatter, "lastRun" | "lastStatus" | "lastHistoryId">,
   now = new Date(),
 ): boolean {
   if (meta.lastStatus !== "running") return false;
+  // Exact firing markers remain owned until the scheduler reconciles history.
+  if (meta.lastHistoryId) return true;
   if (!meta.lastRun) return false;
   const startedAt = new Date(meta.lastRun).getTime();
   return (
@@ -855,26 +857,17 @@ async function confirmAutomationWork(
   actions: Record<string, ActionEntry>,
   noOpReason: string | undefined,
 ): Promise<{ status: "success" } | { status: "skipped"; reason: string }> {
-  const events = run.events ?? [];
-  noOpReason ??= automationNoOpReasonFromEvents(
-    events.map(({ event }) => event),
+  const evidence = inspectAutomationWork(
+    (run.events ?? []).map(({ event }) => event),
+    {
+      noOpReason,
+      confirmsWork: (tool) => actions[tool]?.confirmsAutomationWork !== false,
+    },
   );
-  const hasConfirmedAction = events.some(
-    ({ event }) =>
-      event.type === "tool_done" &&
-      !event.isError &&
-      event.completedSideEffect === true &&
-      actions[event.tool]?.confirmsAutomationWork !== false,
-  );
-  const lastFailedTool = [...events]
-    .reverse()
-    .find(({ event }) => event.type === "tool_done" && event.isError);
-  if (noOpReason && !hasConfirmedAction && !lastFailedTool) {
-    return { status: "skipped", reason: noOpReason };
-  }
+  if (evidence.status === "skipped") return evidence;
   const { deliveryPlatform, deliveryDestination } = automation.meta;
   if (
-    (!noOpReason || hasConfirmedAction) &&
+    (evidence.status === "success" || !evidence.noOpDeclared) &&
     deliveryPlatform &&
     deliveryDestination &&
     responseText.trim()
@@ -898,18 +891,13 @@ async function confirmAutomationWork(
     );
     return { status: "success" };
   }
-  if (hasConfirmedAction) return { status: "success" };
+  if (evidence.status === "success") return evidence;
 
   const messages = await automationOutcomeMessagesForUser(ownerEmail);
-  const detail =
-    lastFailedTool?.event.type === "tool_done"
-      ? lastFailedTool.event.result
-      : undefined;
+  const detail = evidence.failedTool?.result;
   throw new BackgroundAutomationRunError(
     `${deliveryPlatform && deliveryDestination ? messages.emptyDelivery : messages.noWork}${detail ? ` ${detail}` : ""}`,
-    lastFailedTool?.event.type === "tool_done"
-      ? (lastFailedTool.event.errorCode ?? "automation_no_confirmed_work")
-      : "automation_no_confirmed_work",
+    evidence.failedTool?.errorCode ?? "automation_no_confirmed_work",
   );
 }
 

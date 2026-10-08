@@ -764,6 +764,78 @@ Respond to the event.`,
       }
     },
   );
+  it.each(["event", "webhook"])(
+    "preserves a stale scheduled firing before %s dispatch",
+    async (source) => {
+      const { parseJobResource } = await import("../jobs/frontmatter.js");
+      const stored = {
+        ...conditionResource(
+          "scheduled-before-trigger",
+          "scheduled.before.trigger",
+        ),
+        content: buildTriggerContent(
+          {
+            schedule: "*/2 * * * *",
+            enabled: true,
+            triggerType: source === "event" ? "event" : "webhook",
+            event: "scheduled.before.trigger",
+            mode: "agentic",
+            lastStatus: "running",
+            lastRun: new Date(Date.now() - 11 * 60_000).toISOString(),
+            lastHistoryId: "unfinished-scheduled-history",
+          },
+          "Handle the trigger.",
+        ),
+      };
+      resourceListAllOwnersMock.mockResolvedValue([stored]);
+      resourceGetByPathMock.mockResolvedValue(stored);
+      isProductionServerlessRuntimeMock.mockReturnValue(true);
+      await initTriggerDispatcher({
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+      });
+      if (source === "webhook") {
+        expect(
+          await dispatchAutomationWebhookTask({
+            kind: "automation-webhook",
+            automationId: stored.id,
+            owner: stored.owner,
+            path: stored.path,
+            eventId: "deferred-trigger",
+            payload: {},
+          }),
+        ).toBe("retry");
+      } else {
+        const handler = subscribeMock.mock.calls.find(
+          ([name]) => name === "scheduled.before.trigger",
+        )?.[1];
+        await handler(
+          {},
+          {
+            owner: stored.owner,
+            eventId: "deferred-trigger",
+            emittedAt: new Date().toISOString(),
+          },
+        );
+        const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+          ([id]) => id === "automation-trigger-queue",
+        )?.[1];
+        await sweep({ deadlineAt: Date.now() + 120_000 });
+        expect(
+          triggerQueueMocks.rows.find(
+            (row) => row.eventId === "deferred-trigger",
+          )?.status,
+        ).toBe("pending");
+      }
+      expect(startRunMock).not.toHaveBeenCalled();
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+      expect(parseJobResource(stored.content).meta).toMatchObject({
+        lastStatus: "running",
+        lastHistoryId: "unfinished-scheduled-history",
+      });
+    },
+  );
+
   it("records a resolved skip and reason without clearing the existing failure streak", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
     resourceListAllOwnersMock.mockResolvedValue([

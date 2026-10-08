@@ -320,6 +320,97 @@ describe("automation worker recovery", () => {
     expect(mocks.reap).not.toHaveBeenCalled();
   });
 
+  it.each(["failed tool", "read-only work"])(
+    "requires confirmed work after a completed %s before history settlement",
+    async (scenario) => {
+      mocks.get.mockResolvedValue({ id: "job-1", status: "completed" });
+      mocks.events.mockResolvedValue([
+        {
+          type: "tool_done",
+          tool: "send-test-email",
+          result: "Provider rejected delivery",
+          ...(scenario === "failed tool"
+            ? { isError: true, errorCode: "http_502" }
+            : {}),
+        },
+      ]);
+      expect(
+        await inspectAutomationRecovery(resource, meta, now),
+      ).toMatchObject({
+        state: "settle",
+        status: "error",
+        errorCode:
+          scenario === "failed tool"
+            ? "http_502"
+            : "automation_no_confirmed_work",
+      });
+    },
+  );
+
+  it.each(["missing worker", "missing turn", "foreign turn"])(
+    "settles %s without replaying unavailable evidence",
+    async (scenario) => {
+      if (scenario === "missing worker") mocks.get.mockResolvedValue(null);
+      else
+        mocks.ref.mockResolvedValue(
+          scenario === "missing turn"
+            ? null
+            : { threadId: "foreign-thread", turnId: "foreign-turn" },
+        );
+      expect(
+        await inspectAutomationRecovery(resource, meta, now),
+      ).toMatchObject({
+        state: "settle",
+        status: "error",
+        history,
+        errorCode: "automation_recovery_worker_unavailable",
+        error: expect.stringContaining("Delivery outcome is unknown"),
+      });
+      expect(mocks.events).not.toHaveBeenCalled();
+    },
+  );
+
+  it("retains recovery on a transient worker lookup failure", async () => {
+    mocks.get.mockRejectedValue(new Error("worker database unavailable"));
+    await expect(
+      inspectAutomationRecovery(resource, meta, now),
+    ).rejects.toThrow("worker database unavailable");
+  });
+
+  it("does not resume a disabled scheduled firing", async () => {
+    expect(
+      await inspectAutomationRecovery(
+        resource,
+        { ...meta, enabled: false },
+        now,
+      ),
+    ).toMatchObject({
+      state: "settle",
+      status: "skipped",
+      error: expect.stringContaining("disabled"),
+    });
+  });
+
+  it("retains intentional manual recovery on a disabled automation", async () => {
+    expect(
+      await inspectAutomationRecovery(
+        resource,
+        { ...meta, enabled: false, lastRunManual: true },
+        now,
+      ),
+    ).toMatchObject({ state: "resume" });
+  });
+
+  it("settles an exact marker with an unreadable start time", async () => {
+    expect(
+      await inspectAutomationRecovery(
+        resource,
+        { ...meta, lastRun: "invalid" },
+        now,
+      ),
+    ).toMatchObject({ state: "unrecoverable", status: "error" });
+  });
+
   it.each([undefined, "test-destination"])(
     "recovers a completed no-op before history settlement with destination %s",
     async (deliveryDestination) => {
@@ -489,11 +580,7 @@ describe("automation worker recovery", () => {
     );
   });
 
-  it("fails closed when the durable worker record or journal is unreadable", async () => {
-    mocks.get.mockResolvedValue(null);
-    await expect(
-      inspectAutomationRecovery(resource, meta, now),
-    ).rejects.toThrow("no durable run record");
+  it("fails closed when the durable journal is unreadable", async () => {
     mocks.get.mockResolvedValue({
       id: "job-1",
       status: "errored",

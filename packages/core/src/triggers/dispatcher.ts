@@ -1252,6 +1252,7 @@ async function dispatchAgentic(
     );
     return true;
   }
+  if (isBackgroundAutomationRunActive(latestTrigger.meta)) return false;
   const runningMeta: TriggerFrontmatter = {
     ...latestTrigger.meta,
     lastRun: now.toISOString(),

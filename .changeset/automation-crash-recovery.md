@@ -26,3 +26,5 @@ Recover from an absent or mismatched firing-history reference as an explicit err
 Preserve completed no-op outcomes when reconciling recovery alongside the shared automation outcome runner, and keep its clock context in the saved request.
 
 Retain unfinished firing history during pruning and recover journal-confirmed no-op results when terminal history persistence was interrupted.
+
+Apply shared work-confirmation rules during recovery, settle missing worker evidence without replaying it, preserve unfinished scheduled firing references across trigger dispatch, and stop disabled scheduled firings while retaining intentional manual recovery and delivery evidence.
