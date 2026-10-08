@@ -10,14 +10,18 @@ import {
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { deleteVisualEditSnapshotBlobs } from "../server/lib/visual-edit-snapshot-blobs.js";
+import {
+  deleteVisualEditSnapshotBlobs,
+  queueVisualEditSnapshotBlobCleanupInTransaction,
+} from "../server/lib/visual-edit-snapshot-blobs.js";
 import {
   readLiveSourceFile,
+  withDesignSourceMutationTransaction,
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
 import { BOARD_FILENAME } from "../shared/board-file.js";
@@ -224,6 +228,55 @@ async function cleanupUploadedScreenshots(
   }
 }
 
+async function removeUploadedScreenshotMetadata(
+  designId: string,
+  screenshots: readonly Pick<UploadedScreenshot, "id" | "blobHandle">[],
+): Promise<string[]> {
+  if (screenshots.length === 0) return [];
+  const screenshotIds = screenshots.map(({ id }) => id);
+  const rows = await withDesignSourceMutationTransaction(
+    designId,
+    async (tx) => {
+      const persisted = await tx
+        .select({
+          id: schema.designBoardReplayScreenshots.id,
+          blobHandle: schema.designBoardReplayScreenshots.blobHandle,
+        })
+        .from(schema.designBoardReplayScreenshots)
+        .where(
+          and(
+            inArray(schema.designBoardReplayScreenshots.id, [...screenshotIds]),
+            eq(schema.designBoardReplayScreenshots.designId, designId),
+          ),
+        )
+        .for("update");
+
+      const persistedIds = new Set(persisted.map(({ id }) => id));
+      const blobHandles = [
+        ...persisted.map(({ blobHandle }) => blobHandle),
+        ...screenshots
+          .filter(({ id }) => !persistedIds.has(id))
+          .map(({ blobHandle }) => JSON.stringify(blobHandle)),
+      ];
+      await queueVisualEditSnapshotBlobCleanupInTransaction(tx, blobHandles);
+      if (persisted.length > 0) {
+        await tx
+          .delete(schema.designBoardReplayScreenshots)
+          .where(
+            and(
+              inArray(schema.designBoardReplayScreenshots.id, [
+                ...screenshotIds,
+              ]),
+              eq(schema.designBoardReplayScreenshots.designId, designId),
+            ),
+          );
+      }
+      return blobHandles;
+    },
+  );
+  return rows;
+}
+
 async function rollbackBoardWrite(write: BoardWrite): Promise<void> {
   await writeInlineSourceFile({
     designId: write.designId,
@@ -282,7 +335,7 @@ export default defineAction({
     const uploaded: UploadedScreenshot[] = [];
     let totalBytes = 0;
     let createdDesignId: string | undefined;
-    let insertedScreenshotIds: string[] = [];
+    let screenshotMetadataInsertAttempted = false;
     let boardWrite: BoardWrite | undefined;
 
     try {
@@ -460,8 +513,8 @@ export default defineAction({
           orgId: design.orgId,
         }),
       );
+      screenshotMetadataInsertAttempted = true;
       await db.insert(schema.designBoardReplayScreenshots).values(metadataRows);
-      insertedScreenshotIds = uploaded.map(({ id }) => id);
 
       return {
         designId: targetDesignId,
@@ -474,35 +527,85 @@ export default defineAction({
         },
       };
     } catch (error) {
-      const db = getDb();
       let createdDesignDeleted = false;
-      if (createdDesignId) {
+      let screenshotMetadataRollbackCommitted =
+        !screenshotMetadataInsertAttempted;
+      let rollbackQueuedBlobHandles: string[] = [];
+
+      if (uploaded.length && screenshotMetadataInsertAttempted) {
         try {
-          await deleteDesign.run({ id: createdDesignId }, context);
-          createdDesignDeleted = true;
+          const cleanup = await removeUploadedScreenshotMetadata(
+            targetDesignId,
+            uploaded,
+          );
+          screenshotMetadataRollbackCommitted = true;
+          rollbackQueuedBlobHandles = cleanup;
+        } catch (cleanupError) {
+          console.warn(
+            "[design-replay-screenshots] Screenshot metadata rollback failed:",
+            cleanupError,
+          );
+          try {
+            const cleanup = await removeUploadedScreenshotMetadata(
+              targetDesignId,
+              uploaded,
+            );
+            screenshotMetadataRollbackCommitted = true;
+            rollbackQueuedBlobHandles = cleanup;
+          } catch (retryError) {
+            console.warn(
+              "[design-replay-screenshots] Screenshot metadata rollback retry failed:",
+              retryError,
+            );
+          }
+        }
+        if (
+          screenshotMetadataRollbackCommitted &&
+          requestedDesignId &&
+          rollbackQueuedBlobHandles.length > 0
+        ) {
+          try {
+            await deleteVisualEditSnapshotBlobs(rollbackQueuedBlobHandles);
+          } catch (cleanupError) {
+            console.warn(
+              "[design-replay-screenshots] Queued screenshot cleanup remains pending:",
+              cleanupError,
+            );
+          }
+        }
+      }
+
+      if (createdDesignId && screenshotMetadataRollbackCommitted) {
+        try {
+          const result = await deleteDesign.run(
+            { id: createdDesignId },
+            context,
+          );
+          createdDesignDeleted = result?.deleted === true;
         } catch (cleanupError) {
           console.warn(
             "[design-replay-screenshots] Newly created Design cleanup failed:",
             cleanupError,
           );
         }
-      }
-      if (insertedScreenshotIds.length && !createdDesignDeleted) {
-        await Promise.allSettled(
-          insertedScreenshotIds.map((id) =>
-            db
-              .delete(schema.designBoardReplayScreenshots)
-              .where(
-                and(
-                  eq(schema.designBoardReplayScreenshots.id, id),
-                  eq(
-                    schema.designBoardReplayScreenshots.designId,
-                    targetDesignId,
-                  ),
-                ),
-              ),
-          ),
-        );
+        if (!createdDesignDeleted) {
+          try {
+            const [remainingDesign] = await getDb()
+              .select({ id: schema.designs.id })
+              .from(schema.designs)
+              .where(eq(schema.designs.id, createdDesignId))
+              .limit(1);
+            createdDesignDeleted = !remainingDesign;
+            if (remainingDesign && rollbackQueuedBlobHandles.length > 0) {
+              await deleteVisualEditSnapshotBlobs(rollbackQueuedBlobHandles);
+            }
+          } catch (cleanupError) {
+            console.warn(
+              "[design-replay-screenshots] Could not verify newly created Design cleanup:",
+              cleanupError,
+            );
+          }
+        }
       }
       if (boardWrite && !createdDesignDeleted) {
         try {
@@ -514,7 +617,7 @@ export default defineAction({
           );
         }
       }
-      if (!createdDesignDeleted || insertedScreenshotIds.length === 0) {
+      if (uploaded.length && !screenshotMetadataInsertAttempted) {
         await cleanupUploadedScreenshots(
           uploaded.map(({ blobHandle }) => blobHandle),
         );

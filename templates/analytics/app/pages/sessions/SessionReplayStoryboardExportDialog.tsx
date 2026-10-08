@@ -241,6 +241,7 @@ export function SessionReplayStoryboardExportDialog({
     setProgress(t("sessions.storyboardStartingCapture"));
     const controller = new AbortController();
     abortRef.current = controller;
+    let mutationSubmitted = false;
     const capturePromise = startReplayCompositorCapture();
 
     try {
@@ -432,11 +433,14 @@ export function SessionReplayStoryboardExportDialog({
         );
       });
       const token = await getIdToken();
+      if (controller.signal.aborted) {
+        throw new Error(t("sessions.storyboardCanceled"));
+      }
+      mutationSubmitted = true;
       const upload = await fetch(appApiPath("session-replay/storyboard"), {
         method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         body: formData,
-        signal: controller.signal,
       });
       let result: {
         response?: string;
@@ -470,7 +474,11 @@ export function SessionReplayStoryboardExportDialog({
         }),
       );
     } catch (captureError) {
-      setError(captureErrorMessage(captureError));
+      setError(
+        controller.signal.aborted && !mutationSubmitted
+          ? t("sessions.storyboardCanceled")
+          : captureErrorMessage(captureError),
+      );
       setExportState("idle");
       setProgress("");
     } finally {
@@ -480,10 +488,9 @@ export function SessionReplayStoryboardExportDialog({
   }
 
   function cancelCapture() {
+    if (exportState !== "capturing") return;
     abortRef.current?.abort();
     captureRef.current?.stop();
-    cleanup();
-    setBusy(false);
     setExportState("idle");
     setProgress("");
     setError(t("sessions.storyboardCanceled"));
@@ -626,12 +633,12 @@ export function SessionReplayStoryboardExportDialog({
           </div>
           {exportState === "done" ? null : (
             <DialogFooter className="mt-4">
-              {busy ? (
+              {busy && exportState === "capturing" ? (
                 <Button type="button" variant="outline" onClick={cancelCapture}>
                   <IconPlayerStop />
                   {t("sessions.cancelStoryboardCapture")}
                 </Button>
-              ) : (
+              ) : busy ? null : (
                 <>
                   <Button
                     type="button"
