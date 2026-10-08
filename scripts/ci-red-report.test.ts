@@ -46,6 +46,7 @@ function job(
     name: "chromium / design editor",
     status: "completed",
     conclusion: "failure",
+    started_at: "2026-10-05T12:00:00Z",
     completed_at: "2026-10-05T12:30:00Z",
     steps: [step("Run Design E2E", "failure")],
     ...overrides,
@@ -519,7 +520,8 @@ describe("ci-red-report", () => {
         [
           job(cancelled.id, 461, {
             conclusion: "cancelled",
-            steps: [step("Run Design E2E", "cancelled")],
+            started_at: null,
+            steps: [],
           }),
           job(cancelled.id, 462, {
             conclusion: "skipped",
@@ -542,6 +544,31 @@ describe("ci-red-report", () => {
 
     assert.equal(rows.length, 1);
     assert.equal(rows[0].runId, skippedOnly.id);
+    assert.equal(rows[0].fingerprintGrain, "workflow");
+  });
+
+  it("keeps a workflow-level failure when a cancelled job has started", () => {
+    const cancelledAfterStart = run(48);
+    const rows = buildCiRedRows(
+      [cancelledAfterStart],
+      new Map([
+        [
+          cancelledAfterStart.id,
+          [
+            job(cancelledAfterStart.id, 481, {
+              conclusion: "cancelled",
+              started_at: "2026-10-05T12:05:00Z",
+              steps: [step("Run Design E2E", "cancelled")],
+            }),
+          ],
+        ],
+      ]),
+      since,
+      now,
+    );
+
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].runId, cancelledAfterStart.id);
     assert.equal(rows[0].fingerprintGrain, "workflow");
   });
 

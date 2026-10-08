@@ -44,6 +44,7 @@ export type WorkflowJob = {
   name: string;
   status: string;
   conclusion: string | null;
+  started_at: string | null;
   completed_at: string | null;
   steps: WorkflowStep[];
 };
@@ -302,6 +303,13 @@ function parseWorkflowJob(value: unknown, context: string): WorkflowJob {
     "completed_at",
     context,
   );
+  const startedAt = record.started_at;
+  if (
+    startedAt !== null &&
+    (typeof startedAt !== "string" || !Number.isFinite(Date.parse(startedAt)))
+  ) {
+    return invalid(context, `workflow job ${id} has invalid started_at`);
+  }
   if (record.status === "completed" && !completedAt) {
     return invalid(
       context,
@@ -317,6 +325,7 @@ function parseWorkflowJob(value: unknown, context: string): WorkflowJob {
     name: requiredString(record.name, "name", context),
     status: requiredString(record.status, "status", context),
     conclusion: jobConclusion,
+    started_at: startedAt,
     completed_at: completedAt,
     steps,
   };
@@ -480,6 +489,9 @@ export function buildCiRedRows(
         jobs.every(
           (job) =>
             job.conclusion === "cancelled" || job.conclusion === "skipped",
+        ) &&
+        jobs.every(
+          (job) => job.conclusion !== "cancelled" || job.started_at === null,
         )
       )
         continue;
