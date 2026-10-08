@@ -431,6 +431,7 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
 
       const serviceEmail = "svc-pr-recap@service.org-123";
       mockDb({
+        memberOf: ["org-123"],
         storedToken: {
           jti: CONNECT_TOKEN_JTI,
           orgId: "org-123",

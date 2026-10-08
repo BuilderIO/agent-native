@@ -95,7 +95,11 @@ async function addOrgMember(memberOrgId: string, email: string) {
 }
 
 async function listVisible(
-  ctx: { userEmail?: string; orgId?: string },
+  ctx: {
+    userEmail?: string;
+    orgId?: string;
+    verifiedServiceIdentity?: { userEmail: string; orgId: string };
+  },
   minRole: ShareRole = "viewer",
   options: { includePublic?: boolean } = {},
 ) {
@@ -682,6 +686,13 @@ describe("shareable resource access helpers", () => {
         ).rejects.toBeInstanceOf(ForbiddenError);
       },
     );
+    await expect(
+      listVisible({
+        userEmail: serviceEmail,
+        orgId,
+        verifiedServiceIdentity: { userEmail: serviceEmail, orgId },
+      }),
+    ).resolves.toEqual(["doc-org-service-member"]);
   });
 
   it("denies service identity access to a federated org without validated membership", async () => {
@@ -718,6 +729,13 @@ describe("shareable resource access helpers", () => {
         ).resolves.toBe(null);
       },
     );
+    await expect(
+      listVisible({
+        userEmail: serviceEmail,
+        orgId,
+        verifiedServiceIdentity: { userEmail: serviceEmail, orgId },
+      }),
+    ).resolves.toEqual([]);
   });
 
   it("requires verified service-token provenance when the service-shaped email matches the org", async () => {
