@@ -30,6 +30,7 @@ import {
   validateMcpDirectoryProfile,
   validateMcpDirectoryWidgetDomain,
   selectMcpActionSurface,
+  selectMcpDirectoryWidgetReadActions,
   type MCPConfig,
   type MCPCallerIdentity,
   type MCPRequestMeta,
@@ -54,6 +55,7 @@ export {
   getAccessTokens,
   resolveOrgIdFromDomain,
   buildLinkArtifacts,
+  selectMcpDirectoryWidgetReadActions,
 };
 export type { MCPConfig, MCPCallerIdentity, MCPRequestMeta };
 
@@ -346,7 +348,10 @@ async function handleMcpRequestInternal(
         connectorCatalog: directoryProfile.connectorCatalog,
         instructions: directoryProfile.instructions,
         keyToolNames: directoryProfile.keyToolNames,
-        widgetDomain: requestMeta.origin,
+        widgetDomain:
+          directoryProfile.widgetDomain ??
+          config.widgetDomain ??
+          requestMeta.origin,
       }
     : config;
   let authResult: Awaited<ReturnType<typeof verifyAuth>>;

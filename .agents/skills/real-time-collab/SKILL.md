@@ -40,7 +40,9 @@ conflicts. Always choose an explicit `access` mode on `createCollabPlugin`.
   awareness TTL. The boost lapses after 3 minutes with no input and no remote
   events. Lone tabs pay nothing extra. A read-only viewer must join the doc too (Design's
   `useViewerPresence`; it never uses the `ydoc`), or it never sees an editor
-  and stays on the idle cadence.
+  and stays on the idle cadence. A viewer on a different screen than the
+  editor shares no doc with them; its own collab poll sees the design's
+  resource-scoped events from other tabs and starts the boost (60 s) itself.
 - **Update batching** — local Yjs updates are debounced ~80 ms and coalesced
   with `Y.mergeUpdates` before sending; flushed immediately on
   `visibilitychange` / `pagehide`

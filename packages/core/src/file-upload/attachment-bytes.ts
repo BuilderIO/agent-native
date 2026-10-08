@@ -6,6 +6,23 @@ export type SniffedImageMediaType =
 
 export type SniffedMediaType = SniffedImageMediaType | "application/pdf";
 
+export function normalizeImageMediaType(
+  value: string | undefined,
+): SniffedImageMediaType | null {
+  const normalized = value?.split(";")[0]?.trim().toLowerCase();
+  switch (normalized) {
+    case "image/jpeg":
+    case "image/jpg":
+      return "image/jpeg";
+    case "image/png":
+    case "image/gif":
+    case "image/webp":
+      return normalized;
+    default:
+      return null;
+  }
+}
+
 const HEAD_BASE64_CHARS = 64;
 const TAIL_BASE64_CHARS = 1024;
 

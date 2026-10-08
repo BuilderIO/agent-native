@@ -3,6 +3,8 @@ import {
   isSpreadsheetDocument,
   parseSpreadsheetDocument,
 } from "../ingestion/spreadsheet.js";
+import { parseBase64DataUrl } from "../shared/data-url.js";
+import { normalizeImageMediaType } from "./attachment-bytes.js";
 import {
   classifyInlineAttachment,
   describeInlineBlockReason,
@@ -38,13 +40,15 @@ export interface PreUploadAttachmentsResult {
   injectedText: string | null;
 }
 
-const FILE_DATA_URL_RE = /^data:([^;]+);base64,(.+)$/;
 const SVG_REFERENCE_SECURITY_NOTE =
   "SVG content may contain active markup; use this URL as a file reference unless the target app sanitizes it.";
 const SPREADSHEET_PREVIEW_MAX_CHARS = 24_000;
 
 function normalizeContentType(value: string | undefined): string | undefined {
-  return value?.split(";")[0]?.trim().toLowerCase() || undefined;
+  const normalized = value?.split(";")[0]?.trim().toLowerCase();
+  return normalized
+    ? (normalizeImageMediaType(normalized) ?? normalized)
+    : undefined;
 }
 
 function hasSvgFilename(name: string | undefined): boolean {
@@ -94,23 +98,23 @@ async function parseSpreadsheetAttachment(
   data: string | undefined,
 ): Promise<string | null> {
   if (!data) return null;
-  const match = data.match(FILE_DATA_URL_RE);
-  if (!match) {
+  const dataUrl = parseBase64DataUrl(data);
+  if (!dataUrl) {
     if (!isSpreadsheetDocument(att.name, att.contentType)) return null;
     return `<spreadsheet-attachment-error name="${escapeXmlAttr(att.name)}">The workbook data was not a readable base64 file. Do not claim that the spreadsheet was imported.</spreadsheet-attachment-error>`;
   }
   if (
     !isSpreadsheetDocument(att.name, att.contentType) &&
-    !isSpreadsheetDocument(att.name, match[1])
+    !isSpreadsheetDocument(att.name, dataUrl.mediaType)
   ) {
     return null;
   }
 
   try {
     const parsed = await parseSpreadsheetDocument({
-      data: new Uint8Array(Buffer.from(match[2], "base64")),
+      data: new Uint8Array(Buffer.from(dataUrl.data, "base64")),
       fileName: att.name,
-      mimeType: normalizeContentType(match[1]) || att.contentType,
+      mimeType: normalizeContentType(dataUrl.mediaType) || att.contentType,
       maxChars: SPREADSHEET_PREVIEW_MAX_CHARS,
     });
     const metadata = parsed.metadata;
@@ -246,11 +250,28 @@ export async function preUploadAttachments(opts: {
   };
 
   for (const att of list) {
-    const isImage = att.type === "image";
-    const isFile = att.type === "file" || att.type === "document";
+    let isImage = att.type === "image";
+    let isFile = att.type === "file" || att.type === "document";
     if (!isImage && !(includeFiles && isFile)) continue;
 
     let data: string | undefined = att.data;
+    const dataUrlInUrl =
+      typeof att.url === "string" ? parseBase64DataUrl(att.url) : null;
+    if (
+      (typeof data !== "string" || !parseBase64DataUrl(data)) &&
+      dataUrlInUrl &&
+      (isImage || isFile)
+    ) {
+      data = att.url;
+      att.data = data;
+      att.contentType = normalizeContentType(dataUrlInUrl.mediaType);
+      delete att.url;
+      if (isFile && dataUrlInUrl.mediaType.startsWith("image/")) {
+        att.type = "image";
+        isImage = true;
+        isFile = false;
+      }
+    }
     if (
       typeof data !== "string" &&
       includeFiles &&
@@ -295,11 +316,13 @@ export async function preUploadAttachments(opts: {
 
     if (typeof data !== "string") continue;
 
-    const match = data.match(FILE_DATA_URL_RE);
-    if (!match) continue;
-    const dataUrlMimeType = normalizeContentType(match[1]);
+    const dataUrl = parseBase64DataUrl(data);
+    if (!dataUrl) continue;
+    const dataUrlMimeType = normalizeContentType(dataUrl.mediaType);
     const mimeType =
-      dataUrlMimeType || normalizeContentType(att.contentType) || match[1];
+      dataUrlMimeType ||
+      normalizeContentType(att.contentType) ||
+      dataUrl.mediaType;
     const uploadAsImage =
       isImage && !isSvgPayload({ name: att.name, contentType: mimeType });
     const uploadAsFile =
@@ -308,7 +331,7 @@ export async function preUploadAttachments(opts: {
 
     let bytes: Uint8Array;
     try {
-      bytes = new Uint8Array(Buffer.from(match[2], "base64"));
+      bytes = new Uint8Array(Buffer.from(dataUrl.data, "base64"));
     } catch {
       continue;
     }

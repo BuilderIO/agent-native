@@ -88,7 +88,7 @@ export default {
     visibilityPrivateOnly: "自分の",
     visibilitySharedOnly: "共有",
     visibilityAllDescription: "すべての項目を表示",
-    visibilityPrivateOnlyDescription: "自分だけに表示される項目のみ表示",
+    visibilityPrivateOnlyDescription: "自分が作成した項目を表示",
     visibilitySharedOnlyDescription: "組織共有と公開の項目を表示",
     hiddenAnalyses: "非表示の分析",
     shareWithOrg: "組織と共有",
@@ -975,6 +975,7 @@ export default {
     dataSources: "データソース - Analytics",
     sessions: "セッション - Analytics",
     eventCatalog: "イベントカタログ - Analytics",
+    routePerformance: "ルート別パフォーマンス - Analytics",
     monitoring: "監視 - Analytics",
     agents: "エージェント - Analytics",
     session: "セッションリプレイ - Analytics",
@@ -1295,7 +1296,7 @@ export default {
     showingSingular: "{{count}} 件のセッション",
     labName: "セッションの絞り込み",
     labDescription:
-      "トラッキングしたイベントとフリクションのシグナルでセッションを絞り込み、リプレイのタイムラインでアプリのイベントを確認し、イベントカタログを閲覧します。",
+      "トラッキングしたイベント、フリクションのシグナル、速度でセッションを絞り込み、リプレイのタイムラインでアプリのイベントとページの Web Vitals を確認し、イベントカタログとルート別パフォーマンスを閲覧できます。",
     friction: "フリクション",
     frictionFiltersActive: "フリクション ({{count}})",
     sortFriction: "フリクションが多い順",
@@ -1410,6 +1411,37 @@ export default {
     catalogMoreKeys: "他 {{count}} 件",
     catalogTruncated:
       "最近受信した {{count}} 件のイベントのみを表示しています。",
+    routePerformance: "ルート別パフォーマンス",
+    speed: "速度",
+    anySpeed: "すべての速度",
+    speedSlowAny: "遅い",
+    speedPoorVitals: "Web Vitals が不良",
+    speedSlowRequests: "遅いリクエスト",
+    speedCoverageSince: "{{date}} から速度を計測しています。",
+    speedCoverageStarting: "速度はこれからのページビューで計測されます。",
+    speedFilterNeedsLab:
+      "このリンクには速度フィルターが含まれています。適用するには、設定で「セッションの絞り込み」Lab をオンにしてください。",
+    slowRequestCount: "遅いリクエスト {{count}} 件",
+    slowRequestCountSingular: "遅いリクエスト {{count}} 件",
+    speedIncomplete: "速度データが不完全です",
+    speedNotMeasured: "速度未計測",
+    speedUnavailable: "速度データを読み込めませんでした。",
+    markerPageVitals: "ページの Web Vitals",
+    markerSlowRequest: "遅いリクエスト",
+    perfRoute: "ページルート",
+    perfRequests: "リクエスト",
+    perfNoData: "データなし",
+    perfAccuracy:
+      "各セルは p50 / p95 を示し、誤差は約 28% 以内です。1 秒未満のリクエストはサンプリングされ、遅いリクエストは正確にカウントされます。",
+    perfEmpty: "この期間に計測されたページビューはありません。",
+    perfIncomplete:
+      "次の日は一部のイベントが集計されておらず、不完全な可能性があります: {{dates}}",
+    perfLoadFailed: "ルート別パフォーマンスを読み込めませんでした: {{message}}",
+    perfNeedsLab:
+      "ルート別パフォーマンスは「セッションの絞り込み」Lab の機能です。",
+    perfTruncated:
+      "アクセスの多い上位 {{count}} 件のルートのみを表示しています。",
+    perfAtLeast: "≥ {{value}}",
     anyActivity: "任意のアクティビティ",
     filtersDescription:
       "フィルターは URL に保存されるため、エージェントと共有リンクで同じセッション一覧を表示できます。",
@@ -1477,6 +1509,20 @@ export default {
       "このリプレイを再構築するためのスコープ付きチャンクです。プロバイダー URL は非公開のままです。",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "スクリーンショットを保存",
+    savingScreenshot: "スクリーンショットを保存中…",
+    screenshotDownloaded: "スクリーンショットをダウンロードしました",
+    screenshotSaveFailed: "スクリーンショットを保存できませんでした",
+    copyScreenshot: "Design にコピー",
+    copyingScreenshot: "スクリーンショットをコピー中…",
+    screenshotCopiedForDesign:
+      "スクリーンショットをコピーしました。Design に貼り付けてください。",
+    screenshotCopyFailed:
+      "スクリーンショットをコピーできませんでした。ダウンロードして PNG を Design にアップロードしてください。",
+    screenshotCopyUnsupportedAssets:
+      "スクリーンショットをコピーできませんでした。この時点には安全にキャプチャできないメディアや画像があります。リプレイの別の時点をお試しください。",
+    screenshotUnsupportedAssets:
+      "安全にキャプチャできない埋め込みメディアや画像があるため、スクリーンショットは保存されませんでした。",
     timeline: "イベントタイムライン",
     replayTimeline: "リプレイタイムライン",
     timelineDescription:

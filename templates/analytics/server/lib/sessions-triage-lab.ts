@@ -16,10 +16,11 @@ export async function isSessionsTriageLabEnabled(
 const READ_FAILURES = {
   labState: "Couldn't read the Sessions triage Lab state.",
   friction: "Couldn't read session friction.",
+  speed: "Couldn't read session speed data.",
 } as const;
 
 /**
- * What a caller is told about a failed Lab state or friction read. The error
+ * What a caller is told about a failed Lab state, friction, or speed read. The error
  * itself can quote database details, so only the server log keeps it.
  */
 export function sessionsTriageReadFailure(
@@ -31,20 +32,29 @@ export function sessionsTriageReadFailure(
   return READ_FAILURES[read];
 }
 
-const LAB_FEATURE_SUBJECTS = {
-  events: "Session events are",
-  friction: "Session friction is",
-  "events and friction": "Session events and friction are",
-} as const;
+/** What a request asked the Lab for, named in its 403. */
+export type SessionsTriageLabFeature = "events" | "friction" | "speed";
+
+function labFeatureSubject(
+  features: readonly SessionsTriageLabFeature[],
+): string {
+  const nouns = [...new Set(features)];
+  const list =
+    nouns.length < 3
+      ? nouns.join(" and ")
+      : `${nouns.slice(0, -1).join(", ")}, and ${nouns[nouns.length - 1]}`;
+  const plural = nouns.length > 1 || nouns[0] === "events";
+  return `Session ${list} ${plural ? "are" : "is"}`;
+}
 
 export async function assertSessionsTriageLabEnabled(
   userEmail: string | undefined,
   orgId?: string | null,
-  feature: keyof typeof LAB_FEATURE_SUBJECTS = "events",
+  features: readonly SessionsTriageLabFeature[] = ["events"],
 ): Promise<void> {
   if (await isSessionsTriageLabEnabled(userEmail, orgId)) return;
   fail(
-    `${LAB_FEATURE_SUBJECTS[feature]} part of the Sessions triage Lab. Turn it on in Settings > Labs.`,
+    `${labFeatureSubject(features)} part of the Sessions triage Lab. Turn it on in Settings > Labs.`,
     { errorCode: "sessions_triage_lab_disabled", statusCode: 403 },
   );
 }

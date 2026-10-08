@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "id": "fig.canvas.overlap-drag",
+  "claim": "Dragging a rectangle over a sibling leaf in a freeform frame lands at the pointer and keeps both nodes as siblings.",
+  "area": "canvas.drag",
+  "basis": "measured",
+  "status": "current",
+  "measuredBy": "figma-desktop-app-click",
+  "operator": "Claude (user-supplied evidence packet)",
+  "date": "2026-10-06",
+  "gesture": "Deselect the frame, then drag an 80x80 rectangle over the center of a sibling leaf rectangle in a frame whose Layout shows no Spacing row.",
+  "nativeObservation": "The mover lands at the pointer delta, remains a sibling in the same frame, the leaf does not move, stacking order is unchanged, and the mover does not snap back.",
+  "trials": "One raw drag after deselecting the frame; the packet notes the first attempt with the frame selected moved the frame instead.",
+  "values": {
+    "moverBefore": { "x": 37, "y": 23 },
+    "moverAfter": { "x": 253, "y": 141 },
+    "pointerDelta": { "x": 216, "y": 118 },
+    "leaf": { "x": 233, "y": 131, "unchanged": true },
+    "sameParent": true,
+    "stackingOrderUnchanged": true,
+    "snapBack": false
+  },
+  "figma": {
+    "fileKeyWithheld": true,
+    "pageName": "not captured; private scratch page name withheld",
+    "appBuild": "not captured"
+  },
+  "source": "User-provided native Figma measurement packet dated 2026-10-06; this task did not operate Figma.",
+  "artifacts": [
+    {
+      "path": "templates/design/parity/oracle/fig.canvas.overlap-drag/after-drag.png",
+      "kind": "figma-screenshot",
+      "sha256": "288a3d545739ec3f8115665c5e3b44f75e73906f63d0a7855bcabd910d6c7029",
+      "sourceName": "O07-irregular-frame-drag-over-leaf-lands-at-pointer-X253-Y141.jpg",
+      "sourceSha256": "2bcf658e52d2bab535a192fb8fa61d00ea2bc2798705ed96537d5b3fa02b90d4",
+      "crop": "Lossless PNG crop from source pixels x=200,y=100,width=630,height=421; excludes the file title, layer names, and page labels."
+    },
+    {
+      "path": "templates/design/parity/oracle/fig.canvas.overlap-drag/target-position.jpg",
+      "kind": "figma-screenshot",
+      "sha256": "f3d53702b5f7631a774b70aea057da8d900740938d599ea70a0e2c6dcc12783f",
+      "sourceName": "O07-target-leaf-unmoved-233-131.jpg",
+      "sourceSha256": "f3d53702b5f7631a774b70aea057da8d900740938d599ea70a0e2c6dcc12783f"
+    }
+  ]
+}

@@ -344,8 +344,10 @@ visíveis para a organização, e qualquer owner ou admin da organização pode
 listá-lo ou revogá-lo. Gere um (apenas owner/admin da organização):
 
 ```bash
-npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap
+npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap --ttl-days 3650
 ```
+
+Assim, o token de CI vale por 10 anos e continua revogável a qualquer momento.
 
 O comando autentica você no navegador e depois imprime o token de serviço
 exatamente uma vez — armazene-o como o secret `PLAN_RECAP_TOKEN`.

@@ -439,6 +439,71 @@ describe("server/auth", () => {
       expect(desktopVerificationResponse.status).toBe(200);
     }, 15_000);
 
+    it("waits for an explicit click before forwarding emailed links to Better Auth", async () => {
+      const authHandler = vi.fn(
+        async () => new Response(null, { status: 302 }),
+      );
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: authHandler,
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signInMagicLink: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        getRefusedLocalDatabaseSource: () => null,
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const landingHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/email-link/landing",
+      )?.[1];
+      expect(landingHandler).toBeTypeOf("function");
+
+      const query = {
+        kind: "magic-link",
+        token: "one-time-token",
+        callbackURL: "/_agent-native/sign-in",
+      };
+      const landingResponse = (await landingHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/email-link/landing",
+          query,
+          headers: { "accept-language": "fr-FR" },
+        }),
+      )) as Response;
+      const html = await landingResponse.text();
+
+      expect(landingResponse.status).toBe(200);
+      expect(html).toContain('lang="fr-FR"');
+      expect(html).toContain("Continuer avec le lien reçu par e-mail");
+      expect(html).toContain('method="post"');
+      expect(html).toContain('name="token" value="one-time-token"');
+      expect(authHandler).not.toHaveBeenCalled();
+
+      const postResponse = (await landingHandler(
+        createFormPostEvent("/_agent-native/auth/email-link/landing", query),
+      )) as Response;
+
+      expect(postResponse.status).toBe(303);
+      expect(postResponse.headers.get("location")).toBe(
+        "http://localhost/_agent-native/auth/ba/magic-link/verify?callbackURL=%2F_agent-native%2Fsign-in&token=one-time-token",
+      );
+      expect(authHandler).not.toHaveBeenCalled();
+    });
+
     it("normalizes the email and uses absolute same-origin callbacks", async () => {
       vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("RESEND_API_KEY", "resend-example-key");
@@ -8728,38 +8793,50 @@ describe("server/auth", () => {
       expect(readDesktopSso).not.toHaveBeenCalled();
     });
 
-    it("does not promote a capability embed into the ticket owner's AuthSession", async () => {
-      vi.stubEnv("NODE_ENV", "production");
-      delete process.env.ACCESS_TOKEN;
-      delete process.env.ACCESS_TOKENS;
-      delete process.env.AUTH_DISABLED;
+    it.each([
+      {
+        scope: "capability:visual-edit:design:design_1",
+        targetPath: "/visual-edit/design_1",
+      },
+      {
+        scope: "capability:mcp-directory-widget-read:get-document",
+        targetPath: "/documents/doc-1",
+      },
+    ])(
+      "does not promote a capability embed into the ticket owner's AuthSession ($scope)",
+      async ({ scope, targetPath }) => {
+        vi.stubEnv("NODE_ENV", "production");
+        delete process.env.ACCESS_TOKEN;
+        delete process.env.ACCESS_TOKENS;
+        delete process.env.AUTH_DISABLED;
 
-      vi.doMock("./embed-session.js", async (importOriginal) => ({
-        ...(await importOriginal<object>()),
-        resolveEmbedSessionFromRequest: vi.fn(async () => ({
-          email: "ticket-owner@example.com",
-          token: "signed-capability",
-          targetPath: "/visual-edit/design_1",
-          scope: "capability:visual-edit:design:design_1",
-        })),
-      }));
-      vi.doMock("../db/client.js", () => ({
-        getDbExec: () => ({
-          execute: vi.fn(async () => ({ rows: [] })),
-        }),
-        isLocalDatabase: () => true,
-        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
-      }));
-      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
-        ...(await importOriginal<object>()),
-        getBetterAuth: async () => undefined,
-        getBetterAuthSync: () => null,
-      }));
+        vi.doMock("./embed-session.js", async (importOriginal) => ({
+          ...(await importOriginal<object>()),
+          resolveEmbedSessionFromRequest: vi.fn(async () => ({
+            email: "ticket-owner@example.com",
+            token: "signed-capability",
+            targetPath,
+            scope,
+          })),
+        }));
+        vi.doMock("../db/client.js", () => ({
+          getDbExec: () => ({
+            execute: vi.fn(async () => ({ rows: [] })),
+          }),
+          isLocalDatabase: () => true,
+          retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        }));
+        vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+          ...(await importOriginal<object>()),
+          getBetterAuth: async () => undefined,
+          getBetterAuthSync: () => null,
+        }));
 
-      const { getSession } = await import("./auth.js");
+        const { getSession } = await import("./auth.js");
 
-      await expect(getSession(createMockEvent())).resolves.toBeNull();
-    });
+        await expect(getSession(createMockEvent())).resolves.toBeNull();
+      },
+    );
 
     it("returns a shared session when AUTH_DISABLED=1", async () => {
       vi.stubEnv("NODE_ENV", "production");

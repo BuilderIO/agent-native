@@ -140,10 +140,14 @@ interface RecentUsageMetric {
 }
 
 interface UsageBillingMode {
-  unit: "usd" | "builder-credits";
+  unit: "usd" | "builder-credits" | "mixed" | "unknown";
   label: string;
   shortLabel: string;
-  source: "estimated-provider-cost" | "builder-agent-credits";
+  source:
+    | "estimated-provider-cost"
+    | "builder-agent-credits"
+    | "mixed-provider-usage"
+    | "unknown";
   hardCostMarginMultiplier?: number;
   creditsPerUsd?: number;
 }
@@ -205,6 +209,7 @@ function displayAmountFromCostCents(
   cents: number,
   billing: UsageBillingMode,
 ): number {
+  if (billing.unit === "unknown" || billing.unit === "mixed") return 0;
   if (billing.unit !== "builder-credits") return cents;
   const margin = billing.hardCostMarginMultiplier ?? 1.25;
   const creditsPerUsd = billing.creditsPerUsd ?? 20;
@@ -222,6 +227,7 @@ function formatCredits(credits: number): string {
 }
 
 function formatSpend(cents: number, billing: UsageBillingMode): string {
+  if (billing.unit === "unknown" || billing.unit === "mixed") return "—";
   if (billing.unit === "builder-credits") {
     return formatCredits(displayAmountFromCostCents(cents, billing));
   }
@@ -597,6 +603,11 @@ function UsageTrend({
   rows: DailyUsageMetric[];
   billing: UsageBillingMode;
 }) {
+  const t = useT();
+  const spendLabel =
+    billing.unit === "unknown"
+      ? t("agentChat.settings.usage.unclassifiedUsage")
+      : billing.shortLabel;
   const chartData = completeUsageTrendRows(rows).map((row) => ({
     ...row,
     spend: displayAmountFromCostCents(row.costCents, billing),
@@ -614,7 +625,7 @@ function UsageTrend({
         <div className="hidden items-center gap-3 text-[11px] text-muted-foreground sm:flex">
           <span className="flex items-center gap-1.5">
             <span className="size-2 rounded-full bg-[hsl(var(--dispatch-brand-blue))]" />
-            {billing.shortLabel}
+            {spendLabel}
           </span>
           <span className="flex items-center gap-1.5">
             <span className="size-2 rounded-full bg-muted-foreground" />
@@ -631,7 +642,7 @@ function UsageTrend({
         <ChartContainer
           config={{
             spend: {
-              label: billing.shortLabel,
+              label: spendLabel,
               color: "hsl(var(--dispatch-brand-blue))",
             },
             calls: {
@@ -700,7 +711,7 @@ function UsageTrend({
                         ? formatCredits(Number(value))
                         : formatSpend(Number(value), billing)
                       : `${formatNumber(Number(value))} calls`,
-                    name === "spend" ? billing.shortLabel : "Calls",
+                    name === "spend" ? spendLabel : "Calls",
                   ]}
                 />
               }
@@ -1440,7 +1451,11 @@ export default function MetricsRoute() {
 
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                 <MetricCard
-                  label={billing.label}
+                  label={
+                    billing.unit === "unknown"
+                      ? t("agentChat.settings.usage.unclassifiedUsage")
+                      : billing.label
+                  }
                   value={formatSpend(metrics.totals.costCents, billing)}
                   detail={`${formatTokens(totalTokens)} total tokens`}
                   icon={<IconCoin size={17} />}

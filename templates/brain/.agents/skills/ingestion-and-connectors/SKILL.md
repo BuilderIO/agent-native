@@ -48,7 +48,8 @@ Zoom sources import cloud-recording transcripts through a Server-to-Server
 OAuth app. Credentials are the vault secrets `ZOOM_ACCOUNT_ID`,
 `ZOOM_CLIENT_ID`, and `ZOOM_CLIENT_SECRET`; the app needs scopes
 `cloud_recording:read:list_account_recordings:admin` and
-`cloud_recording:read:recording:admin`. Config is
+`cloud_recording:read:recording:admin`, plus
+`cloud_recording:read:list_recording_files:admin` for transcript download URLs. Config is
 `{"zoom":{"userIds":[...],"lookbackDays":7}}`. Without `userIds`, one
 account-wide recording list (`/accounts/me/recordings`, which needs only the `:admin` scope) covers every user.
 `userIds` (up to 50, user ID or email) narrows the import to those users and
@@ -60,10 +61,14 @@ allowed, as Zoom displays them): recurring meetings keep one ID across
 occurrences. Topics match the whole title, case-insensitively, so a renamed
 meeting stops matching. With neither set, every cloud-recorded meeting in the
 account is imported. `update-source` replaces the whole `zoom` object, so send
-every Zoom field you want to keep. Changing the filter rewinds the next sync to
+every Zoom field you want to keep. Changing the filter or raising `lookbackDays` rewinds the next sync to
 the `lookbackDays` window, so newly included meetings are backfilled (raise
 `lookbackDays`, up to 30, to reach further back). Run stats report
-`meetingsSkippedByFilter` and `filterChanged`.
+`meetingsSkippedByFilter`, `filterChanged`, `transcriptsWithoutDownloadUrl`,
+`matchedMeetings` (ID, title, start, file types) and `skippedMeetings` (ID,
+start). The account-wide list omits download URLs, so a matched meeting with a
+finished transcript is looked up with `/meetings/{uuid}/recordings`
+(`cloud_recording:read:list_recording_files:admin`) to get the transcript URL.
 Sources auto-sync hourly; each run overlaps the previous one by one day to
 catch late-processed transcripts, and captures dedupe by `zoom:<meeting uuid>`.
 Captures use the organization audience. There are no Zoom webhooks.

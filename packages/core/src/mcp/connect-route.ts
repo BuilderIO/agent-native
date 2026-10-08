@@ -19,7 +19,9 @@ import {
 } from "../server/auth.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
+import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { readBody } from "../server/h3-helpers.js";
+import { FRAMEWORK_INTERNAL_ROUTE_PREFIX } from "../shared/framework-route-prefix.js";
 import {
   MCP_CONNECT_MCP_URL_TEMPLATE,
   getMcpConnectGuides,
@@ -48,6 +50,7 @@ import {
   DEFAULT_TOKEN_TTL_DAYS,
   MIN_TOKEN_TTL_DAYS,
   MAX_TOKEN_TTL_DAYS,
+  MAX_SERVICE_TOKEN_TTL_DAYS,
   DEVICE_CODE_TTL_MS,
 } from "./connect-store.js";
 import {
@@ -201,13 +204,10 @@ async function resolveOrgDomain(
   }
 }
 
-function clampTtlDays(input: unknown): number {
+function clampTtlDays(input: unknown, maxDays = MAX_TOKEN_TTL_DAYS): number {
   const n = Number(input);
   if (!Number.isFinite(n)) return DEFAULT_TOKEN_TTL_DAYS;
-  return Math.min(
-    MAX_TOKEN_TTL_DAYS,
-    Math.max(MIN_TOKEN_TTL_DAYS, Math.floor(n)),
-  );
+  return Math.min(maxDays, Math.max(MIN_TOKEN_TTL_DAYS, Math.floor(n)));
 }
 
 /**
@@ -339,7 +339,10 @@ export async function mintOrgServiceToken(params: {
   const serviceName = normalizeServiceName(params.serviceName);
   const serviceEmail = serviceIdentityEmail(serviceName, params.orgId);
   const orgDomain = await resolveOrgDomain(params.orgId);
-  const ttlDays = clampTtlDays(params.ttlDays ?? DEFAULT_TOKEN_TTL_DAYS);
+  const ttlDays = clampTtlDays(
+    params.ttlDays ?? DEFAULT_TOKEN_TTL_DAYS,
+    MAX_SERVICE_TOKEN_TTL_DAYS,
+  );
   const issuer = resolveMcpOAuthIssuer(params.appUrl || undefined);
   if (!issuer) throw new OrgServiceTokenAppUrlError();
   await prepareConnectIssuance();
@@ -799,6 +802,10 @@ function renderConnectPage(params: {
   .tok:last-child { border-bottom: none; }
   .tok .meta { color: var(--subtle); font-size: 0.74rem; margin-top: 0.1rem; }
   .tok.revoked { opacity: 0.45; }
+  .pstate { font-size: 0.68rem; padding: 0.05rem 0.4rem; margin-inline-start: 0.4rem;
+    border: 1px solid var(--border); border-radius: 999px; color: var(--subtle); }
+  .pstate.active { color: var(--ok); }
+  .pstate.suspended { color: var(--error); }
   .empty-state {
     color: var(--subtle); font-size: 0.78rem; line-height: 1.45;
     padding: 0.3rem 0 0.45rem;
@@ -1017,11 +1024,27 @@ function renderConnectPage(params: {
     </summary>
     <div id="tokenList" class="token-list"><div class="empty-state">${localize(connectMessages.checkingConnections)}</div></div>
   </details>
+
+  <details id="principals" class="connections hidden">
+    <summary>
+      <span class="connections-title">${localize(connectMessages.servicePrincipals)}</span>
+      <span id="principalsState" class="connections-state hidden" aria-live="polite"></span>
+      <span class="chev" aria-hidden="true"></span>
+    </summary>
+    <div id="principalMsg" class="empty-state hidden" role="status"></div>
+    <div id="principalList" class="token-list"></div>
+  </details>
 </div>
 <script>
 (function () {
   var BASE = ${JSON.stringify(joinAppPath(connectBasePath, MCP_PUBLIC_ROUTE_PREFIX + "/connect"))};
   var USER_CODE = ${JSON.stringify(safeUserCode || null)};
+  var ACTIONS = ${JSON.stringify(
+    joinAppPath(
+      connectBasePath,
+      publicFrameworkPath(`${FRAMEWORK_INTERNAL_ROUTE_PREFIX}/actions`),
+    ),
+  )};
   var COPY = ${JSON.stringify(connectMessages)};
   var msgEl = document.getElementById("msg");
   var connectionsEl = document.getElementById("connections");
@@ -1184,6 +1207,100 @@ function renderConnectPage(params: {
     }
   }
 
+   // Governance view over the org's service principals. Hidden when the caller
+   // has no org (400/401/403); route failures are shown, never read as "none".
+  var principalsEl = document.getElementById("principals");
+  var principalsStateEl = document.getElementById("principalsState");
+  var principalListEl = document.getElementById("principalList");
+  var principalMsgEl = document.getElementById("principalMsg");
+  var PRINCIPAL_STATES = {
+    ungoverned: "principalUngoverned", active: "principalActive",
+    suspended: "principalSuspended", retired: "principalRetired"
+  };
+  var RISK_TIERS = { low: "riskLow", medium: "riskMedium", high: "riskHigh" };
+
+  function principalNote(text) {
+    principalMsgEl.textContent = text;
+    principalMsgEl.classList.toggle("hidden", !text);
+  }
+
+  async function setLifecycle(name, lifecycle, btn) {
+    btn.disabled = true;
+    var r = await postActionJson("set-service-principal-lifecycle", { serviceName: name, lifecycle: lifecycle });
+    await loadPrincipals();
+    if (!r.ok) principalNote(COPY.couldNotUpdatePrincipal);
+    else if (r.data && r.data.contained === false) principalNote(COPY.containmentIncomplete);
+  }
+
+  async function postActionJson(name, body) {
+    var res = await fetch(ACTIONS + "/" + name, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(body)
+    });
+    var data = null;
+    var unreadable = false;
+    try { data = await res.json(); } catch (e) { unreadable = true; }
+    return { ok: res.ok && !unreadable, status: res.status, data: data };
+  }
+
+  async function loadPrincipals() {
+    principalNote("");
+    try {
+      var res = await fetch(ACTIONS + "/list-org-service-tokens", { credentials: "same-origin" });
+       if (res.status === 400 || res.status === 401 || res.status === 403) {
+        principalsEl.classList.add("hidden");
+        return;
+      }
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      var data = await res.json();
+      var principals = (data && data.principals) || [];
+      if (!principals.length) {
+        principalsEl.classList.add("hidden");
+        return;
+      }
+      principalsEl.classList.remove("hidden");
+      var needAction = principals.filter(function (p) { return p.state === "ungoverned"; }).length;
+      principalsStateEl.textContent = needAction ? String(needAction) : "";
+      principalsStateEl.classList.toggle("hidden", needAction === 0);
+      principalListEl.innerHTML = "";
+      principals.forEach(function (p) {
+        var div = document.createElement("div");
+        div.className = "tok" + (p.state === "retired" ? " revoked" : "");
+        var left = document.createElement("div");
+        var title = document.createElement("div");
+        title.textContent = p.serviceName;
+        var badge = document.createElement("span");
+        badge.className = "pstate " + p.state;
+        badge.textContent = COPY[PRINCIPAL_STATES[p.state]] || p.state;
+        title.appendChild(badge);
+        var meta = document.createElement("div");
+        meta.className = "meta";
+        meta.textContent = p.state === "ungoverned"
+          ? COPY.principalUngovernedHint
+          : (p.ownerEmail ? COPY.principalOwner + ": " + p.ownerEmail + " · " : "") +
+            COPY.principalRisk + ": " + (COPY[RISK_TIERS[p.riskTier]] || p.riskTier);
+        left.appendChild(title); left.appendChild(meta);
+        div.appendChild(left);
+        var next = p.state === "suspended" ? "active" : p.state === "retired" ? null : "suspended";
+        if (data.canManage && next) {
+          var btn = document.createElement("button");
+          btn.className = "ghost";
+          btn.textContent = next === "active" ? COPY.resume : COPY.suspend;
+          btn.onclick = function () { setLifecycle(p.serviceName, next, btn).catch(function () { btn.disabled = false; principalNote(COPY.couldNotUpdatePrincipal); }); };
+          div.appendChild(btn);
+        }
+        principalListEl.appendChild(div);
+      });
+    } catch (e) {
+      principalsEl.classList.remove("hidden");
+      principalsStateEl.textContent = COPY.unavailable;
+      principalsStateEl.classList.remove("hidden");
+      principalNote(COPY.couldNotLoadConnections);
+    }
+  }
+
   document.getElementById("authorizeBtn").onclick = async function () {
     var btn = this;
     setButtonLoading(btn, USER_CODE ? COPY.authorizingDevice : COPY.creatingToken);
@@ -1274,6 +1391,7 @@ function renderConnectPage(params: {
   };
 
   loadTokens();
+  if (!USER_CODE) loadPrincipals();
 })();
 </script>
 </body>

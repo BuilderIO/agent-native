@@ -15,13 +15,34 @@ vi.mock("@agent-native/core/client/analytics", () => ({
   trackEvent: vi.fn(),
 }));
 
+const appBasePathState = vi.hoisted(() => ({ value: "" }));
+
 vi.mock("@agent-native/core/client/api-path", () => ({
-  appBasePath: () => "",
-  appPath: (path: string) => path,
+  appBasePath: () => appBasePathState.value,
+  appPath: (path: string) => {
+    const basePath = appBasePathState.value;
+    if (
+      !basePath ||
+      path === basePath ||
+      path.startsWith(`${basePath}/`) ||
+      !path.startsWith("/")
+    ) {
+      return path;
+    }
+    return `${basePath}${path}`;
+  },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT: () => (key: string, values?: Record<string, string>) => {
+    const template =
+      key === "signInPrompt.verificationPendingCopy" ? `${key} {{email}}` : key;
+    return Object.entries(values ?? {}).reduce(
+      (result, [name, value]) =>
+        result.split(`{{${name}}}`).join(value).split(`{${name}}`).join(value),
+      template,
+    );
+  },
 }));
 
 vi.mock("@agent-native/core/client/oauth-popup", () => ({
@@ -42,6 +63,7 @@ let portalContainer: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  appBasePathState.value = "";
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   mountPoint = document.createElement("div");
   portalContainer = document.createElement("div");
@@ -130,5 +152,166 @@ describe("create account dialog", () => {
     expect(
       mountPoint.querySelector('[data-account-gate-intent="comment"]'),
     ).toBeNull();
+  });
+
+  it("keeps unverified signup in the shared return flow and can resend verification", async () => {
+    appBasePathState.value = "/clips";
+    const returnTo = "/share/clip-1?at=90&ref=clip_share";
+    const callbackURL = buildCreateAccountHref(returnTo);
+    const mountedReturnTo = `/clips${returnTo}`;
+    const email = "viewer@example.com";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        json: async () => ({ error: "Your email is not verified yet." }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        json: async () => ({ error: "Email provider unavailable" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    act(() => {
+      root.render(
+        <AccountGateDialog
+          open
+          onOpenChange={() => {}}
+          onAuthenticated={() => {}}
+          portalContainer={portalContainer}
+          returnTo={returnTo}
+          intent="comment"
+        />,
+      );
+    });
+
+    const passwordToggle = Array.from(
+      portalContainer.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("usePasswordInstead"));
+    await act(async () => {
+      passwordToggle?.click();
+    });
+
+    const setInputValue = (id: string, value: string) => {
+      const input = portalContainer.querySelector<HTMLInputElement>(`#${id}`);
+      expect(input).not.toBeNull();
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, value);
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+
+    await act(async () => {
+      setInputValue("create-account-email", email);
+      setInputValue("create-account-password", "a-long-password-123");
+      setInputValue(
+        "create-account-password-confirmation",
+        "a-long-password-123",
+      );
+    });
+
+    const form = portalContainer.querySelector("form");
+    expect(form).not.toBeNull();
+    await act(async () => {
+      form?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/clips/_agent-native/auth/register",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          email,
+          password: "a-long-password-123",
+          callbackURL,
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/clips/_agent-native/auth/login",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(portalContainer.textContent).toContain(
+      "signInPrompt.verificationPendingTitle",
+    );
+    expect(portalContainer.textContent).toContain(email);
+
+    const signInLink = portalContainer.querySelector<HTMLAnchorElement>(
+      'a[href^="/clips/sign-in?"]',
+    );
+    expect(signInLink).not.toBeNull();
+    const signInUrl = new URL(signInLink!.href, "https://clips.example.test");
+    expect(
+      decodeURIComponent(
+        atob(
+          signInUrl.searchParams
+            .get("c")!
+            .replace(/-/g, "+")
+            .replace(/_/g, "/"),
+        ),
+      ),
+    ).toBe(mountedReturnTo);
+
+    const resendButton = Array.from(
+      portalContainer.querySelectorAll("button"),
+    ).find((button) =>
+      button.textContent?.includes("signInPrompt.resendVerification"),
+    );
+    await act(async () => {
+      resendButton?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/clips/_agent-native/auth/ba/send-verification-email",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ email, callbackURL }),
+      }),
+    );
+    expect(portalContainer.textContent).toContain(
+      "signInPrompt.verificationEmailFailed",
+    );
+
+    const retryButton = Array.from(
+      portalContainer.querySelectorAll("button"),
+    ).find((button) =>
+      button.textContent?.includes("signInPrompt.resendVerification"),
+    );
+    await act(async () => {
+      retryButton?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/clips/_agent-native/auth/ba/send-verification-email",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ email, callbackURL }),
+      }),
+    );
+    expect(portalContainer.textContent).toContain(
+      "signInPrompt.verificationEmailResent",
+    );
   });
 });

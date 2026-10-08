@@ -4,6 +4,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
+import { isEditorHotkeyBlockedByShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
+
 import {
   isDesignHotkeyEditableTarget,
   isDesignHistoryHotkeyTarget,
@@ -274,6 +276,37 @@ describe("useDesignHotkeys — current Figma tool bindings", () => {
     expect(onShowKeyboardShortcuts).toHaveBeenCalledTimes(1);
     expect(onTextTool).not.toHaveBeenCalled();
     input.remove();
+  });
+
+  it("keeps editor hotkeys out of the shortcuts dialog but lets its own chord through", async () => {
+    const onShowKeyboardShortcuts = vi.fn();
+    const onTextTool = vi.fn();
+    const dialog = document.createElement("div");
+    dialog.setAttribute("data-keyboard-shortcuts-dialog", "");
+    const category = document.createElement("button");
+    dialog.append(category);
+    document.body.append(dialog);
+    await withHotkeys(
+      {
+        onShowKeyboardShortcuts,
+        onTextTool,
+        shouldHandleEvent: (event) =>
+          !isEditorHotkeyBlockedByShortcutsDialog(event),
+      },
+      () => {
+        dispatchKey("t", {}, category);
+        dispatchKey(
+          "?",
+          { code: "Slash", ctrlKey: true, shiftKey: true },
+          category,
+        );
+        dispatchKey("t");
+      },
+    );
+    dialog.remove();
+    expect(onShowKeyboardShortcuts).toHaveBeenCalledTimes(1);
+    // Only the keypress outside the dialog reaches the Text tool.
+    expect(onTextTool).toHaveBeenCalledTimes(1);
   });
 
   it("Shift+Y arms the annotation/draw tool and a bare Y does not", async () => {

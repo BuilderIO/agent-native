@@ -18,7 +18,10 @@ import {
   allTemplateNames,
   type TemplateMeta,
 } from "./templates-meta.js";
-import { addConfiguredMigrationDependencies } from "./upgrade.js";
+import {
+  addConfiguredMigrationDependencies,
+  readUpgradeEnvironment,
+} from "./upgrade.js";
 import {
   ensureNodePtyBuildDependency,
   parseWorkspaceScope,
@@ -109,9 +112,7 @@ const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
 // the files that import them. A scaffold cannot install these (a standalone app
 // resolves them from npm, a new workspace has no such package), so it drops the
 // dependency and those files. Publishing a package removes its entry here.
-const WORKSPACE_ONLY_TEMPLATE_WIRING: Record<string, readonly string[]> = {
-  "@agent-native/otel": ["server/plugins/otel.ts"],
-};
+const WORKSPACE_ONLY_TEMPLATE_WIRING: Record<string, readonly string[]> = {};
 const TAR_LISTING_MAX_BUFFER = 100 * 1024 * 1024;
 const localPackageTarballs = new Map<string, string>();
 const IN_PLACE_ALLOWLIST = new Set([
@@ -718,12 +719,13 @@ async function createWorkspaceInteractive(
         dispatchDependencyVersion: getDispatchDependencyVersion(),
         toolkitDependencyVersion: getToolkitDependencyVersion(),
         agentKitDependencyVersion: getAgentKitDependencyVersion(),
+        otelDependencyVersion: getOtelDependencyVersion(),
       });
       fixPackageJsonName(appDir, appName, templateName, {
         ...resolution,
         shape: "workspace",
       });
-      addConfiguredFeatureDependencies(appDir, targetDir);
+      _addConfiguredFeatureDependencies(appDir, targetDir);
       ensureGuardedScaffold(appDir);
       fixWebManifestName(
         appDir,
@@ -1073,12 +1075,13 @@ async function scaffoldOneAppIntoWorkspace(
       dispatchDependencyVersion: getDispatchDependencyVersion(),
       toolkitDependencyVersion: getToolkitDependencyVersion(),
       agentKitDependencyVersion: getAgentKitDependencyVersion(),
+      otelDependencyVersion: getOtelDependencyVersion(),
     });
     fixPackageJsonName(appDir, appName, templateName, {
       ...resolution,
       shape: "workspace",
     });
-    addConfiguredFeatureDependencies(appDir, workspace.workspaceRoot);
+    _addConfiguredFeatureDependencies(appDir, workspace.workspaceRoot);
     ensureScaffoldEmailBrandingConfig(appDir, appName, templateName);
     ensureGuardedScaffold(appDir);
     fixWebManifestName(
@@ -2094,9 +2097,6 @@ function ensureGuardedScaffold(appDir: string): void {
     !existingNativeDoctor.includes(AGENT_NATIVE_DOCTOR)
       ? `${existingNativeDoctor} && ${AGENT_NATIVE_DOCTOR}`
       : AGENT_NATIVE_DOCTOR;
-  if (typeof scripts.doctor !== "string") {
-    scripts.doctor = AGENT_NATIVE_DOCTOR;
-  }
 
   if (
     typeof scripts.build === "string" &&
@@ -2209,6 +2209,8 @@ function postProcessStandalone(
             deps[key] = getToolkitDependencyVersion();
           } else if (key === "@agent-native/agentkit") {
             deps[key] = getAgentKitDependencyVersion();
+          } else if (key === "@agent-native/otel") {
+            deps[key] = getOtelDependencyVersion();
           } else if (typeof val === "string" && val.startsWith("workspace:")) {
             deps[key] = "latest";
           } else if (typeof val === "string" && val === "catalog:") {
@@ -2228,7 +2230,7 @@ function postProcessStandalone(
         pkg.optionalDependencies,
       ].some((deps) => Boolean(deps?.["node-pty"]));
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-      addConfiguredFeatureDependencies(targetDir);
+      _addConfiguredFeatureDependencies(targetDir);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`Could not finalize ${pkgPath}: ${detail}`, {
@@ -2291,17 +2293,21 @@ function postProcessStandalone(
   setupAgentSymlinks(targetDir);
 }
 
-function addConfiguredFeatureDependencies(
+export function _addConfiguredFeatureDependencies(
   appDir: string,
   workspaceRoot = appDir,
 ): void {
   const packageFile = path.join(appDir, "package.json");
   if (!fs.existsSync(packageFile)) return;
-  addConfiguredMigrationDependencies({
-    root: workspaceRoot,
-    kind: workspaceRoot === appDir ? "standalone" : "workspace",
-    packageFiles: [packageFile],
-  });
+  const projectEnvironment = readUpgradeEnvironment(workspaceRoot, appDir, {});
+  addConfiguredMigrationDependencies(
+    {
+      root: workspaceRoot,
+      kind: workspaceRoot === appDir ? "standalone" : "workspace",
+      packageFiles: [packageFile],
+    },
+    projectEnvironment,
+  );
 }
 
 function ensureReactRouterBuildDependencies(pkg: Record<string, any>): void {
@@ -2507,6 +2513,7 @@ export {
   rewriteNetlifyToml as _rewriteNetlifyToml,
   getCoreDependencyVersion as _getCoreDependencyVersion,
   getDispatchDependencyVersion as _getDispatchDependencyVersion,
+  getOtelDependencyVersion as _getOtelDependencyVersion,
   getToolkitDependencyVersion as _getToolkitDependencyVersion,
   getAgentKitDependencyVersion as _getAgentKitDependencyVersion,
   prepareLocalWorkspaceOverrides as _prepareLocalWorkspaceOverrides,
@@ -4022,6 +4029,17 @@ function getDispatchDependencyVersion(): string {
   if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
     const localDispatch = findLocalPackage("dispatch");
     if (localDispatch) return pathToFileURL(localDispatch).href;
+  }
+
+  return "latest";
+}
+
+// OTel is versioned independently of Core (it peer-depends on Core's public
+// observability provider API), so a scaffold takes its current npm release.
+function getOtelDependencyVersion(): string {
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
+    const localOtel = findLocalPackage("otel");
+    if (localOtel) return localPackageTarball(localOtel);
   }
 
   return "latest";

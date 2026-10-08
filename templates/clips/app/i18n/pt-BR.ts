@@ -1398,6 +1398,14 @@ const messages = {
     agentTitle: "Crie uma conta Clips grátis para participar da conversa",
     genericTitle: "Crie uma conta Clips grátis para continuar",
     description: "Você voltará para este clipe assim que terminar.",
+    verificationPendingTitle: "Verifique seu e-mail",
+    verificationPendingCopy:
+      "Enviamos um e-mail de verificação para {{email}}. Abra-o para terminar de criar sua conta e voltar a este clipe.",
+    resendVerification: "Reenviar e-mail de verificação",
+    resendingVerification: "Enviando e-mail de verificação...",
+    verificationEmailResent: "Enviamos um novo e-mail de verificação.",
+    verificationEmailFailed:
+      "Não foi possível reenviar o e-mail de verificação. Tente novamente ou entre com um link por e-mail.",
     passwordsMismatch: "As senhas não conferem.",
     commentIntent: "comentar",
     reactIntent: "adicionar uma reação",
@@ -1484,7 +1492,7 @@ const messages = {
     waitingForBuilder: "Aguardando Builder...",
     description:
       "Armazene os vídeos gravados com o Builder.io ou com um armazenamento compatível com S3. O Builder.io inclui hospedagem gratuita e créditos de IA.",
-    createBuilderAccount: "Criar conta do Builder.io",
+    createBuilderAccount: "Usar Builder.io",
     signInWithBuilderAccount: "Entrar com uma conta do Builder.io",
     free: "Grátis",
     whyPrompt: "Por que estou vendo isso?",

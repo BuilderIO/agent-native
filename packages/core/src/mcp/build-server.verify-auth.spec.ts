@@ -39,6 +39,20 @@ vi.mock("./credential-membership.js", () => ({
     checkCredentialEmailRetirementMock(...a),
 }));
 
+const evaluateServicePrincipalMock = vi.fn();
+const recordServicePrincipalDenialMock = vi.fn();
+vi.mock("../org/service-principal-policy.js", async (importActual) => ({
+  ...(await importActual<
+    typeof import("../org/service-principal-policy.js")
+  >()),
+  evaluateServicePrincipal: (...a: any[]) => evaluateServicePrincipalMock(...a),
+}));
+vi.mock("../org/service-principal-guard.js", async (importActual) => ({
+  ...(await importActual<typeof import("../org/service-principal-guard.js")>()),
+  recordServicePrincipalDenial: (...a: any[]) =>
+    recordServicePrincipalDenialMock(...a),
+}));
+
 const { resolveMcpIdentityOrgId, verifyAuth } =
   await import("./build-server.js");
 const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
@@ -61,6 +75,11 @@ async function sign(
 describe("verifyAuth — connect-token revoke check", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    evaluateServicePrincipalMock.mockImplementation(async (email: string) =>
+      /^svc-.+@service\./.test(email)
+        ? { status: "ungoverned", orgId: "org_123", serviceName: "ci" }
+        : { status: "not-service" },
+    );
     lookupConnectTokenOrgMock.mockResolvedValue({ status: "missing" });
     resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue(null);
     resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue(null);
@@ -432,6 +451,111 @@ describe("verifyAuth — connect-token revoke check", () => {
     });
     expect(res.fullSurface).toBe(true);
     expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith("jti-svc");
+  });
+
+  describe("service principal governance", () => {
+    async function serviceToken(jti: string) {
+      lookupConnectTokenOrgMock.mockResolvedValue({
+        status: "found",
+        kind: "service",
+        ownerEmail: "svc-ci@service.org_123",
+        orgId: "org_123",
+      });
+      return sign({
+        sub: "svc-ci@service.org_123",
+        scope: "mcp-connect",
+        jti,
+        org_id: "org_123",
+      });
+    }
+
+    it.each(["suspended", "retired"])(
+      "refuses a %s service principal without marking the token used",
+      async (status) => {
+        evaluateServicePrincipalMock.mockResolvedValue({
+          status,
+          policy: { lifecycle: status },
+        });
+        const token = await serviceToken("jti-svc-inactive");
+        const res = await verifyAuth(`Bearer ${token}`);
+        expect(res).toEqual({
+          authed: false,
+          refusal: "service-principal-inactive",
+        });
+        expect(evaluateServicePrincipalMock).toHaveBeenCalledWith(
+          "svc-ci@service.org_123",
+          "org_123",
+        );
+        expect(touchTokenUsedMock).not.toHaveBeenCalled();
+        expect(recordServicePrincipalDenialMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            actionName: "mcp:admission",
+            caller: "mcp",
+            error: expect.objectContaining({ statusCode: 403 }),
+          }),
+        );
+      },
+    );
+
+    it("answers retryable unavailable when the policy cannot be read", async () => {
+      evaluateServicePrincipalMock.mockResolvedValue({ status: "unavailable" });
+      const token = await serviceToken("jti-svc-unavailable");
+      const res = await verifyAuth(`Bearer ${token}`);
+      expect(res).toEqual({ authed: false, unavailable: true });
+      expect(touchTokenUsedMock).not.toHaveBeenCalled();
+      expect(recordServicePrincipalDenialMock).not.toHaveBeenCalled();
+    });
+
+    it("admits an active governed principal", async () => {
+      evaluateServicePrincipalMock.mockResolvedValue({
+        status: "active",
+        policy: { lifecycle: "active", allowedActions: ["read-*"] },
+      });
+      const token = await serviceToken("jti-svc-active");
+      const res = await verifyAuth(`Bearer ${token}`);
+      expect(res.authed).toBe(true);
+      expect(res.identity?.identityAssurance).toBe("service");
+    });
+
+    it("admits an ungoverned (legacy) principal unchanged", async () => {
+      const token = await serviceToken("jti-svc-legacy");
+      const res = await verifyAuth(`Bearer ${token}`);
+      expect(res.authed).toBe(true);
+    });
+
+    it("refuses a suspended principal on a first-party cross-app token too", async () => {
+      evaluateServicePrincipalMock.mockResolvedValue({
+        status: "suspended",
+        policy: { lifecycle: "suspended" },
+      });
+      resolveA2AOrganizationMetadataByIdMock.mockResolvedValue({
+        orgId: "org_123",
+        orgDomain: null,
+      });
+      const resourceUrl = "https://assets.example.com/_agent-native/mcp";
+      const token = await sign(
+        {
+          sub: "svc-ci@service.org_123",
+          scope: "mcp-connect",
+          jti: "jti-first-party-svc",
+          org_id: "org_123",
+          agent_native_first_party_mcp: true,
+        },
+        SECRET,
+        { audience: resourceUrl },
+      );
+      const res = await verifyAuth(`Bearer ${token}`, undefined, {
+        resourceUrl,
+      });
+      expect(res).toEqual({
+        authed: false,
+        refusal: "service-principal-inactive",
+      });
+      expect(evaluateServicePrincipalMock).toHaveBeenCalledWith(
+        "svc-ci@service.org_123",
+        "org_123",
+      );
+    });
   });
 
   it("rejects a revoked org SERVICE token (same revocation gate as personal)", async () => {

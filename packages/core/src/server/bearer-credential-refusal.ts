@@ -11,7 +11,8 @@ export type BearerCredentialRefusal =
   | "unknown-connect-token"
   | "identity-mismatch"
   | "not-member"
-  | "email-retired";
+  | "email-retired"
+  | "service-principal-inactive";
 
 const CONTEXT_KEY = "__anBearerCredentialRefusal";
 
@@ -33,6 +34,8 @@ export function describeBearerCredentialRefusal(
       return "This token's account is no longer a member of the organization it was issued for.";
     case "email-retired":
       return "This token was issued to an email address the account no longer uses.";
+    case "service-principal-inactive":
+      return "This token belongs to a service principal an organization admin suspended or retired; only an admin can resume a suspended one.";
     case "invalid":
       return "This bearer token could not be verified: it is malformed, expired, issued for another app, or older than a required reconnect.";
   }

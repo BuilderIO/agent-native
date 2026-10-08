@@ -33,6 +33,7 @@ export const DEVICE_CODE_TTL_MS = 10 * 60_000;
 export const DEFAULT_TOKEN_TTL_DAYS = 365;
 export const MIN_TOKEN_TTL_DAYS = 1;
 export const MAX_TOKEN_TTL_DAYS = 365;
+export const MAX_SERVICE_TOKEN_TTL_DAYS = 3_650;
 
 export const DEVICE_START_MAX = 20;
 export const DEVICE_START_WINDOW_MS = 60_000;
@@ -278,18 +279,13 @@ export async function listTokens(
 export async function listOrgServiceTokens(
   orgId: string,
 ): Promise<MintedTokenRow[]> {
-  try {
-    await ensureTable();
-    const client = getDbExec();
-    const { rows } = await client.execute({
-      sql: `SELECT id, jti, owner_email, org_id, label, kind, service_name, created_by, created_at, last_used_at, revoked_at FROM mcp_connect_tokens WHERE org_id = ? AND kind = 'service' ORDER BY created_at DESC`,
-      args: [orgId],
-    });
-    return rows.map(mapTokenRow);
-  } catch (err) {
-    if (isConnectionError(err)) return [];
-    throw err;
-  }
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT id, jti, owner_email, org_id, label, kind, service_name, created_by, created_at, last_used_at, revoked_at FROM mcp_connect_tokens WHERE org_id = ? AND kind = 'service' ORDER BY created_at DESC`,
+    args: [orgId],
+  });
+  return rows.map(mapTokenRow);
 }
 
 /**
@@ -310,6 +306,23 @@ export async function revokeOrgServiceToken(
     args: [Date.now(), id, orgId],
   });
   return result.rowsAffected > 0;
+}
+
+/**
+ * Revoke every active token of one service in a single statement. Unlike
+ * `listOrgServiceTokens`, a connection error is NOT swallowed: retiring a
+ * principal must fail loudly rather than report "0 revoked".
+ */
+export async function revokeServiceTokensByName(
+  orgId: string,
+  serviceName: string,
+): Promise<number> {
+  await ensureTable();
+  const result = await getDbExec().execute({
+    sql: `UPDATE mcp_connect_tokens SET revoked_at = ? WHERE org_id = ? AND kind = 'service' AND service_name = ? AND revoked_at IS NULL`,
+    args: [Date.now(), orgId, serviceName],
+  });
+  return result.rowsAffected;
 }
 
 /**
