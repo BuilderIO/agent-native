@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
+import * as Y from "yjs";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
@@ -8,6 +9,28 @@ function createDeferred() {
     resolve = done;
   });
   return { promise, resolve };
+}
+
+function xmlSeedUpdate(text: string): Uint8Array {
+  const doc = new Y.Doc();
+  const paragraph = new Y.XmlElement("paragraph");
+  const content = new Y.XmlText();
+  content.insert(0, text);
+  paragraph.insert(0, [content]);
+  doc.getXmlFragment("default").insert(0, [paragraph]);
+  const update = Y.encodeStateAsUpdate(doc);
+  doc.destroy();
+  return update;
+}
+
+function xmlBody(state: Uint8Array): string {
+  const doc = new Y.Doc();
+  try {
+    Y.applyUpdate(doc, state);
+    return doc.getXmlFragment("default").toString();
+  } finally {
+    doc.destroy();
+  }
 }
 
 function createPgliteExec(
@@ -256,6 +279,177 @@ it("invalidates a cached empty doc after a client-backed seed before a write", a
     await expect(manager.getText(docId)).resolves.toBe("seeded content!");
     manager.releaseDoc(docId);
   } finally {
+    await pglite.close();
+  }
+});
+
+it("accepts one initial XmlFragment seed across independent manager instances", async () => {
+  const pglite = await createTestPglite();
+  const docId = "xml-seed:concurrent";
+  const readPaused = createDeferred();
+  const releaseRead = createDeferred();
+  const gate = {
+    armed: false,
+    paused: false,
+    onMissingRead: async () => {
+      readPaused.resolve();
+      await releaseRead.promise;
+    },
+  };
+  const exec = createPgliteExec(pglite, gate);
+  const emit = vi.fn();
+  const managers: Array<typeof import("./ydoc-manager.js")> = [];
+  try {
+    await pglite.exec(`
+      CREATE TABLE _collab_docs (
+        doc_id TEXT PRIMARY KEY,
+        yjs_state TEXT NOT NULL,
+        text_snapshot TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT NOW()::text
+      )
+    `);
+    vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
+    vi.doMock("../db/ddl-guard.js", () => ({
+      ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+      ensureTableExists: vi.fn().mockResolvedValue(undefined),
+    }));
+    vi.doMock("./emitter.js", () => ({ emitCollabUpdate: emit }));
+
+    const firstManager = await import("./ydoc-manager.js");
+    managers.push(firstManager);
+    await firstManager.getDoc(docId);
+    gate.armed = true;
+    const firstSeed = firstManager.seedXmlFragmentIfEmpty(
+      docId,
+      xmlSeedUpdate("unaccepted body"),
+      "first-tab",
+    );
+    await readPaused.promise;
+
+    vi.resetModules();
+    const secondManager = await import("./ydoc-manager.js");
+    managers.push(secondManager);
+    const winner = await secondManager.seedXmlFragmentIfEmpty(
+      docId,
+      xmlSeedUpdate("committed body"),
+      "second-tab",
+    );
+    releaseRead.resolve();
+    const loser = await firstSeed;
+
+    expect(winner.seeded).toBe(true);
+    expect(loser.seeded).toBe(false);
+    expect(xmlBody(winner.state)).toContain("committed body");
+    expect(xmlBody(loser.state)).toBe(xmlBody(winner.state));
+    expect(xmlBody(loser.state)).not.toContain("unaccepted body");
+    expect(emit).toHaveBeenCalledTimes(1);
+    expect(emit.mock.calls[0]?.[2]).toBe("second-tab");
+
+    const persisted = await pglite
+      .prepare("SELECT yjs_state, version FROM _collab_docs WHERE doc_id = ?")
+      .get(docId);
+    expect(persisted.version).toBe(0);
+    expect(
+      xmlBody(new Uint8Array(Buffer.from(persisted.yjs_state, "base64"))),
+    ).toBe(xmlBody(winner.state));
+    await expect(
+      firstManager
+        .getDoc(docId)
+        .then((doc) => doc.getXmlFragment("default").toString()),
+    ).resolves.toBe(xmlBody(winner.state));
+  } finally {
+    releaseRead.resolve();
+    managers.forEach((manager) => manager.releaseDoc(docId));
+    await pglite.close();
+  }
+});
+
+it("replaces only an empty paragraph filler and broadcasts its removal", async () => {
+  const pglite = await createTestPglite();
+  const docId = "xml-seed:empty-paragraph";
+  const filler = new Y.Doc();
+  filler.getXmlFragment("default").insert(0, [new Y.XmlElement("paragraph")]);
+  const initialState = Y.encodeStateAsUpdate(filler);
+  const emit = vi.fn();
+  let manager: typeof import("./ydoc-manager.js") | null = null;
+  try {
+    await pglite.exec(`
+      CREATE TABLE _collab_docs (
+        doc_id TEXT PRIMARY KEY,
+        yjs_state TEXT NOT NULL,
+        text_snapshot TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT NOW()::text
+      )
+    `);
+    await pglite
+      .prepare(
+        "INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot) VALUES (?, ?, ?)",
+      )
+      .run(docId, Buffer.from(initialState).toString("base64"), "");
+    const exec = createPgliteExec(pglite, {
+      armed: false,
+      paused: false,
+      onMissingRead: async () => {},
+    });
+    vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
+    vi.doMock("../db/ddl-guard.js", () => ({
+      ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+      ensureTableExists: vi.fn().mockResolvedValue(undefined),
+    }));
+    vi.doMock("./emitter.js", () => ({ emitCollabUpdate: emit }));
+    manager = await import("./ydoc-manager.js");
+
+    const seeded = await manager.seedXmlFragmentIfEmpty(
+      docId,
+      xmlSeedUpdate("canonical body"),
+      "tab",
+    );
+    expect(seeded.seeded).toBe(true);
+    expect(xmlBody(seeded.state)).toBe("<paragraph>canonical body</paragraph>");
+    expect(emit).toHaveBeenCalledTimes(1);
+    const peer = new Y.Doc();
+    Y.applyUpdate(peer, initialState);
+    Y.applyUpdate(
+      peer,
+      new Uint8Array(Buffer.from(emit.mock.calls[0]?.[1], "base64")),
+    );
+    expect(peer.getXmlFragment("default").toString()).toBe(
+      xmlBody(seeded.state),
+    );
+    peer.destroy();
+
+    const rejected = await manager.seedXmlFragmentIfEmpty(
+      docId,
+      xmlSeedUpdate("another body"),
+      "other-tab",
+    );
+    expect(rejected.seeded).toBe(false);
+    expect(xmlBody(rejected.state)).toBe(xmlBody(seeded.state));
+    expect(emit).toHaveBeenCalledTimes(1);
+    await expect(
+      manager.seedXmlFragmentIfEmpty(docId, xmlSeedUpdate("")),
+    ).rejects.toThrow("nonempty default fragment");
+    expect(emit).toHaveBeenCalledTimes(1);
+
+    const edited = new Y.Doc();
+    Y.applyUpdate(edited, seeded.state);
+    const paragraph = edited.getXmlFragment("default").get(0) as Y.XmlElement;
+    const text = paragraph.get(0) as Y.XmlText;
+    text.insert(text.length, "!");
+    await manager.applyUpdate(
+      docId,
+      Y.encodeStateAsUpdate(edited),
+      "later-edit",
+    );
+    expect(xmlBody(await manager.getState(docId))).toBe(
+      "<paragraph>canonical body!</paragraph>",
+    );
+    edited.destroy();
+  } finally {
+    manager?.releaseDoc(docId);
+    filler.destroy();
     await pglite.close();
   }
 });

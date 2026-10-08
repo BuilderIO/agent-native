@@ -1,15 +1,3 @@
-/**
- * <MeetingHistoryRow /> — one past meeting, one line.
- *
- * Granola renders history as Apple-Notes-style rows: attendee avatars, title,
- * who was on the call, time. No card border, no summary preview, no
- * status pills — see `desktop/design-refs/granola-ux.md` §2. Status badges on
- * every row read as noise at list scale; the meeting detail page is where
- * transcript/notes state belongs.
- *
- * `snippet` replaces the attendee subtitle in search results, where the reason
- * a row matched is the only thing worth reading.
- */
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconFileText } from "@tabler/icons-react";
@@ -36,13 +24,6 @@ function formatTime(iso?: string | null): string {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-/**
- * "Elaine" · "Lisa, Cody & 2 others" — Granola's attendee subtitle.
- *
- * The viewer is dropped: the subtitle answers "who was I with", and repeating
- * the reader's own name down every row of their own history says nothing. A
- * solo note keeps an empty subtitle rather than rendering just the viewer.
- */
 export function formatParticipantNames(
   participants: AttendeeStackParticipant[],
   viewerEmail?: string | null,
@@ -57,13 +38,6 @@ export function formatParticipantNames(
   return `${names.slice(0, 2).join(", ")} & ${names.length - 2} others`;
 }
 
-/**
- * A meeting's owner — who actually recorded it in Clips — isn't necessarily
- * on the attendee list (an ad-hoc note has none at all), and two attendees on
- * the same call can each hold their own copy. Unlike the attendee subtitle,
- * this is shown unconditionally, including the viewer's own meetings, so
- * ownership is never ambiguous once a meeting is shared.
- */
 export function formatOwnerHint(
   ownerEmail: string | null | undefined,
   viewerEmail: string | null | undefined,

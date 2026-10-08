@@ -15,7 +15,9 @@ import {
   hasRequestedSourceRecordEvidence,
   hasOverstatedCoverageConfidenceClaim,
   isGenericNoDataFallback,
+  isNonDataTurn,
   isSafeNoDataAnalyticsResponse,
+  isTrivialTurn,
   looksLikeCoverageSensitiveAnalyticsRequest,
   looksLikeDashboardConstructionRequest,
   looksLikeStrongCoverageClaim,
@@ -26,15 +28,12 @@ import {
   stripInjectedAnalyticsGuardContext,
 } from "./real-data-actions";
 
-// These tests exercise the predicates, not the derivation: the agent-chat
-// plugin is what reads `grounding: true` off the shipped action definitions.
 registerGroundingActions([
   "account-deep-dive",
   "bigquery",
   "get-session-replay-summary",
   "get-session-replay-timeline",
   "gong-calls",
-  "gong-native-insights",
   "hubspot-deals",
   "hubspot-records",
   "jira-search",
@@ -45,13 +44,17 @@ registerGroundingActions([
   "provider-corpus-job",
   "query-agent-native-analytics",
   "query-staged-dataset",
+  "run-gong-native-insight",
   "slack-messages",
 ]);
 
 describe("real data action classification", () => {
   it("treats unstructured source records as real analytics evidence", () => {
     expect(hasDataQueryAttempt([{ name: "gong-calls" }])).toBe(true);
-    expect(hasDataQueryAttempt([{ name: "gong-native-insights" }])).toBe(true);
+    expect(hasDataQueryAttempt([{ name: "gong-native-insights" }])).toBe(false);
+    expect(hasDataQueryAttempt([{ name: "run-gong-native-insight" }])).toBe(
+      true,
+    );
     expect(hasDataQueryAttempt([{ name: "slack-messages" }])).toBe(true);
   });
 
@@ -359,6 +362,454 @@ describe("analytics data request classification", () => {
     expect(
       looksLikeAnalyticsDataRequest("Review signup PR from last week."),
     ).toBe(false);
+  });
+});
+
+// Frozen probe: realistic RevOps asks that the pre-model retrieval and the final
+// guard must both treat as data turns. Grow it from real misses; never trim it
+// to make a change pass.
+const DATA_ASKS = [
+  "what's our NRR",
+  "Q3 bookings",
+  "pull the renewal list for Q4",
+  "churned logos last quarter",
+  "who owns Acme",
+  "what's net revenue retention by segment",
+  "how many signups did we get from paid last week",
+  "show me pipeline by stage",
+  "top 10 accounts by ARR",
+  "give me the list of customers renewing in November",
+  "what is our win rate this quarter",
+  "which reps closed the most deals in EMEA",
+  "average sales cycle for enterprise deals",
+  "weekly active users trend for the last 90 days",
+  "how many seats does Globex have",
+  "what was gross margin in FY25",
+  "forecast vs quota for Q4",
+  "expansion revenue by product YTD",
+  "list open opportunities over $50k",
+  "which accounts are at risk of churning",
+  "same but for last quarter",
+  "change it to last quarter",
+  "how much did we book in EMEA",
+  "show renewals by owner for Q1",
+  "Q2 vs Q3 ACV",
+  "how often do trials convert",
+  "which customers churned this year",
+  "split it by owner",
+  "pull the code usage for the promo code campaign last month",
+  "fix the filter: how many signups used the style guide last week",
+  "what's the layout of our NRR by cohort, last 6 months",
+  // Metrics the vocabulary never named.
+  "what's our win rate",
+  "who are our top reps",
+  "what's the NPS score",
+  "median time to close",
+  "rep leaderboard",
+  "are we on track for the quarter",
+  "top 5 pages by visits",
+  "how is onboarding converting",
+  "which features do paid users use most",
+  "rank sales reps by closed won",
+  "what percentage of users hit the aha moment",
+  "biggest drop in activation last week",
+  "what are the top themes",
+  // A script or language the patterns do not read is still a data ask.
+  "先月のサインアップ数は？",
+  "Сколько регистраций за прошлую неделю?",
+  "Combien d'inscriptions la semaine dernière ?",
+  "¿Cuántos usuarios activos tuvimos ayer?",
+  // Artifact and edit words inside a question about data.
+  "how many dashboards did we share last month",
+  "which customers opened the pricing page most",
+  "which dashboards get the most views",
+  "how many panels did we rename last quarter",
+  "how many tickets are open",
+  "delete rate for accounts last quarter",
+  "update me on pipeline health",
+  "update me on page views",
+  "update me on tab usage",
+  "add up signups by plan for October",
+  "make a report of signups by plan",
+  "add a chart of revenue by region",
+  "add a card of signups to this dashboard",
+  "add a new revenue chart",
+  "create a dashboard for churn",
+  // A new tab or section given a topic is a request for its contents.
+  "add a tab about retention",
+  "add a section on churn",
+  "add a tab with signups",
+  "add a tab of signups",
+  "add a section with the pipeline numbers",
+  "add a new tab covering renewals",
+  "add a table of signups",
+  // An edit that changes what is measured.
+  "set the dashboard window to 30 days",
+  "move the date range to the last 90 days",
+  "make it EMEA only",
+  "set the window to 30 days",
+  "remove EMEA from this",
+  "switch to the EMEA region",
+  "can you do the same for enterprise only",
+  "what about EMEA?",
+  "and the UK?",
+  "ok",
+  "now exclude EMEA",
+];
+
+// Greetings, thanks, and text with nothing to read: the only turns the
+// pre-model retrieval skips.
+const TRIVIAL_ASKS = [
+  "hello",
+  "hey!",
+  "hi there",
+  "thanks!",
+  "thank you so much",
+  "perfect",
+  "how's it going?",
+  "hows it going",
+  "k",
+  "?",
+  "👍",
+];
+
+// An edit, navigation, or bug report about an artifact skips the final guard
+// (not the retrieval) even when a metric word is part of the artifact's name.
+const ARTIFACT_ASKS = [
+  "make it blue",
+  "rename this chart",
+  "rename this panel to Overview",
+  "delete this panel",
+  "hide the legend",
+  "can you recolor the bars green",
+  "please retitle this",
+  "fix the dashboard layout",
+  "refactor the sidebar component",
+  "open the revenue dashboard",
+  "go to the pipeline dashboard",
+  "share the churn dashboard with Sam",
+  "delete the old signups dashboard",
+  "rename the ARR panel to Annual Recurring Revenue",
+  "favorite the customers dashboard",
+  "fix the layout of the accounts page",
+  "the route for tickets is broken",
+  "update the code that handles signups",
+  "duplicate the retention dashboard",
+  "refactor the funnel chart component",
+  "open the customers page",
+  "switch the theme to dark",
+  "edit the extension so the header is sticky",
+  "the sidebar component is broken",
+];
+
+// An edit whose object is a measure, dimension, grouping, filter, series, or
+// source, or a value taken out of the artifact, changes what is measured, so it
+// needs the lookup and the guard even though it opens like a UI edit and names
+// an artifact.
+const DATA_EDIT_ASKS = [
+  "remove EMEA from this chart",
+  "remove EMEA from chart",
+  "remove refunds from chart",
+  "hide churn on dashboard",
+  "remove test accounts from this chart",
+  "remove internal users from the dashboard",
+  "hide trial accounts on this dashboard",
+  "delete the churned customers from this panel",
+  "exclude refunds from this chart",
+  "turn off bot traffic on this chart",
+  "switch off internal traffic on this dashboard",
+  "make the chart ignore test accounts",
+  "update the dashboard to ignore refunds",
+  "hide the legend and remove EMEA from the chart",
+  // A metric that merely starts with, or is named like, an artifact part.
+  "remove page views from this chart",
+  "remove views from this chart",
+  "remove tab views from this chart",
+  "remove label clicks from this chart",
+  "remove the pages with low views from this chart",
+  // A clause after the object narrows a group of records, whatever noun it ends in.
+  "remove users who opened the settings page from this chart",
+  "remove users who visited the pricing page from this chart",
+  "delete sessions that reached the checkout page",
+  "remove customers using the old layout from this chart",
+  "remove visitors who clicked the legend",
+  "remove tickets filed about the dashboard",
+  "remove deals tagged with the enterprise label",
+  // Only a part of the artifact is exempt, wherever it falls in the list.
+  "remove the legend and EMEA from this chart",
+  "remove EMEA and the legend from this chart",
+  "remove the legend, the gridlines and refunds from this chart",
+  "change this chart to show revenue by region",
+  "can you change the chart to show conversion by source",
+  "make this chart show signups by plan",
+  "update the dashboard to show customers by plan",
+  "update the dashboard so it shows pipeline per rep",
+  "set this panel to show tickets by priority",
+  "edit this panel to display revenue",
+  "change this panel to plot ARR for EMEA",
+  "change this chart for EMEA",
+  "change the dashboard to track activation",
+  "add a series for churn to this chart",
+  "add a line for MRR to the chart",
+  "add a column for revenue to this table",
+  "please add ARR to this panel",
+  "add win rate to this panel",
+  "split the chart by owner",
+  "change the panel to group by plan",
+  "make this panel break down signups by channel",
+  "make this chart compare paid vs free",
+  "filter this table to enterprise",
+  "change the dashboard to exclude trial accounts",
+  "update this chart to include enterprise deals",
+  "switch this chart to the signups metric",
+  "swap the chart's source to the events table",
+  "edit this panel to use the sessions dataset",
+  "update the query to group by month",
+  "switch the panel to the last 30 days",
+  "change this chart to revenue",
+  "switch this panel to ARR",
+  "turn this chart into a funnel",
+  "change this table to list open deals",
+  "switch this panel to the sessions table",
+  "add the signups series to the chart",
+  // The same prepositions as a look edit, with a data operand.
+  "change this chart for mobile users",
+  "change this chart for 2024",
+  "update the chart for enterprise accounts",
+  "change the chart title and show revenue by region",
+];
+
+// Edits that change what is measured but open with words no allow-list can
+// enumerate, so only the retrieval gate (any substantive turn) covers them.
+const UNLISTED_DATA_EDIT_ASKS = [
+  "change this chart to paid signups",
+  "switch this panel to net revenue",
+  "set the chart to EMEA",
+  "change this chart to 2024",
+  "update the chart to use the orders table",
+  "make it ARR",
+  "make this chart about retention",
+  "fix the revenue numbers on this chart",
+  "update the dashboard with the latest numbers",
+  "add revenue panel to this dashboard",
+  "change the dashboard to show page views",
+  "switch the chart to page views",
+];
+
+// An edit of how an artifact looks or where it lives changes nothing measured.
+const PRESENTATION_EDIT_ASKS = [
+  "move the legend to the left",
+  "resize the chart to full width",
+  "make the chart bars thicker",
+  "make the chart lines thicker",
+  "change the chart title to Overview",
+  "change the panel colors to blue",
+  "set the theme to light",
+  "rename this dashboard to Overview",
+  "make the chart show the legend",
+  "change the chart to display the title",
+  "update the page layout to two columns",
+  "reorder the panels",
+  "turn the chart title bold",
+  "share this dashboard with Alex",
+  "delete the old chart",
+  "hide the tooltip",
+  "make the labels bigger",
+  // Taking a part of the artifact out removes no value from what it measures.
+  "remove this chart",
+  "delete the old dashboard",
+  "remove the legend",
+  "hide the gridlines",
+  "delete this",
+  "remove it from this dashboard",
+  "delete the bar chart",
+  "remove the x axis",
+  "remove the background color",
+  "delete the revenue card",
+  "turn off the legend",
+  "switch off the gridlines",
+  "hide the tabs",
+  "disable the tooltip",
+  "remove the legend from this chart",
+  // The object is a look or behavior part, whatever follows it.
+  "remove the x-axis",
+  "hide the y-axis",
+  "remove the x-axis from this chart",
+  "remove the shadow from the panel",
+  "remove the footer from this dashboard",
+  "remove the margin around the chart",
+  "turn off the animation on this chart",
+  "disable animations on the dashboard",
+  "disable auto-refresh on this dashboard",
+  "remove everything from this page",
+  "remove the legend and the gridlines",
+  "hide the legend, the title and the x-axis from this chart",
+  "remove the legend please",
+  // How or when it goes is not what goes.
+  "remove the legend completely",
+  "hide the gridlines entirely",
+  "remove it altogether",
+  "delete this panel now",
+  "remove the legend too",
+  "hide the legend again",
+  "remove the legend, thanks",
+  "delete this chart and save",
+  "remove the legend and publish",
+  "delete the old chart permanently",
+  "delete the old chart for good",
+  "hide the legend right now",
+  "remove the tooltip asap",
+  "delete this panel real quick",
+  // A name after called, named, or titled does not change what is removed.
+  "delete the chart called Revenue",
+  "remove the panel named Churn Overview",
+  "delete the card named Signups",
+  "hide the tab called Activation",
+  "remove the section named Growth",
+  "delete the dashboard called Old Pipeline",
+  // More parts of a page.
+  "remove the trendline from the chart",
+  "remove the table from this page",
+  "remove the tile from the dashboard",
+  "remove the caption from this chart",
+  "remove the image from this page",
+  "hide the widget",
+  "delete this graph",
+  "remove the button from the header",
+  "remove the logo from the sidebar",
+  "hide the heading",
+  "hide the toolbar",
+  "put this chart in the Growth section",
+  "drag the legend to the left",
+  "swap the order of these two panels",
+  "increase the padding around the panels",
+  // Moving something to a tab or section places it; it creates nothing to fill.
+  "move this chart to another tab on the dashboard",
+  "move this chart to another tab",
+  "move this chart to a new tab",
+  "add this chart to a new tab",
+  "move the legend to a new section",
+  "move this panel into a new section",
+  "duplicate this card to another tab",
+  "move the funnel chart to a different tab",
+  "add a new tab",
+  "add a section called Growth",
+  // Naming a look part adds nothing to fill with data.
+  "add a border to the panel",
+  "make the chart background a lighter color",
+  "change the panel color to a darker color",
+  // A size, device, theme, audience, or new name after by, for, or to.
+  "resize the chart by 20%",
+  "move the legend by 10px",
+  "make the chart bigger for mobile",
+  "make the chart wider for dark mode",
+  "make the legend smaller for the team",
+  "make the chart font bigger for review",
+  "rename the chart to Revenue Overview",
+  "rename the panel to Revenue by Region",
+  'rename the chart to "Top Customers by ARR"',
+  "retitle this panel to Weekly Active Users",
+  // A data-model word heading an artifact's name is not what the edit applies.
+  "open the data sources page",
+  "go to the metrics page",
+  "open the queries page",
+  "share the sources page with Sam",
+  "rename the metrics dashboard",
+  "refactor the query component",
+  "add the revenue dashboard to my favorites",
+  "move this chart to the signups dashboard",
+];
+
+// General asks: retrieval may run, but a draft without figures passes the guard
+// (see "realDataFinalGuard turn classification").
+const GENERAL_ASKS = [
+  "write me a haiku about autumn",
+  "what's 15% of 240",
+  "explain how a left join works",
+  "can you review my PR",
+  "how do I connect HubSpot",
+  "what does MRR mean",
+  "what's the status of the Revenue dashboard",
+  "the chat keeps typing long messages that disappear",
+];
+
+describe("analytics turn classification probe", () => {
+  it.each(DATA_ASKS)("treats %j as a data ask", (ask) => {
+    expect(isNonDataTurn(ask)).toBe(false);
+  });
+
+  it.each(TRIVIAL_ASKS)("skips retrieval and the guard for %j", (ask) => {
+    expect(isTrivialTurn(ask)).toBe(true);
+    expect(isNonDataTurn(ask)).toBe(true);
+  });
+
+  // Retrieval is relevance-gated, so it runs for every substantive turn,
+  // including the artifact edits and the data edits no allow-list can list.
+  it.each([
+    ...DATA_ASKS,
+    ...GENERAL_ASKS,
+    ...ARTIFACT_ASKS,
+    ...DATA_EDIT_ASKS,
+    ...PRESENTATION_EDIT_ASKS,
+    ...UNLISTED_DATA_EDIT_ASKS,
+  ])("runs retrieval for the substantive turn %j", (ask) => {
+    expect(isTrivialTurn(ask)).toBe(false);
+  });
+
+  it.each(ARTIFACT_ASKS)("treats the artifact ask %j as non-data", (ask) => {
+    expect(isNonDataTurn(ask)).toBe(true);
+  });
+
+  it.each(DATA_EDIT_ASKS)(
+    "treats the data-changing edit %j as a data ask",
+    (ask) => {
+      expect(isNonDataTurn(ask)).toBe(false);
+    },
+  );
+
+  it.each(PRESENTATION_EDIT_ASKS)(
+    "treats the presentation edit %j as non-data",
+    (ask) => {
+      expect(isNonDataTurn(ask)).toBe(true);
+    },
+  );
+
+  it.each(GENERAL_ASKS)("leaves %j to the guard's figure check", (ask) => {
+    expect(isNonDataTurn(ask)).toBe(false);
+  });
+
+  it("keeps a data ask whose wording merely mentions UI words", () => {
+    // The old anywhere-in-the-text negative list ("fix", "code", "style",
+    // "layout", "route") dropped these.
+    for (const ask of [
+      "pull the code usage for the promo code campaign last month",
+      "what's the layout of our NRR by cohort, last 6 months",
+    ]) {
+      expect(isNonDataTurn(ask)).toBe(false);
+    }
+  });
+
+  it("keeps the real-data marker authoritative over the UI-edit denylist", () => {
+    expect(
+      isNonDataTurn("change it. REAL_DATA_REQUIRED: signups by plan"),
+    ).toBe(false);
+    expect(
+      isNonDataTurn("delete the old dashboard. REAL_DATA_REQUIRED: signups"),
+    ).toBe(false);
+    expect(isTrivialTurn("REAL_DATA_REQUIRED")).toBe(false);
+  });
+
+  it("ignores framework-injected screen context when classifying the ask", () => {
+    expect(
+      isNonDataTurn(
+        "open the revenue dashboard\n\n<current-screen>\nRevenue by region, last 90 days\n</current-screen>",
+      ),
+    ).toBe(true);
+    expect(
+      isTrivialTurn(
+        "thanks!\n\n<current-screen>\nRevenue by region, last 90 days\n</current-screen>",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -1686,10 +2137,6 @@ describe("incomplete evidence detection", () => {
   });
 
   it("does not treat authoring/saving a dashboard or extension alone as construction progress", () => {
-    // update-dashboard/mutate-dashboard/create-extension/update-extension can
-    // all author brand-new SQL or extension content, so calling them with no
-    // prior inspection/clone step must not be enough to bypass the real-data
-    // guard for an invented dashboard or extension.
     expect(
       hasDashboardConstructionAttempt([
         { name: "update-dashboard", content: "{}" },
@@ -1710,7 +2157,6 @@ describe("incomplete evidence detection", () => {
         { name: "update-extension", content: "{}" },
       ]),
     ).toBe(false);
-    // But it's fine alongside a real inspection/clone step.
     expect(
       hasDashboardConstructionAttempt([
         { name: "get-extension", content: "{}" },
@@ -1756,7 +2202,6 @@ describe("incomplete evidence detection", () => {
     expect(draftClaimsAnalyticsMetrics("churn was lower than expected")).toBe(
       true,
     );
-    // Still a topic word, not a claim — no assertion is being made.
     expect(draftClaimsAnalyticsMetrics("what's the trend for signups?")).toBe(
       false,
     );

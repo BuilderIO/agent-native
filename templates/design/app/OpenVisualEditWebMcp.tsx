@@ -51,12 +51,12 @@ export interface OpenVisualEditWebMcpResult {
 }
 
 type OpenVisualEditActionResult = OpenVisualEditWebMcpResult & {
-  /** Same-origin only; never return this from the page-local tool. */
   embedStartUrl?: string;
 };
 
 export interface OpenVisualEditWebMcpInput {
   designId?: string;
+  newDesign?: boolean;
   connectionId?: string;
   title?: string;
   description?: string;
@@ -363,7 +363,7 @@ export function createOpenVisualEditWebMcpActions(options?: {
       name: "open-visual-edit",
       title: "Open visual edit", // i18n-ignore stable WebMCP tool title
       description: // i18n-ignore stable WebMCP tool description
-        "Open or refresh a running localhost app in Design overview mode. Works in a signed-in or signed-out Design tab when the target is loopback; the local bridge remains the only source access path.",
+        "Open or refresh a running localhost app in Design overview mode. Reuses the saved project for the same localhost connection when available; set newDesign to true to start a separate project. Works in a signed-in or signed-out Design tab when the target is loopback; the local bridge remains the only source access path.",
       requiresApproval: {
         title: "Open visual edit?", // i18n-ignore stable WebMCP approval title
         description: // i18n-ignore stable WebMCP approval description
@@ -377,7 +377,12 @@ export function createOpenVisualEditWebMcpActions(options?: {
           designId: {
             type: "string",
             description:
-              "Existing Design project to update. Omit to create a new visual-edit design.",
+              "Existing Design project to update. When omitted, the saved visual-edit project for the same localhost connection is reused unless newDesign is true.",
+          },
+          newDesign: {
+            type: "boolean",
+            description:
+              "Start a separate visual-edit project instead of reusing the saved project for this localhost connection.",
           },
           connectionId: {
             type: "string",
@@ -509,13 +514,6 @@ export function createOpenVisualEditWebMcpActions(options?: {
   ];
 }
 
-/**
- * Mounted app-wide (not just the editor) so a browser-driven coding agent can
- * bootstrap a visual-edit design from the hosted Design page — signed in or
- * signed out — without a separate hosted MCP connector or OAuth step.
- * Anonymous calls are limited server-side to loopback, public visual-edit
- * resources.
- */
 export function OpenVisualEditWebMcp() {
   const { session, isLoading: sessionLoading } = useSession();
   const location = useLocation();
@@ -537,8 +535,6 @@ export function OpenVisualEditWebMcp() {
     (request: AgentNativeWebMcpApprovalRequest, signal?: AbortSignal) => {
       if (signal?.aborted) return Promise.resolve(false);
       if (pendingApprovalRef.current) {
-        // Reject overlapping calls instead of replacing the request shown in
-        // the dialog with a different request's resolver.
         return Promise.resolve(false);
       }
       return new Promise<boolean>((resolve) => {
@@ -556,9 +552,6 @@ export function OpenVisualEditWebMcp() {
     [resolveApproval],
   );
 
-  // Install the relay during the layout phase so editor children can issue
-  // their first source queries through the browser transport after a full
-  // signed-out embed reload.
   useLayoutEffect(() => {
     if (sessionLoading || isAuthenticated) {
       if (isAuthenticated) clearLocalhostBridgeFetchProxy();
@@ -615,8 +608,6 @@ export function OpenVisualEditWebMcp() {
         },
         () => {
           if (!isCurrentRegistration()) return;
-          // WebMCP is progressive enhancement; retry while the model context
-          // or the action manifest becomes available.
           scheduleRetry();
         },
       );

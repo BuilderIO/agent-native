@@ -6,21 +6,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   promptComposerProps: null as Record<string, unknown> | null,
+  send: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: () => ({ data: undefined, isLoading: false }),
 }));
 
-vi.mock("@agent-native/core/client/composer", () => ({
+vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
   PromptComposer: (props: Record<string, unknown>) => {
     mocks.promptComposerProps = props;
     return <div data-testid="prompt-composer" />;
   },
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
-  useSendToAgentChat: () => ({ send: vi.fn(), isGenerating: false }),
+vi.mock("@agent-native/toolkit/app/chat", () => ({
+  useSendToAgentChat: () => ({ send: mocks.send, isGenerating: false }),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -103,6 +104,7 @@ describe("AddPanelPopover", () => {
 
   beforeEach(() => {
     mocks.promptComposerProps = null;
+    mocks.send.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -128,5 +130,45 @@ describe("AddPanelPopover", () => {
 
     expect(mocks.promptComposerProps).not.toBeNull();
     expect(mocks.promptComposerProps).not.toHaveProperty("autoFocus");
+  });
+
+  it("sends described panels with the typed mutation contract", async () => {
+    await act(async () => {
+      root.render(
+        <AddPanelPopover
+          onSave={vi.fn()}
+          dashboardId="dashboard-1"
+          existingPanelTitles={[]}
+        >
+          <button type="button">Add panel</button>
+        </AddPanelPopover>,
+      );
+    });
+
+    const onSubmit = mocks.promptComposerProps?.onSubmit as
+      | ((text: string) => void)
+      | undefined;
+    await act(async () => onSubmit?.("Add a metric panel"));
+
+    expect(mocks.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Add a metric panel",
+        submit: true,
+        context: expect.stringContaining("structured operation"),
+      }),
+    );
+    expect(mocks.send.mock.calls[0][0].context).toContain(
+      "JSON integer from 1 to 6",
+    );
+    expect(mocks.send.mock.calls[0][0].context).toContain(
+      'config:{timeScope:"dashboard"}',
+    );
+    expect(mocks.send.mock.calls[0][0].context).toContain(
+      "Inspect the dashboard's declared filters",
+    );
+    expect(mocks.send.mock.calls[0][0].context).toContain("{{timeRange}}");
+    expect(mocks.send.mock.calls[0][0].context).toContain("{{timeRangeStart}}");
+    expect(mocks.send.mock.calls[0][0].context).toContain("{{timeRangeEnd}}");
+    expect(mocks.send.mock.calls[0][0].context).not.toContain("{{dateStart}}");
   });
 });

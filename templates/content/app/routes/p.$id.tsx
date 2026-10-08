@@ -11,12 +11,14 @@ import {
 } from "@agent-native/core/server";
 import {
   AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
+  SSR_QUERY_CACHE_KEY_HEADER,
+  buildResourceSocialMeta,
   safeJsonForHtml,
 } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { buildPublicDocumentDescription } from "@shared/og-description";
 import { IconLayoutSidebarRight, IconLock } from "@tabler/icons-react";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { useEffect, useState } from "react";
 import type {
   HeadersArgs,
@@ -26,6 +28,11 @@ import type {
 import { data, redirect, useLoaderData } from "react-router";
 
 import { VisualEditor } from "@/components/editor/VisualEditor";
+import {
+  HIDDEN_WHILE_PRIVATE_LINK_REDIRECTS,
+  privateDocumentRedirectScript,
+  privateLinkRedirectStarted,
+} from "@/lib/private-link-redirect";
 
 import { getDb, schema } from "../../server/db";
 import {
@@ -60,6 +67,7 @@ type PublicDocumentLoaderData =
 const PRIVATE_AGENT_DOCUMENT_HEADERS = {
   "Cache-Control": "private, max-age=0, no-store",
   "Referrer-Policy": "no-referrer",
+  [SSR_QUERY_CACHE_KEY_HEADER]: "query",
 };
 
 function publicDocumentLoaderData(
@@ -84,17 +92,13 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   );
   const origin = new URL(request.url).origin;
 
-  // This is a server loader; use the server-side base-path helper
-  // (reads APP_BASE_PATH / VITE_APP_BASE_PATH at request time)
-  // instead of the client `appPath()` which relies on
-  // `import.meta.env` and is meant for browser code.
   const basePath = getConfiguredAppBasePath();
   const withBase = (path: string) => `${basePath}${path}`;
 
   const userEmail = getRequestUserEmail();
   if (userEmail) {
     const access = await resolveAccess("document", id);
-    if (access) throw redirect(withBase(`/page/${id}`));
+    if (access) throw redirect(withBase(`/page/${encodeURIComponent(id)}`));
   }
 
   const [doc] = await getDb()
@@ -106,7 +110,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
       visibility: schema.documents.visibility,
     })
     .from(schema.documents)
-    .where(eq(schema.documents.id, id))
+    .where(and(eq(schema.documents.id, id), isNull(schema.documents.trashedAt)))
     .limit(1);
 
   if (!doc) throw new Response("Not found", { status: 404 });
@@ -128,15 +132,6 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     );
   }
 
-  // Doc exists but isn't public. SSR renders impersonally (no session is read
-  // server-side, so the page can be CDN-cached for everyone), which means we
-  // must NOT redirect to sign-in from here: a signed-in viewer would loop
-  // (sign-in sees their valid session and bounces back to /p/<id>, which
-  // re-runs this anonymous loader and redirects again). Instead return the
-  // private placeholder and resolve access on the client — PrivateDocumentNotice
-  // routes the viewer to the auth-guarded `/page/<id>` editor, where the real
-  // per-user access check runs (signed-in-with-access sees the doc; everyone
-  // else gets the standard sign-in / no-access handling).
   return publicDocumentLoaderData({
     document: null,
     agentAccessToken: null,
@@ -169,28 +164,24 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
             : "authorized",
       })
     : null;
+  const socialMeta =
+    loaderData?.document?.visibility === "public"
+      ? buildResourceSocialMeta({
+          title,
+          description,
+          origin: loaderData.origin,
+          basePath: loaderData.basePath,
+        })
+      : [
+          { name: "description", content: description },
+          { property: "og:title", content: title },
+          { property: "og:description", content: description },
+          { name: "twitter:title", content: title },
+          { name: "twitter:description", content: description },
+        ];
   return [
     { title },
-    {
-      name: "description",
-      content: description,
-    },
-    {
-      property: "og:title",
-      content: title,
-    },
-    {
-      property: "og:description",
-      content: description,
-    },
-    {
-      name: "twitter:title",
-      content: title,
-    },
-    {
-      name: "twitter:description",
-      content: description,
-    },
+    ...socialMeta,
     ...(discovery
       ? [
           {
@@ -344,19 +335,24 @@ function PrivateDocumentNotice({
   origin?: string;
 }) {
   const t = useT();
+  const pageHref = id
+    ? `${basePath ?? ""}/page/${encodeURIComponent(id)}`
+    : null;
   useEffect(() => {
-    if (!id) return;
-    // The SSR loader can't see the viewer's session (SSR is impersonal so the
-    // page stays CDN-cacheable). Resolve access on the client by sending the
-    // viewer to the auth-guarded `/page/<id>` editor: a signed-in viewer with
-    // access lands on the document, and everyone else gets the standard
-    // sign-in / no-access handling there. This never loops back here because
-    // `/page/<id>` is guard-protected and does not redirect to `/p/<id>`.
-    window.location.replace(`${basePath ?? ""}/page/${id}`);
-  }, [id, basePath]);
+    if (!pageHref || privateLinkRedirectStarted()) return;
+    window.location.replace(pageHref);
+  }, [pageHref]);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
+      {pageHref ? (
+        <script
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{
+            __html: privateDocumentRedirectScript(pageHref),
+          }}
+        />
+      ) : null}
       {id ? (
         <AgentReadableDocumentDiscovery
           document={{ id }}
@@ -365,7 +361,9 @@ function PrivateDocumentNotice({
           accessState="authentication-required"
         />
       ) : null}
-      <section className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-6 text-center">
+      <section
+        className={`mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-6 text-center ${HIDDEN_WHILE_PRIVATE_LINK_REDIRECTS}`}
+      >
         <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-muted text-muted-foreground">
           <IconLock size={22} />
         </div>

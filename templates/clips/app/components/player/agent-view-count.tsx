@@ -3,7 +3,6 @@ import { IconBotId } from "@tabler/icons-react";
 import { ClaudeLogo, CodexLogo } from "@/components/agent-destination-logos";
 import { cn } from "@/lib/utils";
 
-/** Compact agent-view indicator retained for library cards and other dense lists. */
 export function AgentViewCount({
   count,
   label,
@@ -28,7 +27,6 @@ export function AgentViewCount({
   );
 }
 
-/** Agents use provider logos when the public API identifies the provider. */
 export function AgentViewerAvatar({
   agentLabel,
   className,

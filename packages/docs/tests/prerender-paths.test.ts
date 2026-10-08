@@ -12,9 +12,6 @@ describe("isRedirectedDocsPath", () => {
     expect(isRedirectedDocsPath("/ja-JP/docs/core-philosophy")).toBe(true);
   });
 
-  // Page paths carry the canonical trailing slash. Splitting the raw path put
-  // an empty string in the last segment, so every redirected slug read as a
-  // real page and would have been prerendered as a 200.
   it("excludes redirected slugs in the canonical trailing-slash form", () => {
     expect(isRedirectedDocsPath("/docs/server/")).toBe(true);
     expect(isRedirectedDocsPath("/docs/actions/")).toBe(true);
@@ -35,8 +32,6 @@ describe("isRedirectedDocsPath", () => {
   });
 });
 
-// Each build* call re-reads every doc source and shells out to git, so share
-// one result across the assertions rather than paying for it per test.
 describe("buildPrerenderPaths", () => {
   const paths = buildPrerenderPaths();
 
@@ -56,8 +51,6 @@ describe("buildPrerenderPaths", () => {
     expect(paths).toContain("/apps/calendar/");
     expect(paths.every((page) => !isRedirectedDocsPath(page))).toBe(true);
 
-    // Prerendered output lands at the path verbatim, so a mixed-case locale
-    // segment here writes a directory the CDN then redirects away from.
     expect(paths.filter((page) => page !== page.toLowerCase())).toEqual([]);
   });
 

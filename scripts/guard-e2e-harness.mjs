@@ -39,10 +39,6 @@ const RULES = [
       "fails in milliseconds against a port nothing serves.",
   },
   {
-    // 291 existing calls already burn 402s per run — that backlog is a
-    // separate cleanup, but a new multi-second sleep is a flake waiting to
-    // happen: too short and it fails under load, too long and everyone pays.
-    // Playwright's expect() and locator waits already retry.
     re: /waitForTimeout\(\s*(?:[1-9]\d{3,}|\d+_\d+)/,
     message:
       "new waitForTimeout of 1s or more — wait for the state you actually " +
@@ -67,14 +63,13 @@ const violations = [];
 for (const [absFile, lineNumbers] of added) {
   const relPath = path.relative(REPO_ROOT, absFile).replace(/\\/g, "/");
   if (!inScope(relPath)) continue;
-  // helpers.ts is where the shared contract is allowed to name a fallback.
   if (relPath.endsWith("/e2e/helpers.ts")) continue;
 
   let lines;
   try {
     lines = readFileSync(absFile, "utf8").split("\n");
   } catch {
-    continue; // renamed or deleted since diffing
+    continue;
   }
 
   for (const lineNumber of [...lineNumbers].sort((a, b) => a - b)) {
@@ -88,11 +83,6 @@ for (const [absFile, lineNumbers] of added) {
   }
 }
 
-// A coerced read whose default IS the asserted value. `.catch(() => false)`
-// followed by `.toBe(false)` cannot fail: an unreadable element answers
-// "hidden", so a deleted node passed as hidden. Same shape as the toast
-// helpers that returned `[]` on a read error while every caller asserted the
-// list was empty. Expression-level, so it lives here rather than in RULES.
 const COERCED_DEFAULTS = {
   false: [/\.toBe\(\s*false\s*\)/],
   0: [
@@ -132,10 +122,6 @@ for (const [absFile, lineNumbers] of added) {
   }
 }
 
-// Swallowed action calls. `await x.click().catch(() => {})` reads as "click it
-// if it's there", but Playwright resolves the locator by *waiting* for it, so
-// the absent case costs a full actionTimeout and then reports success. Needs
-// the expression, not the line, so it is analysed here rather than in RULES.
 const SWALLOWED_ACTION =
   /\.(click|hover|fill|press|dblclick|check|uncheck|selectOption|setInputFiles|focus|tap|dragTo|waitFor|scrollIntoViewIfNeeded)\(/;
 const SWALLOW =
@@ -155,11 +141,9 @@ for (const [absFile, lineNumbers] of added) {
     const awaitAt = src.lastIndexOf("await", match.index);
     if (awaitAt === -1) continue;
     const expression = src.slice(awaitAt, match.index + match[0].length);
-    // A `;` means the nearest `await` belongs to an earlier statement.
     if (expression.includes(";")) continue;
     const action = SWALLOWED_ACTION.exec(expression);
     if (!action) continue;
-    // An explicit short timeout is a deliberate, bounded probe.
     if (/timeout:\s*\d/.test(expression)) continue;
     const lineNumber = src.slice(0, match.index).split("\n").length;
     if (!lineNumbers.has(lineNumber)) continue;
@@ -173,11 +157,6 @@ for (const [absFile, lineNumbers] of added) {
   }
 }
 
-// File-level: mixing a screen-scoped selection with an unscoped designFrame
-// read is how ~17 assertions silently inspected the wrong document once a
-// fixture mounted a second screen. Multiple preview iframes are legitimate in
-// overview, so this cannot be a runtime assert — but within one spec the
-// inconsistency is decidable by reading it.
 for (const [absFile] of added) {
   const relPath = path.relative(REPO_ROOT, absFile).replace(/\\/g, "/");
   if (!inScope(relPath) || relPath.endsWith("/e2e/helpers.ts")) continue;
@@ -188,10 +167,7 @@ for (const [absFile] of added) {
     continue;
   }
   if (src.includes("e2e-harness-ignore")) continue;
-  // `{ screenId: x }` as an argument — not an interface field
-  // (`screenId: string | null;`) or a nested object property.
   const scopesSelection = /\{[ \t]*screenId:[ \t]*\w/.test(src);
-  // `[\w.]+` so `designFrame(signedOut.page)` counts too.
   const unscopedRead = /\bdesignFrame\([ \t]*[\w.]+[ \t]*\)/.test(src);
   if (scopesSelection && unscopedRead) {
     violations.push(

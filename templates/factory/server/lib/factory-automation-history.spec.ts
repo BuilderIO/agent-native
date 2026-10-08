@@ -4,8 +4,19 @@ const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const insertValuesMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const getDbMock = vi.hoisted(() => vi.fn());
+const selectMaxMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/index.js", () => ({ getDb: getDbMock }));
+
+vi.mock("@agent-native/core/action", () => ({
+  fail: (message: string): never => {
+    throw new Error(message);
+  },
+}));
+
+vi.mock("@agent-native/core/db", () => ({
+  isUniqueViolation: (error: { code?: string }) => error?.code === "23505",
+}));
 
 vi.mock("@agent-native/core/resources", () => ({
   resourceGetByPath: resourceGetByPathMock,
@@ -76,8 +87,10 @@ Restored prompt.
 beforeEach(() => {
   vi.clearAllMocks();
   insertValuesMock.mockResolvedValue(undefined);
+  selectMaxMock.mockResolvedValue([{ latest: null }]);
   getDbMock.mockReturnValue({
     insert: () => ({ values: insertValuesMock }),
+    select: () => ({ from: () => ({ where: selectMaxMock }) }),
   });
   resourceGetByPathMock.mockResolvedValue({
     id: "resource-1",
@@ -97,77 +110,130 @@ beforeEach(() => {
   });
 });
 
-describe("resolvePromptVersionForSnapshot", () => {
-  it("keeps the current version when the saved identity is unchanged", async () => {
-    const { resolvePromptVersionForSnapshot } =
+const slackSnapshot = {
+  userPrompt: "Current prompt.",
+  displayName: "Slack feedback",
+  config: sampleConfig,
+  promptVersion: 3,
+  alignmentRevision: 1,
+  configSavedAt: "2026-09-15T12:00:00.000Z",
+  factoryId: "myfact",
+};
+
+describe("resolvePromptVersionAllocation", () => {
+  const allocate = async (
+    next: { userPrompt: string },
+    previous = slackSnapshot,
+  ) => {
+    const { resolvePromptVersionAllocation } =
       await import("./factory-automation-history.js");
-    const previous = {
-      userPrompt: "Current prompt.",
-      displayName: "Slack feedback",
-      config: sampleConfig,
+    return resolvePromptVersionAllocation({
+      automationId: "resource-1",
+      orgId: "org-1",
+      next: {
+        userPrompt: next.userPrompt,
+        displayName: previous.displayName,
+        config: sampleConfig,
+      },
+      previous,
+    });
+  };
+
+  it("keeps the current version and stores nothing when the identity is unchanged", async () => {
+    selectMaxMock.mockResolvedValue([{ latest: 2 }]);
+
+    await expect(allocate({ userPrompt: "Current prompt." })).resolves.toEqual({
       promptVersion: 3,
-      alignmentRevision: 1,
-      configSavedAt: "2026-09-15T12:00:00.000Z",
-      factoryId: "myfact",
-    };
-    expect(
-      resolvePromptVersionForSnapshot(
-        {
-          userPrompt: previous.userPrompt,
-          displayName: previous.displayName,
-          config: sampleConfig,
-        },
-        previous,
-      ),
-    ).toBe(3);
+      predecessorVersion: null,
+    });
   });
 
-  it("advances past the current version even when restored content matches an older snapshot exactly", async () => {
-    const { resolvePromptVersionForSnapshot } =
-      await import("./factory-automation-history.js");
-    const previous = {
-      userPrompt: "Current prompt.",
-      displayName: "Slack feedback",
-      config: sampleConfig,
-      promptVersion: 3,
-      alignmentRevision: 1,
-      configSavedAt: "2026-09-15T12:00:00.000Z",
-      factoryId: "myfact",
-    };
-    expect(
-      resolvePromptVersionForSnapshot(
-        {
-          userPrompt: "Restored prompt.",
-          displayName: "Slack feedback",
-          config: sampleConfig,
-        },
-        previous,
-      ),
-    ).toBe(4);
+  it("stores the previous content under its own version and advances past it", async () => {
+    selectMaxMock.mockResolvedValue([{ latest: 2 }]);
+
+    await expect(
+      allocate({ userPrompt: "Brand new prompt." }),
+    ).resolves.toEqual({ promptVersion: 4, predecessorVersion: 3 });
   });
 
-  it("assigns the current version plus one for genuinely new content", async () => {
-    const { resolvePromptVersionForSnapshot } =
-      await import("./factory-automation-history.js");
-    const previous = {
-      userPrompt: "Current prompt.",
-      displayName: "Slack feedback",
-      config: sampleConfig,
-      promptVersion: 3,
-      alignmentRevision: 1,
-      configSavedAt: "2026-09-15T12:00:00.000Z",
-      factoryId: "myfact",
-    };
-    expect(
-      resolvePromptVersionForSnapshot(
-        {
-          userPrompt: "Brand new prompt.",
-          displayName: "Slack feedback",
-          config: sampleConfig,
-        },
-        previous,
+  it("starts at version 0 for an automation with no history", async () => {
+    selectMaxMock.mockResolvedValue([{ latest: null }]);
+
+    await expect(
+      allocate(
+        { userPrompt: "Brand new prompt." },
+        { ...slackSnapshot, promptVersion: 0 },
       ),
-    ).toBe(4);
+    ).resolves.toEqual({ promptVersion: 1, predecessorVersion: 0 });
+  });
+
+  it("moves past stored history when the file lost its promptVersion", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    selectMaxMock.mockResolvedValue([{ latest: 1 }]);
+
+    await expect(
+      allocate(
+        { userPrompt: "Brand new prompt." },
+        { ...slackSnapshot, promptVersion: 0 },
+      ),
+    ).resolves.toEqual({ promptVersion: 3, predecessorVersion: 2 });
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("reports promptVersion 0 but versions up to 1"),
+    );
+    warn.mockRestore();
+  });
+
+  it("follows a file whose number is ahead of its history", async () => {
+    selectMaxMock.mockResolvedValue([{ latest: 1 }]);
+
+    await expect(
+      allocate({ userPrompt: "Brand new prompt." }),
+    ).resolves.toEqual({ promptVersion: 4, predecessorVersion: 3 });
+  });
+});
+
+describe("insertFactoryAutomationVersionRow", () => {
+  const insert = async (version?: number) => {
+    const { insertFactoryAutomationVersionRow } =
+      await import("./factory-automation-history.js");
+    return insertFactoryAutomationVersionRow({
+      automationId: "resource-1",
+      factoryId: "myfact",
+      orgId: "org-1",
+      userEmail: "alice@example.com",
+      automationName: "factories/myfact/factory-slack-feedback",
+      content: currentContent,
+      summary: "Before deduped injected prompt blocks",
+      source: "repair",
+      version,
+    });
+  };
+
+  it("allocates a free version when the caller does not supply one", async () => {
+    selectMaxMock.mockResolvedValue([{ latest: 2 }]);
+
+    await expect(insert()).resolves.toMatchObject({ version: 3 });
+  });
+
+  it("stores under the version it was given", async () => {
+    await expect(insert(7)).resolves.toMatchObject({ version: 7 });
+    expect(insertValuesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ version: 7 }),
+    );
+  });
+
+  it("raises a lost version race as a conflict, not a server error", async () => {
+    insertValuesMock.mockRejectedValue(
+      Object.assign(new Error("Failed query"), { cause: { code: "23505" } }),
+    );
+
+    await expect(insert(2)).rejects.toThrow("saved at the same time");
+  });
+
+  it("does not disguise other database failures as a conflict", async () => {
+    insertValuesMock.mockRejectedValue(new Error("connection reset"));
+
+    await expect(insert(2)).rejects.toThrow("connection reset");
   });
 });
 
@@ -214,12 +280,8 @@ describe("restoreFactoryAutomationVersion", () => {
           expectedContent: currentContent,
         }),
       );
-      // currentContent is promptVersion 2; restoring different content always
-      // advances past it rather than reusing the restored snapshot's own v1.
       expect(result.version).toBe(3);
       expect(result.configSavedAt).toBe("2026-09-15T13:00:00.000Z");
-      // The predecessor row stores the CURRENT content verbatim, not the
-      // restored content, and inserts before the live write commits.
       expect(insertValuesMock).toHaveBeenCalledWith(
         expect.objectContaining({
           rawContent: currentContent,
@@ -230,5 +292,111 @@ describe("restoreFactoryAutomationVersion", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe("trigger type", () => {
+    const restoreWith = async (live: string, historical: string) => {
+      resourceGetByPathMock.mockResolvedValue({
+        id: "resource-1",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/myfact/factory-slack-feedback.md",
+        content: live,
+        mimeType: "text/markdown",
+        updatedAt: 42,
+      });
+      const { restoreFactoryAutomationVersion } =
+        await import("./factory-automation-history.js");
+      await restoreFactoryAutomationVersion({
+        resource: {
+          id: "resource-1",
+          owner: "__organization__:org-1",
+          path: "jobs/factories/myfact/factory-slack-feedback.md",
+          content: live,
+          mimeType: "text/markdown",
+          size: live.length,
+          createdAt: 0,
+          updatedAt: 0,
+          createdBy: "system",
+          visibility: "workspace",
+          threadId: null,
+          runId: null,
+          expiresAt: null,
+          metadata: null,
+        },
+        automationId: "resource-1",
+        automationName: "factory-slack-feedback",
+        factoryId: "myfact",
+        historicalContent: historical,
+        userEmail: "owner@example.com",
+        orgId: "org-1",
+        summary: "Before restoring version 1",
+      });
+      return resourcePutIfCurrentMock.mock.calls[0]?.[0].content as string;
+    };
+    const tagged = (content: string, type: string) =>
+      content.replace(
+        "factoryId: myfact",
+        `factoryId: myfact\ntriggerType: ${type}`,
+      );
+
+    const identified = (content: string) =>
+      content.replace(
+        "factoryId: myfact",
+        "factoryId: myfact\ncreatedBy: alice@example.com\nrunAs: creator\norgId: org-1",
+      );
+
+    it("stamps triggerType: schedule when neither file has one", async () => {
+      const written = await restoreWith(
+        identified(currentContent),
+        identified(historicalContent),
+      );
+
+      expect(written).toContain("triggerType: schedule");
+    });
+
+    it("keeps the live file's trigger type when the restored version predates it", async () => {
+      const written = await restoreWith(
+        tagged(identified(currentContent), "webhook"),
+        identified(historicalContent),
+      );
+
+      expect(written.match(/^triggerType:.*$/gm)).toEqual([
+        "triggerType: webhook",
+      ]);
+    });
+
+    it("leaves a trigger type the restored version already has", async () => {
+      const written = await restoreWith(
+        tagged(identified(currentContent), "webhook"),
+        tagged(identified(historicalContent), "event"),
+      );
+
+      expect(written.match(/^triggerType:.*$/gm)).toEqual([
+        "triggerType: event",
+      ]);
+    });
+
+    it("keeps the live file tagged when the restored version has no identity of its own", async () => {
+      const written = await restoreWith(
+        tagged(identified(currentContent), "schedule"),
+        historicalContent,
+      );
+
+      expect(written).toContain("triggerType: schedule");
+      expect(written).toContain("createdBy: alice@example.com");
+      expect(written).toContain("orgId: org-1");
+    });
+
+    it("leaves the file untagged when neither version names a creator", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const written = await restoreWith(currentContent, historicalContent);
+
+      expect(written).not.toContain("triggerType:");
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("stays untagged after the restore"),
+      );
+      warn.mockRestore();
+    });
   });
 });

@@ -37,6 +37,14 @@ const childSource = `
       } catch (error) {
         fs.writeFileSync(marker("competitor-error"), error instanceof Error ? error.message : String(error));
       }
+    } else if (process.env.PGLITE_LOCK_MODE === "listener-restarts") {
+      const listenerCounts = [];
+      for (let restart = 0; restart < 10; restart++) {
+        await getPgliteClient("pglite:" + path.join(dir, "db"));
+        listenerCounts.push(process.listenerCount("exit"));
+        await closePgliteClients();
+      }
+      console.log(JSON.stringify(listenerCounts));
     } else {
       const client = await getPgliteClient("pglite:" + path.join(dir, "db"));
       const result = await client.query("SELECT id, who FROM probe_rows ORDER BY id");
@@ -77,6 +85,30 @@ async function waitFor(pathname: string): Promise<void> {
 }
 
 describe("PGlite persistent process ownership", () => {
+  it("keeps exit listeners bounded across repeated PGlite restarts", async () => {
+    const dir = await mkdtemp(
+      path.join(os.tmpdir(), "pglite-listener-restarts-"),
+    );
+    const restarted = spawnChild(dir, "listener-restarts", "pipe");
+    let output = "";
+    restarted.child.stdout?.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    try {
+      await restarted.exited;
+      const counts = JSON.parse(output.trim()) as number[];
+
+      expect(counts).toHaveLength(10);
+      expect(counts[0]).toBe(1);
+      expect(new Set(counts).size).toBe(1);
+      console.info(
+        `PGlite exit listener counts across 10 restarts: ${counts.join(", ")}`,
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 15_000);
+
   it("rejects a competing process without losing the owner's write", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "pglite-process-lock-"));
     const dbDir = path.join(dir, "db");

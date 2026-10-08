@@ -1,7 +1,7 @@
 ---
 title: "Deployment"
 description: "Deploy an Agent-Native app or workspace to a Nitro-compatible platform with a persistent PostgreSQL database."
-search: "deployment deploy app workspace hosting database Nitro Node.js Docker Vercel Netlify Cloudflare AWS Amplify AWS Lambda Deno Deploy Azure Static Web Apps Koyeb Render"
+search: "deployment deploy app workspace hosting database Nitro Node.js Docker Vercel Netlify Cloudflare"
 ---
 
 # Deployment
@@ -14,8 +14,8 @@ the path that matches what you are shipping:
 
 ### :server: [Deploy an app](/docs/deploy-an-app)
 
-Build and launch one standalone app, or deploy one app from a workspace on its
-own domain.
+Build and launch one standalone app on Node.js, Docker, Vercel, Netlify, or
+Cloudflare Workers.
 
 ### :network: [Deploy a workspace](/docs/workspace-deployment)
 
@@ -55,6 +55,12 @@ when it uses signed cross-app requests or background handoffs. The [deployment
 environment reference](/docs/deployment-environment-variables) covers the rest
 of the production configuration.
 
+### Run migrations
+
+Run `pnpm migrate:production` against the production database before the first
+visit. It creates the tables the app needs. Run it again after every upgrade,
+before the new version goes live. Each hosting guide shows where this step fits.
+
 </Steps>
 
 <Callout tone="info">
@@ -77,14 +83,63 @@ verification, password resets, invitations, or share notifications. Set
 also needs `EMAIL_FROM`. See [Authentication](/docs/authentication) for the
 available authentication modes.
 
+### Customize framework emails {#email-templates}
+
+Every email the framework sends has a default template. To use your own
+design, register an override from a server plugin. The framework still picks
+the recipient and sender and delivers the message. Your override decides what
+the message says and how it looks.
+
+```ts
+// server/plugins/email-templates.ts
+import {
+  escapeEmailHtml,
+  overrideTransactionalEmail,
+} from "@agent-native/core/server";
+
+export default function registerEmailTemplates(): void {
+  overrideTransactionalEmail("core.resource-shared", (props) => ({
+    subject: `${props.sender.name} shared "${props.resource.title}"`,
+    html: `<p>${escapeEmailHtml(props.sender.name)} invited you to
+      <a href="${escapeEmailHtml(props.resource.url)}">${escapeEmailHtml(props.resource.title)}</a>
+      in ${escapeEmailHtml(props.app.name)}.</p>`,
+  }));
+}
+```
+
+| Email id                         | Props                                                                              |
+| -------------------------------- | ---------------------------------------------------------------------------------- |
+| `core.verify-signup`             | `email`, `verifyUrl`                                                               |
+| `core.reset-password`            | `email`, `resetUrl`                                                                |
+| `core.magic-link`                | `email`, `magicLinkUrl`                                                            |
+| `core.change-email-confirmation` | `email`, `newEmail`, `confirmationUrl`                                             |
+| `core.change-email-verification` | `email`, `verifyUrl`                                                               |
+| `core.organization-invite`       | `invitee`, `orgName`, `inviter`, `acceptUrl`                                       |
+| `core.builder-credit-limit`      | `subject`, `heading`, `body`, `upgradeLabel`, `upgradeUrl`                         |
+| `core.resource-shared`           | `recipientEmail`, `sender`, `resource` (`type`, `title`, `url`), `role`, `message` |
+
+Every override also receives `app` (`name`, `logoUrl`). A second argument holds
+the default rendering, so you can reuse its subject or text.
+
+- Props are raw values. Escape them with `escapeEmailHtml` before putting them
+  in an HTML string.
+- Return `react` with a React element instead of `html` to render a component.
+  React escapes props for you.
+- Leave out `subject` to keep the default subject. Leave out `text` to derive
+  the plain-text body from your HTML.
+- If an override throws, the send fails. The framework does not fall back to
+  the default design. The transactional email preview renders your override,
+  so check it there.
+
 ## Supported deployment targets
 
-Set a Nitro preset for the target you choose. The app code and database
-contract stay the same.
+Each target has a step-by-step guide. The app code and database stay the same
+whichever target you choose. Only the build preset and the deploy command
+change.
 
 <!-- i18n-copy-ignore: renderer-only Diagram attributes keep this shared UI block in clean mode. -->
 
-<Diagram id="doc-block-deployment-targets" title="Supported deployment targets" summary="Agent-Native apps can deploy to Node.js, Docker, Vercel, Netlify, Cloudflare Pages, Cloudflare Workers, AWS Amplify, AWS Lambda, Deno Deploy, Azure Static Web Apps, Koyeb, and Render." frame="hide" renderMode="design">
+<Diagram id="doc-block-deployment-targets" title="Supported deployment targets" summary="Agent-Native apps can deploy to Node.js, Docker, Vercel, Netlify, and Cloudflare Workers." frame="hide" renderMode="design">
 
 ```html
 <!-- i18n-copy-ignore: deployment target logo markup is visual-only; labels are unchanged. -->
@@ -127,99 +182,26 @@ contract stay the same.
   </a>
   <a class="deployment-target" href="/docs/netlify">
     <span class="deployment-target-mark">
-      <img src="/integration-logos/netlify.svg" alt="" />
+      <!-- i18n-copy-ignore: Netlify's light/dark logo pair is image markup; localized deployment pages have no logo grid. -->
+      <img
+        class="deployment-target-logo deployment-target-logo-light"
+        src="/integration-logos/netlify.svg"
+        alt=""
+      />
+      <img
+        class="deployment-target-logo deployment-target-logo-dark"
+        src="/integration-logos/netlify-darkmode.svg"
+        alt=""
+        aria-hidden="true"
+      />
     </span>
     <strong>Netlify</strong>
-  </a>
-  <a class="deployment-target" href="/docs/cloudflare#cloudflare-pages">
-    <span class="deployment-target-mark">
-      <img src="/integration-logos/cloudflare.svg" alt="" />
-    </span>
-    <strong>Cloudflare Pages</strong>
   </a>
   <a class="deployment-target" href="/docs/cloudflare#cloudflare-workers">
     <span class="deployment-target-mark">
       <img src="/integration-logos/cloudflare.svg" alt="" />
     </span>
     <strong>Cloudflare Workers</strong>
-  </a>
-  <a class="deployment-target" href="/docs/aws-lambda">
-    <span class="deployment-target-mark">
-      <img
-        class="deployment-target-logo"
-        src="/integration-logos/aws-lambda.svg"
-        alt=""
-      />
-    </span>
-    <strong>AWS Lambda</strong>
-  </a>
-  <a class="deployment-target" href="/docs/aws-amplify">
-    <span class="deployment-target-mark">
-      <img
-        class="deployment-target-logo"
-        src="/integration-logos/aws-lambda.svg"
-        alt=""
-      />
-    </span>
-    <strong>AWS Amplify</strong>
-  </a>
-  <a class="deployment-target" href="/docs/deno-deploy">
-    <span class="deployment-target-mark">
-      <img
-        class="deployment-target-logo deployment-target-logo-light"
-        src="/integration-logos/deno.svg"
-        alt=""
-      />
-      <img
-        class="deployment-target-logo deployment-target-logo-dark"
-        src="/integration-logos/deno-white.svg"
-        alt=""
-        aria-hidden="true"
-      />
-    </span>
-    <strong>Deno Deploy</strong>
-  </a>
-  <a class="deployment-target" href="/docs/azure-static-web-apps">
-    <span class="deployment-target-mark">
-      <img
-        class="deployment-target-logo"
-        src="/integration-logos/azure.svg"
-        alt=""
-      />
-    </span>
-    <strong>Azure Static Web Apps</strong>
-  </a>
-  <a class="deployment-target" href="/docs/koyeb">
-    <span class="deployment-target-mark">
-      <img
-        class="deployment-target-logo deployment-target-logo-light"
-        src="/integration-logos/koyeb.svg"
-        alt=""
-      />
-      <img
-        class="deployment-target-logo deployment-target-logo-dark"
-        src="/integration-logos/koyeb-white.svg"
-        alt=""
-        aria-hidden="true"
-      />
-    </span>
-    <strong>Koyeb</strong>
-  </a>
-  <a class="deployment-target" href="/docs/render">
-    <span class="deployment-target-mark">
-      <img
-        class="deployment-target-logo deployment-target-logo-light"
-        src="/integration-logos/render.svg"
-        alt=""
-      />
-      <img
-        class="deployment-target-logo deployment-target-logo-dark"
-        src="/integration-logos/render-white.svg"
-        alt=""
-        aria-hidden="true"
-      />
-    </span>
-    <strong>Render</strong>
   </a>
 </div>
 ```
@@ -282,11 +264,7 @@ settings or production controls:
 
 - [**Node.js**](/docs/node-js) - run the default Nitro server preset
 - [**Docker**](/docs/docker) - package the Node.js server in a container
-- [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), [**Cloudflare Pages**](/docs/cloudflare#cloudflare-pages), and [**Cloudflare Workers**](/docs/cloudflare#cloudflare-workers) - configure hosted targets
-- [**AWS Amplify**](/docs/aws-amplify) and [**AWS Lambda**](/docs/aws-lambda) - deploy Nitro's serverless output on AWS
-- [**Deno Deploy**](/docs/deno-deploy) - deploy to the Deno runtime
-- [**Azure Static Web Apps**](/docs/azure-static-web-apps), [**Koyeb**](/docs/koyeb), and [**Render**](/docs/render) - use additional Nitro providers
-- [Nitro's provider list](https://nitro.build/deploy/providers) - see the broader set of presets Nitro supports
+- [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), and [**Cloudflare Workers**](/docs/cloudflare#cloudflare-workers) - configure hosted targets
 - [**SSR Caching**](/docs/ssr-caching) - configure the public shell cache
 - [**Deployment Environment Variables**](/docs/deployment-environment-variables) - production secrets, runtime flags, and workspace inheritance
 - [**Production Agent Access**](/docs/actions-agent-tools) - control framework tools and code execution
@@ -295,9 +273,9 @@ settings or production controls:
 <a id="self-host-quickstart"></a>
 <a id="skip-ensure-tables"></a>
 
-For compatibility with older links, the local Docker quickstart now lives on
-[Docker](/docs/docker#self-host-quickstart). Schema setup and
-cold-start guidance live in the [deployment environment reference](/docs/deployment-environment-variables#skip-ensure-tables).
+These anchors keep older links working. Self-hosting with a container is covered
+in the [Docker guide](/docs/docker). Schema setup and cold-start guidance live
+in the [deployment environment reference](/docs/deployment-environment-variables#skip-ensure-tables).
 
 ## What's next
 

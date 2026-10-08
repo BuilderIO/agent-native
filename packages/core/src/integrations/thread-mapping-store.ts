@@ -20,7 +20,6 @@ export async function ensureTable(): Promise<void> {
 
       await ensureTableExists("integration_thread_mappings", createSql);
     })().catch((err) => {
-      // Retry init on the next call after a failed startup.
       _initPromise = undefined;
       throw err;
     });
@@ -37,9 +36,6 @@ export interface ThreadMapping {
   updatedAt: number;
 }
 
-/**
- * Look up the internal thread ID for an external platform thread.
- */
 export async function getThreadMapping(
   platform: string,
   externalThreadId: string,
@@ -62,9 +58,6 @@ export async function getThreadMapping(
   };
 }
 
-/**
- * Create or update a thread mapping.
- */
 export async function saveThreadMapping(
   platform: string,
   externalThreadId: string,
@@ -87,9 +80,6 @@ export async function saveThreadMapping(
   });
 }
 
-/**
- * Delete a thread mapping.
- */
 export async function deleteThreadMapping(
   platform: string,
   externalThreadId: string,
@@ -102,9 +92,6 @@ export async function deleteThreadMapping(
   });
 }
 
-/**
- * List all thread mappings for a platform.
- */
 export async function listThreadMappings(
   platform: string,
 ): Promise<ThreadMapping[]> {

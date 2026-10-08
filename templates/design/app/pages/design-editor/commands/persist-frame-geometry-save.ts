@@ -58,10 +58,6 @@ export function runPersistFrameGeometrySave(
   keepalive = false,
 ): boolean {
   if (!id || !canEditDesignRef.current) return false;
-  // Geometry-persist guard: refuse absurd per-frame geometry (see
-  // sanitizeCanvasFrameGeometryForPersist) so a corrupted transient
-  // zoom basis can never shred the persisted layout. The board frame
-  // is exempt — its surface is a legitimate 131k square.
   const { geometryById: safeGeometryById } =
     sanitizeCanvasFrameGeometryForPersist(
       pending.geometryById,

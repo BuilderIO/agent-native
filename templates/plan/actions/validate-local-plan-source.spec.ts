@@ -14,8 +14,6 @@ const VALID_PLAN = [
   "",
 ].join("\n");
 
-// The issue's repro: a checklist nested as JSON inside a TabsBlock, missing the
-// required per-item `id`. The renderer rejects it; this action must too.
 const NESTED_CHECKLIST_MISSING_ID = [
   "---",
   'title: "Nested checklist"',

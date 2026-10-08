@@ -14,7 +14,6 @@ const GROUP_RUNTIME_RE = new RegExp(
   "gi",
 );
 
-/** Embed or upgrade the standalone measured-Group runtime exactly once. */
 export function ensureGroupRuntime(html: string): string {
   if (!html.includes(MEASURED_FLOW_GROUP_ATTR)) return html;
   const tag = buildGroupRuntimeScriptTag();

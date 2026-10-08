@@ -10,26 +10,12 @@ import { e2eBaseURL } from "./base-url";
 import {
   childNodeIds,
   elementInner,
+  enterDirectMode,
   expandAllLayers,
   gotoEditor,
+  installBridge,
+  waitForBridge,
 } from "./helpers";
-
-/**
- * Figma tutorial 7 (figma-interaction-spec.md Part 2 §7) — "Create the card
- * and container system": build a Project card by duplicating a title into a
- * description line, duplicating a button, drawing a thumbnail rectangle,
- * then wrapping text+button into "Description", Description+Thumbnail into
- * "Content", and Content into "Project card" via three levels of nested
- * auto layout / frame wrapping. The bug class this tutorial exposes is
- * SEQUENCE: does the inner "Description" auto-layout frame survive intact
- * once it becomes a child of "Content", and does "Content" survive intact
- * once it becomes a child of "Project card"? Every step below asserts the
- * FULL tree, not just the newest node.
- *
- * Native Create component is available for the single-selection step 9. The
- * Figma-only "Move to page -> Components" step 10 remains absent because
- * Design has no page/canvas system.
- */
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
@@ -45,10 +31,6 @@ const CARD_HTML = `<!doctype html>
   </body>
 </html>`;
 
-// Same as CARD_HTML plus a pre-existing "Thumbnail" element, for tests that
-// build the second-level "Content" wrap without re-deriving draw-tool math
-// (drawing a fresh board rectangle and dragging it in is covered on its own
-// in the "step 3" test below).
 const CARD_HTML_WITH_THUMB = CARD_HTML.replace(
   "</body>",
   `    <div data-agent-native-node-id="thumb" data-agent-native-layer-name="Thumbnail"
@@ -220,7 +202,6 @@ async function emptyBoardPoint(
   return point;
 }
 
-/** All rendered preview iframes (screens + the board), each as a FrameLocator. */
 async function allPreviewFrames(page: Page) {
   const handles = await page
     .locator("iframe[data-design-preview-iframe]")
@@ -233,10 +214,6 @@ async function allPreviewFrames(page: Page) {
   return frames;
 }
 
-/** The real `data-agent-native-node-id` for a layer, found by its rendered
- * `data-agent-native-layer-name`, wherever it currently lives (board or a
- * screen). The layers panel's own `data-layer-node-id` is a different,
- * composite id scheme and must not be used for this. */
 async function domNodeIdByLayerName(page: Page, name: string): Promise<string> {
   for (const frame of await allPreviewFrames(page)) {
     const id = await frame
@@ -249,16 +226,9 @@ async function domNodeIdByLayerName(page: Page, name: string): Promise<string> {
   throw new Error(`no rendered element found for layer "${name}"`);
 }
 
-/** Bounding box of a layer, wherever it currently lives (board or a screen).
- * Polls briefly: a rename's DOM update can lag the layers-panel row by a
- * beat, and reading too early is indistinguishable from "not rendered". */
 async function boxByLayerName(page: Page, name: string) {
   for (let attempt = 0; attempt < 10; attempt += 1) {
     for (const frame of await allPreviewFrames(page)) {
-      // A structural edit (e.g. Shift+A) can force a full iframe reload; a
-      // frame handle captured just before that reload is now detached, and
-      // an unbounded boundingBox() on it hangs for the default actionability
-      // timeout instead of failing fast. Bound each attempt explicitly.
       const box = await frame
         .locator(`[data-agent-native-layer-name="${name}"]`)
         .first()
@@ -271,9 +241,6 @@ async function boxByLayerName(page: Page, name: string) {
   return null;
 }
 
-/** Every opening tag carrying `data-agent-native-layer-name="name"`, with its
- * source index and its own `data-agent-native-node-id`. Distinguishes an
- * original element from a same-named duplicate by DOM position. */
 function tagsWithLayerName(
   html: string,
   name: string,
@@ -291,7 +258,6 @@ function tagsWithLayerName(
   return results;
 }
 
-/** Rename via the layers panel's double-click rename affordance. */
 async function renameLayer(
   page: Page,
   fromName: string,
@@ -316,16 +282,13 @@ test.describe("tutorial 7 — card and container system", () => {
     designId = "";
   });
 
-  test("step 1 [in-screen]: Cmd+D duplicates the title text directly above it, same name and position, one undo restores", async ({
+  test("step 1 [in-screen]: Cmd+D duplicates the title text directly above it, same name and position; a second Cmd+D duplicates only the new copy (not the original too), two undos restore", async ({
     page,
     request,
   }) => {
     designId = await newDesign(request);
     await openEditorAndExpandLayers(page, designId);
 
-    // Select on the CANVAS (not the layers panel): layer-panel selection did
-    // not consistently arm the structural hotkeys in earlier runs of this
-    // spec, matching the pattern established in parity-clipboard-duplicate.
     const titleBox = (await node(page, "title").boundingBox())!;
     await page.mouse.click(
       titleBox.x + titleBox.width / 2,
@@ -364,13 +327,9 @@ test.describe("tutorial 7 — card and container system", () => {
     const originalStyle = styleOf(html, "title");
     const copy = occurrences.find((o) => o.id !== "title");
     expect(copy, "could not find the copy's node id").toBeTruthy();
-    // Figma: duplicate keeps identical x/y (it's a plain in-place copy; the
-    // user repositions it manually as "below it" per the tutorial).
     const copyStyle = styleOf(html, copy!.id);
     expect(styleNum(copyStyle, "left")).toBe(styleNum(originalStyle, "left"));
     expect(styleNum(copyStyle, "top")).toBe(styleNum(originalStyle, "top"));
-    // Ground truth: the copy is inserted directly ABOVE the original and
-    // becomes the selection.
     const original = occurrences.find((o) => o.id === "title")!;
     expect(
       copy!.index,
@@ -382,21 +341,106 @@ test.describe("tutorial 7 — card and container system", () => {
     await expect(
       page.locator('[role="treeitem"][aria-selected="true"]'),
     ).toContainText("Project title");
+    const titleRows = layersTree(page)
+      .locator("[data-layer-row-button][data-layer-node-id]")
+      .filter({ has: page.locator('span[title="Project title"]') });
+    await expect(titleRows).toHaveCount(2);
+    const titleRowIds = await titleRows.evaluateAll((nodes) =>
+      nodes.map((n) => n.getAttribute("data-layer-node-id")),
+    );
+    expect(titleRowIds).toContain(originalSelectionId);
+    const copyLayerNodeId = titleRowIds.find(
+      (rowId) => rowId !== originalSelectionId,
+    );
+    expect(copyLayerNodeId, "the copy has no distinct Layers row").toBeTruthy();
     await expect(
-      page
-        .locator(
-          '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
-        )
-        .first(),
-    ).not.toHaveAttribute("data-layer-node-id", originalSelectionId!);
+      page.locator(
+        '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
+      ),
+      "Cmd+D must select the COPY's own Layers row, not merely avoid the original's",
+    ).toHaveAttribute("data-layer-node-id", copyLayerNodeId!);
 
+    await page.keyboard.press(`${MOD}+d`);
+    let html2 = "";
+    await expect
+      .poll(
+        async () => {
+          html2 = await indexHtml(request, designId);
+          return tagsWithLayerName(html2, "Project title").length;
+        },
+        {
+          timeout: 10_000,
+          message: `a second Cmd+D should add exactly one more "Project title" node — trace: ${JSON.stringify(await dump(page))}`,
+        },
+      )
+      .toBe(3);
+    const secondOccurrences = tagsWithLayerName(html2, "Project title");
+    const idsAfterSecondDuplicate = secondOccurrences.map((o) => o.id);
+    expect(
+      idsAfterSecondDuplicate,
+      "the original must be untouched by the second Cmd+D",
+    ).toContain(original.id);
+    expect(
+      idsAfterSecondDuplicate,
+      "the first copy must be untouched by the second Cmd+D",
+    ).toContain(copy!.id);
+    const secondCopy = secondOccurrences.find(
+      (o) => o.id !== original.id && o.id !== copy!.id,
+    );
+    expect(
+      secondCopy,
+      'second Cmd+D must add a third, distinct "Project title" node',
+    ).toBeTruthy();
+    const aboveMeansHigherIndex = copy!.index > original.index;
+    const copyInHtml2 = secondOccurrences.find((o) => o.id === copy!.id)!;
+    expect(
+      aboveMeansHigherIndex
+        ? secondCopy!.index > copyInHtml2.index
+        : secondCopy!.index < copyInHtml2.index,
+      "second Cmd+D must insert the new node directly above the COPY, not re-duplicate the original (which would land it between the original and the copy instead)",
+    ).toBe(true);
+
+    await page.keyboard.press(`${MOD}+z`);
+    let htmlAfterFirstUndo = "";
+    await expect
+      .poll(
+        async () => {
+          htmlAfterFirstUndo = await indexHtml(request, designId);
+          return tagsWithLayerName(htmlAfterFirstUndo, "Project title").length;
+        },
+        {
+          timeout: 10_000,
+          message:
+            "undo of the second Cmd+D did not remove the second duplicate",
+        },
+      )
+      .toBe(2);
+    const idsAfterFirstUndo = tagsWithLayerName(
+      htmlAfterFirstUndo,
+      "Project title",
+    ).map((o) => o.id);
+    expect(
+      idsAfterFirstUndo,
+      "undo of the second Cmd+D must remove the MOST RECENT copy, not an older history entry",
+    ).not.toContain(secondCopy!.id);
+    expect(
+      idsAfterFirstUndo,
+      "undo of the second Cmd+D must keep the first copy intact",
+    ).toContain(copy!.id);
+    expect(
+      htmlAfterFirstUndo,
+      "undo of the second Cmd+D must restore exactly the document as it existed right after the first Cmd+D",
+    ).toBe(html);
     await page.keyboard.press(`${MOD}+z`);
     await expect
       .poll(
         async () =>
           tagsWithLayerName(await indexHtml(request, designId), "Project title")
             .length,
-        { timeout: 10_000, message: "one undo did not remove the duplicate" },
+        {
+          timeout: 10_000,
+          message: "undo of the first Cmd+D did not remove the first duplicate",
+        },
       )
       .toBe(1);
     await expect(indexHtml(request, designId)).resolves.toBe(originalHtml);
@@ -459,13 +503,11 @@ test.describe("tutorial 7 — card and container system", () => {
       )
       .toBe(2);
     const occurrences = tagsWithLayerName(html, "View project");
-    // Original stays put at its source position.
     expect(styleNum(styleOf(html, "btn"), "top")).toBe(220);
     const original = occurrences.find((o) => o.id === "btn")!;
     const copy = occurrences.find((o) => o.id !== "btn")!;
     expect(copy, "could not isolate the copy's occurrence").toBeTruthy();
     expect(styleNum(styleOf(html, copy.id), "top")).toBeGreaterThan(220);
-    // Ground truth: alt-drag copy is inserted directly above the source.
     expect(copy.index).toBeGreaterThan(original.index);
     await expect(
       page.locator('[role="treeitem"][aria-selected="true"]'),
@@ -519,9 +561,6 @@ test.describe("tutorial 7 — card and container system", () => {
     await expandAllLayers(page);
     await page.waitForTimeout(750);
 
-    // Locate a genuinely empty board area with room for the full rectangle;
-    // a fixed offset from the screen can land under the inspector or outside
-    // the viewport after the overview camera fits its content.
     const boardPoint = await emptyBoardPoint(page, {
       width: 220,
       height: 350,
@@ -551,8 +590,6 @@ test.describe("tutorial 7 — card and container system", () => {
       })
       .toBeGreaterThan(namesBefore.length);
 
-    // Drawing outside the screen must create a board object, NOT a new
-    // screen/file.
     const filesAfter = (
       await request
         .get(`${BASE_URL}/_agent-native/actions/get-design?id=${designId}`)
@@ -563,10 +600,6 @@ test.describe("tutorial 7 — card and container system", () => {
       "a rectangle drawn outside the screen must not add a screen file",
     ).toBe(filesBefore);
 
-    // Rename via the layers panel: find the newest row (a board object shows
-    // in the same Layers tree) by diffing against the rows visible BEFORE
-    // the draw — a hardcoded exclude list would wrongly pick the screen's
-    // own root row.
     const names = await visibleLayerNames(page);
     const rectName = names.find(
       (n) => !namesBefore.includes(n) && n.length > 0,
@@ -577,16 +610,12 @@ test.describe("tutorial 7 — card and container system", () => {
     ).toBeTruthy();
     await renameLayer(page, rectName!, "Thumbnail");
 
-    // Now drag it from the board into the screen, beside the existing text —
-    // crossing the screen boundary.
     const rectBox = await boxByLayerName(page, "Thumbnail");
     const screenBox2 = await page
       .locator("[data-screen-card]")
       .first()
       .boundingBox();
     if (!rectBox || !screenBox2) throw new Error("missing box for drag");
-    // Drop well inside the visible screen card, away from any edge that
-    // might sit under the inspector panel or off-viewport.
     const dropX = screenBox2.x + Math.min(200, screenBox2.width / 2);
     const dropY = screenBox2.y + Math.min(300, screenBox2.height / 2);
     await page.mouse.move(
@@ -626,9 +655,6 @@ test.describe("tutorial 7 — card and container system", () => {
     designId = await newDesign(request, CARD_HTML_WITH_THUMB);
     await openEditorAndExpandLayers(page, designId);
 
-    // Fixture already has title + button; simulate the duplicated
-    // description line as a plain third text node for this structural test
-    // (typography edits are covered as peer-owned elsewhere).
     await multiSelect(page, ["Project title", "View project"]);
     const before = await visibleLayerNames(page);
     await page.keyboard.press("Shift+A");
@@ -657,16 +683,12 @@ test.describe("tutorial 7 — card and container system", () => {
       descChildren,
       "Description must contain exactly the title and button, in order",
     ).toEqual(["title", "btn"]);
-    // Figma auto layout is a flex container.
     const descStyle = styleOf(html, descId!);
     expect(
       descStyle,
       `Shift+A should apply a flex container style to the new wrapper. Style: ${descStyle}`,
     ).toMatch(/display:\s*flex/);
 
-    // Wrap Description + the fixture's pre-existing Thumbnail into "Content"
-    // (drawing a fresh board rectangle and dragging it into a screen is its
-    // own gesture, covered in the "step 3" test above).
     await multiSelect(page, ["Description", "Thumbnail"]);
     const beforeContent = await visibleLayerNames(page);
     await page.keyboard.press("Shift+A");
@@ -693,8 +715,6 @@ test.describe("tutorial 7 — card and container system", () => {
       contentChildren,
       "Content must contain exactly Description and Thumbnail",
     ).toHaveLength(2);
-    // Structural regression check: whichever child is Description must still
-    // directly contain title+btn (not flattened or dropped by the re-wrap).
     const descAfter = contentChildren.find((id) =>
       childNodeIds(html2, id).includes("title"),
     );
@@ -728,10 +748,6 @@ test.describe("tutorial 7 — card and container system", () => {
         { timeout: 10_000, message: "Shift+A produced no new wrapper row" },
       )
       .toBe(true);
-    // Diff against the rows visible BEFORE the wrap (which already include
-    // the screen's own root row) rather than a hardcoded exclude list — a
-    // hardcoded list wrongly treats the pre-existing root as "new" once the
-    // wrap collapses Title/Button under the fresh wrapper.
     const wrapperName = names.find(
       (n) => !rootNames.includes(n) && n.length > 0,
     );
@@ -753,9 +769,6 @@ test.describe("tutorial 7 — card and container system", () => {
     );
     await page.mouse.up();
 
-    // Either outcome below is a valid finding (see comment), so there is no
-    // single target state to poll toward — wait for the layers panel to stop
-    // changing instead of a fixed sleep.
     let lastNames: string[] | null = null;
     await expect
       .poll(
@@ -776,11 +789,6 @@ test.describe("tutorial 7 — card and container system", () => {
     const frameName = namesAfter.find(
       (n) => !names.includes(n) && n !== "Content",
     );
-    // The tutorial expects "Frame tool around Content" to WRAP the existing
-    // Content layer (matching real Figma: drawing a frame over a selection
-    // does not auto-wrap it — Figma actually requires selecting Content and
-    // using Frame Selection or right-click > "Frame selection"). Record
-    // whichever behavior Design actually has.
     if (!frameName) {
       test.info().annotations.push({
         type: "finding",
@@ -810,22 +818,38 @@ test.describe("tutorial 7 — card and container system", () => {
   }) => {
     designId = await newDesign(request);
     await openEditorAndExpandLayers(page, designId);
-    await layerRowButton(page, "Project title").click({
-      force: true,
-      button: "right",
+    await enterDirectMode(page);
+    await installBridge(page);
+
+    const frame = previewFrame(page);
+    const titleNode = frame.locator('[data-agent-native-node-id="title"]');
+    const point = await titleNode.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     });
-    await page.waitForTimeout(500);
-    const menu = page.getByRole("menu").first();
-    if (await menu.count()) {
-      const items = await menu.getByRole("menuitem").allTextContents();
-      expect(
-        items.some((i) => /create\s+component/i.test(i)),
-        `context menu items: ${JSON.stringify(items)}`,
-      ).toBe(true);
-      expect(
-        items.some((i) => /move to page/i.test(i)),
-        `context menu items: ${JSON.stringify(items)}`,
-      ).toBe(false);
-    }
+    await titleNode.evaluate((_element, pt) => {
+      document.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          button: 2,
+          buttons: 2,
+          clientX: pt.x,
+          clientY: pt.y,
+        }),
+      );
+    }, point);
+    await waitForBridge(page, "element-contextmenu");
+    const menu = page.getByRole("menu").last();
+    await expect(menu).toBeVisible();
+    const items = await menu.getByRole("menuitem").allTextContents();
+    expect(
+      items.some((i) => /create\s+component/i.test(i)),
+      `context menu items: ${JSON.stringify(items)}`,
+    ).toBe(true);
+    expect(
+      items.some((i) => /move to page/i.test(i)),
+      `context menu items: ${JSON.stringify(items)}`,
+    ).toBe(false);
   });
 });

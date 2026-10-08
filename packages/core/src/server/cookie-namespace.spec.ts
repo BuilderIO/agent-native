@@ -199,6 +199,35 @@ describe("resolveAuthCookieNamespace", () => {
     });
   });
 
+  it("isolates a first-party beta app and clears old shared cookies without COOKIE_DOMAIN", () => {
+    expect(
+      resolveAuthCookieNamespace({
+        NODE_ENV: "production",
+        URL: "https://beta.calendar.agent-native.com",
+      }),
+    ).toMatchObject({
+      appSlug: "calendar",
+      frameworkCookieName: "an_session_calendar",
+      frameworkCookieNamesToRead: ["an_session_calendar"],
+      frameworkCookieNamesToClear: ["an_session_calendar", "an_session"],
+      frameworkCookieDomain: undefined,
+      frameworkCookieDomainsToClear: [".agent-native.com"],
+      betterAuthCookiePrefix: "an_calendar",
+      betterAuthCookieDomain: undefined,
+      isFirstPartyCookieDomain: true,
+    });
+  });
+
+  it("only reads the current cookie name in isolated first-party apps", () => {
+    expect(
+      resolveAuthCookieNamespace({
+        NODE_ENV: "production",
+        APP_NAME: "slides",
+        COOKIE_DOMAIN: ".agent-native.com",
+      }).frameworkCookieNamesToRead,
+    ).toEqual(["an_session_slides"]);
+  });
+
   it.each(["BETTER_AUTH_URL", "VITE_BETTER_AUTH_URL"])(
     "can derive the first-party slug from %s when APP_NAME is missing",
     (key) => {

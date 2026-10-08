@@ -24,6 +24,11 @@ const messages = {
     retry: "Réessayer",
     search: "Rechercher",
   },
+  chatHome: {
+    description:
+      "Explorez le contexte autorisé des comptes, les suivis et les éléments de preuve dans Native SQL et les fiches connectées.",
+    placeholder: "Posez une question sur votre CRM",
+  },
   commandMenu: {
     placeholder: "Rechercher des enregistrements, listes et commandes…",
     groupRecords: "Enregistrements",
@@ -60,19 +65,11 @@ const messages = {
     showHelp: "Afficher cette aide",
   },
   settings: {
-    title: "Paramètres du CRM",
-    description:
-      "Le SQL natif garde les enregistrements du CRM dans Postgres. HubSpot et Salesforce passent par les connexions de l’espace de travail ; leurs miroirs ne stockent que les champs autorisés, des métadonnées limitées et des références de preuve bornées.",
-    languageTitle: "Langue",
-    languageDescription:
-      "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
-    languageLabel: "Langue de l’interface",
+    mcpAbout:
+      "Connectez CRM à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans CRM pour vous : trouver des fiches, mettre à jour des champs et gérer des tâches. Elle ne voit que ce que vous pouvez voir.",
   },
   connection: {
     tab: "Connexion",
-    title: "Connexion CRM",
-    description:
-      "D’où viennent les enregistrements de ce CRM et quelle part de chaque enregistrement lui appartient.",
     modesTitle: "Modes disponibles",
     modeNative: "SQL natif",
     modeNativeHelp:
@@ -102,9 +99,6 @@ const messages = {
   },
   fields: {
     tab: "Champs",
-    title: "Champs",
-    description:
-      "Les attributs typés derrière chaque enregistrement et chaque liste. Le slug d’API et le type d’un champ sont figés dès sa création ; tout le reste peut changer.",
     target: "Objet ou liste",
     targetPlaceholder: "Sélectionnez un type d’objet ou une liste",
     listsGroup: "Listes",
@@ -251,8 +245,6 @@ const messages = {
   },
   advanced: {
     tab: "Avancé",
-    title: "Avancé",
-    description: "Reconfiguration et comportement de conservation des données.",
     reconfigure: "Reconfigurer le CRM",
     reconfigureHelp:
       "Basculez entre le SQL natif et un compagnon HubSpot ou Salesforce, ou relancez la synchronisation initiale.",
@@ -376,6 +368,8 @@ const messages = {
     unavailableTitle: "Cet enregistrement CRM est indisponible",
     unavailableDescription:
       "Il a peut-être été supprimé, ou il se trouve hors des enregistrements auxquels vous avez accès.",
+    withheld:
+      "L'accès à cet enregistrement a changé dans le CRM connecté. Il reste masqué jusqu'à la prochaine synchronisation.",
     panelLoadFailed: "Le panneau de l’enregistrement n’a pas pu être chargé.",
     saveFailed: "La modification n’a pas pu être enregistrée.",
     signals: "Signaux",
@@ -572,9 +566,6 @@ const messages = {
   },
   intelligence: {
     tab: "Intelligence",
-    title: "Intelligence",
-    description:
-      "Choisissez les moments que le CRM doit repérer dans des preuves d’appel limitées. Les détecteurs intelligents sont évalués avec Ask CRM, jamais directement dans cet écran.",
     loading: "Chargement des détecteurs…",
     kindKeyword: "Mot-clé",
     kindSmart: "Intelligent",
@@ -616,6 +607,19 @@ const messages = {
     evaluatedThroughAsk: "Évalué avec Ask CRM.",
   },
   recordActions: {
+    reviewDuplicates: "Examiner les doublons",
+    duplicateReviewTitle: "Doublons possibles",
+    duplicateReviewDescription:
+      "Compare cette fiche aux candidats accessibles. Jev envoie à TypeSafe les noms, types de fiche et indices de correspondance de cinq candidats au maximum. Sa probabilité est indicative ; la fusion demande un examen distinct.",
+    duplicateReviewRun: "Chercher des doublons",
+    duplicateReviewLoading: "Recherche en cours…",
+    duplicateReviewFailed: "Impossible de terminer l'examen des doublons.",
+    duplicateReviewUnavailable:
+      "Jev n'a pas pu examiner ces fiches. Les candidats trouvés par les règles restent visibles.",
+    duplicateReviewEmpty: "Aucun doublon probable trouvé.",
+    duplicateRuleConfidence: "Correspondance par règles : {{percent}} %",
+    duplicateJevProbability: "Probabilité Jev de même entité : {{percent}} %",
+    duplicateMatchedOn: "Indices communs : {{values}}",
     evidenceAttached: "Preuve d’appel jointe.",
     evidenceAttachFailed: "Impossible de joindre la preuve.",
     addEvidence: "Ajouter une preuve",

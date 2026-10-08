@@ -1,10 +1,3 @@
-/**
- * Rename a space (and optionally update color / iconEmoji).
- *
- * Usage:
- *   pnpm action rename-space --id=<id> --name="Product"
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { eq } from "drizzle-orm";

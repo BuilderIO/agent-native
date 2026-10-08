@@ -8,6 +8,24 @@ function readRoute(name: string): string {
 }
 
 describe("direct recording route shell cue", () => {
+  it("localizes unreadable screenshot edit errors", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain('"CLIPS_SCREENSHOT_EDITS_UNREADABLE"');
+    expect(route).toContain('t("screenshot.editsUnreadable")');
+  });
+
+  it("fences manual finalize retries to the loaded upload identity", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain(
+      "uploadAttemptId: recording?.uploadAttemptId ?? null",
+    );
+    expect(route).toContain(
+      "uploadGenerationId: recording?.uploadGenerationId ?? null",
+    );
+  });
+
   it("prefers public-share timestamps over legacy owner timestamps", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
 
@@ -22,6 +40,59 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain("buildShareContinuationQuery");
     expect(route).toContain("legacyShareQuery");
     expect(route).toContain('searchParams.get("panel")');
+  });
+
+  it("opens Agent from legacy recording URLs and preserves collapsed state", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain("AGENT_SIDEBAR_QUERY_PARAM");
+    expect(route).toContain("AGENT_SIDEBAR_QUERY_VALUE_OPEN");
+    expect(route).toContain("nextParams.delete(AGENT_SIDEBAR_QUERY_PARAM)");
+    expect(route).toContain('!nextParams.has("panel")');
+    expect(route).toContain(
+      "legacyAgentSidebar === AGENT_SIDEBAR_QUERY_VALUE_OPEN",
+    );
+    expect(route).toContain(
+      'if (panelParam === "agent") {\n      setPanel("agent");\n      return;',
+    );
+    expect(route).not.toContain(
+      'if (panelParam === "agent") {\n      setPanel("agent");\n      setSidePanelCollapsed(false);',
+    );
+    expect(route).toContain(
+      "setPanel(next);\n      setSidePanelCollapsed(false);",
+    );
+  });
+
+  it("routes the Agent shortcut to the recording composer after it mounts", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+    const shortcutStart = route.indexOf(
+      "const handleKeyDown = (event: KeyboardEvent)",
+    );
+    const shortcutEnd = route.indexOf(
+      'document.addEventListener("keydown", handleKeyDown)',
+      shortcutStart,
+    );
+
+    expect(route).toContain('event.key !== "i"');
+    expect(route).toContain('".ProseMirror, textarea"');
+    expect(route).toContain("window.setTimeout(() => focus(attempt + 1), 50)");
+    expect(route).toContain("selectionHandoffRevisionRef.current += 1;");
+    expect(route).toContain("setPendingSelectionText(selectionText || null);");
+    expect(route).toContain(
+      "if (selectionRevision !== selectionHandoffRevisionRef.current) return;",
+    );
+    expect(route).toMatch(
+      /useEffect\(\s*\(\) => \(\) => \{\s*selectionHandoffRevisionRef\.current \+= 1;/,
+    );
+    expect(route).toContain('"pending-selection-context"');
+    expect(route).toContain(
+      ").then(dispatchSelectionAttached, dispatchSelectionAttached)",
+    );
+    expect(route.slice(shortcutStart, shortcutEnd)).not.toContain(
+      "agent-panel:selection-attached",
+    );
+    expect(route).toContain('if (panel !== "agent") return;');
+    expect(route).toContain("setPendingSelectionText(selectionText || null);");
   });
 
   it("clamps route playback state before exposing it", () => {
@@ -154,7 +225,7 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain('value="comments"');
     expect(route).toContain('useState<SidePanel | null>("comments")');
     expect(route).toContain('<ViewerTabsTrigger value="transcript">');
-    expect(route).not.toContain('<ViewerTabsTrigger value="agent">');
+    expect(route).toContain('<ViewerTabsTrigger value="agent">');
     expect(route).toContain('<ViewerTabsTrigger value="debug">');
     expect(route).toContain('<ViewerTabsTrigger value="settings">');
     expect(route).toContain("isFullBrowserDiagnostics");
@@ -166,13 +237,11 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain('value="comments"');
     expect(route).toContain("forceMount");
     expect(route).toContain("data-[state=inactive]:hidden");
-    expect(route).not.toContain("IconLayoutSidebarRightCollapse");
-    expect(route).not.toContain("IconLayoutSidebarRightExpand");
+    expect(route).toContain("IconLayoutSidebarRightCollapse");
+    expect(route).toContain("IconLayoutSidebarRightExpand");
     expect(route).not.toContain("closeSidePanel");
     expect(route).not.toContain("lastToolbarPanelRef");
-    expect(route).toContain(
-      "!editing && !isCompactLayout && !globalAgentSidebarOpen && panel",
-    );
+    expect(route).toContain("!editing && !isCompactLayout && panel");
     const mobilePanelStart = route.indexOf('id="clip-activity-panel"');
     const mobilePanel = route.slice(
       mobilePanelStart,
@@ -210,9 +279,7 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain(
       "overflow-x-hidden bg-background lg:grid-cols-[minmax(0,1fr)_auto]",
     );
-    expect(route).toContain(
-      'ViewerTabsList className="min-w-0 shrink-0 bg-background"',
-    );
+    expect(route).toContain('"min-w-0 shrink-0 bg-background"');
 
     const shareRoute = readRoute("share.$shareId.tsx");
     expect(shareRoute).toContain("forceMount");
@@ -238,7 +305,7 @@ describe("direct recording route shell cue", () => {
     expect(viewerControls).not.toContain("hover:bg-muted/50");
   });
 
-  it("uses the global Agent sidebar for recording context", () => {
+  it("uses the viewer Agent tab for recording context", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
     const appRoute = readRoute("_app.tsx");
     const layout = readFileSync(
@@ -250,18 +317,28 @@ describe("direct recording route shell cue", () => {
       "utf8",
     );
 
-    expect(route).not.toContain('<ViewerTabsTrigger value="agent">');
-    expect(route).not.toContain("<AgentPanel");
-    expect(route).toContain("focusAgentChat");
-    expect(route).toContain("requestAgentSidebarOpen");
-    expect(route).toContain("SIDEBAR_STATE_CHANGE_EVENT");
-    expect(route).toContain("useGlobalAgentSidebarOpen");
-    expect(route).toContain("!globalAgentSidebarOpen");
+    expect(route).toContain('<ViewerTabsTrigger value="agent">');
+    expect(route).toContain("<AgentPanel");
+    expect(route).not.toContain("focusAgentChat");
+    expect(route).not.toContain("requestAgentSidebarOpen");
+    expect(route).not.toContain("SIDEBAR_STATE_CHANGE_EVENT");
+    expect(route).not.toContain("useGlobalAgentSidebarOpen");
+    expect(route).not.toContain("globalAgentSidebarOpen");
     expect(route).toContain("openAgentPanel");
     expect(route).not.toContain("<LibraryLayout");
     expect(appRoute).toContain("<LibraryLayout>");
     expect(appRoute).not.toContain("showAgentSidebar");
     expect(layout).toContain("<AgentSidebar");
+    expect(layout).toContain("enabled={!isRecordingRoute}");
+    const sidebarStart = layout.indexOf("<AgentSidebar");
+    const pageShellStart = layout.indexOf(
+      'className="agent-layout-main-surface',
+    );
+    const sidebarEnd = layout.indexOf("</AgentSidebar>", sidebarStart);
+    const headerStart = layout.indexOf("<header", pageShellStart);
+    expect(sidebarStart).toBeLessThan(pageShellStart);
+    expect(headerStart).toBeGreaterThan(pageShellStart);
+    expect(headerStart).toBeLessThan(sidebarEnd);
     expect(layout).toContain(
       'className="agent-layout-main-surface flex min-h-0 min-w-0 flex-1 flex-col"',
     );
@@ -270,14 +347,14 @@ describe("direct recording route shell cue", () => {
     expect(layout).toContain("showWhenOpen");
     expect(layout).not.toContain("IconLayoutSidebarRight");
     expect(layout).toContain("<ClipsAgentToggleButton />");
+    expect(layout).toContain("!isRecordingRoute ? (");
     expect(layout).toContain("[--agent-native-viewport-height:100%]");
     expect(layout).not.toContain("[&>.agent-sidebar-shell]:h-full");
     expect(layout).not.toContain("showAgentSidebar");
     expect(layout).toContain("scope={recordingScope}");
     expect(layout).toContain('t("recordingPage.askAboutClip")');
     expect(layout).toContain('t("recordingPage.summarizeClip")');
-    expect(commandMenu).toContain("AGENT_SIDEBAR_QUERY_PARAM");
-    expect(commandMenu).toContain("AGENT_SIDEBAR_QUERY_VALUE_OPEN");
+    expect(commandMenu).toContain('panel: "agent"');
     expect(route).toContain("<PageHeader>");
     expect(route).toContain("<PageBreadcrumb items={recordingBreadcrumbItems}");
     expect(route).not.toContain('from "@/components/ui/breadcrumb"');
@@ -320,19 +397,24 @@ describe("direct recording route shell cue", () => {
     const effectEnd = route.indexOf("return;", effectStart);
     const effect = route.slice(effectStart, effectEnd);
 
-    // recording is undefined on the render before get-recording-player-data
-    // resolves. Gating on `recording?.enableComments` alone reads that as
-    // falsy and drops the jump-to-comment link into "transcript" before the
-    // data ever loads. Only the loaded-and-disabled case should fall back.
-    // oxfmt may wrap the setPanel(...) call across lines, so match on the
-    // normalized (whitespace-collapsed) source instead of an exact literal.
     const normalizedEffect = effect.replace(/\s+/g, " ");
     expect(normalizedEffect).not.toContain(
       'setPanel(recording?.enableComments ? "comments" : "transcript")',
     );
     expect(normalizedEffect).toContain(
-      'setPanel( recording && !recording.enableComments ? "transcript" : "comments", )',
+      'setPanel( recording && !recording.enableComments ? defaultPanel : "comments", )',
     );
+
+    // `defaultPanel` is where the panel lands when the requested tab does not
+    // apply. It is transcript for a video and comments for a screenshot,
+    // which has no transcript tab at all — or settings when comments are off,
+    // but only for someone who can see settings. Offering a viewer settings
+    // made the guard bounce them between two tabs it rejects.
+    const route2 = readRoute("_app.r.$recordingId.tsx").replace(/\s+/g, " ");
+    expect(route2).toContain(
+      'const defaultPanel: SidePanel = !isImage ? "transcript" : recording && !recording.enableComments && canEdit ? "settings" : "comments";',
+    );
+    expect(route2).not.toContain('!recording?.enableComments ? "settings"');
   });
 
   it("keeps the mobile comments tab scrollable inside its fixed-height rail", () => {
@@ -345,9 +427,6 @@ describe("direct recording route shell cue", () => {
       route.indexOf("const renderSidePanel", commentsSectionStart),
     );
 
-    // The compact (mobile) section sits inside a fixed h-[min(420px,55dvh)]
-    // RecordingSidePanel. Without overflow-hidden here, comments past that
-    // height were clipped instead of scrolling into view.
     expect(commentsSection).toContain(
       '"flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-5 pt-4"',
     );
@@ -387,8 +466,6 @@ describe("direct recording route shell cue", () => {
     expect(debugTab).toContain('variant="secondary"');
     expect(debugTab).toContain('t("browserDiagnostics.unviewedCount"');
     expect(debugTab).toContain("{unviewedDebugEventCount}");
-    // The old always-on failure dot must be gone: it never cleared and fired
-    // on console warnings, which are present on nearly every recording.
     expect(route).not.toContain("hasBrowserDiagnosticFailures");
     expect(route).not.toContain("browserDiagnostics.failuresPresent");
   });

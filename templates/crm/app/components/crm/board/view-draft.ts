@@ -1,13 +1,3 @@
-/**
- * Unsaved view state and the three-way save fork.
- *
- * A draft (filter, sort, presentation, grouping) lives ONLY in the URL search
- * params. That is the whole mechanism behind "a reload reverts": nothing is
- * mirrored into component state that could outlive the address bar, and
- * nothing is written back to `crm_saved_views` until the user picks a branch.
- * A shared view is never autosaved.
- */
-
 export const BOARD_DRAFT_PARAMS = {
   mode: "mode",
   group: "group",
@@ -15,7 +5,6 @@ export const BOARD_DRAFT_PARAMS = {
   sort: "sort",
 } as const;
 
-/** A draft param that cannot be read. Never coerced to "no draft". */
 export class BoardDraftError extends Error {
   readonly param: string;
 
@@ -57,8 +46,6 @@ function readJsonParam(params: URLSearchParams, name: string): unknown {
   try {
     return JSON.parse(raw) as unknown;
   } catch {
-    // A dropped filter looks exactly like a correct unfiltered board, so an
-    // unreadable param is surfaced instead of ignored.
     throw new BoardDraftError(name);
   }
 }
@@ -82,7 +69,6 @@ export function readBoardDraft(params: URLSearchParams): BoardDraft {
   };
 }
 
-/** The draft params written onto a copy of `params`; absent keys are removed. */
 export function writeBoardDraft(
   params: URLSearchParams,
   draft: BoardDraft,
@@ -113,7 +99,6 @@ function sameJson(a: unknown, b: unknown): boolean {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 }
 
-/** The view as it would look with the draft applied. */
 export function effectiveView(view: SavedViewShape, draft: BoardDraft) {
   return {
     viewKind: draft.mode ?? view.viewKind,
@@ -140,12 +125,6 @@ export interface BoardSaveMutation {
   input: Record<string, unknown>;
 }
 
-/**
- * The mutation each branch of the save fork produces.
- *
- * `discard` writes nothing: the draft only ever lived in the URL, so dropping
- * the params is the whole operation.
- */
 export function buildSaveFork(
   branch: BoardSaveBranch,
   input: { view: SavedViewShape; draft: BoardDraft; name?: string },
@@ -172,8 +151,6 @@ export function buildSaveFork(
     if (!common.name) {
       throw new Error("A new view needs a name.");
     }
-    // A fork of someone's shared view starts personal; sharing is a separate,
-    // deliberate act.
     return {
       action: "save-crm-saved-view",
       input: { ...common, audience: "personal" },
@@ -185,13 +162,11 @@ export function buildSaveFork(
       ...common,
       id: input.view.id,
       audience: input.view.audience,
-      // Rejects the overwrite when the stored view moved under us.
       expectedUpdatedAt: input.view.updatedAt,
     },
   };
 }
 
-/** Saved views grouped for the views index, in a stable display order. */
 export function groupSavedViews<T extends SavedViewShape>(views: readonly T[]) {
   const groups = new Map<
     string,
@@ -219,8 +194,6 @@ export function groupSavedViews<T extends SavedViewShape>(views: readonly T[]) {
     }))
     .sort(
       (a, b) =>
-        // Object targets first: accounts/people/opportunities are the spine,
-        // lists are the overlay on top of them.
         Number(a.targetKind === "list") - Number(b.targetKind === "list") ||
         a.targetId.localeCompare(b.targetId),
     );

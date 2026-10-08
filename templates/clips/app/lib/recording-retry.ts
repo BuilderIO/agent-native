@@ -1,25 +1,13 @@
-/**
- * Retry a web-originated recording upload that failed or stalled, using the
- * chunks this browser mirrored to IndexedDB while recording (see
- * `recording-backup.ts`). This talks to the same `reset-chunks` / `chunk`
- * upload routes the live recorder uses (`recorder-engine.ts`) and the
- * desktop app's own local-backup retry uses — there is no separate retry
- * action, this is the one retry path apps replay the saved chunks through.
- *
- * Retry only works in the browser that made the recording: the raw video
- * bytes never reach the server until the upload finishes, so a browser that
- * never captured them has nothing to replay. Callers must check
- * `hasRecordingBackup()` first and tell the user plainly when it's false
- * rather than showing a retry button that can't succeed.
- */
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { chunkUploadUrl, UPLOAD_SLICE_BYTES } from "@shared/recording-core";
 
 import {
+  claimRecordingBackupLock,
   deleteRecordingBackup,
   getRecordingBackupChunks,
   getRecordingBackupMeta,
   isCompleteRecordingBackup,
+  verifyServerCopy,
 } from "./recording-backup";
 import { uploadChunkRequest } from "./upload-request";
 
@@ -30,8 +18,35 @@ export interface RetryRecordingUploadResult {
   videoUrl?: string | null;
 }
 
+/** Another tab is recording or uploading this copy right now. */
+export class LocalCopyInUseError extends Error {
+  constructor() {
+    super("This recording is open in another tab.");
+    this.name = "LocalCopyInUseError";
+  }
+}
+
+/**
+ * Re-upload a failed clip from this browser's local copy. The copy's Web Lock
+ * is held throughout, so a copy another tab is using is never replayed or
+ * deleted, and the copy is deleted only once the server proves it received
+ * every byte. Without Web Locks the upload still runs but the copy is kept.
+ */
 export async function retryRecordingUploadFromBackup(
   recordingId: string,
+): Promise<RetryRecordingUploadResult> {
+  const claim = await claimRecordingBackupLock(recordingId);
+  if (claim.status === "busy") throw new LocalCopyInUseError();
+  try {
+    return await replayLocalCopy(recordingId, claim.status === "held");
+  } finally {
+    if (claim.status === "held") claim.release();
+  }
+}
+
+async function replayLocalCopy(
+  recordingId: string,
+  mayDelete: boolean,
 ): Promise<RetryRecordingUploadResult> {
   const [meta, chunks] = await Promise.all([
     getRecordingBackupMeta(recordingId),
@@ -42,7 +57,9 @@ export async function retryRecordingUploadFromBackup(
       "This clip's recorded data isn't saved in this browser, so it can only be retried from the device it was recorded on.",
     );
   }
-  if (!isCompleteRecordingBackup(meta, chunks)) {
+  // A copy whose end never arrived is finished from the recovery prompt,
+  // which uploads it with a partial warning and keeps the copy.
+  if (meta.incomplete || !isCompleteRecordingBackup(meta, chunks)) {
     throw new Error(
       "This browser's local recording backup is incomplete and can't be safely retried.",
     );
@@ -175,13 +192,22 @@ export async function retryRecordingUploadFromBackup(
   const videoUrl =
     typeof result?.videoUrl === "string" ? result.videoUrl : null;
 
-  // Only drop the local copy once the clip is fully verified and ready.
-  // "processing" means finalize hasn't confirmed the media yet, so keep the
-  // backup around the same way the desktop retry keeps its local file until
-  // verification lands — otherwise a failed verification has nothing left
-  // to retry from.
-  if (status === "ready") {
-    await deleteRecordingBackup(recordingId).catch(() => {});
+  const proof = verifyServerCopy(
+    {
+      sourceSizeBytes:
+        typeof result?.sourceSizeBytes === "number"
+          ? result.sourceSizeBytes
+          : null,
+      durationMs:
+        typeof result?.durationMs === "number" ? result.durationMs : null,
+    },
+    { bytes: meta.bytes, durationMs: meta.durationMs },
+  );
+  if (status === "ready" && mayDelete && proof === "verified") {
+    await deleteRecordingBackup(recordingId).catch((err: unknown) => {
+      // coercion-ok: the clip is saved; a leftover copy is reconciled by the next scan.
+      console.warn("[clips] deleting the retried local copy failed:", err);
+    });
   }
 
   return { status, videoUrl };

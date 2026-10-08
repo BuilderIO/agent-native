@@ -23,11 +23,6 @@ function requireMcpOwner(operation: string): string {
 }
 
 export default function planMcpPlugin(nitroApp: any) {
-  // This mount deliberately bypasses the agent-chat plugin so the external
-  // connector does not wait on chat initialization — which means it has to
-  // apply the framework tool policy itself. Reading the same
-  // `PLAN_FRAMEWORK_TOOLS` the chat plugin does is what keeps the two mounts
-  // from disagreeing about which tools exist.
   const frameworkTools = resolveFrameworkTools({
     frameworkTools: PLAN_FRAMEWORK_TOOLS,
   });

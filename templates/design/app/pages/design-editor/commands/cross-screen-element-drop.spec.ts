@@ -27,9 +27,16 @@ import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publ
 import { runApplyFileContentUpdate } from "./apply-file-content-update";
 import {
   absolutePlacePointForDrop,
+  releaseCrossScreenDropAdmission,
+  resolveCrossScreenMoveFailureRecovery,
   runCrossScreenElementDrop,
   shouldAbsolutePlaceOnEmptyScreen,
 } from "./cross-screen-element-drop";
+import {
+  CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS,
+  crossScreenRollbackAfterSourceCancellation,
+  scheduleCrossScreenRollbackTimeout,
+} from "./cross-screen-insert-timeout";
 import type { FileContentSaveCompletion } from "./save-file-content";
 
 const EMPTY_SCREEN = `<!DOCTYPE html>
@@ -41,6 +48,7 @@ const SCREEN_WITH_FRAME = `<!DOCTYPE html>
 </body></html>`;
 
 afterEach(() => {
+  vi.useRealTimers();
   shaderLocks.fileIds.clear();
   vi.clearAllMocks();
 });
@@ -60,6 +68,7 @@ function acceptFixture(fileId: string, content: string) {
 function runStoredCrossScreenDrop(args: {
   sourceContent: string;
   destinationContent: string;
+  boardFileId?: string;
   refusePersistFalseFor?: string[];
   drop: Parameters<typeof runCrossScreenElementDrop>[1];
   publish?: Parameters<
@@ -156,7 +165,7 @@ function runStoredCrossScreenDrop(args: {
   runCrossScreenElementDrop(
     {
       applyFileContentUpdate,
-      boardFileId: undefined,
+      boardFileId: args.boardFileId,
       canEditDesign: true,
       clearPendingOverviewLayerSelectionTimer: () => {},
       codeLayerOwnerByNodeIdRef: { current: new Map() },
@@ -550,6 +559,45 @@ it("preflights both real writes before moving Alpine-owned source into a destina
 });
 
 describe("runCrossScreenElementDrop duplicate routing", () => {
+  it("persists an inline duplicate in the hit-tested empty grid cell", () => {
+    const sourceContent = `<html><body><div data-agent-native-node-id="source">Source</div></body></html>`;
+    const targetContent = `<html><body><main data-agent-native-node-id="grid" style="display:grid;grid-template-columns:100px 100px 100px;grid-template-rows:100px 100px"><div data-agent-native-node-id="occupied" style="grid-column:1;grid-row:1"></div></main></body></html>`;
+    const result = runStoredCrossScreenDrop({
+      sourceContent,
+      destinationContent: targetContent,
+      drop: {
+        sourceSelector: '[data-agent-native-node-id="source"]',
+        sourceNodeId: "source",
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetAnchorNodeId: "grid",
+        targetAnchorSelector: '[data-agent-native-node-id="grid"]',
+        targetAnchorProvenance: { uniqueNodeId: "grid" },
+        targetAnchorPlacement: "inside",
+        targetDropMode: "flow-insert",
+        targetGridPlacement: {
+          column: 3,
+          columnEnd: 4,
+          row: 2,
+          rowEnd: 3,
+        },
+        duplicate: true,
+        sourceCloneHtml: '<div data-agent-native-node-id="copy">Copy</div>',
+      },
+    });
+
+    const written = result.writes.get("target");
+    expect(written).toBeTruthy();
+    const copy = new DOMParser()
+      .parseFromString(written!, "text/html")
+      .querySelector('[data-agent-native-layer-name="Copy"]');
+    expect(copy?.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
+      "grid",
+    );
+    expect((copy as HTMLElement | null)?.style.gridColumn).toBe("3 / 4");
+    expect((copy as HTMLElement | null)?.style.gridRow).toBe("2 / 3");
+  });
+
   it("links an inline duplicate into another Screen in the same Design", () => {
     const designId = "design-1";
     const sourceContent = `<!doctype html><html><body>
@@ -710,9 +758,15 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
           sourceNodeId: "source-id",
           sourceScreenId: "source",
           targetScreenId: "target",
-          targetAnchorSelector: "body",
+          targetAnchorSelector: "#grid",
           targetAnchorPlacement: "inside",
-          targetDropMode: "absolute-container",
+          targetDropMode: "flow-insert",
+          targetGridPlacement: {
+            column: 3,
+            columnEnd: 4,
+            row: 2,
+            rowEnd: 3,
+          },
           targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
           targetLocalPoint: { x: 240, y: 300 },
           sourcePointerOffset: { x: 10, y: 12 },
@@ -725,15 +779,16 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
       expect(runtimeStructureInsertRevisionRef.current).toBe(1);
       expect(runtimeStructureInsertRequest).toMatchObject({
         screenId: "target",
-        anchor: { selector: "body" },
+        anchor: { selector: "#grid" },
         placement: "inside",
+        gridPlacement: { column: 3, columnEnd: 4, row: 2, rowEnd: 3 },
       });
       const insertedHtml = (runtimeStructureInsertRequest as { html: string })
         .html;
       expect(insertedHtml).not.toContain('id="source-root"');
       expect(insertedHtml).toMatch(/data-agent-native-node-id="[^"]+"/);
-      expect(insertedHtml).toContain("left: 130px");
-      expect(insertedHtml).toContain("top: 238px");
+      expect(insertedHtml).not.toContain("left: 4px");
+      expect(insertedHtml).not.toContain("top: 6px");
     },
   );
 
@@ -884,13 +939,6 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
     expect(anchorDivs[1]?.textContent).toContain("Selected source");
   });
   it("never leaves the dropped copy sharing the still-live source's node id", () => {
-    // Regression for B4: an alt-drag duplicate across the screen boundary
-    // leaves the ORIGINAL alive in its own file. insertClonedHtmlLayers's
-    // preserveIncomingNodeIds only reserved ids already in the destination
-    // doc, so the copy silently kept the source's own
-    // data-agent-native-node-id — two live elements, two files, one id,
-    // which broke every id-keyed lookup on either (including the
-    // subsequent Option+Arrow nudge landing on/writing to the wrong file).
     const SOURCE_SCREEN = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"></head><body>
 <div id="source-frame" data-agent-native-node-id="source-id" style="position:absolute;left:400px;top:400px;width:60px;height:60px;"><span data-agent-native-node-id="source-child-id"></span></div>
@@ -963,8 +1011,6 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
     const copyIds = copyNodes.map(
       (node) => node.dataAttributes["data-agent-native-node-id"],
     );
-    // The root AND descendant must be re-stamped while the original source
-    // remains live in its own Screen.
     expect(copyIds).toHaveLength(2);
     expect(copyIds).not.toContain("source-id");
     expect(copyIds).not.toContain("source-child-id");
@@ -1020,6 +1066,115 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
 });
 
 describe("runCrossScreenElementDrop ordinary move routing", () => {
+  it("persists an unanchored board drop in authored coordinates outside the render window", () => {
+    const renderOrigin = { x: -16_384, y: -8_192 };
+    const targetCanvasPoint = { x: -18_099.98, y: -9_234.5 };
+    const targetLocalPoint = {
+      x: targetCanvasPoint.x - renderOrigin.x,
+      y: targetCanvasPoint.y - renderOrigin.y,
+    };
+    const sourcePointerOffset = { x: 32, y: 12 };
+    const sourceContent = `<!DOCTYPE html><html><body><div data-agent-native-node-id="widget" style="position:absolute;left:10px;top:20px;width:64px;height:32px">Widget</div></body></html>`;
+    const { writes } = runStoredCrossScreenDrop({
+      sourceContent,
+      destinationContent: EMPTY_SCREEN,
+      boardFileId: "target",
+      drop: {
+        sourceSelector: '[data-agent-native-node-id="widget"]',
+        sourceNodeId: "widget",
+        sourceProvenance: { uniqueNodeId: "widget" },
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetDropMode: "absolute-container",
+        targetCanvasPoint,
+        targetOutsideBoardRenderGeometry: true,
+        targetLocalPoint,
+        sourcePointerOffset,
+      },
+    });
+
+    const persistedWidget = new DOMParser()
+      .parseFromString(writes.get("target") ?? "", "text/html")
+      .querySelector<HTMLElement>('[data-agent-native-node-id="widget"]');
+    expect(persistedWidget).not.toBeNull();
+    expect(Number.parseFloat(persistedWidget!.style.left)).toBe(
+      Math.round(targetCanvasPoint.x - sourcePointerOffset.x),
+    );
+    expect(Number.parseFloat(persistedWidget!.style.top)).toBe(
+      Math.round(targetCanvasPoint.y - sourcePointerOffset.y),
+    );
+  });
+
+  it("keeps render-window-local coordinates for an in-window board drop", () => {
+    const targetCanvasPoint = { x: 8_276, y: 5_000 };
+    const targetLocalPoint = { x: 84, y: 904 };
+    const sourcePointerOffset = { x: 32, y: 12 };
+    const sourceContent = `<!DOCTYPE html><html><body><div data-agent-native-node-id="widget" style="position:absolute;left:10px;top:20px;width:64px;height:32px">Widget</div></body></html>`;
+    const { writes } = runStoredCrossScreenDrop({
+      sourceContent,
+      destinationContent: EMPTY_SCREEN,
+      boardFileId: "target",
+      drop: {
+        sourceSelector: '[data-agent-native-node-id="widget"]',
+        sourceNodeId: "widget",
+        sourceProvenance: { uniqueNodeId: "widget" },
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetDropMode: "absolute-container",
+        targetCanvasPoint,
+        targetOutsideBoardRenderGeometry: false,
+        targetLocalPoint,
+        sourcePointerOffset,
+      },
+    });
+
+    const persistedWidget = new DOMParser()
+      .parseFromString(writes.get("target") ?? "", "text/html")
+      .querySelector<HTMLElement>('[data-agent-native-node-id="widget"]');
+    expect(persistedWidget).not.toBeNull();
+    expect(Number.parseFloat(persistedWidget!.style.left)).toBe(
+      targetLocalPoint.x - sourcePointerOffset.x,
+    );
+    expect(Number.parseFloat(persistedWidget!.style.top)).toBe(
+      targetLocalPoint.y - sourcePointerOffset.y,
+    );
+  });
+
+  it("preserves resolved dimensions only when a drop converts auto layout to absolute positioning", () => {
+    const sourceContent = `<!DOCTYPE html><html><body><section style="display:flex"><div data-agent-native-node-id="flow-child" style="flex:0 0 100px;height:50px"></div></section></body></html>`;
+    const styleSnapshot = {
+      version: 1 as const,
+      nodes: [
+        {
+          path: [],
+          styles: { flex: "0 0 100px", height: "50px" },
+        },
+      ],
+    };
+    const absoluteDrop = runStoredCrossScreenDrop({
+      sourceContent,
+      destinationContent: EMPTY_SCREEN,
+      drop: {
+        sourceSelector: '[data-agent-native-node-id="flow-child"]',
+        sourceNodeId: "flow-child",
+        sourceProvenance: { uniqueNodeId: "flow-child" },
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetLocalPoint: { x: 180, y: 240 },
+        sourceComputedSize: { width: 100, height: 50 },
+        styleSnapshot,
+      },
+    });
+    const movedAbsolute = new DOMParser()
+      .parseFromString(absoluteDrop.writes.get("target")!, "text/html")
+      .querySelector('[data-agent-native-node-id="flow-child"]') as HTMLElement;
+
+    expect(movedAbsolute.style.position).toBe("absolute");
+    expect(movedAbsolute.style.width).toBe("100px");
+    expect(movedAbsolute.style.height).toBe("50px");
+    expect(movedAbsolute.style.flex).toBe("");
+  });
+
   it("absolute-places a move dropped onto an empty screen root", () => {
     const selection = runStoredCrossScreenDrop({
       sourceContent: `<!DOCTYPE html>
@@ -1617,8 +1772,6 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
         };
       },
       afterDrop: ({ contentByFile }) => {
-        // Model a refetch that lands after the optimistic overlay retires but
-        // before the cross-file history publication callback runs.
         contentByFile.set("target", destinationContent);
       },
       drop: {
@@ -2238,7 +2391,13 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
     );
   });
 
-  it("uses the live source outerHTML for an atomic live-to-live move", () => {
+  it.each([
+    "cross-screen-insert-timeout",
+    "anchor-unresolved",
+    "target-canvas-unmounted",
+    "target-document-replaced",
+  ])("keeps the source and admits another move after %s", (reason) => {
+    vi.useFakeTimers();
     const sourceMarkup =
       '<div data-agent-native-node-id="runtime-source">Source</div>';
     const sourceNode = buildCodeLayerProjection(sourceMarkup).nodes[0]!;
@@ -2248,78 +2407,154 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
     let insertRequest: unknown = null;
     let deleteRequest: unknown = null;
 
-    runCrossScreenElementDrop(
-      {
-        applyFileContentUpdate: () => {
-          throw new Error("live-to-live moves must not write stored content");
-        },
-        boardFileId: undefined,
-        canEditDesign: true,
-        canEditLiveScreen: () => true,
-        clearPendingOverviewLayerSelectionTimer: () => {},
-        codeLayerOwnerByNodeIdRef: {
-          current: new Map([
-            [
-              sourceNode.id,
-              {
-                fileId: "source",
-                node: sourceNode,
-                tree: sourceTree,
-                runtimeOnly: true,
-              },
-            ],
-          ]),
-        },
-        designSourceType: "localhost",
-        getScreenContent: () => "http://localhost:5173/",
-        id: undefined,
-        overviewScreens: [
-          {
-            id: "source",
-            filename: "source.html",
-            content: "http://localhost:5173/",
-            updatedAt: "2026-09-11T00:00:00.000Z",
-            heightPinned: false,
-            sourceType: "localhost",
-          },
-          {
-            id: "target",
-            filename: "target.html",
-            content: "http://localhost:5173/?screen=target",
-            updatedAt: "2026-09-11T00:00:00.000Z",
-            heightPinned: false,
-            sourceType: "localhost",
-          },
-        ],
-        pendingOverviewLayerSelectionRef: { current: null },
-        pendingOverviewScreenSelectionRef: { current: null },
-        recordContentHistoryEntry: vi.fn(),
-        runtimeStructureInsertRevisionRef: { current: 0 },
-        sendRuntimeLayerMoveSemanticHandoff: vi.fn(),
-        setActiveFileId: vi.fn(),
-        setCreatedOverviewLayerSelection: vi.fn(),
-        setOverviewSelectedScreenIds: vi.fn(),
-        setRuntimeStructureDeleteRequest: (value) => {
-          deleteRequest = typeof value === "function" ? value(null) : value;
-        },
-        setRuntimeStructureInsertRequest: (value) => {
-          insertRequest = typeof value === "function" ? value(null) : value;
-        },
-        setSelectedElement: vi.fn(),
-        setSelectedLayerIdsState: vi.fn(),
-        t: (key) => key,
-        viewModeRef: { current: "overview" },
+    const applyFileContentUpdate = vi.fn(() => {
+      throw new Error(
+        "public live-to-live moves must not write stored content",
+      );
+    });
+    const canEditLiveScreen = vi.fn(() => true);
+    const setInsertRequest = vi.fn((value) => {
+      insertRequest = typeof value === "function" ? value(null) : value;
+    });
+    const setDeleteRequest = vi.fn((value) => {
+      deleteRequest = typeof value === "function" ? value(null) : value;
+    });
+    const pendingTransactionRef = {
+      current: "move-timed-out" as string | null,
+    };
+    const recovery = resolveCrossScreenMoveFailureRecovery({
+      reason,
+      transactionId: "move-timed-out",
+      insertRequest: {
+        requestId: 1,
+        transactionId: "move-timed-out",
+        screenId: "target",
+        html: '<div data-agent-native-node-id="clone">Source</div>',
+        anchor: { selector: "body" },
+        placement: "inside",
       },
-      {
-        sourceSelector: '[data-agent-native-node-id="runtime-source"]',
-        sourceNodeId: "runtime-source",
-        sourceScreenId: "source",
-        targetScreenId: "target",
-        targetAnchorSelector: "body",
-        targetAnchorPlacement: "inside",
-        sourceCloneHtml: sourceMarkup,
+      sourceDeleteRequest: {
+        requestId: "move-timed-out:source",
+        transactionId: "move-timed-out",
+        screenId: "source",
+        selector: '[data-agent-native-node-id="runtime-source"]',
+        waitForInsertTransaction: true,
+        rollbackScreenId: "target",
       },
-    );
+      rollbackRequestId: "move-timed-out:rollback",
+      pendingTransactionRef,
+    });
+    expect(recovery.sourceDeleteRequest).toBeNull();
+    if (recovery.rollbackRequest) {
+      expect(recovery.rollbackRequest).toMatchObject({
+        screenId: "target",
+        transactionId: "move-timed-out",
+        selector: "",
+        idempotent: true,
+      });
+      expect(pendingTransactionRef.current).toBe("move-timed-out");
+    } else {
+      expect(pendingTransactionRef.current).toBeNull();
+    }
+
+    const runViewerMove = () =>
+      runCrossScreenElementDrop(
+        {
+          applyFileContentUpdate,
+          boardFileId: undefined,
+          canEditDesign: false,
+          canEditLiveScreen,
+          clearPendingOverviewLayerSelectionTimer: () => {},
+          codeLayerOwnerByNodeIdRef: {
+            current: new Map([
+              [
+                sourceNode.id,
+                {
+                  fileId: "source",
+                  node: sourceNode,
+                  tree: sourceTree,
+                  runtimeOnly: true,
+                },
+              ],
+            ]),
+          },
+          designSourceType: "localhost",
+          getScreenContent: (screenId) =>
+            screenId === "source"
+              ? "http://localhost:5173/library"
+              : "http://localhost:5173/settings",
+          id: undefined,
+          overviewScreens: [
+            {
+              id: "source",
+              filename: "source.html",
+              content: "http://localhost:5173/library",
+              updatedAt: "2026-09-11T00:00:00.000Z",
+              heightPinned: false,
+              sourceType: "localhost",
+            },
+            {
+              id: "target",
+              filename: "target.html",
+              content: "http://localhost:5173/settings",
+              updatedAt: "2026-09-11T00:00:00.000Z",
+              heightPinned: false,
+              sourceType: "localhost",
+            },
+          ],
+          pendingOverviewLayerSelectionRef: { current: null },
+          pendingOverviewScreenSelectionRef: { current: null },
+          recordContentHistoryEntry: vi.fn(),
+          runtimeStructureInsertRevisionRef: { current: 0 },
+          runtimeStructurePendingTransactionRef: pendingTransactionRef,
+          sendRuntimeLayerMoveSemanticHandoff: vi.fn(),
+          setActiveFileId: vi.fn(),
+          setCreatedOverviewLayerSelection: vi.fn(),
+          setOverviewSelectedScreenIds: vi.fn(),
+          setRuntimeStructureDeleteRequest: setDeleteRequest,
+          setRuntimeStructureInsertRequest: setInsertRequest,
+          setSelectedElement: vi.fn(),
+          setSelectedLayerIdsState: vi.fn(),
+          t: (key) => key,
+          viewModeRef: { current: "overview" },
+        },
+        {
+          sourceSelector: '[data-agent-native-node-id="runtime-source"]',
+          sourceNodeId: "runtime-source",
+          sourceScreenId: "source",
+          targetScreenId: "target",
+          targetAnchorSelector: "body",
+          targetAnchorPlacement: "inside",
+          sourceCloneHtml: sourceMarkup,
+        },
+      );
+
+    expect(applyFileContentUpdate).not.toHaveBeenCalled();
+    if (recovery.rollbackRequest) {
+      runViewerMove();
+      expect(insertRequest).toBeNull();
+      expect(deleteRequest).toBeNull();
+      let rollbackTimedOut = false;
+      scheduleCrossScreenRollbackTimeout(
+        recovery.rollbackRequest,
+        (request) => {
+          rollbackTimedOut = true;
+          expect(
+            releaseCrossScreenDropAdmission(
+              pendingTransactionRef,
+              request.transactionId,
+            ),
+          ).toBe(true);
+        },
+      );
+      vi.advanceTimersByTime(CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS);
+      expect(rollbackTimedOut).toBe(true);
+      expect(pendingTransactionRef.current).toBeNull();
+      runViewerMove();
+    } else {
+      expect(pendingTransactionRef.current).toBeNull();
+      runViewerMove();
+    }
 
     expect(insertRequest).toMatchObject({
       screenId: "target",
@@ -2332,6 +2567,272 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
       selector: '[data-agent-native-node-id="runtime-source"]',
       waitForInsertTransaction: true,
     });
+    expect((deleteRequest as { transactionId?: string }).transactionId).toBe(
+      (insertRequest as { transactionId?: string }).transactionId,
+    );
+    expect(pendingTransactionRef.current).toBe(
+      (insertRequest as { transactionId?: string }).transactionId,
+    );
+    expect(setInsertRequest).toHaveBeenCalledTimes(1);
+    expect(setDeleteRequest).toHaveBeenCalledTimes(1);
+    expect(canEditLiveScreen).toHaveBeenCalledWith("source");
+    expect(canEditLiveScreen).toHaveBeenCalledWith("target");
+    expect(applyFileContentUpdate).not.toHaveBeenCalled();
+  });
+
+  it("restores the source before requesting destination rollback", () => {
+    const pendingTransactionRef = { current: "move-rejected" as string | null };
+    const recovery = resolveCrossScreenMoveFailureRecovery({
+      reason: "rollback-timeout",
+      transactionId: "move-rejected",
+      insertRequest: null,
+      sourceDeleteRequest: {
+        requestId: "move-rejected:source",
+        transactionId: "move-rejected",
+        screenId: "source",
+        selector: "#source",
+        waitForInsertTransaction: false,
+        rollbackScreenId: "target",
+        rollbackSelector: "#inserted",
+        rollbackSourceId: "inserted-id",
+      },
+      rollbackRequestId: "move-rejected:rollback",
+      pendingTransactionRef,
+    });
+
+    expect(recovery.sourceDeleteRequest).toMatchObject({
+      cancelRequested: true,
+      rollbackScreenId: "target",
+      rollbackSelector: "#inserted",
+      rollbackSourceId: "inserted-id",
+    });
+    expect(recovery.rollbackRequest).toBeNull();
+    expect(pendingTransactionRef.current).toBe("move-rejected");
+  });
+
+  it("holds admission until source restoration and destination rollback settle", () => {
+    const pendingTransactionRef = { current: "move-rejected" as string | null };
+    const recovery = resolveCrossScreenMoveFailureRecovery({
+      reason: "rollback-timeout",
+      transactionId: "move-rejected",
+      insertRequest: null,
+      sourceDeleteRequest: {
+        requestId: "move-rejected:source",
+        transactionId: "move-rejected",
+        screenId: "source",
+        selector: "#source",
+        waitForInsertTransaction: false,
+        rollbackScreenId: "target",
+        rollbackSelector: "#inserted",
+        rollbackSourceId: "inserted-id",
+      },
+      rollbackRequestId: "move-rejected:rollback",
+      pendingTransactionRef,
+    });
+
+    expect(recovery.rollbackRequest).toBeNull();
+    expect(pendingTransactionRef.current).toBe("move-rejected");
+    const rollbackAfterSourceAck = crossScreenRollbackAfterSourceCancellation(
+      recovery.sourceDeleteRequest!,
+      true,
+      "move-rejected:recovery-rollback",
+    );
+    expect(rollbackAfterSourceAck).toMatchObject({
+      screenId: "target",
+      transactionId: "move-rejected",
+      selector: "#inserted",
+    });
+    expect(pendingTransactionRef.current).toBe("move-rejected");
+    expect(
+      releaseCrossScreenDropAdmission(pendingTransactionRef, "move-rejected"),
+    ).toBe(true);
+    expect(pendingTransactionRef.current).toBeNull();
+  });
+
+  it("keeps an acknowledged destination until a timed-out source delete is confirmed", () => {
+    const pendingTransactionRef = {
+      current: "move-delete-timeout" as string | null,
+    };
+    const recovery = resolveCrossScreenMoveFailureRecovery({
+      reason: "source-delete-timeout",
+      transactionId: "move-delete-timeout",
+      insertRequest: null,
+      sourceDeleteRequest: {
+        requestId: "move-delete-timeout:source",
+        transactionId: "move-delete-timeout",
+        screenId: "source",
+        selector: "#source",
+        waitForInsertTransaction: false,
+        rollbackScreenId: "target",
+        rollbackSelector: "#inserted",
+        rollbackSourceId: "inserted-id",
+      },
+      rollbackRequestId: "move-delete-timeout:rollback",
+      pendingTransactionRef,
+    });
+
+    expect(recovery.rollbackRequest).toBeNull();
+    expect(recovery.sourceDeleteRequest).toMatchObject({
+      cancelRequested: true,
+      rollbackScreenId: "target",
+      rollbackSelector: "#inserted",
+      rollbackSourceId: "inserted-id",
+    });
+    expect(pendingTransactionRef.current).toBe("move-delete-timeout");
+  });
+
+  it("cancels source deletion after the acknowledged destination is lost", () => {
+    const pendingTransactionRef = {
+      current: "move-unmounted" as string | null,
+    };
+    const recovery = resolveCrossScreenMoveFailureRecovery({
+      reason: "target-canvas-unmounted",
+      transactionId: "move-unmounted",
+      insertRequest: {
+        requestId: 1,
+        transactionId: "move-unmounted",
+        screenId: "target",
+        html: '<div data-agent-native-node-id="inserted">Moved</div>',
+        anchor: { selector: "body" },
+        placement: "inside",
+      },
+      sourceDeleteRequest: {
+        requestId: "move-unmounted:source",
+        transactionId: "move-unmounted",
+        screenId: "source",
+        selector: "#source",
+        selectorCandidates: ["#source", "[data-node-id=source]"],
+        waitForInsertTransaction: false,
+        rollbackScreenId: "target",
+        rollbackSelector: "[data-agent-native-node-id=inserted]",
+        rollbackSourceId: "inserted",
+      },
+      rollbackRequestId: "move-unmounted:rollback",
+      pendingTransactionRef,
+    });
+
+    expect(recovery.sourceDeleteRequest).toMatchObject({
+      cancelRequested: true,
+      selector: "#source",
+      selectorCandidates: ["#source", "[data-node-id=source]"],
+      waitForInsertTransaction: false,
+    });
+    expect(recovery.sourceDeleteRequest?.rollbackSelector).toBeUndefined();
+    expect(recovery.rollbackRequest).toBeNull();
+    expect(pendingTransactionRef.current).toBe("move-unmounted");
+    expect(
+      releaseCrossScreenDropAdmission(pendingTransactionRef, "move-unmounted"),
+    ).toBe(true);
+  });
+
+  it.each(["anchor-unresolved", "read-only", "placement-unavailable"])(
+    "releases a rejected insert without touching the source (%s)",
+    (reason) => {
+      const pendingTransactionRef = {
+        current: "move-rejected" as string | null,
+      };
+      const recovery = resolveCrossScreenMoveFailureRecovery({
+        reason,
+        transactionId: "move-rejected",
+        insertRequest: {
+          requestId: 1,
+          transactionId: "move-rejected",
+          screenId: "target",
+          html: '<div data-agent-native-node-id="clone">Moved</div>',
+          anchor: { selector: "body" },
+          placement: "inside",
+        },
+        sourceDeleteRequest: {
+          requestId: "move-rejected:source",
+          transactionId: "move-rejected",
+          screenId: "source",
+          selector: "#source",
+          selectorCandidates: ["#source", "[data-node-id=source]"],
+          waitForInsertTransaction: true,
+          rollbackScreenId: "target",
+        },
+        rollbackRequestId: "move-rejected:rollback",
+        pendingTransactionRef,
+      });
+
+      expect(recovery).toMatchObject({
+        rollbackRequest: null,
+        sourceDeleteRequest: null,
+      });
+      expect(pendingTransactionRef.current).toBeNull();
+    },
+  );
+
+  it.each(["target-canvas-unmounted", "target-document-replaced"])(
+    "releases a pre-ack move when its destination is lost (%s)",
+    (reason) => {
+      const pendingTransactionRef = {
+        current: "move-unmounted" as string | null,
+      };
+      const recovery = resolveCrossScreenMoveFailureRecovery({
+        reason,
+        transactionId: "move-unmounted",
+        insertRequest: {
+          requestId: 1,
+          transactionId: "move-unmounted",
+          screenId: "target",
+          html: '<div data-agent-native-node-id="inserted">Moved</div>',
+          anchor: { selector: "body" },
+          placement: "inside",
+        },
+        sourceDeleteRequest: {
+          requestId: "move-unmounted:source",
+          transactionId: "move-unmounted",
+          screenId: "source",
+          selector: "#source",
+          waitForInsertTransaction: true,
+          rollbackScreenId: "target",
+        },
+        rollbackRequestId: "move-unmounted:rollback",
+        pendingTransactionRef,
+      });
+
+      expect(recovery).toMatchObject({
+        rollbackRequest: null,
+        sourceDeleteRequest: null,
+      });
+      expect(pendingTransactionRef.current).toBeNull();
+    },
+  );
+
+  it("restores the source after an insert timeout without issuing a source delete", () => {
+    const pendingTransactionRef = { current: "move-no-ack" as string | null };
+    const recovery = resolveCrossScreenMoveFailureRecovery({
+      reason: "cross-screen-insert-timeout",
+      transactionId: "move-no-ack",
+      insertRequest: {
+        requestId: 1,
+        transactionId: "move-no-ack",
+        screenId: "target",
+        html: '<div data-agent-native-node-id="inserted">Moved</div>',
+        anchor: { selector: "body" },
+        placement: "inside",
+      },
+      sourceDeleteRequest: {
+        requestId: "move-no-ack:source",
+        transactionId: "move-no-ack",
+        screenId: "source",
+        selector: "#source",
+        waitForInsertTransaction: true,
+        rollbackScreenId: "target",
+      },
+      rollbackRequestId: "move-no-ack:rollback",
+      pendingTransactionRef,
+    });
+
+    expect(recovery.sourceDeleteRequest).toBeNull();
+    expect(recovery.rollbackRequest).toMatchObject({
+      screenId: "target",
+      selector: "",
+      transactionId: "move-no-ack",
+      idempotent: true,
+    });
+    expect(pendingTransactionRef.current).toBe("move-no-ack");
   });
 
   it("inserts a runtime-projected board node back into a live destination", () => {
@@ -2367,8 +2868,6 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
           ]),
         },
         designSourceType: "localhost",
-        // The live-to-board leg is transient, so the stored board document
-        // does not contain the node even though sourceHtmlSnapshot does.
         getScreenContent: (screenId) =>
           screenId === "board" ? "" : "http://localhost:3102/library",
         id: undefined,
@@ -2429,7 +2928,7 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
     const runtimeContent =
       '<html><body><div id="subject" data-agent-native-node-id="runtime-1m2vou">Subject</div></body></html>';
     const targetContent =
-      '<html><body><div data-agent-native-node-id="an-anchor">Anchor</div></body></html>';
+      '<html><body><main data-agent-native-node-id="an-anchor" style="display:grid;grid-template-columns:100px 100px 100px;grid-template-rows:100px 100px"></main></body></html>';
     const runtimeProjection = buildCodeLayerProjection(runtimeContent);
     const runtimeTree = buildCodeLayerTree(runtimeProjection);
     const sourceNodeIdAttrs = codeLayerSourceNodeIdAttrs(sourceContent);
@@ -2512,15 +3011,22 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
         targetScreenId: "target",
         targetAnchorNodeId: "an-anchor",
         targetAnchorSelector: '[data-agent-native-node-id="an-anchor"]',
-        targetAnchorPlacement: "after",
+        targetAnchorPlacement: "inside",
         targetDropMode: "flow-insert",
+        targetGridPlacement: {
+          column: 3,
+          columnEnd: 4,
+          row: 2,
+          rowEnd: 3,
+        },
       },
     );
 
     expect(sendRuntimeLayerMoveSemanticHandoff).toHaveBeenCalledWith(
       sourceNode.id,
       targetNode.id,
-      "after",
+      "inside",
+      { column: 3, columnEnd: 4, row: 2, rowEnd: 3 },
     );
     expect(applyFileContentUpdate).not.toHaveBeenCalled();
   });
@@ -2529,10 +3035,6 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
 describe("runCrossScreenElementDrop — portable style capture failure", () => {
   it("refuses the move: no history entry, no file write for either file, both files' content unchanged, toast shown once", () => {
     vi.clearAllMocks();
-    // A real (mutable) per-file store, not just call-count mocks — writing
-    // TO it is what "applyFileContentUpdate" would mean, so reading it back
-    // afterward is a real "the file didn't change" assertion, not an
-    // inference from a spy never having been called.
     const screens: Record<string, string> = {
       source: SCREEN_WITH_FRAME,
       target: SCREEN_WITH_FRAME,
@@ -2591,9 +3093,6 @@ describe("runCrossScreenElementDrop — portable style capture failure", () => {
         targetDropMode: "absolute-container",
         targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
         targetLocalPoint: { x: 240, y: 300 },
-        // The capture-failed signal — distinct from `styleSnapshot: undefined`
-        // (legitimately nothing to carry), which must keep moving normally;
-        // see the "queues an inline Alt-drag copy" tests above for that case.
         styleSnapshotCaptureFailed: true,
       },
     );
@@ -2604,8 +3103,6 @@ describe("runCrossScreenElementDrop — portable style capture failure", () => {
     expect(setRuntimeStructureInsertRequest).not.toHaveBeenCalled();
     expect(setSelectedElement).not.toHaveBeenCalled();
     expect(setSelectedLayerIdsState).not.toHaveBeenCalled();
-    // Read back the store itself — not just "the write function wasn't
-    // called" — as the actual "both files unchanged" proof.
     expect(screens.source).toBe(SCREEN_WITH_FRAME);
     expect(screens.target).toBe(SCREEN_WITH_FRAME);
     expect(toast.error).toHaveBeenCalledTimes(1);

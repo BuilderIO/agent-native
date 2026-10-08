@@ -48,7 +48,6 @@ import type { DesignFile } from "@/pages/design-editor/types";
 
 import type { ApplyLinkedComponentEdit } from "./linked-component-structure";
 
-/** Inset for a copy whose original parent is gone, so it lands on screen. */
 const ORPHANED_PASTE_INSET = 24;
 
 function isSelectedClipboardLayer(
@@ -233,17 +232,10 @@ export async function runPasteSelection(
       t("designEditor.componentInstances.linkedStructureUnsupported"),
     );
   };
-  // U19: paste is a discrete one-shot action, never a continuous gesture
-  // like a slider drag. Without stopCapturing(), a paste that happens to
-  // land within 800ms of the previous Yjs-tracked edit (captureTimeout)
-  // would merge with it into one undo step — Cmd+Z would then undo both
-  // the unrelated prior edit AND the paste together.
   undoManagerRef.current?.stopCapturing();
   await refreshClipboardFromSystemClipboard();
   const entries = getCanvasClipboardEntries();
   if (entries.length === 0) {
-    // No layer-level clipboard content — fall back to whole-screen paste
-    // (U6) when the clipboard instead carries copied screen snapshots.
     const screens = getCanvasScreenClipboardEntries();
     if (screens.length > 0 && canEditDesign) {
       pasteCopiedScreens(screens, position);
@@ -257,9 +249,6 @@ export async function runPasteSelection(
     viewModeRef.current === "overview" && position && boardFileId
       ? boardFileId
       : activeFile?.id;
-  // The board is an infinite canvas layer behind every screen, so a screen
-  // layer dropped on it renders under a frame at coordinates no camera or
-  // selection outline resolves. A keyboard paste goes back to its source.
   const returnToSourceFileId =
     sourceAnchor &&
     activeSurfaceFileId === boardFileId &&
@@ -300,20 +289,10 @@ export async function runPasteSelection(
     });
     return;
   }
-  // The pending-local map is the synchronous write-through source for
-  // same-task/repeated operations. React query/collab mirrors can lag one
-  // render behind a just-completed paste even after its save is already
-  // observable from another request; rebasing a second paste on that stale
-  // mirror makes its history `before` skip the first clone, so one undo
-  // removes both. Prefer the pending snapshot exactly like primitive and
-  // cross-screen structure writes do elsewhere in this editor.
   const pendingBase =
     pendingLocalFileContentsRef.current.get(targetFileId)?.content;
   const lineageBase =
     latestClipboardMutationContentRef.current.get(targetFileId)?.content;
-  // The lineage is NOT a content source: it advances only on a clipboard
-  // mutation, so after a delete it still describes the pre-delete document
-  // and rebasing there resurrects what was removed.
   const baseContent =
     pendingBase ??
     (targetFileId === activeFile?.id
@@ -518,13 +497,6 @@ export async function runPasteSelection(
       return null;
     }
     if (nextContent !== baseContent) {
-      // Capture the exact immutable pre-paste document here, before the
-      // optimistic cache/collab mirrors can advance independently. The
-      // dedicated stack owns paste history in both single and overview
-      // mode: generic Yjs/local history can be destroyed by a view switch
-      // and cannot publish the authoritative clipboard generation on
-      // undo. DOM insertion + every remapped managed rule stay in this
-      // single before/after snapshot.
       clipboardPasteUndoStackRef.current = [
         ...clipboardPasteUndoStackRef.current.slice(
           -(MAX_DESIGN_UNDO_STACK - 1),
@@ -607,9 +579,6 @@ export async function runPasteSelection(
     }
   };
 
-  // Inside a frame, after an object — but always into normal flow: a
-  // container is not a free canvas, so carrying the source's left/top
-  // across drops the clone on top of the target's content.
   if (
     !position &&
     !returnToSourceFileId &&
@@ -681,9 +650,6 @@ export async function runPasteSelection(
     // Fall through to position-based clone if insert failed.
   }
 
-  // Explicit positions (e.g. "Paste here" at the cursor) are honored as-is.
-  // Keyboard pastes land near the source layer and cascade so repeats don't
-  // stack exactly.
   const sourcePositions = entries.map((entry) =>
     extractLayerPosition(entry.html),
   );
@@ -697,25 +663,11 @@ export async function runPasteSelection(
     ? Math.min(...positionedSources.map((source) => source.y))
     : 0;
   const cascadeOffset = pasteCascadeRef.current * 16;
-  // U16: reusing the raw source coordinates only makes sense when the
-  // source screen is the one being pasted into — otherwise that source
-  // screen may not even be visible in the current viewport (a different
-  // active screen, or the source screen scrolled off in overview), and
-  // the paste would land somewhere the user can't see. Fall back to the
-  // current viewport's center in that case (same computation as the
-  // U8 image-paste center).
   const pastingIntoSourceScreen = entries.every(
     (entry) => entry.sourceFileId === targetFileId,
   );
   const sourceParentSelectors =
     sourceAnchor?.fileId === targetFileId ? sourceAnchor.parentSelectors : null;
-  // Figma parity: paste with nothing selected lands directly above the
-  // original (next sibling), not at the end of the parent's child list —
-  // that only differs from "inside the parent" when the parent already has
-  // a later sibling. Anchor on the original's own selector so the copy is
-  // inserted as its immediate next sibling; only reachable for a single
-  // copied layer, since a shared "after" anchor can't place several originals
-  // each directly above themselves.
   const pasteAfterOriginalSelectors =
     sourceParentSelectors && entries.length === 1 && entries[0]!.rootNodeId
       ? (() => {
@@ -728,9 +680,6 @@ export async function runPasteSelection(
           return originalNode ? codeLayerSelectorAliases(originalNode) : null;
         })()
       : null;
-  // The copy is going to the screen root because its parent is gone. Its
-  // stored left/top belong to that parent, so reusing them can place it off
-  // the screen entirely; a fixed inset is always somewhere the user can see.
   const rootFallbackPlacement =
     sourceAnchor !== null &&
     sourceAnchor.fileId === targetFileId &&
@@ -751,9 +700,6 @@ export async function runPasteSelection(
         };
       }
     }
-    // The container's rect is screen pixels; left/top are document pixels.
-    // Only the destination frame's own rect converts between them — the
-    // board's cannot, because its iframe is a render window, not its origin.
     const frameRect =
       targetFileId !== boardFileId
         ? findCanvasIframeForScreen(

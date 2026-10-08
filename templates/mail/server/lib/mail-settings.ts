@@ -14,6 +14,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   previewPane: "right",
   sendAndArchive: false,
   combineInbox: false,
+  showAllTab: true,
   undoSendDelay: 5,
   tracking: { opens: false, clicks: false },
 };
@@ -159,6 +160,10 @@ export function normalizeMailSettings(
         typeof data.sendAndArchive === "boolean"
           ? data.sendAndArchive
           : DEFAULT_SETTINGS.sendAndArchive,
+      showAllTab:
+        typeof data.showAllTab === "boolean"
+          ? data.showAllTab
+          : DEFAULT_SETTINGS.showAllTab,
       ...(savedFilters ? { savedFilters } : {}),
     } as UserSettings;
   }

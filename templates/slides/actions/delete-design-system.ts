@@ -24,12 +24,6 @@ type UnlinkResult =
   | { deckId: string; status: "unlinked" }
   | { deckId: string; status: "skipped-no-access" };
 
-// Runs under the same per-deck lock patch-deck/save-deck/update-slide use for
-// all deck writes, re-reading the row inside the lock so a concurrent slide
-// edit can't be clobbered by this read-modify-write. Decks the caller can't
-// edit are left pointing at the deleted id rather than silently mutated —
-// admin access on a shared design system does not imply edit access on every
-// deck that happens to reference it.
 function unlinkDeck(
   deckId: string,
   designSystemId: string,
@@ -90,14 +84,6 @@ export default defineAction({
         .where(eq(schema.decks.designSystemId, id))
     ).map((row) => row.id);
 
-    // Delete the design system (and its shares) before touching linked decks.
-    // Once the row is gone, apply-design-system/create-deck's
-    // assertAccess("design-system", ...) check fails for anyone trying to
-    // attach a fresh link, shrinking the window for a deck to end up pointing
-    // at a design system we're about to remove. If this was the owner's
-    // default, promote another of their design systems in the same
-    // transaction so deck creation never silently drops to "no design
-    // system" just because the default happened to be deleted.
     await db.transaction(async (tx) => {
       await tx
         .delete(schema.designSystemShares)
@@ -139,10 +125,6 @@ export default defineAction({
       }
     });
 
-    // Best-effort cleanup: the design system is already gone, so a deck we
-    // can't touch (missing access) or fail to update (write error) is left
-    // dangling rather than retried here. Both cases are reported back instead
-    // of swallowed, so the caller can decide whether to intervene.
     const settled = await Promise.allSettled(
       linkedDeckIds.map((deckId) => unlinkDeck(deckId, id)),
     );

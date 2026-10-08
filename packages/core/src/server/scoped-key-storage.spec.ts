@@ -4,6 +4,7 @@ const mockGetSession = vi.fn();
 const mockGetOrgContext = vi.fn();
 const mockGetRequiredSecret = vi.fn();
 const mockWriteAppSecret = vi.fn();
+const mockGetOrgSetting = vi.fn();
 
 vi.mock("./auth.js", () => ({
   getSession: (...args: any[]) => mockGetSession(...args),
@@ -19,6 +20,11 @@ vi.mock("../secrets/register.js", () => ({
 
 vi.mock("../secrets/storage.js", () => ({
   writeAppSecret: (...args: any[]) => mockWriteAppSecret(...args),
+}));
+
+vi.mock("../settings/org-settings.js", () => ({
+  getOrgSetting: (...args: any[]) => mockGetOrgSetting(...args),
+  mutateOrgSetting: vi.fn(),
 }));
 
 import {
@@ -39,6 +45,31 @@ describe("saveKeyValuesToScopedSecrets", () => {
     });
     mockGetRequiredSecret.mockReturnValue(undefined);
     mockWriteAppSecret.mockResolvedValue("sec_1");
+    mockGetOrgSetting.mockResolvedValue(null);
+  });
+
+  it("refuses a restricted member's personal provider key before writing anything", async () => {
+    mockGetOrgSetting.mockImplementation(async (_orgId: string, key: string) =>
+      key === "restrict-personal-provider-keys" ? { restricted: true } : null,
+    );
+    mockGetOrgContext.mockResolvedValue({ orgId: "org_1", role: "member" });
+
+    const attempt = saveKeyValuesToScopedSecrets(event, [
+      { key: "OPENAI_API_KEY", value: "sk-example" },
+    ]);
+    await expect(attempt).rejects.toBeInstanceOf(ScopedKeyStorageError);
+    await expect(attempt).rejects.toMatchObject({
+      statusCode: 403,
+      message: "Owners and admins restricted personal API keys.",
+    });
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
+
+    // Other personal keys still save.
+    await expect(
+      saveKeyValuesToScopedSecrets(event, [
+        { key: "S3_BUCKET", value: "clips" },
+      ]),
+    ).resolves.toMatchObject({ saved: ["S3_BUCKET"] });
   });
 
   it("saves arbitrary keys to the current user by default", async () => {
@@ -113,6 +144,38 @@ describe("saveKeyValuesToScopedSecrets", () => {
       scope: "user",
       scopeId: "alice@example.com",
     });
+  });
+
+  it("saves a model provider key for the organization when asked by name", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "GOOGLE_GENERATIVE_AI_API_KEY",
+      label: "Gemini",
+      scope: "user",
+      kind: "api-key",
+    });
+
+    await saveKeyValuesToScopedSecrets(
+      event,
+      [{ key: "GOOGLE_GENERATIVE_AI_API_KEY", value: "AI-example" }],
+      "org",
+    );
+    expect(mockWriteAppSecret).toHaveBeenLastCalledWith({
+      key: "GOOGLE_GENERATIVE_AI_API_KEY",
+      value: "AI-example",
+      scope: "org",
+      scopeId: "org_1",
+    });
+
+    mockGetOrgContext.mockResolvedValue({ orgId: "org_1", role: "member" });
+    mockWriteAppSecret.mockClear();
+    await expect(
+      saveKeyValuesToScopedSecrets(
+        event,
+        [{ key: "GOOGLE_GENERATIVE_AI_API_KEY", value: "AI-example" }],
+        "org",
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
   });
 
   it("rejects invalid key names before writing", async () => {

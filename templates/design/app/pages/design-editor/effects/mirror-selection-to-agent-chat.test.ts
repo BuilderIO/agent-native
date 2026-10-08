@@ -57,8 +57,6 @@ describe("runMirrorSelectionToAgentChat", () => {
   });
 
   it("republishes fresh markup when the same still-unsent selection's markup changes", () => {
-    // Regression: a live inspector edit to the still-selected node used to
-    // leave stale markup sitting in the chat context.
     const refs = makeRefs();
     const before = '<div style="color:red">A</div>';
     const after = '<div style="color:blue">A</div>';
@@ -80,7 +78,6 @@ describe("runMirrorSelectionToAgentChat", () => {
     runMirrorSelectionToAgentChat(baseArgs(refs, html));
     expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(1);
 
-    // Simulate a send: the composer no longer carries our key.
     refs.composerContextHasOurKeyRef.current = false;
     runMirrorSelectionToAgentChat(baseArgs(refs, html));
     expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(1);

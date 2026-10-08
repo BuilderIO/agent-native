@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const lifecycle = vi.hoisted(() => ({
   bootstrap: Promise.resolve(),
   initPromises: [] as Promise<void>[],
+  gatedPaths: [] as string[][],
   probes: [] as Promise<unknown>[],
   reap: vi.fn<() => Promise<unknown>>(),
   settingsEmitter: null as EventEmitter | null,
@@ -20,19 +21,27 @@ vi.mock("./framework-request-handler.js", async (importOriginal) => {
     awaitBootstrap: () => lifecycle.bootstrap,
     getH3App: (nitroApp: any) => nitroApp.h3App,
     markDefaultPluginProvided: vi.fn(),
-    trackPluginInit: (_nitroApp: any, promise: Promise<void>) => {
+    trackPluginInit: (
+      _nitroApp: any,
+      promise: Promise<void>,
+      options?: { paths?: string[] },
+    ) => {
       lifecycle.initPromises.push(promise);
+      lifecycle.gatedPaths.push(options?.paths ?? []);
     },
   };
 });
 
-vi.mock("../settings/store.js", () => ({
-  deleteSetting: vi.fn(async () => false),
-  getAllSettings: vi.fn(async () => ({})),
-  getSetting: vi.fn(async () => null),
-  getSettingsEmitter: () => lifecycle.settingsEmitter,
-  putSetting: vi.fn(async () => {}),
-}));
+vi.mock("../settings/store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../settings/store.js")>();
+  return {
+    ...actual,
+    deleteSetting: vi.fn(async () => false),
+    getSetting: vi.fn(async () => null),
+    getSettingsEmitter: () => lifecycle.settingsEmitter,
+    putSetting: vi.fn(async () => {}),
+  };
+});
 
 vi.mock("../agent/run-store.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../agent/run-store.js")>();
@@ -48,6 +57,7 @@ vi.mock("../mcp-client/index.js", async (importOriginal) => {
     await importOriginal<typeof import("../mcp-client/index.js")>();
   return {
     ...actual,
+    buildMergedConfig: vi.fn(async () => null),
     startMcpConfigRefresh: () => {
       const markDirty = () => {};
       const emitter = lifecycle.settingsEmitter!;
@@ -77,12 +87,15 @@ vi.mock("./social-og-image.js", () => ({
   createAgentNativeOgImageHandler: () => () => new Response(),
 }));
 
+import { RECURRING_JOBS_SWEEP_PATH } from "../jobs/scheduler-dispatch.js";
 import { createAgentChatPlugin } from "./agent-chat-plugin.js";
 
 interface TestHooks {
   hook(name: string, callback: () => void | Promise<void>): void;
   callHook(name: string): Promise<void>;
 }
+
+const openedApps: Array<{ hooks: TestHooks }> = [];
 
 function createTestHooks(): TestHooks {
   const callbacks = new Map<string, Array<() => void | Promise<void>>>();
@@ -111,6 +124,7 @@ function startGeneration() {
     mcp: { enabled: false },
   });
   plugin(nitroApp);
+  openedApps.push(nitroApp);
   const initPromise = lifecycle.initPromises.at(-1);
   expect(initPromise).toBeDefined();
   return { initPromise: initPromise!, nitroApp };
@@ -135,6 +149,7 @@ describe("agent chat plugin Nitro lifecycle", () => {
     vi.stubEnv("AGENT_NATIVE_MCP_CONFIG_REFRESH_MS", "5000");
     lifecycle.bootstrap = Promise.resolve();
     lifecycle.initPromises.length = 0;
+    lifecycle.gatedPaths.length = 0;
     lifecycle.probes.length = 0;
     lifecycle.settingsEmitter = new EventEmitter();
     database = new PGlite();
@@ -164,6 +179,8 @@ describe("agent chat plugin Nitro lifecycle", () => {
   });
 
   afterEach(async () => {
+    await Promise.all(openedApps.map((app) => app.hooks.callHook("close")));
+    openedApps.length = 0;
     vi.clearAllTimers();
     releaseTransactions?.();
     await Promise.allSettled(lifecycle.probes);
@@ -177,13 +194,16 @@ describe("agent chat plugin Nitro lifecycle", () => {
     await vi.waitFor(() => expect(lifecycle.reap).toHaveBeenCalled());
   }
 
+  it("holds a scheduler's sweep request until initialization registers its handlers", async () => {
+    await initializeGeneration();
+    expect(lifecycle.gatedPaths.at(-1)).toContain(RECURRING_JOBS_SWEEP_PATH);
+  });
+
   it("keeps repeated init and close equivalent to one live generation", async () => {
     const fresh = await initializeGeneration();
     await startFastSweep();
     expect(pendingTransactions).toBe(1);
-    await vi.waitFor(() =>
-      expect(lifecycle.settingsEmitter!.listenerCount("settings")).toBe(1),
-    );
+    expect(lifecycle.settingsEmitter!.listenerCount("settings")).toBe(0);
 
     releaseTransactions?.();
     await vi.waitFor(() => expect(settledTransactions).toBe(1));
@@ -206,7 +226,7 @@ describe("agent chat plugin Nitro lifecycle", () => {
       const app = await initializeGeneration();
       await app.hooks.callHook("close");
     }
-    await initializeGeneration();
+    const repeatedGeneration = await initializeGeneration();
     await startFastSweep();
 
     const repeatedLifecycle = {
@@ -223,8 +243,9 @@ describe("agent chat plugin Nitro lifecycle", () => {
 
     expect(repeatedLifecycle).toEqual({
       pendingTransactions: 1,
-      settingsListeners: 1,
+      settingsListeners: 0,
     });
+    await repeatedGeneration.hooks.callHook("close");
   });
 
   it("cleans resources registered after close races asynchronous initialization", async () => {

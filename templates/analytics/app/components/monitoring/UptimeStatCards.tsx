@@ -1,9 +1,3 @@
-/**
- * Overall uptime cards for the standard windows (24h / 7d / 30d / 90d),
- * UptimeRobot-style. Takes a pre-computed `UptimeWindows` object.
- *
- * Reusable by the authenticated monitor detail view and the public status page.
- */
 import { cn } from "@/lib/utils";
 
 import { formatUptimePct } from "./chart-utils";
@@ -16,7 +10,6 @@ const DEFAULT_WINDOWS: { key: UptimeWindowKey; label: string }[] = [
   { key: "uptime90d", label: "90 days" },
 ];
 
-/** Color the percentage by health: >=99.9 green, >=95 amber, else red. */
 function uptimeToneClass(pct: number | null): string {
   if (pct == null) return "text-muted-foreground";
   if (pct >= 99.9) return "text-emerald-500";
@@ -26,11 +19,9 @@ function uptimeToneClass(pct: number | null): string {
 
 export interface UptimeStatCardsProps {
   windows: UptimeWindows;
-  /** Override which windows/labels render, in order. */
   items?: { key: UptimeWindowKey; label: string }[];
   className?: string;
   cardClassName?: string;
-  /** Compact spacing/type for dense in-app layouts. */
   compact?: boolean;
 }
 

@@ -4,12 +4,19 @@ import { defineAction } from "../../action.js";
 import { sanitizeReviewCommentMetadata } from "../attachments.js";
 import { reviewAuthorNameFromContext } from "../identity.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
-import { notifyReviewComment } from "../notifications.js";
+import {
+  notifyReviewComment,
+  notifyReviewCommentWithReceipt,
+} from "../notifications.js";
 import {
   assertReviewableResourceAccess,
   normalizeReviewVisibility,
 } from "../registry.js";
-import { insertReviewComment } from "../store.js";
+import {
+  insertReviewComment,
+  insertReviewCommentIdempotently,
+  reviewCommentIdForClientOperation,
+} from "../store.js";
 import type {
   ReviewActorKind,
   ReviewCommentKind,
@@ -42,6 +49,11 @@ const schema = z.object({
   resolutionTarget: z.enum(["agent", "human"]).nullable().optional(),
   mentions: z.array(mentionSchema).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  clientOperationId: z
+    .string()
+    .uuid()
+    .optional()
+    .describe("Stable UUID for retrying the same comment submission"),
 });
 
 export default defineAction({
@@ -63,7 +75,7 @@ export default defineAction({
     const resolutionTarget =
       args.resolutionTarget ?? (mentions.length > 0 ? "human" : "agent");
 
-    const comment = await insertReviewComment({
+    const input = {
       resourceType: args.resourceType,
       resourceId: args.resourceId,
       targetId: args.targetId ?? null,
@@ -79,9 +91,21 @@ export default defineAction({
       orgId: access.orgId ?? actionCtx?.orgId ?? null,
       visibility: normalizeReviewVisibility(access.visibility),
       metadata: await sanitizeReviewCommentMetadata(args.metadata),
-    });
+    };
+    const result = args.clientOperationId
+      ? await insertReviewCommentIdempotently({
+          ...input,
+          id: reviewCommentIdForClientOperation(args.clientOperationId),
+        })
+      : { comment: await insertReviewComment(input), replayed: false };
 
-    return { ...comment, notified: await notifyReviewComment(comment) };
+    return {
+      ...result.comment,
+      replayed: result.replayed,
+      notified: args.clientOperationId
+        ? await notifyReviewCommentWithReceipt(result.comment)
+        : await notifyReviewComment(result.comment),
+    };
   },
   audit: {
     target: (args, result) => {

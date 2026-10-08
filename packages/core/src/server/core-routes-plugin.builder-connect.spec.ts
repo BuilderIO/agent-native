@@ -7,15 +7,38 @@ vi.mock("../org/context.js", () => ({
   getOrgContext: getOrgContextMock,
 }));
 
+const isRestrictedMock = vi.hoisted(() => vi.fn(async () => false));
+
+vi.mock("./personal-provider-key-policy.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("./personal-provider-key-policy.js")
+  >()),
+  isPersonalProviderKeyUseRestricted: isRestrictedMock,
+}));
+
 import {
   appendBuilderConnectStateCookie,
   createBuilderConnectState,
   resolveBuilderConnectCallbackState,
 } from "./builder-browser.js";
 import {
+  BUILDER_CONNECT_NEEDS_ORGANIZATION,
+  BUILDER_CONNECT_SESSION_NOT_SHARED,
+  BUILDER_ORG_ALREADY_CONNECTED,
+  BUILDER_ORG_MEMBERSHIP_UNREADABLE,
+  BUILDER_ORG_RECONNECT_BY_LOGIN,
+  decideBuilderActivation,
+  disconnectBuilderConnectionAtScope,
+  parseBuilderConnectionScope,
+  resolveBuilderActivationWrite,
+  resolveBuilderCallbackWrite,
+  resolveBuilderConnectAuthorization,
   resolveBuilderOrgMutation,
+  resolveScopelessBuilderConnectRestriction,
   selectLiveBuilderConnectStates,
+  type BuilderScopedDisconnectDeps,
 } from "./core-routes-plugin.js";
+import { PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE } from "./personal-provider-key-policy.js";
 
 function createMockEvent(): H3Event {
   return {
@@ -41,6 +64,8 @@ function createMockEvent(): H3Event {
 
 beforeEach(() => {
   getOrgContextMock.mockReset();
+  isRestrictedMock.mockReset();
+  isRestrictedMock.mockResolvedValue(false);
 });
 
 describe("resolveBuilderOrgMutation", () => {
@@ -61,6 +86,60 @@ describe("resolveBuilderOrgMutation", () => {
     });
   });
 
+  it("refuses a signed-in non-member with a next step, not a dead end", async () => {
+    getOrgContextMock.mockResolvedValue({
+      email: "solo@example.com",
+      orgId: null,
+      role: null,
+    });
+
+    await expect(
+      resolveBuilderOrgMutation(createMockEvent(), {
+        allowMemberInitiation: true,
+      }),
+    ).resolves.toEqual({
+      orgId: null,
+      role: null,
+      deny: BUILDER_CONNECT_NEEDS_ORGANIZATION,
+      whoCanFix: "self",
+    });
+  });
+
+  it("tells a window without the app's sign-in (preview, embed) to open the app in its own tab", async () => {
+    // The connect popup proved its owner with a signed token, but this window
+    // has no first-party session, so membership cannot be read here.
+    getOrgContextMock.mockResolvedValue({
+      email: "",
+      orgId: null,
+      role: null,
+    });
+
+    await expect(
+      resolveBuilderOrgMutation(createMockEvent(), {
+        allowMemberInitiation: true,
+      }),
+    ).resolves.toMatchObject({
+      orgId: null,
+      deny: BUILDER_CONNECT_SESSION_NOT_SHARED,
+      whoCanFix: "self",
+    });
+  });
+
+  it("does not call an unreadable membership a non-member", async () => {
+    getOrgContextMock.mockRejectedValue(
+      Object.assign(new Error("Connection terminated"), { code: "08006" }),
+    );
+
+    for (const options of [{ allowMemberInitiation: true }, {}]) {
+      await expect(
+        resolveBuilderOrgMutation(createMockEvent(), options),
+      ).resolves.toMatchObject({
+        orgId: null,
+        deny: BUILDER_ORG_MEMBERSHIP_UNREADABLE,
+      });
+    }
+  });
+
   it("keeps shared Builder revocation owner/admin protected", async () => {
     getOrgContextMock.mockResolvedValue({
       orgId: "org-123",
@@ -74,6 +153,407 @@ describe("resolveBuilderOrgMutation", () => {
         deny: "Only an organization owner or admin can change the shared Builder connection.",
       },
     );
+  });
+});
+
+describe("Builder connection scope", () => {
+  it("treats a missing scope as the legacy role-decided connect", () => {
+    expect(parseBuilderConnectionScope(null)).toBeNull();
+    expect(parseBuilderConnectionScope(undefined)).toBeNull();
+    expect(parseBuilderConnectionScope("")).toBeNull();
+    expect(parseBuilderConnectionScope("org")).toBe("org");
+    expect(parseBuilderConnectionScope("personal")).toBe("personal");
+  });
+
+  it("refuses an unknown scope instead of guessing one", () => {
+    expect(parseBuilderConnectionScope("user")).toBe("invalid");
+    expect(parseBuilderConnectionScope(["org"])).toBe("invalid");
+  });
+
+  it("lets only owners and admins start the organization connection", async () => {
+    getOrgContextMock.mockResolvedValue({ orgId: "org-123", role: "member" });
+    await expect(
+      resolveBuilderConnectAuthorization(
+        createMockEvent(),
+        "member@example.com",
+        "org",
+      ),
+    ).resolves.toMatchObject({
+      deny: "Only an organization owner or admin can change the shared Builder connection.",
+    });
+
+    getOrgContextMock.mockResolvedValue({ orgId: "org-123", role: "admin" });
+    await expect(
+      resolveBuilderConnectAuthorization(
+        createMockEvent(),
+        "admin@example.com",
+        "org",
+      ),
+    ).resolves.toEqual({ orgId: "org-123", role: "admin", deny: null });
+  });
+
+  it("keeps a personal connection for members; owners and admins connect for the org", async () => {
+    getOrgContextMock.mockResolvedValue({ orgId: "org-123", role: "member" });
+    await expect(
+      resolveBuilderConnectAuthorization(
+        createMockEvent(),
+        "member@example.com",
+        "personal",
+      ),
+    ).resolves.toEqual({ orgId: "org-123", role: "member", deny: null });
+
+    getOrgContextMock.mockResolvedValue({ orgId: "org-123", role: "owner" });
+    await expect(
+      resolveBuilderConnectAuthorization(
+        createMockEvent(),
+        "owner@example.com",
+        "personal",
+      ),
+    ).resolves.toMatchObject({
+      deny: "Owners and admins set up Builder.io for the organization.",
+    });
+  });
+
+  it("refuses a member's personal connect while personal API keys are restricted", async () => {
+    isRestrictedMock.mockResolvedValue(true);
+    getOrgContextMock.mockResolvedValue({ orgId: "org-123", role: "member" });
+    await expect(
+      resolveBuilderConnectAuthorization(
+        createMockEvent(),
+        "member@example.com",
+        "personal",
+      ),
+    ).resolves.toMatchObject({
+      deny: "Owners and admins restricted personal API keys.",
+    });
+    expect(isRestrictedMock).toHaveBeenCalledWith({
+      email: "member@example.com",
+      orgId: "org-123",
+    });
+
+    getOrgContextMock.mockResolvedValue({ orgId: "org-123", role: "admin" });
+    await expect(
+      resolveBuilderConnectAuthorization(
+        createMockEvent(),
+        "admin@example.com",
+        "org",
+      ),
+    ).resolves.toMatchObject({ deny: null });
+  });
+
+  it("refuses a scopeless member connect, which would land personally, while restricted", async () => {
+    getOrgContextMock.mockResolvedValue({ orgId: "org-123", role: "member" });
+    await expect(
+      resolveScopelessBuilderConnectRestriction(
+        createMockEvent(),
+        "member@example.com",
+      ),
+    ).resolves.toBeNull();
+
+    isRestrictedMock.mockResolvedValue(true);
+    await expect(
+      resolveScopelessBuilderConnectRestriction(
+        createMockEvent(),
+        "member@example.com",
+      ),
+    ).resolves.toBe("Owners and admins restricted personal API keys.");
+
+    // An owner's scopeless connect saves for the organization, so it stays open.
+    getOrgContextMock.mockResolvedValue({ orgId: "org-123", role: "owner" });
+    await expect(
+      resolveScopelessBuilderConnectRestriction(
+        createMockEvent(),
+        "owner@example.com",
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("still requires organization membership for a named connection", async () => {
+    getOrgContextMock.mockResolvedValue({
+      email: "member@example.com",
+      orgId: null,
+      role: null,
+    });
+    await expect(
+      resolveBuilderConnectAuthorization(
+        createMockEvent(),
+        "member@example.com",
+        "personal",
+      ),
+    ).resolves.toMatchObject({
+      deny: BUILDER_CONNECT_NEEDS_ORGANIZATION,
+    });
+  });
+});
+
+describe("resolveBuilderCallbackWrite", () => {
+  const write = (
+    requestedScope: "org" | "personal" | null,
+    currentRole: string | null,
+    personalAllowed = true,
+  ) =>
+    resolveBuilderCallbackWrite({
+      requestedScope,
+      pendingOrgId: "org-123",
+      currentRole,
+      personalAllowed,
+    });
+
+  it("writes the org grant only while the connector is an owner or admin there", () => {
+    expect(write("org", "owner")).toEqual({ scope: "org", role: "owner" });
+    expect(write("org", "member")).toEqual({
+      deny: "Only an organization owner or admin can change the shared Builder connection.",
+    });
+  });
+
+  it("refuses every scope once the connector has left the flow's organization", () => {
+    for (const scope of ["org", "personal", null] as const) {
+      expect(write(scope, null)).toEqual({
+        deny: "You're no longer a member of the organization this Builder.io setup started in. Start it again from Settings.",
+      });
+    }
+  });
+
+  it("writes a personal grant for a member the org allows one", () => {
+    expect(write("personal", "member")).toEqual({ scope: "user", role: null });
+    expect(write("personal", "member", false)).toEqual({
+      deny: PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
+    });
+  });
+
+  it("refuses a personal grant for someone who became an owner or admin", () => {
+    expect(write("personal", "admin")).toEqual({
+      deny: "Owners and admins set up Builder.io for the organization.",
+    });
+  });
+
+  it("decides a connect that named no scope from the current role", () => {
+    // Promoted since connect start: the grant is the org's, never a personal
+    // one that would shadow it.
+    expect(write(null, "admin")).toEqual({ role: "admin" });
+    // Demoted since connect start: personal, and only if the org allows it.
+    expect(write(null, "member")).toEqual({ role: null });
+    expect(write(null, "member", false)).toEqual({
+      deny: PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
+    });
+  });
+
+  it("uses the role in the flow's organization, not wherever the connector is now", () => {
+    // The caller reads the role in pendingOrgId, so switching the active org to
+    // one where they are an admin neither blocks nor redirects the write.
+    expect(
+      resolveBuilderCallbackWrite({
+        requestedScope: "personal",
+        pendingOrgId: "org-a",
+        currentRole: "member",
+        personalAllowed: true,
+      }),
+    ).toEqual({ scope: "user", role: null });
+  });
+
+  it("treats a connector without an organization as personal", () => {
+    expect(
+      resolveBuilderCallbackWrite({
+        requestedScope: null,
+        pendingOrgId: null,
+        currentRole: null,
+        personalAllowed: true,
+      }),
+    ).toEqual({ role: null });
+  });
+});
+
+describe("disconnectBuilderConnectionAtScope", () => {
+  function deps(
+    overrides: Partial<BuilderScopedDisconnectDeps> = {},
+  ): BuilderScopedDisconnectDeps {
+    return {
+      hasStoredGrant: vi.fn(async () => true),
+      deleteGrant: vi.fn(async () => ({
+        localDeleted: true,
+        remoteRevoked: true,
+      })),
+      getKeyConnections: vi.fn(async () => ({})),
+      deleteLegacy: vi.fn(async () => undefined),
+      recordAudit: vi.fn(async () => undefined),
+      ...overrides,
+    };
+  }
+
+  it("removes only the caller's personal grant", async () => {
+    const d = deps();
+    await expect(
+      disconnectBuilderConnectionAtScope(
+        {
+          email: "member@example.com",
+          orgId: "org-123",
+          role: "member",
+          scope: "personal",
+        },
+        d,
+      ),
+    ).resolves.toEqual({
+      status: 200,
+      body: {
+        ok: true,
+        scope: "personal",
+        remoteRevoked: true,
+        warning: undefined,
+      },
+    });
+    expect(d.deleteGrant).toHaveBeenCalledWith(
+      "member@example.com",
+      "user",
+      "org-123",
+    );
+    expect(d.deleteLegacy).toHaveBeenCalledWith(
+      "member@example.com",
+      undefined,
+    );
+    expect(d.recordAudit).toHaveBeenCalledWith({
+      connected: false,
+      ownerEmail: "member@example.com",
+      orgId: "org-123",
+      scope: "user",
+    });
+  });
+
+  it("requires owner/admin for the organization connection", async () => {
+    const d = deps();
+    await expect(
+      disconnectBuilderConnectionAtScope(
+        {
+          email: "member@example.com",
+          orgId: "org-123",
+          role: "member",
+          scope: "org",
+        },
+        d,
+      ),
+    ).resolves.toMatchObject({ status: 403 });
+    expect(d.deleteGrant).not.toHaveBeenCalled();
+    expect(d.deleteLegacy).not.toHaveBeenCalled();
+    expect(d.recordAudit).not.toHaveBeenCalled();
+  });
+
+  it("removes the org grant and org-scoped legacy keys for an admin", async () => {
+    const d = deps();
+    await disconnectBuilderConnectionAtScope(
+      {
+        email: "admin@example.com",
+        orgId: "org-123",
+        role: "admin",
+        scope: "org",
+      },
+      d,
+    );
+    expect(d.deleteGrant).toHaveBeenCalledWith(
+      "admin@example.com",
+      "org",
+      "org-123",
+    );
+    expect(d.deleteLegacy).toHaveBeenCalledWith("admin@example.com", {
+      orgId: "org-123",
+      role: "admin",
+    });
+    expect(d.recordAudit).toHaveBeenCalledWith({
+      connected: false,
+      ownerEmail: "admin@example.com",
+      orgId: "org-123",
+      scope: "org",
+    });
+  });
+
+  it("disconnects a legacy key connection at the named scope", async () => {
+    const d = deps({
+      hasStoredGrant: vi.fn(async () => false),
+      getKeyConnections: vi.fn(async () => ({
+        personal: { connectedAt: 1_000, needsReconnect: false },
+      })),
+    });
+    await expect(
+      disconnectBuilderConnectionAtScope(
+        {
+          email: "member@example.com",
+          orgId: "org-123",
+          role: "member",
+          scope: "personal",
+        },
+        d,
+      ),
+    ).resolves.toMatchObject({ status: 200, body: { ok: true } });
+    expect(d.deleteGrant).not.toHaveBeenCalled();
+    expect(d.deleteLegacy).toHaveBeenCalled();
+  });
+
+  it("disconnects org keys even while the admin's own personal keys are in effect", async () => {
+    const d = deps({
+      hasStoredGrant: vi.fn(async () => false),
+      getKeyConnections: vi.fn(async () => ({
+        org: { connectedAt: 1_000, needsReconnect: false },
+        personal: { connectedAt: 1_000, needsReconnect: false },
+      })),
+    });
+    await expect(
+      disconnectBuilderConnectionAtScope(
+        {
+          email: "admin@example.com",
+          orgId: "org-123",
+          role: "admin",
+          scope: "org",
+        },
+        d,
+      ),
+    ).resolves.toMatchObject({ status: 200, body: { ok: true, scope: "org" } });
+    expect(d.deleteLegacy).toHaveBeenCalledWith("admin@example.com", {
+      orgId: "org-123",
+      role: "admin",
+    });
+  });
+
+  it("reports a missing connection instead of removing a different one", async () => {
+    const d = deps({
+      hasStoredGrant: vi.fn(async () => false),
+      getKeyConnections: vi.fn(async () => ({
+        org: { connectedAt: 1_000, needsReconnect: false },
+      })),
+    });
+    await expect(
+      disconnectBuilderConnectionAtScope(
+        {
+          email: "member@example.com",
+          orgId: "org-123",
+          role: "member",
+          scope: "personal",
+        },
+        d,
+      ),
+    ).resolves.toEqual({
+      status: 409,
+      body: { error: "No personal Builder.io connection was found." },
+    });
+    expect(d.deleteLegacy).not.toHaveBeenCalled();
+    expect(d.recordAudit).not.toHaveBeenCalled();
+  });
+
+  it("surfaces an unreadable credential store instead of calling it disconnected", async () => {
+    const d = deps({
+      hasStoredGrant: vi.fn(async () => false),
+      getKeyConnections: vi.fn(async () => {
+        throw new Error("Builder credentials could not be read");
+      }),
+    });
+    await expect(
+      disconnectBuilderConnectionAtScope(
+        {
+          email: "member@example.com",
+          orgId: "org-123",
+          role: "member",
+          scope: "personal",
+        },
+        d,
+      ),
+    ).rejects.toThrow("could not be read");
   });
 });
 
@@ -124,8 +604,6 @@ describe("selectLiveBuilderConnectStates", () => {
       (async (key: string) => rows[key] ?? null) as never,
     );
 
-    // Builder dropped the query state: the finished flow must not make this
-    // callback look ambiguous.
     expect(
       resolveBuilderConnectCallbackState(null, (states ?? []).join(",")),
     ).toEqual({ state: pending, resetStateCookie: false });
@@ -143,5 +621,160 @@ describe("selectLiveBuilderConnectStates", () => {
     expect(
       resolveBuilderConnectCallbackState(null, (states ?? []).join(",")),
     ).toEqual({ state: null, resetStateCookie: true });
+  });
+});
+
+describe("resolveBuilderActivationWrite", () => {
+  const activate = (
+    requestedScope: "org" | "personal" | null,
+    role: string | null,
+    orgId: string | null = "org-123",
+    orgConnected = false,
+  ) =>
+    resolveBuilderActivationWrite({
+      requestedScope,
+      orgId,
+      role,
+      orgConnected,
+    });
+
+  it("stores an owner or admin's new account for the organization", () => {
+    for (const requestedScope of ["org", null] as const) {
+      expect(activate(requestedScope, "admin")).toEqual({
+        orgId: "org-123",
+        role: "admin",
+      });
+      expect(activate(requestedScope, "owner")).toEqual({
+        orgId: "org-123",
+        role: "owner",
+      });
+    }
+  });
+
+  it("never replaces or shadows the organization's existing connection", () => {
+    // Tim 9/29: an activation swapped the org's Builder account for a new
+    // free one, and the sidebar then said the org's credits were used up.
+    // Owners and admins are sent to log in to the org's account instead (the
+    // reconnect for an expired grant); members are told who can fix it.
+    for (const role of ["owner", "admin"]) {
+      for (const requestedScope of [null, "org"] as const) {
+        expect(activate(requestedScope, role, "org-123", true)).toEqual({
+          deny: BUILDER_ORG_RECONNECT_BY_LOGIN,
+          code: "account_exists",
+        });
+      }
+    }
+    expect(activate(null, "member", "org-123", true)).toEqual({
+      deny: BUILDER_ORG_ALREADY_CONNECTED,
+      code: "not_permitted",
+    });
+  });
+
+  it("stores a member's new account personally", () => {
+    expect(activate(null, "member")).toBeNull();
+    expect(activate("personal", "member")).toBeNull();
+    // Naming a personal account is deliberate, so it may sit beside the org's.
+    expect(activate("personal", "member", "org-123", true)).toBeNull();
+  });
+
+  it("stores the account personally without an organization", () => {
+    expect(activate(null, "owner", null)).toBeNull();
+  });
+});
+
+describe("decideBuilderActivation", () => {
+  // A stored org grant counts whether it still works or has expired: either
+  // way a new account would replace or shadow it.
+  const orgGrants = {
+    valid: true,
+    expired: true,
+    none: false,
+  } as const;
+
+  for (const role of ["owner", "admin", "member"] as const) {
+    for (const [grant, connected] of Object.entries(orgGrants)) {
+      it(`${role}, org grant ${grant}`, async () => {
+        getOrgContextMock.mockResolvedValue({
+          email: "user@example.com",
+          orgId: "org-123",
+          role,
+        });
+        const hasOrgConnection = vi.fn(async () => connected);
+
+        const decision = await decideBuilderActivation(
+          createMockEvent(),
+          { ownerEmail: "user@example.com", requestedScope: null },
+          hasOrgConnection,
+        );
+
+        if (!connected) {
+          expect(decision).toEqual({
+            write: role === "member" ? null : { orgId: "org-123", role: role },
+          });
+        } else if (role === "member") {
+          expect(decision).toEqual({
+            refuse: {
+              status: 409,
+              message: BUILDER_ORG_ALREADY_CONNECTED,
+              reason: "activation_refused",
+              code: "not_permitted",
+            },
+          });
+        } else {
+          // The popup's "Log in" path is the owner's reconnect, not a
+          // dead end telling them to ask an owner.
+          expect(decision).toEqual({
+            refuse: {
+              status: 409,
+              message: BUILDER_ORG_RECONNECT_BY_LOGIN,
+              reason: "activation_refused",
+              code: "account_exists",
+            },
+          });
+        }
+        expect(hasOrgConnection).toHaveBeenCalledWith(
+          "user@example.com",
+          "org-123",
+        );
+      });
+    }
+  }
+
+  it("refuses before provisioning when the membership cannot be read", async () => {
+    getOrgContextMock.mockRejectedValue(
+      Object.assign(new Error("Connection terminated"), { code: "08006" }),
+    );
+    const hasOrgConnection = vi.fn(async () => false);
+
+    const decision = await decideBuilderActivation(
+      createMockEvent(),
+      { ownerEmail: "user@example.com", requestedScope: null },
+      hasOrgConnection,
+    );
+
+    expect(decision).toEqual({
+      refuse: {
+        status: 503,
+        message: BUILDER_ORG_MEMBERSHIP_UNREADABLE,
+        reason: "membership_unreadable",
+        code: "membership_unreadable",
+      },
+    });
+    expect(hasOrgConnection).not.toHaveBeenCalled();
+  });
+
+  it("still lets someone without an organization activate personally", async () => {
+    getOrgContextMock.mockResolvedValue({
+      email: "solo@example.com",
+      orgId: null,
+      role: null,
+    });
+
+    await expect(
+      decideBuilderActivation(createMockEvent(), {
+        ownerEmail: "solo@example.com",
+        requestedScope: null,
+      }),
+    ).resolves.toEqual({ write: null });
   });
 });

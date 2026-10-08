@@ -68,9 +68,6 @@ export function wrapRunWithActionTracking(
   return async function trackedRun(args: any, ctx?: ActionRunContext) {
     if (!ctx || !shouldTrackAction(ctx)) return run(args, ctx);
 
-    // Loaded here, not at module scope: action.ts is re-exported by the
-    // browser entry, and the registry reads request context and the deploy
-    // environment (node:url), which crashes a client bundle at load.
     const { track } = await import("./registry.js");
     const startedAt = Date.now();
     const operationId =

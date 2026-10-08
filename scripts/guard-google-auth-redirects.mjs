@@ -1,14 +1,4 @@
 #!/usr/bin/env node
-/**
- * guard-google-auth-redirects.mjs
- *
- * h3 v2's `sendRedirect` returns a non-standard response object. In the
- * framework request-handler shim that can be stringified into "[object Object]"
- * instead of becoming a real 302, which breaks popup Google OAuth flows.
- *
- * Google auth-url endpoints that support `?redirect=1` must return a native web
- * Response with a Location header instead.
- */
 
 import { existsSync, readFileSync } from "node:fs";
 

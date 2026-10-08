@@ -26,8 +26,6 @@ describe("summarizeHtmlStyles", () => {
       { value: "#faf9f5", fragments: 1, labels: ["slide 1"] },
     ]);
     expect(summary.textColors[0]).toEqual({ value: "#faf9f5", fragments: 3 });
-    // The accent is applied through `color:` on the eyebrow, so it counts as
-    // a text color rather than an accent found elsewhere.
     expect(summary.textColors).toContainEqual({
       value: "rgb(1, 200, 241)",
       fragments: 3,
@@ -74,8 +72,6 @@ describe("summarizeHtmlStyles", () => {
       "image",
     ]);
     expect(summary.textColors).toEqual([]);
-    // Gradient stops and the border color are colors the fragment uses
-    // without being its background or text, so they surface as accents.
     expect(summary.otherColors).toEqual([
       { value: "#000", fragments: 1, labels: ["a"] },
       { value: "#ff0000", fragments: 1, labels: ["a"] },

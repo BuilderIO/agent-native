@@ -1,12 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * `mutateSetting`/`getSetting` are faked against one shared in-memory row
- * rather than mocked as pass-through stubs — the behavior under test is
- * "does the updater we hand `mutateSetting` actually preserve an existing
- * record", and a stub that always calls the updater fresh (ignoring what a
- * prior call stored) would validate nothing.
- */
 const mocks = vi.hoisted(() => {
   const rows = new Map<string, Record<string, unknown>>();
   return {
@@ -32,7 +25,8 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("../app-config/index.js", () => ({ getAppConfig: mocks.getAppConfig }));
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   mutateSetting: mocks.mutateSetting,
   getSetting: mocks.getSetting,
 }));
@@ -84,9 +78,6 @@ describe("recordDatabaseIdentity", () => {
     });
   });
 
-  // The exact incident this exists to catch: chat's real database already
-  // belongs to factory, and a second app must never repoint that record to
-  // itself just because it also happened to boot against it.
   it("never overwrites a database already recorded for a different app", async () => {
     mocks.getAppConfig.mockReturnValue({ app: { slug: "factory" } });
     const first = await recordDatabaseIdentity();
@@ -95,7 +86,6 @@ describe("recordDatabaseIdentity", () => {
     mocks.getAppConfig.mockReturnValue({ app: { slug: "chat" } });
     const second = await recordDatabaseIdentity();
 
-    // Reports the database's actual (winning) owner, not the caller's own app.
     expect(second).toMatchObject({ state: "recorded", app: "factory" });
     expect(second.state === "recorded" && second.recordedAt).toBe(
       first.state === "recorded" && first.recordedAt,
@@ -140,9 +130,6 @@ describe("readDatabaseIdentity", () => {
     });
   });
 
-  // "checked, nothing there" and "the check itself failed" must never
-  // collapse into the same state — a monitor reading a failed check as
-  // "unrecorded" would page for the wrong reason, or not at all.
   it("distinguishes an unreadable store from a genuinely unrecorded one", async () => {
     mocks.getSetting.mockRejectedValueOnce(new Error("connection refused"));
 

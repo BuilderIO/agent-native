@@ -66,6 +66,7 @@ const typeOptions = [
   "generic",
   "slack",
   "granola",
+  "zoom",
   "Docs",
   "Notion",
   "GitHub",
@@ -280,7 +281,7 @@ export default function KnowledgeRoute() {
                         : t("knowledge.notApplicable")}
                     </TableCell>
                     <TableCell className="text-end">
-                      {row.citations ?? 0}
+                      {row.evidence?.length ?? 0}
                     </TableCell>
                   </TableRow>
                 ))}

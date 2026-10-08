@@ -25,8 +25,6 @@ function args(overrides: Record<string, unknown> = {}) {
       confirm: () => {},
     })),
     getScreenContent: vi.fn(() => html),
-    // Returns a real status: the `as unknown as Parameters<…>` cast below
-    // would have let a void stub through until it failed somewhere else.
     handleTextContentChange: vi.fn(() => "accepted" as const),
     liveScreenSnapshotsById: {},
     overviewScreens: [
@@ -87,6 +85,64 @@ describe("overview linked text edits", () => {
       undefined,
     );
     expect(fixture.applyLinkedComponentEdit).not.toHaveBeenCalled();
+    expect(fixture.applyFileContentUpdate).not.toHaveBeenCalled();
+  });
+
+  it("hands a range-formatted localhost edit to the pending ledger with source intent", () => {
+    const recordPendingLiveTextEdit = vi.fn();
+    const fixture = args({
+      overviewScreens: [
+        { id: "screen-1", sourceType: "localhost", heightPinned: false },
+      ],
+      recordPendingLiveTextEdit,
+    });
+    const element = {
+      tagName: "p",
+      selector: "p.description",
+      sourceId: "description",
+      textContent: "before selected after",
+      htmlContent: "before selected after",
+      classes: ["description"],
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 200, height: 24 },
+      isFlexChild: false,
+      isFlexContainer: false,
+      provenance: {
+        sourceFile: "src/Library.tsx",
+        line: 42,
+        column: 7,
+      },
+    };
+    const details = {
+      originalValue: "before selected after",
+      originalHtml: "before selected after",
+      html: 'before <span style="font-size: 22px">selected</span> after',
+      relativeOperations: {
+        fontSize: {
+          kind: "expression" as const,
+          expression: "+2",
+          unit: "px",
+        },
+      },
+    };
+
+    const status = runScreenTextContentChange(
+      fixture,
+      "screen-1",
+      "p.description",
+      "before selected after",
+      element,
+      details,
+    );
+
+    expect(status).toBe("accepted");
+    expect(recordPendingLiveTextEdit).toHaveBeenCalledWith(
+      "screen-1",
+      "p.description",
+      "before selected after",
+      element,
+      details,
+    );
     expect(fixture.applyFileContentUpdate).not.toHaveBeenCalled();
   });
 });

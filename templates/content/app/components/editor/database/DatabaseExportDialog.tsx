@@ -1,7 +1,4 @@
-import {
-  actionErrorMessage,
-  useActionMutation,
-} from "@agent-native/core/client/hooks";
+import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type {
   ContentDatabaseFilter,
@@ -20,6 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useContentActionMutation } from "@/hooks/use-content-action-mutation";
 import { cn } from "@/lib/utils";
 
 export type DatabaseExportFormat = "csv" | "markdown" | "html" | "pdf";
@@ -309,7 +307,9 @@ export function DatabaseExportDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
-  const exportDocument = useActionMutation("export-document");
+  const exportDocument = useContentActionMutation("export-document", {
+    invalidates: [],
+  });
   const [format, setFormat] = useState<DatabaseExportFormat>("csv");
   const [scope, setScope] = useState<DatabaseExportScopeKind>("current_view");
   const [selections, setSelections] = useState(() =>

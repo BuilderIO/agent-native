@@ -1,18 +1,3 @@
-/**
- * GAP-DELETE-LIVE — deleting an element on a LIVE (localhost) screen mutated
- * the running DOM and stopped there: nothing was queued as a pending live
- * edit, so the deletion never reached app source (reload brought the node
- * back) and there was no pending entry for Cmd+Z or Apply-to-source to act on.
- * A Layers-panel selection could not be deleted at all, because the delete
- * path required a node resolved from the SOURCE snapshot and a runtime layer
- * id only exists in the runtime projection's id namespace.
- *
- * These pin the two seams that fix carries:
- *   - shouldDeleteThroughLiveScreen — routes a live screen's Delete to the
- *     pending-live-edit path, including a Layers-panel-only selection.
- *   - the `removed` pending live structure edit — how that deletion is
- *     described to the coding agent and proved against the post-write runtime.
- */
 import { describe, expect, it } from "vitest";
 
 import { shouldDeleteThroughLiveScreen } from "./code-layer-state";
@@ -55,8 +40,6 @@ describe("shouldDeleteThroughLiveScreen", () => {
     expect(
       shouldDeleteThroughLiveScreen({
         screenSourceType: "localhost",
-        // No selectedElement: the row was picked in the Layers panel, and its
-        // id lives only in the runtime projection.
         runtimeAliasGroups: [['[data-agent-native-node-id="rt-7"]']],
         liveSelectionSelectors: [],
       }),
@@ -109,8 +92,6 @@ describe("pending live removal reaches source", () => {
     expect(prompt).toContain('"operation": "remove"');
     expect(prompt).toContain('"kind": "remove"');
     expect(prompt).toContain("are DELETIONS, not moves");
-    // A removal has no anchor; emitting empty anchor fields would read as a
-    // move whose target failed to resolve.
     expect(prompt).not.toContain('"anchorSelector"');
     expect(prompt).not.toContain("semanticHandoffFailure");
   });

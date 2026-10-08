@@ -7,23 +7,6 @@ import { readYjsUndoSelection } from "@/pages/design-editor/history";
 
 import { runVisualDuplicateChange } from "./visual-duplicate-change";
 
-/**
- * Figma parity — "one undo after alt-drag removes the copy and restores
- * selection to the original" (parity-alt-drag-duplicate.spec.ts). Undo can
- * only restore what the duplicate itself captured; this proves the
- * duplicate's content write stamps the ORIGINAL element's selection (not
- * whatever `selectedElement`/`selectedLayerIdsState` currently say) onto the
- * Yjs undo-stack item its own write just created.
- *
- * The live selectedElement/selectedLayerIdsState props are the WRONG source
- * for this snapshot: the bridge reselects the clone the instant alt-drag
- * creates it, at gesture START — well before this persist runs at gesture
- * END — so by the time runVisualDuplicateChange executes, host selection
- * state already IS the copy. Both fixture cases below set
- * selectedElement/selectedLayerIdsState to the COPY (as the real gesture
- * would have left them) to prove the stamp ignores that and derives the
- * original from `targetNode` instead.
- */
 const CONTENT = `<!doctype html><html><body><div id="rect" data-agent-native-node-id="rect"></div></body></html>`;
 const SOURCE = { kind: "design-file" as const, fileId: "file-1" };
 
@@ -31,8 +14,6 @@ function baseArgs(overrides: {
   undoManagerRef: { current: { undoStack: any[] } };
   applyLocalContentUpdate: ReturnType<typeof vi.fn>;
 }) {
-  // What host selection state actually is by gesture end: the bridge has
-  // already moved it onto the not-yet-persisted clone.
   const staleCopySelection = {
     selector: '[data-agent-native-node-id="rect-copy"]',
     sourceId: "rect-copy",
@@ -69,7 +50,6 @@ describe("runVisualDuplicateChange — stamps the pre-duplicate (original) selec
   it("stamps the ORIGINAL node's selection onto a NEW undo-stack item, not the stale copy selection", () => {
     const priorItem = { meta: new Map<unknown, unknown>() };
     const undoManagerRef = { current: { undoStack: [priorItem] } };
-    // Simulates a real Yjs write: the content edit pushes a fresh stack item.
     const applyLocalContentUpdate = vi.fn(() => {
       undoManagerRef.current.undoStack.push({ meta: new Map() });
     });
@@ -95,8 +75,6 @@ describe("runVisualDuplicateChange — stamps the pre-duplicate (original) selec
     const priorItem = { meta: new Map<unknown, unknown>() };
     priorItem.meta.set("design-editor-selection-before", "earlier-gesture");
     const undoManagerRef = { current: { undoStack: [priorItem] } };
-    // Simulates a Yjs write that coalesced into the existing top
-    // (captureTimeout) rather than pushing a new stack item.
     const applyLocalContentUpdate = vi.fn();
 
     const { args } = baseArgs({ undoManagerRef, applyLocalContentUpdate });

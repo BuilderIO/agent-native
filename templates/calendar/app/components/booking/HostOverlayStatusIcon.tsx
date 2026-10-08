@@ -29,23 +29,6 @@ import { formatRelativeTimeFromNow } from "@/lib/relative-time";
 
 const ICON_CLASS = "h-3.5 w-3.5 shrink-0";
 
-/**
- * Whether a booking host's real working hours are being used for this link.
- *
- * Four states. Three come from the server; the fourth (`variant="manual"`) is
- * derived on the client, because a manual raw-email host is by definition not
- * in the owner's overlay list and the status action deliberately refuses to
- * report on addresses outside it.
- *
- * The send mutation is owned by the parent so every chip shares one
- * `useMutation` instance, but its `isPending`/`variables`/`data` all reflect
- * only the most recently started call — calling `mutate()` on one chip while
- * another chip's call is still in flight detaches the shared observer from
- * that earlier call entirely, so its `onSuccess` never fires. Each chip
- * therefore tracks its own pending flag locally and reads the result from
- * the promise returned by `mutateAsync`, which resolves correctly per call
- * regardless of what the shared observer is doing.
- */
 export function HostOverlayStatusIcon({
   status,
   variant,
@@ -68,10 +51,6 @@ export function HostOverlayStatusIcon({
     useState<SendOverlayRequestResult | null>(null);
   const [isSending, setIsSending] = useState(false);
 
-  // Once the server's own status reflects a new request history (e.g. a
-  // later send from another tab, or the periodic status refetch), the local
-  // optimistic result is no longer the freshest source of truth for this
-  // peer and must not keep masking it indefinitely.
   useEffect(() => {
     setLocalResult(null);
   }, [status?.requestSentAt]);
@@ -144,8 +123,6 @@ export function HostOverlayStatusIcon({
     );
   }
 
-  // Reciprocal but no saved schedule: nothing to request, so no action. The
-  // peer has already done their part; the schedule is theirs alone to add.
   if (status.reciprocal) {
     return (
       <Tooltip>

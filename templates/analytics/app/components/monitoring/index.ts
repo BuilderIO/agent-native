@@ -1,8 +1,3 @@
-/**
- * Reusable, themeable uptime chart components. Feed them the aggregates from
- * the `get-monitor-stats` action (in-app) or the `get-public-status-page`
- * action (public status page).
- */
 export { UptimeTimelineBars } from "./UptimeTimelineBars";
 export type { UptimeTimelineBarsProps } from "./UptimeTimelineBars";
 export { ResponseTimeChart } from "./ResponseTimeChart";

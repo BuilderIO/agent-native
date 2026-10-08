@@ -8,7 +8,6 @@ import {
 import { SYSTEM_PROMPT_CACHE_SPLIT } from "./prompt-cache.js";
 import type { EngineStreamOptions } from "./types.js";
 
-// Helper to collect all events from an async iterable
 async function collectEvents(iterable: AsyncIterable<any>) {
   const events: any[] = [];
   for await (const e of iterable) {
@@ -17,9 +16,6 @@ async function collectEvents(iterable: AsyncIterable<any>) {
   return events;
 }
 
-// Mock the SDK, run one stream() call, and return the request params the
-// engine handed to client.messages.stream — used to assert cache_control
-// placement without hitting the network.
 async function captureRequestParams(opts: EngineStreamOptions): Promise<any> {
   const finalMsg = {
     content: [{ type: "text", text: "ok" }],
@@ -50,9 +46,6 @@ describe("createAnthropicEngine", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
     vi.doUnmock("@anthropic-ai/sdk");
-    // The 1h stable-prefix TTL is opt-in (`stablePrefixCacheControl`), so the
-    // breakpoint assertions below have to ask for it explicitly — without this
-    // they assert the opted-in shape against the default one.
     vi.stubEnv("AGENT_PROMPT_CACHE_TTL", "1h");
   });
 
@@ -63,9 +56,73 @@ describe("createAnthropicEngine", () => {
     expect(engine.capabilities).toMatchObject(ANTHROPIC_CAPABILITIES);
   });
 
+  async function captureClientOptions(
+    config: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const clientOptions: Record<string, unknown>[] = [];
+    const mockStream = {
+      [Symbol.asyncIterator]: async function* () {},
+      finalMessage: vi.fn().mockResolvedValue({
+        content: [{ type: "text", text: "ok" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+    };
+    vi.doMock("@anthropic-ai/sdk", () => ({
+      default: class MockAnthropic {
+        messages = { stream: vi.fn().mockReturnValue(mockStream) };
+        constructor(options: Record<string, unknown>) {
+          clientOptions.push(options);
+        }
+      },
+    }));
+    vi.resetModules();
+    const { createAnthropicEngine: freshCreate } =
+      await import("./anthropic-engine.js");
+    await collectEvents(
+      freshCreate(config).stream({
+        model: ANTHROPIC_DEFAULT_MODEL,
+        systemPrompt: "",
+        messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        tools: [],
+        abortSignal: new AbortController().signal,
+      }),
+    );
+    vi.doUnmock("@anthropic-ai/sdk");
+    expect(clientOptions).toHaveLength(1);
+    return clientOptions[0];
+  }
+
+  it("sends a non-deployment key to Anthropic, not a host-injected ANTHROPIC_BASE_URL", async () => {
+    vi.stubEnv("ANTHROPIC_BASE_URL", "https://gateway.example.invalid");
+    const options = await captureClientOptions({ apiKey: "user-key" });
+    expect(options.baseURL).toBe("https://api.anthropic.com");
+  });
+
+  it("lets the deployment's own key follow the deployment ANTHROPIC_BASE_URL", async () => {
+    vi.stubEnv("ANTHROPIC_BASE_URL", "https://proxy.example.invalid");
+    // Deployment credential eligibility depends on the runtime (production
+    // flags, database), so pin it rather than inherit the test machine's.
+    vi.doMock(
+      "../../server/credential-provider.js",
+      async (importOriginal) => ({
+        ...(await importOriginal<
+          typeof import("../../server/credential-provider.js")
+        >()),
+        readDeployCredentialEnv: (key: string) =>
+          key === "ANTHROPIC_API_KEY" ? "deployment-key" : undefined,
+      }),
+    );
+    try {
+      const options = await captureClientOptions({});
+      expect(options.apiKey).toBe("deployment-key");
+      expect(options.baseURL).toBeUndefined();
+    } finally {
+      vi.doUnmock("../../server/credential-provider.js");
+    }
+  });
+
   it("stream emits text-delta events from SDK chunks", async () => {
-    // Mock the Anthropic SDK — stream() returns an object that is both
-    // iterable (yields chunks) and has a finalMessage() method.
     const finalMsg = {
       content: [{ type: "text", text: "Hello, world!" }],
       stop_reason: "end_turn",
@@ -134,9 +191,6 @@ describe("createAnthropicEngine", () => {
     vi.doUnmock("@anthropic-ai/sdk");
   });
 
-  // Anthropic's `input_tokens` EXCLUDES both cache fields; every other engine
-  // reports the whole prompt. Passing it through under-reported the prompt and
-  // made `calculateCost` charge the cached tokens a second time.
   it("reports the whole prompt in inputTokens, cache included", async () => {
     const finalMsg = {
       content: [{ type: "text", text: "ok" }],
@@ -172,11 +226,9 @@ describe("createAnthropicEngine", () => {
     );
 
     const usage = events.find((e) => e.type === "usage");
-    // 3 fresh + 36,734 read + 5,701 written — not the bare 3 the API returns.
     expect(usage?.inputTokens).toBe(42_438);
     expect(usage?.cacheReadTokens).toBe(36_734);
     expect(usage?.cacheWriteTokens).toBe(5_701);
-    // The partition holds, which is what makes the cost math correct.
     expect(
       usage.inputTokens - usage.cacheReadTokens - usage.cacheWriteTokens,
     ).toBe(3);
@@ -204,14 +256,12 @@ describe("createAnthropicEngine", () => {
     });
 
     const messages = requestParams.messages;
-    // Only the LAST user message's LAST content block carries the breakpoint.
     expect(messages[0].content[0].cache_control).toBeUndefined();
     expect(messages[1].content[0].cache_control).toBeUndefined();
     expect(messages[2].content[0].cache_control).toBeUndefined();
     expect(messages[2].content[1].cache_control).toEqual({
       type: "ephemeral",
     });
-    // System prompt keeps its own breakpoint, on the long TTL.
     expect(requestParams.system[0].cache_control).toEqual({
       type: "ephemeral",
       ttl: "1h",
@@ -247,7 +297,6 @@ describe("createAnthropicEngine", () => {
       type: "ephemeral",
       ttl: "1h",
     });
-    // The per-iteration breakpoint must NOT pay the 2x long-TTL write premium.
     expect(requestParams.messages[0].content[0].cache_control).toEqual({
       type: "ephemeral",
     });
@@ -270,7 +319,6 @@ describe("createAnthropicEngine", () => {
       },
       { type: "text", text: "volatile" },
     ]);
-    // The sentinel itself never reaches the model.
     expect(
       requestParams.system
         .map((b: any) => b.text)
@@ -307,10 +355,8 @@ describe("createAnthropicEngine", () => {
       abortSignal: new AbortController().signal,
       maxOutputTokens: 128_000,
     };
-    // 128K-table model keeps the full explicit value…
     const highParams = await captureRequestParams(base);
     expect(highParams.max_tokens).toBe(128_000);
-    // …while a 64K-table model clamps the same request to its ceiling.
     const lowParams = await captureRequestParams({
       ...base,
       model: "claude-haiku-4-5-20251001",
@@ -334,9 +380,6 @@ describe("createAnthropicEngine", () => {
     });
 
     expect(requestParams.max_tokens).toBe(32_000);
-    // Unclamped this would have been 100_000 (> max_tokens, invalid per the
-    // Anthropic API contract). It must stay strictly below max_tokens and
-    // leave at least max(8000, 40% of max_tokens) for the actual response.
     expect(requestParams.thinking.budget_tokens).toBeLessThan(32_000);
     expect(
       requestParams.max_tokens - requestParams.thinking.budget_tokens,
@@ -378,9 +421,6 @@ describe("createAnthropicEngine", () => {
   it.each([429, 529])(
     "tags upstream %i backpressure with a structured status so retries kick in",
     async (status) => {
-      // The Anthropic SDK reports an empty-body rate limit as a bare
-      // "429 status code (no body)" message. Without forwarding the structured
-      // status, isRetryableError couldn't classify it and the run failed hard.
       class MockRateLimitError extends Error {
         status = status;
         constructor() {
@@ -411,8 +451,6 @@ describe("createAnthropicEngine", () => {
         abortSignal: new AbortController().signal,
       };
 
-      // The engine yields the terminal stop event and then rethrows the raw SDK
-      // error, so collect events defensively.
       const events: any[] = [];
       await expect(async () => {
         for await (const e of engine.stream(opts)) events.push(e);
@@ -742,8 +780,6 @@ describe("createAnthropicEngine first-event deadline", () => {
       abortSignal: new AbortController().signal,
     };
 
-    // The engine yields the terminal stop event and then rethrows, so
-    // collect events defensively (matches the pattern above).
     const events: any[] = [];
     let settledEarly = false;
     const runPromise = (async () => {
@@ -968,9 +1004,6 @@ describe("createAnthropicEngine streamed tool-input reconciliation", () => {
   });
 
   it("omits temperature when the request carries thinking", async () => {
-    // Reproduces the Observational Memory compaction 400: the caller asked
-    // only for temperature: 0, and the engine's default High effort turned
-    // thinking on underneath it.
     const requestParams = await captureRequestParams({
       model: "claude-sonnet-5",
       systemPrompt: "You are helpful.",

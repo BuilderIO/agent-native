@@ -243,9 +243,6 @@ export default defineAction({
     if ((item.factoryId ?? DEFAULT_FACTORY_ID) !== factoryId) {
       throw new Error("Factory item does not belong to this factory.");
     }
-    // Optional in the schema so an out-of-scope skip does not need a
-    // meaningless value, but a missing decision on in-scope work is an error,
-    // not a default. Defaulting it would let the agent silently ping.
     if (inScope && !decision) {
       throw new Error(
         "PR babysitting requires decision (ping, defer, already_asked, or stuck) when inScope is true. Call propose-pr-babysit-status first.",
@@ -688,8 +685,6 @@ export default defineAction({
         pullRequestNumber,
         BABYSIT_COMMENT_V2,
       );
-      // Persist comment identity before audit so a failed audit write cannot
-      // lose the Factory author/head metadata retries need for duplicate veto.
       await updateBabysitItem(itemId, orgId, {
         prBabysitState: "waiting",
         prBabysitFingerprint: fingerprint,

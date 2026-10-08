@@ -20,8 +20,6 @@ export function isObjectOnly(
   if (node.type !== undefined) return false;
 
   const next = new Set(ancestors).add(schema);
-  // An intersection needs only one object-only constraint; every alternative
-  // of a union must require an object before adding the MCP root type is safe.
   if (
     Array.isArray(node.allOf) &&
     node.allOf.some((branch) => isObjectOnly(branch, next))
@@ -46,5 +44,25 @@ export function mcpToolInputSchema(
       `MCP tool "${name}" must declare an object-only input schema; use an object schema or object-only composition.`,
     );
   }
-  return { ...(schema as Record<string, unknown>), type: "object" };
+  const input = schema as Record<string, unknown>;
+  const sourceProperties = input.properties;
+  const properties =
+    sourceProperties &&
+    typeof sourceProperties === "object" &&
+    !Array.isArray(sourceProperties)
+      ? Object.fromEntries(
+          Object.entries(sourceProperties).map(([parameter, property]) => [
+            parameter,
+            property && typeof property === "object" && !Array.isArray(property)
+              ? { ...property }
+              : property,
+          ]),
+        )
+      : undefined;
+  return {
+    ...input,
+    ...(properties ? { properties } : {}),
+    ...(Array.isArray(input.required) ? { required: [...input.required] } : {}),
+    type: "object",
+  };
 }

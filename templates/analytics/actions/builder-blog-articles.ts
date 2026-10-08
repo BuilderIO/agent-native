@@ -90,8 +90,6 @@ function normalizeArticle(
     id: typeof result.id === "string" ? result.id : handle,
     handle,
     title: typeof result.name === "string" ? result.name : handle,
-    // `data.date` is the article's canonical publish date. Builder's
-    // first-publish timestamp is only a fallback for older entries without it.
     publishDate: normalizeDate(
       result.data?.date ?? result.firstPublished ?? result.createdDate,
     ),
@@ -218,6 +216,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
   grounding: true,
   run: async (args, context) => {
     return listBuilderBlogArticles(args, context);

@@ -1,12 +1,29 @@
 import { readFileSync } from "node:fs";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
+import { getOrgContext } from "../org/context.js";
+import { getSession } from "./auth.js";
+import {
+  resolveAgentEngineStatusIdentity,
   resolveAgentEngineStatus,
   type AgentEngineStatusDeps,
   type AgentEngineStatusResult,
 } from "./core-routes-plugin.js";
+
+vi.mock("../org/context.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../org/context.js")>()),
+  getOrgContext: vi.fn(),
+}));
+
+vi.mock("./auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./auth.js")>()),
+  getSession: vi.fn(),
+}));
 import { runWithRequestContext } from "./request-context.js";
 
 type TestEntry = {
@@ -55,17 +72,50 @@ function createDeps(
 const originalAgentEngine = process.env.AGENT_ENGINE;
 
 afterEach(() => {
+  resetAppConfigForTests();
   if (originalAgentEngine === undefined) delete process.env.AGENT_ENGINE;
   else process.env.AGENT_ENGINE = originalAgentEngine;
+  vi.mocked(getOrgContext).mockReset();
+  vi.mocked(getSession).mockReset();
+});
+
+describe("resolveAgentEngineStatusIdentity", () => {
+  it("propagates session lookup failures", async () => {
+    vi.mocked(getSession).mockRejectedValue(new Error("session read failed"));
+
+    await expect(resolveAgentEngineStatusIdentity({} as never)).rejects.toThrow(
+      "session read failed",
+    );
+  });
+
+  it("propagates organization lookup failures", async () => {
+    vi.mocked(getSession).mockResolvedValue({
+      email: "alice@example.com",
+    } as Awaited<ReturnType<typeof getSession>>);
+    vi.mocked(getOrgContext).mockRejectedValue(
+      new Error("organization read failed"),
+    );
+
+    await expect(resolveAgentEngineStatusIdentity({} as never)).rejects.toThrow(
+      "organization read failed",
+    );
+  });
+
+  it("tolerates only an unavailable organization schema", async () => {
+    vi.mocked(getSession).mockResolvedValue({
+      email: "alice@example.com",
+    } as Awaited<ReturnType<typeof getSession>>);
+    vi.mocked(getOrgContext).mockRejectedValue(
+      new Error('no such table: "organizations"'),
+    );
+
+    await expect(
+      resolveAgentEngineStatusIdentity({} as never),
+    ).resolves.toEqual({ userEmail: "alice@example.com", orgId: undefined });
+  });
 });
 
 describe("agent-engine/status route failure handling", () => {
-  // A 200 saying `configured: false` is an AUTHORITATIVE answer to the client:
-  // it maps to `missing`, which gates the composer and shows "connect an AI
-  // provider". So swallowing a lookup error into that shape tells a user with a
-  // perfectly good key that they have none — the exact report this route caused.
-  // 503 is the only response the client can distinguish, and it maps to the
-  // retryable `unavailable` state that leaves the composer usable.
   it("answers a failed lookup with 503, never a 200 that claims nothing is configured", () => {
     const source = readFileSync(
       new URL("./core-routes-plugin.ts", import.meta.url),
@@ -75,10 +125,7 @@ describe("agent-engine/status route failure handling", () => {
     const body = handler.slice(0, handler.indexOf("${P}/track"));
 
     expect(body).toContain("setResponseStatus(event, 503)");
-    // A process-global in-flight lookup can outlive a credential write on a
-    // different serverless function instance and return the pre-write answer.
     expect(body).not.toContain("shareAgentEngineStatusLookup");
-    // The catch must not fabricate an authoritative negative answer.
     expect(body).not.toMatch(
       /catch\s*(\([^)]*\))?\s*\{[^}]*\}\s*return\s*\{\s*configured:\s*false/,
     );
@@ -86,6 +133,97 @@ describe("agent-engine/status route failure handling", () => {
 });
 
 describe("resolveAgentEngineStatus", () => {
+  it("reports configured engine and model before stored defaults", async () => {
+    defineAppConfig({
+      agent: { engine: "ai-sdk:openai", model: "configured-model" },
+    });
+    const entry = {
+      ...openAiEntry,
+      supportedModels: ["gpt-5", "configured-model"],
+    };
+    const result = await resolveAgentEngineStatus(
+      createDeps({
+        readStoredEngine: async () => ({
+          engine: "stored-engine",
+          model: "gpt-5",
+        }),
+        readAppDefault: async () => ({
+          engine: "app-engine",
+          model: "app-model",
+        }),
+        lookupEntry: () => entry,
+      }),
+    );
+    expect(result).toMatchObject({
+      engine: "ai-sdk:openai",
+      model: "configured-model",
+      source: "env",
+    });
+  });
+
+  it("uses an app's model when configuration pins only the same engine", async () => {
+    defineAppConfig({ agent: { engine: "ai-sdk:openai" } });
+    const entry = { ...openAiEntry, supportedModels: ["gpt-5", "app-model"] };
+    const result = await resolveAgentEngineStatus(
+      createDeps({
+        readStoredEngine: async () => ({
+          engine: "ai-sdk:openai",
+          model: "gpt-5",
+        }),
+        readAppDefault: async () => ({
+          engine: "ai-sdk:openai",
+          model: "app-model",
+        }),
+        lookupEntry: () => entry,
+      }),
+    );
+    expect(result).toMatchObject({
+      engine: "ai-sdk:openai",
+      model: "app-model",
+    });
+  });
+
+  it("reports the app override instead of the organization default", async () => {
+    delete process.env.AGENT_ENGINE;
+    const appEntry = {
+      ...openAiEntry,
+      name: "app-engine",
+      defaultModel: "app-model",
+      supportedModels: ["app-model"],
+    };
+    const result = await resolveAgentEngineStatus(
+      createDeps({
+        readStoredEngine: async () => ({
+          engine: "ai-sdk:openai",
+          model: "gpt-5",
+        }),
+        readAppDefault: async () => ({
+          engine: "app-engine",
+          model: "app-model",
+        }),
+        lookupEntry: (name) => (name === "app-engine" ? appEntry : openAiEntry),
+      }),
+    );
+    expect(result).toMatchObject({
+      engine: "app-engine",
+      model: "app-model",
+      source: "app-default",
+    });
+  });
+
+  it("does not turn an unreadable app default into a successful status", async () => {
+    delete process.env.AGENT_ENGINE;
+    await expect(
+      resolveAgentEngineStatus(
+        createDeps({
+          readAppDefault: async () => {
+            throw new Error("app default unreadable");
+          },
+        }),
+      ),
+    ).rejects.toThrow("app default unreadable");
+  });
+
   it("starts the stored-setting and base-URL lookups concurrently", async () => {
     delete process.env.AGENT_ENGINE;
     const stored = deferred<{ engine?: string; model?: string } | null>();
@@ -105,8 +243,6 @@ describe("resolveAgentEngineStatus", () => {
       }),
     );
 
-    // Both are in flight before either has answered: sequencing them is what
-    // made the probe slow enough for the composer to time out.
     expect(started).toEqual(["stored", "baseUrl"]);
 
     stored.resolve({ engine: "ai-sdk:openai" });

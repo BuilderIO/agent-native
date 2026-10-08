@@ -18,7 +18,6 @@ describe("withLocalRuntimes", () => {
     expect(rewritten).toContain(`src="${URLS.tailwind}"`);
     expect(rewritten).toContain(`src="${URLS.alpine}"`);
     expect(rewritten).not.toContain("cdn.jsdelivr.net");
-    // `defer` decides when Alpine initialises relative to the bridges.
     expect(rewritten).toContain(`<script defer src="${URLS.alpine}"`);
   });
 
@@ -49,8 +48,6 @@ describe("withLocalRuntimes", () => {
       "https://cdn.jsdelivr.net/npm/alpinejs@2.8.2/dist/alpine.min.js",
     ],
   ])("leaves %s on its own CDN rather than swapping majors", (_label, src) => {
-    // v4 resolves spacing and radius through theme variables a v3 document never
-    // defines, so `px-8` would compute to 0 and `rounded-full` to garbage.
     const html = `<script src="${src}"></script>`;
     expect(withLocalRuntimes(html, URLS)).toBe(html);
   });
@@ -61,7 +58,6 @@ describe("withLocalRuntimes", () => {
   });
 
   it("does not rewrite a runtime URL that is only mentioned in script text", () => {
-    // Rewriting inside a body would corrupt code that prints or compares the URL.
     const html = `<script>const cdn = "https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js";</script>`;
     expect(withLocalRuntimes(html, URLS)).toBe(html);
   });
@@ -74,8 +70,6 @@ describe("withLocalRuntimes", () => {
     ["focus", "https://unpkg.com/@alpinejs/focus@3.13.0/dist/cdn.min.js"],
     ["mask", "https://cdn.jsdelivr.net/npm/@alpinejs/mask@3/dist/cdn.min.js"],
   ])("leaves the Alpine %s plugin alone", (_label, src) => {
-    // Swapping a plugin for the core bundle drops its directives and loads
-    // Alpine twice.
     const html = `<script defer src="${src}"></script>`;
     expect(withLocalRuntimes(html, URLS)).toBe(html);
   });

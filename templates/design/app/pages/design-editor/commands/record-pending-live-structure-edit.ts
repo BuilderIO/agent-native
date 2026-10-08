@@ -69,9 +69,6 @@ export type PendingLiveStructureEditRequest = Parameters<
   typeof preparePendingLiveStructureEdit
 >;
 
-/** Builds a source handoff without changing the pending, undo, redo, or
- * verification state. Grouped gestures prepare every member before committing
- * any of them, so a rejected later member cannot leave an earlier one pending. */
 export function preparePendingLiveStructureEdit(
   {
     canEditDesign,
@@ -352,17 +349,13 @@ export function runRecordPendingLiveStructureEdit(
         rowEnd: number;
       };
     }>;
-    /** Markup this change introduced; the subject does not exist in the
-     * screen's source yet, so it must be added rather than relocated. */
     insertedHtml?: string;
     remintCollidingNodeIds?: boolean;
-    /** The inserted markup replaced this subject as one live gesture. */
     replaced?: true;
     replacementSelector?: string;
     replacementSourceId?: string;
     replacementElementInfo?: ElementInfo;
     replacementSnapshotHtml?: string;
-    /** This change DELETED the subject; it has no anchor. */
     removed?: true;
   },
 ) {

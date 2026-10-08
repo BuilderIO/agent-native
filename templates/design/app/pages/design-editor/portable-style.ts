@@ -35,15 +35,6 @@ export function isEditorInternalCssVar(property: string): boolean {
   );
 }
 
-// The drop/move that carries a portable style snapshot always decides the
-// landed node's placement itself afterward (setRootLayerPosition,
-// setAbsolutePositioningForNodeInHtml, removeAbsolutePositioningFromNodeInHtml).
-// A snapshot that also carries `position` races that placement write: today it
-// happens to apply first and lose, but that's ordering luck, not a contract —
-// and Figma duplicate/cross-screen-move semantics are "same appearance as the
-// source, only position differs", so position was never this snapshot's to
-// carry. Filtered once here so every caller (applyPortableStyleSnapshotToHtml
-// and prepareClonedHtmlLayer's direct call) is protected the same way.
 const DROP_OWNED_STYLE_PROPERTIES = new Set(["position"]);
 
 export function applyPortableStyles(

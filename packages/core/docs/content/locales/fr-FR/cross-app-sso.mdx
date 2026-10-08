@@ -7,10 +7,10 @@ description: "Distingue la connexion OIDC ou SAML d’une organisation de la fé
 
 Le SSO d’organisation utilise le fournisseur OIDC ou SAML de l’entreprise pour se connecter à un déploiement Agent-Native. La fédération entre applications transmet une identité vérifiée ou le contexte d’une organisation entre des déploiements distincts. La configuration et les limites de confiance diffèrent.
 
-L'option navigateur "Sign in with Agent-Native" et le transfert automatique du
-navigateur ont été supprimés. La connexion propre à chaque application reste le
-comportement par défaut pour les utilisateurs web. Cette page décrit les contrats
-restants de Desktop et de la fédération côté serveur.
+Les pages de connexion des applications Agent-Native exactement enregistrées
+proposent l’action "Continue with Agent-Native". Elle lance le flux Dispatch
+existant fondé sur une adresse e-mail vérifiée. Cette page décrit la fédération
+dans le navigateur, Desktop et côté serveur.
 
 ## Fédération entre applications
 
@@ -36,9 +36,10 @@ propre à l'application reste disponible.
 
 ### Fédération côté serveur
 
-L'intermédiaire et les clients côté serveur restants utilisent un protocole
-court et vérifié par le serveur. Il n'est pas exposé comme contrôle de connexion
-du navigateur:
+L'intermédiaire et les clients côté serveur utilisent un protocole court et
+vérifié par le serveur. Les applications de première partie exactement
+enregistrées lancent ce même protocole après le choix de "Continue with
+Agent-Native":
 
 1. Le client demande une liaison exacte avec une application enregistrée.
 2. Dispatch authentifie l'identité de l'espace de travail et renvoie un code
@@ -90,10 +91,14 @@ pas les données.
 
 ## Configuration
 
-<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> sert uniquement à la voie restante
-côté serveur et Desktop lorsqu'une application auto-hébergée a besoin d'un
-déploiement Dispatch explicite. Il n'ajoute ni option de connexion navigateur ni
-transfert automatique.
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> identifie Dispatch pour les voies
+côté serveur et navigateur lorsqu'une application auto-hébergée nécessite une
+configuration explicite. Les applications de première partie exactement
+enregistrées proposent l’action "Continue with Agent-Native" sur leur page de
+connexion. Le flag <code>browser.identity-sso</code> continue de contrôler la
+connexion silencieuse avec <code>prompt=none</code> et l'initialisation après
+une connexion locale. La connexion locale reste disponible en solution de
+secours.
 
 Pour un déploiement Dispatch auto-hébergé, enregistrez chaque application
 personnalisée avec son ID, son client ID, son origine HTTPS, son chemin de callback
@@ -112,18 +117,22 @@ Après le déploiement:
 
 1. Vérifiez que l'e-mail, le mot de passe, le lien magique et les fournisseurs
    configurés fonctionnent toujours dans un navigateur.
-2. Vérifiez que la surface d'authentification du navigateur ne propose aucune
-   option de connexion Agent-Native.
+2. Vérifiez que l’action "Continue with Agent-Native" est proposée et que la
+   connexion locale reste disponible. Lorsque <code>browser.identity-sso</code>
+   est désactivé, vérifiez que les deux restent fonctionnelles. Lorsque le flag
+   est activé, vérifiez la connexion silencieuse avec <code>prompt=none</code> et
+   le formulaire local en solution de secours.
 3. Si le SSO Desktop est activé, vérifiez une application enregistrée exacte
    depuis l'action explicite des réglages Desktop.
 4. Si la fédération d'organisations est activée, vérifiez l'ID exact de
    l'organisation et le rôle d'appartenance dans l'application cible.
 
-Pour revenir en arrière, désactivez le flag concerné et supprimez
-
-<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> du déploiement auto-hébergé, puis
-redéployez. Les enregistrements additifs restent disponibles pour
-l'authentification locale normale.
+Pour désactiver la connexion silencieuse dans le navigateur ou la voie Desktop,
+désactivez son flag. Pour retirer l’action explicite du navigateur d’une
+application auto-hébergée, supprimez <code>AGENT_NATIVE_IDENTITY_HUB_URL</code>
+ou son enregistrement exact, puis redéployez. La connexion locale reste
+disponible et les enregistrements additifs d’identité et d’organisation sont
+conservés.
 
 ## Documentation associée
 

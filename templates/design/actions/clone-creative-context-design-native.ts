@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { saveImportedDesignFiles } from "../server/lib/import-design-files.js";
+import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
 import createDesign from "./create-design.js";
 
 const payloadSchema = z.object({
@@ -62,6 +63,17 @@ export default defineAction({
         "Governed design clone payload failed integrity verification.",
       );
     const payload = payloadSchema.parse(JSON.parse(body));
+    const capturedData = z
+      .record(z.string(), z.unknown())
+      .parse(JSON.parse(payload.designData));
+    if (
+      capturedData.tweaks !== undefined &&
+      !tweakDefinitionsSchema.safeParse(capturedData.tweaks).success
+    ) {
+      throw new Error(
+        "Governed design clone payload has invalid tweak definitions.",
+      );
+    }
     const created = await createDesign.run({
       title: args.title?.trim() || "Context design",
       projectType: "prototype",
@@ -79,9 +91,6 @@ export default defineAction({
     });
     if (saved.files.length !== payload.files.length)
       throw new Error("Design clone did not persist every saved file.");
-    const capturedData = z
-      .record(z.string(), z.unknown())
-      .parse(JSON.parse(payload.designData));
     const {
       canvasFrames: _capturedFrames,
       screenMetadata: _capturedMetadata,

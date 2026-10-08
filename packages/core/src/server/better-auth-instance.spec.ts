@@ -11,6 +11,7 @@ vi.mock("../org/accept-pending.js", () => ({
   acceptPendingInvitationsForEmail: mockAcceptPendingInvitationsForEmail,
 }));
 
+import { DEPLOY_SETTINGS_REQUIRED_CODE } from "../shared/runtime-config.js";
 import {
   desktopMagicLinkLandingUrl,
   ensureGoogleAuthIdentityWithAdapter,
@@ -97,6 +98,39 @@ describe("resolveAuthSecret", () => {
     expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
   });
 
+  // The fallback auth routes turn this code into the sign-in page's setup
+  // guidance instead of a generic failure.
+  it("carries the deploy-settings code on the refusal", () => {
+    process.env.NODE_ENV = "production";
+    let thrown: unknown;
+    try {
+      getAuthSecret();
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({
+      name: "MissingAuthSecretError",
+      code: DEPLOY_SETTINGS_REQUIRED_CODE,
+    });
+  });
+
+  it("rethrows one refusal per process instead of building one per request", () => {
+    process.env.NODE_ENV = "production";
+    const refusals = [0, 1, 2].map(() => {
+      try {
+        getAuthSecret();
+      } catch (error) {
+        return error;
+      }
+      return undefined;
+    });
+    expect(refusals[0]).toMatchObject({ name: "MissingAuthSecretError" });
+    expect(new Set(refusals).size).toBe(1);
+
+    process.env.BETTER_AUTH_SECRET = "configured-later";
+    expect(getAuthSecret()).toBe("configured-later");
+  });
+
   it.each(["beta", "preview", "production"])(
     "never persists a generated secret in %s",
     (environment) => {
@@ -118,7 +152,14 @@ describe("resolveAuthSecret", () => {
     const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dev-auth-secret-"));
     const cwd = vi.spyOn(process, "cwd").mockReturnValue(appRoot);
     try {
-      expect(getAuthSecret()).toBeTruthy();
+      // Opting in must not throw like production does: it mints a random
+      // 32-byte secret, persists it under the app root, and keeps returning
+      // that same value.
+      const secret = getAuthSecret();
+      const secretFile = path.join(appRoot, ".agent-native", "dev-auth-secret");
+      expect(secret).toMatch(/^[0-9a-f]{64}$/);
+      expect(fs.readFileSync(secretFile, "utf8").trim()).toBe(secret);
+      expect(getAuthSecret()).toBe(secret);
     } finally {
       cwd.mockRestore();
       fs.rmSync(appRoot, { recursive: true, force: true });
@@ -786,5 +827,47 @@ describe("withBetterAuthActionSession", () => {
       log.mockRestore();
       vi.useRealTimers();
     }
+  });
+});
+
+describe("buildDatabaseConfig hosted-runtime local database guard", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
+  });
+
+  it("rejects instead of opening PGlite on a hosted function invocation with no database URL", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "app-server");
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { buildDatabaseConfig } = await import("./better-auth-instance.js");
+    const { HostedRuntimeLocalDatabaseError } = await import("../db/client.js");
+
+    await expect(buildDatabaseConfig()).rejects.toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
+  });
+
+  it("rejects on a Cloudflare Worker invocation with no database URL", async () => {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    vi.stubGlobal("__cf_env", {});
+
+    const { buildDatabaseConfig } = await import("./better-auth-instance.js");
+    const { HostedRuntimeLocalDatabaseError } = await import("../db/client.js");
+
+    await expect(buildDatabaseConfig()).rejects.toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
   });
 });

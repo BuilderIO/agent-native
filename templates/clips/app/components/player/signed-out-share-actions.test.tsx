@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import {
+  buildShareAttributedSignUpHref,
   buildShareCopyHref,
   buildShareSignInHref,
   buildShareSignUpHref,
@@ -15,10 +16,27 @@ import {
 
 const writeClipboardText = vi.hoisted(() => vi.fn());
 const trackEvent = vi.hoisted(() => vi.fn());
+const appBasePathState = vi.hoisted(() => ({ value: "" }));
 
 vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent }));
 
-vi.mock("@agent-native/core/client/clipboard", () => ({
+vi.mock("@agent-native/core/client/api-path", () => ({
+  appBasePath: () => appBasePathState.value,
+  appPath: (path: string) => {
+    const basePath = appBasePathState.value;
+    if (
+      !basePath ||
+      path === basePath ||
+      path.startsWith(`${basePath}/`) ||
+      !path.startsWith("/")
+    ) {
+      return path;
+    }
+    return `${basePath}${path}`;
+  },
+}));
+
+vi.mock("@agent-native/toolkit/clipboard", () => ({
   writeClipboardText,
 }));
 
@@ -26,16 +44,36 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-vi.mock("@agent-native/core/client/ui", () => ({
-  buildSignInReturnHref: ({ returnTo }: { returnTo?: string } = {}) =>
-    `/_agent-native/sign-in?return=${encodeURIComponent(returnTo ?? "/")}`,
-}));
+function expectSignInHref(
+  href: string | null | undefined,
+  returnTo: string,
+  tab?: "signup",
+  pathname = "/sign-in",
+  extraParams: Record<string, string> = {},
+) {
+  expect(href).toBeTypeOf("string");
+  const url = new URL(href!, "https://clips.example.test");
+  expect(url.pathname).toBe(pathname);
+  const continuation = url.searchParams.get("c");
+  expect(continuation).not.toBeNull();
+  expect(
+    decodeURIComponent(
+      atob(continuation!.replace(/-/g, "+").replace(/_/g, "/")),
+    ),
+  ).toBe(returnTo);
+  url.searchParams.delete("c");
+  expect(Object.fromEntries(url.searchParams)).toEqual({
+    ...(tab ? { tab } : {}),
+    ...extraParams,
+  });
+}
 
 describe("SignedOutShareActions", () => {
   let container: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
+    appBasePathState.value = "";
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -62,59 +100,84 @@ describe("SignedOutShareActions", () => {
   }
 
   it("shows sign-in and free-account links that return to the shared clip", () => {
-    expect(buildShareSignInHref("clip/1")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1",
-    );
-    expect(buildShareSignUpHref("clip/1")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1&tab=signup",
-    );
+    expectSignInHref(buildShareSignInHref("clip/1"), "/share/clip/1");
+    expectSignInHref(buildShareSignUpHref("clip/1"), "/share/clip/1", "signup");
 
     renderActions({ recordingId: "clip/1" });
 
     const signInLink = container.querySelector<HTMLAnchorElement>(
-      'a[href="/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1"]',
+      'a[href^="/sign-in?"]',
     );
     expect(signInLink).not.toBeNull();
+    expectSignInHref(signInLink?.getAttribute("href"), "/share/clip/1");
     expect(signInLink?.textContent).toContain("sharePage.signIn");
     expect(container.textContent).toContain("sharePage.getClipsFree");
   });
 
   it("preserves only the timestamp in the sign-in return path", () => {
-    expect(buildShareSignInHref("clip/1", "90")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D90",
+    expectSignInHref(
+      buildShareSignInHref("clip/1", "90"),
+      "/share/clip/1?at=90",
     );
 
     renderActions({ recordingId: "clip/1", startAt: "1:30" });
 
-    expect(container.querySelector("a")?.getAttribute("href")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D1%253A30",
+    expectSignInHref(
+      container.querySelector("a")?.getAttribute("href"),
+      "/share/clip/1?at=1%3A30",
     );
-    expect(container.querySelectorAll("a")[1]?.getAttribute("href")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D1%253A30&tab=signup",
+    expectSignInHref(
+      container.querySelectorAll("a")[1]?.getAttribute("href"),
+      "/share/clip/1?at=1%3A30",
+      "signup",
     );
   });
 
   it("preserves ?panel in the visible sign-in and sign-up return paths", () => {
-    // The route's own shareReturnTo (used by the sign-in-prompt dialog)
-    // already forwarded `panel`, but the header's Sign in / free-account
-    // links built their href through this separate helper, which dropped it
-    // - an anonymous viewer using the visible header link from
-    // ?panel=comments would return to Transcript instead.
-    expect(buildShareSignInHref("clip/1", "90", "comments")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D90%26panel%3Dcomments",
+    expectSignInHref(
+      buildShareSignInHref("clip/1", "90", "comments"),
+      "/share/clip/1?at=90&panel=comments",
     );
-    expect(buildShareSignUpHref("clip/1", "90", "comments")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D90%26panel%3Dcomments&tab=signup",
+    expectSignInHref(
+      buildShareSignUpHref("clip/1", "90", "comments"),
+      "/share/clip/1?at=90&panel=comments",
+      "signup",
     );
 
     renderActions({ recordingId: "clip/1", startAt: "90", panel: "comments" });
 
     const links = container.querySelectorAll("a");
-    expect(links[0]?.getAttribute("href")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D90%26panel%3Dcomments",
+    expectSignInHref(
+      links[0]?.getAttribute("href"),
+      "/share/clip/1?at=90&panel=comments",
     );
-    expect(links[1]?.getAttribute("href")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D90%26panel%3Dcomments&tab=signup",
+    expectSignInHref(
+      links[1]?.getAttribute("href"),
+      "/share/clip/1?at=90&panel=comments",
+      "signup",
+    );
+  });
+
+  it("mounts signup continuation and attribution under the app base path", () => {
+    appBasePathState.value = "/clips";
+
+    const href = buildShareAttributedSignUpHref(
+      "/share/clip-1?ref=clip_share&via=owner-1&at=90",
+      "owner-1",
+    );
+
+    expectSignInHref(
+      href,
+      "/clips/share/clip-1?ref=clip_share&via=owner-1&at=90",
+      "signup",
+      "/clips/sign-in",
+      { ref: "clip_share", via: "owner-1" },
+    );
+    expectSignInHref(
+      buildShareSignUpHref("clip-1", "90"),
+      "/clips/share/clip-1?at=90",
+      "signup",
+      "/clips/sign-in",
     );
   });
 

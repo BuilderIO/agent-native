@@ -220,7 +220,7 @@ const databaseMessages = {
   attached: "Attached",
   bodyDiff: "Body diff",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder isn’t connected. Go back to connect your account first.",
+    "Builder isn’t connected. Go back and use Builder.io first.",
   calculate: "Calculate",
   calendarBy: "Calendar by",
   cancel: "Cancel",
@@ -237,7 +237,7 @@ const databaseMessages = {
   collapseAllGroups: "Collapse all groups",
   color: "Color",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "Connect your Builder account (free tier available) to browse its spaces and models.",
+    "Use your Builder account (free tier available) to browse its spaces and models.",
   connectedSources: "Connected sources",
   couldntSyncRetry: "Couldn’t sync · Retry",
   databasePagePreview: "Collection page preview",
@@ -443,7 +443,6 @@ const databaseMessages = {
   pick: "& Pick",
   addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
     "Add a status, select, multi-select, or checkbox property to group.",
-  // Row-union multi-source (slices 6a–6c).
   addARowTo: "Add a row to…",
   addASource: "Add a source",
   localNoCollection: "Local (no collection)",
@@ -573,6 +572,34 @@ const editorPropertiesMessages = {
   pageCount_many: "{{count}} pages",
   pageCount_other: "{{count}} pages",
   pasteFileOrMediaLink: "Paste file or media link",
+  back: "Back",
+  relatedDatabase: "Related database",
+  searchDatabases: "Search databases",
+  thisDatabase: "This database",
+  noDatabases: "No databases found",
+  searchPages: "Search pages",
+  noMatchingPages: "No matching pages",
+  removeRelation: "Remove {{name}}",
+  openPage: "Open {{name}}",
+  unavailablePage: "Unavailable page",
+  unavailablePageCount_zero: "{{count}} unavailable",
+  unavailablePageCount_one: "{{count}} unavailable",
+  unavailablePageCount_two: "{{count}} unavailable",
+  unavailablePageCount_few: "{{count}} unavailable",
+  unavailablePageCount_many: "{{count}} unavailable",
+  unavailablePageCount_other: "{{count}} unavailable",
+  noRelatedDatabase: "No related database configured",
+  linkAPage: "Link or create a page…",
+  createPage: "Create “{{name}}”",
+  reorderRelation: "Reorder {{name}}",
+  selectMore: "Select more",
+  selectAPage: "Select a page",
+  selectedCount_zero: "{{count}} selected",
+  selectedCount_one: "{{count}} selected",
+  selectedCount_two: "{{count}} selected",
+  selectedCount_few: "{{count}} selected",
+  selectedCount_many: "{{count}} selected",
+  selectedCount_other: "{{count}} selected",
   personOrEmail: "Person or email",
   propertyMenuFor: "Property menu for {{name}}",
   description: "Description",
@@ -748,6 +775,26 @@ const editorToolbarMessages = {
     "Connect a Notion workspace to link this document.",
   copiedPageLink: "Copied page link",
   copyPageLink: "Copy page link",
+  createShareableCopy: "Create shareable copy",
+  copyLink: "Copy link",
+  copyForPeople: "Copy for people",
+  copyForAgents: "Copy for agents",
+  whoHasAccess: "Who has access",
+  sharePeople: "People",
+  shareAgents: "Agents",
+  copyAgentPrompt: "Copy agent prompt",
+  openInClaude: "Open in Claude",
+  openInClaudeCode: "Open in Claude Code",
+  openInCodex: "Open in Codex",
+  agentCopyAccessNote:
+    "Agents can use Content MCP with your existing permissions",
+  temporaryAgentLink: "Temporary agent link",
+  privateLinkCanView: "Only people with access can view",
+  publicLinkCanView: "Anyone with the link can view",
+  copiedAgentPrompt: "Agent prompt copied",
+  couldNotCopyAgentPrompt: "Could not copy agent prompt",
+  agentPrompt:
+    'Read this Content document: {{documentUrl}}\n\nUse an available Content MCP connection for {{mcpUrl}} to call get-document with id "{{documentId}}". A publicly readable page can also be read directly.\n\nIf authenticated access is needed and Content MCP is unavailable or signed out, ask me to connect it and authenticate. Connection setup: {{connectUrl}}. Official guide: {{docsUrl}}\n\nAfter I confirm the connection is ready, retry the read using my account\'s existing permissions. If the authenticated read is denied, tell me that result.',
   couldNotCopyLink: "Could not copy link",
   clipboardAccessUnavailable:
     "Clipboard access is not available in this browser.",
@@ -994,9 +1041,20 @@ const localFilesMessages = {
 };
 
 const enUS = {
+  close: "Close",
+  setup: {
+    providerStatusUnavailable: "Couldn't confirm AI is ready.",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "Connect storage to upload files",
+      statusUnavailable: "File storage status is unavailable.",
+    },
+  },
   creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     commandContent: "Content",
+    loadingContent: "Loading Content",
     commandSearchDocuments: "Search documents",
     searchSince: "Since {{date}}",
     searchModifiedSince: "Modified since {{date}}",
@@ -1048,8 +1106,6 @@ const enUS = {
   landing: {
     previousPageUnavailable:
       "Your previous page is no longer available, so we opened Welcome.",
-    requestedPageUnavailable:
-      "That page is not available to your account, so we opened Welcome.",
     saveFailed: "Your place could not be saved",
     workspaceWelcomeUnavailableTitle: "Nothing is open here yet",
     workspaceWelcomeUnavailableDescription:
@@ -1068,15 +1124,14 @@ const enUS = {
   settings: {
     metaTitle: "Settings - Content",
     title: "Settings",
-    description: "Language and workspace preferences for Content.",
-    emailNotifications: "Email notifications",
-    emailNotificationsDescription:
-      "Get an email when someone comments on, replies in, or mentions you on your document.",
     saveFailed: "Failed to save",
-    languageTitle: "Language",
-    languageDescription:
-      "Choose the interface language. This preference is saved for your account.",
-    languageLabel: "Interface language",
+    notificationsEmail: "Email",
+    commentsRepliesMentions: "Comments, replies, and mentions",
+    commentsRepliesMentionsDescription:
+      "When someone comments on or replies in your document, or mentions you.",
+    retry: "Retry",
+    mcpAbout:
+      "Connect Content to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Content for you: search, write, and edit documents. It sees only what you can see.",
     workspaceTitle: "Workspace",
     workspaceDescription: "Manage collaborators and shared document access.",
     openTeamSettings: "Open workspace access",
@@ -1119,18 +1174,32 @@ const enUS = {
     documentUnavailable: "Document unavailable",
     documentUnavailableDescription:
       "This page may have been deleted, or it has not been shared with your account.",
+    pageNoAccess: "You don't have access to this page",
+    pageMissing: "This page doesn't exist",
+    pageInTrash: "This page is in the trash",
+    pageInTrashAskOwner: "Ask the owner to restore it.",
+    openTrash: "Open Trash",
+    goToMyPages: "Go to my pages",
     documentNotFound: "Document not found",
     newPage: "New page",
     createFailed: "Failed to create page",
     genericError: "Something went wrong",
   },
   editor: {
+    widgetLoadStalled: "Still waiting for {{stage}}. Request: {{action}}.",
+    widgetDocumentLoadStage: "the saved page body",
+    widgetDraftCheckStage: "page draft recovery",
+    widgetEditorInitStage: "the rich-text editor to initialize",
     suggestionFormattingUnsupported:
       "This formatting cannot be suggested safely. Your draft is kept. Undo the last edit to continue.",
     suggestionFormattingBaselineUnsupported:
       "Some page formatting cannot be suggested safely. An editor can update it before you retry.",
     suggestionAmendmentEmpty:
       "This edit matches the current page. Reject the suggestion to remove it.",
+    suggestionUnplaceable:
+      "The text around this suggestion changed, so it can't be applied. It's still pending: reject it, or suggest the edit again.",
+    proposalUnplaceable:
+      "One of these suggestions can't be applied because the text around it changed, so none were applied. They're all still pending: accept or reject them one at a time.",
     suggestionAmendmentFailed: "Could not save suggestion",
     suggestionAmendmentResolved:
       "This suggestion changed elsewhere. Your unsaved draft is still here.",
@@ -1246,6 +1315,13 @@ const enUS = {
     dropMedia: "Drop media",
     editLink: "Edit link",
     emojiAddIcon: "Add icon",
+    iconPickerIcons: "Icons",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recent",
+    iconPickerColors: "Colors",
+    iconPickerDefault: "Default",
+    iconPickerUpload: "Upload",
+    iconPickerUploading: "Uploading…",
     emojiAddPageIcon: "Add page icon",
     emojiCategoryActivities: "Activities",
     emojiCategoryFood: "Food",
@@ -1368,6 +1444,24 @@ const enUS = {
     submit: "Comment",
     askAi: "Ask AI",
     aiBadge: "AI",
+    agentBadge: "Agent",
+    addEmoji: "Add emoji",
+    mentionSomeone: "Mention someone",
+    mentionPeople: "People",
+    mentionAgents: "Agents",
+    commentTitle: "Comment",
+    suggestionTitle: "Suggestion",
+    close: "Close",
+    showEarlierReplies: "Show earlier replies",
+    replyAction: "Reply",
+    panelTabs: "Page panels",
+    aiAuto: "Auto",
+    aiModel: "AI model",
+    aiRemoveRecipient: "Remove AI recipient",
+    aiSend: "Send to AI",
+    aiSendShort: "Send",
+    aiResponseMode: "Response",
+    aiChooseSendMode: "Choose how AI responds",
     aiSuggestChanges: "Suggest changes",
     aiUnavailable: "Unavailable",
     aiReplyInThread: "Reply in thread",
@@ -1379,10 +1473,42 @@ const enUS = {
     aiReplied: "AI replied",
     aiSuggestionReady: "Review suggestion",
     aiChangesApplied: "Changes applied",
+    aiAppliedAndResolved: "Applied and resolved",
+    aiChangeUndone: "Change undone",
+    aiUndo: "Undo",
+    aiDone: "Done",
+    aiMoreChanges: "+{{count}} more",
+    aiUndoUnavailable: "Removed text can't be restored automatically",
+    aiUndoFailed: "Couldn't undo the change",
+    aiResolvedByAi: "Resolved by AI",
     aiNeedsReview: "Needs review",
     aiFailed: "AI request failed",
     retry: "Retry",
+    aiQueued: "AI is queued…",
+    aiRefreshing: "AI is checking the latest page…",
+    aiCancelled: "AI request stopped",
+    aiStop: "Stop",
+    aiStopping: "Stopping…",
+    aiReplyToAi: "Reply to AI",
+    aiReplyingToAi: "Replying to AI",
+    aiOpenConversation: "Open AI conversation",
+    aiConversationPrefill: "Continue this comment conversation…",
+    aiConversationUnavailable: "This AI conversation is unavailable.",
+    aiFollowUpYou: "You",
+    aiFollowUpIncomplete: "This response ended before it finished.",
+    aiRequestCouldNotBeConfirmed: "The AI request could not be confirmed",
+    aiFollowUpCouldNotBeConfirmed: "The AI follow-up could not be confirmed",
+    aiRequestStopCouldNotBeConfirmed:
+      "The AI request could not be stopped because dispatch was not confirmed",
     sourceComment: "Source comment",
+    proposalEditCount_zero: "{{count}} edits",
+    proposalEditCount_one: "{{count}} edit",
+    proposalEditCount_two: "{{count}} edits",
+    proposalEditCount_few: "{{count}} edits",
+    proposalEditCount_many: "{{count}} edits",
+    proposalEditCount_other: "{{count}} edits",
+    acceptRemaining: "Accept remaining",
+    rejectRemaining: "Reject remaining",
     resolve: "Resolve",
     resolved: "Resolved ({{count}})",
     unanchored: "Highlight unavailable",
@@ -1467,6 +1593,34 @@ const enUS = {
     addChildTo: "Add child to {{title}}",
     addSubPage: "Add sub-page",
     collapse: "Collapse sidebar",
+    collapseItem: "Collapse {{title}}",
+    removeFromRecent: "Remove from Recent",
+    copyLink: "Copy link",
+    openInNewTab: "Open in new tab",
+    rename: "Rename",
+    duplicate: "Duplicate",
+    moveTo: "Move to",
+    moveToTrash: "Move to Trash",
+    lastEditedBy: "Last edited by {{name}}",
+    lastEdited: "Last edited",
+    pageName: "Page name",
+    movePageTo: "Move “{{title}}” to",
+    topLevel: "Top level",
+    noMatchingPages: "No matching pages",
+    failedRenamePage: "Couldn't rename page",
+    failedDuplicatePage: "Couldn't duplicate page",
+    duplicatedFromLastSave:
+      "Copied the last saved version; recent unsaved edits weren't included.",
+    chooseSpace: "Choose a workspace",
+    moveToSpaceTitle: "Move to {{space}}?",
+    moveToSpaceWarningShared:
+      "Everyone in {{space}} will be able to see “{{title}}” and its sub-pages. Its current sharing and public link are removed, and you become the owner.",
+    moveToSpaceWarningPrivate:
+      "“{{title}}” and its sub-pages will be private to you in {{space}}. Its current sharing and public link are removed, and you become the owner.",
+    back: "Back",
+    movePage: "Move",
+    movedToSpace: "Moved “{{title}}” to {{space}}",
+    failedRemoveFromRecent: "Couldn't remove from Recent",
     resize: "Resize sidebar",
     completeStepsAboveFirst: "Complete steps above first",
     connectWorkspace: "Connect workspace",
@@ -1476,6 +1630,7 @@ const enUS = {
     copy: "Copy",
     disconnectWorkspace: "Disconnect workspace",
     expand: "Expand sidebar",
+    expandItem: "Expand {{title}}",
     database: "Collection",
     collection: "Collection",
     databasePermanentlyDeleted: "Collection permanently deleted",
@@ -1604,6 +1759,16 @@ export type PartialMessages = {
 
 function mergeMessages(overrides: PartialMessages): Messages {
   return {
+    close: overrides.close ?? enUS.close,
+    setup: { ...enUS.setup, ...overrides.setup },
+    onboarding: {
+      ...enUS.onboarding,
+      ...overrides.onboarding,
+      fileStorage: {
+        ...enUS.onboarding.fileStorage,
+        ...overrides.onboarding?.fileStorage,
+      },
+    },
     root: { ...enUS.root, ...overrides.root },
     theme: { ...enUS.theme, ...overrides.theme },
     navigation: { ...enUS.navigation, ...overrides.navigation },
@@ -1722,8 +1887,6 @@ export interface ContentLocaleBundle {
   history: Partial<Messages["editor"]>;
 }
 
-// es-ES raw literals are the fallback layer mergeMessagesForLocale applies
-// under every non-English locale, so they stay in the eager module.
 const esESRawLiteralOverrides: PartialMessages = {
   root: {
     metaTitle:
@@ -1853,6 +2016,10 @@ const esESRawLiteralOverrides: PartialMessages = {
     documentNotFound: "Documento no encontrado",
   },
   editor: {
+    widgetLoadStalled: "Aún se espera {{stage}}. Solicitud: {{action}}.",
+    widgetDocumentLoadStage: "el cuerpo de la página guardada",
+    widgetDraftCheckStage: "la recuperación del borrador de la página",
+    widgetEditorInitStage: "la inicialización del editor de texto enriquecido",
     suggestionCreateFailed: "No se pudo crear la sugerencia",
     suggestionsCount: "{{count}} sugerencias",
     acceptSuggestion: "Aceptar",
@@ -1878,6 +2045,13 @@ const esESRawLiteralOverrides: PartialMessages = {
     dropMedia: "Suelta medios",
     editLink: "Editar enlace",
     emojiAddIcon: "Agregar icono",
+    iconPickerIcons: "Iconos",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recientes",
+    iconPickerColors: "Colores",
+    iconPickerDefault: "Predeterminado",
+    iconPickerUpload: "Subir",
+    iconPickerUploading: "Subiendo…",
     emojiAddPageIcon: "Agregar icono de página",
     emojiCategoryActivities: "Actividades",
     emojiCategoryFood: "Comida",
@@ -2148,9 +2322,6 @@ function mergeMessagesForLocale(
   };
 }
 
-// Only en-US is bundled eagerly. Locale modules call buildMessagesForLocale on
-// load and register their merged messages here, so synchronous readers fall
-// back to en-US until a locale chunk has loaded.
 export const messagesByLocale: Partial<Record<LocaleCode, Messages>> & {
   "en-US": Messages;
 } = {
@@ -2173,8 +2344,15 @@ export function buildMessagesForLocale(
   for (const [group, groupOverrides] of Object.entries(
     bundle.exactEnglish,
   ) as Array<[string, Record<string, unknown> | undefined]>) {
-    const target = (messages as Record<string, Record<string, unknown>>)[group];
-    if (target && groupOverrides && typeof groupOverrides === "object") {
+    const targetValue = (messages as unknown as Record<string, unknown>)[group];
+    if (
+      targetValue &&
+      typeof targetValue === "object" &&
+      !Array.isArray(targetValue) &&
+      groupOverrides &&
+      typeof groupOverrides === "object"
+    ) {
+      const target = targetValue as Record<string, unknown>;
       for (const [key, value] of Object.entries(groupOverrides)) {
         const nestedTarget = target[key];
         if (

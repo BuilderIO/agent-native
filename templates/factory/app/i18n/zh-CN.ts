@@ -1,10 +1,6 @@
 const messages = {
   settings: {
     title: "设置",
-    description: "此应用的语言和工作区偏好设置。",
-    languageTitle: "语言",
-    languageDescription: "选择界面语言。此偏好会保存到你的账户。",
-    languageLabel: "界面语言",
     workspaceTitle: "工作区",
     workspaceDescription: "管理团队成员、组织访问权限和共享工作区偏好。",
     openTeamSettings: "打开团队设置",

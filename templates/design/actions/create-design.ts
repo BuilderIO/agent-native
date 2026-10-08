@@ -17,7 +17,6 @@ import {
 } from "../server/lib/design-system-defaults.js";
 import getDesignSystem from "./get-design-system.js";
 
-/** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
   return buildDeepLink({
     app: "design",
@@ -80,6 +79,11 @@ export default defineAction({
       openLabel: "Open design",
       height: 680,
     }),
+  },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
   },
   run: async (
     {

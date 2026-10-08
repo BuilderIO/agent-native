@@ -16,11 +16,6 @@ import {
 
 import { cn } from "@/lib/utils";
 
-/**
- * File-type icon for explorer rows, tabs, breadcrumbs, and search results.
- * Tabler icons only, colored per language family using workbench vars where
- * a semantic mapping exists (falls back to muted foreground otherwise).
- */
 export function FileIcon({
   path,
   className,
@@ -95,7 +90,6 @@ export function FileIcon({
   }
 }
 
-/** Explorer folder glyph — open when expanded, closed otherwise. */
 export function FolderIcon({
   open,
   className,

@@ -65,10 +65,6 @@ export function hasForwardedInlineLocaleUpdate(
     return false;
   }
 
-  // A wrapper either spreads the inline block or re-exports it wholesale
-  // (`export default messagesByLocale["es-ES"]`, the shape every template
-  // generates). Both mean the translation already lives in the source file,
-  // so there is nothing for the wrapper to change.
   return new RegExp(
     `^\\s*(?:\\.\\.\\.\\s*|export\\s+default\\s+)messagesByLocale\\s*\\[\\s*["']${locale}["']\\s*\\]`,
     "m",
@@ -162,10 +158,6 @@ function collectCatalogSurfaces(
         continue;
       }
 
-      // Locale data may live in sibling per-locale files (e.g. an
-      // i18n-data.ts split where each <locale>.ts imports from the source
-      // rather than the source importing the locale). The source itself does
-      // not import them, so the import scan cannot see them.
       const siblingFile = path.join(catalogDir, `${locale}.ts`);
       if (existsSync(siblingFile) && siblingFile !== sourceWrapper) {
         const target = relative(siblingFile);

@@ -143,6 +143,13 @@ beforeEach(() => {
 });
 
 describe("delete-slide-comment", () => {
+  it("announces its change to every collaborator on the deck", () => {
+    expect((action as any).changeResource({ deckId: "deck-1" })).toEqual({
+      resourceType: "deck",
+      resourceId: "deck-1",
+    });
+  });
+
   it("lets the author delete their own comment with commenter access", async () => {
     const result = await run({ id: "c-1", deckId: "deck-1" });
 
@@ -205,7 +212,6 @@ describe("delete-slide-comment", () => {
     await expect(run({ id: "c-3", deckId: "deck-1" })).rejects.toThrow(
       "Forbidden",
     );
-    // Row is untouched since assertAccess rejected before the delete.
     expect(state.rows.map((r) => r.id)).toEqual(["c-1", "c-2", "c-3"]);
   });
 

@@ -5,10 +5,6 @@ export function preventPendingDeckUnload(event: BeforeUnloadEvent): void {
   event.returnValue = "";
 }
 
-/**
- * Keep the browser's native reload/close confirmation attached only while a
- * deck has local work that cannot be recovered from the server.
- */
 export function usePendingDeckUnloadGuard(hasPendingEdits: boolean): void {
   useEffect(() => {
     if (!hasPendingEdits) return;

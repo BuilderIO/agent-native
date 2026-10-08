@@ -562,7 +562,9 @@ export function createClipAgentWebMcpActions({
         atMs,
         timestamp: formatAgentTimestamp(atMs),
         imageUrl,
-        mimeType: "image/jpeg",
+        // A screenshot is served in its stored format; the context says which.
+        mimeType:
+          stringValue(optionalRecord(apis.frame)?.responseType) ?? "image/jpeg",
         sourceUrl: imageUrl,
         instructions:
           "Fetch imageUrl as an image to SEE the recorded screen. The URL uses the same scoped access as this clip page.",

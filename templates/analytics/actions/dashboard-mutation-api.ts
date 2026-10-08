@@ -1,3 +1,5 @@
+import { fail } from "@agent-native/core/action";
+
 import {
   buildDashboardPanelGroups,
   columnExpansionForDropSlot,
@@ -9,6 +11,11 @@ import {
   MAX_DASHBOARD_COLUMNS,
   type SqlPanel,
 } from "../app/pages/adhoc/sql-dashboard/types";
+import {
+  editDistance,
+  PANEL_CHART_TYPES,
+  PANEL_CONFIG_KEYS,
+} from "../shared/panel-render-contract";
 import { movePanelsById, type PanelOrderTarget } from "./dashboard-panel-order";
 
 export const DASHBOARD_MUTATION_API_TYPES = `type DashboardScript = {
@@ -42,14 +49,14 @@ type PanelTimeScope =
 type PanelConfig = Record<string, unknown> & {
   /** Use "dashboard" for AI-generated first-party panels by default. */
   timeScope?: PanelTimeScope;
-  /** Renderer options only; keep panel fields at the panel level. */
+  /** Renderer options only; other keys are rejected. Honored: ${Object.keys(PANEL_CONFIG_KEYS).join(", ")}. No rolling-average option: add a window-function column in sql and list it in yKeys (bigquery: AVG(v) OVER (...); first-party: AVG is not an approved function, use SUM(v) OVER (...) * 1.0 / COUNT(v) OVER (...)). */
 };
 
 type PanelPatch = {
   title?: string;
   sql?: string;
   source?: "bigquery" | "ga4" | "amplitude" | "first-party" | "demo" | "prometheus" | "program";
-  chartType?: "line" | "area" | "bar" | "metric" | "table" | "pie" | "funnel" | "section" | "heatmap" | "callout" | "extension";
+  chartType?: ${PANEL_CHART_TYPES.map((type) => `"${type}"`).join(" | ")};
   width?: number;
   columns?: number;
   tab?: string;
@@ -97,7 +104,7 @@ type PanelSelection = {
   setSql(sql: string): void;
   setWidth(width: number): void;
   setConfig(patch: Record<string, unknown>): void;
-  setConfigPath(path: string, value: unknown): void; // path under config, e.g. "yAxis.format" or "config.yAxis.format"
+  setConfigPath(path: string, value: unknown): void; // path under config, e.g. "yFormatter" or "config.yFormatter"
   duplicate(newPanelId: string, patch?: PanelPatch): PanelPlacement;
 };
 
@@ -119,6 +126,9 @@ type PanelPlacement = {
 
 type InsertedPanel = PanelPlacement;`;
 
+const firstPartyDashboardTimeFilter =
+  "event_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND event_date >= '{{timeRangeStart}}' AND event_date <= '{{timeRangeEnd}}'))";
+
 export const DASHBOARD_MUTATION_EXAMPLES = [
   'dashboard.panels(["dau-over-time","wau-over-time"]).moveToTop();',
   'dashboard.panel("recurring-users-by-template").duplicate("recurring-users-by-template-bar", {"title":"Recurring Signed-In Users by Template (Bar)","chartType":"bar"}).nextTo("recurring-users-by-template");',
@@ -127,16 +137,15 @@ export const DASHBOARD_MUTATION_EXAMPLES = [
   'dashboard.panel("retention").set({"width":2,"config":{"description":"Updated definition."}});',
   'dashboard.panelsMatching({"titleIncludes":"Signed-In"}).moveToTop();',
   'dashboard.panelsMatching({"source":"first-party"}).setWidth(2);',
-  'dashboard.panel("retention").setConfigPath("yAxis.format","percent");',
+  'dashboard.panel("retention").setConfigPath("yFormatter","percent");',
   'dashboard.section("retention-activity-section").append(["repeat-users","retention-over-time"]);',
-  `dashboard.insertPanel({"id":"new-kpi","title":"New KPI","source":"first-party","chartType":"metric","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT COUNT(*) AS value FROM analytics_events WHERE event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}'"}).atTop();`,
-  `dashboard.insertPanel({"id":"new-chart","title":"New Chart","source":"first-party","chartType":"line","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT event_date AS date, COUNT(*) AS value FROM analytics_events WHERE event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}' GROUP BY event_date ORDER BY event_date"}).nextTo("retention-over-time");`,
-  `dashboard.insertPanel({"id":"row-chart","title":"Row Chart","source":"first-party","chartType":"bar","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT event_name AS name, COUNT(*) AS value FROM analytics_events WHERE event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}' GROUP BY event_name"}).atRow(2);`,
+  `dashboard.insertPanel({"id":"new-kpi","title":"New KPI","source":"first-party","chartType":"metric","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT COUNT(*) AS value FROM analytics_events WHERE ${firstPartyDashboardTimeFilter}"}).atTop();`,
+  `dashboard.insertPanel({"id":"new-chart","title":"New Chart","source":"first-party","chartType":"line","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT event_date AS date, COUNT(*) AS value FROM analytics_events WHERE ${firstPartyDashboardTimeFilter} GROUP BY event_date ORDER BY event_date"}).nextTo("retention-over-time");`,
+  `dashboard.insertPanel({"id":"row-chart","title":"Row Chart","source":"first-party","chartType":"bar","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT event_name AS name, COUNT(*) AS value FROM analytics_events WHERE ${firstPartyDashboardTimeFilter} GROUP BY event_name"}).atRow(2);`,
   'dashboard.insertPanel({"id":"pipeline-widget","title":"Pipeline Widget","chartType":"extension","width":3,"config":{"extensionId":"<extension-id>"}}).atBottom();',
   'dashboard.insertPanel({"id":"personal-widget-slot","title":"Personal Widget Slot","chartType":"extension","width":3,"config":{"extensionSlotId":"analytics.dashboard.<dashboard-id>.panel.personal-widget-slot"}}).atBottom();',
 ] as const;
 
-/** Keep the legacy script surface bounded before it reaches the parser. */
 export const MAX_DASHBOARD_MUTATION_CODE_LENGTH = 12_000;
 export const MAX_DASHBOARD_MUTATION_OPERATIONS = 100;
 
@@ -205,6 +214,7 @@ export interface DashboardMutationResult {
   operations: DashboardMutationOperation[];
   commandLog: string[];
   changedPanelIds: string[];
+  movedPanelIds: string[];
   removedPanelIds: string[];
   insertedPanelIds: string[];
   dashboardFieldsChanged: string[];
@@ -318,7 +328,7 @@ function setFilterDefault(
   config: Record<string, unknown>,
   filterId: string,
   value: string | number | boolean | null,
-): void {
+): boolean {
   const filter = requireDashboardFilter(config, filterId);
   if (Array.isArray(filter.options) && filter.options.length > 0) {
     const optionValues = filter.options
@@ -334,7 +344,9 @@ function setFilterDefault(
       );
     }
   }
+  if (hasSameJsonProperty(filter, "default", value)) return false;
   filter.default = value;
+  return true;
 }
 
 function panelId(panel: Record<string, unknown>): string {
@@ -353,26 +365,6 @@ function compactList(values: string[], max = 20): string {
   const items = values.filter(Boolean).slice(0, max);
   const suffix = values.length > max ? `, ... (${values.length} total)` : "";
   return `${items.join(", ")}${suffix}`;
-}
-
-function editDistance(a: string, b: string): number {
-  const left = a.toLowerCase();
-  const right = b.toLowerCase();
-  const dp = Array.from({ length: left.length + 1 }, (_, i) =>
-    Array.from({ length: right.length + 1 }, (_2, j) => (i === 0 ? j : 0)),
-  );
-  for (let i = 1; i <= left.length; i++) dp[i][0] = i;
-  for (let i = 1; i <= left.length; i++) {
-    for (let j = 1; j <= right.length; j++) {
-      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(
-        dp[i - 1][j] + 1,
-        dp[i][j - 1] + 1,
-        dp[i - 1][j - 1] + cost,
-      );
-    }
-  }
-  return dp[left.length][right.length];
 }
 
 function nearest(value: string, candidates: string[], limit = 3): string[] {
@@ -746,6 +738,50 @@ function insertPanel(
   return result.insertIndex;
 }
 
+export function sameJsonValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (
+    !left ||
+    !right ||
+    typeof left !== "object" ||
+    typeof right !== "object"
+  ) {
+    return false;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => sameJsonValue(value, right[index]))
+    );
+  }
+
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord);
+  const rightKeys = Object.keys(rightRecord);
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key) =>
+        Object.prototype.hasOwnProperty.call(rightRecord, key) &&
+        sameJsonValue(leftRecord[key], rightRecord[key]),
+    )
+  );
+}
+
+function hasSameJsonProperty(
+  record: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): boolean {
+  return (
+    Object.prototype.hasOwnProperty.call(record, key) &&
+    sameJsonValue(record[key], value)
+  );
+}
+
 function patchPanel(
   panel: Record<string, unknown>,
   patch: Record<string, unknown>,
@@ -764,6 +800,7 @@ function patchPanel(
         !Array.isArray(panel.config)
           ? { ...(panel.config as Record<string, unknown>) }
           : {};
+      if (hasSameJsonProperty(config, "description", value)) continue;
       config.description = value;
       panel.config = config;
       changed.push("config.description");
@@ -776,11 +813,18 @@ function patchPanel(
         !Array.isArray(panel.config)
           ? { ...(panel.config as Record<string, unknown>) }
           : {};
-      Object.assign(config, assertObject(value, "patch.config"));
+      const configPatch = assertObject(value, "patch.config");
+      const changedConfigEntries = Object.entries(configPatch).filter(
+        ([configKey, configValue]) =>
+          !hasSameJsonProperty(config, configKey, configValue),
+      );
+      if (changedConfigEntries.length === 0) continue;
+      Object.assign(config, Object.fromEntries(changedConfigEntries));
       panel.config = config;
       changed.push("config");
       continue;
     }
+    if (hasSameJsonProperty(panel, key, value)) continue;
     panel[key] = value;
     changed.push(key);
   }
@@ -791,7 +835,7 @@ function setConfigPath(
   panel: Record<string, unknown>,
   rawPath: string,
   value: unknown,
-): string {
+): { field: string; changed: boolean } {
   const path = assertString(rawPath, "config path");
   const segments = path
     .split(".")
@@ -799,8 +843,11 @@ function setConfigPath(
     .filter(Boolean);
   if (segments[0] === "config") segments.shift();
   if (segments.length === 0) {
-    throw new Error(
-      'setConfigPath path must point under panel.config, e.g. "yAxis.format".',
+    fail(
+      'setConfigPath path must point under panel.config, e.g. "yFormatter".',
+      {
+        errorCode: "invalid_config_path",
+      },
     );
   }
   for (const segment of segments) {
@@ -814,6 +861,29 @@ function setConfigPath(
     !Array.isArray(panel.config)
       ? { ...(panel.config as Record<string, unknown>) }
       : {};
+  const leaf = segments[segments.length - 1];
+  let existingCursor: unknown = config;
+  for (const segment of segments.slice(0, -1)) {
+    if (
+      !existingCursor ||
+      typeof existingCursor !== "object" ||
+      Array.isArray(existingCursor) ||
+      !Object.prototype.hasOwnProperty.call(existingCursor, segment)
+    ) {
+      existingCursor = undefined;
+      break;
+    }
+    existingCursor = (existingCursor as Record<string, unknown>)[segment];
+  }
+  const unchanged =
+    existingCursor !== undefined &&
+    typeof existingCursor === "object" &&
+    !Array.isArray(existingCursor) &&
+    Object.prototype.hasOwnProperty.call(existingCursor, leaf) &&
+    sameJsonValue((existingCursor as Record<string, unknown>)[leaf], value);
+  if (unchanged) {
+    return { field: `config.${segments.join(".")}`, changed: false };
+  }
   let cursor: Record<string, unknown> = config;
   for (const segment of segments.slice(0, -1)) {
     const existing = cursor[segment];
@@ -822,9 +892,9 @@ function setConfigPath(
     }
     cursor = cursor[segment] as Record<string, unknown>;
   }
-  cursor[segments[segments.length - 1]] = value;
+  cursor[leaf] = value;
   panel.config = config;
-  return `config.${segments.join(".")}`;
+  return { field: `config.${segments.join(".")}`, changed: true };
 }
 
 function duplicatePanel(
@@ -855,6 +925,7 @@ export function applyDashboardMutationOperations(
 
   const commandLog: string[] = [];
   const changedPanelIds = new Set<string>();
+  const movedPanelIds = new Set<string>();
   const removedPanelIds = new Set<string>();
   const insertedPanelIds = new Set<string>();
   const dashboardFieldsChanged = new Set<string>();
@@ -877,18 +948,29 @@ export function applyDashboardMutationOperations(
               target,
             );
             changedPanelIds.add(op.panelIds[0]);
+            movedPanelIds.add(op.panelIds[0]);
             commandLog.push(`movePanels(${op.panelIds[0]}) -> index ${index}`);
             break;
           }
+          const panelOrderBefore = panelsFromConfig(config).map(panelId);
           let result;
           try {
             result = movePanelsById(config, op.panelIds, target);
           } catch (err) {
             enhancePanelError(config, err);
           }
-          for (const id of result.movedPanelIds) changedPanelIds.add(id);
+          const orderChanged = !sameJsonValue(
+            panelOrderBefore,
+            result.panelOrder,
+          );
+          if (orderChanged) {
+            for (const id of result.movedPanelIds) {
+              changedPanelIds.add(id);
+              movedPanelIds.add(id);
+            }
+          }
           commandLog.push(
-            `movePanels(${result.movedPanelIds.join(", ")}) -> index ${result.insertIndex}`,
+            `movePanels(${orderChanged ? result.movedPanelIds.join(", ") : "no order change"}) -> index ${result.insertIndex}`,
           );
           break;
         }
@@ -909,7 +991,7 @@ export function applyDashboardMutationOperations(
         case "updatePanel": {
           const panel = requirePanel(panelsFromConfig(config), op.panelId);
           const changedFields = patchPanel(panel, op.patch);
-          changedPanelIds.add(op.panelId);
+          if (changedFields.length > 0) changedPanelIds.add(op.panelId);
           commandLog.push(
             `updatePanel(${op.panelId}: ${changedFields.join(", ") || "no fields"})`,
           );
@@ -917,9 +999,11 @@ export function applyDashboardMutationOperations(
         }
         case "updatePanelPath": {
           const panel = requirePanel(panelsFromConfig(config), op.panelId);
-          const changedField = setConfigPath(panel, op.path, op.value);
-          changedPanelIds.add(op.panelId);
-          commandLog.push(`updatePanelPath(${op.panelId}: ${changedField})`);
+          const result = setConfigPath(panel, op.path, op.value);
+          if (result.changed) changedPanelIds.add(op.panelId);
+          commandLog.push(
+            `updatePanelPath(${op.panelId}: ${result.field}${result.changed ? "" : " unchanged"})`,
+          );
           break;
         }
         case "insertPanel": {
@@ -946,20 +1030,25 @@ export function applyDashboardMutationOperations(
           break;
         }
         case "setDashboard": {
+          const changedFields: string[] = [];
           for (const [key, value] of Object.entries(op.patch)) {
+            if (hasSameJsonProperty(config, key, value)) continue;
             config[key] = value;
             dashboardFieldsChanged.add(key);
+            changedFields.push(key);
           }
           commandLog.push(
-            `setDashboard(${Object.keys(op.patch).join(", ") || "no fields"})`,
+            `setDashboard(${changedFields.join(", ") || "no changes"})`,
           );
           break;
         }
         case "setFilterDefault": {
-          setFilterDefault(config, op.filterId, op.value);
-          dashboardFieldsChanged.add(`filters.${op.filterId}.default`);
+          const changed = setFilterDefault(config, op.filterId, op.value);
+          if (changed) {
+            dashboardFieldsChanged.add(`filters.${op.filterId}.default`);
+          }
           commandLog.push(
-            `setFilterDefault(${op.filterId}: ${JSON.stringify(op.value)})`,
+            `setFilterDefault(${op.filterId}: ${JSON.stringify(op.value)}${changed ? "" : " unchanged"})`,
           );
           break;
         }
@@ -969,7 +1058,9 @@ export function applyDashboardMutationOperations(
           );
       }
     } catch (err: any) {
-      throw new Error(`operation ${opIndex + 1} (${op.op}): ${err.message}`);
+      fail(`operation ${opIndex + 1} (${op.op}): ${err.message}`, {
+        errorCode: "invalid_dashboard_mutation",
+      });
     }
   }
 
@@ -977,6 +1068,7 @@ export function applyDashboardMutationOperations(
     operations,
     commandLog,
     changedPanelIds: Array.from(changedPanelIds),
+    movedPanelIds: Array.from(movedPanelIds),
     removedPanelIds: Array.from(removedPanelIds),
     insertedPanelIds: Array.from(insertedPanelIds),
     dashboardFieldsChanged: Array.from(dashboardFieldsChanged),

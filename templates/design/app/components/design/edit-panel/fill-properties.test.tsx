@@ -75,8 +75,6 @@ vi.mock("./field-primitives", async (importOriginal) => {
   };
 });
 
-// Stub ColorInput so the test can inspect exactly what props the base fill
-// row wires it with, without needing to render the real popover/picker tree.
 vi.mock("./panel-primitives", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./panel-primitives")>();
   return {
@@ -181,6 +179,86 @@ describe("baseFillLayerSourceProps", () => {
 });
 
 describe("FillProperties base row — image layer prop wiring", () => {
+  it("keeps the Fill section empty for an open Pen path", () => {
+    const openPath = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: element({
+          tagName: "svg",
+          primitiveKind: "path",
+          vectorStrokeCanAlign: false,
+          computedStyles: {
+            fill: "#000000",
+            fillOpacity: "0",
+            stroke: "#000000",
+            strokeWidth: "1px",
+          },
+          inlineStyles: { fill: "none" },
+        }),
+        onStyleChange: vi.fn(),
+      }),
+    );
+    const filledOpenPath = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: element({
+          tagName: "svg",
+          primitiveKind: "path",
+          vectorStrokeCanAlign: false,
+          computedStyles: {
+            fill: "#123456",
+            fillOpacity: "0",
+            stroke: "#000000",
+            strokeWidth: "1px",
+          },
+          inlineStyles: { fill: "#123456" },
+        }),
+        onStyleChange: vi.fn(),
+      }),
+    );
+    const closedPath = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: element({
+          tagName: "svg",
+          primitiveKind: "path",
+          vectorStrokeCanAlign: true,
+          computedStyles: { fill: "#000000" },
+          inlineStyles: { fill: "#000000" },
+        }),
+        onStyleChange: vi.fn(),
+      }),
+    );
+
+    expect(openPath).toContain("editPanel.sections.fill");
+    expect(openPath).toContain('aria-label="editPanel.labels.addFill"');
+    expect(openPath).not.toContain('data-testid="base-fill-color-input"');
+    expect(filledOpenPath).toContain('data-testid="base-fill-color-input"');
+    expect(closedPath).toContain('data-testid="base-fill-color-input"');
+  });
+
+  it("keeps an authored vector gradient visible on an open Pen path", () => {
+    const gradient = "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)";
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: element({
+          tagName: "svg",
+          primitiveKind: "path",
+          vectorStrokeCanAlign: false,
+          computedStyles: {
+            fill: "url(#vector-fill-gradient)",
+            fillOpacity: "0",
+          },
+          inlineStyles: { "--an-vector-fill-gradient": gradient },
+        }),
+        onStyleChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('data-testid="base-fill-color-input"');
+    expect(markup).toContain(`data-value="${gradient}"`);
+    expect(markup).toContain(
+      'data-supported-paint-types="solid,linear,radial"',
+    );
+  });
+
   it("offers native linear and radial fill paints for SVG shapes", () => {
     const gradient = "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)";
     const markup = renderToStaticMarkup(
@@ -246,10 +324,6 @@ describe("FillProperties base row — image layer prop wiring", () => {
       }),
     );
 
-    // Before the fix, backgroundSize/backgroundRepeat/backgroundPosition were
-    // never passed at all, so these data attributes would be missing/empty
-    // even though the element clearly has real, non-default values for all
-    // three (a genuine "cover, 100% 100%" sibling layer stack).
     expect(markup).toContain('data-background-image="url(hero.png)');
     expect(markup).toContain('data-background-size="cover, 100% 100%"');
     expect(markup).toContain('data-background-repeat="no-repeat, repeat"');

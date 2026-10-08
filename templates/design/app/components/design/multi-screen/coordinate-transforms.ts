@@ -14,7 +14,6 @@ function frameCenter(frame: FrameGeometry): Point {
   };
 }
 
-/** Maps a point from an iframe/screen's local pixel space into board space. */
 export function screenLocalPointToBoardPoint(
   point: Point,
   frame: FrameGeometry,
@@ -27,7 +26,6 @@ export function screenLocalPointToBoardPoint(
   return rotatePoint(unrotated, frameCenter(frame), frame.rotation ?? 0);
 }
 
-/** Maps a board-space point into an iframe/screen's local pixel space. */
 export function boardPointToScreenLocalPoint(
   point: Point,
   frame: FrameGeometry,
@@ -44,11 +42,6 @@ export function boardPointToScreenLocalPoint(
   };
 }
 
-/**
- * Maps an axis-aligned screen-local rect into the board. The returned geometry
- * keeps width/height in the screen's local axes and carries the screen's
- * rotation, matching the CSS box needed to render/hit-test it on the board.
- */
 export function screenLocalRectToBoardGeometry(
   rect: { left: number; top: number; width: number; height: number },
   frame: FrameGeometry,
@@ -60,8 +53,6 @@ export function screenLocalRectToBoardGeometry(
   const width = Math.max(minSize, rect.width * scaleX);
   const height = Math.max(minSize, rect.height * scaleY);
   const unrotatedCenter = {
-    // Preserve the historical local-left/local-top mapping even when a tiny
-    // rect's rendered board size is clamped up to minSize.
     x: frame.x + rect.left * scaleX + width / 2,
     y: frame.y + rect.top * scaleY + height / 2,
   };

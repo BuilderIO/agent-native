@@ -74,4 +74,64 @@ describe("integration config compare-and-swap", () => {
       }),
     );
   });
+
+  it("lists configs only for the requested platform with a bounded query", async () => {
+    const { listIntegrationConfigPage } = await import("./config-store.js");
+    executeMock.mockResolvedValueOnce({
+      rows: [
+        {
+          platform: "google-docs",
+          config_key: "watch-channel",
+          config_data: '{"channelId":"channel-a"}',
+          owner: "alice@example.test",
+          updated_at: 100,
+        },
+      ],
+    });
+
+    await expect(
+      listIntegrationConfigPage({ platform: "google-docs" }),
+    ).resolves.toMatchObject({
+      configs: [
+        {
+          platform: "google-docs",
+          configKey: "watch-channel",
+          configData: { channelId: "channel-a" },
+          owner: "alice@example.test",
+          updatedAt: 100,
+        },
+      ],
+      nextCursor: null,
+    });
+    expect(executeMock).toHaveBeenCalledWith({
+      sql: expect.stringContaining("FROM integration_configs"),
+      args: ["google-docs", 101],
+    });
+    expect(executeMock.mock.calls.at(-1)?.[0].sql).toContain("LIMIT ?");
+  });
+
+  it("returns the full legacy list through bounded pages", async () => {
+    const { listIntegrationConfigs } = await import("./config-store.js");
+    const rows = Array.from({ length: 101 }, (_, index) => ({
+      platform: "platform-a",
+      config_key: `key-${String(index).padStart(3, "0")}`,
+      config_data: "{}",
+      owner: null,
+      updated_at: index,
+    }));
+    executeMock
+      .mockResolvedValueOnce({ rows, rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [rows[100]!], rowsAffected: 0 });
+
+    await expect(listIntegrationConfigs()).resolves.toHaveLength(101);
+    expect(executeMock).toHaveBeenCalledTimes(2);
+    expect(executeMock.mock.calls[0]?.[0]).toMatchObject({
+      sql: expect.stringContaining("LIMIT ?"),
+      args: [101],
+    });
+    expect(executeMock.mock.calls[1]?.[0]).toMatchObject({
+      sql: expect.stringContaining("LIMIT ?"),
+      args: ["platform-a", "platform-a", "key-099", 101],
+    });
+  });
 });

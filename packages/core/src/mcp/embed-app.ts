@@ -53,7 +53,9 @@ export function embedApp(
   return {
     title,
     ...(options.description ? { description: options.description } : {}),
-    html: () => `<!doctype html>
+    html: (ctx) => {
+      const remoteBridgeFallbackEnabled = ctx.catalogMode !== "directory";
+      return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -86,7 +88,8 @@ export function embedApp(
   data-app-title="${attr(title)}"
   data-iframe-title="${attr(iframeTitle)}"
   data-open-label="${attr(openLabel)}"
-  data-start-tool="${attr(startToolName)}"
+  data-start-tool="${attr(ctx.startToolName ?? startToolName)}"
+  data-catalog-mode="${attr(ctx.catalogMode)}"
   data-embed-default="${embedByDefault ? "1" : "0"}"
 >
   <main class="shell">
@@ -128,9 +131,12 @@ export function embedApp(
     let openAiBridge = null;
     let lastOpenAiSyncSignature = null;
     let wrapperRequestId = 0;
+    let hostChatQueue = Promise.resolve();
     const wrapperRequests = new Map();
+    const hostChatRequests = new Map();
     let toolInput = {};
     let toolResultData = {};
+    let toolResponseMetadata = {};
     let openUrl = "";
     let openStartUrl = "";
     let startedFor = "";
@@ -391,9 +397,13 @@ export function embedApp(
       wrapperRequests.delete(id);
       clearTimeout(pending.timer);
       if (message.error) {
-        pending.resolve({ ok: false, error: message.error });
+        pending.resolve({
+          ok: false,
+          error: message.error,
+          code: message.error.code
+        });
       } else {
-        pending.resolve({ ok: true, result: message.result });
+        pending.resolve(message.result);
       }
       return true;
     }
@@ -428,6 +438,18 @@ export function embedApp(
 
     function embedSessionArgsFor(value) {
       const chrome = typeof toolInput.chrome === "string" ? toolInput.chrome : "full";
+      if (body.dataset.catalogMode === "directory") {
+        const widgetSource = toolResponseMetadata["agent-native/widgetSource"];
+        const sourceTool = widgetSource && typeof widgetSource.toolName === "string"
+          ? widgetSource.toolName
+          : undefined;
+        return {
+          ...(sourceTool ? { sourceTool } : {}),
+          toolInput,
+          toolOutput: toolResultData,
+          chrome
+        };
+      }
       return typeof value === "string" && value.startsWith("/")
         ? { path: value, chrome }
         : { url: value, chrome };
@@ -1258,7 +1280,7 @@ export function embedApp(
       const frame = document.createElement("iframe");
       frame.title = body.dataset.iframeTitle || "Agent-Native app";
       frame.src = src;
-      frame.allow = "clipboard-read; clipboard-write";
+      ${ctx.catalogMode === "directory" ? "" : 'frame.allow = "clipboard-read; clipboard-write";'}
       appFrame = frame;
       appFrameReady = false;
       lastFrameSrc = src;
@@ -1406,17 +1428,34 @@ export function embedApp(
       if (data && data.structuredContent && typeof data.structuredContent === "object") {
         params.structuredContent = data.structuredContent;
       }
-      if (openAiBridge && typeof openAiBridge.setWidgetState === "function") {
-        openAiBridge.setWidgetState({
-          ...objectValue(openAiBridge.widgetState),
-          agentNativeModelContext: params
-        });
-        return { ok: true };
+      if (app && typeof app.updateModelContext === "function") {
+        await ensureHostAppConnected();
+        return await app.updateModelContext(params);
       }
-      if (!app || typeof app.updateModelContext !== "function") return { ok: false };
-      await ensureHostAppConnected();
-      await app.updateModelContext(params);
-      return { ok: true };
+      return await wrapperRpcRequest("ui/update-model-context", params);
+    }
+
+    function openAiFollowUpPrompt(chat) {
+      const message = typeof chat.message === "string" ? chat.message.trim() : "";
+      const context = typeof chat.context === "string" ? chat.context.trim() : "";
+      if (context || chat.structuredContent !== undefined) return null;
+
+      const content = Array.isArray(chat.content) ? chat.content : [];
+      const extraText = [];
+      for (const part of content) {
+        if (!part || part.type !== "text" || typeof part.text !== "string") return null;
+        const audience = objectValue(part.annotations).audience;
+        if (
+          Array.isArray(audience) &&
+          (!audience.includes("assistant") || !audience.includes("user"))
+        ) return null;
+        const text = part.text.trim();
+        if (text && text !== message && !extraText.includes(text)) extraText.push(text);
+      }
+
+      const sections = [message];
+      if (extraText.length) sections.push("Additional text:\\n" + extraText.join("\\n\\n"));
+      return sections.filter(Boolean).join("\\n\\n");
     }
 
     async function openHostLink(data) {
@@ -1458,7 +1497,7 @@ export function embedApp(
         .then((result) => {
           sendToAppFrame({
             type: "agentNative.mcpHost.response",
-            data: { requestId, ok: true, result }
+            data: { requestId, ok: !(result && (result.ok === false || result.isError === true)), result }
           });
         })
         .catch((err) => {
@@ -1473,7 +1512,45 @@ export function embedApp(
         });
     }
 
-    async function sendHostChat(chat) {
+    function acknowledgeHostChatNotSubmitted(requestId, request) {
+      if (!requestId || (request && request.acknowledgedNotSubmitted)) return;
+      if (request) request.acknowledgedNotSubmitted = true;
+      respondToWrapperRequest(requestId, { ok: false, notSubmitted: true });
+    }
+
+    function cancelHostChat(requestId) {
+      if (typeof requestId !== "string" || !requestId) return;
+      const request = hostChatRequests.get(requestId);
+      if (!request) return;
+      request.cancelled = true;
+      if (request.state === "queued") {
+        acknowledgeHostChatNotSubmitted(requestId, request);
+      }
+    }
+
+    function sendHostChat(chat) {
+      const requestId = typeof (chat && chat.requestId) === "string" ? chat.requestId : "";
+      const request = { state: "queued", cancelled: false };
+      if (requestId) hostChatRequests.set(requestId, request);
+      const result = hostChatQueue.then(() => {
+        if (request.cancelled) {
+          acknowledgeHostChatNotSubmitted(requestId, request);
+          return;
+        }
+        request.state = "context";
+        return sendHostChatNow(chat, request);
+      });
+      hostChatQueue = result.then(() => undefined, () => undefined);
+      const finish = () => {
+        if (requestId && hostChatRequests.get(requestId) === request) {
+          hostChatRequests.delete(requestId);
+        }
+      };
+      void result.then(finish, finish);
+      return result;
+    }
+
+    async function sendHostChatNow(chat, hostChatRequest) {
       const requestId = typeof (chat && chat.requestId) === "string" ? chat.requestId : "";
       if (!chat || chat.submit === false) return;
       const message = typeof chat.message === "string" ? chat.message : "";
@@ -1482,65 +1559,132 @@ export function embedApp(
       const content = Array.isArray(chat.content) && chat.content.length
         ? chat.content
         : [{ type: "text", text: message }];
+      const requestMode = chat.requestMode === "act" || chat.requestMode === "plan"
+        ? chat.requestMode
+        : chat.mode === "act" || chat.mode === "plan"
+          ? chat.mode
+          : null;
+      const requestModePayload =
+        requestMode
+          ? { mode: requestMode, requestMode }
+          : {};
       const structuredContent =
         chat && chat.structuredContent !== undefined
           ? chat.structuredContent
           : undefined;
+      let fallbackAttempted = false;
       try {
         const contextContent = context
-          ? [{ type: "text", text: context }, ...content.filter((part) => part && part.type !== "text")]
+          ? [{ type: "text", text: context, annotations: { audience: ["assistant"] } }, ...content.filter((part) => part && part.type !== "text")]
           : content.filter((part) => part && part.type !== "text");
         const modelContext = {
-          content: contextContent,
-          ...(structuredContent !== undefined ? { structuredContent } : {})
+          content: contextContent.map((part) => ({
+            ...part,
+            annotations: { ...(objectValue(part.annotations)), audience: ["assistant"] }
+          })),
+          ...(structuredContent !== undefined ? { structuredContent } : {}),
+          ...requestModePayload
         };
-        if (openAiBridge && typeof openAiBridge.setWidgetState === "function") {
-          openAiBridge.setWidgetState({
-            ...objectValue(openAiBridge.widgetState),
-            agentNativeChatContext: context || null,
-            agentNativeModelContext: modelContext
-          });
-        } else if (app && typeof app.updateModelContext === "function") {
-          await ensureHostAppConnected();
-          await app.updateModelContext(modelContext);
+        const contextResult = await updateHostModelContext(modelContext);
+        if (contextResult && (contextResult.isError === true || contextResult.ok === false)) {
+          throw new Error("MCP host rejected model context update.");
         }
       } catch (err) {
-        console.warn("[agent-native] MCP host rejected model context update", err);
-      }
-      try {
-        if (openAiBridge && typeof openAiBridge.sendFollowUpMessage === "function") {
-          await openAiBridge.sendFollowUpMessage({
-            prompt: message,
-            scrollToBottom: true
-          });
-          respondToWrapperRequest(requestId, { ok: true });
+        if (hostChatRequest && hostChatRequest.cancelled) {
+          acknowledgeHostChatNotSubmitted(requestId, hostChatRequest);
           return;
         }
+        console.warn("[agent-native] MCP host rejected model context update", err);
+        respondToWrapperRequest(requestId, {
+          ok: false,
+          notSubmitted: true,
+          error: err && err.message ? err.message : String(err)
+        });
+        return;
+      }
+      if (hostChatRequest && hostChatRequest.cancelled) {
+        acknowledgeHostChatNotSubmitted(requestId, hostChatRequest);
+        return;
+      }
+      try {
         let result = null;
         if (app && typeof app.sendMessage === "function") {
           await ensureHostAppConnected();
+        }
+        if (hostChatRequest && hostChatRequest.cancelled) {
+          acknowledgeHostChatNotSubmitted(requestId, hostChatRequest);
+          return;
+        }
+        if (hostChatRequest) hostChatRequest.state = "sending";
+        if (app && typeof app.sendMessage === "function") {
           result = await app.sendMessage({
             role: "user",
-            content
+            content,
+            ...requestModePayload
           });
         } else {
           result = await wrapperRpcRequest("ui/message", {
             role: "user",
-            content
+            content,
+            ...requestModePayload
           });
         }
-        if (result && result.isError) {
-          console.warn("[agent-native] MCP host rejected chat message", result);
-          respondToWrapperRequest(requestId, { ok: false, result });
-          return;
-        }
-        if (result && result.ok === false) {
-          console.warn("[agent-native] MCP host chat bridge failed", result);
-          respondToWrapperRequest(requestId, { ok: false, result });
-          return;
+        if ((result && result.isError) || (result && result.ok === false)) {
+          const error = new Error("MCP host rejected the chat message.");
+          if (result.code !== undefined) error.code = result.code;
+          throw error;
         }
         respondToWrapperRequest(requestId, { ok: true, result });
       } catch (err) {
+        const methodNotFound = err && Number(err.code) === -32601;
+        if (hostChatRequest && hostChatRequest.cancelled) {
+          if (methodNotFound || hostChatRequest.state !== "sending") {
+            acknowledgeHostChatNotSubmitted(requestId, hostChatRequest);
+          }
+          return;
+        }
+        if (methodNotFound) {
+          const fallbackPrompt = openAiFollowUpPrompt(chat);
+          if (
+            openAiBridge &&
+            typeof openAiBridge.sendFollowUpMessage === "function" &&
+            fallbackPrompt
+          ) {
+            fallbackAttempted = true;
+            try {
+              await openAiBridge.sendFollowUpMessage({
+                prompt: fallbackPrompt,
+                scrollToBottom: true,
+                ...requestModePayload
+              });
+              respondToWrapperRequest(requestId, { ok: true });
+              return;
+            } catch (fallbackError) {
+              err = fallbackError;
+            }
+          } else {
+            console.warn("[agent-native] MCP Apps host cannot relay chat", err);
+            respondToWrapperRequest(requestId, {
+              ok: false,
+              notSubmitted: true,
+              error: err && err.message ? err.message : String(err)
+            });
+            return;
+          }
+        }
+        if (
+          hostChatRequest &&
+          hostChatRequest.state !== "sending" &&
+          !fallbackAttempted
+        ) {
+          console.warn("[agent-native] MCP Apps host connection failed", err);
+          respondToWrapperRequest(requestId, {
+            ok: false,
+            notSubmitted: true,
+            error: err && err.message ? err.message : String(err)
+          });
+          return;
+        }
         console.warn("[agent-native] MCP host chat bridge failed", err);
         respondToWrapperRequest(requestId, { ok: false, error: err && err.message ? err.message : String(err) });
       }
@@ -1591,6 +1735,10 @@ export function embedApp(
       }
       if (message.type === "agentNative.submitChat") {
         void sendHostChat(data);
+        return;
+      }
+      if (message.type === "agentNative.cancelChat") {
+        cancelHostChat(data.requestId);
         return;
       }
       if (message.type === "agentNative.mcpHost.updateModelContext") {
@@ -1718,7 +1866,8 @@ export function embedApp(
 
     function updateTitle(data) {
       const record = objectValue(data);
-      const label = record.label || record.app || record.view || body.dataset.appTitle || "App";
+      const openLink = objectValue(toolResponseMetadata["agent-native/openLink"]);
+      const label = record.label || openLink.label || record.app || record.view || body.dataset.appTitle || "App";
       titleEl.textContent = String(label);
     }
 
@@ -1762,10 +1911,14 @@ export function embedApp(
       openAiBridge = bridge;
       toolInput = objectValue(bridge.toolInput);
       const params = openAiToolResultParams(bridge);
+      toolResponseMetadata = objectValue(params._meta);
       const data = parseToolResult(params);
       toolResultData = objectValue(data);
       openUrl = openLinkFrom(params, data);
       openStartUrl = embedStartUrlFrom(params, data);
+      const openLinkLabel = objectValue(
+        toolResponseMetadata["agent-native/openLink"],
+      ).label;
       // set_globals fires constantly, and this sync calls notifyHostHeight/
       // sendHostContext which the host echoes back as another set_globals — an
       // infinite storm. Only do the host round-trips + (re)launch when something
@@ -1775,8 +1928,10 @@ export function embedApp(
       try {
         signature = JSON.stringify([
           toolInput,
+          toolResponseMetadata["agent-native/widgetSource"],
           openUrl,
           openStartUrl,
+          openLinkLabel,
           bridge.displayMode,
           bridge.theme,
           bridge.locale
@@ -1874,6 +2029,7 @@ export function embedApp(
         if (message.error) {
           const error = new Error(message.error.message || "MCP Apps bridge request failed.");
           error.data = message.error.data;
+          error.code = message.error.code;
           pending.reject(error);
           return true;
         }
@@ -2016,6 +2172,7 @@ export function embedApp(
       };
       app.ontoolresult = (params) => {
         const data = parseToolResult(params);
+        toolResponseMetadata = objectValue(metadataRecord(params));
         toolResultData = objectValue(data);
         openUrl = openLinkFrom(params, data);
         openStartUrl = embedStartUrlFrom(params, data);
@@ -2035,7 +2192,9 @@ export function embedApp(
       sendHostContext();
     }
 
-    async function startMcpAppsBridge() {
+    ${
+      remoteBridgeFallbackEnabled
+        ? `async function startMcpAppsBridge() {
       const { App } = await import("${MCP_APP_IMPORT}");
       app = new App(
         { name: "Agent-Native Embed", version: "1.0.0" },
@@ -2048,6 +2207,7 @@ export function embedApp(
       };
       app.ontoolresult = (params) => {
         const data = parseToolResult(params);
+        toolResponseMetadata = objectValue(metadataRecord(params));
         toolResultData = objectValue(data);
         openUrl = openLinkFrom(params, data);
         openStartUrl = embedStartUrlFrom(params, data);
@@ -2065,6 +2225,8 @@ export function embedApp(
       updateDisplayButton();
       notifyHostHeight();
       sendHostContext();
+    }`
+        : ""
     }
 
     try {
@@ -2074,7 +2236,7 @@ export function embedApp(
           await startNativeMcpAppsBridge();
         } catch (nativeErr) {
           console.warn("[agent-native] native MCP Apps bridge failed", nativeErr);
-          await startMcpAppsBridge();
+          ${remoteBridgeFallbackEnabled ? "await startMcpAppsBridge();" : "throw nativeErr;"}
         }
       }
     } catch (err) {
@@ -2106,25 +2268,30 @@ export function embedApp(
     })();
   </script>
 </body>
-</html>`,
-    csp: {
-      connectDomains: [
-        "https://esm.sh",
-        MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
-        ...(options.connectDomains ?? []),
-        ...(options.frameDomains ?? []),
-      ],
-      resourceDomains: [
-        "https://esm.sh",
-        MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
-        ...(options.resourceDomains ?? []),
-        ...(options.frameDomains ?? []),
-      ],
-      baseUriDomains: [
-        MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
-        ...(options.baseUriDomains ?? []),
-      ],
-      frameDomains,
+</html>`;
+    },
+    csp: (ctx) => {
+      const bridgeFallbackDomains =
+        ctx.catalogMode === "directory" ? [] : ["https://esm.sh"];
+      return {
+        connectDomains: [
+          ...bridgeFallbackDomains,
+          MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+          ...(options.connectDomains ?? []),
+          ...(options.frameDomains ?? []),
+        ],
+        resourceDomains: [
+          ...bridgeFallbackDomains,
+          MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+          ...(options.resourceDomains ?? []),
+          ...(options.frameDomains ?? []),
+        ],
+        baseUriDomains: [
+          MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+          ...(options.baseUriDomains ?? []),
+        ],
+        frameDomains,
+      };
     },
     prefersBorder: false,
   };

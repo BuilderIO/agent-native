@@ -1,50 +1,15 @@
-/**
- * Shared recurring-poll engine used by both `usePollLoop` (client) and
- * `startIntervalJob` (server) so every polling loop in the codebase gets the
- * same three properties for free instead of hand-rolling them per call site:
- *
- * 1. Never overlaps: the next attempt is scheduled via `setTimeout` only
- *    after the current one settles, not on a fixed `setInterval` cadence.
- *    This also avoids the latency `setInterval` + skip-if-busy introduces —
- *    a skipped tick there means waiting a full extra cadence before the next
- *    retry; here the gap after completion is always exactly `intervalMs`.
- * 2. Never stalls silently: every attempt is bounded by a timeout (paired
- *    with an `AbortController` so a `fetch` can actually cancel, not just be
- *    abandoned), and that timeout reports through `onError` the moment it
- *    fires. An attempt that ignores its `signal` keeps holding the loop —
- *    reported, not hidden — because releasing the slot to the next attempt
- *    would trade a visible stall for a silent overlap.
- * 3. Never double-fires: a single internal in-flight flag, owned by this
- *    engine rather than duplicated in every caller.
- */
-
 export interface PollEngineOptions {
-  /** Delay in ms before the next attempt. Evaluated fresh before each schedule. */
   intervalMs: number | (() => number);
-  /** Per-attempt timeout. Default: `Math.max(timeoutFloorMs, intervalMs * 4)`. */
   timeoutMs?: number | (() => number);
-  /** Floor used by the default `timeoutMs`. Default: 10_000. */
   timeoutFloorMs?: number;
-  /** Called when an attempt throws or times out. Default: swallow. */
   onError?: (err: unknown) => void;
-  /** Run the first attempt immediately on `start()`. Default: true. */
   leading?: boolean;
 }
 
 export interface PollEngineHandle {
-  /** Arm the loop. No-op if already running. */
   start(): void;
-  /** Halt the loop and abort any in-flight attempt; its eventual settlement is a no-op. */
   stop(): void;
-  /** Cancel the pending wait and run now. No-op if not running or an attempt is already in flight. */
   pollNow(): void;
-  /**
-   * Re-arm the pending wait using a freshly resolved `intervalMs`, without
-   * running an attempt. Use this when `intervalMs` is a function whose
-   * result can change externally (e.g. tab visibility) — otherwise a
-   * change only takes effect the next time an attempt completes. No-op if
-   * there's no pending wait (not running, or an attempt is in flight).
-   */
   reschedule(): void;
   readonly isRunning: boolean;
 }
@@ -103,11 +68,6 @@ export function createPollEngine(
   async function tick(gen: number): Promise<void> {
     if (gen !== generation || !running) return;
     if (inFlight) {
-      // An attempt from a superseded generation is still settling — stop()
-      // aborted it but the caller has not returned yet. Its own `finally`
-      // sees a stale generation and will not reschedule, so re-arming here
-      // is what keeps a stop()/start() cycle (tab hidden then visible) from
-      // leaving the engine alive-but-timerless, i.e. permanently dead.
       schedule(gen);
       return;
     }

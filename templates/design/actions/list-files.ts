@@ -1,10 +1,10 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
 export default defineAction({
   description:
@@ -16,10 +16,9 @@ export default defineAction({
   capabilityScopes: ["visual-edit"],
   http: { method: "GET" },
   run: async ({ designId }) => {
-    // Verify access to the parent design
     const access = await resolveAccess("design", designId);
     if (!access) {
-      throw new Error("Design not found");
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
     }
 
     const db = getDb();

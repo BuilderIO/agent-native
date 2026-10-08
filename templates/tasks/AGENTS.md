@@ -4,12 +4,21 @@ Tasks is a task-list-first agent-native app: the task list at `/tasks` is home, 
 
 ## Skills
 
-Read the matching skill before acting. This file is the always-on layer; the skills hold the detail it no longer repeats.
+Read relevant guides before deeper work:
+- `.agents/skills/task-inbox-workflow/SKILL.md` — for capture, selection, reordering, and deletion.
+- `.agents/skills/custom-fields/SKILL.md` — for field definitions and visibility.
+- `.agents/skills/action-reference/SKILL.md` — for action methods, arguments, and defaults.
 
-- `task-inbox-workflow` — capture, `view-screen` context and selection, the inline task widget, reordering, deletes, the task-detail extension slot.
-- `custom-fields` — field definitions, types and config, per-task values, task-card visibility.
-- `action-reference` — the full action table with HTTP methods, arguments, and defaults.
-- `capture-learnings` — record a user preference or correction so it outlives the thread.
+`.agents/skills/actions/SKILL.md`, `.agents/skills/adding-a-feature/SKILL.md`, `.agents/skills/storing-data/SKILL.md`, `.agents/skills/security/SKILL.md`,
+`.agents/skills/secrets/SKILL.md`, `.agents/skills/sharing/SKILL.md`, `.agents/skills/frontend-design/SKILL.md`, `.agents/skills/shadcn-ui/SKILL.md`,
+`.agents/skills/real-time-sync/SKILL.md`, `.agents/skills/context-awareness/SKILL.md`, `.agents/skills/delegate-to-agent/SKILL.md`, `.agents/skills/agent-native-docs/SKILL.md`,
+`.agents/skills/agent-native-toolkit/SKILL.md`, `.agents/skills/customizing-agent-native/SKILL.md`, `.agents/skills/client-side-routing/SKILL.md`, `.agents/skills/reliable-mutations/SKILL.md`,
+`.agents/skills/performance/SKILL.md`, `.agents/skills/external-agents/SKILL.md`, `.agents/skills/portability/SKILL.md`, `.agents/skills/self-modifying-code/SKILL.md`,
+`.agents/skills/turn-into-skill/SKILL.md`, `.agents/skills/workspace-conventions/SKILL.md`.
+
+## Framework Docs
+
+Use local framework docs, not web research: `pnpm action docs-search --query "<topic>"` searches; `pnpm action docs-search --slug "<slug>"` reads a page.
 
 ## Core Rules
 
@@ -41,7 +50,7 @@ Default navigation shape on `/tasks`:
 - `includeDone` mirrors the task-list filter toggle (incomplete only vs show all).
 - `taskId` highlights a row when opened from a deep link; MVP has no detail page.
 - `fieldId` highlights a custom field when opened from a deep link; the Fields page manages definitions.
-- Chat lives at `/chat`. The public root `/` is the SSR marketing page, while
+- Chat lives at `/chat`. The public root `/` redirects to shared sign-in/signup, while
   private app entry `/home` redirects to `/tasks`.
 
 ## Actions
@@ -53,6 +62,8 @@ Methods, arguments, and defaults are in the `action-reference` skill.
 | `list-tasks` | List the user's tasks |
 | `create-task` | Create a task |
 | `update-task` | Patch title, done, or field values |
+| `suggest-task-route` | Suggest a queue and urgency for one task without changing it |
+| `apply-task-route` | Apply an accepted queue, creating the Queue field on first use |
 | `delete-task` | Delete a task |
 | `bulk-update-tasks` | Patch title or done on many tasks |
 | `bulk-delete-tasks` | Delete many tasks |
@@ -78,5 +89,6 @@ Methods, arguments, and defaults are in the `action-reference` skill.
 
 ## Source Changes
 
-Before building common workspace or agent UI, read `agent-native-toolkit`; read
-`customizing-agent-native` before adapting shared UI.
+Before building common workspace or agent UI, read `agent-native-toolkit`; read `customizing-agent-native` before adapting shared UI.
+
+Search with `rg --hidden --follow`; read the exact linked guide before deeper work.

@@ -1,36 +1,225 @@
 ---
 title: "Deno Deploy"
-description: "Deploy an Agent-Native app to Deno Deploy with Nitro's deno-deploy preset."
-search: "Deno Deploy deployment Nitro preset serverless"
+description: "Deploy a standalone Agent-Native app to Deno Deploy with the deno deploy CLI."
+search: "Deno Deploy deployment standalone app Nitro deno_deploy preset deno deploy CLI Deno.serve production migrate build deploy"
 ---
 
 # Deno Deploy
 
-Use Nitro's `deno-deploy` preset to generate a Deno-compatible server output.
-Keep application data in a persistent PostgreSQL database because a deployment
-filesystem is not durable application storage.
+<Badge label="Beta" color="orange" icon="rocket" />
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "deno-deploy" } })],
-});
-```
+Deno Deploy runs your app on Deno's global network, so there is no server to set
+up or keep running. The build turns the app into a single Deno server that
+handles the app's pages and API, and Deno Deploy gives the app a public address
+with HTTPS.
 
-Build the deployment output:
+This guide walks through deploying one standalone app from scratch. You will
+create the app, give it a production database and an auth secret, prepare the
+database, build it for Deno, and then upload the finished build with the
+`deno deploy` command.
+
+<Callout tone="info">
+
+Node.js `22.22+` is required.
+
+</Callout>
+
+You also need a Deno Deploy account and [Deno](https://docs.deno.com/runtime/getting_started/installation/)
+installed on your computer. Run the commands in this guide on your own computer.
+You build the app with Node.js, and the `deno deploy` command uploads the
+finished build to Deno Deploy.
+
+## Step 1: Create the app
+
+Create your new standalone app. The example below creates an app from the Chat
+template, but you can start from any template. Move into the app's folder and
+install its dependencies. `corepack enable` turns on the `pnpm` version the app
+expects, so you do not need to install `pnpm` yourself.
 
 ```bash
-npx @agent-native/core@latest build
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
 ```
 
-Publish the generated output with Deno Deploy's current CLI or dashboard.
-Configure `DATABASE_URL`, `BETTER_AUTH_SECRET`, and any app secrets in the
-deployment environment.
+Replace `my-app` with your own app name if you like. The rest of this guide
+assumes you are inside the app's folder.
 
-See [Nitro's Deno Deploy provider guide](https://nitro.build/deploy/providers/deno-deploy)
-for the current provider workflow.
+<Callout tone="info">
+
+If these commands fail with peer dependency errors, an outdated copy of a
+package in your npx cache may be the cause. Run `npx clear-npx-cache` to clear
+the cache, then run the commands again.
+
+</Callout>
+
+## Step 2: Configure environment secrets
+
+The app reads its production settings from environment variables:
+
+| Variable             | Required | Purpose                                              |
+| -------------------- | -------- | ---------------------------------------------------- |
+| `DATABASE_URL`       | Yes      | Connects the app to its PostgreSQL database          |
+| `BETTER_AUTH_SECRET` | Yes      | Signs user sessions                                  |
+| `BETTER_AUTH_URL`    | No       | Sets the public address people use to reach your app |
+
+The exports below make the following commands work in this shell. Before
+deploying, save these same variables in your host's project or service
+environment settings. Step 5 shows how to save them in Deno Deploy.
+
+### Database URL
+
+During local development the app stores data in a local database when
+`DATABASE_URL` is unset. A deployed app needs a real PostgreSQL database that
+keeps its data between deploys. Deno Deploy does not keep files between
+requests, so the database must live outside Deno Deploy. Copy the connection
+string from your provider and export it:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+The [database provider guides](/docs/neon) show where to find the connection
+string for each provider.
+
+<Callout tone="warning">
+
+Select a persistent PostgreSQL provider: Neon, Supabase, Amazon RDS, etc.
+
+</Callout>
+
+### Auth secret
+
+Generate this once and keep it stable across deploys.
+
+The app uses `BETTER_AUTH_SECRET` to sign user sessions. If it changes, every
+signed-in user is signed out. The command below generates a random value:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Save the generated value somewhere safe, such as a password manager. Use the
+same value every time you deploy.
+
+### Public URL
+
+Optional. Set it when using a custom domain, reverse proxy, or an auth/OAuth flow
+that needs a fixed public origin.
+
+`BETTER_AUTH_URL` is the public address people use to reach your app. Without
+it, the app works out its address from each incoming request. That is usually
+fine on the address Deno Deploy gives you, but set it when you connect a custom
+domain so sign-in links and OAuth redirects use that domain.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Step 3: Migrate
+
+Migrations create and update the tables the app needs in your database. Run
+this before the first deploy:
+
+```bash
+pnpm migrate:production
+```
+
+The command runs on your computer and connects to the production database with
+the `DATABASE_URL` you exported in Step 2. Run it again after you upgrade the
+app, before you deploy the new version.
+
+## Step 4: Build
+
+Build the app for Deno Deploy:
+
+```bash
+NITRO_PRESET=deno_deploy pnpm build
+```
+
+`NITRO_PRESET=deno_deploy` builds the app as a Deno server that uses
+`Deno.serve()`, which Deno Deploy requires. The build writes the server to
+`.output/server/index.ts` and the static files to `.output/public`. It bundles
+the app's dependencies into the server, so the `.output` folder runs on its own
+without installing anything.
+
+## Step 5: Create the app on Deno Deploy and save the secrets
+
+Move into the build output, then create the app on Deno Deploy from that folder:
+
+```bash
+cd .output
+
+deno deploy create --source local --runtime-mode dynamic --entrypoint server/index.ts
+```
+
+The command opens an interactive setup that signs you in, asks which
+organization to use, and asks for the app's name. `--source local` uploads the
+current folder instead of building from GitHub. `--runtime-mode dynamic` and
+`--entrypoint server/index.ts` tell Deno Deploy to run the server from Step 4.
+There is no build step to configure, because you already built the app.
+
+Save the two required variables as secrets on the app:
+
+```bash
+deno deploy env add DATABASE_URL "$DATABASE_URL" --secret
+
+deno deploy env add BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET" --secret
+```
+
+Each command reads the value you exported in Step 2 and saves it in Deno
+Deploy, so you do not have to paste secrets by hand. `--secret` marks each
+value as a secret. If you set `BETTER_AUTH_URL`, save it the
+same way. You can also see and change these values later in the app's settings
+on the Deno Deploy dashboard.
+
+## Step 6: Deploy
+
+<Steps>
+
+### Deploy to production
+
+From the `.output` folder, publish the build to your production address:
+
+```bash
+deno deploy --prod
+```
+
+Deploying again after you save the secrets makes sure the running app has
+them.
+
+### Open the app
+
+When the command finishes, it prints the app's address, which looks like
+`my-app.your-org.deno.net`. Open it and create the first account.
+
+</Steps>
+
+## Deploy updates
+
+To ship a new version, run the migrations, build again, and deploy from the
+`.output` folder:
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=deno_deploy pnpm build
+
+cd .output
+
+deno deploy --prod --org your-org --app my-app
+```
+
+Each build replaces the `.output` folder, so pass the organization and app
+names with `--org` and `--app`. The saved secrets stay on the app, so you do not
+need to repeat Step 5.
 
 ## What's next
 
-- [**Deploy an app**](/docs/deploy-an-app) - the complete app path
-- [**Deployment environment variables**](/docs/deployment-environment-variables) - production configuration
-- [**AWS Lambda**](/docs/aws-lambda) - another serverless runtime
+- [**Node.js**](/docs/node-js) - run the app on a machine you manage
+- [**Deployment Environment Variables**](/docs/deployment-environment-variables) - the full list of production settings
+- [**Deployment**](/docs/deployment) - compare hosting targets and prerequisites

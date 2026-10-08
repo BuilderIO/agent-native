@@ -1,3 +1,4 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   useActionMutation,
   useActionQuery,
@@ -7,6 +8,7 @@ import {
   contentRecentHref,
   contentRecentTargetKey,
   defaultContentSidebarSections,
+  type ContentRecentResult,
   type ContentSidebarSections,
   type ContentSidebarSectionId,
 } from "@shared/content-personal-navigation";
@@ -40,8 +42,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Skeleton } from "@/components/ui/skeleton";
-import { useContentRecent } from "@/hooks/use-content-recent";
+import {
+  setCachedRecentPinnedState,
+  useContentRecent,
+  useRemoveContentRecent,
+} from "@/hooks/use-content-recent";
+import {
+  SIDEBAR_SECTION_ROW_LIMIT,
+  sectionRowsHint,
+  type SidebarLayoutHint,
+} from "@/lib/sidebar-layout-hint";
+import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
 import { contentSpaceActionArgs } from "./select-content-space";
@@ -50,30 +61,123 @@ import {
   useSidebarReorderItem,
   type SidebarReorderLabels,
 } from "./sidebar-reorder";
-import { SidebarNavigationRow } from "./SidebarNavigationRow";
+import {
+  SidebarNavigationRow,
+  SidebarRowsSkeleton,
+  sidebarShowMoreClassName,
+} from "./SidebarNavigationRow";
+import {
+  SidebarPageMenu,
+  SidebarRowActions,
+  sidebarPageLinks,
+  sidebarRowTitleFadeClassName,
+} from "./SidebarRowActions";
 
+function RecentSidebarRow({
+  entry,
+  active,
+  onNavigate,
+  onToggleFavorite,
+  onRemove,
+}: {
+  entry: ContentRecentResult;
+  active: boolean;
+  onNavigate?: () => void;
+  onToggleFavorite?: (documentId: string, isFavorite: boolean) => void;
+  onRemove: (target: ContentRecentResult["target"]) => void;
+}) {
+  const t = useT();
+  const title = entry.title || t("sidebar.untitled");
+  const pinned = entry.isFavorite;
+  return (
+    <div className="group relative min-w-0">
+      <SidebarNavigationRow
+        to={contentRecentHref(entry.target)}
+        icon={entry.icon}
+        active={active}
+        onClick={onNavigate}
+        title={entry.viewName ? `${title} · ${entry.viewName}` : title}
+        className={cn(!active && "group-hover:bg-sidebar-accent/60")}
+      >
+        <span
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-1.5",
+            sidebarRowTitleFadeClassName(1),
+          )}
+        >
+          <span className="min-w-0 flex-1 truncate">{title}</span>
+          {entry.viewName && (
+            <span className="truncate text-muted-foreground">
+              {entry.viewName}
+            </span>
+          )}
+        </span>
+      </SidebarNavigationRow>
+      <SidebarRowActions>
+        <SidebarPageMenu
+          documentId={entry.target.documentId}
+          title={title}
+          href={appPath(contentRecentHref(entry.target))}
+          shareLink={
+            sidebarPageLinks(entry.target.documentId, {
+              localFile:
+                entry.target.documentId.startsWith("local-file:") ||
+                entry.target.documentId.startsWith("local-folder:"),
+            }).shareLink
+          }
+          pinned={pinned}
+          onTogglePin={
+            onToggleFavorite && pinned !== undefined
+              ? () => onToggleFavorite(entry.target.documentId, !pinned)
+              : undefined
+          }
+          onRemoveFromRecent={() => onRemove(entry.target)}
+        />
+      </SidebarRowActions>
+    </div>
+  );
+}
+
+// Sections draw from the first frame. Until the saved settings, Pinned, and
+// Recent arrive, each section holds the size this browser last drew for it, so
+// whichever read lands first fills its own section without moving the rest.
 export function PersonalSidebarSections({
   renderPinned,
   pinnedCount,
   renderFiles,
   spaceId,
+  activeDocumentId,
   onNavigate,
+  onToggleFavorite,
   reorderLabels,
   seeAllHrefs,
+  layoutHint,
+  onLayoutShown,
 }: {
   renderPinned: (limit: number) => ReactNode;
-  pinnedCount: number;
+  /** Null until Pinned has loaded. */
+  pinnedCount: number | null;
   renderFiles: () => ReactNode;
-  spaceId: string;
+  /** Null until the spaces arrive. */
+  spaceId: string | null;
+  activeDocumentId?: string | null;
   onNavigate?: () => void;
+  onToggleFavorite?: (documentId: string, isFavorite: boolean) => void;
   reorderLabels: SidebarReorderLabels;
-  seeAllHrefs: Record<ContentSidebarSectionId, string>;
+  seeAllHrefs: Record<ContentSidebarSectionId, string> | null;
+  layoutHint: SidebarLayoutHint;
+  onLayoutShown: (shown: SidebarLayoutHint) => void;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
   const stateArgs = contentSpaceActionArgs(spaceId);
-  const state = useActionQuery("get-content-sidebar-state", stateArgs);
-  const recent = useContentRecent(spaceId);
+  const state = useActionQuery("get-content-sidebar-state", stateArgs, {
+    enabled: Boolean(stateArgs),
+  });
+  const recent = useContentRecent(spaceId ?? undefined, {
+    enabled: Boolean(spaceId),
+  });
+  const removeRecent = useRemoveContentRecent();
   const update = useActionMutation("update-content-sidebar-state", {
     skipActionQueryInvalidation: true,
   });
@@ -82,13 +186,48 @@ export function PersonalSidebarSections({
   );
   const pendingBySpace = useRef(new Map<string, number>());
   const queueBySpace = useRef(new Map<string, Promise<unknown>>());
-  const [limits, setLimits] = useState({ pinned: 5, recent: 5 });
-  useEffect(() => setLimits({ pinned: 5, recent: 5 }), [spaceId]);
+  const [limits, setLimits] = useState({
+    pinned: SIDEBAR_SECTION_ROW_LIMIT,
+    recent: SIDEBAR_SECTION_ROW_LIMIT,
+  });
+  useEffect(
+    () =>
+      setLimits({
+        pinned: SIDEBAR_SECTION_ROW_LIMIT,
+        recent: SIDEBAR_SECTION_ROW_LIMIT,
+      }),
+    [spaceId],
+  );
+  const savedSections = state.data
+    ? (state.data.state?.sections ?? defaultContentSidebarSections())
+    : undefined;
   const sections =
-    optimisticBySpace.get(spaceId) ??
-    state.data?.state?.sections ??
+    (spaceId ? optimisticBySpace.get(spaceId) : undefined) ??
+    savedSections ??
+    layoutHint.sections ??
     defaultContentSidebarSections();
+  const recentCount = recent.data?.entries.length;
+  const savedSectionsKey = savedSections ? JSON.stringify(savedSections) : null;
+  useEffect(() => {
+    if (savedSections) onLayoutShown({ sections: savedSections });
+    // The key changes exactly when the saved sections do.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedSectionsKey]);
+  useEffect(() => {
+    if (pinnedCount !== null) {
+      onLayoutShown({ pinned: sectionRowsHint(pinnedCount) });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinnedCount]);
+  useEffect(() => {
+    if (recentCount !== undefined) {
+      onLayoutShown({ recent: sectionRowsHint(recentCount) });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recentCount]);
   function save(next: ContentSidebarSections) {
+    if (!spaceId) return;
+    onLayoutShown({ sections: next });
     const targetSpaceId = spaceId;
     const targetStateKey = [
       "action",
@@ -134,7 +273,6 @@ export function PersonalSidebarSections({
         }
       });
     queueBySpace.current.set(targetSpaceId, queued);
-    // The error is displayed above; keep the queue usable for a later explicit change.
     void queued.catch(() => undefined);
   }
   function change(
@@ -149,22 +287,23 @@ export function PersonalSidebarSections({
     files: t("sidebar.files"),
   };
   function canShowMore(id: "pinned" | "recent") {
-    const count =
-      id === "pinned" ? pinnedCount : (recent.data?.entries.length ?? 0);
+    const count = id === "pinned" ? (pinnedCount ?? 0) : (recentCount ?? 0);
     if (limits[id] >= 50) return false;
     return count > limits[id];
+  }
+  // Until a section's rows load it holds what it last drew: its rows, its
+  // "Show more" row, or Recent's one-line empty note.
+  function sectionPlaceholder(id: "pinned" | "recent") {
+    const hint = layoutHint[id];
+    if (id === "recent" && hint?.rows === 0) {
+      return <div aria-hidden="true" className="h-6" />;
+    }
+    return <SidebarRowsSkeleton rows={hint?.rows ?? 3} more={hint?.more} />;
   }
   if (state.isError)
     return (
       <>
         <QueryErrorState compact onRetry={() => void state.refetch()} />
-        {renderFiles()}
-      </>
-    );
-  if (state.isLoading)
-    return (
-      <>
-        <Skeleton className="mx-3 my-2 h-7" />
         {renderFiles()}
       </>
     );
@@ -192,7 +331,7 @@ export function PersonalSidebarSections({
                 change("files", { expanded: !sections.files.expanded })
               }
               reorderLabels={reorderLabels}
-              seeAllHref={seeAllHrefs[id]}
+              seeAllHref={seeAllHrefs?.[id]}
               sections={sections}
               labels={labels}
               onChangeVisible={(sectionId, visible) =>
@@ -214,7 +353,7 @@ export function PersonalSidebarSections({
                 change(id, { expanded: !sections[id].expanded });
               }}
               reorderLabels={reorderLabels}
-              seeAllHref={seeAllHrefs[id]}
+              seeAllHref={seeAllHrefs?.[id]}
               sections={sections}
               labels={labels}
               onChangeVisible={(sectionId, visible) =>
@@ -224,43 +363,49 @@ export function PersonalSidebarSections({
               {sections[id].expanded && (
                 <>
                   {id === "pinned" ? (
-                    renderPinned(limits.pinned)
+                    pinnedCount === null ? (
+                      sectionPlaceholder("pinned")
+                    ) : (
+                      renderPinned(limits.pinned)
+                    )
                   ) : recent.isError ? (
                     <QueryErrorState
                       compact
                       onRetry={() => void recent.refetch()}
                       retrying={recent.isFetching}
                     />
-                  ) : recent.isLoading ? (
-                    <Skeleton className="mx-2 h-20" />
+                  ) : recentCount === undefined ? (
+                    sectionPlaceholder("recent")
                   ) : recent.data?.entries.length ? (
                     <nav
                       aria-label={labels.recent}
-                      className="grid min-w-0 gap-1 overflow-x-hidden py-1 ps-1"
+                      className="grid min-w-0 gap-0.5 overflow-x-hidden py-1 ps-1"
                     >
                       {recent.data.entries
                         .slice(0, limits.recent)
                         .map((entry) => (
-                          <SidebarNavigationRow
+                          <RecentSidebarRow
                             key={contentRecentTargetKey(entry.target)}
-                            to={contentRecentHref(entry.target)}
-                            icon={entry.icon}
-                            onClick={onNavigate}
-                            title={
-                              entry.viewName
-                                ? `${entry.title} · ${entry.viewName}`
-                                : entry.title
+                            entry={entry}
+                            active={
+                              !!activeDocumentId &&
+                              entry.target.documentId === activeDocumentId
                             }
-                          >
-                            <span className="min-w-0 flex-1 truncate">
-                              {entry.title || t("sidebar.untitled")}
-                            </span>
-                            {entry.viewName && (
-                              <span className="truncate text-muted-foreground">
-                                {entry.viewName}
-                              </span>
-                            )}
-                          </SidebarNavigationRow>
+                            onNavigate={onNavigate}
+                            onToggleFavorite={
+                              onToggleFavorite
+                                ? (documentId, isFavorite) => {
+                                    setCachedRecentPinnedState(
+                                      queryClient,
+                                      documentId,
+                                      isFavorite,
+                                    );
+                                    onToggleFavorite(documentId, isFavorite);
+                                  }
+                                : undefined
+                            }
+                            onRemove={removeRecent}
+                          />
                         ))}
                     </nav>
                   ) : (
@@ -272,7 +417,10 @@ export function PersonalSidebarSections({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="grid min-h-[38px] w-full grid-cols-[2.375rem_minmax(0,1fr)] items-center gap-1.5 rounded p-0 pe-1.5 text-start text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                      className={cn(
+                        sidebarShowMoreClassName,
+                        "grid-cols-[0.25rem_1.75rem_minmax(0,1fr)]",
+                      )}
                       onClick={() =>
                         setLimits((current) => ({
                           ...current,
@@ -282,9 +430,9 @@ export function PersonalSidebarSections({
                     >
                       <IconChevronDown
                         aria-hidden="true"
-                        className="size-3.5 justify-self-center"
+                        className="col-start-2 size-3.5 justify-self-center"
                       />
-                      <span className="min-w-0 truncate">
+                      <span className="min-w-0 truncate ps-1.5">
                         {t("sidebar.showMore")}
                       </span>
                     </Button>
@@ -292,16 +440,19 @@ export function PersonalSidebarSections({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="grid min-h-[38px] w-full grid-cols-[2.375rem_minmax(0,1fr)] items-center gap-1.5 rounded p-0 pe-1.5 text-start text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                      className={cn(
+                        sidebarShowMoreClassName,
+                        "grid-cols-[0.25rem_1.75rem_minmax(0,1fr)]",
+                      )}
                       onClick={() =>
                         setLimits((current) => ({ ...current, [id]: 5 }))
                       }
                     >
                       <IconChevronDown
                         aria-hidden="true"
-                        className="size-3.5 rotate-180 justify-self-center"
+                        className="col-start-2 size-3.5 rotate-180 justify-self-center"
                       />
-                      <span className="min-w-0 truncate">
+                      <span className="min-w-0 truncate ps-1.5">
                         {t("sidebar.showLess")}
                       </span>
                     </Button>
@@ -333,7 +484,7 @@ function PersonalSection({
   expanded?: boolean;
   onToggle?: () => void;
   reorderLabels: SidebarReorderLabels;
-  seeAllHref: string;
+  seeAllHref: string | undefined;
   sections: ContentSidebarSections;
   labels: Record<ContentSidebarSectionId, string>;
   onChangeVisible: (id: "pinned" | "recent", visible: boolean) => void;
@@ -353,9 +504,12 @@ function PersonalSection({
       ref={reorder.setNodeRef}
       style={reorder.style}
       data-sidebar-reorder-item-id={reorder.itemId}
-      className="mb-2 min-w-0 px-2"
+      className="mb-4 min-w-0 px-2"
     >
-      <div className="grid h-7 min-w-0 grid-cols-[minmax(0,1fr)_1.75rem] items-center gap-1">
+      <div
+        {...startupAnchor(`sidebar-section-${id}`)}
+        className="group/section-header grid h-7 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1"
+      >
         {onToggle && (
           <button
             type="button"
@@ -365,7 +519,7 @@ function PersonalSection({
             onPointerDown={pointerDragListener}
             onClick={onToggle}
             className={cn(
-              "group/toggle grid min-w-0 touch-none select-none grid-cols-[1.75rem_minmax(0,1fr)] items-center rounded text-start text-xs font-medium text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
+              "group/toggle grid min-w-0 touch-none select-none grid-cols-[1.75rem_minmax(0,1fr)] items-center rounded text-start text-xs font-medium text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
               reorder.isDragging && "cursor-grabbing",
             )}
           >
@@ -383,54 +537,65 @@ function PersonalSection({
             <span className="min-w-0 flex-1 truncate">{label}</span>
           </button>
         )}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7 text-muted-foreground hover:text-foreground focus-visible:text-foreground"
-              aria-label={t("sidebar.customizeSidebar")}
-            >
-              <IconDots className="size-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem asChild>
-              <Link to={seeAllHref}>{t("sidebar.seeAll")}</Link>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem
-                disabled={reorder.siblingIndex === 0}
-                onSelect={reorder.moveUp}
-              >
-                {reorderLabels.moveUp}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={reorder.siblingIndex === reorder.siblings.length - 1}
-                onSelect={reorder.moveDown}
-              >
-                {reorderLabels.moveDown}
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            {/* Every section menu carries the visibility toggles, so a hidden
-                section stays restorable from the sections that remain. */}
-            <DropdownMenuGroup>
-              {(["pinned", "recent"] as const).map((sectionId) => (
-                <DropdownMenuCheckboxItem
-                  key={sectionId}
-                  checked={sections[sectionId].visible}
-                  onCheckedChange={(visible) =>
-                    onChangeVisible(sectionId, visible)
-                  }
+        <div className="flex items-center gap-0.5">
+          {/* The section menu stays quiet until the header is hovered or
+              focused; devices without hover always show it. */}
+          <div className="flex has-[[data-state=open]]:opacity-100 group-hover/section-header:opacity-100 group-focus-within/section-header:opacity-100 [@media(hover:hover)]:opacity-0">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-muted-foreground hover:text-foreground focus-visible:text-foreground"
+                  aria-label={t("sidebar.customizeSidebar")}
+                  disabled={!seeAllHref}
                 >
-                  {labels[sectionId]}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+                  <IconDots className="size-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {seeAllHref ? (
+                  <DropdownMenuItem asChild>
+                    <Link to={seeAllHref}>{t("sidebar.seeAll")}</Link>
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  <DropdownMenuItem
+                    disabled={reorder.siblingIndex === 0}
+                    onSelect={reorder.moveUp}
+                  >
+                    {reorderLabels.moveUp}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={
+                      reorder.siblingIndex === reorder.siblings.length - 1
+                    }
+                    onSelect={reorder.moveDown}
+                  >
+                    {reorderLabels.moveDown}
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                {/* Every section menu carries the visibility toggles, so a hidden
+                section stays restorable from the sections that remain. */}
+                <DropdownMenuGroup>
+                  {(["pinned", "recent"] as const).map((sectionId) => (
+                    <DropdownMenuCheckboxItem
+                      key={sectionId}
+                      checked={sections[sectionId].visible}
+                      onCheckedChange={(visible) =>
+                        onChangeVisible(sectionId, visible)
+                      }
+                    >
+                      {labels[sectionId]}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
       </div>
       {children}
     </section>

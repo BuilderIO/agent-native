@@ -281,12 +281,6 @@ describe("DrawOverlay pointer gesture robustness", () => {
   });
 
   it("preserves a completed stroke across a hide/show that has no clearSignal bump", async () => {
-    // Regression test: `visible` toggling off must NOT discard already-
-    // committed annotations. Only switching tools/views/panels (which flips
-    // `drawMode` without the caller treating it as a deliberate discard)
-    // should behave this way — the strokes survive so the user can re-enter
-    // Annotate and still send what they drew. Text mode itself still resets
-    // since that's transient tool-selection state, not committed content.
     const onSend = vi.fn();
     const rendered = await renderOverlay(onSend);
     cleanup = rendered.cleanup;
@@ -377,8 +371,6 @@ describe("DrawOverlay pointer gesture robustness", () => {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
 
-    // Hide without ever clicking Send or blurring the input — e.g. the user
-    // switched tools mid-label.
     await rendered.rerender(false);
     await rendered.rerender(true);
 
@@ -410,8 +402,6 @@ describe("DrawOverlay pointer gesture robustness", () => {
         ?.disabled,
     ).toBe(false);
 
-    // Same transition a real "X" close or confirmed-send exit performs: hide
-    // AND bump clearSignal together.
     await rendered.rerender(false, false, 1);
     await rendered.rerender(true, false, 1);
 
@@ -520,10 +510,6 @@ describe("DrawOverlay pointer gesture robustness", () => {
       firstInput.dispatchEvent(new Event("input", { bubbles: true }));
     });
 
-    // Click a second spot before the first label's blur has a chance to run
-    // (mirrors a real browser, where pointerdown on the canvas fires before
-    // the outgoing input's native blur). Without committing the outgoing box
-    // first, this used to silently discard "First label".
     await act(async () => {
       rendered.canvas.dispatchEvent(pointerEvent("pointerdown", 120, 60));
     });

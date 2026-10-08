@@ -47,13 +47,14 @@ describe("tracking registry", () => {
       await runWithRequestContext(
         {
           userEmail: "alice@example.com",
+          authUserId: "better-auth-user-1",
           browserSessionId: "session-1",
           clientPlatform: "electron",
         },
         () => {
           track(
             "project_created",
-            { template: "blank" },
+            { template: "blank", auth_user_id: "client-spoof" },
             { caller: "frontend", userEmail: "alice@example.com" },
           );
         },
@@ -73,10 +74,133 @@ describe("tracking registry", () => {
       sessionId: "session-1",
       properties: {
         template: "blank",
+        auth_user_id: "better-auth-user-1",
         deployment_environment: "local",
         client_platform: "electron",
       },
     });
+  });
+
+  it("does not attach the ambient session to a mismatched action caller", async () => {
+    const events = captureEvents();
+
+    await runWithRequestContext(
+      {
+        userEmail: "alice@example.com",
+        authUserId: "better-auth-user-1",
+        browserSessionId: "session-1",
+      },
+      () =>
+        track(
+          "background_action",
+          {},
+          {
+            caller: "agent",
+            userEmail: "bob@example.com",
+          },
+        ),
+    );
+
+    expect(events[0]).toMatchObject({ userId: "bob@example.com" });
+    expect(events[0]?.sessionId).toBeUndefined();
+    expect(events[0]?.properties).not.toHaveProperty("auth_user_id");
+  });
+
+  it("joins explicit user sources to matching ambient authenticated identity", async () => {
+    const events = captureEvents();
+
+    await runWithRequestContext(
+      {
+        userEmail: "alice@example.com",
+        authUserId: "better-auth-user-1",
+        browserSessionId: "session-1",
+      },
+      () => {
+        track(
+          "recording_ready",
+          { recording_attempt_id: "recording-1" },
+          { userId: "alice@example.com" },
+        );
+        track("background_event", undefined, {
+          userId: "different@example.com",
+        });
+      },
+    );
+
+    expect(events[0]).toMatchObject({
+      userId: "alice@example.com",
+      sessionId: "session-1",
+      properties: {
+        auth_user_id: "better-auth-user-1",
+        recording_attempt_id: "recording-1",
+      },
+    });
+    expect(events[1]).toMatchObject({ userId: "different@example.com" });
+    expect(events[1]?.sessionId).toBeUndefined();
+    expect(events[1]?.properties).not.toHaveProperty("auth_user_id");
+  });
+
+  it("does not attach ambient identity or session to explicit anonymous events", async () => {
+    const events = captureEvents();
+
+    await runWithRequestContext(
+      {
+        userEmail: "alice@example.com",
+        authUserId: "better-auth-user-1",
+        browserSessionId: "session-1",
+      },
+      () => track("anonymous_event", {}, { anonymousId: "visitor-1" }),
+    );
+
+    expect(events[0]).toMatchObject({ anonymousId: "visitor-1" });
+    expect(events[0]?.userId).toBeUndefined();
+    expect(events[0]?.sessionId).toBeUndefined();
+    expect(events[0]?.properties).not.toHaveProperty("auth_user_id");
+  });
+
+  it("does not attach an ambient session to a conflicting explicit auth ID", async () => {
+    const events = captureEvents();
+
+    await runWithRequestContext(
+      {
+        userEmail: "alice@example.com",
+        authUserId: "better-auth-user-1",
+        browserSessionId: "session-1",
+      },
+      () => track("explicit_auth_event", {}, { authUserId: "other-auth-user" }),
+    );
+
+    expect(events[0]?.properties?.auth_user_id).toBe("other-auth-user");
+    expect(events[0]?.sessionId).toBeUndefined();
+  });
+
+  it("removes auth_user_id when no verified identity is available", () => {
+    const events = captureEvents();
+
+    track(
+      "client_event",
+      { auth_user_id: "client-spoof", authUserId: "camel-case-spoof" },
+      { userId: "alice@example.com", telemetryOrigin: "client" },
+    );
+
+    expect(events[0]?.properties).not.toHaveProperty("auth_user_id");
+    expect(events[0]?.properties).not.toHaveProperty("authUserId");
+  });
+
+  it("overwrites a client auth_user_id with authenticated tracking metadata", () => {
+    const events = captureEvents();
+
+    track(
+      "client_event",
+      { auth_user_id: "client-spoof" },
+      {
+        userId: "alice@example.com",
+        authUserId: "better-auth-user-1",
+        telemetryOrigin: "client",
+      },
+    );
+
+    expect(events[0]?.properties?.auth_user_id).toBe("better-auth-user-1");
   });
 
   it("keeps the browser session for callers that pass no source at all", async () => {
@@ -195,6 +319,54 @@ describe("tracking registry", () => {
     });
 
     expect(events).toEqual([]);
+  });
+
+  it("suppresses reserved-domain and deployment-declared test identities", async () => {
+    const events = captureEvents();
+    vi.stubEnv("AGENT_NATIVE_TEST_IDENTITY_EMAILS", "qa-lead@builder.io");
+    try {
+      track("signup", undefined, { userId: "qa-owner@example.test" });
+      track("signup", undefined, { userId: "qa-lead@builder.io" });
+      await runWithRequestContext({ userEmail: "qa-lead@builder.io" }, () => {
+        track("ambient_event");
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    expect(events).toEqual([]);
+    expect(mockQueueTrackingEvent).not.toHaveBeenCalled();
+  });
+
+  it("keeps a test identity's exceptions, flagged, for providers that opt in", async () => {
+    const plain = captureEvents();
+    const firstParty: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-first-party",
+      acceptsTestIdentityExceptions: true,
+      track(event) {
+        firstParty.push(event);
+      },
+    });
+    try {
+      await runWithRequestContext(
+        { userEmail: "qa-owner@example.test" },
+        () => {
+          track("$exception", { exceptionMessage: "boom" });
+          track("page_viewed");
+        },
+      );
+    } finally {
+      unregisterTrackingProvider("qa-first-party");
+    }
+
+    expect(plain).toEqual([]);
+    expect(firstParty.map((event) => event.name)).toEqual(["$exception"]);
+    expect(firstParty[0]?.properties).toMatchObject({
+      test_identity: true,
+      test_identity_email: "qa-owner@example.test",
+    });
+    expect(mockQueueTrackingEvent).not.toHaveBeenCalled();
   });
 
   it("suppresses synthetic browser traffic before providers", async () => {

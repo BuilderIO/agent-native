@@ -93,22 +93,17 @@ describe("FactoryAuditView outcome-first audit", () => {
     expect(source).toContain(
       't("factoryRoute.auditRunDuration", { duration })',
     );
-    // No finishedAt yet (still running): render nothing rather than a bogus duration.
     expect(source).toContain("if (finishedAt == null) return null;");
   });
 
   it("separates the run detail into a plain status/timing line, an Open thread action, and a stats row", () => {
     const source = readViewSource();
-    // The old CardHeader summary (age + formatRunHeadline) is gone; only the
-    // run-list rows still use that combo now.
     expect(
       source.match(/formatAuditAge\(\s*selectedRun\.startedAt/g),
     ).toBeNull();
     expect(
       source.match(/formatRunHeadline\(selectedRun\.counts, t\)/g),
     ).toBeNull();
-    // Row 1: plain text, not chips -- status dot + Began + Prompt version +
-    // Duration joined with a middle dot.
     expect(source).toContain("<AuditStatus status={runHeadlineStatus(run)} />");
     expect(source).toContain('t("factoryRoute.auditRunBegan"');
     expect(source).toContain('t("factoryRoute.auditRunPromptVersion"');
@@ -118,12 +113,10 @@ describe("FactoryAuditView outcome-first audit", () => {
     expect(
       source.indexOf("<AuditStatus status={runHeadlineStatus(run)} />"),
     ).toBeLessThan(source.indexOf('t("factoryRoute.auditOpenThread")'));
-    // Row 2: Open thread button carries a chat icon.
     expect(source).toContain("<IconMessageCircle");
     expect(source.indexOf('t("factoryRoute.auditOpenThread")')).toBeLessThan(
       source.indexOf('t("factoryRoute.auditAdded", { count: added }'),
     );
-    // Row 3: the stats/filter row.
     expect(source).toContain('t("factoryRoute.auditAdded", { count: added }');
     expect(source).toContain(
       't("factoryRoute.auditExamined", { count: listed }',
@@ -148,8 +141,6 @@ describe("FactoryAuditView outcome-first audit", () => {
     );
     expect(source).toContain("tone={outcomeTone(item.outcome)}");
     expect(source).toContain("function outcomeTone(");
-    // Outcome/new-this-run moved to pills, so the hint text no longer repeats
-    // them -- and an empty hint renders nothing instead of an empty line.
     expect(source).not.toContain(
       "const parts = [formatItemOutcome(item.outcome, t)];",
     );
@@ -157,9 +148,6 @@ describe("FactoryAuditView outcome-first audit", () => {
       "const hint = formatItemRowHint(item, t, listedItemIds);",
     );
     expect(source).toContain("{hint ? (");
-    // Same fix as the Examined filter: "seen before" must key off listed-set
-    // membership, not `listedStatus` truthiness, or a legacy null-status item
-    // silently loses its hint even though it really was listed before.
     expect(source).toContain(
       "listedItemIds.has(item.itemId) || item.builderAlreadyStarted",
     );
@@ -177,22 +165,15 @@ describe("FactoryAuditView outcome-first audit", () => {
     expect(source).toContain(
       "const filteredItems = filterAuditItems(allItems, filterKey, listedItemIds);",
     );
-    // No filter key means show everything -- a real narrowing filter, not a
-    // stable partition/sort.
     expect(source).toContain("if (!filterKey) return items;");
     expect(source).toContain(
       "return items.filter((item) => matchesFilter(item, listedItemIds));",
     );
-    // Clicking the active filter again clears it back to "no filter".
     expect(source).toContain(
       "setFilterKey((current) => (current === key ? null : key));",
     );
     expect(source).toContain("function AuditFilterChip(");
     expect(source).toContain("aria-pressed={active}");
-    // Examined is a real, narrower subset -- but membership in the listed
-    // set, not `listedStatus` truthiness: a legacy list event can list an
-    // item with no per-item status, which looks identical to "never listed"
-    // if you only check the field, so the count and the filter would diverge.
     expect(source).toContain(
       "examined: (item, listedItemIds) => listedItemIds.has(item.itemId)",
     );
@@ -214,11 +195,7 @@ describe("FactoryAuditView outcome-first audit", () => {
     expect(source).toContain(
       '<AuditFilterChip\n          active={filterKey === "skipped"}',
     );
-    // A filter that matches nothing gets its own empty state, distinct from
-    // "this run genuinely has no items".
     expect(source).toContain('t("factoryRoute.auditNoItemsMatchFilter")');
-    // Selecting a different run remounts the detail view, resetting the
-    // filter back to "none" instead of carrying it over between runs.
     expect(source).toContain("key={selectedRun.id}");
     expect(source).toContain("{filteredItems.map((item) => (");
   });

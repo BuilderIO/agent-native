@@ -68,12 +68,6 @@ async function readJson(res: APIResponse): Promise<Record<string, unknown>> {
   }
 }
 
-/**
- * Create a fresh plan fixture via the authed action surface; return its id. The
- * shared dev server can HMR/reload mid-request while other agents edit the app
- * (a transient 500), so retry a few times — a fixture hiccup must never read as
- * the render bug under test.
- */
 async function createPlanFixture(
   page: Page,
   content: PlanContentInput,
@@ -105,7 +99,6 @@ async function createPlanFixture(
   return planId as string;
 }
 
-/** Read the current stored blocks for count/type assertions. */
 async function getPlanBlocks(page: Page, planId: string): Promise<PlanBlock[]> {
   const res = await page.request.get(
     `${GET_ACTION}?id=${encodeURIComponent(planId)}`,
@@ -122,7 +115,6 @@ function proseFor(page: Page) {
     .first();
 }
 
-/** Open the plan and wait for the editable single-document surface to be ready. */
 async function openPlanForEditing(page: Page, planId: string) {
   await page.goto(`/plans/${planId}`);
   const prose = proseFor(page);
@@ -133,7 +125,6 @@ async function openPlanForEditing(page: Page, planId: string) {
   return prose;
 }
 
-/** The inline `planBlock` NodeView wrapper for a given stored block id. */
 function blockNode(page: Page, blockId: string) {
   return page
     .locator(
@@ -144,12 +135,6 @@ function blockNode(page: Page, blockId: string) {
 
 const RICH_SEED_ID = "rt-seed";
 
-/**
- * A one-rich-text-block plan plus exactly one dev-doc block. The seed rich-text
- * block keeps the document non-empty (the editor always has a prose run) and gives
- * the persistence check a stable second block, so a fixture with one structured
- * block reads as a 2-block document.
- */
 function devDocContent(opts: {
   title: string;
   block: PlanBlock;
@@ -170,16 +155,6 @@ function devDocContent(opts: {
   };
 }
 
-/**
- * Shared render+persist drive: create a 2-block plan (rich-text seed + the one
- * dev-doc block), open it, assert the block NodeView mounts and carries the given
- * recognizable content, and assert the persisted block list is unchanged (the seed
- * + the dev-doc block both survive — opening never wipes structured blocks).
- *
- * `assertRendered` receives the located NodeView so each block can assert its own
- * distinctive rendered text/markup; it must resolve (await) before we check
- * persistence.
- */
 async function expectRendersAndPersists(
   page: Page,
   opts: {
@@ -196,7 +171,6 @@ async function expectRendersAndPersists(
     devDocContent({ title: uniqueTitle(opts.label), block: opts.block }),
   );
 
-  // Sanity: both blocks persisted at creation (the seed + the dev-doc block).
   const beforeTypes = (await getPlanBlocks(page, planId)).map((b) => b.type);
   expect(
     beforeTypes,
@@ -205,18 +179,14 @@ async function expectRendersAndPersists(
 
   await openPlanForEditing(page, planId);
 
-  // The block's inline NodeView mounts for THIS block id.
   const node = blockNode(page, opts.block.id);
   await expect(
     node,
     `${opts.label}: the planBlock NodeView for "${opts.block.id}" should mount`,
   ).toBeVisible({ timeout: 25_000 });
 
-  // Block-specific recognizable rendered content.
   await opts.assertRendered(node, page);
 
-  // Opening the plan must NOT wipe/drop the structured block: the persisted block
-  // list is unchanged (rich-text seed + the dev-doc block, by id and type).
   await expect
     .poll(async () => (await getPlanBlocks(page, planId)).map((b) => b.type), {
       timeout: 15_000,
@@ -230,7 +200,6 @@ async function expectRendersAndPersists(
 }
 
 test.describe("dev-doc blocks render + persist", () => {
-  // api-endpoint → Swagger-style row: the "GET" method pill + the monospace path.
   test("api-endpoint renders the method + path and persists", async ({
     page,
   }) => {
@@ -246,14 +215,12 @@ test.describe("dev-doc blocks render + persist", () => {
         },
       },
       assertRendered: async (node) => {
-        // The collapsed row shows the method pill ("GET") and the path verbatim.
         await expect(node).toContainText("GET", { timeout: 15_000 });
         await expect(node).toContainText("/api/users/{id}");
       },
     });
   });
 
-  // data-model → ERD entity card: the "User" entity name + a field name.
   test("data-model renders the entity name and persists", async ({ page }) => {
     await expectRendersAndPersists(page, {
       label: "data-model",
@@ -274,15 +241,12 @@ test.describe("dev-doc blocks render + persist", () => {
         },
       },
       assertRendered: async (node) => {
-        // The entity name renders in the always-visible card header. A single
-        // entity defaults to expanded, so the "email" field is visible too.
         await expect(node).toContainText("User", { timeout: 15_000 });
         await expect(node).toContainText("email");
       },
     });
   });
 
-  // diff → GitHub-style line diff: an added/removed token + the filename.
   test("diff renders an added line token and persists", async ({ page }) => {
     await expectRendersAndPersists(page, {
       label: "diff",
@@ -298,15 +262,12 @@ test.describe("dev-doc blocks render + persist", () => {
         },
       },
       assertRendered: async (node) => {
-        // Filename header + a token that only exists on the ADDED side (the typed
-        // signature) — proves the diff body rendered, not just the chrome.
         await expect(node).toContainText("src/add.ts", { timeout: 15_000 });
         await expect(node).toContainText("a: number");
       },
     });
   });
 
-  // file-tree → IDE explorer: a path segment + a change badge note.
   test("file-tree renders a path segment and persists", async ({ page }) => {
     await expectRendersAndPersists(page, {
       label: "file-tree",
@@ -326,8 +287,6 @@ test.describe("dev-doc blocks render + persist", () => {
         },
       },
       assertRendered: async (node) => {
-        // The tree derives folders from the slash paths; the leaf file names
-        // ("index.ts", "git.ts") and the "src" folder segment render.
         await expect(node).toContainText("src", { timeout: 15_000 });
         await expect(node).toContainText("index.ts");
         await expect(node).toContainText("git.ts");
@@ -335,7 +294,6 @@ test.describe("dev-doc blocks render + persist", () => {
     });
   });
 
-  // json-explorer → devtools tree: JSON keys render (collapsed-depth default).
   test("json-explorer renders a JSON key and persists", async ({ page }) => {
     await expectRendersAndPersists(page, {
       label: "json-explorer",
@@ -356,9 +314,6 @@ test.describe("dev-doc blocks render + persist", () => {
         },
       },
       assertRendered: async (node) => {
-        // The root object and one nested container level render expanded by
-        // default, so the top-level keys are visible while deeper payloads stay
-        // scannable.
         await expect(node).toContainText("id", { timeout: 15_000 });
         await expect(node).toContainText("active");
         await expect(node).toContainText("abc123");
@@ -366,7 +321,6 @@ test.describe("dev-doc blocks render + persist", () => {
     });
   });
 
-  // annotated-code → line-numbered walkthrough: code token + annotation label.
   test("annotated-code renders a code token and persists", async ({ page }) => {
     await expectRendersAndPersists(page, {
       label: "annotated-code",
@@ -396,9 +350,6 @@ test.describe("dev-doc blocks render + persist", () => {
     });
   });
 
-  // mermaid → renders an <svg> when the dep is available, OR the graceful
-  // source/parse-error fallback. Either way it must NOT throw the render. We also
-  // toggle dark mode (next-themes) and assert it still renders without throwing.
   test("mermaid renders an <svg> or a graceful fallback, in light AND dark, and persists", async ({
     page,
   }) => {
@@ -418,14 +369,11 @@ test.describe("dev-doc blocks render + persist", () => {
       }),
     );
 
-    // Persisted at creation: rich-text seed + mermaid block.
     expect((await getPlanBlocks(page, planId)).map((b) => b.type)).toEqual([
       "rich-text",
       "mermaid",
     ]);
 
-    // Surface ANY page error so a mermaid dep/optimize failure is reported clearly
-    // (and never silently masks the other 6 blocks running in their own tests).
     const pageErrors: string[] = [];
     page.on("pageerror", (err) => pageErrors.push(String(err?.message ?? err)));
 
@@ -436,17 +384,11 @@ test.describe("dev-doc blocks render + persist", () => {
       "mermaid: the planBlock NodeView should mount",
     ).toBeVisible({ timeout: 25_000 });
 
-    // The renderer is SSR-guarded (dynamic `import("mermaid")` after mount). One of
-    // three end states must be reached — an <svg> (success), the raw source +
-    // parse-error fallback, or the caption — but the diagram must never stay stuck
-    // in the "Loading diagram…" placeholder. Poll for a terminal state.
     const lightState = async () => {
       const svg = await node.locator("svg").count();
       if (svg > 0) return "svg";
       const text = (await node.innerText()).toLowerCase();
       if (text.includes("could not render")) return "fallback-error";
-      // The fallback also renders the raw source ("flowchart") in a <pre>; treat a
-      // visible source/caption as a graceful (non-throwing) terminal state.
       if (text.includes("flowchart") || text.includes("decision flow"))
         return "fallback-source";
       if (text.includes("loading diagram")) return "loading";
@@ -458,8 +400,6 @@ test.describe("dev-doc blocks render + persist", () => {
       ["svg", "fallback-error", "fallback-source"].includes(lightResult),
       `mermaid (light): expected an <svg> or a graceful fallback, got "${lightResult}". If this is a mermaid dep/optimize error, see pageErrors: ${pageErrors.join(" | ")}`,
     ).toBeTruthy();
-    // It must report an <svg> for a VALID flowchart unless a dep/optimize error
-    // blocked the import — call that out explicitly rather than passing silently.
     if (lightResult !== "svg") {
       const depHint = pageErrors.find((e) =>
         /mermaid|optimi|import|chunk|dynamic/i.test(e),
@@ -472,9 +412,6 @@ test.describe("dev-doc blocks render + persist", () => {
       );
     }
 
-    // Toggle dark mode (next-themes adds `.dark` on <html>) and assert the diagram
-    // re-renders to a terminal state without throwing. The render effect re-runs on
-    // resolvedTheme change, so a fresh <svg>/fallback should appear.
     await page.evaluate(() => {
       const root = document.documentElement;
       root.classList.remove("light");
@@ -492,7 +429,6 @@ test.describe("dev-doc blocks render + persist", () => {
       `mermaid (dark): expected an <svg> or graceful fallback, got "${darkResult}". pageErrors: ${pageErrors.join(" | ")}`,
     ).toBeTruthy();
 
-    // Persistence is unchanged (no wipe) after open + theme toggle.
     await expect
       .poll(
         async () => (await getPlanBlocks(page, planId)).map((b) => b.type),
@@ -505,9 +441,6 @@ test.describe("dev-doc blocks render + persist", () => {
 });
 
 test.describe("dev-doc blocks slash-insert", () => {
-  // Typing "/api" filters the shared "/" menu to the "API endpoint" registry
-  // command (its description is the block type "api-endpoint"), clicking it inserts
-  // a planBlock, the autosave returns 200, and an api-endpoint block now persists.
   test("typing /api inserts an api-endpoint block that persists", async ({
     page,
   }) => {
@@ -526,11 +459,9 @@ test.describe("dev-doc blocks slash-insert", () => {
     });
     const prose = await openPlanForEditing(page, planId);
 
-    // No api-endpoint block exists yet.
     const before = await getPlanBlocks(page, planId);
     expect(before.some((b) => b.type === "api-endpoint")).toBe(false);
 
-    // Open the "/" menu and narrow to "API endpoint". On a fresh line, type "/api".
     await prose.click();
     await page.keyboard.press("Control+End");
     await page.keyboard.press("Enter");
@@ -551,12 +482,9 @@ test.describe("dev-doc blocks slash-insert", () => {
       { timeout: 20_000 },
     );
 
-    // Selecting the item inserts a `planBlock`; the editor seeds its data from the
-    // spec's empty() ({ method: "GET", path: "/api/resource" }) and autosaves.
     await apiItem.first().click();
     await okSave;
 
-    // An api-endpoint block now exists in the persisted content (it did not before).
     await expect
       .poll(
         async () =>
@@ -567,7 +495,6 @@ test.describe("dev-doc blocks slash-insert", () => {
       )
       .toBe(1);
 
-    // And it renders as an inline block NodeView with the seeded GET method.
     const inserted = (await getPlanBlocks(page, planId)).find(
       (b) => b.type === "api-endpoint",
     );

@@ -6,11 +6,6 @@ import {
 
 export const AUTH_SIGNUP_INVITE_ONLY_CODE = "INVITE_ONLY";
 
-/**
- * The native sign-in surfaces use the same copy keys as the hosted onboarding
- * form. Keep this browser-safe subset here so Electron and mobile do not load
- * the server HTML renderer or grow a second auth vocabulary.
- */
 export interface NativeAuthCopy {
   googleButton: string;
   ssoButton: string;
@@ -20,6 +15,9 @@ export interface NativeAuthCopy {
   welcomeTitle: string;
   welcomeToApp: string;
   welcomeSubtitle: string;
+  emailLinkContinueTitle: string;
+  emailLinkContinueMessage: string;
+  emailLinkContinueAction: string;
   email: string;
   emailPlaceholder: string;
   legalPrefix: string;
@@ -79,10 +77,10 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     dividerOr: "or",
     welcomeTitle: "Welcome",
     welcomeToApp: "Welcome to {appName}",
-    // No surface using this subtitle renders an account chooser: one email
-    // field both registers and signs in. Naming a separate "create an account"
-    // step sends new users hunting for a control that is not there.
     welcomeSubtitle: "Sign in or create your account",
+    emailLinkContinueTitle: "Continue with your email link",
+    emailLinkContinueMessage: "Select Continue to complete this email step.",
+    emailLinkContinueAction: "Continue",
     email: "Email",
     emailPlaceholder: "you@example.com",
     legalPrefix: "By signing up, you accept our",
@@ -125,6 +123,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "欢迎",
     welcomeToApp: "欢迎使用 {appName}",
     welcomeSubtitle: "继续以登录或创建账户",
+    emailLinkContinueTitle: "继续使用此电子邮件链接",
+    emailLinkContinueMessage: "选择“继续”以完成此电子邮件步骤。",
+    emailLinkContinueAction: "继续",
     email: "电子邮箱",
     emailPlaceholder: "you@example.com",
     legalPrefix: "注册即表示你接受我们的",
@@ -165,6 +166,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "歡迎",
     welcomeToApp: "歡迎使用 {appName}",
     welcomeSubtitle: "繼續以登入或建立帳戶",
+    emailLinkContinueTitle: "繼續使用此電子郵件連結",
+    emailLinkContinueMessage: "選擇「繼續」以完成此電子郵件步驟。",
+    emailLinkContinueAction: "繼續",
     email: "電子郵件",
     emailPlaceholder: "you@example.com",
     legalPrefix: "註冊即表示你接受我們的",
@@ -205,6 +209,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "Bienvenido",
     welcomeToApp: "Bienvenido a {appName}",
     welcomeSubtitle: "Continúa para iniciar sesión o crear tu cuenta",
+    emailLinkContinueTitle: "Continúa con el enlace de tu correo",
+    emailLinkContinueMessage: "Selecciona Continuar para completar este paso.",
+    emailLinkContinueAction: "Continuar",
     email: "Email",
     emailPlaceholder: "you@example.com",
     legalPrefix: "Al registrarte, aceptas nuestros",
@@ -246,6 +253,10 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "Bienvenue",
     welcomeToApp: "Bienvenue sur {appName}",
     welcomeSubtitle: "Continuez pour vous connecter ou créer votre compte",
+    emailLinkContinueTitle: "Continuer avec le lien reçu par e-mail",
+    emailLinkContinueMessage:
+      "Sélectionnez Continuer pour terminer cette étape.",
+    emailLinkContinueAction: "Continuer",
     email: "E-mail",
     emailPlaceholder: "you@example.com",
     legalPrefix: "En vous inscrivant, vous acceptez nos",
@@ -288,6 +299,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeToApp: "Willkommen bei {appName}",
     welcomeSubtitle:
       "Fahre fort, um dich anzumelden oder ein Konto zu erstellen",
+    emailLinkContinueTitle: "Mit deinem E-Mail-Link fortfahren",
+    emailLinkContinueMessage: "Wähle Weiter, um diesen Schritt abzuschließen.",
+    emailLinkContinueAction: "Weiter",
     email: "E-Mail",
     emailPlaceholder: "you@example.com",
     legalPrefix: "Mit der Registrierung akzeptierst du unsere",
@@ -330,6 +344,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "ようこそ",
     welcomeToApp: "{appName}へようこそ",
     welcomeSubtitle: "続けてサインインするか、アカウントを作成します",
+    emailLinkContinueTitle: "メールリンクで続行",
+    emailLinkContinueMessage: "「続行」を選択してこの手順を完了してください。",
+    emailLinkContinueAction: "続行",
     email: "メール",
     emailPlaceholder: "you@example.com",
     legalPrefix: "登録すると、以下に同意したものとみなされます:",
@@ -372,6 +389,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "환영합니다",
     welcomeToApp: "{appName}에 오신 것을 환영합니다",
     welcomeSubtitle: "계속해서 로그인하거나 계정을 만드세요",
+    emailLinkContinueTitle: "이메일 링크로 계속하기",
+    emailLinkContinueMessage: "계속을 선택해 이 단계를 완료하세요.",
+    emailLinkContinueAction: "계속",
     email: "이메일",
     emailPlaceholder: "you@example.com",
     legalPrefix: "가입하면 다음에 동의하게 됩니다:",
@@ -413,6 +433,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "Bem-vindo",
     welcomeToApp: "Bem-vindo ao {appName}",
     welcomeSubtitle: "Continue para entrar ou criar sua conta",
+    emailLinkContinueTitle: "Continuar com o link do e-mail",
+    emailLinkContinueMessage: "Selecione Continuar para concluir esta etapa.",
+    emailLinkContinueAction: "Continuar",
     email: "Email",
     emailPlaceholder: "you@example.com",
     legalPrefix: "Ao se cadastrar, você aceita nossos",
@@ -454,6 +477,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "स्वागत है",
     welcomeToApp: "{appName} में आपका स्वागत है",
     welcomeSubtitle: "साइन इन करने या अपना खाता बनाने के लिए जारी रखें",
+    emailLinkContinueTitle: "ईमेल लिंक के साथ जारी रखें",
+    emailLinkContinueMessage: "यह चरण पूरा करने के लिए जारी रखें चुनें।",
+    emailLinkContinueAction: "जारी रखें",
     email: "ईमेल",
     emailPlaceholder: "you@example.com",
     legalPrefix: "साइन अप करके, आप हमारी",
@@ -495,6 +521,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "مرحبًا",
     welcomeToApp: "مرحبًا بك في {appName}",
     welcomeSubtitle: "تابع لتسجيل الدخول أو إنشاء حسابك",
+    emailLinkContinueTitle: "المتابعة باستخدام رابط البريد الإلكتروني",
+    emailLinkContinueMessage: "اختر متابعة لإكمال هذه الخطوة.",
+    emailLinkContinueAction: "متابعة",
     email: "البريد الإلكتروني",
     emailPlaceholder: "you@example.com",
     legalPrefix: "بالتسجيل، فإنك توافق على",

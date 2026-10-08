@@ -32,8 +32,6 @@ describe("parseAgentFrame", () => {
     });
   });
 
-  // Model chunks are not word-aligned, so a lone " " or "\n" arrives as its
-  // own delta. Dropping those is what renders "the meeting" as "themeeting".
   it("keeps a whitespace-only text delta, which is a space in the answer", () => {
     expect(parseAgentFrame({ type: "text", text: " " })).toEqual({
       type: "text",
@@ -47,20 +45,16 @@ describe("parseAgentFrame", () => {
       type: "thinking",
       text: " ",
     });
-    // Genuinely absent is still absent.
     expect(parseAgentFrame({ type: "text", text: "" })).toBeNull();
     expect(parseAgentFrame({ type: "text" })).toBeNull();
   });
 
   it("still treats a blank label or tool id as absent", () => {
-    // Blank means "a space" in a delta and "nothing" in an identifier.
     expect(parseAgentFrame({ type: "tool_start", tool: "  " })).toBeNull();
     expect(parseAgentFrame({ type: "activity", label: " " })).toBeNull();
   });
 
   it("drops frames it cannot render instead of inventing empty ones", () => {
-    // A frame that changed shape upstream has to fail here. An empty step row
-    // claiming work happened is worse than no row.
     expect(parseAgentFrame({ type: "tool_start" })).toBeNull();
     expect(parseAgentFrame({ type: "activity", label: "   " })).toBeNull();
     expect(parseAgentFrame({ type: "agent_call" })).toBeNull();
@@ -68,9 +62,6 @@ describe("parseAgentFrame", () => {
     expect(parseAgentFrame("done")).toBeNull();
   });
 
-  // The grant is the whole point of the frame: without it nothing can ever
-  // re-issue the turn with `approvedToolCalls`, so a row rendered from a
-  // keyless frame is a permanent spinner with nothing behind it.
   it("keeps the grant an approval needs to be resumed", () => {
     expect(
       parseAgentFrame({
@@ -101,8 +92,6 @@ describe("parseAgentFrame", () => {
     ).toBeNull();
   });
 
-  // These close the stream exactly like `done` does. Dropping them was what
-  // let a run cut at a timeout be presented as a finished answer.
   it("reads the terminal frames that mean the run did not finish", () => {
     expect(
       parseAgentFrame({ type: "auto_continue", reason: "run_timeout" }),
@@ -243,8 +232,6 @@ describe("applyFrame", () => {
     });
   });
 
-  // A failed resume re-emits the same approval with a fresh `askId`. Keying by
-  // position stacked a second identical row, which read as two separate asks.
   it("updates one approval row instead of stacking a re-ask", () => {
     const steps = fold([
       {
@@ -285,8 +272,6 @@ describe("settleSteps", () => {
     expect(settleSteps(blocked)[0].status).toBe("blocked");
   });
 
-  // "Searched" under an answer that was cut off mid-search is the same lie as
-  // calling the fragment an answer.
   it("does not mark work done when the run was cut off", () => {
     const running = fold([{ type: "tool_start", tool: "search-meetings" }]);
     const cut = settleSteps(running, {
@@ -300,11 +285,7 @@ describe("settleSteps", () => {
 
 describe("kindForTool", () => {
   it("reads by default and only claims a write when the verb says so", () => {
-    // Claiming the agent changed something it only looked at is the worse
-    // error, so an unrecognized tool is a read.
     expect(kindForTool("get-meeting")).toBe("read");
-    // A magnifier chip over the word "Reading" is the mismatch that reads as
-    // a bug, so searching is its own bucket.
     expect(kindForTool("search-meetings")).toBe("search");
     expect(kindForTool("something-new")).toBe("read");
     expect(kindForTool("create-meeting")).toBe("write");
@@ -351,8 +332,6 @@ describe("summarizeToolResult", () => {
   });
 
   it("says nothing rather than printing a blob", () => {
-    // A stringified payload under the row reads as detail while saying less
-    // than the label above it.
     expect(summarizeToolResult({ meeting: { id: "m1" } })).toBeUndefined();
     expect(summarizeToolResult(null)).toBeUndefined();
     expect(summarizeToolResult("   ")).toBeUndefined();

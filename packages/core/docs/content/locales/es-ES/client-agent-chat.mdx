@@ -235,9 +235,11 @@ Si la pantalla actual no coincide con nada que reconozca la heurística y no hay
 
 ## openAgentSettings(section?) {#openagentsettings}
 
-Usa `openAgentSettings()` cuando una página de configuración de la app o una tarjeta de configuración deba
-abrir la página canónica `/settings`. Pasa un id de sección como `"llm"`, `"secrets"`,
-`"automations"`, `"voice"` o `"limits"` para abrir una sección específica.
+Usa `openAgentSettings()` cuando una tarjeta de configuración o una superficie de chat
+deba abrir Configuración. Pasa un id de sección como `"llm"`, `"secrets"`,
+`"automations"`, `"voice"` o `"limits"`; la tabla de redirecciones de Configuración
+abre la página correspondiente (Model, API keys, Automations, Preferences o la fila
+de límites en Model).
 
 ```ts
 import { openAgentSettings } from "@agent-native/core/client/navigation";
@@ -246,6 +248,8 @@ openAgentSettings("secrets");
 ```
 
 Prefiere este helper en lugar de despachar `agent-panel:open-settings` directamente.
+Para abrir una página por su id, llama a `openSettingsPage("integrations")` o enlaza
+con `buildSettingsRoute(page, sub?)`; consulta [Settings Kit](/docs/toolkit-settings#links).
 
 ## Estado de contexto de chat del agente {#agent-chat-context-state}
 

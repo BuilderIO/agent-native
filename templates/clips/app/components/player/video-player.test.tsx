@@ -15,11 +15,14 @@ import {
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { clampSeek, VideoPlayer, type VideoPlayerHandle } from "./video-player";
+import {
+  clampSeek,
+  isMediaVersionRefresh,
+  VideoPlayer,
+  type VideoPlayerHandle,
+} from "./video-player";
 
 vi.mock("@agent-native/core/client/analytics", () => ({
-  // Re-exported by `@/lib/utils`, which video-player.tsx (and its children)
-  // import `cn` from.
   cn: (...classes: Array<string | false | null | undefined>) =>
     classes.filter(Boolean).join(" "),
   captureClientException: vi.fn(),
@@ -30,7 +33,6 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  // Pulled in transitively by PlaybackCommentOverlay's avatar lookup.
   useAvatarUrl: () => null,
   callAction: vi.fn(),
 }));
@@ -39,14 +41,6 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-// happy-dom's <video>/<audio> stub always reports `canPlayType() === ""`
-// (unimplemented), which would make the component's Safari-webm
-// `unsupportedFormat` probe (see video-player.tsx) treat every source as
-// undecodable and render the "unsupported format" placeholder instead of a
-// real <video> element. Stub it to report support so the real element mounts
-// — `play()`/`pause()` themselves are implemented natively by happy-dom
-// (they flip `paused` and synchronously dispatch `play`/`playing`/`pause`),
-// so no further HTMLMediaElement stubbing is needed.
 let canPlayTypeSpy: ReturnType<typeof vi.spyOn>;
 
 beforeAll(() => {
@@ -186,12 +180,11 @@ describe("VideoPlayer playback", () => {
     const video = getVideo();
     vi.spyOn(video, "load").mockImplementation(() => {});
 
-    act(() => {
-      video.dispatchEvent(new Event("error"));
-    });
-    act(() => {
-      video.dispatchEvent(new Event("error"));
-    });
+    for (let i = 0; i < 3; i++) {
+      act(() => {
+        video.dispatchEvent(new Event("error"));
+      });
+    }
 
     const error = container.querySelector<HTMLElement>('[role="status"]');
     expect(error?.textContent).toContain("Video could not be loaded.");
@@ -199,6 +192,21 @@ describe("VideoPlayer playback", () => {
 
     const controls = getPlayerControls();
     expect(controls.className).toContain("z-20");
+  });
+
+  it("retries a second playback error with a fresh cache-bust before failing", () => {
+    const video = getVideo();
+    const load = vi.spyOn(video, "load").mockImplementation(() => {});
+
+    act(() => {
+      video.dispatchEvent(new Event("error"));
+    });
+    act(() => {
+      video.dispatchEvent(new Event("error"));
+    });
+
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[role="status"]')).toBeNull();
   });
 
   it("stops picture-in-picture playback when the player unmounts", () => {
@@ -334,8 +342,6 @@ describe("VideoPlayer playback", () => {
     );
     const playIcon = centerPlay?.querySelector("svg");
 
-    // Mobile Safari can remain at HAVE_NOTHING until playback is initiated,
-    // so loadeddata/canplay may not arrive before the user needs this control.
     expect(video.readyState).toBe(0);
     expect(container.textContent).not.toContain("Preparing clip");
     expect(centerPlay).not.toBeNull();
@@ -870,9 +876,6 @@ describe("VideoPlayer playback", () => {
     });
     expect(video.paused).toBe(false);
 
-    // Reaching end of stream can fire "ended" while the browser leaves paused
-    // false (MSE end-of-stream / DB-duration mismatch). The play button must
-    // still restart from the beginning rather than pausing a finished clip.
     video.currentTime = 10;
     Object.defineProperty(video, "ended", { configurable: true, value: true });
     act(() => {
@@ -924,9 +927,6 @@ describe("VideoPlayer playback", () => {
     expect(video.paused).toBe(true);
     expect(onPause).toHaveBeenCalledTimes(1);
 
-    // Real browsers fire a synthetic "click" immediately after a touch tap.
-    // The component must swallow exactly that one click rather than treating
-    // it as a second, independent activation.
     act(() => {
       surface.dispatchEvent(
         new MouseEvent("click", { bubbles: true, cancelable: true }),
@@ -936,9 +936,6 @@ describe("VideoPlayer playback", () => {
     expect(video.paused).toBe(true);
     expect(onPlay).toHaveBeenCalledOnce();
 
-    // A later, unrelated real click still toggles playback normally — proving
-    // the suppression is a one-shot flag consumed by the synthetic click, not
-    // a broken click handler.
     act(() => {
       surface.click();
     });
@@ -1095,10 +1092,6 @@ describe("clampSeek", () => {
 
   it("returns integer millisecond inputs unchanged", () => {
     const v = videoWith(600);
-    // Clamping used to route through seconds (ms / 1000 -> Math.floor(sec *
-    // 1000)), which loses 1ms for ~1% of integers. The timeupdate handler
-    // treated that delta as a real seek target and pulled playback backwards,
-    // flushing the decoder and replaying the last fraction of a second.
     for (let ms = 0; ms <= 600_000; ms++) {
       if (clampSeek(ms, v, 600_000) !== ms) {
         throw new Error(`clampSeek(${ms}) === ${clampSeek(ms, v, 600_000)}`);
@@ -1128,5 +1121,37 @@ describe("clampSeek", () => {
 
   it("never returns a negative time", () => {
     expect(clampSeek(-5, videoWith(600), 600_000)).toBe(0);
+  });
+});
+
+describe("isMediaVersionRefresh", () => {
+  const base = "/api/video/rec-1";
+
+  it("detects a media version bump on the same recording", () => {
+    expect(isMediaVersionRefresh(`${base}?media=a`, `${base}?media=b`)).toBe(
+      true,
+    );
+  });
+
+  it("ignores identical media versions", () => {
+    expect(isMediaVersionRefresh(`${base}?media=a`, `${base}?media=a`)).toBe(
+      false,
+    );
+  });
+
+  it("ignores cache-bust recovery params", () => {
+    expect(
+      isMediaVersionRefresh(`${base}?media=a&cb=1`, `${base}?media=a`),
+    ).toBe(false);
+  });
+
+  it("treats a different recording as a new source, not a refresh", () => {
+    expect(
+      isMediaVersionRefresh(`${base}?media=a`, "/api/video/rec-2?media=b"),
+    ).toBe(false);
+  });
+
+  it("treats a missing source as not a refresh", () => {
+    expect(isMediaVersionRefresh(undefined, `${base}?media=b`)).toBe(false);
   });
 });

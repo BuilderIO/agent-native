@@ -11,12 +11,15 @@ import {
   appendPendingVisualStyleUndoEntry,
   formatPendingVisualStylePrompt,
   formatVisualEditClipboardPrompt,
+  isVisualEditHandoffAcknowledged,
   mergePendingLiveNonStyleEdit,
   nextPendingLiveEditTimestamp,
   pendingLiveLayerNameUndoRevertValue,
+  relativeOperationsForStyles,
   pendingVisualStyleRouteMatches,
   pendingVisualStyleGestureIdForPhase,
   resolveOverviewScreenSourceType,
+  updateVisualEditHandoffPublication,
 } from "./pending-edits";
 
 function styleEdit(
@@ -103,6 +106,39 @@ describe("resolveOverviewScreenSourceType", () => {
         bridgeUrl: "http://localhost:7331",
       }),
     ).toBe("inline");
+  });
+});
+
+describe("relative selected-screen style intent", () => {
+  it("keeps only changed properties from a batched relative scrub", () => {
+    expect(
+      relativeOperationsForStyles(
+        { marginLeft: "calc(4px + var(--step))", marginRight: "8px" },
+        {
+          relativeDelta: 2,
+          relativeDeltaProperties: ["marginLeft", "marginRight", "gap"],
+        },
+      ),
+    ).toEqual({
+      marginLeft: { kind: "delta", delta: 2 },
+      marginRight: { kind: "delta", delta: 2 },
+    });
+  });
+
+  it("preserves authored expressions rather than recording the DOM result", () => {
+    expect(
+      relativeOperationsForStyles(
+        { width: "248px" },
+        {
+          relativeExpression: {
+            expression: "+8",
+            unit: "px",
+          },
+        },
+      ),
+    ).toEqual({
+      width: { kind: "expression", expression: "+8", unit: "px" },
+    });
   });
 });
 
@@ -397,23 +433,191 @@ describe("appendPendingLiveNonStyleUndoEntry", () => {
 });
 
 describe("formatVisualEditClipboardPrompt", () => {
-  it("uses the page-local WebMCP handoff inside supported hosts", () => {
+  it("copies the full source instructions by default", () => {
     const prompt = "Apply the exact source edits from this canvas.";
-    expect(formatVisualEditClipboardPrompt(prompt, "chatgpt")).toContain(
-      "get-visual-edit-prompt",
+    const copied = formatVisualEditClipboardPrompt(
+      prompt,
+      "claude",
+      undefined,
+      "design-1",
     );
-    expect(formatVisualEditClipboardPrompt(prompt, "claude")).toContain(
-      "get-visual-edit-prompt",
-    );
-    expect(formatVisualEditClipboardPrompt(prompt, "webmcp")).toContain(
-      "get-visual-edit-prompt",
+
+    expect(copied).toContain("Design ID: design-1");
+    expect(copied).toContain("idiomatic code changes");
+    expect(copied).toContain(prompt);
+    expect(copied).not.toContain(
+      "Use the Agent-Native Design MCP tool get-visual-edit-pending with",
     );
   });
 
-  it("keeps the detailed prompt for ordinary clipboard use", () => {
-    expect(formatVisualEditClipboardPrompt("Apply these edits.", null)).toBe(
-      "Apply these edits.",
+  it("uses the hosted MCP handoff across detected and unknown hosts", () => {
+    const prompt = "Apply the exact source edits from this canvas.";
+    for (const host of [
+      "chatgpt",
+      "claude",
+      "codex",
+      "webmcp",
+      null,
+      undefined,
+    ] as const) {
+      const copied = formatVisualEditClipboardPrompt(
+        prompt,
+        host,
+        false,
+        "design-1",
+      );
+      expect(copied).toContain("get-visual-edit-pending");
+      expect(copied).toContain('{ designId: "design-1" }');
+      expect(copied).toContain("acknowledge-visual-edit-pending");
+      expect(copied).toContain(prompt);
+      expect(copied).toContain("apply the included edit details directly");
+      expect(copied).toContain("cannot acknowledge the handoff");
+      expect(copied).toContain("remain pending until Design MCP is available");
+      expect(copied).toContain("verify the edits are already present");
+      expect(copied).toContain('no "Apply design updates in Design" button');
+      const browserToolIndex = copied.indexOf("get-visual-edit-prompt");
+      if (browserToolIndex !== -1) {
+        expect(copied.indexOf("get-visual-edit-pending")).toBeLessThan(
+          browserToolIndex,
+        );
+      }
+    }
+  });
+
+  it("keeps page-local WebMCP as a fallback when no MCP server is available", () => {
+    const copied = formatVisualEditClipboardPrompt(
+      "Apply edits.",
+      "webmcp",
+      false,
+      "design-1",
     );
+    expect(copied).toContain("get-visual-edit-pending");
+    expect(copied).toContain('{ designId: "design-1" }');
+    expect(copied).toContain("get-visual-edit-prompt");
+    expect(copied).toContain("If you cannot access the Design MCP server");
+    expect(copied).toContain("retrieve edit details");
+    expect(copied).toContain("cannot acknowledge or clear the handoff");
+    expect(copied).toContain("Apply edits.");
+  });
+
+  it("uses the design id from the URL when it is not passed", () => {
+    const copied = formatVisualEditClipboardPrompt("Apply these edits.", null);
+    expect(copied).toContain("get-visual-edit-pending");
+    expect(copied).toContain("Use the design ID from this URL.");
+  });
+
+  it("copies full implementation instructions and the detailed handoff", () => {
+    const prompt = "Apply these exact edits to the connected app source.";
+    const copied = formatVisualEditClipboardPrompt(
+      prompt,
+      "webmcp",
+      true,
+      "design-1",
+    );
+    expect(copied).toContain("Design ID: design-1");
+    expect(copied).toContain("idiomatic code changes");
+    expect(copied).toContain("Verify the running app after HMR");
+    expect(copied).toContain("get-visual-edit-pending");
+    expect(copied).toContain("cannot acknowledge the handoff");
+    expect(copied).toContain("remain pending until Design MCP is available");
+    expect(copied).toContain(prompt);
+    expect(copied).not.toContain("If you cannot access the Design MCP server");
+  });
+});
+
+describe("isVisualEditHandoffAcknowledged", () => {
+  it("clears only an empty handoff for the exact published client revision", () => {
+    const base = {
+      expectedPublisherId: "publisher-a",
+      expectedClientRevision: 12,
+      publisherId: "publisher-a",
+      clientRevision: 12,
+      serverRevision: 81,
+      pendingEditCount: 3,
+      status: "empty",
+      revision: 81,
+    } as const;
+
+    expect(isVisualEditHandoffAcknowledged(base)).toBe(true);
+    expect(isVisualEditHandoffAcknowledged({ ...base, revision: 82 })).toBe(
+      true,
+    );
+    expect(
+      isVisualEditHandoffAcknowledged({ ...base, clientRevision: 13 }),
+    ).toBe(false);
+    expect(
+      isVisualEditHandoffAcknowledged({ ...base, expectedClientRevision: 13 }),
+    ).toBe(false);
+    expect(
+      isVisualEditHandoffAcknowledged({
+        ...base,
+        publisherId: "publisher-b",
+        clientRevision: 13,
+        revision: 82,
+      }),
+    ).toBe(false);
+    expect(isVisualEditHandoffAcknowledged({ ...base, revision: 80 })).toBe(
+      false,
+    );
+    expect(isVisualEditHandoffAcknowledged({ ...base, status: "ready" })).toBe(
+      false,
+    );
+    expect(
+      isVisualEditHandoffAcknowledged({
+        ...base,
+        status: "ready",
+        revision: 82,
+      }),
+    ).toBe(false);
+    expect(
+      isVisualEditHandoffAcknowledged({ ...base, pendingEditCount: 0 }),
+    ).toBe(false);
+    expect(
+      isVisualEditHandoffAcknowledged({ ...base, serverRevision: null }),
+    ).toBe(false);
+    expect(
+      isVisualEditHandoffAcknowledged({ ...base, publisherId: null }),
+    ).toBe(false);
+  });
+
+  it("rechecks an empty response when the matching server revision arrives later", () => {
+    const handoff = {
+      status: "empty",
+      revision: 81,
+      publisherId: "publisher-a",
+      clientRevision: 4,
+    } as const;
+    const queued = updateVisualEditHandoffPublication(null, {
+      status: "queued",
+      designId: "design-1",
+      publicationRevision: 4,
+    });
+    const publication = updateVisualEditHandoffPublication(queued, {
+      status: "ready",
+      designId: "design-1",
+      publicationRevision: 4,
+      serverRevision: 81,
+    });
+
+    expect(
+      isVisualEditHandoffAcknowledged({
+        expectedPublisherId: "publisher-a",
+        expectedClientRevision: publication?.publicationRevision ?? null,
+        serverRevision: null,
+        pendingEditCount: 3,
+        ...handoff,
+      }),
+    ).toBe(false);
+    expect(publication?.serverRevision).toBe(81);
+    expect(
+      isVisualEditHandoffAcknowledged({
+        expectedPublisherId: "publisher-a",
+        expectedClientRevision: publication?.publicationRevision ?? null,
+        serverRevision: publication?.serverRevision ?? null,
+        pendingEditCount: 3,
+        ...handoff,
+      }),
+    ).toBe(true);
   });
 });
 
@@ -464,6 +668,34 @@ describe("formatPendingVisualStylePrompt", () => {
     expect(prompt).toContain("never hand off inline-style mutations");
     expect(prompt).not.toContain('style="color: blue"');
     expect(prompt).toContain('"screen": "/clips"');
+  });
+
+  it("makes relative CSS intent authoritative over an absolute live preview value", () => {
+    const prompt = formatPendingVisualStylePrompt({
+      audience: "coding-agent",
+      edits: [
+        {
+          ...styleEdit(".card", { width: "248px" }),
+          originalStyles: { width: "calc(100% - var(--gutter))" },
+          relativeOperations: {
+            width: {
+              kind: "expression",
+              expression: "+8",
+              unit: "px",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(prompt).toContain('"width": "calc(100% - var(--gutter))"');
+    expect(prompt).toContain('"width": "248px"');
+    expect(prompt).toContain('"kind": "expression"');
+    expect(prompt).toContain('"expression": "+8"');
+    expect(prompt).toContain(
+      "relativeOperations entry is the authoritative source intent",
+    );
+    expect(prompt).toContain("do not replace calc(), var()");
   });
 
   it("hands live layer renames off as metadata with source provenance", () => {

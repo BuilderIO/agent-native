@@ -11,6 +11,7 @@ const INJECTED_CONTEXT_BLOCKS = [
   "plan-mode-note",
   "non-analytics-retry",
   "response-guard",
+  "context-note",
 ];
 
 export const CORPUS_SOURCE_ACTIONS = new Set([
@@ -21,17 +22,6 @@ export const CORPUS_SOURCE_ACTIONS = new Set([
 
 export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
 
-// Inspecting or cloning an existing dashboard/extension template is
-// construction progress, not a metric query. These do not satisfy
-// hasDataQueryAttempt, but they should stop the guard from steering a
-// template-clone turn into "connect a missing source". Deliberately limited
-// to read/inspection actions: update-dashboard/mutate-dashboard/
-// compose-dashboard/create-extension/
-// update-extension can all author brand-new SQL or extension content, so
-// calling one of those alone is not proof the turn actually inspected a
-// template rather than inventing it from scratch. If the tool run also
-// includes one of these read actions, the bypass still applies even when an
-// authoring/save action ran alongside it.
 export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
   "search-dashboard-references",
   "get-sql-dashboard",
@@ -41,23 +31,6 @@ export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
   "get-extension",
 ]);
 
-// Dashboard authoring/save actions. Unlike the read actions above, running one
-// of these is proof the turn actually edited or built a dashboard/extension —
-// which is a legitimate non-query completion. A saved SQL panel the user runs
-// themselves is not a fabricated metric, so the guard only needs to keep
-// blocking drafts that state invented numbers (draftClaimsAnalyticsMetrics).
-export const DASHBOARD_MUTATION_ACTIONS = new Set([
-  "mutate-dashboard",
-  "update-dashboard",
-  "compose-dashboard",
-  "create-extension",
-  "update-extension",
-]);
-
-// A turn that already searched the saved-query catalog or dashboard
-// references found something to adapt or found nothing, either way it did
-// discovery work. The guard's catch-all fallback must not treat that turn
-// identically to one that never looked.
 export const CATALOG_DISCOVERY_ACTIONS = new Set([
   "search-analytics-query-catalog",
   "search-dashboard-references",
@@ -101,22 +74,11 @@ function isToolName(name: string, expected: string): boolean {
 
 let groundingActionNames: ReadonlySet<string> | null = null;
 
-/**
- * Read the action names whose definitions declare `grounding: true`.
- *
- * Takes the registry as an argument rather than importing
- * `.generated/actions-registry` because that registry imports every action, and
- * `save-analysis` imports this module — importing it back here would close an
- * evaluation cycle. The agent-chat plugin passes it in once at module load.
- */
 export function deriveGroundingActionNames(
   registry: Record<string, unknown>,
 ): string[] {
   return Object.entries(registry)
     .filter(([, module]) => {
-      // Action modules reach the registry either as the module namespace or as
-      // an already-unwrapped definition, the same two shapes
-      // `loadActionsFromStaticRegistry` normalizes.
       const candidate = module as
         | { grounding?: boolean; default?: { grounding?: boolean } }
         | undefined;
@@ -127,7 +89,6 @@ export function deriveGroundingActionNames(
     .map(([name]) => name);
 }
 
-/** Publish the derived set for the response guard to consult. */
 export function registerGroundingActions(names: Iterable<string>): void {
   groundingActionNames = new Set(
     [...names].map((name) => normalizeActionToolName(name)),
@@ -162,17 +123,10 @@ function isDashboardConstructionActionName(name: string): boolean {
   return DASHBOARD_CONSTRUCTION_ACTIONS.has(normalizeActionToolName(name));
 }
 
-function isDashboardMutationActionName(name: string): boolean {
-  return DASHBOARD_MUTATION_ACTIONS.has(normalizeActionToolName(name));
-}
-
 function isCatalogDiscoveryActionName(name: string): boolean {
   return CATALOG_DISCOVERY_ACTIONS.has(normalizeActionToolName(name));
 }
 
-// "Build/clone/template" language targeting a dashboard/extension/panel is
-// dashboard construction, distinct from an analytics-result question. Turns
-// like this may inspect and clone a template without running a metric query.
 const DASHBOARD_CONSTRUCTION_INTENT_TERMS =
   /\b(build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|template|based (?:off|on)|using .{1,80}? as a template)\b/i;
 
@@ -304,8 +258,6 @@ export function looksLikeDashboardConstructionRequest(text: string): boolean {
   );
   const lower = requestText.toLowerCase();
   if (!lower) return false;
-  // Do not let an action inside an automation request masquerade as the
-  // top-level dashboard artifact ("create an automation to refresh ...").
   const constructionRequestText = lower
     .replace(/\bbut\b/g, " and ")
     .replace(DASHBOARD_AUTOMATION_REFRESH_TARGET_TERMS, " automation ")
@@ -430,17 +382,6 @@ export function hasDashboardConstructionAttempt(
   });
 }
 
-export function hasDashboardMutationAttempt(
-  toolResults:
-    | Array<{ name?: string; isError?: boolean; content?: string }>
-    | undefined,
-): boolean {
-  return (toolResults ?? []).some((result) => {
-    if (result.isError) return false;
-    return isDashboardMutationActionName(String(result.name ?? ""));
-  });
-}
-
 export function hasCatalogSearchAttempt(
   toolResults:
     | Array<{ name?: string; isError?: boolean; content?: string }>
@@ -503,11 +444,6 @@ export function stripInjectedAnalyticsGuardContext(text: string): string {
       "",
     );
   }
-  // Compatibility with callers deployed before A2A hints were wrapped in the
-  // structured block above. The legacy transport note includes words such as
-  // "full transcripts" and "create ... dashboard"; allowing those framework
-  // words into intent classification falsely triggered corpus and dashboard
-  // guards for ordinary delegated metric questions.
   requestText = requestText.replace(
     /\n*\[Note:\s*this request comes from another app via A2A\.[\s\S]*\]\s*$/i,
     "",
@@ -582,7 +518,7 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
 }
 
 const ANALYTICS_RESULT_TERMS =
-  /\b(conversion|conversions|funnel|revenue|payment|payments|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|sentiment|themes?|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|usage|adoption|ai credits?|credit consumption|credits? consumed|allowance|quota|mrr|arr|ctr|cvr|cac|ltv)\b/;
+  /\b(conversion|conversions|funnel|revenue|payment|payments|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn(?:ed)?|pipeline|deals?|calls?|transcripts?|sentiment|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|usage|adoption|ai credits?|credit consumption|credits? consumed|allowance|quota|mrr|arr|nrr|grr|ndr|acv|tcv|bookings?|renewals?|logos?|owners?|who owns|ctr|cvr|cac|ltv)\b/;
 
 const DASHBOARD_AUTOMATION_ANALYTICS_QUERY_TERMS =
   /\b(?:show|report|find|calculate|measure|compare|what|which|how many|how much)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:dashboard\s+automations?|automation\s+dashboards?)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:conversion|conversions|rate|rates|run|runs|ran|fail(?:ed|ure|ures)?|execution(?:s)?|job(?:s)?|metric|metrics|count|counts)\b/i;
@@ -629,32 +565,21 @@ const SETUP_REQUEST_TERMS =
 const SETUP_REQUEST_FRAMING =
   /\b(?:how (?:do|can) i|can you|help me|where can i|show me how)\b/;
 
-const ARTIFACT_TERMS = /\b(analysis|dashboard|panel|chart|metric|metrics)\b/;
+// The shape of a data ask, independent of what it is about: a reporting window,
+// a scope filter, or a quantity question.
+const DATA_ASK_SHAPE =
+  /\b(?:q[1-4]|h[12]|fy\s?\d{2,4}|ytd|mtd|qtd|(?:last|past|prior|previous|this|current|next)\s+(?:\d+\s+)?(?:quarters?|months?|years?)|\d+\s*(?:days?|weeks?|months?|quarters?|years?)|date range|window|period|filters?|only|excluding|except|versus|vs|how (?:many|much|often))\b/;
 
-// An explicit request to review a code artifact is never a data question,
-// whatever dates or metric words it also carries ("review the signup
-// changelog from last week").
 const EXPLICIT_CODE_REVIEW_REQUEST =
   /\b(?:review|check|inspect|read|look at|go over)\s+(?:(?:this|the|my|that|our|these)\s+)?(?:\w+\s+){0,3}?(?:prs?|pull requests?|code|diffs?|changes?|patch(?:es)?|commits?|changelogs?|release notes)\b/;
-// A bare mention of a PR, diff, commit, or reviewer feedback makes the
-// message about a change rather than live data — unless it also asks for a
-// result ("how many signups came from each PR?"), which is a data question
-// with a pull-request dimension. Bare "reviewer" is not enough: "how many
-// calls did our reviewers handle" is about people, not a code review.
 const CODE_REVIEW_MENTION =
   /\b(?:prs?|pull requests?)(?:\s+descriptions?)?\b|\b(?:code review|diffs?|commits?|changelogs?|release notes)\b|\breviewers?\s+(?:said|says|say|asked|noted|flagged|comments?|feedback)\b/;
 const METRIC_RESULT_INTENT =
-  /\b(?:how many|how much|count|totals?|average|median|percent(?:age)?|rate|trend|rank|top|bottom|highest|lowest|most|least|fewest|by each|breakdown|compare|over time|daily|weekly|monthly|quarterly|yoy|mom|wow|impact|effect|affect(?:ed|s)?|increased?|decreased?|improved?|boost(?:ed)?|lift(?:ed)?|hurt|helped?|moved? the needle|before and after|per\s+(?:prs?|pull requests?|hour|day|week|month|quarter|year)|(?:last|past|this|previous|next)\s+(?:\d+\s+)?(?:hours?|days?|weeks?|months?|quarters?|years?))\b/;
+  /\b(?:how many|how much|count|totals?|average|median|percent(?:age)?|rate|trend|rank|top|bottom|highest|lowest|most|least|fewest|by each|breakdown|compare|over time|daily|weekly|monthly|quarterly|yoy|mom|wow|impact|effect|affect(?:ed|s)?|increased?|decreased?|improved?|boost(?:ed)?|lift(?:ed)?|hurt|helped?|moved? the needle|before and after|per\s+(?:prs?|pull requests?|hour|day|week|month|quarter|year)|q[1-4]|h[12]|fy\s?\d{2,4}|ytd|mtd|qtd|(?:last|past|this|previous|next)\s+(?:\d+\s+)?(?:hours?|days?|weeks?|months?|quarters?|years?))\b/;
 
 const DASHBOARD_BARE_STATUS_QUERY_TERMS =
   /\b(?:what|which|show|report|find|calculate|measure|compare|tell\s+me)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:status|state)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:of|for)\s+(?:(?:the|my|our|your|their|this|that|these|those|a|an)\s+)?(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,3}(?:dashboard|extension|panel|widget)\b(?!\s+(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b)/i;
 
-const ARTIFACT_DATA_INTENT =
-  /\b(build|create|make|show|visuali[sz]e|plot|chart|query|calculate|report)\b/;
-
-// Questions about schema, metadata, or available sources — these do NOT require
-// a live provider data call. They should be answered from the data dictionary,
-// schema introspection tools, or the agent's knowledge of configured sources.
 const METADATA_ONLY_TERMS =
   /\b(what (?:tables?|columns?|fields?|sources?|datasets?|metrics?|schema) (?:are|is|exist|available|do (?:we|you|i) have)|which (?:sources?|tables?|providers?|integrations?) (?:are|is) (?:connected|configured|available|set up)|list (?:the )?(?:tables?|columns?|fields?|sources?|datasets?|schemas?)|show (?:me )?(?:available|the) (?:data )?(?:sources?|tables?|schemas?)|what does .+ (?:mean|measure|represent|track)|how is .+ (?:defined|calculated|computed|measured)|definition of|describe (?:the )?(?:\w+\s+)?(?:table|column|schema|metric|field)|list (?:the )?columns?\s+in|what (?:is|are) (?:the )?(?:data (?:dictionary|schema)|available (?:data )?(?:sources?|tables?))|what (?:source|provider|table) (?:has|stores|contains))\b/;
 
@@ -705,6 +630,166 @@ function hasIndependentAnalyticsDataClause(lower: string): boolean {
     });
 }
 
+const GREETING_OR_THANKS =
+  /^(?:(?:hi|hello|hey|yo|there|thanks?|thank you|thx|ty|cheers|so much|a lot|again|great|nice|awesome|perfect|cool|got it|sounds good|lgtm|good (?:morning|afternoon|evening)|how(?:['’]?s| is) it going|what['’]?s up)\b[\s,.!?]*)+$/;
+
+const UI_EDIT_OPENER =
+  /^(?:(?:please|can you|could you|would you|go ahead and|just)\s+)*(?:make|turn|set|change|switch|toggle|enable|disable|recolou?r|color|resize|rename|retitle|move|reorder|hide|unhide|delete|remove|duplicate|open|navigate to|go to|share|favorite|unfavorite|fix|debug|refactor|update(?!\s+(?:me|us)\b)|edit|add|put|place|drag|swap|increase|decrease)\b\s*/;
+
+// Things a user edits or navigates rather than measures. A metric word inside
+// the name of one ("revenue dashboard", "tickets route") does not make the
+// ask a lookup. Only the singular `view` is one: "page views" is a metric.
+const ARTIFACT_NOUNS =
+  "dashboards?|panels?|charts?|cards?|tables?|tiles?|widgets?|graphs?|pages?|reports?|view|extensions?|folders?|routes?|components?|layouts?|code|themes?|legends?|bars?|axes|axis|labels?|titles?|tooltips?";
+// How an artifact looks, is laid out, or behaves. Editing, moving, or removing
+// one is an artifact edit, but naming one adds nothing to fill with data ("add a
+// border to the panel", "move the chart to a new tab"), so none of these makes a
+// new artifact.
+const LOOK_PART_NOUNS =
+  "colou?rs?|backgrounds?|borders?|grid(?:lines?)?|tabs?|sections?|animations?|shadows?|headers?|footers?|sidebars?|sub-?titles?|fonts?|padding|spacing|auto[- ]?refresh|images?|captions?|trend ?lines?|buttons?|logos?|headings?|toolbars?|text ?box(?:es)?|pickers?";
+const ARTIFACT_NOUN = new RegExp(
+  `\\b(?:${ARTIFACT_NOUNS}|${LOOK_PART_NOUNS})\\b`,
+);
+// A word that can head an artifact's name. A table is also what a panel reads
+// ("the sessions table"), so it never does.
+const ARTIFACT_HEAD = `(?!tables?\\b)(?:${ARTIFACT_NOUNS}|${LOOK_PART_NOUNS})\\b`;
+// Creating an artifact is a request for its contents ("add a chart of signups"),
+// and so is giving a new tab or section a topic ("add a tab about retention");
+// placing something in one ("move this chart to a new tab") is not.
+const NEW_ARTIFACT = new RegExp(
+  `\\b(?:an?|new|another)\\s+(?:[\\w-]+\\s+){0,2}(?:(?:${ARTIFACT_NOUNS})\\b|(?:tabs?|sections?)\\s+(?:about|on|with|of|covering)\\s+(?!(?:the|this|that|my|our)\\s+(?:[\\w-]+\\s+){0,2}?${ARTIFACT_HEAD})\\w)`,
+);
+const ARTIFACT_FAULT =
+  /\b(?:broken|bugs?|buggy|crash\w*|glitch\w*|misaligned|not (?:working|loading|rendering))\b|n['’]t (?:work|load|render)/;
+// After a UI verb, "it" and "this" are the open dashboard or selected panel.
+const ARTIFACT_PRONOUN = /^(?:it|this|that|these|those|them)\b/;
+// After "by" or "for", a size ("by 20%", "by 10px"; a four-digit year still
+// scopes), a device or theme ("for mobile", "for dark mode"), or an audience
+// ("for review", "for the team") says how the edit looks, not what it measures.
+const PRESENTATION_OPERAND =
+  "(?:\\d{1,3}(?:\\.\\d+)?(?!\\d)|(?:the\\s+)?(?:mobile|desktop|tablet|phones?|print(?:ing)?|dark mode|light mode|review|readability|accessibility|clarity|presentations?|team|me|us|everyone|good)\\b(?!\\s+(?:users?|visitors?|traffic|sessions?|customers?|accounts?|signups?)))";
+// What an edit changes about the data instead of the look: it puts something on
+// the artifact that is not a part of it ("show the legend" is a part), narrows
+// or splits what it shows, scopes it ("by region", "for EMEA"), names a
+// data-model noun, or applies a metric ("add ARR", "change this chart to
+// revenue"). A word that heads an artifact's name ("the revenue dashboard",
+// "the sources page") is none of these. Taking something out is `removesValue`.
+const DATA_EDIT_OBJECT = new RegExp(
+  [
+    `\\b(?:show|display|list)\\w*\\b(?!\\s+(?:(?:the|its|this|that|a|an|my|our)\\s+)?(?:[\\w-]+\\s+){0,2}?${ARTIFACT_HEAD})`,
+    "\\b(?:plot|track|visuali[sz]|compar|includ|exclud|group|split|segment|filter|break(?:s|ing)? down)\\w*\\b|(?<!\\b(?:the|this|that|these|those|an?|my|our)\\s+)\\bgraph\\w*\\b",
+    `\\b(?:by|for)\\s+(?!${PRESENTATION_OPERAND})\\w`,
+    `\\b(?:series|metrics?|measures?|dimensions?|breakdowns?|cohorts?|datasets?|data ?sources?|sources?|queries|query|sql)\\b(?!\\s+${ARTIFACT_HEAD})`,
+    "\\badd(?:ing)?\\b[^.!?;]*?\\b(?:lines?|columns?|trend ?lines?|filters?|groupings?)\\b",
+    `\\b(?:(?:add(?:ing)?|swap in|use|using)\\s+(?:(?:the|a|an|some|more|new|our)\\s+)?(?:[\\w-]+\\s+)?|(?:to|into)\\s+(?:(?:the|an?)\\s+)?)${ANALYTICS_RESULT_TERMS.source}(?!\\s+${ARTIFACT_HEAD})`,
+  ].join("|"),
+);
+const REMOVAL_VERB =
+  "(?:(?:remov|delet|ignor|omit|disabl)\\w*|drop(?:s|ped|ping)?|hid(?:e|es|ing)|(?:turn|switch)\\w*\\s+off|tak\\w*\\s+out)";
+// What a removal verb takes out: the words up to the preposition or clause end
+// after them ("the legend" in "remove the legend from this chart"). "around"
+// does not end it: "margin" is also a metric, so "the margin around the chart"
+// is judged by the chart.
+const REMOVAL_OBJECT_WORD =
+  "(?!(?:from|on|in|off|out|at|across|between|inside|within|for|by|to|into|then|but|so|please)\\b)[\\w'’,&-]+";
+const REMOVAL_OBJECT = new RegExp(
+  `\\b${REMOVAL_VERB}\\s+(${REMOVAL_OBJECT_WORD}(?:\\s+${REMOVAL_OBJECT_WORD})*)`,
+  "g",
+);
+// A part of the artifact, or the artifact itself ("it", "everything"), by its
+// last word: "page views" and "label clicks" are metrics that start with one.
+const REMOVED_PART = new RegExp(
+  `\\b(?:${ARTIFACT_NOUNS}|${LOOK_PART_NOUNS}|it|them|this|that|these|those|everything|anything|all)$`,
+);
+// A clause after the thing removed. Naming it ("the chart called Revenue") leaves
+// the head to decide; any other clause narrows a group of records ("users who
+// opened the settings page"), whatever noun it ends in.
+const REMOVAL_QUALIFIER =
+  /\s+(who|whom|whose|that|which|using|with|about|tagged|filed|called|named|titled)\b/;
+const REMOVAL_NAMING = /^(?:called|named|titled)$/;
+// How or when it goes, not what: "remove the legend completely, thanks".
+const REMOVAL_FILLER =
+  /(?:[\s,]+(?:completely|entirely|altogether|permanently|too|also|again|right now|real quick|now|asap|thank(?:s| you)|and (?:save|publish|rerun|refresh|reload)))+$/;
+
+/** Whether an edit takes a value, segment, series, or metric out of what the
+ *  artifact shows ("remove EMEA from this chart", "make it ignore refunds"), as
+ *  opposed to a part of the artifact out ("hide the legend", "delete this
+ *  panel"). Any object that is not a part is a value. The part vocabulary is a
+ *  deliberate best-effort heuristic, not a parser: it fails toward data, which
+ *  only costs the final guard a look, so do not keep extending it. */
+function removesValue(lower: string): boolean {
+  return [...lower.matchAll(REMOVAL_OBJECT)].some(([, object]) => {
+    const [head, qualifier] = object.split(REMOVAL_QUALIFIER);
+    if (qualifier && !REMOVAL_NAMING.test(qualifier)) return true;
+    return head
+      .replace(REMOVAL_FILLER, "")
+      .split(/,|&|\b(?:and|or)\b/)
+      .some((item) => {
+        const phrase = item.trim();
+        return phrase !== "" && !REMOVED_PART.test(phrase);
+      });
+  });
+}
+
+// What a rename sets is a name, whatever words it uses: "rename the chart to
+// Revenue by Region" scopes nothing.
+const NEW_NAME =
+  /(?<=\b(?:rename|retitle|title|label)\w*\b[^.!?;]*?)(?:\b(?:to|as)\b|["“])[^.!?;]*/g;
+
+/** An edit, navigation, or bug report about an existing artifact that asks for
+ *  nothing to be measured. */
+function isArtifactRequest(text: string): boolean {
+  const lower = text.replace(NEW_NAME, " ");
+  const edit = UI_EDIT_OPENER.exec(lower);
+  // The opener is a command, not a metric: "increase the padding" asks for no
+  // increase to be measured.
+  const object = lower.slice(edit?.[0].length ?? 0);
+  if (
+    lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase()) ||
+    DATA_ASK_SHAPE.test(lower) ||
+    METRIC_RESULT_INTENT.test(object) ||
+    NEW_ARTIFACT.test(lower)
+  ) {
+    return false;
+  }
+  if (!edit) return ARTIFACT_FAULT.test(lower) && ARTIFACT_NOUN.test(lower);
+  // The artifact is only what the edit acts on; its object decides.
+  if (DATA_EDIT_OBJECT.test(lower) || removesValue(lower)) return false;
+  return ARTIFACT_NOUN.test(lower) || ARTIFACT_PRONOUN.test(object);
+}
+
+function askText(text: string): string {
+  return boundAnalyticsClassificationText(
+    stripInjectedAnalyticsGuardContext(text),
+  ).toLowerCase();
+}
+
+/** Greetings, thanks, and text with nothing in it to read: the only turns
+ *  pre-model retrieval skips. Retrieval is cheap and relevance-gated (a
+ *  reference below the bar is never injected), so a wrongly retrieved turn costs
+ *  one lookup, and every substantive turn, an artifact edit included, may name
+ *  data the artifact rule cannot enumerate. */
+export function isTrivialTurn(text: string): boolean {
+  const lower = askText(text);
+  return (
+    (lower.match(/[\p{L}\p{N}]/gu) ?? []).length < 2 ||
+    GREETING_OR_THANKS.test(lower)
+  );
+}
+
+/** Turns the final guard never judges: trivial ones, and an edit, navigation,
+ *  or bug report about an artifact. The guard is the intrusive gate, since a
+ *  draft that states figures without query evidence is retried and then
+ *  replaced, so it leans to non-data for a presentation edit ("resize the chart
+ *  by 20%" confirms with a figure that measures nothing). Every other turn, in
+ *  any language, is a candidate data turn. */
+export function isNonDataTurn(text: string): boolean {
+  return isTrivialTurn(text) || isArtifactRequest(askText(text));
+}
+
+/** Whether a request is an analytics lookup by vocabulary. Only the coverage
+ *  checks use it; the guard gates on `isNonDataTurn`, retrieval on
+ *  `isTrivialTurn`. */
 export function looksLikeAnalyticsDataRequest(text: string): boolean {
   const requestText = boundAnalyticsClassificationText(
     stripInjectedAnalyticsGuardContext(text),
@@ -716,6 +801,7 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
     "",
   );
   if (lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase())) return true;
+  if (isNonDataTurn(requestText)) return false;
   if (
     SETUP_REQUEST_TERMS.test(lower) &&
     (SETUP_REQUEST_FRAMING.test(lower) || /\bsettings?\b/.test(lower))
@@ -744,20 +830,6 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   ) {
     return false;
   }
-  if (
-    /\b(open|navigate|go to|rename|delete|share|favorite|unfavorite)\b/.test(
-      lower,
-    ) &&
-    !ANALYTICS_INTENT_TERMS.test(lower) &&
-    !SOURCE_SEARCH_INTENT_TERMS.test(lower)
-  ) {
-    return false;
-  }
-  if (
-    /\b(fix|bug|layout|style|component|route|code|source code)\b/.test(lower)
-  ) {
-    return false;
-  }
   if (EXPLICIT_CODE_REVIEW_REQUEST.test(lower)) return false;
   if (CODE_REVIEW_MENTION.test(lower) && !METRIC_RESULT_INTENT.test(lower)) {
     return false;
@@ -770,9 +842,6 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
     return false;
   }
 
-  // Metadata/data-dictionary questions do not need a live provider query.
-  // Checking what's available, what a metric means, or what schema exists
-  // should be answered from the dictionary and schema tools, not a data fetch.
   if (METADATA_ONLY_TERMS.test(lower)) return false;
 
   if (
@@ -809,34 +878,15 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   ) {
     return true;
   }
-  return (
-    ARTIFACT_TERMS.test(lower) &&
-    ARTIFACT_DATA_INTENT.test(lower) &&
-    ANALYTICS_RESULT_TERMS.test(lower)
-  );
+  return DATA_ASK_SHAPE.test(lower);
 }
 
-// Each unit alternative after the number carries its own trailing `\b`
-// instead of one shared after the group: `%` is not a word character, so a
-// shared `\b` right after it can never match (neither "%" nor the following
-// space is a word char) and silently dropped every percentage claim, e.g.
-// "4.2%".
 const UNSUPPORTED_RESULT_CLAIM =
   /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent\b|users?\b|customers?\b|accounts?\b|sessions?\b|events?\b|deals?\b|tickets?\b|issues?\b|calls?\b|messages?\b|signups?\b|pageviews?\b)|\$\s*\d|\b(?:zero|no|none)\s+(?:users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|dropped|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b|\btrending (?:up|down)\b|\b(?:higher|lower) than\b)/i;
 
-// Reuse the same broad unsupported-result-claim vocabulary that gates
-// isSafeNoDataAnalyticsResponse so a dashboard-construction turn cannot
-// bypass the no-query fallback just by avoiding the narrower set of units a
-// dashboard-specific regex would otherwise miss (e.g. "signups", "accounts").
-// Up to 40 characters of the same clause that never name an artifact: "the
-// signup dashboard was improved" is an edit summary, not a signup result.
 const NON_ARTIFACT_GAP =
   "(?:(?!\\b(?:dashboards?|panels?|charts?|extensions?|widgets?|layouts?|queries|query|tables?|views?|pages?|reports?|columns?|fields?|sql)\\b)[^.\\n]){0,40}?";
 
-// A qualitative verdict about a metric ("signup conversion was strong last
-// week", "signups performed poorly") is a result claim with no number in it.
-// Anchored to a result term earlier in the same clause so an edit summary
-// such as "improved the dashboard layout" does not read as a claim.
 const METRIC_VERDICT_PHRASES =
   "(?:(?:performed|performing|doing|did)\\s+(?:well|poorly|strongly|weakly|badly|better|worse|great)|(?:was|were|is|are|looks?|looked|remained?|stayed|held)\\s+(?:strong|weak|flat|stable|steady|soft|sluggish|excellent|great|good|bad|poor|healthy|unhealthy|solid|successful|disappointing|impressive|terrible|robust|encouraging|concerning|low|high|best|worst)|spiked?|dipped|surged?|plunged?|plateaued|rebounded|peaked|bottomed out|improved|worsened|slowed|accelerated|outperformed|underperformed|doubled|halved|tripled|rose|risen|rising|fell|fallen|falling|climbed|jumped|soared|sank|shrank|shrunk|went (?:up|down)|(?:is|are|was|were) (?:up|down)|ticked (?:up|down)|(?:up|down)\\s+\\d|trending|growing|increasing|decreasing|declining|flattened|hit (?:an? )?(?:record|all-time) (?:high|low)|(?:above|below|on) target)";
 const QUALITATIVE_METRIC_VERDICT = new RegExp(
@@ -844,8 +894,6 @@ const QUALITATIVE_METRIC_VERDICT = new RegExp(
   "i",
 );
 
-// "signups were 480" / "conversion: 4.2" put the metric before the figure,
-// which the unit-after-number shapes above never see.
 const METRIC_THEN_FIGURE = new RegExp(
   `${ANALYTICS_RESULT_TERMS.source}${NON_ARTIFACT_GAP}(?:\\b(?:was|were|is|are|of|at|hit|reached|totaled|came (?:in at|to))\\b|[:=])\\s*(?:~|about|around|roughly|approximately)?\\s*\\$?\\d`,
   "i",
@@ -916,9 +964,6 @@ const NUMERIC_TOKEN = /\d[\d,]*(?:\.\d+)?/g;
 export const GENERIC_NO_DATA_FALLBACK_MESSAGE =
   "I can't provide a grounded analytics result yet because no real data-source query ran successfully. Tell me which source to use or connect the missing source, and I'll run it before giving numbers or source-record conclusions.";
 
-// The first sentence of the canned fallback, lowercased, with the trailing
-// period dropped. Matching this prefix (rather than the whole message) still
-// catches a model paraphrase that continues differently after "successfully".
 const GENERIC_NO_DATA_FALLBACK_FIRST_SENTENCE =
   GENERIC_NO_DATA_FALLBACK_MESSAGE.slice(
     0,
@@ -938,9 +983,6 @@ const SAFE_NO_DATA_RESPONSE =
 export function isSafeNoDataAnalyticsResponse(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
-  // This is the guard's own last-resort fallback. If a model emits it before
-  // attempting a query, it must go through the retry path instead of being
-  // accepted as an explicit unavailable-source or clarification response.
   if (isGenericNoDataFallback(trimmed)) return false;
   if (hasUnsupportedResultClaim(trimmed)) return false;
   if (SAFE_NO_DATA_RESPONSE.test(trimmed)) return true;
@@ -1205,10 +1247,6 @@ export function hasCorpusWorkflowAttempt(
       return hasRunCodeCorpusWorkflowAttempt(result.content);
     }
 
-    // Connected provider MCP tools can expose broad search/list/request
-    // primitives directly. Treat those as corpus-capable when they succeed so
-    // apps are not forced through provider-api-request if a native MCP source
-    // already provides the right general API surface.
     return isCorpusCapableMcpTool(name);
   });
 }
@@ -1365,7 +1403,10 @@ function actionEvidenceTextForSourceRecords(result: {
       transcripts: record.transcripts,
     });
   }
-  if (normalizedName === "gong-native-insights") {
+  if (
+    normalizedName === "gong-native-insights" ||
+    normalizedName === "run-gong-native-insight"
+  ) {
     return "";
   }
   if (normalizedName === "run-code") {

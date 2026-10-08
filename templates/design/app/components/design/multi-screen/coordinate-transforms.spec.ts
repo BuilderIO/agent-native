@@ -7,13 +7,6 @@ import {
   screenLocalRectToBoardGeometry,
 } from "./coordinate-transforms";
 
-/**
- * Drill-in sends the bridge a screen-local point and asks it to only build
- * element info for candidates whose box contains it, while the host keeps
- * hit-testing the SAME candidates in board space. Those two filters agree only
- * if the point conversion is the exact inverse of the rect conversion, so that
- * pairing is what is pinned here — not the formulas individually.
- */
 const VIEWPORT = { width: 400, height: 800 };
 
 describe("board <-> screen-local point conversion", () => {
@@ -109,15 +102,12 @@ describe("board <-> screen-local point conversion", () => {
       const rect = { left: 40, top: 120, width: 160, height: 90 };
       const geometry = screenLocalRectToBoardGeometry(rect, frame, VIEWPORT);
 
-      // The rect's own centre in board space is the point drill-in would send.
       const boardCentre = {
         x: geometry.x + geometry.width / 2,
         y: geometry.y + geometry.height / 2,
       };
       const local = boardPointToScreenLocalPoint(boardCentre, frame, VIEWPORT);
 
-      // It must land back inside the screen-local rect the bridge will test,
-      // or the bridge filters out the very element the host is drilling into.
       expect(local.x).toBeGreaterThanOrEqual(rect.left);
       expect(local.x).toBeLessThanOrEqual(rect.left + rect.width);
       expect(local.y).toBeGreaterThanOrEqual(rect.top);

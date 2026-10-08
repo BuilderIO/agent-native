@@ -7,10 +7,10 @@ description: "Unterscheidet zwischen OIDC- oder SAML-Anmeldung einer Organisatio
 
 Organisations-SSO nutzt den OIDC- oder SAML-Anbieter eines Unternehmens für die Anmeldung bei einer Agent-Native-Bereitstellung. App-übergreifende Föderation überträgt verifizierte Identität oder Organisationskontext zwischen getrennten Bereitstellungen. Einrichtung und Vertrauensgrenzen unterscheiden sich.
 
-Die browserbasierte Option "Sign in with Agent-Native" und die automatische
-Browser-Weiterleitung wurden entfernt. Die Anmeldung pro App bleibt der
-Standard für Webnutzer. Diese Seite beschreibt die verbleibenden Desktop- und
-serverseitigen Föderationsverträge.
+Die Anmeldeseiten exakt registrierter Agent-Native-Apps bieten die Aktion
+"Continue with Agent-Native" an. Sie startet den bestehenden Dispatch-Ablauf mit
+verifizierter E-Mail-Adresse. Diese Seite beschreibt die Föderation im Browser,
+in Desktop und auf dem Server.
 
 ## App-übergreifende Föderation
 
@@ -36,9 +36,9 @@ normale Anmeldung pro App verfügbar.
 
 ### Serverseitige Föderation
 
-Der verbleibende Broker und serverseitige Aufrufer verwenden ein kurzlebiges,
-serverseitig geprüftes Protokoll. Es wird nicht als Browser-Anmeldekontrolle
-angeboten:
+Broker und serverseitige Aufrufer verwenden ein kurzlebiges, serverseitig
+geprüftes Protokoll. Agent-Native-Apps mit exakter Registrierung starten
+denselben Ablauf erst, wenn die Person "Continue with Agent-Native" auswählt:
 
 1. Der Aufrufer fordert eine exakte Bindung an eine registrierte App an.
 2. Dispatch authentifiziert die Arbeitsbereichsidentität und gibt einen
@@ -88,10 +88,13 @@ keine Daten.
 
 ## Konfiguration
 
-<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> wird nur vom verbleibenden
-serverseitigen und Desktop-Pfad verwendet, wenn eine selbst gehostete App eine
-explizite Dispatch-Bereitstellung benötigt. Es fügt keine Browser-Anmeldeoption
-und keine automatische Browser-Weiterleitung hinzu.
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> legt Dispatch für Server- und
+Browserpfade fest, wenn eine selbst gehostete App eine explizite Konfiguration
+benötigt. Exakt registrierte Erstanbieter-Apps bieten auf ihrer Anmeldeseite die
+Aktion "Continue with Agent-Native" an. Das Rollout-Flag
+<code>browser.identity-sso</code> steuert weiterhin die stille Anmeldung mit
+<code>prompt=none</code> und das Bootstrap nach einer lokalen Anmeldung. Die
+lokale Anmeldung bleibt als Fallback verfügbar.
 
 Für eine selbst gehostete Dispatch-Bereitstellung registrierst du jede eigene
 App mit exakter App-ID, Client-ID, HTTPS-Origin, Callback-Pfad und der
@@ -110,17 +113,22 @@ Nach dem Deployment:
 
 1. Prüfe, dass E-Mail, Passwort, Magic Link und konfigurierte Anbieter im
    Browser weiterhin funktionieren.
-2. Prüfe, dass die Browser-Anmeldeseite keine Agent-Native-Anmeldeoption anbietet.
+2. Prüfe, dass "Continue with Agent-Native" angeboten wird und die lokale
+   Anmeldung verfügbar bleibt. Bei deaktiviertem <code>browser.identity-sso</code>
+   müssen Aktion und lokale Anmeldung weiterhin funktionieren. Bei aktiviertem
+   Flag prüfe die stille Anmeldung mit <code>prompt=none</code> und die lokale
+   Anmeldung als Fallback.
 3. Wenn Desktop SSO aktiviert ist, prüfe eine exakt registrierte App über die
    explizite Aktion in den Desktop-Einstellungen.
 4. Wenn Organisationsföderation aktiviert ist, prüfe die exakte Organisations-ID
    und die Mitgliedschaftsrolle in der Ziel-App.
 
-Zum Zurücksetzen deaktiviere das zuständige Flag und entferne
-
-<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> aus der selbst gehosteten
-Bereitstellung. Danach erneut deployen. Die additiven Datensätze bleiben für die
-normale lokale Authentifizierung verfügbar.
+Um die stille Browser- oder Desktop-Anmeldung zurückzusetzen, deaktiviere das
+zugehörige Flag. Um die explizite Browseraktion aus einer selbst gehosteten App
+zu entfernen, entferne <code>AGENT_NATIVE_IDENTITY_HUB_URL</code> oder ihre
+exakte App-Registrierung und stelle sie erneut bereit. Die lokale Anmeldung
+bleibt verfügbar. Additive Identitäts- und Organisationsdatensätze bleiben
+erhalten.
 
 ## Verwandte Dokumentation
 

@@ -1,33 +1,12 @@
-/**
- * Transform a standalone template directory into a workspace app in place.
- *
- * Called after copying any template under `apps/<name>/` inside an enterprise
- * workspace. The transform:
- *
- *   1. Rewrites package.json:
- *      - Published framework packages stay as regular npm deps
- *      - Adds @<workspace-scope>/shared as a workspace:* dep so the app
- *        inherits shared plugins/skills/AGENTS.md via the three-layer model.
- *   2. Removes files that only make sense in standalone apps
- *      (`learnings.defaults.md`, etc.).
- *   3. Replaces chat's stock auth/chat wrappers with inherited wrappers so
- *      the workspace core can own those plugin slots while framework defaults
- *      still mount when the workspace core is empty.
- *   4. Leaves app source code untouched. The three-layer framework
- *      auto-discovers workspace-core via `agent-native.workspaceCore` in the
- *      workspace root package.json — no per-app wiring needed.
- *
- * This means any first-party template under templates/* is usable as a
- * workspace app without maintaining a parallel copy.
- */
 import fs from "fs";
 import path from "path";
 
 import { isMap, parseDocument } from "yaml";
 
 import {
-  DEFAULT_WORKSPACE_SKILLS,
+  FACTORY_TEMPLATE_LOCAL_SKILLS,
   FRAMEWORK_TEMPLATE_SHARED_SKILLS,
+  WORKSPACE_SKILLS,
 } from "./workspace-skill-policy.js";
 
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
@@ -41,31 +20,18 @@ const REACT_ROUTER_BUILD_DEPENDENCIES = [
 ] as const;
 
 export interface WorkspacifyOptions {
-  /** Target app directory (already populated with the copied template) */
   appDir: string;
-  /** App name (e.g. "mail") */
   appName: string;
-  /** Source template name (e.g. "chat" when appName is "crm") */
   templateName?: string;
-  /** Workspace root directory */
   workspaceRoot: string;
-  /** Shared workspace package name (e.g. "@my-company/shared") */
   workspaceCoreName: string;
-  /** Version range to use for the published @agent-native/core package */
   coreDependencyVersion?: string;
-  /** Version range to use for the package-backed Dispatch app */
   dispatchDependencyVersion?: string;
-  /** Version range to use for the published @agent-native/toolkit package */
   toolkitDependencyVersion?: string;
-  /** Version range to use for the published @agent-native/agentkit package */
   agentKitDependencyVersion?: string;
+  otelDependencyVersion?: string;
 }
 
-/**
- * node-pty ships no Linux prebuild, so its install script falls back to
- * `node-gyp rebuild`. The dependency is missing from node-pty's manifest;
- * attach it where pnpm runs that script so every workspace gets the same fix.
- */
 export function ensureNodePtyBuildDependency(workspaceRoot: string): void {
   const workspacePath = path.join(workspaceRoot, "pnpm-workspace.yaml");
   if (!fs.existsSync(workspacePath)) {
@@ -113,7 +79,7 @@ export function ensureNodePtyBuildDependency(workspaceRoot: string): void {
     ],
     NODE_PTY_BUILD_DEPENDENCY,
   );
-  const updated = document.toString();
+  const updated = document.toString({ lineWidth: 0 });
 
   if (updated !== current) fs.writeFileSync(workspacePath, updated);
 }
@@ -138,12 +104,11 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
     "@agent-native/agentkit",
     opts.agentKitDependencyVersion,
   );
+  const otelDependencyVersion = pinnedByWorkspace(
+    "@agent-native/otel",
+    opts.otelDependencyVersion,
+  );
 
-  // 1) Rewrite package.json to add the workspace core dep and resolve
-  //    published framework-package workspace:* refs to package ranges.
-  //    Other workspace:* deps (e.g. @agent-native/scheduling) stay as-is —
-  //    they resolve within the
-  //    workspace because the required package is scaffolded alongside the app.
   const pkgPath = path.join(appDir, "package.json");
   let hasNodePty = false;
   if (fs.existsSync(pkgPath)) {
@@ -170,15 +135,14 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
             if (key === "@agent-native/agentkit") {
               deps[key] = agentKitDependencyVersion;
             }
+            if (key === "@agent-native/otel") {
+              deps[key] = otelDependencyVersion;
+            }
           }
         }
       }
-      // Ensure the dependency on the workspace shared package is present.
       pkg.dependencies = pkg.dependencies ?? {};
       pkg.dependencies[workspaceCoreName] = "workspace:*";
-      // Core loads postgres-js lazily when DATABASE_URL points at Postgres.
-      // Add the runtime package to workspace apps so production bundles do
-      // not fail only after a hosted Postgres database is configured.
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
       ensureReactRouterBuildDependencies(pkg);
       hasNodePty = [
@@ -187,18 +151,12 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
         pkg.peerDependencies,
         pkg.optionalDependencies,
       ].some((deps) => Boolean(deps?.["node-pty"]));
-      // pnpm build-script approvals belong at the workspace root. Leaving the
-      // template's per-app setting in place makes pnpm warn on every install.
       if (pkg.pnpm && typeof pkg.pnpm === "object") {
         delete pkg.pnpm.onlyBuiltDependencies;
         if (Object.keys(pkg.pnpm).length === 0) {
           delete pkg.pnpm;
         }
       }
-      // Pin @assistant-ui/store and @assistant-ui/tap so pre-existing workspaces
-      // whose root pnpm-workspace.yaml pre-dates this fix are still protected.
-      // The constraints exclude the breaking store@0.2.14/tap@0.6.0 combination
-      // that causes Vite pre-bundling failures via a missing ./react-shim export.
       pkg.devDependencies = pkg.devDependencies ?? {};
       pkg.devDependencies["@assistant-ui/store"] ??= ">=0.2.9 <0.2.14";
       pkg.devDependencies["@assistant-ui/tap"] ??= "^0.5.14";
@@ -209,15 +167,7 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
   }
   if (hasNodePty) ensureNodePtyBuildDependency(opts.workspaceRoot);
 
-  // 2) Remove standalone-only files that would confuse the workspace layout.
-  for (const f of [
-    "learnings.defaults.md",
-    // pnpm-workspace.yaml marks a directory as a pnpm workspace root.
-    // Leaving it in an app directory nested under a parent workspace causes
-    // ERR_PNPM_WORKSPACE_PKG_NOT_FOUND when the app depends on workspace:*
-    // packages (e.g. @<scope>/shared). Overrides belong at the workspace root.
-    "pnpm-workspace.yaml",
-  ]) {
+  for (const f of ["learnings.defaults.md", "pnpm-workspace.yaml"]) {
     const p = path.join(appDir, f);
     try {
       if (fs.existsSync(p)) fs.unlinkSync(p);
@@ -226,15 +176,8 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
     }
   }
 
-  // Workspace-core owns framework skills. Keep only app-specific skill
-  // directories here, and expose the small inherited default set as symlinks
-  // so coding agents launched from this app see the same workspace guidance
-  // without another hard copy. Runtime agents inherit workspace-core directly.
   linkInheritedWorkspaceSkills(opts);
 
-  // 3) Templates document action commands from the framework repo layout.
-  //    Workspace apps live under apps/<name>, so point every agent at the
-  //    generated app directory instead.
   const agentsPath = path.join(appDir, "AGENTS.md");
   if (fs.existsSync(agentsPath)) {
     try {
@@ -267,8 +210,12 @@ function linkInheritedWorkspaceSkills(opts: WorkspacifyOptions): void {
   const workspaceSkillsDir = path.join(opts.workspaceRoot, ".agents", "skills");
   if (!fs.existsSync(workspaceSkillsDir)) return;
 
-  removeCopiedFrameworkSkills(opts.appDir, { allowUnverified: true });
-  linkDefaultWorkspaceSkills(opts.appDir, opts.workspaceRoot);
+  removeCopiedFrameworkSkills(opts.appDir, {
+    allowUnverified: true,
+    preserveLocalSkills:
+      opts.templateName === "factory" ? FACTORY_TEMPLATE_LOCAL_SKILLS : [],
+  });
+  linkWorkspaceSkills(opts.appDir, opts.workspaceRoot);
 }
 
 function skillDirContentsMatch(sourceDir: string, targetDir: string): boolean {
@@ -310,14 +257,20 @@ function skillDirContentsMatch(sourceDir: string, targetDir: string): boolean {
 
 export function removeCopiedFrameworkSkills(
   appDir: string,
-  options: { workspaceRoot?: string; allowUnverified?: boolean } = {},
+  options: {
+    workspaceRoot?: string;
+    allowUnverified?: boolean;
+    preserveLocalSkills?: readonly string[];
+  } = {},
 ): string[] {
   const appSkillsDir = path.join(appDir, ".agents", "skills");
   const workspaceSkillsDir = options.workspaceRoot
     ? path.join(options.workspaceRoot, ".agents", "skills")
     : undefined;
   const preserved: string[] = [];
+  const preserveLocalSkills = new Set(options.preserveLocalSkills ?? []);
   for (const skill of FRAMEWORK_TEMPLATE_SHARED_SKILLS) {
+    if (preserveLocalSkills.has(skill)) continue;
     const localPath = path.join(appSkillsDir, skill);
     const stat = fs.lstatSync(localPath, { throwIfNoEntry: false });
     if (!stat || stat.isSymbolicLink()) continue;
@@ -337,9 +290,10 @@ export function removeCopiedFrameworkSkills(
   return preserved;
 }
 
-export function linkDefaultWorkspaceSkills(
+export function linkWorkspaceSkills(
   appDir: string,
   workspaceRoot: string,
+  selectedSkills: readonly string[] = WORKSPACE_SKILLS,
 ): string[] {
   const appSkillsDir = path.join(appDir, ".agents", "skills");
   const workspaceSkillsDir = path.join(workspaceRoot, ".agents", "skills");
@@ -347,7 +301,7 @@ export function linkDefaultWorkspaceSkills(
 
   fs.mkdirSync(appSkillsDir, { recursive: true });
   const preserved: string[] = [];
-  for (const skill of DEFAULT_WORKSPACE_SKILLS) {
+  for (const skill of selectedSkills) {
     const inheritedPath = path.join(workspaceSkillsDir, skill);
     if (!fs.existsSync(inheritedPath)) continue;
 
@@ -381,23 +335,11 @@ export function linkDefaultWorkspaceSkills(
   return preserved;
 }
 
-/**
- * The version an existing workspace already pins for a framework package.
- *
- * Apps added months apart otherwise carry whatever version the CLI that
- * scaffolded them happened to be, and pnpm keeps one physical copy of core per
- * distinct spec — roughly 175 MB each. The workspace root manifest is the one
- * anchor; `agent-native upgrade` is what moves every manifest together.
- * Local (`file:`/`link:`/`workspace:`) and floating (`latest`, `catalog:`)
- * values are not pins, so they fall through to the caller's version.
- */
 function workspacePinnedVersion(
   workspaceRoot: string,
   name: string,
 ): string | null {
   const pkgPath = path.join(workspaceRoot, "package.json");
-  // A malformed root manifest is left to throw: silently scaffolding an app
-  // against an unreadable workspace is how the versions drift apart again.
   if (!fs.existsSync(pkgPath)) return null;
   const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
   for (const depType of ["dependencies", "devDependencies"] as const) {
@@ -496,11 +438,6 @@ function writeInheritedChatAgentChatPlugin(
   );
 }
 
-/**
- * Parse a workspace core package name into its npm scope.
- *   "@my-company/shared" → "my-company"
- *   "shared"             → ""  (no scope — shouldn't happen)
- */
 export function parseWorkspaceScope(workspaceCoreName: string): string {
   const m = workspaceCoreName.match(/^@([^/]+)\//);
   return m ? m[1] : "";

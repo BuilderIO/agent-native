@@ -30,6 +30,12 @@ pnpm install
 
 範本為代理提供瀏覽器 UI、驗證、持久對話、即時同步、應用程式上下文和 `actions/` 目錄。它還包含一個小型 `hello` action，您會在本指南中一直使用它。
 
+<Callout tone="info">
+
+如果這些指令因對等相依性錯誤而失敗，原因可能是 npx 快取中有過時的套件副本。執行 `npx clear-npx-cache` 清除快取，然後重新執行這些指令。
+
+</Callout>
+
 ## 啟動開發伺服器
 
 啟動開發伺服器：
@@ -48,7 +54,7 @@ pnpm dev
 
 ## 連線 LLM
 
-接著連線 LLM。選取 **Connect Builder.io** 使用免費額度，或選取 **Custom keys**，選擇提供者並輸入所需的連線詳細資料。
+接著連線 LLM。選取 **使用 Builder.io** 使用免費額度，或選取 **Custom keys**，選擇提供者並輸入所需的連線詳細資料。
 
 ## 從代理執行 action
 
@@ -127,7 +133,7 @@ export default function HelloRoute() {
 }
 ```
 
-<Callout tone="warning">
+<Callout tone="info">
 
 重新啟動開發伺服器，讓它探索新路由，然後開啟 `http://localhost:<port>/hello`。
 

@@ -2,6 +2,8 @@ import {
   A2AClient,
   canonicalA2AAudience,
   extractA2APersistedMutationReceipts,
+  getGlobalA2ASecret,
+  signA2AOrganizationToken,
   signA2AToken,
   stripA2APersistedArtifactMarkers,
   type A2APersistedMutationReceipt,
@@ -27,6 +29,7 @@ import {
   type DiscoveredAgent,
 } from "@agent-native/core/server/agent-discovery";
 
+import { DESKTOP_WORKSPACE_SSO_FLAG } from "../../shared/feature-flags.js";
 import {
   DISPATCH_WORKSPACE_SSO_FLAG,
   isWorkspaceSsoAppUrl,
@@ -49,11 +52,9 @@ const DISPATCH_DESCRIPTION =
 const DISPATCH_COLOR = "#14B8A6";
 const TARGET_EMBED_SESSION_ATTEMPTS = 3;
 const TARGET_EMBED_SESSION_RETRY_BASE_MS = 250;
-// target apps can take a long time to cold-boot, so we give a large timeout here
 const TARGET_EMBED_SESSION_CONNECT_TIMEOUT_MS = 90_000;
 const TARGET_EMBED_SESSION_BUDGET_MS = 95_000;
 const DISPATCH_ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
-// Leave response headroom for the hosted MCP transport after the inline wait.
 const DISPATCH_ASK_APP_MAX_INLINE_WAIT_MS = 20_000;
 const DISPATCH_ASK_APP_POLL_INTERVAL_MS = 1_500;
 const DISPATCH_A2A_REQUEST_TIMEOUT_MS = 10_000;
@@ -77,7 +78,6 @@ export interface DispatchMcpAccessibleApp {
   name: string;
   description: string;
   url: string;
-  /** Canonical browser entry point when `url` is a deep A2A/agent link. */
   homeUrl?: string;
   color: string;
   granted: boolean;
@@ -256,6 +256,7 @@ function dispatchAskAppTaskResult(
 async function createDispatchA2AClient(input: {
   targetUrl: string;
   userEmail: string;
+  orgId?: string;
   orgDomain?: string;
   orgSecret?: string;
   deadline?: number;
@@ -265,13 +266,22 @@ async function createDispatchA2AClient(input: {
 }> {
   const apiKeys: string[] = [];
   const addSignedToken = async (preferGlobalSecret: boolean) => {
+    if (input.orgId && !input.orgDomain?.trim()) return;
     try {
-      const token = await signA2AToken(
-        input.userEmail,
-        input.orgDomain,
-        input.orgSecret,
-        { preferGlobalSecret },
-      );
+      const audience = canonicalA2AAudience(input.targetUrl);
+      const token = preferGlobalSecret
+        ? await signA2AToken(input.userEmail, input.orgDomain, undefined, {
+            preferGlobalSecret: true,
+            audience,
+          })
+        : input.orgDomain && input.orgSecret
+          ? await signA2AOrganizationToken(
+              input.orgDomain,
+              input.orgSecret,
+              undefined,
+              { audience },
+            )
+          : undefined;
       if (token && !apiKeys.includes(token)) apiKeys.push(token);
     } catch {
       // A2A can still be configured for local/dev unauthenticated calls. If
@@ -279,7 +289,7 @@ async function createDispatchA2AClient(input: {
     }
   };
 
-  if (process.env.A2A_SECRET?.trim()) await addSignedToken(true);
+  if (getGlobalA2ASecret()) await addSignedToken(true);
   if (input.orgSecret) await addSignedToken(false);
 
   const metadata: Record<string, unknown> = {
@@ -751,9 +761,6 @@ async function listWorkspaceSsoApps(): Promise<DispatchMcpAccessibleApp[]> {
       granted: true,
     });
   }
-  // The hosted Dispatch database is separate from the shared Workspace
-  // database. Overlay the live mounted registry so custom apps remain
-  // discoverable without copying a stale app list into Dispatch configuration.
   for (const app of mountedApps) {
     if (app.isDispatch || !app.url) continue;
     candidatesById.set(app.id, {
@@ -833,6 +840,7 @@ export async function askGrantedDispatchMcpApp(
   const { client, metadata } = await createDispatchA2AClient({
     targetUrl: target.url,
     userEmail,
+    orgId: orgId ?? undefined,
     orgDomain: orgDomain ?? undefined,
     orgSecret: orgSecret ?? undefined,
     deadline: submissionDeadline,
@@ -881,6 +889,7 @@ export async function getGrantedDispatchMcpAppTask(
   const { client } = await createDispatchA2AClient({
     targetUrl: target.url,
     userEmail,
+    orgId: orgId ?? undefined,
     orgDomain: orgDomain ?? undefined,
     orgSecret: orgSecret ?? undefined,
   });
@@ -1179,52 +1188,52 @@ async function callTargetCreateEmbedSession(input: {
 
 async function createTargetMcpTokenAttempts(input: {
   ownerEmail: string;
+  orgId?: string;
   orgDomain?: string;
   orgSecret?: string;
   target: DispatchMcpAccessibleApp;
 }): Promise<TargetMcpTokenAttempt[]> {
   const attempts: TargetMcpTokenAttempt[] = [];
+  if (input.orgId && !input.orgDomain?.trim()) {
+    throw new Error(
+      "Cannot authenticate cross-app MCP access without the active organization domain.",
+    );
+  }
   const addAttempt = async (tokenInput: {
     strategy: TargetMcpTokenAttempt["strategy"];
-    secret?: string;
-    preferGlobalSecret: boolean;
   }) => {
-    const token = await signA2AToken(
-      input.ownerEmail,
-      input.orgDomain,
-      tokenInput.secret,
-      {
-        expiresIn: "5m",
-        audience: canonicalA2AAudience(appHomeBaseUrl(input.target)),
-        preferGlobalSecret: tokenInput.preferGlobalSecret,
-      },
+    const audience = canonicalA2AAudience(
+      `${appHomeBaseUrl(input.target)}/mcp`,
     );
+    const token =
+      tokenInput.strategy === "org" && input.orgDomain && input.orgSecret
+        ? await signA2AOrganizationToken(
+            input.orgDomain,
+            input.orgSecret,
+            undefined,
+            { expiresIn: "5m", audience },
+          )
+        : await signA2AToken(input.ownerEmail, input.orgDomain, undefined, {
+            expiresIn: "5m",
+            audience,
+            preferGlobalSecret: true,
+          });
     if (!attempts.some((attempt) => attempt.token === token)) {
       attempts.push({ token, strategy: tokenInput.strategy });
     }
   };
 
+  if (getGlobalA2ASecret()) {
+    await addAttempt({
+      strategy: "global",
+    });
+  }
   if (input.orgDomain && input.orgSecret) {
     await addAttempt({
       strategy: "org",
-      secret: input.orgSecret,
-      preferGlobalSecret: false,
-    });
-    // A target app may not have the org secret synced yet. The shared secret
-    // is a bounded compatibility fallback, used only after the target rejects
-    // the org-signed request and never after a non-authentication failure.
-    if (process.env.A2A_SECRET?.trim()) {
-      await addAttempt({
-        strategy: "global",
-        preferGlobalSecret: true,
-      });
-    }
-  } else {
-    await addAttempt({
-      strategy: "global",
-      preferGlobalSecret: true,
     });
   }
+  if (attempts.length === 0) await addAttempt({ strategy: "global" });
 
   return attempts;
 }
@@ -1399,6 +1408,7 @@ async function createEmbedSessionForResolvedApp(input: {
   const signedOrgDomain = usableOrgDomain ? orgDomain.trim() : undefined;
   const tokenAttempts = await createTargetMcpTokenAttempts({
     ownerEmail,
+    orgId,
     orgDomain: signedOrgDomain,
     orgSecret: usableOrgSecret ? orgSecret.trim() : undefined,
     target: target.app,
@@ -1513,11 +1523,14 @@ export async function createWorkspaceSsoEmbedSession(input: {
     });
     throw new Error("no authenticated user");
   }
-  const enabled = await isFeatureFlagEnabled(DISPATCH_WORKSPACE_SSO_FLAG, {
+  const scope = {
     userEmail: ownerEmail,
     userKey: ownerEmail,
     orgId: getRequestOrgId(),
-  });
+  };
+  const enabled =
+    (await isFeatureFlagEnabled(DISPATCH_WORKSPACE_SSO_FLAG, scope)) ||
+    (await isFeatureFlagEnabled(DESKTOP_WORKSPACE_SSO_FLAG, scope));
   if (!enabled) {
     console.warn("[dispatch] workspace embed mint rejected", {
       phase: "feature-flag",

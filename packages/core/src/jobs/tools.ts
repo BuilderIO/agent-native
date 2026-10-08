@@ -4,6 +4,7 @@ import { getDbExec } from "../db/client.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
   resourcePut,
+  resourcePutIfAbsent,
   resourceGetByPath,
   resourceList,
   resourceDelete,
@@ -20,6 +21,7 @@ import {
   isReasoningEffort,
   REASONING_EFFORTS,
 } from "../shared/reasoning-effort.js";
+import { RESUME_AUTOMATION_PATCH } from "./automation-outcome.js";
 import {
   isValidCron,
   nextOccurrence,
@@ -54,12 +56,6 @@ function getSharedOwner(): string {
   return sharedResourceOwner(getRequestOrgId());
 }
 
-/**
- * Determine if the current request's user is an org owner/admin in the
- * given org. Used to allow privileged users to update or delete shared
- * jobs created by other org members. Returns false when there is no org,
- * no user, no membership, or any error querying — fail closed.
- */
 async function isCurrentUserOrgAdmin(
   orgId: string | undefined,
 ): Promise<boolean> {
@@ -112,7 +108,6 @@ export async function authorizeJobMutation(
   const createdBy = meta.createdBy?.toLowerCase();
   if (createdBy && createdBy === caller.toLowerCase()) return null;
 
-  // Allow org owners/admins to manage shared jobs created by other members.
   const isAdmin = await isCurrentUserOrgAdmin(
     resourceOrgId ?? meta.orgId ?? getRequestOrgId() ?? undefined,
   );
@@ -170,8 +165,6 @@ async function runCreate(
   const owner = scope === "personal" ? getOwner() : getSharedOwner();
   const path = `jobs/${name}.md`;
   const now = new Date();
-  // A cron time with no zone silently means the host's zone, which is how an
-  // "8am" job ends up firing at 4am for the person who asked for it.
   if (requestedTimezone && !isValidTimezone(requestedTimezone)) {
     return JSON.stringify({
       error: `Unknown timezone: "${requestedTimezone}". Use an IANA zone such as America/New_York.`,
@@ -222,7 +215,21 @@ async function runCreate(
   };
 
   const content = buildJobContent(meta, instructions);
-  await resourcePut(owner, path, content);
+  const created = await resourcePutIfAbsent(owner, path, content);
+  if (!created) {
+    const existing = await resourceGetByPath(owner, path);
+    if (!existing) {
+      return JSON.stringify({
+        error: `Job "${name}" was not created: the write was not applied.`,
+      });
+    }
+    return JSON.stringify({
+      error:
+        classifyJobResource(existing.content).kind === "automation"
+          ? `"${name}" already exists and is an automation. Use manage-automations to change it.`
+          : `Job "${name}" already exists. Use manage-jobs with action 'update' to change it, or pick a different name.`,
+    });
+  }
 
   return JSON.stringify({
     created: true,
@@ -243,7 +250,6 @@ async function runList(
 ): Promise<string> {
   const owner = getOwner();
   const sharedOwner = getSharedOwner();
-  // Fetch only current user's and shared jobs (not other users')
   const [personal, shared] = await Promise.all([
     resourceList(owner, "jobs/"),
     resourceList(sharedOwner, "jobs/"),
@@ -274,6 +280,9 @@ async function runList(
         lastRun: meta.lastRun || null,
         lastStatus: meta.lastStatus || null,
         lastError: meta.lastError || null,
+        lastErrorCode: meta.lastErrorCode || null,
+        pausedReason: meta.pausedReason || null,
+        pausedAt: meta.pausedAt || null,
         nextRun: meta.nextRun || null,
         originScopeId: meta.originScopeId || null,
         deliveryPlatform: meta.deliveryPlatform || null,
@@ -315,7 +324,6 @@ async function runUpdate(
   } = args;
   const path = `jobs/${name}.md`;
 
-  // Try to find the resource
   let resource = await resourceGetByPath(getSharedOwner(), path);
   if (!resource && scope !== "shared") {
     resource = await resourceGetByPath(getOwner(), path);
@@ -332,11 +340,6 @@ async function runUpdate(
     });
   }
 
-  // Reject when the caller doesn't own the shared job and isn't an org
-  // admin. Without this check, any user could rewrite a shared job whose
-  // `createdBy` is alice@…, and the next cron tick would run the
-  // attacker's instructions as alice (creator-runAs schedules in
-  // jobs/scheduler.ts line 273-278).
   const denied = await authorizeJobMutation(resource.owner, meta, appId);
   if (denied) {
     return JSON.stringify({ error: denied });
@@ -378,11 +381,15 @@ async function runUpdate(
   }
 
   if (enabled !== undefined) {
-    // Accept both the schema's string enum ("true"/"false") and a real boolean
-    // from non-LLM callers. `enabled === "true"` alone treats a boolean `true`
-    // as false — silently *disabling* a job the caller meant to enable.
     meta.enabled = enabled === true || enabled === "true";
     fields.enabled = meta.enabled;
+    if (
+      meta.enabled &&
+      (meta.pausedReason || meta.lastErrorCode || meta.consecutiveFailures)
+    ) {
+      // Enabling lifts a framework pause and starts a clean failure streak.
+      Object.assign(fields, RESUME_AUTOMATION_PATCH);
+    }
   }
 
   if (runAs === "creator" || runAs === "shared") {
@@ -488,9 +495,6 @@ async function runDelete(
     return JSON.stringify({ error: `Job "${name}" not found` });
   }
 
-  // Same access check as runUpdate — only the creator or an org admin can
-  // remove a shared job. Otherwise any user could break another tenant's
-  // recurring schedule.
   const { meta } = parseJobFrontmatter(resource.content);
   if (classifyJobResource(resource.content).kind === "automation") {
     return JSON.stringify({
@@ -513,7 +517,7 @@ export function createJobTools(appId?: string): Record<string, ActionEntry> {
         description: `Manage recurring jobs that run on a cron schedule.
 
 Actions:
-- "create": Create a new recurring job. Requires name and instructions; an omitted schedule defaults to once per hour.
+- "create": Create a new recurring job. Requires name and instructions; an omitted schedule defaults to once per hour. Fails if a job with that name already exists; use "update" to change an existing job.
 - "list": List all recurring jobs and their status (schedule, enabled, last run, next run).
 - "update": Update a job's schedule, instructions, or enabled state. Requires name.
 - "delete": Delete a recurring job. Requires name. Always confirm with the user first.

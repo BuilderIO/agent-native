@@ -17,7 +17,7 @@ import { and, eq, isNull, lt, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 
 export const DESIGN_ACCESS_REQUEST_EMAIL_ID = "design.access-request";

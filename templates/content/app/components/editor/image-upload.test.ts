@@ -98,7 +98,7 @@ describe("image uploads", () => {
     );
   });
 
-  it("points users to Builder.io when file storage is not configured", async () => {
+  it("preserves the missing storage response for the setup gate", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -115,11 +115,11 @@ describe("image uploads", () => {
     });
 
     await expect(uploadImageFile(file)).rejects.toThrow(
-      "Connect Builder.io in Settings -> File uploads",
+      "No file upload provider configured.",
     );
   });
 
-  it("tells users to reconnect Builder.io when saved credentials are rejected", async () => {
+  it("preserves a provider credential failure", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -136,7 +136,7 @@ describe("image uploads", () => {
     });
 
     await expect(uploadImageFile(file)).rejects.toThrow(
-      "Reconnect Builder.io in Settings -> File uploads",
+      "Builder.io upload failed (401): Unauthorized",
     );
   });
 

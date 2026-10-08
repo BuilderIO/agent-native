@@ -1,7 +1,29 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "連携" } },
+  templatesPage: {
+    actions: "{{title}} のテンプレート操作",
+    previewAction: "プレビュー",
+    title: "テンプレート",
+    browseAll: "すべて見る",
+    searchPlaceholder: "テンプレートを検索…",
+    loading: "テンプレートを読み込み中",
+    empty: "検索に一致するテンプレートがありません。",
+    loadFailed: "テンプレートを読み込めませんでした。",
+    preview: "テンプレートのプレビュー",
+    useTemplate: "テンプレートを使用",
+    opening: "テンプレートを開いています…",
+    createFailed:
+      "このテンプレートからプレゼンテーションを作成できませんでした。",
+    previous: "前へ",
+    next: "次へ",
+    slidePosition: "スライド {{current}} / {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["ja-JP"],
+  common: {
+    loading: "読み込み中...",
+  },
   root: {
     commandPresentations: "プレゼンテーション",
     searchDecks: "デッキを検索",
@@ -23,23 +45,23 @@ const messages = {
     brand: "スライド",
     decks: "デッキ",
     designSystems: "デザインシステム",
-    team: "チーム",
   },
   settings: {
+    agentObservability: "可観測性",
     title: "設定",
-    description: "このアプリの言語とワークスペース設定。",
     labs: "Labs",
     labsIntro: "リリース前に実験的な機能をプレビューできます。",
     labLayoutOverflowWarningDescription:
       "エディターでレイアウトのはみ出し警告を表示します。",
-    emailNotifications: "メール通知",
-    emailNotificationsDescription:
-      "誰かがあなたのデッキにコメントまたは返信したときにメールを受け取ります。",
     saveFailed: "保存に失敗しました",
-    languageTitle: "言語",
-    languageDescription:
-      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
-    languageLabel: "インターフェース言語",
+    notificationsEmail: "メール",
+    commentsAndReplies: "コメントと返信",
+    commentsAndRepliesDescription:
+      "誰かがあなたのデッキにコメントまたは返信したとき。",
+    retry: "再試行",
+    reload: "再読み込み",
+    mcpAbout:
+      "Slides を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって Slides で作業できます。デッキの作成、スライドの追加、PowerPoint への書き出しなどです。アプリが見られるのは、あなたが見られるものだけです。",
     workspaceTitle: "ワークスペース",
     workspaceDescription:
       "チームメンバー、組織アクセス、共有ワークスペース設定を管理します。",
@@ -108,7 +130,7 @@ const messages = {
       "Google PickerにはGOOGLE_PICKER_API_KEYとGOOGLE_PICKER_APP_IDが必要です。",
     imageUploadFailed: "画像のアップロードに失敗しました",
     imageUploadNeedsBuilder:
-      "スライドに画像をアップロードするには、エージェント作成欄のモデルメニューから Builder.io に接続してください。空のキャンバスに画像をドロップすると、プロバイダーなしでもエージェントに送信できます。",
+      "画像をアップロードするにはオブジェクトストレージを接続してください。Builder.io（無料）を接続するか、設定 → ファイルアップロードで独自の S3 互換ストレージキーを追加してください。",
     sentToAgent: "エージェントに送信しました",
     imageUploadGenericError: "この画像のアップロード中に問題が発生しました。",
     uploading: "アップロード中…",
@@ -151,6 +173,15 @@ const messages = {
     saveReconnect: "再接続時に変更が保存されます",
     saveFailedDescription:
       "最新の変更はこのデバイスにしかありません。離れる前にバックアップをダウンロードしてください。",
+    slideConflictReview: "確認",
+    slideConflictTitle: "このスライドは別の場所で変更されました",
+    slideConflictDescription:
+      "別の編集者が新しいバージョンを保存しました。下書きを保持すると保存済みのスライド内容が置き換わります。最新バージョンを使用することもできます。",
+    slideConflictUseLatest: "最新バージョンを使用",
+    slideConflictKeepDraft: "下書きを保持",
+    slideConflictKeepEditing: "編集を続ける",
+    slideConflictResolutionFailed:
+      "競合を解決できませんでした。下書きは保持されています。",
     offline: "オフライン",
     selected: "選択済み",
     chooseDesignSystem: "デザインシステムを選択",
@@ -167,8 +198,6 @@ const messages = {
     slideUnavailable: "スライドを利用できません",
     couldNotLoadSlide: "スライドを読み込めませんでした。",
     openInApp: "アプリで開く",
-    teamDescription:
-      "同僚とプレゼンテーションを共有するためにチームを設定します。",
   },
 
   designSystems: {
@@ -225,6 +254,19 @@ const messages = {
     media: "メディア",
     generateImage: "画像を生成",
     assetLibrary: "アセットライブラリ",
+    imageOptions: "画像オプション",
+    videoPlayback: "動画再生",
+    autoplayVideo: "自動再生",
+    loopVideo: "動画をループ再生",
+    videoUploading: "動画をアップロード中…",
+    videoAdded: "動画を追加しました",
+    videoUploadFailed: "動画のアップロードに失敗しました",
+    videoUploadError: "この動画をアップロードできませんでした。",
+    videoFormatUnsupported: "対応形式は MP4 と WebM です。",
+    videoTooLarge: "動画のサイズは 50 MB 以下にしてください。",
+    videoUploadNeedsBuilder: "動画ストレージが設定されていません。",
+    cropImage: "画像をトリミング",
+    cropHandle: "画像の{{position}}をトリミング",
     diagrams: "図表",
     insertMermaidDiagram: "Mermaid 図を挿入",
     insertMermaidFailed: "図の挿入に失敗しました",
@@ -273,6 +315,24 @@ const messages = {
     importing: "インポート中...",
     importFile: "ファイルをインポート",
     downloadBackup: "バックアップをダウンロード",
+    conflictStatus: "テキストの競合",
+    conflictStatusDescription:
+      "変更を保存する前に、競合しているテキストを確認してください。",
+    accessLost: "アクセス権を失いました",
+    accessLostDescription:
+      "このデッキへのアクセス権が変更されました。編集内容は画面に残っています。アクセスが復旧したら再試行するか、バックアップをダウンロードしてください。",
+    reviewConflict: "競合を確認",
+    conflictTitle: "スライド {{number}} でテキストが競合しています",
+    conflictDescription:
+      "編集中に別のバージョンでこのスライドが変更されました。",
+    conflictChoicesDescription:
+      "自分のテキストを保持すると最新バージョンに保存されます。保存済みテキストを使うと、このスライドのローカル下書きだけが置き換わります。",
+    conflictBackupDescription:
+      "このプレゼンテーション全体の下書きはスライドごとに解決できません。下書きを残すにはバックアップをダウンロードしてください。",
+    conflictResolveFailed:
+      "競合を解決できませんでした。下書きはこのデバイスに残っています。",
+    conflictKeepMine: "自分のテキストを保持",
+    conflictUseLatest: "保存済みテキストを使う",
     importBackup: "バックアップをインポート",
     backupDownloaded: "バックアップをダウンロードしました",
     backupDownloadFailed: "バックアップをダウンロードできませんでした",
@@ -309,6 +369,7 @@ const messages = {
     googleSlidesCreated: "Google Slides で開きました",
     googleSlidesCreatedHint:
       "このデッキのコピーを Google ドライブに作成しました。",
+    googleSlidesGoTo: "Google Slides で開く",
     duplicateDeck: "デッキを複製",
   },
   share: {
@@ -372,6 +433,8 @@ const messages = {
     orderedList: "順序付きリスト",
     quote: "引用",
     blockquote: "ブロック引用",
+    divider: "区切り線",
+    horizontalRule: "水平線",
   },
   comments: {
     deleteComment: "コメントを削除",
@@ -394,7 +457,8 @@ const messages = {
     resolveThread: "スレッドを解決",
     reopenThread: "スレッドを再開",
     hideReplies: "返信を非表示",
-    replyCount: "{{count}} 件の返信",
+    replyCount_one: "{{count}} 件の返信",
+    replyCount_other: "{{count}} 件の返信",
     title: "コメント",
     addComment: "コメントを追加",
     close: "閉じる",
@@ -405,6 +469,7 @@ const messages = {
     retry: "再試行",
     clickToAddComment: "クリックしてコメントを追加",
     selectSlideToAdd: "追加するにはスライドを選択してください",
+    filters: "コメントの絞り込み",
     scope: "コメントの範囲",
     thisSlide: "このスライド",
     allComments: "すべてのスライド",
@@ -562,6 +627,7 @@ const messages = {
     generating: "正在生成幻灯片...",
     generate: "生成幻灯片",
   },
+  deckResult: { saved: "保存済み" },
   history: {
     unknownTime: "未知时间",
     justNow: "刚刚",
@@ -582,8 +648,11 @@ const messages = {
     slideNumber: "幻灯片 {{number}}",
     noSlidesInSnapshot: "此快照中没有幻灯片。",
     restoreThisVersion: "恢复此版本",
+    retry: "再試行",
     noSavedVersions: "还没有已保存版本",
     noSavedVersionsDescription: "以后编辑幻灯片前会自动保存版本。",
+    loadFailed: "保存済みバージョンを読み込めませんでした。",
+    snapshotLoadFailed: "この保存済みバージョンを読み込めませんでした。",
   },
   editorSidebar: {
     selectSlide: "选择幻灯片 {{number}}",
@@ -627,10 +696,31 @@ const messages = {
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",
   },
+  deckAccessPage: {
+    errorCode: "エラー 403",
+    noAccessTitle: "アクセス権がありません",
+    noAccessDescription:
+      "デッキのオーナーにアクセスをリクエストするか、正しいアカウントに切り替えてください。",
+    noteLabel: "オーナーへのメモを追加（任意）",
+    notePlaceholder: "このデッキを確認しています",
+    requesting: "リクエスト中",
+    requestFailed: "リクエストを送信できませんでした。もう一度お試しください。",
+    requestSentDescription:
+      "オーナーがリクエストを承認したら、すぐにメールでお知らせします。",
+    goHome: "ホームへ",
+    signedInAs: "ログイン中のアカウント:",
+    switchAccount: "アカウントを切り替える",
+  },
   deckEditor: {
     lookingForDeck: "正在查找此幻灯片",
     joinTeamToOpen: "加入团队以打开此幻灯片",
     deckUnavailable: "幻灯片不可用",
+    generationStalled: "5分間進捗がなかったため生成を一時停止しました",
+    generationStalledDescription:
+      "保存済みのスライドはそのまま残っています。チャットでこのデッキの続きを作成できます。",
+    continueInChat: "チャットで続ける",
+    continueGenerationPrompt:
+      "このデッキのスライド生成を続けてください。最初に現在のスライドと保存済みの生成コンテキストを確認してください。完成済みのスライドは残し、不足分だけ追加してください。",
     checkingSharedAccess: "正在检查此演示文稿是否与你的账户共享。",
     joinTeamDescription:
       "此链接指向团队演示文稿。加入上方显示的团队后，幻灯片会自动在此打开。",
@@ -666,6 +756,9 @@ const messages = {
     accessApprovalTitle: "アクセスを許可しました",
     accessApprovalAlreadyTitle: "アクセスはすでに許可されています",
     accessApprovalMessage: "{{email}} はこのデッキを開けるようになりました。",
+    accessApprovalRequesterEmailed: "メールでお知らせしました。",
+    accessApprovalRequesterEmailFailed:
+      "{{email}} にメールを送信できませんでした。デッキを開けるようになったことを伝えてください。",
     accessApprovalAlreadyMessage:
       "{{email}} はすでにこのデッキにアクセスできます。",
     accessApprovalErrorTitle: "アクセスを許可できませんでした",
@@ -677,14 +770,16 @@ const messages = {
     accessApprovalSignIn: "サインイン",
     accessApprovalLoading: "アクセスを許可しています...",
     backToDecks: "デッキに戻る",
-    tryAgain: "重试",
+    tryAgain: "再試行",
     imageUploadFailed: "图片上传失败",
     imageUploadNeedsBuilder:
-      "スライドに画像をアップロードするには、エージェント作成欄のモデルメニューから Builder.io に接続してください。空のキャンバスに画像をドロップすると、プロバイダーなしでもエージェントに送信できます。",
+      "画像をアップロードするにはオブジェクトストレージを接続してください。Builder.io（無料）を接続するか、設定 → ファイルアップロードで独自の S3 互換ストレージキーを追加してください。",
     imageAdded: "图片已添加",
     imageUploadError: "上传此图片时出了点问题。",
     exportFailed: "导出失败",
-    deckHasNoSlides: "幻灯片没有页面。",
+    agentRunFailed:
+      "スライドを作成する前にエージェントの実行が失敗しました。チャットで詳細を確認して、もう一度お試しください。",
+    deckHasNoSlides: "このデッキにはスライドがありません。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",
     layoutOverflowWarning: "レイアウトがはみ出しています",
@@ -699,6 +794,10 @@ const messages = {
       "今終了または再読み込みすると、まだ保存されていない変更が失われる可能性があります。本当に終了しますか？",
     keepEditing: "編集を続ける",
     leaveWithoutSaving: "保存せずに終了",
+    editorMarkupNotSaved:
+      "この編集は、スライドにエディターのマークアップが追加されるため保存されませんでした。",
+    textEditConflictNotSaved:
+      "同じテキストが同時に別の場所で変更されたため、テキストの編集は保存されませんでした。",
   },
   designSystemSetup: {
     importedBrand: "インポートしたブランド",
@@ -788,12 +887,135 @@ const messages = {
     chooseAnotherFile: "別のファイルを選択",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "製品のピッチ資料を作成",
+      roadmap: "製品ロードマップを作成",
+      explainer: "プレゼンでテーマを説明",
+    },
+    suggestedPrompts: "おすすめのプロンプト",
+    importMenu: {
+      import: "インポート",
+      options: "インポートのオプション",
+      invalidPdf: "PDFファイルを選択してください。",
+      invalidPptx: "PPTXファイルを選択してください。",
+      invalidFile: "PDFまたはPPTXファイルを選択してください。",
+      networkFailed:
+        "インポートがタイムアウトしたか、ネットワーク接続が切断されました。接続を確認して、もう一度お試しください。",
+      notStarted:
+        "必要なサインインを完了してから、インポートを再試行してください。",
+      unsupportedFileType:
+        "このファイル形式はサポートされていません。対応しているファイルを選択してください。",
+      uploadLimitExceeded:
+        "アップロードが許可された上限を超えています。ファイルを小さくするか、選択するファイルを減らして再試行してください。",
+    },
+    importDeck: "デッキをインポート",
+    context: {
+      websiteReference: "ウェブサイトを追加",
+      websiteUrlLabel: "ウェブサイトのURL",
+      websiteUrl: "ウェブサイトのURLを貼り付け",
+      figmaUrlLabel: "Figmaリンク",
+      invalidFigmaUrl:
+        "有効なfigma.comのフレームまたはファイルのURLを入力してください。",
+      createSystem: "デザインシステムを作成",
+      noSystems:
+        "まだデザインシステムがありません。ウェブサイト、ファイル、または Figma から作成できます。",
+      searchSystems: "デザインシステムを検索…",
+      searchFrames: "Figmaフレームを検索…",
+      searchDesigns: "デザインを検索…",
+      searchPresentations: "プレゼンテーションを検索…",
+      menu: {
+        system: "デザインシステムを使う",
+        figma: "Figmaを追加",
+        design: "デザインを参照",
+        deck: "プレゼンテーションを参照",
+        searchDesign: "デザインを検索…",
+      },
+      loadFailed: "参照を読み込めませんでした。再試行してください。",
+      saveFailed: "コンテキストの選択を保存できませんでした。",
+      system: "デザインシステム",
+      figmaUrl: "Figmaリンクを貼り付け",
+      browse: "フレームを参照",
+      empty: "参照が見つかりません。",
+      previous: "前へ",
+      next: "次へ",
+      title: "コンテキスト",
+      remove: "参照を削除",
+      deck: "プレゼンテーション",
+      design: "デザイン参照",
+      figma: "Figmaフレーム",
+      notReady:
+        "コンテキストを読み込み中、または利用できません。送信前に再試行するか削除してください。",
+      emptySource: "このソースには利用可能なコンテキストがありません。",
+      websiteReadFailed:
+        "このウェブサイトを自動で読み取れませんでした。関連するテキストをコピーして貼り付けてください。",
+      figmaReadFailed:
+        "Design でこの Figma 参照を読み込めませんでした。Design に保存されている Figma アクセストークンと、紐づくアカウントでファイルを開けることを確認して、もう一度お試しください。",
+      tooMany: "参照は20件まで選択できます。",
+      search: "参照を検索",
+      designCategory: "デザイン",
+    },
+    quickStart: {
+      invalidUrl: "有効なHTTPまたはHTTPSのURLを入力してください。",
+      starting: "開始中…",
+      generate: "生成",
+      connectionRequired:
+        "ホームの入力欄の上でAIプロバイダーに接続するか、自分のAIキーを追加してから再試行してください。",
+      invalidPdf: "PDFファイルを選択してください。",
+      notReady:
+        "読み込み中または失敗したコンテキストと接続状況を確認して再試行してください。",
+      tooLong: "ソーステキストは20,000文字未満にしてください。",
+      trends: {
+        label: "最新の業界動向についてプレゼンテーションを作成",
+        field: "業界またはトピック",
+        prompt:
+          "指定されたトピックの最新動向を調査し、最新の出典を含むプレゼンテーションを作成してください。生成前に情報を検証してください。",
+      },
+      notes: {
+        label: "会議メモをプレゼンテーションに変換",
+        field: "会議メモ",
+        prompt:
+          "提供された会議メモを基に、要点、決定事項、次のアクションをまとめたプレゼンテーションを作成してください。メモを情報源として使用してください。",
+      },
+      pdf: {
+        label: "PDFの重要なポイントを要約",
+        field: "PDFファイル",
+        prompt:
+          "添付PDFを読み、その要点をまとめたプレゼンテーションを作成してください。読めない内容は推測せずに報告してください。",
+      },
+      website: {
+        label: "自社サイトからデッキを生成",
+        field: "会社サイトのURL",
+        prompt:
+          "指定された会社サイトを読み、会社についてのプレゼンテーションを作成してください。アクセスできない場合は事実を捏造せずに報告してください。",
+      },
+    },
+    connectBuilderIo: "Builder.io を使う",
+    connectingBuilder: "Builder.io を設定中…",
+    recent: "最近の項目",
+    starters: {
+      pitch: {
+        label: "企画提案",
+        prompt: "次のテーマで企画提案のプレゼンテーションを作成してください：",
+      },
+      update: {
+        label: "進捗報告",
+        prompt:
+          "進捗、成果、次のステップをまとめた報告を作成してください。対象：",
+      },
+      lesson: {
+        label: "テーマを解説",
+        prompt: "次のテーマを解説するプレゼンテーションを作成してください：",
+      },
+    },
     loadFailed: "コンテンツを読み込めませんでした",
     loadFailedDescription:
       "保存済みのコンテンツはそのままです。接続を確認して再試行してください。",
     retry: "再試行",
+    fileStorageStatusUnavailable:
+      "オブジェクトストレージの状態を確認できませんでした。ファイルをアップロードする前に再試行してください。",
+    fileStorageSetupRequired:
+      "オブジェクトストレージが接続されていません。無料のBuilder.ioを接続するか、設定 → ファイルアップロードで独自のS3互換ストレージキーを追加してください。",
     decksTitle: "デッキ",
-    newDeck: "新しいデッキ",
     deckLengthQuestion: "このデッキの長さはどれくらいにしますか？",
     deckLengthHeader: "デッキの長さ",
     deckLengthShort: "短め（3〜5 枚）",
@@ -807,9 +1029,13 @@ const messages = {
     all: "すべて",
     showMineDecks: "自分が作成したデッキを表示",
     mine: "自分",
+    ownedByAnyone: "所有者を問わない",
+    ownedByMe: "自分が所有",
+    sharedWithMe: "自分と共有",
     createDeckOrVisual: "プレゼンテーションを作成",
     noMineDecks: "自分が作成したデッキはまだありません。",
     noDecksMatchSearch: "検索に一致するデッキはありません。",
+    noDecksMatchFilter: "現在のフィルターに一致するデッキはありません。",
     deleteDeckTitle: "デッキを削除しますか？",
     deleteDeckDescription:
       "このデッキとすべてのスライドを完全に削除します。この操作は元に戻せません。",
@@ -818,11 +1044,13 @@ const messages = {
     newDeckPromptTitle: "新しいプレゼンテーション",
     newDeckPlaceholder: "生成したいプレゼンテーションを説明してください...",
     skipPrompt: "プロンプトをスキップ",
-    firstDeckPromptTitle: "どのようなプレゼンテーションを生成しますか？",
+    firstDeckPromptTitle: "最初のプレゼンテーションを作成しましょう",
     firstDeckSkip: "スキップ",
     chooseReferences: "参照を選択",
     addDesignSystem: "+ デザインシステム",
     importFrom: "インポート元",
+    referenceFileStorageUnavailable:
+      "ファイルストレージが設定されていません。参照ファイルをインポートするには、Builder.io または別のファイルプロバイダーを接続してください。",
     attachedFiles: "添付ファイル",
     imported: "インポート済み",
     importedReferenceDeck: "インポートした参考デッキ",
@@ -879,6 +1107,11 @@ const messages = {
     emptyTitle: "まだデッキがありません",
     createFirstDeck: "最初のデッキを作成",
     emptyDescription: "AI 生成で美しいプレゼンテーションを作成できます。",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
+    },
   },
 };
 

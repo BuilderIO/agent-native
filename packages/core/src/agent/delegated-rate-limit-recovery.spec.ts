@@ -65,7 +65,6 @@ describe("delegated provider backpressure recovery", () => {
       { backgroundFunction: true },
     );
 
-    // Three in-loop backoffs (2s + 4s + 8s), then the one 20s outer cooldown.
     await vi.advanceTimersByTimeAsync(34_000);
     await run;
 
@@ -116,8 +115,6 @@ describe("delegated provider backpressure recovery", () => {
     };
     const events: AgentChatEvent[] = [];
 
-    // No `timeoutOptions` — this is the delegated FOREGROUND lane, which used
-    // to never get the cooled-down retry at all.
     const run = runAgentLoopDirectWithSoftTimeout(
       {
         engine,
@@ -156,8 +153,6 @@ describe("delegated provider backpressure recovery", () => {
         computerUse: false,
         parallelToolCalls: false,
       },
-      // Every attempt is rate limited — including the one post-cooldown
-      // attempt, so the run never recovers.
       async *stream(): AsyncIterable<EngineEvent> {
         streamCalls++;
         yield {
@@ -190,15 +185,9 @@ describe("delegated provider backpressure recovery", () => {
       message: PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE,
       errorCode: PROVIDER_RATE_LIMITED_ERROR_CODE,
     });
-    // The first round exhausts its own inner 429 retries (~14s), then the one
-    // 20s outer cooldown, then a second round that ALSO exhausts its inner
-    // retries (~14s) before giving up for good.
     await vi.advanceTimersByTimeAsync(60_000);
     await rejected;
 
-    // The loop does not emit its own terminal `error` event: run-manager
-    // builds it from the thrown code, and it must not carry `recoverable`, or
-    // thread-data-builder would drop the one error the user needs to see.
     expect(events.some((event) => event.type === "error")).toBe(false);
   });
 });

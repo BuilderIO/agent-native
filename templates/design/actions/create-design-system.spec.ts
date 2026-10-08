@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const mockWorkflowsEnabled = vi.hoisted(() => vi.fn(async () => true));
+vi.mock("@agent-native/core/feature-flags", () => ({
+  isFeatureFlagEnabled: mockWorkflowsEnabled,
+}));
+beforeEach(() => {
+  mockWorkflowsEnabled.mockResolvedValue(true);
+});
+
 const testState = vi.hoisted(() => ({
   existing: [] as Array<{ id: string }>,
   insertedValues: null as Record<string, unknown> | null,
@@ -56,6 +64,23 @@ beforeEach(() => {
 });
 
 describe("create-design-system production templates", () => {
+  it("blocks creation without a database write when workflows are off", async () => {
+    mockWorkflowsEnabled.mockResolvedValue(false);
+    await expect(
+      action.run({ templateId: "carbon-white" }),
+    ).rejects.toMatchObject({
+      errorCode: "design_system_workflows_disabled",
+      statusCode: 403,
+    });
+    expect(testState.insertedValues).toBeNull();
+    expect(mockWorkflowsEnabled).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "design-system-workflows",
+        defaultValue: false,
+      }),
+      { userEmail: "designer@example.com", orgId: "org_example" },
+    );
+  });
   it("copies the exact template data and guidance into a normal owned system", async () => {
     const result = await action.run({ templateId: "carbon-white" });
 

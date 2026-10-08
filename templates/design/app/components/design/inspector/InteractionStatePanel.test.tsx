@@ -15,11 +15,6 @@ import {
   type InteractionStatePanelProps,
 } from "./InteractionStatePanel";
 
-// Minimal catalog covering only the keys this component reads, so tests get
-// the REAL translated strings (not the useT() humanized-fallback path) while
-// staying independent of the full app catalog. Coverage across
-// all 11 locales for these keys is verified by `guard:i18n-catalogs`, not
-// here.
 const CATALOG_MESSAGES = {
   editPanel: {
     interactionStates: {
@@ -188,9 +183,6 @@ describe("InteractionStatePanel menu interactions", () => {
         ?.getAttribute("aria-expanded"),
     ).toBe("true");
 
-    // A just-authored source update can briefly make inspectorElement null.
-    // EditPanel keeps `open` above this conditional subtree and passes it back
-    // when the exact same stable selection is reconciled.
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider

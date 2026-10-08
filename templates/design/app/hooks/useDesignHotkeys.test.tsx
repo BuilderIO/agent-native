@@ -4,6 +4,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
+import { isEditorHotkeyBlockedByShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
+
 import {
   isDesignHotkeyEditableTarget,
   isDesignHistoryHotkeyTarget,
@@ -274,6 +276,37 @@ describe("useDesignHotkeys — current Figma tool bindings", () => {
     expect(onShowKeyboardShortcuts).toHaveBeenCalledTimes(1);
     expect(onTextTool).not.toHaveBeenCalled();
     input.remove();
+  });
+
+  it("keeps editor hotkeys out of the shortcuts dialog but lets its own chord through", async () => {
+    const onShowKeyboardShortcuts = vi.fn();
+    const onTextTool = vi.fn();
+    const dialog = document.createElement("div");
+    dialog.setAttribute("data-keyboard-shortcuts-dialog", "");
+    const category = document.createElement("button");
+    dialog.append(category);
+    document.body.append(dialog);
+    await withHotkeys(
+      {
+        onShowKeyboardShortcuts,
+        onTextTool,
+        shouldHandleEvent: (event) =>
+          !isEditorHotkeyBlockedByShortcutsDialog(event),
+      },
+      () => {
+        dispatchKey("t", {}, category);
+        dispatchKey(
+          "?",
+          { code: "Slash", ctrlKey: true, shiftKey: true },
+          category,
+        );
+        dispatchKey("t");
+      },
+    );
+    dialog.remove();
+    expect(onShowKeyboardShortcuts).toHaveBeenCalledTimes(1);
+    // Only the keypress outside the dialog reaches the Text tool.
+    expect(onTextTool).toHaveBeenCalledTimes(1);
   });
 
   it("Shift+Y arms the annotation/draw tool and a bare Y does not", async () => {
@@ -979,15 +1012,6 @@ describe("useDesignHotkeys — selection alignment (Alt+A/D/W/S/H/V)", () => {
     expect(onAlignSelection.mock.calls[0]![0]).toMatchObject({ edge });
   });
 
-  // Real macOS keyboards compose Option+letter into a different character
-  // (Option+A -> "å", Option+D -> "∂", Option+W -> "∑", Option+S -> "ß",
-  // Option+H -> "˙", Option+V -> "√") — event.key carries the composed
-  // character, not the plain letter. Synthetic test events that send a
-  // clean `key` (like the block above) don't exercise this at all, which is
-  // exactly why this class of bug slipped past automated checks. These
-  // cases dispatch the real composed `key` alongside the physical `code`,
-  // matching what a real browser sends, to prove the dispatcher reads
-  // event.code (not event.key) for alt-combos.
   it.each([
     ["å", "KeyA", "left"],
     ["∂", "KeyD", "right"],

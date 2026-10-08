@@ -68,8 +68,6 @@ describe("requireGenerationSessionInLibrary", () => {
 
     await requireGenerationSessionInLibrary("session-1", "lib-1");
 
-    // The author check is what stops a viewer from appending candidates to
-    // someone else's handoff session and moving its active asset.
     expect(assertCanDraftAuthoredByMock).toHaveBeenCalledWith(
       "lib-1",
       "author@example.test",

@@ -1,10 +1,7 @@
 ---
 name: analysis-workspace
 description: >-
-  How to use Resources-backed workspace files for large-scale multi-source
-  analyses: scratch/ temporary staging, chunked batch processing with per-item
-  memos, run-code aggregation, saveToFile for big API pulls, and synthesizing
-  across files that exceed one context window.
+  Large analyses and file delivery: scratch staging, chunked batches, run-code aggregation, CSV/XLSX exports. Use when work exceeds one context window or the user wants a file.
 ---
 
 # Analysis Workspace
@@ -91,6 +88,19 @@ Inside `run-code`, use the workspace helper functions:
   `show-workspace-file` with the durable path immediately after the write. The
   download must appear in chat; do not answer with only a path or navigation
   instructions.
+
+## CSV and XLSX Exports
+
+- For a compact result, use `query-agent-native-analytics` and its Download
+  CSV control. For a durable CSV, use `run-code` with `workspaceWrite` in a
+  normal Resources folder, then call `show-workspace-file` with that path. If
+  `run-code` is not available, discover it once with tool search.
+- Deliver a requested CSV, Markdown, or other file in the same chat turn. Write
+  only verified successful data to a non-scratch workspace path, never an error
+  or failed response, and never finish with only a path or filename.
+- For an explicit `.xlsx` request, call `docs-search` once for `xlsx export`
+  and follow the returned workflow. The QuickJS `run-code` sandbox has no Node
+  imports; do not try to load `xlsx` or `exceljs` there.
 
 ## Chunked Batch Analysis (30+ items)
 

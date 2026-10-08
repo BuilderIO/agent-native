@@ -355,7 +355,6 @@ describe("createFetchToolEntry", () => {
     expect(sentHeaders["User-Agent"]).toBe("my-bot/1.0");
     expect(sentHeaders["Authorization"]).toBe("Bearer xyz");
     expect(sentHeaders["Accept"]).toBe("application/json");
-    // Other browser defaults still fill in for headers the caller didn't set.
     expect(sentHeaders["Sec-Fetch-Mode"]).toBe("navigate");
   });
 

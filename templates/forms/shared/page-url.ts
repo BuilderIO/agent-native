@@ -19,11 +19,6 @@ export const SENSITIVE_QUERY_PARAMS = [
 
 const SENSITIVE_QUERY_PARAM_SET = new Set<string>(SENSITIVE_QUERY_PARAMS);
 
-/**
- * Keep response page context useful while never retaining URL-bar secrets.
- * This mirrors the framework feedback URL scrubber for Forms-owned public
- * submissions and re-checks metadata supplied by embeds on the server.
- */
 export function scrubPageUrl(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();

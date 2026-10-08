@@ -4,6 +4,7 @@ import { and, desc, eq, isNull, or, sql } from "@agent-native/core/db/schema";
 import {
   getRequestUserEmail,
   getRequestOrgId,
+  isTestIdentity,
 } from "@agent-native/core/server";
 import { getOrgSetting, putOrgSetting } from "@agent-native/core/settings";
 
@@ -13,25 +14,13 @@ export const SHARED_DISPATCH_OWNER = "dispatch@shared";
 const APPROVAL_POLICY_KEY = "dispatch-approval-policy";
 const APPROVAL_APPLY_LEASE_MS = 5 * 60 * 1000;
 
-// ─── /link rate limiting ──────────────────────────────────────────────────
-//
-// Failed `/link <token>` attempts are rate-limited per `(platform, externalUserId)`
-// to deter token brute-force after the H5 entropy bump. The window /
-// threshold are tuned so legitimate retries (typo, expired token) don't
-// trip the limit, while a scripted attacker burns out their per-account
-// budget quickly.
-//
-// State is process-local: works for the single-node dispatch deployment
-// we ship today. TODO: move to a SQL-backed counter table when dispatch
-// is sharded across multiple regions / processes — otherwise an
-// attacker can scale around the limit by hammering more than one node.
 const LINK_FAIL_WINDOW_MS = 5 * 60 * 1000;
 const LINK_FAIL_BLOCK_MS = 30 * 60 * 1000;
 const LINK_FAIL_THRESHOLD = 5;
 
 interface LinkFailureState {
-  failures: number[]; // unix-ms timestamps of recent failures within the window
-  blockedUntil: number; // unix-ms; 0 if not currently blocked
+  failures: number[];
+  blockedUntil: number;
 }
 
 const _linkFailureMap = new Map<string, LinkFailureState>();
@@ -75,7 +64,6 @@ function recordLinkFailure(
   const key = linkFailureKey(platform, externalUserId);
   const state = getLinkFailureState(key);
   const nowMs = Date.now();
-  // Drop expired failure timestamps before counting.
   state.failures = state.failures.filter(
     (ts) => nowMs - ts < LINK_FAIL_WINDOW_MS,
   );
@@ -94,11 +82,6 @@ function clearLinkFailures(
   _linkFailureMap.delete(linkFailureKey(platform, externalUserId));
 }
 
-/**
- * 429-style error returned when /link attempts are rate-limited. The
- * adapter layer can branch on `code === "LINK_RATE_LIMITED"` to send a
- * platform-appropriate message back to the user.
- */
 export class LinkRateLimitError extends Error {
   readonly code = "LINK_RATE_LIMITED";
   constructor(public readonly retryAfterMs: number) {
@@ -135,12 +118,6 @@ export function currentOrgId(): string | null {
   return getRequestOrgId() || null;
 }
 
-/**
- * Caller-supplied access context for dispatch operations that work by
- * id (destinations, etc.). Looking up a row by id alone is unsafe —
- * UUIDs are not authorization. A row matches the ctx if either the
- * caller owns it or it lives in the caller's active org.
- */
 export interface DispatchCtx {
   ownerEmail: string;
   orgId: string | null;
@@ -400,12 +377,23 @@ async function applyDestinationDelete(
   return existing;
 }
 
+export function approverRecipients(emails: string[]): string[] {
+  const recipients = emails.filter((email) => !isTestIdentity(email));
+  if (recipients.length < emails.length) {
+    console.info(
+      `[dispatch] suppressed: test identity (${emails.length - recipients.length} approver email(s))`,
+    );
+  }
+  return recipients;
+}
+
 async function notifyApprovers(requestId: string, summary: string) {
   const policy = await getApprovalPolicy();
   const apiKey = process.env.SENDGRID_API_KEY;
   const from = process.env.SENDGRID_FROM_EMAIL;
   const appUrl = process.env.APP_URL;
-  if (!apiKey || !from || !appUrl || policy.approverEmails.length === 0) return;
+  const recipients = approverRecipients(policy.approverEmails);
+  if (!apiKey || !from || !appUrl || recipients.length === 0) return;
 
   await fetch("https://api.sendgrid.com/v3/mail/send", {
     method: "POST",
@@ -416,7 +404,7 @@ async function notifyApprovers(requestId: string, summary: string) {
     body: JSON.stringify({
       personalizations: [
         {
-          to: policy.approverEmails.map((email) => ({ email })),
+          to: recipients.map((email) => ({ email })),
           subject: "Dispatch approval requested",
         },
       ],
@@ -629,9 +617,6 @@ export async function approveRequest(requestId: string) {
 
   const timestamp = now();
   const staleApplyingBefore = timestamp - APPROVAL_APPLY_LEASE_MS;
-  // Fence the transition on the current status so a concurrent approve can't
-  // both win. A crashed worker can leave its lease in "applying", so reclaim
-  // only a lease that has been idle for the full lease interval.
   const claimed = await db
     .update(schema.dispatchApprovalRequests)
     .set({
@@ -665,10 +650,6 @@ export async function approveRequest(requestId: string) {
   try {
     await applyApprovedRequest(applying);
   } catch (error) {
-    // Applying a request can have succeeded partially before throwing. Do not
-    // return it to pending: that would allow an immediate retry to duplicate a
-    // non-idempotent effect. Keep the lease until it becomes stale, which
-    // serializes any recovery attempt behind the same fencing rule.
     await db
       .update(schema.dispatchApprovalRequests)
       .set({ updatedAt: now() })
@@ -750,12 +731,6 @@ export async function rejectRequest(requestId: string, reason?: string | null) {
 export async function createLinkToken(platform: string) {
   const db = getDb();
   const timestamp = now();
-  // 16 bytes = 128 bits of entropy. Previous size was 4 bytes (32 bits,
-  // ~4.29 billion keyspace) which is brute-forceable in well under an
-  // hour given a 7-day expiry and no rate limiting on /link attempts.
-  // Old 8-hex-char tokens minted before this change continue to verify
-  // until they expire; we don't migrate retroactively. See
-  // /tmp/security-audit/07-webhooks.md (H5).
   const token = crypto.randomBytes(16).toString("hex");
   const recordId = id();
   const owner = currentOwnerEmail();
@@ -848,9 +823,6 @@ export async function resolveLinkedOwner(
 
   if (!options.allowAnyOrgFallback || orgId) return null;
 
-  // Webhook processors run outside a normal request/org context. A linked
-  // Slack/Telegram identity may still be scoped to an org, so fall back to any
-  // org only when every matching link resolves to the same owner.
   const fallbackRows = await db
     .select()
     .from(schema.dispatchIdentityLinks)
@@ -877,10 +849,6 @@ export async function consumeLinkToken(input: {
     throw new Error("Linking requires a platform user id");
   }
 
-  // Rate-limit failed attempts per (platform, externalUserId). Once
-  // tripped, all further attempts are short-circuited until the block
-  // window passes — including the lookup, so an attacker can't probe
-  // for valid tokens during the block.
   const blockState = isLinkAttemptBlocked(input.platform, input.externalUserId);
   if (blockState.blocked) {
     throw new LinkRateLimitError(blockState.retryAfterMs);
@@ -972,8 +940,6 @@ export async function consumeLinkToken(input: {
     })
     .where(eq(schema.dispatchLinkTokens.id, tokenRow.id));
 
-  // Successful claim — reset the rate-limit budget so subsequent
-  // links from this external user start fresh.
   clearLinkFailures(input.platform, input.externalUserId);
 
   await recordAudit({

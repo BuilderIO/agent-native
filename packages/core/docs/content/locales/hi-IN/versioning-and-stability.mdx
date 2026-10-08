@@ -9,7 +9,7 @@ Agent-Native packages अभी 1.0 से पहले हैं। Release pro
 
 ## Release channels
 
-`main` में merge होने पर npm के `nightly` tag के तहत nightly snapshots प्रकाशित होते हैं। इससे `latest` tag नहीं बदलता। Stable releases Changesets से coordinated हैं। Scheduled runs सोमवार से गुरुवार, Pacific time दोपहर में patch release तैयार करते हैं। हर run में release की गारंटी नहीं है।
+हर तीन घंटे में एक scheduled run, पिछले nightly के बाद package source बदला हो तो, `main` का nightly snapshot npm के `nightly` tag के तहत प्रकाशित करता है। इससे `latest` tag नहीं बदलता। Stable releases Changesets से coordinated हैं। Scheduled runs सोमवार से गुरुवार, Pacific time दोपहर में patch release तैयार करते हैं। हर run में release की गारंटी नहीं है।
 
 ## 1.0 से पहले compatibility
 

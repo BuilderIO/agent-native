@@ -12,7 +12,7 @@ import {
   trySaveExportFile,
 } from "../server/lib/design-export.js";
 import { isBoardFile } from "../shared/board-file.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
 const METADATA_ARCHIVE_DIR = "agent-native-metadata";
 
@@ -39,19 +39,15 @@ export default defineAction({
     const row = access.resource;
     const db = getDb();
 
-    // Fetch all design files
     const files = await db
       .select()
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id));
     const exportFiles = files.filter((file) => !isBoardFile(file.filename));
 
-    // Dynamic import JSZip
     const JSZip = (await import("jszip")).default;
     const zip = new JSZip();
 
-    // Add generated metadata under a reserved folder so valid design files named
-    // README.md or design-data.json can still export at the project root.
     const readme = [
       `# ${row.title}`,
       "",
@@ -67,17 +63,11 @@ export default defineAction({
 
     zip.file(`${METADATA_ARCHIVE_DIR}/README.md`, readme);
 
-    // Preserve design-relative paths so exported HTML keeps working with
-    // sibling CSS/assets. Strip traversal segments defensively for legacy rows.
     for (const [index, file] of exportFiles.entries()) {
       const filename = safeArchivePath(
         file.filename,
         `design-file-${index + 1}.txt`,
       );
-      // Layers toggled hidden in the editor are only suppressed by the live
-      // editor bridge; inject the same display:none rule into exported HTML
-      // files so opening them directly from the zip doesn't reveal layers
-      // the user hid in the editor.
       const content =
         file.fileType === "html"
           ? injectHiddenLayerExportStyle(file.content ?? "")
@@ -95,7 +85,6 @@ export default defineAction({
       zip.file(`${METADATA_ARCHIVE_DIR}/design-data.json`, exportDesignData);
     }
 
-    // Generate ZIP
     const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
     const zipBase64 = zipBuffer.toString("base64");
 

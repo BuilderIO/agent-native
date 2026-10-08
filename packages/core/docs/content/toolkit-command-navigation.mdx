@@ -42,7 +42,7 @@ import {
   useCommandMenuShortcut,
 } from "@agent-native/core/client/command-navigation";
 
-const settingsUrl = buildSettingsRoute("connections");
+const settingsUrl = buildSettingsRoute("integrations", "builder");
 const documentUrl = buildResourceRoute("documents", documentId);
 ```
 
@@ -88,12 +88,32 @@ export const resolveOpenPath = createStandardOpenPathResolver({
 
 Use a small predictable route set:
 
-| Route                               | Purpose                                                                    |
-| ----------------------------------- | -------------------------------------------------------------------------- |
-| `/`                                 | Primary app surface.                                                       |
-| `/settings`                         | Standard settings tabs.                                                    |
-| `/team` or `/settings/organization` | Team management.                                                           |
-| Resource routes                     | `/documents/:id`, `/dashboards/:id`, or equivalent focused resource pages. |
+| Route                  | Purpose                                                                                                                |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `/`                    | Primary app surface.                                                                                                   |
+| `/settings/:page/:sub` | Settings pages such as `/settings/model` or `/settings/integrations/builder` ([Settings Kit](/docs/toolkit-settings)). |
+| `/team`                | Legacy link that redirects to Settings › Organization.                                                                 |
+| Resource routes        | `/documents/:id`, `/dashboards/:id`, or equivalent focused resource pages.                                             |
+
+### Settings links {#settings-links}
+
+`buildSettingsRoute(page, sub?, { anchor? })` builds every Settings link from a
+page id: `buildSettingsRoute("app", "recordings")` is `/settings/app/recordings`,
+and `buildSettingsRoute("model", null, { anchor: "limits" })` adds `#limits`.
+Don't hand-write `/settings/...` strings.
+
+Earlier links keep working through one redirect table in
+`packages/core/src/navigation/settings-redirects.ts`: tab ids (`agent`, `keys`,
+`team`), nested ids (`agent:resources:memory`), section hashes (`#llm`,
+`#secrets:OPENAI_API_KEY`), and `agent-panel:open-settings` sections each map
+to a page. To move an old link, change its row in `TAB_REDIRECTS` or
+`SECTION_REDIRECTS` and add a case to `settings-redirects.spec.ts`.
+
+⌘, (Ctrl+, on Windows and Linux) opens Settings from anywhere in an app, and
+the command menu has a **Settings** command. `AppProviders` binds the shortcut,
+so apps don't. From code, `openSettingsPage(page?)` opens a page from anywhere,
+including outside the router. The agent uses the built-in `open-settings-page`
+tool, and `<current-url>` names the Settings page the user has open.
 
 ## UX Standard {#ux-standard}
 

@@ -106,9 +106,6 @@ export const AGENT_PROVIDER_CATALOG: readonly AgentProviderOption[] =
       defaultModel: config.defaultModel,
       supportedModels: config.supportedModels,
       ...(PROVIDER_DOCS[id] ? { docsUrl: PROVIDER_DOCS[id] } : {}),
-      // Provider catalogs are suggestions, not an allowlist. Keep model entry
-      // available for every BYOK provider so newly released IDs and compatible
-      // gateways work without waiting for a framework release.
       supportsCustomModel: true,
       ...(id === "openai" || isOllama
         ? {

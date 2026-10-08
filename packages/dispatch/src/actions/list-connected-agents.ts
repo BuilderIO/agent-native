@@ -12,6 +12,8 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import {
   discoverAgents,
   getBuiltinAgents,
+  isBuiltinAgentCatalogId,
+  loadWorkspaceAppsManifest,
   normalizeAgentId,
   shouldIncludeRemoteAgentManifest,
 } from "@agent-native/core/server/agent-discovery";
@@ -26,9 +28,19 @@ export default defineAction({
     const { hiddenAgentIds = [] } = await import("../server/index.js").then(
       (m) => m.getDispatchConfig(),
     );
-    const discovered = await discoverAgents("dispatch");
+    const [discovered, workspaceApps] = await Promise.all([
+      discoverAgents("dispatch"),
+      loadWorkspaceAppsManifest(),
+    ]);
+    // A mounted workspace app with a built-in's id is a workspace app; the
+    // built-in config never applies to it.
+    const workspaceIds = new Set(
+      (workspaceApps ?? []).map((app) => normalizeAgentId(app.id)),
+    );
     const builtins = getBuiltinAgents("dispatch");
-    const builtinIds = new Set(builtins.map((agent) => agent.id));
+    const builtinIds = new Set(
+      builtins.map((agent) => agent.id).filter((id) => !workspaceIds.has(id)),
+    );
     const builtinHomeUrls = new Map(
       builtins.map((agent) => [agent.id, agent.url]),
     );
@@ -51,9 +63,6 @@ export default defineAction({
       }
     >();
 
-    // Only treat a resource as a "custom" agent if its id is not a builtin.
-    // Built-in agents may also be seeded as shared resources so the agent-chat
-    // plugin can overlay them — those should still be reported as builtin.
     for (const resource of resources) {
       if (!resource.path.endsWith(".json")) continue;
       const full = await resourceGet(resource.id);
@@ -61,11 +70,10 @@ export default defineAction({
       const manifest = parseRemoteAgentManifest(full.content, resource.path);
       if (!manifest) continue;
       if (!shouldIncludeRemoteAgentManifest(manifest, "dispatch")) continue;
-      // discoverAgents keys agents by the normalized id (image/images/asset
-      // all collapse to assets). Keying this map by the raw manifest id makes
-      // the id lookups below miss, so the same agent lands in the list twice.
       const manifestId = normalizeAgentId(manifest.id);
-      if (builtinIds.has(manifestId)) continue;
+      // Built-in ids stay under the workspace's built-in config even when a
+      // seeded manifest for them exists in resources.
+      if (isBuiltinAgentCatalogId(manifestId)) continue;
       customById.set(manifestId, {
         resourceId: resource.id,
         path: resource.path,

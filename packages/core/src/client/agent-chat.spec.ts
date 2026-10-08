@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// We need to set up a minimal window/postMessage before importing
 const parentPostMessageSpy = vi.fn();
 const selfPostMessageSpy = vi.fn();
 const windowListeners = new Map<
@@ -32,6 +31,7 @@ const fetchSpy = vi.fn(() =>
 const frameState = vi.hoisted(() => ({ inBuilderFrame: false }));
 const sendToBuilderChatMock = vi.hoisted(() => vi.fn());
 const sendMcpAppHostMessageMock = vi.hoisted(() => vi.fn(() => false));
+const isOpenAiMcpAppHostMock = vi.hoisted(() => vi.fn(() => false));
 
 vi.mock("./builder-frame.js", () => ({
   isInBuilderFrame: () => frameState.inBuilderFrame,
@@ -40,6 +40,7 @@ vi.mock("./builder-frame.js", () => ({
 }));
 
 vi.mock("./mcp-app-host.js", () => ({
+  isOpenAiMcpAppHost: isOpenAiMcpAppHostMock,
   sendMcpAppHostMessage: sendMcpAppHostMessageMock,
 }));
 
@@ -128,6 +129,7 @@ describe("sendToAgentChat", () => {
     sendToBuilderChatMock.mockClear();
     sendMcpAppHostMessageMock.mockClear();
     sendMcpAppHostMessageMock.mockReturnValue(false);
+    isOpenAiMcpAppHostMock.mockReturnValue(false);
     fetchSpy.mockClear();
     window.location.search = "";
     window.localStorage?.clear();
@@ -168,6 +170,18 @@ describe("sendToAgentChat", () => {
       data: payload,
     } as MessageEvent);
     expect(parsed?.usageLabel).toBe("crm:enrich");
+  });
+
+  it("carries an explicit existing chat target through the bridge", () => {
+    sendToAgentChat({
+      message: "Continue the original run",
+      targetTabId: "generation-tab",
+    });
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+
+    expect(payload.data.targetTabId).toBe("generation-tab");
+    expect(parsed?.targetTabId).toBe("generation-tab");
   });
 
   it("carries a bounded action scope through the postMessage payload", () => {
@@ -215,6 +229,39 @@ describe("sendToAgentChat", () => {
       },
     } as MessageEvent);
     expect(parsed?.usageLabel).toBeUndefined();
+  });
+
+  it("carries approvedToolCalls through the postMessage payload and back out", () => {
+    sendToAgentChat({
+      message: "Approved.",
+      approvedToolCalls: ["publish-release:{}"],
+    });
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    expect(payload.data.approvedToolCalls).toEqual(["publish-release:{}"]);
+
+    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+    expect(parsed?.approvedToolCalls).toEqual(["publish-release:{}"]);
+  });
+
+  it("keeps only non-empty string approval keys, capped, and verbatim", () => {
+    const parse = (approvedToolCalls: unknown) =>
+      parseSubmitChatMessage({
+        data: {
+          type: "agentNative.submitChat",
+          data: { message: "Approved.", approvedToolCalls },
+        },
+      } as MessageEvent)?.approvedToolCalls;
+
+    expect(parse(["a:{}", "", "   ", 7, null, { key: "b" }, " c:{} "])).toEqual(
+      ["a:{}", " c:{} "],
+    );
+    expect(
+      parse(Array.from({ length: 250 }, (_, index) => `k${index}`)),
+    ).toHaveLength(200);
+    expect(parse([])).toBeUndefined();
+    expect(parse(["", 1])).toBeUndefined();
+    expect(parse("a:{}")).toBeUndefined();
+    expect(parse(undefined)).toBeUndefined();
   });
 
   it("includes submitted image data in the postMessage payload", () => {
@@ -289,6 +336,10 @@ describe("sendToAgentChat", () => {
               displayOnly: true,
               text: "outline",
             },
+            {
+              type: "file",
+              name: "pasted-text-2.txt",
+            },
           ],
         },
       },
@@ -308,8 +359,43 @@ describe("sendToAgentChat", () => {
         displayOnly: true,
         text: "outline",
       },
+      {
+        type: "file",
+        name: "pasted-text-2.txt",
+        displayOnly: true,
+      },
     ]);
   });
+
+  it("preserves display-only markers serialized under attachment metadata", () => {
+    const parsed = parseSubmitChatMessage({
+      data: {
+        type: "agentNative.submitChat",
+        data: {
+          message: "make a deck from this reference",
+          attachments: [
+            {
+              type: "file",
+              name: "reference.pdf",
+              contentType: "application/pdf",
+              content: [],
+              metadata: { displayOnly: true },
+            },
+          ],
+        },
+      },
+    } as MessageEvent);
+
+    expect(parsed?.attachments).toEqual([
+      {
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        displayOnly: true,
+      },
+    ]);
+  });
+
   it("snapshots stored plan mode into the postMessage payload", () => {
     window.localStorage.setItem("agent-native-exec-mode", "plan");
 
@@ -444,6 +530,49 @@ describe("sendToAgentChat", () => {
     });
   });
 
+  it("keeps a Builder-frame code approval continuation in the embedded app", () => {
+    vi.useFakeTimers();
+    frameState.inBuilderFrame = true;
+
+    const tabId = sendToAgentChat({
+      message: "Approved.",
+      submit: true,
+      type: "code",
+      approvedToolCalls: ["publish-release:{}"],
+    });
+
+    expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+
+    vi.runOnlyPendingTimers();
+
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = selfPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
+    expect(payload.type).toBe("agentNative.submitChat");
+    expect(payload.data.tabId).toBe(tabId);
+    expect(payload.data.approvedToolCalls).toEqual(["publish-release:{}"]);
+    expect(
+      parseSubmitChatMessage({ data: payload } as MessageEvent)
+        ?.approvedToolCalls,
+    ).toEqual(["publish-release:{}"]);
+  });
+
+  it("keeps code approval continuations on the code frame outside Builder", () => {
+    sendToAgentChat({
+      message: "Approved.",
+      submit: true,
+      type: "code",
+      approvedToolCalls: ["publish-release:{}"],
+    });
+
+    expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload] = parentPostMessageSpy.mock.calls[0];
+    expect(payload.data.approvedToolCalls).toEqual(["publish-release:{}"]);
+  });
+
   it("prepares the local sidebar for silent background sends without opening it", () => {
     sendToAgentChat({
       message: "refresh quietly",
@@ -492,7 +621,8 @@ describe("sendToAgentChat", () => {
     expect(dispatchEventSpy).not.toHaveBeenCalled();
   });
 
-  it("uses the wrapper relay when MCP App attachments need to reach chat", () => {
+  it("routes MCP App attachments to the local app chat", () => {
+    vi.useFakeTimers();
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
     const attachments = [
@@ -511,12 +641,63 @@ describe("sendToAgentChat", () => {
     });
 
     expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
-    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
-    const [payload, targetOrigin] = parentPostMessageSpy.mock.calls[0];
-    expect(targetOrigin).toBe("*");
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    vi.runOnlyPendingTimers();
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = selfPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
     expect(payload.type).toBe("agentNative.submitChat");
     expect(payload.data.tabId).toBe(tabId);
     expect(payload.data.attachments).toEqual(attachments);
+  });
+
+  it.each([
+    ["type", { type: "code" as const }],
+    ["requiresCode", { requiresCode: true }],
+  ])("keeps rich MCP App %s requests in the local app chat", (_kind, code) => {
+    vi.useFakeTimers();
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    const attachments = [
+      {
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        displayOnly: true,
+      },
+    ];
+    const images = ["data:image/png;base64,abc"];
+    const referenceImagePaths = ["https://cdn.example.test/reference.png"];
+    const uploadedReferenceImages = ["https://cdn.example.test/uploaded.png"];
+    const actionScope = { kind: "record-enrichment", recordId: "record-1" };
+
+    const tabId = sendToAgentChat({
+      message: "update this record from the references",
+      submit: true,
+      ...code,
+      attachments,
+      images,
+      referenceImagePaths,
+      uploadedReferenceImages,
+      usageLabel: "crm:enrich-record",
+      actionScope,
+    });
+
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+    vi.runOnlyPendingTimers();
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload] = selfPostMessageSpy.mock.calls[0];
+    expect(payload.data.tabId).toBe(tabId);
+    expect(payload.data.attachments).toEqual(attachments);
+    expect(payload.data.images).toEqual(images);
+    expect(payload.data.referenceImagePaths).toEqual(referenceImagePaths);
+    expect(payload.data.uploadedReferenceImages).toEqual(
+      uploadedReferenceImages,
+    );
+    expect(payload.data.usageLabel).toBe("crm:enrich-record");
+    expect(payload.data.actionScope).toEqual(actionScope);
   });
 
   it("does not duplicate MCP App prompts through both the direct bridge and wrapper relay", () => {
@@ -569,22 +750,94 @@ describe("sendToAgentChat", () => {
     );
   });
 
-  it("uses the wrapper relay when an MCP App send carries a usage label", () => {
+  it("does not relay a direct MCP App chat when host delivery is unknown", async () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(null));
+
+    const tabId = sendToAgentChat({
+      message: "continue with this selection",
+      submit: true,
+    });
+
+    await flushMicrotasks();
+
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(dispatchEventSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false, tabId },
+      }),
+    );
+  });
+
+  it("routes MCP App usage labels and action scopes to the local app chat", () => {
+    vi.useFakeTimers();
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
 
-    sendToAgentChat({
+    const actionScope = { kind: "record-enrichment", recordId: "record-1" };
+    const tabId = sendToAgentChat({
       message: "enrich this record",
       submit: true,
       usageLabel: "crm:enrich-record",
+      actionScope,
     });
 
-    // The host follow-up API has no field for the label, so taking that path
-    // would record the run as an ordinary chat turn.
     expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
-    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
-    const [payload] = parentPostMessageSpy.mock.calls[0];
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    vi.runOnlyPendingTimers();
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = selfPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
+    expect(payload.data.tabId).toBe(tabId);
     expect(payload.data.usageLabel).toBe("crm:enrich-record");
+    expect(payload.data.actionScope).toEqual(actionScope);
+  });
+
+  it.each([
+    ["a chat", undefined],
+    ["a code", "code" as const],
+  ])(
+    "keeps %s approval continuation in the app chat inside an MCP App embed",
+    (_label, type) => {
+      vi.useFakeTimers();
+      window.location.search =
+        "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+
+      const tabId = sendToAgentChat({
+        message: "Approved.",
+        submit: true,
+        type,
+        approvedToolCalls: ["publish-release:{}"],
+      });
+
+      expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+      expect(parentPostMessageSpy).not.toHaveBeenCalled();
+      expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+
+      vi.runOnlyPendingTimers();
+
+      expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+      const [payload, targetOrigin] = selfPostMessageSpy.mock.calls[0];
+      expect(targetOrigin).toBe("http://localhost:3000");
+      expect(payload.type).toBe("agentNative.submitChat");
+      expect(payload.data.tabId).toBe(tabId);
+      expect(
+        parseSubmitChatMessage({ data: payload } as MessageEvent)
+          ?.approvedToolCalls,
+      ).toEqual(["publish-release:{}"]);
+    },
+  );
+
+  it("still relays an MCP App send without approval keys to the host", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+
+    sendToAgentChat({ message: "summarize this", submit: true });
+
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledOnce();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
   });
 
   it("can force MCP App embeds to use the local app chat", () => {
@@ -617,6 +870,370 @@ describe("sendToAgentChat", () => {
     expect(payload.data.message).toBe("apply plan feedback");
     expect(payload.data.context).toBe("Open comments: 2");
     expect(payload.data.chatTarget).toBe("local");
+  });
+
+  it("routes an explicit local prompt to ChatGPT when its MCP App bridge is active", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
+
+    sendToAgentChat({
+      message: "Apply these visual changes",
+      context: "Selected frame: hero",
+      submit: true,
+      chatTarget: "local",
+    });
+
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
+      message: "Apply these visual changes",
+      context: "Selected frame: hero",
+    });
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("routes text-only branch prompts to the active ChatGPT chat", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
+
+    sendToAgentChat({
+      message: "Try a different hero direction",
+      submit: true,
+      chatTarget: "local",
+      newTab: true,
+    });
+
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
+      message: "Try a different hero direction",
+    });
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps ChatGPT prompts that reuse an empty app tab in the embedded app", () => {
+    vi.useFakeTimers();
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+
+    sendToAgentChat({
+      message: "Try a different hero direction",
+      submit: true,
+      chatTarget: "local",
+      newTab: true,
+      reuseEmptyTab: true,
+    });
+    vi.runOnlyPendingTimers();
+
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy.mock.calls.at(-1)?.[0]?.data).toMatchObject({
+      message: "Try a different hero direction",
+      newTab: true,
+      reuseEmptyTab: true,
+    });
+  });
+
+  it("keeps code-targeted requests out of the ChatGPT follow-up route", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+
+    sendToAgentChat({
+      message: "Update the repository implementation",
+      submit: true,
+      chatTarget: "local",
+      type: "code",
+      newTab: true,
+    });
+
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    expect(parentPostMessageSpy.mock.calls[0]?.[0]?.data).toMatchObject({
+      message: "Update the repository implementation",
+      type: "code",
+      newTab: true,
+    });
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps new-branch prompts in the app for other MCP hosts", () => {
+    vi.useFakeTimers();
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+
+    sendToAgentChat({
+      message: "Try a different hero direction",
+      submit: true,
+      chatTarget: "local",
+      newTab: true,
+    });
+    vi.runOnlyPendingTimers();
+
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy.mock.calls.at(-1)?.[0]?.data).toMatchObject({
+      message: "Try a different hero direction",
+      newTab: true,
+    });
+  });
+
+  it("sends inline images with local ChatGPT handoffs", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
+
+    sendToAgentChat({
+      message: "Review this screenshot",
+      submit: true,
+      chatTarget: "local",
+      images: ["data:IMAGE/PNG;charset=binary;base64,AQID"],
+    });
+
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
+      message: "Review this screenshot",
+      content: [
+        { type: "text", text: "Review this screenshot" },
+        { type: "image", data: "AQID", mimeType: "image/png" },
+      ],
+    });
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("omits display-only attachments from ChatGPT handoff content", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
+
+    sendToAgentChat({
+      message: "Review the attached references",
+      submit: true,
+      chatTarget: "local",
+      attachments: [
+        {
+          type: "text",
+          name: "preview.txt",
+          text: "Visible in the app only",
+          displayOnly: true,
+        },
+        {
+          type: "text",
+          name: "requirements.txt",
+          text: "Keep the header compact",
+        },
+        {
+          type: "file",
+          name: "reference.pdf",
+          displayOnly: true,
+        },
+      ],
+    });
+
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
+      message: "Review the attached references",
+      content: [
+        {
+          type: "text",
+          text: "Review the attached references",
+        },
+        {
+          type: "text",
+          text: "Attachment: requirements.txt\nKeep the header compact",
+        },
+      ],
+    });
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("routes ChatGPT handoffs with only display-only attachments without content", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
+
+    sendToAgentChat({
+      message: "Summarize the selected page",
+      submit: true,
+      chatTarget: "local",
+      attachments: [
+        {
+          type: "file",
+          name: "page-preview.pdf",
+          displayOnly: true,
+        },
+      ],
+    });
+
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
+      message: "Summarize the selected page",
+    });
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps image attachments without inline data in the app chat", () => {
+    vi.useFakeTimers();
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+
+    sendToAgentChat({
+      message: "Review the attached screenshot",
+      submit: true,
+      chatTarget: "local",
+      attachments: [
+        {
+          type: "image",
+          name: "screen.png",
+          url: "https://cdn.builder.io/screen.png",
+          contentType: "image/png",
+        },
+      ],
+    });
+
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    vi.runOnlyPendingTimers();
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+  });
+
+  it("confirms an explicit local ChatGPT handoff through the MCP App bridge", async () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
+
+    const result = await sendToAgentChatAndConfirm({
+      message: "Review these comments",
+      context: "Two unresolved comments",
+      submit: true,
+      chatTarget: "local",
+    });
+
+    expect(result).toMatchObject({ delivered: true });
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
+      message: "Review these comments",
+      context: "Two unresolved comments",
+    });
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("falls back to a confirmed wrapper relay when ChatGPT rejects the handoff", async () => {
+    vi.useFakeTimers();
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(false));
+
+    const resultPromise = sendToAgentChatAndConfirm({
+      message: "Apply these review comments",
+      context: "Two unresolved comments",
+      submit: true,
+      chatTarget: "local",
+    });
+    await flushMicrotasks();
+    const [payload, targetOrigin] =
+      parentPostMessageSpy.mock.calls.at(-1) ?? [];
+    const submitMessageId = payload?.data?.submitMessageId as string;
+    reportAgentChatSubmitResult(submitMessageId, true);
+
+    await expect(resultPromise).resolves.toMatchObject({ delivered: true });
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledOnce();
+    expect(targetOrigin).toBe("*");
+    expect(payload?.data).toMatchObject({
+      message: "Apply these review comments",
+      context: "Two unresolved comments",
+    });
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("confirms a new-branch prompt in ChatGPT without requiring local correlation", async () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
+
+    const result = await sendToAgentChatAndConfirm(
+      {
+        message: "Try the alternate layout",
+        submit: true,
+        chatTarget: "local",
+        newTab: true,
+      },
+      { submitMessageId: "local-correlation-id" },
+    );
+
+    expect(result).toMatchObject({ delivered: true });
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
+      message: "Try the alternate layout",
+    });
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps background ChatGPT work in the embedded app", () => {
+    vi.useFakeTimers();
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+
+    sendToAgentChat({
+      message: "Generate a title",
+      submit: true,
+      background: true,
+      chatTarget: "local",
+    });
+
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    vi.runOnlyPendingTimers();
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+  });
+
+  it("keeps ChatGPT local submits with app-scoped routing metadata in the app", () => {
+    vi.useFakeTimers();
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+
+    sendToAgentChat({
+      message: "Continue the app workflow",
+      submit: true,
+      chatTarget: "local",
+      projectSlug: "prototype-project",
+      tabId: "clips-workflow:recording-1:request-1",
+      submitMessageId: "workflow-submit-1",
+    });
+    vi.runOnlyPendingTimers();
+
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy.mock.calls.at(-1)?.[0]?.data).toMatchObject({
+      projectSlug: "prototype-project",
+      tabId: "clips-workflow:recording-1:request-1",
+      submitMessageId: "workflow-submit-1",
+    });
+  });
+
+  it("routes ChatGPT confirmation submits with an explicit correlation id to the host", async () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
+
+    const result = await sendToAgentChatAndConfirm(
+      {
+        message: "Generate the current deck",
+        submit: true,
+        chatTarget: "local",
+      },
+      { submitMessageId: "slides-submit-1" },
+    );
+
+    expect(result).toMatchObject({ delivered: true });
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
+      message: "Generate the current deck",
+    });
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
   });
 
   it("falls back to the wrapper relay if direct MCP App host messaging rejects the send", async () => {
@@ -677,6 +1294,33 @@ describe("sendToAgentChat", () => {
     expect(payload.data.context).toBe("Dashboard: traffic");
   });
 
+  it("keeps a direct MCP App embed code approval continuation in the app chat", () => {
+    vi.useFakeTimers();
+    window.location.search = "?embedded=1&__an_embed_token=signed-token";
+
+    const tabId = sendToAgentChat({
+      message: "Approved.",
+      submit: true,
+      type: "code",
+      approvedToolCalls: ["publish-release:{}"],
+    });
+
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+
+    vi.runOnlyPendingTimers();
+
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = selfPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
+    expect(payload.data.tabId).toBe(tabId);
+    expect(
+      parseSubmitChatMessage({ data: payload } as MessageEvent)
+        ?.approvedToolCalls,
+    ).toEqual(["publish-release:{}"]);
+  });
+
   it("keeps MCP App prefill-only messages on the existing local path", () => {
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
@@ -718,6 +1362,26 @@ describe("sendToAgentChat", () => {
     await expect(resultPromise).resolves.toMatchObject({ delivered: true });
   });
 
+  it("confirms a local submit with a caller-provided correlation id", async () => {
+    vi.useFakeTimers();
+    const resultPromise = sendToAgentChatAndConfirm(
+      {
+        message: "continue the existing run",
+        submit: true,
+        chatTarget: "local",
+      },
+      { submitMessageId: "continuation-submit" },
+    );
+
+    vi.advanceTimersByTime(0);
+    expect(
+      selfPostMessageSpy.mock.calls.at(-1)?.[0]?.data?.submitMessageId,
+    ).toBe("continuation-submit");
+    reportAgentChatSubmitResult("continuation-submit", true);
+
+    await expect(resultPromise).resolves.toMatchObject({ delivered: true });
+  });
+
   it("preserves an explicit local rejection reason", async () => {
     vi.useFakeTimers();
     const resultPromise = sendToAgentChatAndConfirm({
@@ -734,6 +1398,43 @@ describe("sendToAgentChat", () => {
       delivered: false,
       reason: "missing-engine",
     });
+  });
+
+  it("confirms a Builder-frame code approval continuation kept in the app chat", async () => {
+    vi.useFakeTimers();
+    frameState.inBuilderFrame = true;
+    const resultPromise = sendToAgentChatAndConfirm({
+      message: "Approved.",
+      submit: true,
+      chatTarget: "local",
+      type: "code",
+      approvedToolCalls: ["publish-release:{}"],
+    });
+
+    vi.advanceTimersByTime(0);
+    expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+    const payload = selfPostMessageSpy.mock.calls.at(-1)?.[0];
+    expect(payload?.data?.approvedToolCalls).toEqual(["publish-release:{}"]);
+    reportAgentChatSubmitResult(payload.data.submitMessageId, true);
+
+    await expect(resultPromise).resolves.toMatchObject({ delivered: true });
+  });
+
+  it("still rejects confirmation for a code request bound for Builder", async () => {
+    frameState.inBuilderFrame = true;
+    const result = await sendToAgentChatAndConfirm({
+      message: "change this app",
+      submit: true,
+      chatTarget: "local",
+      type: "code",
+    });
+
+    expect(result).toMatchObject({
+      delivered: false,
+      reason: "unsupported-target",
+    });
+    expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
   });
 
   it("rejects non-local confirmation targets without sending", async () => {

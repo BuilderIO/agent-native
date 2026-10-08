@@ -12,7 +12,6 @@ vi.mock("@agent-native/core/tracking", () => ({
   track: vi.fn(),
 }));
 
-// Imported after the mock is registered so the action picks up the stub.
 const { default: bigquery } = await import("./bigquery");
 
 describe("bigquery action error handling", () => {
@@ -27,8 +26,6 @@ describe("bigquery action error handling", () => {
       ),
     );
 
-    // The model must get this back as a normal tool result it can react to,
-    // not a thrown AgentActionStopError that ends the turn.
     const result = (await bigquery.run({
       sql: "SELECT event_time FROM `p.dbt_analytics.product_signups`",
     })) as Record<string, unknown>;
@@ -66,8 +63,6 @@ describe("bigquery action error handling", () => {
 
     expect(result.error).toBe("bigquery_query_timeout");
     expect(result.recoverable).toBe(true);
-    // The old behaviour sent the model back to search-bigquery-schema, which
-    // produced repeated 60-second reruns of valid-but-slow SQL.
     expect(String(result.hint)).not.toMatch(/search-bigquery-schema/);
     expect(String(result.hint)).toMatch(/LIMIT|narrow the date range/i);
   });

@@ -208,7 +208,6 @@ test("an agent whole-file write cannot silently re-lock what the user unlocked",
     await enterDirectMode(page);
     await expandAllLayers(page);
 
-    // The agent reads the design BEFORE the user unlocks anything.
     const staleSnapshot = await readContent(request, designId);
     expect(lockedNodeIds(staleSnapshot).sort()).toEqual([
       "template-background",
@@ -223,7 +222,6 @@ test("an agent whole-file write cannot silently re-lock what the user unlocked",
       })
       .toEqual([]);
 
-    // The agent now writes a whole file built from that stale snapshot.
     const replace = await callAction(request, "edit-design", {
       designId,
       filename: "index.html",

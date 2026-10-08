@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getDb: vi.fn(),
+  getSession: vi.fn(),
   getUserSetting: vi.fn(),
   getRequestUserEmail: vi.fn(),
   implicitServiceOrgRole: vi.fn(),
@@ -63,7 +64,9 @@ vi.mock("@agent-native/core/org", () => ({
     mocks.resolveOrgIdForEmail(...args),
 }));
 
-vi.mock("@agent-native/core/server", () => ({ getSession: vi.fn() }));
+vi.mock("@agent-native/core/server", () => ({
+  getSession: (...args: unknown[]) => mocks.getSession(...args),
+}));
 
 vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: (...args: unknown[]) => mocks.getUserSetting(...args),
@@ -83,15 +86,28 @@ vi.mock("../db/index.js", () => ({
 import {
   countedViewCondition,
   countRecordingViews,
+  getEventOwnerContext,
   getActiveOrganizationId,
   getDefaultRecordingVisibility,
   requireActiveOrganizationId,
 } from "./recordings.js";
 
-/**
- * Two counts come back per call — one per table — so the fake resolves each
- * `.where()` against the table the builder was pointed at.
- */
+describe("getEventOwnerContext", () => {
+  it("returns the canonical auth id from the verified session", async () => {
+    mocks.getSession.mockResolvedValue({
+      email: "Owner@Example.test",
+      authUserId: "better-auth-user-1",
+      orgId: "org-1",
+    });
+
+    await expect(getEventOwnerContext({} as any)).resolves.toEqual({
+      userEmail: "Owner@Example.test",
+      orgId: "org-1",
+      authUserId: "better-auth-user-1",
+    });
+  });
+});
+
 function createDb(rowsByTable: { viewers?: unknown[]; views?: unknown[] }) {
   const calls: {
     tables: unknown[];
@@ -191,6 +207,7 @@ describe("countRecordingViews", () => {
 describe("getDefaultRecordingVisibility", () => {
   beforeEach(() => {
     mocks.getDb.mockClear();
+    mocks.getUserSetting.mockClear();
   });
 
   it("prefers the personal default over the organization default", async () => {
@@ -206,6 +223,14 @@ describe("getDefaultRecordingVisibility", () => {
       "owner@example.test",
       "clips-user-prefs",
     );
+  });
+
+  it("uses explicit visibility without reading personal or organization defaults", async () => {
+    await expect(
+      getDefaultRecordingVisibility("org-1", "owner@example.com", "org"),
+    ).resolves.toBe("org");
+    expect(mocks.getUserSetting).not.toHaveBeenCalled();
+    expect(mocks.getDb).not.toHaveBeenCalled();
   });
 
   it("falls back to the organization default when no preference is set", async () => {
@@ -240,6 +265,23 @@ describe("getDefaultRecordingVisibility", () => {
     await expect(getDefaultRecordingVisibility("org-1")).resolves.toBe(
       "public",
     );
+  });
+
+  it("propagates organization settings read failures", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
+    mocks.getUserSetting.mockResolvedValue(null);
+    const failure = new Error("database unavailable");
+    mocks.getDb.mockReturnValue({
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: vi.fn().mockRejectedValue(failure),
+          }),
+        }),
+      }),
+    });
+
+    await expect(getDefaultRecordingVisibility("org-1")).rejects.toBe(failure);
   });
 
   it("honors an explicit personal public preference", async () => {
@@ -285,11 +327,6 @@ describe("requireActiveOrganizationId", () => {
   });
 });
 
-/**
- * Both legacy sources outlive the organization they name and neither is scoped
- * to a caller, so each id they hand back has to be vetted before it becomes an
- * active org id. `select` is called once per lookup, in order.
- */
 function stubSelects(...results: unknown[][]) {
   const calls: unknown[] = [];
   mocks.getDb.mockReturnValue({
@@ -314,8 +351,6 @@ describe("getActiveOrganizationId legacy fallbacks", () => {
     mocks.implicitServiceOrgRole.mockReturnValue(null);
     mocks.readAppState.mockResolvedValue(null);
     mocks.getUserSetting.mockResolvedValue(null);
-    // The legacy sources are only consulted when the framework resolver could
-    // not answer at all; a definite answer ends the search before them.
     mocks.resolveOrgIdForEmail.mockRejectedValue(new Error("unavailable"));
   });
 
@@ -334,19 +369,14 @@ describe("getActiveOrganizationId legacy fallbacks", () => {
   });
 
   it("ignores a `current-workspace` key naming a deleted organization", async () => {
-    // Deleting an org clears org_members but not this app-state key, so an
-    // unvetted id here resurrects the deleted org as a 403 on every read.
     mocks.getRequestUserEmail.mockReturnValue("owner@example.test");
     mocks.readAppState.mockResolvedValue({ id: "org_deleted" });
-    // organizations lookup (gone), then the deprecated workspaces lookup.
     stubSelects([], []);
 
     await expect(getActiveOrganizationId()).resolves.toBeNull();
   });
 
   it("ignores a surviving workspace the caller is not a member of", async () => {
-    // The workspaces lookup takes the globally newest row, which can belong to
-    // another user entirely. Personal scope is the correct answer, not 403.
     mocks.getRequestUserEmail.mockReturnValue("nomember@example.test");
     stubSelects([{ id: "org_someone_else" }], [{ id: "org_someone_else" }], []);
 
@@ -365,8 +395,6 @@ describe("getActiveOrganizationId legacy fallbacks", () => {
   });
 
   it("accepts an existing legacy workspace when there is no caller identity", async () => {
-    // CLI and solo dev have no email to scope by, so an existing org is the
-    // best available answer rather than a silent downgrade to personal scope.
     mocks.getRequestUserEmail.mockReturnValue(null);
     stubSelects([{ id: "org_solo" }], [{ id: "org_solo" }]);
 

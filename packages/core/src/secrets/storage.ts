@@ -28,17 +28,11 @@ import { invalidateOptionalKeyCache } from "./optional-key-cache.js";
 import type { SecretScope } from "./register.js";
 import { APP_SECRETS_CREATE_SQL } from "./schema.js";
 
-// ---------------------------------------------------------------------------
-// Table bootstrap
-// ---------------------------------------------------------------------------
-
 let _initPromise: Promise<void> | undefined;
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      // Postgres version of the CREATE TABLE — the generic `INTEGER` maps to
-      // BIGINT on Postgres, which we need for millisecond timestamps.
       const createSql = APP_SECRETS_CREATE_SQL.replace(
         /\bINTEGER\b/g,
         "BIGINT",
@@ -68,20 +62,6 @@ export async function ensureTable(): Promise<void> {
   return _initPromise;
 }
 
-// ---------------------------------------------------------------------------
-// Encryption — see ./crypto.ts. Keep encrypted_value on the legacy app-key
-// format for mixed-version deployments, and add shared_encrypted_value when a
-// stable workspace key is configured so sibling apps can read the same row.
-// ---------------------------------------------------------------------------
-
-/**
- * Return the last 4 characters of a secret, with any leading characters
- * masked. Used to show a preview without leaking the value.
- */
-/**
- * Description Dispatch stamps on `app_secrets` rows it syncs from the
- * workspace Vault. Settings UIs use it to label a value as Vault-managed.
- */
 export const VAULT_SYNC_DESCRIPTION_PREFIX = "Synced from Dispatch vault:";
 
 export function last4(value: string): string {
@@ -89,10 +69,6 @@ export function last4(value: string): string {
   if (value.length <= 4) return "••••";
   return "••••" + value.slice(-4);
 }
-
-// ---------------------------------------------------------------------------
-// CRUD
-// ---------------------------------------------------------------------------
 
 export interface SecretRef {
   key: string;
@@ -102,9 +78,7 @@ export interface SecretRef {
 
 export interface WriteSecretArgs extends SecretRef {
   value: string;
-  /** Optional human-readable description (used for ad-hoc keys). */
   description?: string;
-  /** Optional JSON-stringified array of allowed URL origins. */
   urlAllowlist?: string;
 }
 
@@ -123,11 +97,6 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
   }
   const client = getDbExec();
   const now = Date.now();
-  // Dual-write during rollout: old readers continue using encrypted_value,
-  // while new readers prefer the nullable shared ciphertext. An app-only
-  // deployment leaves the shared column null; on an update, a writer without
-  // shared key material clears any existing shared ciphertext rather than
-  // preserving it (see the upsert SQL below for why).
   const encrypted = encryptLegacyValue(value);
   const sharedEncrypted = hasSharedSecretEncryptionKeyMaterial()
     ? encryptValue(value)
@@ -194,17 +163,9 @@ export interface ReadSecretResult {
   updatedAt: number;
 }
 
-/**
- * Read the shared-key format and retain compatibility with rows written before
- * app_secrets moved to its workspace-shared encryption boundary. The legacy
- * fallback is only useful when the current app owns the old row; sibling apps
- * will receive shared-key ciphertext after the next vault sync or update.
- */
 interface DecryptedAppSecretValue {
   value: string;
-  /** True when the app-scoped fallback decrypted encrypted_value. */
   usedLegacyKey: boolean;
-  /** True when shared_encrypted_value needs to be created or refreshed. */
   needsSharedCiphertext: boolean;
   /**
    * Existing ciphertext that must still match before a refresh. Null means the
@@ -251,13 +212,6 @@ function decryptAppSecretValue(
   }
 }
 
-/**
- * Create or refresh the shared column without touching encrypted_value. This
- * is intentionally best-effort: a read must still succeed if a deployment's
- * DB role cannot update the row. The compare-and-swap predicate prevents a
- * concurrent writer from being overwritten, and leaving updated_at untouched
- * preserves the row's user-visible ordering/metadata.
- */
 async function populateSharedAppSecret(
   id: unknown,
   value: string,
@@ -330,7 +284,6 @@ function secretCacheKey(ref: SecretRef): string {
   return `${ref.scope}|${ref.scopeId}|${ref.key}`;
 }
 
-/** Drop this request's memo for a secret whose stored value just changed. */
 function invalidateRequestSecret(ref: SecretRef): void {
   requestSecretsCache()?.delete(secretCacheKey(ref));
 }
@@ -358,7 +311,6 @@ function isMissingAppSecretsTableError(error: unknown): boolean {
   );
 }
 
-/** Execute a read without schema probes on the normal path. */
 async function executeAppSecretsRead(query: AppSecretsReadQuery) {
   const client = getDbExec();
   try {
@@ -419,7 +371,6 @@ async function readAppSecretUncached(
   }
 }
 
-/** Read several keys from one scope in a single database round trip. */
 export async function readAppSecrets(args: {
   keys: readonly string[];
   scope: SecretScope;
@@ -451,9 +402,6 @@ export async function readAppSecrets(args: {
     sql: `SELECT key, encrypted_value, shared_encrypted_value, updated_at, id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key IN (${placeholders})`,
     args: [args.scope, args.scopeId, ...keys],
   });
-  // The statement covered every uncached key in this scope, so a key missing
-  // from `rows` is genuinely absent — memo it as such rather than leaving a
-  // single-key read to go ask again.
   for (const key of keys) {
     cache?.set(
       secretCacheKey({ key, scope: args.scope, scopeId: args.scopeId }),
@@ -493,11 +441,6 @@ export async function readAppSecrets(args: {
   return results;
 }
 
-/**
- * Return just the metadata for a secret (no value). Used by the list route so
- * the UI can show the "Set" pill and last-4 without the decrypted value going
- * over the wire.
- */
 export async function getAppSecretMeta(
   ref: SecretRef,
 ): Promise<{ last4: string; updatedAt: number } | null> {
@@ -517,11 +460,6 @@ export interface SecretMeta {
   updatedAt: number;
 }
 
-/**
- * Read a secret's metadata, including ad-hoc fields (description, allowlist),
- * without ever decrypting or returning the plaintext value. Used by the
- * ad-hoc list route and any UI that wants to render a key tile.
- */
 export async function readAppSecretMeta(
   ref: SecretRef,
 ): Promise<SecretMeta | null> {

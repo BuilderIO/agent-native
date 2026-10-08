@@ -1,13 +1,3 @@
-/**
- * Delegate: generate chapters for the recording from its transcript.
- *
- * The agent reads the transcript, identifies topic transitions, and calls the
- * Editor-team-owned `set-chapters` action with a chaptersJson array.
- *
- * Usage:
- *   pnpm action regenerate-chapters --recordingId=<id>
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";

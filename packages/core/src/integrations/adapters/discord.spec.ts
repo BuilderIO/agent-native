@@ -1,4 +1,5 @@
-import nacl from "tweetnacl";
+import { generateKeyPairSync, sign } from "node:crypto";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const headers = vi.hoisted(() => new Map<string, string>());
@@ -22,6 +23,17 @@ import { discordAdapter } from "./discord.js";
 
 function eventWithRaw(raw: string): any {
   return { context: { __rawBody: raw } };
+}
+
+function newDiscordKeyPair() {
+  const keyPair = generateKeyPairSync("ed25519");
+  return {
+    privateKey: keyPair.privateKey,
+    publicKey: keyPair.publicKey
+      .export({ format: "der", type: "spki" })
+      .subarray(-32)
+      .toString("hex"),
+  };
 }
 
 function commandInteraction(overrides: Record<string, unknown> = {}) {
@@ -57,20 +69,18 @@ describe("discordAdapter", () => {
   it("verifies Ed25519 signatures over the timestamp plus exact raw body", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2023-11-14T22:13:20.000Z"));
-    const keyPair = nacl.sign.keyPair();
+    const keyPair = newDiscordKeyPair();
     const raw = JSON.stringify(commandInteraction());
     const timestamp = "1700000000";
-    const signature = nacl.sign.detached(
-      new TextEncoder().encode(timestamp + raw),
-      keyPair.secretKey,
+    const signature = sign(
+      null,
+      Buffer.from(timestamp + raw),
+      keyPair.privateKey,
     );
     vi.stubEnv("DISCORD_APPLICATION_ID", "application-example");
-    vi.stubEnv(
-      "DISCORD_PUBLIC_KEY",
-      Buffer.from(keyPair.publicKey).toString("hex"),
-    );
+    vi.stubEnv("DISCORD_PUBLIC_KEY", keyPair.publicKey);
     headers.set("x-signature-timestamp", timestamp);
-    headers.set("x-signature-ed25519", Buffer.from(signature).toString("hex"));
+    headers.set("x-signature-ed25519", signature.toString("hex"));
 
     await expect(
       discordAdapter().verifyWebhook(eventWithRaw(raw)),
@@ -85,27 +95,22 @@ describe("discordAdapter", () => {
   it("rejects correctly signed requests outside the five-minute timestamp window", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-10T14:00:00.000Z"));
-    const keyPair = nacl.sign.keyPair();
+    const keyPair = newDiscordKeyPair();
     const raw = JSON.stringify(commandInteraction());
     vi.stubEnv("DISCORD_APPLICATION_ID", "application-example");
-    vi.stubEnv(
-      "DISCORD_PUBLIC_KEY",
-      Buffer.from(keyPair.publicKey).toString("hex"),
-    );
+    vi.stubEnv("DISCORD_PUBLIC_KEY", keyPair.publicKey);
 
     for (const timestamp of [
       String(Math.floor(Date.now() / 1000) - 301),
       String(Math.floor(Date.now() / 1000) + 301),
     ]) {
-      const signature = nacl.sign.detached(
-        new TextEncoder().encode(timestamp + raw),
-        keyPair.secretKey,
+      const signature = sign(
+        null,
+        Buffer.from(timestamp + raw),
+        keyPair.privateKey,
       );
       headers.set("x-signature-timestamp", timestamp);
-      headers.set(
-        "x-signature-ed25519",
-        Buffer.from(signature).toString("hex"),
-      );
+      headers.set("x-signature-ed25519", signature.toString("hex"));
 
       await expect(
         discordAdapter().verifyWebhook(eventWithRaw(raw)),

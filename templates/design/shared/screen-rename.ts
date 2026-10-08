@@ -1,8 +1,3 @@
-/**
- * Resolve the persisted filename for a screen rename without dropping its
- * current extension. The Layers panel edits the display name (normally just
- * the stem), while design_files.filename remains the routable identifier.
- */
 export function renameFilenamePreservingExtension(
   currentFilename: string,
   typedName: string,
@@ -21,12 +16,6 @@ export function renameFilenamePreservingExtension(
   return currentExtension ? `${trimmed}${currentExtension}` : trimmed;
 }
 
-/**
- * Rewrite exact quoted `data-screen` attribute values while preserving the
- * source document's quote and whitespace style. This deliberately operates on
- * the serialized HTML instead of parsing/serializing the whole document, which
- * would create a large unrelated formatting diff for a one-attribute rename.
- */
 export function replaceDataScreenReferences(
   content: string,
   oldFilename: string,

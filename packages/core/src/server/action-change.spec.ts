@@ -27,6 +27,7 @@ vi.mock("./poll.js", async () => {
 
 vi.mock("./request-context.js", () => ({
   getRequestOrgId: () => mockGetRequestOrgId(),
+  getRequestRunContext: () => undefined,
   getRequestUserEmail: () => mockGetRequestUserEmail(),
 }));
 

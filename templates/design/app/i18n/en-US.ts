@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "Integrations" } },
   creativeContext: {
     title: "Library",
     description:
@@ -165,14 +166,16 @@ export default {
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
     openAgentSettings: "Manage agent",
-    languageTitle: "Language",
-    languageDescription: "Choose the interface language for Design.",
-    languageLabel: "Interface language",
-    labs: "Labs",
-    labsIntro:
-      "These are new, unstable features and may have bugs. We value your feedback.",
     labTweaks: "Design tweaks",
     labTweaksDescription: "Try AI-powered design tweaks.",
+    labFullAppBuilding: "Full app building",
+    labFullAppBuildingDescription:
+      "Try building working apps from your designs with Builder.",
+    labDesignReviewTools: "Design review tools",
+    labDesignReviewToolsDescription:
+      "Check your designs for accessibility issues and compare visual changes.",
+    mcpAbout:
+      "Connect Design to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Design for you: create designs and edit them. It sees only what you can see.",
   },
   pages: {
     presentEmpty: "No content to present",
@@ -181,8 +184,17 @@ export default {
     notFoundDescription: "The page you are looking for does not exist.",
     notFoundSignIn: "Sign in",
     notFoundBackToDesigns: "Back to designs",
-    teamCreateOrgDescription:
-      "Set up a team to share designs with your colleagues.",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "Connect storage to upload files",
+    },
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "Couldn't confirm AI is ready.",
+    },
+    common: { retry: "Retry" },
   },
   chat: {
     emptyState: "Describe a design to create",
@@ -202,7 +214,7 @@ export default {
       tokenLabel: "Figma access token",
       tokenPlaceholder: "Paste Figma access token",
       connecting: "Connecting…",
-      connect: "Connect",
+      connect: "Connect Figma",
       getToken: "Get token",
       importFrame: "Import frame",
       chooseFrame: "Choose frame",
@@ -213,6 +225,7 @@ export default {
     },
   },
   common: {
+    loading: "Loading...",
     genericError: "Something went wrong",
   },
   editPanel: {
@@ -262,6 +275,12 @@ export default {
       opacity: "Opacity",
       padding: "Padding",
       margin: "Margin",
+      marginTop: "Top margin",
+      marginRight: "Right margin",
+      marginBottom: "Bottom margin",
+      marginLeft: "Left margin",
+      linkMarginSides: "Link margin sides",
+      unlinkMarginSides: "Unlink margin sides",
       radius: "Radius",
       flexGrow: "Grow",
       flexShrink: "Shrink",
@@ -304,6 +323,8 @@ export default {
       bottomLeft: "BL",
       bottomRight: "BR",
       blend: "Blend",
+      blendMode: "Blend mode",
+      removeBlendMode: "Remove blend mode",
       border: "Border",
       outline: "Outline",
       inside: "Inside",
@@ -322,6 +343,18 @@ export default {
       perspectiveHint: "Perspective (empty/0 = none)",
       customTransform: "Custom transform — can't be edited as X/Y/Z rotation",
       shaderEffectType: "Shader",
+      imageScaleMode: "Image scale mode",
+      imageAdjustments: "Image adjustments",
+      imageExposure: "Exposure",
+      imageContrast: "Contrast",
+      imageSaturation: "Saturation",
+      imageScaleFill: "Fill",
+      imageScaleFit: "Fit",
+      imageScaleCrop: "Crop",
+      noMirroring: "No mirroring",
+      vector: "Vector",
+      mirrorAngle: "Mirror angle",
+      mirrorAngleAndLength: "Mirror angle and length",
     },
     shaders: {
       fillsTitle: "Shader fills",
@@ -544,8 +577,33 @@ export default {
         adUnit: "Ad unit",
       },
     },
+    scale: {
+      title: "Scale",
+      exit: "Exit scale",
+      factor: "Scale factor",
+      presets: "Scale presets",
+      anchor: "Anchor point",
+      topLeft: "Top left",
+      topCenter: "Top center",
+      topRight: "Top right",
+      middleLeft: "Middle left",
+      center: "Center",
+      middleRight: "Middle right",
+      bottomLeft: "Bottom left",
+      bottomCenter: "Bottom center",
+      bottomRight: "Bottom right",
+    },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "Live collaboration",
+      description:
+        "Let people without the owner's localhost see and edit a live copy of this design.",
+      enabled: "On",
+      disabled: "Off",
+      saving: "Saving…",
+      enableError: "Couldn't update live collaboration.",
+    },
     vectorEndpoints: {
       startPoint: "Start point",
       endPoint: "End point",
@@ -777,6 +835,8 @@ export default {
       figmaPasteTarget: "Paste into the canvas",
       figmaPasteApiKeyHint:
         "Connect your Figma access token for exact node imports.",
+      figmaPasteAccessDenied:
+        'The connected Figma token can\'t access this file. Check your file permissions and that the token has the "File content" scope.',
       figmaPasteMatchGuidance:
         "Couldn't match this to specific Figma nodes. Paste a frame link instead for an exact import.",
       figmaPasteUnreadable:
@@ -922,6 +982,9 @@ export default {
     signUpToSaveDescription:
       "Sign up for a free account to save designs, screen layouts, and generate new ones.",
     signUpToShare: "Sign up to share",
+    signUpToShareLiveCanvas: "Sign up to share a live canvas",
+    liveCanvasLink: "Live canvas link",
+    liveCanvasWaitingForOwner: "Waiting for the owner’s live canvas snapshot.",
     shareEditorLink: "Design editor link",
     shareEditorLinkDescription:
       "Anyone with access can open this design in the editor.",
@@ -953,6 +1016,10 @@ export default {
     keyboardShortcuts: {
       title: "Keyboard shortcuts",
       close: "Close keyboard shortcuts",
+      search: "Search",
+      searchLabel: "Search keyboard shortcuts",
+      categoriesLabel: "Shortcut categories",
+      empty: "No shortcuts match “{{query}}”",
       codeContext: "Code",
       screenContext: "Screen",
       nudgeAmount: {
@@ -985,12 +1052,6 @@ export default {
         leftBracket: "Left Bracket",
         rightBracket: "Right Bracket",
       },
-      descriptions: {
-        toggleUi:
-          "Press it now to quickly hide the panes and focus on your work",
-        undo: "Step back through your most recent design change",
-        redo: "Restore the design change you just undid",
-      },
       categories: {
         essential: "Essential",
         tools: "Tools",
@@ -1022,6 +1083,7 @@ export default {
         showLayers: "Show layers",
         showAssets: "Show assets",
         toggleUi: "Show/Hide UI",
+        toggleMinimalUi: "Minimal UI",
         toggleComments: "Show or hide comments",
         zoomIn: "Zoom in",
         zoomOut: "Zoom out",
@@ -1075,6 +1137,7 @@ export default {
         ungroup: "Ungroup selection",
         frameSelection: "Frame selection",
         autoLayout: "Add auto layout",
+        imageVideo: "Image/video...",
       },
     },
     undo: "Undo",
@@ -1195,12 +1258,15 @@ export default {
     pendingVisualStyles: {
       applyAria: "Apply design updates",
       applyButton: "Apply styles",
+      applySharedEdits: "Apply edits",
       previewLabel: "Pending visual preview",
       applyDesignUpdates: "Apply design update",
       applying: "Applying…",
       verifying: "Verifying source and runtime…",
       retryWithAgent: "Retry source verification",
       copyPrompt: "Copy prompt to your agent",
+      copyAgentPrompt: "Copy agent prompt",
+      copyFullPrompt: "Copy full prompt",
       abortPreview: "Abort preview and interact",
       agentMessage: "Apply the pending visual style edits to the source.",
       sentToast: "Design updates sent to the agent",
@@ -1212,6 +1278,8 @@ export default {
       sourceCheckFailedToast:
         "Could not verify the connected source files. The preview was kept so you can retry or undo.",
       copiedToast: "Style prompt copied",
+      copiedToastDescription:
+        "Paste it into your coding agent and ask it to apply the visual changes.",
       abortedToast: "Pending preview discarded",
       interactBlocked:
         "Apply or abort pending live edits before switching to Interact.",
@@ -1275,6 +1343,8 @@ export default {
       annotationSendError:
         "Could not send annotations. Your drawing is still here—try again.",
       codingHandoffError: "Could not create agent handoff",
+      visualEditPendingConflict:
+        "Another collaborator has edits waiting. Apply or clear them before sending new edits.",
       codingHandoffCopied: "Agent prompt copied",
       clipboardBlocked: "Clipboard blocked",
       htmlCreateError: "Could not create HTML download",
@@ -1297,6 +1367,15 @@ export default {
         "PNG capture isn't available in read-only previews",
       pngSaveError: "Could not save PNG",
       pngExportError: "Could not export PNG",
+      exportTooLarge:
+        "Export is too large. Requests are limited to 5 MB; reduce embedded assets or raster dimensions and try again.",
+      exportResourcesUnavailable:
+        "The export could not be rendered accurately because one or more images, fonts, or stylesheets are unavailable. Check those resources and try again.",
+      exportTimedOut:
+        "Export timed out. Try again, or reduce the design's size.",
+      exportBusy: "Another export is rendering. Wait a moment and try again.",
+      exportChromiumUnavailable:
+        "Export is unavailable because the renderer could not start. Try again later.",
       pdfExportError: "Could not export PDF",
       pdfDownloaded: "PDF downloaded",
       pdfAllScreensDownloaded: "PDF downloaded (all screens)",
@@ -1353,10 +1432,16 @@ export default {
         "Can't locate this layer in the source. Try again once the app finishes loading, or ask the agent to make the change.",
       reactSourceAnchorsUnavailable:
         "This app doesn't expose source locations to the editor, so this layer can't be traced back to a line. Ask the agent to make the change.",
+      sourceLocationSnapshotFailed:
+        "Could not check source locations for this preview.",
       screenSourceUpdated: "Screen source updated",
       screenSourceUpdateFailed: "Could not update screen source",
       vectorEditUnsupported:
         "Vector editing isn't available for this shape or transform.",
+      imageUploading: "Uploading image…",
+      pasteReplaceFailed: "Could not replace that layer",
+      swapFillStrokeLayeredFill:
+        "Multiple or image fills can't move to a stroke yet",
     },
     commenterRoleLabel: "Commenter",
     commenterRoleDescription: "Can view and add review comments",
@@ -1402,6 +1487,13 @@ export default {
   },
   designCanvas: {
     localBridge: {
+      permissionPromptTitle: "Connect your local screens",
+      permissionPromptDescription:
+        "Choose Allow in Chrome's prompt to enable live editing.",
+      permissionPromptNoPrompt: "No Chrome prompt?",
+      permissionPromptSettingsInstructions:
+        "Click the site controls icon to the left of the address bar, open Site settings, then set Local network to Allow.",
+      permissionPromptRetry: "Retry connection",
       confirmationRetryExhausted:
         "Live editor bridge did not confirm after several attempts.",
       connectionNotConfirmed:
@@ -1488,6 +1580,8 @@ export default {
     assetAdded: "Asset added",
     assetsNoImageUrl: "Assets did not return an image URL.",
     failedToUploadFile: "Failed to upload file",
+    imageAttachmentUnavailable:
+      "We couldn't prepare this image as visual input. Attach a smaller PNG, JPG, GIF, or WebP file.",
     attachmentsTooLarge:
       "Those attachments are too large. Uploads are limited to {{max}} MB in total — attach fewer or smaller files.",
     failedToSubmitPrompt: "Failed to submit prompt",
@@ -1590,7 +1684,65 @@ export default {
       "{{count}} unsent comment draft(s) were discarded when you left this view.",
     staleAnchorDetail: "Original element no longer found on the canvas.",
   },
+  homeContext: {
+    websiteReference: "Add website",
+    websiteUrlLabel: "Website URL",
+    websiteUrl: "Paste a website URL",
+    figmaUrlLabel: "Figma link",
+    invalidFigmaUrl: "Enter a valid figma.com frame or file URL.",
+    tooMany: "Choose up to 20 references.",
+    invalidWebsiteUrl: "Enter a valid HTTP or HTTPS URL.",
+    createSystem: "Create a design system",
+    noSystems:
+      "You don’t have a design system yet. Create one from website, files, or Figma.",
+    searchSystems: "Search design systems…",
+    searchFrames: "Search Figma frames…",
+    searchDesigns: "Search designs…",
+    searchPresentations: "Search presentations…",
+    searchDesign: "Search design…",
+    useDesignSystem: "Use a design system",
+    notReady:
+      "The prompt is not ready to submit. Check the selected context and connection, then try again.",
+    search: "Search context…",
+    figmaUrl: "Paste a Figma link",
+    browse: "Browse frames",
+    loadFailed: "Could not load this reference.",
+    retry: "Retry",
+    empty: "No matching references.",
+    none: "None",
+    design: "Design",
+    slides: "Slides",
+    referenceDesign: "Reference a design",
+    figmaReference: "Add Figma",
+    referenceDeck: "Reference a presentation",
+    quickSaas: "Create a SaaS landing page",
+    quickDashboard: "Create a dashboard",
+    quickDeck: "Create a slide deck",
+    deckPrompt:
+      "Create a polished slide deck with a title slide, a clear narrative, visual data, and a concise closing slide.",
+  },
   home: {
+    suggestedPrompts: "Suggested prompts",
+    import: "Import",
+    importOptions: "Import options",
+    figmaLink: "Figma link",
+    importFromFigma: "Import from Figma",
+    figmaFile: "Figma file (.fig)",
+    openImport: "Open import",
+    importSelectedFile: "Import selected file",
+    starterSaasPrompt:
+      "A modern SaaS landing page with a dark theme, hero section, three feature cards, and a final CTA section.",
+    starterDashboardPrompt:
+      "A clean analytics dashboard with a sidebar nav, four KPI tiles, a chart, and a recent-activity table.",
+    starterMobilePrompt:
+      "A mobile app prototype shown on a phone frame, with a tab bar at the bottom and three list cards on the home screen.",
+    starterPricingPrompt:
+      "A three-tier pricing page with a monthly/annual toggle, feature checklists, and a highlighted recommended tier.",
+    designPromptTitle: "Let's create your first design",
+    recent: "Recent",
+    browseAllTemplates: "Browse all",
+    connectBuilderIo: "Use Builder.io",
+    connectingBuilder: "Setting up Builder.io…",
     pageTitle: "Designs",
     searchPlaceholder: "Search designs...",
     newDesign: "New Design",
@@ -1600,6 +1752,9 @@ export default {
     allAuthors: "All authors",
     me: "Me",
     designFilter: "Design filter",
+    ownedByAnyone: "Owned by anyone",
+    ownedByMe: "Owned by me",
+    sharedWithMe: "Shared with me",
     mine: "Mine",
     all: "All",
     showMineDesigns: "Show my designs",
@@ -1633,6 +1788,7 @@ export default {
     pickStartingPoint: "Pick a starting point or write your own prompt.",
     searchNoResultsTitle: "No designs match your search",
     searchNoResultsDescription: "Try a different search.",
+    noDesignsMatchFilter: "No designs match the current filter.",
     starterSaas: "SaaS landing page",
     starterDashboard: "Dashboard",
     starterPricing: "Pricing page",
@@ -1656,6 +1812,8 @@ export default {
     layoutLabel: "Screen layout ready to save",
   },
   templatesPage: {
+    previewEmpty: "No previewable screens in this template.",
+    loading: "Loading templates",
     title: "Templates",
     description:
       "Start with the right dimensions and defaults, then prompt the unlocked content into place.",
@@ -1683,7 +1841,7 @@ export default {
     deleteTitle: "Delete template?",
     deleteDescription:
       "This permanently deletes {{title}}. Designs already created from it are not affected.",
-    templateActions: "Template actions",
+    templateActions: "Actions for {{title}}",
     lockedCount: "{{count}} locked",
     categories: {
       ad: "Ad",
@@ -1852,6 +2010,15 @@ export default {
       "Code and repository indexing requires the Builder Enterprise plan",
   },
   designSystems: {
+    comingSoonTitle: "Design systems are coming soon",
+    waitlist: {
+      join: "Join waitlist",
+      joining: "Joining…",
+      joined: "You're on the waitlist",
+      error: "Could not join the waitlist. Please try again.",
+      unavailable:
+        "Waitlist sign-up isn't available right now. Please try again later.",
+    },
     deleteError: "Could not delete design system",
     updateSuccess: "Design system updated",
     updateError: "Could not update design system",

@@ -12,8 +12,10 @@ const mocks = vi.hoisted(() => ({
   getQueryData: vi.fn(),
   invalidateQueries: vi.fn(),
   navigate: vi.fn(),
+  removeCreatedDocumentNavigation: vi.fn(),
   removeQueries: vi.fn(),
   rollbackOptimisticCreatedDocument: vi.fn(),
+  seedCreatedDocumentNavigation: vi.fn(),
   setQueryData: vi.fn(),
 }));
 
@@ -44,7 +46,9 @@ vi.mock("@/hooks/use-content-spaces", () => ({
 }));
 
 vi.mock("@/hooks/use-documents", () => ({
+  removeCreatedDocumentNavigation: mocks.removeCreatedDocumentNavigation,
   rollbackOptimisticCreatedDocument: mocks.rollbackOptimisticCreatedDocument,
+  seedCreatedDocumentNavigation: mocks.seedCreatedDocumentNavigation,
   useCreateDocument: () => ({ mutateAsync: mocks.createDocument }),
 }));
 
@@ -198,6 +202,15 @@ describe("useCreatePage", () => {
       queryKey: ["action", "get-document"],
       predicate: expect.any(Function),
     });
+    expect(mocks.seedCreatedDocumentNavigation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: "slash-page-id", parentId: "parent-page" }),
+      null,
+    );
+    expect(mocks.removeCreatedDocumentNavigation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: "slash-page-id", parentId: "parent-page" }),
+    );
     expect(mocks.navigate).toHaveBeenLastCalledWith(
       "/page/existing-page?view=table#details",
       {

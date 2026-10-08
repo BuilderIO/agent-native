@@ -1,18 +1,3 @@
-/**
- * Regression coverage for the dashboards `config` read/modify/write race.
- *
- * `upsertDashboard` used to write the whole `config` JSON blob keyed only by
- * `id`, with no version/lock check. Two concurrent writers that both read the
- * same base (agent adds a panel while a human drags one) silently clobbered
- * each other — last writer wins over the whole blob. `upsertDashboard` now
- * accepts an optional `expectedUpdatedAt` fence, and `upsertDashboardWithRetry`
- * re-reads + re-applies a mutation when that fence loses a race.
- *
- * The fake database below deliberately loses the first fenced write once
- * (`state.loseNextCas`) to simulate a concurrent writer landing in between,
- * mirroring templates/design/actions/design-data-mutations.interleave.spec.ts's
- * CAS-retry fixture for the same class of bug.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type DashboardRow = {
@@ -100,16 +85,10 @@ const state = vi.hoisted(() => ({
   revisions: [] as any[],
   analysisRevisions: [] as any[],
   otherDashboards: [] as DashboardRow[],
-  // One-shot flag: the next fenced UPDATE attempt against `dashboards`
-  // simulates a concurrent writer (adding a panel of its own) landing in
-  // between the caller's read and write, then reports zero affected rows —
-  // exactly what a real `WHERE id = $1 AND updated_at = $2` reports when
-  // someone else already moved `updated_at`.
   loseNextCas: false,
-  // When true, every fenced UPDATE attempt loses the race forever, to prove
-  // upsertDashboardWithRetry gives up loud instead of looping forever.
   alwaysLoseCas: false,
   updateAttempts: 0,
+  peerAfterNextUpdate: false,
 }));
 
 function columnName(column: unknown): string | null {
@@ -292,9 +271,10 @@ vi.mock("../db/index.js", () => {
     }),
     insert: (table: unknown) => ({
       values: (row: any) => {
+        let insertedDashboard: DashboardRow | undefined;
         if (table === schema.dashboards) {
           const timestamp = "2026-07-09T00:00:00.000Z";
-          state.otherDashboards.push({
+          const dashboard: DashboardRow = {
             archivedAt: null,
             createdAt: timestamp,
             createdBy: row.createdBy ?? null,
@@ -302,7 +282,9 @@ vi.mock("../db/index.js", () => {
             hiddenBy: null,
             updatedAt: timestamp,
             ...row,
-          });
+          };
+          insertedDashboard = dashboard;
+          state.otherDashboards.push(dashboard);
         }
         if (table === schema.dashboardRevisions) {
           state.revisions.push({ ...row });
@@ -312,6 +294,8 @@ vi.mock("../db/index.js", () => {
         }
         const p: any = Promise.resolve(undefined);
         p.onConflictDoNothing = async () => undefined;
+        p.returning = async () =>
+          insertedDashboard ? [{ ...insertedDashboard }] : [];
         return p;
       },
     }),
@@ -333,43 +317,71 @@ vi.mock("../db/index.js", () => {
     }),
     update: (table: unknown) => ({
       set: (values: Record<string, unknown>) => ({
-        where: async (predicate: unknown) => {
-          if (table === schema.analyses) {
-            if (!matchesRow(predicate, state.analysis)) {
+        where: (predicate: unknown) => {
+          let returnedDashboard: DashboardRow | undefined;
+          const operation = (async () => {
+            if (table === schema.analyses) {
+              if (!matchesRow(predicate, state.analysis)) {
+                return { rowsAffected: 0 };
+              }
+              state.analysis = { ...state.analysis, ...values };
+              return { rowsAffected: 1 };
+            }
+            if (table !== schema.dashboards) return { rowsAffected: 0 };
+            state.updateAttempts += 1;
+            if (state.alwaysLoseCas) {
+              state.dashboard = {
+                ...state.dashboard,
+                updatedAt: `2026-07-09T00:00:00.${String(state.updateAttempts).padStart(3, "0")}Z`,
+              };
               return { rowsAffected: 0 };
             }
-            state.analysis = { ...state.analysis, ...values };
+            if (state.loseNextCas) {
+              state.loseNextCas = false;
+              const concurrentConfig = JSON.parse(state.dashboard.config);
+              state.dashboard = {
+                ...state.dashboard,
+                config: JSON.stringify({
+                  ...concurrentConfig,
+                  panels: [
+                    ...(concurrentConfig.panels ?? []),
+                    panel("writer-a"),
+                  ],
+                }),
+                updatedAt: "2026-07-09T00:00:00.001Z",
+                updatedBy: "bob@example.com",
+              };
+              return { rowsAffected: 0 };
+            }
+            if (!matchesRow(predicate, state.dashboard)) {
+              return { rowsAffected: 0 };
+            }
+            state.dashboard = { ...state.dashboard, ...values } as DashboardRow;
+            returnedDashboard = { ...state.dashboard };
+            if (state.peerAfterNextUpdate) {
+              state.peerAfterNextUpdate = false;
+              const writtenConfig = JSON.parse(state.dashboard.config);
+              state.dashboard = {
+                ...state.dashboard,
+                config: JSON.stringify({
+                  ...writtenConfig,
+                  panels: [
+                    ...(writtenConfig.panels ?? []),
+                    panel("writer-after"),
+                  ],
+                }),
+                updatedAt: "2026-07-09T00:00:00.002Z",
+                updatedBy: "bob@example.com",
+              };
+            }
             return { rowsAffected: 1 };
-          }
-          if (table !== schema.dashboards) return { rowsAffected: 0 };
-          state.updateAttempts += 1;
-          if (state.alwaysLoseCas) {
-            // Every attempt loses: a different writer keeps landing first.
-            state.dashboard = {
-              ...state.dashboard,
-              updatedAt: `2026-07-09T00:00:00.${String(state.updateAttempts).padStart(3, "0")}Z`,
-            };
-            return { rowsAffected: 0 };
-          }
-          if (state.loseNextCas) {
-            state.loseNextCas = false;
-            const concurrentConfig = JSON.parse(state.dashboard.config);
-            state.dashboard = {
-              ...state.dashboard,
-              config: JSON.stringify({
-                ...concurrentConfig,
-                panels: [...(concurrentConfig.panels ?? []), panel("writer-a")],
-              }),
-              updatedAt: "2026-07-09T00:00:00.001Z",
-              updatedBy: "bob@example.com",
-            };
-            return { rowsAffected: 0 };
-          }
-          if (!matchesRow(predicate, state.dashboard)) {
-            return { rowsAffected: 0 };
-          }
-          state.dashboard = { ...state.dashboard, ...values } as DashboardRow;
-          return { rowsAffected: 1 };
+          })();
+          const result: any = operation;
+          result.returning = async () => {
+            await operation;
+            return returnedDashboard ? [{ ...returnedDashboard }] : [];
+          };
+          return result;
         },
       }),
     }),
@@ -384,6 +396,7 @@ const {
   getDashboard,
   upsertDashboard,
   upsertDashboardWithRetry,
+  upsertDashboardWithRetryOutcome,
   upsertAnalysis,
   createDashboardRevisionSnapshot,
   createAnalysisRevisionSnapshot,
@@ -416,6 +429,7 @@ beforeEach(() => {
   state.loseNextCas = false;
   state.alwaysLoseCas = false;
   state.updateAttempts = 0;
+  state.peerAfterNextUpdate = false;
 });
 
 describe("dashboards-store concurrency", () => {
@@ -431,6 +445,36 @@ describe("dashboards-store concurrency", () => {
     expect(saved.updatedAt).toBe("2026-07-09T00:00:00.000Z");
     expect(state.updateAttempts).toBe(0);
     expect(state.revisions).toEqual([]);
+  });
+
+  it("advances fenced write tokens when two saves share a millisecond", async () => {
+    const expectedUpdatedAt = state.dashboard.updatedAt;
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(expectedUpdatedAt));
+
+    try {
+      const first = await upsertDashboard(
+        "traffic",
+        "sql",
+        { name: "Traffic", panels: [panel("a"), panel("writer-one")] },
+        ctx,
+        expectedUpdatedAt,
+      );
+
+      expect(first.updatedAt).toBe("2026-07-09T00:00:00.001Z");
+      await expect(
+        upsertDashboard(
+          "traffic",
+          "sql",
+          { name: "Traffic", panels: [panel("a"), panel("writer-two")] },
+          ctx,
+          expectedUpdatedAt,
+        ),
+      ).rejects.toBeInstanceOf(DashboardConflictError);
+      expect(readPanelIds()).toEqual(["a", "writer-one"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("coalesces an unchanged dashboard autosave with the latest revision", async () => {
@@ -607,8 +651,6 @@ describe("dashboards-store concurrency", () => {
     const existing = await getDashboard("traffic", ctx);
     expect(existing).not.toBeNull();
 
-    // First writer saves using the value it read — succeeds and bumps
-    // updated_at.
     await upsertDashboard(
       "traffic",
       "sql",
@@ -618,8 +660,6 @@ describe("dashboards-store concurrency", () => {
     );
     expect(readPanelIds()).toEqual(["a", "b"]);
 
-    // Second writer still holds the OLD updatedAt it read before the first
-    // writer's save landed — the fenced write must reject, not clobber.
     await expect(
       upsertDashboard(
         "traffic",
@@ -629,30 +669,49 @@ describe("dashboards-store concurrency", () => {
         existing!.updatedAt,
       ),
     ).rejects.toBeInstanceOf(DashboardConflictError);
-    // The first writer's save is untouched by the rejected second attempt.
     expect(readPanelIds()).toEqual(["a", "b"]);
   });
 
-  it("omits fencing (legacy last-write-wins) when expectedUpdatedAt is not passed", async () => {
+  it("preserves legacy last-write-wins when expectedUpdatedAt is omitted", async () => {
     const existing = await getDashboard("traffic", ctx);
-    // Simulate the row having changed since `existing` was read.
     state.dashboard = {
       ...state.dashboard,
       updatedAt: "2099-01-01T00:00:00.000Z",
     };
 
-    await expect(
-      upsertDashboard(
+    const saved = await upsertDashboard(
+      "traffic",
+      "sql",
+      { name: "Traffic", panels: [panel("a"), panel("legacy")] },
+      ctx,
+      // no expectedUpdatedAt — existing callers (legacy migration, revision
+      // restore) keep unconditional overwrite behavior.
+    );
+    expect(saved.updatedAt).toBe("2099-01-01T00:00:00.001Z");
+    expect(existing).not.toBeNull();
+    expect(readPanelIds()).toEqual(["a", "legacy"]);
+  });
+
+  it("retries an unfenced last-write-wins save against the latest version", async () => {
+    state.loseNextCas = true;
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-09T00:00:00.000Z"));
+
+    try {
+      const saved = await upsertDashboard(
         "traffic",
         "sql",
         { name: "Traffic", panels: [panel("a"), panel("legacy")] },
         ctx,
-        // no expectedUpdatedAt — existing callers (legacy migration, revision
-        // restore) keep unconditional overwrite behavior.
-      ),
-    ).resolves.toBeDefined();
-    expect(existing).not.toBeNull();
-    expect(readPanelIds()).toEqual(["a", "legacy"]);
+      );
+
+      expect(saved.updatedAt).toBe("2026-07-09T00:00:00.002Z");
+      expect(state.dashboard.updatedAt).toBe(saved.updatedAt);
+      expect(readPanelIds()).toEqual(["a", "legacy"]);
+      expect(state.updateAttempts).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps the original creator unchanged when another user edits the dashboard", async () => {
@@ -679,6 +738,70 @@ describe("dashboards-store concurrency", () => {
     expect(state.otherDashboards[0]?.createdBy).toBe("bob@example.com");
   });
 
+  it("reports a peer's convergent write as a conflict retry with no local write", async () => {
+    let mutateCalls = 0;
+    const outcome = await upsertDashboardWithRetryOutcome(
+      "traffic",
+      ctx,
+      (existing) => {
+        mutateCalls += 1;
+        const config = existing.config as {
+          name: string;
+          panels: Array<Record<string, unknown>>;
+        };
+        const body = {
+          ...config,
+          panels: config.panels.map((item) =>
+            item.id === "a" ? { ...item, title: "writer-a" } : item,
+          ),
+        };
+        if (mutateCalls === 1) {
+          state.dashboard = {
+            ...state.dashboard,
+            config: JSON.stringify(body),
+            updatedAt: "2026-07-09T00:00:00.001Z",
+            updatedBy: "bob@example.com",
+          };
+        }
+        return { kind: "sql" as const, body };
+      },
+    );
+
+    expect(mutateCalls).toBe(2);
+    expect(outcome.didWrite).toBe(false);
+    expect(outcome.dashboard.updatedBy).toBe("bob@example.com");
+    expect(
+      (outcome.dashboard.config as { panels: Array<{ title: string }> })
+        .panels[0].title,
+    ).toBe("writer-a");
+    expect(readPanelIds()).toEqual(["a"]);
+    expect(state.updateAttempts).toBe(0);
+    expect(state.revisions).toEqual([]);
+  });
+
+  it("returns this write's config when a peer updates immediately afterward", async () => {
+    state.peerAfterNextUpdate = true;
+    const ownConfig = {
+      name: "Traffic",
+      panels: [panel("a"), panel("writer-this")],
+    };
+
+    const outcome = await upsertDashboardWithRetryOutcome(
+      "traffic",
+      ctx,
+      () => ({ kind: "sql", body: ownConfig }),
+    );
+
+    expect(outcome.didWrite).toBe(true);
+    expect(
+      (
+        outcome.dashboard.config as { panels: Array<{ id: string }> }
+      ).panels.map(({ id }) => id),
+    ).toEqual(["a", "writer-this"]);
+    expect(readPanelIds()).toEqual(["a", "writer-this", "writer-after"]);
+    expect(state.dashboard.updatedBy).toBe("bob@example.com");
+  });
+
   it("upsertDashboardWithRetry re-reads and re-applies the mutation after losing the race, landing both writers' panels", async () => {
     state.loseNextCas = true;
 
@@ -693,9 +816,6 @@ describe("dashboards-store concurrency", () => {
       };
     });
 
-    // "writer-a" was injected by the simulated concurrent writer on the lost
-    // first attempt; "writer-b" is this call's own mutation. Both must be
-    // present — neither writer's edit was dropped.
     const ids = (saved.config as { panels: Array<{ id: string }> }).panels.map(
       (p) => p.id,
     );
@@ -718,7 +838,6 @@ describe("dashboards-store concurrency", () => {
     ).rejects.toThrow(/Could not save dashboard "traffic"/);
 
     expect(state.updateAttempts).toBe(DASHBOARD_SAVE_MAX_ATTEMPTS);
-    // Nothing from the doomed mutation ever landed.
     expect(readPanelIds()).toEqual(["a"]);
   });
 });

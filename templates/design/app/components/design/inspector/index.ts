@@ -13,14 +13,18 @@ export {
 } from "./BreakpointOverrideIndicator";
 export {
   AutoLayoutMatrix,
+  MarginProperties,
   type AutoLayoutDirection,
   type AutoLayoutFlow,
   type AutoLayoutGridTrackSizing,
   type AutoLayoutGridValue,
+  type AutoLayoutMargin,
+  type AutoLayoutMarginTextValues,
   type AutoLayoutMatrixLabels,
   type AutoLayoutMatrixProps,
   type AutoLayoutMatrixValue,
   type AutoLayoutPadding,
+  type AutoLayoutSidesMixed,
   type AutoLayoutSizing,
   type AutoLayoutSizingAxis,
   type AutoLayoutWrap,

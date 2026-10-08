@@ -1,20 +1,24 @@
+import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
 import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
-import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
 
 import type { ActionChatUIConfig } from "../../action-ui.js";
+import {
+  AUTO_CONTINUE_OF_RUN_METADATA_KEY,
+  CONTINUE_OF_RUN_METADATA_KEY,
+} from "../../agent/auto-continue.js";
+import type { AgentChatStructuredMessage } from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
-import { agentNativePath } from "../api-path.js";
+import { agentChatStreamingUrl, agentNativePath } from "../api-path.js";
+import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import {
-  emitChatFirstOpenApp,
-  emitChatFirstOpenBrowser,
-} from "../chat-first.js";
-import { formatChatErrorText, normalizeChatError } from "../error-format.js";
-import {
-  settleInterruptedToolCalls,
+  appendMissingFinalResponseWarning,
   type ContentPart,
   type SSEEvent,
 } from "../sse-event-processor.js";
+import { runOutcomeForCode, type ServerRunState } from "./run-outcome.js";
+
+export type { ServerRunState } from "./run-outcome.js";
 
 export type AgentChatRuntimeId = string;
 export type AgentChatRuntimeSessionId = string;
@@ -23,6 +27,12 @@ export type AgentChatRuntimeMessageId = string;
 export type AgentChatRuntimeToolCallId = string;
 export type AgentChatRuntimeMetadata = Record<string, unknown>;
 export type AgentChatRuntimeAwaitable<T> = T | Promise<T>;
+
+export const AGENT_NATIVE_RUN_RESUME_STATE_METADATA_KEY =
+  "agentNativeRunResumeState";
+
+const AGENTKIT_TOOL_HISTORY_OMISSION_MESSAGE_ID_PREFIX =
+  "agentkit-tool-history-omission";
 
 export type AgentChatRuntimeKind =
   | "agent-native"
@@ -223,6 +233,8 @@ export interface AgentChatRuntimeRichCapabilities {
 
 export interface AgentChatRuntimeCapabilities {
   readonly messages: AgentChatRuntimeMessageCapabilities;
+  /** The runtime can resume a durable run stream after its reader disconnects. */
+  readonly resumableRuns?: boolean;
   readonly tools?: AgentChatRuntimeToolCapabilities;
   readonly sessions?: AgentChatRuntimeSessionCapabilities;
   readonly cancellation?: AgentChatRuntimeCancellationCapabilities;
@@ -277,6 +289,11 @@ export interface AgentChatRuntimeSessionSnapshot extends AgentChatRuntimeSession
 export interface AgentChatRuntimeTurnInput {
   readonly prompt?: string;
   readonly messages?: readonly AgentChatRuntimeMessage[];
+  readonly queuePromotion?: {
+    readonly messageId: string;
+    readonly claimId: string;
+    readonly turnId: string;
+  };
   readonly attachments?: readonly AgentChatRuntimeAttachment[];
   readonly tools?: readonly AgentChatRuntimeToolDefinition[];
   readonly model?: string;
@@ -392,6 +409,7 @@ export interface AgentChatRuntimeToolDoneEvent extends AgentChatRuntimeEventBase
   readonly result?: unknown;
   readonly resultText?: string;
   readonly error?: string;
+  readonly completedSideEffect?: boolean;
   readonly mcpApp?: AgentMcpAppPayload;
   readonly chatUI?: ActionChatUIConfig;
 }
@@ -650,8 +668,13 @@ export interface AgentChatRuntimeErrorEvent extends AgentChatRuntimeEventBase<"e
   readonly error: string;
   readonly code?: string;
   readonly recoverable?: boolean;
+  readonly retryable?: boolean;
+  readonly details?: unknown;
   readonly cause?: unknown;
 }
+
+export type AgentChatRuntimeContinuationEvent =
+  AgentChatRuntimeEventBase<"continuation">;
 
 export type AgentChatRuntimeDoneReason =
   | "complete"
@@ -696,6 +719,7 @@ export type AgentChatRuntimeKnownEvent =
   | AgentChatRuntimeFileEvent
   | AgentChatRuntimeUsageEvent
   | AgentChatRuntimeErrorEvent
+  | AgentChatRuntimeContinuationEvent
   | AgentChatRuntimeDoneEvent;
 
 export type AgentChatRuntimeEvent<
@@ -785,6 +809,12 @@ export interface AgentChatRuntime<
   resume?(
     input: AgentChatRuntimeResumeInput,
   ): AgentChatRuntimeAwaitable<AgentChatRuntimeTurn<TEvent>>;
+  /**
+   * The server's record of the newest run carrying this run's turn. A runtime
+   * that provides it owns run outcome: a closed `subscribe` stream is then only
+   * a connection fact. Rejects when the record cannot be read.
+   */
+  readRunState?(input: AgentChatRuntimeSubscribeInput): Promise<ServerRunState>;
   cancel?(
     input: AgentChatRuntimeCancelInput,
   ): Promise<AgentChatRuntimeCancelResult>;
@@ -860,24 +890,17 @@ export interface CreateAgentNativeChatRuntimeOptions {
   readonly label?: string;
   readonly description?: string;
   readonly apiUrl?: string;
+  readonly streamingUrl?: string;
   readonly headers?: HeadersFactory;
   readonly fetch?: FetchLike;
   readonly threadId?: string;
   readonly browserTabId?: string;
-  readonly surface?: "app" | "dev-frame";
+  readonly surface?: "app" | "dev-frame" | "desktop";
   readonly mode?: "act" | "plan";
   readonly model?: string;
   readonly engine?: string;
   readonly effort?: ReasoningEffort;
   readonly scope?: unknown;
-}
-
-export interface CreateAgentChatRuntimeAdapterOptions {
-  readonly sessionId?: AgentChatRuntimeSessionId;
-  readonly threadId?: string;
-  readonly modelRef?: { current: string | undefined };
-  readonly effortRef?: { current: ReasoningEffort | undefined };
-  readonly metadata?: AgentChatRuntimeMetadata;
 }
 
 const DEFAULT_RUNTIME_CAPABILITIES: AgentChatRuntimeCapabilities = {
@@ -1207,17 +1230,127 @@ function defaultHttpRuntimeRequest(input: {
   };
 }
 
-async function readErrorText(response: Response): Promise<string> {
-  const text = await response.text().catch(() => "");
-  if (!text) return `HTTP ${response.status}`;
+function runtimeErrorMessage(text: string, status: number): string {
+  if (status === 413) return CHAT_REQUEST_TOO_LARGE_MESSAGE;
+  if (!text) return `HTTP ${status}`;
   try {
-    const parsed = JSON.parse(text) as { error?: unknown; message?: unknown };
-    if (typeof parsed.error === "string") return parsed.error;
-    if (typeof parsed.message === "string") return parsed.message;
+    const parsed = asRecord(JSON.parse(text));
+    const nestedError = asRecord(parsed?.error);
+    if (typeof parsed?.error === "string") return parsed.error;
+    if (typeof parsed?.message === "string") return parsed.message;
+    if (typeof parsed?.statusMessage === "string") return parsed.statusMessage;
+    if (typeof nestedError?.message === "string") return nestedError.message;
   } catch {
     // Keep raw text.
   }
   return text.slice(0, 500);
+}
+
+async function readErrorText(response: Response): Promise<string> {
+  let text: string;
+  try {
+    text = await response.text();
+  } catch {
+    // coercion-ok: callers preserve response.status, so unreadable detail stays an HTTP failure.
+    text = "";
+  }
+  return runtimeErrorMessage(text, response.status);
+}
+
+async function readHttpRuntimeError(response: Response): Promise<Error> {
+  if (response.status === 413) {
+    return Object.assign(new Error(CHAT_REQUEST_TOO_LARGE_MESSAGE), {
+      code: "http_413",
+      status: response.status,
+      retryable: false,
+    });
+  }
+
+  let text: string;
+  try {
+    text = await response.text();
+  } catch {
+    // coercion-ok: callers preserve response.status, so unreadable detail stays an HTTP failure.
+    text = "";
+  }
+  let payload: Record<string, unknown> | undefined;
+  try {
+    payload = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    payload = undefined;
+  }
+  const data = asRecord(payload?.data);
+  const nestedError = asRecord(payload?.error);
+  const code =
+    data?.code ?? payload?.code ?? payload?.errorCode ?? nestedError?.code;
+  const status = response.status;
+  const fallbackCode =
+    status === 401
+      ? "unauthorized"
+      : status === 403
+        ? "forbidden"
+        : status === 404
+          ? "not_found"
+          : status === 429
+            ? "rate_limited"
+            : `http_${status}`;
+  const explicitRetryable =
+    data?.retryable ?? payload?.retryable ?? nestedError?.retryable;
+  const activeRunId =
+    data && "activeRunId" in data
+      ? data.activeRunId
+      : payload && "activeRunId" in payload
+        ? payload.activeRunId
+        : nestedError?.activeRunId;
+  const hasActiveRunId =
+    (data !== null && "activeRunId" in data) ||
+    (payload !== undefined && "activeRunId" in payload) ||
+    (nestedError !== null && "activeRunId" in nestedError);
+  const activeRunIdValue =
+    typeof activeRunId === "string" && activeRunId.length > 0;
+  const explicitCode = typeof code === "string" ? code : undefined;
+  const runSlotBusy =
+    status === 409 &&
+    (explicitCode === "run_slot_busy" ||
+      (explicitCode === undefined && activeRunIdValue));
+  const errorCode =
+    explicitCode ?? (runSlotBusy ? "run_slot_busy" : fallbackCode);
+  const error = runSlotBusy
+    ? new AgentKitRunSlotBusyError(
+        activeRunIdValue && typeof activeRunId === "string"
+          ? activeRunId
+          : undefined,
+      )
+    : new Error(runtimeErrorMessage(text, response.status));
+  Object.assign(error, {
+    code: runSlotBusy ? "run_slot_busy" : errorCode,
+    ...(hasActiveRunId ? { activeRunId } : {}),
+    ...(data?.details === undefined &&
+    payload?.details === undefined &&
+    nestedError?.details === undefined
+      ? {}
+      : {
+          details: data?.details ?? payload?.details ?? nestedError?.details,
+        }),
+    retryable:
+      runSlotBusy ||
+      (typeof explicitRetryable === "boolean"
+        ? explicitRetryable
+        : status === 408 || status === 429 || status >= 500),
+    status,
+  });
+  return error;
+}
+
+/**
+ * A turn that failed to start keeps its id: the server records a turn it
+ * refused under that id, and the client reports the failure with it.
+ */
+function withTurnId(error: unknown, turnId: string): unknown {
+  if (error !== null && typeof error === "object" && !("turnId" in error)) {
+    Object.assign(error, { turnId });
+  }
+  return error;
 }
 
 export function createHttpAgentChatRuntime<
@@ -1226,7 +1359,10 @@ export function createHttpAgentChatRuntime<
   options: CreateHttpAgentChatRuntimeOptions<TEvent>,
 ): AgentChatRuntime<TEvent> {
   const fetchImpl = options.fetch ?? fetch;
-  const capabilities = mergeCapabilities(options.capabilities);
+  const capabilities = mergeCapabilities({
+    ...options.capabilities,
+    resumableRuns: Boolean(options.resumeEndpoint),
+  });
   const runtimeId = options.id ?? "external:http";
   const mapEvent =
     options.mapEvent ??
@@ -1260,7 +1396,7 @@ export function createHttpAgentChatRuntime<
       turn: AgentChatRuntimeTurnInput,
     ): Promise<AgentChatRuntimeTurn<TEvent>> => {
       previousTurn = turn;
-      const turnId = createRuntimeId("turn");
+      const turnId = turn.queuePromotion?.turnId ?? createRuntimeId("turn");
       const { controller, cleanup } = createAbortController(turn.abortSignal);
       const endpoint =
         typeof options.endpoint === "function"
@@ -1272,20 +1408,26 @@ export function createHttpAgentChatRuntime<
       });
       if (!headers.has("Content-Type"))
         headers.set("Content-Type", "application/json");
-      const response = await fetchImpl(normalizeEndpoint(endpoint), {
-        method: options.method ?? "POST",
-        headers,
-        credentials: options.credentials,
-        body: JSON.stringify(
-          options.mapRequest
-            ? options.mapRequest({ session: summary, turn, turnId })
-            : defaultHttpRuntimeRequest({ session: summary, turn, turnId }),
-        ),
-        signal: controller.signal,
-      });
+      let response: Response;
+      try {
+        response = await fetchImpl(normalizeEndpoint(endpoint), {
+          method: options.method ?? "POST",
+          headers,
+          credentials: options.credentials,
+          body: JSON.stringify(
+            options.mapRequest
+              ? options.mapRequest({ session: summary, turn, turnId })
+              : defaultHttpRuntimeRequest({ session: summary, turn, turnId }),
+          ),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        cleanup();
+        throw withTurnId(error, turnId);
+      }
       if (!response.ok) {
         cleanup();
-        throw new Error(await readErrorText(response));
+        throw withTurnId(await readHttpRuntimeError(response), turnId);
       }
 
       const runId = response.headers.get("X-Run-Id") ?? undefined;
@@ -1416,7 +1558,7 @@ export function createHttpAgentChatRuntime<
         credentials: options.credentials,
         signal: input.abortSignal,
       });
-      if (!response.ok) throw new Error(await readErrorText(response));
+      if (!response.ok) throw await readHttpRuntimeError(response);
       return streamResponseEvents(response, {
         sessionId: input.sessionId ?? "session",
         turnId: input.turnId,
@@ -1471,11 +1613,46 @@ function runtimeMessageText(message: AgentChatRuntimeMessage): string {
     .join("\n");
 }
 
+function isSyntheticToolHistoryOmissionMessage(
+  message: AgentChatRuntimeMessage,
+): boolean {
+  return (
+    message.role === "assistant" &&
+    (message.id === AGENTKIT_TOOL_HISTORY_OMISSION_MESSAGE_ID_PREFIX ||
+      /^agentkit-tool-history-omission-\d+$/.test(message.id))
+  );
+}
+
+function priorNativeHistoryMessages(
+  messages: readonly AgentChatRuntimeMessage[] | undefined,
+  currentPrompt: string,
+) {
+  const source = messages ?? [];
+  let currentPromptMessageIndex: number | undefined;
+  if (currentPrompt.trim()) {
+    for (let index = source.length - 1; index >= 0; index--) {
+      const message = source[index]!;
+      if (isSyntheticToolHistoryOmissionMessage(message)) continue;
+      if (message.role !== "user" && message.role !== "assistant") continue;
+      if (message.role === "user") {
+        const match = runtimeMessageTextMatches(message, currentPrompt);
+        if (match.matches || !match.complete) currentPromptMessageIndex = index;
+      }
+      break;
+    }
+  }
+  return source.filter(
+    (message, index) =>
+      index !== currentPromptMessageIndex &&
+      (message.role === "user" || message.role === "assistant"),
+  );
+}
+
 function nativeHistoryFromMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
 ) {
-  const history = (messages ?? [])
+  return priorNativeHistoryMessages(messages, currentPrompt)
     .filter(
       (message) => message.role === "user" || message.role === "assistant",
     )
@@ -1484,21 +1661,1196 @@ function nativeHistoryFromMessages(
       content: runtimeMessageText(message),
     }))
     .filter((message) => message.content.trim());
-  if (!currentPrompt.trim()) return history;
-  const last = history[history.length - 1];
-  return last?.role === "user" && last.content === currentPrompt
-    ? history.slice(0, -1)
-    : history;
+}
+
+const MAX_TOOL_HISTORY_VALUE_BYTES = 64 * 1024;
+const MAX_TOOL_HISTORY_SERIALIZATION_STEPS = 64 * 1024;
+const MAX_TOOL_HISTORY_SERIALIZATION_DEPTH = 512;
+const MAX_TOOL_HISTORY_CALLS = 64;
+const MAX_ADDED_TOOL_HISTORY_BYTES = 256 * 1024;
+const MAX_TOOL_HISTORY_RESULT_SUMMARY_BYTES = 4 * 1024;
+const MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS = MAX_TOOL_HISTORY_CALLS * 2;
+const MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS = MAX_TOOL_HISTORY_CALLS * 2;
+const MAX_STRUCTURED_HISTORY_SOURCE_PARTS =
+  MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS +
+  MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS;
+const MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES = 1024;
+const MAX_STRUCTURED_HISTORY_SOURCE_SCAN_STEPS =
+  MAX_STRUCTURED_HISTORY_SOURCE_PARTS * 4;
+const TOOL_INPUT_OMISSION_TEXT =
+  "Tool input omitted from history because it could not be serialized.";
+const TOOL_INPUT_SIZE_OMISSION_TEXT =
+  "Tool input omitted from history because it exceeds 64 KiB.";
+const TOOL_RESULT_OMISSION_TEXT =
+  "Tool result omitted from history because it could not be serialized.";
+const TOOL_RESULT_SIZE_OMISSION_TEXT =
+  "Tool result omitted from history because it exceeds 64 KiB.";
+const TOOL_INPUT_WORK_LIMIT_OMISSION_TEXT =
+  "Tool input omitted from history because serialization exceeded its work limit.";
+const TOOL_RESULT_WORK_LIMIT_OMISSION_TEXT =
+  "Tool result omitted from history because serialization exceeded its work limit.";
+const TOOL_CALL_METADATA_OMISSION_TEXT =
+  "Tool call omitted from history because its ID or name exceeds 64 KiB.";
+const TOOL_RESULT_METADATA_OMISSION_TEXT =
+  "Tool result omitted from history because its ID or name exceeds 64 KiB.";
+const TOOL_HISTORY_OMISSION_TEXT =
+  "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.";
+
+type StructuredToolHistoryPart = AgentChatStructuredMessage["content"][number];
+type StructuredToolCallPart = Extract<
+  StructuredToolHistoryPart,
+  { type: "tool-call" }
+>;
+type StructuredTextPart = Extract<StructuredToolHistoryPart, { type: "text" }>;
+
+interface StructuredToolHistoryCandidate {
+  position: number;
+  toolCallId: string;
+  assistantParts: StructuredToolHistoryPart[];
+  resultParts: StructuredToolHistoryPart[];
+  isToolCall: boolean;
+  priority: boolean;
+}
+
+interface StructuredToolHistoryResultReference {
+  position: number;
+  toolCallId: string;
+  part: StructuredToolHistoryPart;
+  priority: boolean;
+}
+
+interface StructuredTextHistoryCandidate {
+  position: number;
+  role: "user" | "assistant";
+  parts: StructuredTextPart[];
+}
+
+type StructuredHistoryCandidate =
+  | {
+      kind: "tool";
+      position: number;
+      candidate: StructuredToolHistoryCandidate;
+    }
+  | {
+      kind: "text";
+      position: number;
+      candidate: StructuredTextHistoryCandidate;
+    };
+
+function structuredHistoryProjection(
+  history: AgentChatStructuredMessage[],
+  optionalParts: Set<StructuredToolHistoryPart>,
+  retainedParts: Set<StructuredToolHistoryPart>,
+  sourceHistoryOmitted: boolean,
+): AgentChatStructuredMessage[] {
+  const projection: AgentChatStructuredMessage[] = [];
+  let omittedHistory = sourceHistoryOmitted;
+  for (const message of history) {
+    const content: AgentChatStructuredMessage["content"] = [];
+    for (const part of message.content) {
+      if (!optionalParts.has(part) || retainedParts.has(part)) {
+        content.push(part);
+      } else {
+        omittedHistory = true;
+      }
+    }
+    if (content.length) projection.push({ role: message.role, content });
+  }
+  if (omittedHistory) {
+    projection.push({
+      role: "assistant",
+      content: [{ type: "text", text: TOOL_HISTORY_OMISSION_TEXT }],
+    });
+  }
+  return projection;
+}
+
+function structuredHistoryPartByteCost(
+  role: "user" | "assistant",
+  part: StructuredToolHistoryPart,
+): number {
+  // Treat each part as a standalone message so the sum bounds grouped output.
+  const serialization = boundedJsonStringify(
+    part,
+    MAX_ADDED_TOOL_HISTORY_BYTES,
+  );
+  if (serialization.status !== "serialized") {
+    return MAX_ADDED_TOOL_HISTORY_BYTES + 1;
+  }
+  const envelopeBytes = new TextEncoder().encode(
+    JSON.stringify([{ role, content: [] }]),
+  ).byteLength;
+  const partBytes = new TextEncoder().encode(
+    serialization.serialized,
+  ).byteLength;
+  return envelopeBytes + partBytes;
+}
+
+function structuredToolHistoryCandidateByteCost(
+  candidate: StructuredToolHistoryCandidate,
+): number {
+  return (
+    candidate.assistantParts.reduce(
+      (bytes, part) => bytes + structuredHistoryPartByteCost("assistant", part),
+      0,
+    ) +
+    candidate.resultParts.reduce(
+      (bytes, part) => bytes + structuredHistoryPartByteCost("user", part),
+      0,
+    )
+  );
+}
+
+function structuredTextHistoryCandidateByteCost(
+  candidate: StructuredTextHistoryCandidate,
+): number {
+  return candidate.parts.reduce(
+    (bytes, part) =>
+      bytes + structuredHistoryPartByteCost(candidate.role, part),
+    0,
+  );
+}
+
+const TOOL_HISTORY_VALUE_SIZE_LIMIT_EXCEEDED = Symbol(
+  "tool history value size limit exceeded",
+);
+const TOOL_HISTORY_SERIALIZATION_STEP_LIMIT_EXCEEDED = Symbol(
+  "tool history serialization step limit exceeded",
+);
+
+function jsonStringByteLengthWithinLimit(
+  value: string,
+  limit: number,
+): number | undefined {
+  let bytes = 2;
+  if (bytes > limit) return undefined;
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    if (code === 0x22 || code === 0x5c) {
+      bytes += 2;
+    } else if (
+      code === 0x08 ||
+      code === 0x09 ||
+      code === 0x0a ||
+      code === 0x0c ||
+      code === 0x0d
+    ) {
+      bytes += 2;
+    } else if (code < 0x20) {
+      bytes += 6;
+    } else if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index++;
+      } else {
+        bytes += 6;
+      }
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      bytes += 6;
+    } else if (code <= 0x7f) {
+      bytes++;
+    } else if (code <= 0x7ff) {
+      bytes += 2;
+    } else {
+      bytes += 3;
+    }
+    if (bytes > limit) return undefined;
+  }
+  return bytes;
+}
+
+function exceedsToolHistoryValueLimit(value: string): boolean {
+  return (
+    jsonStringByteLengthWithinLimit(value, MAX_TOOL_HISTORY_VALUE_BYTES) ===
+    undefined
+  );
+}
+
+type BoundedJsonStringifyResult =
+  | { status: "serialized"; serialized: string }
+  | { status: "too-large" }
+  | { status: "too-complex" }
+  | { status: "unserializable" };
+
+function boxedJsonPrimitive(
+  value: object,
+):
+  | { boxed: true; value: string | number | boolean | bigint }
+  | { boxed: false } {
+  try {
+    return { boxed: true, value: String.prototype.valueOf.call(value) };
+  } catch {
+    // coercion-ok: A brand mismatch is expected while probing boxed primitives.
+    // Try the other boxed primitive types.
+  }
+  try {
+    return { boxed: true, value: Number.prototype.valueOf.call(value) };
+  } catch {
+    // coercion-ok: A brand mismatch is expected while probing boxed primitives.
+    // Try the other boxed primitive types.
+  }
+  try {
+    return { boxed: true, value: Boolean.prototype.valueOf.call(value) };
+  } catch {
+    // coercion-ok: A brand mismatch is expected while probing boxed primitives.
+    // Try BigInt wrappers when available.
+  }
+  if (typeof BigInt !== "undefined") {
+    try {
+      return { boxed: true, value: BigInt.prototype.valueOf.call(value) };
+    } catch {
+      // coercion-ok: A brand mismatch means this value is not a BigInt wrapper.
+      // This is an ordinary object or another wrapper type.
+    }
+  }
+  return { boxed: false };
+}
+
+function boundedJsonStringify(
+  value: unknown,
+  maxBytes: number,
+): BoundedJsonStringifyResult {
+  let bytes = 0;
+  let steps = 0;
+  const chunks: string[] = [];
+  const activeContainers = new Set<object>();
+  const addRaw = (text: string, count = text.length) => {
+    bytes += count;
+    if (bytes > maxBytes) throw TOOL_HISTORY_VALUE_SIZE_LIMIT_EXCEEDED;
+    chunks.push(text);
+  };
+  const addJsonString = (string: string) => {
+    const stringBytes = jsonStringByteLengthWithinLimit(
+      string,
+      maxBytes - bytes,
+    );
+    if (stringBytes === undefined) {
+      throw TOOL_HISTORY_VALUE_SIZE_LIMIT_EXCEEDED;
+    }
+    bytes += stringBytes;
+    chunks.push(JSON.stringify(string)!);
+  };
+  const isOmittedJsonValue = (current: unknown) =>
+    current === undefined ||
+    typeof current === "function" ||
+    typeof current === "symbol";
+  const countStep = () => {
+    steps++;
+    if (steps > MAX_TOOL_HISTORY_SERIALIZATION_STEPS) {
+      throw TOOL_HISTORY_SERIALIZATION_STEP_LIMIT_EXCEEDED;
+    }
+  };
+  // JSON hooks run synchronously; this budget can limit traversal, not hook work.
+  const prepareValue = (current: unknown, key: string): unknown => {
+    if (
+      (typeof current === "object" && current !== null) ||
+      typeof current === "function" ||
+      typeof current === "bigint"
+    ) {
+      const toJSON = (current as { toJSON?: unknown }).toJSON;
+      if (typeof toJSON === "function") {
+        current = Reflect.apply(toJSON, current, [key]);
+      }
+    }
+    if (typeof current !== "object" || current === null) return current;
+    const boxed = boxedJsonPrimitive(current);
+    return boxed.boxed ? boxed.value : current;
+  };
+
+  type Parent = { kind: "array" | "object"; emit: () => void };
+  const writeValue = (
+    input: unknown,
+    key: string,
+    parent?: Parent,
+    readInput?: () => unknown,
+    depth = 0,
+  ): boolean => {
+    countStep();
+    if (depth > MAX_TOOL_HISTORY_SERIALIZATION_DEPTH) {
+      throw TOOL_HISTORY_SERIALIZATION_STEP_LIMIT_EXCEEDED;
+    }
+    const current = prepareValue(readInput ? readInput() : input, key);
+    if (isOmittedJsonValue(current)) {
+      if (parent?.kind === "array") {
+        parent.emit();
+        addRaw("null");
+        return true;
+      }
+      return false;
+    }
+
+    parent?.emit();
+    if (current === null) {
+      addRaw("null");
+      return true;
+    }
+    if (typeof current === "string") {
+      addJsonString(current);
+      return true;
+    }
+    if (typeof current === "number") {
+      addRaw(JSON.stringify(current)!);
+      return true;
+    }
+    if (typeof current === "boolean") {
+      addRaw(current ? "true" : "false");
+      return true;
+    }
+    if (typeof current === "bigint") {
+      throw new TypeError("BigInt is not JSON serializable");
+    }
+    if (typeof current !== "object") return true;
+    if (activeContainers.has(current)) {
+      throw new TypeError("Converting circular structure to JSON");
+    }
+
+    activeContainers.add(current);
+    try {
+      if (Array.isArray(current)) {
+        addRaw("[");
+        let emitted = 0;
+        const array = current as unknown[];
+        const length = array.length;
+        for (let index = 0; index < length; index++) {
+          writeValue(
+            undefined,
+            String(index),
+            {
+              kind: "array",
+              emit: () => {
+                if (emitted > 0) addRaw(",");
+                emitted++;
+              },
+            },
+            () => array[index],
+            depth + 1,
+          );
+        }
+        addRaw("]");
+        return true;
+      }
+
+      addRaw("{");
+      let emitted = 0;
+      const prototype = Object.getPrototypeOf(current);
+      let inheritedEnumerableKeys = prototype !== null;
+      if (prototype === Object.prototype) {
+        inheritedEnumerableKeys = false;
+        for (const _propertyKey in Object.prototype) {
+          inheritedEnumerableKeys = true;
+          break;
+        }
+      }
+      // This avoids an Object.keys array, though engines may still enumerate internally and Proxy traps remain synchronous.
+      for (const propertyKey in current) {
+        countStep();
+        if (
+          inheritedEnumerableKeys &&
+          !Object.prototype.hasOwnProperty.call(current, propertyKey)
+        ) {
+          continue;
+        }
+        writeValue(
+          undefined,
+          propertyKey,
+          {
+            kind: "object",
+            emit: () => {
+              if (emitted > 0) addRaw(",");
+              addJsonString(propertyKey);
+              addRaw(":");
+              emitted++;
+            },
+          },
+          () => (current as Record<string, unknown>)[propertyKey],
+          depth + 1,
+        );
+      }
+      addRaw("}");
+      return true;
+    } finally {
+      activeContainers.delete(current);
+    }
+  };
+
+  try {
+    return writeValue(value, "")
+      ? { status: "serialized", serialized: chunks.join("") }
+      : { status: "unserializable" };
+  } catch (error) {
+    if (error === TOOL_HISTORY_VALUE_SIZE_LIMIT_EXCEEDED) {
+      return { status: "too-large" };
+    }
+    if (error === TOOL_HISTORY_SERIALIZATION_STEP_LIMIT_EXCEEDED) {
+      return { status: "too-complex" };
+    }
+    return { status: "unserializable" };
+  }
+}
+
+function toolInputForStructuredHistory(
+  input: unknown,
+): { input: unknown } | { omissionText: string } {
+  const serialization = boundedJsonStringify(
+    input,
+    MAX_TOOL_HISTORY_VALUE_BYTES,
+  );
+  if (serialization.status === "too-large") {
+    return { omissionText: TOOL_INPUT_SIZE_OMISSION_TEXT };
+  }
+  if (serialization.status === "too-complex") {
+    return { omissionText: TOOL_INPUT_WORK_LIMIT_OMISSION_TEXT };
+  }
+  if (serialization.status === "unserializable") {
+    return { omissionText: TOOL_INPUT_OMISSION_TEXT };
+  }
+  return { input: JSON.parse(serialization.serialized) as unknown };
+}
+
+function toolResultOmissionWithSummary(
+  omissionText: string,
+  resultText?: string,
+): string {
+  if (
+    !resultText ||
+    jsonStringByteLengthWithinLimit(
+      resultText,
+      MAX_TOOL_HISTORY_RESULT_SUMMARY_BYTES,
+    ) === undefined ||
+    !resultText.trim()
+  ) {
+    return omissionText;
+  }
+  const content = `${omissionText}\n${resultText}`;
+  return exceedsToolHistoryValueLimit(content) ? omissionText : content;
+}
+
+function toolResultForStructuredHistory(
+  result: unknown,
+  resultText?: string,
+): string {
+  let content: string;
+  if (result === undefined) {
+    content = resultText ?? "No tool result was recorded.";
+  } else {
+    if (typeof result === "string") {
+      content = result;
+    } else {
+      const serialization = boundedJsonStringify(
+        result,
+        MAX_TOOL_HISTORY_VALUE_BYTES,
+      );
+      if (serialization.status === "too-large") {
+        return toolResultOmissionWithSummary(
+          TOOL_RESULT_SIZE_OMISSION_TEXT,
+          resultText,
+        );
+      }
+      if (serialization.status === "too-complex") {
+        return toolResultOmissionWithSummary(
+          TOOL_RESULT_WORK_LIMIT_OMISSION_TEXT,
+          resultText,
+        );
+      }
+      if (serialization.status === "unserializable") {
+        return toolResultOmissionWithSummary(
+          TOOL_RESULT_OMISSION_TEXT,
+          resultText,
+        );
+      }
+      content = serialization.serialized;
+    }
+    if (result !== undefined && resultText) {
+      const contentBytes = jsonStringByteLengthWithinLimit(
+        content,
+        MAX_TOOL_HISTORY_VALUE_BYTES,
+      );
+      const resultTextBytes = jsonStringByteLengthWithinLimit(
+        resultText,
+        MAX_TOOL_HISTORY_VALUE_BYTES,
+      );
+      if (
+        contentBytes === undefined ||
+        resultTextBytes === undefined ||
+        contentBytes + resultTextBytes > MAX_TOOL_HISTORY_VALUE_BYTES
+      ) {
+        return toolResultOmissionWithSummary(
+          TOOL_RESULT_SIZE_OMISSION_TEXT,
+          resultText,
+        );
+      }
+      content = `${content}\n${resultText}`;
+    }
+    if (exceedsToolHistoryValueLimit(content)) {
+      return toolResultOmissionWithSummary(
+        TOOL_RESULT_SIZE_OMISSION_TEXT,
+        resultText,
+      );
+    }
+  }
+  return exceedsToolHistoryValueLimit(content)
+    ? toolResultOmissionWithSummary(TOOL_RESULT_SIZE_OMISSION_TEXT, resultText)
+    : content;
+}
+
+function boundStructuredToolHistory(
+  structuredHistory: AgentChatStructuredMessage[],
+  callCandidates: StructuredToolHistoryCandidate[],
+  resultReferences: StructuredToolHistoryResultReference[],
+  textCandidates: StructuredTextHistoryCandidate[],
+  toolHistoryParts: Set<StructuredToolHistoryPart>,
+  textHistoryParts: Set<StructuredToolHistoryPart>,
+  sourceHistoryOmitted: boolean,
+): AgentChatStructuredMessage[] {
+  const candidatesByCallId = new Map<
+    string,
+    StructuredToolHistoryCandidate[]
+  >();
+  for (const candidate of callCandidates) {
+    if (!candidate.isToolCall) continue;
+    const candidates = candidatesByCallId.get(candidate.toolCallId) ?? [];
+    candidates.push(candidate);
+    candidatesByCallId.set(candidate.toolCallId, candidates);
+  }
+
+  const candidates: StructuredHistoryCandidate[] = callCandidates.map(
+    (candidate) => ({
+      kind: "tool",
+      position: candidate.position,
+      candidate,
+    }),
+  );
+  for (const result of resultReferences) {
+    const matchingCalls = candidatesByCallId.get(result.toolCallId) ?? [];
+    let matchingCall: StructuredToolHistoryCandidate | undefined;
+    for (let index = matchingCalls.length - 1; index >= 0; index--) {
+      const candidate = matchingCalls[index]!;
+      if (candidate.position < result.position) {
+        matchingCall = candidate;
+        break;
+      }
+    }
+    if (matchingCall) {
+      matchingCall.resultParts.push(result.part);
+      matchingCall.priority ||= result.priority;
+      continue;
+    }
+    candidates.push({
+      kind: "tool",
+      position: result.position,
+      candidate: {
+        position: result.position,
+        toolCallId: result.toolCallId,
+        assistantParts: [],
+        resultParts: [result.part],
+        isToolCall: false,
+        priority: result.priority,
+      },
+    });
+  }
+  candidates.push(
+    ...textCandidates.map((candidate) => ({
+      kind: "text" as const,
+      position: candidate.position,
+      candidate,
+    })),
+  );
+  candidates.sort((left, right) => {
+    const leftPriority =
+      left.kind === "tool" && left.candidate.priority ? 1 : 0;
+    const rightPriority =
+      right.kind === "tool" && right.candidate.priority ? 1 : 0;
+    return leftPriority - rightPriority || left.position - right.position;
+  });
+
+  const retainedParts = new Set<StructuredToolHistoryPart>();
+  let selectedToolHistoryCount = 0;
+  let selectedBytes = 0;
+  const optionalParts = new Set<StructuredToolHistoryPart>([
+    ...toolHistoryParts,
+    ...textHistoryParts,
+  ]);
+  const omissionMarkerBytes = structuredHistoryPartByteCost("assistant", {
+    type: "text",
+    text: TOOL_HISTORY_OMISSION_TEXT,
+  });
+
+  for (let index = candidates.length - 1; index >= 0; index--) {
+    const candidate = candidates[index]!;
+    const toolCandidate =
+      candidate.kind === "tool" ? candidate.candidate : undefined;
+    if (toolCandidate && selectedToolHistoryCount >= MAX_TOOL_HISTORY_CALLS) {
+      continue;
+    }
+
+    const candidateBytes =
+      toolCandidate !== undefined
+        ? structuredToolHistoryCandidateByteCost(toolCandidate)
+        : candidate.kind === "text"
+          ? structuredTextHistoryCandidateByteCost(candidate.candidate)
+          : 0;
+    if (
+      selectedBytes + candidateBytes + omissionMarkerBytes >
+      MAX_ADDED_TOOL_HISTORY_BYTES
+    ) {
+      continue;
+    }
+
+    selectedBytes += candidateBytes;
+    if (toolCandidate) {
+      for (const part of toolCandidate.assistantParts) retainedParts.add(part);
+      for (const part of toolCandidate.resultParts) retainedParts.add(part);
+      selectedToolHistoryCount++;
+    } else if (candidate.kind === "text") {
+      for (const part of candidate.candidate.parts) retainedParts.add(part);
+    }
+  }
+
+  return structuredHistoryProjection(
+    structuredHistory,
+    optionalParts,
+    retainedParts,
+    sourceHistoryOmitted,
+  );
+}
+
+type StructuredHistorySourcePart = AgentChatRuntimeMessage["content"][number];
+
+interface StructuredHistorySourceMessage {
+  message: AgentChatRuntimeMessage;
+  parts: StructuredHistorySourcePart[];
+  priority: boolean;
+}
+
+interface StructuredHistorySourceBoundary {
+  list: "messages" | "supplemental";
+  messageIndex: number;
+  partIndex: number;
+}
+
+interface BoundedStructuredHistorySources {
+  messages: StructuredHistorySourceMessage[];
+  omitted: boolean;
+  toolHistoryOmitted: boolean;
+  toolBoundary?: StructuredHistorySourceBoundary;
+  currentPromptMessageIndex?: number;
+}
+
+function runtimeMessageTextMatches(
+  message: AgentChatRuntimeMessage,
+  expected: string,
+): { matches: boolean; complete: boolean } {
+  let offset = 0;
+  let hasText = false;
+  let scannedParts = 0;
+  for (const part of message.content) {
+    if (scannedParts >= MAX_STRUCTURED_HISTORY_SOURCE_SCAN_STEPS) {
+      return { matches: true, complete: false };
+    }
+    scannedParts++;
+    if (part.type !== "text" && part.type !== "reasoning") continue;
+    if (!part.text) continue;
+    if (hasText) {
+      if (expected[offset] !== "\n") return { matches: false, complete: true };
+      offset++;
+    }
+    if (!expected.startsWith(part.text, offset)) {
+      return { matches: false, complete: true };
+    }
+    offset += part.text.length;
+    hasText = true;
+  }
+  return { matches: hasText && offset === expected.length, complete: true };
+}
+
+function boundedStructuredHistorySources(
+  messages: readonly AgentChatRuntimeMessage[] | undefined,
+  currentPrompt: string,
+  supplementalMessages: readonly AgentChatRuntimeMessage[],
+): BoundedStructuredHistorySources {
+  const historyMessages = messages ?? [];
+  let currentPromptMessageIndex: number | undefined;
+  let currentPromptScanLimited = false;
+  let omitted = false;
+  let toolHistoryOmitted = false;
+  if (currentPrompt.trim()) {
+    let visitedMessages = 0;
+    for (let index = historyMessages.length - 1; index >= 0; index--) {
+      if (visitedMessages >= MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES) {
+        currentPromptScanLimited = true;
+        omitted = true;
+        toolHistoryOmitted = true;
+        break;
+      }
+      visitedMessages++;
+      const message = historyMessages[index]!;
+      if (isSyntheticToolHistoryOmissionMessage(message)) continue;
+      if (message.role !== "user" && message.role !== "assistant") continue;
+      if (message.role === "user") {
+        const match = runtimeMessageTextMatches(message, currentPrompt);
+        if (match.matches) currentPromptMessageIndex = index;
+        if (!match.complete) {
+          omitted = true;
+          toolHistoryOmitted = true;
+          currentPromptMessageIndex = index;
+        }
+      }
+      break;
+    }
+  }
+
+  const selectedReversed: StructuredHistorySourceMessage[] = [];
+  let selectedToolPartCount = 0;
+  let selectedTextPartCount = 0;
+  let scannedPartCount = 0;
+  let visitedMessageCount = 0;
+  let toolBoundary: StructuredHistorySourceBoundary | undefined;
+  let stop = false;
+  const visitMessage = (
+    message: AgentChatRuntimeMessage,
+    list: StructuredHistorySourceBoundary["list"],
+    messageIndex: number,
+  ): void => {
+    if (visitedMessageCount >= MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES) {
+      omitted = true;
+      toolHistoryOmitted = true;
+      toolBoundary ??= {
+        list,
+        messageIndex,
+        partIndex: message.content.length - 1,
+      };
+      stop = true;
+      return;
+    }
+    visitedMessageCount++;
+    if (message.role !== "user" && message.role !== "assistant") return;
+    const partsReversed: StructuredHistorySourcePart[] = [];
+    for (
+      let partIndex = message.content.length - 1;
+      partIndex >= 0;
+      partIndex--
+    ) {
+      if (scannedPartCount >= MAX_STRUCTURED_HISTORY_SOURCE_SCAN_STEPS) {
+        omitted = true;
+        toolHistoryOmitted = true;
+        toolBoundary ??= { list, messageIndex, partIndex };
+        stop = true;
+        break;
+      }
+      scannedPartCount++;
+      const part = message.content[partIndex]!;
+      const isToolPart =
+        (part.type === "tool-call" && message.role === "assistant") ||
+        part.type === "tool-result";
+      const isTextPart = part.type === "text" || part.type === "reasoning";
+      if (!isToolPart && !isTextPart) continue;
+      if (
+        selectedToolPartCount >= MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS &&
+        selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS
+      ) {
+        omitted = true;
+        toolHistoryOmitted = true;
+        toolBoundary ??= { list, messageIndex, partIndex };
+        stop = true;
+        break;
+      }
+      if (isToolPart) {
+        if (selectedToolPartCount >= MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS) {
+          omitted = true;
+          toolHistoryOmitted = true;
+          toolBoundary ??= { list, messageIndex, partIndex };
+          continue;
+        }
+        selectedToolPartCount++;
+      } else {
+        if (selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS) {
+          omitted = true;
+          continue;
+        }
+        selectedTextPartCount++;
+      }
+      partsReversed.push(part);
+    }
+    if (partsReversed.length) {
+      selectedReversed.push({
+        message,
+        parts: partsReversed.reverse(),
+        priority: list === "supplemental",
+      });
+    }
+  };
+
+  for (
+    let index = supplementalMessages.length - 1;
+    index >= 0 && !stop;
+    index--
+  ) {
+    visitMessage(supplementalMessages[index]!, "supplemental", index);
+  }
+  if (currentPromptScanLimited) stop = true;
+  for (let index = historyMessages.length - 1; index >= 0 && !stop; index--) {
+    if (index === currentPromptMessageIndex) continue;
+    visitMessage(historyMessages[index]!, "messages", index);
+  }
+
+  return {
+    messages: selectedReversed.reverse(),
+    omitted,
+    toolHistoryOmitted,
+    ...(toolBoundary ? { toolBoundary } : {}),
+    ...(currentPromptMessageIndex !== undefined
+      ? { currentPromptMessageIndex }
+      : {}),
+  };
+}
+
+interface BoundaryToolCallScan {
+  matchedIds: Set<string>;
+  complete: boolean;
+}
+
+function precedingToolCallIds(
+  messages: readonly AgentChatRuntimeMessage[] | undefined,
+  supplementalMessages: readonly AgentChatRuntimeMessage[],
+  sources: BoundedStructuredHistorySources,
+  wantedIds: Set<string>,
+  supplementalToolHistoryOmitted: boolean,
+): BoundaryToolCallScan {
+  const matchedIds = new Set<string>();
+  const remainingIds = new Set(wantedIds);
+  const boundary = sources.toolBoundary;
+  if (!sources.toolHistoryOmitted || !boundary || !remainingIds.size) {
+    return { matchedIds, complete: !sources.toolHistoryOmitted };
+  }
+
+  let visitedMessages = 0;
+  let scannedParts = 0;
+  let complete = true;
+  const scanMessage = (
+    message: AgentChatRuntimeMessage,
+    fromPartIndex: number,
+  ): boolean => {
+    if (visitedMessages >= MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES) {
+      complete = false;
+      return false;
+    }
+    visitedMessages++;
+    for (
+      let partIndex = Math.min(fromPartIndex, message.content.length - 1);
+      partIndex >= 0 && remainingIds.size > 0;
+      partIndex--
+    ) {
+      if (scannedParts >= MAX_STRUCTURED_HISTORY_SOURCE_SCAN_STEPS) {
+        complete = false;
+        return false;
+      }
+      scannedParts++;
+      if (message.role !== "assistant") continue;
+      const part = message.content[partIndex]!;
+      if (part.type === "tool-call" && remainingIds.delete(part.toolCallId)) {
+        matchedIds.add(part.toolCallId);
+      }
+    }
+    return true;
+  };
+  const scanList = (
+    source: readonly AgentChatRuntimeMessage[],
+    beforeIndex: number,
+    currentPromptMessageIndex?: number,
+  ): boolean => {
+    for (
+      let index = beforeIndex;
+      index >= 0 && remainingIds.size > 0;
+      index--
+    ) {
+      if (index === currentPromptMessageIndex) continue;
+      if (!scanMessage(source[index]!, source[index]!.content.length - 1)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  if (boundary.list === "supplemental") {
+    const boundedSupplemental = supplementalMessages[boundary.messageIndex];
+    if (
+      boundedSupplemental &&
+      !scanMessage(boundedSupplemental, boundary.partIndex)
+    ) {
+      return { matchedIds, complete: false };
+    }
+    if (
+      !scanList(supplementalMessages, boundary.messageIndex - 1) ||
+      !scanList(
+        messages ?? [],
+        (messages?.length ?? 0) - 1,
+        sources.currentPromptMessageIndex,
+      )
+    ) {
+      return { matchedIds, complete: false };
+    }
+    if (supplementalToolHistoryOmitted && remainingIds.size > 0) {
+      complete = false;
+    }
+  } else {
+    const historyMessages = messages ?? [];
+    const boundedHistory = historyMessages[boundary.messageIndex];
+    if (boundedHistory && !scanMessage(boundedHistory, boundary.partIndex)) {
+      return { matchedIds, complete: false };
+    }
+    if (
+      !scanList(
+        historyMessages,
+        boundary.messageIndex - 1,
+        sources.currentPromptMessageIndex,
+      )
+    ) {
+      return { matchedIds, complete: false };
+    }
+  }
+  return { matchedIds, complete };
+}
+
+function boundaryToolResultPartsToOmit(
+  messages: readonly AgentChatRuntimeMessage[] | undefined,
+  supplementalMessages: readonly AgentChatRuntimeMessage[],
+  sources: BoundedStructuredHistorySources,
+  supplementalToolHistoryOmitted: boolean,
+): Set<StructuredHistorySourcePart> {
+  const partsToOmit = new Set<StructuredHistorySourcePart>();
+  const truncatedToolHistory =
+    sources.toolHistoryOmitted ||
+    (supplementalToolHistoryOmitted &&
+      sources.toolBoundary?.list === "supplemental");
+  if (!truncatedToolHistory) return partsToOmit;
+
+  const priorCallIds = new Set<string>();
+  const unmatchedResults: Array<{
+    part: Extract<StructuredHistorySourcePart, { type: "tool-result" }>;
+    toolCallId: string;
+  }> = [];
+  for (const { message, parts } of sources.messages) {
+    for (const part of parts) {
+      if (part.type === "tool-call" && message.role === "assistant") {
+        priorCallIds.add(part.toolCallId);
+      } else if (
+        part.type === "tool-result" &&
+        !priorCallIds.has(part.toolCallId)
+      ) {
+        unmatchedResults.push({ part, toolCallId: part.toolCallId });
+      }
+    }
+  }
+  if (!unmatchedResults.length) return partsToOmit;
+
+  const boundaryScan = precedingToolCallIds(
+    messages,
+    supplementalMessages,
+    sources,
+    new Set(unmatchedResults.map((result) => result.toolCallId)),
+    supplementalToolHistoryOmitted,
+  );
+  for (const result of unmatchedResults) {
+    if (
+      boundaryScan.matchedIds.has(result.toolCallId) ||
+      !boundaryScan.complete
+    ) {
+      partsToOmit.add(result.part);
+    }
+  }
+  return partsToOmit;
+}
+
+function nativeStructuredHistoryFromMessages(
+  messages: readonly AgentChatRuntimeMessage[] | undefined,
+  currentPrompt: string,
+  supplementalMessages: readonly AgentChatRuntimeMessage[] = [],
+  supplementalHistoryOmitted = false,
+  supplementalToolHistoryOmitted = false,
+): AgentChatStructuredMessage[] | undefined {
+  const structuredHistory: AgentChatStructuredMessage[] = [];
+  const callCandidates: StructuredToolHistoryCandidate[] = [];
+  const resultReferences: StructuredToolHistoryResultReference[] = [];
+  const toolHistoryParts = new Set<StructuredToolHistoryPart>();
+  const textHistoryParts = new Set<StructuredToolHistoryPart>();
+  const textCandidates: StructuredTextHistoryCandidate[] = [];
+  let toolHistoryPosition = 0;
+  let hasToolHistory = false;
+  const sources = boundedStructuredHistorySources(
+    messages,
+    currentPrompt,
+    supplementalMessages,
+  );
+  const boundaryResultsToOmit = boundaryToolResultPartsToOmit(
+    messages,
+    supplementalMessages,
+    sources,
+    supplementalToolHistoryOmitted,
+  );
+
+  for (const { message, parts, priority } of sources.messages) {
+    if (message.role !== "user" && message.role !== "assistant") continue;
+    const role = message.role;
+    let content: AgentChatStructuredMessage["content"] = [];
+    let results: AgentChatStructuredMessage["content"] = [];
+    let pendingTextParts: StructuredTextPart[] = [];
+    const flushTextCandidate = () => {
+      if (!pendingTextParts.length) return;
+      textCandidates.push({
+        position: toolHistoryPosition++,
+        role,
+        parts: pendingTextParts,
+      });
+      pendingTextParts = [];
+    };
+    const flushContent = () => {
+      if (!content.length) return;
+      structuredHistory.push({ role, content });
+      content = [];
+    };
+    const flushResults = () => {
+      if (!results.length) return;
+      structuredHistory.push({ role: "user", content: results });
+      results = [];
+    };
+
+    for (const part of parts) {
+      if (part.type === "text" || part.type === "reasoning") {
+        if (
+          jsonStringByteLengthWithinLimit(
+            part.text,
+            MAX_ADDED_TOOL_HISTORY_BYTES,
+          ) === undefined ||
+          part.text.trim()
+        ) {
+          flushResults();
+          const textPart: StructuredTextPart = {
+            type: "text",
+            text: part.text,
+          };
+          content.push(textPart);
+          textHistoryParts.add(textPart);
+          pendingTextParts.push(textPart);
+        }
+      } else if (part.type === "tool-call" && message.role === "assistant") {
+        hasToolHistory = true;
+        flushTextCandidate();
+        flushResults();
+        const candidateAssistantParts: StructuredToolHistoryPart[] = [];
+        const addToolInputText = (text: string) => {
+          const inputTextPart: StructuredTextPart = { type: "text", text };
+          content.push(inputTextPart);
+          candidateAssistantParts.push(inputTextPart);
+          toolHistoryParts.add(inputTextPart);
+        };
+        const metadataTooLarge =
+          exceedsToolHistoryValueLimit(part.toolCallId) ||
+          exceedsToolHistoryValueLimit(part.toolName);
+        if (metadataTooLarge) {
+          addToolInputText(TOOL_CALL_METADATA_OMISSION_TEXT);
+        } else {
+          if (part.inputText) {
+            if (exceedsToolHistoryValueLimit(part.inputText)) {
+              addToolInputText(TOOL_INPUT_SIZE_OMISSION_TEXT);
+            } else if (part.inputText.trim()) {
+              addToolInputText(part.inputText);
+            }
+          }
+          const input =
+            part.input === undefined
+              ? undefined
+              : toolInputForStructuredHistory(part.input);
+          if (input && "omissionText" in input) {
+            addToolInputText(input.omissionText);
+          }
+          const callPart: StructuredToolCallPart = {
+            type: "tool-call",
+            id: part.toolCallId,
+            name: part.toolName,
+            ...(input && "input" in input ? { input: input.input } : {}),
+          };
+          content.push(callPart);
+          candidateAssistantParts.push(callPart);
+          toolHistoryParts.add(callPart);
+        }
+        callCandidates.push({
+          position: toolHistoryPosition++,
+          toolCallId: part.toolCallId,
+          assistantParts: candidateAssistantParts,
+          resultParts: [],
+          isToolCall: true,
+          priority,
+        });
+      } else if (part.type === "tool-result") {
+        hasToolHistory = true;
+        flushTextCandidate();
+        flushContent();
+        if (boundaryResultsToOmit.has(part)) {
+          flushResults();
+          toolHistoryPosition++;
+          continue;
+        }
+        const metadataTooLarge =
+          exceedsToolHistoryValueLimit(part.toolCallId) ||
+          (part.toolName !== undefined &&
+            exceedsToolHistoryValueLimit(part.toolName));
+        const resultPart: StructuredToolHistoryPart = metadataTooLarge
+          ? { type: "text", text: TOOL_RESULT_METADATA_OMISSION_TEXT }
+          : {
+              type: "tool-result",
+              toolCallId: part.toolCallId,
+              ...(part.toolName ? { toolName: part.toolName } : {}),
+              content: toolResultForStructuredHistory(
+                part.result,
+                part.resultText,
+              ),
+              ...(part.isError ? { isError: true } : {}),
+            };
+        results.push(resultPart);
+        toolHistoryParts.add(resultPart);
+        resultReferences.push({
+          position: toolHistoryPosition++,
+          toolCallId: part.toolCallId,
+          part: resultPart,
+          priority,
+        });
+      }
+    }
+    flushTextCandidate();
+    flushContent();
+    flushResults();
+  }
+
+  if (
+    !hasToolHistory &&
+    supplementalMessages.length === 0 &&
+    !sources.omitted &&
+    !supplementalHistoryOmitted &&
+    !supplementalToolHistoryOmitted
+  ) {
+    return undefined;
+  }
+  return boundStructuredToolHistory(
+    structuredHistory,
+    callCandidates,
+    resultReferences,
+    textCandidates,
+    toolHistoryParts,
+    textHistoryParts,
+    sources.omitted ||
+      supplementalHistoryOmitted ||
+      supplementalToolHistoryOmitted,
+  );
 }
 
 type AgentNativeMessageContentState =
-  | { type: "text"; text: string; id?: string }
-  | {
-      type: "reasoning";
-      text: string;
+  | (Extract<ContentPart, { type: "text" }> & { id?: string })
+  | (Extract<ContentPart, { type: "reasoning" }> & {
       id?: string;
       signature?: string;
-    };
+    })
+  | Extract<ContentPart, { type: "tool-call" }>;
 
 interface AgentNativeMessageProjectionState {
   messageId: string;
@@ -1508,6 +2860,78 @@ interface AgentNativeMessageProjectionState {
     approvalPending: boolean;
     connectionPending: boolean;
   };
+}
+
+interface BoundedPendingApprovalRuntimeMessages {
+  messages: AgentChatRuntimeMessage[];
+  omitted: boolean;
+  toolHistoryOmitted: boolean;
+}
+
+function pendingApprovalRuntimeMessages(
+  state: AgentNativeMessageProjectionState,
+): BoundedPendingApprovalRuntimeMessages {
+  const messagesReversed: Omit<AgentChatRuntimeMessage, "id">[] = [];
+  let selectedToolPartCount = 0;
+  let selectedTextPartCount = 0;
+  let scannedPartCount = 0;
+  let omitted = false;
+  let toolHistoryOmitted = false;
+  for (let index = state.message.content.length - 1; index >= 0; index--) {
+    if (scannedPartCount >= MAX_STRUCTURED_HISTORY_SOURCE_SCAN_STEPS) {
+      omitted = true;
+      toolHistoryOmitted = true;
+      break;
+    }
+    scannedPartCount++;
+    const part = state.message.content[index]!;
+    if (part.type === "text") {
+      if (selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS) {
+        omitted = true;
+        continue;
+      }
+      selectedTextPartCount++;
+      messagesReversed.push({
+        role: "assistant",
+        content: [{ type: "text", text: part.text }],
+      });
+      continue;
+    }
+    if (part.type !== "tool-call" || part.result === undefined) continue;
+    if (selectedToolPartCount + 2 > MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS) {
+      omitted = true;
+      toolHistoryOmitted = true;
+      continue;
+    }
+    selectedToolPartCount += 2;
+    messagesReversed.push({
+      role: "user",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: part.toolCallId,
+          result: part.result,
+          ...(part.isError ? { isError: true } : {}),
+        },
+      ],
+    });
+    messagesReversed.push({
+      role: "assistant",
+      content: [
+        {
+          type: "tool-call",
+          toolCallId: part.toolCallId,
+          toolName: part.toolName,
+          input: part.args,
+        },
+      ],
+    });
+  }
+  const messages = messagesReversed.reverse().map((message, index) => ({
+    id: `${state.messageId}-pending-${index}`,
+    ...message,
+  }));
+  return { messages, omitted, toolHistoryOmitted };
 }
 
 function definedMetadata(
@@ -1575,6 +2999,30 @@ function agentNativeTaskOperation(
   return status === "running" ? "create" : "update";
 }
 
+function agentNativeStructuredMeta(
+  event: SSEEvent,
+): AgentChatRuntimeMetadata | undefined {
+  const raw = event as SSEEvent & {
+    metadata?: unknown;
+    structuredMeta?: unknown;
+  };
+  return (
+    asRecord(raw.structuredMeta) ??
+    asRecord(asRecord(raw.metadata)?.structuredMeta) ??
+    undefined
+  );
+}
+
+function agentNativeToolResultText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === undefined) return "";
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return String(value);
+  }
+}
+
 function agentNativeActivityStatus(
   snapshot: NonNullable<SSEEvent["snapshot"]>,
 ): AgentChatRuntimeActivity["status"] {
@@ -1607,6 +3055,9 @@ function mapAgentNativeEvent(
     turnId: input.turnId,
     ...(ev.seq !== undefined ? { metadata: { seq: ev.seq } } : {}),
   };
+  if (ev.type === "auto_continue") {
+    return [{ type: "continuation", ...base }];
+  }
   if (ev.type === "text" || ev.type === "thinking" || ev.type === "reasoning") {
     const text = ev.text ?? "";
     const type = ev.type === "text" ? "text" : "reasoning";
@@ -1652,7 +3103,9 @@ function mapAgentNativeEvent(
       input.message.content.push(nextPart);
       part = nextPart;
     }
-    part.text += text;
+    if (part.type === "text" || part.type === "reasoning") {
+      part.text += text;
+    }
     if (part.type === "reasoning" && extended.signature) {
       part.signature = extended.signature;
     }
@@ -1715,36 +3168,87 @@ function mapAgentNativeEvent(
     ];
   }
   if (ev.type === "tool_start") {
+    const toolCallId = ev.id ?? createRuntimeId("tool");
+    const toolName = ev.tool ?? "unknown";
+    const structuredMeta = agentNativeStructuredMeta(ev);
+    const toolCall = input.message.content.find(
+      (part) =>
+        part.type === "tool-call" &&
+        (ev.id
+          ? part.toolCallId === ev.id
+          : part.result === undefined && part.toolName === toolName),
+    );
+    if (toolCall?.type === "tool-call") {
+      toolCall.args = ev.input ?? {};
+      toolCall.argsText = JSON.stringify(toolCall.args);
+      if (structuredMeta) toolCall.structuredMeta = structuredMeta;
+    } else {
+      input.message.content.push({
+        type: "tool-call",
+        toolCallId,
+        toolName,
+        argsText: JSON.stringify(ev.input ?? {}),
+        args: ev.input ?? {},
+        ...(structuredMeta ? { structuredMeta } : {}),
+      });
+    }
+    const metadata = definedMetadata({ ...base.metadata, ...structuredMeta });
     return [
       {
         type: "tool-start",
         ...base,
         toolCall: {
-          id: ev.id ?? createRuntimeId("tool"),
-          name: ev.tool ?? "unknown",
+          id: toolCallId,
+          name: toolName,
           input: ev.input,
           inputText: ev.input ? JSON.stringify(ev.input) : undefined,
+          ...(metadata ? { metadata } : {}),
         },
       },
     ];
   }
   if (ev.type === "tool_done") {
-    const toolCallId = ev.id ?? "";
+    const toolName = ev.tool ?? "unknown";
+    let storedToolCall:
+      | Extract<AgentNativeMessageContentState, { type: "tool-call" }>
+      | undefined;
+    for (let index = input.message.content.length - 1; index >= 0; index -= 1) {
+      const part = input.message.content[index];
+      if (
+        part?.type === "tool-call" &&
+        (ev.id
+          ? part.toolCallId === ev.id
+          : part.result === undefined && part.toolName === toolName)
+      ) {
+        storedToolCall = part;
+        break;
+      }
+    }
+    const toolCallId =
+      ev.id ??
+      (storedToolCall?.type === "tool-call" ? storedToolCall.toolCallId : "");
+    const structuredMeta = agentNativeStructuredMeta(ev);
+    if (storedToolCall?.type === "tool-call") {
+      storedToolCall.result = agentNativeToolResultText(ev.result);
+      storedToolCall.isError = ev.isError === true || Boolean(ev.error);
+      storedToolCall.completedSideEffect = ev.completedSideEffect === true;
+      if (ev.mcpApp) storedToolCall.mcpApp = ev.mcpApp;
+      if (ev.chatUI) storedToolCall.chatUI = ev.chatUI;
+      if (structuredMeta) storedToolCall.structuredMeta = structuredMeta;
+    }
+    const metadata = definedMetadata({ ...base.metadata, ...structuredMeta });
     const events: AgentChatRuntimeKnownEvent[] = [
       {
         type: "tool-done",
         ...base,
+        ...(metadata ? { metadata } : {}),
         toolCallId,
-        toolName: ev.tool ?? "unknown",
+        toolName,
         status: ev.isError || ev.error ? "failed" : "completed",
-        result: ev.result,
-        resultText:
-          typeof ev.result === "string"
-            ? ev.result
-            : ev.result !== undefined
-              ? JSON.stringify(ev.result)
-              : undefined,
+        result: ev.chatUIResult !== undefined ? ev.chatUIResult : ev.result,
+        resultText: ev.result,
         error: ev.error,
+        completedSideEffect: ev.completedSideEffect === true,
         mcpApp: ev.mcpApp,
         chatUI: ev.chatUI,
       },
@@ -1832,9 +3336,11 @@ function mapAgentNativeEvent(
         reason: ev.connectionReason ?? "connect",
         appId: ev.appId,
         detail: ev.detail,
-        source: ev.agent
-          ? { id: ev.agent, kind: "agent", label: ev.agent }
-          : undefined,
+        source: ev.source
+          ? { ...ev.source, kind: ev.source.kind ?? "connection" }
+          : ev.agent
+            ? { id: ev.agent, kind: "agent", label: ev.agent }
+            : undefined,
       },
     ];
   }
@@ -2066,37 +3572,203 @@ function mapAgentNativeEvent(
       },
     ];
   }
+  if (ev.type === "loop_limit") {
+    const maxIterations =
+      typeof ev.maxIterations === "number" ? ev.maxIterations : undefined;
+    const events: AgentChatRuntimeKnownEvent[] = [];
+    if (input.message.started) {
+      events.push({
+        type: "message-done",
+        ...base,
+        message: {
+          id: input.messageId,
+          role: "assistant",
+          content: input.message.content
+            .filter(
+              (
+                part,
+              ): part is Exclude<
+                AgentNativeMessageContentState,
+                { type: "tool-call" }
+              > => part.type === "text" || part.type === "reasoning",
+            )
+            .map((part) => ({ ...part })),
+        },
+      });
+    }
+    events.push(
+      {
+        type: "error",
+        ...base,
+        error: `Agent stopped after ${maxIterations ?? "the configured"} iterations.`,
+        code: "loop_limit",
+        recoverable: true,
+        retryable: false,
+        ...(maxIterations === undefined ? {} : { details: { maxIterations } }),
+      },
+      { type: "done", ...base, reason: "error" },
+    );
+    return events;
+  }
+  // The server lost its own read of the run's progress; the run may still be
+  // going, so this ends the stream, not the run.
+  if (ev.type === "error" && runOutcomeForCode(ev.errorCode) === "unverified") {
+    return [];
+  }
   if (ev.type === "error" || ev.type === "missing_api_key") {
-    return [
+    const events: AgentChatRuntimeKnownEvent[] = [];
+    if (input.message.started) {
+      events.push({
+        type: "message-done",
+        ...base,
+        message: {
+          id: input.messageId,
+          role: "assistant",
+          content: input.message.content
+            .filter(
+              (
+                part,
+              ): part is Exclude<
+                AgentNativeMessageContentState,
+                { type: "tool-call" }
+              > => part.type === "text" || part.type === "reasoning",
+            )
+            .map((part) => ({ ...part })),
+        },
+      });
+    }
+    events.push(
       {
         type: "error",
         ...base,
         error: ev.error ?? "Agent chat failed.",
         code: ev.errorCode,
         recoverable: ev.recoverable,
+        details: ev.details,
       },
       { type: "done", ...base, reason: "error" },
-    ];
+    );
+    return events;
   }
   if (ev.type === "done") {
+    const userStoppedRun = ev.reason === "user";
+    const pendingTools = input.message.content.filter(
+      (part) => part.type === "tool-call" && part.result === undefined,
+    );
+    const messageContent = input.message.content.filter(
+      (
+        part,
+      ): part is Exclude<
+        AgentNativeMessageContentState,
+        { type: "tool-call" }
+      > => part.type === "text" || part.type === "reasoning",
+    );
     const message: AgentChatRuntimeMessage = {
       id: input.messageId,
       role: "assistant",
-      content: input.message.content.map((part) => ({ ...part })),
+      content: messageContent.map((part) => ({ ...part })),
     };
-    return [
-      ...(input.message.started
-        ? [{ type: "message-done" as const, ...base, message }]
-        : []),
-      {
-        type: "done",
+    if (
+      !userStoppedRun &&
+      !input.message.approvalPending &&
+      !input.message.connectionPending &&
+      pendingTools.length > 0
+    ) {
+      const names = pendingTools
+        .map((part) => (part.type === "tool-call" ? part.toolName : ""))
+        .filter(Boolean);
+      const interrupted = [...new Set(names)];
+      const messageText = interrupted.length
+        ? `The agent stopped before ${interrupted.join(", ")} finished. Retry before assuming those actions completed.`
+        : "The agent stopped before its actions finished. Retry before assuming they completed.";
+      const interruptedMessage: AgentChatRuntimeMessage = {
+        ...message,
+        content: [...message.content, { type: "text", text: messageText }],
+      };
+      const events: AgentChatRuntimeKnownEvent[] = [];
+      if (!input.message.started) {
+        input.message.started = true;
+        events.push({
+          type: "message-start",
+          ...base,
+          message: { id: input.messageId, role: "assistant", content: [] },
+        });
+      }
+      events.push(
+        {
+          type: "message-done",
+          ...base,
+          message: interruptedMessage,
+        },
+        {
+          type: "error",
+          ...base,
+          error: messageText,
+          code: "action_not_started",
+          recoverable: true,
+          retryable: true,
+          details: { tools: interrupted },
+        },
+        { type: "done", ...base, reason: "error" },
+      );
+      return events;
+    }
+    const warning =
+      userStoppedRun ||
+      input.message.approvalPending ||
+      input.message.connectionPending
+        ? null
+        : appendMissingFinalResponseWarning(input.message.content);
+    const completedMessage: AgentChatRuntimeMessage = {
+      ...message,
+      content: input.message.content
+        .filter(
+          (
+            part,
+          ): part is Exclude<
+            AgentNativeMessageContentState,
+            { type: "tool-call" }
+          > => part.type === "text" || part.type === "reasoning",
+        )
+        .map((part) => ({ ...part })),
+      ...(warning
+        ? {
+            metadata: {
+              ...message.metadata,
+              custom: {
+                ...asRecord(message.metadata?.custom),
+                runWarning: warning,
+              },
+            },
+          }
+        : {}),
+    };
+    const events: AgentChatRuntimeKnownEvent[] = [];
+    if (warning && !input.message.started) {
+      input.message.started = true;
+      events.push({
+        type: "message-start",
         ...base,
-        reason:
-          input.message.approvalPending || input.message.connectionPending
-            ? "tool-use"
-            : "complete",
-      },
-    ];
+        message: { id: input.messageId, role: "assistant", content: [] },
+      });
+    }
+    if (input.message.started) {
+      events.push({
+        type: "message-done",
+        ...base,
+        message: completedMessage,
+      });
+    }
+    events.push({
+      type: "done",
+      ...base,
+      reason: userStoppedRun
+        ? "cancelled"
+        : input.message.approvalPending || input.message.connectionPending
+          ? "tool-use"
+          : "complete",
+    });
+    return events;
   }
   return [];
 }
@@ -2148,6 +3820,67 @@ export function createAgentNativeChatRuntime(
   const apiUrl = options.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
   const runtimeId = options.id ?? "agent-native";
   const fetchImpl = options.fetch ?? fetch;
+  const streamingUrl = options.streamingUrl?.trim() || agentChatStreamingUrl();
+  let streamFallbackWarningShown = false;
+  const runtimeFetch: FetchLike = streamingUrl
+    ? async (input, init) => {
+        if (
+          String(input) !== apiUrl ||
+          String(init?.method ?? "POST").toUpperCase() !== "POST"
+        ) {
+          return fetchImpl(input, init);
+        }
+
+        const warnAndUsePrimary = (error: unknown) => {
+          if (streamFallbackWarningShown || init?.signal?.aborted) return;
+          streamFallbackWarningShown = true;
+          console.warn(
+            "[agent-chat] streaming origin auth handoff unavailable; using the primary chat route",
+            error instanceof Error ? error.message : error,
+          );
+        };
+        let token: string | undefined;
+        try {
+          const tokenResponse = await fetchImpl(
+            `${apiUrl.replace(/\/+$/, "")}/stream-token`,
+            {
+              method: "GET",
+              headers: { Accept: "application/json" },
+              credentials: "same-origin",
+              cache: "no-store",
+              signal: init?.signal,
+            },
+          );
+          if (!tokenResponse.ok) {
+            throw new Error(`HTTP ${tokenResponse.status}`);
+          }
+          const payload: unknown = await tokenResponse.json();
+          const candidate = asRecord(payload)?.token;
+          if (typeof candidate !== "string" || !candidate.trim()) {
+            throw new Error("missing token");
+          }
+          token = candidate;
+        } catch (error) {
+          if (init?.signal?.aborted) throw error;
+          warnAndUsePrimary(error);
+          return fetchImpl(input, init);
+        }
+
+        const headers = new Headers(init?.headers);
+        headers.set("Authorization", `Bearer ${token}`);
+        try {
+          return await fetchImpl(streamingUrl, {
+            ...init,
+            headers,
+            credentials: "omit",
+          });
+        } catch (error) {
+          if (init?.signal?.aborted) throw error;
+          warnAndUsePrimary(error);
+          return fetchImpl(input, init);
+        }
+      }
+    : fetchImpl;
   const messageStates = new Map<string, AgentNativeMessageProjectionState>();
   const deleteMessageState = (state: AgentNativeMessageProjectionState) => {
     for (const [key, candidate] of messageStates) {
@@ -2155,14 +3888,14 @@ export function createAgentNativeChatRuntime(
     }
   };
 
-  return createHttpAgentChatRuntime({
+  const nativeRuntime = createHttpAgentChatRuntime({
     id: runtimeId,
     kind: "agent-native",
     label: options.label ?? "Agent-Native",
     description:
       options.description ?? "Agent-Native's built-in chat transport.",
     endpoint: apiUrl,
-    fetch: fetchImpl,
+    fetch: runtimeFetch,
     headers: async (input) => {
       const headers = await resolveHeaders(options.headers, input);
       headers.set("x-agent-native-surface", options.surface ?? "app");
@@ -2189,12 +3922,13 @@ export function createAgentNativeChatRuntime(
       },
     },
     mapRequest: ({ session, turn, turnId }) => {
+      const latestUserMessage = [...(turn.messages ?? [])]
+        .reverse()
+        .find((message) => message.role === "user");
       const prompt =
         turn.prompt ??
-        [...(turn.messages ?? [])]
-          .reverse()
-          .find((message) => message.role === "user")
-          ?.content.map((part) => (part.type === "text" ? part.text : ""))
+        latestUserMessage?.content
+          .map((part) => (part.type === "text" ? part.text : ""))
           .join("\n") ??
         "";
       const approvedToolCalls = metadataStringList(
@@ -2205,21 +3939,56 @@ export function createAgentNativeChatRuntime(
         turn.metadata,
         AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY,
       );
+      const autoContinueOfRunId = metadataString(
+        turn.metadata,
+        AUTO_CONTINUE_OF_RUN_METADATA_KEY,
+      );
+      const continueOfRunId = metadataString(
+        turn.metadata,
+        CONTINUE_OF_RUN_METADATA_KEY,
+      );
       const continuationMessageState = continuationTurnId
         ? messageStates.get(continuationTurnId)
         : undefined;
       if (continuationMessageState) {
         messageStates.set(turnId, continuationMessageState);
       }
+      const history = nativeHistoryFromMessages(turn.messages, prompt);
+      const pendingApprovalHistory =
+        approvedToolCalls && continuationMessageState
+          ? pendingApprovalRuntimeMessages(continuationMessageState)
+          : { messages: [], omitted: false, toolHistoryOmitted: false };
+      const structuredHistory = nativeStructuredHistoryFromMessages(
+        turn.messages,
+        prompt,
+        pendingApprovalHistory.messages,
+        pendingApprovalHistory.omitted,
+        pendingApprovalHistory.toolHistoryOmitted,
+      );
       return {
         message: prompt,
+        ...(latestUserMessage?.id
+          ? { agentKitMessageId: latestUserMessage.id }
+          : {}),
         displayMessage: prompt,
-        history: nativeHistoryFromMessages(turn.messages, prompt),
-        turnId: continuationTurnId ?? turnId,
+        history,
+        ...(structuredHistory?.length ? { structuredHistory } : {}),
+        turnId: continuationTurnId ?? turn.queuePromotion?.turnId ?? turnId,
         threadId: session.threadId ?? options.threadId,
+        ...(turn.queuePromotion
+          ? {
+              queuedMessageId: turn.queuePromotion.messageId,
+              queuedMessageClaimId: turn.queuePromotion.claimId,
+            }
+          : {}),
         ...(turn.metadata?.[AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY] ===
         true
           ? { internalContinuation: true }
+          : {}),
+        ...(autoContinueOfRunId ? { autoContinueOfRunId } : {}),
+        ...(continueOfRunId ? { continueOfRunId } : {}),
+        ...(turn.metadata?.agentNativeSkipPendingSelectionContext === true
+          ? { skipPendingSelectionContext: true }
           : {}),
         ...(approvedToolCalls ? { approvedToolCalls } : {}),
         ...(options.mode ? { mode: options.mode } : {}),
@@ -2263,22 +4032,23 @@ export function createAgentNativeChatRuntime(
         messageId: state.messageId,
         message: state.message,
       });
-      const type =
-        event && typeof event === "object"
-          ? (event as { type?: unknown }).type
-          : undefined;
       if (
-        type === "error" ||
-        type === "missing_api_key" ||
-        (type === "done" &&
-          !state.message.approvalPending &&
-          !state.message.connectionPending)
+        mapped.some(
+          (item) => item.type === "done" && item.reason !== "tool-use",
+        )
       ) {
         deleteMessageState(state);
       }
       return mapped;
     },
     continueTurn: ({ session, continuation, previousTurn, startTurn }) => {
+      // Only the continuation that names a stopped run continues it; an approval
+      // or connection answered later is not another continuation of that run.
+      const {
+        [AUTO_CONTINUE_OF_RUN_METADATA_KEY]: _autoContinueOf,
+        [CONTINUE_OF_RUN_METADATA_KEY]: _continueOf,
+        ...previousMetadata
+      } = previousTurn?.metadata ?? {};
       const approval = continuation.approval;
       const connection = continuation.connection;
       const messageStateKey = continuation.turnId ?? session.id;
@@ -2299,7 +4069,7 @@ export function createAgentNativeChatRuntime(
             continuation.prompt ??
             `The ${connection.id} connection is now available. Continue the requested work.`,
           metadata: {
-            ...previousTurn?.metadata,
+            ...previousMetadata,
             ...continuation.metadata,
             [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]:
               continuation.turnId,
@@ -2320,7 +4090,7 @@ export function createAgentNativeChatRuntime(
           ...previousTurn,
           prompt: continuation.prompt,
           metadata: {
-            ...previousTurn?.metadata,
+            ...previousMetadata,
             ...continuation.metadata,
             [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]:
               continuation.turnId,
@@ -2345,7 +4115,7 @@ export function createAgentNativeChatRuntime(
           continuation.prompt ??
           "Approved. Go ahead and run the requested action.",
         metadata: {
-          ...previousTurn?.metadata,
+          ...previousMetadata,
           ...continuation.metadata,
           [AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY]: [approval.id],
           [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]: continuation.turnId,
@@ -2363,430 +4133,147 @@ export function createAgentNativeChatRuntime(
         ? `${apiUrl}/runs/${encodeURIComponent(input.runId)}/events?after=${input.after ?? 0}`
         : null,
   });
-}
 
-function toContentPartInput(value: unknown): Record<string, string> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  const out: Record<string, string> = {};
-  for (const [key, item] of Object.entries(value)) {
-    out[key] = typeof item === "string" ? item : (JSON.stringify(item) ?? "");
-  }
-  return out;
-}
-
-function toolResultText(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value === undefined) return "";
-  try {
-    return JSON.stringify(value) ?? "";
-  } catch {
-    if (
-      value === null ||
-      typeof value === "number" ||
-      typeof value === "boolean" ||
-      typeof value === "bigint" ||
-      typeof value === "symbol" ||
-      typeof value === "function"
-    ) {
-      return String(value);
+  const readRunState = async (
+    input: AgentChatRuntimeSubscribeInput,
+  ): Promise<ServerRunState> => {
+    // Asking again cannot change these answers, so they are not retryable.
+    const unreadable = (message: string, status?: number) =>
+      Object.assign(new TypeError(message), {
+        code: "run_state_unreadable",
+        retryable: false,
+        ...(status === undefined ? {} : { status }),
+      });
+    const threadId = input.sessionId ?? options.threadId;
+    if (!threadId || (!input.runId && !input.turnId)) {
+      throw unreadable(
+        "Reading an agent run's state needs its thread and a run or turn ID.",
+      );
     }
-    return "[unserializable]";
-  }
-}
+    const query = new URLSearchParams({ threadId });
+    if (input.runId) query.set("runId", input.runId);
+    if (input.turnId) query.set("turnId", input.turnId);
+    const headers = await resolveHeaders(options.headers, input);
+    headers.set("x-agent-native-surface", options.surface ?? "app");
+    const response = await runtimeFetch(
+      `${apiUrl.replace(/\/+$/, "")}/runs/latest?${query}`,
+      {
+        headers,
+        credentials: "same-origin",
+        cache: "no-store",
+        signal: input.abortSignal,
+      },
+    );
+    if (response.status === 404) return { status: "missing" };
+    if (!response.ok) throw await readHttpRuntimeError(response);
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch (error) {
+      // A connection cut mid-body is transient; a body that is not JSON is not.
+      if (!(error instanceof SyntaxError)) throw error;
+      throw unreadable(
+        "Agent chat run state is unreadable (the body is not JSON).",
+        response.status,
+      );
+    }
+    const value = asRecord(body);
+    const runId = value?.runId;
+    const status = value?.status;
+    if (
+      typeof runId !== "string" ||
+      !runId.trim() ||
+      !isServerRunStatus(status)
+    ) {
+      throw unreadable(
+        `Agent chat run state is unreadable (run ${String(runId)}, status ${String(status)}).`,
+        response.status,
+      );
+    }
+    return {
+      status,
+      runId,
+      ...(typeof value?.turnId === "string" && value.turnId
+        ? { turnId: value.turnId }
+        : {}),
+      ...(typeof value?.startedAt === "number" &&
+      Number.isFinite(value.startedAt)
+        ? { startedAt: value.startedAt }
+        : {}),
+      ...(typeof value?.dispatchMode === "string"
+        ? { dispatchMode: value.dispatchMode }
+        : {}),
+      terminalReason:
+        typeof value?.terminalReason === "string" ? value.terminalReason : null,
+    };
+  };
 
-interface RuntimeContentProjection {
-  content: ContentPart[];
-  partsById: Map<string, Extract<ContentPart, { type: "text" | "reasoning" }>>;
-}
-
-function appendRuntimeContentPart(
-  projection: RuntimeContentProjection,
-  input: {
-    type: "text" | "reasoning";
-    text: string;
-    partId?: string;
-  },
-): void {
-  const key = input.partId ? `${input.type}:${input.partId}` : undefined;
-  const last = projection.content.at(-1);
-  let part = key ? projection.partsById.get(key) : undefined;
-  if (
-    !part &&
-    !key &&
-    last &&
-    (last.type === "text" || last.type === "reasoning") &&
-    last.type === input.type
-  ) {
-    part = last;
-  }
-  if (!part) {
-    const nextPart: Extract<ContentPart, { type: "text" | "reasoning" }> =
-      input.type === "reasoning"
-        ? { type: "reasoning", text: "" }
-        : { type: "text", text: "" };
-    projection.content.push(nextPart);
-    if (key) projection.partsById.set(key, nextPart);
-    part = nextPart;
-  }
-  part.text += input.text;
-}
-
-function applyRuntimeEventToContent(
-  event: AgentChatRuntimeEventBase,
-  projection: RuntimeContentProjection,
-): ChatModelRunResult | null {
-  const { content } = projection;
-  const typed = event as AgentChatRuntimeKnownEvent;
-  if (typed.type === "message-start") {
-    for (const part of typed.message.content) {
-      if ((part.type === "text" || part.type === "reasoning") && part.text) {
-        appendRuntimeContentPart(projection, {
-          type: part.type,
-          text: part.text,
-          partId: part.id,
+  const runtime: AgentChatRuntime<AgentChatRuntimeKnownEvent> = {
+    ...nativeRuntime,
+    readRunState,
+    resume: async (input) => {
+      const threadId = input.sessionId ?? options.threadId;
+      if (!threadId || !input.runId) return nativeRuntime.resume!(input);
+      // A run id alone is enough: the server derives its turn.
+      const state = await readRunState(input);
+      if (state.status === "missing") {
+        throw Object.assign(new Error(`Agent run ${input.runId} not found`), {
+          code: "run_record_missing",
+          retryable: false,
+          status: 404,
         });
       }
-    }
-    return { content: [...content] } as ChatModelRunResult;
-  }
-  if (typed.type === "message-delta") {
-    if (typed.delta.type === "text" || typed.delta.type === "reasoning") {
-      appendRuntimeContentPart(projection, {
-        type: typed.delta.type,
-        text: typed.delta.text,
-        partId: typed.delta.partId,
+      const events = await nativeRuntime.subscribe!({
+        ...input,
+        runId: state.runId,
+        after: state.runId === input.runId ? input.after : 0,
       });
-      return { content: [...content] } as ChatModelRunResult;
-    }
-    return null;
-  }
-  if (typed.type === "message-done") {
-    return { content: [...content] } as ChatModelRunResult;
-  }
-  if (typed.type === "tool-start") {
-    content.push({
-      type: "tool-call",
-      toolCallId: typed.toolCall.id,
-      toolName: typed.toolCall.name,
-      argsText:
-        typed.toolCall.inputText ?? JSON.stringify(typed.toolCall.input ?? {}),
-      args: toContentPartInput(typed.toolCall.input),
-    });
-    return { content: [...content] } as ChatModelRunResult;
-  }
-  if (typed.type === "tool-delta") {
-    const part = [...content]
-      .reverse()
-      .find(
-        (candidate): candidate is Extract<ContentPart, { type: "tool-call" }> =>
-          candidate.type === "tool-call" &&
-          candidate.toolCallId === typed.toolCallId,
-      );
-    if (!part) return null;
-    if (typed.inputTextDelta) {
-      part.argsText += typed.inputTextDelta;
-    }
-    if (typed.resultTextDelta) {
-      part.result = `${part.result ?? ""}${typed.resultTextDelta}`;
-    }
-    return { content: [...content] } as ChatModelRunResult;
-  }
-  if (typed.type === "tool-done") {
-    const part = [...content]
-      .reverse()
-      .find(
-        (candidate): candidate is Extract<ContentPart, { type: "tool-call" }> =>
-          candidate.type === "tool-call" &&
-          candidate.toolCallId === typed.toolCallId,
-      );
-    if (part) {
-      part.result =
-        typed.error ?? typed.resultText ?? toolResultText(typed.result);
-      if (typed.mcpApp) part.mcpApp = typed.mcpApp;
-      if (typed.chatUI) part.chatUI = typed.chatUI;
-    }
-    return { content: [...content] } as ChatModelRunResult;
-  }
-  if (typed.type === "approval-request") {
-    const reversed = [...content].reverse();
-    const isToolCall = (
-      candidate: ContentPart,
-    ): candidate is Extract<ContentPart, { type: "tool-call" }> =>
-      candidate.type === "tool-call";
-    // Match on the exact call id whenever the server supplied one. Falling back
-    // to "newest call with this name" would hand this call's approvalKey to a
-    // different parallel call of the same action, so name matching is reserved
-    // for events that carry no id at all.
-    const part = typed.toolCallId
-      ? reversed.find(
-          (candidate) =>
-            isToolCall(candidate) && candidate.toolCallId === typed.toolCallId,
-        )
-      : reversed.find(
-          (candidate) =>
-            isToolCall(candidate) && candidate.toolName === typed.toolName,
-        );
-    if (part && part.type === "tool-call") {
-      part.approval = {
-        approvalKey: typed.approvalId,
-        ...(typed.allowPersistentApproval === false
-          ? { allowPersistentApproval: false }
-          : {}),
-      };
-    } else if (!typed.toolCallId) {
-      // Only runtimes that never announced the call (no id) get a synthesized
-      // card. An id that matches nothing means the call was never observed or
-      // is already resolved, and inventing an Approve/Deny card for it would
-      // gate something the user cannot see.
-      content.push({
-        type: "tool-call",
-        toolCallId: typed.approvalId,
-        toolName: typed.toolName ?? "approval",
-        argsText: typed.input ? JSON.stringify(typed.input) : "",
-        args: toContentPartInput(typed.input),
-        approval: {
-          approvalKey: typed.approvalId,
-          ...(typed.allowPersistentApproval === false
-            ? { allowPersistentApproval: false }
-            : {}),
-        },
-      });
-    }
-    return { content: [...content] } as ChatModelRunResult;
-  }
-  if (typed.type === "error") {
-    const normalized = normalizeChatError(typed.error, typed.code);
-    settleInterruptedToolCalls(content, undefined, { includeActivity: true });
-    content.push({
-      type: "text",
-      text: formatChatErrorText(typed.error, undefined, typed.code),
-    });
-    return {
-      content: [...content],
-      status: { type: "incomplete", reason: "error" },
-      metadata: {
-        custom: {
-          runError: {
-            message: normalized.message,
-            ...(normalized.details ? { details: normalized.details } : {}),
-            ...(typed.code ? { errorCode: typed.code } : {}),
-            ...(typed.recoverable ? { recoverable: typed.recoverable } : {}),
+      return {
+        id: input.turnId ?? state.turnId ?? input.runId,
+        sessionId: threadId,
+        runId: state.runId,
+        metadata: {
+          ...input.metadata,
+          [AGENT_NATIVE_RUN_RESUME_STATE_METADATA_KEY]: {
+            status: state.status,
+            dispatchMode: state.dispatchMode,
+            startedAt: state.startedAt,
           },
         },
-      },
-    } as ChatModelRunResult;
-  }
-  if (typed.type === "done") {
-    settleInterruptedToolCalls(content, undefined, { includeActivity: true });
-    return {
-      content: [...content],
-      status:
-        typed.reason === "error"
-          ? { type: "incomplete", reason: "error" }
-          : { type: "complete", reason: "stop" },
-    } as ChatModelRunResult;
-  }
-  return null;
-}
-
-function assistantMessageText(message: {
-  content?: readonly { type: string; text?: string }[];
-}): string {
-  return (message.content ?? [])
-    .filter(
-      (part): part is { type: string; text: string } => part.type === "text",
-    )
-    .map((part) => part.text)
-    .join("\n");
-}
-
-function assistantMessagesToRuntimeMessages(
-  messages: readonly {
-    role: string;
-    content?: readonly { type: string; text?: string; image?: string }[];
-  }[],
-): AgentChatRuntimeMessage[] {
-  return messages
-    .filter(
-      (message) => message.role === "user" || message.role === "assistant",
-    )
-    .map((message, index) => {
-      const content: AgentChatRuntimeKnownContentPart[] = [];
-      for (const part of message.content ?? []) {
-        if (part.type === "text" && typeof part.text === "string") {
-          content.push({ type: "text", text: part.text });
-        } else if (part.type === "image" && typeof part.image === "string") {
-          content.push({ type: "image", data: part.image });
-        }
-      }
-      return {
-        id: `assistant-ui-${index}`,
-        role: message.role as "user" | "assistant",
-        content,
+        events,
       };
-    });
-}
-
-function latestUserPrompt(
-  messages: readonly {
-    role: string;
-    content?: readonly { type: string; text?: string }[];
-  }[],
-): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i];
-    if (message.role !== "user") continue;
-    return assistantMessageText(message);
-  }
-  return "";
-}
-
-export function createAgentChatRuntimeAdapter(
-  runtime: AgentChatRuntime,
-  options: CreateAgentChatRuntimeAdapterOptions = {},
-): ChatModelAdapter {
-  let sessionPromise: Promise<AgentChatRuntimeSession> | null = null;
-  const getSession = () => {
-    sessionPromise ??= Promise.resolve(
-      runtime.createSession({
-        id: options.sessionId ?? options.threadId,
-        threadId: options.threadId,
-        metadata: options.metadata,
-      }),
-    );
-    return sessionPromise;
-  };
-
-  return {
-    async *run({ messages, abortSignal }) {
-      const adapterMessages = messages as readonly {
-        role: string;
-        content?: readonly { type: string; text?: string; image?: string }[];
-      }[];
-      const session = await getSession();
-      const prompt = latestUserPrompt(adapterMessages);
-      const turn = await session.startTurn({
-        prompt,
-        messages: assistantMessagesToRuntimeMessages(adapterMessages),
-        model: options.modelRef?.current,
-        reasoningEffort: options.effortRef?.current,
-        abortSignal,
-        metadata: options.metadata,
-      });
-      const projection: RuntimeContentProjection = {
-        content: [],
-        partsById: new Map(),
-      };
-      try {
-        for await (const event of turn.events) {
-          emitChatFirstOpenAppFromRuntimeEvent(event);
-          const result = applyRuntimeEventToContent(event, projection);
-          if (result) {
-            const metadata = (result.metadata ?? {}) as Record<string, unknown>;
-            const custom =
-              metadata.custom && typeof metadata.custom === "object"
-                ? (metadata.custom as Record<string, unknown>)
-                : {};
-            yield {
-              ...result,
-              metadata: {
-                ...metadata,
-                custom: {
-                  ...custom,
-                  runtimeId: runtime.id,
-                  ...(turn.runId ? { runId: turn.runId } : {}),
-                },
-              },
-            } as ChatModelRunResult;
-          }
-        }
-      } catch (error) {
-        if (error instanceof Error && error.name === "AbortError") {
-          await turn.cancel?.({ reason: "abort" });
-          return;
-        }
-        throw error;
-      }
     },
   };
+  agentNativeChatRuntimes.add(runtime);
+  return runtime;
 }
 
-function emitChatFirstOpenAppFromRuntimeEvent(
-  event: AgentChatRuntimeEventBase,
-): void {
-  if (event.type !== "tool-done") return;
-  const toolEvent = event as AgentChatRuntimeToolDoneEvent;
-  if (
-    toolEvent.status !== "completed" ||
-    (!isOpenAppTool(toolEvent.toolName) &&
-      !isOpenBrowserTool(toolEvent.toolName))
-  ) {
-    return;
-  }
+const agentNativeChatRuntimes = new WeakSet<object>();
 
-  const result =
-    asRecord(toolEvent.result) ?? parseResultRecord(toolEvent.resultText);
-  if (!result) {
-    console.warn(
-      `[chat-first] ${toolEvent.toolName} completed without a readable result`,
-    );
-    return;
-  }
-  if (isOpenBrowserTool(toolEvent.toolName)) {
-    const delivery = emitChatFirstOpenBrowser({
-      url: readString(result.url ?? result.href),
-      title: readString(result.title ?? result.name),
-    });
-    warnWhenChatFirstDeliveryIsNotObserved(toolEvent.toolName, delivery);
-    return;
-  }
-
-  const detail = {
-    app: readString(result.app ?? result.appId ?? result.application),
-    path: readString(result.path ?? result.targetPath),
-    url: readString(result.url ?? result.href),
-    view: readString(result.view),
-  };
-  const delivery = emitChatFirstOpenApp(detail);
-  warnWhenChatFirstDeliveryIsNotObserved(toolEvent.toolName, delivery);
+export function isAgentNativeChatRuntime(
+  runtime: AgentChatRuntime | undefined,
+): boolean {
+  return runtime !== undefined && agentNativeChatRuntimes.has(runtime);
 }
 
-function warnWhenChatFirstDeliveryIsNotObserved(
-  toolName: string,
-  delivery: { delivered: boolean; reason?: string },
-): void {
-  if (delivery.delivered) return;
-  console.warn(
-    `[chat-first] ${toolName} was completed but not delivered (${delivery.reason ?? "unknown"})`,
+const SERVER_RUN_STATUSES = [
+  "running",
+  "completed",
+  "truncated",
+  "errored",
+  "aborted",
+] as const;
+
+function isServerRunStatus(
+  value: unknown,
+): value is (typeof SERVER_RUN_STATUSES)[number] {
+  return SERVER_RUN_STATUSES.includes(
+    value as (typeof SERVER_RUN_STATUSES)[number],
   );
-}
-
-function isOpenAppTool(toolName: string): boolean {
-  return toolName === "open_app";
-}
-
-function isOpenBrowserTool(toolName: string): boolean {
-  return toolName === "open_browser";
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
-}
-
-function readString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value : undefined;
-}
-
-function parseResultRecord(
-  value: string | undefined,
-): Record<string, unknown> | null {
-  if (!value?.trim()) return null;
-  try {
-    return asRecord(JSON.parse(value));
-  } catch {
-    // coercion-ok: malformed tool output is an unreadable absence; the caller logs it.
-    return null;
-  }
 }

@@ -548,6 +548,9 @@ export function parseAgentQueuedMessage(
     );
   }
   optionalMetadata(message.metadata, `${path}.metadata`);
+  if (message.options !== undefined) {
+    parseAgentRunOptions(message.options, `${path}.options`);
+  }
   return value as AgentQueuedMessage;
 }
 
@@ -1605,7 +1608,31 @@ export function parseSteerQueuedMessageResult(
   path = "steerQueuedMessageResult",
 ): SteerQueuedMessageResult {
   if (value === null || value === undefined) return undefined;
-  return parseStartRunResult(value, path);
+  const result = record(value, path);
+  if (result.alreadyRemoved !== undefined) {
+    if (
+      result.alreadyRemoved !== true ||
+      result.runId !== undefined ||
+      result.alreadySubmitted !== undefined
+    ) {
+      throw new AgentProtocolValidationError(
+        `${path}.alreadyRemoved`,
+        "must be true without a run result",
+      );
+    }
+    return value as SteerQueuedMessageResult;
+  }
+  parseStartRunResult(result, path);
+  if (
+    result.alreadySubmitted !== undefined &&
+    result.alreadySubmitted !== true
+  ) {
+    throw new AgentProtocolValidationError(
+      `${path}.alreadySubmitted`,
+      "must be true when provided",
+    );
+  }
+  return value as SteerQueuedMessageResult;
 }
 
 export function parseAgentRunSnapshot(
@@ -2028,11 +2055,6 @@ export interface ParseAgentEventSequenceOptions {
   path?: string;
 }
 
-/**
- * Validates a complete replay batch before a consumer advances its cursor.
- * Returning only after the entire batch is contiguous prevents a later event
- * from making an earlier missing event permanently unreachable.
- */
 export function parseAgentEventSequence(
   value: unknown,
   options: ParseAgentEventSequenceOptions = {},
@@ -2686,6 +2708,9 @@ export function parseQueueMessageInput(
     );
   }
   optionalMetadata(input.metadata, `${path}.metadata`);
+  if (input.options !== undefined) {
+    parseAgentRunOptions(input.options, `${path}.options`);
+  }
   return value as QueueMessageInput;
 }
 
@@ -2770,6 +2795,10 @@ export function parseSubmitFeedbackInput(
 ): SubmitFeedbackInput {
   const input = record(parseThreadIdInput(value, path), path);
   string(input.messageId, `${path}.messageId`);
+  optionalString(input.runId, `${path}.runId`);
+  if (input.messageSeq !== undefined) {
+    nonNegativeSafeInteger(input.messageSeq, `${path}.messageSeq`);
+  }
   if (
     input.value !== "positive" &&
     input.value !== "negative" &&
@@ -2854,7 +2883,6 @@ export function createAgentProtocolEnvelope<TPayload>(
   };
 }
 
-/** Narrows a message part after validating it at a transport boundary. */
 export function parseAgentMessagePart(
   value: unknown,
   path = "part",

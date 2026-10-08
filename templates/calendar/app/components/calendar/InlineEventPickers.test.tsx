@@ -91,7 +91,6 @@ describe("TimePickerPopover", () => {
 
     expect(optionLabels[0]).toContain("1:45 PM");
     expect(optionLabels[1]).toContain("2 PM");
-    // The still-selected 9:30 AM only reappears after the midnight wrap.
     expect(
       optionLabels.findIndex((label) => label.includes("9:30 AM")),
     ).toBeGreaterThan(

@@ -1,10 +1,6 @@
 const messages = {
   settings: {
     title: "设置",
-    description: "此应用的语言和工作区偏好设置。",
-    languageTitle: "语言",
-    languageDescription: "选择界面语言。此偏好会保存到你的账户。",
-    languageLabel: "界面语言",
     workspaceTitle: "工作区",
     workspaceDescription: "管理团队成员、组织访问权限和共享工作区偏好。",
     openTeamSettings: "打开团队设置",
@@ -30,6 +26,9 @@ const messages = {
     pinChat: "置顶聊天",
     pinned: "已置顶",
     recents: "最近",
+    retryPreviousRequest: "模型提供商已连接，请重试我之前的请求。",
+    retryAttachmentUnavailable:
+      "Chat 无法重新打开此附件以重试。请添加可访问的文件 URL，然后重试。",
     renameChat: "重命名聊天",
     renameFailed: "重命名失败",
     renameThread: "重命名对话",

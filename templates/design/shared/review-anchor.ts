@@ -121,11 +121,6 @@ function inBoundsPercentage(value: unknown): number | null {
   return value;
 }
 
-/**
- * Parse the persisted anchor contract used by Design review comments.
- * Malformed anchors intentionally return null so a thread remains visible in
- * the panel without creating a misleading canvas pin.
- */
 export function parseReviewAnchor(value: unknown): DesignReviewAnchor | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -238,7 +233,6 @@ function parseRegion(value: unknown): ReviewAnchorRegion | null {
   return { xPct, yPct, widthPct, heightPct };
 }
 
-/** Resolve a node or selector position first, then degrade to the click point. */
 export function resolveReviewAnchor(
   value: unknown,
   resolveNodePoint: (nodeId: string) => ReviewAnchorPoint | null,

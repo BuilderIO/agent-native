@@ -33,6 +33,23 @@ Apps don't need any configuration to opt in. Discovery happens via the
 `agent-native.workspaceCore` field in this root `package.json`, which names
 the shared package (`@{{APP_NAME}}/shared`).
 
+## Built-in apps
+
+The workspace can also reach the hosted first-party apps (Mail, Calendar,
+Content, Design, Clips, and more) as built-in agents. Add
+`agent-native.builtinAgents` next to `workspaceCore` in this `package.json` to
+choose which ones it offers:
+
+```json
+"builtinAgents": {
+  "mode": "selected",
+  "include": ["mail", "calendar"]
+}
+```
+
+`mode` is `"all"` (the default when the key is absent), `"none"`, or
+`"selected"` (only the apps in `include`).
+
 The workspace root also links `.agents/skills` to the shared package so coding
 agents launched from the root can discover the same workspace-wide skills.
 Run `pnpm skills:update` (or

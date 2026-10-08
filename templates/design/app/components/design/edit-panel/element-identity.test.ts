@@ -28,11 +28,6 @@ describe("elementStableKey", () => {
   });
 
   it("falls through an empty-string sourceId to id/selector/tagName", () => {
-    // The bridge (editor-chrome.bridge.ts getElementInfo) reports
-    // sourceId: "" — not undefined — for any element that isn't
-    // source-backed (e.g. a runtime-only DOM node in a connected
-    // localhost/fusion screen). A `??` chain stops at "" (it isn't
-    // nullish), so it must be `||` throughout to actually skip it.
     expect(
       elementStableKey(
         element({ sourceId: "", id: "", selector: ".card > .title" }),
@@ -41,10 +36,6 @@ describe("elementStableKey", () => {
   });
 
   it("does not collapse two different non-source-backed elements to the same key", () => {
-    // This is the concrete symptom of the `??` bug: two unrelated elements
-    // that both lack sourceId/id would otherwise both resolve to "" and
-    // share aspect-ratio-lock state (see useAspectRatioLock) even though
-    // they are completely different nodes.
     const a = element({ sourceId: "", selector: ".card:nth-child(1)" });
     const b = element({ sourceId: "", selector: ".card:nth-child(2)" });
     expect(elementStableKey(a)).not.toBe(elementStableKey(b));
@@ -87,10 +78,6 @@ describe("elementIdentityKey", () => {
   });
 });
 
-// deriveLockedAspectSize — W/H aspect-ratio lock: derives the paired
-// dimension from a captured width/height ratio. See EditPanel.inspectorHelpers.spec.ts
-// for the original coverage; duplicated narrowly here since element-identity.ts
-// is this file's home now.
 describe("deriveLockedAspectSize", () => {
   it("derives height from width using the locked ratio", () => {
     expect(deriveLockedAspectSize("width", 300, 2)).toBe(150);

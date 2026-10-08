@@ -46,6 +46,9 @@ export const mcpConnectMessages: McpConnectMessages = {
   revoke: "إلغاء",
   couldNotRevoke: "تعذر إلغاء الرمز.",
   authorizeDevice: "تخويل الجهاز",
+  organization: "المؤسسة",
+  invalidOrganization: "اختر مؤسسة أنت عضو فيها.",
+  fullCatalogRequested: "يطلب هذا الجهاز الوصول إلى كتالوج الإجراءات الكامل.",
   createToken: "إنشاء رمز اتصال",
   authorizingDevice: "جارٍ تخويل الجهاز...",
   creatingToken: "جارٍ إنشاء الرمز...",
@@ -64,6 +67,22 @@ export const mcpConnectMessages: McpConnectMessages = {
   couldNotCreate: "تعذر إنشاء الرمز.",
   networkError: "حدث خطأ في الشبكة. حاول مرة أخرى.",
   urlTitle: "عنوان MCP الخاص بك",
+  servicePrincipals: "كيانات الخدمة",
+  principalUngoverned: "غير خاضع للحوكمة",
+  principalActive: "نشط",
+  principalSuspended: "معلّق",
+  principalRetired: "متقاعد",
+  principalUngovernedHint: "لم يتم تعيين مالك أو إذن للإجراءات.",
+  principalOwner: "المالك",
+  principalRisk: "المخاطر",
+  riskLow: "منخفضة",
+  riskMedium: "متوسطة",
+  riskHigh: "عالية",
+  suspend: "تعليق",
+  resume: "استئناف",
+  couldNotUpdatePrincipal: "تعذّر تحديث كيان الخدمة.",
+  containmentIncomplete:
+    "تم التحديث، لكن تعذّر إيقاف بعض عمليات التشغيل أو الرموز. حاول مرة أخرى.",
 };
 
 export const mcpSettingsMessages: McpSettingsMessages = {

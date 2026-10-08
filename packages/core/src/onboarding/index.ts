@@ -1,11 +1,3 @@
-/**
- * Framework-level onboarding system.
- *
- * Templates register steps the agent sidebar should show as a setup checklist.
- * The server auto-mounts `/_agent-native/onboarding/*` routes and the client
- * hook polls them — see `@agent-native/core/client/onboarding`.
- */
-
 export { registerOnboardingStep, listOnboardingSteps } from "./registry.js";
 export type {
   OnboardingStep,
@@ -15,11 +7,21 @@ export type {
   OnboardingStepStatus,
   OnboardingCapability,
   OnboardingAppProfile,
+  WorkspaceBuilderOnlyServiceId,
+  WorkspaceProviderServiceId,
+  WorkspaceServiceId,
 } from "./types.js";
+export {
+  WORKSPACE_SERVICES,
+  workspaceServiceForCapability,
+  type WorkspaceService,
+  type WorkspaceServiceKind,
+} from "./workspace-services.js";
 export {
   getOnboardingAppProfile,
   resolveOnboardingAppId,
 } from "./app-profile.js";
+export { getOnboardingAppProfileForId } from "./app-profile-data.js";
 export type { OnboardingPluginOptions } from "./plugin.js";
 
 const loadOnboardingPlugin = () => import("./plugin.js");

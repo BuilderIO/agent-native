@@ -73,7 +73,6 @@ describe("annotateScreenHtmlForPersist", () => {
     expect(result.match(/<script>[\s\S]*?<\/script>/)?.[0]).not.toContain(
       "data-agent-native-node-id",
     );
-    // A template body IS markup and is now addressable, so it gets an id.
     expect(result).toContain("<div class='ghost' data-agent-native-node-id=");
     expect(result.match(/<noscript>[\s\S]*?<\/noscript>/)?.[0]).not.toContain(
       "data-agent-native-node-id",

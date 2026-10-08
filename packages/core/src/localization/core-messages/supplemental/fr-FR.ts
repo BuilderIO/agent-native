@@ -47,6 +47,10 @@ export const mcpConnectMessages: McpConnectMessages = {
   revoke: "Révoquer",
   couldNotRevoke: "Impossible de révoquer le jeton.",
   authorizeDevice: "Autoriser l’appareil",
+  organization: "Organisation",
+  invalidOrganization: "Choisissez une organisation dont vous êtes membre.",
+  fullCatalogRequested:
+    "Cet appareil demande l’accès au catalogue complet des actions.",
   createToken: "Créer un jeton de connexion",
   authorizingDevice: "Autorisation de l’appareil...",
   creatingToken: "Création du jeton...",
@@ -66,6 +70,24 @@ export const mcpConnectMessages: McpConnectMessages = {
   couldNotCreate: "Impossible de créer le jeton.",
   networkError: "Erreur réseau. Réessayez.",
   urlTitle: "Votre URL MCP",
+  servicePrincipals: "Principaux de service",
+  principalUngoverned: "Non gouverné",
+  principalActive: "Actif",
+  principalSuspended: "Suspendu",
+  principalRetired: "Retiré",
+  principalUngovernedHint:
+    "Aucun propriétaire ni autorisation d'actions n'est défini.",
+  principalOwner: "Propriétaire",
+  principalRisk: "Risque",
+  riskLow: "faible",
+  riskMedium: "moyen",
+  riskHigh: "élevé",
+  suspend: "Suspendre",
+  resume: "Reprendre",
+  couldNotUpdatePrincipal:
+    "Impossible de mettre à jour le principal de service.",
+  containmentIncomplete:
+    "Mis à jour, mais certaines exécutions ou certains jetons n'ont pas pu être arrêtés. Réessayez.",
 };
 
 export const mcpSettingsMessages: McpSettingsMessages = {

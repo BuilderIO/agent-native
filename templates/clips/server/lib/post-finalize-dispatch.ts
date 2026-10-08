@@ -4,7 +4,8 @@ import {
   AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   dispatchPathTargetsNetlifyBackgroundFunction,
   resolveDurableBackgroundDispatchPath,
-  signScopedAgentAccessToken,
+  scopedAgentAccessResourceId,
+  signShortLivedToken,
 } from "@agent-native/core/server";
 
 export type PostFinalizeJobKind =
@@ -52,13 +53,20 @@ export async function dispatchPostFinalizeJob(args: {
   kind: PostFinalizeJobKind;
   delayMs?: number;
   retryAttempt?: number;
+  uploadAttemptId?: string | null;
+  uploadGenerationId?: string | null;
   regenerate?: boolean;
   requireAccepted?: boolean;
 }): Promise<void> {
   const { requireAccepted = false, ...job } = args;
-  const token = signScopedAgentAccessToken({
-    resourceKind: POST_FINALIZE_JOB_TOKEN_KIND,
-    resourceId: postFinalizeJobResourceId(job.recordingId, job.kind),
+  // Legacy token format on purpose: this only travels in the POST body to
+  // another build of this app, so a rolling deploy must verify what an older
+  // build minted, and an older build must verify what this one mints.
+  const token = signShortLivedToken({
+    resourceId: scopedAgentAccessResourceId(
+      POST_FINALIZE_JOB_TOKEN_KIND,
+      postFinalizeJobResourceId(job.recordingId, job.kind),
+    ),
     ttlSeconds: 10 * 60,
   });
   const basePath = normalizeBasePath(

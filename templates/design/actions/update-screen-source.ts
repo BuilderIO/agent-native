@@ -4,6 +4,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
   mutateDesignData,
   type DesignDataRecord,
@@ -13,6 +14,8 @@ import {
   fetchLocalhostSnapshot,
   resolveLocalhostConnectionScope,
 } from "../server/lib/localhost-connection.js";
+import { deleteVisualEditSnapshotBlobs } from "../server/lib/visual-edit-snapshot-blobs.js";
+import { retireVisualEditSnapshotInTransaction } from "../server/lib/visual-edit-snapshot-retirement.js";
 import {
   readLiveSourceFile,
   writeInlineSourceFile,
@@ -393,6 +396,18 @@ export default defineAction({
           matches(current.localhostScreens[fileId])
         );
       },
+      mutateInTransaction: (tx, current, next) =>
+        sourceType === "static"
+          ? retireVisualEditSnapshotInTransaction({
+              tx,
+              designId,
+              fileId,
+              currentData: current,
+              nextData: next,
+            })
+          : Promise.resolve(null),
+      afterCommit: (blobHandle) => deleteVisualEditSnapshotBlobs([blobHandle]),
+      lockSourceMutation: true,
     });
 
     return {
@@ -409,4 +424,5 @@ export default defineAction({
       dataUpdatedAt: persisted.updatedAt,
     };
   },
+  changeResource: (p, result) => designChangeResource(p.designId, result),
 });

@@ -22,6 +22,10 @@ Model source of truth: `shared/crm-contract.ts`. Type registry:
   and none of them mean "no records".
 - `view-screen` — only when the request depends on the visible record,
   selection, list, or view. `navigate` to show a view rather than describing it.
+  `navigate({ view: "settings", settingsSection })` opens one of CRM's settings
+  tabs (connection, fields, lists, intelligence, advanced), which the
+  redesigned Settings shows as tabs on CRM › General; `mcp` opens the MCP
+  server page.
 - `list-crm-records` / `get-crm-record` / `get-crm-record-page` — ordinary reads.
 - `sync-crm` — one declared, bounded provider cohort. It is not an export-all,
   and Native SQL never needs it.
@@ -119,6 +123,12 @@ program linked to one view.
 company domain, shared email root domain, and normalized name plus location, and
 returns a reason and confidence per candidate. A shared company domain is a
 signal between accounts only — colleagues are a relationship, not a duplicate.
+For a user-requested second opinion on one record, pass its `recordIds` and
+`semanticReview: true`. Jev reviews at most five ambiguous, accessible pairs;
+its same-entity probability is a suggestion separate from rule confidence.
+If `semanticReviewUnavailable` is true, show the rule-based candidates and
+report that Jev did not complete its review.
+Do not run this for an automatic recent-record scan or treat it as merge approval.
 
 `merge-crm-records` needs an explicit survivor. It promotes only the values the
 survivor lacks, moves list entries, tasks, interactions, evidence, signals, and
@@ -168,7 +178,8 @@ rejects the whole call and writes nothing.
 - `create-crm-signal-tracker` / `manage-crm-signal-tracker` need editor access.
   Enabling, disabling, and deleting a tracker are local configuration only:
   never a model call, never a provider mutation. Their settings tab is
-  `navigate({ view: "settings", settingsSection: "intelligence" })`.
+  `navigate({ view: "settings", settingsSection: "intelligence" })`
+  (`/settings/app/intelligence`).
 - `review-crm-signal` is the human confirm/dismiss step.
 - `get-crm-automation-recipe` returns the default-off Clips review recipe for
   one explicitly selected record. The recipe is a configuration aid, not

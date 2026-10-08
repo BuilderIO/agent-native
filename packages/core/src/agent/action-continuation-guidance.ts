@@ -1,8 +1,3 @@
-// Concrete "ship a compact first version, then refine incrementally" guidance
-// keyed by the large-payload action the model was cut off while preparing.
-// A run cut off before the tool starts tends to reassemble the same oversized
-// payload on every continuation; pointing the model at the incremental path is
-// what breaks that loop.
 export function incrementalActionGuidance(tool: string): string | undefined {
   switch (tool) {
     case "create-extension":

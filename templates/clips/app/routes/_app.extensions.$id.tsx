@@ -1,5 +1,5 @@
-import { ExtensionViewerPage } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
+import { ExtensionViewerPage } from "@agent-native/toolkit/app/extensions";
 
 import { PageHeader } from "@/components/library/page-header";
 

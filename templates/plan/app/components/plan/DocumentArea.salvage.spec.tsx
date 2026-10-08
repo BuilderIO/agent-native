@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
-
-import { BlockRegistryProvider } from "@agent-native/core/blocks";
+import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
 import type { PlanBlock } from "@shared/plan-content";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";

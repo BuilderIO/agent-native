@@ -46,6 +46,10 @@ export const mcpConnectMessages: McpConnectMessages = {
   revoke: "취소",
   couldNotRevoke: "토큰을 취소할 수 없습니다.",
   authorizeDevice: "기기 승인",
+  organization: "조직",
+  invalidOrganization: "소속된 조직을 선택하세요.",
+  fullCatalogRequested:
+    "이 기기는 전체 작업 카탈로그에 대한 액세스를 요청하고 있습니다.",
   createToken: "연결 토큰 생성",
   authorizingDevice: "기기 승인 중...",
   creatingToken: "토큰 생성 중...",
@@ -64,6 +68,22 @@ export const mcpConnectMessages: McpConnectMessages = {
   couldNotCreate: "토큰을 생성할 수 없습니다.",
   networkError: "네트워크 오류입니다. 다시 시도하세요.",
   urlTitle: "MCP URL",
+  servicePrincipals: "서비스 주체",
+  principalUngoverned: "미관리",
+  principalActive: "활성",
+  principalSuspended: "일시 중지됨",
+  principalRetired: "폐기됨",
+  principalUngovernedHint: "소유자 또는 작업 권한이 설정되지 않았습니다.",
+  principalOwner: "소유자",
+  principalRisk: "위험",
+  riskLow: "낮음",
+  riskMedium: "보통",
+  riskHigh: "높음",
+  suspend: "일시 중지",
+  resume: "재개",
+  couldNotUpdatePrincipal: "서비스 주체를 업데이트할 수 없습니다.",
+  containmentIncomplete:
+    "업데이트했지만 일부 실행 또는 토큰을 중지하지 못했습니다. 다시 시도하세요.",
 };
 
 export const mcpSettingsMessages: McpSettingsMessages = {

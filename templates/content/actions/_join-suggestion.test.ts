@@ -21,7 +21,6 @@ describe("suggestJoinKey", () => {
     expect(suggestion!.primary.keyField).toBe("data.url");
     expect(suggestion!.secondary.keyField).toBe("ref_url");
     expect(suggestion!.primary.normalizationFormula).toContain("striphost");
-    // foo + bar overlap of 3∪3 with 2 shared → 2/4 = 0.5.
     expect(suggestion!.confidence).toBeGreaterThan(0);
     const matched = suggestion!.sampleMatches.filter((m) => m.matched);
     expect(matched.length).toBe(2);

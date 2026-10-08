@@ -1,9 +1,12 @@
 {
   "name": "agent-native-turn-into-app",
-  "version": "1.0.0+codex.943baa28d3c3",
-  "description": "Turn visible project context, a proven thread, skill, or workflow into a runnable Agent-Native app. On Claude or ChatGPT Web, it hands a bounded source brief to Builder through Dispatch; local code agents can build and verify in a workspace.",
-  "author": { "name": "Agent-Native", "url": "https://agent-native.com" },
-  "homepage": "https://dispatch.agent-native.com",
+  "version": "1.0.0+codex.279906a7b981",
+  "description": "Turn a thread, skill, spreadsheet, or Claude/ChatGPT project into a visual Agent-Native app. Local code agents build, run, and screenshot-review it; Claude and ChatGPT on the web hand a bounded source brief to Builder through Dispatch.",
+  "author": {
+    "name": "Agent-Native",
+    "url": "https://agent-native.com/?utm_source=codex-plugins&utm_medium=referral&utm_content=plugin-author"
+  },
+  "homepage": "https://dispatch.agent-native.com/?utm_source=codex-plugins&utm_medium=referral&utm_content=plugin-homepage",
   "license": "MIT",
   "keywords": [
     "agent-native",
@@ -16,12 +19,12 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Turn Into App",
-    "shortDescription": "Turn visible project context, a proven thread, skill, or workflow into a runnable Agent-Native app. On Claude or ChatGPT Web, it hands a bounded source brief to Builder through Dispatch; local code agents can build and verify in a workspace.",
+    "shortDescription": "Turn a thread, skill, spreadsheet, or Claude/ChatGPT project into a visual Agent-Native app. Local code agents build, run, and screenshot-review it; Claude and ChatGPT on the web hand a bounded source brief to Builder through Dispatch.",
     "longDescription": "Turn Into App packages agent instructions, app actions, an MCP connector, and inline UI surfaces as an installable skill. The plugin connects to hosted Turn Into App by default; use the Agent-Native CLI when you need a custom/self-hosted app URL.",
     "developerName": "Agent-Native",
     "category": "Productivity",
     "capabilities": ["Interactive", "Read", "Write"],
-    "websiteURL": "https://dispatch.agent-native.com",
+    "websiteURL": "https://dispatch.agent-native.com/?utm_source=codex-plugins&utm_medium=referral&utm_content=plugin-website",
     "defaultPrompt": [
       "Open Turn Into App where useful",
       "Use Turn Into App for app-backed workflows",

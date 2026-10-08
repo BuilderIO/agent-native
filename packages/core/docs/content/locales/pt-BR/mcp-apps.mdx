@@ -18,6 +18,14 @@ Os aplicativos MCP são a extensão `io.modelcontextprotocol/ui` oficial que per
 
 No próprio bate-papo do aplicativo Agent-Native, prefira [native chat renderers](/docs/native-chat-ui) para widgets originais, como tabelas, gráficos, resultados digitados e recursos de aprovação. Use aplicativos MCP para UI em linha externo/entre hosts em Claude, ChatGPT, Copilot, Cursor e outros hosts compatíveis, com a ação `link` como substituto de deep-link universal.
 
+## OpenAI Plugin Extensions {#openai-plugin-extensions}
+
+As OpenAI Plugin Extensions adicionam pontos de entrada às ferramentas MCP chamadas pelo modelo. Quando os MCP Apps inline estão habilitados, a ferramenta compartilhada `open_app` anuncia um ponto na barra lateral global e outro no painel lateral de uma conversa. O ChatGPT a chama com `{}`; o Core abre a página inicial do app atual como um MCP App inline. Apps que usam o servidor MCP compartilhado não precisam de registro individual. Consulte o [guia OpenAI de Plugin Extensions](https://developers.openai.com/plugins/build/extensions) e a [especificação MCP Extensions](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md).
+
+Botões nas rotas de apps incorporados podem chamar `sendToAgentChat(...)` para continuar a conversa. O Core envia o estado selecionado por `ui/update-model-context` com `annotations.audience: ["assistant"]` e depois envia o prompt visível por `ui/message`. Visualizadores de arquivos, menções no compositor e outras extensões especializadas precisam de contratos de entrada específicos do app.
+
+Em hosts antigos, o Core só pode usar um fallback de texto quando a solicitação não contém contexto selecionado nem estruturado, todo o conteúdo pode ser representado como texto e cada lista `annotations.audience` do texto encaminhado inclui `assistant` e `user`. Caso contrário, ou se o host rejeitar a atualização do contexto, `sendToAgentChat(...)` retornará `false`.
+
 ## Autoria: aplicativos MCP opcionais UI {#mcp-apps}
 
 Para hosts que suportam a extensão MCP Apps, uma ação também pode anunciar um recurso UI embutido com `mcpApp`. Esta é uma melhoria progressiva para fluxos em que o agente externo deve entregar ao usuário uma superfície interativa em vez de apenas texto — por exemplo, revisando um rascunho de e-mail, editando um convite de calendário ou escolhendo entre variantes de painel geradas.
@@ -227,7 +235,7 @@ O shell de recursos possui o tamanho do host externo. O padrão `embedApp({ heig
 
 Claude usa o caminho de transplante de quadro único por padrão. Você também pode forçá-lo em outros hosts com `embedMode: "transplant"` ou `frame: "transplant"` ao depurar o comportamento de carregamento do módulo do host. Você pode forçar o iframe de diagnóstico aninhado com `embedMode: "iframe"`, `renderMode: "iframe"`, `nested: true` ou `frame: "iframe"`. Se o iframe estiver bloqueado, `embedApp()` o substitui por um substituto de aplicativo aberto: o usuário pode tentar novamente in-line, abrir uma sessão de incorporação recém-criada por meio do host ou usar a rota visível URL. Mantenha o alvo `link` da ação útil por si só, porque ele ainda é a saída de emergência universal.
 
-Ao testar Claude por meio do ngrok, use uma compilação de produção (`npx @agent-native/core@latest build` e depois `npx @agent-native/core@latest start`) ou uma visualização/produção implantada URL. O caminho de transplante de quadro único do Claude funciona com pedaços de ativos de produção; módulos de desenvolvimento Vite brutos, como `/app/root.tsx`, podem ser protegidos pela autenticação do aplicativo e falhar nas importações dinâmicas da origem do recurso Claude.
+Ao testar Claude por meio do ngrok, use uma compilação de produção (`pnpm build` e depois `npx @agent-native/core@latest start`) ou uma visualização/produção implantada URL. O caminho de transplante de quadro único do Claude funciona com pedaços de ativos de produção; módulos de desenvolvimento Vite brutos, como `/app/root.tsx`, podem ser protegidos pela autenticação do aplicativo e falhar nas importações dinâmicas da origem do recurso Claude.
 
 ## Ponte de host API {#host-bridge}
 

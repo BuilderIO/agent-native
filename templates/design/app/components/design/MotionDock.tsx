@@ -82,19 +82,13 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+const RULER_HEIGHT = 24;
+const ROW_HEIGHT = 32;
+const LAYER_SIDEBAR_WIDTH = 200;
+const PLAYHEAD_WIDTH = 2;
+const MIN_DOCK_HEIGHT = 160;
+const DEFAULT_DOCK_HEIGHT = 280;
 
-const RULER_HEIGHT = 24; // px
-const ROW_HEIGHT = 32; // px
-const LAYER_SIDEBAR_WIDTH = 200; // px
-const PLAYHEAD_WIDTH = 2; // px
-const MIN_DOCK_HEIGHT = 160; // px
-const DEFAULT_DOCK_HEIGHT = 280; // px
-
-/**
- * Playback-mode cycling order + chrome, matching Figma Motion's cycling
- * toolbar button (Loop / Once / Ping-pong).
- */
 const PLAYBACK_MODES: {
   mode: MotionPlaybackMode;
   labelKey: "loop" | "once" | "pingPong";
@@ -105,38 +99,20 @@ const PLAYBACK_MODES: {
   { mode: "ping-pong", labelKey: "pingPong", Icon: IconArrowsLeftRight },
 ];
 
-/**
- * Row-identity key for a track. Uses the unit-separator delimiter (same
- * convention as apply-motion-edit's motionTrackKey) so distinct
- * (nodeId, property) pairs can never collide.
- */
 function trackKey(track: MotionTrack): string {
   return `${track.targetNodeId}\u001f${track.property}`;
 }
 
-/** Compact ruler tick label: "250ms" under a second, "1.5s" above. */
 function formatMsTick(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   const s = (ms / 1000).toFixed(2).replace(/\.?0+$/, "");
   return `${s}s`;
 }
 
-/**
- * Whether committing on this key should also suppress the blur handler's own
- * commit. Enter/Escape both trigger an explicit `.blur()` call right after
- * committing so the field visually defocuses; without this guard, that
- * synchronous blur re-invokes the (still stale, same-render) commit callback
- * a second time in the same tick — a harmless-looking no-op for identical
- * values, but it double-fires side effects like `onPlayheadChange` /
- * `onDurationChange` and the preview postMessage. Mirrors
- * `propInputKeyRequiresBlurGuard` in edit-panel/panel-primitives.tsx (the
- * same bug class, fixed there for style-property fields).
- */
 export function motionFieldKeyRequiresBlurGuard(key: string): boolean {
   return key === "Enter" || key === "Escape";
 }
 
-/** Human label for an ease value: preset name when recognised, else raw. */
 function easeLabel(
   ease: MotionEase | undefined,
   t: (key: string) => string,
@@ -157,79 +133,30 @@ function easeLabel(
   return String(ease);
 }
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 export interface MotionDockTrack extends MotionTrack {
-  /** Human-readable label derived from data-agent-native-layer-name or nodeId. */
   label: string;
 }
 
 export interface MotionDockProps {
-  /** Tracks to display. Each track maps to one layer row. */
   tracks: MotionDockTrack[];
-  /** Total animation duration in milliseconds. */
   durationMs: number;
-  /** Default easing applied to keyframes that omit ease. */
   defaultEase?: MotionEase;
-  /** Controlled open state. */
   open?: boolean;
-  /** Called when the user toggles the dock open/closed. */
   onOpenChange?: (open: boolean) => void;
-  /** Called after the close transform finishes. */
   onExitComplete?: () => void;
-  /** Called when a track is modified (add/move/delete keyframe or change value). */
   onTracksChange?: (tracks: MotionDockTrack[]) => void;
-  /** Called when durationMs is edited. */
   onDurationChange?: (ms: number) => void;
-  /**
-   * Controlled playback mode (Loop / Once / Ping-pong). When omitted, the
-   * dock reads the mode stamped in `tracks` (timelinePlaybackMode on the
-   * first track) and persists changes by re-stamping the tracks through
-   * `onTracksChange` — no extra parent wiring needed.
-   */
   playbackMode?: MotionPlaybackMode;
-  /** Called when the playback-mode cycling button changes the mode. */
   onPlaybackModeChange?: (mode: MotionPlaybackMode) => void;
-  /**
-   * Reference to the canvas iframe element. Used to send preview postMessages.
-   * If not provided, preview messages are skipped (no crash).
-   */
   canvasIframeRef?: React.RefObject<HTMLIFrameElement | null>;
-  /** Whether the parent autosave mutation is in flight. */
   applying?: boolean;
-  /** Controlled auto-keyframe state. */
   autoKeyframe?: boolean;
-  /** Called when the auto-keyframe toggle changes. */
   onAutoKeyframeChange?: (enabled: boolean) => void;
-  /** Controlled playhead position, normalized to [0, 1]. */
   playhead?: number;
-  /**
-   * Called when the playhead position COMMITS (pause/stop, scrub end, reset)
-   * — deliberately not on every rAF tick/scrub frame, so the parent is never
-   * re-rendered at 60fps. Continuous preview stays inside the dock.
-   */
   onPlayheadChange?: (t: number) => void;
-  /**
-   * Parent-owned mirror of the LIVE playhead position, updated on every rAF
-   * tick and scrub frame (not just at commit points). The dock only notifies
-   * the parent's state at commit points to avoid 60fps re-renders, but
-   * auto-keyframe needs the true current position — an inspector edit made
-   * mid-playback must key at where the playhead actually is, not at the last
-   * committed time. Writing to a ref keeps that value fresh without
-   * re-rendering the editor. Cleared back to the committed value on
-   * pause/stop/scrub-end so a later read outside playback isn't stale.
-   */
   livePlayheadRef?: React.MutableRefObject<number | null>;
-  /**
-   * The currently-selected canvas element, if any. Required to create the FIRST
-   * track for a layer: the picker animates this node's
-   * `data-agent-native-node-id`. `null` when nothing is selected — the create
-   * affordance is then disabled with a hint to select an element.
-   */
   selectedTarget?: { nodeId: string; label: string } | null;
 }
-
-// ─── Component ────────────────────────────────────────────────────────────────
 
 export function MotionDock({
   tracks,
@@ -253,7 +180,6 @@ export function MotionDock({
 }: MotionDockProps) {
   const t = useT();
 
-  // Controlled / uncontrolled open state.
   const [openInternal, setOpenInternal] = useState(false);
   const isOpen = openProp !== undefined ? openProp : openInternal;
   const setOpen = useCallback(
@@ -264,10 +190,6 @@ export function MotionDock({
     [onOpenChange],
   );
 
-  // Playhead position: normalised [0, 1]. High-frequency updates (rAF playback
-  // ticks, ruler scrubbing) stay INTERNAL to the dock; the parent is only
-  // notified at commit points (pause/stop, scrub end, reset) so a 60fps
-  // playhead never re-renders the whole editor page.
   const [playhead, setPlayhead] = useState(playheadProp ?? 0);
   const playheadRef = useRef(playheadProp ?? 0);
   const [playing, setPlaying] = useState(false);
@@ -277,13 +199,10 @@ export function MotionDock({
     if (playheadProp === undefined) return;
     const clamped = Math.max(0, Math.min(1, playheadProp));
     playheadRef.current = clamped;
-    // Keep the live-playhead mirror seeded with the committed position so a
-    // read outside playback/scrub returns the current time, not a stale one.
     if (livePlayheadRef) livePlayheadRef.current = clamped;
     setPlayhead(clamped);
   }, [livePlayheadRef, playheadProp]);
 
-  // Auto-keyframe mode: inspector/style edits create keyframes at the playhead.
   const [autoKeyframeInternal, setAutoKeyframeInternal] = useState(false);
   const autoKeyframe = autoKeyframeProp ?? autoKeyframeInternal;
   const setAutoKeyframe = useCallback(
@@ -298,10 +217,6 @@ export function MotionDock({
     [autoKeyframe, onAutoKeyframeChange],
   );
 
-  // Playback mode (Loop / Once / Ping-pong). Controlled by the parent when
-  // provided; otherwise read from the stamp persisted in the tracks JSON.
-  // Cycling the button re-stamps the tracks through onTracksChange, so the
-  // mode persists via the parent's existing autosave without extra wiring.
   const [playbackModeInternal, setPlaybackModeInternal] =
     useState<MotionPlaybackMode | null>(null);
   const playbackMode: MotionPlaybackMode =
@@ -319,40 +234,26 @@ export function MotionDock({
     }
   }, [onPlaybackModeChange, onTracksChange, playbackMode, tracks]);
 
-  // Selected property row — the target of the toolbar's add-keyframe ◆
-  // button (Figma keys the selected track at the playhead).
   const [selectedTrackKey, setSelectedTrackKey] = useState<string | null>(null);
   const selectedTrack =
     tracks.find((track) => trackKey(track) === selectedTrackKey) ?? null;
 
-  // Current-time field draft (null = displaying the live playhead).
   const [timeDraft, setTimeDraft] = useState<string | null>(null);
-  // See motionFieldKeyRequiresBlurGuard: set right before an Enter-triggered
-  // `.blur()` so the blur handler that fires in the same synchronous tick
-  // skips its own commit instead of double-invoking commitTimeDraft.
   const skipNextTimeBlurCommitRef = useRef(false);
-  // Same guard for the duration field's Enter -> blur -> onBlur-commit path.
   const skipNextDurationBlurCommitRef = useRef(false);
-  /** Internal high-frequency playhead update — does NOT notify the parent. */
   const setPlayheadLocal = useCallback(
     (next: number) => {
       playheadRef.current = next;
-      // Mirror the LIVE position into the parent-owned ref so auto-keyframe
-      // reads the true current playhead during playback/scrub, not the last
-      // committed time. Updating a ref never re-renders, so this stays cheap
-      // at 60fps.
       if (livePlayheadRef) livePlayheadRef.current = next;
       setPlayhead(next);
     },
     [livePlayheadRef],
   );
-  /** Commit the current playhead to the parent (pause, scrub end, reset). */
   const commitPlayhead = useCallback(() => {
     if (livePlayheadRef) livePlayheadRef.current = playheadRef.current;
     onPlayheadChange?.(playheadRef.current);
   }, [livePlayheadRef, onPlayheadChange]);
 
-  // Dock height (resizable via the top drag handle).
   const [dockHeight, setDockHeight] = useState(DEFAULT_DOCK_HEIGHT);
   const [isResizingDock, setIsResizingDock] = useState(false);
   const resizingRef = useRef(false);
@@ -367,7 +268,6 @@ export function MotionDock({
     [isOpen, onExitComplete],
   );
 
-  // Expanded layers in the sidebar.
   const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(
     () => new Set(tracks.map((t) => t.targetNodeId)),
   );
@@ -380,16 +280,13 @@ export function MotionDock({
     });
   }, [tracks]);
 
-  // Ruler / track area ref for pointer math.
   const trackAreaRef = useRef<HTMLDivElement>(null);
 
-  // Local duration input state.
   const [durationInput, setDurationInput] = useState(String(durationMs));
   useEffect(() => {
     setDurationInput(String(durationMs));
   }, [durationMs]);
 
-  // ── Preview postMessage ──────────────────────────────────────────────────
   const sendPreview = useCallback(
     (t: number) => {
       const iframe = canvasIframeRef?.current;
@@ -406,7 +303,6 @@ export function MotionDock({
     [canvasIframeRef, durationMs],
   );
 
-  // ── Playback ─────────────────────────────────────────────────────────────
   const stopPlayback = useCallback(() => {
     if (playRafRef.current !== null) {
       cancelAnimationFrame(playRafRef.current);
@@ -414,7 +310,6 @@ export function MotionDock({
     }
     playStartRef.current = null;
     setPlaying(false);
-    // Pause/stop is a commit point: hand the final position to the parent.
     commitPlayhead();
   }, [commitPlayhead]);
 
@@ -424,8 +319,6 @@ export function MotionDock({
     playStartRef.current = { wallMs: performance.now(), startT };
     setPlaying(true);
 
-    // Loop and ping-pong run until explicitly paused; once stops at the end
-    // (matching the compiled CSS's animation-iteration-count / -direction).
     const tick = (now: number) => {
       if (!playStartRef.current) return;
       const elapsed = now - playStartRef.current.wallMs;
@@ -465,7 +358,6 @@ export function MotionDock({
     };
   }, []);
 
-  // ── Playhead drag ─────────────────────────────────────────────────────────
   const isDraggingPlayhead = useRef(false);
 
   const handleRulerPointerDown = useCallback(
@@ -496,11 +388,9 @@ export function MotionDock({
   const handleRulerPointerUp = useCallback(() => {
     if (!isDraggingPlayhead.current) return;
     isDraggingPlayhead.current = false;
-    // Scrub end is a commit point.
     commitPlayhead();
   }, [commitPlayhead]);
 
-  // ── Dock resize drag ─────────────────────────────────────────────────────
   const handleResizePointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       resizingRef.current = true;
@@ -528,7 +418,6 @@ export function MotionDock({
     resizeStartRef.current = null;
   }, []);
 
-  // ── Keyframe helpers ─────────────────────────────────────────────────────
   const updateTrack = useCallback(
     (
       nodeId: string,
@@ -549,11 +438,6 @@ export function MotionDock({
 
   const addKeyframe = useCallback(
     (track: MotionDockTrack) => {
-      // Map the timeline playhead into the track's own span (tracks may be
-      // offset/scaled via delayMs/durationMs), then seed the new keyframe
-      // with the track's interpolated value at that local time (what the
-      // preview currently shows) — a hardcoded "0" is invalid CSS for
-      // transform/filter/color tracks and snaps the preview.
       const localT = timelineTimeToTrackTime(
         track,
         playhead * durationMs,
@@ -571,27 +455,17 @@ export function MotionDock({
       };
       updateTrack(track.targetNodeId, track.property, (tr) => ({
         ...tr,
-        // Epsilon replace-at-time: adding at (nearly) the same playhead
-        // position replaces the existing stop instead of stacking an
-        // invisible duplicate diamond.
         keyframes: upsertMotionKeyframeAtTime(tr.keyframes, newKf),
       }));
     },
     [defaultEase, durationMs, playhead, updateTrack],
   );
 
-  // ── Create a brand-new track (the "first track" path) ──────────────────────
-  // This is the entry point that turns the dock from a dead end into a working
-  // editor: with an element selected and no track yet, the user picks a property
-  // preset and we seed a two-keyframe track. The parent autosaves that valid
-  // track into managed CSS. Idempotent per (nodeId, property) — picking the same
-  // property twice just re-expands the existing track instead of duplicating.
   const createTrack = useCallback(
     (preset: MotionPropertyPreset) => {
       if (!onTracksChange || !selectedTarget) return;
       const { nodeId, label } = selectedTarget;
 
-      // Always expand the target layer so the new track row is visible.
       setExpandedNodeIds((prev) => {
         const next = new Set(prev);
         next.add(nodeId);
@@ -599,10 +473,6 @@ export function MotionDock({
       });
 
       if (hasTrackFor(tracks, nodeId, preset.property)) {
-        // Track already exists — do not duplicate; the expand above surfaces
-        // it, and an explicit notice explains why nothing new appeared (two
-        // presets can target the same property, e.g. slide + scale are both
-        // "transform").
         toast.info(
           t("designEditor.motion.trackExists", {
             property: preset.property,
@@ -614,8 +484,6 @@ export function MotionDock({
 
       const seeded = createMotionTrackFromPreset(nodeId, preset, defaultEase);
       const newTrack: MotionDockTrack = { ...seeded, label };
-      // Figma parity: brand-new timelines default to Loop. Existing
-      // timelines keep whatever mode is already stamped/resolved.
       const nextTracks =
         tracks.length === 0
           ? withTimelinePlaybackMode([newTrack], "loop")
@@ -630,9 +498,6 @@ export function MotionDock({
     (track: MotionDockTrack, index: number) => {
       if (!onTracksChange) return;
       if (track.keyframes.length <= 1) {
-        // Deleting the last keyframe removes the whole track: a 0-keyframe
-        // track cannot compile and is rejected by apply-motion-edit, which
-        // would brick every subsequent autosave with no UI to recover.
         onTracksChange(
           tracks.filter(
             (tr) =>
@@ -664,9 +529,6 @@ export function MotionDock({
     [updateTrack],
   );
 
-  // Re-sort a track's keyframes once a drag finishes. Sorting DURING the drag
-  // would reshuffle the dragged keyframe's index mid-gesture; the preview
-  // bridge and compiler sort defensively, so drag-time order is safe.
   const moveKeyframeEnd = useCallback(
     (track: MotionDockTrack) => {
       updateTrack(track.targetNodeId, track.property, (tr) => ({
@@ -689,9 +551,6 @@ export function MotionDock({
     [updateTrack],
   );
 
-  // ── Layer span-bar gestures (drag to offset, edge-drag to scale) ─────────
-  // Given the layer's NEW span, remap every track of that layer
-  // proportionally from the OLD span so per-track relative offsets survive.
   const updateLayerSpan = useCallback(
     (nodeId: string, nextSpan: { startMs: number; durationMs: number }) => {
       if (!onTracksChange) return;
@@ -733,7 +592,6 @@ export function MotionDock({
     [durationMs, onTracksChange, tracks],
   );
 
-  // ── Current-time field ────────────────────────────────────────────────────
   const commitTimeDraft = useCallback(() => {
     if (timeDraft === null) return;
     const ms = parseInt(timeDraft, 10);
@@ -753,7 +611,6 @@ export function MotionDock({
     timeDraft,
   ]);
 
-  // ── Duration field ────────────────────────────────────────────────────────
   const commitDurationDraft = useCallback(() => {
     const ms = parseInt(durationInput, 10);
     if (!isNaN(ms) && ms >= 50) {
@@ -763,7 +620,6 @@ export function MotionDock({
     }
   }, [durationInput, durationMs, onDurationChange]);
 
-  // ── Space plays/pauses while the dock has focus (Figma parity) ───────────
   const handleDockKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLDivElement>) => {
       if (e.code !== "Space") return;
@@ -778,14 +634,10 @@ export function MotionDock({
     [playing, startPlayback, stopPlayback],
   );
 
-  // ── Ruler tick marks (ms, nice steps — Figma-style ms ruler) ─────────────
   function rulerTicks(): { t: number; label: string }[] {
     const NICE_STEPS = [
       10, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000,
     ];
-    // Plain loop (rather than Array#find with an inline arrow function) so a
-    // `<=` comparison never sits directly after a `>` character — the i18n
-    // raw-literal guard's regex heuristic treats `>...<` runs as JSX text.
     let step = Math.ceil(durationMs / 10);
     for (const candidate of NICE_STEPS) {
       if (durationMs / candidate <= 10) {
@@ -800,7 +652,6 @@ export function MotionDock({
     return ticks;
   }
 
-  // ── Group tracks by layer (nodeId) ────────────────────────────────────────
   type LayerGroup = {
     nodeId: string;
     label: string;
@@ -820,7 +671,6 @@ export function MotionDock({
     return acc;
   }, []);
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div
       className={cn(
@@ -833,8 +683,6 @@ export function MotionDock({
       <div
         aria-label={t("designEditor.motion.dockLabel")}
         aria-hidden={!isOpen ? true : undefined}
-        // Focusable so Space can play/pause while the dock is focused
-        // (Figma parity); -1 keeps it out of the tab order.
         tabIndex={-1}
         onKeyDown={handleDockKeyDown}
         className={cn(
@@ -971,9 +819,6 @@ export function MotionDock({
                   if (e.key === "Enter") {
                     e.preventDefault();
                     commitTimeDraft();
-                    // Without this, the blur triggered below re-enters
-                    // commitTimeDraft() a second time in the same
-                    // synchronous tick (see motionFieldKeyRequiresBlurGuard).
                     skipNextTimeBlurCommitRef.current =
                       motionFieldKeyRequiresBlurGuard(e.key);
                     (e.target as HTMLInputElement).blur();
@@ -981,8 +826,6 @@ export function MotionDock({
                   }
                   if (e.key === "Escape") {
                     e.preventDefault();
-                    // Cancel the in-progress edit — revert to displaying the
-                    // live playhead instead of committing the draft.
                     setTimeDraft(null);
                     skipNextTimeBlurCommitRef.current =
                       motionFieldKeyRequiresBlurGuard(e.key);
@@ -1017,8 +860,6 @@ export function MotionDock({
                   if (e.key === "Enter") {
                     e.preventDefault();
                     commitDurationDraft();
-                    // Same double-commit guard as the current-time field —
-                    // see motionFieldKeyRequiresBlurGuard.
                     skipNextDurationBlurCommitRef.current =
                       motionFieldKeyRequiresBlurGuard(e.key);
                     (e.target as HTMLInputElement).blur();
@@ -1026,8 +867,6 @@ export function MotionDock({
                   }
                   if (e.key === "Escape") {
                     e.preventDefault();
-                    // Cancel the in-progress edit — revert to the last
-                    // committed duration instead of persisting the draft.
                     setDurationInput(String(durationMs));
                     skipNextDurationBlurCommitRef.current =
                       motionFieldKeyRequiresBlurGuard(e.key);
@@ -1255,23 +1094,12 @@ export function MotionDock({
   );
 }
 
-// ─── Sub-components ────────────────────────────────────────────────────────────
-
 interface AddTrackMenuProps {
   selectedTarget: { nodeId: string; label: string } | null;
   onCreateTrack: (preset: MotionPropertyPreset) => void;
-  /** "toolbar" (compact button) or "cta" (prominent empty-state button). */
   variant?: "toolbar" | "cta";
 }
 
-/**
- * "Add motion" dropdown — creates a new motion track for the selected
- * element. Matches Figma Motion's submenu verbatim: Position / Scale /
- * Rotation / Opacity directly, with the remaining keyframeable properties
- * under a "More" submenu (Corner radius, Fill, Stroke paint, Stroke weight,
- * Drop shadow). Disabled (with a hint) when nothing is selected, which is
- * the only state where a first track cannot be created.
- */
 function AddTrackMenu({
   selectedTarget,
   onCreateTrack,
@@ -1305,8 +1133,6 @@ function AddTrackMenu({
       </Button>
     );
 
-  // When disabled, render a tooltip-wrapped static button instead of a menu so
-  // the user learns they need a selection first.
   if (disabled) {
     return (
       <Tooltip>
@@ -1399,7 +1225,6 @@ interface LayerGroupProps {
   expanded: boolean;
   onToggleExpand: () => void;
   onAddKeyframe: (track: MotionDockTrack) => void;
-  /** Key of the selected property row (toolbar ◆ target). */
   selectedTrackKey: string | null;
   onSelectTrack: (track: MotionDockTrack) => void;
 }
@@ -1506,7 +1331,6 @@ interface LayerTrackRowsProps {
     index: number,
     ease: MotionEase,
   ) => void;
-  /** Layer span-bar gesture commit: drag to offset, edge-drag to scale. */
   onLayerSpanChange: (
     nodeId: string,
     span: { startMs: number; durationMs: number },
@@ -1527,8 +1351,6 @@ function LayerTrackRows({
   onEaseKeyframe,
   onLayerSpanChange,
 }: LayerTrackRowsProps) {
-  // Layer span = earliest track start … latest track end (Figma's parent
-  // layer bar). Dragging it offsets every track; edge handles scale them.
   const timings = layer.tracks.map((track) =>
     getMotionTrackTiming(track, timelineDurationMs),
   );
@@ -1576,8 +1398,6 @@ function LayerTrackRows({
     </>
   );
 }
-
-// ─── Layer span bar (drag = offset, edge-drag = scale) ────────────────────────
 
 interface LayerSpanBarProps {
   spanStartMs: number;
@@ -1711,17 +1531,10 @@ function TrackRow({
   onEaseKeyframe,
 }: TrackRowProps) {
   const rowRef = useRef<HTMLDivElement>(null);
-  // The track's own span within the timeline (delayMs/durationMs offsets).
-  // Keyframe t is normalised to THIS span; positions on the ruler are
-  // (startMs + t * span) / timelineDurationMs.
   const timing = getMotionTrackTiming(track, timelineDurationMs);
   const fractionFor = (kfT: number) =>
     (timing.startMs + kfT * timing.durationMs) / timelineDurationMs;
 
-  // Identify the dragged keyframe by its INDEX in track.keyframes, not object
-  // identity: the parent replaces keyframe objects on every move (immutable
-  // update), so a captured object reference goes stale after the first move
-  // and every subsequent pointermove would match nothing (frozen keyframe).
   const dragging = useRef<{
     index: number;
     startX: number;
@@ -1753,7 +1566,6 @@ function TrackRow({
       if (!dragging.current || !rowRef.current) return;
       const rect = rowRef.current.getBoundingClientRect();
       const dx = e.clientX - dragging.current.startX;
-      // Pixel delta → timeline fraction → track-local time delta.
       const dt = (dx / rect.width) * (timelineDurationMs / timing.durationMs);
       const newT = Math.max(0, Math.min(1, dragging.current.startT + dt));
       dragging.current.moved = true;
@@ -1765,13 +1577,9 @@ function TrackRow({
   const handlePointerUp = useCallback(() => {
     const wasMoved = dragging.current?.moved === true;
     dragging.current = null;
-    // Only re-sort (and re-mark dirty) when the keyframe actually moved — a
-    // plain click on a diamond must not trigger an autosave.
     if (wasMoved) onMoveKeyframeEnd();
   }, [onMoveKeyframeEnd]);
 
-  // Segments connect consecutive keyframes; clicking one opens the easing
-  // panel for the transition (stored on the LEAVING keyframe, CSS-style).
   const orderedIndices = track.keyframes
     .map((kf, index) => ({ t: kf.t, index }))
     .sort((a, b) => a.t - b.t)
@@ -1829,18 +1637,12 @@ function TrackRow({
 
 interface KeyframeDiamondProps {
   kf: MotionKeyframe;
-  /** Horizontal position as a fraction of the whole timeline (offset-aware). */
   leftFraction: number;
-  /** Absolute keyframe time on the timeline, ms (for the tooltip). */
   timeMs: number;
   onPointerDown: (e: ReactPointerEvent<SVGSVGElement>) => void;
   onDelete: () => void;
 }
 
-/**
- * Draggable keyframe diamond. Easing is edited on the SEGMENT between two
- * diamonds (click the connecting bar), matching Figma Motion.
- */
 function KeyframeDiamond({
   kf,
   leftFraction,
@@ -1906,24 +1708,14 @@ function KeyframeDiamond({
   );
 }
 
-// ─── Segment easing (click the connector between two keyframes) ──────────────
-
 interface EasingSegmentProps {
-  /** Left edge as a fraction of the timeline. */
   left: number;
-  /** Width as a fraction of the timeline. */
   width: number;
-  /** The LEAVING keyframe's ease (undefined = timeline default). */
   ease: MotionEase | undefined;
   defaultEase: MotionEase;
   onEaseChange: (ease: MotionEase) => void;
 }
 
-/**
- * The clickable bar between two keyframe diamonds. Opens the easing panel
- * (Curve / Spring tabs) for the transition into the next keyframe — matching
- * Figma Motion's "click the connecting line" flow.
- */
 function EasingSegment({
   left,
   width,
@@ -1964,20 +1756,11 @@ function EasingSegment({
   );
 }
 
-// ─── Easing panel (Curve / Spring tabs) ───────────────────────────────────────
-
 interface EasingPanelProps {
   ease: MotionEase;
   onChange: (ease: MotionEase) => void;
 }
 
-/**
- * Figma-Motion-parity easing editor:
- * - Curve tab: Hold, Linear, Ease in/out variants, back curves, and Custom
- *   bezier with editable x1,y1,x2,y2 + a draggable curve editor.
- * - Spring tab: Gentle / Quick / Bouncy / Slow presets and Custom spring
- *   with a single Bounce control (0–1, default 0.25).
- */
 function EasingPanel({ ease, onChange }: EasingPanelProps) {
   const t = useT();
   const easeStr = String(ease);
@@ -2146,12 +1929,9 @@ function EasingPanel({ ease, onChange }: EasingPanelProps) {
   );
 }
 
-// ─── Custom bezier curve editor (draggable control points) ────────────────────
-
 const CURVE_W = 216;
 const CURVE_H = 132;
 const CURVE_PAD = 10;
-// Vertical view range: y ∈ [-0.25, 1.25] so overshoot handles stay visible.
 const CURVE_Y_MIN = -0.25;
 const CURVE_Y_MAX = 1.25;
 
@@ -2160,7 +1940,6 @@ interface CurveEditorProps {
   onChange: (value: [number, number, number, number]) => void;
 }
 
-/** Format a bezier control-point axis value for display (2 decimal places). */
 export function formatCurveAxisValue(n: number): string {
   return String(Math.round(n * 100) / 100);
 }
@@ -2171,19 +1950,6 @@ interface CurveNumberFieldProps {
   onChange: (n: number) => void;
 }
 
-/**
- * One x1/y1/x2/y2 control-point number field in the bezier CurveEditor.
- * Keeps its own draft string instead of being fully controlled by
- * `formatCurveAxisValue(value)` so a user can type an in-progress value
- * ("-", "0.", "1.5") without the field snapping back to the last-committed,
- * rounded value on every keystroke. A prior version bound `value` directly to
- * the rounded prop: typing "0" then "." called onChange(0) (parseFloat("0.")
- * is a finite 0), which re-rendered the field back to "0" and silently
- * dropped the "." the instant it was typed — decimals (and a bare "-" before
- * a negative number) could never be entered. Mirrors the `focusedRef` resync
- * guard in edit-panel/panel-primitives.tsx's LengthField (same "mid-edit prop
- * stomp" bug class fixed there for style-property fields).
- */
 function CurveNumberField({ label, value, onChange }: CurveNumberFieldProps) {
   const [draft, setDraft] = useState(() => formatCurveAxisValue(value));
   const focusedRef = useRef(false);
@@ -2211,8 +1977,6 @@ function CurveNumberField({ label, value, onChange }: CurveNumberFieldProps) {
         }}
         onBlur={() => {
           focusedRef.current = false;
-          // Snap back to the canonical rounded string — clears any
-          // unparsed/partial trailing input ("-", "1.") left over from typing.
           setDraft(formatCurveAxisValue(value));
         }}
         className="h-5 px-1 !text-[10px] md:!text-[10px]"
@@ -2239,7 +2003,6 @@ function CurveEditor({ value, onChange }: CurveEditorProps) {
     if (!rect) return null;
     const px = ((e.clientX - rect.left) / rect.width) * CURVE_W;
     const py = ((e.clientY - rect.top) / rect.height) * CURVE_H;
-    // CSS requires x control points in [0, 1]; y may overshoot.
     const x = Math.max(
       0,
       Math.min(1, (px - CURVE_PAD) / (CURVE_W - 2 * CURVE_PAD)),
@@ -2358,8 +2121,6 @@ function CurveEditor({ value, onChange }: CurveEditorProps) {
     </div>
   );
 }
-
-// ─── Spring curve preview ─────────────────────────────────────────────────────
 
 function SpringCurvePreview({
   bounce,

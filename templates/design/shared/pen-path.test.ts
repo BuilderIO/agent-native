@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   appendPenNode,
+  setPenNodeMirroring,
+  serializeRoundedPenPath,
+  penNodeMirroring,
+  hitTestPenSegment,
+  continuePenPathFromEndpoint,
+  bendPenSegment,
   closePenPath,
   clonePenPath,
   constrainPointTo45Degrees,
@@ -16,6 +22,7 @@ import {
   movePenAnchor,
   movePenHandle,
   parsePenNodes,
+  penCornerRadiusFromAttribute,
   resumePenPathAtEnd,
   scalePenPathToGeometry,
   serializePenNodes,
@@ -29,6 +36,13 @@ import {
 } from "./pen-path";
 
 describe("pen path helpers", () => {
+  it("reads only finite positive corner radii from attributes", () => {
+    expect(penCornerRadiusFromAttribute("8.5")).toBe(8.5);
+    expect(penCornerRadiusFromAttribute(null)).toBe(0);
+    expect(penCornerRadiusFromAttribute("0")).toBe(0);
+    expect(penCornerRadiusFromAttribute("nope")).toBe(0);
+  });
+
   it("serializes click-created corner anchors as line segments", () => {
     const path = appendPenNode(
       appendPenNode(null, createCornerNode({ x: 10, y: 20 })),
@@ -154,8 +168,6 @@ describe("pen path helpers", () => {
   it("projects a diagonal drag onto the 45 degree axis component-wise", () => {
     const point = constrainPointTo45Degrees({ x: 0, y: 0 }, { x: 10, y: 14 });
 
-    // Angle is ~54.5deg, snaps to 45deg; projecting (10,14) onto the (1,1)/sqrt(2)
-    // axis gives an equal x/y magnitude rather than preserving hypot(10,14).
     expect(point.x).toBeCloseTo(point.y, 5);
     expect(point.x).toBeCloseTo(12, 2);
   });
@@ -182,13 +194,6 @@ describe("pen path helpers", () => {
       createSmoothNode({ x: 180, y: 120 }, { x: 250, y: 40 }),
     );
 
-    // The mirrored handleIn for this smooth node sits at (110, 200), which
-    // pulls the curve's real extent down to y=200 even though no anchor or
-    // the handleOut (250,40) reach that far — solving the derivative finds
-    // that interior extremum. The raw handle positions themselves
-    // (110,200) and (250,40) are NOT part of the box on the x axis, unlike
-    // the old handle-inclusive bbox which took a loose min/max over every
-    // handle regardless of whether the curve actually visits it.
     expect(getPenPathGeometry(path)).toEqual({
       x: 100,
       y: 100,
@@ -198,21 +203,12 @@ describe("pen path helpers", () => {
   });
 
   it("does not let a control handle outside the curve's real extent widen the bounds", () => {
-    // A symmetric S-curve where both handles are horizontally beyond the
-    // anchors on the x axis, but the curve's x-extent never exceeds the
-    // anchors themselves once you solve for the true extrema... instead
-    // verify a case where the handle *does* legitimately extend the curve:
-    // a smooth node whose handleOut pulls further out on x than either
-    // anchor, so the tight bound must include that extremum on x too.
     const path = appendPenNode(
       appendPenNode(null, createSmoothNode({ x: 0, y: 0 }, { x: 60, y: 0 })),
       createCornerNode({ x: 40, y: 0 }),
     );
 
     const geometry = getPenPathGeometry(path);
-    // Curve bulges past x=40 toward the (60,0) handleOut direction before
-    // returning to the anchor at (40,0); tight bounds should capture that
-    // bulge without being a fixed multiple of anything.
     expect(geometry.x).toBe(0);
     expect(geometry.width).toBeGreaterThan(40);
   });
@@ -243,10 +239,6 @@ describe("pen path helpers", () => {
       appendPenNode(null, createCornerNode({ x: 0, y: 0 })),
       createCornerNode({ x: 5, y: 0 }),
     );
-    // A perfectly horizontal line has a genuine width of 5 (even though
-    // that's below MIN_PATH_SIZE — it should NOT be floored up, since it's
-    // real geometry) but zero height, which is floored so the selection
-    // box stays clickable/visible on that axis.
     const geometry = getPenPathGeometry(path);
     expect(geometry.width).toBe(5);
     expect(geometry.height).toBe(12);
@@ -329,8 +321,6 @@ describe("pen path helpers", () => {
       { x: 70, y: 60 },
       { breakSymmetry: true },
     );
-    // handleOut still follows the drag, but no mirrored handleIn is
-    // created — the incoming segment is left a plain corner.
     expect(node.handleOut).toEqual({ x: 70, y: 60 });
     expect(node.handleIn).toBeUndefined();
   });
@@ -408,12 +398,6 @@ describe("pen path helpers", () => {
         createCornerNode({ x: 100, y: 0 }),
       );
 
-      // (55, 0) is 55px from the first anchor and 45px from the second —
-      // both within the 60px hit radius, but the second is closer. The
-      // first anchor happens to come first in node order, so a naive
-      // "first match wins" scan (rather than nearest-match, as
-      // hitTestPenAnchor already does) would incorrectly snap there
-      // instead.
       const snapped = snapPenAnchorPoint({ x: 55, y: 0 }, path, {
         hitRadius: 60,
         zoom: 50,
@@ -457,8 +441,6 @@ describe("pen path helpers", () => {
         hitRadius: 8,
         zoom: 100,
       });
-      // Anchor snap wins and keeps the anchor's own (unrounded) coordinate,
-      // rather than rounding the cursor point to {103, 102}.
       expect(snapped).toEqual({ x: 100.4, y: 100.4 });
     });
 
@@ -521,7 +503,6 @@ describe("pen path helpers", () => {
         ),
         createCornerNode({ x: 100, y: 0 }),
       );
-      // Sanity: breakSymmetry really did leave handleIn undefined.
       expect(path.nodes[0].handleIn).toBeUndefined();
       expect(path.nodes[0].handleOut).toEqual({ x: 20, y: 0 });
 
@@ -560,13 +541,6 @@ describe("pen path helpers", () => {
     });
 
     it("produces an attribute-safe string with no raw quotes, angle brackets, or ampersands", () => {
-      // No jsdom in this project's vitest environment (node), so this
-      // asserts the attribute-safety contract directly on the string rather
-      // than via a real Element.setAttribute round trip: a plain HTML
-      // attribute value is safe as long as it contains none of these
-      // characters (a double-quoted attribute only needs to escape `"`, but
-      // this format avoids the whole family so it's safe unescaped in any
-      // quoting style).
       const path = appendPenNode(
         appendPenNode(
           null,
@@ -586,11 +560,11 @@ describe("pen path helpers", () => {
       expect(parsePenNodes("{}")).toBeNull();
       expect(parsePenNodes("[]")).toBeNull();
       expect(parsePenNodes("null")).toBeNull();
-      expect(parsePenNodes("[2]")).toBeNull(); // invalid closed flag
+      expect(parsePenNodes("[2]")).toBeNull();
       expect(parsePenNodes('[0, "not-a-tuple"]')).toBeNull();
-      expect(parsePenNodes("[0, [1, 2, 3]]")).toBeNull(); // wrong tuple length
-      expect(parsePenNodes("[0, [1, 2, null, 5, null, null]]")).toBeNull(); // mismatched handle pair
-      expect(parsePenNodes('[0, [1, "x", null, null, null, null]]')).toBeNull(); // non-numeric coord
+      expect(parsePenNodes("[0, [1, 2, 3]]")).toBeNull();
+      expect(parsePenNodes("[0, [1, 2, null, 5, null, null]]")).toBeNull();
+      expect(parsePenNodes('[0, [1, "x", null, null, null, null]]')).toBeNull();
       expect(parsePenNodes("[0, [NaN, 2, null, null, null, null]]")).toBeNull();
     });
 
@@ -641,8 +615,6 @@ describe("pen path helpers", () => {
     });
 
     it("picks the closer of two anchors both within radius", () => {
-      // Two anchors 10px apart, radius large enough to cover both from a
-      // point nearer the second.
       const closePath = appendPenNode(
         appendPenNode(null, createCornerNode({ x: 0, y: 0 })),
         createCornerNode({ x: 10, y: 0 }),
@@ -678,7 +650,6 @@ describe("pen path helpers", () => {
         null,
         createSmoothNode({ x: 0, y: 0 }, { x: 30, y: 0 }),
       );
-      // Mirrored handleIn sits at (-30, 0).
       expect(hitTestPenHandle(path, { x: -29, y: -1 }, 8)).toEqual({
         nodeIndex: 0,
         which: "in",
@@ -690,8 +661,6 @@ describe("pen path helpers", () => {
         appendPenNode(null, createCornerNode({ x: 0, y: 0 })),
         createCornerNode({ x: 100, y: 0 }),
       );
-      // Neither node has any handle at all — a query near either anchor
-      // should still miss.
       expect(hitTestPenHandle(path, { x: 0, y: 0 }, 8)).toBeNull();
       expect(hitTestPenHandle(path, { x: 100, y: 0 }, 8)).toBeNull();
     });
@@ -709,9 +678,6 @@ describe("pen path helpers", () => {
         null,
         createSmoothNode({ x: 0, y: 0 }, { x: 10, y: 0 }),
       );
-      // handleOut at (10,0), mirrored handleIn at (-10,0). A big radius
-      // centered near handleOut should still resolve to handleOut, the
-      // closer of the two.
       expect(hitTestPenHandle(path, { x: 9, y: 0 }, 25)).toEqual({
         nodeIndex: 0,
         which: "out",
@@ -728,9 +694,7 @@ describe("pen path helpers", () => {
 
       const moved = movePenAnchor(path, 0, { x: 60, y: 40 });
       expect(moved.nodes[0].point).toEqual({ x: 60, y: 40 });
-      // handleOut was (70,60), delta is (+10,-10) -> (80,50).
       expect(moved.nodes[0].handleOut).toEqual({ x: 80, y: 50 });
-      // handleIn was mirrored at (30,40), same delta -> (40,30).
       expect(moved.nodes[0].handleIn).toEqual({ x: 40, y: 30 });
     });
 
@@ -804,7 +768,6 @@ describe("pen path helpers", () => {
 
       const moved = movePenHandle(path, 0, "out", { x: 90, y: 70 });
       expect(moved.nodes[0].handleOut).toEqual({ x: 90, y: 70 });
-      // Mirrored across the anchor (50,50): 50 - (90-50) = 10, 50 - (70-50) = 30.
       expect(moved.nodes[0].handleIn).toEqual({ x: 10, y: 30 });
     });
 
@@ -831,10 +794,8 @@ describe("pen path helpers", () => {
         null,
         createSmoothNode({ x: 0, y: 0 }, { x: 20, y: 0 }),
       );
-      // handleIn starts mirrored at (-20, 0).
       const moved = movePenHandle(path, 0, "in", { x: -5, y: 15 });
       expect(moved.nodes[0].handleIn).toEqual({ x: -5, y: 15 });
-      // Mirror of (-5,15) around (0,0) is (5,-15).
       expect(moved.nodes[0].handleOut).toEqual({ x: 5, y: -15 });
     });
 
@@ -851,7 +812,6 @@ describe("pen path helpers", () => {
 
       const moved = movePenHandle(path, 0, "out", { x: 40, y: 10 });
       expect(moved.nodes[0].handleOut).toEqual({ x: 40, y: 10 });
-      // No opposite handle existed, so none is created as a side effect.
       expect(moved.nodes[0].handleIn).toBeUndefined();
     });
 
@@ -922,9 +882,7 @@ describe("pen path helpers", () => {
       expect(converted.nodes[0].point).toEqual({ x: 0, y: 0 });
       expect(converted.nodes[0].handleOut).toBeDefined();
       expect(converted.nodes[0].handleIn).toBeDefined();
-      // Handle points toward the next node (30,0): handleOut has positive x.
       expect(converted.nodes[0].handleOut!.x).toBeGreaterThan(0);
-      // Symmetric by construction (mirrored across the anchor at 0,0).
       expect(converted.nodes[0].handleIn!.x).toBeCloseTo(
         -converted.nodes[0].handleOut!.x,
         6,
@@ -942,8 +900,6 @@ describe("pen path helpers", () => {
       );
       const converted = setPenNodeType(path, 1, "smooth");
       expect(converted.nodes[1].point).toEqual({ x: 30, y: 0 });
-      // Direction toward previous neighbor (0,0) is negative x, so handleOut
-      // points back toward the previous node.
       expect(converted.nodes[1].handleOut!.x).toBeLessThan(30);
     });
 
@@ -961,10 +917,6 @@ describe("pen path helpers", () => {
           createCornerNode({ x: 30, y: 0 }),
         ),
       );
-      // Last node (index 1) has no "next" sibling in the array, but the path
-      // is closed, so its neighbor for direction purposes should NOT wrap
-      // (nodeIndex+1 is out of range) -- falls back to previous neighbor
-      // instead, which is well-defined here regardless.
       const converted = setPenNodeType(path, 1, "smooth");
       expect(converted.closed).toBe(true);
       expect(converted.nodes[1].handleOut).toBeDefined();
@@ -995,5 +947,205 @@ describe("pen path helpers", () => {
       const converted = setPenNodeType(path, 0, "corner");
       expect(converted.closed).toBe(true);
     });
+  });
+});
+
+describe("continuePenPathFromEndpoint", () => {
+  const path: PenPath = {
+    closed: false,
+    nodes: [
+      { point: { x: 0, y: 0 }, handleOut: { x: 5, y: -5 } },
+      { point: { x: 50, y: 0 }, handleIn: { x: 45, y: -5 } },
+      createCornerNode({ x: 50, y: 50 }),
+    ],
+  };
+
+  it("continues from the last anchor as drawn", () => {
+    expect(continuePenPathFromEndpoint(path, { x: 51, y: 49 }, 4)).toEqual(
+      path,
+    );
+  });
+
+  it("reverses the path, handles included, when continuing from the first anchor", () => {
+    const reversed = continuePenPathFromEndpoint(path, { x: 1, y: 1 }, 4);
+    expect(reversed?.nodes.map((node) => node.point)).toEqual([
+      { x: 50, y: 50 },
+      { x: 50, y: 0 },
+      { x: 0, y: 0 },
+    ]);
+    expect(reversed?.nodes[1]).toMatchObject({ handleOut: { x: 45, y: -5 } });
+    expect(reversed?.nodes[2]).toMatchObject({ handleIn: { x: 5, y: -5 } });
+  });
+
+  it("ignores middle anchors and closed paths", () => {
+    expect(continuePenPathFromEndpoint(path, { x: 50, y: 0 }, 4)).toBeNull();
+    expect(
+      continuePenPathFromEndpoint({ ...path, closed: true }, { x: 0, y: 0 }, 4),
+    ).toBeNull();
+  });
+});
+
+describe("serializeRoundedPenPath", () => {
+  const square: PenPath = {
+    closed: true,
+    nodes: [
+      createCornerNode({ x: 0, y: 0 }),
+      createCornerNode({ x: 100, y: 0 }),
+      createCornerNode({ x: 100, y: 100 }),
+      createCornerNode({ x: 0, y: 100 }),
+    ],
+  };
+
+  it("rounds every corner of a closed path with a tangent arc", () => {
+    expect(serializeRoundedPenPath(square, 10)).toBe(
+      "M 10 0 L 90 0 A 10 10 0 0 1 100 10 L 100 90 A 10 10 0 0 1 90 100 " +
+        "L 10 100 A 10 10 0 0 1 0 90 L 0 10 A 10 10 0 0 1 10 0 Z",
+    );
+  });
+
+  it("clamps a huge radius so a square becomes its incircle", () => {
+    expect(serializeRoundedPenPath(square, 500)).toContain("A 50 50 0 0 1");
+  });
+
+  it("shares each segment between its two corners, so a rhombus becomes a circle", () => {
+    const rhombus: PenPath = {
+      closed: true,
+      nodes: [
+        createCornerNode({ x: 50, y: 0 }),
+        createCornerNode({ x: 100, y: 30 }),
+        createCornerNode({ x: 50, y: 60 }),
+        createCornerNode({ x: 0, y: 30 }),
+      ],
+    };
+    const d = serializeRoundedPenPath(rhombus, 1000);
+    const radii = [...d.matchAll(/A ([\d.]+) /g)].map((m) => Number(m[1]));
+    expect(radii).toHaveLength(4);
+    radii.forEach((r) => expect(r).toBeCloseTo(25.7, 0));
+  });
+
+  it("lets a rectangle's short sides limit every corner (a stadium)", () => {
+    const rect: PenPath = {
+      closed: true,
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 100, y: 0 }),
+        createCornerNode({ x: 100, y: 40 }),
+        createCornerNode({ x: 0, y: 40 }),
+      ],
+    };
+    expect(serializeRoundedPenPath(rect, 1000)).toBe(
+      "M 20 0 L 80 0 A 20 20 0 0 1 100 20 L 100 20 A 20 20 0 0 1 80 40 L 20 40 A 20 20 0 0 1 0 20 L 0 20 A 20 20 0 0 1 20 0 Z",
+    );
+  });
+
+  it("keeps open endpoints sharp and rounds only interior corners", () => {
+    const open: PenPath = { ...square, closed: false };
+    expect(serializeRoundedPenPath(open, 10)).toBe(
+      "M 0 0 L 90 0 A 10 10 0 0 1 100 10 L 100 90 A 10 10 0 0 1 90 100 L 0 100",
+    );
+  });
+
+  it("falls back to the plain path at radius 0", () => {
+    expect(serializeRoundedPenPath(square, 0)).toBe(serializePenPath(square));
+  });
+});
+
+describe("bending a segment", () => {
+  const line: PenPath = {
+    closed: false,
+    nodes: [
+      createCornerNode({ x: 0, y: 0 }),
+      createCornerNode({ x: 90, y: 0 }),
+    ],
+  };
+
+  it("finds the grabbed segment and its curve parameter", () => {
+    const hit = hitTestPenSegment(line, { x: 45, y: 2 }, 4);
+    expect(hit?.segmentIndex).toBe(0);
+    expect(hit?.t).toBeCloseTo(0.5, 1);
+    expect(hitTestPenSegment(line, { x: 45, y: 20 }, 4)).toBeNull();
+  });
+
+  it("moves the grabbed point with the pointer and keeps both anchors", () => {
+    const bent = bendPenSegment(line, 0, 0.5, { x: 0, y: 30 });
+    expect(bent.nodes.map((node) => node.point)).toEqual([
+      { x: 0, y: 0 },
+      { x: 90, y: 0 },
+    ]);
+    const [from, to] = bent.nodes;
+    const mid = {
+      x:
+        (from!.point.x +
+          3 * from!.handleOut!.x +
+          3 * to!.handleIn!.x +
+          to!.point.x) /
+        8,
+      y:
+        (from!.point.y +
+          3 * from!.handleOut!.y +
+          3 * to!.handleIn!.y +
+          to!.point.y) /
+        8,
+    };
+    expect(mid.x).toBeCloseTo(45);
+    expect(mid.y).toBeCloseTo(30);
+  });
+});
+
+describe("handle mirroring", () => {
+  const cusp: PenPath = {
+    closed: false,
+    nodes: [
+      createCornerNode({ x: 0, y: 0 }),
+      {
+        point: { x: 50, y: 50 },
+        handleIn: { x: 50, y: 20 },
+        handleOut: { x: 90, y: 50 },
+      },
+      createCornerNode({ x: 100, y: 0 }),
+    ],
+  };
+
+  it("reads the mode off the handle geometry", () => {
+    expect(penNodeMirroring(cusp.nodes[1]!)).toBe("none");
+    const angle = setPenNodeMirroring(cusp, 1, "angle");
+    expect(penNodeMirroring(angle.nodes[1]!)).toBe("angle");
+    expect(angle.nodes[1]!.handleIn).toEqual({ x: 20, y: 50 });
+    const both = setPenNodeMirroring(cusp, 1, "angleAndLength");
+    expect(both.nodes[1]!.handleIn).toEqual({ x: 10, y: 50 });
+    expect(penNodeMirroring(both.nodes[1]!)).toBe("angleAndLength");
+  });
+
+  it("drags the opposite handle according to the mode", () => {
+    const angle = setPenNodeMirroring(cusp, 1, "angle");
+    const moved = movePenHandle(angle, 1, "out", { x: 50, y: 90 });
+    expect(moved.nodes[1]!.handleIn!.x).toBeCloseTo(50);
+    expect(moved.nodes[1]!.handleIn!.y).toBeCloseTo(20);
+    const free = movePenHandle(cusp, 1, "out", { x: 50, y: 90 });
+    expect(free.nodes[1]!.handleIn).toEqual({ x: 50, y: 20 });
+  });
+
+  it("keeps a chosen mode even when the handles look symmetric", () => {
+    const smooth = setPenNodeMirroring(cusp, 1, "angleAndLength");
+    const free = setPenNodeMirroring(smooth, 1, "none");
+    expect(penNodeMirroring(free.nodes[1]!)).toBe("none");
+    const dragged = movePenHandle(free, 1, "out", { x: 50, y: 90 });
+    expect(dragged.nodes[1]!.handleIn).toEqual(free.nodes[1]!.handleIn);
+    expect(JSON.parse(serializePenNodes(free))[1]).toHaveLength(7);
+    expect(parsePenNodes("[0,[0,0,null,null,null,null,null,2]]")).toBeNull();
+  });
+
+  it("gives a handle-less corner a smooth pair", () => {
+    const corner: PenPath = {
+      ...cusp,
+      nodes: cusp.nodes.map((n, i) =>
+        i === 1 ? createCornerNode(n.point) : n,
+      ),
+    };
+    expect(
+      penNodeMirroring(
+        setPenNodeMirroring(corner, 1, "angleAndLength").nodes[1]!,
+      ),
+    ).toBe("angleAndLength");
   });
 });

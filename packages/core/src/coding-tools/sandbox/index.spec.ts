@@ -18,7 +18,6 @@ afterEach(() => {
   delete process.env.AGENT_NATIVE_SANDBOX;
 });
 
-/** Minimal stub adapter that records the request and returns canned output. */
 class StubAdapter implements SandboxAdapter {
   readonly id = "stub";
   lastRequest: SandboxRunRequest | undefined;
@@ -96,7 +95,6 @@ describe("run-code uses the active sandbox adapter", () => {
     });
 
     expect(result).toContain("hello from stub");
-    // The adapter receives a prepared module + scrubbed env + bridge port.
     expect(stub.lastRequest).toBeDefined();
     expect(stub.lastRequest!.moduleSource).toContain("console.log");
     expect(stub.lastRequest!.bridgePort).toBeGreaterThan(0);

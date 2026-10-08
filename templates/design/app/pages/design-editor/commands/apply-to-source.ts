@@ -41,8 +41,6 @@ export function runApplyToSource({
   t,
 }: ApplyToSourceArgs) {
   if (!id || !canEditDesign) return;
-  // VE7: surface why "Apply to source" can't proceed instead of silently
-  // no-oping when the connection or the resolved source path is missing.
   if (!activeLocalhostConnectionId) {
     toast.error(NO_LOCALHOST_CONNECTION_MESSAGE);
     return;
@@ -53,10 +51,6 @@ export function runApplyToSource({
   }
   const relPath = activeLocalhostRelPath;
   const connectionId = activeLocalhostConnectionId;
-  // URL-backed Design files persist the route URL in `content`; HTML source
-  // comes from the authenticated snapshot model populated by DesignCanvas.
-  // Fail closed until that source exists so this button can never serialize
-  // a localhost URL and overwrite the user's actual file with it.
   const ext = (relPath.match(/\.[^.]+$/) ?? [])[0]?.toLowerCase() ?? "";
   const rawContent = resolveLocalhostSourceWriteContent({
     extension: ext,
@@ -67,8 +61,6 @@ export function runApplyToSource({
     toast.error(NO_LOCALHOST_WRITE_CONTENT_MESSAGE);
     return;
   }
-  // Strip editor-only attributes before writing so the on-disk file stays
-  // clean.  Only strip for HTML routes; CSS files have no DOM attributes.
   const content =
     ext === ".html" || ext === ".htm"
       ? stripEditorOnlyAttributes(
@@ -82,11 +74,6 @@ export function runApplyToSource({
       void (async () => {
         setApplyToSourcePending(true);
         try {
-          // Read the file's current versionHash immediately before writing
-          // so write-local-file can reject a concurrent on-disk edit. Never
-          // downgrade to an unguarded overwrite when the read fails: the
-          // semantic React path is agent-driven, and this legacy whole-file
-          // path is intentionally limited to directly writable HTML/CSS.
           const readResult = (await callAction(
             "read-local-file",
             {

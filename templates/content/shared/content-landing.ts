@@ -13,7 +13,6 @@ export type ContentLastLocationState = {
   documentId: string;
   databaseId?: string;
   viewId?: string;
-  /** Title of the page when it last loaded; absent on older writes. */
   title?: string;
 };
 
@@ -31,6 +30,10 @@ export type ContentLandingResult = {
   documentId: string;
   resolution: ContentLandingResolution;
   fallbackReason?: "saved-document-unavailable";
+  /** Set whenever this landing created the Welcome page, even on fallback. */
+  welcomeCreated?: true;
+  /** The account and organization this landing was resolved for. */
+  account: { email: string; orgId: string | null };
 };
 
 export type ContentSpaceLandingResult =
@@ -38,6 +41,7 @@ export type ContentSpaceLandingResult =
       target: ContentLastLocationState;
       resolution: ContentLandingResolution;
       fallbackReason?: "saved-document-unavailable";
+      welcomeCreated?: true;
     }
   | {
       target: null;

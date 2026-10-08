@@ -1,63 +1,191 @@
 ---
 title: "Netlify"
-description: "Netlify Nitro プリセットを使って agent-native アプリを Netlify にデプロイし、スケールツーゼロデータベース向けの keep-warm を設定します。"
+description: "Netlify CLI を使って、スタンドアロンの Agent-Native アプリを Netlify にデプロイし、スケールツーゼロ データベース向けの keep-warm を設定します。"
 ---
 
 # Netlify
 
-Nitro の `netlify` プリセットはよく機能し、外部の Postgres（Neon）と通信するテンプレートでは、実際に Cloudflare Pages よりもはるかに速いコールドスタート（TTFB 約 200ms 対 約 9秒）を実現しています。プリセットは `vite.config.ts` で設定するか、
+Netlify がアプリをホストしてくれるため、サーバーを用意したり動かし続けたりする必要はありません。ビルドによって、アプリは Netlify が直接配信する静的ファイルと、Netlify が必要に応じて実行する関数に変換されます。また、Netlify はアプリに HTTPS 対応の公開アドレスを割り当てます。
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "netlify" } })],
-});
+このガイドでは、スタンドアロン アプリを 1 つ、ゼロからデプロイする手順を説明します。アプリを作成し、本番用のデータベースと認証シークレットを用意し、そのための Netlify サイトを作成し、データベースを準備してから、ビルドしてデプロイします。
+
+<Callout tone="info">
+
+Node.js `22.22+` が必要です。
+
+</Callout>
+
+Netlify アカウントも必要です。このガイドのコマンドは自分のコンピューター上で実行してください。完成したビルドは Netlify CLI が Netlify にアップロードします。
+
+## ステップ 1: アプリを作成する {#step-1-create-the-app}
+
+新しいスタンドアロン アプリを作成します。以下の例では Chat テンプレートからアプリを作成していますが、どのテンプレートから始めてもかまいません。アプリのフォルダーに移動し、依存関係をインストールします。`corepack enable` はアプリが想定する `pnpm` のバージョンを有効にするため、`pnpm` を自分でインストールする必要はありません。
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
 ```
 
-生成された Chat スキャフォールドでも、インポート名は `agentNative` のままです。設定では
-型アサーションを使ってローカルの `agentNativePlugins` エイリアスに割り当て、返された
-プラグイン配列を展開して Vite パッケージの型を揃えます。このエイリアスは上記の
-`agentNative` の例と同じオプションを受け取ります。Netlify にデプロイする場合は、既存の
-`agentNativePlugins({ ... })` 呼び出しのオプションに `nitro: { preset: "netlify" }` を
-追加してください。Chat 固有の他のプラグイン、オプション、エイリアスはそのまま残します。
+必要に応じて、`my-app` を自分のアプリ名に置き換えてください。このガイドの以降の手順は、アプリのフォルダー内にいることを前提としています。
 
-…もしくはビルド時に `NITRO_PRESET=netlify` を設定します。
+<Callout tone="info">
 
-スタンドアロンアプリでは、Netlify出力をビルドして静的アセットとfunctionsをデプロイします。
+これらのコマンドがピア依存関係のエラーで失敗する場合は、npx キャッシュ内の古いパッケージが原因の可能性があります。`npx clear-npx-cache` を実行してキャッシュを消去してから、もう一度コマンドを実行してください。
+
+</Callout>
+
+## ステップ 2: 環境シークレットを設定する {#step-2-configure-environment-secrets}
+
+アプリは本番用の設定を環境変数から読み取ります。
+
+| 変数                 | 必須   | 用途                                                 |
+| -------------------- | ------ | ---------------------------------------------------- |
+| `DATABASE_URL`       | はい   | アプリを PostgreSQL データベースに接続する           |
+| `BETTER_AUTH_SECRET` | はい   | ユーザー セッションに署名する                        |
+| `BETTER_AUTH_URL`    | いいえ | ユーザーがアプリにアクセスする公開アドレスを設定する |
+
+以下の export により、このシェルで後続のコマンドが動作するようになります。デプロイする前に、同じ変数をホストのプロジェクトまたはサービスの環境設定にも保存してください。Netlify に保存する方法は次のステップで説明します。
+
+### データベース URL {#database-url}
+
+ローカル開発中、`DATABASE_URL` が設定されていない場合、アプリはデータをローカル データベースに保存します。デプロイしたアプリには、デプロイ後もデータを保持する本物の PostgreSQL データベースが必要です。Netlify はリクエスト間でファイルを保持しないため、データベースは Netlify の関数の外に置く必要があります。プロバイダーから接続文字列をコピーし、export します。
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+各プロバイダーで接続文字列を確認する場所は、[データベース プロバイダー ガイド](/docs/neon)で説明しています。
+
+<Callout tone="warning">
+
+Neon、Supabase、Amazon RDS などの永続的な PostgreSQL プロバイダーを選択してください。
+
+</Callout>
+
+### 認証シークレット {#auth-secret}
+
+この値は一度だけ生成し、デプロイ間で変更しないでください。
+
+アプリは `BETTER_AUTH_SECRET` を使ってユーザー セッションに署名します。この値が変わると、サインイン中のすべてのユーザーがサインアウトされます。以下のコマンドでランダムな値を生成します。
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+生成した値は、パスワード マネージャーなど、安全な場所に保存してください。デプロイのたびに同じ値を使用します。
+
+### 公開 URL {#public-url}
+
+省略可能です。カスタム ドメイン、リバース プロキシ、または固定の公開オリジンを必要とする認証や OAuth のフローを使う場合に設定します。
+
+`BETTER_AUTH_URL` は、ユーザーがアプリにアクセスする公開アドレスです。設定しない場合、アプリは受信したリクエストごとに自身のアドレスを判断します。Netlify が割り当てるアドレスでは通常それで問題ありませんが、カスタム ドメインを接続する場合は、サインイン リンクや OAuth のリダイレクトがそのドメインを使うように設定してください。
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## ステップ 3: サイトをリンクしてシークレットを保存する {#step-3-link-the-site-and-save-the-secrets}
+
+コマンドラインから Netlify にサインインし、アプリ用の新しいサイトを作成します。プロジェクト名はデフォルトのままでかまいません。GitHub リポジトリは、今のところ空欄のままにしておきます。
+
+```bash
+npx netlify login
+
+npx netlify sites:create --name my-app
+```
+
+`sites:create` はサイトを作成してアプリのフォルダーにリンクするため、以降のコマンドはどのサイトを使うかを認識できます。この名前は、`my-app.netlify.app` のようなサイトのアドレスにもなります。サイト名は Netlify 全体で共有されるため、`my-app` がすでに使われている場合は別の名前を選んでください。アプリはステップ 5 で自分のコンピューターからデプロイするため、GitHub リポジトリは必要ありません。
+
+必須の 2 つの変数を、サイトの環境に保存します。
+
+```bash
+npx netlify env:set DATABASE_URL "$DATABASE_URL"
+
+npx netlify env:set BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET"
+```
+
+各コマンドはステップ 2 で export した値を読み取って Netlify に保存するため、シークレットを手で貼り付ける必要はありません。`BETTER_AUTH_URL` を設定した場合は、同じ方法で保存してください。これらの値は、後から Netlify ダッシュボードのサイト設定で確認したり変更したりすることもできます。
+
+## ステップ 4: マイグレーション {#step-4-migrate}
+
+マイグレーションは、アプリに必要なテーブルをデータベースに作成し、更新します。最初のデプロイの前にこれを実行してください。
+
+```bash
+pnpm migrate:production
+```
+
+このコマンドは自分のコンピューター上で実行され、ステップ 2 で export した `DATABASE_URL` を使って本番データベースに接続します。アプリをアップグレードした後は、新しいバージョンをデプロイする前にもう一度実行してください。
+
+## ステップ 5: デプロイ {#step-5-deploy}
+
+Netlify 向けにアプリをビルドします。
 
 ```bash
 NITRO_PRESET=netlify pnpm build
+```
+
+`NITRO_PRESET=netlify` は、Netlify が想定する形式でアプリをビルドします。ビルドは、アプリの静的ファイルを `dist` フォルダーに、サーバー関数を `.netlify/functions-internal` フォルダーに書き出します。
+
+ビルドをアップロードして公開します。
+
+```bash
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
-最初の本番デプロイ前に、Netlify サイトの環境変数へ `DATABASE_URL` と安定した `BETTER_AUTH_SECRET` を設定してください。ローカル開発用の PGlite データベースに依存せず、`DATABASE_URL` はデプロイされた function から到達できる永続 PostgreSQL データベースを指す必要があります。
+`--dir` と `--functions` は、作成したばかりの静的ファイルと関数の場所を CLI に伝えます。`--prod` は、それらを下書きのプレビューではなく本番アドレスに公開します。
 
-ワークスペースの場合、次を実行して 1 つの Netlify サイトからすべてのアプリをデプロイします。
+コマンドが完了すると、アプリの本番アドレスが表示されます。そのアドレスを開き、最初のアカウントを作成します。
+
+## 更新をデプロイする {#deploy-updates}
+
+新しいバージョンをリリースするには、アプリのフォルダーからマイグレーション、ビルド、デプロイのコマンドをもう一度実行します。
 
 ```bash
-npx @agent-native/core@latest deploy --preset netlify
+pnpm migrate:production
+
+NITRO_PRESET=netlify pnpm build
+
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
-このワークスペースビルドは、静的アセットを `dist/_workspace_static/` 配下に書き出し、強制的なアセットリダイレクトなしで各アプリを専用の Netlify function にルーティングします。そのため `/mail/assets/...` のようなファイルは、サーバー function がアプリのルートを処理する前に静的に配信されます。
+サイトのリンクと保存した変数はそのまま残るため、ステップ 3 を繰り返す必要はありません。
 
-## Keep-warm とスケールツーゼロデータベース {#netlify-keep-warm}
+## Keep-warm とスケールツーゼロ データベース {#netlify-keep-warm}
 
-有効にすると、Netlify のビルドは `/_agent-native/health` を**毎分**リクエストするスケジュール function を出力します。これによりサーバー function とそのデータベースがウォームな状態に保たれ、アイドル期間後の次の訪問者がコールドスタート（Neon では 1〜5 秒）を負担しなくなります。
+しばらくアクセスがないと、Netlify が関数を起動し、Neon の無料枠のようなスケールツーゼロ データベースが復帰するまでの間、最初のリクエストが遅くなることがあります。Agent-Native は keep-warm でこの待ち時間を短縮できます。有効にすると、ビルドはアプリの `/_agent-native/health` エンドポイントを**毎分**呼び出すスケジュール付きの Netlify 関数を追加し、サーバー関数とそのデータベースを起動したままにします。
 
-Keep-warm は**デフォルトで無効**です。1 分ごとのウェイクは、従量制のスケールツーゼロデータベースの自動サスペンドを妨げるためです。無料枠の Neon ではこれによりコンピュートクォータを使い果たすことがあり、その場合データベースはセッション途中で**すべての**読み取りを拒否します。症状は遅いアプリではなく、死んだアプリです。次の訪問者のレイテンシ低下がデータベースの稼働時間に見合う場合は `AGENT_NATIVE_ENABLE_KEEP_WARM=1` を設定してください。
+Keep-warm は**デフォルトで無効**です。データベースを起動したままにすると一時停止しなくなるため、無料プランや従量制プランのコンピュート クォータを消費します。クォータを使い切ると、データベースは**すべての**読み取りを拒否し、アプリは動作しなくなります。最初のアクセスを速くすることが追加のデータベース稼働時間に見合う場合は、`AGENT_NATIVE_ENABLE_KEEP_WARM=1` を設定してください。
 
-keep-warm のスケジュールと background-function のウォームアップは、メインの keep-warm フラグが有効になっている場合にのみ適用されます。
+以下の変数で keep-warm を制御します。スケジュールとバックグラウンドの設定は、`AGENT_NATIVE_ENABLE_KEEP_WARM` を有効にした後にのみ適用されます。
 
-| 変数                                        | 効果                                                                                                                                                                                                                                 |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | スケジュールされたサーバー/データベースのウォームアップをオプトインします。デフォルトでは未設定です。                                                                                                                                |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 設定されている場合、オプトインフラグより優先される互換性のためのキルスイッチです。                                                                                                                                                   |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 5 フィールドの cron 式（例: `*/5 * * * *`）で頻度を上書きします。有効時のデフォルトの頻度は `* * * * *` です。解析できない値は**ビルドを失敗させます**。                                                                             |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | background-function のウォームアップのみを取りやめ、サーバーのウォームアップは維持します。`server` のウォームアップは 1 リクエストで済みますが、`-background` のウォームアップは新しいコンテナを起動してスキーマを再プローブします。 |
+| 変数                                        | 効果                                                                                                                                                                                                                                             |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | サーバー関数とデータベースのスケジュール付きウォームアップを有効にします。デフォルトでは未設定です。                                                                                                                                             |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | `AGENT_NATIVE_ENABLE_KEEP_WARM` が設定されていても keep-warm を無効にします。古い構成との互換性のために残されています。                                                                                                                          |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | ウォームアップの実行頻度を、`*/5 * * * *` のような 5 フィールドの cron 式で変更します。デフォルトは毎分を表す `* * * * *` です。有効な cron でない値は**ビルドを失敗させます**。                                                                 |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | バックグラウンド関数のウォームアップを省略し、サーバー関数のウォームアップは継続します。サーバーのウォームアップは 1 リクエストで済みます。バックグラウンド関数のウォームアップは、データベース スキーマを再確認する新しいコンテナを起動します。 |
 
-無料枠またはクォータが制限されたデータベースティアを使用している場合は、`AGENT_NATIVE_ENABLE_KEEP_WARM` を未設定のままにしてください。オプトインする場合は、より遅い頻度を使うか、`AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` を設定して、より高コストな background のウォームアップを取りやめてください。
+データベースが無料プランやその他の制限付きプランにある場合は、`AGENT_NATIVE_ENABLE_KEEP_WARM` を未設定のままにしてください。有効にする場合は、より間隔の長いスケジュールを選ぶか、`AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` を設定して、よりコストの高いバックグラウンドのウォームアップを省略してください。
 
-## 次は何ですか
+これらの変数を読み取るのは、実行中のアプリではなくビルドです。ステップ 5 では自分のコンピューター上でビルドするため、ビルドする前に同じシェルで設定してください。Netlify のサイト設定に保存しても、ローカルで実行するビルドには影響しません。たとえば、5 分間隔のスケジュールで keep-warm を有効にするには、次のようにします。
 
-- [**デプロイ**](/docs/deployment) — 初回の本番デプロイの前に、永続的なデータベースとプリセットを選ぶ
-- [**SSR キャッシュ**](/docs/ssr-caching) — デフォルトのキャッシュポリシーと、Netlify 独自の `netlify-cdn-cache-control` の動作
-- [Node.js](/docs/node-js), [Docker](/docs/docker)、[**Vercel**](/docs/vercel)、[**Cloudflare**](/docs/cloudflare)、[**その他のプラットフォーム**](/docs/other-platforms) — その他の Nitro プリセット
+```bash
+export AGENT_NATIVE_ENABLE_KEEP_WARM=1
+
+export AGENT_NATIVE_KEEP_WARM_SCHEDULE='*/5 * * * *'
+
+NITRO_PRESET=netlify pnpm build
+```
+
+その後、通常どおりデプロイします。
+
+## 次のステップ {#whats-next}
+
+- [**デプロイ環境変数**](/docs/deployment-environment-variables) - 本番設定の完全な一覧
+- [**SSR キャッシュ**](/docs/ssr-caching) - デフォルトのキャッシュ ポリシーと、Netlify 独自の `netlify-cdn-cache-control` の動作
+- [**デプロイ**](/docs/deployment) - ホスティング ターゲットと前提条件を比較する

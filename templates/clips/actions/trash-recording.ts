@@ -1,10 +1,3 @@
-/**
- * Move a recording to the trash by setting trashedAt.
- *
- * Usage:
- *   pnpm action trash-recording --id=<id>
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -37,11 +30,6 @@ export default defineAction({
     if (!existing) throw new Error(`Recording not found: ${args.id}`);
 
     const now = new Date().toISOString();
-    // When `skipIfReady` is set, make the trash conditional on the row NOT
-    // already being 'ready' — this closes the TOCTOU race where finalize
-    // flips the row to 'ready' concurrently with a cancel. Without the WHERE
-    // guard, a finalize that lands between a caller's read and this write
-    // would get silently trashed even though the upload finished.
     await db
       .update(schema.recordings)
       .set({ trashedAt: now, updatedAt: now })
@@ -54,8 +42,6 @@ export default defineAction({
           : eq(schema.recordings.id, args.id),
       );
 
-    // Re-select to report the resulting row state instead of relying on
-    // mutation metadata.
     const [after] = await db
       .select({
         status: schema.recordings.status,

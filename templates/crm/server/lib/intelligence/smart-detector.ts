@@ -10,10 +10,6 @@ export interface SmartDetectorDefinition {
   classifierPrompt: string;
 }
 
-/**
- * Builds delegated-agent context only. The CRM never invokes a model directly;
- * callers send this bounded prompt through the agent chat delegation path.
- */
 export function buildSmartDetectorPrompt(
   detector: SmartDetectorDefinition,
   values: unknown,

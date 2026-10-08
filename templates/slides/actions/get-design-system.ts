@@ -18,6 +18,7 @@ const MAX_SUMMARY_CONTEXT_CHARS = 1_500;
 const MAX_SUMMARY_TOKEN_VALUES = 16;
 const MAX_SUMMARY_INSTRUCTIONS_CHARS = 600;
 const MAX_SUMMARY_DESCRIPTION_CHARS = 600;
+const MAX_PROMPT_TITLE_CHARS = 120;
 
 interface BuilderGenerationContext {
   builderDesignSystemId: string;
@@ -33,7 +34,6 @@ interface BuilderGenerationContext {
     tokenValues?: Record<string, string>;
   }>;
   tokenValues: Record<string, string>;
-  /** null when Builder could not be read at all; 0 means still indexing. */
   docCount: number | null;
   warning?: string;
 }
@@ -41,6 +41,18 @@ interface BuilderGenerationContext {
 function truncate(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
   return `${value.slice(0, maxChars).trimEnd()}\n[truncated]`;
+}
+
+function formatDesignSystemPromptTitle(title: string): string {
+  const normalized = title
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const bounded =
+    normalized.length <= MAX_PROMPT_TITLE_CHARS
+      ? normalized
+      : `${normalized.slice(0, MAX_PROMPT_TITLE_CHARS - 1).trimEnd()}…`;
+  return JSON.stringify(bounded || "Untitled design system") ?? '""';
 }
 
 // list-design-systems only ever reads the docCount baked into row.data at
@@ -108,12 +120,6 @@ function formatTokenValues(
   ];
 }
 
-/**
- * A locally-stored kit has no flat token record like Builder's `tokenValues`
- * — it's grouped one level deep (colors.primary, typography.headingFont).
- * Flatten it to the same `name: value` shape so the compact summary can
- * reuse `formatTokenValues` instead of dumping the whole JSON blob.
- */
 function flattenLocalTokenValues(data: unknown): Record<string, string> {
   const flat: Record<string, string> = {};
   if (!data || typeof data !== "object") return flat;
@@ -140,6 +146,7 @@ function buildDesignSystemAgentContext({
   assets,
   customInstructions,
   builder,
+  purpose,
 }: {
   id: string;
   title: string;
@@ -148,12 +155,21 @@ function buildDesignSystemAgentContext({
   assets?: string | null;
   customInstructions?: string | null;
   builder: BuilderGenerationContext | null;
+  purpose: "selected" | "reference";
 }): string {
-  const lines: string[] = [
-    "## Selected Design System Context",
-    `Use "${title}" (id: ${id}) as the visual source of truth for this deck.`,
-    "Apply these tokens, assets, and usage notes before choosing colors, type, spacing, radius, imagery, slide defaults, or component language.",
-  ];
+  const promptTitle = formatDesignSystemPromptTitle(title);
+  const lines: string[] =
+    purpose === "reference"
+      ? [
+          "## Linked Design System Context (reference)",
+          `Use ${promptTitle} (id: ${id}) as advisory visual guidance only when no separate design system is selected for this deck; an explicitly selected target system takes precedence.`,
+          "When this linked system applies, use its tokens, assets, and usage notes before choosing colors, type, spacing, radius, imagery, slide defaults, or component language.",
+        ]
+      : [
+          "## Selected Design System Context",
+          `Use ${promptTitle} (id: ${id}) as the visual source of truth for this deck.`,
+          "Apply these tokens, assets, and usage notes before choosing colors, type, spacing, radius, imagery, slide defaults, or component language.",
+        ];
 
   if (description?.trim()) {
     lines.push("", "Description:", description.trim());
@@ -216,11 +232,6 @@ function buildDesignSystemAgentContext({
   return truncate(lines.filter(Boolean).join("\n"), MAX_AGENT_CONTEXT_CHARS);
 }
 
-/**
- * Bounded, network-free summary for the reads that fire on every chat turn
- * (view-screen, get-deck). No Builder docs fetch and no data/assets blobs —
- * just enough to keep going until the caller needs the full context.
- */
 function buildCompactDesignSystemAgentContext({
   id,
   title,
@@ -228,6 +239,7 @@ function buildCompactDesignSystemAgentContext({
   data,
   customInstructions,
   builderDesignSystemId,
+  purpose,
 }: {
   id: string;
   title: string;
@@ -235,11 +247,19 @@ function buildCompactDesignSystemAgentContext({
   data?: string | null;
   customInstructions?: string | null;
   builderDesignSystemId: string | null;
+  purpose: "selected" | "reference";
 }): string {
-  const lines: string[] = [
-    "## Selected Design System Context (summary)",
-    `Use "${title}" (id: ${id}) as the visual source of truth for this deck.`,
-  ];
+  const promptTitle = formatDesignSystemPromptTitle(title);
+  const lines: string[] =
+    purpose === "reference"
+      ? [
+          "## Linked Design System Context (reference summary)",
+          `Use ${promptTitle} (id: ${id}) as advisory visual guidance only when no separate design system is selected for this deck; an explicitly selected target system takes precedence.`,
+        ]
+      : [
+          "## Selected Design System Context (summary)",
+          `Use ${promptTitle} (id: ${id}) as the visual source of truth for this deck.`,
+        ];
 
   if (description?.trim()) {
     lines.push("", "Description:", description.trim());
@@ -273,9 +293,15 @@ function buildCompactDesignSystemAgentContext({
 
 export default defineAction({
   description:
-    "Get a design system by ID. Returns the full design system (colors, typography, spacing, assets, Builder docs) and its agentContext for generation; call it once before the first slide or screen you author and reuse it for every later write. compact='true' returns only the bounded summary that deck and design reads already include.",
+    "Get a design system by ID. Returns the full design system (colors, typography, spacing, assets, Builder docs) and its agentContext for generation; call it once before the first slide or screen you author and reuse it for every later write. Use purpose='reference' only for a system linked to a style-reference deck; that guidance remains advisory to a separately selected target system. compact='true' returns only the bounded summary that deck and design reads already include.",
   schema: z.object({
     id: z.string().describe("Design system ID"),
+    purpose: z
+      .enum(["selected", "reference"])
+      .optional()
+      .describe(
+        "Use 'reference' for a system linked to a style-reference deck; its guidance applies only when no separate target system is selected.",
+      ),
     compact: z
       .enum(["true", "false"])
       .optional()
@@ -283,9 +309,14 @@ export default defineAction({
         "'true' returns a bounded, network-free summary: no Builder docs fetch, agentContext capped at 1,500 chars, no data/assets blobs. Omit for the full context you need before authoring.",
       ),
   }),
-  readOnly: true,
+  readOnly: false, // GET refreshes the cached Builder doc count.
   http: { method: "GET" },
-  run: async ({ id, compact }) => {
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
+  run: async ({ id, compact, purpose = "selected" }, ctx) => {
     const access = await resolveAccess("design-system", id);
     if (!access) {
       throw Object.assign(new Error("Design system not found"), {
@@ -312,6 +343,7 @@ export default defineAction({
           customInstructions: row.customInstructions,
           builderDesignSystemId:
             builderReference?.builderDesignSystemId ?? null,
+          purpose,
         }),
       };
     }
@@ -331,7 +363,11 @@ export default defineAction({
         )
       : null;
 
-    if (builder && typeof builder.docCount === "number") {
+    if (
+      ctx?.caller !== "mcp-widget" &&
+      builder &&
+      typeof builder.docCount === "number"
+    ) {
       await persistBuilderDocCount(row, builder.docCount);
     }
 
@@ -355,6 +391,7 @@ export default defineAction({
         assets: row.assets,
         customInstructions: row.customInstructions,
         builder,
+        purpose,
       }),
     };
   },

@@ -38,7 +38,7 @@ function copyRunnerRuntimePackages(): Plugin {
 }
 
 export default defineConfig({
-  ssr: { noExternal: true },
+  ssr: { external: ["ink"], noExternal: true },
   plugins: [copyRunnerRuntimePackages()],
   build: {
     emptyOutDir: false,

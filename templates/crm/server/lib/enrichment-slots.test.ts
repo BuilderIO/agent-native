@@ -115,7 +115,6 @@ describe("slot outcomes stay distinguishable", () => {
       ["person", "error"],
       ["web", "unconfigured"],
     ]);
-    // The three are separate states, so a caller cannot count them together.
     expect(new Set(outcomes.map((outcome) => outcome.status)).size).toBe(3);
   });
 
@@ -149,7 +148,6 @@ describe("slot outcomes stay distinguishable", () => {
       }),
     });
 
-    // "we could not find out" is not "there is none".
     expect(outcome).toEqual({
       slot: "company",
       status: "error",
@@ -183,8 +181,6 @@ describe("phase separation", () => {
       target: TARGET,
       phase: "verify",
       deps: deps({
-        // A provider that returns contact data anyway: the slot's fact map is
-        // what bounds the evidence, not the provider's generosity.
         execute: async () => ({
           body: {
             organization: { industry: "software" },

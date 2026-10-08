@@ -92,8 +92,6 @@ describe("date property editor", () => {
     );
     expect(input?.type).toBe("date");
 
-    // Reproduce a native date-picker commit before React's onChange state has
-    // caught up: the control visibly contains the date, but no event fired.
     if (input) input.value = "2026-07-24";
 
     const save = Array.from(container.querySelectorAll("button")).find(

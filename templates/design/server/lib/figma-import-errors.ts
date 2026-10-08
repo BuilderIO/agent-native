@@ -18,32 +18,17 @@
 import { fail, type FailOptions } from "@agent-native/core/action";
 
 export const FIGMA_IMPORT_ERROR_CODES = {
-  /** URL/file key/node id the caller supplied cannot be parsed. */
   urlInvalid: "figma_url_invalid",
-  /** No usable Figma credential or no authenticated request context. */
   authRequired: "figma_auth_required",
-  /** Figma answered, but not with success. */
   requestFailed: "figma_request_failed",
-  /** Figma rate limit; `details` carries retry/plan hints. */
   rateLimited: "figma_rate_limited",
-  /**
-   * Our own provider-API quota governor is cooling down, not Figma. Kept
-   * separate because the remedy is "wait", never "upgrade your Figma plan".
-   */
   providerQuotaCooldown: "figma_provider_quota_cooldown",
-  /** The requested node is absent from the file the token can see. */
   nodeNotFound: "figma_node_not_found",
-  /** The frame or its assets exceed an import budget. */
   payloadTooLarge: "figma_payload_too_large",
-  /** A render/image asset could not be fetched or is not an image. */
   assetUnavailable: "figma_asset_unavailable",
-  /** Durable file storage is not configured, so assets cannot be kept. */
   storageUnavailable: "figma_storage_unavailable",
-  /** A clipboard paste carried no exact node ids and no matchable text. */
   clipboardUnmatched: "figma_clipboard_unmatched",
-  /** No design/file to import into. */
   targetInvalid: "figma_import_target_invalid",
-  /** A requested option this import path does not implement. */
   unsupportedOption: "figma_unsupported_option",
 } as const;
 
@@ -55,7 +40,6 @@ interface FigmaImportFailureOptions {
   details?: Record<string, unknown>;
 }
 
-/** Abort a Figma import/read with a message the user is meant to act on. */
 export function failFigmaImport(
   message: string,
   code: FigmaImportErrorCode,
@@ -76,18 +60,12 @@ export interface FigmaRateLimitDetails {
   upgradeUrl?: string;
 }
 
-/**
- * Status to report for an upstream Figma failure. A 4xx is the user's to act
- * on and is mirrored as-is; anything else is Figma being unwell, which is a
- * gateway failure a retry can plausibly clear.
- */
 function figmaUpstreamStatusCode(status: number | undefined): number {
   return typeof status === "number" && status >= 400 && status < 500
     ? status
     : 502;
 }
 
-/** Abort because Figma answered with an error status. */
 export function failFigmaRequest(options: {
   label: string;
   detail: string;
@@ -172,8 +150,6 @@ function figmaRateLimitDetails(
 ): FigmaRateLimitDetails {
   const details: FigmaRateLimitDetails = {};
 
-  // Retry-After may also be an HTTP-date, which parseInt turns into NaN. A NaN
-  // countdown renders as "NaN min", so only a real delay is carried.
   const retryAfter = Number.parseInt(headers?.["retry-after"] ?? "", 10);
   if (Number.isFinite(retryAfter) && retryAfter > 0) {
     details.retryAfterSeconds = retryAfter;
@@ -193,15 +169,6 @@ function figmaRateLimitDetails(
   return details;
 }
 
-/**
- * Retry delay when this 429 came from our own provider-API quota governor
- * rather than from Figma, or `undefined` when it did not.
- *
- * `providerQuotaExhaustedResponse` in `@agent-native/core/provider-api`
- * synthesizes a 429 envelope for its cooldown, carrying this header and
- * `json.error`. Reading only the status told the user Figma had rate-limited
- * them and offered a Figma plan upgrade for an app-side wait.
- */
 function providerQuotaRetryAfterSeconds(
   response: NonNullable<FigmaProviderEnvelope["response"]>,
 ): number | null | undefined {
@@ -217,12 +184,6 @@ function providerQuotaRetryAfterSeconds(
   return Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null;
 }
 
-/**
- * Unwrap a provider-API envelope into Figma's JSON body, or raise the reason
- * it cannot be. Three Figma entry points each carried their own copy of this
- * reader and two of them never checked `truncated`, so a response the provider
- * had cut short was parsed as if it were whole.
- */
 export function readFigmaProviderJson(
   envelope: unknown,
   label: string,
@@ -263,10 +224,6 @@ export function readFigmaProviderJson(
           : undefined,
     });
   }
-  // A 2xx whose body is null, a primitive, or an array is not the document
-  // shape any caller here reads. Returned unchanged it became a bare
-  // TypeError one frame later ("cannot read properties of null"), which is
-  // the same opaque 500 this module exists to remove.
   if (
     !response.json ||
     typeof response.json !== "object" ||
@@ -281,7 +238,6 @@ export function readFigmaProviderJson(
   return response.json;
 }
 
-/** True when a failure means the payload was too big for this import path. */
 export function isFigmaPayloadTooLargeError(err: unknown): boolean {
   return (
     !!err &&
@@ -291,7 +247,6 @@ export function isFigmaPayloadTooLargeError(err: unknown): boolean {
   );
 }
 
-/** True when a failure already carries its own user-facing Figma diagnosis. */
 export function isFigmaImportFailure(err: unknown): boolean {
   return (
     !!err &&
@@ -328,14 +283,8 @@ export function isProviderCredentialFailure(err: unknown): boolean {
   );
 }
 
-/**
- * Re-raise a provider request failure as a Figma diagnosis when it is one,
- * and leave anything unexpected untouched so it still reports as a real bug.
- */
 export function rethrowFigmaProviderFailure(err: unknown): never {
   if (isProviderCredentialFailure(err)) {
-    // The message names credential keys and scope gaps, not secret values,
-    // but it is internal wiring detail: give the user the action instead.
     console.error(
       "[figma-import] Figma credential could not be resolved:",
       err,

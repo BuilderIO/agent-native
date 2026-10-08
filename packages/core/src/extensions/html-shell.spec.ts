@@ -12,7 +12,16 @@ import {
 } from "./html-shell.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const CLIENT_DIR = join(HERE, "..", "client", "extensions");
+const EXTENSION_HOST_DIR = join(
+  HERE,
+  "..",
+  "..",
+  "..",
+  "toolkit",
+  "src",
+  "app",
+  "extensions",
+);
 
 describe("buildExtensionHtml", () => {
   it("uses a constrained iframe CSP", () => {
@@ -76,10 +85,6 @@ describe("buildExtensionHtml", () => {
   });
 
   it("hides x-cloak content until Alpine boots", () => {
-    // Extension content is a body snippet, so it cannot supply this rule
-    // itself. Without it an `x-cloak` overlay covers the whole extension
-    // until the deferred Alpine CDN script resolves — and forever if it
-    // never does.
     const html = buildExtensionHtml(
       '<div x-cloak class="fixed inset-0">Alerts</div>',
       ":root{}",
@@ -212,15 +217,12 @@ describe("buildExtensionHtml", () => {
 
   it("pins CDN scripts to exact versions with SRI integrity hashes", () => {
     const html = buildExtensionHtml("<div/>", ":root{}", false, "t");
-    // Tailwind: pinned to a patch version + SRI.
     expect(html).toMatch(
       /<script[^>]*src="https:\/\/cdn\.jsdelivr\.net\/npm\/@tailwindcss\/browser@\d+\.\d+\.\d+"[^>]*integrity="sha384-[A-Za-z0-9+/=]+"/,
     );
-    // Alpine: pinned to a patch version + SRI.
     expect(html).toMatch(
       /<script[^>]*src="https:\/\/cdn\.jsdelivr\.net\/npm\/alpinejs@\d+\.\d+\.\d+\/dist\/cdn\.min\.js"[^>]*integrity="sha384-[A-Za-z0-9+/=]+"/,
     );
-    // Refuse the old unpinned-major form.
     expect(html).not.toContain('@tailwindcss/browser@4"');
     expect(html).not.toContain("alpinejs@3/dist/cdn.min.js");
     expect(html).toContain("@rrweb/record@2.1.0/umd/record.min.js");
@@ -265,7 +267,7 @@ describe("extension iframe sandbox attribute (CI guard)", () => {
 
   for (const file of HOST_FILES) {
     it(`${file} renders the iframe without allow-same-origin`, () => {
-      const text = readFileSync(join(CLIENT_DIR, file), "utf8");
+      const text = readFileSync(join(EXTENSION_HOST_DIR, file), "utf8");
       const sandboxMatches = text.match(/sandbox="([^"]*)"/g) ?? [];
       const usesNormalizedSandbox = text.includes(
         "sandbox={EXTENSION_IFRAME_SANDBOX}",
@@ -293,7 +295,7 @@ describe("extension chat submission policy (CI guard)", () => {
 
   for (const [file, guard] of HOST_SUBMISSION_GUARDS) {
     it(`${file} requires explicit submission opt-in`, () => {
-      const text = readFileSync(join(CLIENT_DIR, file), "utf8");
+      const text = readFileSync(join(EXTENSION_HOST_DIR, file), "utf8");
       expect(text).toContain(guard);
       expect(text).not.toContain(guard.replace("=== true", "!== false"));
     });

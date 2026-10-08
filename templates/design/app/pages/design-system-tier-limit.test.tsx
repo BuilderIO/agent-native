@@ -1,21 +1,40 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 import DesignSystems from "./DesignSystems";
 import DesignSystemSetup from "./DesignSystemSetup";
 
 const mocks = vi.hoisted(() => ({
+  systemsEnabled: true,
+  systemsFlagStatus: "ready" as "loading" | "ready" | "unavailable",
+  designSystems: [] as Array<Record<string, unknown>>,
+  designSystemsLoading: false,
+  designSystemsError: false,
+  submitDesignSystemWaitlist: vi.fn(),
+  submitDesignSystemsWaitlist: vi.fn(),
+  headerActions: null as unknown,
+  queries: vi.fn(),
   navigate: vi.fn(),
   queryClient: { setQueryData: vi.fn(), invalidateQueries: vi.fn() },
   tierLimit: null as Record<string, unknown> | null,
   uploadAndIndexFigmaFiles: vi.fn(),
 }));
 
+vi.mock("@/hooks/use-design-system-workflows", () => ({
+  useDesignSystemWorkflows: () => mocks.systemsEnabled,
+  useDesignSystemWorkflowsState: () => ({
+    status: mocks.systemsFlagStatus,
+    enabled: mocks.systemsEnabled,
+  }),
+}));
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (action: string) => {
+    mocks.queries(action);
     if (action === "get-design-system-tier-limit") {
       return { data: mocks.tierLimit };
     }
@@ -24,9 +43,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     }
     if (action === "list-design-systems") {
       return {
-        data: { designSystems: [] },
-        isLoading: false,
-        isError: false,
+        data: { designSystems: mocks.designSystems },
+        isLoading: mocks.designSystemsLoading,
+        isError: mocks.designSystemsError,
         isFetching: false,
         refetch: vi.fn(),
       };
@@ -49,12 +68,14 @@ vi.mock("@agent-native/core/client/navigation", () => ({
   openAgentSidebar: () => {},
 }));
 
-vi.mock("@agent-native/core/client/sharing", () => ({
+vi.mock("@agent-native/toolkit/app/sharing", () => ({
   ShareButton: () => null,
 }));
 
 vi.mock("@agent-native/toolkit/app-shell", () => ({
-  useSetHeaderActions: () => {},
+  useSetHeaderActions: (actions: unknown) => {
+    mocks.headerActions = actions;
+  },
   useSetPageTitle: () => {},
 }));
 
@@ -73,6 +94,10 @@ vi.mock("@/lib/agent-chat", () => ({
 vi.mock("@/lib/builder-design-system-upload", () => ({
   uploadAndIndexFigmaFiles: mocks.uploadAndIndexFigmaFiles,
   pollDecodeJobStatus: vi.fn(),
+}));
+vi.mock("@/lib/design-system-waitlist", () => ({
+  submitDesignSystemWaitlist: mocks.submitDesignSystemWaitlist,
+  submitDesignSystemsWaitlist: mocks.submitDesignSystemsWaitlist,
 }));
 
 vi.mock("react-router", () => ({
@@ -97,6 +122,8 @@ vi.mock("react-router", () => ({
 
 let container: HTMLDivElement;
 let root: Root;
+let headerContainer: HTMLDivElement;
+let headerRoot: Root;
 
 beforeEach(() => {
   (
@@ -104,18 +131,175 @@ beforeEach(() => {
   ).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
   mocks.tierLimit = null;
+  mocks.systemsEnabled = true;
+  mocks.systemsFlagStatus = "ready";
+  mocks.designSystems = [];
+  mocks.designSystemsLoading = false;
+  mocks.designSystemsError = false;
   mocks.uploadAndIndexFigmaFiles.mockReset();
+  mocks.submitDesignSystemWaitlist.mockReset();
+  mocks.submitDesignSystemsWaitlist.mockReset();
+  mocks.headerActions = null;
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
+  headerContainer = document.createElement("div");
+  document.body.append(headerContainer);
+  headerRoot = createRoot(headerContainer);
 });
 
 afterEach(async () => {
-  await act(async () => root.unmount());
+  await act(async () => {
+    root.unmount();
+    headerRoot.unmount();
+  });
   container.remove();
+  headerContainer.remove();
 });
 
 describe("DesignSystems list page tier-limit gating", () => {
+  it("shows coming soon immediately while checking for saved systems", async () => {
+    mocks.systemsEnabled = false;
+    mocks.designSystemsLoading = true;
+    await act(async () => root.render(<DesignSystems />));
+    expect(
+      container.querySelector('a[href="/design-systems/setup"]'),
+    ).toBeNull();
+    expect(container.textContent).toContain("designSystems.comingSoonTitle");
+    expect(container.textContent).toContain("designSystems.waitlist.join");
+    expect(mocks.queries).toHaveBeenCalledWith("list-design-systems");
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("reveals existing systems after the background check completes", async () => {
+    mocks.systemsEnabled = false;
+    mocks.designSystemsLoading = true;
+    await act(async () => root.render(<DesignSystems />));
+    expect(container.textContent).toContain("designSystems.comingSoonTitle");
+
+    mocks.designSystems = [
+      {
+        id: "saved-system",
+        title: "Existing system",
+        data: "{}",
+        isDefault: false,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    mocks.designSystemsLoading = false;
+    await act(async () => root.render(<DesignSystems />));
+
+    expect(container.textContent).toContain("Existing system");
+    expect(container.textContent).not.toContain(
+      "designSystems.comingSoonTitle",
+    );
+    expect(
+      container.querySelector('a[href="/design-systems/setup"]'),
+    ).toBeNull();
+  });
+
+  it("joins the shared waitlist and confirms the submission", async () => {
+    mocks.systemsEnabled = false;
+    mocks.submitDesignSystemsWaitlist.mockResolvedValue({
+      status: "submitted",
+    });
+    await act(async () => root.render(<DesignSystems />));
+
+    const button = Array.from(container.querySelectorAll("button")).find(
+      (candidate) =>
+        candidate.textContent?.includes("designSystems.waitlist.join"),
+    );
+    await act(async () => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(mocks.submitDesignSystemsWaitlist).toHaveBeenCalledWith(
+      new URL("/design-systems", window.location.origin).href,
+    );
+    expect(container.textContent).toContain("designSystems.waitlist.joined");
+    expect(container.querySelector("button")?.disabled).toBe(true);
+  });
+
+  it("keeps the create action in the empty state without a header duplicate", async () => {
+    await act(async () =>
+      root.render(
+        <TooltipProvider>
+          <DesignSystems />
+        </TooltipProvider>,
+      ),
+    );
+    await act(async () =>
+      headerRoot.render(
+        <TooltipProvider>{mocks.headerActions as ReactNode}</TooltipProvider>,
+      ),
+    );
+
+    expect(
+      container.querySelector('a[href="/design-systems/setup"]'),
+    ).not.toBeNull();
+    expect(
+      headerContainer.querySelector('a[href="/design-systems/setup"]'),
+    ).toBeNull();
+  });
+
+  it("offers the waitlist in the header when saved systems already exist", async () => {
+    mocks.systemsEnabled = false;
+    mocks.designSystems = [
+      {
+        id: "saved-system",
+        title: "Existing system",
+        data: "{}",
+        isDefault: false,
+        canManage: true,
+        createdAt: "2026-10-06T00:00:00.000Z",
+      },
+    ];
+
+    await act(async () =>
+      root.render(
+        <TooltipProvider>
+          <DesignSystems />
+        </TooltipProvider>,
+      ),
+    );
+    await act(async () =>
+      headerRoot.render(
+        <TooltipProvider>{mocks.headerActions as ReactNode}</TooltipProvider>,
+      ),
+    );
+
+    expect(container.textContent).toContain("Existing system");
+    expect(headerContainer.textContent).toContain(
+      "designSystems.waitlist.join",
+    );
+    expect(
+      headerContainer.querySelector('a[href="/design-systems/setup"]'),
+    ).toBeNull();
+  });
+
+  it("does not show the flag-off empty state while the flag answer is loading", async () => {
+    mocks.systemsEnabled = false;
+    mocks.systemsFlagStatus = "loading";
+    await act(async () => root.render(<DesignSystems />));
+
+    expect(container.textContent).not.toContain(
+      "designSystems.comingSoonTitle",
+    );
+    expect(container.textContent).not.toContain("designSystems.empty.title");
+  });
+
+  it("shows an error when the feature-flag read is unavailable", async () => {
+    mocks.systemsEnabled = false;
+    mocks.systemsFlagStatus = "unavailable";
+    await act(async () => root.render(<DesignSystems />));
+
+    expect(container.textContent).toContain("common.genericError");
+    expect(container.textContent).not.toContain(
+      "designSystems.comingSoonTitle",
+    );
+    expect(container.textContent).not.toContain("designSystems.empty.title");
+  });
+
   it("blocks the create link and shows upgrade messaging at the tier cap", async () => {
     mocks.tierLimit = {
       status: "ok",
@@ -152,6 +336,19 @@ describe("DesignSystems list page tier-limit gating", () => {
 });
 
 describe("DesignSystemSetup tier-limit gating", () => {
+  it("does not redirect or mount setup queries while loading/off, and opens when enabled", async () => {
+    mocks.systemsEnabled = false;
+    await act(async () => root.render(<DesignSystemSetup />));
+    expect(container.querySelector('a[href="/design-systems"]')).not.toBeNull();
+    expect(container.querySelector('input[type="file"]')).toBeNull();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(mocks.queries).not.toHaveBeenCalled();
+    mocks.systemsEnabled = true;
+    await act(async () => root.render(<DesignSystemSetup />));
+    expect(container.textContent).toContain("designSystemSetup.title");
+    expect(mocks.queries).toHaveBeenCalledWith("get-design-system-tier-limit");
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
   it("blocks the setup form entirely and shows upgrade messaging at the tier cap", async () => {
     mocks.tierLimit = {
       status: "ok",

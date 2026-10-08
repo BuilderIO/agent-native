@@ -10,11 +10,6 @@ export const RRWEB_RECORD_IFRAME_CDN_URL =
 export const RRWEB_RECORD_IFRAME_SRI =
   "sha384-MrD66HBNSykaP2N95+6hQCFlF5oH2tvL3TD/zyvHNkP/sAFWZx98DX9MEDy8MdVT";
 
-/**
- * Installs the cooperative side of rrweb's cross-origin iframe protocol.
- * Nothing is fetched or recorded until a trusted first-party parent asks the
- * frame to start. rrweb then forwards its events directly to that parent.
- */
 export function buildSessionReplayIframeBootstrap(): string {
   const probeType = JSON.stringify(SESSION_REPLAY_IFRAME_PROBE);
   const startType = JSON.stringify(SESSION_REPLAY_IFRAME_START);
@@ -117,40 +112,32 @@ export function buildSessionReplayIframeBootstrap(): string {
   </script>`;
 }
 
-/**
- * Blank the interiors of comments and raw-text elements, preserving length so
- * every index still refers to the same character in `html`. Lazy matching to
- * the first `</script>` is HTML's own rule, so the mask and the browser agree
- * on where each body ends.
- *
- * Raw-text and RCDATA elements hold text, not markup. `title` even sits inside
- * the head, so a literal `</head>` there precedes the real one and would win,
- * inserting the bootstrap where it never executes. `plaintext` has no end tag
- * and swallows the rest of the document.
- */
-function maskUnparsedRegions(html: string): string {
+// Searches only the markup between comments and raw-text elements, stopping at
+// the first match: </head> sits near the top of documents that run to megabytes.
+function searchParsedMarkup(html: string, pattern: RegExp): number {
   const regions =
     /<!--[\s\S]*?-->|<(script|style|title|textarea|xmp|noembed|noframes|iframe)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
-  // `plaintext` has no end tag — everything after it is text, to EOF.
-  const plaintext = /<plaintext\b[^>]*>[\s\S]*$/i;
-  return html
-    .replace(regions, (region) => " ".repeat(region.length))
-    .replace(plaintext, (region) => " ".repeat(region.length));
+  let cursor = 0;
+  for (;;) {
+    const region = regions.exec(html);
+    const gap = html.slice(cursor, region ? region.index : html.length);
+    const plaintext = gap.search(/<plaintext\b[^>]*>/i);
+    const found = (plaintext === -1 ? gap : gap.slice(0, plaintext)).search(
+      pattern,
+    );
+    if (found !== -1) return cursor + found;
+    if (plaintext !== -1 || !region) return -1;
+    cursor = region.index + region[0].length;
+  }
 }
 
 export function injectSessionReplayIframeBootstrap(html: string): string {
   const bootstrap = buildSessionReplayIframeBootstrap();
-  // Search the masked copy, splice the real one. The editor preview inlines a
-  // bridge bundle whose source contains `</head>` inside a JS string literal;
-  // splicing there unterminates that literal and the bootstrap's own
-  // `</script>` closes the bridge early, so the entire bundle stops parsing
-  // and the preview silently loses every interaction.
-  const markup = maskUnparsedRegions(html);
-  const headClose = markup.search(/<\/head\s*>/i);
+  const headClose = searchParsedMarkup(html, /<\/head\s*>/i);
   if (headClose >= 0) {
     return `${html.slice(0, headClose)}${bootstrap}${html.slice(headClose)}`;
   }
-  const bodyOpen = markup.search(/<body(?:\s[^>]*)?>/i);
+  const bodyOpen = searchParsedMarkup(html, /<body(?:\s[^>]*)?>/i);
   if (bodyOpen >= 0) {
     return `${html.slice(0, bodyOpen)}${bootstrap}${html.slice(bodyOpen)}`;
   }

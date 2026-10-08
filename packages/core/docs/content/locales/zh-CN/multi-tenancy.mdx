@@ -62,9 +62,9 @@ description: "每个代理本机应用程序都是开箱即用的多租户 - 组
 
 </Diagram>
 
-## 组织切换者 UI {#org-switcher}
+## 账户菜单 {#org-switcher}
 
-组织切换者和成员 UI 在每个模板中呈现，无需额外代码。他们在 `/_agent-native/org/*` 下驱动核心组织 REST 路由（创建组织、切换组织、列出/邀请/删除成员、更改角色、设置允许的电子邮件域）。用户从切换器中选择活动组织；成员面板处理邀请和角色变更。
+账户菜单（`OrgSwitcher`，位于侧边栏底部）和设置中的组织页面会在每个模板中呈现，无需额外代码。它们使用 `/_agent-native/org/*` 下的核心组织 REST 路由（创建组织、切换组织、列出/邀请/删除成员、更改角色、设置允许的电子邮件域）。用户在账户菜单中选择活动组织；**Settings › Organization › Members** 处理邀请和角色变更。
 
 这是框架自己的`org/`模块，而不是Better Auth的组织插件（故意不注册）。完整的组织管理界面——`createOrganization`、REST 路由和模板编写的 `defineAction` 包装器（如 `invite-member`）——记录在 [Authentication → Organizations](/docs/authentication#organizations) 中。
 

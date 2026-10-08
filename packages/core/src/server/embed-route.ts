@@ -13,6 +13,7 @@ import {
   EMBED_START_PATH,
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+  MCP_DIRECTORY_WIDGET_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import {
   isMcpEmbedTransplantOrigin,
@@ -29,6 +30,7 @@ import {
   setEmbedSessionCookie,
   signEmbedSessionToken,
 } from "./embed-session.js";
+import { getForwardedRequestHostname } from "./request-origin.js";
 
 function withConfiguredBasePath(path: string): string {
   const base = getConfiguredAppBasePath();
@@ -48,6 +50,7 @@ function appendEmbedParams(
   if (chatBridgeActive) {
     url.searchParams.set(MCP_APP_CHAT_BRIDGE_QUERY_PARAM, "1");
   }
+  url.searchParams.delete(MCP_DIRECTORY_WIDGET_QUERY_PARAM);
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
@@ -333,12 +336,7 @@ export function createEmbedStartRouteHandler(
       .catch(() => null);
     let consumeDiagnostic: EmbedSessionTicketConsumeDiagnostic | null = null;
     const consumed = await consumeEmbedSessionTicket(ticket, {
-      // Org ids are app-local in the workspace: the Dispatch parent and a
-      // target app can represent the same signed-in person with different
-      // ids. Bind an existing target session to the ticket owner instead.
       expectedOwnerEmail: existingSession?.email ?? null,
-      // Resource-scoped capabilities authorize the public target, not the
-      // account currently signed into the browser.
       allowCapabilityIdentityMismatch: true,
       onResult: (diagnostic) => {
         consumeDiagnostic = diagnostic;
@@ -363,7 +361,12 @@ export function createEmbedStartRouteHandler(
       ownerEmail: consumed.ownerEmail,
       orgId: consumed.orgId,
       targetPath: target,
+      audienceHost: getForwardedRequestHostname(event),
       scope: consumed.scope,
+      ...(consumed.ticketCreatedAtMs != null &&
+      !isEmbedCapabilityScope(consumed.scope)
+        ? { ticketCreatedAtMs: consumed.ticketCreatedAtMs }
+        : {}),
       ...(isEmbedCapabilityScope(consumed.scope)
         ? {
             ttlSeconds: Math.max(

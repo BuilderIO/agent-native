@@ -1,4 +1,15 @@
-const ALLOWED_TAGS = new Set([
+import { parseBase64DataUrl } from "@agent-native/core/shared";
+
+const SAFE_INLINE_IMAGE_DATA_URL_TYPES = new Set([
+  "image/gif",
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+  "image/avif",
+]);
+
+export const ALLOWED_TAGS: ReadonlySet<string> = new Set([
   "a",
   "article",
   "aside",
@@ -35,6 +46,7 @@ const ALLOWED_TAGS = new Set([
   "section",
   "small",
   "span",
+  "source",
   "strong",
   "style",
   "sub",
@@ -48,9 +60,10 @@ const ALLOWED_TAGS = new Set([
   "tr",
   "u",
   "ul",
+  "video",
 ]);
 
-const DROP_WITH_CHILDREN = new Set([
+export const DROP_WITH_CHILDREN: ReadonlySet<string> = new Set([
   "base",
   "button",
   "embed",
@@ -72,25 +85,46 @@ const ALLOWED_ATTRS = new Set([
   "alt",
   "aria-label",
   "aria-hidden",
+  "autoplay",
   "border",
   "cellpadding",
   "cellspacing",
   "class",
   "colspan",
+  "controls",
   "height",
   "href",
   "id",
+  "loop",
   "role",
   "rowspan",
   "src",
   "style",
   "target",
   "title",
+  "muted",
+  "playsinline",
+  "preload",
+  "poster",
+  "type",
   "valign",
   "width",
 ]);
 
+const TAG_ATTRS: Readonly<Record<string, ReadonlySet<string>>> = {
+  ol: new Set(["reversed", "start", "type"]),
+  li: new Set(["value"]),
+};
+
 const URL_ATTRS = new Set(["href", "src", "poster", "xlink:href"]);
+const BOOLEAN_VIDEO_ATTRS = new Set([
+  "autoplay",
+  "controls",
+  "loop",
+  "muted",
+  "playsinline",
+]);
+const VIDEO_OPENING_TAG_REGEX = /<video\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi;
 
 function escapeHtml(value: string): string {
   return value
@@ -123,7 +157,7 @@ function decodeHtmlEntities(value: string): string {
 
 export function sanitizeSlideUrl(
   rawUrl: string | undefined,
-  kind: "link" | "image" = "link",
+  kind: "link" | "image" | "media" = "link",
   options?: { allowBlob?: boolean },
 ): string | null {
   const value = String(rawUrl ?? "").trim();
@@ -143,16 +177,17 @@ export function sanitizeSlideUrl(
   }
 
   if (lower.startsWith("data:")) {
-    return kind === "image" &&
-      /^data:image\/(?:gif|png|jpe?g|webp|avif);base64,/i.test(decoded)
+    if (kind !== "image") return null;
+    const dataUrl = parseBase64DataUrl(decoded);
+    return dataUrl && SAFE_INLINE_IMAGE_DATA_URL_TYPES.has(dataUrl.mediaType)
       ? value
       : null;
   }
 
-  // Local object URLs are only a client-side rendering affordance. They must
-  // be explicitly enabled so the default sanitizer cannot persist them.
   if (lower.startsWith("blob:")) {
-    return kind === "image" && options?.allowBlob ? value : null;
+    return (kind === "image" || kind === "media") && options?.allowBlob
+      ? value
+      : null;
   }
 
   if (value.startsWith("/") || value.startsWith("#")) return value;
@@ -160,7 +195,7 @@ export function sanitizeSlideUrl(
 
   try {
     const url = new URL(decoded);
-    if (kind === "image") {
+    if (kind === "image" || kind === "media") {
       return url.protocol === "http:" || url.protocol === "https:"
         ? value
         : null;
@@ -204,6 +239,14 @@ function sanitizeStyle(style: string): string {
     .join("; ");
 }
 
+/**
+ * A scope prefix left in stored CSS by an earlier save of the rendered DOM.
+ * Re-prefixing it would chain two scopes that never match together, which
+ * silently turned off every rule of a slide's stylesheet.
+ */
+const EXISTING_SCOPE_PREFIX =
+  /^(?:\[data-slide-content-scope(?:=(?:"[^"]*"|'[^']*'|[^\]\s]*))?\](?:\s+|$))+/;
+
 function scopeCssSelector(selector: string, scopeSelector?: string): string {
   const trimmed = selector.trim();
   if (!scopeSelector || !trimmed || trimmed.startsWith("@")) return trimmed;
@@ -211,8 +254,10 @@ function scopeCssSelector(selector: string, scopeSelector?: string): string {
   return trimmed
     .split(",")
     .map((part) => {
-      const item = part.trim();
-      if (!item) return "";
+      const scoped = part.trim();
+      const item = scoped.replace(EXISTING_SCOPE_PREFIX, "").trim();
+      if (!scoped) return "";
+      if (!item) return scopeSelector;
       if (item === "*") return `${scopeSelector}, ${scopeSelector} *`;
       if (/^(?:html|body|:root)\b/i.test(item)) {
         return item.replace(/^(?:html|body|:root)\b/i, scopeSelector);
@@ -238,6 +283,8 @@ function cleanNode(
   doc: Document,
   scopeSelector?: string,
   allowBlobImages = false,
+  allowBlobVideos = false,
+  disableVideoAutoplay = false,
 ): Node | null {
   if (node.nodeType === Node.TEXT_NODE) {
     return doc.createTextNode(node.textContent ?? "");
@@ -260,7 +307,14 @@ function cleanNode(
   if (!ALLOWED_TAGS.has(tag)) {
     const fragment = doc.createDocumentFragment();
     for (const child of Array.from(el.childNodes)) {
-      const cleaned = cleanNode(child, doc, undefined, allowBlobImages);
+      const cleaned = cleanNode(
+        child,
+        doc,
+        undefined,
+        allowBlobImages,
+        allowBlobVideos,
+        disableVideoAutoplay,
+      );
       if (cleaned) fragment.appendChild(cleaned);
     }
     return fragment;
@@ -274,17 +328,22 @@ function cleanNode(
     if (name === "srcdoc" || name === "srcset") continue;
     if (
       !ALLOWED_ATTRS.has(name) &&
+      !TAG_ATTRS[tag]?.has(name) &&
       !name.startsWith("data-") &&
       !name.startsWith("aria-")
     ) {
       continue;
     }
     if (URL_ATTRS.has(name)) {
-      const safeUrl = sanitizeSlideUrl(
-        value,
-        tag === "img" ? "image" : "link",
-        { allowBlob: allowBlobImages },
-      );
+      const kind =
+        name === "poster" || tag === "img"
+          ? "image"
+          : tag === "video" || tag === "source"
+            ? "media"
+            : "link";
+      const safeUrl = sanitizeSlideUrl(value, kind, {
+        allowBlob: kind === "image" ? allowBlobImages : allowBlobVideos,
+      });
       if (!safeUrl) continue;
       out.setAttribute(name, safeUrl);
       continue;
@@ -294,8 +353,48 @@ function cleanNode(
       if (safeStyle) out.setAttribute("style", safeStyle);
       continue;
     }
+    if (tag === "video" && BOOLEAN_VIDEO_ATTRS.has(name)) {
+      if (value.toLowerCase() === "false") {
+        continue;
+      }
+      if (name === "autoplay" && disableVideoAutoplay) {
+        out.setAttribute("data-video-autoplay", "true");
+        continue;
+      }
+      out.setAttribute(name, "");
+      continue;
+    }
+    if (name === "preload" && !["none", "metadata", "auto"].includes(value)) {
+      continue;
+    }
+    if (
+      tag === "source" &&
+      name === "type" &&
+      !["video/mp4", "video/webm"].includes(
+        value.toLowerCase().split(";")[0]?.trim() ?? "",
+      )
+    ) {
+      continue;
+    }
     if (name === "target" && value !== "_blank") continue;
     out.setAttribute(name, value);
+  }
+
+  if (tag === "video") {
+    const autoplayConfigured =
+      out.hasAttribute("autoplay") ||
+      out.getAttribute("data-video-autoplay") === "true";
+    if (
+      autoplayConfigured &&
+      !disableVideoAutoplay &&
+      out.hasAttribute("data-video-autoplay")
+    ) {
+      out.setAttribute("autoplay", "");
+    }
+    if (autoplayConfigured) {
+      out.setAttribute("muted", "");
+      out.setAttribute("playsinline", "");
+    }
   }
 
   if (tag === "a") {
@@ -304,31 +403,24 @@ function cleanNode(
   }
 
   for (const child of Array.from(el.childNodes)) {
-    const cleaned = cleanNode(child, doc, scopeSelector, allowBlobImages);
+    const cleaned = cleanNode(
+      child,
+      doc,
+      scopeSelector,
+      allowBlobImages,
+      allowBlobVideos,
+      disableVideoAutoplay,
+    );
     if (cleaned) out.appendChild(cleaned);
   }
 
   return out;
 }
 
-/**
- * Elements whose unclosed start tag swallows the rest of the document in a real
- * parser. `embed` is deliberately absent: it is void, so it never has a closing
- * tag and requiring one would truncate every slide that contains a valid one.
- */
 const SWALLOWING_ELEMENTS = /^(script|style|textarea|iframe|object|svg|math)$/i;
 
-/** Elements whose children the HTML parser reads as text rather than markup. */
 const RAW_TEXT_ELEMENTS = /^(script|style|textarea|title)$/i;
 
-/**
- * Start-tag positions in `html`, skipping comments and anything inside a quoted
- * attribute value.
- *
- * Scanning the serialized string with a bare regex cannot tell a tag from text:
- * `<p title="Use <style> here">` reads as a `<style>` start tag, and truncating
- * there drops the rest of a perfectly valid slide.
- */
 function startTagPositions(
   html: string,
 ): { name: string; index: number; end: number }[] {
@@ -341,8 +433,6 @@ function startTagPositions(
       continue;
     }
     const name = /^<([a-z][a-z0-9-]*)/i.exec(html.slice(i, i + 32))?.[1];
-    // Walk to this tag's `>`, stepping over quoted values so a `<` or `>`
-    // inside one is not read as markup.
     let cursor = i + 1;
     let quote = "";
     while (cursor < html.length) {
@@ -363,11 +453,6 @@ function startTagPositions(
     const lower = name.toLowerCase();
     found.push({ name: lower, index: i, end: cursor });
     if (RAW_TEXT_ELEMENTS.test(lower)) {
-      // A raw-text element's body is text, not markup — `content: "<script>"`
-      // inside a stylesheet is a CSS string, and reading it as a start tag
-      // truncated everything after it. Skip to the close tag; no close tag is
-      // the unclosed case the caller is looking for, and everything past it is
-      // swallowed anyway, so there is nothing further to find.
       const closing = new RegExp(`</\\s*${lower}\\s*>`, "i").exec(
         html.slice(cursor),
       );
@@ -380,16 +465,6 @@ function startTagPositions(
   return found;
 }
 
-/**
- * Truncates at the first swallowing element that never closes.
- *
- * The regex path has to drop the remainder to agree with `cleanNode`. It must
- * check for the closing tag to do that: the sweep used to match any of these
- * tags and cut to the end of the string unconditionally, which ate the
- * sanitized `<style>` block the pass above it had just emitted — and every
- * heading and paragraph after it. A deck with one stylesheet rendered as an
- * empty slide on the SSR'd share and present pages.
- */
 function dropFromFirstUnclosedRawText(html: string): string {
   for (const { name, index } of startTagPositions(html)) {
     if (!SWALLOWING_ELEMENTS.test(name)) continue;
@@ -399,23 +474,12 @@ function dropFromFirstUnclosedRawText(html: string): string {
   return html;
 }
 
-/**
- * Rewrites `/` attribute separators inside start tags as spaces.
- *
- * `/` is a legal separator between attributes, so `<img src="x"/onerror="…">`
- * is an image with a live handler — and every attribute scrub below is anchored
- * on whitespace, so none of them matched it. Normalizing here rather than
- * widening each scrub to `[\s/]+` is what keeps a legitimate value intact: a
- * URL like `https://cdn.example/onerror=logo.png` lives inside quotes, and this
- * only touches separators outside them.
- */
 function normalizeTagAttributeSeparators(html: string): string {
   const tags = startTagPositions(html);
   if (!tags.length) return html;
   let out = "";
   let copied = 0;
   for (const { index, end } of tags) {
-    // Start after the tag name so `</p>` and the opening `<` are untouched.
     const nameEnd = /^<[a-z][a-z0-9-]*/i.exec(html.slice(index, end))?.[0]
       .length;
     if (nameEnd === undefined) continue;
@@ -446,74 +510,162 @@ function sanitizeHtmlString(
   html: string,
   scopeSelector?: string,
   allowBlobImages = false,
+  allowBlobVideos = false,
+  disableVideoAutoplay = false,
 ): string {
-  return (
-    normalizeTagAttributeSeparators(html)
-      .replace(/<style\b[^>]*>([\s\S]*?)<\/\s*style\s*>/gi, (_match, css) => {
-        const safeCss = sanitizeStyleSheet(String(css), scopeSelector);
-        return safeCss
-          ? `<style>${safeCss.replace(/<\/style/gi, "<\\/style")}</style>`
-          : "";
-      })
-      .replace(
-        /<(script|iframe|object|embed|form|input|button|select|textarea|meta|base|link|svg|math)\b[\s\S]*?<\/\s*\1\s*>/gi,
-        "",
-      )
-      // Anything left here is a blocked element that never closed. The opening-tag
-      // pass below would strip only its tag and leave the body behind as slide
-      // text — which is how a script's JavaScript renders as visible copy on the
-      // SSR'd share/present pages, where DOMParser is undefined and this regex
-      // twin runs instead of cleanNode(). An unclosed raw-text or embedding
-      // element swallows the rest of the document in a real parser, so dropping
-      // the remainder is what keeps this path agreeing with the DOM path.
-      .replace(/[\s\S]*/, dropFromFirstUnclosedRawText)
-      .replace(
-        /<(script|iframe|object|embed|form|input|button|select|textarea|meta|base|link|svg|math)\b[^>]*\/?>/gi,
-        "",
-      )
-      .replace(/\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-      .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-      .replace(/\s+srcset\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-      .replace(
-        /\s+(href|src|xlink:href)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
-        (match, attr, _raw, dq, sq, bare) => {
-          const value = dq ?? sq ?? bare ?? "";
-          const safe = sanitizeSlideUrl(
-            value,
-            String(attr).toLowerCase() === "src" ? "image" : "link",
-            { allowBlob: allowBlobImages },
+  const normalized = normalizeTagAttributeSeparators(html);
+  const sanitized = normalized
+    .replace(/<style\b[^>]*>([\s\S]*?)<\/\s*style\s*>/gi, (_match, css) => {
+      const safeCss = sanitizeStyleSheet(String(css), scopeSelector);
+      return safeCss
+        ? `<style>${safeCss.replace(/<\/style/gi, "<\\/style")}</style>`
+        : "";
+    })
+    .replace(
+      /<(script|iframe|object|embed|form|input|button|select|textarea|meta|base|link|svg|math)\b[\s\S]*?<\/\s*\1\s*>/gi,
+      "",
+    )
+    // Anything left here is a blocked element that never closed. The opening-tag
+    // pass below would strip only its tag and leave the body behind as slide
+    // text — which is how a script's JavaScript renders as visible copy on the
+    // SSR'd share/present pages, where DOMParser is undefined and this regex
+    // twin runs instead of cleanNode(). An unclosed raw-text or embedding
+    // element swallows the rest of the document in a real parser, so dropping
+    // the remainder is what keeps this path agreeing with the DOM path.
+    .replace(/[\s\S]*/, dropFromFirstUnclosedRawText)
+    .replace(
+      /<(script|iframe|object|embed|form|input|button|select|textarea|meta|base|link|svg|math)\b[^>]*\/?>/gi,
+      "",
+    )
+    .replace(/\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s+srcset\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(
+      /\s+(href|src|poster|xlink:href)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+      (match, attr, _raw, dq, sq, bare, offset: number, source: string) => {
+        const value = dq ?? sq ?? bare ?? "";
+        const tagName = /<([a-z][\w-]*)\b[^<>]*$/i
+          .exec(source.slice(0, offset))?.[1]
+          ?.toLowerCase();
+        const kind =
+          String(attr).toLowerCase() === "poster" || tagName === "img"
+            ? "image"
+            : tagName === "video" || tagName === "source"
+              ? "media"
+              : "link";
+        const safe = sanitizeSlideUrl(value, kind, {
+          allowBlob: kind === "image" ? allowBlobImages : allowBlobVideos,
+        });
+        return safe ? ` ${attr}="${escapeHtml(safe)}"` : "";
+      },
+    )
+    .replace(
+      /\s+style\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+      (_match, _raw, dq, sq, bare) => {
+        const safe = sanitizeStyle(dq ?? sq ?? bare ?? "");
+        return safe ? ` style="${escapeHtml(safe)}"` : "";
+      },
+    );
+  const withoutFalseBooleanMediaAttrs = sanitized.replace(
+    VIDEO_OPENING_TAG_REGEX,
+    (tag) =>
+      tag.replace(
+        /"[^"]*"|'[^']*'|\s+(autoplay|controls|loop|muted|playsinline)\s*=\s*(?:"false"|'false'|false)(?=\s|\/?>)/gi,
+        (match, attribute: string | undefined) => (attribute ? "" : match),
+      ),
+  );
+  return withoutFalseBooleanMediaAttrs.replace(
+    VIDEO_OPENING_TAG_REGEX,
+    (tag) => {
+      const hasAutoplay = /\sautoplay(?:\s|=|\/?>)/i.test(tag);
+      const hasAutoplayMarker =
+        /\sdata-video-autoplay\s*=\s*(?:"true"|'true'|true)(?=\s|\/?>)/i.test(
+          tag,
+        );
+      const autoplayConfigured = hasAutoplay || hasAutoplayMarker;
+      let normalizedTag = tag;
+
+      if (disableVideoAutoplay && hasAutoplay) {
+        normalizedTag = normalizedTag.replace(
+          /\sautoplay(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi,
+          "",
+        );
+        normalizedTag = normalizedTag.replace(
+          /\s*\/?\s*>$/,
+          (end) => ` data-video-autoplay="true"${end}`,
+        );
+      } else if (!disableVideoAutoplay && hasAutoplayMarker && !hasAutoplay) {
+        normalizedTag = normalizedTag.replace(
+          /\s*\/?\s*>$/,
+          (end) => ` autoplay${end}`,
+        );
+      }
+
+      if (autoplayConfigured) {
+        for (const attribute of ["muted", "playsinline"]) {
+          if (
+            new RegExp(`\\s${attribute}(?:\\s|=|\\/>|>)`, "i").test(
+              normalizedTag,
+            )
+          ) {
+            continue;
+          }
+          normalizedTag = normalizedTag.replace(
+            /\s*\/?\s*>$/,
+            (end) => ` ${attribute}${end}`,
           );
-          return safe ? ` ${attr}="${escapeHtml(safe)}"` : "";
-        },
-      )
-      .replace(
-        /\s+style\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
-        (_match, _raw, dq, sq, bare) => {
-          const safe = sanitizeStyle(dq ?? sq ?? bare ?? "");
-          return safe ? ` style="${escapeHtml(safe)}"` : "";
-        },
-      )
+        }
+      }
+      return normalizedTag;
+    },
   );
 }
 
 export function sanitizeSlideHtml(
   html: string,
-  options?: { scopeSelector?: string; allowBlobImages?: boolean },
+  options?: {
+    scopeSelector?: string;
+    allowBlobImages?: boolean;
+    allowBlobVideos?: boolean;
+    disableVideoAutoplay?: boolean;
+  },
 ): string {
   const scopeSelector = options?.scopeSelector;
   const allowBlobImages = options?.allowBlobImages ?? false;
+  const allowBlobVideos = options?.allowBlobVideos ?? false;
+  const disableVideoAutoplay = options?.disableVideoAutoplay ?? false;
   if (typeof DOMParser === "undefined") {
-    return sanitizeHtmlString(html, scopeSelector, allowBlobImages);
+    return sanitizeHtmlString(
+      html,
+      scopeSelector,
+      allowBlobImages,
+      allowBlobVideos,
+      disableVideoAutoplay,
+    );
   }
 
   const doc = new DOMParser().parseFromString(html, "text/html");
   const fragment = doc.createDocumentFragment();
   for (const style of Array.from(doc.head.querySelectorAll("style"))) {
-    const cleaned = cleanNode(style, doc, scopeSelector, allowBlobImages);
+    const cleaned = cleanNode(
+      style,
+      doc,
+      scopeSelector,
+      allowBlobImages,
+      allowBlobVideos,
+      disableVideoAutoplay,
+    );
     if (cleaned) fragment.appendChild(cleaned);
   }
   for (const child of Array.from(doc.body.childNodes)) {
-    const cleaned = cleanNode(child, doc, scopeSelector, allowBlobImages);
+    const cleaned = cleanNode(
+      child,
+      doc,
+      scopeSelector,
+      allowBlobImages,
+      allowBlobVideos,
+      disableVideoAutoplay,
+    );
     if (cleaned) fragment.appendChild(cleaned);
   }
 

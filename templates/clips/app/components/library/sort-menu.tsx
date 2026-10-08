@@ -34,8 +34,8 @@ export function SortMenu({ value, onChange }: SortMenuProps) {
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost-inset"
-              size="icon"
-              className="h-8 w-8 shrink-0"
+              size="icon-sm"
+              className="shrink-0"
               aria-label={LABELS[value]}
             >
               <IconArrowsSort className="h-3.5 w-3.5" />

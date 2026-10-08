@@ -1,6 +1,3 @@
-// Stripe API helper
-// Fetches customers, invoices, charges, subscriptions, refunds
-
 import { resolveCredential } from "./credentials";
 import {
   requireRequestCredentialContext,
@@ -10,7 +7,7 @@ import {
 const API_BASE = "https://api.stripe.com";
 
 const cache = new Map<string, { data: unknown; ts: number }>();
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE = 120;
 
 async function getToken(): Promise<string> {
@@ -72,8 +69,6 @@ async function apiGet<T>(
 
   return data as T;
 }
-
-// -- Types --
 
 export interface StripeCustomer {
   id: string;
@@ -184,8 +179,6 @@ interface StripeList<T> {
   url: string;
 }
 
-// -- Exported functions --
-
 export async function getCustomersByEmail(
   email: string,
 ): Promise<StripeCustomer[]> {
@@ -201,7 +194,6 @@ export async function searchCustomersByName(
 ): Promise<StripeCustomer[]> {
   const escapedName = name.replace(/'/g, "\\'");
 
-  // Stage 1: Try exact name match
   let query = `name:'${escapedName}'`;
   let res = await apiGet<StripeList<StripeCustomer>>("/v1/customers/search", {
     query,
@@ -209,10 +201,9 @@ export async function searchCustomersByName(
   });
 
   if (res.data.length > 0) {
-    return res.data; // Found exact matches
+    return res.data;
   }
 
-  // Stage 2: Try partial name match
   query = `name~'${escapedName}'`;
   res = await apiGet<StripeList<StripeCustomer>>("/v1/customers/search", {
     query,
@@ -220,17 +211,16 @@ export async function searchCustomersByName(
   });
 
   if (res.data.length > 0) {
-    return res.data; // Found partial matches
+    return res.data;
   }
 
-  // Stage 3: Try multi-field search (name OR email)
   query = `name~'${escapedName}' OR email~'${escapedName}'`;
   res = await apiGet<StripeList<StripeCustomer>>("/v1/customers/search", {
     query,
     limit: "10",
   });
 
-  return res.data; // Return whatever we found (may be empty)
+  return res.data;
 }
 
 export async function getCustomerById(
@@ -242,7 +232,6 @@ export async function getCustomerById(
 export async function getCustomersByRootId(
   rootId: string,
 ): Promise<StripeCustomer[]> {
-  // Search subscriptions by root_id metadata, then get unique customers
   const query = `metadata['root_id']:'${rootId.replace(/'/g, "\\'")}'`;
   const res = await apiGet<StripeList<StripeSubscription>>(
     "/v1/subscriptions/search",
@@ -253,7 +242,6 @@ export async function getCustomersByRootId(
     },
   );
 
-  // Extract unique customer IDs
   const customerIds = new Set<string>();
   for (const sub of res.data) {
     if (typeof sub.customer === "string") {
@@ -263,7 +251,6 @@ export async function getCustomersByRootId(
     }
   }
 
-  // Fetch full customer objects
   const customers: StripeCustomer[] = [];
   for (const customerId of customerIds) {
     try {
@@ -319,7 +306,6 @@ export async function getInvoicesByProduct(
   >();
   const productIds = new Set<string>();
 
-  // First pass: aggregate amounts by product ID
   for (const invoice of invoices) {
     if (!invoice.lines?.data) continue;
 
@@ -344,19 +330,16 @@ export async function getInvoicesByProduct(
     }
   }
 
-  // Second pass: fetch product details
   const productDetails = new Map<string, string>();
   for (const productId of productIds) {
     try {
       const product = await apiGet<StripeProduct>(`/v1/products/${productId}`);
       productDetails.set(productId, product.name || productId);
     } catch (err) {
-      // If product fetch fails, just use the ID
       productDetails.set(productId, productId);
     }
   }
 
-  // Combine data
   const results: ProductBillingAggregate[] = [];
   for (const [productId, data] of productMap.entries()) {
     results.push({
@@ -399,8 +382,6 @@ export async function getPaymentIntents(
 export async function getSubscriptions(
   customerId: string,
 ): Promise<StripeSubscription[]> {
-  // Only fetch active subscriptions (active, trialing, past_due)
-  // Multiple status values require multiple API calls or client-side filtering
   const res = await apiGet<StripeList<StripeSubscription>>(
     "/v1/subscriptions",
     {
@@ -411,13 +392,11 @@ export async function getSubscriptions(
     },
   );
 
-  // Filter to only active statuses
   const activeStatuses = ["active", "trialing", "past_due"];
   const subscriptions = res.data.filter((sub) =>
     activeStatuses.includes(sub.status),
   );
 
-  // Collect all unique product IDs
   const productIds = new Set<string>();
   for (const sub of subscriptions) {
     for (const item of sub.items?.data ?? []) {
@@ -427,7 +406,6 @@ export async function getSubscriptions(
     }
   }
 
-  // Fetch product details
   const productNames = new Map<string, string>();
   for (const productId of productIds) {
     try {
@@ -438,7 +416,6 @@ export async function getSubscriptions(
     }
   }
 
-  // Augment subscriptions with product names
   for (const sub of subscriptions) {
     for (const item of sub.items?.data ?? []) {
       if (item.price?.product && typeof item.price.product === "string") {
@@ -453,13 +430,10 @@ export async function getSubscriptions(
 }
 
 export async function getRefunds(customerId: string): Promise<StripeRefund[]> {
-  // Stripe /v1/refunds doesn't support customer filter directly,
-  // so we get charges first, then fetch refunds for each refunded charge
   const charges = await getCharges(customerId, 100);
   const refundedCharges = charges.filter((c) => c.refunded);
 
   if (refundedCharges.length === 0) {
-    // Also try fetching recent refunds and matching by charge ownership
     const allRefunds = await apiGet<StripeList<StripeRefund>>("/v1/refunds", {
       limit: "100",
     });

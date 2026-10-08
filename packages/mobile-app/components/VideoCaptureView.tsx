@@ -360,7 +360,6 @@ export function VideoCaptureView({
   useEffect(() => {
     let cancelled = false;
 
-    // Android can recreate the activity while its system picker is open.
     void ImagePicker.getPendingResultAsync()
       .then(async (result) => {
         if (cancelled || !result) return;

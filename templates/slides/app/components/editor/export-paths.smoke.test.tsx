@@ -38,7 +38,7 @@ vi.mock("@agent-native/core/client/api-path", () => ({
   appBasePath: () => "/slides",
 }));
 
-vi.mock("@agent-native/core/client/integrations", () => ({
+vi.mock("@agent-native/toolkit/app/integrations", () => ({
   startWorkspaceProviderOAuth: vi.fn(),
 }));
 
@@ -57,6 +57,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
           "Google Slides export is unavailable right now.",
         "editorExport.googleSlidesCreated": "Exported to Google Slides",
         "editorExport.googleSlidesCreatedHint": "Created in your Drive.",
+        "editorExport.googleSlidesGoTo": "Go to Google Slides",
         "editorExport.googleSlidesDownloaded": "Downloaded for Google Slides",
         "editorExport.googleSlidesImportHint":
           "Import the downloaded PPTX into Google Slides yourself.",
@@ -75,7 +76,6 @@ const HTML_MIME = "text/html";
 const PPTX_MIME =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
-/** Every export path, named the way the menu labels it. */
 const EXPORT_PATHS = [
   "Download as HTML",
   "Export as PDF",
@@ -162,6 +162,7 @@ function renderMenu(overrides: Record<string, unknown> = {}) {
   return render(
     <QueryClientProvider client={queryClient}>
       <ExportMenu
+        hasSlides
         deckId="deck-1"
         deckTitle="Quarterly Review"
         onDuplicate={vi.fn()}
@@ -186,7 +187,6 @@ async function clickExport(path: ExportPath) {
   return item;
 }
 
-/** True when the user can see that the export did not work. */
 function errorIsVisible(): boolean {
   return screen.queryAllByText(/Export failed/).length > 0;
 }
@@ -225,7 +225,6 @@ describe("export paths smoke test", () => {
     async (path) => {
       const harness = installHarness({});
       const onExportPptx = vi.fn().mockImplementation(async () => {
-        // The browser exporter writes the file itself.
         harness.downloads.push("deck.pptx");
       });
       renderMenu({ onExportPptx });
@@ -255,7 +254,7 @@ describe("export paths smoke test", () => {
     await clickExport("Export to Google Slides");
 
     const open = await screen.findByRole("button", {
-      name: /Export to Google Slides/,
+      name: /Go to Google Slides/,
     });
     fireEvent.click(open);
     expect(harness.opened).toContain(
@@ -264,8 +263,6 @@ describe("export paths smoke test", () => {
   });
 
   it("Export to Google Slides is visibly gated when Google is broken", async () => {
-    // The beta report: Google's consent screen answered "app request is
-    // invalid", so the menu must not present this as a working option.
     installHarness({ googleAvailable: false });
     const onExportGoogleSlides = vi.fn();
     renderMenu({ onExportGoogleSlides });
@@ -287,10 +284,6 @@ describe("export paths smoke test", () => {
   });
 
   it("the Drive fallback never claims the deck reached Google Slides", async () => {
-    // Reported symptom: a tab opens Google Slides, the deck is not in the
-    // library, and a .pptx lands on the desktop. The download itself is the
-    // right escape hatch - labelling its button "Export to Google Slides" is
-    // what made it read as a success.
     installHarness({ googleAvailable: true });
     renderMenu({
       onExportGoogleSlides: vi.fn().mockResolvedValue({
@@ -314,8 +307,6 @@ describe("export paths smoke test", () => {
   });
 
   it("re-checks availability after the Drive upload fails", async () => {
-    // The stale verdict that let the attempt through must not survive the
-    // failure, or the next click dead-ends exactly the same way.
     installHarness({ googleAvailable: true });
     renderMenu({
       onExportGoogleSlides: vi

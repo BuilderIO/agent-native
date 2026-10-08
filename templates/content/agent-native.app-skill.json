@@ -59,5 +59,89 @@
     "claude-skill",
     "chatgpt-mcp",
     "generic-mcp"
-  ]
+  ],
+  "chatgpt": {
+    "version": "1.0.2",
+    "interface": {
+      "displayName": "Agent-Native Content",
+      "shortDescription": "Draft and organize content",
+      "longDescription": "Draft and organize documents and collection data in your Agent-Native Content workspace. Search and read available pages, create or revise documents, inspect databases, and add or update records. The plugin can access only data available to your connected account. It does not publish to an external CMS or Notion, and this listing does not include a delete action.",
+      "developerName": "Builder.io",
+      "category": "Productivity",
+      "capabilities": [
+        "Draft and revise documents",
+        "Search workspace content",
+        "Organize database records"
+      ],
+      "websiteURL": "https://agent-native.com/apps/content/",
+      "supportURL": "https://www.agent-native.com/contact/",
+      "privacyPolicyURL": "https://www.agent-native.com/privacy/",
+      "termsOfServiceURL": "https://www.agent-native.com/terms/",
+      "defaultPrompt": [
+        "Draft a June brief for a bakery's second location, targeting morning commuters; keep month-one budget under $20,000.",
+        "Create a document announcing a bakery's June opening, with coffee, pastries, and service for morning commuters.",
+        "In Feature Requests Demo, add a new title-only row named 'Keyboard shortcuts' using its existing schema."
+      ],
+      "keywords": [
+        "documents",
+        "content",
+        "writing",
+        "databases",
+        "project requests"
+      ],
+      "logoPath": "public/chatgpt-plugin-icon.svg"
+    },
+    "review": {
+      "test_cases": {
+        "positive": [
+          {
+            "description": "Create a document from a brief",
+            "prompt": "Create an editable project brief for a neighborhood bakery's second location using these notes: target opening in June, focus on morning commuters, and keep the first-month launch budget under $20,000.",
+            "tools_triggered": "create-document",
+            "expected_behavior": "Create one document in the connected Content workspace and preserve the supplied facts and budget limit."
+          },
+          {
+            "description": "Search workspace documents",
+            "prompt": "In Personal, find the Launch Brief Demo document and tell me whether its current content contains the exact phrase 'early access'. Quote a surrounding sentence without changing the document.",
+            "tools_triggered": "search-documents, get-document",
+            "expected_behavior": "Find Launch Brief Demo in Personal, retrieve its current content, and report whether the exact phrase appears, quoting only text present in that document."
+          },
+          {
+            "description": "Revise an identified document",
+            "prompt": "Create a new Content document titled 'Plugin review: launch phrase edit' with the sentence 'We will invite our early access customers next month.' Use the new document ID returned by create-document, then replace only 'early access' with 'private preview'. Do not edit Launch Brief Demo or any other existing document.",
+            "tools_triggered": "create-document, get-document, edit-document",
+            "expected_behavior": "Create a separate document, read its current revision, and make one revision-guarded phrase replacement. Leave Launch Brief Demo and all other existing documents unchanged; a second web or mobile run creates another separate review document."
+          },
+          {
+            "description": "Inspect a content database",
+            "prompt": "In ChatGPT Plugin Reviewer's workspace, inspect the Feature Requests Demo database and show its fields and current entries.",
+            "tools_triggered": "list-content-databases, get-content-database",
+            "expected_behavior": "Report the actual schema and entries in Feature Requests Demo in ChatGPT Plugin Reviewer's workspace, explicitly say if none exist, and do not invent fields or records."
+          },
+          {
+            "description": "Create a default-schema draft collection and add a titled row",
+            "prompt": "In the same Content space as Feature Requests Demo, create a new collection named 'Feature Requests Draft' using Content's default schema. Then add one row titled 'Keyboard shortcuts' to that new collection. Do not add properties or change the demo database.",
+            "tools_triggered": "list-content-databases, get-content-database, create-content-database, add-database-item",
+            "expected_behavior": "Use Feature Requests Demo to identify the exact authorized Content space, create a separate collection with Content's default schema, then use the new collection's returned IDs and fresh mutation contract to add exactly one row titled 'Keyboard shortcuts'. Do not add or claim requester, status, or impact fields, and do not alter the demo database; separate draft collections and rows are expected on repeated web and mobile runs."
+          }
+        ],
+        "negative": [
+          {
+            "description": "External CMS publishing",
+            "prompt": "Publish this page to my WordPress site and update the live URL."
+          },
+          {
+            "description": "Unsupported deletion",
+            "prompt": "Permanently delete all documents and databases in my workspace."
+          },
+          {
+            "description": "Unsupported recurring reminder",
+            "prompt": "Schedule a recurring reminder every Monday to review my Content workspace."
+          }
+        ]
+      },
+      "commerce": false,
+      "iframeJustification": "The plugin renders saved Agent-Native Content documents and collections inside ChatGPT. The widget and editor content are served from the Agent-Native Content origin and use ChatGPT's host API with the built-in MCP Apps bridge; no remote bridge script is loaded."
+    }
+  }
 }

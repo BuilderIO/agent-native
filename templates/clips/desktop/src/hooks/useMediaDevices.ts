@@ -77,17 +77,10 @@ export function useMediaDevices({
 }: Props): MediaDevicesState {
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
-  // Device lists relayed from the bubble page when IT owns the camera grant
-  // (full-screen / local-camera path). The popover page can't enumerate device
-  // labels itself there without muting the live bubble, so we use these lists
-  // when our own enumeration comes back empty.
   const [cameraId, setCameraId] = useState<string>(() =>
     loadString(CAM_KEY, ""),
   );
   const [micId, setMicId] = useState<string>(() => loadString(MIC_KEY, ""));
-  // Remembered human labels for the saved ids, so a cold launch (device list
-  // still locked behind a getUserMedia grant) can show the device by name
-  // instead of "Selected camera unavailable".
   const [cameraLabel, setCameraLabel] = useState<string>(() =>
     loadString(CAM_LABEL_KEY, ""),
   );
@@ -106,10 +99,6 @@ export function useMediaDevices({
     [selectedMicId, mics],
   );
 
-  // ---- device enumeration -------------------------------------------------
-  // WebKit only returns full device labels after getUserMedia() has granted
-  // access once. Enumerating itself is safe; the unlock helper below only
-  // acquires audio while the visible microphone control is enabled.
   const loadDevices = useCallback(async () => {
     try {
       if (!navigator.mediaDevices?.enumerateDevices) return;
@@ -133,14 +122,6 @@ export function useMediaDevices({
     };
   }, [loadDevices]);
 
-  // Reopening the popover doesn't reliably re-fire the Tauri
-  // `clips:popover-visible` event (the WebView is shown/hidden, not
-  // remounted, and the native side only ever emits the `false`/hidden
-  // transition). Without this, a webcam unplugged while the popover was
-  // closed would still show the previous session's device list — the exact
-  // "reopen without my webcam, it still shows the old camera selected" bug.
-  // Cover reopen via both signals so it works whether the WebView regains
-  // focus or only its document visibility flips.
   useEffect(() => {
     const onFocus = (): void => {
       void loadDevices();
@@ -229,9 +210,6 @@ export function useMediaDevices({
     [loadDevices, refreshSelectedMicrophone, setCameraError, setRecError],
   );
 
-  // Defer device-label unlocking until each visible popover session. Even the
-  // selected-device probe can trigger a macOS permission dialog, so keep it
-  // attached to visible UI instead of firing on hidden WebView mount.
   const deviceLabelsUnlocked = useRef(false);
   useEffect(() => {
     void loadDevices();
@@ -245,9 +223,6 @@ export function useMediaDevices({
     }
   }, [loadDevices, microphoneEnabled, popoverVisible, unlockDeviceLabels]);
 
-  // WebKit does not consistently emit `devicechange` inside a reused Tauri
-  // popover WebView. Keep the visible picker current without polling while the
-  // recorder UI is hidden.
   useEffect(() => {
     if (!popoverVisible) return;
     const interval = window.setInterval(() => {
@@ -290,16 +265,11 @@ export function useMediaDevices({
   useEffect(() => {
     if (isPseudoMediaDeviceId(micId) || !micId || mics.length === 0) return;
     if (mics.some((d) => d.deviceId === micId)) return;
-    // The selected mic (e.g. Bluetooth headset unplugged mid-session) is gone.
-    // Prefer rematching by saved label, then fall back to the best available
-    // input so we don't stay pinned to a device that no longer exists.
     const fallback = chooseFallbackAudioInput(mics, {
       savedLabel: micLabel,
       avoidDeviceIds: [micId],
     });
     if (!fallback) {
-      // Nothing concrete left; drop to the OS default rather than keeping the
-      // disconnected device selected.
       setMicId("");
       setMicLabel("");
       return;
@@ -321,8 +291,6 @@ export function useMediaDevices({
   useEffect(() => saveString(CAM_LABEL_KEY, cameraLabel), [cameraLabel]);
   useEffect(() => saveString(MIC_LABEL_KEY, micLabel), [micLabel]);
 
-  // Once the device list unlocks (after a grant), refresh the remembered
-  // label for the saved id so the persisted name stays current.
   useEffect(() => {
     if (!cameraId) return;
     const match = cameraDevices.find((d) => d.deviceId === cameraId);

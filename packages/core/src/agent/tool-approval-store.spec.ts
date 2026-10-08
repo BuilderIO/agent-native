@@ -58,9 +58,6 @@ describe("agent tool approval store", () => {
   });
 
   it("gives a delayed approval click at least 30 minutes before the grant expires", async () => {
-    // Regression for a user who steps away mid-approval (e.g. updating their
-    // client) and comes back to a click that silently does nothing because
-    // the durable grant already expired. 15 minutes was not enough room.
     const { createAgentToolApproval } =
       await import("./tool-approval-store.js");
 

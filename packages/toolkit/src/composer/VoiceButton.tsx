@@ -1,13 +1,3 @@
-/**
- * Voice dictation button + recording overlay for the agent composer.
- *
- * UX mirrors Lovable: click-to-toggle record, a live amplitude bar and
- * MM:SS timer replace the editor area while recording, and a cancel X
- * discards without transcribing. The mic is always visible alongside the
- * send button (Cursor replaces send with mic; their users complain — we
- * don't copy that).
- */
-
 import {
   IconMicrophone,
   IconPlayerStopFilled,
@@ -306,8 +296,6 @@ export function VoiceRecordingOverlay({ voice }: VoiceRecordingOverlayProps) {
 const BAR_COUNT = 24;
 
 function AmplitudeBars({ amplitude }: { amplitude: number }) {
-  // Render a symmetric meter — the middle bars peak first so the visual
-  // matches what voice input looks like in Lovable / iOS dictation.
   const bars = [];
   for (let i = 0; i < BAR_COUNT; i++) {
     const centerDistance =

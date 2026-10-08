@@ -7,7 +7,7 @@ import { ensureDreamJob } from "../server/lib/dreams-store.js";
 
 export default defineAction({
   description:
-    "Create or update the personal recurring Dispatch dream job resource at jobs/dispatch-dream.md.",
+    "Create or update the personal recurring Dispatch dream job resource at jobs/dispatch-dream.md. Fails with missing_credentials, without scheduling anything, when the job would run as an organization or shared identity that has no LLM provider connected.",
   authorize: authorizeDispatchAdmin,
   schema: z.object({
     schedule: z

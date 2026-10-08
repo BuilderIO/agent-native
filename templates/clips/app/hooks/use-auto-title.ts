@@ -8,58 +8,43 @@ import {
   bumpChangeVersion,
   callAction,
   getChangeVersion,
-  useChangeVersions,
+  useActionQuery,
+  useChangeVersion,
 } from "@agent-native/core/client/hooks";
 import {
   aiRequestTabId,
   parseAiRequestTabId,
+  type AutoTitleCandidate,
   type ClipsAiRequestKind,
 } from "@shared/ai-request-status";
 import { fullVideoAiModelSelection } from "@shared/clips-ai-prefs";
 import { useEffect, useRef } from "react";
 
-import { useRecordings, type RecordingSummary } from "./use-library";
-
-const DEFAULT_TITLE = "Untitled recording";
 const TWO_MINUTES_MS = 2 * 60 * 1000;
 export const WORKFLOW_ACTION_MAX_ATTEMPTS = 5;
 const WORKFLOW_ACTION_RETRY_DELAY_MS = 1000;
-const AI_REQUEST_SOURCE_PREFIX = "app-state:clips-ai-request-";
+// `queueAiRequest` publishes `refresh-signal` after every queue, whoever the
+// writer is. Sync drops this tab's own events, so local queues bump it too.
+const AI_REQUEST_REFRESH_SOURCE = "app-state:refresh-signal";
 const AI_REQUEST_DELIVERY_TIMEOUT_MS = 10_000;
 
-/**
- * Wake the bridge after a client-side action queues AI work. Advance the exact
- * source the bridge observes so the request is dispatched without waiting for
- * the next database poll.
- */
+function bumpAiRequestRefresh(): void {
+  bumpChangeVersion(
+    AI_REQUEST_REFRESH_SOURCE,
+    Math.max(Date.now(), getChangeVersion(AI_REQUEST_REFRESH_SOURCE) + 1),
+  );
+}
+
 export function notifyAiRequestQueued(recordingId: string): void {
   if (!recordingId) return;
-  const source = `${AI_REQUEST_SOURCE_PREFIX}${recordingId}`;
-  bumpChangeVersion(source, Math.max(Date.now(), getChangeVersion(source) + 1));
-}
-
-/** True when `title` is blank or equal to the server-seeded default. */
-export function isDefaultTitle(title: string | null | undefined): boolean {
-  const trimmed = (title ?? "").trim();
-  if (!trimmed) return true;
-  return trimmed === DEFAULT_TITLE;
-}
-
-export function isAutoTitleReplaceable(
-  title: string | null | undefined,
-  titleSource: string | null | undefined,
-): boolean {
-  return (
-    isDefaultTitle(title) ||
-    titleSource === "default" ||
-    titleSource === "context"
-  );
+  bumpAiRequestRefresh();
 }
 
 interface AiRequest {
   kind?: string;
   recordingId?: string;
   requestedAt?: string;
+  requestId?: string;
   currentTitle?: string;
   currentDescription?: string;
   transcriptStatus?: string;
@@ -75,6 +60,13 @@ interface AiRequest {
   deliveredTabId?: string;
 }
 
+type QueuedAiRequest = AiRequest & { recordingId: string };
+
+interface ListAiRequestsResult {
+  requests: QueuedAiRequest[];
+  titleCandidates: AutoTitleCandidate[];
+}
+
 const DISPATCHABLE_REQUESTS = new Set([
   "generate-metadata",
   "regenerate-title",
@@ -85,24 +77,6 @@ const DISPATCHABLE_REQUESTS = new Set([
   "generate-workflow",
 ]);
 
-async function listRequests(): Promise<Map<string, AiRequest>> {
-  try {
-    const result = (await callAction("list-ai-requests", {} as any, {
-      method: "GET",
-    })) as { requests?: AiRequest[] } | null | undefined;
-    return new Map(
-      (result?.requests ?? [])
-        .filter(
-          (r): r is AiRequest & { recordingId: string } => !!r?.recordingId,
-        )
-        .map((r) => [r.recordingId, r]),
-    );
-  } catch {
-    // Swallow — the next tick retries.
-    return new Map();
-  }
-}
-
 async function clearRequest(recordingId: string): Promise<void> {
   const url = agentNativePath(
     `/_agent-native/application-state/${encodeURIComponent(
@@ -110,20 +84,15 @@ async function clearRequest(recordingId: string): Promise<void> {
     )}`,
   );
   await fetch(url, { method: "DELETE" }).catch(() => {});
+  bumpAiRequestRefresh();
 }
 
-/**
- * Mount this once in the app shell. It watches the exact application-state
- * keys used for queued Clips AI work and delivers every pending request to the
- * agent chat queued by a Clips action.
- * Idempotent — a given (recordingId, kind, requestedAt) is only dispatched
- * once per tab session.
- */
 export function useAutoTitleBridge(): void {
-  // Use the "all" view so we catch recordings regardless of where the user
-  // is currently browsing (library root vs. a folder vs. a space).
-  const { data } = useRecordings({ view: "all", limit: 200 });
-  const recordings: RecordingSummary[] = data?.recordings ?? [];
+  const { data, refetch } = useActionQuery<ListAiRequestsResult>(
+    "list-ai-requests",
+    {} as any,
+  );
+  const refreshVersion = useChangeVersion(AI_REQUEST_REFRESH_SOURCE);
   const dispatched = useRef<Set<string>>(new Set());
   const inflight = useRef<boolean>(false);
 
@@ -152,6 +121,7 @@ export function useAutoTitleBridge(): void {
 
       const recordingId = recordingIdFromTab(detail.tabId);
       const requestedAt = requestedAtFromTab(detail.tabId);
+      const requestId = requestIdFromTab(detail.tabId);
       if (!recordingId || !requestedAt) return;
 
       void retryWorkflowAction(
@@ -159,6 +129,7 @@ export function useAutoTitleBridge(): void {
           operation: "stop",
           recordingId,
           requestedAt,
+          ...(requestId ? { requestId } : {}),
           tabId: detail.tabId,
         },
         "reconciled",
@@ -170,177 +141,158 @@ export function useAutoTitleBridge(): void {
       window.removeEventListener("agentNative.chatRunning", handleChatRunning);
   }, []);
 
-  const readyRecordings = recordings.filter((r) => r.status === "ready");
-  const readyRecordingsKey = readyRecordings
-    .map(
-      (r) =>
-        `${r.id}:${r.titleSource ?? ""}:${r.title}:${r.updatedAt}:${r.transcriptStatus ?? ""}:${r.transcriptHasText ? "1" : "0"}`,
-    )
-    .join("|");
-  const aiRequestVersion = useChangeVersions(
-    readyRecordings.map(
-      (recording) => `app-state:clips-ai-request-${recording.id}`,
-    ),
-  );
+  useEffect(() => {
+    if (refreshVersion) void refetch();
+  }, [refreshVersion, refetch]);
 
   useEffect(() => {
-    if (readyRecordings.length === 0) return;
+    if (!data) return;
     let cancelled = false;
-    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    async function tick() {
+    function retrySoon() {
+      timer = setTimeout(() => {
+        void refetch().then((result) => {
+          if (!cancelled && result.data) void deliver(result.data);
+        });
+      }, 1000);
+    }
+
+    async function deliver(snapshot: ListAiRequestsResult) {
       if (cancelled) return;
       if (inflight.current) {
-        // A new request-state version can arrive while the previous list read
-        // is in flight. Recheck after it settles so that event is not the last
-        // chance to dispatch the queued work.
-        fallbackTimer = setTimeout(() => void tick(), 50);
+        timer = setTimeout(() => void deliver(snapshot), 50);
         return;
       }
       inflight.current = true;
       try {
-        const requestsById = await listRequests();
-        if (cancelled) return;
-
-        for (const rec of readyRecordings) {
+        const pending = new Set<string>();
+        for (const request of snapshot.requests) {
           if (cancelled) return;
+          if (!request.kind || !DISPATCHABLE_REQUESTS.has(request.kind)) {
+            continue;
+          }
+          pending.add(request.recordingId);
+          const dispatchKey = `${request.recordingId}:${request.kind}:${
+            request.requestId ?? request.requestedAt ?? "0"
+          }`;
+          if (dispatched.current.has(dispatchKey)) continue;
+          if (
+            request.kind === "generate-metadata" ||
+            request.kind === "regenerate-title"
+          ) {
+            dispatched.current.add(fallbackKey(request.recordingId));
+          }
 
-          const request = requestsById.get(rec.id) ?? null;
-
-          if (request?.kind && DISPATCHABLE_REQUESTS.has(request.kind)) {
-            // Server queued a delegation — use the full context it provided.
-            // Key includes requestedAt so each distinct server request fires
-            // exactly once, independent of any prior fallback dispatch.
-            const dispatchKey = `${rec.id}:${request.kind}:${
-              request.requestedAt ?? "0"
-            }`;
-            if (dispatched.current.has(dispatchKey)) continue;
-            if (
-              request.kind === "generate-metadata" ||
-              request.kind === "regenerate-title"
-            ) {
-              // The temporary title remains replaceable while the background
-              // agent runs. Suppress the old-recording fallback in this tab so
-              // clearing the request does not immediately launch a duplicate.
-              dispatched.current.add(`${rec.id}:fallback`);
-            }
-
-            if (
-              request.kind === "generate-workflow" &&
-              typeof request.requestedAt === "string"
-            ) {
-              if (request.deliveredTabId) {
-                dispatched.current.add(dispatchKey);
-                void consumeWorkflowRequest({
-                  recordingId: rec.id,
-                  requestedAt: request.requestedAt,
-                  tabId: request.deliveredTabId,
-                });
-                continue;
-              }
-
-              const tabId = workflowTabId(rec.id, request.requestedAt);
-              try {
-                const result = (await callAction(
-                  "reconcile-workflow-generation" as any,
-                  {
-                    operation: "track",
-                    recordingId: rec.id,
-                    requestedAt: request.requestedAt,
-                    tabId,
-                  } as any,
-                )) as { tracked?: boolean };
-                if (result.tracked !== true) {
-                  fallbackTimer = setTimeout(() => void tick(), 1000);
-                  continue;
-                }
-              } catch {
-                fallbackTimer = setTimeout(() => void tick(), 1000);
-                continue;
-              }
-              const delivery = await sendToAgentChatAndConfirm({
-                ...buildAiRequestChatOptions(rec, request),
-                tabId,
-                chatTarget: "local",
-              });
-              if (!delivery.delivered) {
-                await retryWorkflowAction(
-                  {
-                    operation: "release",
-                    recordingId: rec.id,
-                    requestedAt: request.requestedAt,
-                    tabId,
-                  },
-                  "released",
-                );
-                fallbackTimer = setTimeout(() => void tick(), 1000);
-                continue;
-              }
+          if (
+            request.kind === "generate-workflow" &&
+            typeof request.requestedAt === "string"
+          ) {
+            const workflowRequest = {
+              recordingId: request.recordingId,
+              requestedAt: request.requestedAt,
+              ...(request.requestId ? { requestId: request.requestId } : {}),
+            };
+            if (request.deliveredTabId) {
               dispatched.current.add(dispatchKey);
-              void persistAndConsumeWorkflowRequest({
-                recordingId: rec.id,
-                requestedAt: request.requestedAt,
-                tabId,
+              void consumeWorkflowRequest({
+                ...workflowRequest,
+                tabId: request.deliveredTabId,
               });
               continue;
             }
-            if (
-              typeof request.requestedAt !== "string" ||
-              !request.requestedAt.trim()
-            ) {
-              console.warn("[clips] queued AI request is missing requestedAt", {
-                recordingId: rec.id,
-                kind: request.kind,
-              });
-              fallbackTimer = setTimeout(() => void tick(), 1000);
-              continue;
-            }
-            const delivery = await dispatchAiRequest(
-              rec,
-              request,
-              aiRequestTabId(
-                rec.id,
-                request.kind as ClipsAiRequestKind,
-                request.requestedAt,
-              ),
+
+            const tabId = workflowTabId(
+              request.recordingId,
+              request.requestedAt,
+              request.requestId,
             );
+            try {
+              const result = (await callAction(
+                "reconcile-workflow-generation" as any,
+                {
+                  operation: "track",
+                  ...workflowRequest,
+                  tabId,
+                } as any,
+              )) as { tracked?: boolean };
+              if (result.tracked !== true) {
+                retrySoon();
+                continue;
+              }
+            } catch {
+              retrySoon();
+              continue;
+            }
+            const delivery = await sendToAgentChatAndConfirm({
+              ...buildAiRequestChatOptions(request),
+              tabId,
+              chatTarget: "local",
+            });
             if (!delivery.delivered) {
-              // Keep the request durable when the chat bridge is unavailable;
-              // the next retry can deliver it after the panel mounts.
-              dispatched.current.delete(dispatchKey);
-              fallbackTimer = setTimeout(() => void tick(), 1000);
+              await retryWorkflowAction(
+                {
+                  operation: "release",
+                  ...workflowRequest,
+                  tabId,
+                },
+                "released",
+              );
+              retrySoon();
               continue;
             }
             dispatched.current.add(dispatchKey);
-            void clearRequest(rec.id);
-          } else if (isAutoTitleReplaceable(rec.title, rec.titleSource)) {
-            // No server-queued delegation. Only dispatch the fallback for
-            // recordings that are old enough (>2 min) that the server has had
-            // ample time to write its own clips-ai-request entry. For freshly-
-            // finalized clips the server request may still be en route; if we
-            // dispatch now we'd block that richer transcript-backed delegation.
-            if (
-              rec.transcriptStatus !== "ready" ||
-              rec.transcriptHasText !== true
-            ) {
-              continue;
-            }
-
-            if (Date.now() - new Date(rec.createdAt).getTime() < TWO_MINUTES_MS)
-              continue;
-
-            // Use a dedicated key so a later server-queued request (e.g. from
-            // a long transcription that finishes after the 2-min window) is
-            // NOT blocked by this fallback having already run.
-            const fallbackKey = `${rec.id}:fallback`;
-            if (dispatched.current.has(fallbackKey)) continue;
-            dispatched.current.add(fallbackKey);
-
-            callAction(
-              "regenerate-title" as any,
-              { recordingId: rec.id } as any,
-            ).catch(() => {});
+            void persistAndConsumeWorkflowRequest({
+              ...workflowRequest,
+              tabId,
+            });
+            continue;
           }
+          if (
+            typeof request.requestedAt !== "string" ||
+            !request.requestedAt.trim()
+          ) {
+            console.warn("[clips] queued AI request is missing requestedAt", {
+              recordingId: request.recordingId,
+              kind: request.kind,
+            });
+            retrySoon();
+            continue;
+          }
+          const delivery = await dispatchAiRequest(
+            request,
+            aiRequestTabId(
+              request.recordingId,
+              request.kind as ClipsAiRequestKind,
+              request.requestedAt,
+            ),
+          );
+          if (!delivery.delivered) {
+            dispatched.current.delete(dispatchKey);
+            retrySoon();
+            continue;
+          }
+          dispatched.current.add(dispatchKey);
+          void clearRequest(request.recordingId);
+        }
+
+        for (const candidate of snapshot.titleCandidates) {
+          if (cancelled) return;
+          if (pending.has(candidate.id)) continue;
+          if (autoTitleFallbackDelay(candidate, dispatched.current) !== 0) {
+            continue;
+          }
+          dispatched.current.add(fallbackKey(candidate.id));
+          callAction(
+            "regenerate-title" as any,
+            { recordingId: candidate.id } as any,
+          )
+            .then((result) => {
+              if ((result as { queued?: boolean } | null)?.queued === true) {
+                bumpAiRequestRefresh();
+              }
+            })
+            .catch(() => {});
         }
       } finally {
         inflight.current = false;
@@ -348,71 +300,67 @@ export function useAutoTitleBridge(): void {
     }
 
     function scheduleNextFallback() {
-      if (cancelled) return;
+      if (cancelled || !data) return;
       const delay = nextAutoTitleFallbackDelay(
-        readyRecordings,
+        data.titleCandidates,
         dispatched.current,
       );
       if (delay === null) return;
-      // Keep the timeout non-zero so a failed request cannot spin a tight loop.
-      fallbackTimer = setTimeout(
+      timer = setTimeout(
         () => {
-          fallbackTimer = null;
-          void tick().finally(scheduleNextFallback);
+          timer = null;
+          void deliver(data).finally(scheduleNextFallback);
         },
         Math.max(delay, 50),
       );
     }
 
-    // One initial read catches requests queued before this component mounted.
-    // Later reads are driven by the exact clips-ai-request application-state
-    // counters above. The only timer left is a one-shot wake-up when an old
-    // transcript-backed recording becomes eligible for the legacy fallback.
-    void tick().finally(scheduleNextFallback);
+    void deliver(data).finally(scheduleNextFallback);
     return () => {
       cancelled = true;
-      if (fallbackTimer) clearTimeout(fallbackTimer);
+      if (timer) clearTimeout(timer);
     };
-    // readyRecordingsKey is the stable snapshot consumed by tick; depending on
-    // the array itself would restart the effect on every query result object.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aiRequestVersion, readyRecordingsKey]);
+  }, [data, refetch]);
+}
+
+function fallbackKey(recordingId: string): string {
+  return `${recordingId}:fallback`;
+}
+
+/**
+ * Milliseconds until the auto-title fallback may run for this candidate, or
+ * `null` once it has been dispatched. Eligibility is decided by the server.
+ */
+function autoTitleFallbackDelay(
+  candidate: AutoTitleCandidate,
+  dispatched: ReadonlySet<string>,
+  now = Date.now(),
+): number | null {
+  if (dispatched.has(fallbackKey(candidate.id))) return null;
+  const createdAt = new Date(candidate.createdAt).getTime();
+  return Number.isFinite(createdAt)
+    ? Math.max(0, TWO_MINUTES_MS - (now - createdAt))
+    : 0;
 }
 
 export function nextAutoTitleFallbackDelay(
-  recordings: readonly RecordingSummary[],
+  candidates: readonly AutoTitleCandidate[],
   dispatched: ReadonlySet<string>,
   now = Date.now(),
 ): number | null {
   let nextDelay: number | null = null;
-
-  for (const recording of recordings) {
-    if (recording.status !== "ready") continue;
-    if (!isAutoTitleReplaceable(recording.title, recording.titleSource)) {
-      continue;
-    }
-    if (
-      recording.transcriptStatus !== "ready" ||
-      recording.transcriptHasText !== true ||
-      dispatched.has(`${recording.id}:fallback`)
-    ) {
-      continue;
-    }
-
-    const createdAt = new Date(recording.createdAt).getTime();
-    const delay = Number.isFinite(createdAt)
-      ? Math.max(0, TWO_MINUTES_MS - (now - createdAt))
-      : 0;
+  for (const candidate of candidates) {
+    const delay = autoTitleFallbackDelay(candidate, dispatched, now);
+    if (delay === null) continue;
     nextDelay = nextDelay === null ? delay : Math.min(nextDelay, delay);
   }
-
   return nextDelay;
 }
 
-function buildRequestContext(rec: RecordingSummary, request: AiRequest) {
+function buildRequestContext(request: QueuedAiRequest) {
   return {
-    recordingId: rec.id,
-    currentTitle: request.currentTitle ?? rec.title,
+    recordingId: request.recordingId,
+    currentTitle: request.currentTitle ?? "",
     currentDescription: request.currentDescription ?? "",
     transcript: request.transcriptText ?? "",
     agentsContext: request.agentsContext ?? "",
@@ -425,8 +373,7 @@ function buildRequestContext(rec: RecordingSummary, request: AiRequest) {
 }
 
 export function buildAiRequestChatOptions(
-  rec: RecordingSummary,
-  request: AiRequest,
+  request: QueuedAiRequest,
 ): AgentChatMessage {
   const includeFullVideo = request.includeFullVideoInAi === true;
   const gemini = includeFullVideo ? fullVideoAiModelSelection() : null;
@@ -434,8 +381,8 @@ export function buildAiRequestChatOptions(
   return {
     message:
       request.message ??
-      `Handle queued ${request.kind} work for recording ${rec.id}.`,
-    context: JSON.stringify(buildRequestContext(rec, request)),
+      `Handle queued ${request.kind} work for recording ${request.recordingId}.`,
+    context: JSON.stringify(buildRequestContext(request)),
     submit: true,
     openSidebar: openInChat ? true : false,
     newTab: true,
@@ -452,6 +399,7 @@ export function buildAiRequestChatOptions(
 interface WorkflowRunRequest {
   recordingId: string;
   requestedAt: string;
+  requestId?: string;
   tabId: string;
 }
 
@@ -496,8 +444,15 @@ async function persistAndConsumeWorkflowRequest(
   if (delivered) await consumeWorkflowRequest(request);
 }
 
-function workflowTabId(recordingId: string, requestedAt: string) {
-  return `clips-workflow:${recordingId}:${encodeURIComponent(requestedAt)}:${generateTabId()}`;
+function workflowTabId(
+  recordingId: string,
+  requestedAt: string,
+  requestId?: string,
+) {
+  const identity = requestId
+    ? `${encodeURIComponent(requestedAt)}:${encodeURIComponent(requestId)}`
+    : encodeURIComponent(requestedAt);
+  return `clips-workflow:${recordingId}:${identity}:${generateTabId()}`;
 }
 
 function recordingIdFromTab(tabId: string) {
@@ -510,14 +465,15 @@ function requestedAtFromTab(tabId: string) {
   return match ? decodeURIComponent(match[1]) : undefined;
 }
 
-function dispatchAiRequest(
-  rec: RecordingSummary,
-  request: AiRequest,
-  tabId: string,
-) {
+function requestIdFromTab(tabId: string) {
+  const match = /^clips-workflow:[^:]+:[^:]+:([^:]+):[^:]+$/.exec(tabId);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+function dispatchAiRequest(request: QueuedAiRequest, tabId: string) {
   return sendToAgentChatAndConfirm(
     {
-      ...buildAiRequestChatOptions(rec, request),
+      ...buildAiRequestChatOptions(request),
       chatTarget: "local",
       tabId,
     },

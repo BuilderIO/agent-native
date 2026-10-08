@@ -126,12 +126,6 @@ type AgentPackRead =
     }
   | { ok: false; loaded: boolean };
 
-/**
- * A pack that failed to load or came back without its `files` array is
- * unreadable, not empty. Spreading it threw during render and took the whole
- * page down with the router error boundary; reporting it as an empty pack
- * instead would let the dialog write a new file into a guessed root.
- */
 export function readAgentPack(
   data: AgentPackResponse | undefined,
   failed = false,
@@ -150,11 +144,6 @@ export function readAgentPack(
 
 const MAX_LISTED_SKIPPED_FILES = 3;
 
-/**
- * Folder pickers cannot filter by extension, so unsupported files are only
- * visible after selection. Name them without turning a 40-file photo folder
- * into a 40-line warning.
- */
 export function summarizeSkippedPackFiles(
   skipped: string[],
   keptCount: number,
@@ -835,9 +824,6 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    // `accept` is only a picker hint: every OS dialog lets the user switch to
-    // "All Files", and reading a PDF with file.text() yields mojibake that
-    // looks like a valid definition.
     if (!isImportableAgentProfileFile(file.name)) {
       toast.error(
         `${file.name} is not a supported agent file. Choose a ${AGENT_PROFILE_FILE_EXTENSIONS.join(", ")} file.`,
@@ -982,16 +968,10 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
                 ref={folderRef}
                 type="file"
                 multiple
-                // Set declaratively: an effect keyed on the tab runs before
-                // Radix mounts this panel, so the ref is still null and the
-                // input silently stays a plain file picker.
                 {...({ webkitdirectory: "", directory: "" } as {
                   webkitdirectory: string;
                   directory: string;
                 })}
-                // Directory pickers ignore accept; it only applies where
-                // webkitdirectory is unsupported and this falls back to
-                // multi-file selection.
                 accept={AGENT_PACK_FILE_ACCEPT}
                 className="hidden"
                 onChange={(event) => void handleFolder(event)}

@@ -1,8 +1,3 @@
-//! First-party, fully local Rewind search and replay.
-//!
-//! This module reads local indexes inside Clips, returns bounded text-only evidence to the
-//! renderer, and never performs a network request. Raw archive paths stay on
-//! the Rust side of the command boundary.
 
 use crate::capture_graph::{CaptureGraphState, CaptureSource};
 use crate::config::RewindCaptureMode;

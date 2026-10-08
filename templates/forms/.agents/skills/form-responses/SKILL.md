@@ -110,6 +110,11 @@ To analyze responses, the workflow is:
 4. Use `list-responses --formId <id>` only when exact row-level inspection is needed
 5. Report whether the answer is exact or sampled, including row counts and truncation
 
+For an actionable theme, ground one concise title and evidence line in the
+`response-insights` result, then call `show-response-insight` with a specific
+follow-up prompt. Its button only prefills the Forms chat; it does not submit or
+change the form.
+
 ## Common Tasks
 
 | User request           | What to do                                                                   |

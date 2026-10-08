@@ -85,9 +85,6 @@ export function runTidyUp({
             : undefined;
       if (!fallbackGeometry) return;
       const geometry = { ...fallbackGeometry, ...before[screenId] };
-      // Pack against the breakpoint group's footprint, not just the base
-      // frame — otherwise tidy leaves every breakpoint row overlapping the
-      // neighbouring screen.
       const footprint = getScreenGroupFootprint(screenId, geometry);
       screenRects.push({
         id: screenId,

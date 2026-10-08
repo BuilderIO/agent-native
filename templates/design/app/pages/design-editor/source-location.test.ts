@@ -116,9 +116,6 @@ describe("parseReactStackFrame", () => {
   });
 
   it("keeps an authored helper legitimately named `jsx` (module rule, not a function-name rule)", () => {
-    // The old function-name rule matched `jsx` itself — indistinguishable by
-    // name from the JSX runtime factory — and wrongly dropped this authored
-    // frame too. The module rule only recognizes the runtime's OWN file.
     expect(
       parseReactStackFrame(
         "    at jsx (http://127.0.0.1:9611/src/helpers/element.jsx:2:10)",
@@ -132,10 +129,6 @@ describe("parseReactStackFrame", () => {
   });
 
   it("keeps an authored file merely NAMED react.js when it is outside any Vite deps directory", () => {
-    // A basename-only rule would drop this: "react.js" matches the runtime
-    // module regex regardless of where it lives. The runtime is only ever
-    // served from inside a Vite optimizer deps directory, so an authored
-    // src/helpers/react.js must resolve like any other application file.
     expect(
       parseReactStackFrame(
         "    at makeButton (http://localhost:5173/src/helpers/react.js:2:10)",

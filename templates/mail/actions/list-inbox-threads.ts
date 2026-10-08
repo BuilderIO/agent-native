@@ -1,87 +1,72 @@
 import { defineAction } from "@agent-native/core/action";
+import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
 import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
+import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
 
 import { resolvePinnedLabels } from "../app/lib/inbox-tabs.js";
-import {
-  getConnectedAccountsWithErrors,
-  isConnected,
-} from "../server/lib/google-auth.js";
-import { classifyAutomated } from "../server/lib/inbox-classify.js";
+import { readGmailCooldown } from "../server/lib/gmail-quota.js";
+import { hasGmailScope } from "../server/lib/gmail-scope.js";
 import {
   inboxRowToItem,
   readCachedLabels,
   readInboxThreads,
+  readInboxPushGeneration,
+  readSyncAccounts,
+  type SyncAccountRow,
 } from "../server/lib/inbox-store.js";
-import { ensureInboxFresh } from "../server/lib/inbox-sync.js";
 import {
+  buildLocalInboxItems,
   partitionInboxItems,
   resolveActiveTabId,
   resolveInboxTabs,
 } from "../server/lib/inbox-tabs-server.js";
 import { readLocalEmails } from "../server/lib/local-email-store.js";
 import { readSettings } from "../server/lib/mail-settings.js";
-import type {
-  InboxSyncAccountStatus,
-  InboxTab,
-  InboxTabConfig,
-  InboxThreadItem,
-  ListInboxThreadsResult,
+import { gmailReadState } from "../shared/gmail-freshness.js";
+import {
+  ALL_TAB_ID,
+  ALL_TAB_PARAM,
+  type InboxSyncAccountStatus,
+  type InboxTab,
+  type InboxTabConfig,
+  type InboxThreadItem,
+  type ListInboxThreadsResult,
 } from "../shared/inbox-threads.js";
-import type { EmailMessage, Label } from "../shared/types.js";
+import type { Label } from "../shared/types.js";
 
-const FRESHNESS_MAX_AGE_MS = 15_000;
-const SYNC_BUDGET_MS = 6_000;
+const TAB_PREVIEW_LIMIT = 50;
 
-// classifyAutomated expects real Gmail CATEGORY_* label ids; local mail uses
-// the app-level lowercase ids from list-labels.ts's SYSTEM_LABELS mapping.
-const LOCAL_CATEGORY_TO_GMAIL_LABEL: Record<string, string> = {
-  promotions: "CATEGORY_PROMOTIONS",
-  social: "CATEGORY_SOCIAL",
-  updates: "CATEGORY_UPDATES",
-  forums: "CATEGORY_FORUMS",
-};
+type CachedTabCount = { total: number; unread: number };
 
-/** Groups local mailbox messages into one `InboxThreadItem` per thread, latest-first. */
-function buildLocalInboxItems(emails: EmailMessage[]): InboxThreadItem[] {
-  const byThread = new Map<string, EmailMessage[]>();
-  for (const email of emails) {
-    if (email.isArchived || email.isTrashed || email.isDraft) continue;
-    const key = email.threadId || email.id;
-    const list = byThread.get(key);
-    if (list) list.push(email);
-    else byThread.set(key, [email]);
-  }
-
-  const items = [...byThread.values()].map((messages): InboxThreadItem => {
-    const latest = messages.reduce((a, b) =>
-      new Date(b.date).getTime() > new Date(a.date).getTime() ? b : a,
+function cachedInboxCount(
+  accounts: SyncAccountRow[],
+  accountEmails: string[],
+): CachedTabCount | undefined {
+  const selected = new Set(accountEmails.map((email) => email.toLowerCase()));
+  if (selected.size === 0) return undefined;
+  let total = 0;
+  let unread = 0;
+  for (const account of accounts) {
+    if (!selected.has(account.accountEmail.toLowerCase())) continue;
+    selected.delete(account.accountEmail.toLowerCase());
+    const inbox = account.labels?.find(
+      (label) => label.id.toUpperCase() === "INBOX",
     );
-    const labelIds = [...new Set(messages.flatMap((m) => m.labelIds))];
-    const isAutomated = classifyAutomated({
-      headers: [],
-      labelIds: labelIds.map((l) => LOCAL_CATEGORY_TO_GMAIL_LABEL[l] ?? l),
-      fromEmail: latest.from?.email ?? "",
-    });
-    return {
-      ...latest,
-      labelIds,
-      messageCount: messages.length,
-      unreadCount: messages.filter((m) => !m.isRead).length,
-      messageIds: messages.map((m) => m.id),
-      isAutomated,
-    };
-  });
-
-  return items.sort(
-    (a, b) =>
-      new Date(b.date).getTime() - new Date(a.date).getTime() ||
-      b.id.localeCompare(a.id),
-  );
+    if (inbox?.threadsTotal == null || inbox.threadsUnread == null)
+      return undefined;
+    const accountTotal = Number(inbox.threadsTotal);
+    const accountUnread = Number(inbox.threadsUnread);
+    if (!Number.isFinite(accountTotal) || !Number.isFinite(accountUnread))
+      return undefined;
+    total += accountTotal;
+    unread += accountUnread;
+  }
+  if (selected.size > 0) return undefined;
+  return { total, unread };
 }
 
-/** Shared tail: partition into tabs and page the active tab — identical for both backends. */
 function paginateIntoResult(
   items: InboxThreadItem[],
   config: InboxTabConfig,
@@ -90,6 +75,8 @@ function paginateIntoResult(
   page: { tab?: string; limit: number; offset: number; unreadOnly?: boolean },
   syncing: boolean,
   accounts: InboxSyncAccountStatus[],
+  backfillIncomplete = false,
+  cachedInboxTotal?: CachedTabCount,
 ): ListInboxThreadsResult {
   const tabs = resolveInboxTabs(config, labelNameById);
   const byTab = partitionInboxItems(items, tabs);
@@ -97,13 +84,20 @@ function paginateIntoResult(
 
   const resultTabs: InboxTab[] = tabs.map((tab) => {
     const members = byTab.get(tab.id) ?? [];
+    const cachedCount =
+      backfillIncomplete && (tab.kind === "inbox" || tab.kind === "all")
+        ? cachedInboxTotal
+        : undefined;
     return {
       id: tab.id,
       kind: tab.kind,
       name: tab.name,
       query: tab.query,
-      total: members.length,
-      unread: members.filter((item) => item.unreadCount > 0).length,
+      total: cachedCount?.total ?? members.length,
+      unread:
+        cachedCount?.unread ??
+        members.filter((item) => item.unreadCount > 0).length,
+      ...(backfillIncomplete ? { totalIsLowerBound: true } : {}),
     };
   });
 
@@ -112,16 +106,24 @@ function paginateIntoResult(
     ? activeMembers.filter((item) => item.unreadCount > 0)
     : activeMembers;
   const pageItems = pageSource.slice(page.offset, page.offset + page.limit);
+  const activeTab = resultTabs.find((tab) => tab.id === activeTabId);
 
   return {
     tabs: resultTabs,
     activeTabId,
     items: pageItems,
-    total: activeMembers.length,
-    // An unread-only page proves coverage of unread rows, not of the full tab
-    // that `total` describes, so it cannot settle a removal journal.
+    tabPreviews: Object.fromEntries(
+      tabs.map((tab) => [
+        tab.id,
+        (byTab.get(tab.id) ?? []).slice(0, TAB_PREVIEW_LIMIT),
+      ]),
+    ),
+    total: resultTabs.find((tab) => tab.id === activeTabId)?.total ?? 0,
     complete:
-      !page.unreadOnly && page.offset + pageItems.length >= pageSource.length,
+      !page.unreadOnly &&
+      !activeTab?.totalIsLowerBound &&
+      page.offset + pageItems.length >= pageSource.length &&
+      pageSource.length >= (activeTab?.total ?? 0),
     syncing,
     accounts,
     labels,
@@ -130,7 +132,7 @@ function paginateIntoResult(
 
 export default defineAction({
   description:
-    'Read the human\'s inbox exactly as the UI shows it: the tab bar (Important, pinned labels, saved filters, and Other — or one combined Inbox tab when the user has turned on "combine inbox"), each tab\'s total/unread counts, and the active tab\'s rows. All three come from one partition over the synced inbox store, so a tab\'s badge can never disagree with the rows returned for it, and this read is always fast — never a live Gmail call. `tab` accepts any id from the returned `tabs` list (a pinned label id, a saved filter id, "important", "other", or "inbox"); an unrecognized or omitted id falls back to the first tab. This is the inbox view specifically; for Sent, Archive, Trash, All Mail, or an ad hoc query, use `list-emails` or `search-emails` instead.',
+    'Read the human\'s inbox exactly as the UI shows it: the tab bar (All, Important, pinned labels, saved filters, and Other — or one combined Inbox tab when the user has turned on "combine inbox"), each tab\'s total/unread counts, and the active tab\'s rows. All three come from one partition over the synced inbox store, so a tab\'s badge can never disagree with the rows returned for it, and this read is always fast — never a live Gmail call. `tab` accepts any id from the returned `tabs` list (All, a pinned label id, a saved filter id, "important", "other", or "inbox"); an unrecognized or omitted id falls back to the first tab. This is the inbox view specifically; for Sent, Archive, Trash, All Mail, or an ad hoc query, use `list-emails` or `search-emails` instead.',
   schema: z.object({
     tab: z
       .string()
@@ -166,7 +168,8 @@ export default defineAction({
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   link: ({ args }) => {
-    const tab = typeof args?.tab === "string" ? args.tab : undefined;
+    const requestedTab = typeof args?.tab === "string" ? args.tab : undefined;
+    const tab = requestedTab === ALL_TAB_ID ? ALL_TAB_PARAM : requestedTab;
     return {
       url: buildDeepLink({ app: "mail", view: "inbox", params: { tab } }),
       label: "Open inbox in Mail",
@@ -184,18 +187,34 @@ export default defineAction({
       unreadOnly: args.unreadOnly,
     };
 
-    // No connected Google account: mirror the synthetic local mailbox
-    // instead of the synced store (see the mail-backends skill).
-    // getConnectedAccounts is the single "which accounts exist" source —
-    // OAuth rows with Gmail scope, else a managed workspace grant's email —
-    // so a managed grant with no per-user OAuth row isn't mistaken for
-    // disconnected.
-    const { accounts: connectedAccounts, errors: accountErrors } =
-      await getConnectedAccountsWithErrors(ownerEmail);
+    const [oauthAccounts, managedConnection, syncAccounts] = await Promise.all([
+      listOAuthAccountsByOwner("google", ownerEmail),
+      resolveWorkspaceConnectionForApp({
+        appId: "mail",
+        provider: "gmail",
+        requireConnected: true,
+      }),
+      readSyncAccounts(ownerEmail),
+    ]);
+    const connectedAccounts = [
+      ...new Set([
+        ...oauthAccounts
+          .filter((account) => hasGmailScope(account.tokens))
+          .map((account) => account.accountId.toLowerCase()),
+        ...(managedConnection.available &&
+        managedConnection.connection?.status === "connected" &&
+        managedConnection.connection.accountId
+          ? [managedConnection.connection.accountId.toLowerCase()]
+          : []),
+      ]),
+    ].filter((accountEmail) =>
+      args.accountEmails?.length
+        ? args.accountEmails.some(
+            (requested) => requested.toLowerCase() === accountEmail,
+          )
+        : true,
+    );
     if (connectedAccounts.length === 0) {
-      if (accountErrors.length > 0) {
-        throw new Error(accountErrors.map(({ error }) => error).join("; "));
-      }
       const [emails, settings, localSetting] = await Promise.all([
         readLocalEmails(ownerEmail),
         readSettings(ownerEmail),
@@ -210,6 +229,7 @@ export default defineAction({
         savedFilters: settings.savedFilters ?? [],
         labelAliases: settings.labelAliases ?? {},
         combineInbox: settings.combineInbox,
+        showAllTab: settings.showAllTab,
       };
       const labelNameById = new Map(labels.map((l) => [l.id, l.name]));
       return paginateIntoResult(
@@ -223,40 +243,88 @@ export default defineAction({
       );
     }
 
-    // Keeps the store within the freshness window without ever blocking on a
-    // full Gmail listing — a per-account failure surfaces in `accounts`
-    // instead of failing this read.
-    const statuses = await ensureInboxFresh(ownerEmail, {
-      accountEmails: args.accountEmails,
-      maxAgeMs: FRESHNESS_MAX_AGE_MS,
-      budgetMs: SYNC_BUDGET_MS,
-    });
-
-    const googleConnected = await isConnected(ownerEmail);
-    const settings = await readSettings(ownerEmail);
-    const [rows, { labels, labelMapByAccount }] = await Promise.all([
-      readInboxThreads(ownerEmail, { accountEmails: args.accountEmails }),
-      readCachedLabels(ownerEmail, args.accountEmails),
+    const [settings, rows, { labels, labelMapByAccount }] = await Promise.all([
+      readSettings(ownerEmail),
+      readInboxThreads(ownerEmail, { accountEmails: connectedAccounts }),
+      readCachedLabels(ownerEmail, connectedAccounts),
     ]);
     const items = rows.map((row) =>
       inboxRowToItem(row, labelMapByAccount.get(row.accountEmail)),
     );
 
     const config: InboxTabConfig = {
-      pinnedLabels: resolvePinnedLabels(settings.pinnedLabels, googleConnected),
+      pinnedLabels: resolvePinnedLabels(settings.pinnedLabels, true),
       savedFilters: settings.savedFilters ?? [],
       labelAliases: settings.labelAliases ?? {},
       combineInbox: settings.combineInbox,
+      showAllTab: settings.showAllTab,
     };
     const labelNameById = new Map(labels.map((l) => [l.id, l.name]));
-    return paginateIntoResult(
+    const rowByAccount = new Map(
+      syncAccounts.map((account) => [account.accountEmail, account]),
+    );
+    const statuses = await Promise.all(
+      connectedAccounts.map(async (accountEmail) => {
+        const row = rowByAccount.get(accountEmail);
+        const pushGeneration = await readInboxPushGeneration(
+          ownerEmail,
+          accountEmail,
+        );
+        const state =
+          row?.status === "needs_reauth" || row?.status === "error"
+            ? row.status
+            : row?.historyId == null || row?.status === "syncing"
+              ? "initial"
+              : "ready";
+        return {
+          accountEmail,
+          state,
+          lastSyncedAt: row?.lastSyncedAt ?? null,
+          ...(row?.lastError ? { error: row.lastError } : {}),
+          ...(row?.fullSyncPageToken || row?.fullSyncPhase === "reconcile"
+            ? { backfillPending: true }
+            : {}),
+          ...(pushGeneration > (row?.lastPushGeneration ?? 0)
+            ? { pushPending: true }
+            : {}),
+        } satisfies InboxSyncAccountStatus & { pushPending?: boolean };
+      }),
+    );
+    const backfillIncomplete = statuses.some(
+      (status) => status.state === "initial" || status.backfillPending,
+    );
+    const cachedAllInboxCount = cachedInboxCount(
+      syncAccounts,
+      connectedAccounts,
+    );
+    const now = Date.now();
+    const cooldown = await readGmailCooldown(connectedAccounts, now);
+    const syncedTimes = statuses.map((status) => status.lastSyncedAt);
+    const result = paginateIntoResult(
       items,
       config,
       labelNameById,
       labels,
       page,
-      statuses.some((status) => status.state === "initial"),
+      statuses.some(
+        (status) =>
+          status.state === "initial" ||
+          (status as InboxSyncAccountStatus & { pushPending?: boolean })
+            .pushPending,
+      ),
       statuses,
+      backfillIncomplete,
+      cachedAllInboxCount,
     );
+    return {
+      ...result,
+      read: gmailReadState(
+        cooldown,
+        syncedTimes.some((time) => time == null)
+          ? null
+          : Math.min(...(syncedTimes as number[])),
+        now,
+      ),
+    };
   },
 });

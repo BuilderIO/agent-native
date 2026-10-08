@@ -120,7 +120,6 @@ export function GoogleSetupWizard() {
       const text = await file.text();
       const json = JSON.parse(text);
 
-      // Google's downloaded JSON has the credentials nested under "web" or "installed"
       const creds = json.web || json.installed || json;
       const id = creds.client_id;
       const secret = creds.client_secret;
@@ -148,7 +147,6 @@ export function GoogleSetupWizard() {
 
       setSaved(true);
       await fetchStatus();
-      // Reload after the server has persisted the scoped credentials.
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
       setError(
@@ -187,7 +185,6 @@ export function GoogleSetupWizard() {
       setClientId("");
       setClientSecret("");
       await fetchStatus();
-      // Reload after the server has persisted the scoped credentials.
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
       setError(
@@ -363,11 +360,12 @@ export function GoogleSetupWizard() {
                                 {t("googleConnect.clientId")}
                               </Label>
                               <Input
+                                size="sm"
                                 id="client-id"
                                 value={clientId}
                                 onChange={(e) => setClientId(e.target.value)}
                                 placeholder="123456789.apps.googleusercontent.com"
-                                className="text-xs h-8 font-mono"
+                                className="text-xs font-mono"
                               />
                             </div>
                             <div className="space-y-1.5">
@@ -378,6 +376,7 @@ export function GoogleSetupWizard() {
                                 {t("googleConnect.clientSecret")}
                               </Label>
                               <Input
+                                size="sm"
                                 id="client-secret"
                                 type="password"
                                 value={clientSecret}
@@ -385,7 +384,7 @@ export function GoogleSetupWizard() {
                                   setClientSecret(e.target.value)
                                 }
                                 placeholder="GOCSPX-..."
-                                className="text-xs h-8 font-mono"
+                                className="text-xs font-mono"
                               />
                             </div>
                             <Button

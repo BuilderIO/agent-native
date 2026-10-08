@@ -125,8 +125,6 @@ describe("local-plan-files", () => {
     expect(planMdx).not.toMatch(/^planId:/m);
     expect(planMdx).not.toMatch(/^source:/m);
 
-    // The on-disk MDX must round-trip back to a parseable plan content model,
-    // so import/patch actions can consume it.
     const folder: { "plan.mdx": string; "canvas.mdx"?: string } = {
       "plan.mdx": planMdx,
     };

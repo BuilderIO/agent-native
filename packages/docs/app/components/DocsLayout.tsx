@@ -14,14 +14,6 @@ import DocsSidebar from "./DocsSidebar";
 import MobileDocsNav from "./MobileDocsNav";
 import TableOfContents from "./TableOfContents";
 
-/**
- * A page-merge rework renames or relocates headings, but a server redirect
- * can never see the incoming fragment (browsers never send it), so the
- * browser's own redirect handling preserves whatever stale fragment the
- * visitor arrived with onto the new page. Fix it up client-side once we're
- * there: same-page fragments get a corrected hash and a scroll; fragments
- * that moved to a different page get a full navigation.
- */
 function useLegacyFragmentRedirect(pathname: string, hash: string) {
   useEffect(() => {
     if (!hash) return;
@@ -49,12 +41,6 @@ interface TocItem {
 const GITHUB_EDIT_BASE_URL =
   "https://github.com/BuilderIO/agent-native/edit/main/packages/core/docs/content";
 
-/**
- * Resolves the GitHub "edit this page" URL from the current route pathname
- * alone (no route-level plumbing needed): points at the locale override file
- * under `content/locales/<locale>/<slug>.mdx` when one exists for the current
- * locale, otherwise the canonical English `content/<slug>.mdx`.
- */
 export function docsEditUrlForPathname(pathname: string): string | undefined {
   const slug = docsSlugFromPathname(pathname);
   if (!slug) return undefined;

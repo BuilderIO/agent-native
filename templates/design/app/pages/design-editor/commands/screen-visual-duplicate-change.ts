@@ -188,10 +188,6 @@ export function runScreenVisualDuplicateChange(
     details?.anchorSelector,
     details?.anchorSourceId,
   );
-  // See the matching guard in visual-duplicate-change.ts: a same-row
-  // flow-reorder can resolve its own drop anchor onto the source node or a
-  // descendant of it, nesting the copy inside the element it was copied
-  // from — a structure assertDesignHtmlEditIntegrity rejects outright.
   const anchorNestedInTarget =
     targetNode &&
     anchorNode &&

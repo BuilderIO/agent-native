@@ -1,5 +1,6 @@
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
 import type { CaptureErrorContext } from "../server/capture-error.js";
+import { stripSqlParams } from "../shared/error-noise.js";
 import {
   boundedText,
   exceptionParts,
@@ -16,29 +17,29 @@ export type TrackingExceptionLevel =
   | "debug";
 
 export interface TrackingExceptionContext extends CaptureErrorContext {
-  /** Whether the caller handled the error. Server error hooks default false. */
   handled?: boolean;
   level?: TrackingExceptionLevel;
   release?: string;
   environment?: string;
   runtime?: "node" | "cli";
   source?: "server" | "cli";
-  /**
-   * Who the exception is attributed to. Without it every server exception is
-   * ingested as `anonymous`, which splits one person into two in any backend
-   * that also receives their browser events.
-   */
   userId?: string;
   orgId?: string;
 }
 
-/** Emit a bounded, redacted Node/CLI exception through first-party tracking. */
 export function captureException(
   error: unknown,
   context: TrackingExceptionContext = {},
 ): void {
   try {
-    const parts = exceptionParts(error);
+    const raw = exceptionParts(error);
+    // A database error's bound parameters ride on the message and stack; they
+    // must not reach the tracker, where they become the issue title and culprit.
+    const parts = {
+      ...raw,
+      message: stripSqlParams(raw.message),
+      ...(raw.stack ? { stack: stripSqlParams(raw.stack) } : {}),
+    };
     const tags = safeTags({
       ...context.tags,
       ...(context.route ? { route: context.route } : {}),
@@ -69,7 +70,6 @@ export function captureException(
           ? { environment: boundedText(context.environment, 100) }
           : {}),
         ...(context.orgId ? { orgId: boundedText(context.orgId, 200) } : {}),
-        // Top-level so error tracking and LLM analytics join on it.
         ...(context.aiTraceId
           ? { $ai_trace_id: boundedText(context.aiTraceId, 200) }
           : {}),

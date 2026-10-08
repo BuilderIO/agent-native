@@ -58,10 +58,6 @@ export interface ScreenObserverOptions {
   maxDimension?: number;
 }
 
-/**
- * Captures bounded PNG frames into process memory. Handles are task-scoped and
- * short-lived; frame bytes are never returned in audit metadata or persisted.
- */
 export class EphemeralScreenObserver {
   private readonly frames = new Map<string, StoredFrame>();
   private readonly now: () => number;

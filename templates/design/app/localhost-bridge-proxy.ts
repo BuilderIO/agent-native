@@ -324,10 +324,6 @@ async function bridgeResponse(
   });
 }
 
-/**
- * Keep the hosted action route as the policy boundary, then move only the
- * already-authorized loopback operation into the browser that can reach it.
- */
 export function createLocalhostBridgeFetchProxy(
   context: LocalhostBridgeTransport,
   fetchImpl: FetchImplementation,

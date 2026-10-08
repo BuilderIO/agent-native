@@ -5,9 +5,33 @@ import {
   readContentRecentState,
   recordContentRecentVisit,
   contentRecentVisitKey,
+  removeContentRecentEntry,
 } from "./content-personal-navigation";
 
 describe("personal Recent navigation", () => {
+  it("forgets one destination and returns the same state when nothing matches", () => {
+    let state = readContentRecentState(null);
+    for (const [target, visitedAt] of [
+      [{ documentId: "page" }, "2026-09-09T10:00:00.000Z"],
+      [
+        { documentId: "db-page", databaseId: "db", viewId: "board" },
+        "2026-09-09T11:00:00.000Z",
+      ],
+    ] as const) {
+      state = recordContentRecentVisit(state, { target, visitedAt });
+    }
+    const removed = removeContentRecentEntry(state, {
+      documentId: "db-page",
+      databaseId: "db",
+    });
+    expect(removed.entries.map((entry) => entry.target.documentId)).toEqual([
+      "page",
+    ]);
+    expect(removeContentRecentEntry(removed, { documentId: "missing" })).toBe(
+      removed,
+    );
+  });
+
   it("preserves a newer same-target visit when an earlier request completes last", () => {
     const target = { documentId: "page", databaseId: "db", viewId: "board" };
     let state = recordContentRecentVisit(readContentRecentState(null), {

@@ -6,108 +6,13 @@ import {
   type DbAdminAdminContext,
   withDbAdminConnectionRuntime,
 } from "./db-admin-connections";
+import { assertReadOnlySql } from "./read-only-sql";
 
 const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const NUMERIC_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
 const TEMPORAL_RE =
   /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
-const MUTATING_WORD_RE =
-  /(^|[^A-Za-z_])(insert|update|delete|replace|create|alter|drop|truncate|merge)(?=[^A-Za-z_]|$)/i;
 const MAX_SOURCE_ROWS = 500;
-
-function sanitizeSqlForInspection(sql: string): string {
-  let out = "";
-  let state: "code" | "single" | "double" | "line" | "block" = "code";
-  for (let i = 0; i < sql.length; i += 1) {
-    const ch = sql[i];
-    const next = sql[i + 1];
-    if (state === "line") {
-      out += ch === "\n" || ch === "\r" ? ch : " ";
-      if (ch === "\n" || ch === "\r") state = "code";
-      continue;
-    }
-    if (state === "block") {
-      if (ch === "*" && next === "/") {
-        out += "  ";
-        i += 1;
-        state = "code";
-      } else {
-        out += " ";
-      }
-      continue;
-    }
-    if (state === "single") {
-      if (ch === "'" && next === "'") {
-        out += "  ";
-        i += 1;
-      } else if (ch === "'") {
-        out += " ";
-        state = "code";
-      } else {
-        out += " ";
-      }
-      continue;
-    }
-    if (state === "double") {
-      if (ch === '"' && next === '"') {
-        out += "  ";
-        i += 1;
-      } else if (ch === '"') {
-        out += " ";
-        state = "code";
-      } else {
-        out += " ";
-      }
-      continue;
-    }
-    if (ch === "-" && next === "-") {
-      out += "  ";
-      i += 1;
-      state = "line";
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      out += "  ";
-      i += 1;
-      state = "block";
-      continue;
-    }
-    if (ch === "'") {
-      out += " ";
-      state = "single";
-      continue;
-    }
-    if (ch === '"') {
-      out += " ";
-      state = "double";
-      continue;
-    }
-    out += ch;
-  }
-  return out;
-}
-
-function assertReadOnlySql(sql: string): void {
-  const cleaned = sanitizeSqlForInspection(sql).trim();
-  if (!/^(select|with)\b/i.test(cleaned)) {
-    throw new Error("Source SQL must start with SELECT or WITH.");
-  }
-  const statement = cleaned.replace(/;\s*$/, "");
-  if (statement.includes(";")) {
-    throw new Error("Source SQL must be a single statement.");
-  }
-  if (/\binto\b/i.test(statement)) {
-    throw new Error("Source SQL must not use SELECT INTO.");
-  }
-  if (
-    /\bfor\s+(?:no\s+key\s+)?(?:update|share|key\s+share)\b/i.test(statement)
-  ) {
-    throw new Error("Source SQL must not lock rows.");
-  }
-  if (MUTATING_WORD_RE.test(statement)) {
-    throw new Error("Source SQL must be read-only.");
-  }
-}
 
 function normalizeSourceId(value: unknown, fallback: string): string {
   const raw = typeof value === "string" ? value.trim() : "";

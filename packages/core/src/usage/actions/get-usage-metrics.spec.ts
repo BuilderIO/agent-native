@@ -6,11 +6,13 @@ vi.mock("../../action.js", () => ({
   defineAction: (definition: unknown) => definition,
 }));
 
-vi.mock("../metrics-store.js", () => ({
+vi.mock("../metrics-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../metrics-store.js")>()),
   listAppUsageMetrics: listAppUsageMetricsMock,
 }));
 
 import { resetAppConfigForTests } from "../../app-config/index.js";
+import { ALL_USAGE_APPS } from "../metrics-store.js";
 import getUsageMetrics from "./get-usage-metrics.js";
 
 describe("get-usage-metrics action", () => {
@@ -26,7 +28,7 @@ describe("get-usage-metrics action", () => {
     vi.clearAllMocks();
   });
 
-  it("uses configured identity instead of the static plugin context id", async () => {
+  it("covers every app when no app filter is passed", async () => {
     await getUsageMetrics.run(
       { sinceDays: 30, scope: "me" },
       {
@@ -37,13 +39,67 @@ describe("get-usage-metrics action", () => {
     );
 
     expect(listAppUsageMetricsMock).toHaveBeenCalledWith(
-      { sinceDays: 30, scope: "me", userEmail: undefined },
+      {
+        sinceDays: 30,
+        scope: "me",
+        userEmail: undefined,
+        builderCreditsEnabled: true,
+      },
       {
         ownerEmail: "owner@example.com",
         orgId: undefined,
-        app: "configured-app",
+        app: ALL_USAGE_APPS,
       },
     );
+  });
+
+  it('treats app "all" as every app', async () => {
+    await getUsageMetrics.run(
+      { sinceDays: 30, scope: "me", app: "all" },
+      { caller: "frontend", userEmail: "owner@example.com" },
+    );
+
+    expect(listAppUsageMetricsMock.mock.calls[0]?.[1]).toMatchObject({
+      app: ALL_USAGE_APPS,
+    });
+  });
+
+  it('resolves app "current" to the configured identity, not the static plugin context id', async () => {
+    await getUsageMetrics.run(
+      { sinceDays: 30, scope: "me", app: "current" },
+      {
+        caller: "frontend",
+        userEmail: "owner@example.com",
+        appId: "plan",
+      },
+    );
+
+    expect(listAppUsageMetricsMock.mock.calls[0]?.[1]).toMatchObject({
+      app: "configured-app",
+    });
+  });
+
+  it("filters to one app key", async () => {
+    await getUsageMetrics.run(
+      { sinceDays: 30, scope: "workspace", app: "mail" },
+      { caller: "frontend", userEmail: "owner@example.com", orgId: "org-1" },
+    );
+
+    expect(listAppUsageMetricsMock.mock.calls[0]?.[1]).toEqual({
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      app: "mail",
+    });
+  });
+
+  it("rejects app and appId together instead of picking one", async () => {
+    await expect(
+      getUsageMetrics.run(
+        { sinceDays: 30, scope: "me", app: "all", appId: "mail" },
+        { caller: "frontend", userEmail: "owner@example.com" },
+      ),
+    ).rejects.toThrow("Pass app or appId, not both.");
+    expect(listAppUsageMetricsMock).not.toHaveBeenCalled();
   });
 
   it("keeps an explicit app filter authoritative", async () => {
@@ -58,6 +114,17 @@ describe("get-usage-metrics action", () => {
 
     expect(listAppUsageMetricsMock.mock.calls[0]?.[1]).toMatchObject({
       app: "selected-app",
+    });
+  });
+
+  it("always includes per-call Builder credit reporting", async () => {
+    await getUsageMetrics.run(
+      { sinceDays: 30, scope: "me" },
+      { caller: "frontend", userEmail: "owner@example.com" },
+    );
+
+    expect(listAppUsageMetricsMock.mock.calls[0]?.[0]).toMatchObject({
+      builderCreditsEnabled: true,
     });
   });
 });

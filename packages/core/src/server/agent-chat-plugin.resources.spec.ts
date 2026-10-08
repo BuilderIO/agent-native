@@ -1,4 +1,4 @@
-import { createApp } from "h3";
+import { createApp, H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
     skills: {},
   })),
   generateSkillsPromptBlock: vi.fn(() => ""),
+  getRuntimeSkillsForUser: vi.fn(),
+  getEnabledSkillLabsForUser: vi.fn(),
   getSession: vi.fn(),
 }));
 
@@ -23,7 +25,33 @@ const routeHarness = vi.hoisted(() => ({
   initPromises: [] as Promise<void>[],
 }));
 
-// Mirror the real `getRuntimeSkills`: drop `scope: dev` skills, keep the rest.
+const threadStoreMocks = vi.hoisted(() => ({
+  mutateThreadQueuedMessages: vi.fn(),
+  resolveThreadAccess: vi.fn(),
+  updateThreadData: vi.fn(),
+}));
+
+const handlerHarness = vi.hoisted(() => ({
+  options: [] as Array<{
+    actions: Record<string, unknown>;
+    systemPrompt: (event: unknown) => Promise<string>;
+  }>,
+}));
+
+vi.mock("../agent/production-agent.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../agent/production-agent.js")>();
+  return {
+    ...actual,
+    createProductionAgentHandler: (
+      options: Parameters<typeof actual.createProductionAgentHandler>[0],
+    ) => {
+      handlerHarness.options.push(options as never);
+      return actual.createProductionAgentHandler(options);
+    },
+  };
+});
+
 function runtimeSkillsFromBundle(bundle: { skills?: Record<string, any> }) {
   return Object.values(bundle.skills ?? {}).filter(
     (skill: any) => skill?.meta?.scope !== "dev",
@@ -65,6 +93,10 @@ vi.mock("./agents-bundle.js", () => ({
   loadAgentsBundle: (...args: any[]) => mocks.loadAgentsBundle(...args),
   generateSkillsPromptBlock: (...args: any[]) =>
     mocks.generateSkillsPromptBlock(...args),
+  getRuntimeSkillsForUser: (...args: any[]) =>
+    mocks.getRuntimeSkillsForUser(...args),
+  getEnabledSkillLabsForUser: (...args: any[]) =>
+    mocks.getEnabledSkillLabsForUser(...args),
   getRuntimeSkills: (bundle: any) => runtimeSkillsFromBundle(bundle),
 }));
 
@@ -83,9 +115,24 @@ vi.mock("./auth.js", async (importOriginal) => ({
   getSession: (...args: any[]) => mocks.getSession(...args),
 }));
 
+vi.mock("../chat-threads/store.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../chat-threads/store.js")>();
+  return {
+    ...actual,
+    mutateThreadQueuedMessages: (...args: any[]) =>
+      threadStoreMocks.mutateThreadQueuedMessages(...args),
+    resolveThreadAccess: (...args: any[]) =>
+      threadStoreMocks.resolveThreadAccess(...args),
+    updateThreadData: (...args: any[]) =>
+      threadStoreMocks.updateThreadData(...args),
+  };
+});
+
 import {
   createAgentChatPlugin,
   loadResourcesForPrompt,
+  type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
 import {
   promptResourceManifestSections,
@@ -194,6 +241,17 @@ const resourcesById = new Map([
         "---\nname: company-voice\ndescription: Personal voice override.\n---\n\n# Company Voice",
     },
   ],
+  [
+    "lab_required_skill",
+    {
+      id: "lab_required_skill",
+      path: "skills/lab-required/SKILL.md",
+      owner: "__shared__",
+      mimeType: "text/markdown",
+      content:
+        "---\nname: lab-required\ndescription: Requires an enabled Lab.\nrequires-lab: reports.preview\n---\n\n# Lab Required",
+    },
+  ],
 ]);
 
 function meta(id: string) {
@@ -206,6 +264,11 @@ function meta(id: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   routeHarness.initPromises.length = 0;
+  handlerHarness.options.length = 0;
+  threadStoreMocks.mutateThreadQueuedMessages.mockReset();
+  threadStoreMocks.resolveThreadAccess.mockReset();
+  threadStoreMocks.updateThreadData.mockReset();
+  threadStoreMocks.updateThreadData.mockResolvedValue(true);
   mocks.getSession.mockResolvedValue(null);
   mocks.loadAgentsBundle.mockResolvedValue({
     workspaceAgentsMd: "",
@@ -213,6 +276,14 @@ beforeEach(() => {
     skills: {},
   });
   mocks.generateSkillsPromptBlock.mockReturnValue("");
+  mocks.getRuntimeSkillsForUser.mockImplementation(
+    (bundle: { skills?: Record<string, any> }, userEmail?: string) =>
+      runtimeSkillsFromBundle(bundle).filter(
+        (skill: any) =>
+          !skill.meta.requiresLab || userEmail === "enabled@example.test",
+      ),
+  );
+  mocks.getEnabledSkillLabsForUser.mockResolvedValue(new Set());
   mocks.resourceGetByPath.mockImplementation(async (owner, path) => {
     if (owner === "__workspace__" && path === "AGENTS.md") {
       return { content: "# Workspace Instructions\n\nUse global context." };
@@ -319,13 +390,328 @@ async function fetchWithRequestContext(
   h3App: ReturnType<typeof createApp>,
   path: string,
   context: { userEmail?: string; orgId?: string; orgScope?: "personal" },
+  init?: RequestInit,
 ) {
   return runWithRequestContext(context, () =>
-    h3App.fetch(new Request(`http://example.test${path}`)),
+    h3App.fetch(new Request(`http://example.test${path}`, init)),
   );
 }
 
+describe("agent chat queued-message route", () => {
+  it("returns a typed conflict when a claimed queue item was removed", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadId = "thread-claim-race";
+    const messageId = "queued-claim-race";
+    const mutation = {
+      type: "claim",
+      messageId,
+      claimId: "claim-race",
+    };
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: threadId,
+      scope: null,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    threadStoreMocks.mutateThreadQueuedMessages.mockRejectedValueOnce(
+      new Error(`Unknown queued message: ${messageId}`),
+    );
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${threadId}/queued`,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mutation }),
+      },
+    );
+
+    const responseBody = await response.json();
+    expect(response.status, JSON.stringify(responseBody)).toBe(409);
+    expect(threadStoreMocks.resolveThreadAccess).toHaveBeenCalled();
+    expect(responseBody).toEqual({
+      error: `Unknown queued message: ${messageId}`,
+      code: "queued_message_missing",
+      retryable: false,
+    });
+    expect(threadStoreMocks.mutateThreadQueuedMessages).toHaveBeenCalledWith(
+      threadId,
+      mutation,
+    );
+  });
+});
+
+describe("agent chat thread save route", () => {
+  const thread = {
+    id: "thread-save",
+    scope: null,
+    threadData: JSON.stringify({ messages: [] }),
+    messageCount: 0,
+    title: "Thread",
+    preview: "",
+  };
+
+  it("rejects invalid inner threadData JSON before saving", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}`,
+      { userEmail: "user@example.test" },
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadData: "{invalid" }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Invalid threadData JSON",
+    });
+    expect(threadStoreMocks.updateThreadData).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["JSON null", "null"],
+    ["a JSON array", "[]"],
+    ["a JSON string", '"invalid"'],
+    ["an empty body", ""],
+  ])("rejects %s before reading thread fields", async (_label, body) => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}`,
+      { userEmail: "user@example.test" },
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body,
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invalid request body" });
+    expect(threadStoreMocks.resolveThreadAccess).not.toHaveBeenCalled();
+    expect(threadStoreMocks.updateThreadData).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["nonnumeric", "2"],
+    ["null", null],
+    ["negative", -1],
+    ["fractional", 1.5],
+    ["unsafe", Number.MAX_SAFE_INTEGER + 1],
+  ])(
+    "rejects a %s message count before saving",
+    async (_label, messageCount) => {
+      const h3App = await mountResourceRoutes();
+      threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+      mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+      const response = await fetchWithRequestContext(
+        h3App,
+        `/_agent-native/agent-chat/threads/${thread.id}`,
+        { userEmail: "user@example.test" },
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ messageCount }),
+        },
+      );
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "Invalid request body" });
+      expect(threadStoreMocks.updateThreadData).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves threadData for the metadata-only empty-string save sentinel", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}`,
+      { userEmail: "user@example.test" },
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          threadData: "",
+          title: "New title",
+          preview: "New preview",
+          messageCount: 2,
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(threadStoreMocks.updateThreadData).toHaveBeenCalledWith(
+      thread.id,
+      thread.threadData,
+      "New title",
+      "New preview",
+      2,
+      expect.objectContaining({
+        preserveCurrentTitleAndPreview: false,
+      }),
+    );
+  });
+
+  it("preserves server metadata when saving a snapshot delta", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadData = JSON.stringify({
+      messages: [],
+      agentKit: { _snapshotDelta: true, messages: [] },
+    });
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}`,
+      { userEmail: "user@example.test" },
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadData, messageCount: 0 }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(threadStoreMocks.updateThreadData).toHaveBeenCalledWith(
+      thread.id,
+      threadData,
+      thread.title,
+      thread.preview,
+      0,
+      expect.objectContaining({ preserveCurrentTitleAndPreview: true }),
+    );
+  });
+
+  it("returns 404 when the thread disappears before the save reaches storage", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    threadStoreMocks.updateThreadData.mockResolvedValue(false);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}`,
+      { userEmail: "user@example.test" },
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadData: JSON.stringify({ messages: [] }) }),
+      },
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "Thread not found" });
+    expect(threadStoreMocks.updateThreadData).toHaveBeenCalledOnce();
+    expect(threadStoreMocks.resolveThreadAccess).toHaveBeenCalledOnce();
+  });
+});
+
 describe("agent chat resource route organization scopes", () => {
+  it("keeps Lab-gated bundled skills out of the slash picker for disabled users", async () => {
+    const h3App = await mountResourceRoutes();
+    const creativeSkill = {
+      meta: {
+        name: "creative-context",
+        description: "Use Creative Context packs.",
+        scope: "both",
+        requiresLab: "content.creative-context",
+      },
+      content: "# Creative Context",
+      dir: ".agents/skills/creative-context",
+      extraFiles: [],
+      files: {},
+    };
+    mocks.loadAgentsBundle.mockResolvedValue({
+      workspaceAgentsMd: "",
+      agentsMd: "",
+      skills: { "creative-context": creativeSkill },
+    });
+    mocks.resourceList.mockResolvedValue([]);
+    mocks.resourceListAccessible.mockResolvedValue([]);
+
+    const disabledResponse = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/skills",
+      { userEmail: "disabled@example.test" },
+    );
+    const enabledResponse = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/skills",
+      { userEmail: "enabled@example.test" },
+    );
+    const disabled = (await disabledResponse.json()) as {
+      skills: Array<{ name: string }>;
+    };
+    const enabled = (await enabledResponse.json()) as {
+      skills: Array<{ name: string }>;
+    };
+
+    expect(disabled.skills.map((skill) => skill.name)).not.toContain(
+      "creative-context",
+    );
+    expect(enabled.skills.map((skill) => skill.name)).toContain(
+      "creative-context",
+    );
+  });
+
+  it("fails closed when Lab state for a resource skill cannot be read", async () => {
+    const h3App = await mountResourceRoutes();
+    mocks.getSession.mockResolvedValue({
+      email: "disabled@example.test",
+    } as any);
+    mocks.resourceList.mockResolvedValue([meta("lab_required_skill")]);
+    mocks.resourceListAccessible.mockResolvedValue([
+      meta("lab_required_skill"),
+    ]);
+
+    const disabledResponse = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/skills",
+      { userEmail: "disabled@example.test" },
+    );
+    const disabled = (await disabledResponse.json()) as {
+      skills: Array<{ name: string }>;
+    };
+    expect(disabled.skills.map((skill) => skill.name)).not.toContain(
+      "lab-required",
+    );
+
+    mocks.getEnabledSkillLabsForUser.mockRejectedValue(
+      new Error("Labs settings unavailable"),
+    );
+    const unavailableResponse = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/skills",
+      { userEmail: "disabled@example.test" },
+    );
+
+    expect(unavailableResponse.status).toBe(500);
+    expect(await unavailableResponse.text()).not.toContain("Lab Required");
+    expect(mocks.resourceGet).toHaveBeenCalledWith("lab_required_skill", {
+      userEmail: "disabled@example.test",
+      orgId: undefined,
+    });
+    expect(mocks.getEnabledSkillLabsForUser).toHaveBeenCalledWith(
+      ["reports.preview"],
+      "disabled@example.test",
+    );
+  });
+
   it("inherits the active request organization when no resolver is configured", async () => {
     const h3App = await mountResourceRoutes();
     expect(mocks.resourceListAllOwners).toHaveBeenCalledWith("jobs/");
@@ -389,6 +775,43 @@ describe("agent chat resource route organization scopes", () => {
       orgId: "org-active",
       orgScope: undefined,
     });
+  });
+
+  it("reserves mention results for peer agents when files fill their source budget", async () => {
+    const h3App = await mountResourceRoutes();
+    const files = Array.from({ length: 80 }, (_, index) => ({
+      id: `file-${index}`,
+      path: `brief-${index}.md`,
+      owner: "__shared__",
+      mimeType: "text/markdown",
+    }));
+    mocks.resourceList.mockResolvedValue(files);
+    mocks.resourceListAccessible.mockResolvedValue(files);
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "slides",
+        name: "Slides",
+        url: "https://slides.example.test",
+        description: "Create presentations",
+      },
+    ] as never);
+    const response = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/mentions",
+      { userEmail: "user@example.test", orgId: "org-active" },
+    );
+    const items = (await response.text())
+      .trim()
+      .split("\n")
+      .flatMap((line) => JSON.parse(line).items);
+    expect(items.length).toBeLessThanOrEqual(50);
+    expect(items).toContainEqual(
+      expect.objectContaining({
+        id: "agent:slides",
+        section: "Connected Agents",
+      }),
+    );
+    expect(items.some((item) => item.refType === "file")).toBe(true);
   });
 
   it("inherits the active request organization when a resolver returns undefined", async () => {
@@ -637,6 +1060,68 @@ describe("promptResourceManifestSections", () => {
 });
 
 describe("loadResourcesForPrompt", () => {
+  it("fails the prompt build when Lab-gated skill state cannot be read", async () => {
+    const failure = new Error("Labs settings unavailable");
+    mocks.getRuntimeSkillsForUser.mockRejectedValueOnce(failure);
+
+    await expect(loadResourcesForPrompt("user@example.test")).rejects.toBe(
+      failure,
+    );
+  });
+
+  it.each([false, true])(
+    "keeps Lab-gated skills per-user in %s compact prompt mode",
+    async (compact) => {
+      const creativeSkill = {
+        meta: {
+          name: "creative-context",
+          description: "Use Creative Context packs.",
+          scope: "both",
+          requiresLab: "content.creative-context",
+        },
+        content: "CREATIVE_CONTEXT_SKILL_MARKER",
+        dir: ".agents/skills/creative-context",
+        extraFiles: [],
+        files: {},
+      };
+      const bundle = {
+        workspaceAgentsMd: "",
+        agentsMd: "",
+        skills: { "creative-context": creativeSkill },
+      };
+      mocks.loadAgentsBundle.mockResolvedValue(bundle);
+      mocks.generateSkillsPromptBlock.mockImplementation(
+        (_bundle: unknown, skills: (typeof creativeSkill)[]) =>
+          skills.map((skill) => skill.content).join("\n"),
+      );
+
+      const disabled = await loadResourcesForPrompt(
+        "disabled@example.test",
+        compact,
+      );
+      const enabled = await loadResourcesForPrompt(
+        "enabled@example.test",
+        compact,
+      );
+
+      expect(disabled).not.toContain("CREATIVE_CONTEXT_SKILL_MARKER");
+      expect(disabled).not.toContain("creative-context");
+      expect(enabled).toContain(
+        compact ? "creative-context" : "CREATIVE_CONTEXT_SKILL_MARKER",
+      );
+      expect(mocks.getRuntimeSkillsForUser).toHaveBeenNthCalledWith(
+        1,
+        bundle,
+        "disabled@example.test",
+      );
+      expect(mocks.getRuntimeSkillsForUser).toHaveBeenNthCalledWith(
+        2,
+        bundle,
+        "enabled@example.test",
+      );
+    },
+  );
+
   it("uses runtime-scoped instructions and excludes development instructions", async () => {
     mocks.loadAgentsBundle.mockResolvedValueOnce({
       workspaceAgentsMd: "",
@@ -912,6 +1397,27 @@ describe("loadResourcesForPrompt", () => {
     expect(prompt).not.toContain("Use `resource-read --path <path>");
   });
 
+  it("fails prompt construction when Labs state for a resource skill is unreadable", async () => {
+    resourcesById.set("skills_lab_required", {
+      id: "skills_lab_required",
+      path: "skills/lab-required/SKILL.md",
+      owner: "__workspace__",
+      mimeType: "text/markdown",
+      content:
+        "---\nname: lab-required\ndescription: Requires an enabled Lab.\nrequires-lab: reports.preview\n---\n\n# Lab Required",
+    });
+    mocks.resourceListAccessible.mockResolvedValue([
+      meta("skills_lab_required"),
+    ]);
+    mocks.getEnabledSkillLabsForUser.mockRejectedValue(
+      new Error("Labs settings unavailable"),
+    );
+
+    await expect(loadResourcesForPrompt("user@example.test")).rejects.toThrow(
+      "Labs settings unavailable",
+    );
+  });
+
   it("points compact bundled skills at their docs-search skill slugs", async () => {
     mocks.loadAgentsBundle.mockResolvedValueOnce({
       workspaceAgentsMd: "",
@@ -1032,8 +1538,6 @@ describe("loadResourcesForPrompt", () => {
   });
 
   it("keeps cross-app discovery and names what it dropped when compact context overflows", async () => {
-    // 30 peers with real descriptions is a ~14,000-character block: large
-    // enough that the old greedy fitter had no room left for it.
     mocks.discoverAgents.mockResolvedValueOnce(
       Array.from({ length: 30 }, (_, index) => ({
         id: index === 0 ? "analytics" : `app-${index}`,
@@ -1074,6 +1578,21 @@ describe("loadResourcesForPrompt", () => {
       expect(prompt).toContain("<available-apps>");
       expect(prompt).toContain("Analytics (analytics)");
       expect(prompt).toContain("describe-workspace-apps");
+      expect(prompt).toContain(
+        "This list is a directory, not a request to involve another app.",
+      );
+      expect(prompt).toContain(
+        "Use `call-agent` only when the user's requested outcome depends on data or a capability only that app can provide",
+      );
+      expect(prompt).toContain(
+        "Use `describe-workspace-apps` only when that relevant cross-app need exists",
+      );
+      expect(prompt).toContain(
+        "you cannot tell which peer owns it or whether a known peer can provide it",
+      );
+      expect(prompt).not.toContain(
+        "Before building a capability another app may already own",
+      );
       expect(prompt).toContain("<context-note>");
       expect(prompt).toMatch(/section\(s\) did not fit the 48,000-character/);
       expect(prompt).toContain("Treat them as unread, not as absent");
@@ -1158,7 +1677,6 @@ describe("loadResourcesForPrompt", () => {
     expect(prompt).toContain('<resource name="LEARNINGS.md" scope="shared"');
     expect(prompt).toContain("truncated after 30,000 characters");
     expect(prompt).toContain('Use the `resources` tool with `action: "read"`');
-    // The full oversized content must not have been inlined verbatim.
     expect(prompt.length).toBeLessThan(hugeLearnings.length);
   });
 
@@ -1179,5 +1697,106 @@ describe("loadResourcesForPrompt", () => {
     );
     expect(prompt).toContain("truncated after 30,000 characters");
     expect(prompt.length).toBeLessThan(hugeMemory.length);
+  });
+});
+
+describe("compact skills summary and the request registry", () => {
+  const deepReviewBundle = {
+    workspaceAgentsMd: "",
+    agentsMd: "",
+    skills: {
+      "deep-review": {
+        meta: {
+          name: "deep-review",
+          description: "Use when reviewing risky changes.",
+          scope: "both",
+        },
+        content: "---\nname: deep-review\n---\n# Deep Review",
+        dir: ".agents/skills/deep-review",
+        extraFiles: [],
+      },
+    },
+  };
+
+  async function mountLeanHandler(
+    frameworkTools: AgentChatPluginOptions["frameworkTools"],
+  ) {
+    createAgentChatPlugin({
+      actions: () => ({}),
+      a2aAgentDelegation: false,
+      frameworkTools,
+      leanPrompt: true,
+      mcp: { enabled: false },
+    })({ h3App: createApp(), hooks: { hook: vi.fn() } });
+    await routeHarness.initPromises.at(-1);
+    const handler = handlerHarness.options[0];
+    if (!handler) throw new Error("Lean agent handler was not created");
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    mocks.loadAgentsBundle.mockResolvedValue(deepReviewBundle);
+    const systemPrompt = await runWithRequestContext(
+      { userEmail: "user@example.test" },
+      () =>
+        handler.systemPrompt(
+          new H3Event(new Request("https://app.example.test/chat")),
+        ),
+    );
+    return { registry: handler.actions, systemPrompt };
+  }
+
+  function toolsNamedBySkillsSummary(systemPrompt: string): string[] {
+    const summary =
+      /<skills-summary>[\s\S]*<\/skills-summary>/.exec(systemPrompt)?.[0] ?? "";
+    return [...summary.matchAll(/`([a-z][a-z0-9-]*) --(?:slug|query)/g)].map(
+      (match) => match[1]!,
+    );
+  }
+
+  it("gives the lean hosted registry every tool the skills summary names", async () => {
+    const { registry, systemPrompt } = await mountLeanHandler({
+      preset: "minimal",
+      docs: true,
+    });
+
+    const named = toolsNamedBySkillsSummary(systemPrompt);
+    expect(named).toContain("docs-search");
+    for (const name of named) expect(registry).toHaveProperty(name);
+    // Only the skill reader joins the lean first request.
+    expect(registry).not.toHaveProperty("framework-search");
+    // The lean prompt omits the compact framework prompt, so it carries the
+    // batching rule itself.
+    expect(systemPrompt).toContain("emit them in the same step");
+  });
+
+  it("drops the skills summary when the registry has no skill-read tool", async () => {
+    const { registry, systemPrompt } = await mountLeanHandler("minimal");
+
+    expect(registry).not.toHaveProperty("docs-search");
+    expect(systemPrompt).not.toContain("<skills-summary>");
+  });
+
+  it("names the skill-read tool the caller passes, and drops the summary for null", async () => {
+    mocks.loadAgentsBundle.mockResolvedValue(deepReviewBundle);
+
+    const renamed = await loadResourcesForPrompt(
+      "user@example.test",
+      true,
+      undefined,
+      undefined,
+      { skillReadTool: "read-skill" },
+    );
+    expect(renamed).toContain(
+      'Read with `read-skill --slug "skill-deep-review"`',
+    );
+    expect(renamed).not.toContain("docs-search");
+
+    const absent = await loadResourcesForPrompt(
+      "user@example.test",
+      true,
+      undefined,
+      undefined,
+      { skillReadTool: null },
+    );
+    expect(absent).not.toContain("<skills-summary>");
+    expect(absent).not.toContain("deep-review");
   });
 });

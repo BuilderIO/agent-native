@@ -21,7 +21,6 @@ import {
   emitChatFirstSessionWatch,
   getChatFirstSurfaceTabsStore,
   orderChatFirstAppIds,
-  preloadAgentChatSurface,
   readChatFirstAppLayout,
   resolveChatFirstAppTarget,
   resolveChatFirstBrowserTarget,
@@ -42,6 +41,9 @@ import {
   type ChatFirstSurfaceKind,
   type ChatFirstSurfaceTab,
 } from "@agent-native/core/client/agent-chat";
+import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
+import { cn } from "@agent-native/toolkit";
+import { preloadAgentChatSurface } from "@agent-native/toolkit/app/chat/AgentSidebar";
 import {
   ChatFirstAgentsPane,
   ChatFirstAppPane,
@@ -56,10 +58,9 @@ import {
   type ChatFirstAppItem,
   type ChatFirstEmbedTarget,
   type ChatFirstPrimaryTab,
-} from "@agent-native/core/client/chat-first";
-import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
-import { FeedbackButton } from "@agent-native/core/client/ui";
-import { cn } from "@agent-native/toolkit";
+} from "@agent-native/toolkit/app/chat/chat-first";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import type { BuilderConnectTransport } from "@agent-native/toolkit/app/settings";
 import {
   Tooltip,
   TooltipContent,
@@ -277,12 +278,6 @@ export function isChatFirstSurfaceTabActive(input: {
   return input.surfaceActive && input.tabId === input.activeTabId;
 }
 
-/**
- * The nav surface the desktop rail reports as active. Scheduled tasks and the
- * chats view are surfaces without an `appId`, so they must still name a tab -
- * otherwise the rail cannot tell them from "nothing resolved" and leaves every
- * app icon reading as active.
- */
 export function resolveDesktopChatFirstPrimaryTab(input: {
   scheduledTasksOpen: boolean;
   appSelected: boolean;
@@ -648,8 +643,6 @@ export function updateAppAuthStateByTab(
   tabId: string,
   state: AppWebviewAuthState,
 ): Record<string, AppWebviewAuthState> {
-  // Navigation probes publish unknown while the guest session settles. Keep
-  // the last confirmed state so host-owned surfaces do not remount per route.
   if (state === "unknown" && current[tabId] !== undefined) return current;
   return current[tabId] === state ? current : { ...current, [tabId]: state };
 }
@@ -1281,16 +1274,12 @@ export default function CodeAgentsHub({
     void window.electronAPI.shell.openExternal(url);
   }, []);
   const renderChatFirstAppIcon = useCallback(
-    (
-      app: ChatFirstAppItem,
-      { isInactive }: { isInactive: boolean } = { isInactive: false },
-    ) => (
+    (app: ChatFirstAppItem) => (
       <CodeAgentsAppIcon
         id={app.id}
         name={app.name}
         icon={app.icon}
         color={app.color}
-        monochrome={isInactive}
       />
     ),
     [],
@@ -1325,6 +1314,7 @@ export default function CodeAgentsHub({
           }
           activeTab={activeChatFirstPrimaryTab}
           collapsed={chatFirstRailCollapsed}
+          grayscaleInactiveIcons={false}
           layout={chatFirstAppLayout}
           createAppTrigger={
             onChatFirstAppCreated ? (
@@ -2560,17 +2550,38 @@ export default function CodeAgentsHub({
         }
         return api.pairRemoteConnector(request);
       },
-      async connectBuilderProvider() {
-        const api = window.electronAPI?.codeAgents;
-        if (!api?.connectBuilderProvider) {
-          return {
-            ok: false,
-            message: "Desktop bridge is not available.",
-            error: "Desktop bridge is not available.",
-          };
-        }
-        return api.connectBuilderProvider();
-      },
+      builderConnectTransport: {
+        async readStatus({ connectAttemptId }) {
+          const api = window.electronAPI?.codeAgents;
+          if (!api) return null;
+          const result = await api.getBuilderConnectionStatus(connectAttemptId);
+          return result.state === "unavailable" ? null : result.status;
+        },
+        async activateAccount(request) {
+          const api = window.electronAPI?.codeAgents;
+          if (!api) {
+            return {
+              ok: false,
+              code: "desktop_bridge_unavailable",
+              message: "Restart Agent-Native Desktop to continue.",
+            };
+          }
+          return api.activateBuilderAccount({
+            ...request,
+            scope: request.scope ?? undefined,
+          });
+        },
+        async openConnectUrl(request) {
+          const api = window.electronAPI?.codeAgents;
+          if (!api) {
+            return {
+              ok: false,
+              error: "Restart Agent-Native Desktop to continue.",
+            };
+          }
+          return api.openBuilderConnectUrl(request);
+        },
+      } satisfies BuilderConnectTransport,
     }),
     [],
   );
@@ -3170,8 +3181,6 @@ export default function CodeAgentsHub({
                 }}
                 theme={theme}
                 urlParams={urlParams}
-                // Shell key folded in: a lane change remounts every hosted
-                // surface, not just the ones with their own refresh reason.
                 refreshKey={appRefreshKey + refreshKey}
               />
             </div>

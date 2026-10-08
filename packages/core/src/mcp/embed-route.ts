@@ -34,7 +34,6 @@ export interface EmbedRouteOptions<
 > {
   title: string;
   openLabel: string;
-  /** Build the app route or full deep-link surfaced after an action completes. */
   path: EmbedRoutePathBuilder<TArgs, TResult>;
 }
 
@@ -43,13 +42,6 @@ export interface EmbedRouteResult {
   mcpApp: ActionMcpAppConfig;
 }
 
-/**
- * Create matching action `link` and `mcpApp` metadata for an embeddable route.
- *
- * The `path` builder stays pure and synchronous, just like action link
- * builders. Return an app-relative path string for the common case, or an
- * `ActionDeepLink` when you need a custom label/view.
- */
 export function embedRoute<
   TArgs extends Record<string, any> = Record<string, any>,
   TResult = any,

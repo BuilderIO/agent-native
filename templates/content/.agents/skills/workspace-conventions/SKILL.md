@@ -83,6 +83,13 @@ Preview before `--apply`, commit `agent-native.ejections.json`, and never edit
   `agents/<slug>.md` for custom agent profiles. Scope them to All apps when
   every workspace app should inherit them. All-app resources are inherited at
   runtime; do not copy or sync them into individual apps.
+- Which hosted first-party apps (Mail, Calendar, Content, ...) exist in the
+  workspace is set by `agent-native.builtinAgents` in the root
+  `package.json`: `{ "mode": "all" | "none" | "selected", "include": [...] }`
+  (absent means `"all"`; ids must be template names; restart
+  `agent-native dev` after editing). It never touches mounted workspace apps
+  or connected remote agents, and `set-mcp-app-access` stays a separate MCP
+  routing permission.
 
 ## Related Skills
 

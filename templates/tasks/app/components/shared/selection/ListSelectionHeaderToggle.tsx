@@ -19,7 +19,7 @@ export function ListSelectionHeaderToggle({
     <Button
       variant={selectionMode ? "secondary" : "ghost"}
       size="sm"
-      className="h-8 shrink-0 gap-1.5 text-xs"
+      className="shrink-0 gap-1.5 text-xs"
       disabled={disabled}
       onClick={() => onSelectionModeChange(!selectionMode)}
     >

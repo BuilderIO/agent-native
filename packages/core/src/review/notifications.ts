@@ -1,12 +1,3 @@
-/**
- * Email notifications for review threads.
- *
- * Implemented here rather than in one app so every surface built on review
- * comments (Design's review threads today) gets the same behavior. Recipient
- * resolution, preference filtering, and delivery reporting come from the
- * shared activity-notification helpers.
- */
-
 import {
   notifyActivity,
   runActivityNotification,
@@ -21,16 +12,16 @@ import {
   resolveReviewableResourceAccess,
 } from "./registry.js";
 import {
+  claimReviewNotificationDelivery,
   filterUnmutedReviewThreadRecipients,
+  finishReviewNotificationDelivery,
+  markReviewCommentNotificationCompleted,
   queryReviewComments,
+  releaseReviewNotificationDelivery,
+  reviewCommentNotificationCompleted,
 } from "./store.js";
 import type { ReviewComment } from "./types.js";
 
-/**
- * Shared across every review surface. Apps that want a user-facing toggle
- * write `{ emailNotifications: boolean }` under this key; an absent value
- * means opted in.
- */
 export const REVIEW_NOTIFICATION_PREFS_KEY = "activity-notification-prefs";
 
 const LOG_LABEL = "[review] comment notification";
@@ -75,11 +66,6 @@ async function threadParticipants(comment: ReviewComment): Promise<string[]> {
 
 export type ReviewNotificationResult = ActivityNotificationResult;
 
-/**
- * Email the resource owner, mentioned people, and — on a reply — everyone else
- * already in the thread. Never throws: the comment is already persisted, and a
- * rejection here would make the client retry and duplicate it.
- */
 export async function notifyReviewComment(
   comment: ReviewComment,
 ): Promise<ReviewNotificationResult> {
@@ -88,8 +74,36 @@ export async function notifyReviewComment(
   );
 }
 
+export async function notifyReviewCommentWithReceipt(
+  comment: ReviewComment,
+): Promise<ReviewNotificationResult | null> {
+  try {
+    if (await reviewCommentNotificationCompleted(comment.id)) return null;
+    const result = await runActivityNotification(LOG_LABEL, () =>
+      deliverReviewCommentEmails(comment, true),
+    );
+    if (
+      result.failed.length === 0 &&
+      (result.status === "delivered" || result.status === "no-recipients")
+    ) {
+      await markReviewCommentNotificationCompleted(comment.id);
+    }
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`${LOG_LABEL} receipt failed: ${message}`);
+    return {
+      status: "notification-error",
+      error: message,
+      sent: [],
+      failed: [],
+    };
+  }
+}
+
 async function deliverReviewCommentEmails(
   comment: ReviewComment,
+  withReceipt = false,
 ): Promise<ActivityNotificationResult> {
   const mentioned = new Set(
     comment.mentions
@@ -103,16 +117,11 @@ async function deliverReviewCommentEmails(
     candidates.push(...(await threadParticipants(comment)));
   }
 
-  // Mentions are caller-supplied and thread rows are historical; neither is an
-  // access grant. Re-check every address against the resource's current ACL
-  // before it can receive the comment body.
   const allowed = await filterRecipientsByResourceAccess({
     resourceType: comment.resourceType,
     resourceId: comment.resourceId,
     emails: candidates.filter((email): email is string => Boolean(email)),
     orgId: comment.orgId,
-    // The review registry owns access for its types; unregistered ones resolve
-    // to null there, so nobody is notified rather than everybody.
     resolveRole: (ctx) =>
       resolveReviewableResourceAccess(
         comment.resourceType,
@@ -153,16 +162,33 @@ async function deliverReviewCommentEmails(
           "You received this because you own, were mentioned in, or participated in this review thread.",
       });
 
-      await sendEmail({
-        to,
-        subject: wasMentioned
-          ? `${actor} mentioned you in a review comment`
-          : isReply
-            ? `${actor} replied to a review thread`
-            : `${actor} left a review comment`,
-        html,
-        text,
-      });
+      const deliver = () =>
+        sendEmail({
+          to,
+          subject: wasMentioned
+            ? `${actor} mentioned you in a review comment`
+            : isReply
+              ? `${actor} replied to a review thread`
+              : `${actor} left a review comment`,
+          html,
+          text,
+        });
+      if (!withReceipt) {
+        await deliver();
+        return;
+      }
+      const claim = await claimReviewNotificationDelivery(comment.id, to);
+      if (claim.status !== "claimed") {
+        if (claim.status === "sent") return;
+        throw new Error("Review notification delivery is already in progress");
+      }
+      try {
+        await deliver();
+        await finishReviewNotificationDelivery(comment.id, to, claim.token);
+      } catch (error) {
+        await releaseReviewNotificationDelivery(comment.id, to, claim.token);
+        throw error;
+      }
     },
   });
 }

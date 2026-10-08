@@ -350,8 +350,6 @@ describe("execute Builder source execution", () => {
       deps,
     );
 
-    // create_draft skips the live preflight (no entry to read yet) and POSTs a
-    // new draft entry.
     expect(deps.readLiveEntry).not.toHaveBeenCalled();
     expect(deps.executeWrite).toHaveBeenCalledWith(
       expect.objectContaining({

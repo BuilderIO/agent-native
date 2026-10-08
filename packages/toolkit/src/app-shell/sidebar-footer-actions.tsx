@@ -10,10 +10,6 @@ export interface SidebarFooterActionsProps {
   className?: string;
 }
 
-/**
- * Keeps the shared left-sidebar utility order stable while apps provide their
- * own controls and behavior.
- */
 export function SidebarFooterActions({
   feedback,
   search,

@@ -95,8 +95,8 @@ const chatRouteViolations = [
     chatThreadRoute.includes('import("@/components/chat/ChatRouteContent")')
   ) ||
   !chatRoot.includes("<AppProviders") ||
-  !chatRoot.includes("isPublicPath={isMarketingPath}")
-    ? "Chat /chat/:threadId must render the shared Chat surface behind the root client boundary"
+  chatRoot.includes("isPublicPath={isMarketingPath}")
+    ? "Chat /chat/:threadId must render the shared Chat surface behind the root client boundary without a marketing-path auth bypass"
     : null,
   !chatSurface.includes("AgentKitRoot") || !chatSurface.includes("AgentKitChat")
     ? "Chat /chat/:threadId must render the shared AgentKit Chat surface"

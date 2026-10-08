@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   rows: [] as Array<Array<Record<string, unknown>>>,
   update: vi.fn(),
   insert: vi.fn(),
+  track: vi.fn(),
   writeAppState: vi.fn(),
   finalizeEndedMeetingsForRecording: vi.fn(),
 }));
@@ -26,6 +27,10 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mocks.writeAppState(...args),
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mocks.track(...args),
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -92,6 +97,30 @@ describe("save-browser-transcript", () => {
     expect(assertAccess).toHaveBeenCalledWith("recording", "rec-1", "editor");
   });
 
+  it("attributes transcript completion to the recording owner without request context", async () => {
+    mocks.rows = [
+      [],
+      [{ status: "ready", title: "Clip", description: "x", durationMs: 1200 }],
+    ];
+    mocks.insert.mockReturnValue({ values: vi.fn() });
+
+    await saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "Private transcript text is not asserted here.",
+      source: "web-speech",
+    });
+
+    expect(mocks.track).toHaveBeenCalledWith(
+      "recording_completed",
+      expect.objectContaining({
+        app_name: "clips",
+        recording_attempt_id: "rec-1",
+        output_id: "rec-1",
+      }),
+      { userId: "owner@example.com" },
+    );
+  });
+
   it("does not overwrite a pending cloud transcription with an empty native result", async () => {
     mocks.rows = [
       [
@@ -143,8 +172,6 @@ describe("save-browser-transcript", () => {
   it("keeps a truncated capture out of 'ready' so the cloud fallback still runs", async () => {
     const values = vi.fn();
     mocks.insert.mockReturnValue({ values });
-    // Recording already has a title and summary: only the truncation itself
-    // should still dispatch the transcript job that runs the cloud fallback.
     mocks.rows = [[], [{ status: "ready", title: "Clip", description: "x" }]];
     vi.mocked(dispatchPostFinalizeJob).mockResolvedValue(undefined);
 
@@ -166,15 +193,6 @@ describe("save-browser-transcript", () => {
     expect(result).toMatchObject({ status: "failed", truncated: true });
   });
 
-  // macos-native and web-speech are mic-only engines (see
-  // transcription-engine.ts), so a fullText-only save from either can only be
-  // the mic. Without a source the UI defaults the whole transcript to "Them".
-  //
-  // This covers the action's own contract, not the desktop meeting flush:
-  // `transcriptSegments` now always sends at least one segment per line, so
-  // the desktop no longer reaches this branch. The reachable callers are the
-  // web recorder, the Chrome extension, and agent/CLI `save-browser-transcript`
-  // calls, whose `segments` argument is optional.
   it.each([
     ["macos-native", "mic"],
     ["web-speech", "mic"],
@@ -201,9 +219,6 @@ describe("save-browser-transcript", () => {
     },
   );
 
-  // `speaker` was not declared on the segment schema, so zod stripped it before
-  // the array was serialized: a provider's diarized labels vanished on save and
-  // the transcript could no longer tell its speakers apart on reload.
   it("round-trips a caller-supplied diarized speaker into segmentsJson", async () => {
     const values = vi.fn();
     mocks.insert.mockReturnValue({ values });

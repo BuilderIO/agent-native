@@ -3,10 +3,28 @@ import { describe, expect, it } from "vitest";
 import {
   getEffectiveSlidesSidebarCollapsed,
   isSlidesEditorRoute,
+  isSlidesHomeRoute,
+  isSlidesSettingsRoute,
   shouldShowSlidesAppSidebar,
 } from "./layout-route-policy";
 
+describe("Slides settings route policy", () => {
+  it("gives Settings the full width", () => {
+    expect(isSlidesSettingsRoute("/settings")).toBe(true);
+    expect(isSlidesSettingsRoute("/settings/app/general")).toBe(true);
+    expect(isSlidesSettingsRoute("/settingsx")).toBe(false);
+    expect(isSlidesSettingsRoute("/home")).toBe(false);
+  });
+});
+
 describe("Slides layout sidebar route policy", () => {
+  it("recognizes equivalent home paths", () => {
+    expect(isSlidesHomeRoute("/home")).toBe(true);
+    expect(isSlidesHomeRoute("/home/")).toBe(true);
+    expect(isSlidesHomeRoute("/HOME/")).toBe(true);
+    expect(isSlidesHomeRoute("/home/settings")).toBe(false);
+  });
+
   it("recognizes only deck editor routes", () => {
     expect(isSlidesEditorRoute("/deck/deck-1")).toBe(true);
     expect(isSlidesEditorRoute("/deck/deck-1/")).toBe(true);

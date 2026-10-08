@@ -33,7 +33,6 @@ export function decodeAuditCursor(value: string): AuditCursor {
   };
 }
 
-/** True when `run` sorts after `cursor` in startedAt DESC, id ASC tie-break. */
 export function isAuditRunAfterCursor(
   run: { startedAt: number; id: string },
   cursor: AuditCursor,

@@ -104,7 +104,11 @@ registered channel):
 
 Users can also view and manage report subscriptions and alert rules in
 Settings; that UI uses the same action surface as the agent, so no separate
-implementation is needed there.
+implementation is needed there. Alert rules are the Alerts tab on
+Analytics › General (`buildSettingsRoute("app", "alerts")`), and the per-user
+"Email new error alerts" and "Bell sound" switches are on Analytics ›
+Notifications (`buildSettingsRoute("notifications")`). The agent changes those
+two with `update-analytics-notification-preferences`.
 
 ## Related Skills
 

@@ -1,15 +1,3 @@
-/**
- * SQL-backed pending task queue for integration webhooks.
- *
- * Why this exists: serverless platforms (Netlify Lambda, Vercel, Cloudflare
- * Workers) freeze the function execution as soon as the HTTP response is
- * returned. Fire-and-forget background `Promise`s get killed mid-flight,
- * meaning agent loops triggered from a Slack/Telegram webhook never finish.
- *
- * Solution: persist the inbound message to SQL inside the webhook handler,
- * then dispatch a fresh HTTP POST to a separate processor endpoint. Each
- * invocation gets its own fresh function timeout budget.
- */
 import { getDbExec } from "../db/client.js";
 import {
   ensureTableExists,
@@ -19,6 +7,10 @@ import {
 
 let _initPromise: Promise<void> | undefined;
 export const MAX_PENDING_TASK_ATTEMPTS = 3;
+// A task is an agent turn answering a message. A day later that reply would no
+// longer answer it, so older unfinished rows are never run again and no longer
+// hold their thread's queue. The rows themselves are left exactly as they are.
+export const MAX_RECOVERABLE_PENDING_TASK_AGE_MS = 24 * 60 * 60 * 1000;
 
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
@@ -43,7 +35,6 @@ async function ensureTable(): Promise<void> {
 )`;
 
       {
-        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
         await ensureTableExists("integration_pending_tasks", createSql);
         await ensureColumnExists(
           "integration_pending_tasks",
@@ -85,7 +76,6 @@ async function ensureTable(): Promise<void> {
         return;
       }
     })().catch((err) => {
-      // Retry init on the next call after a failed startup.
       _initPromise = undefined;
       throw err;
     });
@@ -97,7 +87,6 @@ export async function ensurePendingTasksTable(): Promise<void> {
   await ensureTable();
 }
 
-/** Status values for an integration pending task. */
 export type PendingTaskStatus =
   | "pending"
   | "processing"
@@ -148,15 +137,6 @@ function rowToTask(row: Record<string, unknown>): PendingTask {
   };
 }
 
-/**
- * Insert a new pending task. Returns the generated task id.
- *
- * If `externalEventKey` is supplied, the unique index on
- * `(platform, external_event_key)` will reject duplicates — callers should
- * catch the resulting constraint-violation error and treat it as
- * "already enqueued" instead of a hard failure (H3 in the webhook security
- * audit). This is the SQL-backed replacement for the in-memory dedup map.
- */
 export async function insertPendingTask(input: {
   id: string;
   platform: string;
@@ -191,17 +171,10 @@ export async function insertPendingTask(input: {
   });
 }
 
-/**
- * Returns whether a duplicate-event error from `insertPendingTask` looks
- * like a unique-constraint violation on `(platform, external_event_key)`.
- *
- * Postgres surfaces these as `error.code === "23505"`. Used by the webhook handler to
- * distinguish "already enqueued" (silently OK) from genuine insert failures.
- */
 export function isDuplicateEventError(err: unknown): boolean {
   const e = err as { code?: string; message?: string } | null;
   if (!e) return false;
-  if (e.code === "23505") return true; // Postgres unique-violation
+  if (e.code === "23505") return true;
   const msg = String(e.message ?? "").toLowerCase();
   return (
     msg.includes("unique") ||
@@ -210,7 +183,6 @@ export function isDuplicateEventError(err: unknown): boolean {
   );
 }
 
-/** Fetch a pending task by id. */
 export async function getPendingTask(id: string): Promise<PendingTask | null> {
   await ensureTable();
   const client = getDbExec();
@@ -280,7 +252,6 @@ export function sourceContextFromPendingTask(
   }
 }
 
-/** Resolve trusted Slack provenance without exposing the stored task payload. */
 export async function resolveIntegrationSourceContext(
   id: string,
   ownerEmail: string,
@@ -312,11 +283,6 @@ export async function resolveIntegrationSourceContext(
   );
 }
 
-/**
- * Atomically claim a task: transition pending → processing and increment
- * attempts. Returns the updated task if the transition succeeded, otherwise
- * null (e.g. the task was already claimed by a concurrent worker).
- */
 export async function claimPendingTask(
   id: string,
   options?: { dispatchOutcome?: string },
@@ -324,26 +290,29 @@ export async function claimPendingTask(
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
+  const recoverableSince = now - MAX_RECOVERABLE_PENDING_TASK_AGE_MS;
 
-  // Conditional update: only flip if currently pending. Failed tasks are
-  // terminal unless an explicit retry path resets them to pending first.
+  // An expired processing row still holds the thread while it shows recent
+  // activity, so a turn that is actually running is never overlapped.
   const result = await client.execute({
     sql: `UPDATE integration_pending_tasks
          SET status = ?, attempts = attempts + 1, updated_at = ?,
              last_dispatch_outcome = COALESCE(?, last_dispatch_outcome)
-         WHERE id = ? AND status = 'pending'
+         WHERE id = ? AND status = 'pending' AND created_at >= ?
            AND NOT EXISTS (
              SELECT 1 FROM integration_pending_tasks active
              WHERE active.platform = integration_pending_tasks.platform
                AND active.external_thread_id = integration_pending_tasks.external_thread_id
                AND active.status = 'processing'
                AND active.id <> integration_pending_tasks.id
+               AND (active.created_at >= ? OR active.updated_at >= ?)
            )
            AND NOT EXISTS (
              SELECT 1 FROM integration_pending_tasks earlier
              WHERE earlier.platform = integration_pending_tasks.platform
                AND earlier.external_thread_id = integration_pending_tasks.external_thread_id
                AND earlier.status = 'pending'
+               AND earlier.created_at >= ?
                AND (
                  earlier.created_at < integration_pending_tasks.created_at
                  OR (
@@ -353,7 +322,16 @@ export async function claimPendingTask(
                )
            )
          RETURNING id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, dispatch_attempts, last_dispatch_at, last_dispatch_outcome, dispatch_scope, error_message, created_at, updated_at, completed_at`,
-    args: ["processing", now, options?.dispatchOutcome ?? null, id],
+    args: [
+      "processing",
+      now,
+      options?.dispatchOutcome ?? null,
+      id,
+      recoverableSince,
+      recoverableSince,
+      recoverableSince,
+      recoverableSince,
+    ],
   });
   const rows = result.rows ?? [];
 
@@ -381,7 +359,6 @@ export async function recordPendingTaskDispatchAttempt(
   });
 }
 
-/** Next queued turn for a provider thread after its current task completes. */
 export async function getNextPendingTaskForThread(
   platform: string,
   externalThreadId: string,
@@ -390,8 +367,13 @@ export async function getNextPendingTaskForThread(
   const { rows } = await getDbExec().execute({
     sql: `SELECT id, dispatch_scope FROM integration_pending_tasks
       WHERE platform = ? AND external_thread_id = ? AND status = 'pending'
+        AND created_at >= ?
       ORDER BY created_at ASC, id ASC LIMIT 1`,
-    args: [platform, externalThreadId],
+    args: [
+      platform,
+      externalThreadId,
+      Date.now() - MAX_RECOVERABLE_PENDING_TASK_AGE_MS,
+    ],
   });
   return rows[0]?.id
     ? {
@@ -401,7 +383,6 @@ export async function getNextPendingTaskForThread(
     : null;
 }
 
-/** Mark a task as completed. */
 export async function markTaskCompleted(id: string): Promise<void> {
   await ensureTable();
   const client = getDbExec();
@@ -410,18 +391,10 @@ export async function markTaskCompleted(id: string): Promise<void> {
     sql: `UPDATE integration_pending_tasks
           SET status = ?, updated_at = ?, completed_at = ?, payload = ?
           WHERE id = ?`,
-    // The payload can contain short-lived provider credentials such as a
-    // Discord interaction token. Once terminal, no retry needs the inbound
-    // body, so erase it instead of retaining secrets or user text indefinitely.
     args: ["completed", now, now, "{}", id],
   });
 }
 
-/**
- * Return a transiently failed task to the retryable queue without erasing its
- * payload. The payload may contain the only copy of the inbound message and is
- * scrubbed only when the task reaches a permanent terminal state.
- */
 export async function markTaskRetryable(
   id: string,
   errorMessage: string,
@@ -510,7 +483,6 @@ export async function failTaskDeliveryTransition(
   }
 }
 
-/** Mark a task as failed and stash an error message. */
 export async function markTaskFailed(
   id: string,
   errorMessage: string,

@@ -38,8 +38,6 @@ import {
 import type { GuardFinding, GuardResult, GuardScanOptions } from "./types.js";
 
 export interface LocalhostFallbackOptions extends GuardScanOptions {
-  /** Exact repo-relative paths to exempt in addition to the generic
-   * predicates (spec/test/scripts/seed). Default `[]`. */
   extraExemptPaths?: string[];
 }
 
@@ -59,24 +57,11 @@ const LITERAL_RE = /(?:"local@localhost"|'local@localhost'|`local@localhost`)/g;
 
 const SYMBOLIC_FALLBACK_RE = /(?:\?\?|\|\|)\s*DEV_MODE_USER_EMAIL\b/g;
 
-/**
- * Ambient process identity used as a request-scoped fallback:
- *
- *   const email = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
- *   const owner = session?.email || process.env.WORKSPACE_OWNER_EMAIL;
- *
- * These name the identity of the deployment, not the caller, so a request
- * handler reading one authorizes whoever the env names — failing open toward
- * more privilege. Only the `??` / `||` fallback position matches: reading the
- * same env var to build an admin allowlist asks a different, safe question.
- */
 const AMBIENT_ENV_FALLBACK_RE =
   /(?:\?\?|\|\|)\s*process\.env\.(?:AGENT_USER_EMAIL|AGENT_ORG_ID|AGENT_USER_NAME|WORKSPACE_OWNER_EMAIL)\b/g;
 const AMBIENT_HELPER_FALLBACK_RE =
   /(?:\?\?|\|\|)\s*getAmbient(?:UserEmail|OrgId)\s*\(\s*\)/g;
 
-/** Paths where an ambient identity is correct because no request exists by
- * construction: CLI entrypoints, cron, seed and QA scripts, tests. */
 const AMBIENT_ALLOWED_PATH_PREDICATES: Array<(rel: string) => boolean> = [
   (rel) => /(?:^|\/)scripts\//.test(rel),
   (rel) => /(?:^|\/)src\/cli\//.test(rel),
@@ -147,8 +132,6 @@ export function scanLocalhostFallback(
 
     if (literalAllowed) continue;
 
-    // Scanned before the literal bail-out below: aliasing is exactly how this
-    // shape hides in a file that never spells out the literal itself.
     SYMBOLIC_FALLBACK_RE.lastIndex = 0;
     let symbolicMatch: RegExpExecArray | null;
     while ((symbolicMatch = SYMBOLIC_FALLBACK_RE.exec(contents)) !== null) {

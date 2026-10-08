@@ -1,0 +1,55 @@
+name: Neon daily transfer alert
+
+on:
+  schedule:
+    - cron: "15 9 * * *"
+  workflow_dispatch:
+    inputs:
+      send_alerts:
+        description: Send matching alerts to Slack
+        required: false
+        default: false
+        type: boolean
+      backtest_live:
+        description: Backtest the last 28 complete days with Neon history, without posting to Slack
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neon-transfer-alert
+  cancel-in-progress: false
+
+jobs:
+  alert:
+    name: Check daily public network transfer
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_ORG_ID: ${{ vars.NEON_ORG_ID }}
+      SLACK_NEON_TRANSFER_WEBHOOK_URL: ${{ secrets.SLACK_NEON_TRANSFER_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          install: no-scripts
+
+      - name: Verify alert parser and offline backtest
+        run: pnpm test:neon-transfer-alert
+
+      - name: Backtest recent days with live Neon history (no Slack)
+        if: github.event_name == 'workflow_dispatch' && inputs.backtest_live
+        run: pnpm ops:neon-transfer-alert --backtest-live
+
+      - name: Send scheduled or requested alerts
+        if: github.event_name == 'schedule' || (inputs.send_alerts && !inputs.backtest_live)
+        run: pnpm ops:neon-transfer-alert --send
+
+      - name: Dry-run manual checks
+        if: github.event_name == 'workflow_dispatch' && !inputs.send_alerts && !inputs.backtest_live
+        run: pnpm ops:neon-transfer-alert --dry-run

@@ -61,7 +61,6 @@ export interface CreatePrimitiveArgs {
     },
   ) => ApplyLocalContentUpdateResult;
   boardFileId: string | undefined;
-  /** Effective canvas colour, stored or themed — the board's visible surface. */
   canvasBackground: string | null | undefined;
   canEditDesign: boolean;
   files: DesignFile[];
@@ -207,11 +206,6 @@ export function runCreatePrimitive(
           nodeId: uniqueLayerId(primitive.kind || "primitive"),
         }
       : primitive;
-  // A localhost screen's stored content is its route URL, not an editable
-  // document. Keep that URL intact and send one serialized primitive
-  // through the same live insert bridge used by board-to-screen drops.
-  // The bridge echo records the pending source handoff and owns the
-  // optimistic DOM/history lifecycle (selection, Layers, undo, and redo).
   if (isStandaloneHttpUrl(baseContent)) {
     if (reparentTargetIdentity) return false;
     const nodeId =
@@ -284,10 +278,6 @@ export function runCreatePrimitive(
     toast.error(t("designEditor.toasts.primitiveInsertFailed"));
     return false;
   }
-  // Keep the structured path (nodes + handles) alongside the flattened `d`
-  // so later vector editing can restore the authored anchors. Prefer the
-  // structured model carried by current inserts and reconstruct older
-  // pathData-only producers as a fallback.
   const rawNextContent =
     insertionPrimitive.kind === "path" && insertionPrimitive.nodeId
       ? (() => {
@@ -415,10 +405,6 @@ export function runCreatePrimitive(
   );
   const result = acceptedNode?.id ?? false;
 
-  // Record the nodeId when a TEXT primitive is created so the next
-  // handlePrimitiveCreated (or handleBoardDrawPrimitive) can immediately
-  // enter text-edit mode — fixing the "click to add text should let me
-  // type immediately" bug. The ref is read once and cleared.
   if (insertionPrimitive.kind === "text") {
     pendingTextEditNodeIdRef.current = acceptedNode
       ? (acceptedNode.dataAttributes["data-agent-native-node-id"] ?? null)

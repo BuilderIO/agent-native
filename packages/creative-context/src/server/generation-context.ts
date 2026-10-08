@@ -174,7 +174,6 @@ export interface ResolveGenerationCreativeContextInput {
   limit?: number;
   contextPackId?: string;
   contextPackSource?: "explicit" | "inherited";
-  /** Forwarded by isolated callers; local callers normally use app state. */
   selectedContextId?: string | null;
   contextModeOverride?: CreativeContextModeOverride;
 }

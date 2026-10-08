@@ -1,16 +1,4 @@
-/**
- * apply-fusion-edits — batch pending queued edits into one prompt and send it
- * to the fusion app's in-container coding agent.
- *
- * Composes a single message from all pending edits (or a caller-specified
- * subset, still pending) so the app agent gets full context in one turn
- * instead of being spammed with one message per edit. Marks rows `sent` (with
- * a shared `batchId`) on success, or `error` (with the failure message) on
- * failure — so `list-fusion-edits` reflects the outcome without another call.
- */
-
 import { defineAction, fail } from "@agent-native/core/action";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { sendFusionBranchMessage } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -19,8 +7,9 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
-import { FULL_APP_BUILDING, readFusionApp } from "../shared/full-app.js";
+import { isFullAppBuildingEnabled } from "../server/lib/full-app-lab.js";
+import "../server/db/index.js";
+import { readFusionApp } from "../shared/full-app.js";
 
 function parseTarget(raw: string | null): Record<string, unknown> | null {
   if (!raw) return null;
@@ -72,7 +61,7 @@ export default defineAction({
       ),
   }),
   run: async ({ designId, editIds }, ctx) => {
-    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    if (!(await isFullAppBuildingEnabled(ctx))) {
       fail("Full app building is not enabled", {
         errorCode: "full_app_building_disabled",
       });

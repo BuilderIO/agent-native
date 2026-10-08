@@ -24,6 +24,11 @@ const messages = {
     retry: "Erneut versuchen",
     search: "Suchen",
   },
+  chatHome: {
+    description:
+      "Erkunde den zulässigen Kontokontext, Folgeaufgaben und Belege in Native SQL und verbundenen Datensätzen.",
+    placeholder: "Frage zu deinem CRM",
+  },
   commandMenu: {
     placeholder: "Datensätze, Listen und Befehle suchen…",
     groupRecords: "Datensätze",
@@ -59,19 +64,11 @@ const messages = {
     showHelp: "Diese Hilfe anzeigen",
   },
   settings: {
-    title: "CRM-Einstellungen",
-    description:
-      "Native SQL hält CRM-eigene Datensätze in Postgres. HubSpot und Salesforce nutzen Arbeitsbereich-Verbindungen; ihre Spiegel speichern nur freigegebene Felder, begrenzte Metadaten und Referenzen auf Belege.",
-    languageTitle: "Sprache",
-    languageDescription:
-      "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
-    languageLabel: "Oberflächensprache",
+    mcpAbout:
+      "Verbinde CRM mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in CRM für dich arbeiten: Datensätze finden, Felder aktualisieren und Aufgaben verwalten. Sie sieht nur, was du sehen kannst.",
   },
   connection: {
     tab: "Verbindung",
-    title: "CRM-Verbindung",
-    description:
-      "Woher die Datensätze dieses CRM stammen und wie viel es von jedem Datensatz besitzt.",
     modesTitle: "Verfügbare Modi",
     modeNative: "Natives SQL",
     modeNativeHelp:
@@ -101,9 +98,6 @@ const messages = {
   },
   fields: {
     tab: "Felder",
-    title: "Felder",
-    description:
-      "Die typisierten Attribute hinter jedem Datensatz und jeder Liste. API-Slug und Typ eines Feldes stehen nach dem Anlegen fest; alles andere lässt sich ändern.",
     target: "Objekt oder Liste",
     targetPlaceholder: "Objekttyp oder Liste auswählen",
     listsGroup: "Listen",
@@ -249,8 +243,6 @@ const messages = {
   },
   advanced: {
     tab: "Erweitert",
-    title: "Erweitert",
-    description: "Neukonfiguration und Verhalten bei der Datenaufbewahrung.",
     reconfigure: "CRM neu konfigurieren",
     reconfigureHelp:
       "Wechsle zwischen Native SQL und einer HubSpot- oder Salesforce-Begleitung oder starte die Erstsynchronisierung erneut.",
@@ -373,6 +365,8 @@ const messages = {
     unavailableTitle: "Dieser CRM-Datensatz ist nicht verfügbar",
     unavailableDescription:
       "Er wurde vielleicht gelöscht oder liegt außerhalb der Datensätze, auf die du zugreifen darfst.",
+    withheld:
+      "Der Zugriff auf diesen Datensatz hat sich im verbundenen CRM geändert. Er bleibt bis zur nächsten Synchronisierung ausgeblendet.",
     panelLoadFailed: "Die Datensatzansicht konnte nicht geladen werden.",
     saveFailed: "Die Änderung konnte nicht gespeichert werden.",
     signals: "Signale",
@@ -570,9 +564,6 @@ const messages = {
   },
   intelligence: {
     tab: "Intelligenz",
-    title: "Intelligenz",
-    description:
-      "Wähle die Momente aus, die CRM in begrenzten Anrufbelegen erkennen soll. Intelligente Tracker werden über Ask CRM ausgewertet, niemals direkt in diesem Einstellungsbildschirm.",
     loading: "Tracker werden geladen…",
     kindKeyword: "Schlüsselwort",
     kindSmart: "Intelligent",
@@ -614,6 +605,21 @@ const messages = {
     evaluatedThroughAsk: "Über Ask CRM ausgewertet.",
   },
   recordActions: {
+    reviewDuplicates: "Duplikate prüfen",
+    duplicateReviewTitle: "Mögliche doppelte Datensätze",
+    duplicateReviewDescription:
+      "Vergleicht diesen Datensatz mit zugänglichen Kandidaten. Jev sendet Namen, Datensatztypen und Treffermerkmale von höchstens fünf Kandidaten an TypeSafe. Die Wahrscheinlichkeit ist ein Hinweis; eine Zusammenführung erfordert eine gesonderte Prüfung.",
+    duplicateReviewRun: "Duplikate suchen",
+    duplicateReviewLoading: "Prüfung läuft…",
+    duplicateReviewFailed:
+      "Die Duplikatprüfung konnte nicht abgeschlossen werden.",
+    duplicateReviewUnavailable:
+      "Jev konnte diese Datensätze nicht prüfen. Regelbasierte Kandidaten bleiben sichtbar.",
+    duplicateReviewEmpty: "Keine wahrscheinlichen Duplikate gefunden.",
+    duplicateRuleConfidence: "Regelbasierte Übereinstimmung: {{percent}} %",
+    duplicateJevProbability:
+      "Jev-Wahrscheinlichkeit für dieselbe Entität: {{percent}} %",
+    duplicateMatchedOn: "Treffermerkmale: {{values}}",
     evidenceAttached: "Anrufbeleg angehängt.",
     evidenceAttachFailed: "Beleg konnte nicht angehängt werden.",
     addEvidence: "Beleg hinzufügen",

@@ -27,8 +27,6 @@ const resolveBuilderGatewayAuth = vi.hoisted(() => vi.fn());
 const gatewayBaseUrl = vi.hoisted(() => ({
   value: "https://api.builder.io/agent-native/gateway/v1",
 }));
-// Real `gatewayLaneUnavailableMessage`: which audience the setup-required copy
-// is written for is under test here, so that decision must not be stubbed.
 vi.mock("./credential-provider.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./credential-provider.js")>()),
   resolveSecret: (...args: unknown[]) => resolveSecret(...args),
@@ -47,6 +45,8 @@ vi.mock("../agent/engine/builder-gateway-headers.js", () => ({
 const runWithRequestContext = vi.hoisted(() => vi.fn());
 vi.mock("./request-context.js", () => ({
   runWithRequestContext: (...args: unknown[]) => runWithRequestContext(...args),
+  getRequestContext: () => undefined,
+  getRequestUserEmail: () => undefined,
 }));
 
 vi.mock("./framework-request-handler.js", () => ({
@@ -80,11 +80,6 @@ import {
   resolveRealtimeVoiceTranscriptionLanguage,
 } from "./realtime-voice.js";
 
-/**
- * The deploy-lane predicate treats any of these as "preview/hosted workspace",
- * which turns the visitor path off, so they are cleared around visitor
- * assertions and restored for the owner assertions that follow.
- */
 const FUSION_RUNTIME_FLAGS = [
   "FUSION_ENVIRONMENT",
   "FUSION_ENV_ORIGIN",
@@ -273,8 +268,6 @@ function withToolCapability(
   return { ...headers, [REALTIME_VOICE_CAPABILITY_HEADER]: capability };
 }
 
-/** Mirrors the browser client, which adopts the re-issued capability whenever
- * a tool search widens the manifest. */
 function adoptCapability(current: string, result: unknown): string {
   const next = (result as { capability?: unknown } | null)?.capability;
   return typeof next === "string" ? next : current;
@@ -755,7 +748,7 @@ describe("realtime voice session route", () => {
         delegation: {
           type: "responses",
           responses: {
-            model: "gpt-5.6-luna",
+            model: "gpt-6-luna",
             tool_choice: "auto",
             tools: [
               expect.objectContaining({ type: "function", name: "navigate" }),
@@ -835,10 +828,6 @@ describe("realtime voice session route", () => {
     resolveSecret.mockResolvedValue(null);
 
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
-    // `isBuilderGatewayDeployConfigured()` returns false in a Fusion workspace
-    // runtime, so an inherited flag would take the owner path and let the visitor
-    // assertions below pass against the wrong branch. Restored in the `finally`
-    // so the owner pass that follows still runs in the inherited runtime.
     const fusionFlags = clearFusionRuntimeFlags();
     try {
       const visitorEvent = sessionEvent();
@@ -858,7 +847,7 @@ describe("realtime voice session route", () => {
     const ownerResult = (await handlers.get(REALTIME_VOICE_SESSION_PATH)!(
       ownerEvent,
     )) as { error: string };
-    expect(ownerResult.error).toContain("Connect Builder");
+    expect(ownerResult.error).toContain("Use Builder.io");
     expect(ownerResult.error).toContain("OpenAI API key");
   });
 
@@ -904,7 +893,7 @@ describe("realtime voice session route", () => {
         delegation: {
           type: "responses",
           responses: {
-            model: "gpt-5.6-luna",
+            model: "gpt-6-luna",
             tool_choice: "auto",
           },
         },
@@ -912,10 +901,6 @@ describe("realtime voice session route", () => {
     });
   });
 
-  // The pre-flight gate above only fires when nothing resolves. On a credits
-  // deployment the injected pair does resolve, so what a visitor actually
-  // reaches is the gateway's own rejection — which used to arrive verbatim,
-  // status code and upstream sentence included.
   it("hides the Builder gateway's realtime rejection behind the one visitor line", async () => {
     resolveBuilderGatewayAuth.mockResolvedValue({
       authorization: "Bearer btk-site-token",
@@ -924,8 +909,6 @@ describe("realtime voice session route", () => {
     });
     vi.stubGlobal(
       "fetch",
-      // A fresh Response per call: both passes below read the body, and a shared
-      // instance would leave the second one with an already-consumed stream.
       vi.fn(
         async () =>
           new Response(
@@ -945,10 +928,6 @@ describe("realtime voice session route", () => {
     const { handlers } = mount();
 
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
-    // `isBuilderGatewayDeployConfigured()` returns false in a Fusion workspace
-    // runtime, so an inherited flag would take the owner path and let the visitor
-    // assertions below pass against the wrong branch. Restored in the `finally`
-    // so the owner pass that follows still runs in the inherited runtime.
     const fusionFlags = clearFusionRuntimeFlags();
     try {
       const visitorEvent = sessionEvent();
@@ -1159,6 +1138,136 @@ describe("realtime voice tool route", () => {
       output: "rare action complete",
     });
   });
+
+  it("expands tools discovered through queries or names, not only a single query", async () => {
+    const actions = discoveryActions();
+    const executeTool = vi.fn(
+      async (request: { name: string; args: Record<string, unknown> }) =>
+        request.name === "tool-search"
+          ? {
+              status: "completed" as const,
+              output: JSON.stringify({
+                results: [
+                  {
+                    name: request.args.names
+                      ? "other-rare-action"
+                      : "rare-action",
+                  },
+                ],
+              }),
+            }
+          : { status: "completed" as const, output: "done" },
+    );
+    const { handlers } = mount({ actions, executeTool });
+    const handler = handlers.get(REALTIME_VOICE_TOOL_PATH)!;
+    let capability = await issueToolCapability(handlers);
+
+    for (const [args, expected] of [
+      [{ queries: ["rare capability"] }, "rare-action"],
+      [{ names: ["other-rare-action"] }, "other-rare-action"],
+    ] as const) {
+      const search = (await handler(
+        toolEvent(
+          {
+            name: "tool-search",
+            args,
+            callId: `call_${expected}`,
+            sessionId: "voice-session-batch",
+          },
+          withToolCapability(capability),
+        ),
+      )) as Record<string, unknown>;
+      expect(
+        (search.expandedTools as Array<{ name: string }>).map(
+          (tool) => tool.name,
+        ),
+      ).toEqual([expected]);
+      capability = adoptCapability(capability, search);
+    }
+
+    for (const name of ["rare-action", "other-rare-action"]) {
+      const call = await handler(
+        toolEvent(
+          {
+            name,
+            args: {},
+            callId: `call_use_${name}`,
+            sessionId: "voice-session-batch",
+          },
+          withToolCapability(capability),
+        ),
+      );
+      expect(call).toMatchObject({ status: "completed", output: "done" });
+    }
+
+    const blank = (await handler(
+      toolEvent(
+        {
+          name: "tool-search",
+          args: { queries: [" "], names: [] },
+          callId: "call_blank",
+          sessionId: "voice-session-batch",
+        },
+        withToolCapability(capability),
+      ),
+    )) as Record<string, unknown>;
+    expect(blank).not.toHaveProperty("expandedTools");
+  });
+
+  it.each([
+    ["a bare string queries", { queries: "rare capability" }, "rare-action"],
+    [
+      "a bare string names",
+      { names: "other-rare-action" },
+      "other-rare-action",
+    ],
+  ])(
+    "grants what the search returned for %s, as the search itself reads it",
+    async (_label, args, expected) => {
+      const executeTool = vi.fn(
+        async (request: { name: string; args: Record<string, unknown> }) =>
+          request.name === "tool-search"
+            ? {
+                status: "completed" as const,
+                output: JSON.stringify({ results: [{ name: expected }] }),
+              }
+            : { status: "completed" as const, output: "done" },
+      );
+      const { handlers } = mount({ actions: discoveryActions(), executeTool });
+      const handler = handlers.get(REALTIME_VOICE_TOOL_PATH)!;
+      const capability = await issueToolCapability(handlers);
+
+      const search = (await handler(
+        toolEvent(
+          {
+            name: "tool-search",
+            args,
+            callId: "call_string_form",
+            sessionId: "voice-session-string-form",
+          },
+          withToolCapability(capability),
+        ),
+      )) as Record<string, unknown>;
+      expect(
+        (search.expandedTools as Array<{ name: string }>).map(
+          (tool) => tool.name,
+        ),
+      ).toEqual([expected]);
+
+      const call = await handler(
+        toolEvent(
+          {
+            name: expected,
+            args: {},
+            callId: "call_use_string_form",
+            sessionId: "voice-session-string-form",
+          },
+          withToolCapability(adoptCapability(capability, search)),
+        ),
+      );
+      expect(call).toMatchObject({ status: "completed", output: "done" });
+    },
+  );
 
   it("does not expand menu searches and expires session grants", async () => {
     vi.useFakeTimers();

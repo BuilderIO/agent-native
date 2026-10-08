@@ -6,6 +6,8 @@ import {
   type SqlPanel,
 } from "../app/pages/adhoc/sql-dashboard/types";
 import {
+  DASHBOARD_MUTATION_API_TYPES,
+  DASHBOARD_MUTATION_EXAMPLES,
   applyDashboardMutationOperations,
   parseDashboardMutationScript,
 } from "./dashboard-mutation-api";
@@ -65,6 +67,22 @@ function renderedRows(root: { columns?: number; panels: unknown[] }) {
 }
 
 describe("dashboard mutation api", () => {
+  it("uses the seeded dashboard timeRange filter in first-party insert examples", () => {
+    const examples = DASHBOARD_MUTATION_EXAMPLES.filter(
+      (example) =>
+        example.includes("dashboard.insertPanel") &&
+        example.includes('"source":"first-party"'),
+    );
+
+    expect(examples).toHaveLength(3);
+    for (const example of examples) {
+      expect(example).toContain("{{timeRange}}");
+      expect(example).toContain("{{timeRangeStart}}");
+      expect(example).toContain("{{timeRangeEnd}}");
+      expect(example).not.toContain("{{dateStart}}");
+    }
+  });
+
   it("parses and applies id-based moves, panel patches, and dashboard patches", () => {
     const root = clone(config());
     const operations = parseDashboardMutationScript(
@@ -93,6 +111,80 @@ describe("dashboard mutation api", () => {
       "movePanels(b, c) -> index 0",
       "updatePanel(a: title)",
       "setDashboard(columns)",
+    ]);
+  });
+
+  it("does not report same-value panel patches as changed", () => {
+    const root = clone(config());
+    const firstPanel = root.panels[0] as Record<string, unknown>;
+    firstPanel.config = {
+      xKey: "date",
+      yKeys: ["signups"],
+      yAxis: { format: "percent", minimum: 0 },
+    };
+    const original = clone(root);
+
+    const result = applyDashboardMutationOperations(root, [
+      {
+        op: "updatePanel",
+        panelId: "a",
+        patch: {
+          title: "Alpha",
+          config: {
+            yAxis: { minimum: 0, format: "percent" },
+            yKeys: ["signups"],
+            xKey: "date",
+          },
+        },
+      },
+    ]);
+
+    expect(root).toEqual(original);
+    expect(result.changedPanelIds).toEqual([]);
+    expect(result.commandLog).toEqual(["updatePanel(a: no fields)"]);
+  });
+
+  it("does not report same-position moves or config-path patches as changed", () => {
+    const root = clone(config());
+    const firstPanel = root.panels[0] as Record<string, unknown>;
+    firstPanel.config = { yAxis: { format: "percent" } };
+    const original = clone(root);
+
+    const result = applyDashboardMutationOperations(root, [
+      { op: "movePanels", panelIds: ["a"], position: "top" },
+      {
+        op: "updatePanelPath",
+        panelId: "a",
+        path: "yAxis.format",
+        value: "percent",
+      },
+    ]);
+
+    expect(root).toEqual(original);
+    expect(result.changedPanelIds).toEqual([]);
+    expect(result.movedPanelIds).toEqual([]);
+    expect(result.commandLog).toEqual([
+      "movePanels(no order change) -> index 0",
+      "updatePanelPath(a: config.yAxis.format unchanged)",
+    ]);
+  });
+
+  it("does not report same-value dashboard fields or filter defaults as changed", () => {
+    const root = clone(config());
+    root.name = "Traffic";
+    root.filters = [{ id: "period", default: "30d" }];
+    const original = clone(root);
+
+    const result = applyDashboardMutationOperations(root, [
+      { op: "setDashboard", patch: { name: "Traffic" } },
+      { op: "setFilterDefault", filterId: "period", value: "30d" },
+    ]);
+
+    expect(root).toEqual(original);
+    expect(result.dashboardFieldsChanged).toEqual([]);
+    expect(result.commandLog).toEqual([
+      "setDashboard(no changes)",
+      'setFilterDefault(period: "30d" unchanged)',
     ]);
   });
 
@@ -414,5 +506,113 @@ describe("dashboard mutation api", () => {
         { op: "updatePanel", panelId: "a", patch: { id: "renamed" } },
       ]),
     ).toThrow(/operation 1 \(updatePanel\).*panel\.id cannot be changed/);
+  });
+
+  it("teaches only config keys the renderer honors", () => {
+    expect(DASHBOARD_MUTATION_API_TYPES).not.toContain("yAxis");
+    expect(DASHBOARD_MUTATION_API_TYPES).toContain('e.g. "yFormatter"');
+    expect(DASHBOARD_MUTATION_EXAMPLES).toContain(
+      'dashboard.panel("retention").setConfigPath("yFormatter","percent");',
+    );
+    expect(DASHBOARD_MUTATION_API_TYPES).toMatch(/chartType\?:.*"combo"/);
+    expect(DASHBOARD_MUTATION_API_TYPES).toContain("window-function column");
+    expect(DASHBOARD_MUTATION_API_TYPES).toContain(
+      "first-party: AVG is not an approved function",
+    );
+    expect(DASHBOARD_MUTATION_EXAMPLES.join("\n")).not.toContain("yAxis");
+    expect(() =>
+      applyDashboardMutationOperations(clone(config()), [
+        { op: "updatePanelPath", panelId: "a", path: "config", value: 1 },
+      ]),
+    ).toThrow(/e\.g\. "yFormatter"/);
+  });
+
+  describe("effective-change diff", () => {
+    it("reports only the ops that changed something in the ids and command log", () => {
+      const root = clone(config());
+
+      const result = applyDashboardMutationOperations(root, [
+        { op: "updatePanel", panelId: "a", patch: { title: "Renamed" } },
+        {
+          op: "updatePanel",
+          panelId: "b",
+          patch: { title: "Signed-In Daily Active Visitors" },
+        },
+        {
+          op: "updatePanelPath",
+          panelId: "c",
+          path: "yFormatter",
+          value: "percent",
+        },
+        {
+          op: "updatePanelPath",
+          panelId: "c",
+          path: "yFormatter",
+          value: "percent",
+        },
+      ]);
+
+      expect(result.changedPanelIds).toEqual(["a", "c"]);
+      expect(result.commandLog).toEqual([
+        "updatePanel(a: title)",
+        "updatePanel(b: no fields)",
+        "updatePanelPath(c: config.yFormatter)",
+        "updatePanelPath(c: config.yFormatter unchanged)",
+      ]);
+    });
+
+    it("reports a fully identical batch as unchanged", () => {
+      const root = clone(config());
+
+      const result = applyDashboardMutationOperations(root, [
+        {
+          op: "updatePanel",
+          panelId: "a",
+          patch: { title: "Alpha", width: 1 },
+        },
+        { op: "updatePanel", panelId: "a", patch: {} },
+        { op: "movePanels", panelIds: ["a"], position: "top" },
+        { op: "setFilterDefault", filterId: "emailFilter", value: "all" },
+        { op: "setDashboard", patch: { columns: 2 } },
+      ]);
+
+      expect(result).toMatchObject({
+        changedPanelIds: [],
+        movedPanelIds: [],
+        insertedPanelIds: [],
+        removedPanelIds: [],
+        dashboardFieldsChanged: [],
+      });
+      expect(root).toEqual(config());
+    });
+
+    it("does not count a title-only edit as a render change but does count a move", () => {
+      const root = clone(config());
+
+      const result = applyDashboardMutationOperations(root, [
+        { op: "updatePanel", panelId: "a", patch: { title: "Renamed" } },
+        { op: "movePanels", panelIds: ["d"], position: "top" },
+      ]);
+
+      expect(result.changedPanelIds).toEqual(["a", "d"]);
+    });
+
+    it("reports a filter default and dashboard field only when the value moved", () => {
+      const root = clone(config());
+
+      const result = applyDashboardMutationOperations(root, [
+        {
+          op: "setFilterDefault",
+          filterId: "emailFilter",
+          value: "exclude_builder",
+        },
+        { op: "setDashboard", patch: { columns: 2, description: "New" } },
+      ]);
+
+      expect(result.dashboardFieldsChanged).toEqual([
+        "filters.emailFilter.default",
+        "description",
+      ]);
+    });
   });
 });

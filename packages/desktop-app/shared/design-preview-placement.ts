@@ -1,13 +1,3 @@
-/**
- * Geometry/capability gate for native Design previews.
- *
- * A WebContentsView is a native child view, not a DOM element. It can only
- * faithfully replace the Design iframe when the preview is an untransformed,
- * unobscured rectangle that does not need DOM editor chrome above it. Keep
- * this decision pure so the renderer and main-process manager can share the
- * same contract when the native backend is wired.
- */
-
 export interface DesktopDesignPreviewRect {
   x: number;
   y: number;
@@ -28,11 +18,8 @@ export type DesktopDesignPreviewFallbackReason =
   | "obscured";
 
 export interface DesktopDesignPreviewPlacementInput {
-  /** Active app guest bounds, in BrowserWindow content coordinates. */
   hostBounds: DesktopDesignPreviewRect;
-  /** Preview bounds, relative to the active app guest viewport. */
   previewBounds: DesktopDesignPreviewRect;
-  /** Visible Design viewport, relative to the active app guest viewport. */
   clipBounds: DesktopDesignPreviewRect;
   mode: DesktopDesignPreviewMode;
   presentation: "focused" | "overview";
@@ -51,7 +38,6 @@ export type DesktopDesignPreviewPlacement =
     }
   | {
       kind: "native";
-      /** Integer device-independent pixels accepted by View.setBounds(). */
       bounds: DesktopDesignPreviewRect;
     };
 
@@ -96,15 +82,6 @@ function integerBounds(
   };
 }
 
-/**
- * Decide whether a preview can be presented as a live native surface without
- * changing Design's visual or input semantics.
- *
- * The initial native backend is intentionally limited to focused Interact
- * mode. Edit/draw/comment need a compositor-level overlay, while overview
- * needs arbitrary scale/clip/rotation support that Electron View does not
- * provide.
- */
 export function resolveDesktopDesignPreviewPlacement(
   input: DesktopDesignPreviewPlacementInput,
 ): DesktopDesignPreviewPlacement {
@@ -121,10 +98,6 @@ export function resolveDesktopDesignPreviewPlacement(
     return { kind: "dom", reason: "invalid-geometry" };
   }
 
-  // previewBounds and clipBounds are relative to the owner guest viewport,
-  // while hostBounds is that viewport in BrowserWindow coordinates. Never
-  // allow an untrusted guest to manufacture a huge clip rectangle and place a
-  // native child view outside its own surface.
   const hostViewport = {
     x: 0,
     y: 0,
@@ -151,7 +124,6 @@ export function resolveDesktopDesignPreviewPlacement(
     return { kind: "dom", reason: "dom-overlay-required" };
   }
   if (input.borderRadius > EPSILON) {
-    // Electron documents that the cut-out area still captures clicks.
     return { kind: "dom", reason: "rounded-hit-region" };
   }
   if (input.obscured) {
@@ -164,6 +136,4 @@ export function resolveDesktopDesignPreviewPlacement(
   };
 }
 
-// The desktop package is CommonJS today while repo QA scripts are ESM. Keep a
-// default object as an interop seam in addition to the normal named export.
 export default { resolveDesktopDesignPreviewPlacement };

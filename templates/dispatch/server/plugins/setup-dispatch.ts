@@ -3,10 +3,8 @@ import { setupDispatch } from "@agent-native/dispatch/server";
 export default setupDispatch({
   auth: {
     marketing: {
-      screenshotPath: "/auth-marketing/dispatch.webp",
-      screenshotWidth: 914,
-      screenshotHeight: 818,
-      learnMoreUrl: "https://agent-native.com/apps/dispatch",
+      learnMoreUrl:
+        "https://agent-native.com/apps/dispatch?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     },
     publicPaths: [
       "/_agent-native/identity/availability",

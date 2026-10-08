@@ -75,13 +75,6 @@ const SHAPES = [
   },
 ];
 
-/**
- * Selection-independent actions pinned to the head of the contextual
- * toolbar: add-slide, add-text-box, and the shape picker.
- * Rendered both as the `leading` slot of the element-controls row and as a
- * fallback directly in the deck toolbar for when that row is hidden (narrow
- * viewports) or never mounts (no current slide, e.g. an empty deck).
- */
 export function EditorActionCluster({
   textBoxMode,
   onToggleTextBoxMode,

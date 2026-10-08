@@ -36,10 +36,6 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: (...args: unknown[]) => mockUseActionMutation(...args),
 }));
 
-// Stub out ShaderControls entirely — it renders heavy shader canvases we
-// don't need for this gesture-lifecycle test. Expose a button that invokes
-// `onChange` with a tweaked descriptor, simulating one continuous-tuning
-// tick (e.g. one pointermove sample while dragging a uniform slider).
 vi.mock("./ShaderControls", () => ({
   ShaderControls: ({
     descriptor,
@@ -152,7 +148,6 @@ describe("ShaderFillsPanel preview/commit split", () => {
       '[data-testid="tick"]',
     );
 
-    // Several drag ticks — each a cheap preview only.
     act(() => {
       tick?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       tick?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -162,8 +157,6 @@ describe("ShaderFillsPanel preview/commit split", () => {
     expect(onCommit).not.toHaveBeenCalled();
     expect(mutateCalls).toHaveLength(0);
 
-    // Gesture ends: pointerup bubbles up from the (mocked) ShaderControls
-    // button through the wrapping div's onPointerUp handler.
     act(() => {
       tick?.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
     });
@@ -186,7 +179,6 @@ describe("ShaderFillsPanel preview/commit split", () => {
       );
     });
 
-    // Browse view — the "Create new" tile is a discrete, one-shot pick.
     const createNew = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Create new shader"]',
     );
@@ -202,12 +194,6 @@ describe("ShaderFillsPanel preview/commit split", () => {
   });
 
   it("a bare pointerup with no preceding preview tick never commits (no-change click/blur regression)", () => {
-    // Simulates opening/closing a Select, clicking a checkbox, or tabbing
-    // between fields inside the tuning container: the pointerup/blur bubbles
-    // out to the wrapping div, but no descriptor actually changed. Before the
-    // dirty-flag fix, `lastAppliedRef` was seeded on mount and never cleared,
-    // so this alone re-fired the real apply-shader mutation on an unchanged
-    // descriptor.
     const onApply = vi.fn();
     const onCommit = vi.fn();
 
@@ -233,9 +219,6 @@ describe("ShaderFillsPanel preview/commit split", () => {
       );
     });
     act(() => {
-      // React implements onBlur via the native (bubbling) "focusout" event
-      // rather than "blur" (which doesn't bubble) — see React's
-      // SimpleEventPlugin.
       tuningContainer?.dispatchEvent(
         new FocusEvent("focusout", { bubbles: true }),
       );
@@ -323,13 +306,11 @@ describe("ShaderFillsPanel preview/commit split", () => {
       '[data-testid="tick"]',
     );
 
-    // Bare pointerup first, with no preview tick yet — must not commit.
     act(() => {
       tick?.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
     });
     expect(mutateCalls).toHaveLength(0);
 
-    // A real tuning tick, then pointerup ends the gesture — commits once.
     act(() => {
       tick?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });

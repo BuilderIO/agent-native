@@ -1,8 +1,3 @@
-/**
- * Client-side types for the uptime monitoring feature. These mirror the server
- * shapes returned by the monitor actions (see server/lib/uptime-monitors.ts).
- * Kept feature-local so the panel owns its own contract.
- */
 import type {
   ResponseTimePoint,
   UptimeBucket,
@@ -157,12 +152,6 @@ export interface MonitorDetail {
   incidents: MonitorIncident[];
 }
 
-/**
- * Aggregated stats for one monitor, as returned by the `get-monitor-stats`
- * action (one entry per requested monitor). Structurally identical to the
- * server `MonitorStats` shape; the reusable chart components consume the
- * `windows` / `timeline` / `responseSeries` fields directly.
- */
 export interface MonitorStats {
   monitorId: string;
   status: MonitorStatus | null;
@@ -186,7 +175,6 @@ export interface CheckOutcome {
   failedAssertions: string[];
 }
 
-/** Payload accepted by the save-monitor action. */
 export interface SaveMonitorInput {
   id?: string;
   name: string;

@@ -21,6 +21,7 @@ import {
   resolvePlanAccessContext,
 } from "../server/lib/local-identity.js";
 import { newId, nowIso, planPath, writeEvent } from "../server/plans.js";
+import type { PlanKind } from "../shared/types.js";
 
 export const PLAN_ACCESS_REQUEST_EMAIL_ID = "plan.access-request";
 
@@ -41,7 +42,7 @@ function displayNameForEmail(email: string): string {
     .join(" ");
 }
 
-function absolutePlanUrl(planId: string, kind: "plan" | "recap"): string {
+function absolutePlanUrl(planId: string, kind: PlanKind): string {
   const appUrl = getAppProductionUrl().replace(/\/+$/, "");
   const path = planPath(planId, kind);
   try {
@@ -75,7 +76,7 @@ export function renderPlanAccessRequestEmail(input: {
 
 async function notifyOwner(input: {
   planId: string;
-  planKind: "plan" | "recap";
+  planKind: PlanKind;
   planTitle: string;
   ownerEmail: string | null;
   requesterEmail: string;

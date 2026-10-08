@@ -4,7 +4,6 @@ import { BuilderImage } from "../builder-image";
 import { GridInner, PageSection } from "./page-grid";
 
 interface Pillar {
-  // Catalog id under homepage.builtIn.pillars, not display copy.
   id: string;
   image?: string;
   darkImage?: string;
@@ -71,11 +70,6 @@ export function BuiltInFeatures() {
               className="flex flex-col bg-[var(--b-bg-page)]"
             >
               {pillar.darkImage && pillar.lightImage ? (
-                // Hidden below the 3-column layout: the fixed-size heading/
-                // body text doesn't shrink at narrower widths, so keeping
-                // the illustration at its designed size (rather than
-                // growing it to fill an ever-wider single/double-column
-                // card) would still leave it oversized relative to the text.
                 <div className="relative mt-[var(--spacing-8)] w-full max-w-[433px] mobile:hidden">
                   <BuilderImage
                     className="theme-img-dark relative block aspect-[104/75] w-full object-cover"

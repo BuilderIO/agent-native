@@ -21,7 +21,6 @@ export function factoryRepositoryFromSources(
   return automationRepository?.trim() || configRepository?.trim() || null;
 }
 
-/** {@link factoryRepositoryFromSources} for callers that have read neither source. */
 export async function resolveFactoryRepository(
   db: Db,
   context: ActionRunContext | undefined,

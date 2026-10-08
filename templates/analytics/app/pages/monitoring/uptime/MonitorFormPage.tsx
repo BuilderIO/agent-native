@@ -192,7 +192,6 @@ interface SectionState {
   advanced: boolean;
 }
 
-/** Open a section by default when the monitor already customized it. */
 function initialSections(monitor: MonitorSummary | null): SectionState {
   if (!monitor) return { response: false, alerting: false, advanced: false };
   const matcher = monitor.expectedStatus;
@@ -269,12 +268,8 @@ export function MonitorFormPage({
     initialSections(initialMonitor ?? null),
   );
 
-  // Name auto-fills from the URL until the user edits it. In edit mode an
-  // existing name counts as "touched" so we never clobber it.
   const nameTouchedRef = useRef<boolean>(Boolean(initialMonitor?.name?.trim()));
 
-  // Prefill exactly once per resolved monitor id so a late get-monitor refetch
-  // never clobbers in-progress edits.
   const initedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!isEdit) {
@@ -452,7 +447,6 @@ export function MonitorFormPage({
     }
   });
 
-  // Edit deep-link before the monitor resolves.
   if (isEdit && !resolved && isLoading) {
     return (
       <div className="space-y-4">
@@ -503,7 +497,6 @@ export function MonitorFormPage({
                   return isHttpUrl(value.trim()) || t.urlInvalid;
                 },
                 onChange: (event) => {
-                  // Auto-fill the name from the URL until the user edits it.
                   if (!nameTouchedRef.current) {
                     setValue("name", deriveMonitorName(event.target.value), {
                       shouldDirty: false,

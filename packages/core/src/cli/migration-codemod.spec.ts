@@ -4,7 +4,11 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { MigrationManifest } from "../package-lifecycle/migration-manifest.js";
+import {
+  bundledCoreMigrationManifestPath,
+  readMigrationManifest,
+  type MigrationManifest,
+} from "../package-lifecycle/migration-manifest.js";
 import {
   createMigrationPlanningTargetResolver,
   formatMigrationCodemodDiff,
@@ -12,6 +16,7 @@ import {
 } from "./migration-codemod.js";
 
 const roots: string[] = [];
+const toolkitRange = ">=0.23.0";
 
 afterEach(() => {
   for (const root of roots.splice(0)) {
@@ -19,8 +24,29 @@ afterEach(() => {
   }
 });
 
+describe("readMigrationManifest", () => {
+  it("rejects empty dependency version ranges", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-manifest-"));
+    roots.push(root);
+    const file = path.join(root, "migration-manifest.json");
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        sinceVersion: "0.110.0",
+        moves: {},
+        dependencyVersions: { "@agent-native/toolkit": " " },
+      }),
+    );
+
+    expect(() => readMigrationManifest(file)).toThrow(
+      "dependencyVersions must map package names to non-empty version ranges",
+    );
+  });
+});
+
 const manifest: MigrationManifest = {
   sinceVersion: "0.110.0",
+  dependencyVersions: { "@agent-native/toolkit": toolkitRange },
   moves: {
     "@agent-native/core/client": {
       to: "@agent-native/core/client/hooks",
@@ -69,6 +95,222 @@ function fixture(): { root: string; source: string; packageFile: string } {
 }
 
 describe("runMigrationCodemods", () => {
+  it("rewrites literal dynamic imports for whole-module moves", () => {
+    const { root, source, packageFile } = fixture();
+    fs.writeFileSync(
+      source,
+      [
+        'const loadComposer = () => import("@agent-native/core/client/composer").then(({ PromptComposer }) => ({ default: PromptComposer }));',
+        "async function loadComposerOnDemand() { return import(`@agent-native/core/client/composer`); }",
+        "",
+      ].join("\n"),
+    );
+    const coreManifest = readMigrationManifest(
+      bundledCoreMigrationManifestPath(),
+    );
+    if (!coreManifest) throw new Error("Core migration manifest is missing");
+
+    const result = runMigrationCodemods({
+      root,
+      manifests: [coreManifest],
+      apply: true,
+      targetExists: () => true,
+    });
+
+    expect(fs.readFileSync(source, "utf-8")).toBe(
+      [
+        'const loadComposer = () => import("@agent-native/toolkit/app/chat/composer/index").then(({ PromptComposer }) => ({ default: PromptComposer }));',
+        'async function loadComposerOnDemand() { return import("@agent-native/toolkit/app/chat/composer/index"); }',
+        "",
+      ].join("\n"),
+    );
+    expect(
+      JSON.parse(fs.readFileSync(packageFile, "utf-8")).dependencies,
+    ).toMatchObject({ "@agent-native/toolkit": toolkitRange });
+    expect(result.warnings).toEqual([]);
+    expect(result.changes.map((change) => change.file)).toContain(source);
+    expect(result.changes.map((change) => change.file)).toContain(packageFile);
+  });
+
+  it("rewrites moved stylesheet imports and adds the destination package", () => {
+    const { root, packageFile } = fixture();
+    const stylesheet = path.join(root, "app", "global.css");
+    fs.mkdirSync(path.dirname(stylesheet), { recursive: true });
+    fs.writeFileSync(
+      stylesheet,
+      [
+        "@import '@agent-native/core/styles/agent-native.css';",
+        "@import url(@agent-native/core/styles/agent-native.css);",
+        '@import "@agent-native/core/styles/agent-conversation.css";',
+        "@import url('@agent-native/core/styles/chat-history-list.css');",
+        '@import url("@agent-native/agentkit/react/styles.css");',
+        "@import url('@agent-native/agentkit/react/styles.css');",
+        "",
+      ].join("\n"),
+    );
+    const cssManifest: MigrationManifest = {
+      sinceVersion: "0.110.0",
+      dependencyVersions: { "@agent-native/toolkit": toolkitRange },
+      moves: {
+        "@agent-native/core/styles/agent-native.css": {
+          to: "@agent-native/toolkit/styles.css",
+        },
+        "@agent-native/core/styles/agent-conversation.css": {
+          to: "@agent-native/toolkit/app/styles/agent-conversation.css",
+        },
+        "@agent-native/core/styles/chat-history-list.css": {
+          to: "@agent-native/toolkit/app/styles/chat-history-list.css",
+        },
+        "@agent-native/agentkit/react/styles.css": {
+          to: "@agent-native/toolkit/app/agentkit/react/styles.css",
+        },
+      },
+    };
+
+    const result = runMigrationCodemods({
+      root,
+      manifests: [cssManifest],
+      apply: true,
+      targetExists: () => true,
+    });
+
+    expect(fs.readFileSync(stylesheet, "utf-8")).toBe(
+      [
+        "@import '@agent-native/toolkit/styles.css';",
+        "@import url(@agent-native/toolkit/styles.css);",
+        '@import "@agent-native/toolkit/app/styles/agent-conversation.css";',
+        "@import url('@agent-native/toolkit/app/styles/chat-history-list.css');",
+        '@import url("@agent-native/toolkit/app/agentkit/react/styles.css");',
+        "@import url('@agent-native/toolkit/app/agentkit/react/styles.css');",
+        "",
+      ].join("\n"),
+    );
+    expect(
+      JSON.parse(fs.readFileSync(packageFile, "utf-8")).dependencies,
+    ).toMatchObject({ "@agent-native/toolkit": toolkitRange });
+    expect(result.changes.map((change) => change.file)).toContain(stylesheet);
+  });
+
+  it("migrates AgentKit React entrypoints and stylesheet with the Core manifest", () => {
+    const { root, source, packageFile } = fixture();
+    fs.writeFileSync(
+      source,
+      [
+        'import * as AgentKitReact from "@agent-native/agentkit/react";',
+        'import { AgentKitRoot } from "@agent-native/agentkit/react/root";',
+        "void AgentKitReact; void AgentKitRoot;",
+        "",
+      ].join("\n"),
+    );
+    const stylesheet = path.join(root, "app", "global.css");
+    fs.mkdirSync(path.dirname(stylesheet), { recursive: true });
+    fs.writeFileSync(
+      stylesheet,
+      '@import "@agent-native/agentkit/react/styles.css";\n@import "@agent-native/core/styles/agent-conversation.css";\n@import "@agent-native/core/styles/chat-history-list.css";\n',
+    );
+    const coreManifest = readMigrationManifest(
+      bundledCoreMigrationManifestPath(),
+    );
+    if (!coreManifest) throw new Error("Core migration manifest is missing");
+
+    const result = runMigrationCodemods({
+      root,
+      manifests: [coreManifest],
+      apply: true,
+      targetExists: () => true,
+    });
+
+    expect(fs.readFileSync(source, "utf-8")).toBe(
+      [
+        'import * as AgentKitReact from "@agent-native/toolkit/app/agentkit";',
+        'import { AgentKitRoot } from "@agent-native/toolkit/app/agentkit";',
+        "void AgentKitReact; void AgentKitRoot;",
+        "",
+      ].join("\n"),
+    );
+    expect(fs.readFileSync(stylesheet, "utf-8")).toBe(
+      '@import "@agent-native/toolkit/app/agentkit/react/styles.css";\n@import "@agent-native/toolkit/app/styles/agent-conversation.css";\n@import "@agent-native/toolkit/app/styles/chat-history-list.css";\n',
+    );
+    expect(
+      JSON.parse(fs.readFileSync(packageFile, "utf-8")).dependencies,
+    ).toMatchObject({ "@agent-native/toolkit": ">=0.23.0" });
+    expect(result.changes.map((change) => change.file)).toContain(source);
+    expect(result.changes.map((change) => change.file)).toContain(stylesheet);
+  });
+
+  it("rewrites portable extension helpers from Core host to Toolkit", () => {
+    const { root, source, packageFile } = fixture();
+    fs.writeFileSync(
+      source,
+      [
+        'import { buildAgentNativeExtensionHtml, normalizeAgentNativeExtensionSandbox } from "@agent-native/core/client/host";',
+        "void buildAgentNativeExtensionHtml; void normalizeAgentNativeExtensionSandbox;",
+        "",
+      ].join("\n"),
+    );
+    const coreManifest = readMigrationManifest(
+      bundledCoreMigrationManifestPath(),
+    );
+    if (!coreManifest) throw new Error("Core migration manifest is missing");
+
+    const result = runMigrationCodemods({
+      root,
+      manifests: [coreManifest],
+      apply: true,
+      targetExists: () => true,
+    });
+
+    expect(fs.readFileSync(source, "utf-8")).toContain(
+      'from "@agent-native/toolkit/app/extensions/portable-extension"',
+    );
+    expect(
+      JSON.parse(fs.readFileSync(packageFile, "utf-8")).dependencies,
+    ).toMatchObject({ "@agent-native/toolkit": toolkitRange });
+    expect(result.changes.map((change) => change.file)).toContain(source);
+    expect(result.changes.map((change) => change.file)).toContain(packageFile);
+  });
+
+  it("moves the legacy chat UI hook out of mixed Core chat imports", () => {
+    const { root, source, packageFile } = fixture();
+    fs.writeFileSync(
+      source,
+      [
+        'import { useSendToAgentChat as fromClient } from "@agent-native/core/client";',
+        'import { useSendToAgentChat as fromChat } from "@agent-native/core/client/chat";',
+        'import { useSendToAgentChat as fromAgentChat } from "@agent-native/core/client/agent-chat";',
+        "void fromClient; void fromChat; void fromAgentChat;",
+        "",
+      ].join("\n"),
+    );
+    const coreManifest = readMigrationManifest(
+      bundledCoreMigrationManifestPath(),
+    );
+    if (!coreManifest) throw new Error("Core migration manifest is missing");
+
+    const result = runMigrationCodemods({
+      root,
+      manifests: [coreManifest],
+      apply: true,
+      targetExists: () => true,
+    });
+    const migrated = fs.readFileSync(source, "utf-8");
+
+    expect(migrated).toContain(
+      'import { useSendToAgentChat as fromClient } from "@agent-native/toolkit/app/chat";',
+    );
+    expect(migrated).toContain(
+      'import { useSendToAgentChat as fromChat } from "@agent-native/toolkit/app/chat";',
+    );
+    expect(migrated).toContain(
+      'import { useSendToAgentChat as fromAgentChat } from "@agent-native/toolkit/app/chat";',
+    );
+    expect(
+      JSON.parse(fs.readFileSync(packageFile, "utf-8")).dependencies,
+    ).toMatchObject({ "@agent-native/toolkit": ">=0.23.0" });
+    expect(result.changes.map((change) => change.file)).toContain(source);
+    expect(result.changes.map((change) => change.file)).toContain(packageFile);
+  });
+
   it("previews split imports, symbol renames, exports, and dependencies", () => {
     const { root, source, packageFile } = fixture();
     const before = fs.readFileSync(source, "utf-8");
@@ -87,7 +329,7 @@ describe("runMigrationCodemods", () => {
     expect(diff).toContain("@agent-native/core/client/agent-chat");
     expect(diff).toContain("@agent-native/core/client/hooks");
     expect(diff).toContain("@agent-native/toolkit/ui");
-    expect(diff).toContain('"@agent-native/toolkit": "latest"');
+    expect(diff).toContain(`"@agent-native/toolkit": "${toolkitRange}"`);
   });
 
   it("applies once and is idempotent", () => {
@@ -108,7 +350,7 @@ describe("runMigrationCodemods", () => {
     expect(migrated).toContain('legacy from "@agent-native/toolkit/new-home"');
     expect(
       JSON.parse(fs.readFileSync(packageFile, "utf-8")).dependencies,
-    ).toMatchObject({ "@agent-native/toolkit": "latest" });
+    ).toMatchObject({ "@agent-native/toolkit": toolkitRange });
 
     expect(
       runMigrationCodemods({
@@ -151,6 +393,7 @@ describe("runMigrationCodemods", () => {
       manifests: [
         {
           sinceVersion: "0.110.0",
+          dependencyVersions: { "@agent-native/toolkit": toolkitRange },
           moves: {
             "@agent-native/core/client": {
               to: "@agent-native/core/client/hooks",
@@ -216,6 +459,7 @@ describe("runMigrationCodemods", () => {
       manifests: [
         {
           sinceVersion: "0.110.0",
+          dependencyVersions: { "@agent-native/toolkit": toolkitRange },
           moves: {
             "@agent-native/core/client/editor": {
               to: "@agent-native/toolkit/editor",
@@ -235,7 +479,7 @@ describe("runMigrationCodemods", () => {
       'from "@agent-native/toolkit/editor"',
     );
     expect(result.changes[1]?.after).toContain(
-      '"@agent-native/toolkit": "latest"',
+      `"@agent-native/toolkit": "${toolkitRange}"`,
     );
   });
 

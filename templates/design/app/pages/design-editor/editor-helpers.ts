@@ -1,5 +1,5 @@
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { buildCodeLayerProjection } from "@shared/code-layer";
 
 import type { ElementInfo } from "@/components/design/types";
@@ -8,10 +8,8 @@ import type {
   PostAuthDesignIntent,
   RuntimeLayerSnapshot,
 } from "@/pages/design-editor/command-types";
+import { measurePositionCoordinateContext } from "@/pages/design-editor/position-coordinate-context";
 
-// Selection is tab-scoped (like navigation) so a second editor tab cannot
-// overwrite this tab's selection context. The global key is mirrored as a
-// fallback for CLI/external agents that do not send a browser tab id.
 export function designSelectionStateKeys(): string[] {
   return designSelectionStateKeysForTab(getBrowserTabId());
 }
@@ -109,20 +107,10 @@ export function buildSignInHrefForComment(): string {
   });
 }
 
-/**
- * True only when the incoming (intent-less) selection authoritatively refers to
- * a different element than the committed one (sourceId match wins, else CSS
- * selector). Returns false when identity can't be compared, so a real selection
- * is never dropped.
- */
 export function isSupersededSelectionEcho(
   incoming: ElementInfo,
   current: ElementInfo | null,
 ): boolean {
-  // The bridge emits an intent-less selection when an Alt-drag creates its
-  // optimistic runtime clone. That is an authoritative selection, not a
-  // delayed echo from the previous source element; the runtime identity is
-  // the marker that lets it cross this boundary without adding history.
   if (incoming.runtimeSourceId?.trim()) return false;
   if (!current) return false;
   const incomingId = incoming.sourceId?.trim();
@@ -180,22 +168,13 @@ export function reloadRunningAppPreviewFrames(): void {
   }
 }
 
-/**
- * A code-layer-derived ElementInfo carries authored inline styles and a zero
- * rect, so the inspector shows 0 for anything the source does not state
- * (hug sizing, in-flow position). Measure the live preview node instead.
- */
 export function withMeasuredGeometry(
   info: ElementInfo,
   screenId?: string,
 ): ElementInfo {
-  const rect = info.boundingRect;
-  if (rect && (rect.width > 0 || rect.height > 0)) return info;
   if (typeof document === "undefined") return info;
   const selector = info.runtimeSelector ?? info.selector;
   if (!selector) return info;
-  // Selectors and stamped ids are per-screen, so an unscoped scan can measure
-  // identical markup on a different screen.
   const owning = screenId
     ? document.querySelector<HTMLIFrameElement>(
         `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
@@ -217,11 +196,53 @@ export function withMeasuredGeometry(
       node = null;
     }
     if (!node) continue;
-    const box = node.getBoundingClientRect();
+    const rect = node.getBoundingClientRect();
+    let box = {
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+    };
+    if (node.getAttribute("data-an-primitive") === "boolean-operand") {
+      const geometry = node as SVGGraphicsElement;
+      const bounds = geometry.getBBox?.();
+      const matrix = geometry.getScreenCTM?.();
+      if (bounds && matrix) {
+        const points: [number, number][] = [
+          [bounds.x, bounds.y],
+          [bounds.x + bounds.width, bounds.y],
+          [bounds.x, bounds.y + bounds.height],
+          [bounds.x + bounds.width, bounds.y + bounds.height],
+        ];
+        const xs = points.map(
+          ([x, y]) => matrix.a * x + matrix.c * y + matrix.e,
+        );
+        const ys = points.map(
+          ([x, y]) => matrix.b * x + matrix.d * y + matrix.f,
+        );
+        const left = Math.min(...xs);
+        const top = Math.min(...ys);
+        box = {
+          x: left,
+          y: top,
+          width: Math.max(...xs) - left,
+          height: Math.max(...ys) - top,
+        };
+      }
+    }
     if (box.width <= 0 && box.height <= 0) continue;
-    const parentBox = node.parentElement?.getBoundingClientRect();
-    const scrollX = frame.contentWindow?.scrollX ?? 0;
-    const scrollY = frame.contentWindow?.scrollY ?? 0;
+    const parent =
+      node.getAttribute("data-an-primitive") === "boolean-operand"
+        ? (node.closest('svg[data-an-primitive="boolean"]') ??
+          node.parentElement)
+        : node.parentElement;
+    const parentBox = parent?.getBoundingClientRect();
+    const view = frame.contentWindow;
+    const positionCoordinateContext = view
+      ? measurePositionCoordinateContext(node, view)
+      : undefined;
+    const scrollX = view?.scrollX ?? 0;
+    const scrollY = view?.scrollY ?? 0;
     const computed = frame.contentWindow?.getComputedStyle(node);
     return {
       ...info,
@@ -238,7 +259,8 @@ export function withMeasuredGeometry(
             width: parentBox.width,
             height: parentBox.height,
           }
-        : info.parentBoundingRect,
+        : undefined,
+      ...(positionCoordinateContext ?? {}),
       computedStyles: computed
         ? {
             color: computed.color,
@@ -259,4 +281,32 @@ export function withMeasuredGeometry(
     };
   }
   return info;
+}
+
+// For state setters fed by bridge echoes and re-measurements: returning the
+// previous object when nothing changed keeps the whole editor from re-rendering.
+export function samePlainData(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (
+    typeof a !== "object" ||
+    typeof b !== "object" ||
+    a === null ||
+    b === null ||
+    Array.isArray(a) !== Array.isArray(b)
+  ) {
+    return false;
+  }
+  // An undefined field and a missing one serialize the same, and merges produce both.
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const key of keys) {
+    if (
+      !samePlainData(
+        (a as Record<string, unknown>)[key],
+        (b as Record<string, unknown>)[key],
+      )
+    ) {
+      return false;
+    }
+  }
+  return true;
 }

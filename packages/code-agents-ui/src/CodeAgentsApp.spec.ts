@@ -1,10 +1,37 @@
+// @vitest-environment happy-dom
+
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string, options?: { defaultValue?: string }) => {
+    if (options?.defaultValue) return options.defaultValue;
+    if (key === "agentChat.onboarding.builderCreateAndActivate") {
+      return "Create and activate";
+    }
+    if (key === "agentChat.onboarding.builderExistingAccount") {
+      return "I have a Builder.io account";
+    }
+    return key;
+  },
+}));
+
+vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  useOnboarding: () => ({
+    loading: false,
+    error: null,
+    profile: { capabilities: [] },
+  }),
+}));
 
 import {
+  CodeProviderNotice,
   findRunsThatBecameUnread,
-  getCodeAgentExternalStreamingMessageId,
+  getProviderGate,
   getCodeAgentPickerOptions,
   getCodeAgentSelection,
   getCodeAgentWorktreeRecoveryState,
@@ -27,6 +54,38 @@ import {
 import type { CodeAgentModelOption } from "./types.js";
 import type { CodeAgentRun } from "./types.js";
 import type { CodeAgentTranscriptEvent } from "./types.js";
+
+let container: HTMLDivElement;
+let root: Root;
+
+beforeEach(() => {
+  (
+    globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+});
+
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+  vi.restoreAllMocks();
+});
+
+function click(element: HTMLElement) {
+  act(() => {
+    element.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+  });
+}
+
+async function finishLazyLoad() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+}
 
 const extension: CodeAgentsNewSessionExtension = {
   active: true,
@@ -86,6 +145,105 @@ describe("CodeAgentsApp worktree recovery", () => {
 });
 
 describe("CodeAgentsApp credential recovery", () => {
+  it("shows the shared chooser before one-click activation or local sign-in", async () => {
+    const flow = {
+      connecting: false,
+      configured: false,
+      accountExists: false,
+      error: null,
+      statusResolved: true,
+      agentNativeProvisioningEnabled: true,
+      start: vi.fn(),
+    } as unknown as React.ComponentProps<
+      typeof CodeProviderNotice
+    >["builderConnectFlow"];
+    const connectExistingAccount = vi.fn();
+    const openBuilder = vi.spyOn(window, "open");
+    const renderNotice = () =>
+      root.render(
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(CodeProviderNotice, {
+            className: "provider-notice",
+            title: "Connect AI",
+            description: "Use Builder.io or add custom keys to start coding.",
+            builderConnectFlow: flow,
+            primaryActionLabel: "Use Builder.io",
+            onPrimaryAction: connectExistingAccount,
+          }),
+        ),
+      );
+    act(renderNotice);
+
+    const getTrigger = () =>
+      Array.from(container.querySelectorAll("button")).find((button) =>
+        button.textContent?.includes("Use Builder.io"),
+      );
+    expect(getTrigger()).toBeDefined();
+    click(getTrigger()!);
+    await finishLazyLoad();
+    expect(document.body.textContent).toContain("Create and activate");
+    expect(document.body.textContent).toContain("I have a Builder.io account");
+    expect(flow.start).not.toHaveBeenCalled();
+    expect(connectExistingAccount).not.toHaveBeenCalled();
+    expect(openBuilder).not.toHaveBeenCalled();
+
+    const createAndActivate = Array.from(
+      document.body.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Create and activate"));
+    expect(createAndActivate).toBeDefined();
+    click(createAndActivate!);
+    expect(flow.start).toHaveBeenCalledWith({ provisionAccount: true });
+    expect(connectExistingAccount).not.toHaveBeenCalled();
+    expect(openBuilder).not.toHaveBeenCalled();
+
+    act(() => {
+      flow.connecting = true;
+      renderNotice();
+    });
+    expect(document.body.querySelector('[role="status"]')).not.toBeNull();
+    act(() => {
+      flow.connecting = false;
+      flow.configured = true;
+      renderNotice();
+    });
+
+    click(getTrigger()!);
+    await finishLazyLoad();
+    const signIn = Array.from(document.body.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("I have a Builder.io account"),
+    );
+    expect(signIn).toBeDefined();
+    click(signIn!);
+    expect(connectExistingAccount).toHaveBeenCalledOnce();
+    expect(flow.start).toHaveBeenCalledTimes(1);
+    expect(openBuilder).not.toHaveBeenCalled();
+  });
+
+  it("blocks only a confirmed missing provider and exempts local terminal and Portal targets", () => {
+    const missingProvider = {
+      status: "ok" as const,
+      llmProvider: { configured: false },
+    };
+
+    expect(getProviderGate(missingProvider).blocked).toBe(true);
+    expect(getProviderGate({ status: "ok" }).blocked).toBe(false);
+    expect(getProviderGate({ status: "unavailable" }).blocked).toBe(false);
+    expect(
+      getProviderGate(missingProvider, { terminalMode: true }).blocked,
+    ).toBe(false);
+    expect(
+      getProviderGate(missingProvider, { portalTarget: true }).blocked,
+    ).toBe(false);
+    expect(
+      getProviderGate({
+        status: "ok",
+        llmProvider: { configured: true },
+      }).blocked,
+    ).toBe(false);
+  });
+
   it("shows setup when the selected run reports missing credentials", () => {
     expect(
       shouldShowCodeAgentCredentialCallout({
@@ -104,6 +262,45 @@ describe("CodeAgentsApp credential recovery", () => {
         phase: "completed",
       }),
     ).toBe(false);
+  });
+
+  it("shows the connection gate before a run has recorded credential errors", () => {
+    expect(
+      shouldShowCodeAgentCredentialCallout({
+        providerBlocked: true,
+        hasCredentialHistory: false,
+        phase: "running",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not show app-key recovery for Portal runs", () => {
+    expect(
+      shouldShowCodeAgentCredentialCallout({
+        providerBlocked: false,
+        hasCredentialHistory: true,
+        phase: "missing-credentials",
+        providerExempt: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("CodeAgentsApp AgentKit host controls", () => {
+  it("keeps local-code approval and stop controls host-owned", () => {
+    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
+    const runtime = readFileSync("src/code-agent-agentkit-runtime.ts", "utf8");
+
+    expect(source).toContain('onStop={() => controlRun("stop")}');
+    expect(source).toContain(
+      'onApproveAlways={() => controlRun("approve-always")}',
+    );
+    expect(source).toContain("always allow this exact command");
+    expect(source).toContain("disabled={chat.chatBlocked}");
+    expect(source).toContain("<CodeAgentExternalTranscriptBridge");
+    expect(source).toContain("control.load().catch");
+    expect(source).toContain("onDisabledClick={chat.onDisabledClick}");
+    expect(runtime).toContain('status: "unsupported"');
   });
 });
 
@@ -214,99 +411,6 @@ describe("CodeAgentsApp chat-first rail scrolling", () => {
 });
 
 describe("CodeAgentsApp transcript selection", () => {
-  it("does not replay the prior assistant before a follow-up assistant arrives", () => {
-    const previousEvents: CodeAgentTranscriptEvent[] = [
-      {
-        id: "user-1",
-        runId: "run-1",
-        type: "user",
-        text: "first",
-        createdAt: "2026-08-27T20:00:00.000Z",
-      },
-      {
-        id: "assistant-1",
-        runId: "run-1",
-        type: "system",
-        text: "first answer",
-        createdAt: "2026-08-27T20:00:01.000Z",
-        metadata: { role: "assistant" },
-      },
-    ];
-    const baselineEventIds = new Set(previousEvents.map((event) => event.id));
-    const followUpEvents: CodeAgentTranscriptEvent[] = [
-      ...previousEvents,
-      {
-        id: "user-2",
-        runId: "run-1",
-        type: "user",
-        text: "follow up",
-        createdAt: "2026-08-27T20:01:00.000Z",
-      },
-    ];
-    expect(
-      getCodeAgentExternalStreamingMessageId(
-        followUpEvents,
-        "run-1",
-        baselineEventIds,
-      ),
-    ).toBeNull();
-
-    const liveEvents: CodeAgentTranscriptEvent[] = [
-      ...followUpEvents,
-      {
-        id: "assistant-2",
-        runId: "run-1",
-        type: "system",
-        text: "second answer",
-        createdAt: "2026-08-27T20:01:01.000Z",
-        metadata: { role: "assistant" },
-      },
-    ];
-    expect(
-      getCodeAgentExternalStreamingMessageId(
-        liveEvents,
-        "run-1",
-        baselineEventIds,
-      ),
-    ).toBe("code-assistant-1-assistant-2");
-  });
-
-  it("propagates an external stop into the shared chat footer state", () => {
-    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
-
-    expect(source).toContain(
-      "const [userStoppedRunId, setUserStoppedRunId] = useState<string | null>(null);",
-    );
-    expect(source).toContain("if (!wasRunActiveRef.current) {");
-    expect(source).toContain("setUserStoppedRunId(runId);");
-    expect(source).toContain(
-      "externalUserStopped={userStoppedRunId === run.id}",
-    );
-    expect(source).toContain("externalUserStopped={externalUserStopped}");
-    expect(source).toContain("const stopInFlightRef = useRef(false);");
-    expect(source).toContain(
-      "if (!runId || stopInFlightRef.current) return false;",
-    );
-    expect(source).toContain("const stopSucceeded = await onStop();");
-    expect(source).toContain("stopSucceededRef.current = true;");
-    expect(source).toContain("else if (!stopSucceededRef.current) {");
-    expect(source).toContain("return result.ok;");
-    expect(source).toContain("externalStreamingBaselineEventIdsRef");
-    expect(source).toContain("externalStreamingBaselineInitializedRef");
-    expect(source).toContain("!runIsActive || !transcriptLoading");
-    expect(source).toContain(
-      "!externalStreamingBaselineInitializedRef.current",
-    );
-    expect(source).toContain("externalStreamingMessageId");
-    expect(source).toContain(
-      "externalStreamingMessageId={externalStreamingMessageId}",
-    );
-    expect(source).toContain(
-      "externalStreaming={Boolean(externalStreamingMessageId)}",
-    );
-    expect(source).toContain("onStop={onStop}");
-  });
-
   it("does not let an older transcript read replace a newly selected chat", () => {
     const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
     const loadTranscriptStart = source.indexOf("const loadTranscript =");
@@ -511,7 +615,7 @@ describe("code-agent model selection", () => {
   it("defaults an empty selection to Luna with high effort", () => {
     expect(normalizeModelSelection({}, [])).toEqual({
       engine: "ai-sdk:openai",
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
       effort: "high",
     });
   });

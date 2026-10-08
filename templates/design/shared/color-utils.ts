@@ -17,9 +17,6 @@ const RGB_PATTERN =
 const HSL_PATTERN =
   /^hsla?\(\s*([0-9.]+)(?:deg)?\s*,\s*([0-9.]+)%\s*,\s*([0-9.]+)%(?:\s*,\s*([0-9.]+%?))?\s*\)$/i;
 
-// CSS named colors → hex, so detection/round-tripping works for shadows, gradient
-// stops, and the color picker (not just #hex/rgb()/hsl()). `transparent` is handled
-// separately as fully transparent black.
 const NAMED_COLOR_HEX: Record<string, string> = {
   aliceblue: "#f0f8ff",
   antiquewhite: "#faebd7",
@@ -205,36 +202,19 @@ export function parseCssColor(value: string): RgbaColor | null {
   return null;
 }
 
-// `parseCssColor` above handles hex, comma-separated rgb/rgba, and hsl/hsla.
-// Browsers increasingly emit modern CSS Level 4 formats from getComputedStyle:
-// space-separated `rgb(R G B)`, `rgb(R G B / A)`, and opaque formats like
-// `oklch(...)` or `color(display-p3 ...)`. `parseCssColorExtended` covers those
-// cases so that colors arriving from a canvas's computed-style bridge are
-// always usable.
-
 const MODERN_RGB_PATTERN =
   /^rgba?\(\s*([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)(?:\s*\/\s*([0-9.]+%?))?\s*\)$/i;
 
-/** Canvas element reused across calls for DOM-based color resolution. */
 let _resolverCanvas: HTMLCanvasElement | null = null;
 let _resolverCtx: CanvasRenderingContext2D | null = null;
 
-/**
- * Parses a CSS color string into RgbaColor, extending the base parser with:
- *   - Modern space-separated `rgb(R G B)` / `rgb(R G B / A)` syntax
- *   - Opaque formats (oklch, color, etc.) resolved via a hidden canvas
- *
- * Falls back to null if the value is unparseable and the DOM is unavailable.
- */
 export function parseCssColorExtended(value: string): RgbaColor | null {
-  // 1. Try the standard parser first (handles hex, comma rgb/rgba, hsl/hsla).
   const standard = parseCssColor(value);
   if (standard) return standard;
 
   const trimmed = value.trim();
   if (!trimmed || trimmed === "transparent" || trimmed === "none") return null;
 
-  // 2. Modern space-separated rgb/rgba — CSS Level 4.
   const modernRgb = trimmed.match(MODERN_RGB_PATTERN);
   if (modernRgb) {
     const parseAlphaLocal = (v: string | undefined): number => {
@@ -251,8 +231,6 @@ export function parseCssColorExtended(value: string): RgbaColor | null {
     };
   }
 
-  // 3. DOM-based resolver for oklch, color(display-p3 ...), hsl (modern), etc.
-  //    Uses a hidden 1×1 canvas to resolve any valid CSS color to rgb().
   if (typeof document === "undefined") return null;
   try {
     if (!_resolverCanvas) {
@@ -267,18 +245,10 @@ export function parseCssColorExtended(value: string): RgbaColor | null {
     }
     const ctx = _resolverCtx;
     if (!ctx) return null;
-    // Detect invalid color values: reset fillStyle to a sentinel that can
-    // never be the browser's normalized output for a real color (an
-    // out-of-gamut placeholder), then assign the candidate and compare.
-    // Comparing against the *previous* candidate's fillStyle (instead of a
-    // fixed sentinel) misfires when two consecutive calls resolve to the
-    // same valid color — the "rejected, unchanged" check would incorrectly
-    // trip even though the value was accepted and just happens to match.
     const sentinel = "#010203";
     ctx.fillStyle = sentinel;
     ctx.fillStyle = trimmed;
-    const next = ctx.fillStyle; // browser normalises to rgb/hex on accept
-    // If the value was rejected, fillStyle stays at the sentinel.
+    const next = ctx.fillStyle;
     if (next === sentinel) return null;
     ctx.clearRect(0, 0, 1, 1);
     ctx.fillRect(0, 0, 1, 1);
@@ -399,6 +369,44 @@ export function alphaToOpacity(alpha: number): number {
 
 export function withColorOpacity(color: RgbaColor, opacity: number): RgbaColor {
   return normalizeRgba({ ...color, a: opacityToAlpha(opacity) });
+}
+
+export function defaultGradientEndColor(color: RgbaColor): RgbaColor {
+  const max = Math.max(color.r, color.g, color.b);
+  const min = Math.min(color.r, color.g, color.b);
+  const value = max / 255;
+  const saturation = max === 0 ? 0 : (max - min) / max;
+  const delta = max - min;
+  const hue =
+    delta === 0
+      ? 0
+      : max === color.r
+        ? ((color.g - color.b) / delta + 6) % 6
+        : max === color.g
+          ? (color.b - color.r) / delta + 2
+          : (color.r - color.g) / delta + 4;
+  const nextValue = value >= 0.5 ? value - 0.4 : value + 0.4;
+  const chroma = nextValue * saturation;
+  const x = chroma * (1 - Math.abs((hue % 2) - 1));
+  const m = nextValue - chroma;
+  const [r, g, b] =
+    hue < 1
+      ? [chroma, x, 0]
+      : hue < 2
+        ? [x, chroma, 0]
+        : hue < 3
+          ? [0, chroma, x]
+          : hue < 4
+            ? [0, x, chroma]
+            : hue < 5
+              ? [x, 0, chroma]
+              : [chroma, 0, x];
+  return normalizeRgba({
+    r: Math.round((r + m) * 255),
+    g: Math.round((g + m) * 255),
+    b: Math.round((b + m) * 255),
+    a: color.a,
+  });
 }
 
 function parseAlpha(value: string | undefined): number {

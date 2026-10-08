@@ -20,8 +20,6 @@ export default defineAction({
   readOnly: true,
   run: async ({ libraryId, sessionId, presetId }) => {
     await requireLibrary(libraryId);
-    // Runs carry the prompt, settings, and outputs behind a draft, so a
-    // below-approver caller sees their own history, not the kit's.
     const scope = await resolveDraftReadScope([libraryId]);
     const runFilter = runReadFilter(scope, schema.assetGenerationRuns);
     const filters = [

@@ -3,10 +3,6 @@ import { z } from "zod";
 
 import bigquery from "./bigquery";
 
-/**
- * Keep dashboard extensions authored with the old action name working while
- * the canonical agent action remains `bigquery`.
- */
 export default defineAction({
   agentTool: false,
   description:

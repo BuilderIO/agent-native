@@ -17,24 +17,8 @@ export function useBookingLinks() {
   return useActionQuery<BookingLink[]>("list-booking-links");
 }
 
-/** Prefix on optimistically-inserted ids so the UI can identify them. */
 export const OPTIMISTIC_PREFIX = "optimistic_";
 
-/**
- * Create a booking link with instant, optimistic UI.
- *
- * The mutation inserts a placeholder row into the list cache on `onMutate`
- * (with an `optimistic_*` id) so `useBookingLinks()` and any lookup by id
- * see the new row immediately. Callers can `navigate('/booking-links/' + id)`
- * as soon as they call `mutate(...)` — the detail view will find it in the
- * cache without waiting for the server.
- *
- * On success, the optimistic row is swapped for the server value and URLs
- * using the optimistic id are redirected to the real id.
- *
- * On failure, the optimistic row is removed and the error surfaces on the
- * mutation's `error` field.
- */
 export function useCreateBookingLink() {
   const queryClient = useQueryClient();
   return useActionMutation<
@@ -47,7 +31,6 @@ export function useCreateBookingLink() {
       conferencing?: ConferencingConfig;
       color?: string;
       isActive?: boolean;
-      /** Optional pre-generated id so the caller can navigate before mutate resolves. */
       optimisticId?: string;
     }
   >("create-booking-link", {
@@ -92,7 +75,6 @@ export function useCreateBookingLink() {
       }
     },
     onSettled: () => {
-      // Sync with server eventually — non-blocking.
       void queryClient.invalidateQueries({ queryKey: LIST_KEY });
     },
   });
@@ -122,11 +104,6 @@ export function useUpdateBookingLink() {
       void queryClient.invalidateQueries({
         queryKey: LIST_KEY,
       });
-      // The editor's time-zone preview reads this same link through the
-      // public endpoint (to see peer enrichment as a visitor would). That
-      // query isn't part of LIST_KEY, so without this it keeps showing
-      // pre-save hosts/display names after editing co-hosts here, even
-      // though the preview's slots already reflect the new draft.
       void queryClient.invalidateQueries({
         queryKey: ["public-booking-link"],
       });

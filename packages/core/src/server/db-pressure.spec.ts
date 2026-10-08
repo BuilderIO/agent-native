@@ -106,8 +106,6 @@ describe("probeDbPressure", () => {
     expect(result).toMatchObject({ measured: true, connections: 8 });
   });
 
-  // Each of the next three would, if folded into a zeroed "measured" result,
-  // report a database nobody looked at as a healthy one.
   it("reports a throwing query as unmeasured", async () => {
     const result = await probeDbPressure({
       execute: async () => {
@@ -142,10 +140,6 @@ describe("probeDbPressure", () => {
 });
 
 describe("threshold parity with scripts/chat-health.mjs", () => {
-  // Same three signals are measured from a workstation by chat-health.mjs
-  // against every app's database at once, and from inside each app by the code
-  // above for the scheduled fleet audit. Two copies of a number is how the two
-  // start disagreeing about whether production is healthy.
   it("keeps both copies of the outage thresholds equal", () => {
     const literal = (name: string) => {
       const match = new RegExp(`const ${name} = ([0-9_]+);`).exec(

@@ -5,7 +5,10 @@ export type DatabaseOperationKind = "connect" | "query";
 export interface DatabaseRequestTelemetry {
   operationCount: number;
   queryCount: number;
+  rowsReturned: number;
   connectCount: number;
+  catalogQueryCount: number;
+  migrationTableQueryCount: number;
   retryCount: number;
   errorCount: number;
   timeoutCount: number;
@@ -43,10 +46,6 @@ type GlobalWithDatabaseTelemetry = typeof globalThis & {
 
 const globalRef = globalThis as GlobalWithDatabaseTelemetry;
 
-// AsyncLocalStorage is resolved lazily, never at module load: this module can
-// land in the browser dev graph, where a top-level `new AsyncLocalStorage()`
-// would throw against Vite's externalized `node:async_hooks` stub. On non-Node
-// runtimes telemetry no-ops.
 const NOOP_STORAGE: TelemetryStorage = {
   getStore: () => undefined,
   run: (_store, fn) => fn(),
@@ -68,7 +67,10 @@ export function createDatabaseRequestTelemetry(): DatabaseRequestTelemetry {
   return {
     operationCount: 0,
     queryCount: 0,
+    rowsReturned: 0,
     connectCount: 0,
+    catalogQueryCount: 0,
+    migrationTableQueryCount: 0,
     retryCount: 0,
     errorCount: 0,
     timeoutCount: 0,
@@ -113,10 +115,32 @@ export function runWithDatabaseRequestTelemetry<T>(
   return getStorage().run(telemetry, fn);
 }
 
+const storagesWithoutEnterWith = new WeakSet<TelemetryStorage>();
+
+/**
+ * Returns false when the runtime cannot scope telemetry to the rest of the
+ * request. workerd's AsyncLocalStorage implements `run()` but throws from
+ * `enterWith()`, and a throw here escapes the Nitro request hook and skips
+ * every hook after it, including the framework route readiness gate.
+ */
 export function enterDatabaseRequestTelemetry(
   telemetry: DatabaseRequestTelemetry,
-): void {
-  getStorage().enterWith(telemetry);
+): boolean {
+  const storage = getStorage();
+  if (storage === NOOP_STORAGE || storagesWithoutEnterWith.has(storage)) {
+    return false;
+  }
+  try {
+    storage.enterWith(telemetry);
+    return true;
+  } catch (error) {
+    storagesWithoutEnterWith.add(storage);
+    console.warn(
+      "[db] Per-request database telemetry is unavailable: AsyncLocalStorage.enterWith() failed on this runtime.",
+      error,
+    );
+    return false;
+  }
 }
 
 export function beginDatabaseOperation(
@@ -175,4 +199,34 @@ export function beginDatabaseOperation(
 export function recordDatabaseRetry(): void {
   const telemetry = currentDatabaseTelemetry();
   if (telemetry) telemetry.retryCount += 1;
+}
+
+export function recordDatabaseQueryResult(
+  sql: string,
+  rowsReturned: number,
+): void {
+  const telemetry = currentDatabaseTelemetry();
+  if (!telemetry) return;
+
+  const source = sql
+    .replace(/--[^\n]*/g, " ")
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/'(?:''|[^'])*'/g, "''");
+  if (
+    /\b(?:information_schema|pg_catalog|pg_indexes|pg_(?:authid|class|attribute|namespace|proc|type|database|roles|tables|views|indexes|constraints|trigger|extension))\b/i.test(
+      source,
+    )
+  ) {
+    telemetry.catalogQueryCount += 1;
+  }
+  if (
+    /\b(?:from|join|update|into|delete\s+from)\s+(?:"?[\w$]+"?\.)?"?_?[\w$]*migrations[\w$]*"?\b/i.test(
+      source,
+    )
+  ) {
+    telemetry.migrationTableQueryCount += 1;
+  }
+  if (Number.isFinite(rowsReturned) && rowsReturned > 0) {
+    telemetry.rowsReturned += Math.floor(rowsReturned);
+  }
 }

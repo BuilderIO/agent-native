@@ -1,11 +1,3 @@
-/**
- * connect-slack
- *
- * Returns the Slack OAuth URL for connecting Agent-Native Clips for Slack.
- * The browser opens the URL in a popup/new tab; the callback stores the bot
- * token in app_secrets and writes only metadata + secret refs to SQL.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { z } from "zod";

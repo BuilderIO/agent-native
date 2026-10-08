@@ -70,11 +70,6 @@ describe("DesignCanvas embedded frame backgrounds", () => {
       contentOffsetY: 65536,
     });
 
-    // translate compounds per matched element — a blanket
-    // [data-agent-native-node-id] rule would shift the nested child by the
-    // surface offset a second time (+65536px), rendering it off-world even
-    // with correct parent-relative left/top. The rule must match top-level
-    // board children only.
     expect(content).toContain(
       "body > [data-agent-native-node-id]{translate:65536px 65536px;}",
     );

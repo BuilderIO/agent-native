@@ -3,10 +3,197 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-07
+
+### Added
+
+- Session replay screenshots can be copied directly into Design.
+
+### Fixed
+
+- Session replay screenshot export captures readable video frames and safe poster images.
+
+## 2026-10-06
+
+### Added
+
+- Save a screenshot of any visible moment in a session replay.
+- Save exact session replay screens as PNG screenshots.
+- Session replays can be saved as screenshots without the replay controls.
+
+### Improved
+
+- Agent dashboard edits are now checked against the live chart before they save, so the agent no longer reports a chart change that did not happen.
+
+### Fixed
+
+- Collaborators see a consistent dashboard after simultaneous edits
+- Dashboard edits stay in sync when simultaneous updates occur.
+- Dashboard filter "Mine" now lists every dashboard you own (including ones you've shared) and no longer includes installed demos or items shared with you
+- Return each dashboard mutation's own written value even when another update lands immediately afterward
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+- Dashboard edits now report no change when the selected panels already match the requested values or order.
+- Dashboard mutation results now report only changes that were actually saved.
+- Refreshing a BigQuery dashboard panel now fetches current data.
+
+## 2026-10-05
+
+### Improved
+
+- Custom date controls stay beside the range selector, and dashboards can save a shared default view.
+
+### Fixed
+
+- Session replay agent links stay usable with large event lists and longer agent names.
+- Agent links copied from a dashboard, analysis, or session replay are shorter, so Claude can fetch them without hitting its URL length limit.
+- Analytics keeps workspace access working across apps with different local organization IDs.
+- BigQuery dashboard filters work with values that contain apostrophes or backslashes
+- Sign-in and signup pages now share the animated Agent-Native wave.
+
+## 2026-10-02
+
+### Added
+
+- With the Sessions triage Lab on, filter sessions by speed, see page vitals and slow requests on replays, and compare p50 and p95 load, interaction, and request times per route
+- With the Sessions triage Lab on, rank and filter sessions by friction signals like dead clicks, error toasts, retry loops, failed actions, and agent failures, and open their Monitoring issues from the list.
+
+### Improved
+
+- Builder.io setup now explains free credits and the existing-account option.
+- Owners and admins can save data source credentials for the whole organization or just for themselves.
+- Retention reports now compare returns from paid and untagged signups.
+
+### Fixed
+
+- Dashboard queries preserve recording permissions across supported SQL formats
+- Events with a very long name, app, or page path no longer cause the rest of their batch to be lost
+
+## 2026-10-01
+
+### Improved
+
+- Clear all resets every Sessions filter in one click.
+- The first-party retention chart now splits 1-7d return into paid and untagged signups, and a Chat Readiness at Prompt panel shows whether AI was ready and how many prompts got no reply.
+- Error issues in Monitoring link straight to the chat thread that failed, and one underlying error now stays a single issue instead of splitting after each deploy
+- The observability settings tab is now labeled Observability.
+
+## 2026-09-30
+
+### Added
+
+- External agents connected over MCP can read dashboards, saved analyses, the data dictionary, blog articles and provider data directly, without handing the question to the Analytics agent.
+- With the Sessions triage Lab on, filter sessions by events they did or didn't send, see app events and failed actions on replay timelines, and browse an event catalog.
+
+### Improved
+
+- Removed excess spacing above the sidebar footer
+
+### Fixed
+
+- Chat message actions no longer show unavailable request IDs.
+
+## 2026-09-29
+
+### Improved
+
+- Expand the Analytics chat header across the conversation view
+- Analytics date filters support custom date ranges
+- Settings pages now share the account layout, with dated updates that load in batches.
+
+### Fixed
+
+- The chat history menu stays open when opened from the header.
+- Chat prompts clear immediately while the assistant thinks.
+- App filters now keep retention charts scoped to the selected app.
+- Chat stays ready for your next draft while a message is being sent.
+- Adding panels now saves without a layout width error.
+- Analytics accepts valid field names that contain SQL keywords and digits
+- Analytics date filters support custom date ranges across dashboards.
+- The Analytics sidebar shows a single divider above Send feedback.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+
+## 2026-09-28
+
+### Improved
+
+- Flags moved to an app's Labs settings no longer appear as editable rollout controls.
+- Analytics starts faster on hosted serverless deployments.
+- The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
+- Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
+- The chat sidebar matches the app navigation color, with tighter composer spacing.
+- Ask Analytics now starts with a focused title.
+
+## 2026-09-27
+
+### Improved
+
+- Ask Analytics now opens with a centered chat and starter guidance.
+- Metric cards include their comparison period and change.
+- Complete single-number analysis queries show a compact card, and sampled tables are marked.
+- The chat home keeps suggested prompts above the composer in a centered layout.
+
+## 2026-09-26
+
+### Improved
+
+- Human Review shows saved Analytics charts and analysis results inline.
+- Loading screens now reflect the app's home layout.
+- Saved dashboard charts can be previewed directly in Human Review.
+
+### Changed
+
+- The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.
+
+## 2026-09-25
+
+### Added
+
+- Analytics learns confirmed metric definitions and query corrections from completed chats.
+- Org admins can review agent runs from Settings
+
+### Improved
+
+- In the redesigned Settings, alert rules and data sources are tabs on Analytics General, and error emails and the bell sound have their own Notifications page.
+- Settings now opens from your name at the bottom of the sidebar, or with ⌘,.
+- Analytics captures confirmed query guidance for future conversations
+- Public status pages, dashboards, and analyses show resource details in link previews
+- The chat composer keeps a consistent background while AI setup is open.
+- First-run onboarding records setup choices and Builder connection outcomes
+- Human review previews Analytics dashboards as real charts
+- Relevant metric definitions and saved dashboard examples are available with the first response so Analytics queries can reuse proven definitions and query shapes.
+
+### Fixed
+
+- Analytics guides users to connect AI before continuing agent questions.
+- Archived dashboards no longer appear in public link previews
+- Human Review previews show same-organization dashboard charts for organization admins.
+- Show one recent prompt per chat turn.
+- Opening Settings no longer opens the chat sidebar.
+
+### Security
+
+- Analytics provider credentials stay scoped to their configured endpoints
+- Human Review previews do not run saved dashboard queries
+
+## 2026-09-24
+
+### Improved
+
+- Find session replays by app, date, duration, visitor, and error signals
+- Analytics sidebar navigation and footer controls align consistently, with full-width dividers.
+- The Sessions list hides 0m recordings by default, with a filter to include them.
+
+### Fixed
+
+- Dashboard emails now match the live dashboard's stacked area chart totals.
+- Editing a dashboard panel no longer brings back a panel you just deleted, and conflicting saves now show a clear error instead of a server error
+- Session recordings no longer cut off partway through when the daily recording budget runs low; new recordings wait for room instead.
+
 ## 2026-09-23
 
 ### Improved
 
+- Transient HTTP 5xx checks now need confirmation before alerting
 - Analytics opens faster by loading translation catalogs and rarely used surfaces only when needed.
 
 ## 2026-09-22
@@ -834,7 +1021,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Agents can search and read connected GitHub repositories when auditing tracking events.
 - Dashboards can now include extension panels that embed a sandboxed extension inline instead of a SQL chart
-- Set up session replay storage from settings: connect Builder.io or add S3-compatible storage
+- Set up session replay storage from settings: use Builder.io or add S3-compatible storage
 
 ### Improved
 

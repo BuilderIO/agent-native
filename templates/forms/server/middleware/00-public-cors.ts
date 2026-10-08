@@ -1,14 +1,3 @@
-/**
- * CORS for public embed endpoints.
- *
- * The public form schema (`/api/forms/public/*`), file upload
- * (`/api/upload/*`), and submission (`/api/submit/*`) routes are designed to be called cross-origin from
- * embedded feedback popovers, so they always return a permissive CORS
- * header. Preflight OPTIONS are short-circuited to 204 so they skip the
- * auth guard.
- *
- * Runs before `auth.ts` thanks to the `00-` filename prefix.
- */
 import {
   defineEventHandler,
   getMethod,

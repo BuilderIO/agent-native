@@ -4,11 +4,64 @@ import type { AgentEvent } from "../protocol/index.js";
 import {
   classifyAgentEvent,
   createAgentThreadState,
+  hasActiveAgentRuns,
   reduceAgentEvent,
   selectActiveAgentRoster,
 } from "./state.js";
 
 const occurredAt = "2026-08-29T00:00:00.000Z";
+
+describe("hasActiveAgentRuns", () => {
+  it("keeps an unprojected approval active until a run status resolves it", () => {
+    const thread = createAgentThreadState("thread-1");
+    thread.activeRunIds = ["run-1"];
+    thread.runs["run-1"] = {
+      id: "run-1",
+      status: "awaiting_approval",
+      lastSequence: 1,
+    };
+
+    expect(hasActiveAgentRuns(thread)).toBe(true);
+
+    thread.runs["run-1"].status = "completed";
+    expect(hasActiveAgentRuns(thread)).toBe(false);
+  });
+
+  it("matches approval resolution by ID across continuation event ordering", () => {
+    const thread = createAgentThreadState("thread-1");
+    thread.activeRunIds = ["run-1"];
+    thread.runs["run-1"] = {
+      id: "run-1",
+      status: "awaiting_approval",
+      lastSequence: 1,
+    };
+    const resolved = {
+      ...event(2, {
+        type: "approval.resolved",
+        approvalId: "approval-1",
+        response: { decision: "approve" },
+      }),
+      id: "event-continuation-resolution",
+      runId: "run-continuation",
+    };
+    const requested = event(1, {
+      type: "approval.requested",
+      request: { id: "approval-1", title: "Continue?" },
+    });
+    thread.events = [requested];
+
+    expect(hasActiveAgentRuns(thread)).toBe(true);
+    thread.events = [resolved, requested];
+    expect(hasActiveAgentRuns(thread)).toBe(false);
+  });
+
+  it("treats an active id with a missing run projection as active", () => {
+    const thread = createAgentThreadState("thread-1");
+    thread.activeRunIds = ["run-unprojected"];
+
+    expect(hasActiveAgentRuns(thread)).toBe(true);
+  });
+});
 
 function event(
   sequence: number,
@@ -239,6 +292,39 @@ describe("AgentKit lifecycle projections", () => {
     ]);
   });
 
+  it("defaults empty completion status and preserves deltas", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.created",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "streaming",
+          parts: [],
+        },
+      }),
+      event(3, {
+        type: "message.delta",
+        messageId: "assistant-1",
+        text: "Answer",
+      }),
+      event(4, {
+        type: "message.completed",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          parts: [],
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.messages[0]).toMatchObject({
+      status: "complete",
+      parts: [{ type: "text", text: "Answer" }],
+    });
+  });
+
   it("preserves a failed synthetic completion status while retaining deltas", () => {
     const reduced = [
       event(1, { type: "run.started" }),
@@ -300,6 +386,121 @@ describe("AgentKit lifecycle projections", () => {
       output: "final result",
     });
     expect(reduced.tools["tool-1"]?.input).toBeUndefined();
+  });
+
+  it("preserves the message association when a terminal tool update omits it", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.started",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "running",
+          messageId: "assistant-1",
+          input: { query: "report" },
+        },
+      }),
+      event(3, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "completed",
+          output: "Found it.",
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      status: "completed",
+      messageId: "assistant-1",
+      input: { query: "report" },
+      output: "Found it.",
+    });
+  });
+
+  it("preserves streamed output when a terminal tool update omits it", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "Found ",
+      }),
+      event(3, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "it.",
+      }),
+      event(4, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "completed",
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      status: "completed",
+      output: "Found it.",
+    });
+  });
+
+  it("preserves streamed output when a running tool update omits it", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "Found ",
+      }),
+      event(3, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "running",
+        },
+      }),
+      event(4, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "it.",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      status: "running",
+      output: "Found it.",
+    });
+  });
+
+  it("uses the output provided by a terminal tool update", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "partial output",
+      }),
+      event(3, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "completed",
+          output: "final output",
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      status: "completed",
+      output: "final output",
+    });
   });
 
   it("does not reopen settled tool, activity, task, or action projections", () => {

@@ -1,6 +1,11 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { ActionContractError } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import {
+  iconValueSchema,
+  parseIconValue,
+  serializeIconValue,
+} from "@agent-native/core/icons";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
@@ -28,6 +33,11 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import {
+  syncPrivateCalloutReferences,
+  syncPrivateIconReference,
+  verifyPrivateIconAssignment,
+} from "../server/lib/private-icon-references.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { resolveContentSpaceTarget } from "./_content-space-target.js";
@@ -123,7 +133,10 @@ export default defineAction({
       .describe(
         "Actual parent page ID for nesting; use spaceId or spaceName for a top-level root page. A workspace Files document ID is accepted as a top-level target for compatibility.",
       ),
-    icon: z.string().optional().describe("Optional emoji icon."),
+    icon: z
+      .union([z.string(), iconValueSchema])
+      .optional()
+      .describe("Optional emoji, Tabler icon, or uploaded image icon."),
     contextPackId: z
       .string()
       .optional()
@@ -143,13 +156,18 @@ export default defineAction({
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
-      title: "Edit document",
+      title: "Open document",
       description:
         "Open the generated draft in the real Content editor so the user can revise, format, organize, and publish it.",
       iframeTitle: "Agent-Native Content",
       openLabel: "Open in Content",
       height: 900,
     }),
+  },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
   },
   run: async (args, ctx) => {
     const hasCreativeContextInput = Boolean(
@@ -193,7 +211,6 @@ export default defineAction({
 
     let content = args.content || "";
     const description = args.description?.trim() ?? "";
-    // Strip leading H1 that duplicates the title
     if (title && content && !args.preserveLeadingTitleHeading) {
       const h1Match = content.match(/^#\s+(.+?)(\r?\n|$)/);
       if (
@@ -205,7 +222,9 @@ export default defineAction({
     }
 
     let parentId = args.parentId || null;
-    const icon = args.icon || null;
+    const icon = args.icon
+      ? serializeIconValue(parseIconValue(args.icon))
+      : null;
     const currentUserEmail = getRequestUserEmail();
     if (!currentUserEmail) throw new Error("no authenticated user");
     const actor = requireDocumentRequestActor(ctx);
@@ -334,11 +353,15 @@ export default defineAction({
 
     const now = new Date().toISOString();
     const id = args.id || nanoid();
+    await verifyPrivateIconAssignment({
+      icon,
+      userEmail: currentUserEmail,
+      orgId,
+    });
 
     await withPositionLock(
       documentsPositionScope(ownerEmail, parentId),
       async () => {
-        // Get max position among siblings
         const maxPos = await db
           .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
           .from(schema.documents)
@@ -375,6 +398,28 @@ export default defineAction({
             createdAt: now,
             updatedAt: now,
           });
+          await syncPrivateIconReference(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              elementType: "document",
+              elementId: id,
+              documentId: id,
+              icon,
+              ownerEmail,
+              orgId,
+            },
+          );
+          await syncPrivateCalloutReferences(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              documentId: id,
+              before: "",
+              after: content,
+              userEmail: currentUserEmail,
+              ownerEmail,
+              orgId,
+            },
+          );
 
           if (inheritedShares.length > 0) {
             await tx.insert(schema.documentShares).values(

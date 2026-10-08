@@ -1,10 +1,3 @@
-/**
- * Runtime-neutral recorder setup behavior.
- *
- * The desktop mini recorder is the canonical interaction model. Browser and
- * native capture still use different media APIs, but mode and camera changes
- * must resolve to the same visible state in both surfaces.
- */
 export type RecorderSetupMode = "screen" | "screen-camera" | "camera";
 
 export type BrowserRecorderSetupMode = "screen" | "screen+camera" | "camera";

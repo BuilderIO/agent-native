@@ -8,7 +8,6 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
-/** Minimal DbExec-shaped mock that records the ids inserted into sync_events. */
 function makeDb(insertedIds?: string[]) {
   return {
     execute: vi.fn(
@@ -60,7 +59,6 @@ describe("AppSyncState multi-app isolation", () => {
     a.recordChange({ source: "action", type: "change", key: "a2" });
 
     expect(a.getChangesSince(0).events.map((e) => e.key)).toEqual(["a1", "a2"]);
-    // App B shares no buffer and no version space with A.
     expect(b.getChangesSince(0).events).toEqual([]);
     expect(b.getVersion()).toBe(0);
     expect(a.getVersion()).toBeGreaterThan(0);
@@ -103,12 +101,11 @@ describe("AppSyncState multi-app isolation", () => {
       deterministicEventIds: true,
     });
 
-    // Same logical event + dedupe signal, but different per-instance versions.
     await a.persistSyncEvent(baseEvent({ version: 111 }), "app-state|500");
     await b.persistSyncEvent(baseEvent({ version: 999 }), "app-state|500");
 
     expect(idsA[0]).toBeTruthy();
-    expect(idsA[0]).toBe(idsB[0]); // version excluded → collides → ON CONFLICT dedupes
+    expect(idsA[0]).toBe(idsB[0]);
   });
 
   it("keeps random ids when deterministic mode is off (default)", async () => {
@@ -161,7 +158,6 @@ describe("AppSyncState multi-app isolation", () => {
     const flush = async () => {
       for (let i = 0; i < 5; i++) await Promise.resolve();
     };
-    // Resource is allowed only in org-a.
     const resolveAccess = vi.fn(
       async (_rt: string, _rid: string, ctx: { orgId: string | undefined }) =>
         ctx.orgId === "org-a" ? { ok: true } : null,
@@ -170,14 +166,12 @@ describe("AppSyncState multi-app isolation", () => {
       getDb: () => makeDb(),
       resolveAccess,
     });
-    // Owned by someone else + resource-scoped → forces the access-aware branch.
     const event = {
       owner: "other@x",
       resourceType: "doc",
       resourceId: "d1",
     };
 
-    // org-a: first call misses (fail-closed), then the cached allow lands.
     expect(s.canSeeChangeForUser(event, "u@x", "org-a")).toBe(false);
     await flush();
     expect(s.canSeeChangeForUser(event, "u@x", "org-a")).toBe(true);
@@ -230,5 +224,110 @@ describe("AppSyncState multi-app isolation", () => {
       ),
     ).toBe(true);
     expect(resolveAccess).not.toHaveBeenCalled();
+  });
+});
+
+describe("AppSyncState first event after an access check miss", () => {
+  const resourceEvent = {
+    source: "collab",
+    type: "change",
+    key: "doc-1",
+    owner: "writer@example.com",
+    resourceType: "document",
+    resourceId: "doc-1",
+  };
+
+  it("delivers a resource event in the same read once its access check settles", async () => {
+    const resolveAccess = vi.fn(
+      () =>
+        new Promise<{ ok: true }>((resolve) =>
+          setTimeout(() => resolve({ ok: true }), 50),
+        ),
+    );
+    const state = new AppSyncState({
+      getDb: () => makeDb(),
+      resolveAccess,
+    });
+    state.recordChange(resourceEvent);
+
+    const result = await state.getCombinedChangesSinceForUser(
+      0,
+      "reader@example.com",
+      undefined,
+      false,
+    );
+
+    expect(result.events).toMatchObject([{ resourceId: "doc-1" }]);
+    expect(result.cursorLimited).toBeUndefined();
+    expect(resolveAccess).toHaveBeenCalledOnce();
+  });
+
+  it("stops waiting after a second when the access check never settles", async () => {
+    vi.useFakeTimers();
+    try {
+      const state = new AppSyncState({
+        getDb: () => makeDb(),
+        resolveAccess: () => new Promise(() => {}),
+      });
+      state.recordChange(resourceEvent);
+
+      const pending = state.getCombinedChangesSinceForUser(
+        0,
+        "reader@example.com",
+        undefined,
+        false,
+      );
+      await vi.advanceTimersByTimeAsync(1_000);
+      const result = await pending;
+
+      expect(result.events).toEqual([]);
+      expect(result.cursorLimited).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves the input cursor when a pending durable read cannot advance", async () => {
+    vi.useFakeTimers();
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const state = new AppSyncState({
+      getDb: () => makeDb(),
+      resolveAccess: () => new Promise(() => {}),
+    });
+    state.recordChange(resourceEvent);
+
+    const pending = state.getCombinedChangesSinceForUser(
+      0,
+      "reader@example.com",
+      undefined,
+      true,
+      { version: 0, id: "baseline" },
+    );
+    await vi.advanceTimersByTimeAsync(1_000);
+    const result = await pending;
+
+    expect(result).toEqual({
+      version: 0,
+      cursor: "0.baseline",
+      cursorLimited: true,
+      events: [],
+    });
+  });
+
+  it("does not wait when the read is not blocked on an access check", async () => {
+    const state = new AppSyncState({
+      getDb: () => makeDb(),
+      resolveAccess: () => new Promise(() => {}),
+    });
+    state.recordChange({ ...resourceEvent, owner: "reader@example.com" });
+
+    const result = await state.getCombinedChangesSinceForUser(
+      0,
+      "reader@example.com",
+      undefined,
+      false,
+    );
+
+    expect(result.events).toMatchObject([{ resourceId: "doc-1" }]);
   });
 });

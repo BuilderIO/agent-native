@@ -1,12 +1,3 @@
-/**
- * Behavioral tests for the `list-emails` agent action's Gmail-connected
- * path. Before the shared `server/lib/list-inbox-emails.ts` core existed,
- * this action re-implemented Gmail listing independently from the REST
- * `listEmails` handler and diverged from it in two ways: it never filtered
- * out snoozed threads, and an all-accounts Gmail 429/quota failure threw an
- * unhandled error instead of a graceful result. These tests pin down the
- * fix so the agent's inbox always matches what the human UI shows.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -17,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   claimInventoryCursor: vi.fn(),
   settleInventoryCursorClaim: vi.fn(),
   releaseInventoryCursorClaim: vi.fn(),
+  assertGmailNotCoolingDown: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -44,7 +36,6 @@ vi.mock("../server/lib/google-auth.js", () => ({
   getClients: vi.fn(),
   getConnectedAccountsWithErrors: vi.fn(),
   fetchGmailLabelMap: vi.fn(),
-  // Consumed internally by the real (unmocked) shared list-inbox-emails.js core.
   DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT: 100,
   gmailToEmailMessage: vi.fn(),
   listGmailMessages: vi.fn(),
@@ -53,6 +44,11 @@ vi.mock("../server/lib/google-auth.js", () => ({
 vi.mock("../server/lib/jobs.js", () => ({
   getSnoozedThreadIds: vi.fn(),
   getSyntheticEmailsForView: vi.fn(),
+}));
+
+vi.mock("../server/lib/gmail-quota.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/lib/gmail-quota.js")>()),
+  assertGmailNotCoolingDown: mocks.assertGmailNotCoolingDown,
 }));
 
 import {
@@ -97,6 +93,7 @@ function emailFor(raw: any, overrides: any = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.assertGmailNotCoolingDown.mockResolvedValue(undefined);
   mocks.getRequestUserEmail.mockReturnValue(OWNER);
   vi.mocked(isConnected).mockResolvedValue(true);
   vi.mocked(getClients).mockResolvedValue([
@@ -176,7 +173,7 @@ describe("list-emails action — Gmail-connected inbox", () => {
     expect(emails).toEqual([]);
   });
 
-  it("returns a graceful JSON error instead of throwing when Gmail rate-limits every account", async () => {
+  it("fails with the typed Gmail cooldown instead of a success-shaped JSON error when Gmail rate-limits every account", async () => {
     vi.mocked(listGmailMessages).mockResolvedValue({
       messages: [],
       errors: [
@@ -189,12 +186,35 @@ describe("list-emails action — Gmail-connected inbox", () => {
       ],
     } as any);
 
-    const raw = await action.run({ view: "inbox" });
-    const parsed = JSON.parse(raw);
+    const error = await action
+      .run({ view: "inbox" })
+      .catch((caught: unknown) => caught);
 
-    expect(parsed.error).toContain(OWNER);
-    expect(parsed.error).toContain("429");
-    expect(parsed.retryAfterSeconds).toBe(90);
+    expect(error).toMatchObject({
+      actionContractError: true,
+      statusCode: 429,
+      errorCode: "gmail_quota_cooldown",
+      retryAfterMs: 90_000,
+      details: { retryAfterSeconds: 90, retryAfterMs: 90_000 },
+    });
+  });
+
+  it("rejects repeat list calls inside a cooldown before any Gmail work", async () => {
+    const { GmailQuotaCooldownError } =
+      await import("../server/lib/google-api.js");
+    mocks.assertGmailNotCoolingDown.mockRejectedValue(
+      new GmailQuotaCooldownError(30_000),
+    );
+
+    for (let call = 0; call < 2; call++) {
+      await expect(action.run({ view: "inbox" })).rejects.toMatchObject({
+        errorCode: "gmail_quota_cooldown",
+      });
+    }
+
+    expect(mocks.assertGmailNotCoolingDown).toHaveBeenCalledWith([OWNER]);
+    expect(fetchGmailLabelMap).not.toHaveBeenCalled();
+    expect(listGmailMessages).not.toHaveBeenCalled();
   });
 
   it("does not call getSnoozedThreadIds when the Gmail account is rate-limited", async () => {
@@ -426,9 +446,6 @@ describe("list-emails action — coverage-aware inventory", () => {
   });
 
   it("classifies a whole-account quota cooldown as rate_limited in the inventory path", async () => {
-    // The `!listResult.ok` branch (single account, total failure) must carry
-    // isQuotaError through to inventoryError instead of relying on the
-    // message text, which is deliberately jargon-free for a real cooldown.
     vi.mocked(listGmailMessages).mockResolvedValue({
       messages: [],
       errors: [

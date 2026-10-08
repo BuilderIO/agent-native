@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-/** Inbound integration webhook policy. */
 export const integrationsConfig = z.object({
   durableDispatch: z
     .boolean()
@@ -24,9 +23,6 @@ export const integrationsConfig = z.object({
       env: ["WEBHOOK_BASE_URL"],
       doc: "Optional public base URL for self-callback and webhook targets.",
     }),
-  // Blank counts as unset everywhere in the env layer, so this cannot express
-  // "mount no platforms" — refuse the whole slot with `plugins.disabled`
-  // instead.
   platforms: z
     .array(z.string().min(1))
     .optional()

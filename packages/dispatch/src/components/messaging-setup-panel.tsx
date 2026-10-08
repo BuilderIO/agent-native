@@ -1,6 +1,7 @@
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   disconnectManagedIntegrationInstallation,
+  hasMissingRequiredCredentials,
   listManagedIntegrationBudgets,
   listManagedIntegrationInstallations,
   listManagedIntegrationScopes,
@@ -23,14 +24,14 @@ import {
 import {
   listBuiltInChannelIntegrations,
   type IntegrationCatalogEntry,
-  type IntegrationCredentialRequirement,
-} from "@agent-native/core/integrations";
+} from "@agent-native/core/integrations/catalog";
+import { channelIcon } from "@agent-native/toolkit/app/integrations";
 import {
-  IconBrandDiscord,
+  useCredentialSaveScope,
+  WhoField,
+} from "@agent-native/toolkit/app/settings";
+import {
   IconBrandSlack,
-  IconBrandTelegram,
-  IconBrandTeams,
-  IconBrandWhatsapp,
   IconCheck,
   IconChevronRight,
   IconCopy,
@@ -38,10 +39,8 @@ import {
   IconFileDescription,
   IconInfoCircle,
   IconLoader2,
-  IconMail,
-  IconPlug,
 } from "@tabler/icons-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -61,42 +60,11 @@ import { Skeleton } from "./ui/skeleton";
 import { Switch } from "./ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
-const CHANNELS = listBuiltInChannelIntegrations();
-
-const PLATFORM_ICONS: Partial<Record<string, typeof IconBrandSlack>> = {
-  slack: IconBrandSlack,
-  "microsoft-teams": IconBrandTeams,
-  discord: IconBrandDiscord,
-  telegram: IconBrandTelegram,
-  whatsapp: IconBrandWhatsapp,
-  email: IconMail,
-};
-
-function hasMissingRequiredCredentials(
-  credentials: readonly IntegrationCredentialRequirement[],
-  envStatusByKey: Map<string, IntegrationEnvStatus>,
-) {
-  const alternatives = new Map<
-    string,
-    readonly IntegrationCredentialRequirement[]
-  >();
-
-  for (const credential of credentials) {
-    if (!credential.required) continue;
-    if (!credential.alternativeGroup) {
-      if (!envStatusByKey.get(credential.key)?.configured) return true;
-      continue;
-    }
-    const group = alternatives.get(credential.alternativeGroup) ?? [];
-    alternatives.set(credential.alternativeGroup, [...group, credential]);
-  }
-
-  return [...alternatives.values()].some((group) =>
-    group.every(
-      (credential) => !envStatusByKey.get(credential.key)?.configured,
-    ),
-  );
-}
+// Google Docs reads its service account key from the deployment environment
+// only, so this credential form can't set it up; apps list it in Channels.
+const CHANNELS = listBuiltInChannelIntegrations().filter(
+  (entry) => entry.id !== "google-docs",
+);
 
 function HelpTooltip({ content }: { content: string }) {
   return (
@@ -223,6 +191,8 @@ export function MessagingSetupPanel() {
   const [budgets, setBudgets] = useState<ClientIntegrationUsageBudget[]>([]);
   const [scopeBudget, setScopeBudget] = useState<Record<string, string>>({});
   const [savingScope, setSavingScope] = useState<string | null>(null);
+  const credentialScope = useCredentialSaveScope();
+  const whoId = useId();
 
   const refreshStatuses = async () => {
     setLoading(true);
@@ -311,6 +281,8 @@ export function MessagingSetupPanel() {
     platform: IntegrationCatalogEntry,
     keys: string[],
   ) => {
+    const scope = credentialScope.scope;
+    if (!scope) return;
     const vars = keys
       .map((key) => ({ key, value: envValues[key]?.trim() || "" }))
       .filter((item) => item.value);
@@ -322,7 +294,7 @@ export function MessagingSetupPanel() {
 
     setSavingKeysFor(platform.id);
     try {
-      await saveIntegrationEnvVars(vars);
+      await saveIntegrationEnvVars(vars, { scope });
 
       toast.success(`${platform.name} credentials saved`);
       setEnvValues((current) => {
@@ -505,7 +477,7 @@ export function MessagingSetupPanel() {
           );
           const missingRequiredCredentials = hasMissingRequiredCredentials(
             envKeys,
-            envStatusByKey,
+            (key) => Boolean(envStatusByKey.get(key)?.configured),
           );
           const configuredCredentialCount = envKeys.filter(
             (envKey) => envStatusByKey.get(envKey.key)?.configured,
@@ -515,7 +487,7 @@ export function MessagingSetupPanel() {
             : missingRequiredCredentials
               ? "Required credentials are missing"
               : `${configuredCredentialCount} saved`;
-          const Icon = PLATFORM_ICONS[platform.iconKey] ?? IconPlug;
+          const Icon = channelIcon(platform.iconKey);
 
           return (
             <AccordionItem
@@ -895,8 +867,6 @@ export function MessagingSetupPanel() {
                         const helpText = envKey.helpText ?? envStatus?.helpText;
                         const label =
                           envKey.label || envStatus?.label || envKey.key;
-                        // Email agent address is not a secret — show it plainly
-                        // so users can copy and share it.
                         const isPublicValue =
                           envKey.key === "EMAIL_AGENT_ADDRESS";
                         return (
@@ -1007,45 +977,74 @@ export function MessagingSetupPanel() {
                               (envKey) =>
                                 !envStatusByKey.get(envKey.key)?.configured,
                             ) ? (
-                              <Button
-                                variant="outline"
-                                onClick={() =>
-                                  saveEnvKeys(
-                                    platform,
-                                    legacyEnvKeys.map((envKey) => envKey.key),
-                                  )
-                                }
-                                disabled={savingKeysFor === platform.id}
-                              >
-                                {savingKeysFor === platform.id
-                                  ? "Saving..."
-                                  : "Save credentials"}
-                              </Button>
+                              <>
+                                {credentialScope.canChoose &&
+                                credentialScope.scope ? (
+                                  <WhoField
+                                    id={`${whoId}-${platform.id}-legacy`}
+                                    choice
+                                    scope={credentialScope.scope}
+                                    disabled={savingKeysFor === platform.id}
+                                    onChange={credentialScope.setScope}
+                                  />
+                                ) : null}
+                                <Button
+                                  variant="outline"
+                                  onClick={() =>
+                                    saveEnvKeys(
+                                      platform,
+                                      legacyEnvKeys.map((envKey) => envKey.key),
+                                    )
+                                  }
+                                  disabled={
+                                    savingKeysFor === platform.id ||
+                                    !credentialScope.scope
+                                  }
+                                >
+                                  {savingKeysFor === platform.id
+                                    ? "Saving..."
+                                    : "Save credentials"}
+                                </Button>
+                              </>
                             ) : null}
                           </div>
                         </CollapsibleContent>
                       </Collapsible>
                     ) : null}
                     {missingRequiredCredentials ? (
-                      <Button
-                        variant="outline"
-                        onClick={() =>
-                          saveEnvKeys(
-                            platform,
-                            envKeys.map((k) => k.key),
-                          )
-                        }
-                        disabled={savingKeysFor === platform.id}
-                      >
-                        {savingKeysFor === platform.id ? (
-                          <>
-                            <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Saving...
-                          </>
-                        ) : (
-                          "Save credentials"
-                        )}
-                      </Button>
+                      <>
+                        {credentialScope.canChoose && credentialScope.scope ? (
+                          <WhoField
+                            id={`${whoId}-${platform.id}`}
+                            choice
+                            scope={credentialScope.scope}
+                            disabled={savingKeysFor === platform.id}
+                            onChange={credentialScope.setScope}
+                          />
+                        ) : null}
+                        <Button
+                          variant="outline"
+                          onClick={() =>
+                            saveEnvKeys(
+                              platform,
+                              envKeys.map((k) => k.key),
+                            )
+                          }
+                          disabled={
+                            savingKeysFor === platform.id ||
+                            !credentialScope.scope
+                          }
+                        >
+                          {savingKeysFor === platform.id ? (
+                            <>
+                              <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Saving...
+                            </>
+                          ) : (
+                            "Save credentials"
+                          )}
+                        </Button>
+                      </>
                     ) : null}
                   </DisclosureSection>
 

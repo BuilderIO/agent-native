@@ -55,10 +55,6 @@ function readPartialJsonString(
   return { value, complete: false };
 }
 
-/**
- * Reads the fields Slides needs from a tool input that may still be invalid
- * JSON because the model has not finished streaming its argument.
- */
 export function parsePartialAddSlideInput(
   argsText: string,
 ): PartialAddSlideInput {

@@ -15,14 +15,11 @@ import type { CalendarProvider } from "./types.js";
 export interface GoogleCalendarProviderConfig {
   clientId: string;
   clientSecret: string;
-  /** Resolve a fresh access token for a given credentialId (refresh if needed). */
   getAccessToken: (credentialId: string) => Promise<string>;
-  /** Persist updated refresh/access tokens after a refresh. */
   updateTokens?: (
     credentialId: string,
     tokens: { accessToken: string; refreshToken?: string; expiresAt?: Date },
   ) => Promise<void>;
-  /** Called when the API returns 401/403; the consumer should mark the credential invalid. */
   markInvalid?: (credentialId: string) => Promise<void>;
 }
 
@@ -104,7 +101,6 @@ export function createGoogleCalendarProvider(
         expiresAt: new Date(Date.now() + (tokens.expires_in ?? 3600) * 1000),
       });
 
-      // Discover external email + calendar list
       const calendars = await apiCall<{
         items: { id: string; summary: string; primary?: boolean }[];
       }>(
@@ -208,7 +204,6 @@ export function createGoogleCalendarProvider(
     },
 
     async updateEvent({ credentialId, externalId, booking }) {
-      // Bump sequence for RFC 5545 compliance
       const newSeq = booking.iCalSequence + 1;
       const body = {
         summary: booking.title,

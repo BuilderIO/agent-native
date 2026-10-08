@@ -13,11 +13,7 @@ export default defineConfig({
   plugins: [
     ...reactRouterPlugins(),
     ...agentNativePlugins({
-      // shiki only runs in AssistantChat's useEffect — keep it out of the
-      // CF Pages Functions bundle (25 MiB limit).
       ssrStubs: ["shiki"],
-      // Mail's native Gmail actions own this workflow; don't offer a second,
-      // restricted Google Workspace MCP setup from inside the chat.
       mcpIntegrations: {
         defaults: { exclude: [...MAIL_NATIVE_MCP_PRESET_EXCLUSIONS] },
       },

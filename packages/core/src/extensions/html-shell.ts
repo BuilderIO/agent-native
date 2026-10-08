@@ -54,11 +54,8 @@ export const EXTENSION_IFRAME_META_CSP = EXTENSION_IFRAME_CSP_BASE;
  */
 
 export interface ExtensionRenderBinding {
-  /** Email of the user who authored / owns the extension. */
   authorEmail: string;
-  /** Email of the user currently viewing/running the extension. */
   viewerEmail: string;
-  /** True when viewer === author. */
   isAuthor: boolean;
   /**
    * Resolved role for the viewer ("owner" | "admin" | "editor" | "commenter" | "viewer").
@@ -71,12 +68,7 @@ export interface ExtensionRenderBinding {
    * extension, audit C1). For now this is metadata only.
    */
   role: "owner" | "admin" | "editor" | "commenter" | "viewer";
-  /** Where the extension definition came from. Database extensions are the default. */
   source?: "database" | "local-files";
-  /**
-   * Fine-grained helper permissions for local file extensions. Database-backed
-   * extensions keep using the role table in the parent bridge.
-   */
   permissions?: {
     appActions?: string[];
     extensionData?: boolean;

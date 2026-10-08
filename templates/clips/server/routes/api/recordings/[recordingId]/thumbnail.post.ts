@@ -1,14 +1,5 @@
-/**
- * Upload a still-frame thumbnail for a recording. Called by the video player
- * once the owner loads the first frame of their clip — we capture the frame
- * client-side, POST the bytes here, push them through the framework
- * `uploadFile`, and store the resulting URL in `recordings.thumbnail_url`.
- *
- * Route: POST /api/recordings/:recordingId/thumbnail
- * Body: raw JPEG (or PNG) bytes. Content-Type: image/jpeg | image/png.
- */
-
 import { runWithRequestContext } from "@agent-native/core/server";
+import { isImageRecording } from "@shared/recording-kind";
 import { and, eq } from "drizzle-orm";
 import {
   defineEventHandler,
@@ -83,6 +74,7 @@ export default defineEventHandler(async (event: H3Event) => {
         ownerEmail: schema.recordings.ownerEmail,
         thumbnailUrl: schema.recordings.thumbnailUrl,
         editsJson: schema.recordings.editsJson,
+        kind: schema.recordings.kind,
       })
       .from(schema.recordings)
       .where(
@@ -99,6 +91,13 @@ export default defineEventHandler(async (event: H3Event) => {
       });
       setResponseStatus(event, 404);
       return { error: "Recording not found" };
+    }
+
+    // A screenshot's thumbnail is the picture viewers are served; replacing
+    // it here would swap what they see outside the editor and its burn.
+    if (isImageRecording(existing)) {
+      setResponseStatus(event, 409);
+      return { error: "A screenshot uses its own picture as its thumbnail." };
     }
 
     const replaceMode = getQuery(event).replace;

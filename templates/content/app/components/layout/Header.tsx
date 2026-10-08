@@ -1,8 +1,8 @@
-import { AgentToggleButton } from "@agent-native/core/client/AgentSidebar";
 import {
   useHeaderTitle,
   useHeaderActions,
 } from "@agent-native/toolkit/app-shell";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat/AgentSidebar";
 import type { ReactNode } from "react";
 import { useLocation } from "react-router";
 

@@ -121,7 +121,6 @@ export function getDesktopTemplateGatewayAppUrl(appId: string): string | null {
   );
 }
 
-// Re-export everything from the shared app config package
 export {
   type AppDefinition,
   type AppConfig,

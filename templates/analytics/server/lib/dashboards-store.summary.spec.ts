@@ -6,6 +6,12 @@ const state = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
   settings: {} as Record<string, Record<string, unknown>>,
   settingsError: null as Error | null,
+  settingsPrefixCalls: [] as Array<{
+    prefix: string;
+    options?: { limit?: number };
+  }>,
+  queryLimit: null as number | null,
+  orderBy: [] as unknown[],
   insert: vi.fn(),
   accessFilter: vi.fn(),
 }));
@@ -19,12 +25,16 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
-  listSettingsByPrefix: async (prefix: string) => {
-    if (state.settingsError) throw state.settingsError;
-    return Object.entries(state.settings)
-      .filter(([key]) => key.startsWith(prefix))
-      .map(([key, value]) => ({ key, value }));
-  },
+  listSettingsByPrefix: vi.fn(
+    async (prefix: string, options?: { limit?: number }) => {
+      state.settingsPrefixCalls.push({ prefix, options });
+      if (state.settingsError) throw state.settingsError;
+      const rows = Object.entries(state.settings)
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([key, value]) => ({ key, value }));
+      return options?.limit === undefined ? rows : rows.slice(0, options.limit);
+    },
+  ),
   getOrgSetting: async () => null,
   getUserSetting: async () => null,
   deleteOrgSetting: async () => false,
@@ -40,6 +50,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ kind: "and", conditions }),
+  asc: (value: unknown) => ({ kind: "asc", value }),
   desc: (value: unknown) => ({ kind: "desc", value }),
   eq: (target: unknown, value: unknown) => ({ kind: "eq", target, value }),
   isNotNull: (target: unknown) => ({ kind: "isNotNull", target }),
@@ -99,7 +110,19 @@ vi.mock("../db/index.js", () => {
         from: () => ({
           where: (where: unknown) => {
             state.where = where;
-            return Promise.resolve(state.rows);
+            const result = Promise.resolve(state.rows);
+            Object.assign(result, {
+              orderBy: (...ordering: unknown[]) => {
+                state.orderBy = ordering;
+                return {
+                  limit: (limit: number) => {
+                    state.queryLimit = limit;
+                    return Promise.resolve(state.rows.slice(0, limit));
+                  },
+                };
+              },
+            });
+            return result;
           },
         }),
       };
@@ -111,6 +134,7 @@ vi.mock("../db/index.js", () => {
 
 const {
   assertDashboardNameIsAvailable,
+  listAnalyses,
   listDashboardSummaries,
   normalizeDashboardName,
 } = await import("./dashboards-store.js");
@@ -123,6 +147,9 @@ beforeEach(() => {
   state.rows = [];
   state.settings = {};
   state.settingsError = null;
+  state.settingsPrefixCalls = [];
+  state.queryLimit = null;
+  state.orderBy = [];
   state.insert.mockReset();
   state.accessFilter.mockReset();
   state.accessFilter.mockReturnValue({ kind: "access" });
@@ -270,6 +297,37 @@ describe("listDashboardSummaries", () => {
     });
   });
 
+  it("bounds catalog summaries and scopes legacy SQL dashboard reads", async () => {
+    state.settings = {
+      "u:alice@example.com:sql-dashboard-legacy-user": {
+        name: "Legacy user dashboard",
+      },
+      "o:org-1:sql-dashboard-legacy-org": {
+        name: "Legacy org dashboard",
+      },
+      "u:alice@example.com:favorites": { ids: ["other"] },
+    };
+
+    const result = await listDashboardSummaries(ctx, {
+      kind: "sql",
+      limit: 1,
+    });
+
+    expect(state.queryLimit).toBe(1);
+    expect(state.orderBy).toEqual([
+      { kind: "desc", value: { name: "updatedAt" } },
+      { kind: "asc", value: { name: "id" } },
+    ]);
+    expect(result.map((row) => row.id)).toEqual(["legacy-user"]);
+    expect(state.settingsPrefixCalls).toEqual([
+      {
+        prefix: "u:alice@example.com:sql-dashboard-",
+        options: { limit: 1 },
+      },
+      { prefix: "o:org-1:sql-dashboard-", options: { limit: 1 } },
+    ]);
+  });
+
   it("normalizes dashboard names consistently for matching", () => {
     expect(normalizeDashboardName("  Revenue\nDashboard  ")).toBe(
       "revenue dashboard",
@@ -329,5 +387,43 @@ describe("listDashboardSummaries", () => {
     await expect(
       assertDashboardNameIsAvailable("New dashboard", ctx),
     ).rejects.toBe(error);
+  });
+});
+
+describe("listAnalyses", () => {
+  it("migrates scoped legacy analyses without reading unrelated settings", async () => {
+    state.settings = {
+      [`u:${ctx.email}:adhoc-analysis-legacy-user`]: {
+        name: "Legacy user analysis",
+      },
+      [`o:${ctx.orgId}:adhoc-analysis-legacy-org`]: {
+        name: "Legacy org analysis",
+      },
+      [`u:${ctx.email}:unrelated-setting`]: { value: true },
+      [`o:${ctx.orgId}:unrelated-setting`]: { value: true },
+    };
+    state.insert.mockImplementation(() => ({
+      values: (row: Record<string, unknown>) => ({
+        onConflictDoNothing: async () => {
+          state.rows = [row];
+        },
+      }),
+    }));
+
+    const result = await listAnalyses(ctx);
+
+    expect(result.map((row) => row.id)).toEqual(["legacy-user", "legacy-org"]);
+    expect(state.insert).toHaveBeenCalledTimes(2);
+    expect(state.settingsPrefixCalls).toEqual([
+      { prefix: `u:${ctx.email}:adhoc-analysis-`, options: undefined },
+      { prefix: `o:${ctx.orgId}:adhoc-analysis-`, options: undefined },
+    ]);
+  });
+
+  it("surfaces unreadable scoped legacy settings", async () => {
+    const error = new Error("settings query failed");
+    state.settingsError = error;
+
+    await expect(listAnalyses(ctx)).rejects.toBe(error);
   });
 });

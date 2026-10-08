@@ -3,20 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import { runRedo } from "@/pages/design-editor/commands/redo";
 import { runUndo } from "@/pages/design-editor/commands/undo";
 
-/**
- * Figma parity (ground-truth Round 4): a plain selection change is its own
- * undo-stack entry (`SelectionHistoryEntry`, history.ts). Its snapshots carry
- * screen ids captured before the screen they name was ever deleted. Undoing
- * a screen deletion recreates the screen under a brand-new database id
- * (`undoFileDeletion`) and, before this fix, remapped only the file-deletion
- * entry itself — leaving every `SelectionHistoryEntry` still naming the dead
- * id. A later selection-only undo/redo would then restore a selection
- * pointing at a screen that no longer exists.
- *
- * Repro: select A -> select B -> delete A -> undo (recreates A as
- * "screen-a-2") -> walk selection history back with undo, forward with
- * redo. Every restored selection must reference only live screen ids.
- */
 function sharedRefs() {
   return {
     historyOrderRef: {
@@ -140,7 +126,6 @@ function commonArgs(refs: ReturnType<typeof sharedRefs>) {
     viewModeRef: { current: "overview" as const },
     writeFrameGeometrySnapshot: vi.fn(),
     ydoc: null,
-    // runRedo-only fields — harmless as extras on the runUndo call.
     contentHistorySelectionAfterRef: { current: new WeakMap() },
     deleteRuntimeElement: vi.fn(() => true),
     focusCreatedScreen: vi.fn(),
@@ -166,8 +151,6 @@ describe("undo/redo — selection history after a file-deletion undo", () => {
     const refs = sharedRefs();
     const args = commonArgs(refs);
 
-    // Undo #1: undoes the deletion of "screen-a", recreating it as
-    // "screen-a-2" (async createFileMutation).
     runUndo(args as unknown as Parameters<typeof runUndo>[0]);
     await flushMicrotasks();
 
@@ -181,8 +164,6 @@ describe("undo/redo — selection history after a file-deletion undo", () => {
         fileType: "html",
       }),
     );
-    // The fix under test: the pure-selection entry recorded before the
-    // delete must now point at the recreated screen, not the dead one.
     expect(refs.selectionUndoStackRef.current[0]?.before).toMatchObject({
       overviewSelectedScreenIds: ["screen-a-2"],
       selectedLayerIds: ["screen-a-2"],
@@ -194,16 +175,11 @@ describe("undo/redo — selection history after a file-deletion undo", () => {
       activeFileId: "screen-b",
     });
 
-    // The recreated screen is now part of the live file projection used by
-    // subsequent selection-only history replay. The runUndo callback itself
-    // is intentionally still the pre-restore closure, so this ref models the
-    // render that publishes the recreated file before the next undo keypress.
     args.filesRef!.current = [
       ...(args.filesRef!.current as unknown as { id: string }[]),
       { id: "screen-a-2" },
     ];
 
-    // Undo #2: walks back into the plain selection-change entry.
     runUndo(args as unknown as Parameters<typeof runUndo>[0]);
     await flushMicrotasks();
 
@@ -215,7 +191,6 @@ describe("undo/redo — selection history after a file-deletion undo", () => {
       }),
     );
 
-    // Redo: walks forward again over the same selection entry.
     runRedo(args as unknown as Parameters<typeof runRedo>[0]);
     await flushMicrotasks();
 
@@ -227,7 +202,6 @@ describe("undo/redo — selection history after a file-deletion undo", () => {
       }),
     );
 
-    // Never once restore the dead pre-deletion id.
     for (const call of args.restoreSelectionSnapshot.mock.calls) {
       const selection = call[0] as {
         overviewSelectedScreenIds: string[];

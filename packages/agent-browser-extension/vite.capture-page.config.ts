@@ -32,7 +32,6 @@ export default defineConfig({
     rollupOptions: {
       input: resolve(root, "src/capture-page.ts"),
       output: {
-        // chrome.scripting.executeScript injects a classic script, not an ES module.
         format: "iife",
         name: "AgentNativeCapturePage",
         entryFileNames: "assets/capture-page.js",

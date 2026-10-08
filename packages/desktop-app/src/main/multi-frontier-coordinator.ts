@@ -67,7 +67,6 @@ export interface LocalFrontierCoordinatorState {
   recovery?: {
     reason: LocalFrontierRecoveryReason;
     resumablePhase: LocalFrontierPhase;
-    /** Retained from durable state so a later coordinator write cannot erase it. */
     recoveredAt?: string;
     checkpointId?: string;
   };
@@ -100,7 +99,6 @@ export interface LocalFrontierParticipant {
 
 export type LocalFrontierTurnResult = MultiFrontierTurnResult;
 
-/** This is deliberately the entire child-process surface; it has no store writer. */
 export interface LocalFrontierSessionInput {
   collaborationId: string;
   permission: "read_only";
@@ -179,10 +177,6 @@ const REQUIRED_RUNTIME_ROSTER = new Set([
   "claude/claude-code",
 ]);
 
-/**
- * Main-process-only coordinator for a two-participant local collaboration.
- * Participants receive a turn capability, never a durable-state writer.
- */
 export class MultiFrontierCoordinator {
   readonly #participants = new Map<string, LocalFrontierParticipant>();
   readonly #store: LocalFrontierCoordinatorStore;
@@ -277,7 +271,6 @@ export class MultiFrontierCoordinator {
     }
   }
 
-  /** Reconnects read-only sessions only. It never replays a prior turn. */
   resume(): Promise<LocalFrontierCoordinatorState> {
     this.#assertUsable();
     if (this.#lifecycleFence) {
@@ -415,7 +408,6 @@ export class MultiFrontierCoordinator {
     return this.#advanceReadOnlyPhase("cross_review", "converging");
   }
 
-  /** Explicit GO is the only path that creates a workspace-write capability. */
   async approveGo(
     driverParticipantId: string,
   ): Promise<LocalFrontierDriverLease> {
@@ -1161,10 +1153,6 @@ export interface MultiFrontierOrchestratorBridge {
   ): Promise<MultiFrontierTurnResult>;
 }
 
-/**
- * Couples orchestrator capture to the only coordinator-authorized participant
- * turn. Captures subscribe before the coordinator starts the child process.
- */
 export function createMultiFrontierOrchestratorBridge(
   coordinator: MultiFrontierCoordinator,
 ): MultiFrontierOrchestratorBridge {

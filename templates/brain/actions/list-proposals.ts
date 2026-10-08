@@ -7,10 +7,6 @@ import { getDb, schema } from "../server/db/index.js";
 import { listAccessibleAudienceIds } from "../server/lib/audiences.js";
 import { parseJson, serializeProposal } from "../server/lib/brain.js";
 
-/**
- * A bare category label does not tell a reviewer how close the call was, so
- * annotate it with the classifier's probability when one was recorded.
- */
 function describeSensitivityCategories(
   categories: string[],
   decisionScoresJson: string | null,

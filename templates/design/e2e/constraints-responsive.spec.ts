@@ -52,10 +52,6 @@ async function postAction(
 }
 
 async function selectFixtureLayer(page: Page, nodeId: string) {
-  // A Constraints popover left open by the previous element swallows this
-  // click, and "the Constraints button is visible" is true for ANY selection —
-  // so without naming the node the next choice silently rewrites the PREVIOUS
-  // element and this element keeps its defaults.
   await page.keyboard.press("Escape");
   const layerName = {
     "right-bottom": "Right Bottom Frame",
@@ -205,32 +201,26 @@ test("constraints preserve Figma geometry through real nested and auto-layout pa
       ),
     ) as Record<(typeof ids)[number], Geometry>;
 
-    // Left/Top: position and fixed size stay constant.
     for (const key of ["left", "top", "width", "height"] as const) {
       expectClose(after["left-top"][key], before["left-top"][key]);
     }
-    // Right/Bottom: opposite-edge gaps and fixed size stay constant.
     for (const key of ["right", "bottom", "width", "height"] as const) {
       expectClose(after["right-bottom"][key], before["right-bottom"][key]);
     }
-    // Dual-edge pins stretch by the parent's exact resize delta.
     expectClose(after.stretch.left, before.stretch.left);
     expectClose(after.stretch.right, before.stretch.right);
     expectClose(after.stretch.top, before.stretch.top);
     expectClose(after.stretch.bottom, before.stretch.bottom);
     expectClose(after.stretch.width, before.stretch.width + 200);
     expectClose(after.stretch.height, before.stretch.height + 150);
-    // Center preserves its offset from the parent's center, never recenters.
     expectClose(after.center.centerX, before.center.centerX);
     expectClose(after.center.centerY, before.center.centerY);
     expectClose(after.center.width, before.center.width);
     expectClose(after.center.height, before.center.height);
-    // Scale preserves position and size ratios on both axes.
     expectClose(after.scale.left / 600, before.scale.left / 400, 0.002);
     expectClose(after.scale.top / 450, before.scale.top / 300, 0.002);
     expectClose(after.scale.width / 600, before.scale.width / 400, 0.002);
     expectClose(after.scale.height / 450, before.scale.height / 300, 0.002);
-    // Absolute children of auto-layout parents use the same proportional path.
     expectClose(
       after["auto-absolute"].left / 600,
       before["auto-absolute"].left / 400,

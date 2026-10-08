@@ -106,6 +106,14 @@ Die kanonischen Pfade, die steuern, wie der Agent jede Ressource nutzt:
 
 Diese Pfade gelten für alle drei Bereiche – Arbeitsbereich, Organisation/App und Persönlich. Der spätere Bereich gewinnt, wenn derselbe Pfad auf mehreren Ebenen vorhanden ist.
 
+## Ressourcen mitnehmen {#resource-pack}
+
+Exportiere ein JSON-Paket mit Prüfsumme der Textdateien, die du bereits lesen kannst (`export-resource-pack`), und importiere es in eine andere App oder einen anderen Benutzer (`import-resource-pack`). Die Schaltflächen **Export pack** / **Import pack** im Tab Ressourcen rufen dieselben Aktionen auf.
+
+- Der Export enthält nur Text. Binär-Uploads werden ausgelassen. API-Schlüssel-ähnliche Zeichenfolgen und MCP-`env`-/`headers`-Tokenfelder werden redigiert; verbinde MCP nach dem Import erneut.
+- Der Import schreibt standardmäßig in den Bereich **personal** und überspringt Konflikte. Der Organisationsimport erfordert dieselbe Admin-Schreib-ACL wie das Bearbeiten von Organisationsdateien. Workspace-Import ist nicht verfügbar.
+- Ein Paket mit mehr als 200 Textdateien oder 1 MB schlägt mit `too_large` fehl, statt gekürzt zu werden. Eine Prüfsummenabweichung schlägt geschlossen fehl.
+
 <Diagram id="doc-block-1le942t" title="Drei Bereiche, eine effektive Datei" summary={"Die Laufzeit löst beim Lesen den gleichen Pfad über Arbeitsbereiche, Apps und persönliche Bereiche hinweg auf – der spezifischste Bereich gewinnt."}>
 
 ```html

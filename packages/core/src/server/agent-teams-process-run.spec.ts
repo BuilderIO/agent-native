@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// ── In-memory queue table (real queue module runs against this) ───────────
 let queueRows: Record<string, any>[] = [];
 function affected(n: number) {
   return { rows: [], rowsAffected: n };
@@ -42,7 +41,6 @@ const queueDb = {
       }
       return affected(0);
     }
-    // bump continuation (with or without attempts fencing)
     if (s.includes("continuation_count = continuation_count + 1")) {
       const [updatedAt, taskId, claimedAttempts] = args;
       const r = queueRows.find(
@@ -59,7 +57,6 @@ const queueDb = {
       }
       return affected(0);
     }
-    // complete (with or without attempts fencing)
     if (s.includes("SET status = ?, updated_at = ?")) {
       const [status, updatedAt, taskId, claimedAttempts] = args;
       const r = queueRows.find(
@@ -74,7 +71,6 @@ const queueDb = {
       }
       return affected(0);
     }
-    // touch (with or without attempts fencing)
     if (
       s.includes("SET updated_at = ? WHERE task_id = ? AND status = 'running'")
     ) {
@@ -127,7 +123,6 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
-// ── app_state (task records + thread reverse-lookup) ──────────────────────
 const appState = new Map<string, any>();
 type MockRequestContext = {
   userEmail?: string;
@@ -164,7 +159,6 @@ vi.mock("../application-state/script-helpers.js", () => ({
   }),
 }));
 
-// ── chat thread store (thread_data round-trips through here) ──────────────
 const threadData = new Map<string, string>();
 vi.mock("../chat-threads/store.js", () => ({
   createThread: vi.fn(async (_owner: string, opts: any) => ({
@@ -181,7 +175,6 @@ vi.mock("../chat-threads/store.js", () => ({
   }),
 }));
 
-// ── run-manager: drive runFn then onComplete with a synthetic run ─────────
 const runAgentLoopMock = vi.fn();
 const instrumentAgentLoopMock = vi.fn();
 const getObservabilityConfigMock = vi.fn();
@@ -243,16 +236,8 @@ vi.mock("../agent/run-store.js", () => ({
   getRunEventsSince: getRunEventsSinceMock,
 }));
 
-// ── production-agent: scripted agent loop ─────────────────────────────────
 const actionsToEngineToolsMock = vi.fn(() => [] as Array<{ name: string }>);
 
-// `filterInitialEngineTools`'s own filtering semantics are covered directly
-// (unmocked) by production-agent.spec.ts. Re-implemented minimally here
-// rather than via `vi.importActual` on the real module, which would pull in
-// production-agent.ts's full module graph (e.g. its module-scope
-// `registerBuiltinEngines()` call) that this file's narrower mocks don't
-// support. This only needs to prove agent-teams.ts WIRES the filter with the
-// right inputs, not re-prove the filter's own correctness.
 function fakeFilterInitialEngineTools(
   tools: Array<{ name: string }>,
   initialToolNames?: string[],
@@ -314,11 +299,6 @@ vi.mock("../observability/traces.js", () => ({
   instrumentAgentLoop: (opts: any) => instrumentAgentLoopMock(opts),
 }));
 
-// Real `attachToolSearch` transitively imports the mcp-client/secrets/db
-// schema chain (for MCP tool visibility checks), which this file's minimal
-// `../db/client.js` mock doesn't support. Only the shape used by
-// agent-teams.ts matters here: stamp a `tool-search` entry onto the given
-// registry and return it.
 vi.mock("../agent/tool-search.js", () => ({
   TOOL_SEARCH_ACTION_NAME: "tool-search",
   attachToolSearch: (registry: Record<string, unknown>) => {
@@ -330,7 +310,6 @@ vi.mock("../agent/tool-search.js", () => ({
   },
 }));
 
-// ── progress registry: no-op writes ──────────────────────────────────────
 vi.mock("../progress/registry.js", () => ({
   startRun: vi.fn(async () => ({})),
   updateRunProgress: vi.fn(async () => ({})),
@@ -365,7 +344,6 @@ vi.mock("./request-context.js", () => ({
   },
 }));
 
-// ── capture self-fire dispatches ──────────────────────────────────────────
 const dispatches: Array<{ taskId: string; body?: any; event?: any }> = [];
 const fireInternalDispatchMock = vi.fn(async (o: any) => {
   dispatches.push({ taskId: o.taskId, body: o.body, event: o.event });
@@ -480,7 +458,6 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect((await queue.getAgentTeamRunDispatchState("t1"))?.status).toBe(
       "done",
     );
-    // thread_data persisted with the assistant turn
     expect(threadData.get("thread-1")).toContain("the result");
   }, 20_000);
 
@@ -698,7 +675,6 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
   });
 
   it("self-fires a continuation at a soft-timeout boundary, then finalizes", async () => {
-    // First chunk hits the soft-timeout boundary; second chunk finishes.
     runAgentLoopMock
       .mockImplementationOnce(async (opts: any) => {
         opts.send({ type: "text", text: "partial " });
@@ -709,7 +685,6 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       });
     await seedTask("t3");
 
-    // Chunk 1 — should NOT finalize; should bump + self-fire a continuation.
     await processAgentTeamRun({
       taskId: "t3",
       mode: "start",
@@ -725,7 +700,6 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       (await queue.getAgentTeamRunDispatchState("t3"))?.continuationCount,
     ).toBe(1);
 
-    // Chunk 2 — the self-fired continuation completes the task.
     await processAgentTeamRun({
       taskId: "t3",
       mode: "continue",
@@ -963,18 +937,13 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
   });
 
   it("finalizes with [hit-continuation-limit] marker after consecutive no-progress chunks", async () => {
-    // Each chunk emits auto_continue but no substantive events (text/tool).
-    // After MAX_AGENT_TEAM_NO_PROGRESS_CONTINUATIONS (3) such chunks the run
-    // should be finalized rather than continuing indefinitely.
     let chunkCount = 0;
     runAgentLoopMock.mockImplementation(async (opts: any) => {
       chunkCount += 1;
-      // emit ONLY the continuation signal — no text, no tool calls.
       opts.send({ type: "auto_continue", reason: "run_timeout" });
     });
     await seedTask("tp-no-progress");
 
-    // Run the first chunk (count 1).
     await processAgentTeamRun({
       taskId: "tp-no-progress",
       mode: "start",
@@ -986,7 +955,6 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       body: { mode: "continue", noProgressCount: 1 },
     });
 
-    // Chunk 2 — noProgressCount = 1.
     await processAgentTeamRun({
       taskId: "tp-no-progress",
       mode: "continue",
@@ -998,8 +966,6 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       body: { mode: "continue", noProgressCount: 2 },
     });
 
-    // Chunk 3 — noProgressCount = 2. After this, consecutive count reaches 3
-    // which equals MAX_AGENT_TEAM_NO_PROGRESS_CONTINUATIONS, so it must finalize.
     await processAgentTeamRun({
       taskId: "tp-no-progress",
       mode: "continue",
@@ -1013,25 +979,20 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect(
       (await queue.getAgentTeamRunDispatchState("tp-no-progress"))?.status,
     ).toBe("done");
-    // No fourth chunk fired.
     expect(dispatches).toHaveLength(2);
   });
 
   it("resets no-progress counter when a chunk makes progress", async () => {
-    // Pattern: no-progress, progress, no-progress, no-progress — should NOT
-    // finalize early because the counter resets on the progress chunk.
     let callCount = 0;
     runAgentLoopMock.mockImplementation(async (opts: any) => {
       callCount += 1;
       if (callCount === 2) {
-        // chunk 2: actual progress
         opts.send({ type: "text", text: "some progress" });
       }
       opts.send({ type: "auto_continue", reason: "run_timeout" });
     });
     await seedTask("tp-reset");
 
-    // Chunk 1: no-progress (count goes to 1).
     await processAgentTeamRun({
       taskId: "tp-reset",
       mode: "start",
@@ -1040,7 +1001,6 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     });
     expect(dispatches[0].body.noProgressCount).toBe(1);
 
-    // Chunk 2: has progress → counter resets to 0.
     await processAgentTeamRun({
       taskId: "tp-reset",
       mode: "continue",
@@ -1049,14 +1009,10 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     });
     expect(dispatches[1].body.noProgressCount).toBe(0);
 
-    // Still running after 2 chunks.
     expect(appState.get("agent-task:tp-reset").status).toBe("running");
   });
 
   it("fenced heartbeat write no-ops when the row has been re-claimed (double-claim prevention)", async () => {
-    // Simulate a superseded invocation: an old invocation claimed attempts=1,
-    // but the row has since been re-claimed (attempts=2). The superseded
-    // invocation's heartbeat write must not affect the live invocation's row.
     await queue.enqueueAgentTeamRun({
       taskId: "tf-fence",
       threadId: "thread-fence",
@@ -1066,27 +1022,21 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       payload: { description: "fence test", turnId: "run-task-tf-fence" },
     });
 
-    // First claim → attempts becomes 1.
     const firstClaim = await queue.claimAgentTeamRun("tf-fence");
     expect(firstClaim?.attempts).toBe(1);
 
-    // Simulate the row going stale and being re-claimed (attempts → 2).
     const row = queueRows.find((x) => x.task_id === "tf-fence");
     if (!row) throw new Error("missing row");
-    // Re-set to queued so the second claim succeeds.
     row.status = "queued";
     const secondClaim = await queue.claimAgentTeamRun("tf-fence");
     expect(secondClaim?.attempts).toBe(2);
 
-    // A heartbeat from the superseded (attempts=1) invocation must be a no-op.
     const supersededTouched = await queue.touchAgentTeamRun("tf-fence", 1);
     expect(supersededTouched).toBe(false);
 
-    // A heartbeat from the live (attempts=2) invocation succeeds.
     const liveTouched = await queue.touchAgentTeamRun("tf-fence", 2);
     expect(liveTouched).toBe(true);
 
-    // The superseded invocation's finalize must also be a no-op.
     const supersededCompleted = await queue.completeAgentTeamRun(
       "tf-fence",
       "done",
@@ -1095,9 +1045,8 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect(supersededCompleted).toBe(false);
     expect((await queue.getAgentTeamRunDispatchState("tf-fence"))?.status).toBe(
       "running",
-    ); // live invocation still running
+    );
 
-    // The live invocation's finalize succeeds.
     const liveCompleted = await queue.completeAgentTeamRun(
       "tf-fence",
       "done",

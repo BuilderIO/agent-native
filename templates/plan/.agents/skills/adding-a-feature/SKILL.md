@@ -26,12 +26,21 @@ When you add a new feature, work through these four areas in order:
 
 ### 1. UI Component
 
-Build the user-facing interface — a page, component, dialog, or route. Use `useActionQuery` and `useActionMutation` from `@agent-native/core/client` to call actions for data fetching and mutations. Do not create a custom REST endpoint just so React can call action-backed data; the action endpoint already exists.
+Build the user-facing interface — a page, component, dialog, or route. Use `useActionQuery` and `useActionMutation` from `@agent-native/core/client/hooks` to call actions for data fetching and mutations. Do not create a custom REST endpoint just so React can call action-backed data; the action endpoint already exists.
 
-**Auto-refresh on agent writes is non-negotiable** — when the agent mutates data, the UI must reflect the change without a manual refresh. There are two paths, and you must pick the right one:
+**Agent edits must refresh the UI without a background poll.** Local chat-run
+tool completions invalidate action queries and source counters after each
+side-effecting tool and again at run end. There are two query paths:
 
-- **`useActionQuery` / `useActionMutation`** — covered automatically. The framework's `useDbSync` invalidates `["action"]` on every change event, so every `useActionQuery` hook refetches on agent activity. No extra wiring required. **Prefer this path.**
-- **Raw `useQuery` with custom keys** — needs explicit wiring. Fold `useChangeVersions([<source>, "action"])` from `@agent-native/core/client` into the `queryKey` and set `placeholderData: (prev) => prev`. The `action` source is the reliable signal (the agent runner emits it after every successful tool call); the resource-specific source (`"dashboards"`, `"analyses"`, `"settings"`, etc.) is bonus when emitted. Without this wiring, agent writes will be invisible until manual refresh — that breaks the framework's #1 promise.
+- **`useActionQuery` / `useActionMutation`** — local action mutations invalidate `['action']` observers, and chat-run tool completions invalidate them for agent writes. No background sync opt-in is needed for the current user's agent run. **Prefer this path.**
+- **Raw `useQuery` with custom keys** — fold `useChangeVersions([<source>, "action"])` from `@agent-native/core/client/hooks` into the `queryKey` and set `placeholderData: (prev) => prev`. Local chat-run side effects bump those counters too. Remote changes require the page's explicit `useDbSync({ realtime: { reason } })` opt-in only when data changes without the current user acting and must appear before refresh.
+
+Never opt in public, anonymous, marketing, docs, or SSR routes, settings,
+forms, or read-mostly lists. Refetch those on focus or navigation. Shared Slides
+editing and the Mail inbox are the current first-party examples that need
+remote updates. Each opted-in open tab adds a shared background transport and
+one poll per idle interval; hidden tabs pause, and idle polling backs off to 1,
+2, then 5 minutes. See `real-time-sync` for the decision rule and examples.
 
   ```tsx
   import { useChangeVersions } from "@agent-native/core/client/hooks";
@@ -71,10 +80,9 @@ scoped resolver first so broad access preserves the same ownership boundary as
 the app UI.
 
 If the feature needs credentials, design the credential path in the same change.
-Never hardcode API keys, tokens, webhook URLs, signing secrets, private
-Builder/internal data, or customer data in the action, UI, seed data, fixtures,
-docs, prompts, or generated extension/app content. Register required secrets,
-use OAuth helpers, or read scoped values from the vault/credential store.
+Never hardcode credentials or include personal or customer data in source,
+fixtures, docs, prompts, or generated app content. Register required secrets,
+use OAuth helpers, or read scoped values from the credential store.
 
 Before writing custom setup or credential UI, perform the shared-primitive
 preflight from `agent-native-toolkit`: inspect the workspace/provider connection
@@ -91,14 +99,12 @@ or other file-like payloads, design the upload path in the same change:
 provider upload first, then URL/id/blob handle in SQL. Do not add base64/binary
 columns or stuff files into `application_state`.
 
-If the feature adds a server-side dependency carrying a native binary or heavy
-runtime — headless browser, ffmpeg, image/video processing, ML runtime — read
-the `performance` skill §9 before adding it. A deployed app has one `/*` page
-function that every visitor's cache miss wakes, and it ships whatever the server
-bundle depends on. Run that work from a background function or a job so the page
-function never carries the weight.
+If the feature adds a heavy server-side dependency, read the startup guidance in
+`performance` before adding it. Keep expensive setup and processing out of
+request-startup paths; use a background job when the work does not need to block
+the current request.
 
-**If the action produces or lists a navigable resource**, add a `link` builder that returns `{ url: buildDeepLink({ app, view, params }), label }`. External coding agents and MCP hosts (Claude / ChatGPT / Claude Code / Cowork / Codex, over MCP/A2A) then surface an "Open in … →" deep link that drops the user back into the running UI focused on the record — for free. If a compatible MCP host should render an inline review/edit surface, also add `mcpApp` with `embedApp()` so the action embeds the real React app route instead of a one-off HTML UI. The `link` builder and `mcpApp` metadata must be pure and synchronous (no I/O). Any external-agent read/ingest action must be `http: { method: "GET" }` + `readOnly: true` + `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`. See the `external-agents` skill.
+**If the action produces or lists a navigable resource**, add a `link` builder that returns `{ url: buildDeepLink({ app, view, params }), label }`. MCP hosts can surface a deep link that returns the user to the running app at that record. If a compatible host should render an inline review or edit surface, also add `mcpApp` with `embedApp()` so the action embeds the real app route. Keep `link` and `mcpApp` metadata pure and synchronous. Use the external-agent documentation when exposing actions to other agent hosts.
 
 Scaffolding a new app of a known type (slides, design, content, forms)? Start from that template's `AGENTS.md` and `.agents/skills/`, not a blank app.
 
@@ -106,16 +112,27 @@ Scaffolding a new app of a known type (slides, design, content, forms)? Start fr
 
 Update `AGENTS.md` and/or create a skill in `.agents/skills/` if the feature introduces patterns the agent needs to know. At minimum, add the new actions to the action table in the template's `AGENTS.md`.
 
+Before completing this area, identify the feature's primary actions:
+
+- Document primary workflows in the `AGENTS.md` action table.
+- If the app configures `initialToolNames` (`INITIAL_TOOL_NAMES` in some
+  templates), add the primary actions there. If it uses per-action loading,
+  mark the complete starter set `deferLoading: false`; once one action opts in,
+  unmarked actions are deferred. The remaining actions stay discoverable through
+  `tool-search`.
+- If `mcp.keyToolNames` is configured, align it with primary actions actually
+  served on MCP/WebMCP. It controls the external key-tools list and does not
+  change the in-app agent's first-turn list.
+
 Reusable actions are part of the app contract, not just implementation detail. When an action is useful outside one screen, update agent instructions in the same change so app agents know when to call it, which arguments matter, and what output to preserve. If the capability is workflow-heavy, cross-app, provider-backed, or has a non-obvious sequence of actions, add or update a skill instead of burying the behavior in one long `AGENTS.md` paragraph.
 
 Instruction examples may name secret keys like `SLACK_WEBHOOK`, but must use
 placeholders such as `${keys.SLACK_WEBHOOK}` or `<SLACK_WEBHOOK>`. Do not paste
 real keys, internal data, or customer data into instructions as examples.
 
-If the feature adds or changes visible UI copy, prompts, toasts, labels, empty
-states, or formatting, update the English source copy. Read the optional
-`internationalization` skill and update additional catalogs only when
-`translations.locales` in `agent-native.config.ts` includes them.
+If the feature changes visible copy, update its source and the app's configured
+locale catalogs. Use `agent-native-docs` to find the localization guidance when
+the app's translation setup is unclear.
 
 For app-backed skills, declare skill visibility in the app-skill manifest:
 
@@ -125,7 +142,7 @@ For app-backed skills, declare skill visibility in the app-skill manifest:
 
 ### 4. Application State Sync
 
-Expose navigation and selection state so the agent knows what the user is looking at. Write to the `navigation` app-state key on route changes. Update the `view-screen` action to fetch relevant data for the new feature. Add a `navigate` command if the agent needs to open the new view.
+Expose navigation and selection state so the agent knows what the user is looking at. Write to the `navigation` app-state key on route changes. Update the `view-screen` action to fetch relevant data for the new feature. Add a `navigate` command if the agent needs to open the new view. Text resources participate in `export-resource-pack`; binaries and secrets do not.
 
 ## Examples
 
@@ -189,9 +206,8 @@ After completing all four areas, verify:
 3. Does `pnpm action view-screen` show the relevant state when the user is using the feature?
 4. Can the agent navigate to the feature view via the `navigate` action?
 5. Is the feature documented in AGENTS.md with action names and args?
-6. Are credentials and sensitive data supplied only through approved runtime
-   channels, with no hardcoded real keys, tokens, webhook URLs, Builder/internal
-   data, or customer data?
+6. Are credentials supplied through approved runtime channels, with no
+   hardcoded keys, tokens, or user data?
 
 ## One more area — sharing
 
@@ -201,20 +217,17 @@ TL;DR: spread `ownableColumns()` into the resource table, pair it with `createSh
 
 ## One more area — who inside the app may do it
 
-If the feature is one **only some teammates should be able to perform inside this app** (an admin-only import, a settings reset), that is a per-app role — not a new organization, and not a share grant. See the `authentication` skill.
+If only some teammates may perform a feature (such as an admin-only import), use a per-app role rather than creating an organization or using a share grant. Use `agent-native-docs` to find the current role guide if needed.
 
 TL;DR: declare the vocabulary once with `defineAppRoles({ appId, roles, defaultRole })`, guard the action with `authorize: appAccess.requireAny("...")`, and render the picker with `<TeamPage appRoles={descriptor} />`. `defaultRole` is display only — it never satisfies a guard — and `authorize` gates the operation while `accessFilter` / `assertAccess` still scope the rows.
 
 ## Related Skills
 
-- **authentication** — Per-app member roles (`defineAppRoles`) when only some teammates may use a feature
 - **sharing** — How to make a new resource ownable (private by default, share with users/orgs/public)
 - **context-awareness** — How to expose UI state to the agent (area 4 in detail)
 - **actions** — How to create actions with `defineAction` and the `http` option (area 2 in detail)
-- **external-agents** — Add a `link` builder so external agents (MCP/A2A) get an "Open in … →" deep link
-- **create-skill** — How to create skills for new patterns (area 3 in detail)
+- **build-an-app** — Start a complete app from a vague domain prompt
 - **storing-data** — Where to store the feature's data
 - **real-time-sync** — How the UI stays in sync when the agent writes data
-- **performance** — Query/load cost, and (§9) cold-start artifact size when a
-  feature adds a server-side dependency
-- **internationalization** — How to update localized UI copy and catalogs
+- **performance** — Query/load cost and expensive startup work
+- **agent-native-docs** — Find current docs for roles, external agents, or localization

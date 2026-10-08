@@ -11,7 +11,6 @@ import {
 
 class FakeSpeechRecognition {
   static instance: FakeSpeechRecognition | null = null;
-  /** How many upcoming start() calls should throw, like Chrome's InvalidStateError. */
   static failStartCount = 0;
   continuous = false;
   interimResults = false;
@@ -43,7 +42,6 @@ class FakeSpeechRecognition {
     this.onend?.();
   }
 
-  /** Chrome ends the session on its own after silence; onend fires, no stop(). */
   endSession(): void {
     this.running = false;
     this.onend?.();
@@ -132,16 +130,12 @@ describe("useLiveTranscription", () => {
       FakeSpeechRecognition.instance?.onresult?.(finalResult("first session"));
     });
 
-    // Chrome ends the session on silence, then rejects the immediate restart
-    // because the previous session has not fully released yet.
     FakeSpeechRecognition.failStartCount = 1;
     act(() => {
       FakeSpeechRecognition.instance?.endSession();
       vi.advanceTimersByTime(5_000);
     });
 
-    // Without a retry the recognizer stays dead and the recording keeps going
-    // with a transcript frozen at the first session.
     expect(FakeSpeechRecognition.instance?.running).toBe(true);
     expect(apiRef.current?.getIncompleteReason()).toBeNull();
 

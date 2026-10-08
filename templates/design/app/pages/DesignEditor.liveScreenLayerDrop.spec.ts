@@ -59,4 +59,104 @@ describe("DesignEditor Layers-panel live-screen row drop", () => {
       /typeof next !== "function" && next[\s\S]*?runtimeStructurePendingTransactionRef\.current[\s\S]*?toast\.error\(t\("designEditor\.toasts\.layerMoveFailed"\)/,
     );
   });
+
+  it("holds a failed cross-screen move until cancellation and rollback settle", () => {
+    const rejectionStart = source.indexOf(
+      "const handleRuntimeStructureDeleteRejected = useCallback(",
+    );
+    const rejectionEnd = source.indexOf("useEffect(() => {", rejectionStart);
+    const rejectionHandler = source.slice(rejectionStart, rejectionEnd);
+    const cancellationBranch = rejectionHandler.indexOf(
+      "crossScreenSourceCancellationNeedsRetry(details)",
+    );
+    const admissionRelease = rejectionHandler.indexOf(
+      "releaseCrossScreenDropAdmission(",
+    );
+
+    expect(rejectionStart).toBeGreaterThan(0);
+    expect(cancellationBranch).toBeGreaterThan(0);
+    expect(admissionRelease).toBeGreaterThan(cancellationBranch);
+    expect(rejectionHandler).toContain(
+      "runtimeStructureRollbackRequest?.transactionId ===",
+    );
+    expect(rejectionHandler).toContain(
+      "crossScreenSourceCancellationNeedsRetry(details)",
+    );
+    expect(rejectionHandler).toContain(
+      "retryCrossScreenDeleteCancellation(request)",
+    );
+    expect(rejectionHandler).toContain(
+      "crossScreenRollbackAfterSourceCancellation(",
+    );
+    expect(rejectionHandler).toContain(
+      "setRuntimeStructureRollbackRequest(recoveryRollbackRequest)",
+    );
+    expect(rejectionHandler).toMatch(
+      /if \(crossScreenSourceCancellationNeedsRetry\(details\)\) \{[\s\S]*?retrySourceCancellation\(\);[\s\S]*?return;/,
+    );
+
+    const deleteTimeoutStart = source.indexOf(
+      "const deleteRequest = runtimeStructureDeleteRequest;",
+    );
+    const rollbackResultStart = source.indexOf(
+      "const handleRuntimeStructureRollbackResult = useCallback(",
+    );
+    const deleteTimeoutEffect = source.slice(
+      deleteTimeoutStart,
+      rollbackResultStart,
+    );
+    expect(deleteTimeoutEffect).toMatch(
+      /runtimeStructureRollbackRequest\.transactionId ===\s*deleteRequest\?\.transactionId/,
+    );
+    expect(deleteTimeoutEffect).not.toContain("!deleteRequest.cancelRequested");
+
+    const rollbackResultEnd = source.indexOf(
+      "const runtimeStructureRollbackResultHandlerRef = useRef(",
+      rollbackResultStart,
+    );
+    const rollbackResultHandler = source.slice(
+      rollbackResultStart,
+      rollbackResultEnd,
+    );
+    expect(rollbackResultHandler).toContain("? pendingSourceCancellation");
+    expect(rollbackResultHandler).toContain(
+      "!sourceCancellationAlreadyPending",
+    );
+    expect(rollbackResultHandler).toMatch(
+      /setRuntimeStructureRollbackRequest\(\(current\) =>\s*current\?\.requestId === rollbackRequest\.requestId \? null : current,\s*\);/,
+    );
+    expect(rollbackResultHandler).not.toContain("rollbackSelector: undefined");
+    expect(rollbackResultHandler).not.toContain("rollbackSourceId: undefined");
+    expect(rollbackResultHandler).toContain(
+      'details.reason === "rollback-timeout"',
+    );
+    expect(rollbackResultHandler).toContain("retryCrossScreenRollbackRequest(");
+    expect(rollbackResultHandler).toContain("if (retryRequest)");
+    expect(rollbackResultHandler).toContain("releaseCrossScreenDropAdmission(");
+  });
+
+  it("cancels rollback timeout on the first bridge result without rearming per render", () => {
+    const resultStart = source.indexOf(
+      "const handleRuntimeStructureRollbackResult = useCallback(",
+    );
+    const timeoutHandlerStart = source.indexOf(
+      "const runtimeStructureRollbackResultHandlerRef = useRef(",
+      resultStart,
+    );
+    const timeoutEffectEnd = source.indexOf(
+      "const handleRuntimeLayerRenameApplied = useCallback(",
+      timeoutHandlerStart,
+    );
+    const resultHandler = source.slice(resultStart, timeoutHandlerStart);
+    const timeoutEffect = source.slice(timeoutHandlerStart, timeoutEffectEnd);
+
+    expect(resultHandler).toContain("cancelCrossScreenRollbackTimeout(");
+    expect(timeoutEffect).toContain(
+      "runtimeStructureRollbackResultHandlerRef.current({",
+    );
+    expect(timeoutEffect).toContain("[runtimeStructureRollbackRequest]");
+    expect(timeoutEffect).not.toContain(
+      "[handleRuntimeStructureRollbackResult, runtimeStructureRollbackRequest]",
+    );
+  });
 });

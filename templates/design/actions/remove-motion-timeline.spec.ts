@@ -12,13 +12,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
-  // `where()` must behave both as a directly-awaited result (the initial
-  // file lookup in remove-motion-timeline.ts) AND as a chain that supports a
-  // trailing `.limit(1)` (writeInlineSourceFile's internal re-select in
-  // server/source-workspace.ts, now used by the action's write path).
-  // Returning a real Promise with an extra `.limit()` method attached covers
-  // both call shapes with the same mocked resolved rows, narrowed by id when
-  // the predicate looks like `eq(designFiles.id, someId)`.
   function makeWhereResult(rows: unknown[]) {
     const promise = Promise.resolve(rows) as Promise<unknown[]> & {
       limit: (n: number) => Promise<unknown[]>;
@@ -56,11 +49,6 @@ const mocks = vi.hoisted(() => {
   timelineSelectChain.from.mockReturnValue(timelineSelectChain);
   timelineSelectChain.where.mockImplementation(
     (predicate?: { and?: Array<{ left?: unknown; right?: unknown }> }) => {
-      // The action's `and(eq(motionTimeline.id, timelineId), eq(motionTimeline.designId, designId))`
-      // is faked as `{ and: [{left, right}, {left, right}] }` by the mocked
-      // `and`/`eq` above — pull the requested timelineId out of it so the
-      // "not found" test actually gets zero rows back instead of whatever
-      // was last configured.
       const idClause = predicate?.and?.find(
         (clause) => clause?.left === "motionTimeline.id",
       );
@@ -86,10 +74,6 @@ const mocks = vi.hoisted(() => {
 
   const db = {
     select: vi.fn((fields?: Record<string, unknown>) => {
-      // motion_timeline lookup only ever selects `{ id }`; design_files
-      // lookups select `{ id, content }` (writeInlineSourceFile's re-select)
-      // or `{ id, content }` (the action's own lookup). Distinguish by
-      // whether `content` was requested.
       if (fields && "content" in fields) return fileSelectChain;
       return timelineSelectChain;
     }),
@@ -99,9 +83,6 @@ const mocks = vi.hoisted(() => {
     transaction: vi.fn(async (callback) => callback(db)),
   };
 
-  // Shared with the @agent-native/core/collab mock below: the prepared source
-  // lease persists its authoritative content back to SQL. Cleared per-test in
-  // beforeEach because the vi.mock factory only runs once per file.
   const seededCollabText = new Map<string, string>();
 
   return {
@@ -276,8 +257,6 @@ describe("remove-motion-timeline", () => {
     });
 
     expect(result.htmlPatched).toBe(false);
-    // No content change means writeInlineSourceFile is never reached, so the
-    // designFiles update is never called.
     expect(mocks.updateChain.set).not.toHaveBeenCalled();
     expect(mocks.deleteChain.where).toHaveBeenCalled();
   });

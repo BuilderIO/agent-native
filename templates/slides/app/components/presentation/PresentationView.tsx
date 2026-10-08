@@ -28,6 +28,7 @@ import {
   getPersistedElementPath,
   resolveSlideAnimationTargets,
 } from "@/lib/slide-animation-elements";
+import { isMediaKeyboardEvent } from "@/lib/slide-video";
 
 import type { DesignSystemData } from "../../../shared/api";
 import { openPresentChannel, type PresentMessage } from "./present-channel";
@@ -61,6 +62,7 @@ function PdfExportStage({
           <SlideRenderer
             slide={slide}
             thumbnail={false}
+            disableVideoAutoplay
             aspectRatio={aspectRatio}
             designSystem={designSystem}
           />
@@ -70,23 +72,12 @@ function PdfExportStage({
   );
 }
 
-// ─── Element animation helpers ────────────────────────────────────────────────
-
-/**
- * Get the effective animation steps for a slide.
- * Uses slide.animations if defined, falls back to splitByParagraph auto-detection.
- */
 function getAnimationSteps(slide: Slide): SlideAnimation[] | null {
   if (slide.animations && slide.animations.length > 0) {
     const doc = new DOMParser().parseFromString(slide.content, "text/html");
     const root = doc.querySelector(".fmd-slide");
-    // Explicit metadata is authoritative only when every target still points
-    // at a unique element in the final HTML. Otherwise disable the reveal
-    // layer for this slide instead of counting invisible phantom steps while
-    // leaving the rest of the content visible.
     return root ? expandByParagraphAnimations(root, slide.animations) : null;
   }
-  // Legacy splitByParagraph: auto-detect and create steps
   if (slide.splitByParagraph) {
     const doc = new DOMParser().parseFromString(slide.content, "text/html");
     const root = doc.querySelector(".fmd-slide");
@@ -127,12 +118,6 @@ function getAnimationSteps(slide: Slide): SlideAnimation[] | null {
   return null;
 }
 
-/**
- * Return a modified HTML string where content-container children have
- * data-pstep attributes and an injected <style> controls visibility.
- * Uses per-element animation types from the animations array.
- * Items already revealed jump to end state; the newly revealed item animates.
- */
 function annotateStepsForPresentation(
   html: string,
   steps: SlideAnimation[],
@@ -145,7 +130,6 @@ function annotateStepsForPresentation(
   const resolvedSteps = resolveSlideAnimationTargets(root, steps);
   if (!resolvedSteps) return html;
 
-  // Annotate each resolved step element with data-pstep.
   resolvedSteps.forEach(({ element }, stepIdx) => {
     element.setAttribute("data-pstep", String(stepIdx));
   });
@@ -155,10 +139,8 @@ function annotateStepsForPresentation(
       if (stepIdx >= currentStep) {
         return `[data-pstep="${stepIdx}"] { opacity: 0; pointer-events: none; }`;
       } else if (stepIdx < currentStep - 1) {
-        // Already revealed — snap to end state
         return `[data-pstep="${stepIdx}"] { opacity: 1; pointer-events: auto; animation: elem-appear 1ms both; }`;
       } else {
-        // Newly revealed — animate with its type
         return `[data-pstep="${stepIdx}"] { opacity: 1; pointer-events: auto; animation: ${getElementAnimationValue(target.type)}; }`;
       }
     })
@@ -167,8 +149,6 @@ function annotateStepsForPresentation(
   const styleTag = `<style>[data-pstep] { opacity: 0; pointer-events: none; visibility: visible !important; }\n${styleLines}</style>`;
   return styleTag + doc.body.innerHTML;
 }
-
-// ─── Animation class helpers ──────────────────────────────────────────────────
 
 function isInstant(t: Slide["transition"]): boolean {
   return !t || t === "instant" || t === "none";
@@ -210,8 +190,6 @@ function getExitClass(
   }
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
 export default function PresentationView({
   slides,
   deckId,
@@ -235,11 +213,6 @@ export default function PresentationView({
         })),
     [slides],
   );
-  // `startIndex` is a raw index into the full (unfiltered) deck.slides array —
-  // e.g. from the editor's current slide or a `?slide=N` deep link. Skipped
-  // slides are absent from safeSlides, so translate it to the nearest visible
-  // slide's position within safeSlides rather than clamping the raw index
-  // directly, which would land on the wrong slide whenever a skip precedes it.
   const initialIndex = useMemo(() => {
     const rawSlides = (Array.isArray(slides) ? slides : []).filter(Boolean);
     if (rawSlides.length === 0) return 0;
@@ -303,9 +276,6 @@ export default function PresentationView({
     });
   }, [deckId, isShared, safeSlides.length]);
 
-  // `safeSlides` excludes skipped slides, so its index isn't the deck index
-  // DeckEditor's `?slide=N` param expects. Map back to the raw position so
-  // exiting/opening Presenter lands on the same slide it's currently showing.
   const visibleRawIndices = useMemo(() => {
     const rawSlides = (Array.isArray(slides) ? slides : []).filter(Boolean);
     const rawIndices: number[] = [];
@@ -320,10 +290,6 @@ export default function PresentationView({
     [visibleRawIndices],
   );
 
-  // Exit handlers read these instead of closing over `currentIndex`/`deckId`/
-  // `isShared` so the mount-only fullscreenchange listener still lands on the
-  // right deck and slide even if this component is reused for a different
-  // deck without remounting (e.g. an agent-driven navigation).
   const currentIndexRef = useRef(currentIndex);
   currentIndexRef.current = currentIndex;
   const visibleRawIndicesRef = useRef(visibleRawIndices);
@@ -370,8 +336,6 @@ export default function PresentationView({
       return;
     }
 
-    // Read the prior ids before overwriting the ref below — the lookup needs
-    // the slide order from before this update, not the one it's producing.
     const activeId = prevSafeSlideIdsRef.current[currentIndexRef.current];
     const newIds = safeSlides.map((s) => s.id);
     const followedIndex = activeId ? newIds.indexOf(activeId) : -1;
@@ -383,8 +347,6 @@ export default function PresentationView({
       prev !== null && prev >= safeSlides.length ? null : prev,
     );
     if (followedIndex < 0) {
-      // The active slide is gone (e.g. just skipped) and we fell back to a
-      // different one — its reveal/transition state doesn't apply here.
       clearTransitionTimer();
       queuedNavigationRef.current = null;
       setCurrentStep(0);
@@ -402,7 +364,6 @@ export default function PresentationView({
     (newIndex: number, dir: "next" | "prev") => {
       const incoming = safeSlides[newIndex];
       const t = incoming?.transition;
-      // Going backward → fully revealed; forward → start at 0
       const incomingSteps = incoming ? getAnimationSteps(incoming) : null;
       const initialStep =
         dir === "prev" ? (incomingSteps ? incomingSteps.length : 0) : 0;
@@ -445,7 +406,6 @@ export default function PresentationView({
       queuedNavigationRef.current = "next";
       return;
     }
-    // Reveal next paragraph step if enabled
     if (maxSteps > 0 && currentStep < maxSteps /* i18n-ignore */) {
       setCurrentStep((prev) => prev + 1);
       return;
@@ -485,9 +445,6 @@ export default function PresentationView({
     }
   }, [navigate, deckId, isShared]);
 
-  // Presenter window: it owns no navigation state of its own, it just sends
-  // commands and mirrors whatever we echo back — so build steps stay
-  // authoritative here.
   const channelRef = useRef<BroadcastChannel | null>(null);
   goNextRef.current = goNext;
   goPrevRef.current = goPrev;
@@ -537,6 +494,7 @@ export default function PresentationView({
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      if (isMediaKeyboardEvent(e)) return;
       switch (e.key) {
         case "ArrowRight":
         case "ArrowDown":
@@ -572,9 +530,6 @@ export default function PresentationView({
     return () => window.removeEventListener("keydown", handleKey);
   }, [goNext, goPrev, exit, openPresenterWindow]);
 
-  // Try to enter fullscreen. Browsers require a user gesture; the click that
-  // navigated to /present often counts, but Safari/Firefox sometimes block
-  // it. If blocked, we surface a "Click to enter fullscreen" overlay.
   const enterFullscreen = useCallback(() => {
     const el = document.documentElement;
     if (!el.requestFullscreen || document.fullscreenElement) {
@@ -589,13 +544,9 @@ export default function PresentationView({
       .catch(() => setNeedsFullscreenGesture(true));
   }, []);
 
-  // Request fullscreen on mount; track exit-by-Escape to navigate back
   useEffect(() => {
     enterFullscreen();
     const handleFullscreenChange = () => {
-      // If the user pressed Escape (browser auto-exits fullscreen), leave
-      // present mode. We only navigate-back when WE successfully entered
-      // fullscreen first — otherwise the gesture-fallback overlay handles it.
       if (enteredFullscreenRef.current && !document.fullscreenElement) {
         enteredFullscreenRef.current = false;
         if (isSharedRef.current) {
@@ -619,8 +570,6 @@ export default function PresentationView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Lock the body during present mode: hide scrollbars, mark the body so
-  // external automation/test tooling can detect present mode is active.
   useEffect(() => {
     const html = document.documentElement;
     const body = document.body;
@@ -636,7 +585,6 @@ export default function PresentationView({
     };
   }, []);
 
-  // Auto-hide controls AND cursor after inactivity
   useEffect(() => {
     let timeout: ReturnType<typeof setTimeout>;
     const handleMove = () => {
@@ -753,9 +701,13 @@ export default function PresentationView({
         height: "100dvh",
         cursor: cursorVisible ? "default" : "none",
       }}
-      onClick={() => {
-        // If fullscreen was blocked by the browser (no user gesture),
-        // any click in the presentation is itself a gesture — retry.
+      onClick={(event) => {
+        if (
+          event.target instanceof Element &&
+          event.target.closest("video, audio")
+        ) {
+          return;
+        }
         if (needsFullscreenGesture) {
           enterFullscreen();
           return;

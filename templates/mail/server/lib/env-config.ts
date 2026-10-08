@@ -30,7 +30,8 @@ export const envKeys: EnvKeyConfig[] = [
   {
     key: "A2A_SECRET",
     label: "Agent Signing Secret",
-    required: false,
+    required: true,
+    deploymentOnly: true,
     helpText:
       "Required in production for secure background processing and external-agent MCP connections.",
   },

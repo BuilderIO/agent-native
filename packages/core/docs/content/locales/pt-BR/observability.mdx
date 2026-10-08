@@ -19,7 +19,7 @@ Essas três páginas são fáceis de confundir. Escolha pela pergunta que você 
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)                   | "O agente faz a coisa certa nesta entrada fixa?"    | Ativo, determinístico, um CI/deploy gate             | Qualidade      |
 | **[Observational Memory](/docs/observational-memory)**          | "Esse longo tópico está barato e dentro da janela?" | Compactação de fundo em threads longos               | Custo/contexto |
 
-A observabilidade e o CI Eval Gate pontuam _qualidade_, mas de extremos opostos - pontuação post-hoc passiva de tráfego real versus verificações ativas de aprovação/reprovação em entradas fixas. A memória observacional não está relacionada à qualidade; trata-se do custo do token e da pressão da janela de contexto.
+A observabilidade e o CI Eval Gate pontuam _qualidade_, mas de extremos opostos - pontuação post-hoc passiva de tráfego real versus verificações ativas de aprovação/reprovação em entradas fixas. A memória observacional não está relacionada à qualidade; trata-se do custo do token e da pressão da janela de contexto. Promova um trace de produção concluído a um caso `*.eval.ts` (painel **Promote to eval**, action `promote-trace-eval`, ou `agent-native eval promote <runId> --write evals/from-trace.eval.ts`). Veja [A partir de um trace de produção](/docs/evals#from-trace).
 
 ## O que é capturado automaticamente {#captured}
 
@@ -96,7 +96,7 @@ Adicione o painel a qualquer modelo com uma única rota:
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -108,15 +108,28 @@ export default function ObservabilityPage() {
 
 Todos os dados têm como escopo o usuário conectado; não há visualização de administrador entre usuários hoje.
 
-O painel possui 5 guias:
+O painel possui 6 guias:
 
-| Guia             | O que mostra                                                                                                       |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------ |
-| **Visão geral**  | Principais métricas: execuções, custo, latência, taxa de sucesso da ferramenta, satisfação, pontuação de avaliação |
-| **Conversas**    | Lista de rastreamento com detalhamento de períodos individuais (agent_run, llm_call, tool_call)                    |
-| **Avaliações**   | Pontuações de avaliação automatizadas por critérios, tendências ao longo do tempo                                  |
-| **Experiências** | Lista de testes A/B com selos de status, resultados de variantes com intervalos de confiança                       |
-| **Comentários**  | Stream de aprovação/rejeição, detalhamento de categorias, pontuações de frustração                                 |
+| Guia               | O que mostra                                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| **Visão geral**    | Principais métricas: execuções, custo, latência, taxa de sucesso da ferramenta, satisfação, pontuação de avaliação |
+| **Conversas**      | Lista de rastreamento com detalhamento de períodos individuais (agent_run, llm_call, tool_call)                    |
+| **Avaliações**     | Pontuações de avaliação automatizadas por critérios, tendências ao longo do tempo                                  |
+| **Experiências**   | Lista de testes A/B com selos de status, resultados de variantes com intervalos de confiança                       |
+| **Comentários**    | Stream de aprovação/rejeição, detalhamento de categorias, pontuações de frustração                                 |
+| **Revisão humana** | Revise o pedido e a resposta, registre feedback e elabore uma atualização das instruções                           |
+
+### Detalhes das conversas {#conversations}
+
+A guia Conversas mostra as execuções registradas. Selecione uma para inspecionar seus períodos e expanda qualquer período para ver entradas, saídas, erros e metadados de ferramentas capturados. **Abrir conversa completa** leva à conversa de chat correspondente.
+
+Os argumentos, os resultados e os corpos de erro completos das ferramentas não são capturados por padrão. Ative `captureToolArgs` para armazenar os argumentos e `captureToolResults` para armazenar os resultados e os corpos de erro completos na configuração `observability`. Os campos sensíveis são ocultados antes do armazenamento. Uma ferramenta com falha sempre mantém a primeira linha do erro, com tamanho limitado e com credenciais, e-mails e IDs opacos longos ocultados, para que as falhas continuem diagnosticáveis mesmo com `captureToolResults` desativado.
+
+A captura de prompts fica desativada por padrão. Defina `capturePrompts: true` na configuração `observability` ou configure `AGENT_NATIVE_OBSERVABILITY_CAPTURE_PROMPTS=true` para armazenar a entrada e a saída de cada span `llm_call` nesta visualização detalhada. O prompt do sistema é excluído, campos sensíveis estruturados são ocultados e cada lado é limitado a 128 KiB. Spans existentes não são preenchidos retroativamente.
+
+### Revisão humana {#review}
+
+A guia Revisão humana mostra o pedido e a resposta de cada execução, permite registrar feedback e salvar um rascunho de atualização das instruções para revisão humana. Salvar o rascunho não altera as instruções automaticamente.
 
 ## Feedback do usuário {#feedback}
 
@@ -279,7 +292,7 @@ export default defineAppConfig({
 
 <Callout id="doc-block-1xvsimn" tone="info">
 
-Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+O conteúdo é **ocultado por padrão**: são armazenados contagens de tokens, custos e tempos e, para uma ferramenta com falha, a primeira linha do erro, com tamanho limitado e com credenciais, e-mails e IDs opacos longos ocultados. Prompts, entradas de ferramentas, resultados de ferramentas e corpos de erro completos permanecem desativados, a menos que `capturePrompts`, `captureToolArgs` e `captureToolResults` estejam ativados. Ative-os somente quando precisar do conteúdo de prompts ou argumentos para depuração.
 
 </Callout>
 
@@ -293,6 +306,7 @@ Todos montados automaticamente em `/_agent-native/observability/`:
 | GET    | `/traces`                  | Listar resumos de rastreamento                 |
 | GET    | `/traces/:runId`           | Detalhes do rastreamento (resumo + intervalos) |
 | GET    | `/traces/:runId/evals`     | Avaliações para uma corrida                    |
+| POST   | `/traces/:runId/promote`   | Promover uma execução concluída a eval de CI   |
 | POST   | `/feedback`                | Enviar comentários                             |
 | GET    | `/feedback`                | Listar comentários                             |
 | GET    | `/feedback/stats`          | Agregação de feedback                          |
@@ -326,13 +340,164 @@ Portanto, o custo quando você não conecta o OTel é algumas leituras de propri
 
 O loop do agente emite três tipos de span:
 
-| Período     | Quando                         | Atributos                                                         |
-| ----------- | ------------------------------ | ----------------------------------------------------------------- |
-| `agent.run` | uma vez por execução do agente | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | uma vez por invocação de ação  | `tool.name`, mais status de sucesso/erro                          |
-| `llm.call`  | por chamada de modelo          | tempo + OK/status de erro                                         |
+| Período               | Quando                         | Atributos                                                                                                 |
+| --------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `invoke_agent`        | uma vez por execução do agente | `gen_ai.provider.name`, `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
+| `execute_tool {tool}` | uma vez por invocação de ação  | `gen_ai.tool.name`, mais status de sucesso/erro                                                           |
+| `chat {model}`        | por chamada de modelo          | `gen_ai.provider.name`, tempo + OK/status de erro                                                         |
 
 Os trechos são concluídos com o status OK/ERROR e registram a mensagem de erro em caso de falha. Os valores de atributos zero/sentinel são removidos para que os trechos não fiquem cheios de ruído. Essa camada OTel é puramente aditiva às tabelas internas `agent_trace_spans`/`agent_trace_summaries` que alimentam o painel acima — ambas são produzidas a partir dos mesmos eventos de execução.
+
+### Métricas {#otel-metrics}
+
+O core também registra métricas assim que o host registra um provedor de medidores com `registerObservabilityProvider()` de `@agent-native/core/server`. As métricas são registradas para cada requisição e execução, sem amostragem:
+
+| Instrumento                             | Atributos                                                                                    |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+
+Nas métricas, `gen_ai.tool.name` é o nome de uma ação do framework ou `other`, e `gen_ai.request.model` é o ID do modelo apenas quando o engine o lista como suportado; caso contrário, `_OTHER`. Assim, ferramentas definidas pelo app e IDs de modelo fornecidos por quem chama não podem criar séries ilimitadas; os spans mantêm os valores exatos.
+
+## Conectar um backend do OpenTelemetry {#otel-provider}
+
+O core não inclui nenhum SDK nem exportador do OpenTelemetry. Um app cria os próprios provedores do SDK e os entrega ao core com `registerObservabilityProvider()` de `@agent-native/core/server`. O core então emite por meio deles os [spans](#otel) e as [métricas](#otel-metrics) acima, e o exportador do app os envia para qualquer backend OTLP.
+
+### `registerObservabilityProvider()` {#register-observability-provider}
+
+`registerObservabilityProvider()` recebe um objeto com dois campos opcionais:
+
+- **tracerProvider**: um objeto com `getTracer(name, version?)`. O core obtém seu tracer daqui. Sem ele, os spans usam o tracer global de `@opentelemetry/api`.
+- **meterProvider**: um objeto com `getMeter(name, version?)`. As métricas só são registradas quando um provedor de medidores está registrado. Elas não têm fallback global, então sem ele toda métrica é uma operação nula.
+
+Qualquer um dos provedores também pode implementar `forceFlush()`, que o core chama após cada resposta (veja [Flush em serverless](#otel-flush)). `BasicTracerProvider` e `MeterProvider` do SDK já atendem a esses formatos.
+
+```ts
+function registerObservabilityProvider(
+  provider: ObservabilityProvider,
+): () => void;
+
+interface ObservabilityProvider {
+  tracerProvider?: ObservabilityTracerProvider;
+  meterProvider?: ObservabilityMeterProvider;
+}
+
+interface ObservabilityTracerProvider {
+  getTracer(name: string, version?: string): unknown;
+  forceFlush?(): Promise<void>;
+}
+
+interface ObservabilityMeterProvider {
+  getMeter(name: string, version?: string): unknown;
+  forceFlush?(): Promise<void>;
+}
+```
+
+Uma chamada posterior substitui o provedor anterior. A função retornada cancela o registro do provedor se ele ainda for o registrado. Os spans também precisam de `@opentelemetry/api` instalado no app. Sem ele, o core desativa o tracing e registra um aviso.
+
+### Flush em serverless {#otel-flush}
+
+Funções serverless congelam entre invocações, então o timer de exportação de um SDK pode nunca disparar. Quando um provedor registrado implementa `forceFlush()`, o core o chama a partir do hook de resposta após cada requisição e aguarda sua conclusão. Cada flush disputa um único timeout compartilhado de 2 segundos, então a telemetria nunca segura uma resposta por mais tempo que isso.
+
+Quando um flush falha ou estoura o tempo, o core para de esperá-lo e soma 1 a `agent_native.telemetry.flush_failures`, que o próximo flush exporta. Uma exportação que estourou o tempo continua em andamento e ainda pode chegar, a menos que o runtime congele o processo antes. O `error.type` da falha é `timeout`, `suspended` quando o runtime congelou o processo no meio do flush, ou o nome do erro.
+
+Em um servidor de longa duração, um flush após cada resposta significa uma exportação por requisição. Registre os provedores ali sem `forceFlush()` e deixe os próprios timers do SDK exportarem. `isServerlessRuntime()` de `@agent-native/core/server` distingue os dois casos. Ele é true no Netlify, Vercel, AWS Lambda e Cloudflare.
+
+### Exemplo: OTLP sobre HTTP {#otel-example}
+
+Este plugin de servidor conecta o SDK do OpenTelemetry para JS ao core. Instale primeiro os pacotes do SDK:
+
+```bash
+pnpm add @opentelemetry/api @opentelemetry/context-async-hooks @opentelemetry/exporter-metrics-otlp-proto @opentelemetry/exporter-trace-otlp-proto @opentelemetry/resources @opentelemetry/sdk-metrics @opentelemetry/sdk-trace-base
+```
+
+```ts filename="server/plugins/otel.ts"
+import { randomUUID } from "node:crypto";
+
+import {
+  defineNitroPlugin,
+  isServerlessRuntime,
+  registerObservabilityProvider,
+} from "@agent-native/core/server";
+import { context } from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-proto";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
+import {
+  defaultResource,
+  detectResources,
+  envDetector,
+  resourceFromAttributes,
+} from "@opentelemetry/resources";
+import {
+  MeterProvider,
+  PeriodicExportingMetricReader,
+} from "@opentelemetry/sdk-metrics";
+import {
+  BasicTracerProvider,
+  BatchSpanProcessor,
+} from "@opentelemetry/sdk-trace-base";
+
+export default defineNitroPlugin(() => {
+  if (!process.env.OTEL_EXPORTER_OTLP_ENDPOINT) return;
+
+  // Metric counters are cumulative and restart with each process, so each
+  // process needs its own series.
+  const resource = defaultResource()
+    .merge(resourceFromAttributes({ "service.instance.id": randomUUID() }))
+    .merge(detectResources({ detectors: [envDetector] }));
+
+  const meterProvider = new MeterProvider({
+    resource,
+    readers: [
+      new PeriodicExportingMetricReader({
+        exporter: new OTLPMetricExporter(),
+        exportIntervalMillis: 60_000,
+      }),
+    ],
+  });
+
+  context.setGlobalContextManager(
+    new AsyncLocalStorageContextManager().enable(),
+  );
+  const tracerProvider = new BasicTracerProvider({
+    resource,
+    spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter())],
+  });
+
+  if (isServerlessRuntime()) {
+    registerObservabilityProvider({ meterProvider, tracerProvider });
+    return;
+  }
+  // Without forceFlush(), core leaves exporting to the SDK's own timers.
+  registerObservabilityProvider({
+    meterProvider: {
+      getMeter: (name, version) => meterProvider.getMeter(name, version),
+    },
+    tracerProvider: {
+      getTracer: (name, version) => tracerProvider.getTracer(name, version),
+    },
+  });
+});
+```
+
+O plugin não faz nada até que `OTEL_EXPORTER_OTLP_ENDPOINT` seja definida. O SDK lê o restante da configuração das variáveis de ambiente padrão do OpenTelemetry:
+
+| Variável                                          | Efeito                                                                                           |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`                     | URL base do receptor OTLP. Os exportadores acrescentam `/v1/traces` e `/v1/metrics`.             |
+| `OTEL_EXPORTER_OTLP_HEADERS`                      | Cabeçalhos enviados em toda exportação, por ex. `Authorization=Bearer%20<token>`                 |
+| `OTEL_SERVICE_NAME`                               | `service.name` em todo span e métrica                                                            |
+| `OTEL_RESOURCE_ATTRIBUTES`                        | Atributos de recurso extras, por ex. `deployment.environment.name=production`                    |
+| `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | Amostragem de traces, por ex. `parentbased_traceidratio` e `0.1`. Métricas nunca são amostradas. |
+
+Os exportadores `-proto` enviam OTLP sobre HTTP com protobuf, então aponte o endpoint para a porta HTTP do receptor (4318 por padrão), não para a porta gRPC. Os spans não carregam texto de prompt nem de resposta. As configurações `capture*` em [Configuração](#config) valem para os traces em SQL e para o PostHog, não para o OTLP.
+
+O diretório [`packages/otel`](https://github.com/BuilderIO/agent-native/tree/main/packages/otel) do repositório traz uma versão mais completa deste plugin, com endpoints por sinal e validação do exportador. Ele não é publicado no npm, então comece pelo plugin acima em vez de instalá-lo.
 
 ## Relatório de erros (Sentry) {#sentry}
 

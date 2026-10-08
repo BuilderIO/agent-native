@@ -34,24 +34,17 @@ describe("applyTextToYDoc", () => {
   });
 
   it("performs a minimal delete that keeps the unchanged tail intact", () => {
-    // Concurrent-edit safety relies on diffs being surgical, not full-replace.
-    // Insert a marker, then delete only the prefix and assert the tail's
-    // identity is untouched by checking the relative position survives.
     const doc = new Y.Doc();
     const ytext = doc.getText("content");
     ytext.insert(0, "PREFIX-KEEP THIS TAIL");
 
-    // A RelativePosition anchored to the tail should still resolve to the
-    // same logical character after a minimal prefix deletion.
-    const tailIndex = "PREFIX-".length; // points at "K" of KEEP
+    const tailIndex = "PREFIX-".length;
     const relPos = Y.createRelativePositionFromTypeIndex(ytext, tailIndex);
 
     applyTextToYDoc(doc, "content", "KEEP THIS TAIL");
 
     const resolved = Y.createAbsolutePositionFromRelativePosition(relPos, doc);
     expect(doc.getText("content").toString()).toBe("KEEP THIS TAIL");
-    // The anchored character ("K") stayed at index 0 because only the prefix
-    // was deleted — a full replace would have orphaned the relative position.
     expect(resolved?.index).toBe(0);
   });
 

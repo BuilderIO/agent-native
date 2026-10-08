@@ -1,10 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * In-memory SQL simulator just rich enough for the two connect tables. We
- * pattern-match the small, fixed set of statements the store issues rather
- * than implementing a SQL engine — same approach as sibling store specs.
- */
 interface TokenRow {
   id: string;
   jti: string;
@@ -25,6 +20,7 @@ interface DeviceRow {
   org_id: string | null;
   status: string;
   token_jti: string | null;
+  catalog_scope: string | null;
   created_at: number | null;
   expires_at: number | null;
   consumed_at: number | null;
@@ -34,6 +30,10 @@ let tokens: TokenRow[] = [];
 let devices: DeviceRow[] = [];
 let failNextCreateTable = false;
 let failNextOrgLookup = false;
+let failNextOrgServiceList = false;
+let failNextRevokeByName = false;
+let failNextDeviceCodeLookup = false;
+const getDbExecMock = vi.fn(() => ({ execute: exec }));
 const executeDdlMock = vi.hoisted(() => vi.fn());
 
 const exec = async (input: string | { sql: string; args?: unknown[] }) => {
@@ -47,12 +47,13 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     }
     return { rows: [], rowsAffected: 0 };
   }
-  // Additive org-service-token columns — already part of the in-memory shape.
   if (/^ALTER TABLE mcp_connect_tokens ADD COLUMN/i.test(sql)) {
     return { rows: [], rowsAffected: 0 };
   }
+  if (/^ALTER TABLE mcp_device_codes ADD COLUMN/i.test(sql)) {
+    return { rows: [], rowsAffected: 0 };
+  }
 
-  // --- mcp_connect_tokens ---
   if (/^INSERT INTO mcp_connect_tokens/i.test(sql)) {
     tokens.push({
       id: args[0],
@@ -73,13 +74,22 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     const t = tokens.find((r) => r.jti === args[0]);
     return { rows: t ? [{ revoked_at: t.revoked_at }] : [], rowsAffected: 0 };
   }
-  if (/^SELECT org_id FROM mcp_connect_tokens WHERE jti = \?/i.test(sql)) {
+  if (
+    /^SELECT org_id, owner_email, kind FROM mcp_connect_tokens WHERE jti = \?/i.test(
+      sql,
+    )
+  ) {
     if (failNextOrgLookup) {
       failNextOrgLookup = false;
       throw new Error("transient org lookup failure");
     }
     const t = tokens.find((r) => r.jti === args[0]);
-    return { rows: t ? [{ org_id: t.org_id }] : [], rowsAffected: 0 };
+    return {
+      rows: t
+        ? [{ org_id: t.org_id, owner_email: t.owner_email, kind: t.kind }]
+        : [],
+      rowsAffected: 0,
+    };
   }
   if (
     /^SELECT id, jti, owner_email.* FROM mcp_connect_tokens WHERE owner_email = \?/i.test(
@@ -96,6 +106,10 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
       sql,
     )
   ) {
+    if (failNextOrgServiceList) {
+      failNextOrgServiceList = false;
+      throw new Error("CONNECTION_LOST");
+    }
     const rows = tokens
       .filter((r) => r.org_id === args[0] && r.kind === "service")
       .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0));
@@ -117,6 +131,25 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     t.revoked_at = args[0];
     return { rows: [], rowsAffected: 1 };
   }
+  if (
+    /^UPDATE mcp_connect_tokens SET revoked_at = \? WHERE org_id = \? AND kind = 'service' AND service_name = \?/i.test(
+      sql,
+    )
+  ) {
+    if (failNextRevokeByName) {
+      failNextRevokeByName = false;
+      throw new Error("connection terminated");
+    }
+    const hit = tokens.filter(
+      (r) =>
+        r.org_id === args[1] &&
+        r.kind === "service" &&
+        r.service_name === args[2] &&
+        r.revoked_at == null,
+    );
+    for (const t of hit) t.revoked_at = args[0];
+    return { rows: [], rowsAffected: hit.length };
+  }
   if (/^UPDATE mcp_connect_tokens SET revoked_at = \?/i.test(sql)) {
     const t = tokens.find(
       (r) =>
@@ -132,7 +165,6 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     return { rows: [], rowsAffected: t ? 1 : 0 };
   }
 
-  // --- mcp_device_codes ---
   if (/^SELECT COUNT\(\*\) AS n FROM mcp_device_codes/i.test(sql)) {
     const n = devices.filter((d) => (d.created_at ?? 0) > args[0]).length;
     return { rows: [{ n }], rowsAffected: 0 };
@@ -145,17 +177,26 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
       org_id: args[3],
       status: args[4],
       token_jti: args[5],
-      created_at: args[6],
-      expires_at: args[7],
-      consumed_at: args[8],
+      catalog_scope: args[6],
+      created_at: args[7],
+      expires_at: args[8],
+      consumed_at: args[9],
     });
     return { rows: [], rowsAffected: 1 };
   }
   if (/^SELECT \* FROM mcp_device_codes WHERE device_code = \?/i.test(sql)) {
+    if (failNextDeviceCodeLookup) {
+      failNextDeviceCodeLookup = false;
+      throw new Error("CONNECTION_LOST");
+    }
     const d = devices.find((r) => r.device_code === args[0]);
     return { rows: d ? [{ ...d }] : [], rowsAffected: 0 };
   }
   if (/^SELECT \* FROM mcp_device_codes WHERE user_code = \?/i.test(sql)) {
+    if (failNextDeviceCodeLookup) {
+      failNextDeviceCodeLookup = false;
+      throw new Error("CONNECTION_LOST");
+    }
     const d = devices.find((r) => r.user_code === args[0]);
     return { rows: d ? [{ ...d }] : [], rowsAffected: 0 };
   }
@@ -165,7 +206,10 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     )
   ) {
     const d = devices.find(
-      (r) => r.user_code === args[2] && r.status === "pending",
+      (r) =>
+        r.user_code === args[2] &&
+        r.status === "pending" &&
+        (r.expires_at ?? 0) >= args[3],
     );
     if (!d) return { rows: [], rowsAffected: 0 };
     d.status = "approved";
@@ -176,7 +220,9 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
   if (/^UPDATE mcp_device_codes SET status = 'consumed'/i.test(sql)) {
     const d = devices.find(
       (r) =>
-        (r.device_code === args[2] && r.status === "approved") ||
+        (r.device_code === args[2] &&
+          r.status === "approved" &&
+          (r.expires_at ?? 0) >= args[3]) ||
         (r.device_code === args[0] &&
           r.status === "minting" &&
           r.token_jti === args[1]),
@@ -191,7 +237,10 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
   }
   if (/^UPDATE mcp_device_codes SET status = 'minting'/i.test(sql)) {
     const d = devices.find(
-      (r) => r.device_code === args[2] && r.status === "approved",
+      (r) =>
+        r.device_code === args[2] &&
+        r.status === "approved" &&
+        (r.expires_at ?? 0) >= args[3],
     );
     if (!d) return { rows: [], rowsAffected: 0 };
     d.status = "minting";
@@ -227,8 +276,8 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
 };
 
 vi.mock("../db/client.js", () => ({
-  getDbExec: () => ({ execute: exec }),
-  isConnectionError: () => false,
+  getDbExec: () => getDbExecMock(),
+  isConnectionError: (err: any) => err?.message === "CONNECTION_LOST",
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
@@ -247,6 +296,8 @@ describe("connect-store", () => {
     devices = [];
     failNextCreateTable = false;
     failNextOrgLookup = false;
+    failNextOrgServiceList = false;
+    failNextDeviceCodeLookup = false;
     vi.restoreAllMocks();
   });
 
@@ -285,9 +336,30 @@ describe("connect-store", () => {
         label: "laptop",
         revoked_at: null,
       });
-      // The row has no column for the token value at all.
       expect(Object.keys(tokens[0])).not.toContain("token");
     });
+
+    it.each([0, undefined, null, NaN, "1", 2, -1])(
+      "rejects a token insert with affected row count %s",
+      async (rowsAffected) => {
+        const tx = {
+          execute: vi.fn(async () => ({
+            rows: [],
+            rowsAffected: rowsAffected as number,
+          })),
+        };
+        await expect(
+          store.recordMintedToken(
+            { jti: "jti-unrecorded", ownerEmail: "user@example.com" },
+            tx,
+          ),
+        ).rejects.toThrow(
+          "Unexpected affected row count for MCP connect token insert",
+        );
+        expect(tx.execute).toHaveBeenCalledTimes(1);
+        expect(tokens).toHaveLength(0);
+      },
+    );
 
     it("isJtiRevoked is false for an active token and true after revoke", async () => {
       await store.recordMintedToken({ jti: "j", ownerEmail: "a@example.com" });
@@ -299,6 +371,25 @@ describe("connect-store", () => {
 
     it("isJtiRevoked is false for an unknown jti", async () => {
       expect(await store.isJtiRevoked("nope")).toBe(false);
+    });
+
+    it("isJtiRevoked throws instead of answering 'not revoked' when the store can't be read", async () => {
+      await store.recordMintedToken({ jti: "j", ownerEmail: "a@example.com" });
+      await store.revokeToken("a@example.com", tokens[0].id);
+      getDbExecMock.mockImplementation(() => ({
+        execute: async (input: string | { sql: string; args?: unknown[] }) => {
+          const sql = typeof input === "string" ? input : input.sql;
+          if (/SELECT revoked_at FROM mcp_connect_tokens/.test(sql)) {
+            throw new Error("db down");
+          }
+          return exec(input);
+        },
+      }));
+      try {
+        await expect(store.isJtiRevoked("j")).rejects.toThrow("db down");
+      } finally {
+        getDbExecMock.mockImplementation(() => ({ execute: exec }));
+      }
     });
 
     it("looks up the org bound to a token and distinguishes missing rows", async () => {
@@ -315,12 +406,50 @@ describe("connect-store", () => {
       await expect(store.lookupConnectTokenOrg("jti-org")).resolves.toEqual({
         status: "found",
         orgId: "org-1",
+        ownerEmail: "a@example.com",
+        kind: "personal",
       });
       await expect(
         store.lookupConnectTokenOrg("jti-personal"),
-      ).resolves.toEqual({ status: "found", orgId: null });
+      ).resolves.toEqual({
+        status: "found",
+        orgId: null,
+        ownerEmail: "a@example.com",
+        kind: "personal",
+      });
       await expect(store.lookupConnectTokenOrg("missing")).resolves.toEqual({
         status: "missing",
+      });
+    });
+
+    it("returns stored service identity provenance for credential admission", async () => {
+      await store.recordMintedToken({
+        jti: "jti-service",
+        ownerEmail: "svc-ci@service.org-1",
+        orgId: "org-1",
+        kind: "service",
+      });
+      await expect(store.lookupConnectTokenOrg("jti-service")).resolves.toEqual(
+        {
+          status: "found",
+          orgId: "org-1",
+          ownerEmail: "svc-ci@service.org-1",
+          kind: "service",
+        },
+      );
+    });
+
+    it("reports unreadable credential metadata instead of admitting a plausible identity", async () => {
+      await store.recordMintedToken({
+        jti: "jti-invalid-kind",
+        ownerEmail: "svc-ci@service.org-1",
+        orgId: "org-1",
+      });
+      tokens[0].kind = "unknown";
+      await expect(
+        store.lookupConnectTokenOrg("jti-invalid-kind"),
+      ).resolves.toEqual({
+        status: "unavailable",
       });
     });
 
@@ -366,7 +495,6 @@ describe("connect-store", () => {
       await store.recordMintedToken({ jti: "j", ownerEmail: "a@example.com" });
       await expect(store.touchTokenUsed("j")).resolves.toBeUndefined();
       expect(tokens[0].last_used_at).not.toBeNull();
-      // Unknown jti is a silent no-op (best-effort telemetry).
       await expect(store.touchTokenUsed("missing")).resolves.toBeUndefined();
     });
 
@@ -465,6 +593,14 @@ describe("connect-store", () => {
       expect(list[0].createdBy).toBe("admin@example.com");
     });
 
+    it("throws when the org service-token store cannot be read", async () => {
+      failNextOrgServiceList = true;
+
+      await expect(store.listOrgServiceTokens("org-1")).rejects.toThrow(
+        "CONNECTION_LOST",
+      );
+    });
+
     it("revokeOrgServiceToken is org-scoped and kills the jti via the shared gate", async () => {
       const id = await store.recordMintedToken({
         jti: "jti-svc",
@@ -475,18 +611,47 @@ describe("connect-store", () => {
         createdBy: "admin@example.com",
       });
 
-      // Another org can't revoke it.
       expect(await store.revokeOrgServiceToken("org-2", id)).toBe(false);
       expect(await store.isJtiRevoked("jti-svc")).toBe(false);
 
-      // The owning org can; the shared revocation gate then rejects the jti.
       expect(await store.revokeOrgServiceToken("org-1", id)).toBe(true);
       expect(await store.isJtiRevoked("jti-svc")).toBe(true);
 
-      // Idempotent: re-revoking keeps the first timestamp.
       const first = tokens[0].revoked_at;
       expect(await store.revokeOrgServiceToken("org-1", id)).toBe(false);
       expect(tokens[0].revoked_at).toBe(first);
+    });
+
+    it("revokeServiceTokensByName revokes only that service's active tokens in one org", async () => {
+      const mint = (jti: string, org: string, name: string) =>
+        store.recordMintedToken({
+          jti,
+          ownerEmail: store.serviceIdentityEmail(name, org),
+          orgId: org,
+          kind: "service",
+          serviceName: name,
+          createdBy: "admin@example.com",
+        });
+      await mint("a1", "org-1", "ci");
+      await mint("a2", "org-1", "ci");
+      await mint("b1", "org-1", "other");
+      await mint("c1", "org-2", "ci");
+      const already = await mint("a0", "org-1", "ci");
+      await store.revokeOrgServiceToken("org-1", already);
+
+      expect(await store.revokeServiceTokensByName("org-1", "ci")).toBe(2);
+      expect(await store.isJtiRevoked("a1")).toBe(true);
+      expect(await store.isJtiRevoked("a2")).toBe(true);
+      expect(await store.isJtiRevoked("b1")).toBe(false);
+      expect(await store.isJtiRevoked("c1")).toBe(false);
+      expect(await store.revokeServiceTokensByName("org-1", "ci")).toBe(0);
+    });
+
+    it("revokeServiceTokensByName throws on a connection error instead of reporting 0", async () => {
+      failNextRevokeByName = true;
+      await expect(
+        store.revokeServiceTokensByName("org-1", "ci"),
+      ).rejects.toThrow("connection terminated");
     });
 
     it("revokeOrgServiceToken never touches personal tokens (kind mismatch)", async () => {
@@ -501,6 +666,157 @@ describe("connect-store", () => {
   });
 
   describe("device-code lifecycle", () => {
+    describe.each(["approve", "consume", "claim", "finish"] as const)(
+      "%s mutation result",
+      (operation) => {
+        it.each([undefined, null, NaN, "1", 2, -1])(
+          "rejects unreadable or unexpected affected row count %s",
+          async (rowsAffected) => {
+            const created = await store.createDeviceCode();
+            if (operation !== "approve") {
+              await store.approveDeviceCode(
+                created.userCode,
+                "user@example.com",
+                "org-1",
+              );
+            }
+            if (operation === "finish") {
+              await store.claimDeviceCodeForMint(
+                created.deviceCode,
+                "jti-count",
+              );
+            }
+            const before = structuredClone(devices[0]);
+            const tx = {
+              execute: vi.fn(async (input: Parameters<typeof exec>[0]) => {
+                if (
+                  typeof input !== "string" &&
+                  input.sql.startsWith("UPDATE")
+                ) {
+                  return { rows: [], rowsAffected: rowsAffected as number };
+                }
+                return exec(input);
+              }),
+            };
+            const mutation =
+              operation === "approve"
+                ? store.approveDeviceCode(
+                    created.userCode,
+                    "user@example.com",
+                    "org-1",
+                    tx,
+                  )
+                : operation === "consume"
+                  ? store.consumeDeviceCode(created.deviceCode, "jti-count", tx)
+                  : operation === "claim"
+                    ? store.claimDeviceCodeForMint(
+                        created.deviceCode,
+                        "jti-count",
+                        tx,
+                      )
+                    : store.finishDeviceCodeMint(
+                        created.deviceCode,
+                        "jti-count",
+                        tx,
+                      );
+            await expect(mutation).rejects.toThrow(
+              "Unexpected affected row count",
+            );
+            expect(devices[0]).toEqual(before);
+            expect(tokens).toHaveLength(0);
+          },
+        );
+      },
+    );
+
+    it("keeps every issuance read and write on the explicit executor without DDL", async () => {
+      const created = await store.createDeviceCode();
+      const tx = { execute: vi.fn(exec) };
+      getDbExecMock.mockClear();
+      executeDdlMock.mockClear();
+      await store.approveDeviceCode(
+        created.userCode,
+        "user@example.com",
+        "org-1",
+        tx,
+      );
+      await store.getDeviceCodeByUserCode(created.userCode, tx);
+      await store.claimDeviceCodeForMint(created.deviceCode, "jti-tx", tx);
+      await store.recordMintedToken(
+        { jti: "jti-tx", ownerEmail: "user@example.com", orgId: "org-1" },
+        tx,
+      );
+      await store.finishDeviceCodeMint(created.deviceCode, "jti-tx", tx);
+      await store.getDeviceCode(created.deviceCode, tx);
+      expect(getDbExecMock).not.toHaveBeenCalled();
+      expect(executeDdlMock).not.toHaveBeenCalled();
+      expect(tx.execute).toHaveBeenCalledTimes(8);
+      expect(tokens[0].jti).toBe("jti-tx");
+      expect(devices[0].status).toBe("consumed");
+    });
+
+    it("keeps consume and release lookups on the explicit executor", async () => {
+      const created = await store.createDeviceCode();
+      await store.approveDeviceCode(created.userCode, "user@example.com", null);
+      const tx = { execute: vi.fn(exec) };
+      getDbExecMock.mockClear();
+      executeDdlMock.mockClear();
+      await store.claimDeviceCodeForMint(created.deviceCode, "jti-tx", tx);
+      await store.releaseDeviceCodeMint(created.deviceCode, "jti-tx", tx);
+      await store.consumeDeviceCode(created.deviceCode, "jti-dev-open", tx);
+      expect(getDbExecMock).not.toHaveBeenCalled();
+      expect(executeDdlMock).not.toHaveBeenCalled();
+      expect(tx.execute).toHaveBeenCalledTimes(5);
+      expect(devices[0].status).toBe("consumed");
+    });
+
+    it("rechecks expiry in the approval mutation after the lookup", async () => {
+      const created = await store.createDeviceCode();
+      vi.spyOn(Date, "now").mockReturnValue(created.expiresAt! - 1);
+      const tx = {
+        execute: vi.fn(async (input: Parameters<typeof exec>[0]) => {
+          if (typeof input !== "string" && input.sql.startsWith("UPDATE"))
+            devices[0].expires_at = Date.now() - 1_000;
+          return exec(input);
+        }),
+      };
+      expect(
+        await store.approveDeviceCode(
+          created.userCode,
+          "user@example.com",
+          "org-1",
+          tx,
+        ),
+      ).toBe("expired");
+      expect(devices[0].status).toBe("pending");
+      expect(devices[0].owner_email).toBeNull();
+      expect(tx.execute).toHaveBeenCalledTimes(3);
+    });
+
+    it.each(["claimDeviceCodeForMint", "consumeDeviceCode"] as const)(
+      "rechecks expiry in %s after the lookup",
+      async (operation) => {
+        const created = await store.createDeviceCode();
+        await store.approveDeviceCode(
+          created.userCode,
+          "user@example.com",
+          "org-1",
+        );
+        const tx = {
+          execute: vi.fn(async (input: Parameters<typeof exec>[0]) => {
+            if (typeof input !== "string" && input.sql.startsWith("UPDATE"))
+              devices[0].expires_at = Date.now() - 1_000;
+            return exec(input);
+          }),
+        };
+        expect(
+          await store[operation](created.deviceCode, "jti-delayed", tx),
+        ).toBeNull();
+        expect(devices[0].status).toBe("approved");
+        expect(devices[0].token_jti).toBeNull();
+      },
+    );
+
     it("creates a crypto-random device + dashed user code with a 10-min TTL", async () => {
       const t = 1_000_000;
       vi.spyOn(Date, "now").mockReturnValue(t);
@@ -509,6 +825,33 @@ describe("connect-store", () => {
       expect(row.deviceCode.length).toBeGreaterThan(20);
       expect(row.status).toBe("pending");
       expect(row.expiresAt).toBe(t + store.DEVICE_CODE_TTL_MS);
+    });
+
+    it("persists requested catalog scope for approval and token minting", async () => {
+      const created = await store.createDeviceCode("full");
+      expect(created.catalogScope).toBe("full");
+      await expect(
+        store.getDeviceCode(created.deviceCode),
+      ).resolves.toMatchObject({
+        catalogScope: "full",
+      });
+      await expect(
+        store.getDeviceCodeByUserCode(created.userCode),
+      ).resolves.toMatchObject({ catalogScope: "full" });
+    });
+
+    it("propagates unreadable device-code lookups instead of returning missing", async () => {
+      const created = await store.createDeviceCode();
+
+      failNextDeviceCodeLookup = true;
+      await expect(store.getDeviceCode(created.deviceCode)).rejects.toThrow(
+        "CONNECTION_LOST",
+      );
+
+      failNextDeviceCodeLookup = true;
+      await expect(
+        store.getDeviceCodeByUserCode(created.userCode),
+      ).rejects.toThrow("CONNECTION_LOST");
     });
 
     it("rate-limits device code creation within the window", async () => {
@@ -535,7 +878,6 @@ describe("connect-store", () => {
       expect(first?.ownerEmail).toBe("user@example.com");
       expect(first?.orgId).toBe("org-9");
 
-      // Single-use: a second consume returns null.
       const second = await store.consumeDeviceCode(created.deviceCode, "jti-y");
       expect(second).toBeNull();
 

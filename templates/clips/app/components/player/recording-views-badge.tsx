@@ -1,7 +1,7 @@
 import { useActionQuery, useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-error-boundary";
-import { LazyChunkRetryFallback } from "@agent-native/core/client/lazy-chunk-retry-fallback";
+import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
+import { LazyChunkRetryFallback } from "@agent-native/toolkit/app/shared";
 import { IconAlertTriangle, IconUser } from "@tabler/icons-react";
 import { lazy, Suspense, useState } from "react";
 
@@ -43,8 +43,6 @@ const LazyInsightsChart = lazy(async () => {
 });
 
 function preloadInsightsChart() {
-  // Speculative loads are retried by the lazy render, where the error boundary
-  // can show the translated recovery action.
   void loadInsightsChart().catch(() => {});
 }
 
@@ -73,7 +71,6 @@ interface AgentViewersResponse {
   views?: number;
   agentViews?: number;
   uniqueViewers?: number;
-  /** Null when no human viewer has been counted — render it as unknown, not 0%. */
   completionRate?: number | null;
   ctaConversionRate?: number | null;
   agentViewers: AgentViewerRow[];
@@ -81,25 +78,14 @@ interface AgentViewersResponse {
 
 export interface RecordingViewsBadgeProps {
   recordingId: string;
-  /** Public counted human-view total. Combined with agentViewCount for display. */
   viewCount: number;
-  /** Outside-agent read total. Broken out in the Views tab. */
   agentViewCount?: number;
-  /** Total recorded emoji reactions for the engagement funnel. */
   reactionCount?: number;
-  /** Opens the unified surface when arriving from the legacy insights route. */
   defaultOpen?: boolean;
-  /** True only for owner/editor — gates avatars and all viewer identities. */
   canViewDetails: boolean;
   className?: string;
 }
 
-/**
- * Header-sized human-view trigger. Viewer identities are owner/editor-only,
- * so a visitor gets plain text and fires no viewer queries at all —
- * `canViewDetails` is the client half of the server-side access check on
- * `list-viewers`.
- */
 export function RecordingViewsBadge({
   recordingId,
   viewCount,
@@ -168,7 +154,7 @@ export function RecordingViewsBadge({
           variant="ghost"
           size="sm"
           className={cn(
-            "h-8 cursor-pointer gap-1.5 rounded-md px-1.5 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+            "cursor-pointer gap-1.5 rounded-md px-1.5 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground",
             className,
           )}
           aria-label={countLabel}
@@ -393,8 +379,6 @@ function InsightsErrorState({
   );
 }
 
-/** Identity fields every viewer surface shares — `list-viewers` rows and the
- * leaner `topViewers` rows from `get-recording-insights` alike. */
 export interface ViewerIdentity {
   viewerEmail: string | null;
   viewerName: string | null;

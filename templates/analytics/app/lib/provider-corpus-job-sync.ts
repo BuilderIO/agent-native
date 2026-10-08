@@ -14,7 +14,6 @@ export function isProviderCorpusJobSyncEvent(event: SyncEvent): boolean {
   );
 }
 
-/** Forward the root's shared DB-sync event without opening another transport. */
 export function notifyProviderCorpusJobSyncEvent(event: SyncEvent): void {
   if (!isProviderCorpusJobSyncEvent(event)) return;
   for (const listener of listeners) listener();

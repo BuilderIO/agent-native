@@ -102,11 +102,6 @@ export function summarizeSlideAnimationTargets(
   });
 }
 
-/**
- * Validate animation identity against the exact HTML that is about to be
- * persisted. Playback cannot repair a stale path without risking a different
- * element being revealed, so reject the mutation before the deck is written.
- */
 export function assertSlideAnimationsResolve({
   slideId,
   content,

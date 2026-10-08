@@ -11,6 +11,8 @@ import {
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { FOCUS_COMPOSE_DRAFT_EVENT } from "@/hooks/use-compose-state";
+
 const mockScheduleEmail = vi.hoisted(() => vi.fn());
 const mockSendEmailAsync = vi.hoisted(() => vi.fn());
 const mockArchiveEmail = vi.hoisted(() => vi.fn());
@@ -207,7 +209,7 @@ describe("ComposeModal scheduling", () => {
     cleanup();
   });
 
-  it("opens a new-message draft in the compact workspace card", () => {
+  it("opens a new-message draft in the roomy workspace card", () => {
     const { container, getByRole } = render(
       <ComposeModal
         drafts={[draft]}
@@ -229,14 +231,60 @@ describe("ComposeModal scheduling", () => {
     expect(compose?.className).toContain("bottom-0");
     expect(compose?.className).not.toContain("sm:top-14");
     expect(compose?.className).not.toContain("sm:bottom-auto");
-    expect(compose?.className).toContain("sm:h-[300px]");
-    expect(compose?.className).toContain("sm:w-[490px]");
+    expect(compose?.className).toContain(
+      "sm:h-[min(540px,_calc(100dvh_-_2rem))]",
+    );
+    expect(compose?.className).toContain(
+      "md:w-[min(490px,_calc(100vw_-_var(--compose-right)_-_1rem))]",
+    );
     expect(compose?.className).toContain("sm:rounded-xl");
     expect(
       getByRole("button", {
         name: "mail.compose.fullScreenCompose",
       }).getAttribute("aria-pressed"),
     ).toBe("false");
+  });
+
+  it("restores a minimized saved draft when the agent focuses it", () => {
+    const savedDraft: ComposeState = {
+      ...draft,
+      savedDraftId: "gmail-draft-1",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "owner@example.com",
+    };
+    const { container, getByRole } = render(
+      <ComposeModal
+        drafts={[savedDraft]}
+        activeId={savedDraft.id}
+        activeDraft={savedDraft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      getByRole("button", { name: "mail.compose.minimizeCompose" }),
+    );
+    expect(container.querySelector('[data-recipient-field="to"]')).toBeNull();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(FOCUS_COMPOSE_DRAFT_EVENT, {
+          detail: { id: savedDraft.id },
+        }),
+      );
+    });
+
+    expect(
+      container.querySelector('[data-recipient-field="to"]'),
+    ).not.toBeNull();
   });
 
   it("focuses the initial unsaved draft when the modal mounts", async () => {

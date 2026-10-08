@@ -12,9 +12,6 @@ import { isOverviewScreenFile } from "../shared/design-files.js";
 const DESIGN_LIST_DEFAULT_PAGE_SIZE = 12;
 const DESIGN_LIST_MAX_PAGE_SIZE = 50;
 
-// Truncate preview HTML so the listing payload stays reasonable. The home
-// screen only needs enough HTML to render a recognizable thumbnail; full
-// content loads on demand when the user opens an editor.
 const PREVIEW_MAX_BYTES = 50_000;
 
 function escapeLike(value: string): string {
@@ -48,9 +45,11 @@ export default defineAction({
         "Set to true only for a lightweight UI picker; it returns the first bounded picker page and hasMore when more exist.",
       ),
     createdBy: z
-      .enum(["all", "me"])
+      .enum(["all", "me", "not-me"])
       .optional()
-      .describe("Set to 'me' to list only designs created by the current user"),
+      .describe(
+        "Set to 'me' or 'not-me' to filter by whether the current user owns each design",
+      ),
     search: z
       .string()
       .trim()
@@ -73,6 +72,11 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   mcpApp: { compactCatalog: true },
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args) => {
     const includeAll = args.includeAll === true;
     const page = includeAll ? 1 : (args.page ?? 1);
@@ -80,7 +84,10 @@ export default defineAction({
       ? DESIGN_LIST_MAX_PAGE_SIZE
       : (args.pageSize ?? DESIGN_LIST_DEFAULT_PAGE_SIZE);
     const ownerEmail = getRequestUserEmail()?.trim().toLowerCase() || null;
-    if (args.createdBy === "me" && !ownerEmail) {
+    if (
+      (args.createdBy === "me" || args.createdBy === "not-me") &&
+      !ownerEmail
+    ) {
       return {
         count: 0,
         totalCount: 0,
@@ -98,16 +105,15 @@ export default defineAction({
       accessFilter(schema.designs, schema.designShares),
       args.createdBy === "me"
         ? sql`lower(trim(${schema.designs.ownerEmail})) = ${ownerEmail}`
-        : undefined,
+        : args.createdBy === "not-me"
+          ? sql`lower(trim(${schema.designs.ownerEmail})) <> ${ownerEmail}`
+          : undefined,
       search
         ? sql`lower(${schema.designs.title}) LIKE ${`%${escapeLike(search)}%`} ESCAPE '\\'`
         : undefined,
     );
     const offset = (page - 1) * pageSize;
 
-    // Project only the columns the list path uses. The `data` TEXT column holds
-    // the full design JSON (tweaks, selections, etc.) which can be large and is
-    // never read on the listing — detail/editor views load it via get-design.
     const designsQuery = db
       .select({
         id: schema.designs.id,
@@ -133,8 +139,6 @@ export default defineAction({
     ]);
     const totalCount = Number(countRows[0]?.count ?? 0);
 
-    // Look up one preview per design when requested. Prefer the entry point
-    // (`index.html`) and fall back to the first HTML file we find.
     const previews = new Map<string, string>();
     if (
       args.includePreview === "true" &&

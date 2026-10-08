@@ -12,27 +12,12 @@ export interface StyledSlide {
   background?: string;
 }
 
-/**
- * The HTML the style tally should see for a slide. An explicit `slide.background`
- * is rendered as a class outside the HTML, so its CSS value is folded in as a
- * wrapper the tally can read. An unset one is left out: the renderer's default
- * canvas fill sits behind the slide's own markup and is not part of the visible
- * palette. A named color utility class has no CSS value here and is left out
- * too, rather than tallied as a guessed color.
- */
 export function slideStyleFragment(slide: StyledSlide): string {
   const fill = slide.background ? backgroundCssValue(slide.background) : null;
   const html = typeof slide.content === "string" ? slide.content : "";
   return fill ? `<div style="background: ${fill}">${html}</div>` : html;
 }
 
-/**
- * Pick the sibling an agent should read before restyling the current slide:
- * same layout when possible, and carrying the deck's majority background and
- * text color, so it shows both the structure and the palette to mirror. A
- * summary of counts cannot show spacing or element order; one real sibling
- * can. Returns the index, or null when there is no other slide.
- */
 export function pickRepresentativeSlide(
   slides: StyledSlide[],
   currentIndex: number,
@@ -43,8 +28,6 @@ export function pickRepresentativeSlide(
     html: slideStyleFragment(slide),
   }));
   const deck = summarizeHtmlStyles(fragments);
-  // Ties rank alphabetically, so a top value used by one slide is not a
-  // shared palette; it would just pin the pick to whichever color sorts first.
   const shared = (values: { value: string; fragments: number }[]) =>
     values[0] && values[0].fragments > 1 ? values[0].value : undefined;
   const majorityBackground = shared(deck.backgrounds);
@@ -75,11 +58,6 @@ export function pickRepresentativeSlide(
   );
 }
 
-/**
- * The deck style summary and its representative slide, computed together so
- * every caller (view-screen, get-deck) shows an agent the same "established
- * deck style" instead of each re-deriving its own.
- */
 export function summarizeDeckStyle(
   slides: StyledSlide[],
   currentIndex = -1,

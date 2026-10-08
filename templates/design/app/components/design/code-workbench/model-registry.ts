@@ -2,16 +2,6 @@ import * as monaco from "monaco-editor";
 
 import { parseWorkbenchUri, providerKindFromKey } from "./workspace/types";
 
-/**
- * Monaco models are the source of truth for draft buffer content. React state
- * (the workbench store) only tracks metadata — dirty flags, version hashes,
- * loading states — so typing never re-renders the tree.
- *
- * Dirty tracking uses Monaco's alternative version id (O(1), undo-aware):
- * a buffer is dirty when the model's current alternative version id differs
- * from the one captured at load/save time.
- */
-
 export interface WorkbenchModelEntry {
   model: monaco.editor.ITextModel;
   savedAltVersionId: number;
@@ -31,15 +21,6 @@ function monacoUriFor(uri: string): monaco.Uri {
 
 class WorkbenchModelRegistry {
   private entries = new Map<string, WorkbenchModelEntry>();
-  /**
-   * Uris currently inside an `applyExternalContent`/`reloadContent` call.
-   * Monaco fires `onDidChangeContent` synchronously from inside
-   * `pushEditOperations`, before this class can update `savedAltVersionId` to
-   * the post-edit version — so a dirty-tracking subscriber reading
-   * `isDirty()` from that callback would see a stale "dirty" result for an
-   * edit nobody typed. Callers (store.tsx's dirty-tracking subscription) use
-   * `isApplyingExternalContent` to skip acting on that spurious notification.
-   */
   private externalContentUris = new Set<string>();
 
   get(uri: string): WorkbenchModelEntry | undefined {
@@ -85,19 +66,10 @@ class WorkbenchModelRegistry {
     return entry.model.getAlternativeVersionId() !== entry.savedAltVersionId;
   }
 
-  /**
-   * True while `uri`'s content is being replaced by `applyExternalContent`.
-   * Dirty-tracking subscribers must ignore `onDidChangeContent` notifications
-   * that fire while this is true — see the field comment above.
-   */
   isApplyingExternalContent(uri: string): boolean {
     return this.externalContentUris.has(uri);
   }
 
-  /**
-   * Replace buffer content from an external change (agent edit, canvas edit)
-   * while preserving the undo stack.
-   */
   applyExternalContent(uri: string, content: string) {
     const entry = this.entries.get(uri);
     if (!entry || entry.model.isDisposed()) return;
@@ -119,13 +91,6 @@ class WorkbenchModelRegistry {
     entry.savedAltVersionId = model.getAlternativeVersionId();
   }
 
-  /**
-   * Force an already-open buffer to match freshly read content + language,
-   * discarding any local edits. Used only for explicit user-initiated reload
-   * (e.g. the "File changed elsewhere — reload latest" conflict action) —
-   * the caller has already decided to discard unsaved edits, so unlike
-   * `applyExternalContent`'s callers this does not gate on dirty state.
-   */
   reloadContent(uri: string, content: string, language: string) {
     const entry = this.entries.get(uri);
     if (!entry || entry.model.isDisposed()) return;
@@ -133,7 +98,6 @@ class WorkbenchModelRegistry {
     this.applyExternalContent(uri, content);
   }
 
-  /** Mark the buffer clean as of the given alternative version id. */
   markSaved(uri: string, altVersionId: number) {
     const entry = this.entries.get(uri);
     if (!entry) return;

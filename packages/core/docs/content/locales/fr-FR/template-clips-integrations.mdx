@@ -17,7 +17,7 @@ Si Clips et Dispatch ont été générés ou ajoutés ensemble dans un seul espa
 
 ### Déploiements séparés : une étape manuelle
 
-Si Clips et Dispatch sont deux projets Agent-Native créés indépendamment, ils ne partagent pas de secret et ne peuvent pas encore s'appeler entre eux. Les connecter demande une étape manuelle de chaque côté : ajoutez une ressource `remote-agents/<id>.json` avec un secret partagé, depuis Paramètres → Agents connectés, l'onglet Connexions de la page Agent, ou Dispatch → Agents → Ajouter un agent externe. Consultez [Protocole A2A](/docs/a2a-protocol) pour le guide complet.
+Si Clips et Dispatch sont deux projets Agent-Native créés indépendamment, ils ne partagent pas de secret et ne peuvent pas encore s'appeler entre eux. Les connecter demande une étape manuelle de chaque côté : ajoutez une ressource `remote-agents/<id>.json` avec un secret partagé, depuis Settings → Agent → Sub-agents (Connect agent), ou Dispatch → Agents → Ajouter un agent externe. Consultez [Protocole A2A](/docs/a2a-protocol) pour le guide complet.
 
 Pour vérifier dans quelle situation vous êtes, demandez à l'agent de l'une des deux applications « quelles applications peux-tu voir ? » Si Clips est absent de la réponse de Dispatch, vous êtes dans le second cas.
 

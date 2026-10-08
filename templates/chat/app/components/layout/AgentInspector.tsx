@@ -1,9 +1,7 @@
-import {
-  AgentSidebar,
-  focusAgentChat,
-  navigateWithAgentChatViewTransition,
-} from "@agent-native/core/client/agent-chat";
+import { navigateWithAgentChatViewTransition } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { focusAgentChat } from "@agent-native/toolkit/app/chat";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat";
 import { type ReactNode } from "react";
 import { useNavigate } from "react-router";
 
@@ -15,7 +13,7 @@ interface AgentInspectorProps {
   chatHomeHandoffPending: boolean;
 }
 
-/** Legacy inspector sidebar, loaded only outside the primary AgentKit Chat. */
+/** Contextual inspector shell used on secondary chat routes. */
 export function AgentInspector({
   children,
   chatHomeHandoffActive,
@@ -24,9 +22,12 @@ export function AgentInspector({
   const navigate = useNavigate();
   const t = useT();
 
-  function openAskAgentFullscreen() {
+  function openAskAgentFullscreen(threadId?: string) {
     focusAgentChat();
-    navigateWithAgentChatViewTransition(navigate, "/home");
+    navigateWithAgentChatViewTransition(
+      navigate,
+      threadId ? `/chat/${encodeURIComponent(threadId)}` : "/home",
+    );
   }
 
   return (

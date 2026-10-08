@@ -9,14 +9,6 @@ const mocks = vi.hoisted(() => ({
   seedFromText: vi.fn(async () => undefined),
 }));
 
-/**
- * Default passthrough: fetch via the mocked `getDashboard`, run the action's
- * mutate callback once against it, then forward to the mocked
- * `upsertDashboard` and return a DashboardRecord-shaped result carrying the
- * mutated config/title. Individual tests override this with
- * `mockImplementationOnce` to simulate a lost race and prove the action
- * recomputes the rename from fresh state on retry.
- */
 function defaultUpsertDashboardWithRetry(
   id: string,
   ctx: unknown,
@@ -36,7 +28,15 @@ function defaultUpsertDashboardWithRetry(
     }
     const { kind, body } = await mutate(existing);
     await mocks.upsertDashboard(id, kind, body, ctx);
-    return { ...existing, kind, config: body, title: body.name };
+    const updated = {
+      ...existing,
+      kind,
+      config: body,
+      title: body.name,
+      updatedAt: new Date(Date.parse(existing.updatedAt) + 1).toISOString(),
+    };
+    mocks.getDashboard.mockResolvedValue(updated);
+    return updated;
   })();
 }
 
@@ -52,6 +52,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/collab", () => ({
   applyText: mocks.applyText,
+  getText: vi.fn(async () => ""),
   hasCollabState: mocks.hasCollabState,
   seedFromText: mocks.seedFromText,
 }));
@@ -115,13 +116,6 @@ describe("rename-dashboard", () => {
   });
 
   it("recomputes the rename against fresh state on retry so a concurrent panel edit is never dropped", async () => {
-    // Simulates two interleaved writers racing on the same dashboard: this
-    // call renames the dashboard, but its first fenced write is lost because
-    // a concurrent panel edit (mutate-dashboard/update-dashboard) already
-    // saved a new panel in between. A correct retry re-reads that winning
-    // save and reapplies the rename on top of it, so both the new panel and
-    // the new name land instead of the rename clobbering the panel edit with
-    // a stale config snapshot.
     const beforeConcurrentWrite = {
       id: "traffic",
       kind: "sql",
@@ -142,9 +136,9 @@ describe("rename-dashboard", () => {
     mocks.upsertDashboardWithRetry.mockImplementationOnce(
       async (id: string, ctx: unknown, mutate: (existing: any) => any) => {
         mutateCallCount += 1;
-        await mutate(beforeConcurrentWrite); // attempt 1: lost to the race
+        await mutate(beforeConcurrentWrite);
         mutateCallCount += 1;
-        const { kind, body } = await mutate(afterConcurrentWrite); // retry
+        const { kind, body } = await mutate(afterConcurrentWrite);
         await mocks.upsertDashboard(id, kind, body, ctx);
         return {
           ...afterConcurrentWrite,
@@ -166,8 +160,6 @@ describe("rename-dashboard", () => {
       name: string;
       panels: Array<{ id: string }>;
     };
-    // Both writers' changes are present: the concurrent panel add ("b") and
-    // this call's own rename.
     expect(saved.panels.map((p) => p.id)).toEqual(["a", "b"]);
     expect(saved.name).toBe("Renamed While Racing");
   });
@@ -182,10 +174,13 @@ describe("rename-dashboard", () => {
 
     await renameDashboard.run({ id: "traffic", name: "New Name" });
 
-    expect(mocks.hasCollabState).toHaveBeenCalledWith("dash-traffic");
-    expect(mocks.seedFromText).toHaveBeenCalledTimes(1);
-    const seededConfig = JSON.parse(mocks.seedFromText.mock.calls[0][1]);
-    expect(seededConfig.name).toBe("New Name");
+    expect(mocks.applyText).toHaveBeenCalledWith(
+      "dash-traffic",
+      JSON.stringify({ ...dashboardConfig(), name: "New Name" }),
+      "content",
+      "agent",
+      expect.objectContaining({ validateSnapshot: expect.any(Function) }),
+    );
   });
 
   it("does not mark a frontend rename as an AI edit", async () => {
@@ -207,6 +202,7 @@ describe("rename-dashboard", () => {
       JSON.stringify({ ...dashboardConfig(), name: "New Name" }),
       "content",
       undefined,
+      expect.objectContaining({ validateSnapshot: expect.any(Function) }),
     );
   });
 });

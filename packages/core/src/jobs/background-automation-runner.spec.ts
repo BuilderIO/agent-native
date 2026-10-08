@@ -2,26 +2,6 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
-/**
- * `runBackgroundAutomation` executes entirely in-process — there is no HTTP
- * self-dispatch to a separate worker — yet it marks its run row
- * `dispatch_mode = 'background'` so the reaper gives it the wider
- * background stale window. Without an immediate self-claim, that row sits at
- * the transient 'background' state for its WHOLE life: the unclaimed-
- * background-run sweep (run-store.ts's `listUnclaimedBackgroundRunRows` /
- * `reapUnclaimedBackgroundRun`) treats ANY such row past the 25s grace window
- * as a dead HTTP handoff and errors it mid-run with
- * `background_worker_never_started`, even though the job is still executing.
- * This pins the fix: the row must land on `background-processing` — the SAME
- * claimed state a genuine HTTP background worker reaches via
- * `claimBackgroundRun` — which removes it from that sweep's eligibility (it
- * filters on `dispatch_mode = 'background'` exactly, not a LIKE prefix).
- *
- * Real PGlite (not a blanket mock) so the CAS UPDATE semantics in
- * `claimBackgroundRun` / `insertRun`'s `ON CONFLICT DO NOTHING` are exercised
- * for real, matching the convention in durable-background-fallback.spec.ts.
- */
-
 const pglite = await createTestPglite();
 
 afterAll(async () => {
@@ -44,9 +24,6 @@ const rawClient = {
   }),
 };
 
-// Partial-mock: only getDbExec is replaced (with the real-PGlite client
-// above); every other export stays real, since several transitively-imported
-// modules (secrets/storage.ts, db/schema.ts) call those directly.
 vi.mock(import("../db/client.js"), async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, getDbExec: () => rawClient };
@@ -62,6 +39,21 @@ const getThreadMock = vi.hoisted(() =>
   })),
 );
 const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => {}));
+const createThreadMock = vi.hoisted(() =>
+  vi.fn(async (..._args: unknown[]) => ({ id: "thread-1" })),
+);
+
+vi.mock("../agent/engine/index.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../agent/engine/index.js")>();
+  return {
+    ...actual,
+    // Delegates to the real check unless a test overrides it.
+    isResolvedEngineUsableForRequest: vi.fn(
+      actual.isResolvedEngineUsableForRequest,
+    ),
+  };
+});
 
 vi.mock("../agent/run-loop-with-resume.js", () => ({
   runAgentLoopDirectWithSoftTimeout: vi.fn(async () => ({
@@ -74,27 +66,23 @@ vi.mock("../agent/run-loop-with-resume.js", () => ({
 }));
 
 vi.mock("../chat-threads/store.js", () => ({
-  createThread: vi.fn(async () => ({ id: "thread-1" })),
+  createThread: createThreadMock,
   getThread: getThreadMock,
   updateThreadData: updateThreadDataMock,
   withThreadDataLock: async (_threadId: string, fn: () => Promise<unknown>) =>
     fn(),
 }));
 
-// Narrow re-implementation, not `vi.importActual` — pulling in the real
-// production-agent.ts module graph pulls in its module-scope engine
-// registration, which this focused test doesn't need (see the same note in
-// scheduler.spec.ts).
 vi.mock("../agent/production-agent.js", () => ({
   actionsToEngineTools: () => [],
   filterInitialEngineTools: (tools: unknown[]) => tools,
-  getOwnerActiveApiKey: vi.fn(async () => null),
+  resolveOwnerEngineApiKey: vi.fn(async () => ({
+    apiKey: undefined,
+    apiKeyEnvVar: undefined,
+  })),
   runAgentLoop: vi.fn(),
 }));
 
-// The credential store answers "no rows" cleanly. A Builder-credits site has no
-// per-user connection to find, which is exactly the case the engine capture
-// below has to survive.
 vi.mock("../secrets/storage.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../secrets/storage.js")>()),
   readAppSecret: vi.fn(async () => null),
@@ -123,6 +111,147 @@ const testEngine = {
   defaultModel: "test-model",
   supportedModels: ["test-model"],
 } as any;
+
+describe("default selection reaches new chats and background runs", () => {
+  it("preserves app overrides on shared changes, honors app changes and resets only explicitly", async () => {
+    const { registerAgentEngine, resolveEngine, getStoredModelForEngine } =
+      await import("../agent/engine/index.js");
+    const { unregisterAgentEngine } =
+      await import("../agent/engine/registry.js");
+    const {
+      writeAgentAppModelDefaultSettings,
+      resetAgentAppModelDefaultSettings,
+    } = await import("../agent/app-model-defaults.js");
+    const { selectDefaultAgentEngine } =
+      await import("../scripts/agent-engines/set-agent-engine.js");
+    const { run: manageEngine } =
+      await import("../scripts/agent-engines/manage-agent-engine.js");
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const ctx = { userEmail: "default-model@example.test" };
+    const fakeEngine = {
+      ...testEngine,
+      name: "default-model-fixture",
+      defaultModel: "claude-sonnet-5-5",
+      supportedModels: ["claude-sonnet-5-5", "gpt-6-luna", "app-choice"],
+    };
+    registerAgentEngine({
+      ...fakeEngine,
+      label: "Fixture",
+      description: "",
+      capabilities: {},
+      requiredEnvVars: [],
+      create: () => fakeEngine,
+    });
+    try {
+      await writeAgentAppModelDefaultSettings(ctx, "calendar", {
+        engine: fakeEngine.name,
+        model: "gpt-6-luna",
+      });
+      await runWithRequestContext(ctx, async () => {
+        const engine = await resolveEngine({ appId: "calendar" });
+        expect(
+          await getStoredModelForEngine(engine, { appId: "calendar" }),
+        ).toBe("gpt-6-luna");
+        expect(
+          await selectDefaultAgentEngine(
+            {
+              engine: fakeEngine.name,
+              model: "claude-sonnet-5-5",
+              appId: "calendar",
+            },
+            { actionName: "manage-agent-engine", caller: "tool" },
+          ),
+        ).toMatchObject({
+          status: "selected",
+          scope: "user",
+          effective: { model: "gpt-6-luna", source: "app-default" },
+        });
+        const newChatEngine = await resolveEngine({ appId: "calendar" });
+        expect(
+          await getStoredModelForEngine(newChatEngine, { appId: "calendar" }),
+        ).toBe("gpt-6-luna");
+        const inheritingEngine = await resolveEngine({ appId: "mail" });
+        expect(
+          await getStoredModelForEngine(inheritingEngine, { appId: "mail" }),
+        ).toBe("claude-sonnet-5-5");
+        const changed = JSON.parse(
+          await manageEngine({
+            action: "set-app-default",
+            appId: "calendar",
+            engine: fakeEngine.name,
+            model: "app-choice",
+          }),
+        );
+        expect(changed).toMatchObject({
+          requestedScope: "app",
+          model: "app-choice",
+        });
+      });
+      for (const pinned of [false, true]) {
+        vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+        await runBackgroundAutomation(
+          {
+            automation: {
+              name: "model-precedence",
+              meta: {
+                schedule: "* * * * *",
+                enabled: true,
+                ...(pinned ? { model: "gpt-6-luna" } : {}),
+              },
+              body: "Return a short status.",
+              resource: {
+                owner: ctx.userEmail,
+                path: "jobs/model-precedence.md",
+              } as any,
+            },
+            ownerEmail: ctx.userEmail,
+            prompt: "Return a short status.",
+            threadTitle: "Job: model precedence",
+            runIdPrefix: `job-model-${pinned}`,
+            usageLabel: "recurring-job:model-precedence",
+          },
+          {
+            appId: "calendar",
+            getActions: () => ({}),
+            getSystemPrompt: async () => "system",
+          },
+        );
+        expect(
+          vi.mocked(runAgentLoopDirectWithSoftTimeout).mock.calls.at(-1)?.[0],
+        ).toMatchObject({
+          engine: { name: fakeEngine.name },
+          model: pinned ? "gpt-6-luna" : "app-choice",
+        });
+      }
+      await runWithRequestContext(ctx, async () => {
+        const reset = JSON.parse(
+          await manageEngine({
+            action: "reset-app-default",
+            appId: "calendar",
+          }),
+        );
+        expect(reset).toMatchObject({
+          requestedScope: "app",
+          engine: null,
+          model: null,
+        });
+        const inheritedEngine = await resolveEngine({ appId: "calendar" });
+        expect(
+          await getStoredModelForEngine(inheritedEngine, { appId: "calendar" }),
+        ).toBe("claude-sonnet-5-5");
+      });
+    } finally {
+      unregisterAgentEngine(fakeEngine.name);
+      await resetAgentAppModelDefaultSettings(ctx, "calendar");
+      const { deleteUserSetting } =
+        await import("../settings/user-settings.js");
+      await deleteUserSetting(ctx.userEmail, "agent-engine");
+    }
+  });
+});
 
 describe("runBackgroundAutomation — background-run self-claim", () => {
   it("keeps the outer hard timeout at the ten-minute background budget", () => {
@@ -159,12 +288,55 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
     await expect(dispatchModeOf(runId)).resolves.toBe("background-processing");
   });
 
-  // Without `backgroundFunction`, scheduled work inherits the interactive
-  // regime — a 40s soft timeout, a no-progress backstop at 0.75x that, and 6
-  // continuations. The backstop is suspended while a tool is in flight but not
-  // between tools, so a legitimate multi-minute job dies in the first >30s gap
-  // and is recorded as `no_progress` after minutes of real work. It was the
-  // largest single terminal reason across the fleet's scheduled runs.
+  it("counts setup time against an absolute event deadline", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+    const now = Date.now();
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(now);
+
+    try {
+      await expect(
+        runBackgroundAutomation(
+          {
+            automation: {
+              name: "deadline-digest",
+              meta: {
+                schedule: "* * * * *",
+                enabled: true,
+                model: "test-model",
+              },
+              body: "Summarize the inbox.",
+              resource: {
+                owner: "alice@agent-native.test",
+                path: "jobs/deadline-digest.md",
+              } as any,
+            },
+            ownerEmail: "alice@agent-native.test",
+            prompt: "Summarize the inbox.",
+            threadTitle: "Job: deadline-digest",
+            runIdPrefix: "job-deadline-digest",
+            usageLabel: "recurring-job:deadline-digest",
+            hardDeadlineAt: now + 100,
+          },
+          {
+            getActions: async () => {
+              dateNow.mockReturnValue(now + 101);
+              return {};
+            },
+            getSystemPrompt: async () => "system",
+            engine: testEngine,
+          },
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "background_automation_hard_timeout",
+      });
+      expect(runAgentLoopDirectWithSoftTimeout).not.toHaveBeenCalled();
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
   it("runs scheduled work under the background timeout regime, not the interactive clamp", async () => {
     const { runAgentLoopDirectWithSoftTimeout } =
       await import("../agent/run-loop-with-resume.js");
@@ -206,25 +378,52 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
       appId: "calendar",
       maxIterations: 9,
       maxRunInputTokens: 123_456,
-      // Scheduled work used to pass no ceiling at all and silently inherit the
-      // flat per-engine default — a LOWER output budget than chat, on the runs
-      // that produce the largest single tool call.
       maxOutputTokens: 64_000,
     });
     expect(call?.[2]).toMatchObject({ backgroundFunction: true });
-    // The chunk control is what makes a checkpoint recoverable here. Without
-    // it the run manager's boundary aborts the turn and the loop's own
-    // continuation budget — which already accepts `no_progress` — is dead.
     expect(call?.[3]).toBeDefined();
-    // Derived from this runner's OWN 10-minute hard abort, not the 13-minute
-    // durable-chat ceiling that the process is killed three minutes before.
     expect(call?.[1]).toBeLessThan(BACKGROUND_RUN_HARD_TIMEOUT_MS);
   });
 
-  // Chat and webhook automations already forwarded `reasoningEffort` into the
-  // agent loop (agent-teams.ts, webhook-handler.ts); this runner was the one
-  // path that silently dropped it, so a scheduled automation's configured
-  // effort never reached the engine at all.
+  it("records unavailable configured MCP tools with a specific failure code", async () => {
+    const automationName = "missing-mcp-tool-check";
+    await expect(
+      runBackgroundAutomation(
+        {
+          automation: {
+            name: automationName,
+            meta: {
+              schedule: "* * * * *",
+              enabled: true,
+              mcpTools: ["mcp__linear__search_issues"],
+            },
+            body: "Check Linear.",
+            resource: {
+              owner: "alice@agent-native.test",
+              path: `jobs/${automationName}.md`,
+            } as any,
+          },
+          ownerEmail: "alice@agent-native.test",
+          prompt: "Check Linear.",
+          threadTitle: "Job: missing MCP tool check",
+          runIdPrefix: "job-missing-mcp-tool-check",
+          usageLabel: "recurring-job:missing-mcp-tool-check",
+        },
+        {
+          getActions: () => ({}),
+          getSystemPrompt: async () => "system",
+          engine: testEngine,
+          appId: "calendar",
+        },
+      ),
+    ).rejects.toMatchObject({ errorCode: "missing_tools" });
+
+    const run = (await pglite
+      .prepare(`SELECT error_code FROM automation_runs WHERE automation = ?`)
+      .get(automationName)) as { error_code: string } | undefined;
+    expect(run?.error_code).toBe("missing_tools");
+  });
+
   it("forwards the automation's configured reasoningEffort into the agent loop", async () => {
     const { runAgentLoopDirectWithSoftTimeout } =
       await import("../agent/run-loop-with-resume.js");
@@ -269,9 +468,6 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
     expect(call?.[0]).toMatchObject({ reasoningEffort: "low" });
   });
 
-  // History is a record ABOUT the run. If the history table is unwritable the
-  // correct outcome is a missing record, not a scheduled automation that never
-  // executed and gets reported as a failure.
   it("still runs the automation when the run-history write fails", async () => {
     const runHistory = await import("./run-history.js");
     const startSpy = vi
@@ -311,7 +507,6 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
 
       expect(runId).toBeTruthy();
       expect(startSpy).toHaveBeenCalled();
-      // Nothing to attach or finish once the record could not be opened.
       expect(attachSpy).not.toHaveBeenCalled();
       expect(finishSpy).not.toHaveBeenCalled();
     } finally {
@@ -489,9 +684,6 @@ describe("runBackgroundAutomation — thread transcript", () => {
   });
 
   it("reports a cut-off automation to the error-capture system", async () => {
-    // The scheduler and the trigger dispatcher both swallow this into the
-    // automation's own metadata plus a console.error, so the capture seam is
-    // the only thing that puts it in front of anyone.
     const { registerErrorCaptureProvider } =
       await import("../server/capture-error.js");
     const captured: Array<{ error: unknown; context: Record<string, any> }> =
@@ -563,8 +755,6 @@ describe("runBackgroundAutomation — thread transcript", () => {
       automation: "cut-off-digest",
       scope: "personal",
     });
-    // Joins the issue to its LLM trace; without it the report lands somewhere
-    // no backend can correlate with the run that produced it.
     expect(captured[0].context.aiTraceId).toMatch(/^job-cut-off-digest-/);
   });
 
@@ -602,7 +792,7 @@ describe("runBackgroundAutomation — thread transcript", () => {
         delay?: number,
         ...args: unknown[]
       ) => {
-        if (delay === BACKGROUND_RUN_HARD_TIMEOUT_MS) {
+        if (delay === 120_000) {
           pendingHardTimeouts.push(() => {
             if (typeof handler === "function") handler(...args);
           });
@@ -636,6 +826,7 @@ describe("runBackgroundAutomation — thread transcript", () => {
           threadTitle: "Job: hard-timeout-digest — Aug 18, 2026",
           runIdPrefix: "job-hard-timeout-digest",
           usageLabel: "recurring-job:hard-timeout-digest",
+          hardTimeoutMs: 120_000,
         },
         {
           getActions: () => ({}),
@@ -649,11 +840,7 @@ describe("runBackgroundAutomation — thread transcript", () => {
       });
       pendingHardTimeouts[0]!();
 
-      await expect(runPromise).rejects.toThrow(/timed out after 10 minutes/);
-      // Aborting the controller directly carries no reason the run manager can
-      // see, so finalization fell through to `aborted:user` and a hard timeout
-      // was filed as a person pressing Stop — in the analytics that exist to
-      // tell the two apart.
+      await expect(runPromise).rejects.toThrow(/timed out after 2 minutes/);
       const hardTimedOutRunId = (await pglite
         .prepare(
           `SELECT id FROM agent_runs WHERE id LIKE 'job-hard-timeout-digest%' ORDER BY started_at DESC LIMIT 1`,
@@ -679,7 +866,7 @@ describe("runBackgroundAutomation — thread transcript", () => {
           expect.objectContaining({
             type: "text",
             text: expect.stringMatching(
-              /Still working\.[\s\S]*timed out after 10 minutes/,
+              /Still working\.[\s\S]*timed out after 2 minutes/,
             ),
           }),
         ]),
@@ -741,9 +928,6 @@ describe("runBackgroundAutomation — engine credentials with no deps.engine", (
         .mock.calls.at(-1)?.[0].engine;
       expect(engine?.name).toBe("builder");
 
-      // The capture is only correct if a turn taken later, detached from this
-      // stack, actually authenticates. A captured identity-lane result yields
-      // missing_credentials here and never reaches fetch.
       const fetchSpy = vi
         .fn()
         .mockResolvedValue(
@@ -777,5 +961,420 @@ describe("runBackgroundAutomation — engine credentials with no deps.engine", (
       vi.unstubAllGlobals();
       vi.unstubAllEnvs();
     }
+  });
+});
+
+async function countRowsWithPrefix(prefix: string): Promise<number> {
+  const table = (await pglite
+    .prepare(`SELECT to_regclass('agent_runs') AS name`)
+    .get()) as { name: string | null };
+  if (!table.name) return 0;
+  const row = (await pglite
+    .prepare(`SELECT count(*) AS n FROM agent_runs WHERE id LIKE ?`)
+    .get(`${prefix}%`)) as { n: number | string };
+  return Number(row.n);
+}
+
+function precondition(name: string, overrides: Record<string, unknown> = {}) {
+  return {
+    name,
+    meta: {
+      schedule: "*/15 * * * *",
+      enabled: true,
+      model: "test-model",
+      ...overrides,
+    },
+    body: "Send the reminders.",
+    resource: {
+      owner: "alice@agent-native.test",
+      path: `jobs/${name}.md`,
+    } as any,
+  };
+}
+
+function runOptions(
+  automation: ReturnType<typeof precondition>,
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    automation,
+    ownerEmail: "alice@agent-native.test",
+    prompt: "Send the reminders.",
+    threadTitle: `Job: ${automation.name}`,
+    runIdPrefix: `job-${automation.name}`,
+    usageLabel: `recurring-job:${automation.name}`,
+    ...overrides,
+  };
+}
+
+const standardDeps = {
+  getActions: () => ({}),
+  getSystemPrompt: async () => "system",
+  engine: testEngine,
+};
+
+describe("runBackgroundAutomation — preconditions fail before any thread or run exists", () => {
+  async function usableCheck() {
+    const engineIndex = await import("../agent/engine/index.js");
+    return vi.mocked(engineIndex.isResolvedEngineUsableForRequest);
+  }
+
+  it("records missing_credentials with its real cause and creates no thread or run", async () => {
+    const usable = await usableCheck();
+    usable.mockResolvedValueOnce(false);
+    createThreadMock.mockClear();
+    const automation = precondition("no-credentials");
+
+    await expect(
+      runBackgroundAutomation(runOptions(automation), standardDeps),
+    ).rejects.toMatchObject({
+      errorCode: "missing_credentials",
+      message: expect.stringContaining("No LLM provider is connected"),
+    });
+
+    expect(createThreadMock).not.toHaveBeenCalled();
+    await expect(countRowsWithPrefix("job-no-credentials")).resolves.toBe(0);
+    const history = (await pglite
+      .prepare(
+        `SELECT status, error, error_code FROM automation_runs WHERE automation = ?`,
+      )
+      .get("no-credentials")) as {
+      status: string;
+      error: string;
+      error_code: string;
+    };
+    expect(history).toMatchObject({
+      status: "error",
+      error_code: "missing_credentials",
+    });
+    expect(history.error).toContain("No LLM provider is connected");
+    expect(history.error).not.toContain("ended with status");
+  });
+
+  async function seedOrg(members: Array<[email: string, role: string]>) {
+    await pglite.exec(`
+      CREATE TABLE IF NOT EXISTS "user" (id TEXT PRIMARY KEY, email TEXT UNIQUE);
+      INSERT INTO "user" (id, email) VALUES ('u-alice', 'alice@agent-native.test')
+        ON CONFLICT DO NOTHING;
+      CREATE TABLE IF NOT EXISTS org_members (
+        org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL,
+        federation_removal_pending_at BIGINT
+      );
+      DELETE FROM org_members;
+    `);
+    for (const [email, role] of members) {
+      await pglite
+        .prepare(
+          `INSERT INTO org_members (org_id, email, role) VALUES ('acme', ?, ?)`,
+        )
+        .run(email, role);
+    }
+  }
+
+  async function orgJobAlertRecipient(name: string) {
+    const usable = await usableCheck();
+    usable.mockResolvedValueOnce(false);
+    const automation = precondition(name, {
+      runAs: "shared",
+      orgId: "acme",
+      createdBy: "alice@agent-native.test",
+    });
+    automation.resource.owner = "__organization__:acme";
+    await expect(
+      runBackgroundAutomation(
+        runOptions(automation, {
+          ownerEmail: "__organization__:acme",
+          orgId: "acme",
+        }),
+        standardDeps,
+      ),
+    ).rejects.toMatchObject({ errorCode: "missing_credentials" });
+    const history = (await pglite
+      .prepare(
+        `SELECT notification_email FROM automation_runs WHERE automation = ?`,
+      )
+      .get(name)) as { notification_email: string | null };
+    return history.notification_email;
+  }
+
+  it("alerts an org owner, not a creator who has left the organization", async () => {
+    await seedOrg([["bob@agent-native.test", "owner"]]);
+    expect(await orgJobAlertRecipient("org-creator-left")).toBe(
+      "bob@agent-native.test",
+    );
+  });
+
+  it("records no recipient, loudly, when nobody in the organization can be alerted", async () => {
+    await seedOrg([["carol@agent-native.test", "member"]]);
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await orgJobAlertRecipient("org-no-recipient")).toBeNull();
+      expect(
+        errors.mock.calls.some((call) =>
+          String(call[0]).includes("automation_alert_no_recipient"),
+        ),
+      ).toBe(true);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it("names who can fix a shared organization job and alerts its creator, not the pseudo owner", async () => {
+    await seedOrg([["alice@agent-native.test", "member"]]);
+    const usable = await usableCheck();
+    usable.mockResolvedValueOnce(false);
+    const automation = precondition("org-reminders", {
+      runAs: "shared",
+      orgId: "acme",
+      createdBy: "alice@agent-native.test",
+    });
+    automation.resource.owner = "__organization__:acme";
+
+    await expect(
+      runBackgroundAutomation(
+        runOptions(automation, {
+          ownerEmail: "__organization__:acme",
+          orgId: "acme",
+        }),
+        standardDeps,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "missing_credentials",
+      message: expect.stringMatching(
+        /organization "acme".*admin.*personal connection is not used/s,
+      ),
+    });
+
+    const history = (await pglite
+      .prepare(
+        `SELECT notification_email FROM automation_runs WHERE automation = ?`,
+      )
+      .get("org-reminders")) as { notification_email: string | null };
+    expect(history.notification_email).toBe("alice@agent-native.test");
+  });
+
+  it("types the tool supplier's untyped missing-tools error and creates no thread", async () => {
+    createThreadMock.mockClear();
+    await expect(
+      runBackgroundAutomation(
+        runOptions(precondition("supplier-missing-tools")),
+        {
+          ...standardDeps,
+          getActions: () => {
+            throw new Error(
+              "Configured MCP tools are unavailable in this run: mcp__codex_apps__github_create_pr. Reconnect the MCP server or update the automation's capability list.",
+            );
+          },
+        },
+      ),
+    ).rejects.toThrow("Configured MCP tools are unavailable");
+
+    expect(createThreadMock).not.toHaveBeenCalled();
+    const history = (await pglite
+      .prepare(
+        `SELECT error, error_code FROM automation_runs WHERE automation = ?`,
+      )
+      .get("supplier-missing-tools")) as { error: string; error_code: string };
+    expect(history.error_code).toBe("missing_tools");
+    expect(history.error).toContain("mcp__codex_apps__github_create_pr");
+  });
+
+  it("does not call an unreadable credential store a missing credential", async () => {
+    const usable = await usableCheck();
+    const { CredentialStoreUnavailableError } =
+      await import("../server/credential-provider.js");
+    usable.mockRejectedValueOnce(new CredentialStoreUnavailableError());
+    createThreadMock.mockClear();
+
+    await expect(
+      runBackgroundAutomation(
+        runOptions(precondition("unreadable-store")),
+        standardDeps,
+      ),
+    ).rejects.toMatchObject({ errorCode: "credential_store_unavailable" });
+    expect(createThreadMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unsupported delivery platform before running the agent", async () => {
+    createThreadMock.mockClear();
+    const automation = precondition("bad-delivery", {
+      deliveryPlatform: "carrier-pigeon",
+      deliveryDestination: "coop-1",
+    });
+
+    await expect(
+      runBackgroundAutomation(runOptions(automation), standardDeps),
+    ).rejects.toMatchObject({
+      errorCode: "config_invalid",
+      message: expect.stringContaining("carrier-pigeon"),
+    });
+    expect(createThreadMock).not.toHaveBeenCalled();
+    await expect(countRowsWithPrefix("job-bad-delivery")).resolves.toBe(0);
+  });
+
+  it("emails only the run that pauses the automation", async () => {
+    const usable = await usableCheck();
+    const runHistory = await import("./run-history.js");
+    const finishSpy = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockResolvedValue(undefined);
+    try {
+      for (const [streak, quiet] of [
+        [undefined, true],
+        [1, true],
+        [2, false],
+      ] as const) {
+        usable.mockResolvedValueOnce(false);
+        finishSpy.mockClear();
+        const automation = precondition(`streak-${streak ?? 0}`, {
+          ...(streak
+            ? {
+                lastErrorCode: "missing_credentials",
+                consecutiveFailures: streak,
+              }
+            : {}),
+        });
+        await expect(
+          runBackgroundAutomation(runOptions(automation), standardDeps),
+        ).rejects.toMatchObject({ errorCode: "missing_credentials" });
+
+        const [, status, error, code, options] = finishSpy.mock.calls[0]!;
+        expect(status).toBe("error");
+        expect(code).toBe("missing_credentials");
+        if (quiet) {
+          expect(options).toEqual({ notify: false });
+          expect(error).not.toContain("Paused");
+        } else {
+          expect(options).toBeUndefined();
+          expect(error).toContain("Paused after 3 consecutive");
+        }
+      }
+    } finally {
+      finishSpy.mockRestore();
+    }
+  });
+
+  it("never lets a manual run count toward a pause", async () => {
+    const usable = await usableCheck();
+    const runHistory = await import("./run-history.js");
+    const finishSpy = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockResolvedValue(undefined);
+    try {
+      usable.mockResolvedValueOnce(false);
+      const automation = precondition("manual-check", {
+        lastErrorCode: "missing_credentials",
+        consecutiveFailures: 2,
+      });
+      await expect(
+        runBackgroundAutomation(
+          runOptions(automation, { manual: true }),
+          standardDeps,
+        ),
+      ).rejects.toMatchObject({ errorCode: "missing_credentials" });
+      const [, , error] = finishSpy.mock.calls[0]!;
+      expect(error).not.toContain("Paused");
+    } finally {
+      finishSpy.mockRestore();
+    }
+  });
+});
+
+describe("runBackgroundAutomation — a failed run reports its own cause", () => {
+  it("surfaces the run's error instead of 'ended with status: errored'", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const { EngineError } = await import("../agent/engine/types.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async () => {
+        throw new EngineError(
+          "No LLM provider is connected. Open Settings > Agent > AI providers.",
+          { errorCode: "missing_credentials" },
+        );
+      },
+    );
+
+    await expect(
+      runBackgroundAutomation(
+        runOptions(precondition("engine-credentials")),
+        standardDeps,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "missing_credentials",
+      message: expect.stringContaining("No LLM provider is connected"),
+    });
+    const history = (await pglite
+      .prepare(
+        `SELECT error, error_code FROM automation_runs WHERE automation = ?`,
+      )
+      .get("engine-credentials")) as { error: string; error_code: string };
+    expect(history.error_code).toBe("missing_credentials");
+    expect(history.error).not.toContain("ended with status");
+  });
+
+  it("keeps a runtime error's real code and cause", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const { EngineError } = await import("../agent/engine/types.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async () => {
+        throw new EngineError("Gateway returned 502", {
+          errorCode: "http_502",
+        });
+      },
+    );
+
+    await expect(
+      runBackgroundAutomation(
+        runOptions(precondition("engine-runtime")),
+        standardDeps,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "http_502",
+      message: expect.stringContaining("Gateway returned 502"),
+    });
+  });
+
+  it("tags the captured error with its code, owner kind and automation", async () => {
+    const { registerErrorCaptureProvider } =
+      await import("../server/capture-error.js");
+    const captured: Array<{ context: Record<string, any> }> = [];
+    const unregister = registerErrorCaptureProvider(
+      "background-automation-outcome-spec",
+      (_error, context) => {
+        captured.push({ context: context as Record<string, any> });
+        return undefined;
+      },
+    );
+    const usable = await (async () => {
+      const engineIndex = await import("../agent/engine/index.js");
+      return vi.mocked(engineIndex.isResolvedEngineUsableForRequest);
+    })();
+    usable.mockResolvedValueOnce(false);
+    try {
+      await expect(
+        runBackgroundAutomation(
+          runOptions(precondition("tagged-failure")),
+          standardDeps,
+        ),
+      ).rejects.toBeDefined();
+    } finally {
+      unregister();
+    }
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.context.tags).toMatchObject({
+      area: "background-automation",
+      automation: "tagged-failure",
+      errorCode: "missing_credentials",
+      failureKind: "precondition",
+      ownerKind: "user",
+    });
+    expect(captured[0]!.context.extra).toMatchObject({
+      automationName: "tagged-failure",
+      errorCode: "missing_credentials",
+      consecutiveFailures: 1,
+      paused: false,
+    });
   });
 });

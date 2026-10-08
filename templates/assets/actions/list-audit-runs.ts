@@ -16,20 +16,6 @@ const RUN_STATUSES = [
 ] as const;
 const RUN_SOURCES = ["chat", "ui", "a2a"] as const;
 
-/**
- * Org-admin paginated audit-log feed.
- *
- * Audit reads bypass the normal `accessFilter` for `image_generation_runs`
- * and `image_libraries` — that's the whole point of the audit surface — but
- * **only after `assertOrgAdmin()` succeeds**. Cross-org leak is impossible:
- * the helper resolves the caller's active-org role from `org_members`, then
- * scopes the run query to `org_id = <caller's org>`. Runs from libraries
- * owned by users outside the admin's org are never returned.
- *
- * Single-user / local mode (no org context) falls back to "owner-only audits
- * their own runs" — `assertOrgAdmin()` returns `{ ownerEmail }` and the
- * query restricts to runs owned by that email.
- */
 export default defineAction({
   description:
     "Org-admin only. List asset generation runs across the workspace for governance / design-team review. Filters by date range, owner, library, model, status, source, calling app, and prompt search. Returns paginated results with library titles and child counts. Falls back to owner-only audits when there's no org context.",
@@ -92,8 +78,6 @@ export default defineAction({
       filters.push(lte(schema.assetGenerationRuns.createdAt, args.dateTo));
     }
     if (args.cursor) {
-      // Cursor is the previous page's last `createdAt`. We're sorted DESC, so
-      // "next page" means strictly older.
       filters.push(
         sql`${schema.assetGenerationRuns.createdAt} < ${args.cursor}`,
       );
@@ -124,7 +108,6 @@ export default defineAction({
       );
     }
 
-    // Pull `limit + 1` so we can detect whether more pages exist.
     const rows = await db
       .select()
       .from(schema.assetGenerationRuns)
@@ -136,7 +119,6 @@ export default defineAction({
     const page = hasMore ? rows.slice(0, args.limit) : rows;
     const nextCursor = hasMore ? page[page.length - 1].createdAt : null;
 
-    // Resolve library titles in one batch.
     const libIds = [...new Set(page.map((r) => r.libraryId))];
     const libs =
       libIds.length === 0

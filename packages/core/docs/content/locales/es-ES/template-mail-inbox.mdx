@@ -1,0 +1,118 @@
+---
+title: "Correo: Bandeja de entrada, búsqueda y automatizaciones"
+description: "Lee, busca y clasifica tu bandeja de entrada de Gmail en Correo — atajos de teclado, limpieza masiva, reglas de selección automática, filtros nativos de Gmail y contexto de CRM en un hilo."
+---
+
+# Bandeja de entrada, búsqueda y automatizaciones
+
+Esta página cubre el trabajo diario en la bandeja de entrada de [Correo](/docs/template-mail): leer y clasificar mensajes, buscar en todas las cuentas conectadas, limpiar en masa, y las dos formas de automatizar la clasificación recurrente. Está escrita para cualquiera que use Correo, no solo para desarrolladores.
+
+## Leer y clasificar
+
+Muévete por tu bandeja de entrada sin tocar el ratón. La ordenación por prioridad solo está disponible cuando tienes acceso a Builder o una clave personal guardada. Usa estos atajos de teclado:
+
+| Clave     | Acción                                  |
+| --------- | --------------------------------------- |
+| `J`       | Siguiente correo electrónico            |
+| `K`       | Correo electrónico anterior             |
+| `Up/Down` | Igual que J/K                           |
+| `Enter`   | Abrir correo electrónico enfocado       |
+| `E`       | Archivar correo electrónico o hilo      |
+| `D`       | Correo electrónico o hilo a la papelera |
+| `S`       | Destacar o quitar estrella              |
+| `R`       | Responder                               |
+| `U`       | Alternar leído/no leído                 |
+| `C`       | Redactar nuevo correo electrónico       |
+| `/`       | Enfocar la barra de búsqueda            |
+| `Cmd+K`   | Abrir paleta de comandos                |
+| `G I`     | Ir a la bandeja de entrada              |
+| `G S`     | Ir a Destacados                         |
+| `G T`     | Ir a Enviados                           |
+| `G D`     | Ir a Borradores                         |
+| `G A`     | Ir a Archivo                            |
+| `Esc`     | Cerrar hilo / borrar búsqueda           |
+
+Todo lo que hace un atajo, también puedes pedirlo: "archiva todos los correos electrónicos del bot de Netlify con más de una semana de antigüedad", "destaca cualquier cosa de Priya", "marca todo en este hilo como leído".
+
+## Buscar en todas las bandejas de entrada conectadas
+
+Escribe en la barra de búsqueda, o pídeselo al agente: una sola consulta busca en todas las cuentas de Gmail conectadas a la vez, no solo en la pestaña que tengas abierta en ese momento. Si has conectado cuentas personales y de trabajo, "encuentra la factura de Acme" comprueba ambas.
+
+## Actions masivas para limpiar la bandeja de entrada
+
+Archivar, destacar y marcar como leído funcionan en masa contra tus cuentas reales de Gmail conectadas: selecciona varios mensajes (o pídele al agente que actúe sobre "todos estos") y Correo agrupa las solicitudes por cuenta en lugar de hacer una llamada por mensaje. También están disponibles una limpieza aparte basada en fecha ("archiva todo lo que tenga más de 30 días") y una exportación en JSON de una vista, pero ambas operan actualmente sobre el buzón de demostración local en lugar de una cuenta de Gmail conectada. Después de los cambios en Gmail, Correo evita que respuestas más antiguas o canceladas sustituyan a resultados más recientes.
+
+Para vaciar un gran acumulado de correo no leído en una cuenta, usa "marca todo lo no leído como leído" en lugar de pedirle al agente que abra y marque cada conversación una por una: Correo ejecuta eso como una única operación masiva verificada e informa de cuántos mensajes cambiaron realmente.
+
+## Reglas de selección automática frente a filtros nativos de Gmail
+
+Correo tiene dos formas distintas de automatizar lo que sucede con el correo entrante — elige con criterio:
+
+<Callout tone="info">
+
+**Las reglas de automatización** comparan el correo nuevo con una condición que escribes en lenguaje sencillo ("de un boletín", "el asunto contiene factura") usando IA, y aplican una acción (etiqueta, archivar, marcar como leído, destacar, papelera). Se ejecutan automáticamente alrededor de una vez por minuto dentro de Correo.
+
+**Los filtros de Gmail** son el mecanismo nativo del propio Gmail: se ejecutan dentro de Gmail, antes de que las reglas de automatización lleguen siquiera a ver el mensaje, y usan la sintaxis de búsqueda exacta de Gmail (`from:`, `older_than:`, archivo adjunto, tamaño, etc.). Siguen funcionando incluso cuando Correo no está abierto.
+
+Usa un filtro de Gmail cuando la regla se pueda expresar con los propios criterios de Gmail; usa una regla de automatización cuando la condición necesite criterio ("si esto parece un discurso de ventas").
+
+</Callout>
+
+<Diagram id="doc-block-mail4" title="Ciclo de vida de una regla de automatización" summary={"Una regla que describes en lenguaje sencillo se ejecuta contra el correo entrante nuevo según una programación recurrente y aplica su acción automáticamente."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">
+    Describes una regla<br /><small class="diagram-muted"
+      >"de un boletín" → archivar</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Correo entrante nuevo</span
+    ><small class="diagram-muted">comprobado cada minuto</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    La IA compara la condición<br /><small class="diagram-muted"
+      >por regla, por mensaje</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Acción aplicada<br /><small class="diagram-muted"
+      >etiqueta · archivar · marcar como leído · destacar · papelera</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## Contexto de CRM en un hilo
+
+Abre un hilo y la barra lateral de contacto de Correo puede mostrar contexto de CRM sobre quien lo envió. HubSpot es el único conectado de extremo a extremo hoy en día: pídele al agente "quién es este y qué acuerdos tiene abiertos", y busca el contacto, hasta 5 acuerdos asociados y hasta 5 tickets asociados en tu cuenta de HubSpot configurada.
+
+Gong, Pylon y Apollo aparecen en el mismo panel lateral, pero solo cuando has añadido sus claves de API en Configuración, y solo como una vista lateral de solo lectura: el agente no puede traer una llamada de Gong o un ticket de Pylon al chat hoy, solo HubSpot.
+
+## Qué sigue
+
+- [**Redacción, programación y la cola de borradores**](/docs/template-mail-drafts-and-queue) — responder a lo que acabas de clasificar
+- [**Hablar con el Agent**](/docs/template-mail-agent) — peticiones por tarea, y cuándo escalar más allá de las actions predefinidas
+- [**Guía para desarrolladores**](/docs/template-mail-developers) — el inventario completo de actions detrás de esta página
+- [**Resumen de Correo**](/docs/template-mail) — de vuelta al resumen de la app

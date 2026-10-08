@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/agent/engine", () => ({
   isResolvedEngineUsableForRequest: mocks.isResolvedEngineUsableForRequest,
+  readDefaultAgentEngineSetting: mocks.getSetting,
   registerBuiltinEngines: mocks.registerBuiltinEngines,
   resolveEngine: mocks.resolveEngine,
 }));
@@ -21,9 +22,6 @@ vi.mock("@agent-native/core/server", () => ({
   readDeployCredentialEnv: mocks.readDeployCredentialEnv,
   runWithRequestContext: (_context: unknown, callback: () => unknown) =>
     callback(),
-}));
-vi.mock("@agent-native/core/settings", () => ({
-  getSetting: mocks.getSetting,
 }));
 
 import {

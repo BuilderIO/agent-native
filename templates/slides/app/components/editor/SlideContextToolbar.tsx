@@ -28,6 +28,7 @@ import {
   IconGridDots,
   IconItalic,
   IconMessageCircle,
+  IconVideo,
   IconLayoutAlignBottom,
   IconLayoutAlignCenter,
   IconLayoutAlignLeft,
@@ -56,16 +57,19 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { VideoPlaybackSettings } from "@/lib/slide-video";
 import { cn, shortcutLabel } from "@/lib/utils";
 
 import type { SlideListKind } from "./list-editing";
@@ -142,12 +146,6 @@ function alignIcon(textAlign: string) {
   return IconAlignLeft;
 }
 
-/**
- * Horizontal counterpart to the style dock: the same snapshot and patch
- * callback, presented as a row above the canvas so the slide keeps full width.
- * Controls past the first few live in grouped popovers — a flat row overflows
- * once the agent sidebar and slide rail take their share of the width.
- */
 export function SlideContextToolbar({
   snapshot,
   background,
@@ -160,6 +158,7 @@ export function SlideContextToolbar({
   canComment = false,
   onComment,
   onChange,
+  onEnablePositioning,
   onBackgroundChange,
   onArrange,
   onGroup,
@@ -170,25 +169,22 @@ export function SlideContextToolbar({
   canUngroup = false,
   onAlignObjects,
   onDistributeObjects,
+  videoPlayback,
+  onVideoPlaybackChange,
   zoomControls,
 }: {
   snapshot: SlideStyleSnapshot | null;
   background: string | undefined;
   designSystem?: DesignSystemData;
   className?: string;
-  /** Selection-independent actions pinned to the head of the row. */
   leading?: ReactNode;
-  /** Whether the canvas currently has an element selected. */
   hasSelectedElement?: boolean;
-  /** Whether the selected-element transitions panel is open. */
   animationsOpen?: boolean;
-  /** Open transitions for the current canvas selection. */
   onOpenAnimations?: () => void;
-  /** Whether the current user can add comments to this deck. */
   canComment?: boolean;
-  /** Start a comment anchored to the selected slide object. */
   onComment?: () => void;
   onChange: (patch: SlideStylePatch) => void;
+  onEnablePositioning?: () => void;
   onBackgroundChange: (background: string) => void;
   onArrange?: (target: SlideObjectZOrderTarget) => void;
   onGroup?: () => void;
@@ -199,6 +195,8 @@ export function SlideContextToolbar({
   canUngroup?: boolean;
   onAlignObjects?: (alignment: SlideObjectAlignment) => void;
   onDistributeObjects?: (distribution: SlideObjectDistribution) => void;
+  videoPlayback?: VideoPlaybackSettings | null;
+  onVideoPlaybackChange?: (settings: VideoPlaybackSettings) => void;
   zoomControls?: {
     value: number;
     onZoomOut: () => void;
@@ -242,15 +240,9 @@ export function SlideContextToolbar({
           ...baseFontFamilyOptions,
         ],
   );
-  // A mixed selection has no single state to reflect, so the toggle reads as
-  // off and one click makes the whole selection consistent.
   const isItalic =
     !mixedTextStyles.includes("fontStyle") &&
     (snapshot?.fontStyle ?? "").startsWith("italic");
-  // A mixed selection has no single size, so the scrub input reports a step as
-  // a relative delta rather than a value. Writing that delta as an absolute
-  // size would set the whole selection to a few pixels; step from the block's
-  // own size instead, which also makes the selection consistent in one click.
   const sizeFor = (value: number, meta?: { relativeDelta?: number }) => {
     const delta = meta?.relativeDelta;
     if (typeof delta !== "number") return value;
@@ -259,9 +251,6 @@ export function SlideContextToolbar({
   const decorationMixed = mixedTextStyles.includes("textDecoration");
   const isUnderline =
     !decorationMixed && (snapshot?.textDecoration ?? "").includes("underline");
-  // Text can carry more than one decoration, and the agent writes
-  // line-through even though no control exposes it. Editing the underline
-  // token in place keeps the rest; writing a bare "none" would erase them.
   const underlinePatch = () => {
     if (decorationMixed) return "underline";
     const tokens = (snapshot?.textDecoration ?? "")
@@ -272,11 +261,10 @@ export function SlideContextToolbar({
       : [...tokens, "underline"];
     return next.length > 0 ? next.join(" ") : "none";
   };
-  // Null means the slide uses a background this picker cannot represent (named
-  // utility, gradient); surface that as Mixed rather than guessing a hex.
   const slideBackground = backgroundCssValue(background);
   const hasMultiObjectSelection = objectSelectionCount >= 2;
   const canDistributeObjects = objectSelectionCount >= 3;
+  const isVideoSelection = snapshot?.tagName?.toLowerCase() === "video";
 
   return (
     <div
@@ -337,6 +325,53 @@ export function SlideContextToolbar({
           </Tooltip>
           <div className={TOOLBAR_DIVIDER} />
         </>
+      )}
+      {isVideoSelection && videoPlayback && onVideoPlaybackChange && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={MENU_BUTTON_CLASS}
+              aria-label={t("editorToolbar.videoPlayback")}
+            >
+              <IconVideo className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            className="w-56"
+            {...inlineEditSurfaceProps}
+          >
+            <div className="grid gap-3">
+              <p className="text-xs font-medium">
+                {t("editorToolbar.videoPlayback")}
+              </p>
+              <Label className="flex items-center justify-between gap-4">
+                <span>{t("editorToolbar.autoplayVideo")}</span>
+                <Switch
+                  checked={videoPlayback.mode === "autoplay"}
+                  onCheckedChange={(checked) =>
+                    onVideoPlaybackChange({
+                      ...videoPlayback,
+                      mode: checked ? "autoplay" : "click",
+                    })
+                  }
+                />
+              </Label>
+              <Label className="flex items-center justify-between gap-4">
+                <span>{t("editorToolbar.loopVideo")}</span>
+                <Switch
+                  checked={videoPlayback.loop}
+                  onCheckedChange={(loop) =>
+                    onVideoPlaybackChange({ ...videoPlayback, loop })
+                  }
+                />
+              </Label>
+            </div>
+          </PopoverContent>
+        </Popover>
       )}
       {(canGroup || canUngroup) && (
         <>
@@ -778,8 +813,13 @@ export function SlideContextToolbar({
 
           <div className={TOOLBAR_DIVIDER} />
 
-          {snapshot.isAbsolute && (
-            <Popover>
+          {(snapshot.isAbsolute ||
+            (objectSelectionCount < 2 && onEnablePositioning)) && (
+            <Popover
+              onOpenChange={(open) => {
+                if (open && !snapshot.isAbsolute) onEnablePositioning?.();
+              }}
+            >
               <Tooltip>
                 <TooltipTrigger asChild>
                   <PopoverTrigger asChild>
@@ -1122,6 +1162,29 @@ export function SlideContextToolbar({
           </Popover>
         </>
       )}
+      {!snapshot &&
+        hasSelectedElement &&
+        objectSelectionCount === 0 &&
+        onEnablePositioning && (
+          <>
+            <div className={TOOLBAR_DIVIDER} />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={MENU_BUTTON_CLASS}
+                  onClick={onEnablePositioning}
+                  aria-label={t("styleInspector.position")}
+                >
+                  <IconLayoutAlignLeft className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("styleInspector.position")}</TooltipContent>
+            </Tooltip>
+          </>
+        )}
       {zoomControls && (
         <>
           <div className={cn(TOOLBAR_DIVIDER, "ml-auto")} />

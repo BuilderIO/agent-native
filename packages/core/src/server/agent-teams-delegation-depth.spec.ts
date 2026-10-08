@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// ── app_state (task records + thread reverse-lookup) ──────────────────────
 const appState = vi.hoisted(() => new Map<string, Record<string, unknown>>());
 const requestContextState = vi.hoisted(() => ({
   active: false,
@@ -21,7 +20,6 @@ vi.mock("../application-state/script-helpers.js", () => ({
   ),
 }));
 
-// ── spawn-path collaborators (kept inert; we only assert the depth guard) ──
 const createThreadMock = vi.hoisted(() =>
   vi.fn(async (_owner: string, opts: { title?: string; source?: unknown }) => ({
     id: `thread-${Math.random().toString(36).slice(2, 8)}`,
@@ -71,8 +69,6 @@ vi.mock("./request-context.js", () => ({
 }));
 
 const OWNER = "owner@example.com";
-// The first import loads the full agent runtime. On a saturated CI worker it
-// can exceed Vitest's default 5s even though the spawn itself is immediate.
 const FIRST_AGENT_TEAMS_IMPORT_TIMEOUT_MS = 15_000;
 
 function baseSpawnOptions() {
@@ -105,7 +101,6 @@ describe("agent-teams delegation-depth guardrail", () => {
     delete process.env.AGENT_NATIVE_MAX_SUBAGENT_DEPTH;
   });
 
-  // (i) within-limit spawn still works ───────────────────────────────────────
   it(
     "allows a top-level spawn and records the child at depth 1",
     async () => {
@@ -220,12 +215,10 @@ describe("agent-teams delegation-depth guardrail", () => {
     expect(enqueueAgentTeamRunMock).toHaveBeenCalledTimes(1);
   });
 
-  // (ii) spawn at/over MAX is refused with the error result ───────────────────
   it("refuses a spawn that would exceed MAX with a clear error and no enqueue", async () => {
     const { spawnTask, SubagentDelegationDepthError } =
       await import("./agent-teams.js");
 
-    // Parent already at depth 2 → child would be depth 3 > MAX (2).
     await expect(
       spawnTask({ ...baseSpawnOptions(), parentDelegationDepth: 2 }),
     ).rejects.toThrowError(
@@ -247,10 +240,8 @@ describe("agent-teams delegation-depth guardrail", () => {
       });
     }
 
-    // Refused spawns must not touch the dispatch queue.
     expect(enqueueAgentTeamRunMock).not.toHaveBeenCalled();
     expect(fireInternalDispatchMock).not.toHaveBeenCalled();
-    // No task record should have been persisted.
     expect([...appState.keys()].some((k) => k.startsWith("agent-task:"))).toBe(
       false,
     );
@@ -260,9 +251,6 @@ describe("agent-teams delegation-depth guardrail", () => {
     const { spawnTask, _agentTeamsQueueForTests } =
       await import("./agent-teams.js");
 
-    // Simulate running inside a depth-2 sub-agent's loop. A nested spawnTask
-    // with NO explicit parentDelegationDepth must read depth 2 from the ambient
-    // store and refuse.
     await expect(
       _agentTeamsQueueForTests.runWithDelegationDepth(2, async () => {
         expect(_agentTeamsQueueForTests.currentAmbientDelegationDepth()).toBe(
@@ -275,12 +263,10 @@ describe("agent-teams delegation-depth guardrail", () => {
     expect(enqueueAgentTeamRunMock).not.toHaveBeenCalled();
   });
 
-  // (iii) the env override changes the limit ─────────────────────────────────
   it("raises the cap when AGENT_NATIVE_MAX_SUBAGENT_DEPTH overrides the default", async () => {
     process.env.AGENT_NATIVE_MAX_SUBAGENT_DEPTH = "4";
     const { spawnTask } = await import("./agent-teams.js");
 
-    // Parent at depth 3 → child depth 4 ≤ 4 now allowed.
     const task = await spawnTask({
       ...baseSpawnOptions(),
       parentDelegationDepth: 3,
@@ -293,7 +279,6 @@ describe("agent-teams delegation-depth guardrail", () => {
     process.env.AGENT_NATIVE_MAX_SUBAGENT_DEPTH = "0";
     const { spawnTask } = await import("./agent-teams.js");
 
-    // Even a top-level spawn (parent depth 0 → child depth 1 > 0) is refused.
     await expect(spawnTask(baseSpawnOptions())).rejects.toThrowError(
       /Delegation depth limit reached \(max 0\)/,
     );
@@ -329,7 +314,6 @@ describe("evaluateSubagentDepth", () => {
       evaluateSubagentDepth(2, { AGENT_NATIVE_MAX_SUBAGENT_DEPTH: "3" })
         .allowed,
     ).toBe(true);
-    // Invalid override → falls back to default (2), so depth-3 child is refused.
     expect(
       evaluateSubagentDepth(2, { AGENT_NATIVE_MAX_SUBAGENT_DEPTH: "abc" })
         .allowed,

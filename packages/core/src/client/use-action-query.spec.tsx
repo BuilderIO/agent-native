@@ -17,6 +17,7 @@ const sessionMocks = vi.hoisted(() => ({
 }));
 vi.mock("./use-session.js", () => sessionMocks);
 
+import { resetActionFailureCircuits } from "./action-failure-circuit.js";
 import { useActionQuery } from "./use-action.js";
 
 function actionResponseCount(): number {
@@ -34,6 +35,7 @@ describe("useActionQuery refetchInterval", () => {
     for (const container of containers) container.remove();
     roots.length = 0;
     containers.length = 0;
+    resetActionFailureCircuits();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
@@ -54,11 +56,6 @@ describe("useActionQuery refetchInterval", () => {
   }
 
   it("stops firing action.response once the query settles on a 401, and an invalidate still retries", async () => {
-    // Every attempt reports action.response at 100% (errors are never
-    // sampled down), so its count is the ground truth for "did this poll
-    // actually fire again" — independent of the embed-auth interceptor's own
-    // 60s same-URL 401 response cache, which would otherwise make a plain
-    // `fetch` call-count assertion pass for the wrong reason.
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -83,14 +80,9 @@ describe("useActionQuery refetchInterval", () => {
     await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
     expect(actionResponseCount()).toBe(1);
 
-    // Give the interval several chances to fire if the auth-failure guard
-    // were missing — a signed-out poll would otherwise reissue the identical
-    // 401 forever.
     await act(async () => new Promise((resolve) => setTimeout(resolve, 150)));
     expect(actionResponseCount()).toBe(1);
 
-    // A mutation's invalidation (or an explicit refetch) must still retry —
-    // the guard only stops the interval timer, not the query itself.
     await act(async () => {
       await queryClientRef!.invalidateQueries({ queryKey: ["action"] });
     });

@@ -3,17 +3,10 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { e2eBaseURL } from "./base-url";
 import { canvasZoom } from "./helpers";
 
-/**
- * Invariants a direct-manipulation canvas must hold: the inspector, the
- * document and the rendered pixels all describe the same element. Each test
- * asserts the correct behaviour, so a failure is the bug report.
- */
-
 const PAGE_W = 1440;
 const PAGE_H = 900;
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
-/** Mirrors the reported screenshot: an auto-layout section with three children. */
 const INTRO_PAGE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Playbook</title></head>
@@ -32,7 +25,6 @@ const INTRO_PAGE = `<!doctype html>
   </body>
 </html>`;
 
-/** An in-flow child of an auto-layout page: no authored left/top at all. */
 const FLOW_PAGE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Playbook</title></head>
@@ -72,6 +64,15 @@ const BLANK_PAGE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Blank</title></head>
   <body style="margin:0;min-height:${PAGE_H}px;background:#ffffff"></body>
+</html>`;
+
+const DRAW_FRAME_PAGE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Frame drawing</title></head>
+  <body style="margin:0;min-height:${PAGE_H}px;background:#ffffff">
+    <div data-agent-native-node-id="draw-frame" data-agent-native-layer-name="Frame" data-an-primitive="frame"
+         style="position:absolute;left:60px;top:80px;width:320px;height:260px;background:#e4e4e7"></div>
+  </body>
 </html>`;
 
 interface Rect {
@@ -121,13 +122,29 @@ async function newDesign(page: Page, content: string): Promise<string> {
 }
 
 async function indexHtml(page: Page, designId: string): Promise<string> {
-  const result = await page.request
-    .get(`${baseURL}/_agent-native/actions/get-design?id=${designId}`)
-    .then((r) => r.json());
-  return (
-    (result.files ?? []).find((f: any) => f.filename === "index.html")
-      ?.content ?? ""
+  const response = await page.request.get(
+    `${baseURL}/_agent-native/actions/get-design?id=${designId}`,
   );
+  if (!response.ok()) {
+    throw new Error(
+      `get-design failed: ${response.status()} ${(await response.text()).slice(0, 200)}`,
+    );
+  }
+  const result = await response.json();
+  const file = Array.isArray(result.files)
+    ? result.files.find((entry: unknown) => {
+        return (
+          typeof entry === "object" &&
+          entry !== null &&
+          "filename" in entry &&
+          entry.filename === "index.html"
+        );
+      })
+    : undefined;
+  if (!file || typeof file.content !== "string") {
+    throw new Error(`get-design returned no index.html for design ${designId}`);
+  }
+  return file.content;
 }
 
 function toolbar(page: Page): Locator {
@@ -180,7 +197,6 @@ async function openEditor(page: Page, designId: string): Promise<void> {
   await expandAllLayers(page);
 }
 
-/** Nested rows only appear once every ancestor is expanded. */
 async function expandAllLayers(page: Page): Promise<void> {
   for (let pass = 0; pass < 6; pass += 1) {
     const toggles = page.getByRole("button", { name: "Expand layer" });
@@ -195,7 +211,6 @@ async function expandAllLayers(page: Page): Promise<void> {
   await page.waitForTimeout(600);
 }
 
-/** Prefer the real aria-label; a text-then-next-input walk lands on padding. */
 async function inspectorField(page: Page, label: string): Promise<string> {
   const aria =
     label === "W" || label === "H"
@@ -215,13 +230,6 @@ async function inspectorField(page: Page, label: string): Promise<string> {
   return (await input.inputValue()).trim();
 }
 
-/**
- * Click a layer row and wait for the inspector to actually reflect it.
- *
- * `inspectorField` reads once with no retry, so the blind settle this replaces
- * was load-bearing: X/Y only render for a live selection, so absent -> present
- * is the real transition to wait on.
- */
 async function selectLayerRow(page: Page, name: string): Promise<void> {
   const row = layerRow(page, name);
   await expect(row).toBeVisible({ timeout: 15_000 });
@@ -249,7 +257,6 @@ function num(value: string): number {
   return m ? Number(m[1]) : NaN;
 }
 
-/** The element's real box inside the preview document. */
 async function renderedRect(page: Page, id: string): Promise<Rect> {
   return node(page, id).evaluate((el) => {
     const r = el.getBoundingClientRect();
@@ -288,7 +295,6 @@ async function selectOnCanvas(page: Page, id: string): Promise<void> {
   await page.waitForTimeout(1800);
 }
 
-/** The screen's own content viewport — never assume; it is not the page size. */
 async function contentSize(page: Page): Promise<{ w: number; h: number }> {
   return page
     .locator("iframe[data-design-preview-iframe]")
@@ -302,12 +308,37 @@ async function contentSize(page: Page): Promise<{ w: number; h: number }> {
 }
 
 async function toScreenPoint(page: Page, x: number, y: number) {
-  const card = await page.locator("[data-screen-card]").first().boundingBox();
-  if (!card) throw new Error("no screen card");
-  const size = await contentSize(page);
+  const snapshot = await page.waitForFunction<{
+    frame: { x: number; y: number; width: number; height: number };
+    size: { width: number; height: number };
+  } | null>(
+    () => {
+      const iframe = document.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      if (!iframe) return null;
+
+      const rect = iframe.getBoundingClientRect();
+      const width = iframe.offsetWidth;
+      const height = iframe.offsetHeight;
+      if (rect.width <= 0 || rect.height <= 0 || width <= 0 || height <= 0) {
+        return null;
+      }
+      return {
+        frame: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        size: { width, height },
+      };
+    },
+    undefined,
+    { timeout: 15_000 },
+  );
+  const geometry = await snapshot.jsonValue();
+  await snapshot.dispose();
+  if (!geometry) throw new Error("no visible Design preview frame");
+  const { frame, size } = geometry;
   return {
-    x: card.x + (x / size.w) * card.width,
-    y: card.y + (y / size.h) * card.height,
+    x: frame.x + (x / size.width) * frame.width,
+    y: frame.y + (y / size.height) * frame.height,
   };
 }
 
@@ -328,12 +359,6 @@ async function drawWith(page: Page, tool: string, rect: Rect): Promise<void> {
   await page.waitForTimeout(1600);
 }
 
-/**
- * Every caller asserts this list is EMPTY, so swallowing a read failure into
- * `[]` made "no toast" and "could not read the toasts" the same answer — the
- * assertion could not fail. A zero-match locator already returns `[]` without
- * throwing, so the catch only ever hid real errors.
- */
 async function toasts(page: Page): Promise<string[]> {
   const all = await page
     .locator("[data-sonner-toast], [role='alert']")
@@ -488,12 +513,26 @@ test.describe("inspector reports the truth", () => {
     await selectLayerRow(page, "Title");
 
     const rendered = await renderedRect(page, "intro-title");
-    const w = num(await inspectorField(page, "W"));
-    const h = num(await inspectorField(page, "H"));
-    expect(
-      [w > 0, h > 0],
-      `Title renders ${rendered.width}x${rendered.height} but the inspector shows W=${w} H=${h}.`,
-    ).toEqual([true, true]);
+    const widthControl = page.getByRole("button", { name: /^W \d/ });
+    const heightControl = page.getByRole("button", { name: /^H \d/ });
+    await expect(widthControl).toBeVisible();
+    await expect(heightControl).toBeVisible();
+    const [widthLabel, heightLabel] = await Promise.all([
+      widthControl
+        .getAttribute("aria-label")
+        .then(async (label) => label ?? (await widthControl.innerText())),
+      heightControl
+        .getAttribute("aria-label")
+        .then(async (label) => label ?? (await heightControl.innerText())),
+    ]);
+    const w = Number.parseFloat(
+      /W\s+(-?[\d.]+)/.exec(widthLabel ?? "")?.[1] ?? "",
+    );
+    const h = Number.parseFloat(
+      /H\s+(-?[\d.]+)/.exec(heightLabel ?? "")?.[1] ?? "",
+    );
+    expect(Math.abs(w - rendered.width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(h - rendered.height)).toBeLessThanOrEqual(1);
   });
 
   test("setting X moves the element by exactly that amount", async ({
@@ -539,8 +578,6 @@ test.describe("inspector reports the truth", () => {
       "left",
     );
     await setInspectorField(page, "X", String(num(shown)));
-    // Negative assertion: a poll would pass on its first tick before any write
-    // could have landed, so this one has to wait out the commit window.
     await page.waitForTimeout(1800); // e2e-harness-ignore negative assertion needs a real settle
     const after = styleNum(
       styleOf(await indexHtml(page, id), "plain-box"),
@@ -567,8 +604,6 @@ test.describe("inspector reports the truth", () => {
       )
       .toBe(500);
     const after = styleOf(await indexHtml(page, id), "plain-box");
-    // The width has to land, or "the position did not change" is true for the
-    // trivial reason that nothing was committed.
     expect(
       styleNum(after, "width"),
       `the width edit must commit before position stability means anything ` +
@@ -580,8 +615,6 @@ test.describe("inspector reports the truth", () => {
     ]);
   });
 });
-
-// ── Auto layout must actually lay out ─────────────────────────────────────
 
 test.describe("auto layout", () => {
   test("children of a column do not overlap each other", async ({ page }) => {
@@ -655,8 +688,6 @@ test.describe("auto layout", () => {
     const boxes = await Promise.all(
       ["abs-title", "abs-sub", "abs-body"].map((n) => renderedRect(page, n)),
     );
-    // A row layout legitimately shares tops, so test for overlap, not for
-    // differing tops.
     const overlapping = boxes.filter((b, i) =>
       boxes.some(
         (other, j) =>
@@ -705,8 +736,6 @@ test.describe("auto layout", () => {
   });
 });
 
-// ── What you draw is what you get ─────────────────────────────────────────
-
 test.describe("drawing fidelity", () => {
   for (const tool of ["Rectangle", "Frame"]) {
     test(`${tool} commits the exact rect you dragged`, async ({ page }) => {
@@ -739,8 +768,6 @@ test.describe("drawing fidelity", () => {
           drift: Math.abs(actual[index]! - expected[index]!),
         }))
         .filter((entry) => entry.drift > tolerance);
-      // Report the shape, not one edge: which edge drifted says whether the
-      // origin moved or the rect was scaled, and that is the whole diagnosis.
       expect(
         off,
         `drew ${JSON.stringify(want)}, committed ${JSON.stringify(actual)}; ` +
@@ -778,8 +805,6 @@ test.describe("drawing fidelity", () => {
   }) => {
     const id = await newDesign(page, BLANK_PAGE);
     await openEditor(page, id);
-    // Zooming off 100% is what makes `clientDelta / zoom` fractional, and a
-    // fractional left/top is what puts 192.1 in the X field.
     await page.keyboard.press(`${MOD}+-`);
     await page.waitForTimeout(1200);
     await drawWith(page, "Rectangle", {
@@ -809,9 +834,6 @@ test.describe("drawing fidelity", () => {
   test("the inspector never shows a fractional X or Y", async ({ page }) => {
     const id = await newDesign(page, FLOW_PAGE);
     await openEditor(page, id);
-    // A line-height-driven flow child is where subpixel layout shows up: its
-    // rendered position is genuinely fractional, and the field still has to
-    // read as a coordinate a designer could have typed.
     await selectLayerRow(page, "Title");
 
     const shown = [
@@ -842,8 +864,6 @@ test.describe("drawing fidelity", () => {
     await openEditor(page, id);
     await selectLayerRow(page, "Plain Box");
 
-    // Drag by an amount that is deliberately NOT a multiple of 8, so landing on
-    // one can only come from the grid.
     const box = await node(page, "plain-box").boundingBox();
     expect(box).not.toBeNull();
     await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
@@ -881,17 +901,12 @@ test.describe("drawing fidelity", () => {
     const screenId = (design?.files ?? design?.data?.files)?.[0]?.id;
     await openEditor(page, id);
 
-    // The canvas suppresses a grid whose lines would land under 10px apart on
-    // screen, so a size fixed in content px is invisible at the zoom the
-    // editor happens to open at — and this test is about a VISIBLE grid.
     const zoom = await canvasZoom(page);
     const size = Math.ceil(15 / zoom);
     await postAction(page, "set-layout-grid", { designId: id, screenId, size });
 
     const overlay = page.locator(`[data-layout-grid="${screenId}"]`);
     await expect(overlay).toHaveCount(1);
-    // A sibling overlay at a fixed z cannot beat the focused frame's z boost,
-    // so an opaque body paints over its own grid.
     const stacking = await overlay.evaluate((el) => {
       const card = el.closest("[data-screen-card]");
       const rect = el.getBoundingClientRect();
@@ -902,8 +917,6 @@ test.describe("drawing fidelity", () => {
       const hit = document.elementFromPoint(mid.x, mid.y);
       return {
         insideCard: Boolean(card),
-        // Custom properties come back verbatim, so resolve through a probe to
-        // assert what actually paints.
         lineColor: (() => {
           const probe = document.createElement("span");
           probe.style.color = getComputedStyle(el).getPropertyValue(
@@ -915,7 +928,6 @@ test.describe("drawing fidelity", () => {
           return resolved;
         })(),
         backgroundSize: getComputedStyle(el).backgroundSize,
-        // Nothing opaque from the screen's own content may sit above it.
         topmostIsAboveOverlay: el.contains(hit) || el === hit,
       };
     });
@@ -923,11 +935,7 @@ test.describe("drawing fidelity", () => {
       stacking.insideCard,
       "the grid must live inside the frame it belongs to, not beside it",
     ).toBe(true);
-    // Sampled from Figma: a grid line is #F2F2F2 on white, i.e. black at ~5%.
-    // Anything stronger competes with the content it sits under.
     expect(stacking.lineColor).toBe("rgba(0, 0, 0, 0.05)");
-    // Two gradients (vertical + horizontal lines), so the computed value
-    // carries one size per layer.
     expect(stacking.backgroundSize).toBe(
       `${size}px ${size}px, ${size}px ${size}px`,
     );
@@ -955,9 +963,6 @@ test.describe("drawing fidelity", () => {
         await indexHtml(page, id2),
       )?.[1] ?? "";
 
-    // Anchor to the size that was actually asked for. Comparing the two runs
-    // only to each other passes when BOTH are equally wrong — with no
-    // rectangle committed, both regexes miss and NaN equals NaN.
     expect(
       [styleNum(first, "width"), styleNum(first, "height")],
       `drew ${want.width}x${want.height} at 100% but committed ` +
@@ -1047,8 +1052,6 @@ test.describe("drawing fidelity", () => {
   });
 });
 
-// ── Moving things ─────────────────────────────────────────────────────────
-
 test.describe("moving", () => {
   test("a canvas drag moves the element by the drag delta", async ({
     page,
@@ -1075,7 +1078,6 @@ test.describe("moving", () => {
 
     const after = styleOf(await indexHtml(page, id), "plain-box");
     const moved = styleNum(after, "left") - styleNum(before, "left");
-    // A drag-start threshold consumes the first few px, as in Figma.
     expect(
       moved > 90 && moved < 110,
       `dragged 100 page-px right; left went ${styleNum(before, "left")} → ` +
@@ -1124,8 +1126,6 @@ test.describe("moving", () => {
   });
 });
 
-// ── Selection ─────────────────────────────────────────────────────────────
-
 test.describe("selection", () => {
   test("clicking selects the deepest node, and Backslash walks up to the parent", async ({
     page,
@@ -1133,9 +1133,6 @@ test.describe("selection", () => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
 
-    // Deliberate divergence from Figma (see selectionTargetForHit in
-    // editor-chrome.bridge.ts): this canvas is real HTML, where climbing to
-    // the outermost ancestor makes a label select its whole container.
     await selectOnCanvas(page, "intro-title");
     const clicked = (
       await page
@@ -1173,14 +1170,8 @@ test.describe("selection", () => {
   test("Escape on a rect drawn inside a frame clears, and never lands on the screen", async ({
     page,
   }) => {
-    const id = await newDesign(page, BLANK_PAGE);
+    const id = await newDesign(page, DRAW_FRAME_PAGE);
     await openEditor(page, id);
-    await drawWith(page, "Frame", {
-      left: 60,
-      top: 80,
-      width: 320,
-      height: 260,
-    });
     await drawWith(page, "Rectangle", {
       left: 110,
       top: 130,
@@ -1223,8 +1214,6 @@ test.describe("selection", () => {
     ).toHaveCount(1);
   });
 });
-
-// ── The document is the source of truth ───────────────────────────────────
 
 test.describe("persistence and history", () => {
   test("a reload changes nothing", async ({ page }) => {
@@ -1272,8 +1261,6 @@ test.describe("persistence and history", () => {
   });
 });
 
-// ── Layer tree mirrors the document ───────────────────────────────────────
-
 test.describe("layers panel", () => {
   test("tree nesting matches DOM nesting", async ({ page }) => {
     const id = await newDesign(page, INTRO_PAGE);
@@ -1315,10 +1302,6 @@ test.describe("layers panel", () => {
     await row.hover();
     await row.getByRole("button", { name: "Hide layer" }).first().click();
     await page.waitForTimeout(2000);
-    // `false` is exactly what this test asserts, so coercing a failed read to
-    // it made a deleted or unreachable node pass as "hidden". Hiding sets
-    // display:none, so the node must still be in the document — require that,
-    // then let a genuine read error surface instead of answering "hidden".
     await expect(node(page, "plain-box")).toHaveCount(1);
     const visible = await node(page, "plain-box").evaluate((el) => {
       const cs = getComputedStyle(el);
@@ -1333,8 +1316,6 @@ test.describe("layers panel", () => {
     );
   });
 });
-
-// ── Nothing should throw ──────────────────────────────────────────────────
 
 test("basic authoring raises no uncaught page errors", async ({ page }) => {
   const id = await newDesign(page, BLANK_PAGE);
@@ -1356,4 +1337,55 @@ test("basic authoring raises no uncaught page errors", async ({ page }) => {
   await page.keyboard.press(`${MOD}+Shift+z`);
   await page.waitForTimeout(1500);
   expect(pageErrors, `uncaught errors: ${pageErrors.join(" | ")}`).toEqual([]);
+});
+
+test("editor readiness stays stable across ordinary overlay mutations", async ({
+  page,
+}) => {
+  const id = await newDesign(page, BLANK_PAGE);
+  await openEditor(page, id);
+  const preview = page
+    .frameLocator("iframe[data-design-preview-iframe]")
+    .first();
+  const chromeHost = preview.locator("[data-agent-native-editor-chrome-host]");
+  const shield = preview.locator('[data-agent-native-edit-overlay="shield"]');
+  await expect(shield).toBeVisible();
+
+  await page.evaluate(() => {
+    const state = window as Window & { __editorChromeReadyCount?: number };
+    state.__editorChromeReadyCount = 0;
+    window.addEventListener("message", (event) => {
+      if (event.data?.type === "agent-native:editor-chrome-ready") {
+        state.__editorChromeReadyCount =
+          (state.__editorChromeReadyCount ?? 0) + 1;
+      }
+    });
+  });
+
+  await chromeHost.evaluate((host) => {
+    const transient = document.createElement("div");
+    transient.setAttribute("data-agent-native-edit-overlay", "test-overlay");
+    host.appendChild(transient);
+    transient.remove();
+  });
+  await page.waitForTimeout(100);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as Window & { __editorChromeReadyCount?: number })
+          .__editorChromeReadyCount ?? 0,
+    ),
+  ).toBe(0);
+
+  await shield.evaluate((element) => element.remove());
+  await expect(shield).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as Window & { __editorChromeReadyCount?: number })
+            .__editorChromeReadyCount ?? 0,
+      ),
+    )
+    .toBe(1);
 });

@@ -1,12 +1,5 @@
-/**
- * Pure presentation helpers for the reusable uptime charts. Self-contained (no
- * dependency on the in-app monitoring page utils) so these components stay
- * importable from both the authenticated detail view and the public,
- * unauthenticated status page.
- */
 import type { BucketStatus } from "./types";
 
-/** Solid fill for a timeline bucket / status dot. Matches the app health palette. */
 export function bucketFillClass(status: BucketStatus): string {
   switch (status) {
     case "up":
@@ -33,7 +26,6 @@ export function bucketTextClass(status: BucketStatus): string {
   }
 }
 
-/** Format an uptime percentage with UptimeRobot-style precision. */
 export function formatUptimePct(pct: number | null | undefined): string {
   if (pct == null || !Number.isFinite(pct)) return "—";
   if (pct >= 99.995) return "100%";
@@ -47,7 +39,6 @@ export function formatLatencyMs(ms: number | null | undefined): string {
   return `${(rounded / 1000).toFixed(2)} s`;
 }
 
-/** Compact date-time label for tooltips/axes (locale-aware, no year). */
 export function formatBucketTime(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);
@@ -60,7 +51,6 @@ export function formatBucketTime(value: string | null | undefined): string {
   });
 }
 
-/** Day-only label (used for wide daily uptime timelines). */
 export function formatBucketDay(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);
@@ -71,7 +61,6 @@ export function formatBucketDay(value: string | null | undefined): string {
   });
 }
 
-/** Human range like "Feb 3, 2:00 PM – 3:00 PM". */
 export function formatRange(
   start: string | null | undefined,
   end: string | null | undefined,

@@ -23,6 +23,11 @@ const messages = {
     retry: "फिर से कोशिश करें",
     search: "खोजें",
   },
+  chatHome: {
+    description:
+      "Native SQL और जुड़े हुए रिकॉर्ड में अनुमत खाता संदर्भ, फ़ॉलो-अप कार्य और साक्ष्य देखें।",
+    placeholder: "अपने CRM के बारे में पूछें",
+  },
   commandMenu: {
     placeholder: "रिकॉर्ड, सूचियाँ और कमांड खोजें…",
     groupRecords: "रिकॉर्ड",
@@ -58,18 +63,11 @@ const messages = {
     showHelp: "यह सहायता दिखाएँ",
   },
   settings: {
-    title: "CRM सेटिंग्स",
-    description:
-      "नेटिव SQL CRM के अपने रिकॉर्ड को Postgres में रखता है। HubSpot और Salesforce कार्यक्षेत्र कनेक्शन का उपयोग करते हैं; उनके मिरर में केवल अनुमत फ़ील्ड, सीमित मेटाडेटा और सीमित प्रमाण संदर्भ ही रहते हैं।",
-    languageTitle: "भाषा",
-    languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
-    languageLabel: "इंटरफ़ेस भाषा",
+    mcpAbout:
+      "CRM को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए CRM में काम कर सकता है: रिकॉर्ड ढूँढना, फ़ील्ड अपडेट करना और कार्य प्रबंधित करना। वह केवल वही देखता है जो आप देख सकते हैं।",
   },
   connection: {
     tab: "कनेक्शन",
-    title: "CRM कनेक्शन",
-    description:
-      "इस CRM के रिकॉर्ड कहाँ से आते हैं, और हर रिकॉर्ड का कितना हिस्सा उसका अपना है।",
     modesTitle: "उपलब्ध मोड",
     modeNative: "नेटिव SQL",
     modeNativeHelp:
@@ -98,9 +96,6 @@ const messages = {
   },
   fields: {
     tab: "फ़ील्ड",
-    title: "फ़ील्ड",
-    description:
-      "हर रिकॉर्ड और हर सूची के पीछे की टाइप वाली विशेषताएँ। किसी फ़ील्ड का API स्लग और टाइप बनने के बाद तय हो जाते हैं; बाकी सब बदला जा सकता है।",
     target: "ऑब्जेक्ट या सूची",
     targetPlaceholder: "ऑब्जेक्ट प्रकार या सूची चुनें",
     listsGroup: "सूचियाँ",
@@ -244,8 +239,6 @@ const messages = {
   },
   advanced: {
     tab: "उन्नत",
-    title: "उन्नत",
-    description: "पुनर्संरचना और डेटा प्रतिधारण व्यवहार।",
     reconfigure: "CRM फिर से कॉन्फ़िगर करें",
     reconfigureHelp:
       "नेटिव SQL और HubSpot या Salesforce साथी मोड के बीच बदलें, या प्रारंभिक सिंक दोबारा चलाएँ।",
@@ -364,6 +357,8 @@ const messages = {
     unavailableTitle: "यह CRM रिकॉर्ड उपलब्ध नहीं है",
     unavailableDescription:
       "हो सकता है इसे हटा दिया गया हो, या यह आपकी पहुँच वाले रिकॉर्ड से बाहर हो।",
+    withheld:
+      "कनेक्ट किए गए CRM में इस रिकॉर्ड की पहुँच बदल गई है। अगले सिंक तक यह छिपा रहेगा।",
     panelLoadFailed: "रिकॉर्ड पैनल लोड नहीं हो सका।",
     saveFailed: "बदलाव सहेजा नहीं जा सका।",
     signals: "सिग्नल",
@@ -557,9 +552,6 @@ const messages = {
   },
   intelligence: {
     tab: "इंटेलिजेंस",
-    title: "इंटेलिजेंस",
-    description:
-      "सीमित कॉल प्रमाण में CRM को जिन क्षणों पर ध्यान देना चाहिए उन्हें चुनें। स्मार्ट ट्रैकर Ask CRM के माध्यम से मूल्यांकित होते हैं, इस सेटिंग स्क्रीन में सीधे नहीं।",
     loading: "ट्रैकर लोड हो रहे हैं…",
     kindKeyword: "कीवर्ड",
     kindSmart: "स्मार्ट",
@@ -600,6 +592,19 @@ const messages = {
     evaluatedThroughAsk: "Ask CRM के माध्यम से मूल्यांकित।",
   },
   recordActions: {
+    reviewDuplicates: "डुप्लिकेट देखें",
+    duplicateReviewTitle: "संभावित डुप्लिकेट रिकॉर्ड",
+    duplicateReviewDescription:
+      "इस रिकॉर्ड की तुलना उपलब्ध उम्मीदवारों से करें। Jev रिकॉर्ड के नाम, प्रकार और अधिकतम पाँच उम्मीदवारों के मिलान संकेत TypeSafe को भेजता है। संभावना केवल सुझाव है; मर्ज के लिए अलग समीक्षा आवश्यक है।",
+    duplicateReviewRun: "डुप्लिकेट जाँचें",
+    duplicateReviewLoading: "जाँच जारी है…",
+    duplicateReviewFailed: "डुप्लिकेट समीक्षा पूरी नहीं हो सकी।",
+    duplicateReviewUnavailable:
+      "Jev इन रिकॉर्ड की समीक्षा नहीं कर सका। नियमों से मिले उम्मीदवार दिखते रहेंगे।",
+    duplicateReviewEmpty: "कोई संभावित डुप्लिकेट नहीं मिला।",
+    duplicateRuleConfidence: "नियम आधारित मिलान: {{percent}}%",
+    duplicateJevProbability: "Jev के अनुसार समान इकाई की संभावना: {{percent}}%",
+    duplicateMatchedOn: "मिलान आधार: {{values}}",
     evidenceAttached: "कॉल प्रमाण संलग्न किया गया।",
     evidenceAttachFailed: "प्रमाण संलग्न नहीं किया जा सका।",
     addEvidence: "प्रमाण जोड़ें",

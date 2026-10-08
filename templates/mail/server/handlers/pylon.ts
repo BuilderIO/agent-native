@@ -8,7 +8,6 @@ import {
   type H3Event,
 } from "h3";
 
-// POST /api/pylon/validate — verify a key without saving it
 export const pylonValidate = defineEventHandler(async (event: H3Event) => {
   const body = await readBody(event).catch(() => ({}));
   const apiKey = (body as { apiKey?: unknown })?.apiKey;
@@ -45,7 +44,6 @@ async function getPylonKey(event: H3Event): Promise<string | undefined> {
   return (data as any)?.apiKey || undefined;
 }
 
-// GET /api/pylon/contact?email=...
 export const pylonContactLookup = defineEventHandler(async (event: H3Event) => {
   const { email } = getQuery(event);
   if (!email || typeof email !== "string") {
@@ -65,7 +63,6 @@ export const pylonContactLookup = defineEventHandler(async (event: H3Event) => {
   };
 
   try {
-    // Search for contact by email
     const contactRes = await fetch("https://api.usepylon.com/contacts/search", {
       method: "POST",
       headers,
@@ -82,7 +79,6 @@ export const pylonContactLookup = defineEventHandler(async (event: H3Event) => {
       const contact = contactData.data?.[0];
 
       if (contact?.account_id) {
-        // Fetch account details
         try {
           const accountRes = await fetch(
             `https://api.usepylon.com/accounts/${contact.account_id}`,
@@ -94,7 +90,6 @@ export const pylonContactLookup = defineEventHandler(async (event: H3Event) => {
           }
         } catch {}
 
-        // Search for issues related to this account
         try {
           const issuesRes = await fetch(
             "https://api.usepylon.com/issues/search",

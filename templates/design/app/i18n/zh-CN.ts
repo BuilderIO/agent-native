@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "集成" } },
   creativeContext: {
     title: "资料库",
     description: "可复用的创意上下文，帮助智能体在不同工作中保持一致。",
@@ -157,13 +158,15 @@ export default {
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
     openAgentSettings: "管理代理",
-    languageTitle: "语言",
-    languageDescription: "选择 Design 的界面语言。",
-    languageLabel: "界面语言",
-    labs: "Labs",
-    labsIntro: "这些是全新的不稳定功能，可能存在错误。我们重视你的反馈。",
     labTweaks: "设计微调",
     labTweaksDescription: "试用 AI 设计微调功能。",
+    labFullAppBuilding: "构建完整应用",
+    labFullAppBuildingDescription:
+      "试用 Builder，根据你的设计构建可运行的应用。",
+    labDesignReviewTools: "设计审查工具",
+    labDesignReviewToolsDescription: "检查设计中的无障碍问题并比较视觉变化。",
+    mcpAbout:
+      "将 Design 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 Design 中工作：创建和编辑设计。它只能看到你有权看到的内容。",
   },
   pages: {
     presentEmpty: "没有可演示的内容",
@@ -172,7 +175,17 @@ export default {
     notFoundDescription: "您要查找的页面不存在。",
     notFoundSignIn: "登录",
     notFoundBackToDesigns: "返回设计",
-    teamCreateOrgDescription: "设置团队，与同事共享设计。",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "连接存储以上传文件",
+    },
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "无法确认 AI 是否已就绪。",
+    },
+    common: { retry: "重试" },
   },
   chat: {
     emptyState: "描述要创建的设计",
@@ -192,7 +205,7 @@ export default {
       tokenLabel: "Figma 访问令牌",
       tokenPlaceholder: "粘贴 Figma 访问令牌",
       connecting: "正在连接…",
-      connect: "连接",
+      connect: "连接 Figma",
       getToken: "获取令牌",
       importFrame: "导入画框",
       chooseFrame: "选择画框",
@@ -203,6 +216,7 @@ export default {
     },
   },
   common: {
+    loading: "正在加载...",
     genericError: "出了点问题",
   },
   editPanel: {
@@ -251,7 +265,13 @@ export default {
       height: "高度",
       opacity: "不透明度",
       padding: "填充",
-      margin: "利润",
+      margin: "外边距",
+      marginTop: "上外边距",
+      marginRight: "右外边距",
+      marginBottom: "下外边距",
+      marginLeft: "左外边距",
+      linkMarginSides: "链接外边距",
+      unlinkMarginSides: "取消链接外边距",
       radius: "半径",
       flexGrow: "增长",
       flexShrink: "收缩",
@@ -294,6 +314,8 @@ export default {
       bottomLeft: "左下",
       bottomRight: "右下",
       blend: "混合",
+      blendMode: "混合模式",
+      removeBlendMode: "移除混合模式",
       border: "边框",
       outline: "轮廓",
       inside: "内侧",
@@ -312,6 +334,18 @@ export default {
       perspectiveHint: "透视（空/0 = 无）",
       customTransform: "自定义变换 — 无法编辑为 X/Y/Z 旋转",
       shaderEffectType: "着色器",
+      imageScaleMode: "图片缩放模式",
+      imageAdjustments: "图片调整",
+      imageExposure: "曝光",
+      imageContrast: "对比度",
+      imageSaturation: "饱和度",
+      imageScaleFill: "填充",
+      imageScaleFit: "适应",
+      imageScaleCrop: "裁剪",
+      noMirroring: "不镜像",
+      vector: "矢量",
+      mirrorAngle: "镜像角度",
+      mirrorAngleAndLength: "镜像角度和长度",
     },
     shaders: {
       fillsTitle: "着色器填充",
@@ -532,8 +566,33 @@ export default {
         adUnit: "广告单元",
       },
     },
+    scale: {
+      title: "缩放",
+      exit: "退出缩放",
+      factor: "缩放比例",
+      presets: "缩放预设",
+      anchor: "锚点",
+      topLeft: "左上",
+      topCenter: "中上",
+      topRight: "右上",
+      middleLeft: "左中",
+      center: "中心",
+      middleRight: "右中",
+      bottomLeft: "左下",
+      bottomCenter: "中下",
+      bottomRight: "右下",
+    },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "实时协作",
+      description:
+        "允许无法访问所有者 localhost 的人查看和编辑此设计的实时副本。",
+      enabled: "开启",
+      disabled: "关闭",
+      saving: "正在保存…",
+      enableError: "无法更新实时协作。",
+    },
     vectorEndpoints: {
       startPoint: "起点",
       endPoint: "终点",
@@ -753,6 +812,8 @@ export default {
         "在 Figma 中复制画框或图层，然后粘贴到 Design 画布。Design 会导入可见的剪贴板 HTML。",
       figmaPasteTarget: "粘贴到画布",
       figmaPasteApiKeyHint: "连接您的 Figma 访问令牌以获得精确的节点导入。",
+      figmaPasteAccessDenied:
+        '已连接的 Figma 令牌无法访问此文件。请检查文件访问权限，并确认令牌包含 "File content" 权限范围。',
       figmaPasteMatchGuidance:
         "无法匹配到特定的 Figma 节点。请改为粘贴画框链接以进行精确导入。",
       figmaPasteUnreadable:
@@ -889,6 +950,9 @@ export default {
     signUpToSaveDescription:
       "注册免费帐户即可保存设计和屏幕布局，并生成新的方向。",
     signUpToShare: "注册以共享",
+    signUpToShareLiveCanvas: "注册以共享实时画布",
+    liveCanvasLink: "实时画布链接",
+    liveCanvasWaitingForOwner: "正在等待画布所有者的实时快照。",
     shareEditorLink: "设计编辑器链接",
     shareEditorLinkDescription:
       "有访问权限的任何人都可以在编辑器中打开此设计。",
@@ -920,6 +984,10 @@ export default {
     keyboardShortcuts: {
       title: "键盘快捷键",
       close: "关闭: 键盘快捷键",
+      search: "搜索",
+      searchLabel: "搜索键盘快捷键",
+      categoriesLabel: "快捷键分类",
+      empty: "没有与“{{query}}”匹配的快捷键",
       codeContext: "代码",
       screenContext: "屏幕",
       nudgeAmount: {
@@ -952,11 +1020,6 @@ export default {
         leftBracket: "左方括号",
         rightBracket: "右方括号",
       },
-      descriptions: {
-        toggleUi: "立即按下以快速隐藏面板并专注于工作",
-        undo: "逐步撤销最近的设计更改",
-        redo: "恢复刚刚撤销的设计更改",
-      },
       categories: {
         essential: "基本",
         tools: "工具",
@@ -988,6 +1051,7 @@ export default {
         showLayers: "图层",
         showAssets: "资源",
         toggleUi: "View",
+        toggleMinimalUi: "极简界面",
         toggleComments: "固定评论",
         zoomIn: "放大",
         zoomOut: "缩小",
@@ -1041,6 +1105,7 @@ export default {
         ungroup: "取消编组",
         frameSelection: "创建画框",
         autoLayout: "自动布局",
+        imageVideo: "图片/视频...",
       },
     },
     undo: "撤消",
@@ -1157,12 +1222,15 @@ export default {
     pendingVisualStyles: {
       applyAria: "应用待处理的视觉样式编辑",
       applyButton: "应用样式",
+      applySharedEdits: "应用修改",
       previewLabel: "待处理的视觉预览",
       applyDesignUpdates: "应用设计更新",
       applying: "正在应用…",
       verifying: "正在验证源文件和运行时…",
       retryWithAgent: "重试源文件验证",
       copyPrompt: "将提示复制给你的代理",
+      copyAgentPrompt: "复制代理提示",
+      copyFullPrompt: "复制完整提示",
       abortPreview: "中止预览并互动",
       agentMessage: "将待处理的视觉样式编辑应用到源文件。",
       sentToast: "设计更新已发送给代理",
@@ -1174,6 +1242,8 @@ export default {
       sourceCheckFailedToast:
         "无法验证已连接的源文件。预览已保留，你可以重试或撤销。",
       copiedToast: "样式提示已复制",
+      copiedToastDescription:
+        "将其粘贴到你的编程代理中，并让它应用这些视觉更改。",
       abortedToast: "待处理的预览已丢弃",
       interactBlocked: "请先应用或中止待处理的实时编辑，再切换到互动模式。",
       leaveTitle: "离开前应用设计更新？",
@@ -1235,6 +1305,8 @@ export default {
     toasts: {
       annotationSendError: "无法发送批注。你的绘图仍保留在这里，请重试。",
       codingHandoffError: "无法创建编码交接",
+      visualEditPendingConflict:
+        "另一位协作者有待应用的更改。请先应用或清除这些更改，再发送新更改。",
       codingHandoffCopied: "编码交接已复制",
       clipboardBlocked: "剪贴板被阻止",
       htmlCreateError: "无法创建 HTML 下载",
@@ -1254,6 +1326,14 @@ export default {
       pngReadOnlyUnavailable: "只读预览不支持 PNG 捕获",
       pngSaveError: "无法保存 PNG",
       pngExportError: "无法导出 PNG",
+      exportTooLarge:
+        "导出内容过大。请求上限为 5 MB；请减少嵌入资源或栅格尺寸后重试。",
+      exportResourcesUnavailable:
+        "由于一个或多个图像、字体或样式表不可用，无法准确渲染导出内容。请检查这些资源后重试。",
+      exportTimedOut: "导出超时。请重试，或缩小设计尺寸。",
+      exportBusy: "另一个导出正在渲染。请稍等片刻后重试。",
+      exportChromiumUnavailable:
+        "由于渲染器无法启动，导出暂不可用。请稍后重试。",
       pdfExportError: "无法导出 PDF",
       pdfDownloaded: "PDF 已下载",
       pdfAllScreensDownloaded: "PDF 下载（所有屏幕）",
@@ -1302,9 +1382,13 @@ export default {
         "无法在源码中定位该图层。请等应用加载完成后重试，或请代理帮你完成此更改。",
       reactSourceAnchorsUnavailable:
         "该应用未向编辑器提供源码位置，因此无法把该图层追溯到具体代码行。请让代理完成此更改。",
+      sourceLocationSnapshotFailed: "无法检查此预览的源代码位置。",
       screenSourceUpdated: "屏幕来源已更新",
       screenSourceUpdateFailed: "无法更新屏幕来源",
       vectorEditUnsupported: "此形状或变换目前无法进行向量编辑。",
+      imageUploading: "正在上传图片…",
+      pasteReplaceFailed: "无法替换该图层",
+      swapFillStrokeLayeredFill: "多个填充或图片填充暂时无法移到描边",
     },
     commenterRoleLabel: "评论者",
     commenterRoleDescription: "可以查看并添加审阅评论",
@@ -1353,6 +1437,13 @@ export default {
       confirmationRetryExhausted: "多次尝试后，实时编辑器桥接器仍未确认连接。",
       connectionNotConfirmed:
         "实时编辑器桥接器未确认连接。本地开发服务器是否仍在运行？",
+      permissionPromptTitle: "连接本地画面",
+      permissionPromptDescription:
+        "在 Chrome 的提示中选择“允许”，以启用实时编辑。",
+      permissionPromptNoPrompt: "没有看到 Chrome 提示？",
+      permissionPromptSettingsInstructions:
+        "点击地址栏左侧的站点控制图标，打开网站设置，然后将本地网络设为“允许”。",
+      permissionPromptRetry: "重试连接",
     },
   },
   multiScreenCanvas: {
@@ -1432,6 +1523,8 @@ export default {
     assetAdded: "添加资产",
     assetsNoImageUrl: "Assets 未返回图片 URL。",
     failedToUploadFile: "上传文件失败",
+    imageAttachmentUnavailable:
+      "无法将此图片准备为视觉输入。请附加较小的 PNG、JPG、GIF 或 WebP 文件。",
     attachmentsTooLarge:
       "这些附件太大。上传总大小上限为 {{max}} MB — 请减少文件数量或使用更小的文件。",
     failedToSubmitPrompt: "无法提交提示",
@@ -1532,7 +1625,63 @@ export default {
       "离开此视图时，{{count}} 个未发送的评论草稿已被丢弃。",
     staleAnchorDetail: "在画布上已找不到原始元素。",
   },
+  homeContext: {
+    websiteReference: "添加网站",
+    websiteUrlLabel: "网站 URL",
+    websiteUrl: "粘贴网站 URL",
+    figmaUrlLabel: "Figma 链接",
+    invalidFigmaUrl: "请输入有效的 figma.com 画框或文件 URL。",
+    tooMany: "最多选择 20 个参考。",
+    invalidWebsiteUrl: "请输入有效的 HTTP 或 HTTPS URL。",
+    createSystem: "创建设计系统",
+    noSystems: "你还没有设计系统。可以从网站、文件或 Figma 创建。",
+    searchSystems: "搜索设计系统…",
+    searchFrames: "搜索 Figma 画框…",
+    searchDesigns: "搜索设计…",
+    searchPresentations: "搜索演示文稿…",
+    searchDesign: "搜索设计…",
+    useDesignSystem: "使用设计系统",
+    notReady: "提示尚未准备好提交。请检查所选上下文和连接，然后重试。",
+    search: "搜索上下文…",
+    figmaUrl: "粘贴 Figma 链接",
+    browse: "浏览画框",
+    loadFailed: "无法加载此参考。",
+    retry: "重试",
+    empty: "没有匹配的参考。",
+    none: "无",
+    design: "设计",
+    slides: "幻灯片",
+    referenceDesign: "参考设计",
+    figmaReference: "添加 Figma",
+    referenceDeck: "参考演示文稿",
+    quickSaas: "创建 SaaS 落地页",
+    quickDashboard: "创建仪表盘",
+    quickDeck: "创建演示文稿",
+    deckPrompt:
+      "创建精美的演示文稿，包含标题页、清晰的叙事、可视化数据和简洁的结束页。",
+  },
   home: {
+    suggestedPrompts: "推荐提示",
+    import: "导入",
+    importOptions: "导入选项",
+    figmaLink: "Figma 链接",
+    importFromFigma: "从 Figma 导入",
+    figmaFile: "Figma 文件 (.fig)",
+    openImport: "打开导入",
+    importSelectedFile: "导入所选文件",
+    starterSaasPrompt:
+      "一个现代 SaaS 落地页，采用深色主题，包含首屏主视觉、三张功能卡片和最后的行动号召区域。",
+    starterDashboardPrompt:
+      "一个简洁的分析仪表盘，包含侧边导航、四张关键指标卡片、一个图表和最近活动表格。",
+    starterMobilePrompt:
+      "一个展示在手机边框内的移动应用原型，底部带有标签栏，主屏幕上有三张列表卡片。",
+    starterPricingPrompt:
+      "一个三档定价页面，包含月付/年付切换、功能清单，并突出显示推荐方案。",
+    designPromptTitle: "让我们创建你的第一个设计",
+    recent: "最近",
+    browseAllTemplates: "浏览全部",
+    connectBuilderIo: "使用 Builder.io",
+    connectingBuilder: "正在设置 Builder.io…",
     pageTitle: "Design",
     searchPlaceholder: "搜索设计...",
     newDesign: "新Design",
@@ -1542,6 +1691,9 @@ export default {
     allAuthors: "所有作者",
     me: "我",
     designFilter: "设计筛选",
+    ownedByAnyone: "任何人所有",
+    ownedByMe: "我拥有",
+    sharedWithMe: "与我共享",
     mine: "我的",
     all: "全部",
     showMineDesigns: "显示我的设计",
@@ -1574,6 +1726,7 @@ export default {
     pickStartingPoint: "选择一个起点或编写您自己的提示。",
     searchNoResultsTitle: "没有符合此搜索条件的设计",
     searchNoResultsDescription: "请尝试其他搜索。",
+    noDesignsMatchFilter: "没有符合当前筛选条件的设计。",
     starterSaas: "SaaS 登陆页面",
     starterDashboard: "仪表板",
     starterPricing: "定价页面",
@@ -1597,6 +1750,8 @@ export default {
     layoutLabel: "屏幕布局已可保存",
   },
   templatesPage: {
+    previewEmpty: "此模板中没有可预览的屏幕。",
+    loading: "正在加载模板",
     title: "模板",
     description: "从正确的尺寸和默认值开始，再用提示调整未锁定的内容。",
     searchPlaceholder: "搜索模板...",
@@ -1621,7 +1776,7 @@ export default {
     deleteFailed: "无法删除此模板",
     deleteTitle: "删除模板？",
     deleteDescription: "这将永久删除 {{title}}。已从此模板创建的设计不受影响。",
-    templateActions: "模板操作",
+    templateActions: "{{title}}的操作",
     lockedCount: "已锁定 {{count}} 个",
     categories: {
       ad: "广告",
@@ -1778,6 +1933,14 @@ export default {
     codeIndexingEnterpriseOnly: "代码和仓库索引需要 Builder 企业版套餐",
   },
   designSystems: {
+    comingSoonTitle: "设计系统即将推出",
+    waitlist: {
+      join: "加入候补名单",
+      joining: "正在加入…",
+      joined: "您已加入候补名单",
+      error: "无法加入候补名单。请重试。",
+      unavailable: "候补名单报名暂不可用。请稍后重试。",
+    },
     deleteError: "无法删除设计系统",
     updateSuccess: "设计系统更新",
     updateError: "无法更新设计系统",

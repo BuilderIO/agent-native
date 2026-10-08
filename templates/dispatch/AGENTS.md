@@ -5,94 +5,45 @@ vault secrets, messaging routes, MCP/app setup, and agent operations.
 
 ## Skills
 
-Read the relevant skill before deeper work:
+Read relevant guides before deeper work:
+- `.agents/skills/automations/SKILL.md` — for schedule, webhook, or event rules.
+- `.agents/skills/recurring-jobs/SKILL.md` — for background jobs and scheduler behavior.
 
-- `automations` for schedule, webhook, and event-triggered automation rules on
-  `/admin/automations`.
-- `recurring-jobs` for scheduled/background job behavior and the scheduler.
+`.agents/skills/actions/SKILL.md`, `.agents/skills/adding-a-feature/SKILL.md`, `.agents/skills/storing-data/SKILL.md`, `.agents/skills/security/SKILL.md`,
+`.agents/skills/secrets/SKILL.md`, `.agents/skills/sharing/SKILL.md`, `.agents/skills/frontend-design/SKILL.md`, `.agents/skills/shadcn-ui/SKILL.md`,
+`.agents/skills/real-time-sync/SKILL.md`, `.agents/skills/context-awareness/SKILL.md`, `.agents/skills/delegate-to-agent/SKILL.md`, `.agents/skills/agent-native-docs/SKILL.md`,
+`.agents/skills/agent-native-toolkit/SKILL.md`, `.agents/skills/customizing-agent-native/SKILL.md`, `.agents/skills/client-side-routing/SKILL.md`, `.agents/skills/reliable-mutations/SKILL.md`,
+`.agents/skills/performance/SKILL.md`, `.agents/skills/adding-workspace-apps/SKILL.md`, `.agents/skills/a2a-protocol/SKILL.md`, `.agents/skills/composable-mini-apps/SKILL.md`,
+`.agents/skills/external-agents/SKILL.md`, `.agents/skills/portability/SKILL.md`, `.agents/skills/self-modifying-code/SKILL.md`, `.agents/skills/turn-into-app/SKILL.md`,
+`.agents/skills/turn-into-skill/SKILL.md`, `.agents/skills/workspace-conventions/SKILL.md`, `.agents/skills/build-an-app/SKILL.md`.
+
+## Framework Docs
+
+Use local framework docs, not web research: `pnpm action docs-search --query "<topic>"` searches; `pnpm action docs-search --slug "<slug>"` reads a page.
 
 ## Core Rules
 
 - UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
-- Store large file/blob payloads in configured file/blob storage, not SQL:
-  persist URLs, ids, or handles instead of base64, media, documents, archives,
-  screenshots, thumbnails, or replay chunks.
-- Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
-- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
-- Treat Dispatch as workspace infrastructure. Prefer actions over raw SQL for
-  vault, integrations, resource grants, messaging, routing, and approvals.
-- Do not expose secret values. Vault stores references and encrypted values; apps
-  receive grants or credential refs, not copied tokens.
-- Workspace integrations own provider identity, readiness, metadata, and grants.
-  Domain apps still own provider-specific readers and interpretation.
-- Integration grants are not provider capability limits. For ad hoc provider
-  analysis, call `provider-api-catalog` / `provider-api-docs`, then
-  `provider-api-request` against the provider's HTTP API. Use `connectionId` for
-  a shared grant and `accountId` for an OAuth account. Never expose secrets or
-  widen app access.
-- Use `view-screen` when the current integration, resource, approval, route, or
-  setup item is unclear.
-- Use `import-agent` or `import-agent-pack` for safe agent profile and pack
-  imports; use `list-agent-pack` to inspect imported files.
-- Use `connect-external-agent` for public HTTP/A2A metadata; authenticate through
-  the normal connection flow.
-- Dispatch's primary nav is Overview, Chat, Apps, Agents, and the app rail.
-  `/agents` creates/imports reusable profiles, opens per-agent chat, and can
-  hand a profile off to app creation; `/admin/agents` manages technical MCP/A2A
-  connections; other workspace/operator tools live under `/admin`.
-- Factory shares Dispatch's agent and mounted-app registry; do not create a
-  second registry or wrapper app.
-- Keep approval and routing behavior explicit. Never silently widen access to
-  secrets, apps, integrations, or workspace resources.
-- Curated workspace templates are private app sources. Use
-  `list-curated-workspace-templates` to inspect the reviewed catalog and
-  `remix-workspace-template` to create an independent app. A new app may use
-  empty or synthetic data only; never copy source-app records, credentials,
-  secrets, or private configuration.
-- `/admin/operations` is the focused operator console. Its Monitoring tab reuses the
-  shared observability dashboard for traces, conversations, evaluations,
-  experiments, and feedback; its Database tab reuses the Code-mode database
-  admin. Use `navigate --view operations|monitoring|observability|database` and
-  `view-screen` to align with the active tab. Use Thread Debug, Audit, and
-  Destinations for concrete thread, change-history, and delivery investigations;
-  Dispatch does not invent a separate issue tracker when those framework
-  surfaces contain the operational evidence.
-- Thread Debug accepts the copied request/run ID from an Agent-Native chat
-  response as well as a chat thread ID; use the exact source that owns the run.
-  Hosted production sources appear only when Dispatch has their
-  <APP>_DATABASE_URL connection variables (or an equivalent
-  AGENT_NATIVE_THREAD_DEBUG_DATABASES configuration).
-- For reliability triage, call `list-agent-run-failures` first, then inspect a
-  returned run with `get-agent-thread-debug` using the same source id. Do not
-  infer run failure from thread text search. Cross-app results may be partial;
-  preserve the returned per-source health instead of treating an unavailable
-  source as zero failures.
-- For a Slack-linked issue, call `read-slack-thread-context` with the exact
-  permalink before diagnosing it; preserve its pagination and readability
-  status instead of treating an unreadable thread as empty.
-- For usage investigations, use `list-dispatch-usage-metrics` with the smallest
-  useful scope and lookback. Treat `not-captured` and `unavailable` attribution
-  as gaps, not zero usage; use `view-screen` on `/admin/metrics` to align with
-  the visible scope and selected user. For app adoption, use `scope=app` with
-  `appId`; the app owner can inspect their own app, and organization owners or
-  admins can inspect any accessible app. App results are aggregate-only: active
-  means a tracked action, while opens and views are not captured.
+- Store large payloads in configured file/blob storage; persist ids/URLs, not file bodies. Never expose or copy secret values or customer/private data.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver. Dispatch owns identity, readiness, metadata, and grants; domain apps own provider-specific reading/interpretation.
+- Prefer actions over raw SQL for vault, integrations, grants, messaging, routing, and approvals. Never widen access silently. For provider capability, use `provider-api-catalog` / `provider-api-docs`, then `provider-api-request` with the shared `connectionId` or OAuth `accountId`; never request raw keys.
+- `/agents` imports/creates reusable profiles and starts per-agent chat; `/admin/agents` manages MCP/A2A connections. Import with `import-agent` / `import-agent-pack`, inspect with `list-agent-pack`, and connect public A2A metadata with `connect-external-agent`.
+- Dispatch is workspace infrastructure. Factory shares Dispatch's agent and mounted-app registry; do not create a second registry or wrapper app.
+- Curated workspace templates are private sources: inspect with `list-curated-workspace-templates`, create an independent app with `remix-workspace-template`, and use only empty/synthetic data. Never copy source records, secrets, credentials, or private config.
+- `/admin/operations` is the operator console. Use `navigate --view operations|monitoring|observability|database`; Monitoring and Database reuse framework surfaces. Thread Debug, Audit, and Destinations cover run evidence, change history, and delivery.
+- Thread Debug accepts the exact request/run id or chat thread id. Hosted sources appear only with `<APP>_DATABASE_URL` or equivalent configuration. For reliability triage, call `list-agent-run-failures` then `get-agent-thread-debug` with the same source id; preserve per-source health and never infer failures from text search.
+- For Slack-linked issues, read `read-slack-thread-context` with the exact permalink and preserve pagination/readability. For usage, use the smallest useful `list-dispatch-usage-metrics` scope/lookback; treat `not-captured` / `unavailable` as gaps, not zero. App adoption uses `scope=app` + `appId`; results are aggregate-only and active means a tracked action.
+- Keep approval, routing, and access behavior explicit.
 
 ## Application State
 
-- `navigation` exposes current Dispatch view, selected integration/resource,
-  approval, route, settings panel, or automation selection.
-- On Thread Debug, `navigation.threadDebugMode`, `sourceId`,
-  `inspectSourceId`, `ownerEmail`, `failureStatus`, `range`, `query`, `runId`,
-  and `threadId` expose the visible failure or thread filters and selection.
-- On Metrics, `navigation.usageScope` exposes whether the visible usage view is
-  personal, workspace-wide, or an app, `navigation.usageUserEmail` exposes the
-  selected workspace member filter, and `navigation.usageAppId` exposes the
-  selected app for app adoption metrics.
-- `navigate` moves the UI to setup, vault, integrations, resources, routing,
-  approval, and operator surfaces.
+- `navigation` exposes the current view and selected integration/resource, approval, route, settings panel, or automation.
+- Thread Debug filters include `threadDebugMode`, `sourceId`, `inspectSourceId`, `ownerEmail`, `failureStatus`, `range`, `query`, `runId`, and `threadId`.
+- Metrics selection uses `usageScope`, `usageUserEmail`, and `usageAppId`.
+- `navigate` moves among setup, vault, integrations, resources, routing, approvals, and operator surfaces.
 
 ## Source Changes
 
-Before building common workspace or agent UI, read `agent-native-toolkit`; read
-`customizing-agent-native` before adapting shared UI.
+Before building common workspace or agent UI, read `agent-native-toolkit`; read `customizing-agent-native` before adapting shared UI.
+
+Search with `rg --hidden --follow`; read the exact linked guide before deeper work.

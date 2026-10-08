@@ -28,8 +28,6 @@ export default defineAction({
   readOnly: true,
   run: async ({ libraryId, status, limit }) => {
     await requireLibrary(libraryId);
-    // A session holds a brief, feedback, and references to candidates, so a
-    // below-approver caller lists the sessions they created, not the kit's.
     const scope = await resolveDraftReadScope([libraryId]);
     const sessionFilter = sessionReadFilter(
       scope,

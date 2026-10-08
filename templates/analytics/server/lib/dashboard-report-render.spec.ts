@@ -345,6 +345,7 @@ describe("fetchReportPanelData", () => {
     expect(data.get("slow")).toEqual({
       status: "query-failed",
       message: "Panel query timed out after 0s",
+      timedOut: true,
     });
     expect(data.get("fast")).toEqual({
       status: "rows",
@@ -779,8 +780,6 @@ describe("renderReportEmail", () => {
     const chartInput = mocks.renderReportChartSvg.mock.calls[0][0] as {
       series: Array<{ color: string }>;
     };
-    // The palette's first slot, i.e. the dashboard's light-mode --brand-blue —
-    // not the "region" column name that config.color actually holds.
     expect(chartInput.series[0].color).toBe("#0284c7");
   });
 

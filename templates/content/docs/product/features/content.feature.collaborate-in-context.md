@@ -8,8 +8,8 @@ order: 6
 roadmap_status: "partially_implemented"
 summary: "Comments, Discussion, messages, notifications, and history stay anchored to the Page or Collection being shaped."
 example_workflow: "A teammate comments on an unclear paragraph, discusses the larger issue in the Page's Discussion, links the conversation to Slack, and returns later to see the Comment, replies, and resulting changes together."
-works_today: "Content supports anchored Comment threads, replies, resolution, mentions, notifications substrate, document history, and revision-aware Page collaboration. Browser and external edits to independent regions reconcile through one canonical body without routine version-choice interruption."
-remains: "Every Page and Collection needs its universal Discussion, rich Blocks-field messages, stable permalinks, access-safe Slack continuation, clearly attributable message revisions, and deployed proof of the editor's recovery ordering across multiple clients."
+works_today: "Content supports anchored Comment threads, replies, resolution, mentions, notifications substrate, document history, and revision-aware Page collaboration. An early local pass of the current save-session repair preserved independent two-tab and browser/MCP edits with canonical read-back and an idempotent replay receipt."
+remains: "The deployed September 23 two-tab beta pass failed with missing independent edits and a version-choice dialog; the current repair still needs full local R01–R08 and authenticated repaired-beta acceptance. Every Page and Collection also needs universal Discussion, rich Blocks-field messages, stable permalinks, access-safe Slack continuation, and clearly attributable message revisions."
 required_capabilities:
   [
     "content.discussion.page",
@@ -22,7 +22,7 @@ enhancing_capabilities: ["content.agent.presence", "content.feedback.signal"]
 increments: ["decide-together"]
 feature_proof: null
 publicness: "public"
-last_reviewed: "2026-09-22"
+last_reviewed: "2026-09-23"
 ---
 
 # Feature 6: Collaborate in context

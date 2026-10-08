@@ -1,44 +1,239 @@
 ---
 title: "Cloudflare"
-description: "Implementa una aplicación nativa del agente en Cloudflare Pages o Cloudflare Workers con el ajuste preestablecido de Nitro correspondiente."
+description: "Implementa una aplicación independiente de Agent-Native en Cloudflare Workers con Wrangler."
 ---
 
 # Cloudflare
 
-## Cloudflare Pages {#cloudflare-pages}
+<a id="cloudflare-workers"></a>
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
-});
-```
+Cloudflare Workers ejecuta tu aplicación en la red de Cloudflare, así que no hay ningún servidor
+que configurar ni mantener en ejecución. La compilación convierte la aplicación en un Worker, que gestiona
+las páginas y la API de la aplicación, además de archivos estáticos que Cloudflare sirve directamente.
+Cloudflare le da a la aplicación una dirección pública con HTTPS.
 
-## Cloudflare Workers {#cloudflare-workers}
+Esta guía explica cómo implementar una aplicación independiente desde cero. Vas a
+crear la aplicación, darle una base de datos de producción y un secreto de autenticación, preparar la
+base de datos, compilar el Worker, guardar los secretos en Cloudflare y, después, implementarlo.
 
-Usa la salida de módulos nativa de Nitro para un Cloudflare Worker. Esto
-mantiene el SSR habilitado y genera el punto de entrada del Worker más los
-activos estáticos bajo `.output/server` y `.output/public`:
+<Callout tone="info">
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
-});
-```
+Se requiere Node.js `22.22+`.
 
-Compila e implementa el Worker generado con Wrangler:
+</Callout>
+
+También necesitas una cuenta de Cloudflare. Ejecuta los comandos de esta guía en tu propio
+equipo. Wrangler, la herramienta de línea de comandos de Cloudflare, sube el Worker terminado
+a Cloudflare por ti.
+
+## Paso 1: Crea la aplicación {#step-1-create-the-app}
+
+Crea tu nueva aplicación independiente. El siguiente ejemplo crea una aplicación a partir de la plantilla Chat,
+pero puedes empezar desde cualquier plantilla. Entra en la carpeta de la aplicación e
+instala sus dependencias. `corepack enable` activa la versión de `pnpm` que la aplicación
+espera, así que no necesitas instalar `pnpm` por tu cuenta.
 
 ```bash
-pnpm build
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+Si quieres, reemplaza `my-app` por el nombre de tu aplicación. El resto de esta guía
+supone que estás dentro de la carpeta de la aplicación.
+
+<Callout tone="info">
+
+Si estos comandos fallan con errores de dependencias peer, la causa puede ser una copia desactualizada de un paquete en tu caché de npx. Ejecuta `npx clear-npx-cache` para vaciar la caché y vuelve a ejecutar los comandos.
+
+</Callout>
+
+## Paso 2: Configura los secretos del entorno {#step-2-configure-environment-secrets}
+
+La aplicación lee su configuración de producción desde variables de entorno:
+
+| Variable             | Obligatoria | Propósito                                                                      |
+| -------------------- | ----------- | ------------------------------------------------------------------------------ |
+| `DATABASE_URL`       | Sí          | Conecta la aplicación con su base de datos PostgreSQL                          |
+| `BETTER_AUTH_SECRET` | Sí          | Firma las sesiones de los usuarios                                             |
+| `BETTER_AUTH_URL`    | No          | Define la dirección pública que usan las personas para acceder a tu aplicación |
+
+Las exportaciones siguientes hacen que los comandos posteriores funcionen en esta terminal. Antes de
+implementar, guarda estas mismas variables en la configuración del entorno del proyecto o servicio de tu host.
+El paso 5 muestra cómo guardarlas en Cloudflare.
+
+### URL de la base de datos {#database-url}
+
+Durante el desarrollo local, la aplicación guarda los datos en una base de datos local cuando
+`DATABASE_URL` no está definida. Una aplicación implementada necesita una base de datos PostgreSQL real que
+conserve sus datos entre implementaciones. Un Worker no puede conservar archivos entre solicitudes, así que
+la base de datos debe estar fuera de Cloudflare Workers. Copia la cadena de conexión
+de tu proveedor y expórtala:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+Las [guías de proveedores de bases de datos](/docs/neon) muestran dónde encontrar la cadena de conexión
+de cada proveedor.
+
+<Callout tone="warning">
+
+Elige un proveedor de PostgreSQL persistente, como Neon, Supabase o Amazon RDS.
+
+</Callout>
+
+### Secreto de autenticación {#auth-secret}
+
+Genéralo una sola vez y mantenlo igual en todas las implementaciones.
+
+La aplicación usa `BETTER_AUTH_SECRET` para firmar las sesiones de los usuarios. Si cambia, se cierra la sesión de
+todos los usuarios que la tenían iniciada. El siguiente comando genera un valor aleatorio:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Guarda el valor generado en un lugar seguro, como un gestor de contraseñas. Usa el
+mismo valor cada vez que implementes.
+
+### URL pública {#public-url}
+
+Es opcional. Defínela cuando uses un dominio personalizado, un proxy inverso o un flujo de autenticación u OAuth
+que necesite un origen público fijo.
+
+`BETTER_AUTH_URL` es la dirección pública que usan las personas para acceder a tu aplicación. Sin
+ella, la aplicación deduce su dirección a partir de cada solicitud entrante. Eso suele
+funcionar bien con la dirección que te da Cloudflare, pero defínela cuando conectes un dominio
+personalizado para que los enlaces de inicio de sesión y las redirecciones de OAuth usen ese dominio.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Paso 3: Ejecuta las migraciones {#step-3-migrate}
+
+Las migraciones crean y actualizan las tablas que la aplicación necesita en tu base de datos. Ejecuta
+esto antes de la primera implementación:
+
+```bash
+pnpm migrate:production
+```
+
+El comando se ejecuta en tu equipo y se conecta a la base de datos de producción con
+la `DATABASE_URL` que exportaste en el paso 2. Vuelve a ejecutarlo después de actualizar la
+aplicación y antes de implementar la nueva versión.
+
+## Paso 4: Compila {#step-4-build}
+
+Compila la aplicación como un Worker de Cloudflare:
+
+```bash
+NITRO_PRESET=cloudflare_module pnpm build
+```
+
+`NITRO_PRESET=cloudflare_module` compila la aplicación en el formato que Cloudflare Workers
+espera. La compilación escribe el Worker en la carpeta `.output/server` y los
+archivos estáticos en la carpeta `.output/public`.
+
+La compilación también escribe un archivo de configuración de Wrangler en
+`.output/server/wrangler.json`. Este archivo le indica a Wrangler qué debe implementar y
+le da su nombre al Worker. El nombre sale del `package.json` de la aplicación, así que una
+aplicación creada como `my-app` se convierte en un Worker llamado `my-app`. Si la carpeta es un repositorio
+de Git con un remoto, el nombre sale del repositorio. La compilación
+muestra el nombre que eligió.
+
+## Paso 5: Inicia sesión y guarda los secretos {#step-5-log-in-and-save-the-secrets}
+
+Inicia sesión en Cloudflare desde la línea de comandos:
+
+```bash
+npx wrangler login
+```
+
+Guarda las dos variables obligatorias como secretos en el Worker:
+
+```bash
+printf '%s' "$DATABASE_URL" | npx wrangler secret put DATABASE_URL --config .output/server/wrangler.json
+```
+
+```bash
+printf '%s' "$BETTER_AUTH_SECRET" | npx wrangler secret put BETTER_AUTH_SECRET --config .output/server/wrangler.json
+```
+
+Cada comando lee el valor que exportaste en el paso 2 y lo guarda en Cloudflare, así que
+no tienes que pegar los secretos a mano. `--config` le indica a Wrangler el archivo de
+configuración del paso 4, para que los secretos vayan al Worker con el nombre que eligió la
+compilación. La primera vez, el Worker todavía no existe. Como el valor se pasa por una tubería, Wrangler crea el Worker automáticamente sin preguntar.
+
+Si defines `BETTER_AUTH_URL`, guárdala de la misma forma. También puedes ver y cambiar
+estos valores más adelante en la configuración del Worker en el panel de Cloudflare.
+
+## Paso 6: Implementa {#step-6-deploy}
+
+Sube el Worker y publícalo:
+
+```bash
 npx wrangler deploy --config .output/server/wrangler.json
 ```
 
-También puedes seleccionar el ajuste preestablecido explícitamente con
-`NITRO_PRESET=cloudflare_module`. Configura una base de datos PostgreSQL externa
-duradera antes de implementar. El sistema de archivos de un Worker no es un
-almacén persistente para la aplicación.
+`--config` le indica a Wrangler el archivo de configuración del paso 4, que le dice
+dónde encontrar el Worker y los archivos estáticos.
 
-## Qué sigue
+Cuando el comando termina, muestra la dirección de la aplicación, que termina en
+`workers.dev`. Ábrela y crea la primera cuenta.
 
-- [**Implementación**](/docs/deployment) — elige una base de datos persistente y un ajuste preestablecido antes de tu primera implementación en producción
-- [**Implementación de espacios de trabajo**](/docs/workspace-deployment) — Cloudflare Pages es el ajuste preestablecido predeterminado para el comando unificado `deploy`
-- [Node.js](/docs/node-js), [Docker](/docs/docker), [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify) y [**Otras plataformas**](/docs/other-platforms) — los demás ajustes preestablecidos de Nitro
+## Implementa actualizaciones {#deploy-updates}
+
+Para publicar una nueva versión, vuelve a ejecutar los comandos de migración, compilación e implementación desde
+la carpeta de la aplicación:
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=cloudflare_module pnpm build
+
+npx wrangler deploy --config .output/server/wrangler.json
+```
+
+Los secretos se mantienen guardados en el Worker entre implementaciones, así que no necesitas
+repetir el paso 5.
+
+## Trabajo programado {#cloudflare-scheduled-work}
+
+Las automatizaciones programadas, las automatizaciones por eventos en cola y la
+limpieza de ejecuciones interrumpidas se realizan en un barrido que se ejecuta
+una vez por minuto. La compilación añade un
+[Cron Trigger](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
+`* * * * *` al `wrangler.json` generado y conserva los Cron Triggers que ya
+hayas declarado. Cuando se dispara, el controlador `scheduled` del Worker llama
+directamente al barrido con un token de corta duración firmado con
+`A2A_SECRET`, así que establece ese secreto antes de implementar:
+
+```bash
+npx wrangler secret put A2A_SECRET --config .output/server/wrangler.json
+```
+
+- **Tiempo de CPU.** En el plan Workers Free, cada invocación de Cron Trigger
+  dispone de 10 ms de tiempo de CPU, y un barrido que ejecuta trabajos del
+  agente necesita más. Usa el plan Workers Paid para el trabajo programado.
+- **Horario.** Los Cron Triggers se ejecutan en UTC, y un disparador nuevo o
+  modificado puede tardar hasta 15 minutos en empezar a dispararse después de
+  una implementación.
+- **Pruebas locales.** Ejecuta el Worker compilado con
+  `npx wrangler dev --test-scheduled --config .output/server/wrangler.json`
+  y luego solicita `/cdn-cgi/handler/scheduled?cron=*+*+*+*+*` para disparar el
+  barrido una vez.
+
+Consulta [Cómo se ejecuta el programador](/docs/recurring-jobs#how-scheduler-runs)
+para los demás hosts.
+
+## Qué sigue {#whats-next}
+
+- [**Implementación: variables de entorno**](/docs/deployment-environment-variables) - la lista completa de la configuración de producción
+- [**Caché SSR**](/docs/ssr-caching) - cómo funciona la caché de páginas en los destinos alojados
+- [**Implementación**](/docs/deployment) - compara los destinos de alojamiento y sus requisitos previos

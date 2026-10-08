@@ -13,14 +13,9 @@ let cleanups: Array<() => void> = [];
 let active = false;
 
 export interface FreezeOptions {
-  /** Freeze JS timers (opt-in, disabled by default) */
   jsTimers?: boolean;
 }
 
-/**
- * Freeze all animations, transitions, React updates, and media.
- * Call unfreeze() to restore.
- */
 export function freeze(
   _elements?: Element[],
   options: FreezeOptions = {},
@@ -35,9 +30,6 @@ export function freeze(
   }
 }
 
-/**
- * Unfreeze everything and restore normal behavior.
- */
 export function unfreeze(): void {
   if (!active) return;
   active = false;
@@ -52,9 +44,6 @@ export function unfreeze(): void {
   cleanups = [];
 }
 
-/**
- * Check if freeze is currently active.
- */
 export function isFreezeActive(): boolean {
   return active;
 }

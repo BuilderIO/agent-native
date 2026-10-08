@@ -80,18 +80,7 @@ export function runObserveCollabText({
   const ytext = ydoc.getText("content");
   const handler = (_event: unknown, transaction?: { origin?: unknown }) => {
     const rawNext = ytext.toJSON();
-    // Item 5 (edit-flash): capture what the preview already reflects BEFORE
-    // this observe fires, so a remote-origin transaction that merely ECHOES
-    // content we already rendered (e.g. update-file's own applyText/
-    // seedFromText round-tripping our own just-saved commit back through
-    // the collab sync channel) can be recognized as a no-op instead of
-    // unconditionally forcing a full srcdoc rebuild below. Every commit
-    // path already sets latestActiveContentRef.current synchronously
-    // before the network round trip lands, so this ref reliably holds the
-    // pre-update value at the moment a same-content echo arrives.
     const previousActiveContent = latestActiveContentRef.current;
-    // UndoManager fires with itself as the origin; treat those as local too
-    // so the reconcile watermark and stale-selection fix are consistent.
     const isLocalEdit =
       transaction?.origin === TAB_ID ||
       transaction?.origin === LOCAL_EDIT_ORIGIN ||
@@ -130,10 +119,6 @@ export function runObserveCollabText({
         nextContent: next,
       })
     ) {
-      // An agent/chat edit is remote at the CRDT layer but local in the UX:
-      // Cmd+Z should restore the attachment/design state from before the run.
-      // Record the replacement in the history owned by the current view
-      // mode so it remains undoable from either canvas.
       recordExternalContentHistoryCheckpoint({
         fileId,
         before: previousActiveContent!,
@@ -153,13 +138,6 @@ export function runObserveCollabText({
         paintedContent: lastLocalContentRef.current,
       })
     ) {
-      // Holistic flash pipeline: a remote (peer/agent) edit arriving mid-
-      // session is exactly the "remote adoption" case that should apply
-      // in-place — this is not a file switch or initial mount. Try the
-      // bridge's live in-place full-document replace (same live iframe, no
-      // navigation) first; only fall back to an actual srcdoc rebuild when
-      // the bridge can't apply it (e.g. this screen's iframe isn't mounted/
-      // registered right now).
       if (
         previewContentReplaceNeedsRenderFallback(
           replacePreviewContent(next, null, { forceFullDocument: true }),
@@ -169,17 +147,11 @@ export function runObserveCollabText({
       }
       lastLocalContentRef.current = next;
     }
-    // Only advance the DB reconcile watermark when the live CRDT text
-    // actually matches the current SQL snapshot. Otherwise an intermediate
-    // or malformed Yjs update can shadow valid saved HTML until reload.
     const documentUpdatedAt = documentFileUpdatedAtRef.current;
     if (rawNext === documentFileContentRef.current && documentUpdatedAt) {
       lastAppliedFileUpdatedAtRef.current = documentUpdatedAt;
       lastAppliedFileContentRef.current = documentFileContentRef.current;
     }
-    // Stale-selection fix: when a remote/agent edit changes the document,
-    // verify the selected element still exists in the new DOM. If not, clear
-    // selection and hover so the Edit panel doesn't operate on a ghost element.
     if (!isLocalEdit) {
       setSelectedElement((prev) => {
         if (!prev) return prev;

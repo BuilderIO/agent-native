@@ -1,12 +1,3 @@
-/**
- * Figma-style endpoint markers for authored SVG vectors and lines.
- *
- * Endpoint values live on the SVG wrapper as custom properties so the
- * existing style action/history path can carry them through duplication,
- * export, and reload. Marker geometry uses `context-stroke`, which keeps the
- * endpoint paint in lockstep with the shaft's stroke colour and width.
- */
-
 export const VECTOR_ENDPOINT_STYLES = [
   "none",
   "round",
@@ -113,8 +104,6 @@ export function vectorEndpointMarkerId(
   const safePrefix = /^[A-Za-z_]/.test(safeNodeId)
     ? safeNodeId
     : `vector-${safeNodeId}`;
-  // Keep readable ids for the common case, but include a lossless encoding
-  // whenever sanitisation changed the id so `a.b` and `a-b` cannot collide.
   const markerNodeId =
     safePrefix === safeNodeId && safeNodeId === nodeId
       ? safeNodeId

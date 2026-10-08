@@ -3,12 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-/**
- * Needs a real browser: the subject is whether a begin-text-edit the bridge
- * ALREADY has can still focus a node once it appears. Dropping the host's
- * queued copy does nothing about that — `pendingBeginTextEdit` keeps pumping on
- * its own deadline inside the frame — so the cancel has to cross the bridge.
- */
 const SCREEN_ID = "board-file";
 
 function hydratedEditorChromeBridgeScript(): string {
@@ -27,8 +21,6 @@ function hydratedEditorChromeBridgeScript(): string {
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
-/** The document as it is the instant the text tool committed its insert: the
- *  node has not reached this frame yet. */
 async function startEmptyFrame(page: Page): Promise<void> {
   await page.setContent(
     '<!doctype html><html><head></head><body data-agent-native-node-id="an-body"></body></html>',
@@ -71,7 +63,6 @@ function postCancelTextEdit(page: Page, screenId: string, nodeId: string) {
   );
 }
 
-/** The insert finally reaching this frame, after the command that asked for it. */
 function mountNode(page: Page, nodeId: string) {
   return page.evaluate((id) => {
     const node = document.createElement("div");
@@ -106,8 +97,6 @@ describe("cancel-text-edit crosses the bridge with the request's identity", () =
         const page = await browser.newPage();
         await startEmptyFrame(page);
 
-        // Delivered to a READY bridge before the node exists: it parks in
-        // pendingBeginTextEdit and pumps every frame for its own deadline.
         await postBeginTextEdit(page, "text-late");
         await page.waitForFunction(() =>
           (
@@ -135,7 +124,6 @@ describe("cancel-text-edit crosses the bridge with the request's identity", () =
               message.type === "text-editing-state" && message.active,
           ),
         ).toHaveLength(0);
-        // The host is told to stand its own buffer down as well.
         expect(
           (
             state.messages as Array<{
@@ -165,9 +153,6 @@ describe("cancel-text-edit crosses the bridge with the request's identity", () =
         const page = await browser.newPage();
         await startEmptyFrame(page);
 
-        // The delivery the host is still owing: the frame HAS it, and has not
-        // acknowledged it. This is the state the host-side commit fallback
-        // races, so the revoke it sends first has to take the text with it.
         await page.evaluate(() =>
           window.postMessage(
             {
@@ -196,7 +181,6 @@ describe("cancel-text-edit crosses the bridge with the request's identity", () =
         await mountNode(page, "text-owed");
         await page.waitForTimeout(400);
 
-        // One copy total: the host's own commit. The frame contributed none.
         expect(
           await page.evaluate(
             () =>
@@ -220,7 +204,6 @@ describe("cancel-text-edit crosses the bridge with the request's identity", () =
         await startEmptyFrame(page);
 
         await postBeginTextEdit(page, "text-b");
-        // Wrong node, and then the right node but the wrong canvas.
         await postCancelTextEdit(page, SCREEN_ID, "text-a");
         await postCancelTextEdit(page, "some-other-screen", "text-b");
         await mountNode(page, "text-b");

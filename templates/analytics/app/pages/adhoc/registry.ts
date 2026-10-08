@@ -1,9 +1,5 @@
 import { type ComponentType, lazy } from "react";
 
-/**
- * Validates that a dashboard entry has all required metadata fields.
- * Called at module load time to catch missing fields during development.
- */
 function validateDashboard(dashboard: DashboardMeta): void {
   const errors: string[] = [];
 
@@ -36,7 +32,6 @@ function validateDashboard(dashboard: DashboardMeta): void {
 export interface DashboardSubview {
   id: string;
   name: string;
-  /** URL query params to apply when navigating to this subview */
   params: Record<string, string>;
 }
 
@@ -45,24 +40,13 @@ export interface DashboardMeta {
   name: string;
   subviews?: DashboardSubview[];
   description?: string;
-  dateCreated?: string; // YYYY-MM-DD format
+  dateCreated?: string;
 
-  /**
-   * REQUIRED: Email or name of the person who created this dashboard.
-   * This MUST be manually provided by the creator - NOT pulled from git logs.
-   * Examples: "jane@example.com" or "Jane Doe"
-   */
   author: string;
 
-  /**
-   * REQUIRED: Last modification date in YYYY-MM-DD format.
-   * Set to today's date when creating. Update when making changes.
-   */
   lastUpdated: string;
 }
 
-// Add new dashboards here. Each entry needs a matching file in this directory.
-// REQUIRED FIELDS: id, name, author, lastUpdated
 export const dashboards: DashboardMeta[] = [];
 
 const HIDDEN_KEY = "hidden-dashboards";
@@ -135,8 +119,6 @@ export function toggleFavoriteDashboard(id: string): Set<string> {
   return favs;
 }
 
-// Lazy-load dashboard components by ID.
-// When adding a new dashboard, add a lazy import here matching the id above.
 export const dashboardComponents: Partial<
   Record<string, React.LazyExoticComponent<ComponentType>>
 > = {
@@ -144,8 +126,6 @@ export const dashboardComponents: Partial<
   "explorer-dashboard": lazy(() => import("./explorer-dashboard")),
 };
 
-// Validate all dashboards at module load time
-// This catches missing metadata during development
 if (import.meta.env.DEV) {
   dashboards.forEach(validateDashboard);
 }

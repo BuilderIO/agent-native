@@ -1,4 +1,3 @@
-export { DevOverlay, type DevOverlayProps } from "./DevOverlay.js";
 export { useDevOverlayShortcut } from "./use-dev-overlay-shortcut.js";
 export {
   registerDevPanel,

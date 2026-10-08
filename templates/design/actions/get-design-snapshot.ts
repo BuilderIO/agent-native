@@ -12,9 +12,8 @@ import {
 } from "../server/lib/design-template-data.js";
 import { lockedLayerSnapshots } from "../shared/locked-layers.js";
 import getDesignSystem from "./get-design-system.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
-/** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
   return buildDeepLink({
     app: "design",
@@ -61,6 +60,11 @@ export default defineAction({
       openLabel: "Open design",
       height: 680,
     }),
+  },
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
   },
   run: async ({ designId, fileId, filename }) => {
     const access = await resolveAccess("design", designId);

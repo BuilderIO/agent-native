@@ -26,6 +26,7 @@
  */
 
 import { resolveCredentialForScope } from "../credentials/index.js";
+import { orderCredentialScopes } from "../server/credential-read-order.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -60,13 +61,6 @@ export interface ResolvedKeyReference {
   scopeId: string;
 }
 
-/**
- * Resolve `${keys.NAME}` references in `text`. For each reference, looks up
- * the named secret at the given scope, falling back to workspace-scope when
- * the user-scope row doesn't exist. Throws when a referenced key is missing
- * so the agent receives a clear error rather than dispatching with the
- * literal placeholder.
- */
 export async function resolveKeyReferences(
   text: string,
   scope: SecretScope,
@@ -86,9 +80,6 @@ export async function resolveKeyReferences(
     if (resolutions.has(name)) continue;
 
     let result = await readAppSecret({ key: name, scope, scopeId });
-    // SECURITY (audit 05 H2): user→workspace fallback is opt-in. Default
-    // off prevents one malicious org member from poisoning every other
-    // member's `${keys.NAME}` resolution with a workspace-scoped value.
     if (!result && scope === "user" && workspaceFallbackEnabled) {
       result = await readAppSecret({
         key: name,
@@ -117,17 +108,6 @@ export async function resolveKeyReferences(
   return { resolved, usedKeys, secretValues };
 }
 
-/**
- * Resolve `${keys.NAME}` for browser extension fetches and other request-bound
- * code paths that should honor the active workspace's shared credential store.
- *
- * Lookup order:
- * 1. user scope for personal overrides
- * 2. active org scope (Dispatch vault sync writes here for org workspaces)
- * 3. active org workspace scope (legacy shared rows)
- * 4. solo workspace scope when no org is active
- * 5. legacy app credential store user/org scopes
- */
 export async function resolveKeyReferencesWithRequestScopes(
   text: string,
   userScopeId: string,
@@ -172,7 +152,11 @@ async function readRequestScopedSecret(
   name: string,
   userScopeId: string,
 ): Promise<{ value: string; ref: ResolvedKeyReference } | null> {
-  const candidates = requestSecretCandidates(userScopeId);
+  const candidates = await orderCredentialScopes(
+    requestSecretCandidates(userScopeId),
+    getRequestOrgId(),
+    userScopeId,
+  );
   for (const ref of candidates) {
     const result = await readAppSecret({ key: name, ...ref });
     if (result) return { value: result.value, ref: { name, ...ref } };
@@ -187,30 +171,23 @@ async function readLegacyCredential(
   userScopeId: string,
 ): Promise<{ value: string; ref: ResolvedKeyReference } | null> {
   const orgId = getRequestOrgId();
-  const userValue = await resolveCredentialForScope(name, {
-    userEmail: userScopeId,
+  const candidates = await orderCredentialScopes(
+    [
+      { scope: "user" as const, scopeId: userScopeId },
+      ...(orgId ? [{ scope: "org" as const, scopeId: orgId }] : []),
+    ],
     orgId,
-    scope: "user",
-  }).catch(() => undefined);
-  if (userValue) {
-    return {
-      value: userValue,
-      ref: { name, scope: "user", scopeId: userScopeId },
-    };
+    userScopeId,
+  );
+  for (const ref of candidates) {
+    const value = await resolveCredentialForScope(name, {
+      userEmail: userScopeId,
+      orgId,
+      scope: ref.scope,
+    });
+    if (value) return { value, ref: { name, ...ref } };
   }
-
-  if (!orgId) return null;
-  const orgValue = await resolveCredentialForScope(name, {
-    userEmail: userScopeId,
-    orgId,
-    scope: "org",
-  }).catch(() => undefined);
-  if (!orgValue) return null;
-
-  return {
-    value: orgValue,
-    ref: { name, scope: "org", scopeId: orgId },
-  };
+  return null;
 }
 
 function requestSecretCandidates(
@@ -232,14 +209,6 @@ function requestSecretCandidates(
   ];
 }
 
-/**
- * Check if a URL is allowed by a key's URL allowlist. Returns true when no
- * allowlist is configured (permissive default — the allowlist is opt-in).
- *
- * Matching is exact on the URL's origin (scheme + host + port), so an entry
- * like `https://hooks.slack.com` blocks `https://evil.example.com` even if
- * the agent tries to redirect the request elsewhere.
- */
 export function validateUrlAllowlist(
   url: string,
   allowlist: string[] | null,

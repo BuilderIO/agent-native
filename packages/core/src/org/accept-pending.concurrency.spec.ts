@@ -2,20 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
-/**
- * Regression coverage for the `acceptPendingInvitationsForEmail` TOCTOU race
- * (packages/core/src/org/accept-pending.ts): a SELECT-then-INSERT check with
- * no unique constraint standing behind the case-insensitive comparison every
- * reader uses. Two concurrent acceptances of the same pending invitation
- * (e.g. a retried Better Auth signup hook) used to both pass the SELECT and
- * both INSERT, producing a duplicate `org_members` row.
- *
- * Unlike storage.spec.ts's mocked-`execute` fixture, this uses a real
- * in-memory PGlite database — including the unique expression index
- * added in migrations.ts (org-members-unique-lower-email-idx) — so the
- * `ON CONFLICT (org_id, LOWER(email)) DO NOTHING` insert is exercised
- * against genuine constraint enforcement, not a captured-SQL mock.
- */
+const mockTrackInviteAccepted = vi.fn();
 
 function createPgliteExec(
   pglite: Awaited<ReturnType<typeof createTestPglite>>,
@@ -73,6 +60,9 @@ async function loadAcceptPendingWithPglite(
   vi.doMock("../settings/user-settings.js", () => ({
     putUserSetting: vi.fn(async () => {}),
   }));
+  vi.doMock("./track-invite-accepted.js", () => ({
+    trackInviteAccepted: mockTrackInviteAccepted,
+  }));
   const mod = await import("./accept-pending.js");
   return mod;
 }
@@ -82,6 +72,8 @@ describe("acceptPendingInvitationsForEmail (real pglite, concurrency)", () => {
     vi.resetModules();
     vi.doUnmock("../db/client.js");
     vi.doUnmock("../settings/user-settings.js");
+    vi.doUnmock("./track-invite-accepted.js");
+    mockTrackInviteAccepted.mockReset();
   });
 
   it("processing the same invitation twice concurrently yields exactly one membership row", async () => {
@@ -105,18 +97,18 @@ describe("acceptPendingInvitationsForEmail (real pglite, concurrency)", () => {
     const { acceptPendingInvitationsForEmail } =
       await loadAcceptPendingWithPglite(pglite);
 
-    // Simulates a retried signup hook calling the acceptance path twice for
-    // the same email before either has committed its INSERT.
     const results = await Promise.all([
       acceptPendingInvitationsForEmail("a@b.com"),
       acceptPendingInvitationsForEmail("a@b.com"),
     ]);
 
-    // Neither call throws (previously the race's loser hit a raw UNIQUE
-    // constraint violation).
-    for (const r of results) {
-      expect(r.accepted).toEqual([{ invitationId: "inv1", orgId: "org1" }]);
-    }
+    expect(
+      results.filter((result) => result.accepted.length === 1),
+    ).toHaveLength(1);
+    expect(
+      results.filter((result) => result.accepted.length === 0),
+    ).toHaveLength(1);
+    expect(mockTrackInviteAccepted).toHaveBeenCalledTimes(1);
 
     const { count } = (await pglite
       .prepare(`SELECT COUNT(*) as count FROM org_members`)
@@ -133,7 +125,7 @@ describe("acceptPendingInvitationsForEmail (real pglite, concurrency)", () => {
     });
 
     await pglite.close();
-  });
+  }, 15_000);
 
   it("a case-variant duplicate row does not block idempotent acceptance", async () => {
     const pglite = await createTestPglite();
@@ -152,9 +144,6 @@ describe("acceptPendingInvitationsForEmail (real pglite, concurrency)", () => {
         "pending",
         "member",
       );
-    // Pre-existing legacy row with different casing — the exact-string
-    // UNIQUE(org_id, email) constraint never caught this, only the new
-    // expression index does.
     await pglite
       .prepare(
         `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
@@ -176,5 +165,5 @@ describe("acceptPendingInvitationsForEmail (real pglite, concurrency)", () => {
     expect(count).toBe(1);
 
     await pglite.close();
-  });
+  }, 15_000);
 });

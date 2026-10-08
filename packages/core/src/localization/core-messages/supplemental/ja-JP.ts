@@ -46,6 +46,10 @@ export const mcpConnectMessages: McpConnectMessages = {
   revoke: "取り消す",
   couldNotRevoke: "トークンを取り消せませんでした。",
   authorizeDevice: "デバイスを承認",
+  organization: "組織",
+  invalidOrganization: "所属している組織を選択してください。",
+  fullCatalogRequested:
+    "このデバイスは、すべてのアクションカタログへのアクセスを要求しています。",
   createToken: "接続トークンを作成",
   authorizingDevice: "デバイスを承認中...",
   creatingToken: "トークンを作成中...",
@@ -64,6 +68,22 @@ export const mcpConnectMessages: McpConnectMessages = {
   couldNotCreate: "トークンを作成できませんでした。",
   networkError: "ネットワークエラーです。もう一度お試しください。",
   urlTitle: "MCP URL",
+  servicePrincipals: "サービスプリンシパル",
+  principalUngoverned: "未管理",
+  principalActive: "有効",
+  principalSuspended: "一時停止中",
+  principalRetired: "廃止済み",
+  principalUngovernedHint: "オーナーも操作の許可も設定されていません。",
+  principalOwner: "オーナー",
+  principalRisk: "リスク",
+  riskLow: "低",
+  riskMedium: "中",
+  riskHigh: "高",
+  suspend: "一時停止",
+  resume: "再開",
+  couldNotUpdatePrincipal: "サービスプリンシパルを更新できませんでした。",
+  containmentIncomplete:
+    "更新しましたが、停止できない実行またはトークンがあります。もう一度お試しください。",
 };
 
 export const mcpSettingsMessages: McpSettingsMessages = {

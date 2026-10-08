@@ -1,17 +1,14 @@
-import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
-import {
-  agentNativePath,
-  appBasePath,
-  appPath,
-} from "@agent-native/core/client/api-path";
+import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
-import { RunsTray } from "@agent-native/core/client/progress";
-import { ShareButton } from "@agent-native/core/client/sharing";
+import { reloadForClientCompatibilityMismatch } from "@agent-native/core/client/route-chunk-recovery";
 import {
   CreativeContextShareTab,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
+import { RunsTray } from "@agent-native/toolkit/app/progress";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
   IconArrowLeft,
@@ -26,6 +23,8 @@ import {
   IconSun,
   IconMoon,
   IconDotsVertical,
+  IconArrowBackUp,
+  IconArrowForwardUp,
   IconLoader2,
   IconAdjustments,
   IconPencilPlus,
@@ -40,8 +39,10 @@ import {
   IconBolt,
   IconLayersSubtract,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -52,6 +53,7 @@ import {
 import { Link } from "react-router";
 import { toast } from "sonner";
 
+import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -69,16 +71,36 @@ import {
 } from "@/components/ui/tooltip";
 import { SaveStatusIndicator } from "@/components/visual-editor";
 import {
+  getDeckSaveError,
   hasFailedDeckSave,
   hasUnsavedDeckChanges,
+  useDeckContentConflicts,
+  useDecks,
   useSaveState,
+  type DeckContentConflictChoice,
   type Deck,
   type Slide,
 } from "@/context/DeckContext";
+import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
+import { isDeckAccessLostStatus } from "@/lib/deck-access-lost";
 import { DeckBackupError } from "@/lib/deck-backup";
 import { getDeckShareLinkOrder } from "@/lib/deck-share-links";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
-import { parseUploadResponse } from "@/lib/upload-response";
+import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
+import {
+  cleanupUploadedPromptFiles,
+  formatPromptUploadFailure,
+  isPromptUploadAuthRequiredError,
+  isPromptUploadLimitError,
+  isPromptUploadNetworkError,
+  isPromptUploadStorageStatusError,
+  uploadPromptFiles,
+  type UploadedFile,
+} from "@/lib/prompt-file-uploads";
+import {
+  parseUploadResponse,
+  promptImportResponseError,
+} from "@/lib/upload-response";
 
 import {
   registerEditorCommands,
@@ -102,11 +124,7 @@ interface EditorToolbarProps {
   deck: Deck;
   deckId: string;
   deckTitle: string;
-  /** When false, the user is a viewer — render the editor shell with all
-   *  edit affordances disabled, matching Google Slides' viewer experience.
-   *  Defaults to true for backward compatibility. */
   canEdit?: boolean;
-  /** Whether the user may create and manage comments without editing slides. */
   canComment?: boolean;
   onTitleChange: (title: string) => void;
   currentSlideIndex: number;
@@ -117,73 +135,42 @@ interface EditorToolbarProps {
   onShowHistory: () => void;
   historyButtonRef: React.RefObject<HTMLButtonElement | null>;
   currentSlide?: Slide;
-  /** Host for the wide-layout style toolbar in this row. */
   onWideContextToolbarSlotChange?: (element: HTMLDivElement | null) => void;
-  /** Active users on the current slide (from collab awareness) */
   activeUsers?: CollabUser[];
-  /** Whether the agent has a durable presence entry on this slide */
   agentPresent?: boolean;
-  /** True briefly when AI agent is making edits on the current slide */
   agentActive?: boolean;
-  /** Whether the comments panel is open */
   commentsOpen?: boolean;
-  /** Toggle the comments panel */
   onToggleComments?: () => void;
-  /** Number of unresolved comments on the current slide */
   unresolvedCommentCount?: number;
-  /** Current user email for avatar display */
   currentUserEmail?: string;
-  /** Whether the selected-element transitions panel is open */
   animationsOpen?: boolean;
-  /** Toggle the selected-element transitions panel */
   onToggleAnimations?: () => void;
-  /** Whether the slide layers panel is open */
   layersOpen?: boolean;
-  /** Toggle the slide layers panel */
   onToggleLayers?: () => void;
-  /** Whether the tweaks panel is open */
   tweaksOpen?: boolean;
-  /** Toggle the tweaks panel */
   onToggleTweaks?: () => void;
-  /** Whether draw-on-slide mode is active */
   drawMode?: boolean;
-  /** Toggle draw-on-slide mode */
   onToggleDrawMode?: () => void;
-  /** Whether comment-pin drop mode is active */
   pinMode?: boolean;
-  /** Toggle comment-pin drop mode */
   onTogglePinMode?: () => void;
-  /** Whether the add-text-box tool is active */
   textBoxMode?: boolean;
-  /** Toggle the add-text-box tool */
   onToggleTextBoxMode?: () => void;
-  /** Active shape tool */
   shapeType?: SlideShapeType | null;
-  /** Arm a shape tool for drag-to-place on the canvas */
   onSelectShape?: (shape: SlideShapeType) => void;
-  /** Update the current slide's entrance transition from the overflow menu. */
   onChangeSlideTransition?: (transition: SlideTransition) => void;
-  /** Duplicate the current deck */
   onDuplicateDeck?: () => void;
-  /** Export the deck as PDF */
   onExportPdf?: () => Promise<void> | void;
-  /** Export the deck as PPTX */
   onExportPptx?: () => Promise<void> | void;
-  /** Create the deck in the user's Google Drive as native Google Slides */
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
-  /** Flush local edits before entering the full-screen presentation view. */
   onPresent?: (request?: PresentRequest) => boolean | void;
-  /** Download the current local deck state as a recovery backup. */
   onDownloadBackup?: () => void;
-  /** Restore a recovery backup into the current deck. */
   onImportDeckBackup?: (file: File) => Promise<{ slideCount: number }>;
-  /** Inserts a blank slide directly below the active slide. Threaded through
-   *  to the fallback action cluster below so an empty deck (no current
-   *  slide, so the primary element-controls toolbar never mounts) still has
-   *  a way to add its first slide. */
   onAddEmptySlide?: () => void;
-  /** True while an agent add-slide request is in flight. */
   addSlideGenerating?: boolean;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
 }
 
 const TOOLBAR_ICON_BUTTON_CLASS =
@@ -243,14 +230,17 @@ export default function EditorToolbar({
   onImportDeckBackup,
   onAddEmptySlide,
   addSlideGenerating,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
   canEdit = true,
   canComment = canEdit,
 }: EditorToolbarProps) {
   const t = useT();
+  const { resolveDeckContentConflict, retryDeckSave } = useDecks();
+  const hasSlides = deck.slides.length > 0;
   const creativeContextEnabled = useCreativeContextLab();
-  // Public decks default to the read-only presentation URL so recipients do
-  // not get sent through the editor's auth gate. Restricted decks keep the
-  // editor URL primary, where auth resolves viewer access.
   const editorUrl =
     typeof window === "undefined"
       ? `/deck/${deckId}`
@@ -273,12 +263,41 @@ export default function EditorToolbar({
   };
   const shareLinkOrder = getDeckShareLinkOrder(deck.visibility);
   const primaryShareLink = shareLinks[shareLinkOrder.primary];
+  const showShareLink = hasSlides || shareLinkOrder.primary === "editor";
 
-  // Live save state for the toolbar indicator, so users always see whether
-  // their work has committed (a lost-deck report motivated surfacing this).
   const { saving } = useSaveState();
+  const conflict = useDeckContentConflicts(deckId)[0];
   const deckHasUnsavedChanges = hasUnsavedDeckChanges(deckId);
   const saveFailed = hasFailedDeckSave(deckId);
+  const saveError = getDeckSaveError(deckId);
+  const queryClient = useQueryClient();
+  const accessLost = saveFailed && isDeckAccessLostStatus(saveError?.status);
+  const roleRefreshPendingRef = useRef(false);
+  // The role query is not refetched on its own: once access comes back,
+  // "View only" would otherwise outlive the failure that explained it. A retry
+  // clears the failure while it is still in flight, so wait for it to settle.
+  useEffect(() => {
+    if (accessLost) {
+      roleRefreshPendingRef.current = true;
+    } else if (roleRefreshPendingRef.current && !saving) {
+      roleRefreshPendingRef.current = false;
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-resource-shares"],
+      });
+    }
+  }, [accessLost, saving, queryClient]);
+  const resolveConflict = useCallback(
+    async (choice: DeckContentConflictChoice) => {
+      if (!conflict) return;
+      const result = await resolveDeckContentConflict(
+        deckId,
+        conflict.slideId,
+        choice,
+      );
+      if (result.status !== "resolved") throw new Error(result.reason);
+    },
+    [conflict, deckId, resolveDeckContentConflict],
+  );
   const [offline, setOffline] = useState(
     typeof navigator !== "undefined" ? !navigator.onLine : false,
   );
@@ -293,12 +312,14 @@ export default function EditorToolbar({
     };
   }, []);
 
-  // The contextual toolbar hosts the action cluster whenever it is on screen.
-  // That row rides on SlideEditor, which only mounts for a real slide, so an
-  // empty deck must keep this fallback or it has no way to add one.
   const contextToolbarVisible = canEdit && Boolean(currentSlide);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const backupInputRef = useRef<HTMLInputElement>(null);
   const exportMenuRef = useRef<ExportMenuHandle>(null);
+  const storageQuery = useSlideFileStorageStatus();
+  const fileStorageConfigured =
+    storageQuery.data?.configured === true && !storageQuery.isError;
+  const [showStorageSetup, setShowStorageSetup] = useState(false);
   const [exportStatus, setExportStatus] = useState<ExportStatus>({
     state: "idle",
   });
@@ -313,6 +334,32 @@ export default function EditorToolbar({
     !currentSlide?.transition || currentSlide.transition === "none"
       ? "instant"
       : currentSlide.transition;
+  const undoModifier =
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.platform)
+      ? "⌘"
+      : "Ctrl";
+  const undoShortcut = `${undoModifier} Z`;
+  const redoShortcut =
+    undoModifier === "⌘" ? `${undoModifier} ⇧ Z` : `${undoModifier} Shift Z`;
+
+  const openFileImport = useCallback(() => {
+    if (storageQuery.isLoading) {
+      setShowStorageSetup(true);
+      return;
+    }
+    if (fileStorageConfigured) {
+      fileInputRef.current?.click();
+    } else {
+      setShowStorageSetup(true);
+    }
+  }, [fileStorageConfigured, storageQuery.isLoading]);
+
+  useEffect(() => {
+    if (showStorageSetup && fileStorageConfigured) {
+      setShowStorageSetup(false);
+    }
+  }, [fileStorageConfigured, showStorageSetup]);
 
   useLayoutEffect(() => {
     const measuredWidth =
@@ -327,7 +374,21 @@ export default function EditorToolbar({
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".json") && !fileStorageConfigured) {
+      setShowStorageSetup(true);
+      e.target.value = "";
+      return;
+    }
+    try {
+      await importFileOnce(file);
+    } finally {
+      e.target.value = "";
+    }
+  };
+
+  const importFileOnce = async (file: File) => {
     setImporting(true);
+    let uploadedFiles: UploadedFile[] = [];
     toast(t("editorToolbar.importingFile"), {
       description: t("editorToolbar.readingFile", { fileName: file.name }),
     });
@@ -344,27 +405,12 @@ export default function EditorToolbar({
         return;
       }
 
-      const formData = new FormData();
-      formData.append("file", file);
-      const uploadRes = await fetch(`${appBasePath()}/api/uploads`, {
-        method: "POST",
-        body: formData,
-      });
-      // R83 — guard the parse: a failed upload can come back as a non-JSON
-      // body (upstream proxy/platform error page, plaintext "Internal
-      // Error", etc.). Parsing before the ok check used to throw a raw
-      // "Unexpected token ... is not valid JSON" SyntaxError into this
-      // toast instead of the clean message below.
-      const uploadData = await parseUploadResponse(
-        uploadRes,
-        t("editorToolbar.uploadFailed"),
+      uploadedFiles = await uploadPromptFiles(
+        [file],
+        t("home.referenceFileStorageUnavailable"),
       );
-      if (!uploadRes.ok) {
-        throw new Error(uploadData?.error || t("editorToolbar.uploadFailed"));
-      }
-      const uploaded = Array.isArray(uploadData) ? uploadData[0] : uploadData;
-      const filePath = uploaded?.path || uploaded?.url;
-      if (!filePath) throw new Error(t("editorToolbar.uploadMissingPath"));
+      const uploaded = uploadedFiles[0];
+      if (!uploaded) throw new Error(t("editorToolbar.uploadMissingPath"));
 
       const importRes = await fetch(
         agentNativePath("/_agent-native/actions/import-file"),
@@ -372,20 +418,23 @@ export default function EditorToolbar({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            filePath,
+            filePath: uploaded.path,
             deckId,
             format: "auto",
             importIntoDeck: true,
           }),
         },
       );
-      // R83 — same parse guard as the upload response above.
       const importData = await parseUploadResponse(
         importRes,
         t("editorToolbar.importFailed"),
       );
       if (!importRes.ok || importData?.error) {
-        throw new Error(importData?.error || t("editorToolbar.importFailed"));
+        throw promptImportResponseError(
+          importRes.status,
+          importData,
+          t("editorToolbar.importFailed"),
+        );
       }
       toast.success(t("editorToolbar.importComplete"), {
         description:
@@ -400,17 +449,45 @@ export default function EditorToolbar({
       });
     } catch (err) {
       console.error("Import failed:", err);
+      const storageSetupRequired = isStorageSetupRequiredError(err);
+      if (storageSetupRequired) void storageQuery.refetch();
+      // A timeout, a gateway page or a dropped connection says nothing about
+      // the file, so the same import is offered again rather than a new pick.
+      const retryable =
+        !storageSetupRequired &&
+        !(err instanceof DeckBackupError) &&
+        isPromptUploadNetworkError(err);
       toast.error(t("editorToolbar.importFailed"), {
-        description:
-          err instanceof DeckBackupError
-            ? t("editorToolbar.invalidBackup")
-            : err instanceof Error
-              ? err.message
-              : t("editorToolbar.importFailedDescription"),
+        ...(retryable
+          ? {
+              action: {
+                label: t("home.retry"),
+                onClick: () => void importFileOnce(file),
+              },
+            }
+          : {}),
+        description: formatPromptUploadFailure(
+          err,
+          storageSetupRequired
+            ? t("home.fileStorageSetupRequired")
+            : err instanceof DeckBackupError
+              ? t("editorToolbar.invalidBackup")
+              : isPromptUploadAuthRequiredError(err)
+                ? t("home.importMenu.notStarted")
+                : isPromptUploadNetworkError(err)
+                  ? t("home.importMenu.networkFailed")
+                  : isPromptUploadLimitError(err)
+                    ? t("home.importMenu.uploadLimitExceeded")
+                    : isPromptUploadStorageStatusError(err)
+                      ? t("editorToolbar.importFailedDescription")
+                      : err instanceof Error
+                        ? err.message
+                        : t("editorToolbar.importFailedDescription"),
+        ),
       });
     } finally {
+      await cleanupUploadedPromptFiles(uploadedFiles);
       setImporting(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -562,41 +639,43 @@ export default function EditorToolbar({
       });
     }
 
-    commands.push(
-      {
-        id: "download-html",
-        group: "deck",
-        label: t("editorExport.downloadHtml"),
-        keywords: ["export", "html", "download"],
-        icon: IconCode,
-        run: () => void exportMenuRef.current?.exportHtml(),
-      },
-      {
-        id: "export-pdf",
-        group: "deck",
-        label: t("editorExport.exportPdf"),
-        keywords: ["export", "pdf", "download"],
-        icon: IconFileTypePdf,
-        run: () => void exportMenuRef.current?.exportPdf(),
-      },
-      {
-        id: "export-pptx",
-        group: "deck",
-        label: t("editorExport.exportPptx"),
-        keywords: ["export", "powerpoint", "pptx", "download"],
-        icon: IconDownload,
-        run: () => void exportMenuRef.current?.exportPptx(),
-      },
-    );
-    if (onExportGoogleSlides) {
-      commands.push({
-        id: "export-to-google-slides",
-        group: "deck",
-        label: t("editorExport.openInGoogleSlides"),
-        keywords: ["google", "slides", "export"],
-        icon: IconBrandGoogle,
-        run: () => void exportMenuRef.current?.exportGoogleSlides(),
-      });
+    if (hasSlides) {
+      commands.push(
+        {
+          id: "download-html",
+          group: "deck",
+          label: t("editorExport.downloadHtml"),
+          keywords: ["export", "html", "download"],
+          icon: IconCode,
+          run: () => void exportMenuRef.current?.exportHtml(),
+        },
+        {
+          id: "export-pdf",
+          group: "deck",
+          label: t("editorExport.exportPdf"),
+          keywords: ["export", "pdf", "download"],
+          icon: IconFileTypePdf,
+          run: () => void exportMenuRef.current?.exportPdf(),
+        },
+        {
+          id: "export-pptx",
+          group: "deck",
+          label: t("editorExport.exportPptx"),
+          keywords: ["export", "powerpoint", "pptx", "download"],
+          icon: IconDownload,
+          run: () => void exportMenuRef.current?.exportPptx(),
+        },
+      );
+      if (onExportGoogleSlides) {
+        commands.push({
+          id: "export-to-google-slides",
+          group: "deck",
+          label: t("editorExport.openInGoogleSlides"),
+          keywords: ["google", "slides", "export"],
+          icon: IconBrandGoogle,
+          run: () => void exportMenuRef.current?.exportGoogleSlides(),
+        });
+      }
     }
     if (onDuplicateDeck) {
       commands.push({
@@ -617,7 +696,7 @@ export default function EditorToolbar({
           : t("editorToolbar.importFile"),
         keywords: ["import", "pptx", "docx", "pdf"],
         icon: importing ? IconLoader2 : IconDownload,
-        run: () => fileInputRef.current?.click(),
+        run: () => void openFileImport(),
       },
       {
         id: "saved-versions",
@@ -649,8 +728,10 @@ export default function EditorToolbar({
     commentsOpen,
     currentSlide,
     drawMode,
+    hasSlides,
     importing,
     isDark,
+    openFileImport,
     onAddEmptySlide,
     onDuplicateDeck,
     onExportGoogleSlides,
@@ -753,6 +834,7 @@ export default function EditorToolbar({
       <input
         type="text"
         value={deckTitle}
+        readOnly={!canEdit}
         onChange={(e) => onTitleChange(e.target.value)}
         style={{ width: `${titleInputWidth}px` }}
         className="min-w-0 max-w-[500px] shrink-0 bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"
@@ -778,15 +860,45 @@ export default function EditorToolbar({
 
       {/* Save status — subtle "Saving…" / "Saved" / offline pill. Renders
           nothing when idle. Only meaningful for editors. */}
-      {canEdit && (
+      {(canEdit || saveFailed) && (
         <SaveStatusIndicator
           saving={saving}
           hasUnsavedChanges={deckHasUnsavedChanges}
           saveFailed={saveFailed}
+          saveError={saveError}
           offline={offline}
+          conflict={
+            conflict
+              ? {
+                  slideNumber: Math.max(
+                    1,
+                    deck.slides.findIndex(
+                      (slide) => slide.id === conflict.slideId,
+                    ) + 1,
+                  ),
+                  canResolve: conflict.canResolve,
+                }
+              : undefined
+          }
+          onResolveConflict={resolveConflict}
+          onRetrySave={() => retryDeckSave(deckId)}
+          onReload={() => {
+            if (saveError?.serverBuildId && saveError.requiredCompatibility) {
+              reloadForClientCompatibilityMismatch(
+                saveError.serverBuildId,
+                saveError.requiredCompatibility,
+                window,
+                { force: true },
+              );
+            } else {
+              window.location.reload();
+            }
+          }}
           onDownloadBackup={onDownloadBackup}
           onImportBackup={
-            onImportDeckBackup ? () => fileInputRef.current?.click() : undefined
+            canEdit && onImportDeckBackup
+              ? () => backupInputRef.current?.click()
+              : undefined
           }
           className="flex-shrink-0 mr-1"
         />
@@ -933,6 +1045,29 @@ export default function EditorToolbar({
             )}
 
             <DropdownMenuSeparator />
+            {(onUndo || onRedo) && (
+              <>
+                <DropdownMenuGroup>
+                  {onUndo && (
+                    <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
+                      <IconArrowBackUp className="size-4" />
+                      {t("editorToolbar.undoWithShortcut", {
+                        shortcut: undoShortcut,
+                      })}
+                    </DropdownMenuItem>
+                  )}
+                  {onRedo && (
+                    <DropdownMenuItem disabled={!canRedo} onSelect={onRedo}>
+                      <IconArrowForwardUp className="size-4" />
+                      {t("editorToolbar.redoWithShortcut", {
+                        shortcut: redoShortcut,
+                      })}
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuGroup>
               <DropdownMenuItem onSelect={onShowHistory}>
                 <IconHistory className="size-4" />
@@ -945,6 +1080,7 @@ export default function EditorToolbar({
               inline
               hideExportDialog
               onExportStatusChange={setExportStatus}
+              hasSlides={hasSlides}
               deckId={deckId}
               deckTitle={deckTitle}
               onDuplicate={onDuplicateDeck ?? (() => {})}
@@ -955,7 +1091,7 @@ export default function EditorToolbar({
             <DropdownMenuSeparator />
             <DropdownMenuItem
               disabled={importing}
-              onSelect={() => fileInputRef.current?.click()}
+              onSelect={() => void openFileImport()}
             >
               {importing ? (
                 <IconLoader2 className="size-4 animate-spin" />
@@ -987,9 +1123,10 @@ export default function EditorToolbar({
               description: t("editorToolbar.commenterRoleDescription"),
             },
           }}
-          shareUrl={primaryShareLink.url}
+          shareUrl={showShareLink ? primaryShareLink.url : undefined}
           shareUrlLabel={primaryShareLink.label}
           shareUrlDescription={primaryShareLink.description}
+          showShareLinks={showShareLink}
           shareTabs={
             creativeContextEnabled
               ? {
@@ -1020,23 +1157,48 @@ export default function EditorToolbar({
         />
       </div>
       {/* Present button — matches Share trigger height (h-9) */}
-      <Link
-        to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
-        onClick={onPresent ? handlePresentClick : undefined}
-        onAuxClick={onPresent ? handlePresentClick : undefined}
-        className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-      >
-        <IconPlayerPlay className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
-      </Link>
+      {hasSlides ? (
+        <Link
+          to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
+          onClick={onPresent ? handlePresentClick : undefined}
+          onAuxClick={onPresent ? handlePresentClick : undefined}
+          className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+        >
+          <IconPlayerPlay className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
+        </Link>
+      ) : (
+        <Button
+          type="button"
+          disabled
+          className="h-9 flex-shrink-0 gap-1.5 border border-border px-3 text-sm font-medium"
+        >
+          <IconPlayerPlay className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
+        </Button>
+      )}
 
       {/* Hidden file input for "Import" overflow menu item */}
       <input
         ref={fileInputRef}
         type="file"
-        accept=".pptx,.docx,.pdf,.json"
+        accept=".pptx,.docx,.pdf"
         onChange={handleImportFile}
         className="hidden"
+      />
+      <input
+        ref={backupInputRef}
+        type="file"
+        accept=".json"
+        onChange={handleImportFile}
+        className="hidden"
+      />
+      <UploadStorageGate
+        configured={fileStorageConfigured}
+        unavailable={!storageQuery.isSuccess}
+        open={showStorageSetup}
+        onOpenChange={setShowStorageSetup}
+        onRetry={() => void storageQuery.refetch()}
       />
 
       <div className="flex items-center gap-1">

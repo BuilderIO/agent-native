@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync } from "node:fs";
+import { appendFileSync, existsSync, readdirSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,17 +9,6 @@ const DOCS_PATH_PREFIXES = [
   "packages/docs/",
 ] as const;
 
-/**
- * Prose and static assets under a docs directory are documentation; the source
- * and config files beside them are code.
- *
- * A docs-only PR runs zero checks — guards included — so anything classified
- * here as documentation ships unverified. `packages/docs/` is a full Nitro +
- * React Router app: 248 `.ts`/`.tsx` files, a server route directory, and the
- * `netlify.toml` that owns the site's static cache headers. Those headers went
- * missing for 13 days (2026-08-07 a882a536af → 2026-08-20 4ec27fb575) inside
- * this blind spot.
- */
 const DOCS_CONTENT_EXTENSIONS = new Set([
   ".md",
   ".mdx",
@@ -42,6 +31,29 @@ const DOCS_SUPPORT_PATHS = new Set([
   "scripts/i18n-raw-literal-baseline.txt",
 ]);
 
+const COMMUNITY_TEMPLATES_ROOT = "community-templates";
+
+// Agent instructions are inputs to core (bundled skills, prompt resources) and
+// to the skills package, and several guards read them, so they are not docs.
+const INSTRUCTION_MARKDOWN_RE = /^(?:\.agents\/.+|skills\/.+|[^/]+)\.md$/u;
+const INSTRUCTION_WORKSPACE_FILTERS = [
+  "@agent-native/core",
+  "@agent-native/skills",
+] as const;
+
+// Root guard scripts, root script tests, and the function-size baseline are
+// exercised by the guards job; no workspace build or test imports them.
+const SCRIPT_TEST_RE = /^scripts\/.+\.(?:test|spec)\.(?:ts|mts|mjs|js)$/u;
+const GUARD_SCRIPT_RE = /^scripts\/(?:lib\/)?guard-[^/]+\.(?:ts|mts|mjs|js)$/u;
+const GUARD_SCOPE_FILES = new Set([
+  "scripts/serverless-function-baseline.json",
+]);
+
+const CHANGESET_CHECK_FILES = new Set([
+  "scripts/check-changeset.mjs",
+  "scripts/guard-no-major-changeset.mjs",
+]);
+
 const FULL_CHECK_FILES = new Set([
   ".github/workflows/ci.yml",
   ".oxlintrc.json",
@@ -49,8 +61,67 @@ const FULL_CHECK_FILES = new Set([
   "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
+  "scripts/ci-change-scope.test.ts",
   "tsconfig.json",
   "vitest.shared.ts",
+]);
+
+const TEMPLATE_RUNTIME_ENTRYPOINTS = new Set([
+  "agent-native.config.ts",
+  "agent-native.json",
+  "react-router.config.ts",
+  "ssr-entry.ts",
+  "vite.config.ts",
+]);
+
+const TEST_ONLY_PUBLIC_ASSETS = new Set([
+  "templates/slides/public/visual-edit-structure-proof.html",
+]);
+
+const DESIGN_CANVAS_E2E_FILES = new Set([
+  "templates/design/e2e/base-url.ts",
+  "templates/design/e2e/chrome-geometry.reference.ts",
+  "templates/design/e2e/corner-radius-handle-drag.spec.ts",
+  "templates/design/e2e/cross-screen-auto-layout-parity.spec.ts",
+  "templates/design/e2e/drag-and-drop.auto-layout-parity.spec.ts",
+  "templates/design/e2e/drag-and-drop.reparenting-rules.spec.ts",
+  "templates/design/e2e/drag-and-drop.shared.ts",
+  "templates/design/e2e/drag-out-of-screen-to-board.spec.ts",
+  "templates/design/e2e/global-setup.ts",
+  "templates/design/e2e/global-teardown.ts",
+  "templates/design/e2e/helpers.ts",
+  "templates/design/e2e/parity-drag-reparent.spec.ts",
+  "templates/design/e2e/parity-report-interactions.spec.ts",
+  "templates/design/e2e/parity-oversized-nested.spec.ts",
+  "templates/design/e2e/parity-alt-drag-duplicate.spec.ts",
+  "templates/design/e2e/z-order-parity.spec.ts",
+  "templates/design/e2e/parity-vector-endpoints.spec.ts",
+  "templates/design/e2e/responsive-overview-regressions.spec.ts",
+  "templates/design/playwright.config.ts",
+]);
+
+const DESIGN_CANVAS_CONFIG_FILES = new Set([
+  "templates/design/agent-native.config.ts",
+  "templates/design/agent-native.json",
+  "templates/design/package.json",
+  "templates/design/react-router.config.ts",
+  "templates/design/vite.config.ts",
+]);
+
+// The two-tab convergence lane also covers its own harness and the build it
+// serves; other Content e2e specs and unit tests cannot move it.
+const CONTENT_CONVERGENCE_FILES = new Set([
+  "templates/content/agent-native.config.ts",
+  "templates/content/agent-native.json",
+  "templates/content/package.json",
+  "templates/content/react-router.config.ts",
+  "templates/content/ssr-entry.ts",
+  "templates/content/vite.config.ts",
+  "templates/content/e2e/convergence-summary.ts",
+  "templates/content/e2e/global-setup.ts",
+  "templates/content/e2e/helpers.ts",
+  "templates/content/e2e/playwright.config.ts",
+  "templates/content/e2e/two-tab-convergence.spec.ts",
 ]);
 
 const CHECK_NAMES = [
@@ -58,19 +129,68 @@ const CHECK_NAMES = [
   "typecheck",
   "fast_tests",
   "content",
+  "content_convergence",
   "core_integration",
   "plan_e2e",
   "brain_evals",
-  "brain_privacy",
   "build",
   "trusted_acceptance",
   "scaffold",
   "ssr_boot",
   "guards",
-  "drizzle",
   "qa_static",
   "agentkit_acceptance",
+  "neon_query_budget",
+  "neon_connection_budget",
+  "design_canvas_interaction_e2e",
+  "slides_chat_e2e",
+  "slides_authoring_e2e",
+  "changeset",
 ] as const;
+
+const QUERY_BUDGET_UNRELATED_SCRIPTS = new Set([
+  "scripts/agent-friction-report.mjs",
+  "scripts/ci-change-scope.test.ts",
+]);
+
+// Every first-party template the cold-request query budget builds and
+// measures. A template change measures only that template; anything the
+// templates share measures all of them.
+export const QUERY_BUDGET_APPS = [
+  "analytics",
+  "assets",
+  "brain",
+  "calendar",
+  "chat",
+  "clips",
+  "content",
+  "crm",
+  "design",
+  "dispatch",
+  "factory",
+  "forms",
+  "mail",
+  "plan",
+  "slides",
+  "tasks",
+] as const;
+
+// These templates depend on @agent-native/creative-context at runtime.
+const CREATIVE_CONTEXT_QUERY_BUDGET_APPS = [
+  "analytics",
+  "assets",
+  "content",
+  "design",
+  "slides",
+] as const satisfies readonly (typeof QUERY_BUDGET_APPS)[number][];
+
+// The query budget splits its apps across this many jobs. Each job pays for
+// its own checkout, install, and dist restore, so a third shard buys less.
+export const QUERY_BUDGET_SHARD_COUNT = 2;
+
+// Apps the SSR cold-start smoke builds and imports. Shared packages rebuild
+// every one; a template change rebuilds only that template.
+export const SSR_BOOT_APPS = ["content", "plan", "clips", "assets"] as const;
 
 type CheckName = (typeof CHECK_NAMES)[number];
 
@@ -78,15 +198,57 @@ export type CheckSelection = Record<CheckName, boolean>;
 
 export type ChangeScope = {
   changedPaths: string[];
+  designCanvasE2eSpecs: string[];
   docsOnly: boolean;
   full: boolean;
   nonDocsPaths: string[];
   checks: CheckSelection;
   workspaceFilters: string[];
+  testWorkspaceFilters: string[];
+  scriptTests: string[];
+  queryBudgetApps: string[];
+  queryBudgetShards: QueryBudgetShard[];
+  ssrBootApps: string[];
 };
+
+export type QueryBudgetShard = { shard: string; apps: string[] };
 
 export function normalizeChangedPath(path: string): string {
   return path.replaceAll("\\", "/").replace(/^\.\/+/, "");
+}
+
+export function runtimeSourceChangesInTestTitledPr(
+  title: string,
+  paths: readonly string[],
+): string[] {
+  if (!/^test(?:\([^)]+\))?!?:/iu.test(title.trim())) return [];
+
+  return paths
+    .map(normalizeChangedPath)
+    .filter(
+      (path) =>
+        /^templates\/[^/]+\/(?:actions|app|server|shared|\.generated\/bridge)\//u.test(
+          path,
+        ) ||
+        /^templates\/[^/]+\/public\//u.test(path) ||
+        (path.split("/").length === 3 &&
+          /^templates\/[^/]+\//u.test(path) &&
+          TEMPLATE_RUNTIME_ENTRYPOINTS.has(
+            path.slice(path.lastIndexOf("/") + 1),
+          )) ||
+        /^packages\/[^/]+\/src\//u.test(path),
+    )
+    .filter(
+      (path) =>
+        !/(?:^|\/)(?:__tests__|tests?|fixtures?|__fixtures__|__snapshots__|__mocks__)(?:\/|$)/u.test(
+          path,
+        ) &&
+        !/\.(?:spec|test)(?:\.[^.]+)*$/u.test(path) &&
+        !TEST_ONLY_PUBLIC_ASSETS.has(path) &&
+        /\.(?:[cm]?[jt]sx?|css|html|json|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf)$/iu.test(
+          path,
+        ),
+    );
 }
 
 export function isDocsPath(path: string): boolean {
@@ -105,10 +267,69 @@ export function isDocsPath(path: string): boolean {
   );
 }
 
+// READMEs count as docs, but guard:readme-link-tags reads nothing else, so a
+// README-only change set still has to reach the guards job.
+function isReadmePath(path: string): boolean {
+  return basename(normalizeChangedPath(path)) === "README.md";
+}
+
+export function isInstructionPath(path: string): boolean {
+  const normalized = normalizeChangedPath(path);
+  return !isDocsPath(normalized) && INSTRUCTION_MARKDOWN_RE.test(normalized);
+}
+
+export function isGuardScopedScriptPath(path: string): boolean {
+  const normalized = normalizeChangedPath(path);
+  if (normalized.startsWith("scripts/ci-")) return false;
+  if (CHANGESET_CHECK_FILES.has(normalized)) return false;
+  return (
+    GUARD_SCOPE_FILES.has(normalized) ||
+    SCRIPT_TEST_RE.test(normalized) ||
+    GUARD_SCRIPT_RE.test(normalized)
+  );
+}
+
+function isChangesetPath(path: string): boolean {
+  const normalized = normalizeChangedPath(path);
+  return (
+    normalized.startsWith("packages/") ||
+    normalized.startsWith(".changeset/") ||
+    CHANGESET_CHECK_FILES.has(normalized)
+  );
+}
+
+/** Changed root script tests plus the sibling test of each changed guard. */
+export function scriptTestsForPaths(
+  paths: readonly string[],
+  fileExists: (path: string) => boolean = (path) =>
+    existsSync(join(process.cwd(), path)),
+): string[] {
+  const tests = new Set<string>();
+  for (const path of paths.map(normalizeChangedPath)) {
+    if (SCRIPT_TEST_RE.test(path)) {
+      if (fileExists(path)) tests.add(path);
+      continue;
+    }
+    if (
+      !isGuardScopedScriptPath(path) &&
+      path !== "scripts/ci-change-scope.ts"
+    ) {
+      continue;
+    }
+    const stem = path.replace(/\.(?:ts|mts|mjs|js)$/u, "");
+    for (const suffix of [".test.ts", ".test.mjs", ".spec.ts", ".spec.mjs"]) {
+      if (fileExists(`${stem}${suffix}`)) tests.add(`${stem}${suffix}`);
+    }
+  }
+  return [...tests].sort();
+}
+
 export function isWorkspacePath(path: string): boolean {
   const normalized = normalizeChangedPath(path);
   return (
-    normalized.startsWith("packages/") || normalized.startsWith("templates/")
+    normalized.startsWith("packages/") ||
+    normalized.startsWith("templates/") ||
+    normalized.startsWith(`${COMMUNITY_TEMPLATES_ROOT}/`)
   );
 }
 
@@ -118,6 +339,13 @@ function workspaceRootForPath(path: string): string | undefined {
 
   if (parent === "packages" && segments[1]) {
     return `${parent}/${segments[1]}`;
+  }
+
+  if (parent === COMMUNITY_TEMPLATES_ROOT && segments[1]) {
+    const packageRoot = join(process.cwd(), parent, segments[1]);
+    return segments.length > 2 || existsSync(join(packageRoot, "package.json"))
+      ? `${parent}/${segments[1]}`
+      : parent;
   }
 
   if (parent !== "templates" || !segments[1]) return undefined;
@@ -136,17 +364,79 @@ function workspaceRootForPath(path: string): string | undefined {
   return `templates/${segments[1]}`;
 }
 
-export function workspaceFiltersForPaths(paths: readonly string[]): string[] {
+function workspaceRootsForPaths(paths: readonly string[]): string[] {
   const roots = new Set<string>();
   for (const path of paths) {
     const root = workspaceRootForPath(path);
     if (root) roots.add(root);
   }
 
-  // Include the changed workspace and both its dependency/dependent closure.
-  // Explicit path selectors work in detached PR checkouts and do not rely on
-  // pnpm discovering a Git base revision.
-  return [...roots].sort().map((root) => `...{${root}}...`);
+  return [...roots].sort();
+}
+
+function communityWorkspaceRoots(): string[] {
+  const root = join(process.cwd(), COMMUNITY_TEMPLATES_ROOT);
+  if (!existsSync(join(root, "package.json"))) return [];
+  return [
+    COMMUNITY_TEMPLATES_ROOT,
+    ...readdirSync(root, { withFileTypes: true })
+      .filter(
+        (entry) =>
+          entry.isDirectory() &&
+          existsSync(join(root, entry.name, "package.json")),
+      )
+      .map((entry) => `${COMMUNITY_TEMPLATES_ROOT}/${entry.name}`),
+  ].sort();
+}
+
+function workspaceFiltersForRoots(
+  roots: readonly string[],
+  includeDependencies: boolean,
+): string[] {
+  const selectedCommunityRoots = new Set(
+    roots.filter(
+      (root) =>
+        root === COMMUNITY_TEMPLATES_ROOT ||
+        root.startsWith(`${COMMUNITY_TEMPLATES_ROOT}/`),
+    ),
+  );
+  const selected = roots.map((root) =>
+    selectedCommunityRoots.has(root)
+      ? `./${root}`
+      : `...{${root}}${includeDependencies ? "..." : ""}`,
+  );
+  const communityRoots = communityWorkspaceRoots();
+  const excludedCommunityRoots =
+    selectedCommunityRoots.size === 0
+      ? [`!./${COMMUNITY_TEMPLATES_ROOT}/**`]
+      : communityRoots
+          .filter((root) => !selectedCommunityRoots.has(root))
+          .map((root) => `!./${root}`);
+  return [...selected, ...excludedCommunityRoots];
+}
+
+function workspaceFiltersForChangedPaths(
+  paths: readonly string[],
+  includeDependencies: boolean,
+): string[] {
+  const filters = workspaceFiltersForRoots(
+    workspaceRootsForPaths(paths),
+    includeDependencies,
+  );
+  if (paths.some(isInstructionPath)) {
+    filters.push(...INSTRUCTION_WORKSPACE_FILTERS);
+  }
+  return filters;
+}
+
+export function workspaceFiltersForPaths(paths: readonly string[]): string[] {
+  return workspaceFiltersForChangedPaths(paths, true);
+}
+
+export function testWorkspaceFiltersForPaths(
+  paths: readonly string[],
+): string[] {
+  return workspaceFiltersForChangedPaths(paths, false);
 }
 
 function isFullPath(path: string): boolean {
@@ -154,12 +444,13 @@ function isFullPath(path: string): boolean {
 
   if (FULL_CHECK_FILES.has(normalized)) return true;
   if (normalized.startsWith(".github/")) return true;
+  if (isInstructionPath(normalized) || isGuardScopedScriptPath(normalized)) {
+    return false;
+  }
   if (normalized.startsWith("scripts/") && !isDocsPath(normalized)) {
     return true;
   }
 
-  // Unknown repository-level files are dependencies of the whole CI graph.
-  // Run everything when they change so a new root tool cannot bypass checks.
   return !isWorkspacePath(normalized) && !isDocsPath(normalized);
 }
 
@@ -167,17 +458,161 @@ function hasPath(paths: readonly string[], prefix: string): boolean {
   return paths.some((path) => path.startsWith(prefix));
 }
 
+function isDesignCanvasE2eSpecPath(path: string): boolean {
+  return (
+    path.startsWith("templates/design/e2e/") &&
+    /\.(?:spec|test)\.[cm]?[jt]sx?$/u.test(path)
+  );
+}
+
+function isDesignDndRuntimePath(path: string): boolean {
+  if (
+    DESIGN_CANVAS_E2E_FILES.has(path) ||
+    DESIGN_CANVAS_CONFIG_FILES.has(path) ||
+    isDesignCanvasE2eSpecPath(path)
+  ) {
+    return true;
+  }
+
+  const designAppSource =
+    path.startsWith("templates/design/app/") &&
+    !path.startsWith("templates/design/app/i18n/") &&
+    !path.startsWith("templates/design/app/assets/") &&
+    !/\/i18n-[^/]+\.ts$/u.test(path) &&
+    /\.(?:[cm]?[jt]sx?|css)$/u.test(path);
+  const designSharedRuntimeSource =
+    (path.startsWith("templates/design/actions/") ||
+      path.startsWith("templates/design/server/") ||
+      path.startsWith("templates/design/shared/") ||
+      path.startsWith("templates/design/.generated/bridge/")) &&
+    /\.(?:[cm]?[jt]sx?)$/u.test(path);
+
+  return designAppSource || designSharedRuntimeSource;
+}
+
+function isContentConvergenceRuntimePath(path: string): boolean {
+  if (CONTENT_CONVERGENCE_FILES.has(path)) return true;
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+
+  // Most Toolkit changes are chat and shell UI that cannot lose page text.
+  const toolkitEditorSource =
+    path.startsWith("packages/toolkit/src/editor/") ||
+    path.startsWith("packages/toolkit/src/collab-ui/") ||
+    path === "packages/toolkit/package.json";
+
+  const contentAppSource =
+    path.startsWith("templates/content/app/") &&
+    !path.startsWith("templates/content/app/i18n/") &&
+    !/\/i18n-[^/]+\.ts$/u.test(path) &&
+    /\.(?:[cm]?[jt]sx?|css)$/u.test(path);
+  const contentSharedRuntimeSource =
+    (path.startsWith("templates/content/actions/") ||
+      path.startsWith("templates/content/server/") ||
+      path.startsWith("templates/content/shared/")) &&
+    /\.(?:[cm]?[jt]sx?|json)$/u.test(path);
+
+  return toolkitEditorSource || contentAppSource || contentSharedRuntimeSource;
+}
+
+function isKnownQueryBudgetUnrelatedPath(path: string): boolean {
+  const normalized = normalizeChangedPath(path);
+  return (
+    normalized === "AGENTS.md" ||
+    normalized.startsWith(".agents/") ||
+    QUERY_BUDGET_UNRELATED_SCRIPTS.has(normalized)
+  );
+}
+
+function measuresEveryQueryBudgetApp(paths: readonly string[]): boolean {
+  return (
+    hasPath(paths, "packages/core/") ||
+    hasPath(paths, "scripts/neon-query-budget")
+  );
+}
+
+function changedQueryBudgetApps(paths: readonly string[]): string[] {
+  return QUERY_BUDGET_APPS.filter((app) => hasPath(paths, `templates/${app}/`));
+}
+
+function queryBudgetAppsFor(
+  changedPaths: readonly string[],
+  full: boolean,
+  checks: CheckSelection,
+): string[] {
+  if (!checks.neon_query_budget) return [];
+  if (full || measuresEveryQueryBudgetApp(changedPaths)) {
+    return [...QUERY_BUDGET_APPS];
+  }
+  const selectedApps = new Set(changedQueryBudgetApps(changedPaths));
+  if (hasPath(changedPaths, "packages/creative-context/")) {
+    for (const app of CREATIVE_CONTEXT_QUERY_BUDGET_APPS) {
+      selectedApps.add(app);
+    }
+  }
+  return QUERY_BUDGET_APPS.filter((app) => selectedApps.has(app));
+}
+
+export function shardQueryBudgetApps(
+  apps: readonly string[],
+): QueryBudgetShard[] {
+  const shards = Array.from(
+    { length: Math.min(QUERY_BUDGET_SHARD_COUNT, apps.length) },
+    () => [] as string[],
+  );
+  apps.forEach((app, index) => shards[index % shards.length].push(app));
+  return shards.map((shardApps, index) => ({
+    shard: `${index + 1}/${shards.length}`,
+    apps: shardApps,
+  }));
+}
+
+function ssrBootSharedPackageChanged(paths: readonly string[]): boolean {
+  return [
+    "packages/core/",
+    "packages/otel/",
+    "packages/toolkit/",
+    "packages/recap-cli/",
+    "packages/creative-context/",
+    "packages/otel/",
+  ].some((prefix) => hasPath(paths, prefix));
+}
+
+function ssrBootAppsFor(
+  changedPaths: readonly string[],
+  full: boolean,
+  checks: CheckSelection,
+): string[] {
+  if (!checks.ssr_boot) return [];
+  if (full || ssrBootSharedPackageChanged(changedPaths)) {
+    return [...SSR_BOOT_APPS];
+  }
+  return SSR_BOOT_APPS.filter((app) =>
+    hasPath(changedPaths, `templates/${app}/`),
+  );
+}
+
 function buildChecks(
   changedPaths: readonly string[],
   full: boolean,
 ): CheckSelection {
   if (full) {
-    return Object.fromEntries(
+    const checks = Object.fromEntries(
       CHECK_NAMES.map((name) => [name, true]),
     ) as CheckSelection;
+    if (
+      changedPaths.length > 0 &&
+      changedPaths.every(isKnownQueryBudgetUnrelatedPath)
+    ) {
+      checks.neon_query_budget = false;
+      checks.neon_connection_budget = false;
+    }
+    return checks;
   }
 
   const workspaceChanged = changedPaths.some(isWorkspacePath);
+  const instructionsChanged = changedPaths.some(isInstructionPath);
+  const guardScriptsChanged = changedPaths.some(isGuardScopedScriptPath);
+  const readmeChanged = changedPaths.some(isReadmePath);
   const coreChanged = hasPath(changedPaths, "packages/core/");
   const toolkitChanged = hasPath(changedPaths, "packages/toolkit/");
   const agentkitChanged = hasPath(changedPaths, "packages/agentkit/");
@@ -195,22 +630,34 @@ function buildChecks(
   const brainChanged = hasPath(changedPaths, "templates/brain/");
   const clipsChanged = hasPath(changedPaths, "templates/clips/");
   const assetsChanged = hasPath(changedPaths, "templates/assets/");
-  const recapCliChanged = hasPath(changedPaths, "packages/recap-cli/");
-  const creativeContextChanged = hasPath(
-    changedPaths,
-    "packages/creative-context/",
-  );
+  const neonQueryBudgetChanged =
+    measuresEveryQueryBudgetApp(changedPaths) ||
+    hasPath(changedPaths, "packages/creative-context/") ||
+    changedQueryBudgetApps(changedPaths).length > 0;
+  const slidesE2eChanged =
+    hasPath(changedPaths, "templates/slides/") ||
+    coreChanged ||
+    toolkitChanged ||
+    hasPath(changedPaths, "packages/creative-context/");
+  const slidesChatE2eChanged = slidesE2eChanged || agentkitChanged;
+  const designCanvasInteractionE2eChanged =
+    changedPaths.some(isDesignDndRuntimePath) ||
+    coreChanged ||
+    toolkitChanged ||
+    hasPath(changedPaths, "packages/creative-context/");
+  const contentConvergenceChanged =
+    changedPaths.some(isContentConvergenceRuntimePath) || coreChanged;
 
   return {
-    lint: workspaceChanged,
+    lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
     typecheck: workspaceChanged,
-    fast_tests: workspaceChanged,
+    fast_tests: workspaceChanged || instructionsChanged,
     content: contentChanged || coreChanged || schedulingChanged,
+    content_convergence: contentConvergenceChanged,
     core_integration: coreChanged || toolkitChanged,
     plan_e2e: coreChanged || planChanged,
     brain_evals: coreChanged || brainChanged,
-    brain_privacy: coreChanged || brainChanged,
-    build: workspaceChanged,
+    build: workspaceChanged || instructionsChanged,
     trusted_acceptance:
       coreChanged || contentChanged || calendarChanged || dispatchChanged,
     scaffold:
@@ -221,24 +668,16 @@ function buildChecks(
       calendarChanged ||
       hasPath(changedPaths, "templates/dispatch/"),
     ssr_boot:
-      coreChanged ||
-      toolkitChanged ||
-      recapCliChanged ||
-      creativeContextChanged ||
+      ssrBootSharedPackageChanged(changedPaths) ||
       contentChanged ||
       planChanged ||
       clipsChanged ||
       assetsChanged,
-    guards: workspaceChanged,
-    drizzle: changedPaths.some((path) => {
-      const normalized = normalizeChangedPath(path);
-      return (
-        normalized === "netlify.toml" ||
-        normalized.endsWith("/netlify.toml") ||
-        normalized === "package.json" ||
-        normalized.endsWith("/package.json")
-      );
-    }),
+    guards:
+      workspaceChanged ||
+      instructionsChanged ||
+      guardScriptsChanged ||
+      readmeChanged,
     qa_static: templateChanged,
     agentkit_acceptance:
       coreChanged ||
@@ -246,6 +685,14 @@ function buildChecks(
       agentkitChanged ||
       sharedAppConfigChanged ||
       chatChanged,
+    neon_query_budget: neonQueryBudgetChanged,
+    // The probe imports only core's database client, so templates cannot
+    // move it.
+    neon_connection_budget: coreChanged,
+    design_canvas_interaction_e2e: designCanvasInteractionE2eChanged,
+    slides_chat_e2e: slidesChatE2eChanged,
+    slides_authoring_e2e: slidesE2eChanged,
+    changeset: changedPaths.some(isChangesetPath),
   };
 }
 
@@ -254,26 +701,37 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
   const nonDocsPaths = changedPaths.filter((path) => !isDocsPath(path));
   const docsOnly = changedPaths.length > 0 && nonDocsPaths.length === 0;
   const workspaceFilters = workspaceFiltersForPaths(changedPaths);
+  const testWorkspaceFilters = testWorkspaceFiltersForPaths(changedPaths);
   const full =
     changedPaths.length === 0 ||
     changedPaths.some(isFullPath) ||
     (changedPaths.some(isWorkspacePath) && workspaceFilters.length === 0);
 
+  const checks = docsOnly
+    ? (Object.fromEntries(
+        CHECK_NAMES.map((name) => [
+          name,
+          name === "lint" ||
+            (name === "guards" && changedPaths.some(isReadmePath)) ||
+            (name === "changeset" && changedPaths.some(isChangesetPath)),
+        ]),
+      ) as CheckSelection)
+    : buildChecks(changedPaths, full);
+  const queryBudgetApps = queryBudgetAppsFor(changedPaths, full, checks);
+
   return {
     changedPaths,
+    designCanvasE2eSpecs: changedPaths.filter(isDesignCanvasE2eSpecPath).sort(),
     docsOnly,
     full,
     nonDocsPaths,
-    checks: docsOnly
-      ? // `fmt:check` formats the whole tree, docs included, so it is the one
-        // check a docs-only change can still fail. Skipping it here let
-        // unformatted .md/.mdx land on main and turn Lint red on every
-        // unrelated PR afterwards.
-        (Object.fromEntries(
-          CHECK_NAMES.map((name) => [name, name === "lint"]),
-        ) as CheckSelection)
-      : buildChecks(changedPaths, full),
+    checks,
     workspaceFilters,
+    testWorkspaceFilters,
+    scriptTests: scriptTestsForPaths(changedPaths),
+    queryBudgetApps,
+    queryBudgetShards: shardQueryBudgetApps(queryBudgetApps),
+    ssrBootApps: ssrBootAppsFor(changedPaths, full, checks),
   };
 }
 
@@ -293,7 +751,12 @@ function writeOutputs(scope: ChangeScope): void {
       `docs_only=${scope.docsOnly ? "true" : "false"}`,
       `full=${scope.full ? "true" : "false"}`,
       `changed_count=${scope.changedPaths.length}`,
+      `design_canvas_e2e_specs=${JSON.stringify(scope.designCanvasE2eSpecs)}`,
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
+      `script_tests=${JSON.stringify(scope.scriptTests)}`,
+      `query_budget_matrix=${JSON.stringify({ include: scope.queryBudgetShards })}`,
+      `ssr_boot_apps=${JSON.stringify(scope.ssrBootApps)}`,
+      `test_workspace_filters=${JSON.stringify(scope.testWorkspaceFilters)}`,
       ...Object.entries(scope.checks).map(
         ([name, enabled]) => `${name}=${enabled ? "true" : "false"}`,
       ),
@@ -313,7 +776,8 @@ function writeOutputs(scope: ChangeScope): void {
         `- Changed paths: **${scope.changedPaths.length}**`,
         `- Docs-only change: **${scope.docsOnly ? "yes" : "no"}**`,
         `- Full fallback: **${scope.full ? "yes" : "no"}**`,
-        `- Workspace selectors: **${scope.workspaceFilters.join(", ") || "none"}**`,
+        `- Build selectors: **${scope.workspaceFilters.join(", ") || "none"}**`,
+        `- Test/typecheck selectors: **${scope.testWorkspaceFilters.join(", ") || "none"}**`,
         `- Selected checks: **${selectedChecks.join(", ") || "docs"}**`,
         ...(preview.length > 0
           ? [
@@ -338,7 +802,21 @@ function main(): void {
     throw new Error("CI_BASE_SHA and CI_HEAD_SHA are required");
   }
 
-  const scope = classifyChangedPaths(readChangedPaths(baseSha, headSha));
+  const changedPaths = readChangedPaths(baseSha, headSha);
+  const runtimeSourceChanges = runtimeSourceChangesInTestTitledPr(
+    process.env.CI_PR_TITLE ?? "",
+    changedPaths,
+  );
+  if (runtimeSourceChanges.length > 0) {
+    throw new Error(
+      [
+        'A "test:" PR title cannot include runtime source changes. Use a "fix:" or "feat:" title:',
+        ...runtimeSourceChanges.map((path) => `- ${path}`),
+      ].join("\n"),
+    );
+  }
+
+  const scope = classifyChangedPaths(changedPaths);
   console.log(JSON.stringify(scope, null, 2));
   writeOutputs(scope);
 }

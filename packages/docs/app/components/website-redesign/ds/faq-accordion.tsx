@@ -14,9 +14,6 @@ interface FaqAccordionProps {
   idPrefix?: string;
 }
 
-// Sidebar intro (eyebrow + title) beside a single-column accordion, no outer
-// box border — matches builder.io/for/engineers's FAQ section so it reads as
-// part of the same page rhythm instead of a boxed-off card.
 export function FaqAccordion({
   eyebrow,
   title,

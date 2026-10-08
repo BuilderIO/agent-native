@@ -35,7 +35,6 @@ function candidate(
   };
 }
 
-// A frame with a section containing a heading, all overlapping at (60, 60).
 const SECTION = candidate("section", { x: 0, y: 0, width: 400, height: 300 });
 const HEADING = candidate("heading", { x: 40, y: 40, width: 200, height: 60 });
 const SPAN = candidate("span", { x: 50, y: 50, width: 80, height: 30 });
@@ -79,7 +78,6 @@ describe("drillInChainAtPoint", () => {
   });
 
   it("respects rotation when testing containment", () => {
-    // A thin horizontal bar rotated 90° no longer covers a point to its right.
     const bar = candidate(
       "bar",
       { x: 0, y: 90, width: 400, height: 20 },
@@ -171,8 +169,6 @@ describe("resolveDrillInTarget", () => {
   });
 
   it("returns null when nothing selectable sits under the pointer", () => {
-    // Callers must leave the frame selected here rather than substituting
-    // Interact mode, which is the bug this replaced.
     expect(
       resolveDrillInTarget({
         candidates,
@@ -190,8 +186,6 @@ describe("resolveDrillInTarget", () => {
 });
 
 describe("resolvePickTargetAtPoint", () => {
-  // A generated screen wraps its content in a full-bleed div, so the outermost
-  // candidate under any point is that wrapper.
   const WRAPPER = candidate("wrapper", {
     x: 0,
     y: 0,

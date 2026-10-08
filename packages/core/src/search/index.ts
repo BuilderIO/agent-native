@@ -1,5 +1,44 @@
 import type { DbExec } from "../db/index.js";
 
+export {
+  getSearchableResource,
+  listSearchableResources,
+  registerSearchableResource,
+  searchIndexMigration,
+  unregisterSearchableResource,
+  type SearchableResourceDocument,
+  type SearchableResourceRegistration,
+} from "./registry.js";
+export {
+  drainAllSearchIndexes,
+  prepareSearchIndex,
+  resetSearchIndexRuntime,
+  type SearchIndexNotReadyReason,
+  type SearchIndexStatus,
+} from "./indexer.js";
+export {
+  indexedSearchSql,
+  type IndexedSearchOptions,
+  type IndexedSearchSql,
+} from "./query.js";
+export {
+  parseSearchQuery,
+  searchQueryNeedles,
+  type ParsedSearchQuery,
+  type SearchQueryGroup,
+  type SearchQueryTerm,
+} from "./query-parser.js";
+export {
+  buildSearchVector,
+  documentTokens,
+  isPhraseTerm,
+  normalizeSearchText,
+  queryLexemes,
+  SearchTermTooLongError,
+  termTsquery,
+  type SearchVector,
+} from "./tokenize.js";
+
 export const DEFAULT_SEARCH_NAMESPACE = "creative_context";
 export const PGVECTOR_REQUIRED_MESSAGE =
   "Vector search requires Postgres with the pgvector extension in the configured DATABASE_URL database.";
@@ -43,7 +82,6 @@ type PgVectorOptions =
   | {
       namespace?: string;
       postgres?: boolean;
-      /** The caller has already provisioned this namespace and dimension. */
       indexInitialized?: boolean;
     };
 
@@ -360,8 +398,6 @@ export async function queryPostgresFts(
       score: Number(row.score),
     }));
   } catch (error) {
-    // A read can race the first write for a tenant-specific namespace. Writers
-    // provision it; an absent lane simply contributes no candidates.
     if (isMissingPostgresRelation(error)) return [];
     throw error;
   }

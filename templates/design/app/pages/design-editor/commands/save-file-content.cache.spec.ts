@@ -131,7 +131,6 @@ describe("runSaveFileContent get-design cache", () => {
       versionHash: sourceContentHash("<main>new</main>"),
       updatedAt: "2026-01-01T00:00:05.000Z",
     });
-    // Never settles: the read is still in flight when the save lands.
     void queryClient.fetchQuery({
       queryKey: DESIGN_KEY,
       queryFn: () => new Promise(() => {}),

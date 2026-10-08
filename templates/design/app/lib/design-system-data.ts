@@ -5,7 +5,6 @@ export interface DesignSystemData {
   builderBranchName?: string;
   builderUrl?: string;
   builderStatus?: string;
-  /** Builder-reported indexed document count; readiness, unlike builderStatus. */
   docCount?: number;
   builderSyncedAt?: string;
   colors?: {
@@ -28,7 +27,6 @@ export interface DesignSystemData {
   logos?: Array<{ url?: string; name?: string; variant?: string }>;
   defaults?: Record<string, unknown>;
   notes?: unknown;
-  /** The source system's own named vocabulary; absent on kits predating it. */
   tokens?: unknown;
 }
 
@@ -47,11 +45,6 @@ export function parseDesignSystemData(
   }
 }
 
-/**
- * docCount is the only readiness signal: not builderStatus, not a sync
- * timestamp, not document types. A Builder-backed row with no recorded
- * docCount has not been measured yet, which is not ready.
- */
 function isBuilderKitIndexed(parsed: DesignSystemData): boolean {
   return typeof parsed.docCount === "number" && parsed.docCount > 0;
 }
@@ -84,13 +77,6 @@ export function builderRefreshKey(system: {
   return `${system.id}:${parsed?.builderJobId ?? "unknown"}`;
 }
 
-/**
- * Persisted `builderUrl` values are treated as a trusted navigation target
- * (rendered as an "Open in Builder" anchor). Reject anything that is not an
- * absolute https URL on builder.io before it reaches the DOM, since the
- * field is stored data that could be stale, corrupted, or tampered with by a
- * collaborator on a shared design system.
- */
 export function isTrustedBuilderPreviewUrl(url: string): boolean {
   let parsed: URL;
   try {

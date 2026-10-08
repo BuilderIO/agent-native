@@ -5,13 +5,13 @@ import {
 } from "../observability/tracing.js";
 import { resolveDeployEnvironment } from "../server/deploy-environment.js";
 import { getRequestContext } from "../server/request-context.js";
+import { isTestIdentity } from "../server/test-identity.js";
 import {
   canonicalTrackingEvent,
   legacyLifecycleEvent,
   withCanonicalTrackingProperties,
 } from "../shared/analytics-events.js";
 import { ANALYTICS_CLIENT_PLATFORM_PROPERTY } from "../shared/analytics-platform.js";
-import { isQaTestEmail } from "../shared/qa-test-email.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
 
 export { isQaTestEmail } from "../shared/qa-test-email.js";
@@ -21,18 +21,27 @@ interface GlobalWithRegistry {
   [REGISTRY_KEY]?: Map<string, TrackingProvider>;
 }
 
+/** The test identity an event belongs to, if any. */
+function testIdentityOf(
+  userId: string | undefined,
+  properties?: Record<string, unknown>,
+): string | undefined {
+  return [
+    getRequestContext()?.userEmail,
+    userId,
+    properties?.email,
+    properties?.userEmail,
+    properties?.user_email,
+  ].find((value): value is string => isTestIdentity(value));
+}
+
 function isTrackingSuppressed(
   userId: string | undefined,
   properties?: Record<string, unknown>,
 ): boolean {
-  const requestContext = getRequestContext();
   return (
-    requestContext?.isSyntheticTraffic === true ||
-    isQaTestEmail(requestContext?.userEmail) ||
-    isQaTestEmail(userId) ||
-    isQaTestEmail(properties?.email) ||
-    isQaTestEmail(properties?.userEmail) ||
-    isQaTestEmail(properties?.user_email)
+    getRequestContext()?.isSyntheticTraffic === true ||
+    testIdentityOf(userId, properties) !== undefined
   );
 }
 
@@ -64,34 +73,15 @@ export function listTrackingProviders(): string[] {
 
 export interface TrackingMeta {
   userId?: string;
+  authUserId?: string;
   anonymousId?: string;
-  /** Overrides the ambient request's browser session. */
   sessionId?: string;
-  /**
-   * When the event actually happened, in epoch ms. Defaults to now.
-   *
-   * Needed by callers that buffer and flush a batch of events at the end of a
-   * unit of work — an agent run emits its trace, generation, and tool spans in
-   * one burst, and stamping all of them with the flush time collapses a
-   * multi-second waterfall into a single instant. PostHog orders an LLM trace
-   * tree by event timestamp, so without this the tree renders with a synthetic
-   * timeline.
-   */
   occurredAt?: number;
-  /** Marks browser-submitted events so the OTel bridge applies client trust rules. */
   telemetryOrigin?: TrackingEventOrigin;
 }
 
-/**
- * Who an event is attributed to. Pass an action's `ctx` straight through —
- * `track("project_created", { template }, ctx)` — instead of restating
- * `{ userId: ctx.userEmail }` at every call site.
- */
 export type TrackingSource = TrackingMeta | ActionRunContext;
 
-// `caller` is required on ActionRunContext and absent from TrackingMeta, so it
-// is the one field that tells the two apart without the caller declaring which
-// shape it passed.
 function isActionRunContext(
   source: TrackingSource,
 ): source is ActionRunContext {
@@ -100,28 +90,46 @@ function isActionRunContext(
 
 function resolveTrackingSource(source: TrackingSource | undefined): {
   userId?: string;
+  authUserId?: string;
   anonymousId?: string;
   sessionId?: string;
   occurredAt?: number;
   telemetryOrigin: TrackingEventOrigin;
 } {
-  // The browser session rides the request, not the caller's arguments, so it
-  // resolves the same way whether the UI called the action or the agent did.
-  const ambientSessionId = getRequestContext()?.browserSessionId;
+  const requestContext = getRequestContext();
+  const ambientSessionId = requestContext?.browserSessionId;
   if (!source) {
-    return { sessionId: ambientSessionId, telemetryOrigin: "server" };
-  }
-  if (isActionRunContext(source)) {
     return {
-      userId: source.userEmail,
+      authUserId: requestContext?.authUserId,
       sessionId: ambientSessionId,
       telemetryOrigin: "server",
     };
   }
+  if (isActionRunContext(source)) {
+    const callerMatchesRequest = source.userEmail === requestContext?.userEmail;
+    return {
+      userId: source.userEmail,
+      ...(callerMatchesRequest
+        ? { authUserId: requestContext?.authUserId }
+        : {}),
+      sessionId: callerMatchesRequest ? ambientSessionId : undefined,
+      telemetryOrigin: "server",
+    };
+  }
+  const canUseAmbientIdentity = source.userId
+    ? source.userId === requestContext?.userEmail
+    : !source.anonymousId;
+  const canUseAmbientSession =
+    canUseAmbientIdentity &&
+    (!source.authUserId || source.authUserId === requestContext?.authUserId);
   return {
     userId: source.userId,
+    authUserId:
+      source.authUserId ??
+      (canUseAmbientIdentity ? requestContext?.authUserId : undefined),
     anonymousId: source.anonymousId,
-    sessionId: source.sessionId ?? ambientSessionId,
+    sessionId:
+      source.sessionId ?? (canUseAmbientSession ? ambientSessionId : undefined),
     occurredAt: source.occurredAt,
     telemetryOrigin: source.telemetryOrigin ?? "server",
   };
@@ -132,14 +140,26 @@ export function track(
   properties?: Record<string, unknown>,
   source?: TrackingSource,
 ): void {
-  const { userId, anonymousId, sessionId, occurredAt, telemetryOrigin } =
-    resolveTrackingSource(source);
-  if (isTrackingSuppressed(userId, properties)) return;
+  const {
+    userId,
+    authUserId,
+    anonymousId,
+    sessionId,
+    occurredAt,
+    telemetryOrigin,
+  } = resolveTrackingSource(source);
+  if (getRequestContext()?.isSyntheticTraffic === true) return;
+  const testIdentity = testIdentityOf(userId, properties);
+  if (testIdentity && name !== "$exception") return;
   const clientPlatform = getRequestContext()?.clientPlatform;
   const actionContext =
     source && isActionRunContext(source) ? source : undefined;
+  const safeProperties = { ...(properties ?? {}) };
+  delete safeProperties.auth_user_id;
+  delete safeProperties.authUserId;
+  if (authUserId) safeProperties.auth_user_id = authUserId;
   const trackedProperties = withCanonicalTrackingProperties({
-    ...(properties ?? {}),
+    ...safeProperties,
     ...(sessionId ? { session_id: sessionId } : {}),
     ...(userId ? { user_id: userId } : {}),
     ...(actionContext?.userEmail
@@ -150,6 +170,10 @@ export function track(
     ...(clientPlatform
       ? { [ANALYTICS_CLIENT_PLATFORM_PROPERTY]: clientPlatform }
       : {}),
+    // Ingest trusts an identity, never the flag, so the matched one rides along.
+    ...(testIdentity
+      ? { test_identity: true, test_identity_email: testIdentity }
+      : {}),
   });
 
   emitTrackingEvent(name, trackedProperties, {
@@ -158,6 +182,7 @@ export function track(
     sessionId,
     occurredAt,
   });
+  if (testIdentity) return;
   const trackingScope = getRequestContext()?.trackingScope;
   if (trackingScope) {
     queueTrackingEvent(name, trackedProperties, telemetryOrigin, trackingScope);
@@ -194,8 +219,6 @@ function emitTrackingEvent(
   const event: TrackingEvent = {
     name,
     properties,
-    // A caller-supplied `occurredAt` of 0 is not a real event time, so `||`
-    // rather than `??` is deliberate here.
     timestamp: new Date(source.occurredAt || Date.now()).toISOString(),
     userId: source.userId,
     anonymousId: source.anonymousId,
@@ -203,6 +226,11 @@ function emitTrackingEvent(
   };
 
   for (const provider of getRegistry().values()) {
+    if (
+      properties.test_identity === true &&
+      !provider.acceptsTestIdentityExceptions
+    )
+      continue;
     try {
       const result = provider.track(event);
       if (result && typeof (result as Promise<void>).catch === "function") {

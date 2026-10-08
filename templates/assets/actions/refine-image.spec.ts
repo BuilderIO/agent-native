@@ -24,6 +24,7 @@ vi.mock("./variant-slots.js", () => ({
   resolveLiveBatchContinuation: resolveLiveBatchContinuationMock,
 }));
 
+import { ASSETS_VARIATION_GRID_RENDERER } from "../shared/action-ui.js";
 import action from "./refine-image.js";
 
 describe("refine-image", () => {
@@ -41,6 +42,20 @@ describe("refine-image", () => {
     });
     generateImageRunMock.mockResolvedValue({ id: "generated-1" });
     resolveLiveBatchContinuationMock.mockResolvedValue(null);
+  });
+
+  it("uses the variation renderer for a completed refinement", () => {
+    expect(action.chatUI?.renderer).toBe(ASSETS_VARIATION_GRID_RENDERER);
+    expect(
+      action.chatUI?.when?.(
+        { assetId: "source", feedback: "Less text" },
+        {
+          id: "generated-1",
+          libraryId: "library-1",
+          previewUrl: "/api/assets/generated-1/content",
+        },
+      ),
+    ).toBe(true);
   });
 
   it("forwards the action run context so the refined candidate lands in the caller's thread tray", async () => {

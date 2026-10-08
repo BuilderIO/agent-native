@@ -30,11 +30,6 @@ export default defineAction({
 
     const ownerEmail = access.resource.ownerEmail as string;
     const db = getDb();
-    // Project only the small columns + denormalized summary columns instead of
-    // `.select()`-ing every row's full `snapshot_json` (the entire plan +
-    // sections blob) just to JSON.parse it for a list view. Rows written
-    // before the summary columns existed have `blockCount === null`; for
-    // those (and only those) we fetch + parse `snapshot_json` below.
     const versions = await db
       .select({
         id: schema.planVersions.id,

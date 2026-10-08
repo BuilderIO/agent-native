@@ -145,8 +145,6 @@ describe("GitHub triage client", () => {
       fetchImpl,
     });
 
-    // Two of the three raw entries were pull requests. Reporting one issue with
-    // unparsed 0 would read as "this repository has one open issue".
     await expect(client.listOpenIssues(repository, 3)).resolves.toMatchObject({
       items: [expect.objectContaining({ number: 1 })],
       unparsed: 2,
@@ -695,7 +693,6 @@ describe("GitHub triage client", () => {
     });
   });
 
-  // A capped scan is the case that must never read as "Factory has not asked yet".
   it("marks an issue comment scan truncated when every page is full", async () => {
     const full = Array.from({ length: 100 }, (_, index) => ({
       id: index + 1,

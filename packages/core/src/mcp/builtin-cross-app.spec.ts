@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as callerAuth from "../a2a/caller-auth.js";
 import * as a2aClient from "../a2a/client.js";
+import * as orgContext from "../org/context.js";
 import { toAbsoluteOpenUrl } from "../server/deep-link.js";
 import * as embedSession from "../server/embed-session.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -32,10 +33,6 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
-
-// ---------------------------------------------------------------------------
-// Issue 1 — ACCESS_TOKEN auth must not lose caller identity
-// ---------------------------------------------------------------------------
 
 describe("verifyAuth — static-token caller identity", () => {
   it("dev-open with no owner hint has no identity (unchanged behavior)", async () => {
@@ -97,6 +94,14 @@ describe("verifyAuth — static-token caller identity", () => {
 
   it("a valid JWT identity is not overridden by the owner header", async () => {
     process.env.A2A_SECRET = "jwt-secret";
+    vi.spyOn(
+      orgContext,
+      "resolveA2AOrganizationCredentialsByDomain",
+    ).mockResolvedValue(null);
+    vi.spyOn(
+      orgContext,
+      "resolveA2AOrganizationMetadataByDomain",
+    ).mockResolvedValue({ orgId: "org-acme", orgDomain: "acme.com" });
     const jose = await import("jose");
     const token = await new jose.SignJWT({
       sub: "jwt-user@example.com",
@@ -112,12 +117,6 @@ describe("verifyAuth — static-token caller identity", () => {
     expect(res.identity?.orgDomain).toBe("acme.com");
   });
 });
-
-// ---------------------------------------------------------------------------
-// Issue 2 / 3 — open_app + ask_app honesty for same-app / standalone
-// (cross-app workspace resolution needs a real workspace dir and is covered
-//  by the workspace-resolve path; here we lock the deterministic behavior.)
-// ---------------------------------------------------------------------------
 
 function baseConfig(over: Partial<MCPConfig> = {}): MCPConfig {
   return {
@@ -188,10 +187,6 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     expect(result.embed).toBe(true);
   });
 
-  // An app whose `view` name is not also a route (design routes `editor` at
-  // `/design/:id`) used to get `/editor` here: the embed iframe rendered a 404
-  // and so did the host's "Open in new tab" fallback, leaving the user with no
-  // way to reach their work.
   it.each([
     ["design", "editor"],
     ["slides", "editor"],
@@ -334,12 +329,6 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     expect(result.embed).toBe(true);
   });
 
-  // Deep links stay base-relative on purpose: `toAbsoluteOpenUrl` owns the
-  // base prefix for the browser-facing `openLink.webUrl` the host uses as its
-  // out-of-frame escape hatch, and `normalizeEmbedTargetPath` stores embed
-  // targets base-relative (it strips the base when one is present). Prefixing
-  // here too would be redundant, but a *missing* prefix downstream would 404
-  // the escape hatch again, so pin both ends.
   it("keeps bare-view deep links base-relative while the open link carries the base path", async () => {
     process.env.APP_BASE_PATH = "/mail";
     const deepLink =
@@ -366,21 +355,22 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
   });
 
   it("defaults to the app's home page when neither view nor path is given", async () => {
-    // Bare `open_app({app:"mail"})` should land on `/`, not throw — otherwise
-    // hosts (ChatGPT/Claude) waste a turn on the model's first-attempt retry
-    // when it omits view/path on initial call. See PR #884 chrome agent
-    // findings: "first open_app({app:'dispatch'}) returns parameter error".
     const tools = getBuiltinCrossAppTools(baseConfig());
     const result: any = await tools.open_app.run({ app: "mail" });
     expect(result.url).toMatch(/^\/$/);
     expect(result.app).toBe("mail");
   });
 
-  it("still rejects open_app calls without an app id", async () => {
+  it("opens the current app home when an entrypoint has no arguments", async () => {
     const tools = getBuiltinCrossAppTools(baseConfig());
-    await expect(tools.open_app.run({} as any)).rejects.toThrow(
-      /requires 'app'/,
-    );
+    const result: any = await tools.open_app.run({});
+    expect(result).toMatchObject({ app: "mail", url: "/", embed: true });
+  });
+
+  it("honors embed false when an entrypoint opens the current app home", async () => {
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    const result: any = await tools.open_app.run({ embed: false });
+    expect(result).toMatchObject({ app: "mail", url: "/", embed: false });
   });
 });
 
@@ -403,10 +393,6 @@ describe("create_embed_session", () => {
 });
 
 describe("list_apps — reports the live request origin for the current app", () => {
-  // Bug #2: a single-app dev server reached over `connect` was reporting a
-  // guessed `PORT || 5173` URL + `running:false` (wrong whenever the dev
-  // server picked another port, e.g. `agent-native dev` on :8080). The MCP
-  // request is served BY the app, so the inbound origin is authoritative.
   it("uses requestMeta.origin and running:true for the served app", async () => {
     const tools = getBuiltinCrossAppTools(baseConfig({ appId: "content" }), {
       origin: "http://localhost:8080",
@@ -425,8 +411,6 @@ describe("list_apps — reports the live request origin for the current app", ()
     const tools = getBuiltinCrossAppTools(baseConfig({ appId: "content" }));
     const result: any = await tools.list_apps.run({});
     expect(result.apps).toHaveLength(1);
-    // No live origin → keep the resolver's URL (not overridden to a bogus
-    // live origin) and its real TCP-probe running state.
     expect(result.apps[0].url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
     expect(result.apps[0].running).toBe(false);
   });
@@ -497,9 +481,6 @@ describe("ask_app — honest routing metadata", () => {
       app: "mail",
       message: "hello",
       async: true,
-      approvedActions: [
-        { tool: "send-email", input: { to: "alice@example.test" } },
-      ],
     });
 
     expect(askAgent).not.toHaveBeenCalled();
@@ -514,9 +495,6 @@ describe("ask_app — honest routing metadata", () => {
           orgDomain: "acme.com",
           requestOrigin: "https://mail.example.com",
         },
-        approvedActions: [
-          { tool: "send-email", input: { to: "alice@example.test" } },
-        ],
       }),
     );
     expect(result).toMatchObject({
@@ -826,13 +804,6 @@ describe("ask_app — honest routing metadata", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Bounded deadline / retry behavior for the hosted A2A poll loop
-// (waitForA2ATask / runBeforeAskAppDeadline / boundedAskAppWaitMs), ported
-// from the fake-timer pattern in
-// packages/dispatch/src/server/lib/mcp-gateway.spec.ts.
-// ---------------------------------------------------------------------------
-
 describe("ask_app — bounded deadline & retry behavior for the hosted A2A poll loop", () => {
   function mockCallerAuth() {
     return vi.spyOn(callerAuth, "resolveA2ACallerAuth").mockResolvedValue({
@@ -1068,14 +1039,6 @@ describe("ask_app — bounded deadline & retry behavior for the hosted A2A poll 
   });
 });
 
-// ---------------------------------------------------------------------------
-// In-process inline fallback (Fix: bounded no-origin ask_app path) — when
-// `requestMeta.origin` can't be derived there is no `/_agent-native/a2a`
-// endpoint to submit a durable task to, so ask_app now bounds the wait
-// against a process-local task map (ask-app-inline-tasks.ts) instead of
-// awaiting config.askAgent() unbounded.
-// ---------------------------------------------------------------------------
-
 describe("ask_app — in-process inline fallback when no app origin is derivable", () => {
   it("returns a working payload within the bound, then completes via ask_app_status once the slow askAgent settles", async () => {
     vi.useFakeTimers();
@@ -1122,14 +1085,8 @@ describe("ask_app — in-process inline fallback when no app origin is derivable
   });
 });
 
-// ---------------------------------------------------------------------------
-// Phase 3b — org-directory auto-discovery merged into list_apps / ask_app
-// ---------------------------------------------------------------------------
-
 describe("list_apps — org-directory merge", () => {
   it("no directory env ⇒ fetchOrgApps()=[] and list_apps unchanged", async () => {
-    // No directory env configured: the real fetchOrgApps short-circuits to []
-    // so list_apps must report only the local/workspace app(s).
     const tools = getBuiltinCrossAppTools(baseConfig());
     const result: any = await tools.list_apps.run({});
     expect(Array.isArray(result.apps)).toBe(true);
@@ -1147,7 +1104,6 @@ describe("list_apps — org-directory merge", () => {
         a2aUrl: "https://calendar.acme.com/_agent-native/a2a",
       },
       {
-        // Duplicate id of the current app — must be deduped out.
         id: "mail",
         name: "Mail",
         url: "https://mail.acme.com",
@@ -1161,7 +1117,6 @@ describe("list_apps — org-directory merge", () => {
     expect(calendar).toBeDefined();
     expect(calendar.source).toBe("org-directory");
     expect(calendar.url).toBe("https://calendar.acme.com");
-    // Only one "mail" entry — the workspace one wins, the directory dup drops.
     expect(result.apps.filter((a: any) => a.id === "mail").length).toBe(1);
   });
 });
@@ -1196,7 +1151,6 @@ describe("ask_app — org-directory routing", () => {
       message: "what's on my schedule?",
     });
 
-    // Routed over A2A against the directory's a2aUrl — not answered locally.
     expect(callAgentSpy).toHaveBeenCalledTimes(1);
     expect(callAgentSpy.mock.calls[0][0]).toBe(
       "https://calendar.acme.com/_agent-native/a2a",

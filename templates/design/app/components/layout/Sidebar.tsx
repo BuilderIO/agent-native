@@ -1,17 +1,16 @@
-import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import {
+  BuilderCreditNotice,
+  OrgSwitcher,
+} from "@agent-native/toolkit/app/org";
 import {
   AppSidebar,
-  FeedbackButton,
+  AppSidebarFooter,
   type AppSidebarItemDefinition,
-} from "@agent-native/core/client/ui";
-import {
-  IconComponents,
-  IconPencil,
-  IconSettings,
-  IconTemplate,
-} from "@tabler/icons-react";
+} from "@agent-native/toolkit/app/shared";
+import { IconComponents, IconPencil, IconTemplate } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router";
 
@@ -62,20 +61,13 @@ export function Sidebar() {
     },
   ];
 
-  const secondaryItems: AppSidebarItemDefinition[] = [
-    {
-      to: "/settings",
-      label: t("navigation.settings"),
-      icon: IconSettings,
-      active: location.pathname.startsWith("/settings"),
-    },
-  ];
-
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
 
-  const orgSwitcher = <OrgSwitcher compact={collapsed} />;
+  const orgSwitcher = (
+    <OrgSwitcher compact={collapsed} hideBuilderCreditNotice />
+  );
 
   return (
     <AppSidebar
@@ -85,10 +77,19 @@ export function Sidebar() {
       appId="design"
       brandHref="/home"
       items={items}
-      secondaryItems={secondaryItems}
-      feedback={feedbackButton}
-      orgSwitcher={orgSwitcher}
-      footerExtras={<DevDatabaseLink />}
+      footerContent={
+        <>
+          <div className={collapsed ? "flex flex-col items-center" : undefined}>
+            <BuilderCreditNotice compact showAtLimitOnly className="mb-2" />
+          </div>
+          <AppSidebarFooter
+            collapsed={collapsed}
+            feedback={feedbackButton}
+            orgSwitcher={orgSwitcher}
+            footerExtras={<DevDatabaseLink />}
+          />
+        </>
+      }
     />
   );
 }

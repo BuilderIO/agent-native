@@ -27,12 +27,14 @@ export default function GeneratingSlidePreview({
   thumbnail = true,
   className,
   designSystem,
+  busy = true,
 }: {
   content?: string | null;
   aspectRatio?: AspectRatio;
   thumbnail?: boolean;
   className?: string;
   designSystem?: DesignSystemData;
+  busy?: boolean;
 }) {
   const t = useT();
   const cssRatio = (aspectRatio ?? "16:9").replace(":", " / ");
@@ -50,8 +52,10 @@ export default function GeneratingSlidePreview({
         className,
       )}
       style={{ aspectRatio: cssRatio }}
-      aria-busy="true"
-      aria-label={t("editorSidebar.generatingSlide")}
+      aria-busy={busy}
+      {...(busy
+        ? { "aria-label": t("editorSidebar.generatingSlide") }
+        : { "aria-hidden": true })}
     >
       {content ? (
         <SlideRenderer

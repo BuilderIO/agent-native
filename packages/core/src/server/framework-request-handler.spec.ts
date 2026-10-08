@@ -1,14 +1,18 @@
+import { createError, readBody } from "h3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/index.js";
+import { isServerRuntimeStarted } from "../db/server-runtime.js";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 import { createTrackingEventScope } from "../observability/tracing.js";
+import { createOpenAiAppsChallengeHandler } from "./core-routes-plugin.js";
 import {
   markFrameworkRoutesReadyBeforeBootstrap,
   getH3App,
+  installDevConnectionCloseHook,
   markDefaultPluginProvided,
   trackPluginInit,
 } from "./framework-request-handler.js";
@@ -38,13 +42,7 @@ async function dispatch(
     url,
     path: pathname,
     context: {},
-    // h3 v2's own getMethod/getRequestHeader read from `event.req` (a real
-    // web-standard Request) — the CSRF middleware that `getH3App()` now
-    // registers globally on every nitroApp calls both, so the fake event
-    // needs a real Request even though these tests never assert on it.
     req: new Request(url, { method: "GET" }),
-    // Minimal h3-v2 response shape so handlers that call setResponseStatus /
-    // setResponseHeader (e.g. the init-failure 503 fallback) work under test.
     res: { status: 200, headers: new Headers() },
   };
   onEvent?.(event);
@@ -64,8 +62,6 @@ async function dispatchViaGeneratedMiddleware(nitroApp: any, pathname: string) {
     url,
     path: pathname,
     context: {},
-    // See `dispatch()` above — the globally-registered CSRF middleware needs
-    // a real h3-v2 `event.req`.
     req: new Request(url, { method: "GET" }),
   };
   const route = {
@@ -92,12 +88,20 @@ describe("framework request handler", () => {
     delete process.env.AGENT_NATIVE_DISABLED_PLUGINS;
     resetAppConfigForTests();
     vi.restoreAllMocks();
+    delete (globalThis as Record<string, unknown>)
+      .__AGENT_NATIVE_SERVER_RUNTIME__;
+  });
+
+  it("marks server-runtime duty started on the first getH3App() call for a nitroApp", () => {
+    expect(isServerRuntimeStarted()).toBe(false);
+
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp);
+
+    expect(isServerRuntimeStarted()).toBe(true);
   });
 
   it("runs a hand-written /api route inside an identity-free RequestContext", async () => {
-    // The privilege-escalation regression: a hand-written `/api/*` route has no
-    // ALS store of its own, so `getRequestUserEmail()` used to answer with the
-    // deploy's AGENT_USER_EMAIL and admin-check the caller as that identity.
     vi.stubEnv("AGENT_USER_EMAIL", "deploy-admin@example.com");
     const nitroApp = createNitroApp();
     getH3App(nitroApp);
@@ -187,6 +191,90 @@ describe("framework request handler", () => {
     expect(debugSpy).toHaveBeenCalledWith(
       "[agent-native] GET /_agent-native/poll aborted by client: aborted",
     );
+  });
+
+  it("writes a JSON error for a route that throws after reading the body", async () => {
+    const nitroApp = createNitroApp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    getH3App(nitroApp).use("/_agent-native/org/invitations", async (event) => {
+      const body = await readBody<{ email?: string }>(event);
+      if (!body?.email) {
+        throw createError({ statusCode: 400, message: "Email is required" });
+      }
+      return { ok: true };
+    });
+
+    let event: any;
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/org/invitations",
+      (e) => {
+        event = e;
+        e.method = "POST";
+        e.req = new Request(e.url, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: e.url.origin,
+            "sec-fetch-site": "same-origin",
+          },
+          body: JSON.stringify({ email: "" }),
+        });
+        // A Node IncomingMessage is destroyed once its body is fully read,
+        // while the client is still connected and waiting for this response.
+        e.node = { req: { destroyed: true }, res: { destroyed: false } };
+      },
+    );
+
+    expect(result).toEqual({ error: "Email is required" });
+    expect(event.res.status).toBe(400);
+    expect(event.res.headers.get("content-type")).toBe("application/json");
+    expect(debugSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps a thrown error's code in the JSON error", async () => {
+    const nitroApp = createNitroApp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    getH3App(nitroApp).use("/_agent-native/agent-chat", () => {
+      throw createError({
+        statusCode: 403,
+        statusMessage: "Use Builder.io or a provider API key before chatting.",
+        data: { code: "AGENT_CHAT_AI_SETUP_REQUIRED" },
+      });
+    });
+
+    let event: any;
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/agent-chat",
+      (e) => {
+        event = e;
+      },
+    );
+
+    expect(result).toEqual({
+      error: "Use Builder.io or a provider API key before chatting.",
+      code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+    });
+    expect(event.res.status).toBe(403);
+  });
+
+  it("treats a closed response as a client abort", async () => {
+    const nitroApp = createNitroApp();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "debug").mockImplementation(() => {});
+    getH3App(nitroApp).use("/_agent-native/org/members", () => {
+      throw createError({ statusCode: 500, message: "offboarding failed" });
+    });
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/org/members/a%40example.com", (e) => {
+        e.node = { req: { destroyed: true }, res: { destroyed: true } };
+      }),
+    ).resolves.toBe(undefined);
+
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 
   it("keeps dynamic framework middleware visible to Nitro generated dispatchers", async () => {
@@ -386,6 +474,23 @@ describe("framework request handler", () => {
       pathname: "/",
       path: "/",
     });
+  });
+
+  it("does not serve the OpenAI challenge token on a suffix path", async () => {
+    const nitroApp = createNitroApp();
+    const path = "/.well-known/openai-apps-challenge";
+    let challengeEvent: any;
+    getH3App(nitroApp).use(
+      path,
+      createOpenAiAppsChallengeHandler(() => "challenge-token"),
+    );
+
+    const result = await dispatch(nitroApp, `${path}/extra`, (event) => {
+      challengeEvent = event;
+    });
+
+    expect(result).toBe("");
+    expect(challengeEvent.res.status).toBe(404);
   });
 
   it("dispatches the public MCP alias under APP_BASE_PATH", async () => {
@@ -601,8 +706,6 @@ describe("framework request handler", () => {
     vi.mocked(getMissingDefaultPlugins).mockResolvedValueOnce(["agent-chat"]);
 
     getH3App(nitroApp);
-    // Nitro does not await async plugins, so a later `defineAppConfig()` still
-    // lands before bootstrap reads the mount set.
     defineAppConfig({ plugins: { disabled: ["agent-chat"] } });
 
     await expect(
@@ -662,10 +765,6 @@ describe("framework request handler", () => {
   });
 
   it("dispatches /_agent-native/embed/start without waiting for default bootstrap", async () => {
-    // core-routes-plugin.ts registers the workspace-app handshake routes
-    // (identity, embed/start) synchronously before `awaitBootstrap`, on the
-    // same precedent as ping/health, so a cold function's first MCP App
-    // embed doesn't wait on unrelated DB-dependent init.
     const nitroApp = createNitroApp();
     let release!: () => void;
     const bootstrap = new Promise<void>((resolve) => {
@@ -691,12 +790,6 @@ describe("framework request handler", () => {
   });
 
   it("dispatches /_agent-native/auth/session without waiting for default bootstrap", async () => {
-    // auth-plugin.ts's non-BYOA (default, Better Auth) branch marks
-    // FRAMEWORK_AUTH_EARLY_PATHS ready and mounts Better Auth without
-    // awaiting the shared default-plugin bootstrap (agent-chat, org,
-    // integrations, ...) — a cold function's session check must not wait on
-    // an unrelated plugin's DB-dependent init. See auth-plugin.spec.ts for
-    // the plugin-level assertions of this same contract.
     const nitroApp = createNitroApp();
     let release!: () => void;
     const bootstrap = new Promise<void>((resolve) => {
@@ -824,11 +917,60 @@ describe("framework request handler", () => {
     await expect(pending).resolves.toEqual({ ok: true });
   });
 
+  it("keeps any request open until pending plugin init settles", async () => {
+    const requestHooks: Array<(event: any) => unknown> = [];
+    const nitroApp = {
+      ...createNitroApp(),
+      hooks: {
+        hook(name: string, handler: (event: any) => unknown) {
+          if (name === "request") requestHooks.push(handler);
+        },
+      },
+    };
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    trackPluginInit(nitroApp, ready, {
+      paths: ["/_agent-native/agent-chat"],
+    });
+
+    const requestFor = (pathname: string) => {
+      const url = new URL(`http://example.test${pathname}`);
+      const req = Object.assign(new Request(url), { waitUntil: vi.fn() });
+      return {
+        url,
+        context: {},
+        req,
+        res: { status: 200, headers: new Headers(), errHeaders: new Headers() },
+      };
+    };
+    const runRequestHooks = async (event: any) => {
+      for (const hook of requestHooks) await hook(event);
+    };
+
+    const pageLoad = requestFor("/");
+    await runRequestHooks(pageLoad);
+    expect(pageLoad.req.waitUntil).toHaveBeenCalledTimes(1);
+    let held = true;
+    void pageLoad.req.waitUntil.mock.calls[0]![0].then(() => {
+      held = false;
+    });
+    await Promise.resolve();
+    expect(held).toBe(true);
+
+    release();
+    await vi.waitFor(() => expect(held).toBe(false));
+
+    const later = requestFor("/");
+    await runRequestHooks(later);
+    expect(later.req.waitUntil).not.toHaveBeenCalled();
+  });
+
   it("answers with a retryable 503 when plugin init outlives the ready deadline", async () => {
     const nitroApp = createNitroApp();
     process.env.AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS = "10";
 
-    // Never resolves — a cold boot still running when the budget runs out.
     trackPluginInit(nitroApp, new Promise<void>(() => {}), {
       paths: ["/_agent-native/agent-chat"],
     });
@@ -878,11 +1020,6 @@ describe("framework request handler", () => {
   });
 
   it("returns a retryable 503 instead of a bare 404 when tracked plugin init fails", async () => {
-    // Reproduces the recurring hosted MCP 404: on a cold/propagating instance
-    // the async plugin init can reject (e.g. DB unreachable) before it ever
-    // registers /_agent-native/mcp. Without the failure fallback the readiness
-    // gate would release into a bare "Cannot find any route matching" 404 that
-    // external MCP clients (pi/codex) can't recover from.
     const nitroApp = createNitroApp();
     let fail!: (err: Error) => void;
     const ready = new Promise<void>((_resolve, reject) => {
@@ -893,21 +1030,15 @@ describe("framework request handler", () => {
     });
 
     fail(new Error("db unreachable"));
-    // Let the tracked-init catch record the failure.
     await Promise.resolve();
     await Promise.resolve();
 
     const result = await dispatch(nitroApp, "/_agent-native/mcp");
 
-    // Must not fall through to a bare 404; returns a meaningful, retryable body.
     expect(result).not.toEqual({ fellThrough: true });
     expect(JSON.stringify(result)).toContain("initializing or unavailable");
   });
 
-  // Models production-dispatcher ordering: h3 snapshots middleware once at the
-  // start of `handler()`, but awaits the `request` hook (onRequest) before that.
-  // The default `dispatch` helper re-reads `~middleware` per step, so only this
-  // harness can expose the snapshot race.
   function createHookableNitroApp() {
     const requestHooks: Array<(event: any) => unknown> = [];
     return {
@@ -932,18 +1063,12 @@ describe("framework request handler", () => {
       url,
       path: pathname,
       context: {},
-      // See `dispatch()` above — the globally-registered CSRF middleware
-      // needs a real h3-v2 `event.req`.
       req: new Request(url, { method: "GET" }),
       res: { status: 200, headers: new Headers() },
     };
-    // Nitro bridges the `request` hook to h3's `config.onRequest`, which h3
-    // awaits before `handler()`. When disabled we model the broken path: no
-    // pre-routing wait, so the snapshot is taken with whatever exists now.
     if (opts.runRequestHooks) {
       for (const fn of nitroApp.__requestHooks) await fn(event);
     }
-    // handler(): snapshot the middleware list ONCE, then run that snapshot.
     const snapshot = [...nitroApp.h3["~middleware"]];
     let index = 0;
     const next = async (): Promise<unknown> => {
@@ -968,7 +1093,6 @@ describe("framework request handler", () => {
     });
     trackPluginInit(nitroApp, ready, { paths: ["/_agent-native/actions"] });
 
-    // Snapshot is taken before the route exists; init completes mid-flight.
     const pending = dispatchProductionOrder(
       nitroApp,
       "/_agent-native/actions/update-visual-plan",
@@ -999,8 +1123,6 @@ describe("framework request handler", () => {
       "/_agent-native/actions/update-visual-plan",
       { runRequestHooks: true },
     );
-    // Init completes while the request hook is awaiting readiness, before the
-    // middleware snapshot is taken.
     await Promise.resolve();
     registerRoute();
 
@@ -1082,5 +1204,46 @@ describe("framework request handler", () => {
     await expect(
       dispatch(nitroApp, "/docs-extra/_agent-native/extensions"),
     ).resolves.toEqual({ fellThrough: true });
+  });
+});
+
+describe("installDevConnectionCloseHook", () => {
+  function hookedApp() {
+    const hooks: Array<(event: any) => void> = [];
+    const app = {
+      hooks: { hook: vi.fn((_name: string, fn: any) => hooks.push(fn)) },
+    };
+    const run = () => {
+      const event = {
+        res: { headers: new Headers(), errHeaders: new Headers() },
+      };
+      for (const hook of hooks) hook(event);
+      return event;
+    };
+    return { app, run };
+  }
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("closes every response connection in Vite dev", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const { app, run } = hookedApp();
+    installDevConnectionCloseHook(app);
+    installDevConnectionCloseHook(app);
+    expect(app.hooks.hook).toHaveBeenCalledOnce();
+    const event = run();
+    expect(event.res.headers.get("connection")).toBe("close");
+    expect(event.res.errHeaders.get("connection")).toBe("close");
+  });
+
+  it("leaves production and test connections alone", () => {
+    for (const env of ["production", "test"]) {
+      vi.stubEnv("NODE_ENV", env);
+      const { app } = hookedApp();
+      installDevConnectionCloseHook(app);
+      expect(app.hooks.hook).not.toHaveBeenCalled();
+    }
   });
 });

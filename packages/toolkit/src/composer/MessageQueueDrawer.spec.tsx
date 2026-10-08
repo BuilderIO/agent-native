@@ -12,8 +12,8 @@ import {
 
 const labels: MessageQueueDrawerLabels = {
   region: "2 queued",
-  steer: "Steer",
-  steerHint: "Send this message next",
+  steer: "Send now",
+  steerHint: "Stops the current response, then sends this message.",
   remove: "Remove from queue",
   moreActions: "More actions",
 };
@@ -58,8 +58,9 @@ describe("MessageQueueDrawer", () => {
           onRemove={onRemove}
           getItemActions={(item) => [
             {
-              id: "move-to-top",
-              label: "Move to top",
+              id: "send-next",
+              label: "Send next",
+              hint: "Send after the current response finishes",
               onSelect: () => onMoveToTop(item),
             },
           ]}
@@ -87,7 +88,7 @@ describe("MessageQueueDrawer", () => {
     expect(container.querySelectorAll("li")).toHaveLength(2);
 
     const steerButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Steer"),
+      (button) => button.textContent?.includes("Send now"),
     );
     const removeButton = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Remove from queue"]',
@@ -116,9 +117,129 @@ describe("MessageQueueDrawer", () => {
       await Promise.resolve();
     });
     const menuItem = document.querySelector<HTMLElement>('[role="menuitem"]');
-    expect(menuItem?.textContent).toContain("Move to top");
+    expect(menuItem?.textContent).toContain("Send next");
+    await act(async () => {
+      menuItem?.dispatchEvent(
+        new PointerEvent("pointermove", {
+          bubbles: true,
+          pointerType: "mouse",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    });
+    expect(document.body.textContent).toContain(
+      "Send after the current response finishes",
+    );
     act(() => menuItem?.click());
     expect(onMoveToTop).toHaveBeenCalledWith(items[0]);
+  });
+
+  it("keeps only the last queue-row action menu open", async () => {
+    const multipleItems = [
+      ...items,
+      { id: "third", text: "Write the follow-up" },
+    ];
+
+    act(() => {
+      root.render(
+        <MessageQueueDrawer
+          items={multipleItems}
+          labels={labels}
+          onRemove={() => undefined}
+          getItemActions={(item) => [
+            {
+              id: "move-to-top",
+              label: `Move ${item.id} to top`,
+              onSelect: () => undefined,
+            },
+          ]}
+        />,
+      );
+    });
+
+    const moreButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        'button[aria-label="More actions"]',
+      ),
+    );
+
+    await act(async () => {
+      for (const button of moreButtons) {
+        button.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+      }
+      await Promise.resolve();
+    });
+
+    const openMenus = document.querySelectorAll('[role="menu"]');
+    expect(openMenus).toHaveLength(1);
+    expect(openMenus[0]?.textContent).toContain("Move third to top");
+  });
+
+  it("does not reopen a queue-row menu after its row or actions disappear", async () => {
+    const getItemActions = (item: MessageQueueItem) => [
+      {
+        id: "move-to-top",
+        label: `Move ${item.id} to top`,
+        onSelect: () => undefined,
+      },
+    ];
+
+    const renderQueue = (
+      queueItems: readonly MessageQueueItem[] = items,
+      actions: typeof getItemActions | (() => []) = getItemActions,
+    ) => {
+      act(() => {
+        root.render(
+          <MessageQueueDrawer
+            items={queueItems}
+            labels={labels}
+            onRemove={() => undefined}
+            getItemActions={actions}
+          />,
+        );
+      });
+    };
+    const openFirstMenu = async () => {
+      const button = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="More actions"]',
+      );
+      await act(async () => {
+        button?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+        await Promise.resolve();
+      });
+      expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    };
+
+    renderQueue();
+    await openFirstMenu();
+    renderQueue(items.slice(0, 1));
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    renderQueue();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+
+    await openFirstMenu();
+    renderQueue(items.slice(1));
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    renderQueue();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+
+    await openFirstMenu();
+    renderQueue(items, () => []);
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    renderQueue();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
   });
 
   it("collapses the recessed queue into the composer workflow", () => {
@@ -129,6 +250,9 @@ describe("MessageQueueDrawer", () => {
           labels={labels}
           variant="recessed"
           onRemove={() => undefined}
+          getItemActions={() => [
+            { id: "send-next", label: "Send next", onSelect: () => {} },
+          ]}
         />,
       );
     });
@@ -137,6 +261,13 @@ describe("MessageQueueDrawer", () => {
       '[data-agent-message-queue="true"]',
     );
     expect(drawer?.dataset.empty).toBe("false");
+    expect(drawer?.className).toContain("border-0");
+    expect(drawer?.className).toContain("rounded-b-none");
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        'button[aria-label="More actions"]',
+      ),
+    ).toBeNull();
     expect(drawer?.style.getPropertyValue("--agent-message-queue-height")).toBe(
       "46px",
     );

@@ -18,6 +18,10 @@ vi.mock("./emitter.js", () => ({
 }));
 
 import {
+  applySubmittedUserMessage,
+  buildUserMessage,
+} from "../agent/thread-data-builder.js";
+import {
   adoptThreadScopeIfUnscoped,
   createThreadShareLink,
   forkThread,
@@ -31,7 +35,7 @@ import {
   setThreadArchived,
   threadScopeMismatch,
   setThreadPinned,
-  setThreadQueuedMessages,
+  mutateThreadQueuedMessages,
   updateThreadData,
 } from "./store.js";
 
@@ -107,8 +111,7 @@ describe("chat thread store", () => {
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
-      if (/SELECT id, thread_data, message_count/i.test(sql)) {
-        // Legacy message_count backfill probe — no legacy rows in these tests.
+      if (/SELECT id, owner_email, thread_data, message_count/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
       if (/WHERE thread_data LIKE \?/i.test(sql)) {
@@ -160,7 +163,7 @@ describe("chat thread store", () => {
           thread_data: args[0],
           title: args[1],
           preview: args[2],
-          message_count: args[3],
+          message_count: args[3] === null ? row.message_count : args[3],
           updated_at: args[4],
         };
         return { rows: [], rowsAffected: 1 };
@@ -283,7 +286,6 @@ describe("chat thread store", () => {
         updated_at: 2,
       };
     };
-
     await updateThreadData(
       "thread-1",
       JSON.stringify({ messages: [userMessage] }),
@@ -301,6 +303,973 @@ describe("chat thread store", () => {
     expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
   });
 
+  it("recounts delta history against the latest row after a CAS conflict", async () => {
+    const agentKitUser = { id: "agentkit-user", role: "user", parts: [] };
+    const concurrentAssistant = {
+      id: "concurrent-assistant",
+      role: "assistant",
+      parts: [],
+    };
+    const incomingAssistant = {
+      id: "incoming-assistant",
+      role: "assistant",
+      parts: [],
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [{ message: userMessage, parentId: null }],
+      agentKit: { messages: [agentKitUser] },
+    });
+    row!.message_count = 2;
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        thread_data: JSON.stringify({
+          messages: [{ message: userMessage, parentId: null }],
+          agentKit: { messages: [agentKitUser, concurrentAssistant] },
+        }),
+        message_count: 3,
+        updated_at: 2,
+      };
+    };
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          messages: [incomingAssistant],
+        },
+      }),
+      "Thread",
+      "Done.",
+      3,
+    );
+
+    const repository = JSON.parse(row!.thread_data);
+    expect(
+      repository.agentKit.messages.map((message: any) => message.id),
+    ).toEqual(["agentkit-user", "concurrent-assistant", "incoming-assistant"]);
+    expect(row!.message_count).toBe(4);
+  });
+
+  it("preserves the latest title and preview while recounting a snapshot delta after CAS", async () => {
+    const concurrentAssistant = {
+      id: "concurrent-assistant",
+      role: "assistant",
+      parts: [],
+    };
+    const incomingAssistant = {
+      id: "incoming-assistant",
+      role: "assistant",
+      parts: [],
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [{ message: userMessage, parentId: null }],
+      agentKit: { messages: [] },
+    });
+    row!.message_count = 1;
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        title: "Generated title",
+        preview: "Latest preview",
+        thread_data: JSON.stringify({
+          messages: [{ message: userMessage, parentId: null }],
+          agentKit: { messages: [concurrentAssistant] },
+        }),
+        message_count: 2,
+        updated_at: 2,
+      };
+    };
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          messages: [incomingAssistant],
+        },
+      }),
+      "Stale title",
+      "Stale preview",
+      2,
+      { preserveCurrentTitleAndPreview: true },
+    );
+
+    expect(row!.title).toBe("Generated title");
+    expect(row!.preview).toBe("Latest preview");
+    expect(row!.message_count).toBe(3);
+    expect(JSON.parse(row!.thread_data).agentKit.messages).toEqual([
+      concurrentAssistant,
+      incomingAssistant,
+    ]);
+  });
+
+  it("reports when the thread disappeared before a save", async () => {
+    row = null;
+
+    await expect(updateThreadData("thread-1", "{}", "", "", 0)).resolves.toBe(
+      false,
+    );
+  });
+
+  it("rechecks annotation delta baselines after a cross-process CAS conflict", async () => {
+    const baseline = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Original source",
+      },
+    };
+    const snapshotEdit = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Snapshot edit",
+      },
+    };
+    const concurrentEdit = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Concurrent edit",
+      },
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [],
+      agentKit: { annotations: [baseline] },
+    });
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        thread_data: JSON.stringify({
+          messages: [],
+          agentKit: { annotations: [concurrentEdit] },
+        }),
+        updated_at: 2,
+      };
+    };
+    const annotationConflicts: Array<{
+      messageId: string;
+      annotationId?: string;
+      operation: "upsert" | "remove";
+    }> = [];
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          annotations: [],
+          annotationUpserts: [{ entry: snapshotEdit, baseline }],
+        },
+      }),
+      "Thread",
+      "",
+      0,
+      {
+        onAnnotationConflict: (conflict) => annotationConflicts.push(conflict),
+      },
+    );
+
+    expect(JSON.parse(row!.thread_data).agentKit.annotations).toEqual([
+      concurrentEdit,
+    ]);
+    expect(JSON.parse(row!.thread_data).agentKit).not.toHaveProperty(
+      "annotationUpserts",
+    );
+    expect(annotationConflicts).toEqual([
+      {
+        messageId: "assistant-1",
+        annotationId: "source-1",
+        operation: "upsert",
+      },
+    ]);
+  });
+
+  it("counts AgentKit-only messages when saving thread history", async () => {
+    const agentKitMessages = [
+      { id: "user-1", role: "user", parts: [] },
+      { id: "assistant-1", role: "assistant", parts: [] },
+    ];
+    row!.thread_data = JSON.stringify({
+      messages: [],
+      agentKit: { messages: agentKitMessages },
+    });
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: { messages: agentKitMessages },
+      }),
+      "Thread",
+      "Done.",
+      0,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts a root user mirror once when its AgentKit ID differs", async () => {
+    const rootMessage = buildUserMessage({
+      text: "Make this change",
+      runId: "run-user-mirror",
+      agentKitMessageId: "client-user-mirror",
+    });
+    const repository = {
+      messages: [{ message: rootMessage, parentId: null }],
+      agentKit: {
+        messages: [{ id: "client-user-mirror", role: "user", parts: [] }],
+      },
+    };
+    row!.thread_data = JSON.stringify({ messages: [] });
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Make this change",
+      2,
+    );
+
+    expect(row!.message_count).toBe(1);
+
+    const identicalMessage = buildUserMessage({
+      text: "Same client ID",
+      runId: "run-user-identical",
+      agentKitMessageId: "shared-user-id",
+    });
+    identicalMessage.id = "shared-user-id";
+    const identicalRepository = {
+      messages: [{ message: identicalMessage, parentId: null }],
+      agentKit: {
+        messages: [{ id: "shared-user-id", role: "user", parts: [] }],
+      },
+    };
+    row!.thread_data = JSON.stringify({ messages: [] });
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(identicalRepository),
+      "Thread",
+      "Same client ID",
+      1,
+    );
+
+    expect(row!.message_count).toBe(1);
+
+    const unmatchedRepository = {
+      messages: [
+        {
+          message: buildUserMessage({
+            text: "Another request",
+            runId: "run-user-unmatched",
+          }),
+          parentId: null,
+        },
+      ],
+      agentKit: {
+        messages: [{ id: "unmatched-client-user", role: "user", parts: [] }],
+      },
+    };
+    row!.thread_data = JSON.stringify({ messages: [] });
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(unmatchedRepository),
+      "Thread",
+      "Another request",
+      2,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts unique messages across merged legacy and AgentKit history", async () => {
+    const legacyMessage = {
+      id: "legacy-user",
+      role: "user",
+      content: [{ type: "text", text: "Old prompt." }],
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [{ message: legacyMessage, parentId: null }],
+      agentKit: { _mergeRootMessages: true, messages: [] },
+    });
+    row!.message_count = 1;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          _mergeRootMessages: true,
+          messages: [{ id: "new-assistant", role: "assistant", parts: [] }],
+        },
+      }),
+      "Thread",
+      "Done.",
+      2,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts a folded AgentKit reply once when the root stores its continuation", async () => {
+    const repository = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "Write forty lines" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "server-run-2",
+            role: "assistant",
+            content: [{ type: "text", text: "First half. Second half." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              runId: "run-2",
+              custom: { foldedRunIds: ["run-1", "run-2"] },
+            },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Write forty lines" }],
+          },
+          {
+            id: "message-1",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "First half." }],
+          },
+        ],
+        events: [
+          {
+            id: "event-run-1",
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "message-1", role: "assistant" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Write forty lines",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts a fully projected folded reply once across its runs", async () => {
+    const repository = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "Write forty lines" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "server-run-2",
+            role: "assistant",
+            content: [{ type: "text", text: "First half. Second half." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              runId: "run-2",
+              custom: { foldedRunIds: ["run-1", "run-2"] },
+            },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "message-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "First half." }],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "message-2",
+            role: "assistant",
+            parts: [{ type: "text", text: " Second half." }],
+            metadata: { runId: "run-2" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Write forty lines",
+      3,
+    );
+
+    expect(row!.message_count).toBe(3);
+  });
+
+  it("keeps a folded root reply when event mapping cannot identify its run messages", async () => {
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-2",
+            role: "assistant",
+            content: [{ type: "text", text: "First half. Second half." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              runId: "run-2",
+              custom: { foldedRunIds: ["run-1", "run-2"] },
+            },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "partial-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "First half." }],
+          },
+          {
+            id: "partial-2",
+            role: "assistant",
+            parts: [{ type: "text", text: "Additional tool response." }],
+          },
+        ],
+        events: [
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "partial-1", role: "assistant" },
+          },
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "partial-2", role: "assistant" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Write forty lines",
+      3,
+    );
+
+    expect(row!.message_count).toBe(4);
+  });
+
+  it("keeps a distinct final assistant reply when a run has multiple messages", async () => {
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [{ type: "text", text: "Here is the complete result." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "tool-step",
+            role: "assistant",
+            parts: [{ type: "text", text: "Here is the complete" }],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "unrelated-final",
+            role: "assistant",
+            parts: [{ type: "text", text: "The tool returned a value." }],
+            metadata: { runId: "run-1" },
+          },
+        ],
+        _mergeRootMessages: true,
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Make the report",
+      3,
+    );
+
+    expect(row!.message_count).toBe(4);
+  });
+
+  it("counts a raw tool-call mirror once when its result is in AgentKit", async () => {
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-hello",
+                toolName: "hello",
+                args: {
+                  details: { name: "AgentKit Browser", browser: true },
+                },
+                result: {
+                  message: "Hello, AgentKit Browser!",
+                  ok: true,
+                },
+              },
+              { type: "text", text: "The task is complete." },
+            ],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "assistant-tool-step",
+            role: "assistant",
+            parts: [{ type: "text", text: "Calling the tool." }],
+          },
+          {
+            id: "assistant-final-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: "The task is complete." }],
+          },
+        ],
+        events: [
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "assistant-tool-step", role: "assistant" },
+          },
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "assistant-final-answer", role: "assistant" },
+          },
+        ],
+        toolCalls: [
+          {
+            id: "call-hello",
+            name: "hello",
+            input: {
+              details: { browser: true, name: "AgentKit Browser" },
+            },
+            output: { ok: true, message: "Hello, AgentKit Browser!" },
+            messageId: "assistant-final-answer",
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Say hello",
+      3,
+    );
+
+    expect(row!.message_count).toBe(3);
+  });
+
+  it("counts a raw tool-call mirror once when its stored result is model-facing text and the AgentKit output is structured", async () => {
+    const output = {
+      ok: true,
+      message: "Hello, AgentKit Browser!",
+      ui: { kind: "greeting", name: "AgentKit Browser" },
+    };
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-hello",
+                toolName: "hello",
+                args: { details: { name: "AgentKit Browser" } },
+                result: JSON.stringify(
+                  { ok: true, message: "Hello, AgentKit Browser!" },
+                  null,
+                  2,
+                ),
+              },
+              { type: "text", text: "The task is complete." },
+            ],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "assistant-tool-step",
+            role: "assistant",
+            parts: [{ type: "text", text: "Calling the tool." }],
+          },
+          {
+            id: "assistant-final-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: "The task is complete." }],
+          },
+        ],
+        events: [
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "assistant-tool-step", role: "assistant" },
+          },
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "assistant-final-answer", role: "assistant" },
+          },
+        ],
+        toolCalls: [
+          {
+            id: "call-hello",
+            name: "hello",
+            input: { details: { name: "AgentKit Browser" } },
+            output,
+            messageId: "assistant-final-answer",
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Say hello",
+      3,
+    );
+
+    expect(row!.message_count).toBe(3);
+  });
+
+  it("counts a mirrored reply once when only the durable copy has reasoning", async () => {
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [
+              { type: "reasoning", text: "The stored reasoning." },
+              { type: "text", text: "Done." },
+            ],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "assistant-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done." }],
+            metadata: { runId: "run-1" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Say hello",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts an identical root and AgentKit assistant mirror once", async () => {
+    const repository = {
+      messages: [
+        {
+          message: { ...userMessage },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [{ type: "text", text: "Done." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "reply-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done." }],
+            metadata: { runId: "run-1" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "make this slide better",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts a mirrored reply when the completed run no longer has message events", async () => {
+    const runId = "run-without-message-events";
+    const input = { lookup: "account-1" };
+    const output = { answer: "Done." };
+    const repository = {
+      messages: [
+        {
+          message: {
+            ...userMessage,
+            metadata: {
+              custom: {
+                submittedRunId: runId,
+                agentKitMessageId: "client-user",
+              },
+            },
+          },
+        },
+        {
+          message: {
+            id: "server-answer",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-lookup",
+                toolName: "lookup",
+                args: input,
+                result: output,
+              },
+              { type: "text", text: output.answer },
+            ],
+            metadata: { runId },
+          },
+        },
+      ],
+      agentKit: {
+        messages: [
+          { id: "client-user", role: "user", parts: [] },
+          {
+            id: "client-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: output.answer }],
+          },
+        ],
+        events: [],
+        runs: [{ id: runId, status: "completed" }],
+        toolCalls: [
+          {
+            id: "call-lookup",
+            name: "lookup",
+            input,
+            output,
+            status: "completed",
+            runId,
+            messageId: "client-answer",
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "make this slide better",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts many root assistant mirrors once each", async () => {
+    const messageCount = 256;
+    const rootMessages = Array.from({ length: messageCount }, (_, index) => {
+      const runId = `run-${index}`;
+      const text = `Answer ${index}`;
+      return {
+        message: {
+          id: `server-${index}`,
+          role: "assistant",
+          content: [{ type: "text", text }],
+          metadata: { runId },
+        },
+        parentId: index > 0 ? `server-${index - 1}` : null,
+      };
+    });
+    const agentKitMessages = Array.from(
+      { length: messageCount },
+      (_, index) => ({
+        id: `client-${index}`,
+        role: "assistant",
+        parts: [{ type: "text", text: `Answer ${index}` }],
+        metadata: { runId: `run-${index}` },
+      }),
+    );
+    const repository = {
+      messages: rootMessages,
+      agentKit: { _mergeRootMessages: true, messages: agentKitMessages },
+    };
+    row!.thread_data = JSON.stringify({ messages: [] });
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Answer 255",
+      0,
+    );
+
+    expect(row!.message_count).toBe(messageCount);
+  });
+
+  it("counts disjoint mixed legacy history without the merge marker", async () => {
+    const sharedMessage = {
+      id: "shared-message",
+      role: "assistant",
+      parts: [],
+    };
+    const legacyMessage = {
+      id: "legacy-user",
+      role: "user",
+      content: [{ type: "text", text: "Old prompt." }],
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [
+        { message: legacyMessage, parentId: null },
+        { message: sharedMessage, parentId: "legacy-user" },
+      ],
+      agentKit: { messages: [] },
+    });
+    row!.message_count = 2;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          messages: [
+            sharedMessage,
+            { id: "new-agentkit-message", role: "assistant", parts: [] },
+          ],
+        },
+      }),
+      "Thread",
+      "Done.",
+      3,
+    );
+
+    expect(row!.message_count).toBe(3);
+  });
+
   it("preserves a title committed while message persistence was stale", async () => {
     row!.title = "Generated chat title";
 
@@ -313,6 +1282,62 @@ describe("chat thread store", () => {
     );
 
     expect(row!.title).toBe("Generated chat title");
+  });
+
+  it("does not replace full thread data when snapshot validation fails", async () => {
+    row!.thread_data = JSON.stringify({
+      messages: [userMessage],
+      queuedMessages: [{ id: "queued-1", text: "Keep this" }],
+      customData: { marker: "preserved" },
+      agentKit: {
+        events: [
+          {
+            id: "existing-event",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+        _eventRunWatermarks: { "run-1": 1 },
+      },
+    });
+    row!.message_count = 1;
+    const existingThreadData = row!.thread_data;
+    const incompleteSnapshot = JSON.stringify({
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [
+          {
+            runId: "run-1",
+            snapshotId: "incomplete-snapshot",
+            lastSequence: 2,
+            expectedEventCount: 2,
+            complete: true,
+          },
+        ],
+        events: [
+          {
+            id: "new-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+
+    await expect(
+      updateThreadData("thread-1", incompleteSnapshot, "Thread", "Done", 2, {
+        maxAttempts: 1,
+      }),
+    ).rejects.toThrow(
+      "Agent chat event snapshot ended before all events arrived.",
+    );
+
+    expect(row!.thread_data).toBe(existingThreadData);
+    expect(row!.message_count).toBe(1);
+    expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
   });
 
   it("throws after exhausted thread-data conflicts by default", async () => {
@@ -362,7 +1387,7 @@ describe("chat thread store", () => {
         1,
         { maxAttempts: 1, ignoreConflicts: true },
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
     expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
   });
 
@@ -403,35 +1428,248 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(2);
   });
 
-  it("lets queued-message clears win while preserving concurrent assistant messages", async () => {
-    row!.thread_data = JSON.stringify({
-      queuedMessages: [{ id: "queued-1", text: "next" }],
-      messages: [{ message: userMessage, parentId: null }],
+  it("reapplies queued-message appends after a cross-process CAS conflict", async () => {
+    const first = { id: "queued-1", text: "First" };
+    const concurrent = { id: "queued-2", text: "Second" };
+    const appended = { id: "queued-3", text: "Third", threadId: "thread-1" };
+    row!.thread_data = JSON.stringify({ queuedMessages: [first] });
+
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        thread_data: JSON.stringify({ queuedMessages: [first, concurrent] }),
+        updated_at: 2,
+      };
+    };
+
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "append",
+      message: appended,
     });
+
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([
+      first,
+      concurrent,
+      appended,
+    ]);
+    expect(row!.preview).toBe("make this slide better");
+    expect(row!.message_count).toBe(1);
+  });
+
+  it("rechecks a queue claim after a cross-process CAS conflict", async () => {
+    const queued = {
+      id: "queued-claim-cas",
+      text: "Run once",
+      promotionClaim: { id: "tab-1", expiresAt: Date.now() + 60_000 },
+    };
+    row!.thread_data = JSON.stringify({ queuedMessages: [queued] });
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        thread_data: JSON.stringify({ queuedMessages: [] }),
+        updated_at: 2,
+      };
+    };
+    const userMessage = buildUserMessage({
+      text: queued.text,
+      runId: "run-queue-cas",
+      queuedMessageId: queued.id,
+    });
+    let failure: string | undefined;
+
+    await updateThreadData("thread-1", "{}", "", "", 0, {
+      transformThreadData: (threadData) => {
+        const result = applySubmittedUserMessage(
+          JSON.parse(threadData),
+          userMessage,
+          { id: queued.id, claimId: "tab-1" },
+        );
+        if (result.status === "claim_expired") {
+          failure = result.status;
+          return threadData;
+        }
+        if (result.status === "already_claimed") {
+          failure = result.status;
+          return threadData;
+        }
+        failure = undefined;
+        return JSON.stringify(result.repo);
+      },
+    });
+
+    const repo = JSON.parse(row!.thread_data);
+    expect(failure).toBe("claim_expired");
+    expect(repo.queuedMessages).toEqual([]);
+    expect(repo.messages ?? []).toEqual([]);
+  });
+
+  it("removes only the requested queue item after a concurrent append", async () => {
+    const removed = { id: "queued-1", text: "Remove this" };
+    const remaining = { id: "queued-2", text: "Keep this" };
+    const concurrent = { id: "queued-3", text: "Added in another tab" };
+    row!.thread_data = JSON.stringify({ queuedMessages: [removed, remaining] });
 
     conflictOnce = () => {
       row = {
         ...row!,
         thread_data: JSON.stringify({
-          queuedMessages: [{ id: "queued-1", text: "next" }],
-          messages: [
-            { message: userMessage, parentId: null },
-            { message: assistantMessage, parentId: "user-1" },
-          ],
+          queuedMessages: [removed, remaining, concurrent],
         }),
-        message_count: 2,
         updated_at: 2,
       };
     };
 
-    await setThreadQueuedMessages("thread-1", []);
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "remove",
+      messageId: removed.id,
+    });
 
-    const repo = JSON.parse(row!.thread_data);
-    expect(repo.queuedMessages).toEqual([]);
-    expect(repo.messages.map((entry: any) => entry.message.id)).toEqual([
-      "user-1",
-      "assistant-1",
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([
+      remaining,
+      concurrent,
     ]);
+  });
+
+  it("leases queue promotion without deleting the item and releases only its owner", async () => {
+    const queued = {
+      id: "queued-lease",
+      text: "Keep this until the run starts",
+      options: { model: "test-model" },
+    };
+    row!.thread_data = JSON.stringify({ queuedMessages: [queued] });
+
+    const first = await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: queued.id,
+      claimId: "tab-one",
+    });
+    expect(first?.claimedMessage).toMatchObject({
+      ...queued,
+      promotionClaim: { id: "tab-one", expiresAt: expect.any(Number) },
+    });
+    expect(JSON.parse(row!.thread_data).queuedMessages).toHaveLength(1);
+
+    const competingClaim = await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: queued.id,
+      claimId: "tab-two",
+    });
+    expect(competingClaim?.claimBusy).toBe(true);
+
+    const blockedRemove = await mutateThreadQueuedMessages("thread-1", {
+      type: "remove",
+      messageId: queued.id,
+    });
+    expect(blockedRemove?.promotionBusy).toBe(true);
+
+    const wrongOwnerRelease = await mutateThreadQueuedMessages("thread-1", {
+      type: "release",
+      messageId: queued.id,
+      claimId: "tab-two",
+    });
+    expect(wrongOwnerRelease?.released).toBe(false);
+
+    const released = await mutateThreadQueuedMessages("thread-1", {
+      type: "release",
+      messageId: queued.id,
+      claimId: "tab-one",
+    });
+    expect(released?.released).toBe(true);
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([queued]);
+  });
+
+  it("keeps a promotion claim taken while a full-thread save was in flight", async () => {
+    const queued = { id: "queued-in-flight-save", text: "Answer me next" };
+    const messages = [
+      { id: "user-1", role: "user", content: [{ type: "text", text: "Go" }] },
+    ];
+    row!.thread_data = JSON.stringify({ messages, queuedMessages: [queued] });
+    // A thread save (PUT pre-merge or run completion) read this copy...
+    const staleSave = JSON.stringify({
+      messages,
+      queuedMessages: [queued],
+      title: "stale",
+    });
+    // ...then the queue promotion claimed the item before the save landed.
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: queued.id,
+      claimId: "tab-1",
+    });
+
+    await updateThreadData("thread-1", staleSave, "", "", 1);
+
+    const userMessage = buildUserMessage({
+      text: queued.text,
+      runId: "run-promoted",
+      queuedMessageId: queued.id,
+    });
+    expect(
+      applySubmittedUserMessage(JSON.parse(row!.thread_data), userMessage, {
+        id: queued.id,
+        claimId: "tab-1",
+      }).status,
+    ).toBe("submitted");
+  });
+
+  it("drops the promoted item from the queue when the run-start save accepts it", async () => {
+    const queued = { id: "queued-promoted", text: "Answer me next" };
+    row!.thread_data = JSON.stringify({
+      messages: [
+        { id: "user-1", role: "user", content: [{ type: "text", text: "Go" }] },
+      ],
+      queuedMessages: [queued],
+    });
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: queued.id,
+      claimId: "tab-1",
+    });
+
+    // What the run start does: derive the submission from the current data.
+    const userMessage = buildUserMessage({
+      text: queued.text,
+      runId: "run-promoted",
+      queuedMessageId: queued.id,
+    });
+    await updateThreadData("thread-1", "{}", "", "", 1, {
+      transformThreadData: (threadData) => {
+        const result = applySubmittedUserMessage(
+          JSON.parse(threadData),
+          userMessage,
+          { id: queued.id, claimId: "tab-1" },
+        );
+        if (!("repo" in result)) throw new Error(result.status);
+        return JSON.stringify(result.repo);
+      },
+    });
+
+    const stored = JSON.parse(row!.thread_data);
+    expect(
+      (stored.queuedMessages ?? []).map((item: { id: string }) => item.id),
+    ).not.toContain(queued.id);
+  });
+
+  it("lets a new tab take over an expired queue promotion lease", async () => {
+    const queued = {
+      id: "queued-expired-lease",
+      text: "Promote after the old tab stopped",
+      promotionClaim: { id: "tab-gone", expiresAt: Date.now() - 1 },
+    };
+    row!.thread_data = JSON.stringify({ queuedMessages: [queued] });
+
+    const claimed = await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: queued.id,
+      claimId: "tab-new",
+    });
+
+    expect(claimed?.claimBusy).toBeUndefined();
+    expect(claimed?.claimedMessage?.promotionClaim).toMatchObject({
+      id: "tab-new",
+      expiresAt: expect.any(Number),
+    });
+    expect(JSON.parse(row!.thread_data).queuedMessages).toHaveLength(1);
   });
 
   it("pins and archives threads as lightweight metadata", async () => {
@@ -500,8 +1738,6 @@ describe("chat thread store", () => {
 
     await searchThreads("user@example.com", "100%_done");
 
-    // Match the search query specifically (its WHERE has the ESCAPE clause),
-    // not the legacy-count backfill probe that also reads from chat_threads.
     const searchCall = executeMock.mock.calls.find(([query]) => {
       const sql = typeof query === "string" ? query : query.sql;
       return (
@@ -556,9 +1792,7 @@ describe("chat thread store", () => {
     });
     expect(listCall).toBeTruthy();
     const sql = (listCall![0] as { sql: string }).sql;
-    // The list SELECT must NOT pull the heavy thread_data blob...
     expect(sql).not.toContain("thread_data");
-    // ...and the "has messages" filter is the maintained column, no LIKE scan.
     expect(sql).toContain("message_count > 0");
     expect(sql).not.toMatch(/thread_data LIKE/i);
     expect(sql).toContain("chat_thread_shares");
@@ -670,11 +1904,9 @@ describe("chat thread store", () => {
       throw new Error(`Unexpected SQL: ${sql}`);
     });
 
-    // Default: archived thread is hidden from listThreads.
     const defaultList = await listThreads("user@example.com", { limit: 10 });
     expect(defaultList.map((t) => t.id)).toEqual(["thread-active"]);
 
-    // includeArchived: true surfaces it again.
     const listWithArchived = await listThreads("user@example.com", {
       limit: 10,
       includeArchived: true,
@@ -684,11 +1916,9 @@ describe("chat thread store", () => {
       "thread-archived",
     ]);
 
-    // Default: archived thread is hidden from searchThreads.
     const defaultSearch = await searchThreads("user@example.com", "Thread");
     expect(defaultSearch.map((t) => t.id)).toEqual(["thread-active"]);
 
-    // includeArchived: true surfaces it in search too.
     const searchWithArchived = await searchThreads(
       "user@example.com",
       "Thread",
@@ -700,7 +1930,6 @@ describe("chat thread store", () => {
       "thread-archived",
     ]);
 
-    // Unarchiving restores the thread to the default list.
     const unarchived = await setThreadArchived("thread-archived", false);
     expect(unarchived).toBe(true);
     expect(archivedRow.archived_at).toBeNull();
@@ -714,10 +1943,9 @@ describe("chat thread store", () => {
   });
 
   it("keeps the legacy message_count repair out of table bootstrap", async () => {
-    // ensureTable caches its bootstrap promise at module scope, so reset the
-    // module registry to exercise a fresh bootstrap.
     vi.resetModules();
-    const updates: Array<{ count: number; id: string }> = [];
+    const updates: Array<{ count: number; id: string; ownerEmail: string }> =
+      [];
     let repairScans = 0;
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
@@ -725,13 +1953,13 @@ describe("chat thread store", () => {
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
-      // The legacy backfill probe: a row that has messages but count = 0.
-      if (/SELECT id, thread_data, message_count/i.test(sql)) {
+      if (/SELECT id, owner_email, thread_data, message_count/i.test(sql)) {
         repairScans++;
         return {
           rows: [
             {
               id: "legacy-1",
+              owner_email: "user@example.com",
               thread_data: JSON.stringify({
                 messages: [
                   { message: userMessage, parentId: null },
@@ -745,9 +1973,11 @@ describe("chat thread store", () => {
         };
       }
       if (
-        /UPDATE chat_threads SET message_count = \? WHERE id = \?/i.test(sql)
+        /UPDATE chat_threads SET message_count = \? WHERE id = \? AND message_count = 0 AND LOWER\(owner_email\)/i.test(
+          sql,
+        )
       ) {
-        updates.push({ count: args[0], id: args[1] });
+        updates.push({ count: args[0], id: args[1], ownerEmail: args[2] });
         return { rows: [], rowsAffected: 1 };
       }
       if (/SELECT .* FROM chat_threads WHERE/i.test(sql)) {
@@ -765,7 +1995,9 @@ describe("chat thread store", () => {
     const result = await freshStore.repairLegacyChatThreadMessageCounts();
 
     expect(repairScans).toBe(1);
-    expect(updates).toEqual([{ count: 2, id: "legacy-1" }]);
+    expect(updates).toEqual([
+      { count: 2, id: "legacy-1", ownerEmail: "user@example.com" },
+    ]);
     expect(result).toEqual({ scanned: 1, updated: 1 });
   });
 
@@ -788,7 +2020,7 @@ describe("chat thread store", () => {
     expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
   });
 
-  it("forks from a client snapshot when the source thread is not persisted yet", async () => {
+  it("limits forked AgentKit history to retained messages and clears active runs", async () => {
     const rows = new Map<string, ChatThreadRow>();
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
@@ -881,11 +2113,172 @@ describe("chat thread store", () => {
     });
 
     const sourceRepo = {
+      messages: [],
+      agentKit: {
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          { id: "assistant-1", role: "assistant", parts: [] },
+          { id: "user-2", role: "user", parts: [] },
+          { id: "assistant-2", role: "assistant", parts: [] },
+        ],
+        events: [
+          {
+            id: "event-source-started",
+            threadId: "thread-unflushed",
+            runId: "run-source",
+            sequence: 1,
+            occurredAt: "2026-09-26T00:00:01.000Z",
+            type: "run.started",
+          },
+          {
+            id: "event-source-activity",
+            threadId: "thread-unflushed",
+            runId: "run-source",
+            sequence: 2,
+            occurredAt: "2026-09-26T00:00:02.000Z",
+            type: "activity.started",
+            activity: {
+              id: "activity-source",
+              kind: "tool",
+              label: "Create release",
+              status: "running",
+              runId: "run-source",
+            },
+          },
+          {
+            id: "event-source-message",
+            threadId: "thread-unflushed",
+            runId: "run-source",
+            sequence: 3,
+            occurredAt: "2026-09-26T00:00:03.000Z",
+            type: "message.completed",
+            message: { id: "assistant-1", role: "assistant", parts: [] },
+          },
+          {
+            id: "event-later-started",
+            threadId: "thread-unflushed",
+            runId: "run-later",
+            sequence: 1,
+            occurredAt: "2026-09-26T00:00:04.000Z",
+            type: "run.started",
+          },
+          {
+            id: "event-later-message",
+            threadId: "thread-unflushed",
+            runId: "run-later",
+            sequence: 2,
+            occurredAt: "2026-09-26T00:00:05.000Z",
+            type: "message.completed",
+            message: { id: "assistant-2", role: "assistant", parts: [] },
+          },
+        ],
+        runs: [
+          {
+            id: "run-source",
+            threadId: "thread-unflushed",
+            status: "running",
+            activeMessageId: "assistant-1",
+            lastSequence: 3,
+          },
+          {
+            id: "run-later",
+            threadId: "thread-unflushed",
+            status: "completed",
+            activeMessageId: "assistant-2",
+            lastSequence: 2,
+          },
+        ],
+        activeRunIds: ["run-source", "run-later"],
+        toolCalls: [
+          {
+            id: "tool-retained-message",
+            name: "publish",
+            status: "completed",
+            runId: "run-source",
+            messageId: "assistant-1",
+          },
+          {
+            id: "tool-retained-run",
+            name: "read",
+            status: "completed",
+            runId: "run-source",
+          },
+          {
+            id: "tool-later-message",
+            name: "publish-later",
+            status: "completed",
+            runId: "run-source",
+            messageId: "assistant-2",
+          },
+          {
+            id: "tool-later-run",
+            name: "read-later",
+            status: "completed",
+            runId: "run-later",
+          },
+          {
+            id: "tool-unscoped",
+            name: "unscoped",
+            status: "completed",
+          },
+        ],
+        suggestions: [
+          {
+            id: "suggestion-later",
+            label: "Later suggestion",
+            runId: "run-later",
+          },
+          { id: "suggestion-unscoped", label: "Unscoped suggestion" },
+        ],
+        widgets: [
+          {
+            messageId: "assistant-1",
+            widget: { id: "kept", kind: "test", data: {} },
+          },
+          {
+            messageId: "assistant-2",
+            widget: { id: "dropped", kind: "test", data: {} },
+          },
+        ],
+      },
+    };
+    const fullSourceRepo = {
+      ...sourceRepo,
       messages: [
         { message: userMessage, parentId: null },
         { message: assistantMessage, parentId: "user-1" },
+        {
+          message: {
+            id: "user-2",
+            role: "user",
+            content: [{ type: "text", text: "Later question" }],
+          },
+          parentId: "assistant-1",
+        },
+        {
+          message: {
+            id: "assistant-2",
+            role: "assistant",
+            content: [{ type: "text", text: "Later answer" }],
+            metadata: { runId: "run-later" },
+          },
+          parentId: "user-2",
+        },
       ],
     };
+    rows.set("thread-unflushed", {
+      id: "thread-unflushed",
+      owner_email: "user@example.com",
+      title: "Thread",
+      preview: "Later answer",
+      thread_data: JSON.stringify(fullSourceRepo),
+      message_count: 4,
+      created_at: 0,
+      updated_at: 0,
+      scope_type: null,
+      scope_id: null,
+      scope_label: null,
+    });
 
     const forked = await forkThread("thread-unflushed", "user@example.com", {
       id: "thread-forked",
@@ -894,16 +2287,71 @@ describe("chat thread store", () => {
         title: "Thread",
         preview: "make this slide better",
         messageCount: 2,
+        fromMessageId: "assistant-1",
         scope: { type: "dashboard", id: "dash-1", label: "Pipeline" },
       },
     });
 
     expect(forked?.id).toBe("thread-forked");
-    expect(rows.get("thread-unflushed")?.message_count).toBe(2);
-    expect(rows.get("thread-unflushed")?.scope_type).toBe("dashboard");
+    expect(rows.get("thread-unflushed")?.message_count).toBe(4);
     expect(
       JSON.parse(rows.get("thread-forked")!.thread_data).messages,
-    ).toHaveLength(2);
+    ).toHaveLength(0);
+    const forkedAgentKit = JSON.parse(
+      rows.get("thread-forked")!.thread_data,
+    ).agentKit;
+    expect(
+      forkedAgentKit.messages.map((message: { id: string }) => message.id),
+    ).toEqual(["user-1", "assistant-1"]);
+    expect(
+      forkedAgentKit.events.map((event: { id: string }) => event.id),
+    ).toEqual([
+      "event-source-started",
+      "event-source-activity",
+      "event-source-message",
+    ]);
+    expect(forkedAgentKit.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ threadId: "thread-forked" }),
+        expect.objectContaining({
+          type: "activity.completed",
+          activity: expect.objectContaining({ status: "cancelled" }),
+        }),
+      ]),
+    );
+    expect(forkedAgentKit.runs).toEqual([
+      expect.objectContaining({
+        id: "run-source",
+        threadId: "thread-forked",
+        status: "cancelled",
+      }),
+    ]);
+    expect(forkedAgentKit.widgets).toEqual([
+      expect.objectContaining({ messageId: "assistant-1" }),
+    ]);
+    expect(
+      forkedAgentKit.toolCalls.map((toolCall: { id: string }) => toolCall.id),
+    ).toEqual(["tool-retained-message", "tool-retained-run"]);
+    expect(forkedAgentKit.suggestions).toEqual([]);
+    expect(forkedAgentKit.activeRunIds).toEqual([]);
+
+    const fullFork = await forkThread("thread-unflushed", "user@example.com", {
+      id: "thread-forked-full",
+    });
+    expect(fullFork?.id).toBe("thread-forked-full");
+    const fullForkAgentKit = JSON.parse(
+      rows.get("thread-forked-full")!.thread_data,
+    ).agentKit;
+    expect(
+      fullForkAgentKit.toolCalls.map((toolCall: { id: string }) => toolCall.id),
+    ).toEqual([
+      "tool-retained-message",
+      "tool-retained-run",
+      "tool-later-message",
+      "tool-later-run",
+      "tool-unscoped",
+    ]);
+    expect(fullForkAgentKit.suggestions).toHaveLength(2);
   });
 
   it("prefers the fresher in-memory snapshot when the source row already exists with older data", async () => {
@@ -991,6 +2439,20 @@ describe("chat thread store", () => {
     expect(
       JSON.parse(rows.get("thread-forked")!.thread_data).messages,
     ).toHaveLength(2);
+
+    const scopedFork = await forkThread("thread-stale", "user@example.com", {
+      id: "thread-forked-scoped",
+      source: {
+        threadData: JSON.stringify(freshRepo),
+        title: "Old title",
+        preview: "",
+        messageCount: 2,
+        fromMessageId: "assistant-1",
+      },
+    });
+
+    expect(scopedFork?.preview).toBe("");
+    expect(rows.get("thread-forked-scoped")?.preview).toBe("");
   });
 
   it("ignores stale snapshots when the persisted row is fresher", async () => {
@@ -1072,7 +2534,6 @@ describe("chat thread store", () => {
       },
     });
 
-    // Fresh persisted data wins.
     expect(forked?.messageCount).toBe(2);
     expect(
       JSON.parse(rows.get("thread-forked-stale")!.thread_data).messages,
@@ -1160,7 +2621,6 @@ describe("adoptThreadScopeIfUnscoped", () => {
         return { rows: [], rowsAffected: 0 };
       }
       if (/UPDATE chat_threads SET scope_type/i.test(sql)) {
-        // Honour the compare-and-set guard the real statement carries.
         if (/AND scope_type IS NULL/i.test(sql) && row.scope_type !== null) {
           return { rows: [], rowsAffected: 0 };
         }
@@ -1180,19 +2640,18 @@ describe("adoptThreadScopeIfUnscoped", () => {
   it("claims an unscoped thread and reports the scope it won", async () => {
     const row = mockRow(null, null);
 
-    expect(await adoptThreadScopeIfUnscoped("thread-1", designA)).toEqual(
-      designA,
-    );
+    expect(
+      await adoptThreadScopeIfUnscoped("thread-1", "user@example.com", designA),
+    ).toEqual(designA);
     expect(row.scope_id).toBe("design-a");
   });
 
   it("reports the winner's scope instead of retagging when another worker won", async () => {
     const row = mockRow("design", "design-a");
 
-    expect(await adoptThreadScopeIfUnscoped("thread-1", designB)).toEqual({
-      type: "design",
-      id: "design-a",
-    });
+    expect(
+      await adoptThreadScopeIfUnscoped("thread-1", "user@example.com", designB),
+    ).toEqual({ type: "design", id: "design-a" });
     expect(row.scope_id).toBe("design-a");
   });
 });

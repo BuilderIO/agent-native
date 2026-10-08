@@ -10,11 +10,6 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-/**
- * Adapt a framework-authenticated action request for Better Auth APIs that
- * require a Better Auth session. The caller must already have resolved the
- * framework identity into `email`; this helper never authenticates a request.
- */
 export async function getBetterAuthActionHeaders(
   auth: BetterAuthInstance,
   email: string,

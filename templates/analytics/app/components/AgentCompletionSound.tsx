@@ -23,7 +23,6 @@ function getTabId(detail: unknown): string {
   return DEFAULT_TAB_ID;
 }
 
-/** Plays the shared Builder bell after a successful Analytics agent run. */
 export function AgentCompletionSound() {
   const { data: prefs, isError } = useActionQuery<AnalyticsUserPrefs>(
     "get-user-pref",
@@ -35,7 +34,6 @@ export function AgentCompletionSound() {
   const failedTabsRef = useRef(new Set<string>());
 
   useEffect(() => {
-    // Missing and unreadable preferences both keep the sound off until enabled.
     soundEnabledRef.current = !isError && prefs?.bellSoundEnabled === true;
   }, [isError, prefs]);
 

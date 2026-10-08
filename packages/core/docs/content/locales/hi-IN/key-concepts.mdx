@@ -353,23 +353,26 @@ graph LR
 
 ## Live Sync {#polling-sync}
 
-जब agent data बदलता है, तो UI को उसे बिना manual refresh के reflect करना होता है। `useDbSync()` इसे automatic बनाता है। किसी long-lived host पर, same-process writes `/_agent-native/events` पर stream होते हैं; `/_agent-native/poll` cross-process fallback बना रहता है। जब agent database (application state, settings, या domain data) में लिखता है, तो एक version counter बढ़ता है और client relevant React Query caches को invalidate कर देता है।
+चैट रन स्ट्रीम हर side-effect टूल के बाद और रन के अंत में संबंधित action queries और source counters को invalidate करती है। इसलिए एक एजेंट के अपने बदलावों के लिए बैकग्राउंड polling की ज़रूरत नहीं है। `useDbSync()` उन बदलावों के लिए opt-in है जो वर्तमान उपयोगकर्ता की कार्रवाई के बिना होते हैं, जैसे किसी सहयोगी का साझा रिकॉर्ड बदलना या नया मेल आना। लंबे समय चलने वाले host पर ये बदलाव `/_agent-native/events` से आते हैं; `/_agent-native/poll` fallback है।
 
-SSE, WebSockets के बजाय common case को cover करता है, क्योंकि यह same-process writes को plain HTTP के ज़रिए browser तक तुरंत पहुंचने का रास्ता देता है, जबकि version-counter poll एक fallback के रूप में बना रहता है जो हर deployment environment में काम करता है। किसी प्रोडक्शन serverless host (Netlify, Lambda, Vercel) पर ऐप की अपनी `/_agent-native/events` stream कोई धीमा रास्ता नहीं है — यह बंद है। उस stream को खुला रखने से एक function instance रुक जाएगा जो एक समय में केवल एक request serve करता है (इसलिए वह किसी दूसरे invocation का write वैसे भी कभी नहीं देख सकता) जब तक platform उसे kill न कर दे और container recycle न हो जाए; इसके बजाय server तुरंत 204 के साथ जवाब देता है, और पूरी sync उसी गति से `/_agent-native/poll` संभालता है, जब तक ऐप ने [होस्टेड रियलटाइम सिंक गेटवे](/docs/real-time-collaboration#hosted-gateway) चालू न किया हो, जो इसके बजाय अपनी long-lived प्रक्रिया से stream करता है।
+हर opt-in `useDbSync()` call में छोटा कारण दें। एक transport प्रति tab साझा होता है; दिख रहे opt-in tabs 1, फिर 2, फिर 5 मिनट में poll करते हैं। उपयोगकर्ता की गतिविधि या स्थानीय mutation अंतराल रीसेट करती है। छिपे tabs pause होते हैं। सार्वजनिक या SSR pages, Docs, settings, forms और कम बदलने वाली lists में इसे off रखें; focus या navigation पर refetch करें। Yjs अपना अलग channel रखता है।
 
 ```ts
-// Client: subscribe to agent/UI data changes once near the app shell
+// Client: opt in only when this page needs external changes live
 import { useDbSync } from "@agent-native/core/client/hooks";
-useDbSync({ queryClient });
+useDbSync({
+  queryClient,
+  realtime: { reason: "teammates can edit this shared deck" },
+});
 ```
 
-इसे एक बार, ऐप के root के पास call करें। यह पूरे ऐप को change events के लिए subscribe कर देता है, इसलिए `useActionQuery` या किसी source-versioned `useQuery` का उपयोग करने वाला कोई भी component जब वह जो data पढ़ता है वह बदलता है तो automatically refetch करता है।
+इसे केवल private route में बुलाएँ जहाँ data वर्तमान उपयोगकर्ता की कार्रवाई के बिना बदल सकता है और उपयोगकर्ता को reload से पहले अपडेट देखना हो। हर background subscriber हर खुले tab और अंतराल पर एक poll जोड़ता है।
 
-Flow इस प्रकार है:
+रिमोट बदलाव का क्रम:
 
-1. Agent एक ऐसी action चलाता है जो database में लिखती है
+1. कोई दूसरा उपयोगकर्ता या background job साझा रिकॉर्ड बदलता है
 2. Server `"action"` या `"settings"` जैसे किसी source के साथ एक change event emit करता है
-3. `useDbSync` इसे SSE या polling fallback पर receive करता है
+3. Opt-in `useDbSync` पेज SSE या polling से event लेता है; अपने agent run के लिए चैट स्ट्रीम उपयोग होती है
 4. `useActionQuery` hooks और source-versioned `useQuery` hooks refetch करते हैं
 5. Components बिना page reload के नया data render करते हैं
 

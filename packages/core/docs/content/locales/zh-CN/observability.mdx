@@ -19,7 +19,7 @@ description: "代理跟踪、评估、反馈、A/B 实验和内置仪表板 - �
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)          | “代理在此固定输入上执行正确的操作吗？” | 主动、确定性、CI/部署门          | 质量      |
 | **[Observational Memory](/docs/observational-memory)** | “这条长线是否便宜且位于窗户内？”       | 长线程上的后台压缩               | 成本/环境 |
 
-可观察性和 CI 评估门都对质量进行评分，但两端不同——对实际流量进行被动事后评分，与对固定输入进行主动通过/失败检查。观察记忆与质量无关；这与代币成本和上下文窗口压力有关。
+可观察性和 CI 评估门都对质量进行评分，但两端不同——对实际流量进行被动事后评分，与对固定输入进行主动通过/失败检查。观察记忆与质量无关；这与代币成本和上下文窗口压力有关。 将已完成的生产 trace 提升为 `*.eval.ts` 用例（仪表盘 **Promote to eval**、`promote-trace-eval` 或 `agent-native eval promote <runId> --write evals/from-trace.eval.ts`）。见 [从生产 Trace 提升](/docs/evals#from-trace)。
 
 ## 自动捕获的内容 {#captured}
 
@@ -94,7 +94,7 @@ description: "代理跟踪、评估、反馈、A/B 实验和内置仪表板 - �
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -106,15 +106,28 @@ export default function ObservabilityPage() {
 
 所有数据的范围仅限于登录用户；今天没有跨用户管理视图。
 
-仪表板有 5 个选项卡：
+仪表板有 6 个选项卡：
 
-| 选项卡   | 它显示了什么                                                 |
-| -------- | ------------------------------------------------------------ |
-| **概述** | 关键指标 - 运行、成本、延迟、工具成功率、满意度、评估分数    |
-| **对话** | 跟踪列表，可深入到各个范围（agent_run、llm_call、tool_call） |
-| **评估** | 按标准自动评估分数、随时间变化的趋势                         |
-| **实验** | 带有状态徽章的 A/B 测试列表、带有置信区间的变量结果          |
-| **反馈** | 赞成/反对、类别细分、挫败感分数                              |
+| 选项卡       | 它显示了什么                                                 |
+| ------------ | ------------------------------------------------------------ |
+| **概述**     | 关键指标 - 运行、成本、延迟、工具成功率、满意度、评估分数    |
+| **对话**     | 跟踪列表，可深入到各个范围（agent_run、llm_call、tool_call） |
+| **评估**     | 按标准自动评估分数、随时间变化的趋势                         |
+| **实验**     | 带有状态徽章的 A/B 测试列表、带有置信区间的变量结果          |
+| **反馈**     | 赞成/反对、类别细分、挫败感分数                              |
+| **人工审核** | 审阅请求和答复、记录反馈并拟定指令更新                       |
+
+### 对话详情 {#conversations}
+
+“对话”选项卡显示已记录的运行。选择一个运行可查看其跨度，展开任意跨度即可查看已捕获的工具输入、输出、错误和元数据。选择**打开完整对话**可跳转到关联的聊天线程。
+
+默认不捕获工具参数、结果和完整的错误正文。若要存储这些内容，请在 `observability` 配置中启用 `captureToolArgs`（存储参数）和 `captureToolResults`（存储结果和完整错误正文）。敏感字段会在存储前脱敏。失败的工具始终会保留其错误的首行（长度有限），其中的凭据、电子邮件地址和较长的不透明 ID 会被脱敏，因此即使关闭 `captureToolResults`，失败仍可诊断。
+
+默认不捕获提示词。在 `observability` 配置中设置 `capturePrompts: true`，或设置 `AGENT_NATIVE_OBSERVABILITY_CAPTURE_PROMPTS=true`，即可在此详情视图中保存每个 `llm_call` 跨度的输入和输出。系统提示词不会被包含，结构化敏感字段会脱敏，输入和输出各限制为 128 KiB。现有跨度不会追溯补录。
+
+### 人工审核 {#review}
+
+“人工审核”选项卡会显示每次运行的请求和答复，允许记录反馈并起草指令更新，供人工审核。保存草稿不会自动更改指令。
 
 ## 用户反馈 {#feedback}
 
@@ -277,7 +290,7 @@ export default defineAppConfig({
 
 <Callout id="doc-block-1xvsimn" tone="info">
 
-Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+内容**默认会脱敏**：存储的是 token 数量、成本和耗时，对于失败的工具，还会存储其错误的首行（长度有限），其中的凭据、电子邮件地址和较长的不透明 ID 会被脱敏。除非启用 `capturePrompts`、`captureToolArgs` 和 `captureToolResults`，否则提示词、工具输入、工具结果和完整错误正文都不会被存储。仅在调试需要提示词或参数内容时才启用它们。
 
 </Callout>
 
@@ -285,23 +298,24 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 全部自动安装在`/_agent-native/observability/`：
 
-| 方法 | 路径                       | 目的                      |
-| ---- | -------------------------- | ------------------------- |
-| GET  | `/`                        | 统计概览                  |
-| GET  | `/traces`                  | 列出跟踪摘要              |
-| GET  | `/traces/:runId`           | 跟踪详细信息（摘要+跨度） |
-| GET  | `/traces/:runId/evals`     | 运行评估                  |
-| POST | `/feedback`                | 提交反馈                  |
-| GET  | `/feedback`                | 列出反馈                  |
-| GET  | `/feedback/stats`          | 反馈聚合                  |
-| GET  | `/satisfaction`            | 满意度分数                |
-| GET  | `/evals/stats`             | 评估统计                  |
-| POST | `/experiments`             | 创建实验                  |
-| GET  | `/experiments`             | 列出实验                  |
-| GET  | `/experiments/:id`         | 获取实验详细信息          |
-| PUT  | `/experiments/:id`         | 更新实验                  |
-| POST | `/experiments/:id/results` | 计算结果                  |
-| GET  | `/experiments/:id/results` | 获取结果                  |
+| 方法 | 路径                       | 目的                       |
+| ---- | -------------------------- | -------------------------- |
+| GET  | `/`                        | 统计概览                   |
+| GET  | `/traces`                  | 列出跟踪摘要               |
+| GET  | `/traces/:runId`           | 跟踪详细信息（摘要+跨度）  |
+| GET  | `/traces/:runId/evals`     | 运行评估                   |
+| POST | `/traces/:runId/promote`   | 将已完成运行提升为 CI eval |
+| POST | `/feedback`                | 提交反馈                   |
+| GET  | `/feedback`                | 列出反馈                   |
+| GET  | `/feedback/stats`          | 反馈聚合                   |
+| GET  | `/satisfaction`            | 满意度分数                 |
+| GET  | `/evals/stats`             | 评估统计                   |
+| POST | `/experiments`             | 创建实验                   |
+| GET  | `/experiments`             | 列出实验                   |
+| GET  | `/experiments/:id`         | 获取实验详细信息           |
+| PUT  | `/experiments/:id`         | 更新实验                   |
+| POST | `/experiments/:id/results` | 计算结果                   |
+| GET  | `/experiments/:id/results` | 获取结果                   |
 
 所有端点均支持`?since=N`（毫秒时间戳）和`?limit=N`查询参数。
 
@@ -324,13 +338,164 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 代理循环发出三种跨度类型：
 
-| 跨度        | 何时             | 属性                                                              |
-| ----------- | ---------------- | ----------------------------------------------------------------- |
-| `agent.run` | 每个代理运行一次 | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | 每次操作调用一次 | `tool.name`，加上成功/错误状态                                    |
-| `llm.call`  | 每个模型调用     | 计时+正常/错误状态                                                |
+| 跨度                  | 何时             | 属性                                                                                                      |
+| --------------------- | ---------------- | --------------------------------------------------------------------------------------------------------- |
+| `invoke_agent`        | 每个代理运行一次 | `gen_ai.provider.name`, `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
+| `execute_tool {tool}` | 每次操作调用一次 | `gen_ai.tool.name`，加上成功/错误状态                                                                     |
+| `chat {model}`        | 每个模型调用     | `gen_ai.provider.name`, 计时+正常/错误状态                                                                |
 
 跨度以 OK/ERROR 状态完成，并记录失败时的错误消息。零/哨兵属性值被修剪，因此跨度不会因噪音而混乱。该 OTel 层纯粹是对内部 `agent_trace_spans` / `agent_trace_summaries` 表的补充，这些表为上面的仪表板提供支持 - 两者都是由相同的运行事件生成的。
+
+### 指标 {#otel-metrics}
+
+宿主通过 `@agent-native/core/server` 中的 `registerObservabilityProvider()` 注册指标提供程序（meter provider）后，Core 还会记录指标。指标针对每个请求和每次运行记录，不做采样：
+
+| 指标工具                                | 属性                                                                                         |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+
+在指标中，`gen_ai.tool.name` 是框架操作的名称或 `other`；只有当引擎将某个模型 ID 列为受支持时，`gen_ai.request.model` 才是该模型 ID，否则为 `_OTHER`。因此，应用自定义的工具和调用方传入的模型 ID 不会产生无限增长的序列；span 中保留确切的值。
+
+## 连接 OpenTelemetry 后端 {#otel-provider}
+
+Core 不附带任何 OpenTelemetry SDK 或导出器。应用自行构建 SDK 提供程序，并通过 `@agent-native/core/server` 中的 `registerObservabilityProvider()` 交给 Core。Core 随后通过它们发出上文的[跨度](#otel)和[指标](#otel-metrics)，再由应用的导出器发送到任意 OTLP 后端。
+
+### `registerObservabilityProvider()` {#register-observability-provider}
+
+`registerObservabilityProvider()` 接收一个对象，包含两个可选字段：
+
+- **tracerProvider**：带有 `getTracer(name, version?)` 的对象。Core 从这里获取追踪器。未提供时，跨度使用全局的 `@opentelemetry/api` 追踪器。
+- **meterProvider**：带有 `getMeter(name, version?)` 的对象。只有注册了指标提供程序，指标才会被记录。指标没有全局回退，因此未注册时每个指标都是空操作。
+
+两种提供程序都可以额外实现 `forceFlush()`，Core 会在每次响应后调用它（参见[在无服务器环境中刷新](#otel-flush)）。SDK 的 `BasicTracerProvider` 和 `MeterProvider` 已经符合这些形状。
+
+```ts
+function registerObservabilityProvider(
+  provider: ObservabilityProvider,
+): () => void;
+
+interface ObservabilityProvider {
+  tracerProvider?: ObservabilityTracerProvider;
+  meterProvider?: ObservabilityMeterProvider;
+}
+
+interface ObservabilityTracerProvider {
+  getTracer(name: string, version?: string): unknown;
+  forceFlush?(): Promise<void>;
+}
+
+interface ObservabilityMeterProvider {
+  getMeter(name: string, version?: string): unknown;
+  forceFlush?(): Promise<void>;
+}
+```
+
+后一次调用会替换之前的提供程序。返回的函数会在该提供程序仍处于注册状态时取消注册。跨度还需要应用中安装 `@opentelemetry/api`。未安装时，Core 会关闭追踪并记录一次警告。
+
+### 在无服务器环境中刷新 {#otel-flush}
+
+无服务器函数在两次调用之间会被冻结，因此 SDK 的导出定时器可能永远不会触发。当已注册的提供程序实现了 `forceFlush()` 时，Core 会在每个请求之后从响应钩子中调用它并等待完成。每次刷新都与同一个共享的 2 秒超时竞速，因此遥测占用响应的时间绝不会超过这个上限。
+
+刷新失败或超时后，Core 会停止等待它，并给 `agent_native.telemetry.flush_failures` 加 1，下一次刷新会导出该计数。超时的导出会继续运行，只要运行时没有先冻结进程，它仍可能送达。该失败的 `error.type` 为 `timeout`，运行时在刷新中途冻结进程时为 `suspended`，否则为错误名称。
+
+在长期运行的服务器上，每次响应后都刷新意味着每个请求导出一次。在这类环境中，请注册不带 `forceFlush()` 的提供程序，让 SDK 自己的定时器负责导出。`@agent-native/core/server` 中的 `isServerlessRuntime()` 可以区分这两种情况。它在 Netlify、Vercel、AWS Lambda 和 Cloudflare 上为 true。
+
+### 示例：通过 HTTP 发送 OTLP {#otel-example}
+
+这个服务器插件把 OpenTelemetry JS SDK 接入 Core。先安装 SDK 包：
+
+```bash
+pnpm add @opentelemetry/api @opentelemetry/context-async-hooks @opentelemetry/exporter-metrics-otlp-proto @opentelemetry/exporter-trace-otlp-proto @opentelemetry/resources @opentelemetry/sdk-metrics @opentelemetry/sdk-trace-base
+```
+
+```ts filename="server/plugins/otel.ts"
+import { randomUUID } from "node:crypto";
+
+import {
+  defineNitroPlugin,
+  isServerlessRuntime,
+  registerObservabilityProvider,
+} from "@agent-native/core/server";
+import { context } from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-proto";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
+import {
+  defaultResource,
+  detectResources,
+  envDetector,
+  resourceFromAttributes,
+} from "@opentelemetry/resources";
+import {
+  MeterProvider,
+  PeriodicExportingMetricReader,
+} from "@opentelemetry/sdk-metrics";
+import {
+  BasicTracerProvider,
+  BatchSpanProcessor,
+} from "@opentelemetry/sdk-trace-base";
+
+export default defineNitroPlugin(() => {
+  if (!process.env.OTEL_EXPORTER_OTLP_ENDPOINT) return;
+
+  // Metric counters are cumulative and restart with each process, so each
+  // process needs its own series.
+  const resource = defaultResource()
+    .merge(resourceFromAttributes({ "service.instance.id": randomUUID() }))
+    .merge(detectResources({ detectors: [envDetector] }));
+
+  const meterProvider = new MeterProvider({
+    resource,
+    readers: [
+      new PeriodicExportingMetricReader({
+        exporter: new OTLPMetricExporter(),
+        exportIntervalMillis: 60_000,
+      }),
+    ],
+  });
+
+  context.setGlobalContextManager(
+    new AsyncLocalStorageContextManager().enable(),
+  );
+  const tracerProvider = new BasicTracerProvider({
+    resource,
+    spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter())],
+  });
+
+  if (isServerlessRuntime()) {
+    registerObservabilityProvider({ meterProvider, tracerProvider });
+    return;
+  }
+  // Without forceFlush(), core leaves exporting to the SDK's own timers.
+  registerObservabilityProvider({
+    meterProvider: {
+      getMeter: (name, version) => meterProvider.getMeter(name, version),
+    },
+    tracerProvider: {
+      getTracer: (name, version) => tracerProvider.getTracer(name, version),
+    },
+  });
+});
+```
+
+在设置 `OTEL_EXPORTER_OTLP_ENDPOINT` 之前，该插件不会做任何事。其余配置由 SDK 从标准 OpenTelemetry 环境变量中读取：
+
+| 变量                                              | 作用                                                                |
+| ------------------------------------------------- | ------------------------------------------------------------------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`                     | OTLP 接收端的基础 URL。导出器会追加 `/v1/traces` 和 `/v1/metrics`。 |
+| `OTEL_EXPORTER_OTLP_HEADERS`                      | 每次导出时发送的请求头，例如 `Authorization=Bearer%20<token>`       |
+| `OTEL_SERVICE_NAME`                               | 每个跨度和指标上的 `service.name`                                   |
+| `OTEL_RESOURCE_ATTRIBUTES`                        | 额外的资源属性，例如 `deployment.environment.name=production`       |
+| `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | 追踪采样，例如 `parentbased_traceidratio` 和 `0.1`。指标从不采样。  |
+
+`-proto` 导出器通过 HTTP 以 protobuf 发送 OTLP，因此请把端点指向接收端的 HTTP 端口（默认 4318），而不是 gRPC 端口。跨度不包含提示词或回复文本。[配置](#config)中的 `capture*` 设置作用于 SQL 追踪和 PostHog，而不是 OTLP。
+
+仓库中的 [`packages/otel`](https://github.com/BuilderIO/agent-native/tree/main/packages/otel) 提供了这个插件更完整的版本，支持按信号设置端点并校验导出器。它没有发布到 npm，因此请从上面的插件开始，而不是安装它。
 
 ## 错误报告（Sentry） {#sentry}
 

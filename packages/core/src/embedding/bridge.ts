@@ -28,15 +28,7 @@ export type EmbeddedAppRequestHandler = (
 ) => unknown;
 
 export interface EmbeddedAppBridgeOptions {
-  /**
-   * Exact parent origin to post back to. Defaults to document.referrer's
-   * origin when available. If no origin can be resolved, sends fail closed.
-   */
   parentOrigin?: string;
-  /**
-   * Origins allowed to send messages to the embedded app. Defaults to the
-   * resolved parent origin.
-   */
   allowedOrigins?: string[];
   onMessage?: EmbeddedAppMessageHandler;
   onRequest?: EmbeddedAppRequestHandler;

@@ -34,7 +34,6 @@ export function ShaderEffectRow({
 }: ShaderEffectRowProps) {
   const preset = SHADER_PRESET_MAP[descriptor.preset];
 
-  // Resolve swatch color: first color in the palette, or preset default, or gray
   const swatchColor =
     descriptor.colors?.[0] ??
     preset?.defaultColors?.[0] ??

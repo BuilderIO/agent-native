@@ -317,10 +317,6 @@ function contentLocalComponentsPlugin(): Plugin {
         });
         return refreshPromise;
       };
-      // Coalesce rapid successive component-file writes (agents and editor
-      // atomic saves fire several add/unlink events per logical change) into
-      // a single full reload. Module invalidation stays immediate so the next
-      // request always sees fresh content.
       let fullReloadTimer: ReturnType<typeof setTimeout> | null = null;
       const scheduleFullReload = () => {
         if (fullReloadTimer) clearTimeout(fullReloadTimer);
@@ -389,42 +385,12 @@ const dynamicLocalComponentDirs = (() => {
   }
 })();
 
-const cloudflareSsrStubs =
-  process.env.NITRO_PRESET === "cloudflare_pages"
-    ? [
-        "@assistant-ui/react",
-        "@tiptap/core",
-        "@tiptap/extension-blockquote",
-        "@tiptap/extension-code-block-lowlight",
-        "@tiptap/extension-collaboration",
-        "@tiptap/extension-collaboration-caret",
-        "@tiptap/extension-image",
-        "@tiptap/extension-link",
-        "@tiptap/extension-placeholder",
-        "@tiptap/extension-table",
-        "@tiptap/extension-table-cell",
-        "@tiptap/extension-table-header",
-        "@tiptap/extension-table-row",
-        "@tiptap/extension-task-item",
-        "@tiptap/extension-task-list",
-        "@tiptap/pm",
-        "@tiptap/react",
-        "@tiptap/starter-kit",
-        "@xterm/addon-fit",
-        "@xterm/addon-web-links",
-        "@xterm/xterm",
-        "lowlight",
-        "prettier",
-        "react-markdown",
-        "remark-gfm",
-        "remark-mdx",
-        "tiptap-markdown",
-        "yjs",
-        "y-protocols",
-      ]
-    : [];
+const devAllowedHost = process.env.CONTENT_DEV_ALLOWED_HOST?.trim();
 
 export default defineConfig({
+  server: {
+    allowedHosts: devAllowedHost ? [devAllowedHost] : [],
+  },
   plugins: [
     contentLocalComponentsPlugin(),
     ...reactRouterPlugins(),
@@ -434,9 +400,7 @@ export default defineConfig({
         ...(localWorkspaceRoot ? [localWorkspaceRoot] : []),
         ...dynamicLocalComponentDirs,
       ],
-      // shiki only runs in AssistantChat's useEffect — keep it out of the
-      // CF Pages Functions bundle (25 MiB limit).
-      ssrStubs: ["shiki", ...cloudflareSsrStubs],
+      ssrStubs: ["shiki"],
     }),
   ],
   optimizeDeps: {

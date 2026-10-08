@@ -31,7 +31,6 @@ const DEFAULT_ENDPOINT = "https://analytics.agent-native.com/track";
 const FLUSH_TIMEOUT_MS = 1500;
 
 export interface CliTelemetryOptions {
-  /** Stable identifier for the emitting CLI, e.g. "skills-installer". */
   cli: string;
   cliVersion: string;
   command: string;
@@ -136,11 +135,24 @@ function safeExceptionValue(value: unknown, depth = 2): unknown {
   return boundedExceptionText(value, MAX_EXCEPTION_VALUE_LENGTH);
 }
 
+// A fuzz or test harness stubs `process.exit` with a function that throws this
+// label; running the CLI under one is not a production failure.
+function isTestHarnessError(error: unknown): boolean {
+  const value = error instanceof Error ? error.message : String(error ?? "");
+  const stack = error instanceof Error ? (error.stack ?? "") : "";
+  return (
+    value.trim() === "fuzz-intercepted-process-exit" ||
+    /fuzzInterceptedProcessExit|fuzz-exports\.js/.test(stack)
+  );
+}
+
 function captureException(
   error: unknown,
   context: CliExceptionContext,
   trackEvent: (event: string, properties?: Record<string, unknown>) => void,
+  release: string,
 ): void {
+  if (isTestHarnessError(error)) return;
   const exception =
     error instanceof Error
       ? {
@@ -178,16 +190,12 @@ function captureException(
     handled: context.handled ?? false,
     level: context.level ?? "error",
     occurredAt: new Date().toISOString(),
+    release,
     ...(Object.keys(tags).length ? { exceptionTags: tags } : {}),
     ...(extra && typeof extra === "object" ? { exceptionExtra: extra } : {}),
   });
 }
 
-/**
- * Read (or lazily create) a stable per-machine install id, shared across both
- * skills CLIs so one developer counts once. Best-effort: an unwritable home
- * directory just yields an ephemeral id for this run.
- */
 function resolveInstallId(): string {
   try {
     const dir = path.join(os.homedir(), ".agent-native");
@@ -267,7 +275,12 @@ export function createCliTelemetry(options: CliTelemetryOptions): CliTelemetry {
   return {
     track,
     captureException: (error, context = {}) =>
-      captureException(error, context, track),
+      captureException(
+        error,
+        context,
+        track,
+        `agent-native-cli@${options.cliVersion}`,
+      ),
     flush,
   };
 }

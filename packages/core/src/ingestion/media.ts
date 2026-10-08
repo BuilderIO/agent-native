@@ -1,6 +1,8 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
+import { loadOptionalPeer } from "../shared/optional-peer.js";
+
 export interface MediaFingerprint {
   sha256: string;
   byteLength: number;
@@ -12,9 +14,6 @@ export function fingerprintMedia(
   mimeType?: string,
 ): MediaFingerprint {
   return {
-    // Not node:crypto: this module is re-exported from the `ingestion` barrel,
-    // and a single `node:crypto` import there makes the whole barrel — the
-    // Figma converters included — unloadable in a browser.
     sha256: bytesToHex(sha256(data)),
     byteLength: data.byteLength,
     ...(mimeType ? { mimeType } : {}),
@@ -55,11 +54,6 @@ export async function extractDominantColors(
   limit = 6,
 ): Promise<string[]> {
   const sharp = await loadSharp();
-  if (!sharp) {
-    throw new Error(
-      "Image palette extraction requires the optional sharp dependency.",
-    );
-  }
   const output = await sharp(Buffer.from(data), { failOn: "none" })
     .resize(64, 64, { fit: "inside" })
     .removeAlpha()
@@ -105,9 +99,6 @@ export async function compareRasterImages(input: {
     throw new Error(`Image comparison input exceeds ${maxInputBytes} bytes.`);
   }
   const sharp = await loadSharp();
-  if (!sharp) {
-    throw new Error("Image comparison requires the optional sharp dependency.");
-  }
   const source = sharp(Buffer.from(input.source), { failOn: "none" });
   const rendered = sharp(Buffer.from(input.rendered), { failOn: "none" });
   const [sourceMetadata, renderedMetadata] = await Promise.all([
@@ -143,7 +134,6 @@ export async function compareRasterImages(input: {
   };
 }
 
-/** Crops a bounded raster region without retaining the source image. */
 export async function cropImageRegion(input: {
   data: Uint8Array;
   left: number;
@@ -174,9 +164,6 @@ export async function cropImageRegion(input: {
     throw new Error("Image crop region is invalid or exceeds the pixel limit.");
   }
   const sharp = await loadSharp();
-  if (!sharp) {
-    throw new Error("Image cropping requires the optional sharp dependency.");
-  }
   const pipeline = sharp(Buffer.from(input.data), { failOn: "none" });
   const metadata = await pipeline.metadata();
   if (
@@ -203,28 +190,12 @@ export interface ResizedImage {
   height: number;
 }
 
-/**
- * Re-encode an image so it fits a byte budget, keeping its aspect ratio.
- *
- * For a caller that must inline an image — an SVG export, an email — an
- * oversized source is a reason to send fewer pixels, not to send nothing: a
- * real product page dropped its 11.5MB hero shot rather than embedding it, and
- * the hole was the largest single difference in the exported file.
- *
- * Bytes track pixel count closely enough to jump most of the way in one guess,
- * then halve until it fits. Alpha keeps the image in PNG; anything else
- * re-encodes as JPEG, which is far smaller for the photographs that hit a cap.
- * Returns null when sharp is unavailable or the image cannot fit above
- * `minEdge` — callers must be able to tell "shrunk" from "could not".
- */
 export async function downscaleImageToFit(input: {
   data: Uint8Array;
   maxBytes: number;
-  /** Stop shrinking here rather than returning an unusably small image. */
   minEdge?: number;
 }): Promise<ResizedImage | null> {
   const sharp = await loadSharp();
-  if (!sharp) return null;
   const minEdge = input.minEdge ?? 256;
   const source = Buffer.from(input.data);
   const metadata = await sharp(source, { failOn: "none" }).metadata();
@@ -335,14 +306,11 @@ type SharpFactory = (
   options: { failOn: "none" },
 ) => SharpPipeline;
 
-async function loadSharp(): Promise<SharpFactory | null> {
+async function loadSharp(): Promise<SharpFactory> {
   const specifier = "sharp";
-  try {
-    const module = (await import(/* @vite-ignore */ specifier)) as {
-      default?: SharpFactory;
-    };
-    return module.default ?? (module as unknown as SharpFactory);
-  } catch {
-    return null;
-  }
+  const module = (await loadOptionalPeer(
+    "sharp",
+    () => import(/* @vite-ignore */ specifier),
+  )) as { default?: SharpFactory };
+  return module.default ?? (module as unknown as SharpFactory);
 }

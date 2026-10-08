@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import os from "node:os";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -7,6 +9,7 @@ import {
   SITE_URL,
   buildAgentWebPages,
   buildSitemapXml,
+  sitemapPlugin,
 } from "./vite-sitemap-plugin";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -75,8 +78,6 @@ describe("docs agent web generation", () => {
     () => {
       const gettingStarted = pages.find((page) => page.path === "/docs/");
 
-      // lastmod must be a valid Date regardless of whether git log returns a
-      // commit timestamp or we fall back to fs mtime
       expect(gettingStarted?.lastmod).toBeInstanceOf(Date);
       expect(Number.isFinite((gettingStarted?.lastmod as Date).getTime())).toBe(
         true,
@@ -90,6 +91,44 @@ describe("docs agent web generation", () => {
       const page = pages.find((candidate) => candidate.path === path);
       expect(page?.markdown?.length).toBeGreaterThan(500);
       expect(page?.markdownPath).toBeUndefined();
+    }
+  });
+
+  it("includes standalone Chat app creation guidance in generated llms.txt", () => {
+    const outputRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-web-"));
+    fs.mkdirSync(path.join(outputRoot, "build", "client"), { recursive: true });
+
+    try {
+      const plugin = sitemapPlugin();
+      const configResolved = plugin.configResolved;
+      const resolveConfig =
+        typeof configResolved === "function"
+          ? configResolved
+          : configResolved?.handler;
+      resolveConfig?.call({} as never, { root: outputRoot } as never);
+
+      const closeBundleHook = plugin.closeBundle;
+      const closeBundle =
+        typeof closeBundleHook === "function"
+          ? closeBundleHook
+          : closeBundleHook?.handler;
+      if (!closeBundle) {
+        throw new Error("Agent Web plugin has no closeBundle hook");
+      }
+      closeBundle.call({ info: () => {} } as never);
+
+      const llms = fs.readFileSync(
+        path.join(outputRoot, "build", "client", "llms.txt"),
+        "utf8",
+      );
+      expect(llms).toContain(
+        "npx --yes @agent-native/core@latest create <name> --standalone --template chat",
+      );
+      expect(llms).toContain(
+        "read AGENTS.md and the `build-an-app` and `adding-a-feature` skills",
+      );
+    } finally {
+      fs.rmSync(outputRoot, { recursive: true, force: true });
     }
   });
 
@@ -123,8 +162,6 @@ describe("docs agent web generation", () => {
     expect(redirected).toEqual([]);
   });
 
-  // The twins are handed to agents verbatim, so a bare link in the body sends
-  // them through a redirect and, for a translation, drops the locale.
   it("canonicalizes docs links inside the Markdown mirrors", () => {
     const withLinks = pages.filter(
       (page) => page.markdown?.includes("](/") && page.path.includes("/docs/"),
@@ -134,8 +171,6 @@ describe("docs agent web generation", () => {
 
     const bare: string[] = [];
     for (const page of withLinks) {
-      // Fenced examples are literal samples and stay exactly as authored, so
-      // scanning them would flag the very links the rewrite must not touch.
       const prose = page.markdown!.replace(/```[\s\S]*?(?:```|$)/g, "");
       for (const [, href] of prose.matchAll(/\]\((\/[a-zA-Z][^)\s]*)\)/g)) {
         if (!href.includes("/docs/")) continue;

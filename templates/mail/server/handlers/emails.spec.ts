@@ -102,6 +102,26 @@ describe("emails handler Gmail label listing", () => {
   });
 });
 
+describe("emails handler thread cache scope", () => {
+  it("resolves mailbox access before cache lookup and keys stored messages by mailbox", () => {
+    const section = handlerSection(emailsHandlerSource(), "getThreadMessages");
+    const accountResolution = section.indexOf(
+      "resolvedAccount = await resolveAccountEmail(accountEmail, email)",
+    );
+    const cacheLookup = section.indexOf(
+      "threadCacheKey(email, threadId, resolvedAccount)",
+    );
+    const cacheWrite = section.indexOf(
+      "threadCacheKey(email, threadId, acctEmail)",
+    );
+
+    expect(accountResolution).toBeGreaterThanOrEqual(0);
+    expect(cacheLookup).toBeGreaterThan(accountResolution);
+    expect(cacheWrite).toBeGreaterThan(cacheLookup);
+    expect(section).toContain("if (resolvedAccount)");
+  });
+});
+
 describe("emails handler force refresh", () => {
   it("fences list caches before and after resolving account tokens", () => {
     const section = handlerSection(emailsHandlerSource(), "listEmails");

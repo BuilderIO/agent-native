@@ -16,6 +16,8 @@ import type {
 export interface ModeChangeArgs {
   activeFile: DesignFile;
   canEditDesign: boolean;
+  hasPendingVisualEdits?: boolean;
+  onPendingVisualEditsBlocked: () => void;
   clearPendingLiveEditState: () => void;
   enterOverviewFromZoom: (nextMode?: EditorMode) => void;
   enterSingleScreen: (fileId?: string | null) => void;
@@ -34,6 +36,9 @@ export interface ModeChangeArgs {
   setMode: Dispatch<SetStateAction<EditorMode>>;
   setPinMode: Dispatch<SetStateAction<boolean>>;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
+  rememberOverviewScreenSelection: (screenId: string) => void;
+  overviewInteractScreenId: string | null;
+  setOverviewInteractScreenId: Dispatch<SetStateAction<string | null>>;
   t: (key: string, options?: Record<string, unknown>) => string;
   viewModeRef: RefObject<"single" | "overview">;
 }
@@ -43,9 +48,11 @@ export function runModeChange(
     activeFile,
     canEditDesign,
     clearPendingLiveEditState,
+    onPendingVisualEditsBlocked,
     enterOverviewFromZoom,
     enterSingleScreen,
     files,
+    hasPendingVisualEdits = false,
     pendingLiveNonStyleEdits,
     pendingVisualStyleEdits,
     requestPendingLiveNonStyleRevert,
@@ -56,6 +63,9 @@ export function runModeChange(
     setMode,
     setPinMode,
     setSelectedElement,
+    rememberOverviewScreenSelection,
+    overviewInteractScreenId,
+    setOverviewInteractScreenId,
     t,
     viewModeRef,
   }: ModeChangeArgs,
@@ -75,11 +85,11 @@ export function runModeChange(
   }
   if (
     next === "interact" &&
-    (pendingVisualStyleEdits.length > 0 ||
-      pendingLiveNonStyleEdits.length > 0) &&
+    hasPendingVisualEdits &&
     !options?.discardPendingLiveEdits &&
     !options?.pendingLiveEditsAlreadyHandled
   ) {
+    onPendingVisualEditsBlocked();
     toast.error(t("designEditor.pendingVisualStyles.interactBlocked"));
     return;
   }
@@ -94,13 +104,27 @@ export function runModeChange(
     viewMode: viewModeRef.current,
   });
   if (routing === "enter-single-interact") {
+    rememberOverviewScreenSelection(nextActiveFile!.id);
+    setOverviewInteractScreenId(nextActiveFile!.id);
     enterSingleScreen(nextActiveFile?.id);
     return;
   }
   if (routing === "enter-overview") {
+    setOverviewInteractScreenId(null);
     if (options?.targetFileId) setActiveFileId(options.targetFileId);
     enterOverviewFromZoom(next);
     return;
+  }
+  if (next === "interact" && overviewInteractScreenId) {
+    setOverviewInteractScreenId(nextActiveFile!.id);
+    if (
+      options?.targetFileId &&
+      nextActiveFile!.id !== overviewInteractScreenId
+    ) {
+      rememberOverviewScreenSelection(nextActiveFile!.id);
+      enterSingleScreen(nextActiveFile!.id);
+      return;
+    }
   }
   if (options?.targetFileId) setActiveFileId(options.targetFileId);
   setMode(next);

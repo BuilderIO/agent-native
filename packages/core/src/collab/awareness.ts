@@ -1,15 +1,3 @@
-/**
- * Server-side awareness state management for collaborative editing.
- *
- * Stores per-client awareness state (cursor positions, user info) in memory.
- * Clients POST their state and receive other clients' states via polling.
- * States expire after 30 seconds of no updates.
- *
- * Fast-path: when a client POSTs new awareness state, the server emits an
- * event on the awareness emitter so SSE-connected peers receive cursor moves
- * push-style instead of waiting for the next poll cycle.
- */
-
 import { EventEmitter } from "node:events";
 
 import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
@@ -23,21 +11,16 @@ import {
   upsertAwarenessRow,
 } from "./awareness-store.js";
 
-const AWARENESS_TIMEOUT = 30_000; // 30 seconds
+const AWARENESS_TIMEOUT = 30_000;
 const CLEAR_TOMBSTONE_TTL = AWARENESS_TIMEOUT + 5_000;
 const AWARENESS_SCOPE_TIMEOUT = AWARENESS_TIMEOUT + 5_000;
 const MAX_AWARENESS_SCOPES = 10_000;
 
 export interface AwarenessEntry {
   clientId: number;
-  state: string; // JSON-encoded awareness state object
+  state: string;
   lastSeen: number;
 }
-
-// ---------------------------------------------------------------------------
-// Awareness event emitter — fast-path for push delivery to SSE-connected peers.
-// The SSE handler (poll-events) subscribes and forwards events to its stream.
-// ---------------------------------------------------------------------------
 
 export const AWARENESS_CHANGE_EVENT = "awareness-change" as const;
 
@@ -45,15 +28,10 @@ export interface AwarenessChangeEvent {
   source: "awareness";
   type: "awareness-change";
   docId: string;
-  /** Array of updated states for this document (all non-expired clients). */
   states: Array<{ clientId: number; state: string }>;
-  /** Owner email for access-scoped delivery (taken from session if available). */
   owner?: string;
-  /** Org ID for org-scoped delivery. */
   orgId?: string;
-  /** Shareable resource type this awareness event belongs to, when known. */
   resourceType?: string;
-  /** Shareable resource id this awareness event belongs to, when known. */
   resourceId?: string;
 }
 
@@ -117,8 +95,6 @@ export function rememberAwarenessScope(
   }
   _awarenessScopes.delete(docId);
   _awarenessScopes.set(docId, { scope: next, lastSeen: now });
-  // Enforce the cap after insertion too. Pruning only before insertion lets
-  // the map temporarily exceed its advertised bound on every new document.
   pruneAwarenessScopes(now);
 }
 
@@ -145,10 +121,7 @@ export function emitAwarenessChange(
   _awarenessEmitter.emit(AWARENESS_CHANGE_EVENT, event);
 }
 
-// docId → Map<clientId, AwarenessEntry>
 const _awarenessMap = new Map<string, Map<number, AwarenessEntry>>();
-// docId + clientId -> clearedAt. Prevents a stale SQL mirror from resurrecting
-// a participant after an explicit leave/delete raced with the next poll.
 const _awarenessClearTombstones = new Map<string, number>();
 
 function awarenessKey(docId: string, clientId: number): string {
@@ -213,20 +186,12 @@ export function cleanExpired(map: Map<number, AwarenessEntry>): void {
   }
 }
 
-// Drop the per-document map from the registry once it has no entries left,
-// so the outer map does not grow unbounded with every docId ever touched.
 function pruneIfEmpty(docId: string, map: Map<number, AwarenessEntry>): void {
   if (map.size === 0) {
     _awarenessMap.delete(docId);
   }
 }
 
-/**
- * Merge SQL-mirrored awareness rows (written by other server instances —
- * or by an agent action running in its own serverless invocation) into the
- * in-memory map, newest lastSeen wins. Degrades to memory-only when the DB
- * is unavailable.
- */
 async function mergeStoredAwareness(
   docId: string,
   map: Map<number, AwarenessEntry>,
@@ -245,14 +210,6 @@ async function mergeStoredAwareness(
   }
 }
 
-/**
- * POST /_agent-native/collab/:docId/awareness
- *
- * Client sends its awareness state and receives other clients' states.
- *
- * Body: { clientId: number, state: string | null (JSON-encoded awareness state, or null to clear) }
- * Response: { states: Array<{ clientId: number, state: string }> }
- */
 export const postAwareness = defineEventHandler(async (event: H3Event) => {
   const docId = getRouterParam(event, "docId");
   if (!docId) {
@@ -271,8 +228,6 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   };
 
   if (clientId == null || state === undefined) {
-    // `!clientId` would wrongly reject clientId === 0, which is a valid
-    // (if rare) Yjs client id. A null state is valid: it clears this client.
     setResponseStatus(event, 400);
     return { error: "clientId and state required" };
   }
@@ -283,31 +238,19 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     const clearedAt = Date.now();
     map.delete(clientId);
     rememberAwarenessClear(docId, clientId, clearedAt);
-    // Best-effort cross-instance removal (never blocks the response).
     void deleteAwarenessRow(docId, clientId, clearedAt);
   } else {
     forgetAwarenessClear(docId, clientId);
-    // Store this client's state
     const entry = { clientId, state, lastSeen: Date.now() };
     map.set(clientId, entry);
-    // Mirror to SQL so other instances (and serverless action invocations)
-    // see this participant. Throttled internally; never throws.
     void upsertAwarenessRow(docId, clientId, state, entry.lastSeen);
   }
 
-  // Pull in participants known to other instances (multi-instance serverless)
-  // before building the response, so every poller sees the full set.
   await mergeStoredAwareness(docId, map);
 
-  // Clean expired entries, then prune the outer-map entry if it becomes empty.
-  // Without pruning, a deployment with many transient docIds (e.g. one per
-  // session) would grow _awarenessMap without bound.
   cleanExpired(map);
-  // Null-state clears and expiry can empty the map; prune the outer entry so
-  // transient document ids do not accumulate.
   pruneIfEmpty(docId, map);
 
-  // Build the full list of current states (all clients including sender).
   const allStates: Array<{ clientId: number; state: string }> = [];
   const otherStates: Array<{ clientId: number; state: string }> = [];
   for (const [id, entry] of map) {
@@ -317,8 +260,6 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  // Fast-path: push the updated state set to SSE-connected peers so they
-  // don't have to wait for the next poll cycle for cursor/selection updates.
   emitAwarenessChange(
     docId,
     allStates,
@@ -331,11 +272,6 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   return { states: otherStates };
 });
 
-/**
- * GET /_agent-native/collab/:docId/users
- *
- * Returns the list of active users for a document (for presence bar).
- */
 export const getActiveUsers = defineEventHandler(async (event: H3Event) => {
   const docId = getRouterParam(event, "docId");
   if (!docId) {

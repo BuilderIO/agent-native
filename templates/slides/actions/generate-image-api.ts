@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -21,13 +21,14 @@ import getDeckAction from "./get-deck.js";
 import updateSlideAction from "./update-slide.js";
 
 interface ReferenceImage {
-  data: string; // base64
+  data: string;
   mimeType: string;
 }
 
 interface DeckSlide {
   id?: string;
   content?: unknown;
+  contentHash?: unknown;
 }
 
 interface DeckWithSlides {
@@ -93,9 +94,13 @@ async function insertGeneratedImage({
   const imageUrl = parseGeneratedImageUrl(url);
   const deck = (await getDeckAction.run({ id: deckId })) as DeckWithSlides;
   const slide = deck.slides?.find((candidate) => candidate.id === slideId);
-  if (!slide || typeof slide.content !== "string") {
+  if (
+    !slide ||
+    typeof slide.content !== "string" ||
+    typeof slide.contentHash !== "string"
+  ) {
     throw new Error(
-      `Slide ${slideId} was not found in deck ${deckId} for image insertion`,
+      `Slide ${slideId} or its contentHash was not found in deck ${deckId} for image insertion`,
     );
   }
 
@@ -106,6 +111,7 @@ async function insertGeneratedImage({
     deckId,
     slideId,
     fullContent,
+    baseContentHash: slide.contentHash,
     preserveSource: true,
   });
   if (!update.ok || !("applied" in update) || !update.applied) {
@@ -194,8 +200,6 @@ export default defineAction({
       return {
         source: "assets-a2a" as const,
         prompt,
-        // The reply is the Assets agent's own text. Pass it through verbatim
-        // rather than guessing at URLs it did not return.
         reply: delegation.reply,
         ...(url ? { url, showToUser: imagePreviewMarkdown(prompt, url) } : {}),
         ...insertion,
@@ -215,9 +219,6 @@ export default defineAction({
       );
     }
 
-    // Assets is unreachable - standalone-deploy fallback. The caller is told
-    // which path ran and why, so a brand-inconsistent image is never reported
-    // as a library-grounded one.
     const { getProvider } =
       await import("../server/handlers/image-providers/index.js");
     const provider = await getProvider(args.model || "auto");
@@ -242,8 +243,9 @@ export default defineAction({
       recordAsset: false,
     });
     if (!uploaded?.url) {
-      throw new Error(
-        "File storage is not configured. Connect Builder.io (free tier available) or another upload provider before generating slide images.",
+      fail(
+        "No object storage is connected. Use Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads before generating slide images.",
+        { errorCode: "object_storage_unavailable", statusCode: 424 },
       );
     }
 

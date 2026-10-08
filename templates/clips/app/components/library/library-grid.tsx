@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import {
   IconAlertTriangle,
   IconChevronLeft,
@@ -36,6 +37,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { useDropVideoUpload } from "@/hooks/use-drop-video-upload";
+import type { VideoStorageGateIssue } from "@/hooks/use-drop-video-upload";
 import {
   useFolders,
   useOrganizations,
@@ -49,8 +51,15 @@ import {
   type RecordingSummary,
 } from "@/hooks/use-library";
 import { useUploadVideoPicker } from "@/hooks/use-upload-video-picker";
+import {
+  fetchVideoStorageStatus,
+  useVideoStorageStatus,
+} from "@/hooks/use-video-storage-status";
 import { OPEN_CREATE_FOLDER_EVENT } from "@/lib/command-events";
-import { retryRecordingUploadFromBackup } from "@/lib/recording-retry";
+import {
+  LocalCopyInUseError,
+  retryRecordingUploadFromBackup,
+} from "@/lib/recording-retry";
 import { cn } from "@/lib/utils";
 import { resolveVideoMimeType } from "@/lib/video-metadata";
 
@@ -71,9 +80,10 @@ import { SortMenu, type SortKey } from "./sort-menu";
 
 interface LibraryGridProps {
   view: "library" | "shared" | "space" | "archive" | "trash" | "all";
+  /** "image" narrows the same list to screenshots; defaults to everything. */
+  kind?: "video" | "image" | "all";
   folderId?: string | null;
   spaceId?: string | null;
-  /** What empty-state illustration to render. Defaults from `view`. */
   emptyKind?: "library" | "shared" | "folder" | "space" | "archive" | "trash";
   title?: string;
   breadcrumbItems?: readonly PageBreadcrumbItem[];
@@ -94,7 +104,7 @@ function Skeleton() {
   );
 }
 
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 20;
 
 interface FolderTargetRow {
   id: string;
@@ -188,6 +198,7 @@ function buildMoveTargets(
 
 export function LibraryGrid({
   view,
+  kind = "all",
   folderId = null,
   spaceId = null,
   emptyKind,
@@ -198,6 +209,8 @@ export function LibraryGrid({
   extraActions,
 }: LibraryGridProps) {
   const t = useT();
+  const recordingsHeading =
+    kind === "image" ? t("navigation.screenshots") : t("navigation.recordings");
   const [sort, setSort] = useState<SortKey>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
@@ -242,7 +255,7 @@ export function LibraryGrid({
     setPage(1);
     setSelected(new Set());
     setLastSelectedId(null);
-  }, [view, folderId, spaceId, tagFilter, sort]);
+  }, [view, kind, folderId, spaceId, tagFilter, sort]);
 
   useEffect(() => {
     const handleOpenCreateFolder = () => setCreateFolderOpen(true);
@@ -257,23 +270,19 @@ export function LibraryGrid({
   const countArgs = useMemo(
     () => ({
       view,
+      kind,
       folderId: folderId ?? null,
       spaceId: spaceId ?? null,
       tag: tagFilter ?? null,
     }),
-    [view, folderId, spaceId, tagFilter],
+    [view, kind, folderId, spaceId, tagFilter],
   );
   const { data: totalCount } = useRecordingsCount(countArgs);
-  const total = totalCount ?? 0;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
 
   const args: ListRecordingsArgs = useMemo(
     () => ({
       view,
+      kind,
       folderId: folderId ?? null,
       spaceId: spaceId ?? null,
       tag: tagFilter ?? null,
@@ -281,11 +290,24 @@ export function LibraryGrid({
       limit: PAGE_SIZE,
       offset: (page - 1) * PAGE_SIZE,
     }),
-    [view, folderId, spaceId, tagFilter, sort, page],
+    [view, kind, folderId, spaceId, tagFilter, sort, page],
   );
 
   const { data, isLoading, isError, refetch, isRefetching } =
     useRecordings(args);
+
+  // A failed count is not zero clips: without it, offer "next" while the page
+  // comes back full so later pages stay reachable.
+  const totalKnown = typeof totalCount === "number";
+  const total = totalKnown ? totalCount : 0;
+  const pageIsFull = (data?.recordings.length ?? 0) >= PAGE_SIZE;
+  const totalPages = totalKnown
+    ? Math.max(1, Math.ceil(total / PAGE_SIZE))
+    : page + (pageIsFull ? 1 : 0);
+
+  useEffect(() => {
+    if (totalKnown && page > totalPages) setPage(totalPages);
+  }, [totalKnown, page, totalPages]);
 
   const trashRecording = useTrashRecording();
   const archiveRecording = useArchiveRecording();
@@ -294,9 +316,15 @@ export function LibraryGrid({
   const canManageRecordings = view !== "shared";
   const canMoveSelection = view === "library" || view === "space";
   const canUploadByDrop = canMoveSelection;
+  const [storageGateIssue, setStorageGateIssue] =
+    useState<VideoStorageGateIssue | null>(null);
+  const storageStatus = useVideoStorageStatus(storageGateIssue !== null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const dragDepthRef = useRef(0);
-  const { uploads, uploadFiles } = useDropVideoUpload({ spaceId, folderId });
+  const { uploads, uploadFiles } = useDropVideoUpload(
+    { spaceId, folderId },
+    setStorageGateIssue,
+  );
   const activeUploadIds = useMemo(
     () =>
       new Set(
@@ -482,10 +510,25 @@ export function LibraryGrid({
   };
 
   const handleRetry = async (rec: RecordingSummary) => {
+    let storageConfigured = false;
+    try {
+      storageConfigured = (await fetchVideoStorageStatus()).configured;
+    } catch {
+      setStorageGateIssue("unavailable");
+      return;
+    }
+    if (!storageConfigured) {
+      setStorageGateIssue("missing");
+      return;
+    }
     try {
       await retryRecordingUploadFromBackup(rec.id);
     } catch (err: any) {
-      toast.error(err?.message ?? t("clipsFinalRaw.retryFailed"));
+      toast.error(
+        err instanceof LocalCopyInUseError
+          ? t("recordRoute.localRecordingOpenElsewhere")
+          : (err?.message ?? t("clipsFinalRaw.retryFailed")),
+      );
     } finally {
       void refetch();
     }
@@ -522,6 +565,17 @@ export function LibraryGrid({
       return;
     }
     uploadFiles(files);
+  };
+
+  const retryStorageStatus = async () => {
+    const result = await storageStatus.refetch();
+    if (result.isError || !result.data) {
+      setStorageGateIssue("unavailable");
+    } else if (result.data.configured) {
+      setStorageGateIssue(null);
+    } else {
+      setStorageGateIssue("missing");
+    }
   };
 
   const chips: FilterChip[] = [];
@@ -561,6 +615,20 @@ export function LibraryGrid({
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
+      <FileStorageSetupPopover
+        open={storageGateIssue !== null}
+        onOpenChange={(open) => {
+          if (!open) setStorageGateIssue(null);
+        }}
+        onConnected={() => void retryStorageStatus()}
+        {...(storageGateIssue === "unavailable"
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void retryStorageStatus(),
+            }
+          : { status: "missing" as const })}
+      />
+
       {/* Share dialog — programmatically opened from the card context menu */}
       {sharingRec && (
         <ShareRecordingDialog
@@ -724,13 +792,13 @@ export function LibraryGrid({
                   )}
 
                   {recordings.length > 0 && (
-                    <section aria-label={t("navigation.recordings")}>
+                    <section aria-label={recordingsHeading}>
                       {visibleFolders.length > 0 && (
                         <h2
                           id="library-recordings-heading"
                           className="mb-3 text-sm font-semibold text-foreground"
                         >
-                          {t("navigation.recordings")}
+                          {recordingsHeading}
                         </h2>
                       )}
                       <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
@@ -828,11 +896,12 @@ export function LibraryGrid({
         {!isLoading && recordings.length > 0 && totalPages > 1 && (
           <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border px-5 py-2.5">
             <span className="text-xs text-muted-foreground">
-              {t("libraryGrid.paginationRange", {
-                start: (page - 1) * PAGE_SIZE + 1,
-                end: (page - 1) * PAGE_SIZE + recordings.length,
-                total,
-              })}
+              {totalKnown &&
+                t("libraryGrid.paginationRange", {
+                  start: (page - 1) * PAGE_SIZE + 1,
+                  end: (page - 1) * PAGE_SIZE + recordings.length,
+                  total,
+                })}
             </span>
             <div className="flex items-center gap-2">
               <Button
@@ -846,7 +915,9 @@ export function LibraryGrid({
                 {t("libraryGrid.paginationPrevious")}
               </Button>
               <span className="text-xs text-muted-foreground">
-                {t("libraryGrid.paginationPage", { page, totalPages })}
+                {totalKnown
+                  ? t("libraryGrid.paginationPage", { page, totalPages })
+                  : page}
               </span>
               <Button
                 variant="outline"

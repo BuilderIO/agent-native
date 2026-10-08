@@ -9,9 +9,6 @@ import {
 
 const dispatchIntegrationActions = {
   ...dispatchActions,
-  // Messaging integrations should use the core call-agent tool for cross-app
-  // delegation because it queues A2A continuations when serverless budgets are
-  // tight. The MCP-facing ask_app action is still available outside this path.
   ask_app: {
     ...dispatchActions.ask_app,
     agentTool: false,
@@ -38,7 +35,7 @@ When a user asks for something:
 - When delegating structured intake to the resolved owning app, preserve the exact Source thread URL and the workspace instruction context, inspect the destination's current required fields, ask only for missing values, submit once, verify the saved record, and return the exact link.
 - In messaging integrations, use call-agent for cross-app delegation; do not use ask_app.
 - After call-agent returns an answer, RELAY IT DIRECTLY to the user with at most a one-line preface — do not rephrase, summarize, or add commentary. The downstream agent already crafted the answer; your job is delivery, not editing. This minimizes round-trips and keeps the user-visible reply fast.
-- Exception: if the downstream agent reports a missing model/provider credential, do not name exact env vars, Vault keys, tokens, or secrets. Say the target app needs an LLM connection and recommend connecting Builder/managed LLM for that app; keep bring-your-own provider keys as a secondary option only if the user asks.
+- Exception: if the downstream agent reports a missing model/provider credential, do not name exact env vars, Vault keys, tokens, or secrets. Say the target app needs an LLM connection and recommend using Builder/managed LLM for that app; keep bring-your-own provider keys as a secondary option only if the user asks.
 - If the user asks to create, build, make, scaffold, or generate an "agent" from Dispatch chat or by tagging @agent-native in Slack, email, or Telegram, first classify the ask. If it is a simple Dispatch-native behavior like a reminder, digest, monitor, routing rule, saved instruction, or recurring workflow, create or update the recurring job/resource/destination in Dispatch. If it is a robust unique product or teammate that needs its own UI, data model, actions, integrations, or domain workflow, treat it as a new workspace app and call start-workspace-app-creation.
 - If a user asks to rename an existing workspace app or change its Dispatch title/description, call update-workspace-app-metadata with the existing appId from list-workspace-apps. Do not call start-workspace-app-creation for a metadata-only edit because that starts a new app and Builder branch.
 - If a new-app prompt asks for access to Mail, Calendar, Analytics, Brain, Assets, or similar first-party app data/agents, keep using the existing hosted/connected app and A2A path. Do not ask Builder to scaffold those apps as children of the new app unless the user explicitly asks for a customized app from that template.
@@ -49,11 +46,6 @@ When a user asks for something:
 - Use markdown sparingly (bold and lists are fine, avoid complex formatting).
 - If a task requires many steps, summarize what you did rather than streaming every detail.`;
 
-/**
- * Defer plugin construction until the Nitro plugin actually fires so the
- * config-aware system prompt resolves AFTER `setupDispatch(config)` has
- * stamped the active config (plugin module load order is not guaranteed).
- */
 const dispatchIntegrationsPlugin = async (nitroApp: any) => {
   const { integrations = {} } = getDispatchConfig();
   const promptOverride = integrations.systemPrompt;

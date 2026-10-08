@@ -114,4 +114,15 @@ describe("update-mail-preferences action", () => {
       }),
     );
   });
+
+  it("persists whether the All tab is visible", async () => {
+    const result = await action.run({
+      showAllTab: false,
+      requestSource: "tab-all",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({ showAllTab: false, theme: "dark" }),
+    );
+  });
 });

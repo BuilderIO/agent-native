@@ -43,8 +43,6 @@ describe("budgeted kiwi decoding", () => {
     document.writeVarUint(5);
     document.writeString(`${bom}lead`);
     document.writeString("café \u{1F600}");
-    // An overlong NUL ends kiwi's string before the real terminator, and a
-    // bare continuation byte is a Latin-1 code point to kiwi.
     for (const byte of [0x61, 0xc0, 0x80, 0x62, 0x00, 0x80, 0x00]) {
       document.writeByte(byte);
     }
@@ -93,7 +91,6 @@ describe("budgeted kiwi decoding", () => {
       const document = compiled.encodeMessage({
         kinds: new Array(40_000).fill(name),
       });
-      // The text parser rejects `$`; a binary schema can still carry it.
       schema.definitions[0]!.name = enumName;
       schema.definitions[1]!.fields[0]!.type = enumName;
 
@@ -106,8 +103,6 @@ describe("budgeted kiwi decoding", () => {
   it.each([true, false])(
     "charges rescanned string spans to the decode work budget (terminated: %s)",
     (terminated) => {
-      // Each overlong NUL (C0 80) ends a kiwi string after two bytes, so every
-      // string rescans up to the one real NUL, or to the end of the buffer.
       const schema = parseSchema("message Message { string[] values = 1; }");
       const count = 64 * 1024;
       const document = new ByteBuffer();
@@ -159,8 +154,6 @@ describe("budgeted kiwi decoding", () => {
     const schema = parseSchema(
       "message Link { Link[] children = 1; } message Message { Link root = 1; }",
     );
-    // 200 message levels alone fit the 256-level budget; with the array
-    // between each pair the document is 400 levels deep.
     const document = new ByteBuffer();
     document.writeVarUint(1);
     for (let index = 0; index < 200; index += 1) {

@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { extractMermaidBlocks } from "./mermaid-blocks";
 import {
   sanitizeCssValue,
   sanitizeSlideHtml,
@@ -56,6 +57,36 @@ describe("sanitizeSlideHtml", () => {
     );
     expect(html).not.toContain("body {");
   });
+
+  it("heals a stylesheet scoped by an earlier save to a single scope", () => {
+    const html = sanitizeSlideHtml(
+      '<style>[data-slide-content-scope="slide-a"] [data-slide-content-scope="slide-b"] .card { color: red; } [data-slide-content-scope="slide-a"], [data-slide-content-scope="slide-a"] * { margin: 0; }</style><div class="card">ok</div>',
+      { scopeSelector: '[data-slide-content-scope="slide-c"]' },
+    );
+
+    expect(html).toContain(
+      '[data-slide-content-scope="slide-c"] .card { color: red; }',
+    );
+    expect(html).toContain(
+      '[data-slide-content-scope="slide-c"], [data-slide-content-scope="slide-c"], [data-slide-content-scope="slide-c"] *',
+    );
+    expect(html).not.toContain("slide-a");
+    expect(html).not.toContain("slide-b");
+  });
+
+  it("keeps source stamps, including on a mermaid block", () => {
+    const html = sanitizeSlideHtml(
+      '<div class="fmd-slide" data-src-i="n:0"><p data-src-i="n:1">x</p></div>',
+    );
+    expect(html).toContain('data-src-i="n:0"');
+    expect(html).toContain('data-src-i="n:1"');
+
+    const { blocks, contentWithPlaceholders } = extractMermaidBlocks(
+      '<div class="mermaid" data-src-i="n:2">graph TD\nA --> B</div>',
+    );
+    expect(blocks).toEqual(["graph TD\nA --> B"]);
+    expect(contentWithPlaceholders).toBe('<div data-mermaid-index="0"></div>');
+  });
 });
 
 describe("sanitizeSlideUrl", () => {
@@ -64,6 +95,17 @@ describe("sanitizeSlideUrl", () => {
       "https://example.com/a.png",
     );
     expect(sanitizeSlideUrl("javascript:alert(1)", "image")).toBeNull();
+  });
+
+  it("allows parameterized raster data URLs while keeping the MIME allowlist", () => {
+    const dataUrl = "data:IMAGE/PNG;charset=binary;base64,AQID";
+    expect(sanitizeSlideUrl(dataUrl, "image")).toBe(dataUrl);
+    expect(
+      sanitizeSlideUrl(
+        "data:image/svg+xml;charset=utf-8;base64,PHN2Zy8+",
+        "image",
+      ),
+    ).toBeNull();
   });
 
   it("allows blob urls only for explicitly enabled client previews", () => {
@@ -87,6 +129,70 @@ describe("sanitizeSlideUrl", () => {
     expect(sanitizeSlideHtml(html, { allowBlobImages: true })).toContain(
       "blob:preview",
     );
+  });
+
+  it("preserves playable MP4 and WebM markup", () => {
+    const html = sanitizeSlideHtml(
+      '<video controls playsinline preload="metadata"><source src="https://media.example.com/clip.webm" type="video/webm"></video>',
+    );
+
+    expect(html).toContain("<video");
+    expect(html).toContain('controls=""');
+    expect(html).toContain('playsinline=""');
+    expect(html).toContain('src="https://media.example.com/clip.webm"');
+    expect(html).toContain('type="video/webm"');
+  });
+
+  it("rejects unsafe video and source URLs", () => {
+    const html = sanitizeSlideHtml(
+      '<video src="javascript:alert(1)"><source src="data:video/mp4;base64,AQID" type="video/mp4"></video>',
+    );
+
+    expect(html).toContain("<video");
+    expect(html).not.toContain("javascript:");
+    expect(html).not.toContain("data:video");
+  });
+
+  it("removes every false video boolean in DOM and SSR sanitizers", () => {
+    const source =
+      '<video controls="false" autoplay="false" loop="false" muted="false" playsinline="false"></video><video playsinline="false" muted="false" loop="false" autoplay="false" controls="false"></video>';
+    const domResult = sanitizeSlideHtml(source);
+    expect(domResult).not.toMatch(
+      /\b(?:autoplay|controls|loop|muted|playsinline)\s*=\s*(?:"false"|'false'|false)(?=\s|\/?>)/i,
+    );
+    expect(domResult).not.toMatch(
+      /\b(?:autoplay|controls|loop|muted|playsinline)(?:="")?/i,
+    );
+
+    vi.stubGlobal("DOMParser", undefined);
+    try {
+      const ssrResult = sanitizeSlideHtml(source);
+      expect(ssrResult).not.toMatch(
+        /\b(?:autoplay|controls|loop|muted|playsinline)\s*=\s*(?:"false"|'false'|false)(?=\s|\/?>)/i,
+      );
+      expect(ssrResult).not.toMatch(
+        /\b(?:autoplay|controls|loop|muted|playsinline)(?:="")?/i,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("gates blob video previews and preserves autoplay settings in thumbnails", () => {
+    const html = '<video src="blob:preview" autoplay></video>';
+    expect(sanitizeSlideHtml(html)).not.toContain("blob:preview");
+
+    const thumbnail = sanitizeSlideHtml(html, {
+      allowBlobVideos: true,
+      disableVideoAutoplay: true,
+    });
+    expect(thumbnail).toContain('src="blob:preview"');
+    expect(thumbnail).not.toMatch(/\sautoplay(?:="")?/);
+    expect(thumbnail).toContain('data-video-autoplay="true"');
+    expect(thumbnail).toContain('muted=""');
+    expect(thumbnail).toContain('playsinline=""');
+
+    expect(sanitizeSlideHtml(thumbnail)).toContain('autoplay=""');
   });
 });
 

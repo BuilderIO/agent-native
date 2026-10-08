@@ -66,6 +66,12 @@ export function useNavigationState() {
       } else if (pathname === "/sessions") {
         state.view = "sessions";
         state.filters = sessionFilters(searchParams);
+      } else if (pathname === "/sessions/events") {
+        state.view = "event-catalog";
+        state.filters = sessionFilters(searchParams);
+      } else if (pathname === "/sessions/performance") {
+        state.view = "performance";
+        state.filters = sessionFilters(searchParams);
       } else if (pathname.startsWith("/sessions/")) {
         state.view = "sessions";
         const match = pathname.match(/\/sessions\/([^/]+)/);
@@ -91,7 +97,6 @@ export function useNavigationState() {
         } else {
           const statusPage = searchParams.get("statuspage");
           if (statusPage) {
-            // "list" | "new" | <id> - the status-pages config sub-view.
             state.statusPageId = statusPage;
           } else {
             const monitor = searchParams.get("monitor");
@@ -132,6 +137,8 @@ function commandPathForNavigation(cmd: NavigationState): string {
   if (cmd.view === "sessions" && cmd.recordingId)
     return `/sessions/${encodeURIComponent(cmd.recordingId)}`;
   if (cmd.view === "sessions") return "/sessions";
+  if (cmd.view === "event-catalog") return "/sessions/events";
+  if (cmd.view === "performance") return "/sessions/performance";
   if (
     cmd.view === "agents" &&
     (cmd.agentsView === "database" ||
@@ -183,8 +190,6 @@ export function preserveActiveDashboardTab(
   const activeTab = new URLSearchParams(currentSearch).get("tab");
   if (!activeTab) return targetPath;
 
-  // Agent navigation identifies the dashboard, but the active tab is UI state
-  // held in the URL and is not part of the navigate action payload.
   targetUrl.searchParams.set("tab", activeTab);
   return `${targetUrl.pathname}${targetUrl.search}${targetUrl.hash}`;
 }

@@ -45,9 +45,6 @@ function Harness({
   onPopoverEscape: () => void;
   onCanvasEscapeHotkey: () => void;
 }) {
-  // Mirrors DesignEditor.tsx's real `useDesignHotkeys({ ..., onEscape:
-  // handleEscapeHotkey })` call: no `target`/`capture` override, so it binds
-  // to `window` in the default bubble phase, exactly like production.
   useDesignHotkeys({ onEscape: onCanvasEscapeHotkey });
 
   return (
@@ -122,7 +119,10 @@ describe("Escape ordering — DesignColorPicker popover vs canvas hotkeys", () =
         }),
       ),
     );
-    expect(container.textContent).toContain("DEDCF9");
+    expect(
+      container.querySelector<HTMLInputElement>('input[aria-label="Color"]')!
+        .value,
+    ).toBe("DEDCF9");
     expect(onChange).not.toHaveBeenCalled();
     expect(onCommit).toHaveBeenCalledTimes(1);
     expect(onCommit).toHaveBeenCalledWith("#dedcf9");
@@ -136,7 +136,10 @@ describe("Escape ordering — DesignColorPicker popover vs canvas hotkeys", () =
       ),
     );
     expect(document.querySelector('input[aria-label="Hex"]')).toBeNull();
-    expect(container.textContent).toContain("DEDCF9");
+    expect(
+      container.querySelector<HTMLInputElement>('input[aria-label="Color"]')!
+        .value,
+    ).toBe("DEDCF9");
     expect(onChange).not.toHaveBeenCalled();
     expect(onCommit).toHaveBeenCalledTimes(1);
     expect(onCanvasEscape).not.toHaveBeenCalled();
@@ -164,7 +167,10 @@ describe("Escape ordering — DesignColorPicker popover vs canvas hotkeys", () =
         }),
       ),
     );
-    expect(container.textContent).toContain("DEDCF9");
+    expect(
+      container.querySelector<HTMLInputElement>('input[aria-label="Color"]')!
+        .value,
+    ).toBe("DEDCF9");
     expect(onCommit).toHaveBeenCalledTimes(1);
     expect(onCanvasEscape).not.toHaveBeenCalled();
   });

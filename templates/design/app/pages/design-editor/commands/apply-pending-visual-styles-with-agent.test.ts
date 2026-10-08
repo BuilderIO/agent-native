@@ -168,6 +168,25 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
     sendDesignSourceHandoffAndConfirmMock.mockClear();
   });
 
+  it("hands off a shared prompt without clearing it before source acknowledgement", async () => {
+    const setup = argsFor([], new Map());
+
+    await runApplyPendingVisualStylesWithAgent({
+      ...setup.args,
+      pendingVisualStylePrompt: "Shared canvas changes",
+      allowPromptOnly: true,
+    });
+
+    expect(sendDesignSourceHandoffAndConfirmMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: "Shared canvas changes",
+        submit: true,
+      }),
+      { timeoutMs: 10_000 },
+    );
+    expect(setup.clearPendingLiveEditState).not.toHaveBeenCalled();
+  });
+
   it("allows long source-write gaps and drains each edit", async () => {
     const edits = [structureEdit(1), structureEdit(2), structureEdit(3)];
     const snapshots = new Map();

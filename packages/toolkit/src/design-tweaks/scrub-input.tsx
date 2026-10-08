@@ -41,35 +41,9 @@ type ScrubInputIcon = (props: {
 export interface ScrubInputChangeMeta {
   source: "commit" | "keyboard" | "scrub";
   expression?: string;
-  /** True when Alt/Option was held for this edit or scrub gesture. */
   altKey?: boolean;
-  /**
-   * Gesture-lifecycle signal for downstream consumers that want to throttle
-   * expensive work during a drag and only do the expensive commit once.
-   *
-   * - "preview": a live, in-progress tick — e.g. one pointermove sample while
-   *   scrubbing. There can be many of these per gesture; treat each as a
-   *   cheap, throttleable preview of the value, not a point to commit at full
-   *   cost.
-   * - "commit": the gesture's authoritative, final value. Fired exactly once
-   *   per gesture: on pointerup that ends a scrub drag, and for every
-   *   `source: "commit"` (blur/Enter) or `source: "keyboard"` (arrow step)
-   *   change, since those are already discrete, complete edits.
-   * - "cancel": pointer cancellation restored the value from pointerdown.
-   */
   phase: "preview" | "commit" | "cancel";
-  /**
-   * Set when an arrow-key nudge fires on a `mixed` selection (see
-   * `handleKeyDown`): there is no single current value to step from across a
-   * mixed selection, so `onChange`'s `value` arg is the step delta itself
-   * (not a new absolute value) and consumers that support per-target relative
-   * application should add this delta to each selected target's own current
-   * value instead of overwriting every target with `value`. Omitted for
-   * every other change — existing consumers that don't check for it keep
-   * receiving absolute values exactly as before.
-   */
   relativeDelta?: number;
-  /** Explicit per-target math for mixed-value selections. */
   relativeExpression?: ScrubRelativeExpression;
 }
 
@@ -77,32 +51,26 @@ export interface ScrubInputProps extends ScrubExpressionOptions {
   label: string;
   value: number;
   onChange: (value: number, meta: ScrubInputChangeMeta) => void;
-  /** Optional source-backed text display for fields with non-numeric values. */
   textValue?: string;
-  /** Handle a raw text commit without emitting the numeric callback as well. */
   onTextCommit?: (
     draft: string,
     meta: ScrubInputChangeMeta,
   ) => ScrubInputTextCommitResult;
-  /** Return focus to the canvas after Enter instead of keeping the field active. */
   blurOnEnter?: boolean;
   id?: string;
   step?: number;
   icon?: ScrubInputIcon | null;
-  /** Use the compact icon-only prefix treatment without relying on CSS selectors. */
   prefix?: "label" | "icon";
   disabled?: boolean;
   placeholder?: string;
   mixed?: boolean;
   mixedLabel?: string;
-  /** Enable only when onChange applies relativeExpression to each target. */
   allowRelativeExpressions?: boolean;
   className?: string;
   inputClassName?: string;
   labelClassName?: string;
   ariaLabel?: string;
   tooltipLabel?: string;
-  /** Replace the drag-scrub label with explicit minus/plus step buttons. */
   steppers?: boolean;
   decrementLabel?: string;
   incrementLabel?: string;
@@ -114,10 +82,6 @@ export type ScrubInputTextCommitResult =
 
 export interface PendingScrubCommit {
   value: number;
-  /** Incoming prop value at commit time. While this exact value remains, the
-   * host has not acknowledged the write yet and the optimistic draft should
-   * stay visible. A different incoming value is authoritative host
-   * normalization/rejection and must supersede the optimistic draft. */
   baseline: number;
 }
 
@@ -174,9 +138,6 @@ export function VisualScrubInput({
       ? resolvedMixedLabel
       : (textValue ?? formatScrubValue(value, { unit, precision })),
   );
-  // Track the latest draft in a ref so commitDraft always reads the most
-  // up-to-date value even if the blur event fires before the React state
-  // update has been committed to the render tree (concurrent mode / batching).
   const draftRef = useRef(draft);
   const [focused, setFocused] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -193,19 +154,7 @@ export function VisualScrubInput({
   const dragStartTextRef = useRef(
     textValue ?? formatScrubValue(value, { unit, precision }),
   );
-  // The last normalized value emitted as a "preview" scrub tick, so endDrag
-  // can re-emit it once as the gesture's authoritative "commit" — without
-  // recomputing from stale pointer deltas after pointer capture is released.
   const lastScrubValueRef = useRef(value);
-  // The most recent value THIS input committed (typed Enter/blur, keyboard
-  // nudge, or scrub release) that the host hasn't echoed back yet. While this
-  // is set, the resync effect below must hold the optimistic committed
-  // display instead of snapping back to the still-stale incoming `value`
-  // prop — otherwise a round-trip slower than one React render (host commit
-  // -> computedStyles update -> fresh `value` prop) clobbers the just-typed
-  // value back to the old one the instant focus leaves the input, which
-  // reads as "Enter resets to the old value". Cleared as soon as a fresh
-  // `value` prop confirms (or supersedes) the pending commit.
   const pendingCommitRef = useRef<PendingScrubCommit | null>(null);
   const pendingTextCommitRef = useRef<PendingScrubTextCommit | null>(null);
   const rawDraftChangedRef = useRef(false);
@@ -238,15 +187,8 @@ export function VisualScrubInput({
     );
     if (resolution !== "none") {
       if (resolution === "confirmed" || resolution === "superseded") {
-        // The host either echoed exactly what we committed or returned a new,
-        // authoritative normalized/rejected value. In both cases resume prop
-        // synchronization. The old equality-only logic held forever on the
-        // second path, leaving the field permanently stuck on a value the
-        // canvas never accepted.
         pendingCommitRef.current = null;
       } else {
-        // Still seeing the exact pre-commit prop — don't stomp the optimistic
-        // draft while the source-write round trip is pending.
         return;
       }
     }
@@ -276,11 +218,6 @@ export function VisualScrubInput({
   const setNextValue = (nextValue: number, meta: ScrubInputChangeMeta) => {
     const normalized = normalizeScrubNumber(nextValue, options);
     rawDraftChangedRef.current = false;
-    // Mark commit-phase writes as pending confirmation so the resync effect
-    // holds this optimistic display instead of reverting to a stale `value`
-    // prop before the host's round-trip lands (see pendingCommitRef above).
-    // Preview ticks don't need this: they're expected to be superseded by
-    // the next tick or the gesture's own final commit almost immediately.
     if (meta.phase === "commit") {
       pendingCommitRef.current = {
         value: normalized,
@@ -303,9 +240,6 @@ export function VisualScrubInput({
   };
 
   const commitDraft = () => {
-    // Always read from the ref so we use the latest typed value even if the
-    // React render with the updated draft state hasn't committed yet (e.g.
-    // when blur fires in the same synchronous batch as the last onChange).
     const currentDraft = draftRef.current;
     if (mixed && currentDraft === resolvedMixedLabel) return;
     if (onTextCommit) {
@@ -376,12 +310,7 @@ export function VisualScrubInput({
 
     draftRef.current = parsed.normalized;
     setDraft(parsed.normalized);
-    // From a mixed selection every explicitly typed value must commit, even
-    // when it equals the placeholder `value` prop (e.g. typing "0"): the
-    // selected objects hold differing values, so "no change" is meaningless.
     if (parsed.value !== value || mixed) {
-      // See setNextValue's pendingCommitRef comment — this text-commit path
-      // (Enter/blur) bypasses setNextValue, so mark it pending here too.
       pendingCommitRef.current = {
         value: parsed.value,
         baseline: normalizeScrubNumber(value, options),
@@ -398,8 +327,6 @@ export function VisualScrubInput({
     if (event.key === "ArrowUp" || event.key === "ArrowDown") {
       event.preventDefault();
       const direction = event.key === "ArrowUp" ? 1 : -1;
-      // getScrubStepFromEvent handles shiftKey (×10) and altKey (÷10).
-      // Cmd (metaKey) mirrors Shift for ×10 — editor convention on macOS.
       const baseStep = getScrubStepFromEvent(event, step);
       const cmdMultiplier = event.metaKey && !event.shiftKey ? 10 : 1;
       nudge(direction * baseStep * cmdMultiplier, event.altKey);
@@ -430,21 +357,7 @@ export function VisualScrubInput({
     }
   };
 
-  /** One step of `delta`, shared by arrow keys and the optional +/- buttons. */
   const nudge = (delta: number, altKey = false) => {
-    // Mixed selection: the `value` prop is only a placeholder (typically 0)
-    // — there's no single current value to step from, and there's no
-    // typed draft either (mixed keeps the draft as the literal "Mixed"
-    // string, see commitDraft's guard). Figma's behavior here is a
-    // *relative* nudge: apply the same +/-delta to each selected object's
-    // own value rather than snapping every object to one absolute number.
-    // ScrubInput itself can't resolve each target's individual value, so
-    // emit the delta via `onChange` (as both `value` and
-    // `meta.relativeDelta`) and let the consumer apply it per-target. Do
-    // NOT route through setNextValue: that formats/displays one absolute
-    // number in the draft, which would incorrectly replace the "Mixed"
-    // placeholder text with a single value that was never actually common
-    // to the whole selection.
     if (mixed) {
       onChange(delta, {
         source: "keyboard",
@@ -454,11 +367,6 @@ export function VisualScrubInput({
       });
       return;
     }
-    // Step from the currently typed draft, not the last-committed `value`
-    // prop — otherwise an in-progress, uncommitted edit (typed but not yet
-    // blurred/entered) is silently discarded the moment an arrow key is
-    // pressed. Parse the draft the same way commitDraft does, falling back
-    // to `value` only when the draft doesn't parse (e.g. empty/invalid).
     const draftParsed = parseScrubExpression(draftRef.current, value, options);
     const base = draftParsed ? draftParsed.value : value;
     setNextValue(base + delta, {
@@ -480,12 +388,6 @@ export function VisualScrubInput({
     };
     dragStartValueRef.current = value;
     dragStartTextRef.current = textValue ?? formatScrubValue(value, options);
-    // Re-seed the gesture's running base from the current prop right as the
-    // drag starts. Without this, a stale `lastScrubValueRef` left over from a
-    // previous gesture (or from an out-of-band prop update that arrived while
-    // not dragging) would silently become this gesture's starting point
-    // instead of the value actually displayed when the user grabbed the
-    // control.
     lastScrubValueRef.current = value;
     dragContainerRef.current?.setPointerCapture(event.pointerId);
     setDragging(true);
@@ -498,51 +400,20 @@ export function VisualScrubInput({
 
   const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
     if (!dragging || dragRef.current.pointerId !== event.pointerId) return;
-    // Mixed selection: scrubbing has no meaningful base value (the `value`
-    // prop is a placeholder), so committing drag deltas would snap every
-    // selected object to a step-from-0 value. Keep the drag inert; releasing
-    // without a committed drag focuses the input so the user can type an
-    // explicit value that then applies to all.
     if (mixed) return;
-    // updateScrubDrag mirrors the jitter-threshold + hasDragged bookkeeping
-    // (see scrub-input-utils.ts) so it can be unit tested in isolation from
-    // real DOM pointer events.
     const tick = updateScrubDrag(dragRef.current.drag, event.clientX);
     dragRef.current.drag = tick.state;
     if (tick.deltaX === null) return;
-    // Use incremental deltas from the last move so that clamped/rounded values
-    // committed by onChange are respected. A total-delta approach would create
-    // a dead zone equal to the amount dragged past the clamp boundary.
-    //
-    // Accumulate from this gesture's OWN last emitted value
-    // (lastScrubValueRef), not the `value` prop. The prop only reflects
-    // whatever the host last echoed back through computedStyles — a "preview"
-    // phase commit is not guaranteed to round-trip before the next
-    // pointermove tick fires (the host may debounce/throttle/skip preview
-    // writes), so re-reading `value` here would recompute every tick from a
-    // stale, pre-drag base plus one tiny incremental delta: the displayed
-    // number barely creeps from the original value instead of following the
-    // cursor, which reads as jittery/near-random rather than a smooth
-    // continuum. The gesture's own running total is always current because
-    // this component sets it itself on every tick below.
     const next =
       lastScrubValueRef.current +
       tick.deltaX *
         getScrubStepFromEvent(
           {
-            // Option starts a scrub when the pointer is on the numeric field;
-            // it does not also select the label's fine-step rate.
             altKey: !dragRef.current.startedFromInput && event.altKey,
             shiftKey: event.shiftKey,
           },
           step,
         );
-    // Px-type fields snap to whole numbers while scrubbing (see
-    // roundScrubDragValue) even though `precision` — which also governs typed
-    // input and keyboard nudges — allows a decimal. Rounding here, before
-    // setNextValue's own normalizeScrubNumber pass, keeps every subsequent
-    // incremental delta measured from an already-whole value instead of
-    // drifting on fractional leftovers.
     lastScrubValueRef.current = setNextValue(roundScrubDragValue(next, unit), {
       source: "scrub",
       phase: "preview",
@@ -556,16 +427,7 @@ export function VisualScrubInput({
     const wasDrag = dragRef.current.drag.hasDragged;
     dragRef.current.pointerId = -1;
     setDragging(false);
-    // A real scrub drag emitted only "preview" ticks via handlePointerMove.
-    // Emit exactly one authoritative "commit" here with the final value so a
-    // downstream consumer can distinguish "gesture finished" from "still
-    // dragging" — without this, the last preview tick would be the only
-    // signal, and a consumer that ignores preview ticks would never commit.
     if (wasDrag && !mixed) {
-      // See setNextValue's pendingCommitRef comment — mark this gesture's
-      // authoritative value as pending confirmation so releasing the drag
-      // can't be clobbered back to the pre-drag value by a slow host
-      // round-trip (same class of bug as the Enter/blur text-commit case).
       pendingCommitRef.current = {
         value: lastScrubValueRef.current,
         baseline: normalizeScrubNumber(value, options),
@@ -589,10 +451,6 @@ export function VisualScrubInput({
         ...(dragRef.current.altKey ? { altKey: true } : {}),
       });
     }
-    // If the pointer was released without dragging (a plain click), focus the
-    // input so the user can type immediately — mirrors the design editor's label click
-    // behaviour (the event.preventDefault() in handlePointerDown blocks the
-    // native label→input focus transfer).
     if (!wasDrag && !disabled) {
       inputRef.current?.focus();
     }
@@ -705,11 +563,6 @@ export function VisualScrubInput({
         placeholder={placeholder}
         inputMode={onTextCommit ? "text" : "decimal"}
         aria-label={ariaLabel ?? label}
-        // Enter commits but deliberately keeps focus here (see handleKeyDown)
-        // so the user can keep typing — that means the field is still an
-        // "editable target" when Cmd+Z/Cmd+Y is pressed right after a commit.
-        // This opts back into the global history shortcut the same way
-        // DesignColorPicker's popover does.
         data-design-history-hotkeys="true"
         onFocus={(event) => {
           setFocused(true);
@@ -736,7 +589,6 @@ export function VisualScrubInput({
         onKeyDown={handleKeyDown}
         onPointerDown={handleInputPointerDown}
         className={cn(
-          // Compact design-editor: h-6, 11px tabular text, ring-1 with no offset.
           "h-6 w-0 min-w-0 flex-1 !text-[11px] tabular-nums",
           "focus-visible:ring-1 focus-visible:ring-offset-0",
           inputClassName,

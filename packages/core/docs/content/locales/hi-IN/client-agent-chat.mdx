@@ -234,9 +234,10 @@ sendToAgentChat({
 
 ## openAgentSettings(section?) {#openagentsettings}
 
-`openAgentSettings()` का उपयोग तब करें जब किसी ऐप सेटिंग्स पेज या सेटअप कार्ड को
-कैनोनिकल `/settings` पेज खोलना चाहिए। किसी विशिष्ट सेक्शन को खोलने के लिए
-`"llm"`, `"secrets"`, `"automations"`, `"voice"`, या `"limits"` जैसा एक सेक्शन id पास करें।
+`openAgentSettings()` का उपयोग तब करें जब किसी सेटअप कार्ड या चैट सतह को Settings
+खोलनी हो। `"llm"`, `"secrets"`, `"automations"`, `"voice"` या `"limits"` जैसी
+सेक्शन id पास करें; Settings की रीडायरेक्ट तालिका उससे जुड़ा पेज खोलती है
+(Model, API keys, Automations, Preferences, या Model पर limits पंक्ति)।
 
 ```ts
 import { openAgentSettings } from "@agent-native/core/client/navigation";
@@ -245,6 +246,8 @@ openAgentSettings("secrets");
 ```
 
 सीधे `agent-panel:open-settings` डिस्पैच करने के बजाय इस हेल्पर को प्राथमिकता दें।
+किसी पेज को उसकी id से खोलने के लिए `openSettingsPage("integrations")` कॉल करें या
+`buildSettingsRoute(page, sub?)` से लिंक बनाएं; देखें [Settings Kit](/docs/toolkit-settings#links)।
 
 ## एजेंट चैट कॉन्टेक्स्ट स्थिति {#agent-chat-context-state}
 

@@ -1,4 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
+import {
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+  normalizeActionChangeResult,
+} from "@agent-native/core/action-ui";
 import {
   getRequestTimezone,
   getRequestUserEmail,
@@ -18,8 +23,11 @@ import type {
   CalendarEvent,
   FindTimeBusyBlock,
   FindTimeParticipant,
-  FindTimeResult,
 } from "../shared/api.js";
+import {
+  calendarTimeChoiceChange,
+  resolveCalendarActionLocale,
+} from "./action-chat-ui.js";
 import { listCalendarEvents } from "./list-events.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -142,6 +150,11 @@ function addCalendarEventBusyBlocks(
   }
 }
 
+function projectTimeChoice(result: unknown) {
+  const projected = normalizeActionChangeResult(result);
+  return projected?.change.kind === "calendar-time-choice" ? projected : null;
+}
+
 export default defineAction({
   description:
     "Find shared available time slots for a calendar event organizer and attendees using Google free/busy plus local calendar conflicts.",
@@ -195,9 +208,18 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
-  run: async (args): Promise<FindTimeResult> => {
+  chatUI: {
+    renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+    when: (_args, result) => projectTimeChoice(result) !== null,
+    projectResult: (_args, result) => projectTimeChoice(result),
+  },
+  run: async (args, actionContext?: ActionRunContext) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
+    const locale = await resolveCalendarActionLocale(
+      ownerEmail,
+      actionContext?.requestHeaders,
+    );
 
     const requestTimezone = normalizeTimezone(
       args.timezone ?? getRequestTimezone(),
@@ -329,6 +351,15 @@ export default defineAction({
       durationMinutes,
       slotStepMinutes,
     });
+    const timeChoice =
+      googleConnected && !errors.length && slots[0]
+        ? calendarTimeChoiceChange(
+            slots[0].start,
+            slots[0].end,
+            timezone,
+            locale,
+          )
+        : null;
 
     return {
       range: {
@@ -346,6 +377,7 @@ export default defineAction({
       message: googleConnected
         ? undefined
         : "Google Calendar is not connected, so suggestions only use local calendar conflicts.",
+      ...(timeChoice ?? {}),
     };
   },
 });

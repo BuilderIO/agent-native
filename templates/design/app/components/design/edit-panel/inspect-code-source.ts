@@ -1,12 +1,7 @@
 import type { ElementProvenance } from "@shared/source-mode";
 
 export interface InspectCodeSourceLocation {
-  /**
-   * Path exactly as reported by the runtime. This can be project-relative on
-   * ordinary Vite URLs, so it must not automatically become a vscode:// link.
-   */
   filePath: string;
-  /** Absolute paths are safe to expose through the local-editor deep link. */
   absolutePath?: string;
   line?: number;
   column?: number;
@@ -37,12 +32,6 @@ function isAbsoluteSourcePath(filePath: string): boolean {
   );
 }
 
-/**
- * Preserve the live bridge's compiler/debug provenance for the inspector.
- * A missing file remains unavailable; a React 19 debug-stack line remains
- * explicitly labelled as runtime-transformed instead of being presented as an
- * authored JSX position.
- */
 export function inspectCodeSourceLocation(
   provenance: ElementProvenance | null | undefined,
 ): InspectCodeSourceLocation | null {

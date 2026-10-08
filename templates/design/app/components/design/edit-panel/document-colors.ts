@@ -1,7 +1,9 @@
 import {
   applyVisualEdit,
   buildCodeLayerProjection,
+  codeLayerNodeWithStableSourceId,
   resolveCodeLayerTarget,
+  type CodeLayerProjection,
   type CodeLayerSource,
   type EditIntentTarget,
   type CodeLayerNode,
@@ -12,6 +14,7 @@ import {
   gradientStopWithFillOpacity,
   readGradientFillOpacity,
 } from "@shared/gradient-opacity";
+import { commonPrefixLength, commonSuffixLength } from "@shared/string-diff";
 
 import type { ElementInfo } from "../types";
 import {
@@ -28,18 +31,18 @@ export interface DocumentColorSourceFile {
   content: string;
 }
 
-// Matches hex (#rgb/#rgba/#rrggbb/#rrggbbaa), legacy comma-separated RGB and
-// HSL function color literals in CSS declaration values. Modern
-// space-separated `rgb(R G B [/ A])` and DOM-resolved formats (oklch,
-// color(display-p3 ...)) are intentionally out of scope: `parseCssColor` (the
-// non-DOM parser, safe to run in a plain Node/vitest environment) doesn't
-// resolve them, and pulling in the canvas-based `parseCssColorExtended`
-// resolver would make this helper impure/untestable without jsdom.
 const CSS_COLOR_TOKEN_PATTERN =
   /#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})\b|(?:rgb|hsl)a?\([^)]*\)/gi;
 
 interface ColorTokenSpan {
   value: string;
+  start: number;
+  end: number;
+  property: string;
+  inStyleBlock: boolean;
+}
+
+interface SourceRange {
   start: number;
   end: number;
 }
@@ -60,8 +63,24 @@ const SVG_PRESENTATION_COLOR_ATTRIBUTES = new Set([
   "stroke",
 ]);
 
+function maskSourceRanges(
+  content: string,
+  ranges: readonly SourceRange[],
+): string {
+  let masked = "";
+  let cursor = 0;
+  for (const { start, end } of ranges) {
+    masked +=
+      content.slice(cursor, start) +
+      content.slice(start, end).replace(/[^\r\n]/g, " ");
+    cursor = end;
+  }
+  return masked + content.slice(cursor);
+}
+
 function maskCssComments(css: string): string {
-  const masked = css.split("");
+  if (!css.includes("/*")) return css;
+  const comments: SourceRange[] = [];
   let quote: string | null = null;
   let escaped = false;
   for (let index = 0; index < css.length; index += 1) {
@@ -85,18 +104,10 @@ function maskCssComments(css: string): string {
     if (character !== "/" || css[index + 1] !== "*") continue;
     const end = css.indexOf("*/", index + 2);
     const commentEnd = end < 0 ? css.length : end + 2;
-    for (
-      let commentIndex = index;
-      commentIndex < commentEnd;
-      commentIndex += 1
-    ) {
-      if (css[commentIndex] !== "\r" && css[commentIndex] !== "\n") {
-        masked[commentIndex] = " ";
-      }
-    }
+    comments.push({ start: index, end: commentEnd });
     index = commentEnd - 1;
   }
-  return masked.join("");
+  return maskSourceRanges(css, comments);
 }
 
 interface HtmlTagSpan {
@@ -113,6 +124,7 @@ interface HtmlAttributeSpan {
 interface StyleBlockSpan {
   start: number;
   value: string;
+  closeEnd: number;
 }
 
 function htmlStartTagName(tag: string): string | null {
@@ -127,7 +139,10 @@ function rawTextClosingTag(tagName: string): RegExp {
   return new RegExp(`</${tagName}(?=[\\s/>])[^>]*>`, "gi");
 }
 
-function htmlTagSpans(content: string): HtmlTagSpan[] {
+function htmlTagSpans(content: string): {
+  tags: HtmlTagSpan[];
+  unterminatedStart: number;
+} {
   const tags: HtmlTagSpan[] = [];
   let start = -1;
   let quote: string | null = null;
@@ -152,7 +167,7 @@ function htmlTagSpans(content: string): HtmlTagSpan[] {
       start = -1;
     }
   }
-  return tags;
+  return { tags, unterminatedStart: start };
 }
 
 function htmlAttributeSpans(tag: string, offset: number): HtmlAttributeSpan[] {
@@ -196,9 +211,11 @@ function htmlAttributeSpans(tag: string, offset: number): HtmlAttributeSpan[] {
   return attributes;
 }
 
-function styleBlockSpans(content: string): StyleBlockSpan[] {
+function styleBlockSpans(
+  content: string,
+  tags: HtmlTagSpan[],
+): StyleBlockSpan[] {
   const blocks: StyleBlockSpan[] = [];
-  const tags = htmlTagSpans(content);
   const closingTag = rawTextClosingTag("style");
   let tagIndex = 0;
   let searchStart = 0;
@@ -212,11 +229,12 @@ function styleBlockSpans(content: string): StyleBlockSpan[] {
     closingTag.lastIndex = openingEnd;
     const closingMatch = closingTag.exec(content);
     if (!closingMatch) break;
+    searchStart = closingMatch.index + closingMatch[0].length;
     blocks.push({
       start: openingEnd,
       value: content.slice(openingEnd, closingMatch.index),
+      closeEnd: searchStart,
     });
-    searchStart = closingMatch.index + closingMatch[0].length;
     while (tagIndex < tags.length && tags[tagIndex].start < searchStart) {
       tagIndex += 1;
     }
@@ -241,14 +259,13 @@ function htmlTagEnd(content: string, start: number): number {
   return -1;
 }
 
-function maskNonRenderedHtml(content: string): string {
-  const masked = content.split("");
+function maskNonRenderedHtml(content: string): {
+  masked: string;
+  ranges: SourceRange[];
+} {
+  const ranges: SourceRange[] = [];
   const maskRange = (start: number, end: number) => {
-    for (let index = start; index < end; index += 1) {
-      if (content[index] !== "\r" && content[index] !== "\n") {
-        masked[index] = " ";
-      }
-    }
+    ranges.push({ start, end });
   };
 
   let cursor = 0;
@@ -292,7 +309,7 @@ function maskNonRenderedHtml(content: string): string {
     if (tagName !== "style") maskRange(start, closingEnd);
     cursor = closingEnd;
   }
-  return masked.join("");
+  return { masked: maskSourceRanges(content, ranges), ranges };
 }
 
 function cssPropertyName(property: string): string {
@@ -523,21 +540,27 @@ function isInsideExcludedColorFunction(value: string, index: number): boolean {
 
 function colorTokenSpansInCss(
   css: string,
-  offset = 0,
-  properties?: ReadonlySet<string>,
+  offset: number,
+  inStyleBlock: boolean,
 ): ColorTokenSpan[] {
   const tokens: ColorTokenSpan[] = [];
   const maskedCss = maskCssComments(css);
   declarationValueSpans(maskedCss, offset).forEach(
     ({ property, value, start }) => {
-      if (properties && !properties.has(property)) return;
-      tokens.push(...colorTokenSpansInValue(value, start));
+      tokens.push(
+        ...colorTokenSpansInValue(value, start, property, inStyleBlock),
+      );
     },
   );
   return tokens;
 }
 
-function colorTokenSpansInValue(value: string, offset = 0): ColorTokenSpan[] {
+function colorTokenSpansInValue(
+  value: string,
+  offset: number,
+  property: string,
+  inStyleBlock: boolean,
+): ColorTokenSpan[] {
   const tokens: ColorTokenSpan[] = [];
   const matcher = new RegExp(CSS_COLOR_TOKEN_PATTERN.source, "gi");
   for (const match of value.matchAll(matcher)) {
@@ -548,68 +571,260 @@ function colorTokenSpansInValue(value: string, offset = 0): ColorTokenSpan[] {
       value: token,
       start: offset + relativeStart,
       end: offset + relativeStart + token.length,
+      property,
+      inStyleBlock,
     });
   }
   return tokens;
 }
 
-function colorTokenSpansInHtml(
-  content: string,
-  properties?: ReadonlySet<string>,
-  options: { includeStyleBlocks?: boolean } = {},
-): ColorTokenSpan[] {
-  const maskedContent = maskNonRenderedHtml(content);
-  const styleBlocks = styleBlockSpans(maskedContent);
+function tagColorTokens(
+  tagOffset: number,
+  tag: string,
+  svgDepth: number,
+): { tokens: ColorTokenSpan[]; svgDepth: number } {
   const tokens: ColorTokenSpan[] = [];
-  let svgDepth = 0;
-
-  for (const { start: tagOffset, value: tag } of htmlTagSpans(maskedContent)) {
-    if (/^<\/?(?:script|noscript|style)\b/i.test(tag)) continue;
-    const tagName = htmlStartTagName(tag);
-    const closesSvg = /^<\/\s*svg\b/i.test(tag);
-    const opensSvg = tagName === "svg" && !closesSvg;
-    const insideSvg = svgDepth > 0 || opensSvg;
-    if (opensSvg && !/\/\s*>$/.test(tag)) svgDepth += 1;
-    if (tagName && !closesSvg) {
-      for (const attribute of htmlAttributeSpans(tag, tagOffset)) {
-        if (attribute.name === "style") {
-          tokens.push(
-            ...colorTokenSpansInCss(
-              attribute.value,
-              attribute.valueStart,
-              properties,
-            ),
-          );
-        } else if (
-          insideSvg &&
-          SVG_PRESENTATION_COLOR_ATTRIBUTES.has(attribute.name)
-        ) {
-          if (properties && !properties.has(attribute.name)) continue;
-          tokens.push(
-            ...colorTokenSpansInValue(attribute.value, attribute.valueStart),
-          );
-        }
-      }
-    }
-    if (closesSvg) svgDepth = Math.max(0, svgDepth - 1);
+  if (/^<\/?(?:script|noscript|style)\b/i.test(tag)) {
+    return { tokens, svgDepth };
   }
-
-  if (options.includeStyleBlocks !== false) {
-    for (const block of styleBlocks) {
-      tokens.push(
-        ...colorTokenSpansInCss(block.value, block.start, properties),
+  const tagName = htmlStartTagName(tag);
+  const closesSvg = /^<\/\s*svg\b/i.test(tag);
+  const opensSvg = tagName === "svg" && !closesSvg;
+  const insideSvg = svgDepth > 0 || opensSvg;
+  let nextSvgDepth = svgDepth;
+  if (opensSvg && !/\/\s*>$/.test(tag)) nextSvgDepth += 1;
+  if (tagName && !closesSvg) {
+    const attributes = htmlAttributeSpans(tag, tagOffset);
+    const styledProperties = new Set<string>();
+    for (const attribute of attributes) {
+      if (attribute.name !== "style") continue;
+      declarationValueSpans(maskCssComments(attribute.value)).forEach(
+        ({ property }) => styledProperties.add(property),
       );
     }
+    for (const attribute of attributes) {
+      if (attribute.name === "style") {
+        tokens.push(
+          ...colorTokenSpansInCss(attribute.value, attribute.valueStart, false),
+        );
+      } else if (
+        insideSvg &&
+        SVG_PRESENTATION_COLOR_ATTRIBUTES.has(attribute.name) &&
+        !styledProperties.has(attribute.name)
+      ) {
+        tokens.push(
+          ...colorTokenSpansInValue(
+            attribute.value,
+            attribute.valueStart,
+            attribute.name,
+            false,
+          ),
+        );
+      }
+    }
   }
-
-  return tokens.sort((left, right) => left.start - right.start);
+  if (closesSvg) nextSvgDepth = Math.max(0, nextSvgDepth - 1);
+  return { tokens, svgDepth: nextSvgDepth };
 }
 
-/**
- * Per-file color counts by file id. Tokenizing every file is ~1ms per screen
- * and an edit changes one of them. Owned by its caller so the file contents
- * it holds go away with the editor that read them.
- */
+interface ColorTokenScan {
+  tokens: ColorTokenSpan[];
+  tags: Array<SourceRange & { svgDepth: number }>;
+  maskedRanges: SourceRange[];
+  styleBlocks: SourceRange[];
+  unterminatedTagStart: number;
+  patchable: boolean;
+}
+
+function scanColorTokens(content: string): ColorTokenScan {
+  colorTokenScanCounts.full += 1;
+  const { masked, ranges: maskedRanges } = maskNonRenderedHtml(content);
+  const { tags: tagSpans, unterminatedStart } = htmlTagSpans(masked);
+  const tokens: ColorTokenSpan[] = [];
+  const tags: ColorTokenScan["tags"] = [];
+  let svgDepth = 0;
+  for (const { start, value } of tagSpans) {
+    tags.push({ start, end: start + value.length, svgDepth });
+    const read = tagColorTokens(start, value, svgDepth);
+    tokens.push(...read.tokens);
+    svgDepth = read.svgDepth;
+  }
+  const blocks = styleBlockSpans(masked, tagSpans);
+  for (const block of blocks) {
+    tokens.push(...colorTokenSpansInCss(block.value, block.start, true));
+  }
+  tokens.sort((left, right) => left.start - right.start);
+  return {
+    tokens,
+    tags,
+    maskedRanges,
+    styleBlocks: blocks.map((block) => ({
+      start: block.start,
+      end: block.start + block.value.length,
+    })),
+    unterminatedTagStart: unterminatedStart,
+    // Patching assumes the tag scan and the masking pass step over the same
+    // tags; markup-like CSS text inside a style block breaks that.
+    patchable: blocks.every((block) => {
+      const closing = tags[firstSpanAtOrAfter(tags, block.start)];
+      return (
+        closing?.start === block.start + block.value.length &&
+        closing.end === block.closeEnd
+      );
+    }),
+  };
+}
+
+function firstSpanAtOrAfter(spans: SourceRange[], offset: number): number {
+  let low = 0;
+  let high = spans.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (spans[middle]!.start < offset) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+// Rescans only the tag, text run, or style block one edit touched; null means
+// the edit could change how the rest of the document tokenizes.
+function patchColorTokenScan(
+  before: string,
+  content: string,
+): ColorTokenScan | null {
+  const base = colorTokenScans.get(before);
+  if (!base?.patchable) return null;
+  const start = commonPrefixLength(before, content);
+  const suffix = commonSuffixLength(
+    before,
+    content,
+    Math.min(before.length, content.length) - start,
+  );
+  const removedEnd = before.length - suffix;
+  const delta = content.length - before.length;
+  if (
+    before.slice(start, removedEnd).includes("<") ||
+    content.slice(start, content.length - suffix).includes("<") ||
+    before[start - 1] === "<" ||
+    (base.unterminatedTagStart >= 0 && base.unterminatedTagStart < start) ||
+    base.maskedRanges.some(
+      (range) => range.start < removedEnd && start < range.end,
+    )
+  ) {
+    return null;
+  }
+
+  const block = base.styleBlocks.find(
+    (candidate) => candidate.start <= start && start <= candidate.end,
+  );
+  const tag = base.tags[firstSpanAtOrAfter(base.tags, start) - 1];
+  let region: SourceRange = { start, end: removedEnd };
+  let regionTokens: ColorTokenSpan[] = [];
+  let regionTags: ColorTokenScan["tags"] = [];
+  let styleBlocks = base.styleBlocks;
+  if (block) {
+    region = block;
+    regionTokens = colorTokenSpansInCss(
+      content.slice(block.start, block.end + delta),
+      block.start,
+      true,
+    );
+    styleBlocks = styleBlocks.map((candidate) =>
+      candidate === block ? { ...block, end: block.end + delta } : candidate,
+    );
+  } else if (tag && tag.end > start) {
+    const previousTag = before.slice(tag.start, tag.end);
+    const tagName = htmlStartTagName(previousTag);
+    const nextEnd = htmlTagEnd(content, tag.start);
+    const nextTag = content.slice(tag.start, nextEnd);
+    if (
+      !tagName ||
+      htmlStartTagName(nextTag) !== tagName ||
+      removedEnd >= tag.end ||
+      nextEnd !== tag.end + delta ||
+      /\/\s*>$/.test(previousTag) !== /\/\s*>$/.test(nextTag)
+    ) {
+      return null;
+    }
+    region = tag;
+    regionTokens = tagColorTokens(tag.start, nextTag, tag.svgDepth).tokens;
+    regionTags = [{ ...tag, end: nextEnd }];
+  }
+
+  colorTokenScanCounts.patched += 1;
+  const shift = <T extends SourceRange>(range: T): T =>
+    delta === 0 || range.start < region.end
+      ? range
+      : { ...range, start: range.start + delta, end: range.end + delta };
+  return {
+    tokens: [
+      ...base.tokens.slice(0, firstSpanAtOrAfter(base.tokens, region.start)),
+      ...regionTokens,
+      ...base.tokens
+        .slice(firstSpanAtOrAfter(base.tokens, region.end))
+        .map(shift),
+    ],
+    tags: [
+      ...base.tags.slice(0, firstSpanAtOrAfter(base.tags, region.start)),
+      ...regionTags,
+      ...base.tags.slice(firstSpanAtOrAfter(base.tags, region.end)).map(shift),
+    ],
+    maskedRanges: base.maskedRanges.map(shift),
+    styleBlocks: styleBlocks.map(shift),
+    unterminatedTagStart:
+      base.unterminatedTagStart >= region.end
+        ? base.unterminatedTagStart + delta
+        : base.unterminatedTagStart,
+    patchable: true,
+  };
+}
+
+// Selection colors and the palette re-read each screen on every render, and
+// tokenizing a large imported screen costs hundreds of ms. Callers only read.
+const COLOR_TOKEN_CACHE_MAX_CHARS = 8_000_000;
+const colorTokenScans = new Map<string, ColorTokenScan>();
+const colorTokenScanContentByFile = new Map<string, string>();
+let colorTokenScanChars = 0;
+const colorTokenScanCounts = { full: 0, patched: 0 };
+
+export function _colorTokenScanCountsForTests(): {
+  full: number;
+  patched: number;
+} {
+  return { ...colorTokenScanCounts };
+}
+
+function colorTokenScan(content: string, fileId?: string): ColorTokenScan {
+  let scan = colorTokenScans.get(content);
+  if (scan) {
+    colorTokenScans.delete(content);
+  } else {
+    const previous =
+      fileId === undefined
+        ? undefined
+        : colorTokenScanContentByFile.get(fileId);
+    scan =
+      (previous === undefined
+        ? null
+        : patchColorTokenScan(previous, content)) ?? scanColorTokens(content);
+    colorTokenScanChars += content.length;
+  }
+  colorTokenScans.set(content, scan);
+  if (fileId !== undefined) colorTokenScanContentByFile.set(fileId, content);
+  while (
+    colorTokenScanChars > COLOR_TOKEN_CACHE_MAX_CHARS &&
+    colorTokenScans.size > 1
+  ) {
+    const oldest = colorTokenScans.keys().next().value!;
+    colorTokenScans.delete(oldest);
+    colorTokenScanChars -= oldest.length;
+    for (const [id, scanned] of colorTokenScanContentByFile) {
+      if (scanned === oldest) colorTokenScanContentByFile.delete(id);
+    }
+  }
+  return scan;
+}
+
 export type DocumentColorCountCache = Map<
   string,
   { content: string; counts: Map<string, number> }
@@ -622,30 +837,27 @@ export function documentFileColorCounts(
   const cached = cache.get(file.id);
   if (cached?.content === file.content) return cached.counts;
   const counts = new Map<string, number>();
-  for (const { value: token } of colorTokenSpansInHtml(file.content)) {
-    const parsed = parseCssColor(token);
-    if (!parsed) continue;
-    // Skip fully transparent tokens — not a meaningful "document color"
-    // swatch (matches selectionColorValues' same filter below).
-    if (parsed.a === 0) continue;
-    const hex = rgbaToHex(parsed).toUpperCase();
-    counts.set(hex, (counts.get(hex) ?? 0) + 1);
+  for (const { value: token } of colorTokenScan(file.content, file.id).tokens) {
+    const hex = documentColorHex(token);
+    if (hex) counts.set(hex, (counts.get(hex) ?? 0) + 1);
   }
   cache.set(file.id, { content: file.content, counts });
   return counts;
 }
 
-/**
- * Extracts a document-wide color palette from raw file contents: every
- * distinct color literal (hex/rgb/hsl) found in CSS declarations in the
- * given files, normalized to uppercase hex, deduped, and ordered by
- * descending frequency (most-used colors first) so the most relevant swatches
- * lead the grid. Capped at `limit` entries — real designs can reference many
- * more distinct color strings than are useful to show as quick-pick swatches.
- *
- * Pure and DOM-free so it can run against any file content (server-rendered,
- * cached, or live) and is unit-testable without jsdom.
- */
+const documentColorHexByToken = new Map<string, string | null>();
+
+function documentColorHex(token: string): string | null {
+  let hex = documentColorHexByToken.get(token);
+  if (hex === undefined) {
+    const parsed = parseCssColor(token);
+    hex = parsed && parsed.a !== 0 ? rgbaToHex(parsed).toUpperCase() : null;
+    if (documentColorHexByToken.size >= 4096) documentColorHexByToken.clear();
+    documentColorHexByToken.set(token, hex);
+  }
+  return hex;
+}
+
 export function extractDocumentColorPalette(
   files: DocumentColorSourceFile[],
   limit = 24,
@@ -688,6 +900,9 @@ export interface SelectionColorTarget {
 export interface SelectionColorScope {
   fileId: string;
   content: string;
+  // The editor's projection of exactly `content`; an evicted build would
+  // otherwise cost a full re-parse on every selection.
+  projection?: CodeLayerProjection;
   source?: CodeLayerSource;
   sourceId?: string;
   selector?: string;
@@ -845,6 +1060,11 @@ function resolveSelectionScope(scope: SelectionColorScope): {
   projection: ReturnType<typeof buildCodeLayerProjection>;
   node: CodeLayerNode | null;
 } {
+  const known =
+    scope.projection && scope.sourceId
+      ? codeLayerNodeWithStableSourceId(scope.projection, scope.sourceId)
+      : null;
+  if (known) return { projection: scope.projection!, node: known };
   const { projection, resolution } = resolveCodeLayerTarget(
     scope.content,
     selectionScopeTarget(scope),
@@ -860,7 +1080,11 @@ function resolveSelectionScopeNode(
   scope: SelectionColorScope,
   content = scope.content,
 ): CodeLayerNode | null {
-  return resolveSelectionScope({ ...scope, content }).node;
+  return resolveSelectionScope(
+    content === scope.content
+      ? scope
+      : { ...scope, content, projection: undefined },
+  ).node;
 }
 
 function mergedScopeRanges(
@@ -896,23 +1120,23 @@ function mergeSelectionColorRanges(
 }
 
 function colorTokenSpansWithinRanges(
-  content: string,
+  scan: ColorTokenScan,
   ranges: SelectionColorRange[],
-  properties?: ReadonlySet<string>,
-  options: { includeStyleBlocks?: boolean } = {},
+  include: (token: ColorTokenSpan) => boolean,
 ): ColorTokenSpan[] {
-  const mergedRanges = mergeSelectionColorRanges(ranges);
-  let rangeIndex = 0;
-  return colorTokenSpansInHtml(content, properties, options).filter((token) => {
-    while (
-      rangeIndex < mergedRanges.length &&
-      (mergedRanges[rangeIndex]?.end ?? 0) <= token.start
+  const within: ColorTokenSpan[] = [];
+  for (const range of mergeSelectionColorRanges(ranges)) {
+    for (
+      let index = firstSpanAtOrAfter(scan.tokens, range.start);
+      index < scan.tokens.length;
+      index += 1
     ) {
-      rangeIndex += 1;
+      const token = scan.tokens[index]!;
+      if (token.start >= range.end) break;
+      if (token.end <= range.end && include(token)) within.push(token);
     }
-    const range = mergedRanges[rangeIndex];
-    return !!range && token.start >= range.start && token.end <= range.end;
-  });
+  }
+  return within;
 }
 
 export function selectionColorScopeRanges(
@@ -972,16 +1196,13 @@ function replaceScopedColorTokensInHtml(
   properties?: ReadonlySet<string>,
 ): string | null {
   const target = colorKey(from);
-  // Resolve node ranges against the exact source snapshot being rewritten.
-  // Selection scopes can outlive an async bridge/source update, so offsets
-  // from scope.content are not safe to apply to the caller's content.
   const ranges = mergedScopeRanges(scopes, true, content);
   if (!ranges || ranges.length === 0) return null;
   let next = content;
   const tokens = colorTokenSpansWithinRanges(
-    content,
+    colorTokenScan(content, scopes[0]?.fileId),
     ranges,
-    properties,
+    (token) => !properties || properties.has(token.property),
   ).filter(({ value }) => colorKey(value) === target);
   for (let index = tokens.length - 1; index >= 0; index -= 1) {
     const token = tokens[index];
@@ -998,9 +1219,6 @@ export function selectionColorValues(
   const elements = Array.isArray(element) ? element : [element];
   const values = new Map<string, SelectionColorValue>();
 
-  // Source ranges are the authoritative selection-wide scan. They include
-  // every literal in descendants, including nodes beyond the bridge's compact
-  // runtime payload. Computed values fill in colors supplied by shared CSS.
   const scanGroups = new Map<
     string,
     Array<{ content: string; ranges: SelectionColorRange[] }>
@@ -1016,15 +1234,12 @@ export function selectionColorValues(
     else groups.push({ content: scope.content, ranges: [range] });
     scanGroups.set(scope.fileId, groups);
   }
-  for (const groups of scanGroups.values()) {
+  for (const [fileId, groups] of scanGroups) {
     for (const group of groups) {
       for (const { value: token } of colorTokenSpansWithinRanges(
-        group.content,
+        colorTokenScan(group.content, fileId),
         group.ranges,
-        undefined,
-        {
-          includeStyleBlocks: false,
-        },
+        (token) => !token.inStyleBlock,
       )) {
         addColorValue(values, "color", token);
       }
@@ -1038,8 +1253,8 @@ export function selectionColorValues(
         addStyleColors(values, node.styles, true),
       );
       if (current.htmlContent) {
-        colorTokenSpansInHtml(current.htmlContent).forEach(({ value: token }) =>
-          addColorValue(values, "color", token),
+        scanColorTokens(current.htmlContent).tokens.forEach(
+          ({ value: token }) => addColorValue(values, "color", token),
         );
       }
     }
@@ -1053,9 +1268,11 @@ function selectionColorNodesForScope(
 ): CodeLayerNode[] {
   const { projection, node: root } = scope.wholeDocument
     ? {
-        projection: buildCodeLayerProjection(scope.content, {
-          source: scope.source,
-        }),
+        projection:
+          scope.projection ??
+          buildCodeLayerProjection(scope.content, {
+            source: scope.source,
+          }),
         node: null,
       }
     : resolveSelectionScope(scope);
@@ -1087,7 +1304,7 @@ export function selectionColorTargets(
       const source = node.source;
       if (!source) continue;
       const openingTag = scope.content.slice(source.openStart, source.openEnd);
-      const matches = colorTokenSpansInHtml(openingTag).some(
+      const matches = scanColorTokens(openingTag).tokens.some(
         ({ value }) => colorKey(value) === target,
       );
       if (!matches) continue;
@@ -1855,8 +2072,6 @@ function nodeFillTargetStacks(
                 : [],
         });
       }
-      // Internal Boolean operands and mask <use> nodes are not user fills.
-      // Treat the visible result as one SVG paint target.
       if (
         isBooleanResult ||
         primitive === "boolean-operand" ||
@@ -2069,7 +2284,6 @@ export function selectionFillModel(
   };
 }
 
-/** Uppercase 6-char hex (no #) for a CSS color, matching the design editor's row readout. */
 export function selectionDisplayHex(value: string): string {
   const parsed = parseCssColor(value);
   if (!parsed) return value.replace(/^#/, "").toUpperCase();

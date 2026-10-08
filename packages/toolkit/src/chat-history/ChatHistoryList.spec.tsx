@@ -19,10 +19,6 @@ function item(
   };
 }
 
-/** React tracks the DOM input's value via a wrapped setter to decide whether
- * to fire its synthetic change handler, so setting `.value` directly is not
- * observed. Go through the native prototype setter instead, matching the
- * pattern used by CommandMenu.spec.tsx. */
 function typeIntoInput(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(
     window.HTMLInputElement.prototype,

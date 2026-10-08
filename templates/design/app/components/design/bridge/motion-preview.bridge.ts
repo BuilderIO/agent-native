@@ -44,7 +44,6 @@
  *   • Wrap everything in a self-executing IIFE.
  */
 (function () {
-  // Track list loaded by 'motion-load-tracks'.
   var loadedTracks: Array<{
     targetNodeId: string;
     property: string;
@@ -52,29 +51,10 @@
     delayMs?: number;
     durationMs?: number;
   }> = [];
-  // Timeline-level default easing sent alongside the tracks. Applied to any
-  // keyframe that omits its own `ease`, matching the compiled stylesheet's
-  // defaultEase fallback so scrub/playback preview equals the persisted CSS.
-  // Falls back to "ease" when the loader doesn't provide one.
   var loadedDefaultEase = "ease";
-  // Timeline duration in ms, needed to map timeline time into the local span
-  // of tracks that carry delayMs / durationMs offsets. Provided by
-  // 'motion-load-tracks' and refreshed by every 'motion-preview' tick; when
-  // unknown, offset-free tracks still preview correctly (local t = t).
   var loadedTimelineDurationMs: number | null = null;
-  // Map of nodeId -> [property, ...] we have touched, for cleanup.
   var touchedProps: Record<string, string[]> = {};
-  // Map of nodeId -> property -> original inline style value.
   var originalInlineValues: Record<string, Record<string, string>> = {};
-  // Map of nodeId -> resolved element, so applyPreview's per-track lookup
-  // during scrub/playback (driven by the parent's own rAF loop — one
-  // "motion-preview" message per frame) does one attribute-selector
-  // querySelector per node ONCE instead of once per track on every single
-  // frame. Invalidated (falls through to a fresh querySelector) whenever the
-  // cached element is no longer in the document — e.g. a host-applied edit
-  // replaced the node — so a stale reference never silently no-ops a track.
-  // Reset alongside the other per-load state in clearPreview so a reload
-  // after the previewed screen's DOM changes always re-resolves.
   var elementCache: Record<string, HTMLElement | null> = {};
 
   function resolveTrackElement(nodeId: string): HTMLElement | null {
@@ -134,7 +114,6 @@
     ];
   }
 
-  // Parse a CSS color (hex, rgb/rgba, hsl/hsla) into [r, g, b, a] or null.
   function parseColor(str: string): [number, number, number, number] | null {
     if (typeof str !== "string") return null;
     var s = str.trim();
@@ -229,9 +208,6 @@
     | { type: "color"; value: [number, number, number, number] }
     | { type: "num"; value: number; unit: string };
 
-  // Split a value into literal + typed (number / color) segments so two values
-  // that share a skeleton (e.g. 'translateY(16px)' / 'translateY(0px)') can be
-  // interpolated component-wise instead of snapping at the midpoint.
   function tokenizeSegments(str: string): Segment[] | null {
     if (typeof str !== "string") return null;
     var segs: Segment[] = [];
@@ -253,8 +229,6 @@
           continue;
         }
       }
-      // Skip a number when the previous char is a letter — it belongs to an
-      // identifier such as translate3d / matrix3d, not a numeric argument.
       var prevCh = i > 0 ? str.charAt(i - 1) : "";
       if (!/[a-zA-Z]/.test(prevCh)) {
         var nm = numRe.exec(rest);
@@ -285,13 +259,6 @@
     return parts.join("\x1f");
   }
 
-  // ── Easing evaluation ─────────────────────────────────────────────────────
-  // Dependency-free copy of the shared evaluateMotionEase algorithm in
-  // shared/motion-timeline.ts (this bridge cannot import modules) — keep the
-  // two in sync. Evaluates CSS timing functions so scrubbing matches the real
-  // compiled animation instead of always lerping linearly.
-
-  // Evaluate y for a CSS cubic-bezier at progress x (Newton + bisection).
   function cubicBezierY(
     x1: number,
     y1: number,
@@ -335,9 +302,6 @@
     return sampleY(u);
   }
 
-  // Evaluate a CSS timing function (keywords, cubic-bezier, steps, spring
-  // approximation) at linear progress x ∈ [0, 1]. Result may overshoot [0, 1]
-  // for overshoot beziers (the dock's "Spring" preset).
   function evalEase(ease: string | undefined, x: number): number {
     var clamped = x <= 0 ? 0 : x >= 1 ? 1 : x;
     var raw = String(ease == null ? "ease" : ease)
@@ -364,7 +328,6 @@
           Number.isFinite(p2) &&
           Number.isFinite(p3)
         ) {
-          // x control points must stay in [0, 1]; y may overshoot.
           return cubicBezierY(
             Math.min(1, Math.max(0, p0)),
             p1,
@@ -389,14 +352,11 @@
         );
       }
     }
-    // Real spring physics: spring(bounce[, settle]) tokens sampled from a
-    // damped oscillator. Keep in sync with shared/motion-easing.ts.
     if (raw.indexOf("spring") === 0) {
       var spr = parseSpringEase(raw);
       if (spr) return sampleSpringAt(spr[0], spr[1], clamped);
       return clamped;
     }
-    // CSS linear(...) stop lists (compiled springs / recovered timelines).
     if (raw.indexOf("linear(") === 0) {
       var lin = evalCssLinear(raw, clamped);
       if (lin !== null) return lin;
@@ -404,8 +364,6 @@
     return clamped;
   }
 
-  // Parse spring(bounce[, settle]) or the bare `spring` keyword into
-  // [bounce, settle], or null. Mirror of shared/motion-easing.ts.
   function parseSpringEase(raw: string): [number, number] | null {
     if (/^spring$/.test(raw)) return [0.25, 1];
     var m = /^spring\(\s*([+-]?[\d.]+)\s*(?:,\s*([+-]?[\d.]+)\s*)?\)$/.exec(
@@ -421,8 +379,6 @@
     return [clamp01(bounce), settle];
   }
 
-  // Damped-oscillator sampler. Mirror of sampleSpring in
-  // shared/motion-easing.ts — keep the two in sync.
   function sampleSpringAt(bounce: number, settle: number, x: number): number {
     if (x <= 0) return 0;
     var u = x / settle;
@@ -444,8 +400,6 @@
     );
   }
 
-  // Evaluate a CSS linear(value <percent>{0,2}, ...) timing function at
-  // progress x. Mirror of evaluateCssLinear in shared/motion-easing.ts.
   function evalCssLinear(raw: string, x: number): number | null {
     var m = /^linear\(([^)]*)\)$/.exec(raw);
     if (!m) return null;
@@ -514,9 +468,6 @@
     return values[values.length - 1];
   }
 
-  // Build the identity counterpart of a transform/filter list so a
-  // `none` endpoint interpolates smoothly instead of midpoint-snapping
-  // (e.g. none -> translateY(16px) lerps from translateY(0px)).
   function identityForFunctions(value: string): string | null {
     var fnRe = /([a-zA-Z][a-zA-Z0-9]*)\(([^)]*)\)/g;
     var out = "";
@@ -524,7 +475,6 @@
     var matched = false;
     var m: RegExpExecArray | null;
     while ((m = fnRe.exec(value)) !== null) {
-      // Only whitespace may sit between functions in a transform/filter list.
       if (value.slice(lastIndex, m.index).trim() !== "") return null;
       var fn = m[1].toLowerCase();
       var args = m[2];
@@ -552,7 +502,6 @@
       ) {
         identity = args.indexOf("%") >= 0 ? "100%" : "1";
       } else {
-        // matrix3d, perspective, drop-shadow, unknown functions: bail out.
         return null;
       }
       out += (out ? " " : "") + m[1] + "(" + identity + ")";
@@ -564,16 +513,10 @@
     return out;
   }
 
-  // Interpolate two keyframe values. Handles plain numbers (with units), CSS
-  // function values (translate/scale/blur/…), numbers embedded in gradients,
-  // and colors (hex / rgb(a) / hsl(a)). Falls back to a midpoint snap only for
-  // genuinely non-interpolable keywords (e.g. none -> block).
   function lerp(a: string, b: string, ratio: number): string {
     a = a == null ? "" : String(a);
     b = b == null ? "" : String(b);
     if (a === b) return a;
-    // Map a `none` endpoint to the identity form of the other endpoint so
-    // transform/filter tracks seeded from a `none` base animate smoothly.
     if (a.trim() === "none") {
       var identA = identityForFunctions(b);
       if (identA) a = identA;
@@ -630,7 +573,6 @@
       }
       if (ok && touched) return out;
     }
-    // Non-interpolable (keywords, mismatched shapes): snap at the midpoint.
     return ratio < 0.5 ? a : b;
   }
 
@@ -640,7 +582,6 @@
   ): string {
     if (!keyframes || keyframes.length === 0) return "";
     if (keyframes.length === 1) return keyframes[0].value;
-    // Find surrounding keyframes.
     var prev = keyframes[0];
     var next = keyframes[keyframes.length - 1];
     for (var i = 0; i < keyframes.length - 1; i++) {
@@ -653,21 +594,11 @@
     var span = next.t - prev.t;
     if (span <= 0) return prev.value;
     var ratio = Math.max(0, Math.min(1, (t - prev.t) / span));
-    // Per-keyframe ease shapes the interval to the NEXT keyframe (standard
-    // CSS keyframe semantics). A keyframe that omits its own ease falls back to
-    // the timeline's defaultEase (loadedDefaultEase) so scrub/playback preview
-    // matches the compiled stylesheet, which uses that same fallback when it
-    // emits animation-timing-function. Overshoot beziers may push the eased
-    // ratio outside [0, 1] on purpose — lerp extrapolates.
     var kfEase = prev.ease == null ? loadedDefaultEase : prev.ease;
     var eased = evalEase(kfEase, ratio);
     return lerp(prev.value, next.value, eased);
   }
 
-  // Map a normalised TIMELINE time to a track-local normalised time,
-  // honouring the track's delayMs / durationMs span. Clamped outside the
-  // span (animation-fill-mode: both semantics). Without a known timeline
-  // duration, offset-free tracks behave as before (local t = t).
   function trackLocalT(
     track: { delayMs?: number; durationMs?: number },
     t: number,
@@ -697,8 +628,6 @@
       if (!el) continue;
       var value = interpolate(track.keyframes, trackLocalT(track, t));
       if (value === "") continue;
-      // Normalize kebab properties (e.g. background-color) to the camelCase
-      // CSSOM accessor; el.style['background-color'] = … is unreliable.
       var prop = camelizeProp(track.property);
       if (!originalInlineValues[track.targetNodeId])
         originalInlineValues[track.targetNodeId] = {};
@@ -737,10 +666,6 @@
     elementCache = {};
   }
 
-  // Last previewed playhead position, so reloading the track list (which
-  // resets touched styles to base) can immediately re-apply the current
-  // scrub position instead of leaving the canvas at t=0 while the dock's
-  // playhead still shows the old time.
   var lastPreviewT: number | null = null;
 
   window.addEventListener("message", function (e: MessageEvent) {
@@ -749,21 +674,14 @@
     if (e.data.type === "motion-load-tracks") {
       clearPreview();
       loadedTracks = Array.isArray(e.data.tracks) ? e.data.tracks : [];
-      // Timeline-level default easing for keyframes that omit their own ease.
-      // Read AFTER clearPreview() (which resets it to "ease") so a non-default
-      // defaultEase from API/agent-created timelines drives the preview.
       loadedDefaultEase =
         typeof e.data.defaultEase === "string" && e.data.defaultEase
           ? e.data.defaultEase
           : "ease";
-      // Timeline duration (read AFTER clearPreview, which resets it): needed
-      // to map offset tracks before the first motion-preview tick arrives.
       var loadDur = Number(e.data.durationMs);
       if (Number.isFinite(loadDur) && loadDur > 0) {
         loadedTimelineDurationMs = loadDur;
       }
-      // Defensive: interpolate() scans keyframe pairs in array order, so an
-      // unsorted track (e.g. mid-drag ordering) would fail the window test.
       for (var i = 0; i < loadedTracks.length; i++) {
         var kfs = loadedTracks[i] && loadedTracks[i].keyframes;
         if (Array.isArray(kfs)) {

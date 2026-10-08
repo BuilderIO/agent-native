@@ -4,15 +4,6 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-/**
- * Exiting inline edit used to flush `onUpdateSlide` (and mutate the edited
- * DOM node) from inside a `setEditingEl` updater. Updaters run in the render
- * phase, so the flush updated DeckProvider while SlideEditor was rendering:
- * "Cannot update a component (DeckProvider) while rendering a different
- * component (SlideEditor)". `editingElRef` exists so exit paths can read the
- * edited element outside render; these assertions are what stop the updater
- * shape from coming back.
- */
 const source = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "SlideEditor.tsx"),
   "utf8",
@@ -32,7 +23,7 @@ describe("SlideEditor render-phase safety", () => {
       ),
     ].filter((match) => {
       const body = source.slice(match.index, match.index + 600);
-      return body.includes("onUpdateSlideRef");
+      return /onUpdateSlideRef/i.test(body);
     });
     expect(offenders.map((m) => m[0])).toEqual([]);
   });
@@ -83,124 +74,205 @@ describe("SlideEditor render-phase safety", () => {
     );
   });
 
-  it("queues the latest rich-text draft before disposing its editor", () => {
-    const start = source.indexOf("const disposeRichTextEditor");
+  it("queues the latest draft before ending the text session", () => {
+    const start = source.indexOf("const endTextSession");
     const end = source.indexOf("const flushInlineEditDraft", start);
-    const disposeBody = source.slice(start, end);
+    const endBody = source.slice(start, end);
 
-    expect(disposeBody).toContain(
-      "persistInlineEditDraft(session.slideId, draftContent)",
+    expect(endBody).toContain("session.text.end();");
+    expect(endBody).toContain(
+      "persistInlineEditDraft(session.slideId, content)",
     );
-    expect(disposeBody.indexOf("persistInlineEditDraft")).toBeLessThan(
-      disposeBody.indexOf("session.root.unmount()"),
+    expect(endBody.indexOf("session.text.end();")).toBeLessThan(
+      endBody.indexOf("persistInlineEditDraft"),
     );
   });
 
-  it("keeps the editor host outside React-owned slide content", () => {
+  it("edits the element in place and never touches document.body", () => {
     const enterStart = source.indexOf("const enterInlineEdit");
     const enterEnd = source.indexOf("// Exit edit mode", enterStart);
     const enterBody = source.slice(enterStart, enterEnd);
-    const disposeStart = source.indexOf("const disposeRichTextEditor");
-    const disposeEnd = source.indexOf(
-      "const flushInlineEditDraft",
-      disposeStart,
-    );
-    const disposeBody = source.slice(disposeStart, disposeEnd);
 
-    expect(enterBody).toContain(
-      'editorContext.className = "slide-content slide-rich-editor-context"',
-    );
-    expect(enterBody).toContain("fmdSlide.cloneNode(false) as HTMLElement");
-    expect(enterBody).toContain('fmdSlideContext.style.display = "contents"');
-    expect(enterBody).toContain(
-      "(fmdSlideContext ?? editorContext).append(host)",
-    );
-    expect(enterBody).toContain("document.body.append(editorContext)");
-    expect(enterBody).not.toContain("el.replaceChildren(host)");
-    expect(disposeBody).toContain("session.cleanupHost()");
-    expect(disposeBody).not.toContain(
-      "restoreSlideTextContainerContent(session.element",
-    );
+    expect(enterBody).toContain("startInPlaceTextSession(el,");
+    expect(enterBody).not.toContain("document.body");
+    expect(enterBody).not.toContain("cloneNode");
+    expect(enterBody).not.toContain("visibility");
+    expect(enterBody).not.toContain("createRoot");
+    expect(source).not.toContain("slide-rich-editor");
+    expect(source).not.toContain("@tiptap");
   });
 
-  it("serializes inspector mutations from the connected live slide root", () => {
+  it("serializes the live slide root the element is edited in", () => {
     const readStart = source.indexOf("const readCurrentSlideContentHtml");
     const readEnd = source.indexOf(
       "const readCurrentSlideContentHtmlRef",
       readStart,
     );
-    const disposeStart = source.indexOf("const disposeRichTextEditor");
-    const disposeEnd = source.indexOf(
-      "const flushInlineEditDraft",
-      disposeStart,
-    );
+    const endStart = source.indexOf("const endTextSession");
+    const endEnd = source.indexOf("const flushInlineEditDraft", endStart);
 
     expect(source.slice(readStart, readEnd)).toContain(
-      "slideContent.contains(session.element)",
+      "getRenderedSlideSource(slideContent)",
     );
-    expect(source.slice(disposeStart, disposeEnd)).toContain(
-      "liveSlideContent.contains(session.element)",
+    expect(source.slice(endStart, endEnd)).toContain(
+      "slideContent.contains(element)",
     );
   });
 
-  it("restores editor-only styles before serializing the live draft", () => {
+  it("saves raw slides by merging into the stored source, never the rendered DOM", () => {
     const serializeStart = source.indexOf("const serializeSlideContentHtml");
     const serializeEnd = source.indexOf(
       "const readCurrentSlideContentHtml",
       serializeStart,
     );
     const serializeBody = source.slice(serializeStart, serializeEnd);
-    const disposeStart = source.indexOf("const disposeRichTextEditor");
-    const disposeEnd = source.indexOf(
-      "const flushInlineEditDraft",
-      disposeStart,
-    );
-    const disposeBody = source.slice(disposeStart, disposeEnd);
+    const mergeAt = serializeBody.indexOf("mergeRenderedEdits(");
+    const domAt = serializeBody.indexOf("stripBuilderIds(clone.innerHTML)");
 
-    expect(serializeBody).toContain(
-      "activeOriginalStyle: string | null | undefined = undefined",
+    expect(mergeAt).toBeGreaterThan(-1);
+    expect(
+      serializeBody.slice(serializeBody.lastIndexOf("if (", domAt), domAt),
+    ).toContain('hasAttribute("data-slide-autofit-root")');
+    const markdownBranchStart = serializeBody.indexOf(
+      'if (slideContent.hasAttribute("data-slide-autofit-root"))',
     );
-    expect(serializeBody).toContain("if (activeOriginalStyle !== undefined)");
-    expect(serializeBody).toContain(
-      'activeClone.style.removeProperty("visibility")',
+    const markdownBranchEnd = serializeBody.indexOf(
+      "return stripBuilderIds(clone.innerHTML)",
+      markdownBranchStart,
     );
-    expect(serializeBody).toContain('getPropertyValue("visibility")');
-    expect(serializeBody).not.toContain(
-      'activeClone.setAttribute("style", activeOriginalStyle)',
-    );
-    expect(disposeBody).toContain("session.originalStyle,");
+    expect(
+      serializeBody.slice(markdownBranchStart, markdownBranchEnd),
+    ).toContain("prepareSerializationRoot(clone)");
+    expect(serializeBody).toContain("return null;");
+    expect(source).toContain("stampSource\n");
   });
 
-  it("scales the portalled editor with the transformed canvas", () => {
+  it("restores crop preview styles before saving the committed crop", () => {
+    const finishStart = source.indexOf("const finishImageCrop = useCallback");
+    const finishEnd = source.indexOf("const onCropKeyDown", finishStart);
+    const finishBody = source.slice(finishStart, finishEnd);
+
+    expect(finishBody.indexOf("crop.restorePreviewStyles();")).toBeLessThan(
+      finishBody.indexOf("writeImageCropPercentGeometry"),
+    );
+    expect(finishBody.indexOf("const cropChanged =")).toBeLessThan(
+      finishBody.indexOf("crop.restorePreviewStyles();"),
+    );
+    expect(finishBody.indexOf("crop.restorePreviewStyles();")).toBeLessThan(
+      finishBody.indexOf("readCurrentSlideContentHtmlRef.current()"),
+    );
+  });
+
+  it("keeps crop handles outside the original image mask visible", () => {
+    const previewStart = source.indexOf("const previewStyles = (");
+    const previewEnd = source.indexOf("const activeCrop:", previewStart);
+    const previewSetup = source.slice(previewStart, previewEnd);
+
+    expect(previewSetup).toContain('[frame, "clip-path"]');
+    expect(previewSetup).toContain('[frame, "border-radius"]');
+    expect(previewSetup).toContain('frame.style.clipPath = "none";');
+    expect(previewSetup).toContain('frame.style.borderRadius = "0";');
+  });
+
+  it("writes nothing for a click in and out", () => {
     const enterStart = source.indexOf("const enterInlineEdit");
     const enterEnd = source.indexOf("// Exit edit mode", enterStart);
     const enterBody = source.slice(enterStart, enterEnd);
 
-    expect(enterBody).toContain(
-      'el.closest<HTMLElement>("[data-slide-canvas]")',
+    expect(enterBody).not.toContain("captureInlineEditDraft(");
+    const baselineAt = enterBody.indexOf(
+      "const entryContent = readCurrentSlideContentHtml();",
     );
-    expect(enterBody).toContain("readSlideObjectTransformSnapshot(el)");
-    expect(enterBody).toContain(
-      "host.style.transformOrigin = hasElementTransform",
+    expect(baselineAt).toBeGreaterThan(-1);
+    expect(enterBody.indexOf("startInPlaceTextSession(")).toBeGreaterThan(
+      baselineAt,
     );
-    expect(enterBody).toContain(
-      "`scale(${safeScaleX}, ${safeScaleY}) ${elementTransform}`",
+
+    const exitStart = source.indexOf("const exitInlineEdit = useCallback");
+    const exitEnd = source.indexOf("const commitInlineEditForAgent", exitStart);
+    const exitBody = source.slice(exitStart, exitEnd);
+    const gateAt = exitBody.indexOf(
+      "if (shouldPersistInlineEditContent(initial, current)) {",
     );
-    expect(enterBody).toContain(': "top left"');
-    expect(enterBody).toContain(": `scale(${safeScaleX}, ${safeScaleY})`");
-    expect(enterBody).toContain(
-      "const hostRect = host.getBoundingClientRect()",
+    expect(gateAt).toBeGreaterThan(-1);
+    const writes = [...exitBody.matchAll(/OnUpdateSlideRef\.current\(/g)];
+    expect(writes).toHaveLength(1);
+    expect(writes[0].index).toBeGreaterThan(gateAt);
+
+    const captureStart = source.indexOf("const captureInlineEditDraft");
+    const captureEnd = source.indexOf(
+      "const scheduleInlineEditDraftCapture",
+      captureStart,
     );
-    expect(enterBody).toContain("getBoxQuads");
-    expect(enterBody).toContain("ancestorTranslationX");
-    expect(enterBody).toContain(
-      'host.style.transform = `matrix(${composed.join(", ")})`',
+    expect(source.slice(captureStart, captureEnd)).toContain(
+      "!textSessionRef.current.text.changed",
     );
-    expect(enterBody).toContain("new ResizeObserver(positionHost)");
-    expect(enterBody).toContain("resizeObserver?.observe(slideCanvas)");
-    expect(enterBody).toContain("resizeObserver?.observe(host)");
-    expect(enterBody).toContain("positionHost();");
-    expect(enterBody).toContain("resizeObserver?.disconnect()");
+  });
+
+  it("commits an open edit before any other content write or slide swap", () => {
+    expect(source).toContain(
+      "if (textSessionRef.current) exitInlineEditRef.current();",
+    );
+    const persistStart = source.indexOf("const persistInlineEditDraft");
+    const persistEnd = source.indexOf(
+      "const captureInlineEditDraft",
+      persistStart,
+    );
+    expect(source.slice(persistStart, persistEnd)).toContain(
+      "rawOnUpdateSlideRef.current({ content }, slideId, {",
+    );
+  });
+
+  it("keeps the replacement listener mounted across Excalidraw-to-HTML swaps", () => {
+    const boundaryRefAt = source.indexOf("ref={contentReplaceBoundaryRef}");
+    const canvasBranchAt = source.indexOf(
+      "{slide.excalidrawData ? (",
+      boundaryRefAt,
+    );
+    expect(boundaryRefAt).toBeGreaterThan(-1);
+    expect(canvasBranchAt).toBeGreaterThan(boundaryRefAt);
+
+    const effectStart = source.indexOf("// Another slide's HTML");
+    const effectEnd = source.indexOf(
+      "// Keep canvas gesture handlers",
+      effectStart,
+    );
+    const listenerEffect = source.slice(effectStart, effectEnd);
+    expect(listenerEffect).toContain("contentReplaceBoundaryRef.current");
+    expect(listenerEffect).toContain(
+      "boundary.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);",
+    );
+    expect(listenerEffect).toContain(
+      "boundary.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);",
+    );
+    expect(listenerEffect).not.toContain("containerRef.current");
+  });
+
+  it("never lets a slide link on the editing canvas navigate", () => {
+    expect(source).toMatch(
+      /onClickCapture=\{\s*readOnly \? undefined : preventSlideLinkNavigation\s*\}/,
+    );
+    expect(source).toMatch(
+      /onAuxClickCapture=\{\s*readOnly \? undefined : preventSlideLinkNavigation\s*\}/,
+    );
+  });
+
+  it("edits a bullet row as part of its list", () => {
+    const enterStart = source.indexOf("const enterInlineEdit");
+    const enterEnd = source.indexOf("// Exit edit mode", enterStart);
+    const enterBody = source.slice(enterStart, enterEnd);
+    expect(enterBody).toContain("findEnclosingList(block, slideContent)");
+    expect(enterBody).toMatch(
+      /const el =\s+list &&\s+\(isRichTextBlock\(list\) \|\| bulletRowCount\(list\) >= 2\) &&\s+!holdsPaintedTextBox\(list, slideContent\)\s+\? list\s+: block;/,
+    );
+  });
+
+  it("leaves an element under edit to its text session", () => {
+    const start = source.indexOf("function stampBuilderIds");
+    const end = source.indexOf("function layerLabel", start);
+    expect(source.slice(start, end)).toContain(
+      'if (element.getAttribute("contenteditable") === "true") return;',
+    );
   });
 
   it("marks and strips only the outer rich-text layer", () => {
@@ -249,8 +321,9 @@ describe("SlideEditor render-phase safety", () => {
       'resolvedTarget.querySelector<HTMLElement>("img")',
     );
     expect(doubleClickBody).toContain(
-      "showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);",
+      "startImageCrop(imageTarget as HTMLImageElement);",
     );
+    expect(doubleClickBody).toContain("showImageOverlay(imagePlaceholder);");
     expect(doubleClickBody.indexOf("const resolvedTarget")).toBeLessThan(
       doubleClickBody.indexOf("const imageTarget"),
     );
@@ -273,7 +346,7 @@ describe("SlideEditor render-phase safety", () => {
     expect(helperBody).toContain("return underlying ?? target;");
   });
 
-  it("preserves wrapped images for double-click overlays", () => {
+  it("enters crop mode for wrapped images on double-click", () => {
     const doubleClickStart = source.indexOf("const handleSlideDoubleClick");
     const doubleClickEnd = source.indexOf(
       "const slideElementSelected =",
@@ -288,7 +361,7 @@ describe("SlideEditor render-phase safety", () => {
       'resolvedTarget.querySelector<HTMLElement>("img")',
     );
     expect(doubleClickBody).toContain(
-      "showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);",
+      "startImageCrop(imageTarget as HTMLImageElement);",
     );
   });
 
@@ -342,9 +415,6 @@ describe("SlideEditor render-phase safety", () => {
     expect(arrangeBody).toContain("resolveSlidePositioningLayer(element)");
     expect(source).toContain("persistSlideObjectZOrderFromDom(source");
     expect(source).toContain("function isZIndexedSlideLayer");
-    // Arrange means stacking order. Reordering the DOM here moved the layer
-    // down the `.fmd-slide` flex column instead of changing what it paints
-    // over, which is what made send-to-front look like it did nothing.
     expect(source).not.toContain("function reorderSlideLayerInParent");
     expect(source).not.toContain("function arrangeFlowSlideLayerInParent");
   });
@@ -437,6 +507,43 @@ describe("SlideEditor render-phase safety", () => {
       "if (ids.size > 0 && editingElRef.current) exitInlineEdit();",
     );
     expect(source).toContain("window.getSelection()?.removeAllRanges();");
+  });
+
+  it("gives inline text editing priority over comment-highlight clicks", () => {
+    const pointerStart = source.indexOf("const handleSlidePointerDown");
+    const pointerEnd = source.indexOf(
+      "// Keep these listeners stable while React re-renders the marquee overlay.",
+      pointerStart,
+    );
+    const pointerBody = source.slice(pointerStart, pointerEnd);
+    expect(pointerBody.indexOf("const targetIsEditingBlock")).toBeLessThan(
+      pointerBody.indexOf("slideCommentThreadAtPoint("),
+    );
+    expect(pointerBody).toContain(
+      "if (!editingEl && !pinMode && !drawMode && !additive)",
+    );
+
+    const clickStart = source.indexOf("const handleSlideClick");
+    const clickEnd = source.indexOf(
+      "const handleCanvasBackgroundPointerDown",
+      clickStart,
+    );
+    const clickBody = source.slice(clickStart, clickEnd);
+    expect(
+      clickBody.indexOf("if (editingEl?.contains(e.target as Node))"),
+    ).toBeLessThan(clickBody.indexOf("commentPress &&"));
+  });
+
+  it("keeps group dragging available with additive modifiers", () => {
+    const pointerStart = source.indexOf(
+      "// Pointer-down on a member of the current multi-selection",
+    );
+    const selectedStart = source.indexOf("const selected =", pointerStart);
+    const groupDragPath = source.slice(pointerStart, selectedStart);
+
+    expect(groupDragPath).toContain("if (multiSelection.size > 0)");
+    expect(groupDragPath).toContain("if (id && multiSelection.has(id))");
+    expect(groupDragPath).not.toContain("!targetIsEditableText");
   });
 
   it("does not let selection rerenders clear a newly selected object set", () => {
@@ -550,7 +657,9 @@ describe("SlideEditor render-phase safety", () => {
     expect(pasteBody).toContain('clipboard.nativeClipboardMode === "pending"');
     expect(pasteBody).toContain('clipboard.nativeClipboardMode === "failed"');
     expect(pasteBody).not.toContain("clipboard.clipboardText");
-    expect(source).toContain("pasteSlideObjects(copySlideObjects(selection)");
+    expect(source).toContain(
+      "copySlideObjects(selection, storedFormOfCopy),\n      selection[0],",
+    );
   });
 
   it("re-measures portaled selection chrome after the editor layout moves", () => {

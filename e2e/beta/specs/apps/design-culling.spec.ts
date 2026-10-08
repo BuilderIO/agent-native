@@ -6,6 +6,12 @@ import {
 } from "@playwright/test";
 
 import {
+  attemptsFor,
+  describeActionFailure,
+  isSuccessStatus,
+  postActionWithRetry,
+} from "../../lib/action-retry";
+import {
   assertSignedInOnBeta,
   signedInContext,
   skipUnlessAuthed,
@@ -18,7 +24,20 @@ const selected = new Set(selectedSites().map((site) => site.id));
 test.skip(!selected.has("design"), "design not in this run's selection");
 
 const SCREEN_COUNT = 48;
-const LIVE_IFRAME_BUDGET = 32;
+const LIVE_SCREEN_BUDGET = 32;
+const LIVE_IFRAME_CEILING = 96;
+const STATIC_PREVIEW_BUDGET = 64;
+
+/**
+ * Every browsing context that previews a screen. On a board larger than the
+ * live pool, a screen narrower than the live-editor threshold on screen gets a
+ * static preview instead of a live editor, so at overview zoom the live editors
+ * are only the protected active screen and never follow the camera. Counting
+ * live editors alone measures that one screen, not the pool culling bounds.
+ */
+const LIVE_IFRAME_SELECTOR = "iframe[data-design-preview-iframe]";
+const STATIC_PREVIEW_SELECTOR = "iframe[data-screen-static-preview]";
+const PREVIEW_IFRAME_SELECTOR = `${LIVE_IFRAME_SELECTOR}, ${STATIC_PREVIEW_SELECTOR}`;
 
 function screenHtml(index: number): string {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -31,20 +50,16 @@ async function postAction(
   name: string,
   input: Record<string, unknown>,
 ): Promise<any> {
-  const response = await request.post(
+  const { final, history } = await postActionWithRetry(
+    request,
     `${origin}/_agent-native/actions/${name}`,
-    {
-      data: input,
-      headers: { "Content-Type": "application/json" },
-      timeout: 60_000,
-    },
+    input,
+    { attempts: attemptsFor(name) },
   );
-  if (!response.ok()) {
-    throw new Error(
-      `${name} failed: ${response.status()} ${await response.text()}`,
-    );
+  if (!isSuccessStatus(final.status)) {
+    throw new Error(describeActionFailure(name, history));
   }
-  return response.json();
+  return JSON.parse(final.body);
 }
 
 async function createCullingDesign(
@@ -81,18 +96,64 @@ async function createCullingDesign(
 }
 
 async function previewIframeIds(page: Page): Promise<string[]> {
-  return page
-    .locator("iframe[data-design-preview-iframe]")
+  const ids = await page
+    .locator(PREVIEW_IFRAME_SELECTOR)
     .evaluateAll((iframes) =>
       iframes.map(
         (iframe, index) =>
           iframe.getAttribute("data-screen-iframe-id") ?? `board-${index}`,
       ),
     );
+  return ids.sort();
+}
+
+async function previewPoolCounts(page: Page): Promise<{
+  liveScreens: number;
+  liveIframes: number;
+  staticPreviews: number;
+}> {
+  const [liveScreens, liveIframes, staticPreviews] = await Promise.all([
+    page.locator("[data-screen-shell]").evaluateAll(
+      (shells) =>
+        shells.filter((shell) => {
+          const tier = shell
+            .querySelector("[data-screen-content]")
+            ?.getAttribute("data-cull-tier");
+          return tier === "visible" || tier === "culled";
+        }).length,
+    ),
+    page.locator(LIVE_IFRAME_SELECTOR).count(),
+    page.locator(STATIC_PREVIEW_SELECTOR).count(),
+  ]);
+  return { liveScreens, liveIframes, staticPreviews };
+}
+
+/**
+ * Previews are admitted a few per frame, so the first frame with an iframe in
+ * it holds one of them, not the pool. A "before" taken there makes any later
+ * state look unchanged, so wait until the same set has held for two seconds.
+ */
+async function settledPreviewIframeIds(page: Page): Promise<string[]> {
+  const deadline = Date.now() + 45_000;
+  let previous: string[] = [];
+  let stableSince = Date.now();
+  while (Date.now() < deadline) {
+    const ids = await previewIframeIds(page);
+    if (ids.length > 0 && ids.join() === previous.join()) {
+      if (Date.now() - stableSince >= 2_000) return ids;
+    } else {
+      previous = ids;
+      stableSince = Date.now();
+    }
+    await page.waitForTimeout(250);
+  }
+  throw new Error(
+    `The preview iframe pool never held one set for 2s within 45s; it last held ${previous.length} iframe(s).`,
+  );
 }
 
 async function installChurnObserver(page: Page): Promise<void> {
-  await page.addInitScript(() => {
+  await page.addInitScript((selector) => {
     const state = { iframeAdded: 0, iframeRemoved: 0, iframeLoads: 0 };
     (
       window as typeof window & { __betaCullingPerf?: typeof state }
@@ -100,8 +161,8 @@ async function installChurnObserver(page: Page): Promise<void> {
     const count = (node: Node): number => {
       if (!(node instanceof Element)) return 0;
       return (
-        (node.matches("iframe[data-design-preview-iframe]") ? 1 : 0) +
-        node.querySelectorAll("iframe[data-design-preview-iframe]").length
+        (node.matches(selector) ? 1 : 0) +
+        node.querySelectorAll(selector).length
       );
     };
     new MutationObserver((records) => {
@@ -116,14 +177,14 @@ async function installChurnObserver(page: Page): Promise<void> {
       (event) => {
         if (
           event.target instanceof HTMLIFrameElement &&
-          event.target.matches("iframe[data-design-preview-iframe]")
+          event.target.matches(selector)
         ) {
           state.iframeLoads += 1;
         }
       },
       true,
     );
-  });
+  }, PREVIEW_IFRAME_SELECTOR);
 }
 
 async function resetChurn(page: Page): Promise<void> {
@@ -166,15 +227,14 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
     );
     await expect(page.locator("[data-screen-shell]")).toHaveCount(SCREEN_COUNT);
     await expect
-      .poll(() => page.locator("iframe[data-design-preview-iframe]").count(), {
+      .poll(() => page.locator(PREVIEW_IFRAME_SELECTOR).count(), {
         timeout: 45_000,
       })
       .toBeGreaterThan(0);
 
-    const initialIframes = await page
-      .locator("iframe[data-design-preview-iframe]")
-      .count();
-    const initialIframeIds = await previewIframeIds(page);
+    const initialIframeIds = await settledPreviewIframeIds(page);
+    const initialIframes = initialIframeIds.length;
+    const initialPool = await previewPoolCounts(page);
     const placeholders = await page
       .locator('[data-screen-content][data-cull-tier="placeholder"]')
       .count();
@@ -265,11 +325,13 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
       `[beta-design-culling] gesture-end ${JSON.stringify({ finalZoomLabel, finalTransform })}`,
     );
 
-    const afterIframes = await page
-      .locator("iframe[data-design-preview-iframe]")
-      .count();
     const afterIframeIds = await previewIframeIds(page);
-    expect(afterIframeIds).not.toEqual(initialIframeIds);
+    const afterIframes = afterIframeIds.length;
+    const afterPool = await previewPoolCounts(page);
+    expect(
+      afterIframeIds,
+      `the preview pool held the same ${initialIframes} iframe(s) after the camera moved (zoom ${initialZoomLabel} -> ${finalZoomLabel}, transform ${initialTransform} -> ${finalTransform}); before ${JSON.stringify(initialIframeIds)}, after ${JSON.stringify(afterIframeIds)}`,
+    ).not.toEqual(initialIframeIds);
     const perf = await page.evaluate(
       () =>
         (
@@ -283,12 +345,18 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
         ).__betaCullingPerf,
     );
     console.info(
-      `[beta-design-culling] ${JSON.stringify({ initialIframes, afterIframes, placeholders, ...perf })}`,
+      `[beta-design-culling] ${JSON.stringify({ initialIframes, afterIframes, initialPool, afterPool, placeholders, ...perf })}`,
     );
-    expect(initialIframes).toBeLessThanOrEqual(LIVE_IFRAME_BUDGET);
-    expect(afterIframes).toBeLessThanOrEqual(LIVE_IFRAME_BUDGET);
+    expect(initialPool.liveScreens).toBeLessThanOrEqual(LIVE_SCREEN_BUDGET);
+    expect(afterPool.liveScreens).toBeLessThanOrEqual(LIVE_SCREEN_BUDGET);
+    expect(initialPool.liveIframes).toBeLessThanOrEqual(LIVE_IFRAME_CEILING);
+    expect(afterPool.liveIframes).toBeLessThanOrEqual(LIVE_IFRAME_CEILING);
+    expect(initialPool.staticPreviews).toBeLessThanOrEqual(
+      STATIC_PREVIEW_BUDGET,
+    );
+    expect(afterPool.staticPreviews).toBeLessThanOrEqual(STATIC_PREVIEW_BUDGET);
     expect(placeholders).toBeGreaterThanOrEqual(
-      SCREEN_COUNT - LIVE_IFRAME_BUDGET,
+      SCREEN_COUNT - LIVE_SCREEN_BUDGET,
     );
     expect(
       (perf?.iframeAdded ?? 0) + (perf?.iframeRemoved ?? 0),

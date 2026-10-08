@@ -3,6 +3,84 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-06
+
+### Fixed
+
+- Signing in to another app through Dispatch no longer leaves the used activation code in that app's address bar.
+- Historical usage without billing metadata is shown as unclassified.
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
+## 2026-10-05
+
+### Fixed
+
+- Cross-app calls continue working when apps use different local organization IDs.
+- Restored default apps in Dispatch and kept their links on the current environment.
+- Sign-in and signup pages now share the animated Agent-Native wave.
+
+## 2026-10-01
+
+### Improved
+
+- Dispatch workspace pages show content-shaped skeletons while loading
+
+### Fixed
+
+- Dispatch pages load without repeated dependency re-optimization during development
+
+## 2026-09-30
+
+### Improved
+
+- The chat header now spans the full pane, with messages closer beneath it.
+
+### Fixed
+
+- Chat stays ready for your next draft while a message is being sent.
+- Prompts sent from the home page stay in the active conversation.
+
+## 2026-09-29
+
+### Improved
+
+- Clean up Dispatch chat chrome and keep homepage prompts in chat
+
+### Fixed
+
+- The chat history menu stays open when opened from the header.
+- New workspaces can open Dispatch pages without a server rendering error.
+- Apps and app launchers only show apps installed in this workspace
+
+## 2026-09-28
+
+### Improved
+
+- Dispatch admin pages now use a consistent settings layout.
+
+### Fixed
+
+- Desktop sign-in now carries over to Mail and other eligible apps.
+
+## 2026-09-27
+
+### Improved
+
+- Workspace connection changes now show clear confirmations in chat.
+
+## 2026-09-25
+
+### Improved
+
+- Dispatch settings now live on Dispatch › General (Chat-first workspace, Resources, and Connect apps), and Members keeps the Dispatch access column.
+
+## 2026-09-23
+
+### Fixed
+
+- App launchers show only apps connected to the current workspace.
+- Usage alerts explain that their thresholds notify you without limiting usage or spend.
+
 ## 2026-09-04
 
 ### Improved

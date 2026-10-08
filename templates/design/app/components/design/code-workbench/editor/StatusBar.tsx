@@ -15,12 +15,6 @@ interface ProblemCounts {
   warnings: number;
 }
 
-/**
- * Count error/warning markers across the given set of open workbench tab
- * uris, resolved to their Monaco model uris through the model registry.
- * Pure given the monaco module + registry state, so it never counts markers
- * for closed/background models.
- */
 export function countProblemsForOpenTabs(
   monacoModule: typeof monaco,
   tabUris: string[],
@@ -47,12 +41,6 @@ export interface StatusBarProps {
   onGoToLine: () => void;
 }
 
-/**
- * 24px status bar, 11px text. Left: workspace badge + problems summary.
- * Right: transient save flash, "Prettier" (only for formattable inline
- * files), Ln/Col, "Spaces: 2", "UTF-8", "LF", language display name. Shows a
- * conflict banner when the active buffer changed externally while dirty.
- */
 export function StatusBar({ editorRef, onGoToLine }: StatusBarProps) {
   const { state, api } = useWorkbench();
   const [cursor, setCursor] = useState({ line: 1, column: 1 });
@@ -77,8 +65,6 @@ export function StatusBar({ editorRef, onGoToLine }: StatusBarProps) {
   const showPrettierStatus =
     isInlineActive && Boolean(activePath) && isFormattablePath(activePath);
 
-  // Cursor position subscription follows the live editor instance, not
-  // React state, since MonacoHost owns editor creation/disposal.
   useEffect(() => {
     let disposed = false;
     let disposable: monaco.IDisposable | null = null;
@@ -104,8 +90,6 @@ export function StatusBar({ editorRef, onGoToLine }: StatusBarProps) {
     };
   }, [editorRef, activeUri]);
 
-  // Problems summary: recompute on Monaco marker changes, scoped to
-  // currently open tabs.
   const tabUriKey = state.tabs.map((tab) => tab.uri).join(",");
   useEffect(() => {
     let disposed = false;
@@ -126,7 +110,6 @@ export function StatusBar({ editorRef, onGoToLine }: StatusBarProps) {
     };
   }, [tabUriKey]);
 
-  // "Saved" flash for 2s after lastSavedAt changes.
   useEffect(() => {
     if (!activeMeta?.lastSavedAt) return;
     setShowSaved(true);

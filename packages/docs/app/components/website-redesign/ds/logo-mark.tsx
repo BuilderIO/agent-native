@@ -1,6 +1,3 @@
-// The standalone symbol from the wordmark, inked with `currentColor` so it
-// keeps contrast on any surface. The public /agent-native-icon-*.svg files are
-// download assets with baked-in black/white fills and are not safe inline.
 export function LogoMark({ className }: { className?: string }) {
   return (
     <svg

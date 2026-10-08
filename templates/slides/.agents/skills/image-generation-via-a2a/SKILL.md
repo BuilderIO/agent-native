@@ -43,7 +43,9 @@ kit editor. Use the image, pass that along, and do not retry or fall back
 locally.
 
 Only `unavailable` falls through to the local Gemini/OpenAI providers under
-`server/handlers/image-providers/`, so a slides-only deploy still works. That
+`server/handlers/image-providers/`, so a slides-only deploy still works. They
+try the organization's Image generation provider first (the
+`manage-service-providers` action), then Gemini, then OpenAI. That
 output is **not** brand-grounded and the action says so: it returns
 `source: "slides-fallback"` with a `fallbackReason`. Report that honestly
 rather than presenting a fallback image as a library generation.

@@ -1,9 +1,7 @@
-import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
   appApiPath,
   agentNativePath,
 } from "@agent-native/core/client/api-path";
-import { PromptComposer } from "@agent-native/core/client/composer";
 import {
   callAction,
   useActionMutation,
@@ -12,11 +10,15 @@ import {
 import { oauthRedirectUri } from "@agent-native/core/client/host";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
-import {
-  getDefaultMcpIntegrations,
-  McpIntegrationLogo,
-} from "@agent-native/core/client/resources";
+import { getDefaultMcpIntegrations } from "@agent-native/core/client/resources";
 import { docsUrl } from "@agent-native/core/shared";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
+import { McpIntegrationLogo } from "@agent-native/toolkit/app/resources";
+import {
+  useCredentialSaveScope,
+  WhoField,
+} from "@agent-native/toolkit/app/settings";
 import {
   IconCheck,
   IconChevronDown,
@@ -38,7 +40,7 @@ import {
   IconPlugConnected,
 } from "@tabler/icons-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import {
@@ -188,8 +190,9 @@ function DataSourceLogo({ source }: { source: DataSource }) {
 
 async function saveEnvVars(
   vars: Array<{ key: string; value: string }>,
+  scope: "user" | "org",
 ): Promise<void> {
-  await callAction("update-data-source-credentials", { vars });
+  await callAction("update-data-source-credentials", { vars, scope });
 }
 
 async function testConnection(source: string): Promise<ConnectionTestResult> {
@@ -205,8 +208,6 @@ async function testConnection(source: string): Promise<ConnectionTestResult> {
   return res.json();
 }
 
-// Bounds the GitHub status fetch so a hang can't leave the connect poll's
-// `inFlight` guard stuck and stall the interval forever.
 const GITHUB_OAUTH_STATUS_ABORT_MS = 10_000;
 
 async function fetchGitHubOAuthStatus(): Promise<GitHubOAuthStatus> {
@@ -258,7 +259,6 @@ function StepItem({
       }
     };
     reader.readAsText(file);
-    // Reset so the same file can be re-selected
     e.target.value = "";
   };
 
@@ -785,9 +785,12 @@ function ConnectedView({
     ok: boolean;
     error?: string;
   } | null>(null);
+  const saveScope = useCredentialSaveScope();
+  const whoId = useId();
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (!saveScope.scope) return;
       const vars: Array<{ key: string; value: string }> = [];
       for (const [key, value] of Object.entries(inputValues)) {
         const trimmed = value.trim();
@@ -797,7 +800,7 @@ function ConnectedView({
         if (!inputValues[key]?.trim()) vars.push({ key, value: "" });
       }
       if (vars.length === 0) return;
-      await saveEnvVars(vars);
+      await saveEnvVars(vars, saveScope.scope);
     },
     onSuccess: () => {
       setInputValues({});
@@ -824,8 +827,6 @@ function ConnectedView({
     mutationFn: () => testConnection(source.id),
     onSuccess: (result) => {
       setTestResult(result);
-      // Refresh envStatus so the per-key "Configured"/"Missing" labels
-      // reflect reality after a test that revealed missing credentials.
       onSaved();
     },
   });
@@ -833,7 +834,6 @@ function ConnectedView({
   const hasInputValues =
     Object.values(inputValues).some((v) => v.trim()) || pendingClears.size > 0;
 
-  // Get credential labels from walkthrough steps
   const keyLabels: Record<string, string> = {};
   for (const step of source.walkthroughSteps) {
     if (step.inputKey) {
@@ -997,11 +997,22 @@ function ConnectedView({
               </div>
             );
           })}
+        {saveScope.canChoose && saveScope.scope ? (
+          <WhoField
+            id={whoId}
+            choice
+            scope={saveScope.scope}
+            disabled={saveMutation.isPending}
+            onChange={saveScope.setScope}
+          />
+        ) : null}
         <div className="flex items-center gap-2 pt-2">
           <Button
             size="sm"
             onClick={() => saveMutation.mutate()}
-            disabled={saveMutation.isPending || !hasInputValues}
+            disabled={
+              saveMutation.isPending || !hasInputValues || !saveScope.scope
+            }
             className="text-xs"
           >
             {saveMutation.isPending ? (
@@ -1081,9 +1092,9 @@ function ConnectedView({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                size="icon"
+                size="icon-sm"
                 variant="ghost"
-                className="-mr-1 -mt-1 h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                className="-mr-1 -mt-1 shrink-0 text-muted-foreground hover:text-foreground"
                 aria-label={t("dataSources.sourceActions", {
                   name: source.name,
                 })}
@@ -1226,14 +1237,17 @@ function DataSourceCard({
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [showLocalCredentials, setShowLocalCredentials] = useState(false);
   const totalSteps = source.walkthroughSteps.length;
+  const saveScope = useCredentialSaveScope();
+  const whoId = useId();
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (!saveScope.scope) return;
       const vars = Object.entries(inputValues)
         .filter(([, v]) => v.trim())
         .map(([key, value]) => ({ key, value: value.trim() }));
       if (vars.length === 0) return;
-      await saveEnvVars(vars);
+      await saveEnvVars(vars, saveScope.scope);
     },
     onSuccess: () => {
       setInputValues({});
@@ -1252,8 +1266,6 @@ function DataSourceCard({
     !showLocalCredentials;
   const workspaceRoleLoading =
     isWorkspaceOAuthSource(source) && !ready && !orgLoaded;
-  // An unreadable status cannot tell this source apart from an unconfigured
-  // one, so the setup walkthrough would be guessing.
   const showUnknownStatus = statusUnknown && !ready && !showLocalCredentials;
 
   useEffect(() => {
@@ -1516,6 +1528,17 @@ function DataSourceCard({
                 );
               })()}
 
+              {hasInputValues && saveScope.canChoose && saveScope.scope ? (
+                <div className="pb-3">
+                  <WhoField
+                    id={whoId}
+                    choice
+                    scope={saveScope.scope}
+                    disabled={saveMutation.isPending}
+                    onChange={saveScope.setScope}
+                  />
+                </div>
+              ) : null}
               <div className="flex items-center gap-2 pt-1">
                 {hasInputValues && (
                   <Button
@@ -1524,7 +1547,7 @@ function DataSourceCard({
                       e.stopPropagation();
                       saveMutation.mutate();
                     }}
-                    disabled={saveMutation.isPending}
+                    disabled={saveMutation.isPending || !saveScope.scope}
                     className="text-xs"
                   >
                     {saveMutation.isPending ? (
@@ -1997,9 +2020,9 @@ function FirstPartyAnalyticsCard() {
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
-                          size="icon"
+                          size="icon-sm"
                           variant="ghost"
-                          className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                          className="shrink-0 text-muted-foreground hover:text-foreground"
                           aria-label={t("dataSources.keyActions", {
                             name: key.name,
                           })}
@@ -2075,9 +2098,6 @@ export default function DataSources() {
   });
   const statusData = rawStatusData as DataSourceStatusResponse | undefined;
   const envStatus = credentialRowsFromStatus(statusData);
-  // A failed fetch, an error payload, or a failed workspace-connection lookup
-  // all read as "everything is unconfigured" once they collapse into the empty
-  // credential list. Keep them a separate state instead.
   const statusUnknown =
     !isStatusLoading &&
     (isStatusError ||

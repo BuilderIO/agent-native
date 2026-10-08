@@ -23,6 +23,7 @@
  * fix; the bridge token is never echoed.
  */
 
+import { fail } from "@agent-native/core/action";
 import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import {
   getRequestAuthCapability,
@@ -42,10 +43,8 @@ export interface LocalhostConnectionScope {
   orgId: string | null;
 }
 
-/** Owner + org partition for connection and write-grant rows. */
 export async function resolveLocalhostConnectionScope(options?: {
   designId?: string;
-  /** Public /visual-edit may read a design's read-only preview credential. */
   allowPublicViewer?: boolean;
 }): Promise<LocalhostConnectionScope> {
   const designId = options?.designId;
@@ -82,7 +81,10 @@ export async function resolveLocalhostConnectionScope(options?: {
       typeof resource?.ownerEmail !== "string" ||
       !resource.ownerEmail
     ) {
-      throw new Error("visual-edit capability is not valid for this design");
+      fail("visual-edit capability is not valid for this design", {
+        errorCode: "visual_edit_capability_invalid",
+        statusCode: 403,
+      });
     }
 
     return {
@@ -96,8 +98,6 @@ export async function resolveLocalhostConnectionScope(options?: {
     const requestOrgId = getRequestOrgId();
     return {
       ownerEmail,
-      // resolveOrgIdForEmail honors an explicit Personal selection, so this
-      // cannot promote a caller into an org they left.
       orgId: requestOrgId ?? (await resolveOrgIdForEmail(ownerEmail)),
     };
   }
@@ -226,11 +226,6 @@ export async function resolveLocalhostBridgeConnection(args: {
   return connection as LocalhostBridgeConnection;
 }
 
-/**
- * POST one bridge operation. A dead bridge rejects `fetch` with a bare
- * TypeError, which is unclassified and therefore reaches the client as a
- * generic 500 — the same opaque failure a missing connection row used to be.
- */
 export async function fetchLocalhostBridge(args: {
   bridgeUrl: string;
   operation: string;
@@ -259,11 +254,6 @@ export async function fetchLocalhostBridge(args: {
   }
 }
 
-/**
- * Classify a non-2xx bridge response. 401/403 means the bridge rejected the
- * token: every bridge start mints a fresh one, so a restart leaves the stored
- * token stale while the connection row still looks healthy.
- */
 export function localhostBridgeRequestError(
   operation: string,
   status: number,
@@ -286,7 +276,6 @@ export function localhostBridgeRequestError(
   );
 }
 
-/** Fetch the read-only DOM snapshot used by live Design screens. */
 export async function fetchLocalhostSnapshot(args: {
   bridgeUrl: string;
   previewToken: string | null;
@@ -340,7 +329,6 @@ export async function fetchLocalhostSnapshot(args: {
   return payload.html;
 }
 
-/** Bridge token for callers that have no other source for one. */
 export function requireLocalhostBridgeToken(
   connectionId: string,
   bridgeToken: string | null,

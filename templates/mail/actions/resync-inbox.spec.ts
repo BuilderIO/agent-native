@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getRequestUserEmail: vi.fn(),
   resetInboxSync: vi.fn(),
-  ensureInboxFresh: vi.fn(),
+  syncInbox: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -12,7 +12,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("../server/lib/inbox-sync.js", () => ({
   resetInboxSync: mocks.resetInboxSync,
-  ensureInboxFresh: mocks.ensureInboxFresh,
+  syncInbox: mocks.syncInbox,
 }));
 
 import action from "./resync-inbox";
@@ -23,19 +23,21 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.getRequestUserEmail.mockReturnValue(OWNER);
   mocks.resetInboxSync.mockResolvedValue(undefined);
-  mocks.ensureInboxFresh.mockResolvedValue([
-    { accountEmail: OWNER, state: "ready", lastSyncedAt: Date.now() },
-  ]);
+  mocks.syncInbox.mockResolvedValue({
+    accounts: [
+      { accountEmail: OWNER, state: "ready", lastSyncedAt: Date.now() },
+    ],
+  });
 });
 
 describe("resync-inbox action", () => {
-  it("resets and force-resyncs every connected account by default", async () => {
+  it("resets and advances every connected account by one bounded step", async () => {
     const result = await action.run({} as any, undefined as any);
 
     expect(mocks.resetInboxSync).toHaveBeenCalledWith(OWNER, undefined);
-    expect(mocks.ensureInboxFresh).toHaveBeenCalledWith(
+    expect(mocks.syncInbox).toHaveBeenCalledWith(
       OWNER,
-      expect.objectContaining({ accountEmails: undefined, maxAgeMs: 0 }),
+      expect.objectContaining({ accountEmails: undefined }),
     );
     expect(result.accounts).toHaveLength(1);
   });
@@ -47,9 +49,8 @@ describe("resync-inbox action", () => {
     );
 
     expect(mocks.resetInboxSync).toHaveBeenCalledWith(OWNER, "a@example.com");
-    expect(mocks.ensureInboxFresh).toHaveBeenCalledWith(
-      OWNER,
-      expect.objectContaining({ accountEmails: ["a@example.com"] }),
-    );
+    expect(mocks.syncInbox).toHaveBeenCalledWith(OWNER, {
+      accountEmails: ["a@example.com"],
+    });
   });
 });

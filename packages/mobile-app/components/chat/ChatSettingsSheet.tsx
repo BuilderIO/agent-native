@@ -24,6 +24,7 @@ import {
   saveProviderApiKey,
 } from "@/lib/agent-chat/api";
 import {
+  DEFAULT_CHAT_SETTINGS,
   formatMobileModelLabel,
   getMobileAgentId,
   getMobileModelGroups,
@@ -35,12 +36,9 @@ import type { ChatModelCatalog } from "@/lib/agent-chat/types";
 import type { AgentChatSettings } from "@/lib/agent-chat/use-agent-chat";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
 
-const SETTINGS_KEY = "agent-native:chat-settings";
+export { DEFAULT_CHAT_SETTINGS };
 
-export const DEFAULT_CHAT_SETTINGS: AgentChatSettings = {
-  model: "gpt-5-6-luna",
-  effort: "high",
-};
+const SETTINGS_KEY = "agent-native:chat-settings";
 
 const EFFORT_OPTIONS: Array<{
   value: string | undefined;
@@ -354,7 +352,6 @@ export function ChatSettingsSheet({
 }: {
   visible: boolean;
   settings: AgentChatSettings;
-  /** Active thread's app — models and keys are read/written against it. */
   baseUrl?: string;
   onChange: (settings: AgentChatSettings) => void;
   onClose: () => void;
@@ -376,8 +373,6 @@ export function ChatSettingsSheet({
       .finally(() => setCatalogLoading(false));
   }, [baseUrl]);
 
-  // Reload whenever opened or the active app changes, so the catalog and
-  // configurable providers reflect the app being configured.
   useEffect(() => {
     if (visible) {
       setPickerSection(null);
@@ -390,7 +385,6 @@ export function ChatSettingsSheet({
       const nextExpanded = { ...expandedGroups };
       let updated = false;
 
-      // Auto-expand group of selected model
       if (settings.model) {
         const activeGroup = catalog.groups.find((g) =>
           g.models.includes(settings.model!),
@@ -404,7 +398,6 @@ export function ChatSettingsSheet({
         }
       }
 
-      // Auto-expand effort if one is selected
       if (settings.effort) {
         if (!nextExpanded["effort"]) {
           nextExpanded["effort"] = true;

@@ -332,9 +332,6 @@ jobs:
           NODE
           mkdir -p "$RUNNER_TEMP/trusted-acceptance-deploy"
 
-      # This file is a trusted, redacted resource allowlist, not a credential
-      # container. It is intentionally materialized only after provenance is
-      # verified and only in the protected environment.
       - name: Materialize trusted authority profile after provenance verification
         env:
           AUTHORITY_PROFILES_JSON: ${{ vars.ACCEPTANCE_AUTHORITY_PROFILES_JSON }}

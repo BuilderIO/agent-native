@@ -12,17 +12,6 @@ export function getConfiguredAppBasePath(): string {
   );
 }
 
-/**
- * SSR-aware variant of getConfiguredAppBasePath.
- *
- * In SSR builds (Vite's server-side bundle), `process.env` may not carry
- * VITE_* variables that were only statically replaced at build time. As a
- * fallback this variant also checks `import.meta.env` (available inside a
- * Vite SSR build) including `BASE_URL`, which Vite sets from the `base`
- * config option. Used by ssr-handler.ts where the Nitro server bundle is
- * built with Vite and the env may be delivered via import.meta rather than
- * process.env.
- */
 export function getAppBasePathFromViteEnv(): string {
   const metaEnv = (
     import.meta as unknown as {
@@ -38,13 +27,6 @@ export function getAppBasePathFromViteEnv(): string {
   );
 }
 
-/**
- * Strip the configured app base path prefix from a pathname.
- *
- * Returns "/" when the pathname equals the base path exactly, the suffix
- * when it starts with `${basePath}/`, `/.data` for React Router's mounted
- * root data URL, or the original pathname unchanged when no prefix matches.
- */
 export function stripAppBasePath(
   pathname: string,
   basePath = getConfiguredAppBasePath(),
@@ -52,8 +34,6 @@ export function stripAppBasePath(
   if (!basePath) return pathname;
   if (pathname === `${basePath}.data`) return "/.data";
   if (pathname === basePath) return "/";
-  // Mounted deployment adapters use an extra slash to preserve the app root
-  // while handing the request through a function mounted at the base path.
   if (pathname === `${basePath}//`) return "/";
   if (pathname.startsWith(`${basePath}/`)) {
     return pathname.slice(basePath.length) || "/";

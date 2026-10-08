@@ -5,26 +5,24 @@ import {
   clampDashboardColumns,
   type SqlPanel,
 } from "../app/pages/adhoc/sql-dashboard/types";
+import { sameJsonValue } from "./dashboard-mutation-api";
 
 const mocks = vi.hoisted(() => ({
+  assertDashboardEditable: vi.fn(async (): Promise<void> => undefined),
   getDashboard: vi.fn(),
   upsertDashboard: vi.fn(async () => ({ archivedAt: null })),
-  upsertDashboardWithRetry: vi.fn(),
+  upsertDashboardWithRetryOutcome: vi.fn(),
+  queueDashboardCollabSync: vi.fn(),
+  track: vi.fn(),
   dryRunQuery: vi.fn(),
+  dryRunQuerySchema: vi.fn(),
+  resolvePanel: vi.fn(),
   hasCollabState: vi.fn(async () => false),
   applyText: vi.fn(async () => undefined),
   seedFromText: vi.fn(async () => undefined),
 }));
 
-/**
- * Default passthrough: fetch via the mocked `getDashboard`, run the action's
- * mutate callback once against it, then forward to the mocked
- * `upsertDashboard` (preserving every existing `.mock.calls` assertion below)
- * and return a DashboardRecord-shaped result carrying the mutated config.
- * Individual tests override this with `mockImplementationOnce` to simulate a
- * lost race and prove the action recomputes from fresh state on retry.
- */
-function defaultUpsertDashboardWithRetry(
+function defaultUpsertDashboardWithRetryOutcome(
   id: string,
   ctx: unknown,
   mutate: (existing: any) =>
@@ -42,8 +40,19 @@ function defaultUpsertDashboardWithRetry(
       );
     }
     const { kind, body } = await mutate(existing);
+    const didWrite = !sameJsonValue(existing.config, body);
     await mocks.upsertDashboard(id, kind, body, ctx);
-    return { ...existing, kind, config: body };
+    const dashboard = {
+      ...existing,
+      kind,
+      config: body,
+      updatedAt: existing.updatedAt ?? "2026-10-06T00:00:00.000Z",
+    };
+    mocks.getDashboard.mockResolvedValue(dashboard);
+    return {
+      dashboard,
+      didWrite,
+    };
   })();
 }
 
@@ -76,20 +85,76 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/collab", () => ({
   applyText: mocks.applyText,
+  getText: vi.fn(async () => ""),
   hasCollabState: mocks.hasCollabState,
   seedFromText: mocks.seedFromText,
 }));
 
 vi.mock("../server/lib/dashboards-store", () => ({
+  assertDashboardEditable: mocks.assertDashboardEditable,
   getDashboard: mocks.getDashboard,
   upsertDashboard: mocks.upsertDashboard,
-  upsertDashboardWithRetry: mocks.upsertDashboardWithRetry,
+  upsertDashboardWithRetryOutcome: mocks.upsertDashboardWithRetryOutcome,
 }));
+
+vi.mock("../server/lib/dashboard-collab-sync", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../server/lib/dashboard-collab-sync")
+    >();
+  mocks.queueDashboardCollabSync.mockImplementation(
+    actual.queueDashboardCollabSync,
+  );
+  return {
+    ...actual,
+    queueDashboardCollabSync: mocks.queueDashboardCollabSync,
+  };
+});
+
+vi.mock("@agent-native/core/tracking", () => ({ track: mocks.track }));
 
 vi.mock("../server/lib/bigquery", () => ({
   dryRunQuery: mocks.dryRunQuery,
+  dryRunQuerySchema: mocks.dryRunQuerySchema,
 }));
 
+// Verification runs agent-edited panels through the source resolver; the
+// default result carries every column the specs' panels bind to.
+vi.mock(
+  "@agent-native/core/server/request-context",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/core/server/request-context")
+    >()),
+    getCredentialContext: () => ({
+      userEmail: "alice@example.com",
+      orgId: null,
+    }),
+  }),
+);
+vi.mock("../server/lib/dashboard-panel-source-resolver", () => ({
+  resolveAnalyticsPanelSource: mocks.resolvePanel,
+}));
+
+const PANEL_ROWS = {
+  rows: [{ date: "2026-01-01", name: "a", value: 1, a: 1, b: 2 }],
+  schema: ["date", "name", "value", "a", "b"].map((name) => ({
+    name,
+    type: "STRING",
+  })),
+};
+
+// The real validator opens the local PGlite directory, which fails whenever
+// another test worker holds it; time-scope binding is still checked for real.
+vi.mock("../server/lib/first-party-analytics.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/lib/first-party-analytics.js")
+  >()),
+  validateFirstPartyAnalyticsSqlForScope: vi.fn(async () => undefined),
+}));
+
+const { DASHBOARD_MUTATION_EXAMPLES } =
+  await import("./dashboard-mutation-api");
 const { default: mutateDashboard } = await import("./mutate-dashboard");
 const { DASHBOARD_COLLAB_SYNC_TIMEOUT_MS } =
   await import("../server/lib/dashboard-collab-sync");
@@ -125,14 +190,22 @@ function renderedRows(root: { columns?: number; panels: unknown[] }) {
 
 describe("mutate-dashboard", () => {
   beforeEach(() => {
+    mocks.assertDashboardEditable.mockReset();
+    mocks.assertDashboardEditable.mockResolvedValue(undefined);
     mocks.getDashboard.mockReset();
     mocks.upsertDashboard.mockClear();
-    mocks.upsertDashboardWithRetry.mockReset();
-    mocks.upsertDashboardWithRetry.mockImplementation(
-      defaultUpsertDashboardWithRetry,
+    mocks.upsertDashboardWithRetryOutcome.mockReset();
+    mocks.upsertDashboardWithRetryOutcome.mockImplementation(
+      defaultUpsertDashboardWithRetryOutcome,
     );
+    mocks.queueDashboardCollabSync.mockClear();
+    mocks.track.mockClear();
     mocks.dryRunQuery.mockReset();
     mocks.dryRunQuery.mockResolvedValue(null);
+    mocks.dryRunQuerySchema.mockReset();
+    mocks.dryRunQuerySchema.mockResolvedValue({ error: null });
+    mocks.resolvePanel.mockReset();
+    mocks.resolvePanel.mockResolvedValue(PANEL_ROWS);
     mocks.hasCollabState.mockClear();
     mocks.applyText.mockClear();
     mocks.seedFromText.mockClear();
@@ -189,6 +262,205 @@ describe("mutate-dashboard", () => {
     expect(mocks.upsertDashboard).toHaveBeenCalledOnce();
   });
 
+  it("reports unchanged same-value patches without emitting save side effects", async () => {
+    const existingConfig = dashboardConfig();
+    (existingConfig.panels[0] as Record<string, unknown>).config = {
+      xKey: "date",
+      yKeys: ["signups"],
+      yAxis: { format: "percent", minimum: 0 },
+    };
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: existingConfig,
+    });
+
+    const result: any = await mutateDashboard.run({
+      dashboardId: "traffic",
+      operations: [
+        {
+          op: "updatePanel",
+          panelId: "a",
+          patch: {
+            title: "a",
+            config: {
+              yAxis: { minimum: 0, format: "percent" },
+              yKeys: ["signups"],
+              xKey: "date",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(result.saved).toBe(false);
+    expect(result.changed).toBe(false);
+    expect(result.changedPanelIds).toEqual([]);
+    expect(result.commandLog).toEqual(["updatePanel(a: no fields)"]);
+    expect(result.summary).toContain("No dashboard changes were needed");
+    expect(result.collabSync).toEqual({ status: "skipped" });
+    expect(mocks.upsertDashboard).toHaveBeenCalledOnce();
+    expect(mocks.queueDashboardCollabSync).not.toHaveBeenCalled();
+    expect(mocks.track).not.toHaveBeenCalled();
+    const saved = mocks.upsertDashboard.mock.calls[0][2] as {
+      panels: Array<Record<string, unknown>>;
+    };
+    expect(saved.panels[0]).toEqual(existingConfig.panels[0]);
+  });
+
+  it("reports a batch that restores the original dashboard state as unchanged", async () => {
+    const existingConfig = dashboardConfig();
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: existingConfig,
+    });
+
+    const result: any = await mutateDashboard.run({
+      dashboardId: "traffic",
+      operations: [
+        {
+          op: "updatePanel",
+          panelId: "a",
+          patch: { title: "Temporary title" },
+        },
+        { op: "setDashboard", patch: { columns: 3 } },
+        { op: "updatePanel", panelId: "a", patch: { title: "a" } },
+        { op: "setDashboard", patch: { columns: 2 } },
+      ],
+    });
+
+    expect(result.saved).toBe(false);
+    expect(result.changed).toBe(false);
+    expect(result.changedPanelIds).toEqual([]);
+    expect(result.dashboardFieldsChanged).toEqual([]);
+    expect(result.summary).toContain("No dashboard changes were needed");
+    expect(result.collabSync).toEqual({ status: "skipped" });
+    expect(mocks.queueDashboardCollabSync).not.toHaveBeenCalled();
+    expect(mocks.track).not.toHaveBeenCalled();
+    const saved = mocks.upsertDashboard.mock.calls[0][2];
+    expect(saved).toEqual(existingConfig);
+  });
+
+  it("drops restored panel metadata when another dashboard field is saved", async () => {
+    const existingConfig = dashboardConfig();
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: existingConfig,
+    });
+
+    const result: any = await mutateDashboard.run({
+      dashboardId: "traffic",
+      operations: [
+        {
+          op: "updatePanel",
+          panelId: "a",
+          patch: { title: "Temporary title" },
+        },
+        { op: "setDashboard", patch: { columns: 3 } },
+        { op: "updatePanel", panelId: "a", patch: { title: "a" } },
+      ],
+    });
+
+    expect(result.saved).toBe(true);
+    expect(result.changed).toBe(true);
+    expect(result.changedPanelIds).toEqual([]);
+    expect(result.movedPanelIds).toEqual([]);
+    expect(result.insertedPanelIds).toEqual([]);
+    expect(result.removedPanelIds).toEqual([]);
+    expect(result.dashboardFieldsChanged).toEqual(["columns"]);
+    expect(mocks.queueDashboardCollabSync).toHaveBeenCalledOnce();
+    expect(mocks.track).toHaveBeenCalledOnce();
+  });
+
+  it("omits panels inserted and removed in a batch that also saves a field", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: dashboardConfig(),
+    });
+
+    const result: any = await mutateDashboard.run({
+      dashboardId: "traffic",
+      operations: [
+        { op: "insertPanel", panel: panel("temporary") },
+        { op: "removePanels", panelIds: ["temporary"] },
+        { op: "setDashboard", patch: { columns: 3 } },
+      ],
+    });
+
+    expect(result.saved).toBe(true);
+    expect(result.changedPanelIds).toEqual([]);
+    expect(result.insertedPanelIds).toEqual([]);
+    expect(result.removedPanelIds).toEqual([]);
+    expect(result.dashboardFieldsChanged).toEqual(["columns"]);
+  });
+
+  it("reports panel reorders made through a dashboard panels replacement", async () => {
+    const existingConfig = dashboardConfig();
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: existingConfig,
+    });
+
+    const result: any = await mutateDashboard.run({
+      dashboardId: "traffic",
+      operations: [
+        {
+          op: "setDashboard",
+          patch: {
+            panels: [
+              existingConfig.panels[1],
+              existingConfig.panels[2],
+              existingConfig.panels[0],
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(result.saved).toBe(true);
+    expect(result.changedPanelIds).toEqual(["b", "c", "a"]);
+    expect(result.movedPanelIds).toEqual(["b", "c", "a"]);
+    expect(result.dashboardFieldsChanged).toEqual(["panels"]);
+  });
+
+  it("does not report a concurrent convergent write as this action saving", async () => {
+    const existingConfig = dashboardConfig();
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: existingConfig,
+    });
+    mocks.upsertDashboardWithRetryOutcome.mockImplementationOnce(
+      async (id: string, ctx: unknown, mutate: (existing: any) => any) => {
+        const first = await mutate({ kind: "sql", config: existingConfig });
+        const concurrent = {
+          kind: first.kind,
+          config: first.body,
+          updatedAt: "2026-10-07T00:00:00.001Z",
+        };
+        await mutate(concurrent);
+        return { dashboard: concurrent, didWrite: false };
+      },
+    );
+
+    const result: any = await mutateDashboard.run({
+      dashboardId: "traffic",
+      operations: [
+        {
+          op: "updatePanel",
+          panelId: "a",
+          patch: { title: "Concurrent title" },
+        },
+      ],
+    });
+
+    expect(result.saved).toBe(false);
+    expect(result.changed).toBe(false);
+    expect(result.changedPanelIds).toEqual([]);
+    expect(result.dashboardFieldsChanged).toEqual([]);
+    expect(result.collabSync).toEqual({ status: "skipped" });
+    expect(mocks.queueDashboardCollabSync).not.toHaveBeenCalled();
+    expect(mocks.track).not.toHaveBeenCalled();
+  });
+
   it("applies a typed mutation script in one atomic save", async () => {
     mocks.getDashboard.mockResolvedValue({
       kind: "sql",
@@ -227,8 +499,8 @@ describe("mutate-dashboard", () => {
       kind: "sql",
       config: dashboardConfig(),
     });
-    mocks.hasCollabState.mockImplementationOnce(
-      () => new Promise<boolean>(() => {}),
+    mocks.applyText.mockImplementationOnce(
+      () => new Promise<void>(() => undefined),
     );
 
     try {
@@ -249,6 +521,7 @@ describe("mutate-dashboard", () => {
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining("Dashboard collab sync timed out for traffic"),
       );
+      await mocks.queueDashboardCollabSync.mock.results[0]?.value;
     } finally {
       warn.mockRestore();
       vi.useRealTimers();
@@ -266,6 +539,7 @@ describe("mutate-dashboard", () => {
       "operations",
       "code",
       "dryRun",
+      "allowEmptyResult",
       "returnConfig",
     ]);
     expect(parameters.required).toEqual(["dashboardId"]);
@@ -328,6 +602,69 @@ describe("mutate-dashboard", () => {
     expect(renderedRows(saved)).toEqual([["a", "b", "new"], ["c"]]);
   });
 
+  it("allows a later operation to complete an inserted panel", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: dashboardConfig(),
+    });
+
+    const result: any = await mutateDashboard.run({
+      dashboardId: "traffic",
+      operations: [
+        { op: "insertPanel", panel: { id: "new-section" } },
+        {
+          op: "updatePanel",
+          panelId: "new-section",
+          patch: {
+            title: "New section",
+            chartType: "section",
+            width: 1,
+            columns: 2,
+          },
+        },
+      ],
+    });
+
+    expect(result.saved).toBe(true);
+    const saved = mocks.upsertDashboard.mock.calls[0][2] as {
+      panels: Array<Record<string, unknown>>;
+    };
+    expect(saved.panels.at(-1)).toMatchObject({
+      id: "new-section",
+      title: "New section",
+      chartType: "section",
+      width: 1,
+      columns: 2,
+    });
+  });
+
+  it("rejects an inserted panel that still has no width before saving", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: dashboardConfig(),
+    });
+
+    await expect(
+      mutateDashboard.run({
+        dashboardId: "traffic",
+        operations: [
+          {
+            op: "insertPanel",
+            panel: {
+              id: "incomplete-section",
+              title: "Incomplete section",
+              chartType: "section",
+            },
+          },
+        ],
+      }),
+    ).rejects.toThrow(
+      /panel "incomplete-section" \("Incomplete section"\) width is missing; set width to an integer 1-6/,
+    );
+
+    expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+  });
+
   it("rejects an insert panel without a usable id at the action boundary", async () => {
     await expect(
       mutateDashboard.run({
@@ -339,10 +676,37 @@ describe("mutate-dashboard", () => {
           },
         ],
       }),
-    ).rejects.toThrow(/panel\.id must be a non-empty string/);
+    ).rejects.toThrow(/Invalid action parameters/);
 
     expect(mocks.getDashboard).not.toHaveBeenCalled();
     expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+  });
+
+  it("requires numeric widths for structured panel inserts", () => {
+    const base = {
+      dashboardId: "traffic",
+      operations: [
+        {
+          op: "insertPanel",
+          panel: panel("new-panel"),
+        },
+      ],
+    };
+
+    expect(mutateDashboard.schema.parse(base).operations).toEqual(
+      base.operations,
+    );
+    expect(() =>
+      mutateDashboard.schema.parse({
+        ...base,
+        operations: [
+          {
+            ...base.operations[0],
+            panel: { ...base.operations[0].panel, width: "1" },
+          },
+        ],
+      }),
+    ).toThrow(/expected number, received string/i);
   });
 
   it("validates SQL-affecting mutations before saving", async () => {
@@ -548,12 +912,6 @@ describe("mutate-dashboard", () => {
   });
 
   it("recomputes the mutation against fresh state on retry so a concurrent writer's panel is never dropped", async () => {
-    // Simulates two interleaved writers racing on the same dashboard: this
-    // call inserts panel "writer-b", but its first fenced write is lost
-    // because a concurrent writer already saved a different panel
-    // ("writer-a") in between. A correct retry re-reads that winning save and
-    // reapplies "insert writer-b" on top of it, so both panels land instead
-    // of the second writer clobbering the first's insert.
     const beforeConcurrentWrite = {
       kind: "sql",
       config: dashboardConfig(),
@@ -564,17 +922,20 @@ describe("mutate-dashboard", () => {
         ...dashboardConfig(),
         panels: [...dashboardConfig().panels, panel("writer-a")],
       },
+      updatedAt: "2026-10-06T00:00:00.001Z",
     };
 
     let mutateCallCount = 0;
-    mocks.upsertDashboardWithRetry.mockImplementationOnce(
+    mocks.upsertDashboardWithRetryOutcome.mockImplementationOnce(
       async (id: string, ctx: unknown, mutate: (existing: any) => any) => {
         mutateCallCount += 1;
-        await mutate(beforeConcurrentWrite); // attempt 1: lost to the race
+        await mutate(beforeConcurrentWrite);
         mutateCallCount += 1;
-        const { kind, body } = await mutate(afterConcurrentWrite); // retry
+        const { kind, body } = await mutate(afterConcurrentWrite);
         await mocks.upsertDashboard(id, kind, body, ctx);
-        return { ...afterConcurrentWrite, kind, config: body };
+        const dashboard = { ...afterConcurrentWrite, kind, config: body };
+        mocks.getDashboard.mockResolvedValue(dashboard);
+        return { dashboard, didWrite: true };
       },
     );
 
@@ -602,5 +963,1012 @@ describe("mutate-dashboard", () => {
       "writer-a",
       "writer-b",
     ]);
+  });
+
+  describe("render contract", () => {
+    const agent = { caller: "tool" } as never;
+
+    function lineConfig(extra: Record<string, unknown> = {}) {
+      return {
+        ...dashboardConfig(),
+        panels: [
+          { ...panel("a"), chartType: "line", ...extra },
+          panel("b"),
+          panel("c"),
+        ],
+      };
+    }
+
+    it("rejects a config key the renderer ignores, with did-you-mean, and writes nothing", async () => {
+      mocks.getDashboard.mockResolvedValue({
+        kind: "sql",
+        config: lineConfig(),
+      });
+
+      const attempt = mutateDashboard.run(
+        {
+          dashboardId: "traffic",
+          operations: [
+            {
+              op: "updatePanel",
+              panelId: "a",
+              patch: { config: { yAxis: { format: "percent" } } },
+            },
+          ],
+        },
+        agent,
+      );
+
+      await expect(attempt).rejects.toMatchObject({
+        errorCode: "invalid_panel_config",
+        message: expect.stringContaining("Did you mean 'yFormatter'?"),
+      });
+      expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+    });
+
+    it("rejects renderer options placed at the panel level", async () => {
+      mocks.getDashboard.mockResolvedValue({
+        kind: "sql",
+        config: lineConfig(),
+      });
+
+      await expect(
+        mutateDashboard.run(
+          {
+            dashboardId: "traffic",
+            operations: [
+              { op: "updatePanel", panelId: "a", patch: { yKeys: ["x"] } },
+            ],
+          },
+          agent,
+        ),
+      ).rejects.toThrow(/"yKeys" at the panel level.*config\.yKeys/);
+      expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+    });
+
+    it("leaves UI callers unchanged", async () => {
+      mocks.getDashboard.mockResolvedValue({
+        kind: "sql",
+        config: lineConfig(),
+      });
+
+      const result: any = await mutateDashboard.run({
+        dashboardId: "traffic",
+        operations: [
+          {
+            op: "updatePanel",
+            panelId: "a",
+            patch: { config: { yAxis: { format: "percent" } } },
+          },
+        ],
+      });
+
+      expect(result.saved).toBe(true);
+      expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
+    });
+
+    it("accepts a combo chart insert with valid renderer options", async () => {
+      mocks.getDashboard.mockResolvedValue({
+        kind: "sql",
+        config: dashboardConfig(),
+      });
+      const insertPanel = {
+        ...panel("combo"),
+        chartType: "combo",
+        config: { yKeys: ["a", "b"], barKeys: ["a"] },
+      };
+
+      expect(() =>
+        mutateDashboard.schema.parse({
+          dashboardId: "traffic",
+          operations: [{ op: "insertPanel", panel: insertPanel }],
+        }),
+      ).not.toThrow();
+      const result: any = await mutateDashboard.run(
+        {
+          dashboardId: "traffic",
+          operations: [{ op: "insertPanel", panel: insertPanel }],
+        },
+        agent,
+      );
+
+      expect(result.insertedPanelIds).toEqual(["combo"]);
+    });
+
+    it.each(["a", "b"])(
+      "never blocks editing panel %s over a legacy stray key it did not change",
+      async (panelId) => {
+        mocks.getDashboard.mockResolvedValue({
+          kind: "sql",
+          config: lineConfig({ config: { yAxis: { format: "percent" } } }),
+        });
+
+        const result: any = await mutateDashboard.run(
+          {
+            dashboardId: "traffic",
+            operations: [
+              { op: "updatePanel", panelId, patch: { title: "Renamed" } },
+            ],
+          },
+          agent,
+        );
+
+        expect(result.changedPanelIds).toEqual([panelId]);
+        expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it.each(DASHBOARD_MUTATION_EXAMPLES)(
+      "documents an example that passes agent validation: %s",
+      async (example) => {
+        const timeRange = {
+          id: "timeRange",
+          type: "select",
+          label: "Time range",
+          default: "30d",
+          options: ["7d", "30d", "90d"].map((value) => ({
+            value,
+            label: value,
+          })),
+        };
+        const emailFilter = {
+          id: "emailFilter",
+          type: "select",
+          label: "Email filter",
+          default: "all",
+          options: [
+            { value: "all", label: "All users" },
+            { value: "exclude_builder", label: "Exclude @builder.io" },
+          ],
+        };
+        const examplePanel = (id: string, title: string) => ({
+          ...panel(id),
+          title,
+        });
+        mocks.getDashboard.mockResolvedValue({
+          kind: "sql",
+          config: {
+            name: "Examples",
+            columns: 2,
+            filters: [timeRange, emailFilter],
+            panels: [
+              examplePanel("retention", "Retention"),
+              examplePanel("top-referrers", "Top Referrers"),
+              examplePanel("recurring-users-by-template", "Recurring Users"),
+              examplePanel("dau-over-time", "Signed-In Daily Active Visitors"),
+              examplePanel("wau-over-time", "Signed-In Weekly Active Visitors"),
+              examplePanel("retention-over-time", "Retention Over Time"),
+              {
+                id: "retention-activity-section",
+                title: "Retention activity",
+                chartType: "section",
+                width: 1,
+                columns: 2,
+              },
+              examplePanel("repeat-users", "Repeat Users"),
+            ],
+          },
+        });
+
+        const result: any = await mutateDashboard.run(
+          { dashboardId: "traffic", code: example, dryRun: true },
+          agent,
+        );
+
+        expect(result).toMatchObject({ dryRun: true, changed: true });
+        expect(
+          result.changedPanelIds.length + result.dashboardFieldsChanged.length,
+        ).toBeGreaterThan(0);
+      },
+    );
+
+    describe("legacy structure", () => {
+      const legacyConfig = () => ({
+        ...dashboardConfig(),
+        panels: [
+          panel("a"),
+          panel("b"),
+          { ...panel("viral-by-app"), title: "VIRALITY BY APP", width: "wide" },
+        ],
+      });
+
+      it.each([
+        ["agent", agent],
+        ["UI", undefined],
+      ])(
+        "lets a %s edit an unrelated panel and saves the legacy one as-is",
+        async (_name, ctx) => {
+          mocks.getDashboard.mockResolvedValue({
+            kind: "sql",
+            config: legacyConfig(),
+          });
+
+          const result: any = await mutateDashboard.run(
+            {
+              dashboardId: "traffic",
+              operations: [
+                {
+                  op: "updatePanel",
+                  panelId: "a",
+                  patch: { title: "Renamed" },
+                },
+              ],
+            },
+            ctx as never,
+          );
+
+          expect(result.saved).toBe(true);
+          expect(result.changedPanelIds).toEqual(["a"]);
+          const saved = mocks.upsertDashboard.mock.calls[0][2] as {
+            panels: Array<{ id: string; width: unknown }>;
+          };
+          expect(saved.panels[2].width).toBe("wide");
+        },
+      );
+
+      it("rejects an edit that breaks a valid panel and names every offender", async () => {
+        mocks.getDashboard.mockResolvedValue({
+          kind: "sql",
+          config: legacyConfig(),
+        });
+
+        const attempt = mutateDashboard.run(
+          {
+            dashboardId: "traffic",
+            operations: [
+              { op: "updatePanel", panelId: "a", patch: { width: 0 } },
+              { op: "updatePanel", panelId: "b", patch: { width: 9 } },
+            ],
+          },
+          agent,
+        );
+
+        await expect(attempt).rejects.toMatchObject({
+          errorCode: "dashboard_invalid_panel",
+          message:
+            'panel "a" ("a") width is 0; set width to an integer 1-6 (updatePanel patch {"width":1}).\n' +
+            'panel "b" ("b") width is 9; set width to an integer 1-6 (updatePanel patch {"width":1}).',
+        });
+        expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+      });
+
+      it("makes a touched legacy panel repairable by name", async () => {
+        mocks.getDashboard.mockResolvedValue({
+          kind: "sql",
+          config: legacyConfig(),
+        });
+
+        await expect(
+          mutateDashboard.run(
+            {
+              dashboardId: "traffic",
+              operations: [
+                {
+                  op: "updatePanel",
+                  panelId: "viral-by-app",
+                  patch: { title: "VIRALITY" },
+                },
+              ],
+            },
+            agent,
+          ),
+        ).rejects.toThrow(
+          /panel "viral-by-app" \("VIRALITY"\) width is "wide"; set width to an integer 1-6/,
+        );
+
+        const repaired: any = await mutateDashboard.run(
+          {
+            dashboardId: "traffic",
+            operations: [
+              {
+                op: "updatePanel",
+                panelId: "viral-by-app",
+                patch: { width: 1 },
+              },
+            ],
+          },
+          agent,
+        );
+        expect(repaired.saved).toBe(true);
+      });
+    });
+
+    describe("no-op detection", () => {
+      const identicalPatch = {
+        dashboardId: "traffic",
+        operations: [
+          {
+            op: "updatePanel" as const,
+            panelId: "a",
+            patch: { title: "a", width: 1 },
+          },
+        ],
+      };
+
+      it("reports an agent call that changes nothing as unchanged, with a no-change receipt and where to look", async () => {
+        mocks.getDashboard.mockResolvedValue({
+          kind: "sql",
+          config: dashboardConfig(),
+        });
+
+        const result: any = await mutateDashboard.run(identicalPatch, agent);
+
+        expect(result).toMatchObject({
+          saved: false,
+          changed: false,
+          changedPanelIds: [],
+          collabSync: { status: "skipped" },
+          _receipt: {
+            changed: false,
+            verified: "unverified",
+            subject: "traffic",
+          },
+        });
+        expect(result.summary).toContain("No dashboard changes were needed");
+        expect(result.summary).toContain("inspect-dashboard-panel");
+        expect(result).not.toHaveProperty("verified");
+        expect(mocks.queueDashboardCollabSync).not.toHaveBeenCalled();
+        expect(mocks.track).not.toHaveBeenCalled();
+        expect(mocks.applyText).not.toHaveBeenCalled();
+        expect(mocks.resolvePanel).not.toHaveBeenCalled();
+      });
+
+      it("returns an accurate unchanged result to UI callers with no receipt or agent hint", async () => {
+        mocks.getDashboard.mockResolvedValue({
+          kind: "sql",
+          config: dashboardConfig(),
+        });
+
+        const result: any = await mutateDashboard.run(identicalPatch);
+
+        expect(result).toMatchObject({
+          saved: false,
+          changed: false,
+          changedPanelIds: [],
+          collabSync: { status: "skipped" },
+        });
+        expect(result.summary).toContain("No dashboard changes were needed");
+        expect(result.summary).not.toContain("inspect-dashboard-panel");
+        expect(result).not.toHaveProperty("_receipt");
+        expect(mocks.queueDashboardCollabSync).not.toHaveBeenCalled();
+      });
+
+      it("lets a later verified change supersede the no-change receipt", async () => {
+        mocks.getDashboard.mockResolvedValue({
+          kind: "sql",
+          config: dashboardConfig(),
+        });
+
+        const unchanged: any = await mutateDashboard.run(identicalPatch, agent);
+        const changed: any = await mutateDashboard.run(
+          {
+            dashboardId: "traffic",
+            operations: [
+              { op: "updatePanel", panelId: "a", patch: { title: "Alpha" } },
+            ],
+          },
+          agent,
+        );
+
+        expect(unchanged._receipt).toMatchObject({
+          changed: false,
+          subject: "traffic",
+        });
+        expect(changed._receipt).toMatchObject({
+          changed: true,
+          verified: true,
+          subject: "traffic",
+        });
+      });
+
+      it("reports a dry run of a no-op as a no-op without failing", async () => {
+        mocks.getDashboard.mockResolvedValue({
+          kind: "sql",
+          config: dashboardConfig(),
+        });
+
+        const result: any = await mutateDashboard.run(
+          { ...identicalPatch, dryRun: true },
+          agent,
+        );
+
+        expect(result).toMatchObject({
+          dryRun: true,
+          saved: false,
+          changed: false,
+        });
+        expect(result).not.toHaveProperty("_receipt");
+      });
+
+      it("skips SQL validation for a same-SQL patch", async () => {
+        mocks.getDashboard.mockResolvedValue({
+          kind: "sql",
+          config: { ...dashboardConfig(), panels: [panel("a", "bigquery")] },
+        });
+
+        const result: any = await mutateDashboard.run({
+          dashboardId: "traffic",
+          operations: [
+            {
+              op: "updatePanel",
+              panelId: "a",
+              patch: {
+                sql: "SELECT COUNT(*) AS value FROM `project.dataset.table`",
+              },
+            },
+          ],
+        });
+
+        expect(result.changed).toBe(false);
+        expect(mocks.dryRunQuery).not.toHaveBeenCalled();
+      });
+
+      it("counts a default filter that is already set as no change", async () => {
+        mocks.getDashboard.mockResolvedValue({
+          kind: "sql",
+          config: {
+            ...dashboardConfig(),
+            filters: [
+              {
+                id: "emailFilter",
+                type: "select",
+                default: "all",
+                options: [{ value: "all", label: "All" }],
+              },
+            ],
+          },
+        });
+
+        const result: any = await mutateDashboard.run({
+          dashboardId: "traffic",
+          code: 'dashboard.setFilterDefault("emailFilter","all");',
+        });
+
+        expect(result).toMatchObject({ saved: false, changed: false });
+        expect(result.dashboardFieldsChanged).toEqual([]);
+      });
+
+      it("saves a mixed batch and reports only the panels that changed", async () => {
+        mocks.getDashboard.mockResolvedValue({
+          kind: "sql",
+          config: dashboardConfig(),
+        });
+
+        const result: any = await mutateDashboard.run(
+          {
+            dashboardId: "traffic",
+            operations: [
+              { op: "updatePanel", panelId: "a", patch: { title: "Alpha" } },
+              { op: "updatePanel", panelId: "b", patch: { title: "b" } },
+            ],
+          },
+          agent,
+        );
+
+        expect(result).toMatchObject({
+          saved: true,
+          changed: true,
+          changedPanelIds: ["a"],
+        });
+        expect(result.commandLog).toEqual([
+          "updatePanel(a: title)",
+          "updatePanel(b: no fields)",
+        ]);
+        expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
+      });
+    });
+  });
+  describe("verified writes", () => {
+    const agent = { caller: "tool" } as never;
+    const timeRange = {
+      id: "timeRange",
+      type: "select",
+      label: "Range",
+      default: "30d",
+      options: ["7d", "30d"].map((value) => ({ value, label: value })),
+    };
+    const LONG_ROWS = [
+      { week: "2026-09-01", app: "mail", n: 10, n_4wk_avg: 9 },
+      { week: "2026-09-01", app: "clips", n: 20, n_4wk_avg: 19 },
+      { week: "2026-09-08", app: "mail", n: 11, n_4wk_avg: 10 },
+    ];
+    const WIDE_ROWS = [
+      { week: "2026-09-01", mail: 10, clips: 20, mail_4wk_avg: 9 },
+      { week: "2026-09-08", mail: 11, clips: 21, mail_4wk_avg: 10 },
+    ];
+
+    function result(rows: Record<string, unknown>[]) {
+      return {
+        rows,
+        schema: Object.keys(rows[0] ?? {}).map((name) => ({
+          name,
+          type: "STRING",
+        })),
+      };
+    }
+
+    function pivotPanel(id = "signups-by-app") {
+      return {
+        id,
+        title: "Signups by app",
+        source: "bigquery",
+        chartType: "line",
+        width: 2,
+        sql: "SELECT week, app, n FROM t WHERE r = '{{timeRange}}'",
+        config: { pivot: { xKey: "week", seriesKey: "app", valueKey: "n" } },
+      };
+    }
+
+    function verifiedDashboard(extraPanels: unknown[] = []) {
+      return {
+        name: "Growth",
+        columns: 2,
+        filters: [timeRange],
+        panels: [pivotPanel(), ...extraPanels],
+      };
+    }
+
+    function updatePanel(panelId: string, patch: Record<string, unknown>) {
+      return {
+        dashboardId: "growth",
+        operations: [{ op: "updatePanel", panelId, patch }],
+      };
+    }
+
+    beforeEach(() => {
+      mocks.getDashboard.mockResolvedValue({
+        kind: "sql",
+        config: verifiedDashboard([panel("kpi", "first-party")]),
+      });
+      mocks.resolvePanel.mockResolvedValue(result(LONG_ROWS));
+    });
+
+    it("refuses to add a rolling-average column under a pivot that would drop it (report 1)", async () => {
+      const attempt = mutateDashboard.run(
+        updatePanel("signups-by-app", {
+          sql: "SELECT week, app, n, n_4wk_avg FROM t WHERE r = '{{timeRange}}'",
+          config: {
+            yKeys: ["n", "n_4wk_avg"],
+            pivot: { xKey: "week", seriesKey: "app", valueKey: "n" },
+          },
+        }),
+        agent,
+      );
+
+      await expect(attempt).rejects.toMatchObject({
+        errorCode: "dashboard_panel_verification_failed",
+        message: expect.stringMatching(
+          /panel "signups-by-app" \("Signups by app"\).*config\.yKeys ignored.*Remove config\.pivot/s,
+        ),
+      });
+      expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+    });
+
+    it("refuses a rewritten wide query that blanks a pivoted panel and writes nothing (report 2)", async () => {
+      mocks.resolvePanel.mockResolvedValue(result(WIDE_ROWS));
+
+      const attempt = mutateDashboard.run(
+        updatePanel("signups-by-app", {
+          sql: "SELECT week, mail, clips, mail_4wk_avg FROM t WHERE r = '{{timeRange}}'",
+        }),
+        agent,
+      );
+
+      await expect(attempt).rejects.toMatchObject({
+        errorCode: "dashboard_panel_verification_failed",
+        statusCode: 422,
+        message: expect.stringContaining("week, mail, clips, mail_4wk_avg"),
+      });
+      await expect(attempt).rejects.toThrow(/Remove config\.pivot/);
+      expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+    });
+
+    it("saves a panel that renders and returns the proof", async () => {
+      mocks.resolvePanel.mockResolvedValue(result(WIDE_ROWS));
+
+      const saved: any = await mutateDashboard.run(
+        updatePanel("signups-by-app", {
+          sql: "SELECT week, mail, clips, mail_4wk_avg FROM t WHERE r = '{{timeRange}}'",
+          config: {
+            pivot: null,
+            yKeys: ["mail", "clips", "mail_4wk_avg"],
+          },
+        }),
+        agent,
+      );
+
+      expect(saved).toMatchObject({ saved: true, verified: true });
+      expect(saved.verification).toEqual([
+        expect.objectContaining({
+          panelId: "signups-by-app",
+          status: "ok",
+          rowCount: 2,
+          columns: ["week", "mail", "clips", "mail_4wk_avg"],
+          missingKeys: [],
+        }),
+      ]);
+      expect(saved.summary).toContain("Verified: Signups by app -> 2 rows");
+      expect(saved.nextStep).toBeUndefined();
+      expect(mocks.upsertDashboard).toHaveBeenCalledOnce();
+    });
+
+    it("refuses a panel that returns no rows unless allowEmptyResult is set, then saves it unverified", async () => {
+      mocks.resolvePanel.mockResolvedValue({
+        rows: [],
+        schema: [
+          { name: "week", type: "DATE" },
+          { name: "app", type: "STRING" },
+          { name: "n", type: "INT64" },
+        ],
+      });
+      const edit = updatePanel("signups-by-app", {
+        sql: "SELECT week, app, n FROM t WHERE r = '{{timeRange}}' AND n > 1e9",
+      });
+
+      await expect(mutateDashboard.run(edit, agent)).rejects.toMatchObject({
+        errorCode: "dashboard_panel_verification_failed",
+        message: expect.stringContaining('the viewer sees "No data"'),
+      });
+      expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+
+      const saved: any = await mutateDashboard.run(
+        { ...edit, allowEmptyResult: true },
+        agent,
+      );
+
+      expect(saved).toMatchObject({ saved: true, verified: false });
+      expect(saved.unverified).toEqual([
+        expect.objectContaining({
+          panelId: "signups-by-app",
+          status: "empty",
+        }),
+      ]);
+      expect(saved.nextStep).toMatch(/^REQUIRED: call inspect-dashboard-panel/);
+      expect(saved.summary).toMatch(/^SAVED BUT NOT VERIFIED:/);
+    });
+
+    it("never lets allowEmptyResult save a stale pivot", async () => {
+      mocks.resolvePanel.mockResolvedValue(result(WIDE_ROWS));
+
+      await expect(
+        mutateDashboard.run(
+          {
+            ...updatePanel("signups-by-app", {
+              sql: "SELECT week, mail, clips FROM t WHERE r = '{{timeRange}}'",
+            }),
+            allowEmptyResult: true,
+          },
+          agent,
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "dashboard_panel_verification_failed",
+      });
+      expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+    });
+
+    it("saves with verified:false and a required next step when a panel cannot be checked", async () => {
+      mocks.resolvePanel.mockResolvedValue({
+        error: "missing_api_key",
+        message: "Connect BigQuery",
+      });
+
+      const saved: any = await mutateDashboard.run(
+        updatePanel("signups-by-app", { config: { yKeys: ["n"] } }),
+        agent,
+      );
+
+      expect(saved).toMatchObject({ saved: true, verified: false });
+      expect(saved.unverified).toEqual([
+        expect.objectContaining({ note: "missing_credential" }),
+      ]);
+      expect(saved.nextStep).toContain("inspect-dashboard-panel");
+      expect(saved.message).toMatch(/^SAVED BUT NOT VERIFIED:/);
+    });
+
+    it("executes nothing for a title, width or layout edit", async () => {
+      const saved: any = await mutateDashboard.run(
+        {
+          dashboardId: "growth",
+          operations: [
+            {
+              op: "updatePanel",
+              panelId: "signups-by-app",
+              patch: { title: "Renamed", width: 3 },
+            },
+            { op: "movePanels", panelIds: ["kpi"], position: "top" },
+          ],
+        },
+        agent,
+      );
+
+      expect(saved).toMatchObject({
+        saved: true,
+        verified: true,
+        noRenderAffected: true,
+      });
+      expect(saved.message).toContain("No panel render was affected");
+      expect(saved._receipt.summary).toContain("no panel render was affected");
+      expect(mocks.resolvePanel).not.toHaveBeenCalled();
+      expect(mocks.dryRunQuerySchema).not.toHaveBeenCalled();
+    });
+
+    describe("edit permission comes before any panel SQL runs", () => {
+      const viewerError = () =>
+        Object.assign(
+          new Error("Requires editor role on dashboard growth (have viewer)"),
+          { statusCode: 403 },
+        );
+      const sqlEdit = {
+        ...updatePanel("signups-by-app", {
+          sql: "SELECT week, app, n FROM t WHERE r = '{{timeRange}}' LIMIT 3",
+        }),
+      };
+
+      function expectNothingRan() {
+        expect(mocks.resolvePanel).not.toHaveBeenCalled();
+        expect(mocks.dryRunQuery).not.toHaveBeenCalled();
+        expect(mocks.dryRunQuerySchema).not.toHaveBeenCalled();
+        expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+      }
+
+      it.each([
+        ["a dry run", { ...sqlEdit, dryRun: true }],
+        ["a save", sqlEdit],
+      ])(
+        "refuses a viewer on %s without executing the panel",
+        async (_, args) => {
+          mocks.assertDashboardEditable.mockRejectedValue(viewerError());
+
+          await expect(mutateDashboard.run(args, agent)).rejects.toMatchObject({
+            errorCode: "dashboard_forbidden",
+            statusCode: 403,
+            message: expect.stringContaining("have viewer"),
+          });
+          expectNothingRan();
+        },
+      );
+
+      it("refuses a viewer who is not an agent caller the same way", async () => {
+        mocks.assertDashboardEditable.mockRejectedValue(viewerError());
+
+        await expect(
+          mutateDashboard.run({ ...sqlEdit, dryRun: true }),
+        ).rejects.toMatchObject({ errorCode: "dashboard_forbidden" });
+        expectNothingRan();
+      });
+
+      it("fails a dry run on an unknown dashboard as not found", async () => {
+        mocks.getDashboard.mockResolvedValue(null);
+
+        await expect(
+          mutateDashboard.run({ ...sqlEdit, dryRun: true }, agent),
+        ).rejects.toMatchObject({
+          errorCode: "dashboard_not_found",
+          statusCode: 404,
+        });
+        expectNothingRan();
+      });
+
+      it("does not mistake an infrastructure failure for a permission answer", async () => {
+        mocks.assertDashboardEditable.mockRejectedValue(new Error("db down"));
+
+        await expect(
+          mutateDashboard.run({ ...sqlEdit, dryRun: true }, agent),
+        ).rejects.toThrow("db down");
+        expectNothingRan();
+      });
+    });
+
+    it("runs the same verification on a dry run and still writes nothing", async () => {
+      const ok: any = await mutateDashboard.run(
+        {
+          ...updatePanel("signups-by-app", {
+            sql: "SELECT week, app, n FROM t WHERE r = '{{timeRange}}' LIMIT 50",
+          }),
+          dryRun: true,
+        },
+        agent,
+      );
+      expect(ok).toMatchObject({ saved: false, dryRun: true, verified: true });
+
+      mocks.resolvePanel.mockResolvedValue(result(WIDE_ROWS));
+      await expect(
+        mutateDashboard.run(
+          {
+            ...updatePanel("signups-by-app", {
+              sql: "SELECT week, mail FROM t WHERE r = '{{timeRange}}'",
+            }),
+            dryRun: true,
+          },
+          agent,
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "dashboard_panel_verification_failed",
+      });
+      expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+    });
+
+    it("does not re-run a panel when the save retries after a concurrent write", async () => {
+      const existing = { kind: "sql", config: verifiedDashboard() };
+      mocks.upsertDashboardWithRetryOutcome.mockImplementation(
+        async (id: string, ctx: unknown, mutate: any) => {
+          await mutate(existing);
+          const { kind, body } = await mutate(existing);
+          await mocks.upsertDashboard(id, kind, body, ctx);
+          const dashboard = {
+            ...existing,
+            kind,
+            config: body,
+            updatedAt: "2026-10-06T00:00:00.001Z",
+          };
+          mocks.getDashboard.mockResolvedValue(dashboard);
+          return { dashboard, didWrite: true };
+        },
+      );
+
+      const saved: any = await mutateDashboard.run(
+        updatePanel("signups-by-app", {
+          sql: "SELECT week, app, n FROM t WHERE r = '{{timeRange}}' LIMIT 9",
+        }),
+        agent,
+      );
+
+      expect(saved.saved).toBe(true);
+      expect(mocks.resolvePanel).toHaveBeenCalledTimes(1);
+    });
+
+    it("leaves UI callers on today's behavior: no verification, nothing blocked", async () => {
+      mocks.resolvePanel.mockResolvedValue(result(WIDE_ROWS));
+
+      const saved: any = await mutateDashboard.run(
+        updatePanel("signups-by-app", {
+          sql: "SELECT week, mail FROM t WHERE r = '{{timeRange}}'",
+        }),
+      );
+
+      expect(saved.saved).toBe(true);
+      expect(saved.verified).toBeUndefined();
+      expect(mocks.resolvePanel).not.toHaveBeenCalled();
+    });
+
+    it("verifies panels affected by a filter-default change without blocking the edit", async () => {
+      mocks.resolvePanel.mockResolvedValue({
+        rows: [],
+        schema: [
+          { name: "week", type: "DATE" },
+          { name: "app", type: "STRING" },
+          { name: "n", type: "INT64" },
+        ],
+      });
+
+      const saved: any = await mutateDashboard.run(
+        {
+          dashboardId: "growth",
+          operations: [
+            { op: "setFilterDefault", filterId: "timeRange", value: "7d" },
+          ],
+        },
+        agent,
+      );
+
+      expect(saved).toMatchObject({ saved: true, verified: false });
+      expect(saved.unverified[0]).toMatchObject({
+        panelId: "signups-by-app",
+        status: "empty",
+      });
+    });
+
+    describe("write receipt", () => {
+      it("says verified:true and names the panel when the edit renders", async () => {
+        mocks.resolvePanel.mockResolvedValue(result(WIDE_ROWS));
+
+        const saved: any = await mutateDashboard.run(
+          updatePanel("signups-by-app", {
+            sql: "SELECT week, mail, clips FROM t WHERE r = '{{timeRange}}'",
+            config: { pivot: null, yKeys: ["mail", "clips"] },
+          }),
+          agent,
+        );
+
+        expect(saved._receipt).toMatchObject({
+          changed: true,
+          verified: true,
+          subject: "growth",
+          summary: expect.stringContaining('"Signups by app"'),
+          checks: [{ id: "signups-by-app", ok: true }],
+        });
+      });
+
+      it("says verified:false with the failing panel and reason when a panel cannot be checked", async () => {
+        mocks.resolvePanel.mockResolvedValue({
+          error: "missing_api_key",
+          message: "Connect BigQuery",
+        });
+
+        const saved: any = await mutateDashboard.run(
+          updatePanel("signups-by-app", { config: { yKeys: ["n"] } }),
+          agent,
+        );
+
+        expect(saved._receipt).toMatchObject({
+          changed: true,
+          verified: false,
+          summary: expect.stringMatching(
+            /NOT verified: "Signups by app" .*not connected/,
+          ),
+          checks: [
+            {
+              id: "signups-by-app",
+              ok: false,
+              detail: expect.stringContaining("not connected"),
+            },
+          ],
+        });
+        expect(saved._receipt.summary.length).toBeLessThanOrEqual(200);
+      });
+
+      it("lists failing checks first so the check cap never drops the reason", async () => {
+        mocks.resolvePanel.mockImplementation(async (args: any) =>
+          String(args?.query ?? args?.sql ?? "").includes("-- 3")
+            ? { error: "missing_api_key", message: "Connect BigQuery" }
+            : result(LONG_ROWS),
+        );
+        mocks.getDashboard.mockResolvedValue({
+          kind: "sql",
+          config: verifiedDashboard(
+            Array.from({ length: 4 }, (_, i) => ({
+              ...pivotPanel(`extra-${i}`),
+              sql: `SELECT week, app, n FROM t WHERE r = '{{timeRange}}' -- ${i}`,
+            })),
+          ),
+        });
+
+        const saved: any = await mutateDashboard.run(
+          {
+            dashboardId: "growth",
+            operations: [
+              { op: "setFilterDefault", filterId: "timeRange", value: "7d" },
+            ],
+          },
+          agent,
+        );
+
+        const oks = saved._receipt.checks.map((check: any) => check.ok);
+        expect(oks).toContain(false);
+        expect(oks).toEqual([...oks].sort((a, b) => Number(a) - Number(b)));
+      });
+
+      it("says verified:true with no render check for a title or layout edit", async () => {
+        const saved: any = await mutateDashboard.run(
+          updatePanel("signups-by-app", { title: "Renamed" }),
+          agent,
+        );
+
+        expect(saved._receipt).toEqual({
+          changed: true,
+          verified: true,
+          subject: "growth",
+          summary: expect.stringContaining("no panel render was affected"),
+        });
+      });
+
+      it("emits no receipt for a dry run, which writes nothing, or for a UI caller", async () => {
+        const dry: any = await mutateDashboard.run(
+          {
+            ...updatePanel("signups-by-app", {
+              sql: "SELECT week, app, n FROM t WHERE r = '{{timeRange}}' LIMIT 50",
+            }),
+            dryRun: true,
+          },
+          agent,
+        );
+        expect(dry._receipt).toBeUndefined();
+
+        const ui: any = await mutateDashboard.run(
+          updatePanel("signups-by-app", { title: "Renamed" }),
+        );
+        expect(ui._receipt).toBeUndefined();
+      });
+    });
   });
 });

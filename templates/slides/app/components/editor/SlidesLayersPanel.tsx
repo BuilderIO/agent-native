@@ -7,6 +7,7 @@ import {
   IconSquare,
   IconTypography,
   IconVectorBezier2,
+  IconVideo,
   IconX,
 } from "@tabler/icons-react";
 import { useState, type DragEvent, type ReactNode } from "react";
@@ -23,6 +24,7 @@ export type SlidesLayerKind =
   | "image"
   | "shape"
   | "text"
+  | "video"
   | "vector";
 
 export interface SlidesLayerNode {
@@ -62,8 +64,6 @@ export interface SlidesLayersPanelProps {
 function dropPlacement(event: DragEvent<HTMLElement>): SlidesLayerPlacement {
   const bounds = event.currentTarget.getBoundingClientRect();
   const position = (event.clientY - bounds.top) / bounds.height;
-  // Design shows the last DOM sibling first, so visual before/after are the
-  // opposite DOM placements consumed by SlideEditor.
   return position < 0.3 ? "after" : position > 0.7 ? "before" : "inside";
 }
 
@@ -106,6 +106,8 @@ function LayerGlyph({
       return <IconTypography className={className} />;
     case "image":
       return <IconPhoto className={className} />;
+    case "video":
+      return <IconVideo className={className} />;
     case "vector":
       return <IconVectorBezier2 className={className} />;
     case "code":

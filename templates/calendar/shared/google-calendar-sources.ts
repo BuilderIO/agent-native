@@ -50,10 +50,6 @@ export function parseGoogleAccountEventId(
   }
 }
 
-/**
- * Calendar ids are provider data and may contain separators, so encode the
- * complete identity rather than joining two user-controlled strings.
- */
 export function createGoogleCalendarSourceKey({
   accountEmail,
   calendarId,
@@ -92,7 +88,6 @@ export function parseGoogleCalendarSourceKey(
   }
 }
 
-/** A stable client identity for one provider calendar across account paths. */
 export function createGoogleCalendarCanonicalKey(calendarId: string): string {
   return `google-calendar-canonical:${Buffer.from(
     JSON.stringify([calendarId]),

@@ -7,8 +7,6 @@ function project(html: string) {
 }
 
 describe("layer names never leak source code", () => {
-  // A `>` inside a quoted attribute is ordinary Alpine. Naive tag-stripping
-  // ends the tag there and spills the attribute into the parent's text.
   it("does not spill an arrow function into the parent's name", () => {
     const html = `<body><ul class="feed"><template x-for="a in items.filter(x => x.unread)" :key="a.id"><li>Row</li></template></ul></body>`;
     const list = project(html).find((node) => node.classes.includes("feed"));
@@ -33,8 +31,6 @@ describe("layer names never leak source code", () => {
     expect(heading?.textSnippet).toBe("Hello there friend");
   });
 
-  // Ancestors reuse each child's read instead of re-reading its bytes, so
-  // these pin that the reused text matches reading the whole content.
   it.each([
     [
       `<section><h2> Hello&nbsp;<b>big</b>&amp;<i> small </i></h2><p>tail &#x26;lt; end</p></section>`,
@@ -61,8 +57,6 @@ describe("layer names never leak source code", () => {
         ["li", "two"],
       ],
     ],
-    // The span's `<'` never closes inside it, so its read stops at its own
-    // end; the section must read past that instead of reusing it.
     [
       `<section><span>a <'</span>b'> c</section>`,
       [
@@ -88,8 +82,6 @@ describe("layer names never leak source code", () => {
 });
 
 describe("boxless void metadata is not a layer", () => {
-  // Both bridges already strip these from the runtime snapshot, so a row for
-  // one is a layer the panel offers and the canvas can never show.
   it("skips source and track inside picture and video", () => {
     const html = `<body>
       <picture class="shot"><source srcset="a.webp" type="image/webp" /><img src="a.png" alt="a" /></picture>
@@ -99,7 +91,6 @@ describe("boxless void metadata is not a layer", () => {
 
     expect(nodes.some((node) => node.tag === "source")).toBe(false);
     expect(nodes.some((node) => node.tag === "track")).toBe(false);
-    // The elements that DO have a box stay.
     expect(nodes.some((node) => node.tag === "picture")).toBe(true);
     expect(nodes.some((node) => node.tag === "img")).toBe(true);
     expect(nodes.some((node) => node.tag === "video")).toBe(true);
@@ -107,8 +98,6 @@ describe("boxless void metadata is not a layer", () => {
 });
 
 describe("a position that source does not have is never resolved to a different element", () => {
-  // A repeat plus one static sibling: clone row 2 yields `li:nth-of-type(2)`,
-  // which source lacks. Stripping the position leaves the STATIC row.
   const REPEAT_PLUS_STATIC = `<body><ul data-agent-native-node-id="an-list">
   <template x-for="t in todos" :key="t.text"><li class="row">x</li></template>
   <li class="row" data-agent-native-node-id="an-static">+ Add a task</li>

@@ -4,7 +4,6 @@ import type {
   TestMcpUrlResult,
 } from "@agent-native/core/client/resources";
 
-/** IPC names for the shared core MCP settings surface in Desktop. */
 export const CHAT_FIRST_MCP_IPC = {
   LIST: "chat-first:mcp:list",
   CREATE: "chat-first:mcp:create",

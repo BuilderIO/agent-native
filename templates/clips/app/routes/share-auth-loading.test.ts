@@ -12,7 +12,7 @@ describe("authenticated recording route loading", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
     expect(route).toContain("enabled: !!recordingId && !sessionLoading");
     expect(route).toContain(
-      "if (playerDataQ.isLoading || playerDataForbidden)",
+      "if (playerDataQ.isPending || playerDataForbidden)",
     );
     expect(route).toContain("<RecordingWorkspaceSkeleton />");
     expect(route).not.toContain("buildSignInReturnHref");
@@ -60,6 +60,46 @@ describe("authenticated recording route loading", () => {
       "buildShareContinuationQuery(attribution, startAt, panelParam)",
     );
     expect(route).toContain('IconLock className="h-5 w-5"');
+  });
+
+  it("checks that a recording exists before verifying a scoped share token", () => {
+    const route = readRoute("share.$shareId.tsx");
+    const missingRecordGuard = route.indexOf(
+      "if (!rec) return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);",
+    );
+    const tokenVerification = route.indexOf("const tokenGrantsAgentAccess =");
+
+    expect(missingRecordGuard).toBeGreaterThanOrEqual(0);
+    expect(tokenVerification).toBeGreaterThan(missingRecordGuard);
+  });
+
+  it("renders signed-in share viewers in the app shell with breadcrumbs", () => {
+    const route = readRoute("share.$shareId.tsx");
+    const root = readFileSync(resolve(process.cwd(), "app/root.tsx"), "utf8");
+
+    expect(root).toContain("isRecordingSharePath(location.pathname)");
+    expect(root).toContain('typeof window !== "undefined"');
+    expect(root).toContain('sessionStatus === "authenticated"');
+    expect(root).toContain(
+      "isStandalonePublicPath(location.pathname) && !authenticatedShare",
+    );
+    expect(root).toContain("<LibraryLayout>");
+    expect(route).toContain("<PageBreadcrumb items={shareBreadcrumbItems} />");
+    expect(route).not.toContain(
+      'aria-label={t("recordingPage.backToLibrary")}',
+    );
+  });
+
+  it("keeps sharing unavailable while a recording upload is processing", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+    const viewStart = route.indexOf("const processingView = (");
+    const viewEnd = route.indexOf("return processingView;", viewStart);
+    const processingView = route.slice(viewStart, viewEnd);
+
+    expect(viewStart).toBeGreaterThanOrEqual(0);
+    expect(viewEnd).toBeGreaterThan(viewStart);
+    expect(processingView).not.toContain("renderShareControl()");
+    expect(processingView).not.toContain("ShareCopyRow");
   });
 
   it("keeps transient missing share records loading while retrying locally", () => {
@@ -186,8 +226,8 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain(
       "const viewerCanUseFullscreenInteractions = !session || viewerCanComment;",
     );
-    expect(route).toContain(
-      "recording.enableComments &&\n                    viewerCanUseFullscreenInteractions",
+    expect(route).toMatch(
+      /recording\.enableComments &&\s+viewerCanUseFullscreenInteractions/,
     );
     expect(route).toContain("recording.enableReactions &&");
     expect(route).toContain("viewerCanUseFullscreenInteractions");
@@ -206,6 +246,9 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("pendingAccountActionRef");
     expect(route).toContain("disabled={Boolean(session) && !viewerCanComment}");
     expect(route).toContain("onReact={reactToRecording}");
+    expect(route).toMatch(
+      /portalContainer={\s*isPlayerFullscreen \? playerRef\.current\?\.container : undefined\s*}/,
+    );
   });
 
   it("keeps public comments in flow and consolidates recording insights", () => {
@@ -249,16 +292,23 @@ describe("authenticated recording route loading", () => {
       recordingRoute.match(/t\("recordingPage\.sharedWithYou"\)/g),
     ).toHaveLength(2);
     expect(recordingRoute).toContain("const renderShareControl =");
-    expect(recordingRoute.match(/renderShareControl\(/g)).toHaveLength(2);
+    expect(recordingRoute.match(/renderShareControl\(/g)).toHaveLength(1);
     expect(shareRoute).toContain("<ClipsShareTrigger");
     expect(trigger).toContain('intent="primary"');
     expect(trigger).toContain('emphasis="solid"');
 
-    const publicControlsStart = shareRoute.indexOf("<header");
-    expect(publicControlsStart).toBeGreaterThan(-1);
+    const shareControlStart = shareRoute.indexOf("const shareControl");
+    expect(shareControlStart).toBeGreaterThan(-1);
+    const publicControlsStart = shareRoute.indexOf(
+      "<header",
+      shareControlStart,
+    );
+    expect(publicControlsStart).toBeGreaterThan(shareControlStart);
     const publicControls = shareRoute.slice(publicControlsStart);
-    expect(publicControls.indexOf("<ClipsShareTrigger")).toBeGreaterThan(-1);
-    expect(publicControls.indexOf("<RecordingOptionsMenu")).toBeGreaterThan(-1);
+    expect(publicControls.indexOf("{shareControl}")).toBeGreaterThan(-1);
+    expect(publicControls.indexOf("{shareControl}")).toBeLessThan(
+      publicControls.indexOf("<RecordingOptionsMenu"),
+    );
     expect(shareRoute).not.toContain("IconDotsVertical");
     expect(shareRoute).not.toContain("IconDots className");
   });
@@ -286,9 +336,6 @@ describe("authenticated recording route loading", () => {
   it("opens the comments panel on the public share page for ?panel=comments links", () => {
     const shareRoute = readRoute("share.$shareId.tsx");
 
-    // The signed-in recording route supports a ?panel=comments deep link
-    // (used by search results and the command menu); the public share route
-    // rendered the same param unread and always defaulted to "transcript".
     expect(shareRoute).toContain(
       'const panelParam = searchParams.get("panel")',
     );
@@ -296,27 +343,24 @@ describe("authenticated recording route loading", () => {
       "if (recording && !recording.enableComments) {",
     );
     expect(effectStart).toBeGreaterThan(-1);
-    const effect = shareRoute.slice(effectStart, effectStart + 700);
+    // Window widened when the screenshot fallback was added to this branch.
+    const effect = shareRoute.slice(effectStart, effectStart + 900);
     expect(effect).toContain('if (panelParam === "comments") {');
     expect(effect).toContain("selectCommentsPanel();");
 
-    // A share whose owner disabled comments after the link was shared must
-    // land back on transcript - the comments tab and its content are both
-    // conditionally rendered on recording.enableComments, so leaving `panel`
-    // set to "comments" here would strand the Tabs value on nothing.
     expect(effect).toContain(
-      'setPanel((current) => (current === "comments" ? "transcript" : current));',
+      'setPanel((current) => (current === "comments" ? fallback : current));',
+    );
+    // ...and a screenshot has no transcript tab either, so its fallback is
+    // the agent rather than a tab that is never rendered for it.
+    expect(effect).toContain(
+      'const fallback = isImageRecording(recording) ? "agent" : "transcript";',
     );
   });
 
   it("does not re-select comments every time the viewer changes tabs", () => {
     const shareRoute = readRoute("share.$shareId.tsx");
 
-    // `panel` must not be a dependency of the deep-link effect: if it were,
-    // switching to Transcript/Agent would re-run the effect, and
-    // `panelParam === "comments"` (still true, since it's read from the URL)
-    // would immediately call selectCommentsPanel() again, trapping the
-    // viewer on the deep link for the whole share session.
     const effectStart = shareRoute.indexOf(
       "if (recording && !recording.enableComments) {",
     );
@@ -331,10 +375,6 @@ describe("authenticated recording route loading", () => {
   it("re-runs the comments deep link when navigating between shares", () => {
     const shareRoute = readRoute("share.$shareId.tsx");
 
-    // Without `shareId` in the effect's dependency array, navigating from
-    // /share/A?panel=comments to /share/B?panel=comments would not re-run the
-    // effect when both recordings have the same enableComments value, leaving
-    // the new share on whatever `panel` the previous share was left at.
     const effectStart = shareRoute.indexOf(
       "if (recording && !recording.enableComments) {",
     );
@@ -351,9 +391,6 @@ describe("authenticated recording route loading", () => {
   it("preserves ?panel in the sign-in continuation URL for public shares", () => {
     const shareRoute = readRoute("share.$shareId.tsx");
 
-    // Anonymous viewers who open a ?panel=comments share and then sign in
-    // must return to the comments panel, not lose it because shareReturnTo
-    // only forwarded attribution and `at`.
     expect(shareRoute).toContain(
       "buildShareContinuationQuery(attribution, startAt, panelParam)",
     );
@@ -363,5 +400,25 @@ describe("authenticated recording route loading", () => {
       "utf8",
     );
     expect(attributionSrc).toContain('if (panel) params.set("panel", panel);');
+  });
+
+  it("sends signed-in viewers to the app shell instead of the marketing page", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+
+    expect(shareRoute).toContain(
+      'const homeHref = session ? appPath("/home") : appPath("/");',
+    );
+
+    expect(shareRoute).toContain("homeHref: string;");
+    expect(shareRoute).toContain(
+      '<a href={homeHref}>{t("clipsFinalRaw.goHome")}</a>',
+    );
+    expect(shareRoute).not.toContain('<a href={appPath("/")}>');
+
+    expect(shareRoute.match(/homeHref=\{homeHref\}/g)).toHaveLength(6);
+
+    expect(shareRoute).toContain(
+      'to={appPath("/")}\n              aria-label={t("navigation.brand")}',
+    );
   });
 });

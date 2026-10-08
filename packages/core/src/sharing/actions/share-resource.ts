@@ -1,46 +1,29 @@
-import { and, eq, sql, type SQL } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { defineAction, fail } from "../../action.js";
+import { defineAction } from "../../action.js";
 import { getAppConfig } from "../../app-config/index.js";
-import { getDbExec } from "../../db/client.js";
-import { isOrgMember } from "../../org/membership.js";
-import { getAppProductionUrl } from "../../server/app-url.js";
 import {
-  emailQuote,
-  emailStrong,
-  renderEmail,
-} from "../../server/email-template.js";
+  CORE_RESOURCE_SHARED_EMAIL_ID,
+  renderTransactionalEmail,
+} from "../../email-catalog/templates.js";
+import { getAppProductionUrl } from "../../server/app-url.js";
 import { sendEmail, isEmailConfigured } from "../../server/email.js";
-import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
-import { isAutozQaEmail } from "../../shared/qa-test-email.js";
 import { track } from "../../tracking/registry.js";
 import { getUserProfile } from "../../user-profile/store.js";
-import { assertWorkspaceUserGroupIds } from "../../workspace-connections/groups.js";
-import { assertAccess, ForbiddenError } from "../access.js";
+import { assertAccess } from "../access.js";
+import {
+  announceResourceAccessChange,
+  grantResourceAccess,
+  isEmailPrincipalId,
+  isOrgMemberOrInvited,
+  normalizePrincipalId,
+  principalIdMatches,
+} from "../grant.js";
 import { requireShareableResource } from "../registry.js";
 import type { ShareEmailExtras } from "../registry.js";
-import {
-  getExtensionShareChangeTargets,
-  notifyExtensionShareChanged,
-} from "./extension-change.js";
-
-export function isSyntheticQaEmail(email: string): boolean {
-  const trimmed = email.trim().toLowerCase();
-  if (isAutozQaEmail(trimmed)) return true;
-  const at = trimmed.lastIndexOf("@");
-  if (at <= 0) return false;
-  const local = trimmed.slice(0, at);
-  const domain = trimmed.slice(at + 1);
-  return (
-    local.includes("+qa") &&
-    (domain === "example.test" ||
-      domain.endsWith(".test") ||
-      domain === "example.invalid" ||
-      domain.endsWith(".invalid"))
-  );
-}
+import { resourceSharingChange } from "./change-result.js";
 
 function appPath(path: string): string {
   if (!path.startsWith("/")) return path;
@@ -93,70 +76,59 @@ export function resolveShareNotificationUrl(
   return appUrl;
 }
 
-function nanoid(size = 12): string {
-  const chars =
-    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-  let id = "";
-  const bytes = crypto.getRandomValues(new Uint8Array(size));
-  for (const byte of bytes) id += chars[byte % chars.length];
-  return id;
-}
+async function needsExternalShareApproval(args: {
+  resourceType: string;
+  resourceId: string;
+  principalType: "user" | "group" | "org";
+  principalId: string;
+  role: "viewer" | "commenter" | "editor" | "admin";
+}): Promise<boolean> {
+  if (args.principalType === "group") return false;
+  const reg = requireShareableResource(args.resourceType);
+  if (reg.requireOrgMemberForUserShares) return false;
 
-function normalizePrincipalId(
-  principalType: "user" | "group" | "org",
-  principalId: string,
-): string {
-  return principalType === "user"
-    ? principalId.trim().toLowerCase()
-    : principalId;
-}
+  const access = await assertAccess(
+    args.resourceType,
+    args.resourceId,
+    "admin",
+    undefined,
+    { skipResourceBody: true },
+  );
+  const resourceOrgId = access.resource.orgId as string | null | undefined;
+  const db = reg.getDb() as any;
+  if (args.principalType === "org") {
+    if (resourceOrgId && args.principalId === resourceOrgId) return false;
+  } else {
+    if (!isEmailPrincipalId(args.principalId)) return false;
+    const recipient = normalizePrincipalId("user", args.principalId);
+    if (
+      resourceOrgId &&
+      (await isOrgMemberOrInvited(resourceOrgId, recipient))
+    ) {
+      return false;
+    }
+  }
 
-function isEmailPrincipalId(value: string): boolean {
-  return /^[^\s@]+@[^\s@]+$/.test(value.trim());
-}
-
-function principalIdMatches(
-  sharesTable: any,
-  principalType: "user" | "group" | "org",
-  principalId: string,
-): SQL {
-  return principalType === "user"
-    ? sql`lower(${sharesTable.principalId}) = ${principalId}`
-    : eq(sharesTable.principalId, principalId);
-}
-
-/**
- * Returns true if the given email is either an active member of `orgId` or
- * has a pending invitation to `orgId`. Used by resources whose registration
- * sets `requireOrgMemberForUserShares` (currently extensions) to refuse
- * cross-org user shares.
- *
- * Both `org_members` and `org_invitations` store email case-insensitively
- * via `LOWER()` in the rest of the framework, so we follow the same
- * convention here.
- */
-async function isOrgMemberOrInvited(
-  orgId: string,
-  email: string,
-): Promise<boolean> {
-  const lower = email.trim().toLowerCase();
-  if (!lower || !orgId) return false;
-  const client = getDbExec();
-  if (await isOrgMember(orgId, lower)) return true;
-  const invited = await client.execute({
-    sql: `SELECT 1 FROM org_invitations WHERE org_id = ? AND LOWER(email) = ? AND status = 'pending' LIMIT 1`,
-    args: [orgId, lower],
-  });
-  return invited.rows.length > 0;
+  const [existing] = await db
+    .select({ role: reg.sharesTable.role })
+    .from(reg.sharesTable)
+    .where(
+      and(
+        eq(reg.sharesTable.resourceId, args.resourceId),
+        eq(reg.sharesTable.principalType, args.principalType),
+        principalIdMatches(
+          reg.sharesTable,
+          args.principalType,
+          normalizePrincipalId(args.principalType, args.principalId),
+        ),
+      ),
+    );
+  return existing?.role !== args.role;
 }
 
 export default defineAction({
   description:
     "Grant a user, group, or org access to a shareable resource. Owner or admin role required.",
-  // (audit H5) Sharing-grant operations are admin-tier and let a caller
-  // expand who can read/write a resource. Refuse from the tools iframe
-  // bridge so a malicious shared tool can't silently re-share its
-  // viewer's resources to an attacker-controlled email.
   toolCallable: false,
   schema: z.object({
     resourceType: z
@@ -200,160 +172,45 @@ export default defineAction({
         "Optional short note included in the notification email to an individual recipient.",
       ),
   }),
+  needsApproval: needsExternalShareApproval,
   run: async (args) => {
     const reg = requireShareableResource(args.resourceType);
-    const access = await assertAccess(
+    const grant = await grantResourceAccess({
+      resourceType: args.resourceType,
+      resourceId: args.resourceId,
+      principalType: args.principalType,
+      principalId: args.principalId,
+      role: args.role,
+    });
+    const actor = getRequestUserEmail()!;
+    const { id, principalId, resource: accessResource } = grant;
+    await announceResourceAccessChange(
       args.resourceType,
       args.resourceId,
-      "admin",
+      grant.extensionTargetsBefore,
     );
-    const actor = getRequestUserEmail();
-    if (!actor) throw new ForbiddenError("Not signed in");
-    const principalId = normalizePrincipalId(
-      args.principalType,
-      args.principalId,
-    );
-    if (args.principalType === "group" && reg.supportsGroupShares !== true) {
-      throw new ForbiddenError(
-        `${reg.displayName} does not support organization groups yet.`,
-      );
-    }
-    if (args.principalType === "user" && !isEmailPrincipalId(principalId)) {
-      fail("User shares must use an email address, not an internal user id.", {
-        errorCode: "invalid_user_share_principal",
-      });
-    }
-    if (args.principalType === "group") {
-      const resourceOrgId = access.resource?.orgId as string | undefined | null;
-      if (!resourceOrgId) {
-        throw new ForbiddenError(
-          `${reg.displayName} can only be shared with a group from within an organization.`,
-        );
-      }
-      try {
-        await assertWorkspaceUserGroupIds([principalId], resourceOrgId);
-      } catch {
-        throw new ForbiddenError(
-          `${reg.displayName} can only be shared with a group from its own organization.`,
-        );
-      }
-    }
-    const beforeExtensionTargets = await getExtensionShareChangeTargets(
-      args.resourceType,
-      args.resourceId,
-    );
-
-    if (reg.requireOrgMemberForUserShares) {
-      const resourceOrgId = access.resource?.orgId as string | undefined | null;
-      if (!resourceOrgId) {
-        throw new ForbiddenError(
-          `${reg.displayName} can only be shared from within an organization. Create or join an organization first.`,
-        );
-      }
-      if (args.principalType === "user") {
-        const ok = await isOrgMemberOrInvited(resourceOrgId, principalId);
-        if (!ok) {
-          throw new ForbiddenError(
-            `${principalId} is not in your organization. Invite them to the organization first, then share.`,
-          );
-        }
-      } else if (args.principalType === "org") {
-        // Cross-org org shares would let an outside org's members run
-        // extension code in the viewer's auth context — the same threat
-        // model that blocks public + cross-org user shares. Pin org-
-        // principal shares to the resource's own org.
-        if (principalId !== resourceOrgId) {
-          throw new ForbiddenError(
-            `${reg.displayName} can only be shared with its own organization, not a different one.`,
-          );
-        }
-      } else if (args.principalType === "group") {
-        // Group ownership was validated above against the resource org.
-      }
-    }
-
-    const db = reg.getDb() as any;
-    const [existing] = await db
-      .select()
-      .from(reg.sharesTable)
-      .where(
-        and(
-          eq(reg.sharesTable.resourceId, args.resourceId),
-          eq(reg.sharesTable.principalType, args.principalType),
-          principalIdMatches(reg.sharesTable, args.principalType, principalId),
-        ),
-      );
-
-    if (existing) {
-      await db
-        .update(reg.sharesTable)
-        .set({ role: args.role })
-        .where(eq(reg.sharesTable.id, existing.id));
-      invalidateCollabAccessCache(args.resourceType, args.resourceId);
-      await notifyExtensionShareChanged(
-        args.resourceType,
-        args.resourceId,
-        beforeExtensionTargets,
-      );
-      return { id: existing.id, updated: true };
-    }
-
-    const id = nanoid();
-    const [inserted] = await db
-      .insert(reg.sharesTable)
-      .values({
+    if (!grant.created) {
+      return {
         id,
-        resourceId: args.resourceId,
-        principalType: args.principalType,
-        principalId,
-        role: args.role,
-        createdBy: actor,
-        createdAt: new Date().toISOString(),
-      })
-      .onConflictDoNothing()
-      .returning({ id: reg.sharesTable.id });
-    if (!inserted) {
-      const [existingAfterConflict] = await db
-        .select()
-        .from(reg.sharesTable)
-        .where(
-          and(
-            eq(reg.sharesTable.resourceId, args.resourceId),
-            eq(reg.sharesTable.principalType, args.principalType),
-            principalIdMatches(
-              reg.sharesTable,
-              args.principalType,
-              principalId,
-            ),
-          ),
-        );
-      if (!existingAfterConflict) {
-        throw new Error("Share conflict could not be resolved.");
-      }
-      await db
-        .update(reg.sharesTable)
-        .set({ role: args.role })
-        .where(eq(reg.sharesTable.id, existingAfterConflict.id));
-      invalidateCollabAccessCache(args.resourceType, args.resourceId);
-      await notifyExtensionShareChanged(
-        args.resourceType,
-        args.resourceId,
-        beforeExtensionTargets,
-      );
-      return { id: existingAfterConflict.id, updated: true };
+        updated: grant.updated,
+        ...(grant.updated
+          ? {
+              change: resourceSharingChange(
+                reg,
+                accessResource,
+                "updated",
+                `${args.principalType}:${principalId} · ${args.role}`,
+              ).change,
+            }
+          : {}),
+      };
     }
-    invalidateCollabAccessCache(args.resourceType, args.resourceId);
-    await notifyExtensionShareChanged(
-      args.resourceType,
-      args.resourceId,
-      beforeExtensionTargets,
-    );
+    const db = reg.getDb() as any;
 
     const shouldNotify =
       args.notify !== false &&
       args.principalType === "user" &&
-      (await isEmailConfigured()) &&
-      !isSyntheticQaEmail(principalId);
+      (await isEmailConfigured());
     let notified = false;
     if (shouldNotify) {
       try {
@@ -447,50 +304,34 @@ export default defineAction({
             );
           }
         }
-        const resourceLabel = reg.displayName.toLowerCase();
-        const article = /^[aeiou]/i.test(resourceLabel) ? "an" : "a";
-        const subject = `${senderDisplayName} shared with you: "${resourceTitle}"`;
-        const messageParagraph = args.message?.trim()
-          ? emailQuote(args.message)
-          : null;
-        const roleVerb =
-          args.role === "viewer"
-            ? "view"
-            : args.role === "commenter"
-              ? "comment on"
-              : args.role === "admin"
-                ? "edit and manage access to"
-                : "edit";
-        const defaultParagraphs = [
-          `${emailStrong(senderDisplayName)} (${emailStrong(actor)}) has invited you to ${roleVerb} the following ${resourceLabel}:`,
-          ...(messageParagraph ? [messageParagraph] : []),
-        ];
-        const { html, text } = renderEmail({
-          brandName,
-          brandLogoUrl,
-          preheader: subject,
-          heading: `${senderDisplayName} shared ${article} ${resourceLabel}`,
-          paragraphs: extras?.paragraphs
-            ? messageParagraph
-              ? [messageParagraph, ...extras.paragraphs]
-              : extras.paragraphs
-            : defaultParagraphs,
-          resourceBlock: { name: resourceTitle },
-          heroHtml,
-          cta: { label: "Open", url: notificationUrl },
-          secondaryCta: extras?.secondaryCta,
-          linkBlock: extras?.linkBlock,
-          closingParagraphs: extras?.closingParagraphs,
-        });
-        await sendEmail({
+        const { subject, html, text } = await renderTransactionalEmail(
+          CORE_RESOURCE_SHARED_EMAIL_ID,
+          {
+            recipientEmail: principalId,
+            sender: { name: senderDisplayName, email: actor },
+            resource: {
+              type: args.resourceType,
+              label: reg.displayName,
+              title: resourceTitle,
+              url: notificationUrl,
+            },
+            role: args.role,
+            message: args.message,
+            app: { name: brandName, logoUrl: brandLogoUrl },
+            heroHtml,
+            extras,
+          },
+        );
+        const sent = await sendEmail({
           to: principalId,
           subject,
           html,
           text,
           fromName,
           replyTo,
+          templateId: CORE_RESOURCE_SHARED_EMAIL_ID,
         });
-        notified = true;
+        notified = sent.status === "sent";
       } catch (err) {
         console.error(
           "[share-resource] failed to send share notification:",
@@ -500,9 +341,6 @@ export default defineAction({
     }
 
     if (notified) {
-      // The provider already accepted the email, so a failed marker write must
-      // not fail the share. It costs the recipient a follow-up nudge, never a
-      // duplicate or a false one.
       try {
         await db
           .update(reg.sharesTable)
@@ -533,6 +371,15 @@ export default defineAction({
       );
     }
 
-    return { id, updated: false };
+    return {
+      id,
+      updated: false,
+      change: resourceSharingChange(
+        reg,
+        accessResource,
+        "created",
+        `${args.principalType}:${principalId} · ${args.role}`,
+      ).change,
+    };
   },
 });

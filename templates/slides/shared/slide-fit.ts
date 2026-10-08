@@ -1,6 +1,7 @@
+import { fingerprintMedia } from "@agent-native/core/ingestion";
+
 export interface SlideFitMeasurement {
   contentHash: string;
-  /** Changes on every persisted content write, including A -> B -> A. */
   layoutFitRevision?: string;
   contentHeight: number;
   contentWidth: number;
@@ -17,17 +18,10 @@ export interface DeckFitState {
   slides: Record<string, SlideFitMeasurement>;
 }
 
-/** Stable, compact identity for checking whether a measurement matches HTML. */
 export function hashSlideContent(content: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < content.length; index += 1) {
-    hash ^= content.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16);
+  return fingerprintMedia(new TextEncoder().encode(content)).sha256;
 }
 
-/** Unique identity for a persisted content write. */
 export function createLayoutFitRevision(): string {
   if (typeof globalThis.crypto?.randomUUID === "function") {
     return globalThis.crypto.randomUUID();
@@ -35,7 +29,6 @@ export function createLayoutFitRevision(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-/** Return whether a slide mutation can change the rendered fit geometry. */
 export function slideFitRenderFieldsChanged(
   previous: {
     content?: unknown;
@@ -60,7 +53,6 @@ export function slideFitRenderFieldsChanged(
   );
 }
 
-/** Return whether a deck mutation changes the canvas or its typography. */
 export function deckFitRenderFieldsChanged(
   previous: { aspectRatio?: unknown; designSystemId?: unknown },
   next: { aspectRatio?: unknown; designSystemId?: unknown },
@@ -71,7 +63,6 @@ export function deckFitRenderFieldsChanged(
   );
 }
 
-/** Match both the source HTML and the write that produced it. */
 export function slideFitMeasurementMatchesSlide(
   measurement:
     | Pick<SlideFitMeasurement, "contentHash" | "layoutFitRevision">

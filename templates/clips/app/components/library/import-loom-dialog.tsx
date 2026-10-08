@@ -21,7 +21,6 @@ export interface ImportLoomDialogProps {
   onOpenChange: (open: boolean) => void;
   spaceId?: string | null;
   folderId?: string | null;
-  /** Where the upload picker inside the dialog returns to. */
   recordHref?: string;
 }
 

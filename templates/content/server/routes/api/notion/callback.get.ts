@@ -30,7 +30,10 @@
 import crypto from "node:crypto";
 
 import { OAuthAccountOwnedByOtherUserError } from "@agent-native/core/oauth-tokens";
-import { safeReturnPath } from "@agent-native/core/server";
+import {
+  queryEchoSafeRedirect,
+  safeReturnPath,
+} from "@agent-native/core/server";
 import {
   defineEventHandler,
   deleteCookie,
@@ -72,12 +75,6 @@ function hmacSign(payload: string, secret: string): string {
     .digest("base64url");
 }
 
-/**
- * Compute the HMAC over the state JSON's stable fields. We verify only the
- * `redirectPath` claim (the field we'd otherwise blindly trust) so legacy
- * state blobs without a `sig` simply fall back to `"/"` rather than
- * exploding the flow for already-issued OAuth links.
- */
 function verifyStateSignature(state: Record<string, any>): {
   ok: boolean;
   redirectPath: string | null;
@@ -119,8 +116,6 @@ export default defineEventHandler(async (event) => {
     return { error: "Missing authorization code" };
   }
 
-  // Decode state up front so we know the (verified, if signed) redirect
-  // target regardless of how the rest of the handler exits.
   const state = decodeStateJson(stateParam);
   const verified = verifyStateSignature(state);
   const target = verified.ok ? safeReturnPath(verified.redirectPath) : "/";
@@ -163,5 +158,14 @@ export default defineEventHandler(async (event) => {
     throw err;
   }
 
-  return sendRedirect(event, target, 302);
+  // A bare redirect lets the edge copy the spent `code` and `state` onto the
+  // page, so a browser lands through core's clean-URL page instead.
+  const headers = new Headers({ Location: target });
+  for (const cookie of event.res?.headers?.getSetCookie?.() ?? []) {
+    headers.append("set-cookie", cookie);
+  }
+  return queryEchoSafeRedirect(
+    event,
+    new Response(null, { status: 302, headers }),
+  );
 });

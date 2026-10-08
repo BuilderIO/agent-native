@@ -1,9 +1,3 @@
-/**
- * <DayHeader /> — Granola-style sticky day section header.
- *
- * Small, semi-uppercase, sticky-on-scroll. Shared across the meetings
- * list and the dictate list.
- */
 interface DayHeaderProps {
   label: string;
 }
@@ -18,10 +12,6 @@ export function DayHeader({ label }: DayHeaderProps) {
   );
 }
 
-/**
- * Format a date relative to today: "Today" / "Tomorrow" / "Yesterday" /
- * "Mon · Apr 15" within the same week / "Apr 15" otherwise.
- */
 export function formatDayLabel(iso: string): string {
   try {
     const d = new Date(iso);

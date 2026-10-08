@@ -16,13 +16,13 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
-import { ShareButton } from "@agent-native/core/client/sharing";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   CreativeContextShareSheet,
   CreativeContextShareTab,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
   useDroppable,
@@ -140,6 +140,16 @@ import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 import BlankDashboard from "../BlankDashboard";
 import { DashboardSkeleton } from "../DashboardSkeleton";
 import {
+  canPersistDashboardFilterPreference,
+  dashboardFilterParams,
+  dashboardFilterPreferenceSaveState,
+  matchesDashboardFilterRestoreState,
+  resolveDashboardFilterRestoreStep,
+  sameDashboardFilterMap,
+  type DashboardFilterPreferenceSaveGuard,
+  type DashboardFilterRestoreProgress,
+} from "./dashboard-filter-restore";
+import {
   availableDropSlotIdsForPanel,
   buildDashboardPanelGroups,
   columnExpansionForDropSlot,
@@ -168,7 +178,7 @@ import {
 } from "./DashboardFilterBar";
 import { EmailReportDialog } from "./EmailReportDialog";
 import { dashboardExtensionSlotId } from "./extension-slot";
-import { interpolate } from "./interpolate";
+import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
 import { serializePanelSql } from "./panel-sql";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
 import { listReportablePanelIds } from "./report-panel-window";
@@ -177,6 +187,7 @@ import {
   clampDashboardColumns,
   DEFAULT_DASHBOARD_COLUMNS,
   type DashboardCertification,
+  type DashboardFilter,
   type SqlDashboardConfig,
   type SqlPanel,
 } from "./types";
@@ -188,15 +199,6 @@ type DashboardTabGroup = {
   name: string;
   tabs: Array<{ value: string; label: string }>;
 };
-
-function sameFilterMap(
-  a: Record<string, string> | undefined,
-  b: Record<string, string>,
-): boolean {
-  const aKeys = Object.keys(a ?? {});
-  if (aKeys.length !== Object.keys(b).length) return false;
-  return aKeys.every((key) => a![key] === b[key]);
-}
 
 function groupDashboardTabs(tabs: string[]): {
   groups: DashboardTabGroup[];
@@ -262,18 +264,10 @@ function DashboardDragPreview({ panel }: { panel: SqlPanel | null }) {
   );
 }
 
-/**
- * A single chart cell, memoized so that drag interactions — which re-render the
- * dashboard page on every drop-slot change — do NOT re-render every chart's
- * Recharts subtree. During a drag the panel, vars, remoteEditor, and the
- * stable callbacks below don't change, so React skips these cells entirely and
- * only the lightweight drop-line indicators update. This keeps dragging smooth
- * on dense dashboards. Outside a drag, prop changes (filter/vars edits, remote
- * collaborator highlights, panel edits) still re-render normally.
- */
 const PanelCell = memo(function PanelCell({
   panel,
   vars,
+  timeRangeFilter,
   remoteEditor,
   editable,
   eagerLoad,
@@ -288,6 +282,7 @@ const PanelCell = memo(function PanelCell({
 }: {
   panel: SqlPanel;
   vars: Record<string, string>;
+  timeRangeFilter: DashboardFilter | undefined;
   remoteEditor: { color: string; name: string } | undefined;
   editable: boolean;
   eagerLoad: boolean;
@@ -303,6 +298,14 @@ const PanelCell = memo(function PanelCell({
   onSavePanel: (panel: SqlPanel) => Promise<void>;
   dashboardExtensionContext: Record<string, unknown>;
 }) {
+  const [timeRangeOverride, setTimeRangeOverride] = useState<string | null>(
+    null,
+  );
+  const effectiveVars = useMemo(
+    () =>
+      timeRangeOverride ? { ...vars, timeRange: timeRangeOverride } : vars,
+    [vars, timeRangeOverride],
+  );
   const resolved = useMemo(
     () =>
       panel.config?.description
@@ -310,18 +313,20 @@ const PanelCell = memo(function PanelCell({
             ...panel,
             config: {
               ...panel.config,
-              description: interpolate(panel.config.description, vars),
+              description: interpolate(panel.config.description, effectiveVars),
             },
           }
         : panel,
-    [panel, vars],
+    [panel, effectiveVars],
   );
   const resolvedSql = useMemo(
     () =>
-      interpolate(serializePanelSql(panel.sql), vars, {
-        failClosedTimeVariables: true,
-      }),
-    [panel.sql, vars],
+      interpolateDashboardPanelSql(
+        serializePanelSql(panel.sql),
+        effectiveVars,
+        panel,
+      ),
+    [panel.sql, effectiveVars],
   );
   const handleSelectForChat = useCallback(
     (options?: SelectDashboardPanelOptions) => {
@@ -388,7 +393,10 @@ const PanelCell = memo(function PanelCell({
             ? dashboardExtensionContext.dashboardId
             : ""
         }
-        filters={vars}
+        filters={effectiveVars}
+        timeRangeFilter={timeRangeFilter}
+        timeRangeOverride={timeRangeOverride}
+        onTimeRangeOverrideChange={setTimeRangeOverride}
         extensionContext={
           panel.chartType === "extension"
             ? {
@@ -578,18 +586,15 @@ function DashboardReportCaptureSurface({
   );
 }
 
-/**
- * Save dashboard config via the update-dashboard action. Throws on error so
- * callers (e.g. the panel editor dialog) can surface BigQuery validation
- * errors inline instead of silently swallowing them.
- */
 async function saveDashboard(
   dashboardId: string,
   data: SqlDashboardConfig,
-): Promise<void> {
-  await callAction("update-dashboard", {
+  expectedUpdatedAt?: string,
+): Promise<{ updatedAt?: string }> {
+  return await callAction("update-dashboard", {
     dashboardId,
     config: data as unknown as Record<string, unknown>,
+    expectedUpdatedAt,
   });
 }
 
@@ -676,6 +681,10 @@ function SqlDashboardPageContent({
   );
   const viewedDashboardIdRef = useRef<string | null>(null);
   const pendingConfigRef = useRef<DashboardAdoptionHold | null>(null);
+  const dashboardUpdatedAtRef = useRef<string | null>(null);
+  useEffect(() => {
+    dashboardUpdatedAtRef.current = dashboardUpdatedAt;
+  }, [dashboardUpdatedAt]);
   const dashboardSaveQueueRef = useRef<{
     dashboardId: string;
     queue: ReturnType<typeof createDashboardSaveQueue<SqlDashboardConfig>>;
@@ -757,8 +766,6 @@ function SqlDashboardPageContent({
         undoRevisionIndex < dashboardRevisions.length - 1));
   const canRedo = canEdit && !!dashboardId && redoRevisionIds.length > 0;
 
-  // Dashboard writes emit their own change event; unrelated agent actions do
-  // not need to restart this query.
   const sync = useChangeVersion("dashboards");
   const dashboardQuery = useQuery({
     queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope, sync],
@@ -792,11 +799,9 @@ function SqlDashboardPageContent({
     },
   });
 
-  // Panel edit dialog state
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingPanel, setEditingPanel] = useState<SqlPanel | null>(null);
 
-  // ── Collaborative editing ──────────────────────────────────────────
   const currentUser: CollabUser | undefined =
     !reportScreenshot && session?.email
       ? {
@@ -855,7 +860,6 @@ function SqlDashboardPageContent({
     );
   }, [dashboardId, dashboardScope, dashboardUpdatedAt, queryClient]);
 
-  // Track which panels remote users are editing (from awareness)
   const [remoteEditingPanels, setRemoteEditingPanels] = useState<
     Map<string, { color: string; name: string }>
   >(new Map());
@@ -883,8 +887,6 @@ function SqlDashboardPageContent({
     };
   }, [awareness, ydoc]);
 
-  // Listen for remote collab changes — when the Y.Text("content") changes
-  // from a remote update, parse it and update dashboard state.
   useEffect(() => {
     if (!ydoc || !collabSynced) return;
     const ytext = ydoc.getText("content");
@@ -919,23 +921,31 @@ function SqlDashboardPageContent({
     updateCachedDashboardConfig,
   ]);
 
-  // Per-user saved filter state
   const filterPrefKey = dashboardId ? `dashboard-filters:${dashboardId}` : "";
   const {
     data: savedFilters,
-    isLoading: filtersLoading,
     isSuccess: filtersLoaded,
+    isError: filtersError,
     save: saveFilterPref,
   } = useUserPref<{ filters: Record<string, string> }>(filterPrefKey);
 
-  // Dashboard views
-  const { saveView } = useDashboardViews(dashboardId ?? undefined);
+  const {
+    views,
+    isSuccess: dashboardViewsLoaded,
+    isSettled: dashboardViewsSettled,
+    saveView,
+  } = useDashboardViews(dashboardId ?? undefined);
+  const defaultView = views.find((view) => view.isDefault);
 
-  // Track whether we've applied saved filters on initial load
-  const appliedSaved = useRef(false);
+  const filterRestoreProgress = useRef<DashboardFilterRestoreProgress>({
+    status: "pending",
+  });
+  const skipFilterPreferenceSave =
+    useRef<DashboardFilterPreferenceSaveGuard | null>(null);
 
   useEffect(() => {
-    appliedSaved.current = false;
+    filterRestoreProgress.current = { status: "pending" };
+    skipFilterPreferenceSave.current = null;
     setLoaded(false);
     setDashboard(null);
     setArchivedAt(null);
@@ -1035,74 +1045,119 @@ function SqlDashboardPageContent({
     resetRevisionNavigation,
   ]);
 
-  // Apply saved filters on initial load if no filter URL params are present
   useEffect(() => {
     if (
       reportScreenshot ||
-      appliedSaved.current ||
-      filtersLoading ||
-      !filtersLoaded ||
+      filterRestoreProgress.current.status === "complete" ||
       !loaded ||
       !dashboard
     )
       return;
-    appliedSaved.current = true;
 
-    // Check if there's a view param — if so, load view filters
-    const viewId = searchParams.get("view");
-    if (viewId) return; // View filters are applied by the view param handler
+    const previousProgress = filterRestoreProgress.current;
+    const restoreStep = resolveDashboardFilterRestoreStep({
+      searchParams,
+      defaultView,
+      savedFilters: savedFilters?.filters,
+      viewsState: dashboardViewsLoaded
+        ? "success"
+        : dashboardViewsSettled
+          ? "error"
+          : "loading",
+      savedFiltersState: filtersLoaded
+        ? "success"
+        : filtersError
+          ? "error"
+          : "loading",
+      progress: previousProgress,
+    });
+    filterRestoreProgress.current = restoreStep.progress;
+    const filterRestore = restoreStep.restore;
+    if (!filterRestore) return;
 
-    // Check if any f_ params are already in the URL
-    const hasUrlFilters = Array.from(searchParams.keys()).some((k) =>
-      k.startsWith(FILTER_PARAM_PREFIX),
-    );
-    if (hasUrlFilters) return;
-
-    // If the agent just wrote the URL via set-search-params (URLSync in
-    // AgentPanel.tsx sets this), don't clobber it with saved defaults.
-    // The agent's write is authoritative for the current intent.
     try {
       const appliedAt = Number(
         sessionStorage.getItem("__agentUrlAppliedAt__") || 0,
       );
-      if (appliedAt && Date.now() - appliedAt < 5000) return;
+      if (appliedAt && Date.now() - appliedAt < 5000) {
+        filterRestoreProgress.current = { status: "complete" };
+        return;
+      }
     } catch {
       // sessionStorage unavailable — fall through.
     }
 
-    // Apply saved filter defaults — use replace so the restore doesn't
-    // leave an extra history entry behind the user's actual nav.
-    if (savedFilters?.filters && Object.keys(savedFilters.filters).length > 0) {
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          for (const [key, value] of Object.entries(savedFilters.filters)) {
-            if (value) next.set(key, value);
-          }
-          return next;
-        },
-        { replace: true },
-      );
+    if (filterRestore.source === "dashboard-default") {
+      skipFilterPreferenceSave.current = {
+        filters: filterRestore.filters,
+        viewId: filterRestore.viewId,
+        previousFilters: dashboardFilterParams(searchParams),
+        previousViewId: searchParams.get("view") ?? undefined,
+      };
     }
+
+    setSearchParams(
+      (prev) => {
+        if (previousProgress.status === "fallback-applied") {
+          if (
+            !matchesDashboardFilterRestoreState(
+              prev,
+              previousProgress.filters,
+              previousProgress.viewId,
+            )
+          ) {
+            return prev;
+          }
+        } else if (
+          prev.has("view") ||
+          Array.from(prev.keys()).some((key) =>
+            key.startsWith(FILTER_PARAM_PREFIX),
+          )
+        ) {
+          return prev;
+        }
+        const next = new URLSearchParams(prev);
+        for (const key of Array.from(next.keys())) {
+          if (key.startsWith(FILTER_PARAM_PREFIX)) next.delete(key);
+        }
+        for (const [key, value] of Object.entries(filterRestore.filters)) {
+          if (value) next.set(key, value);
+        }
+        if (filterRestore.viewId) {
+          next.set("view", filterRestore.viewId);
+        } else {
+          next.delete("view");
+        }
+        return next;
+      },
+      { replace: true },
+    );
   }, [
-    filtersLoading,
     filtersLoaded,
+    filtersError,
+    dashboardViewsLoaded,
+    dashboardViewsSettled,
     loaded,
     dashboard,
+    defaultView,
     savedFilters,
     reportScreenshot,
     searchParams,
     setSearchParams,
   ]);
 
-  // Auto-save filter state when URL params change (debounced)
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => {
     if (
       reportScreenshot ||
       !loaded ||
       !dashboard?.filters?.length ||
-      !dashboardId
+      !dashboardId ||
+      !canPersistDashboardFilterPreference(
+        filterRestoreProgress.current,
+        dashboardFilterParams(searchParams),
+        searchParams.get("view") ?? undefined,
+      )
     )
       return;
     clearTimeout(saveTimer.current);
@@ -1113,10 +1168,20 @@ function SqlDashboardPageContent({
           currentFilters[k] = v;
         }
       });
-      // Opening a dashboard restores the saved filters into the URL, so
-      // without this the mere act of loading a page writes the value back —
-      // one round-trip plus a sync event that invalidates every mounted query.
-      if (sameFilterMap(savedFilters?.filters, currentFilters)) return;
+      const filterPreferenceSaveState = dashboardFilterPreferenceSaveState(
+        skipFilterPreferenceSave.current,
+        currentFilters,
+        searchParams.get("view") ?? undefined,
+      );
+      if (filterPreferenceSaveState === "applied") {
+        skipFilterPreferenceSave.current = null;
+        return;
+      }
+      if (filterPreferenceSaveState === "pending") return;
+      if (filterPreferenceSaveState === "changed") {
+        skipFilterPreferenceSave.current = null;
+      }
+      if (sameDashboardFilterMap(savedFilters?.filters, currentFilters)) return;
       saveFilterPref({ filters: currentFilters });
     }, 1500);
     return () => clearTimeout(saveTimer.current);
@@ -1128,6 +1193,10 @@ function SqlDashboardPageContent({
     savedFilters,
     saveFilterPref,
     reportScreenshot,
+    filtersLoaded,
+    filtersError,
+    dashboardViewsLoaded,
+    dashboardViewsSettled,
   ]);
 
   const enqueueDashboardSave = useCallback(
@@ -1135,9 +1204,16 @@ function SqlDashboardPageContent({
       if (dashboardSaveQueueRef.current?.dashboardId !== id) {
         dashboardSaveQueueRef.current = {
           dashboardId: id,
-          queue: createDashboardSaveQueue((config) =>
-            saveDashboard(id, config),
-          ),
+          queue: createDashboardSaveQueue(async (config) => {
+            const result = await saveDashboard(
+              id,
+              config,
+              dashboardUpdatedAtRef.current ?? undefined,
+            );
+            if (typeof result?.updatedAt === "string") {
+              dashboardUpdatedAtRef.current = result.updatedAt;
+            }
+          }),
         };
       }
       return dashboardSaveQueueRef.current.queue.enqueue(updated);
@@ -1145,12 +1221,6 @@ function SqlDashboardPageContent({
     [],
   );
 
-  /**
-   * Persist without throwing — background save used for drag reorder, width
-   * toggle, title/description edits, and panel delete. If the save fails
-   * (e.g. a panel's SQL becomes invalid after an earlier edit), surface a
-   * toast so the user knows and the error isn't silently swallowed.
-   */
   const persist = useCallback(
     (updated: SqlDashboardConfig) => {
       if (!dashboardId) return;
@@ -1182,6 +1252,10 @@ function SqlDashboardPageContent({
           });
         })
         .catch((err) => {
+          pendingConfigRef.current = null;
+          void queryClient.invalidateQueries({
+            queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
+          });
           toast.error(
             err instanceof Error
               ? t("sqlDashboard.saveFailedWithMessage", {
@@ -1204,10 +1278,6 @@ function SqlDashboardPageContent({
     ],
   );
 
-  /**
-   * Persist that throws — used by the panel editor dialog so it can keep the
-   * dialog open and display the BigQuery validation error inline.
-   */
   const persistThrow = useCallback(
     async (updated: SqlDashboardConfig) => {
       if (!dashboardId) return;
@@ -1216,7 +1286,16 @@ function SqlDashboardPageContent({
       }
       resetRevisionNavigation();
       holdDashboardConfig();
-      const { isLatest } = await enqueueDashboardSave(dashboardId, updated);
+      let isLatest: boolean;
+      try {
+        ({ isLatest } = await enqueueDashboardSave(dashboardId, updated));
+      } catch (err) {
+        pendingConfigRef.current = null;
+        void queryClient.invalidateQueries({
+          queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
+        });
+        throw err;
+      }
       if (!isLatest) return;
       setDashboard(updated);
       updateCachedDashboardConfig(updated);
@@ -1435,7 +1514,6 @@ function SqlDashboardPageContent({
     [awareness],
   );
 
-  // Clear awareness when panel editor closes
   const handleEditorOpenChange = useCallback(
     (open: boolean) => {
       setEditorOpen(open);
@@ -1532,6 +1610,11 @@ function SqlDashboardPageContent({
     return { ...(dashboard?.variables ?? {}), ...filterValues };
   }, [dashboard?.variables, dashboard?.filters, searchParams]);
 
+  const timeRangeFilter = useMemo<DashboardFilter | undefined>(
+    () => dashboard?.filters?.find((f) => f.id === "timeRange"),
+    [dashboard?.filters],
+  );
+
   const dashboardExtensionContext = useMemo<Record<string, unknown>>(
     () => ({
       dashboardId,
@@ -1573,8 +1656,6 @@ function SqlDashboardPageContent({
     [reportSettingsRequested, setSearchParams],
   );
 
-  // Distinct tab values across panels in declaration order. When this is
-  // non-empty the dashboard renders a tab strip and filters panels by tab.
   const tabs = useMemo<string[]>(() => {
     if (!dashboard) return [];
     const seen = new Set<string>();
@@ -1596,8 +1677,6 @@ function SqlDashboardPageContent({
         ? requestedTab
         : tabs[0]
       : null;
-  // The report URL carries no `tab` parameter and must show every panel, so
-  // the normal first-tab fallback does not apply in report mode.
   const activeTab = reportScreenshot ? null : selectedTab;
   const groupedTabs = useMemo(() => groupDashboardTabs(tabs), [tabs]);
   const activeTabGroup = activeTab
@@ -1635,9 +1714,6 @@ function SqlDashboardPageContent({
     [groupedTabs.groups, handleTabChange],
   );
 
-  // Panels visible under the current tab. Untagged panels appear on every
-  // tab; tagged panels only on their own tab. When no tabs are defined the
-  // dashboard shows every panel as before.
   const visiblePanels = useMemo(() => {
     if (!dashboard) return [];
     return activeTab
@@ -1645,9 +1721,6 @@ function SqlDashboardPageContent({
       : dashboard.panels;
   }, [dashboard, activeTab]);
 
-  // Group panels into "section blocks": each section starts a new block whose
-  // grid uses the section's `columns` (falling back to the dashboard default).
-  // Panels before any section go in an initial unsectioned block.
   const panelGroups = useMemo(() => {
     return buildDashboardPanelGroups(visiblePanels, dashboardColumns);
   }, [visiblePanels, dashboardColumns]);
@@ -1872,13 +1945,17 @@ function SqlDashboardPageContent({
   ]);
 
   const handleSaveView = useCallback(
-    async (name: string, filters: Record<string, string>) => {
+    async (
+      name: string,
+      filters: Record<string, string>,
+      isDefault: boolean,
+    ) => {
       const id = name
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "")
         .slice(0, 60);
-      await saveView({ id, name, filters });
+      await saveView({ id, name, filters, isDefault });
     },
     [saveView],
   );
@@ -1893,12 +1970,13 @@ function SqlDashboardPageContent({
       <div className="flex min-w-0 items-center gap-2">
         {editingName && canEdit ? (
           <Input
+            size="sm"
             ref={nameInputRef}
             value={nameInput}
             onChange={(e) => setNameInput(e.target.value)}
             onBlur={handleSaveName}
             onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
-            className="h-8 w-full sm:w-64 text-lg font-semibold"
+            className="w-full sm:w-64 text-lg font-semibold"
             autoFocus
           />
         ) : canEdit ? (
@@ -2345,8 +2423,8 @@ function SqlDashboardPageContent({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
-            className="absolute right-2 top-2 h-8 w-8 text-cyan-900 hover:bg-cyan-400/20 hover:text-cyan-950 dark:text-cyan-100 dark:hover:text-cyan-50"
+            size="icon-sm"
+            className="absolute right-2 top-2 text-cyan-900 hover:bg-cyan-400/20 hover:text-cyan-950 dark:text-cyan-100 dark:hover:text-cyan-50"
             onClick={dismissDemoIntro}
             aria-label={t("sqlDashboard.dismissDemoIntro")}
           >
@@ -2579,6 +2657,7 @@ function SqlDashboardPageContent({
                               <PanelCell
                                 panel={panel}
                                 vars={vars}
+                                timeRangeFilter={timeRangeFilter}
                                 remoteEditor={
                                   reportScreenshot
                                     ? undefined

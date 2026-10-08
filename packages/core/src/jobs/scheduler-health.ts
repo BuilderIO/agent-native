@@ -15,7 +15,6 @@ const MAX_ERROR_LENGTH = 500;
 export const AUTOMATION_SCHEDULER_LEASE_MS = 10 * 60_000;
 export const AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS = 60_000;
 
-/** Authoritative release-time schema for recurring scheduler health. */
 export const AUTOMATION_SCHEDULER_HEALTH_MIGRATIONS: MigrationEntry[] = [
   {
     version: 1,
@@ -168,7 +167,6 @@ function leaseRowId(appId: string): string {
   return rowIdForScope(appId, null);
 }
 
-/** Claim one recurring scheduler across all deployments of an app. */
 export async function acquireAutomationSchedulerLease(
   input: {
     appId?: string;
@@ -210,7 +208,6 @@ export async function acquireAutomationSchedulerLease(
   return Number(result.rowsAffected ?? 0) > 0 ? owner : null;
 }
 
-/** Renew a lease while a slow sweep is still executing. */
 export async function renewAutomationSchedulerLease(input: {
   appId?: string;
   owner: string;
@@ -235,7 +232,6 @@ export async function renewAutomationSchedulerLease(input: {
   return Number(result.rowsAffected ?? 0) > 0;
 }
 
-/** Release only the lease owned by this invocation. */
 export async function releaseAutomationSchedulerLease(input: {
   appId?: string;
   owner: string;
@@ -266,7 +262,6 @@ function fromRow(row: Record<string, unknown>): AutomationSchedulerHealth {
   };
 }
 
-/** Record the last scheduler tick without making health bookkeeping fatal. */
 export async function recordAutomationSchedulerHealth(input: {
   appId?: string;
   orgId?: string | null;
@@ -324,8 +319,6 @@ export async function recordAutomationSchedulerHealth(input: {
       ],
     });
   } catch (error) {
-    // Another serverless isolate may have inserted this scope between the read
-    // and insert. Turn that race into the same update path.
     const message = String(
       (error as { message?: unknown } | null)?.message ?? error,
     );

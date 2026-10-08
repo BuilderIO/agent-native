@@ -1,3 +1,4 @@
+import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
 import {
   resourceGetByPath,
   resourceListAllOwners,
@@ -5,7 +6,33 @@ import {
   type Resource,
 } from "../resources/store.js";
 import {
+  countAutomationCredentialState,
+  trackAutomationPaused,
+  trackAutomationResumed,
+} from "./automation-events.js";
+import {
+  applyAutomationFailure,
+  classifyAutomationFailure,
+  CLEAR_FAILURE_STATE,
+  CONFIG_INVALID_ERROR_CODE,
+  hasStalePause,
+  isMissingCredentialCode,
+  isPausedByFramework,
+  isReservedIdentityBlocked,
+  isTransientPauseProbeDue,
+  OWNER_MISSING_ERROR_CODE,
+  OWNER_RESERVED_ERROR_CODE,
+  pauseNow,
+  RESUME_AUTOMATION_PATCH,
+  reservedIdentityMessage,
+  runtimeFailureNextRun,
+  TRANSIENT_PROBE_RESUME_PATCH,
+  withDeliveryNote,
+  type AutomationFailure,
+} from "./automation-outcome.js";
+import {
   backgroundRunCutOffReason,
+  checkBackgroundAutomationCredentials,
   isBackgroundAutomationRunActive,
   resolveBackgroundAutomationIdentity,
   runBackgroundAutomation,
@@ -26,6 +53,7 @@ import {
   patchJobFrontmatterFields,
   recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
+  type JobFrontmatterPatch,
 } from "./frontmatter.js";
 import {
   dispatchRemoteAutomation,
@@ -33,10 +61,12 @@ import {
   getRemoteAutomationStatus,
 } from "./remote-execution.js";
 import {
+  automationRunClaimLeaseMs,
   claimAutomationRun,
   finishAutomationRun,
   getAutomationRun,
   listAutomationRuns,
+  RUNS_RETAINED_PER_AUTOMATION,
 } from "./run-history.js";
 import {
   acquireAutomationSchedulerLease,
@@ -45,8 +75,7 @@ import {
   renewAutomationSchedulerLease,
   AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS,
 } from "./scheduler-health.js";
-
-// ─── Frontmatter parsing ────────────────────────────────────────────────────
+import { reapStaleWork } from "./stale-reaper.js";
 
 export {
   classifyJobFrontmatter,
@@ -69,34 +98,20 @@ export function buildJobContent(meta: JobFrontmatter, body: string): string {
   return buildJobResourceContent(meta, body);
 }
 
-// ─── Job execution ──────────────────────────────────────────────────────────
-
 export type RecurringJobContext = BackgroundAutomationContext;
 
 export interface SchedulerDeps extends BackgroundAutomationDeps {
-  /**
-   * Tool names to expose on the FIRST engine request for a job run. When
-   * provided, every other action returned by `getActions()` is deferred
-   * behind an attached `tool-search` entry instead of being serialized on
-   * every scheduled tick — `runAgentLoop`'s mid-run tool expansion
-   * (`expandActiveTools`) still lets the model discover and call them after
-   * a search. Omit to keep the full `getActions()` set visible up front
-   * (current behavior). The caller (not this module) knows which of the
-   * merged actions are the app's own vs. framework additions, so this must
-   * be supplied explicitly rather than inferred here.
-   */
   getInitialToolNames?: (job?: RecurringJobContext) => string[] | undefined;
 }
 
 const MAX_CONCURRENT_SCHEDULED_JOBS = 8;
 const MAX_IDENTITY_PREFLIGHTS_PER_TICK = MAX_CONCURRENT_SCHEDULED_JOBS * 4;
 const IDENTITY_FAILURE_RETRY_MS = 5 * 60_000;
+const MAX_PAUSED_RECHECKS_PER_TICK = 8;
+const PAUSED_RECHECK_MS = 15 * 60_000;
 const _activeScheduledJobs = new Set<string>();
 const _preflightingScheduledJobs = new Set<string>();
 
-// Skip the DB query on every tick if we recently confirmed no jobs exist.
-// `_hasJobsCache` is invalidated whenever a `jobs/*` resource is written or
-// deleted (subscribed below), and refreshed at most every 5 minutes.
 let _hasJobsCache: boolean | undefined;
 let _lastJobsCheck = 0;
 const JOBS_CHECK_INTERVAL_MS = 5 * 60_000;
@@ -136,7 +151,6 @@ async function recordSchedulerHealthForScopes(input: {
 function subscribeToJobsResourceEvents(): void {
   if (_emitterSubscribed) return;
   _emitterSubscribed = true;
-  // Lazy import to avoid circular deps at module load
   import("../resources/emitter.js")
     .then(({ getResourcesEmitter }) => {
       getResourcesEmitter().on("resources", (event: any) => {
@@ -153,13 +167,6 @@ function subscribeToJobsResourceEvents(): void {
     });
 }
 
-/**
- * Process all due recurring jobs. Called every 60 seconds.
- *
- * Scans may overlap while a long-running job is executing. Each resource is
- * still protected by its persisted running state and a process-local key, so
- * one job cannot run twice while leaving other due jobs waiting behind it.
- */
 export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
   const leaseOwner = await acquireAutomationSchedulerLease({
     appId: deps.appId,
@@ -212,10 +219,6 @@ async function processRecurringJobsWithLease(
 ): Promise<void> {
   subscribeToJobsResourceEvents();
 
-  // Upload receipts are framework-owned temporary state, so the same durable
-  // scheduler sweep that runs on serverless hosts also expires abandoned
-  // provider objects. The cleanup is internally throttled and never blocks
-  // recurring jobs when a provider or database is unavailable.
   try {
     const { runUploadReceiptCleanupOnce } =
       await import("../file-upload/actions/upload-image.js");
@@ -224,10 +227,20 @@ async function processRecurringJobsWithLease(
     console.error("[recurring-jobs] Upload receipt cleanup failed:", error);
   }
 
-  // Skip if we recently confirmed there are no job resources to run.
+  // Throttled and row-capped inside; runs here, not at startup, so a cold
+  // start does no sweeping.
+  try {
+    const reaped = await reapStaleWork();
+    if (reaped && (reaped.automationRuns > 0 || reaped.a2aTasks > 0)) {
+      console.warn(
+        `[recurring-jobs] Closed ${reaped.automationRuns} stale automation run(s) and ${reaped.a2aTasks} stale A2A task(s).`,
+      );
+    }
+  } catch (error) {
+    console.error("[recurring-jobs] Stale work reaper failed:", error);
+  }
+
   const nowMs = Date.now();
-  // Write a global heartbeat before the resource scan. A slow or failed scan
-  // must not make a healthy worker look idle until the finally block runs.
   await recordSchedulerHealthForScopes({
     appId: deps.appId,
     orgIds: [],
@@ -266,17 +279,13 @@ async function processRecurringJobsWithLease(
       meta: JobFrontmatter;
       body: string;
     }> = [];
+    const pausedRechecks: PausedRecheck[] = [];
 
     for (const resource of jobResources) {
-      // Skip non-markdown or .keep files
       if (!resource.path.endsWith(".md")) continue;
       if (resource.path.endsWith(".keep")) continue;
 
       const { meta, body } = parseJobFrontmatter(resource.content);
-      // Jobs written before app ownership was persisted remain compatible with
-      // the shared scheduler. Once a job declares an owner, only that app may
-      // evaluate or execute it. Without this boundary every app's scheduled
-      // worker can claim the same organization resource.
       if (
         !jobBelongsToApp(meta, deps.appId) &&
         !isRecoveredFactoryJob(meta, resource.path, deps.appId, resource.owner)
@@ -289,25 +298,22 @@ async function processRecurringJobsWithLease(
           null,
       );
 
-      // A host-targeted run is reconciled from the durable relay command. It
-      // must never fall back to this scheduler after the laptop disconnects.
+      // Whoever flipped `enabled` left the old pause fields behind: the owner
+      // lifted the pause, so the job starts from a clean slate.
+      if (hasStalePause(meta)) {
+        await clearPauseFields(resource, meta, body);
+        continue;
+      }
+
+      // Settled before the pause check: "Run now" on a paused job leaves it
+      // `running`, and only these branches finish that run.
       if (meta.lastStatus === "running" && meta.executionHostId) {
         await reconcileRemoteJob(resource, meta, now);
         continue;
       }
 
-      // Every automation shares this running lock — scheduled, event-triggered,
-      // and manual-only alike. Manual and event automations have no
-      // `meta.schedule`, so they used to fall straight through the
-      // schedule-only skip below and never reach a stale-reset: a crashed or
-      // recycled worker left `lastStatus: running` forever, since nothing but
-      // a matching event or a manual retry past the timeout ever looked at
-      // them again. Sweep every resource here, before the schedule gate, so a
-      // stuck run heals on its own within one tick of the timeout regardless
-      // of automation type.
       if (meta.lastStatus === "running") {
         if (isBackgroundAutomationRunActive(meta, now)) continue;
-        // Stuck — reset so the automation (and its audit trail) is unblocked.
         meta.lastStatus = "error";
         meta.lastError =
           "Worker stopped before a terminal result was recorded. The serverless worker may have timed out or been recycled. No delivery was confirmed.";
@@ -318,38 +324,42 @@ async function processRecurringJobsWithLease(
             meta.timezone,
           ).toISOString();
         }
-        // A manual or event runner can claim this same stale snapshot first
-        // (its own conditional write moves the resource to a fresh
-        // `lastStatus: running`). Only touch the history row when THIS
-        // write actually won the CAS — otherwise `recoverStaleAutomationHistory`
-        // would look up the automation's latest run and mark the run that
-        // just started as errored instead of the one that was actually stuck.
         if (await updateResource(resource, meta, body)) {
-          await recoverStaleAutomationHistory(resource.owner, resource.path);
+          await recoverStaleAutomationHistory(
+            resource.owner,
+            resource.path,
+            now,
+          );
         }
         continue;
       }
 
-      // Skip disabled or missing schedule
+      if (isPausedByFramework(meta)) {
+        const kind = isTransientPauseProbeDue(meta, now)
+          ? "probe"
+          : isMissingCredentialCode(meta.pausedReason) &&
+              isRecheckDue(meta, now)
+            ? "credential"
+            : null;
+        if (kind && pausedRechecks.length < MAX_PAUSED_RECHECKS_PER_TICK) {
+          pausedRechecks.push({ kind, resource, meta, body });
+        }
+        continue;
+      }
+
       if (!meta.enabled || !meta.schedule) continue;
       if (!isValidCron(meta.schedule)) continue;
 
-      // Check if due
       if (meta.nextRun) {
         const nextRunDate = new Date(meta.nextRun);
         if (nextRunDate > now) continue;
       } else {
-        // No nextRun computed yet — seed it from `now` so the job waits for its
-        // real next occurrence. Computing from new Date(0) (the epoch) always
-        // returns a 1970 date, which is < now, so the job would fire
-        // immediately on first sight regardless of its schedule.
         const next = nextOccurrence(meta.schedule, now, meta.timezone);
         meta.nextRun = next.toISOString();
         await updateResource(resource, meta, body);
         continue;
       }
 
-      // Skip if body is empty
       if (!body.trim()) continue;
 
       if (hasRecentIdentityFailure(meta, now)) continue;
@@ -381,9 +391,6 @@ async function processRecurringJobsWithLease(
       preflightCandidates.push(candidate);
     }
 
-    // Identity checks can reject stale jobs that remain due for admin review.
-    // Bound the checks so a large blocked backlog cannot consume the whole
-    // invocation or make valid jobs wait behind an unbounded stale queue.
     const dueJobs: typeof dueJobCandidates = [];
     for (const candidate of preflightCandidates) {
       _preflightingScheduledJobs.add(candidate.key);
@@ -397,6 +404,20 @@ async function processRecurringJobsWithLease(
           resource: candidate.resource,
         });
         if (!identity.ok) {
+          // A gone owner or a broken identity config will not heal on its own,
+          // so the job is disabled once with the reason. An owner that merely
+          // could not be verified is retried after a cooldown.
+          if (
+            identity.code === OWNER_MISSING_ERROR_CODE ||
+            identity.code === CONFIG_INVALID_ERROR_CODE
+          ) {
+            await disableAutomation(candidate.resource, candidate.meta, now, {
+              code: identity.code,
+              message: identity.reason,
+              precondition: true,
+            });
+            continue;
+          }
           await recordIdentityFailure(
             candidate.resource,
             candidate.meta,
@@ -404,6 +425,14 @@ async function processRecurringJobsWithLease(
             now,
             identity.reason,
           );
+          continue;
+        }
+        if (isReservedIdentityBlocked(identity.identity.userEmail)) {
+          await disableAutomation(candidate.resource, candidate.meta, now, {
+            code: OWNER_RESERVED_ERROR_CODE,
+            message: reservedIdentityMessage(identity.identity.userEmail),
+            precondition: true,
+          });
           continue;
         }
         if (_activeScheduledJobs.size >= MAX_CONCURRENT_SCHEDULED_JOBS) {
@@ -416,6 +445,8 @@ async function processRecurringJobsWithLease(
         _preflightingScheduledJobs.delete(candidate.key);
       }
     }
+
+    await resumeRecoveredPauses(pausedRechecks, deps, now);
 
     if (dueJobs.length > 0) dispatchedAt = Date.now();
     await recordSchedulerHealthForScopes({
@@ -438,17 +469,13 @@ async function processRecurringJobsWithLease(
       }
     }
   } catch (err) {
-    // Transient WS / connection drops (Neon serverless): silently retry next
-    // tick instead of spamming stderr — `retryOnConnectionError` already did
-    // its retry budget at the driver level.
     const { isConnectionError } = await import("../db/client.js");
     if (isConnectionError(err)) {
       healthError = "The scheduler could not reach the database.";
-      _hasJobsCache = undefined; // force re-check on next successful tick
+      _hasJobsCache = undefined;
       _lastJobsCheck = 0;
       return;
     }
-    // Unwrap ErrorEvent (Neon WS driver emits these on network failure) so logs show the real cause
     const detail =
       err instanceof Error
         ? err
@@ -456,8 +483,6 @@ async function processRecurringJobsWithLease(
     healthError = detail instanceof Error ? detail.message : String(detail);
     console.error("[recurring-jobs] Error processing jobs:", detail);
   } finally {
-    // A scan can fail after reserving a job but before dispatching it. Do not
-    // leave that reservation blocking the job on every subsequent tick.
     for (const key of reservedJobKeys) {
       if (!startedJobKeys.has(key)) _activeScheduledJobs.delete(key);
     }
@@ -474,26 +499,60 @@ async function processRecurringJobsWithLease(
 async function recoverStaleAutomationHistory(
   owner: string,
   path: string,
+  now: Date,
 ): Promise<void> {
   const automation = path.replace(/^jobs\//, "").replace(/\.md$/, "");
+  const nowMs = now.getTime();
+  const livenessMs = resolveBackgroundRunHardTimeoutMs();
+  const claimLeaseMs = automationRunClaimLeaseMs();
   try {
-    const [run] = await listAutomationRuns({
+    // Settle every run the stopped worker left behind, not only the newest:
+    // a queued "Run now" can be newer than the run that actually stopped.
+    // Pruning bounds unfinished rows to this; a smaller batch could strand an
+    // older stopped row behind newer ones because this recovery runs once per
+    // stale lock.
+    const runs = await listAutomationRuns({
       owners: [owner],
       automation,
-      limit: 1,
+      limit: RUNS_RETAINED_PER_AUTOMATION,
     });
-    if (
-      !run ||
-      run.finishedAt !== null ||
-      (run.status !== "running" && run.status !== "interrupted")
-    ) {
-      return;
+    for (const run of runs) {
+      if (
+        run.finishedAt !== null ||
+        (run.status !== "running" && run.status !== "interrupted")
+      ) {
+        continue;
+      }
+      // A queued "Run now" inserts its history row before its worker starts.
+      // Until its claim lease passes, its worker (or the redelivery sweep) can
+      // still pick it up, so it is not stale however old the frontmatter lock
+      // it inherits is. This reads the stored claim, not the derived status: a
+      // row past the read-liveness ceiling still reports `interrupted`.
+      const lastQueueTouch = run.claimedAt ?? run.startedAt;
+      const dispatchIsClaimable =
+        run.dispatchPending &&
+        Number.isFinite(lastQueueTouch) &&
+        lastQueueTouch > nowMs - claimLeaseMs;
+      const runIsWithinLiveness =
+        Number.isFinite(run.startedAt) && run.startedAt > nowMs - livenessMs;
+      if (dispatchIsClaimable || runIsWithinLiveness) continue;
+      try {
+        await finishAutomationRun(
+          run.id,
+          "error",
+          "Worker stopped before a terminal result was recorded. The serverless worker may have timed out or been recycled. No delivery was confirmed.",
+          "background_automation_interrupted",
+          { expectedClaimedAt: run.claimedAt },
+        );
+      } catch (error) {
+        // One failed write must not strand the rest of the batch: the
+        // frontmatter is already reset and this recovery runs once per lock.
+        console.warn(
+          `[recurring-jobs] Could not record stale history for run "${run.id}":`,
+          error instanceof Error ? error.message : error,
+        );
+      }
     }
-    await finishAutomationRun(
-      run.id,
-      "error",
-      "Worker stopped before a terminal result was recorded. The serverless worker may have timed out or been recycled. No delivery was confirmed.",
-    );
   } catch (error) {
     console.warn(
       `[recurring-jobs] Could not record stale history for "${automation}":`,
@@ -529,10 +588,8 @@ async function recordIdentityFailure(
     `[recurring-jobs] Skipping job "${jobName}": ${reason}. ` +
       `User/membership no longer valid — leaving cron entry for admin review.`,
   );
-  // Keep blocked jobs due so an admin can find them, but do not let their
-  // persistent failure consume an execution slot on every scheduler sweep.
   const alreadyRecorded =
-    meta.lastStatus === "skipped" && meta.lastError === reason;
+    meta.lastError === reason && hasRecentIdentityFailure(meta, now);
   meta.lastCheck = now.toISOString();
   meta.lastStatus = "skipped";
   meta.lastError = reason;
@@ -558,6 +615,150 @@ function hasRecentIdentityFailure(meta: JobFrontmatter, now: Date): boolean {
     elapsedMs >= 0 &&
     elapsedMs < IDENTITY_FAILURE_RETRY_MS
   );
+}
+
+function jobNameOf(resource: Resource): string {
+  return resource.path.replace(/^jobs\//, "").replace(/\.md$/, "");
+}
+
+function isRecheckDue(meta: JobFrontmatter, now: Date): boolean {
+  const lastCheckMs = meta.lastCheck ? Date.parse(meta.lastCheck) : Number.NaN;
+  return (
+    !Number.isFinite(lastCheckMs) ||
+    now.getTime() - lastCheckMs >= PAUSED_RECHECK_MS
+  );
+}
+
+/**
+ * Disables a job whose precondition failed before any run could start.
+ * Nothing ran, so nothing is written but the job's own frontmatter: no thread,
+ * no `agent_runs` row, and no history row.
+ */
+async function disableAutomation(
+  resource: Resource,
+  meta: JobFrontmatter,
+  now: Date,
+  failure: AutomationFailure,
+): Promise<void> {
+  console.warn(
+    `[recurring-jobs] Disabling job "${jobNameOf(resource)}" (${failure.code}): ${failure.message}`,
+  );
+  const written = await updateResource(
+    resource,
+    { ...meta, lastCheck: now.toISOString() },
+    "",
+    pauseNow(failure, now).patch,
+  );
+  if (written) {
+    trackAutomationPaused({
+      name: jobNameOf(resource),
+      failure,
+      consecutiveFailures: 1,
+      surface: "preflight",
+    });
+  }
+}
+
+async function clearPauseFields(
+  resource: Resource,
+  meta: JobFrontmatter,
+  body: string,
+): Promise<void> {
+  await updateResource(resource, meta, body, RESUME_AUTOMATION_PATCH);
+}
+
+interface PausedRecheck {
+  /** `probe`: a transient pause whose backoff elapsed; `credential`: an absent credential. */
+  kind: "probe" | "credential";
+  resource: Resource;
+  meta: JobFrontmatter;
+  body: string;
+}
+
+function nextRunAfterResume(meta: JobFrontmatter, now: Date) {
+  return meta.schedule && isValidCron(meta.schedule)
+    ? nextOccurrence(meta.schedule, now, meta.timezone).toISOString()
+    : meta.nextRun;
+}
+
+/**
+ * A job paused for an absent credential resumes by itself once its run
+ * identity can reach an LLM, so connecting a provider is the whole fix
+ * (checked at most every 15 minutes per job). A transient pause (spent
+ * credits, a provider or platform outage) is lifted for one probe run once
+ * its backoff elapses. A few jobs per tick.
+ */
+async function resumeRecoveredPauses(
+  paused: PausedRecheck[],
+  deps: SchedulerDeps,
+  now: Date,
+): Promise<void> {
+  for (const { kind, resource, meta, body } of paused) {
+    try {
+      if (kind === "probe") {
+        if (
+          await updateResource(
+            resource,
+            { ...meta, nextRun: nextRunAfterResume(meta, now) },
+            body,
+            TRANSIENT_PROBE_RESUME_PATCH,
+          )
+        ) {
+          console.log(
+            `[recurring-jobs] Probing "${jobNameOf(resource)}" again after its ${meta.pausedReason} pause.`,
+          );
+        }
+        continue;
+      }
+      const identity = await resolveBackgroundAutomationIdentity({
+        name: jobNameOf(resource),
+        meta,
+        body,
+        resource,
+      });
+      const recovered =
+        identity.ok &&
+        (
+          await checkBackgroundAutomationCredentials(
+            {
+              ownerEmail: identity.identity.userEmail,
+              orgId: identity.identity.orgId,
+            },
+            deps,
+            meta.model,
+          )
+        ).ok;
+      if (!recovered) {
+        await updateResource(
+          resource,
+          { ...meta, lastCheck: now.toISOString() },
+          body,
+        );
+        continue;
+      }
+      if (
+        await updateResource(
+          resource,
+          { ...meta, nextRun: nextRunAfterResume(meta, now) },
+          body,
+          { ...RESUME_AUTOMATION_PATCH, enabled: true },
+        )
+      ) {
+        console.log(
+          `[recurring-jobs] Resumed "${jobNameOf(resource)}": its LLM credential is available again.`,
+        );
+        trackAutomationResumed({
+          name: jobNameOf(resource),
+          via: "credential_recovered",
+        });
+      }
+    } catch (error) {
+      console.warn(
+        `[recurring-jobs] Could not recheck paused job "${jobNameOf(resource)}":`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
 }
 
 async function reconcileRemoteJob(
@@ -590,17 +791,32 @@ async function reconcileRemoteJob(
         historyError,
       );
     });
-    await recordExecutionOutcome(resource, {
-      lastRun: meta.lastRun,
-      lastStatus: remote.state === "completed" ? "success" : "error",
-      lastError: error,
-      remoteRequestId: undefined,
-      remoteCommandId: undefined,
-      remoteRunId: undefined,
-      remoteAutomationRunId: undefined,
-      remoteAdvanceSchedule: undefined,
-      advanceSchedule: meta.remoteAdvanceSchedule !== false,
-    });
+    await recordExecutionOutcome(
+      resource,
+      {
+        lastRun: meta.lastRun,
+        lastStatus: remote.state === "completed" ? "success" : "error",
+        lastError: error,
+        remoteRequestId: undefined,
+        remoteCommandId: undefined,
+        remoteRunId: undefined,
+        remoteAutomationRunId: undefined,
+        remoteAdvanceSchedule: undefined,
+        advanceSchedule: meta.remoteAdvanceSchedule !== false,
+      },
+      remote.state === "completed"
+        ? undefined
+        : {
+            failure: {
+              code: "remote_execution_failed",
+              message: error ?? "The remote execution host failed.",
+              precondition: false,
+            },
+            // A "Run now" dispatch does not advance the schedule; like a local
+            // manual run, it never moves the streak.
+            countTowardPause: meta.remoteAdvanceSchedule !== false,
+          },
+    );
     console.log(
       `[recurring-jobs] Remote job "${resource.path}" reached ${remote.state}.`,
     );
@@ -612,17 +828,28 @@ async function reconcileRemoteJob(
     await finishRemoteAutomationHistory(meta, "failed", message).catch(
       () => undefined,
     );
-    await recordExecutionOutcome(resource, {
-      lastRun: meta.lastRun,
-      lastStatus: "error",
-      lastError: message,
-      remoteRequestId: undefined,
-      remoteCommandId: undefined,
-      remoteRunId: undefined,
-      remoteAutomationRunId: undefined,
-      remoteAdvanceSchedule: undefined,
-      advanceSchedule: meta.remoteAdvanceSchedule !== false,
-    });
+    await recordExecutionOutcome(
+      resource,
+      {
+        lastRun: meta.lastRun,
+        lastStatus: "error",
+        lastError: message,
+        remoteRequestId: undefined,
+        remoteCommandId: undefined,
+        remoteRunId: undefined,
+        remoteAutomationRunId: undefined,
+        remoteAdvanceSchedule: undefined,
+        advanceSchedule: meta.remoteAdvanceSchedule !== false,
+      },
+      {
+        failure: {
+          code: "remote_execution_unavailable",
+          message,
+          precondition: false,
+        },
+        countTowardPause: meta.remoteAdvanceSchedule !== false,
+      },
+    );
     console.error(
       `[recurring-jobs] Remote job "${resource.path}" failed:`,
       message,
@@ -666,9 +893,6 @@ async function executeJob(
   const jobUserEmail = identity.identity.userEmail;
   const jobOrgId = identity.identity.orgId;
 
-  // Manual runs use the same resource row as scheduled runs for concurrency
-  // protection. The check is paired with the conditional write below: two
-  // requests that read the same idle snapshot cannot both claim it.
   if (options.manual && isBackgroundAutomationRunActive(meta, now)) {
     const error = "The automation is already running.";
     if (options.historyId) {
@@ -681,7 +905,6 @@ async function executeJob(
     return { status: "skipped", error };
   }
 
-  // Mark as running
   meta.lastRun = now.toISOString();
   meta.lastStatus = "running";
   meta.lastError = undefined;
@@ -731,19 +954,35 @@ async function executeJob(
           ? err.message.slice(0, 200)
           : "Remote dispatch failed";
       const reportedError = `${lastError}. No delivery was confirmed.`;
-      await recordExecutionOutcome(resource, {
-        lastRun: meta.lastRun,
-        lastStatus: "error",
-        lastError: reportedError,
-        remoteRequestId: undefined,
-        remoteCommandId: undefined,
-        remoteRunId: undefined,
-        remoteAutomationRunId: undefined,
-        remoteAdvanceSchedule: undefined,
-        advanceSchedule: options.advanceSchedule,
-      });
+      await recordExecutionOutcome(
+        resource,
+        {
+          lastRun: meta.lastRun,
+          lastStatus: "error",
+          lastError: reportedError,
+          remoteRequestId: undefined,
+          remoteCommandId: undefined,
+          remoteRunId: undefined,
+          remoteAutomationRunId: undefined,
+          remoteAdvanceSchedule: undefined,
+          advanceSchedule: options.advanceSchedule,
+        },
+        {
+          failure: {
+            code: "remote_dispatch_failed",
+            message: lastError,
+            precondition: false,
+          },
+          countTowardPause: !options.manual,
+        },
+      );
       if (options.historyId) {
-        await finishAutomationRun(options.historyId, "error", reportedError);
+        await finishAutomationRun(
+          options.historyId,
+          "error",
+          reportedError,
+          "remote_dispatch_failed",
+        );
       }
       console.error(
         `[recurring-jobs] Job "${jobName}" remote dispatch failed:`,
@@ -791,6 +1030,7 @@ async function executeJob(
         usageLabel: `${options.manual ? "manual-automation" : "recurring-job"}:${jobName}`,
         requestContext,
         ...(options.historyId ? { historyId: options.historyId } : {}),
+        ...(options.manual ? { manual: true } : {}),
         actionCaller: "automation" as const,
         actionAutomation: {
           triggerId: resource.id,
@@ -812,21 +1052,26 @@ async function executeJob(
     console.log(`[recurring-jobs] Job "${jobName}" completed.`);
     return { status: "success", runId: result.runId };
   } catch (err) {
-    const lastError =
-      err instanceof Error ? err.message.slice(0, 200) : "Unknown error";
-    const reportedError = `${lastError}. No delivery was confirmed.`;
-    await recordExecutionOutcome(resource, {
-      lastRun: meta.lastRun,
-      lastStatus: "error",
-      lastError: reportedError,
-      advanceSchedule: options.advanceSchedule,
-    });
-    console.error(`[recurring-jobs] Job "${jobName}" failed:`, reportedError);
+    const failure = classifyAutomationFailure(err);
+    const reportedError = withDeliveryNote(failure.message);
+    await recordExecutionOutcome(
+      resource,
+      {
+        lastRun: meta.lastRun,
+        lastStatus: "error",
+        lastError: reportedError,
+        advanceSchedule: options.advanceSchedule,
+      },
+      { failure, countTowardPause: !options.manual },
+    );
+    console.error(
+      `[recurring-jobs] Job "${jobName}" failed (${failure.code}):`,
+      reportedError,
+    );
     return { status: "error", error: reportedError };
   }
 }
 
-/** Execute one stored automation without changing its scheduled next run. */
 export async function runJobNow(
   owner: string,
   name: string,
@@ -846,7 +1091,6 @@ export async function runJobNow(
   });
 }
 
-/** Process a durable run-now history row exactly once in the background worker. */
 export async function runQueuedAutomation(
   historyId: string,
   deps: SchedulerDeps,
@@ -876,6 +1120,7 @@ async function updateResource(
   resource: Resource,
   meta: JobFrontmatter,
   _body: string,
+  extra: JobFrontmatterPatch = {},
 ): Promise<boolean> {
   const content = patchJobFrontmatterFields(resource.content, {
     lastRun: meta.lastRun,
@@ -888,6 +1133,7 @@ async function updateResource(
     remoteRunId: meta.remoteRunId,
     remoteAutomationRunId: meta.remoteAutomationRunId,
     remoteAdvanceSchedule: meta.remoteAdvanceSchedule,
+    ...extra,
   });
   const written = await resourcePutIfCurrent({
     owner: resource.owner,
@@ -900,7 +1146,6 @@ async function updateResource(
   return written !== null;
 }
 
-/** Execution bookkeeping the scheduler owns; the rest belongs to the editor. */
 type ExecutionOutcome = Pick<
   JobFrontmatter,
   | "lastRun"
@@ -914,31 +1159,25 @@ type ExecutionOutcome = Pick<
   | "remoteAdvanceSchedule"
 > & { advanceSchedule?: boolean };
 
-/**
- * Persist the result of a run without clobbering a concurrent edit.
- *
- * A run holds its `meta` for as long as the job takes, so writing that whole
- * snapshot back on completion would silently revert a schedule, timezone or
- * instruction change made while it was running. Only the execution fields are
- * ours to write, and `nextRun` is recomputed from whatever schedule is stored
- * now, so an edit mid-run takes effect on the next tick.
- */
+interface ExecutionFailure {
+  failure: AutomationFailure;
+  /** A manual run records its cause but never pauses the automation. */
+  countTowardPause: boolean;
+}
+
 async function recordExecutionOutcome(
   resource: Resource,
   outcome: ExecutionOutcome,
+  failed?: ExecutionFailure,
 ): Promise<void> {
   const latest = await resourceGetByPath(resource.owner, resource.path);
   if (!latest) {
-    // Deleted while it was running. Writing the pre-run snapshot back would
-    // resurrect the automation and schedule it again.
     console.log(
       `[recurring-jobs] "${resource.path}" was deleted mid-run; dropping its outcome.`,
     );
     return;
   }
   if (latest.id !== resource.id) {
-    // The old definition was deleted and a new one reused the same path.
-    // Never attach the old run's outcome to the replacement definition.
     console.log(
       `[recurring-jobs] "${resource.path}" was replaced mid-run; dropping its outcome.`,
     );
@@ -948,21 +1187,70 @@ async function recordExecutionOutcome(
 
   const { advanceSchedule, ...execution } = outcome;
   const meta: JobFrontmatter = { ...current.meta, ...execution };
+  const now = new Date();
+  let extra: JobFrontmatterPatch = {};
+  let resumed = false;
+  let pausedAfter: number | undefined;
+  if (failed) {
+    const transition = applyAutomationFailure(
+      current.meta,
+      failed.failure,
+      now,
+      { countTowardPause: failed.countTowardPause },
+    );
+    extra = transition.patch;
+    if (transition.pause) {
+      pausedAfter = transition.consecutiveFailures;
+      console.warn(
+        `[recurring-jobs] Paused "${resource.path}" after ${transition.consecutiveFailures} consecutive ${failed.failure.code} failures: ${failed.failure.message}`,
+      );
+    }
+  } else if (outcome.lastStatus === "success") {
+    // A successful run proves the cause is gone: an automation the framework
+    // paused (this can only be a manual run) resumes with a clean slate.
+    resumed = isPausedByFramework(current.meta);
+    extra = resumed
+      ? { ...CLEAR_FAILURE_STATE, enabled: true }
+      : CLEAR_FAILURE_STATE;
+  }
   if (
-    advanceSchedule !== false &&
+    (advanceSchedule !== false || resumed) &&
     meta.schedule &&
     isValidCron(meta.schedule)
   ) {
-    // Measured from completion so a long run cannot immediately re-fire.
     meta.nextRun = nextOccurrence(
       meta.schedule,
-      new Date(),
+      now,
       meta.timezone,
     ).toISOString();
+    if (failed && failed.countTowardPause && !failed.failure.precondition) {
+      const count = Number(extra.consecutiveFailures ?? 1);
+      meta.nextRun = runtimeFailureNextRun(
+        new Date(meta.nextRun),
+        now,
+        count,
+      ).toISOString();
+    }
   }
-  if (!(await updateResource(latest, meta, current.body))) {
+  if (!(await updateResource(latest, meta, current.body, extra))) {
     console.log(
       `[recurring-jobs] "${resource.path}" changed while its outcome was being recorded; dropping the outcome.`,
     );
+    return;
+  }
+  if (failed) countAutomationCredentialState(failed.failure.code);
+  if (failed && pausedAfter !== undefined) {
+    trackAutomationPaused({
+      name: jobNameOf(resource),
+      failure: failed.failure,
+      consecutiveFailures: pausedAfter,
+      surface: "scheduler",
+    });
+  }
+  if (resumed) {
+    trackAutomationResumed({
+      name: jobNameOf(resource),
+      via: "successful_run",
+    });
   }
 }

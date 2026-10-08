@@ -1,9 +1,9 @@
-import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
 import {
   IconBook2,
   IconPencil,
@@ -400,7 +400,6 @@ function EditEntryDialog({
   const t = useT();
   const [draft, setDraft] = useState<Partial<DictionaryEntry>>({});
 
-  // Reset the form when a new entry is opened
   const currentId = entry?.id ?? "__new__";
   const [lastId, setLastId] = useState<string>("");
   if (entry && currentId !== lastId) {

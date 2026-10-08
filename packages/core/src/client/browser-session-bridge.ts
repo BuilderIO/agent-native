@@ -29,37 +29,18 @@ import type {
 } from "./webmcp.js";
 
 export interface AgentNativeBrowserSessionBridgeOptions extends AgentNativeHostRequestOptions {
-  /** Framework browser-session endpoint. Defaults to /_agent-native/browser-sessions. */
   endpoint?: string;
-  /** Stable tab/session id. Defaults to the host-provided session id. */
   sessionId?: string;
-  /**
-   * Direct in-app session identity. Use this when the Agent-Native chat is
-   * rendered inside the host app instead of inside a sidecar iframe.
-   */
   session?: string | Partial<AgentNativeHostSession>;
-  /**
-   * Direct in-app context getter. When set, the bridge does not use
-   * postMessage; it registers this tab directly with the backend.
-   */
   getContext?: AgentNativeHostContextGetter;
-  /** Direct in-app client actions exposed to backend browser-session tools. */
   actions?: AgentNativeClientActions;
-  /** WebMCP tools available in this document, or "host" through an iframe bridge. */
   webmcp?: AgentNativeWebMcpClient | "host";
-  /** Direct in-app host commands exposed to backend browser-session tools. */
   commands?: AgentNativeHostCommandHandlers;
-  /** Origin label passed to direct action/command callbacks. */
   origin?: string;
-  /** Human-readable label shown to the agent when multiple tabs are live. */
   label?: string;
-  /** Re-register host context/actions on this interval. Defaults to 5s. */
   heartbeatMs?: number;
-  /** Claim pending backend requests on this interval. Defaults to 500ms. */
   pollMs?: number;
-  /** Session TTL on the server. Defaults to 45s. */
   ttlMs?: number;
-  /** Override fetch for tests or custom runtimes. */
   fetch?: typeof fetch;
 }
 
@@ -75,10 +56,6 @@ const DEFAULT_ENDPOINT = "/_agent-native/browser-sessions";
 const DEFAULT_HEARTBEAT_MS = 5_000;
 const DEFAULT_POLL_MS = 500;
 const REQUEST_ABORT_MIN_MS = 10_000;
-// Relaxed cadence floor applied while the tab is hidden — mirrors
-// use-poll-loop.ts's `pauseWhenHidden: false` default so a backgrounded tab
-// keeps heartbeating (the server-side session TTL still needs refreshing)
-// instead of going fully silent.
 const HIDDEN_INTERVAL_FLOOR_MS = 10_000;
 
 function isDocumentHidden(): boolean {
@@ -91,8 +68,6 @@ function browserSessionId(): string {
   return `browser-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-// Bounds a single request so a hung fetch can't leave the caller waiting
-// forever on a wedged connection.
 function requestAbortMs(
   options: AgentNativeBrowserSessionBridgeOptions,
 ): number {
@@ -627,11 +602,6 @@ export function createAgentNativeBrowserSessionBridge(
     return request;
   }
 
-  // This is a plain factory function, not a React component, so it can't use
-  // the usePollLoop hook — createPollEngine gives each loop the same
-  // never-overlaps/never-stalls guarantees imperatively. The relaxed hidden
-  // cadence + visibilitychange wiring below mirrors what use-poll-loop.ts
-  // does internally for `pauseWhenHidden: false`.
   const heartbeatEngine = createPollEngine(
     () => refreshRegistration().then(() => {}),
     {

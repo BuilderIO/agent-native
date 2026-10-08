@@ -10,7 +10,12 @@ import sourceSearch from "./source-search.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(currentDir, "../../..");
-const corpusRoot = path.join(packageRoot, "corpus");
+const localCorpusPackageRoot = path.resolve(packageRoot, "../core-corpus");
+const corpusRoot = fs.existsSync(
+  path.join(localCorpusPackageRoot, "package.json"),
+)
+  ? path.join(localCorpusPackageRoot, "corpus")
+  : path.join(packageRoot, "corpus");
 const scopeFixtureRoot = path.join(corpusRoot, "templates", "scope-fixture");
 
 function listCorpusFiles(dir = corpusRoot, base = corpusRoot): string[] {
@@ -33,7 +38,9 @@ async function runSourceSearch(args: string[]): Promise<string> {
 
 describe("source-search", { timeout: 60000 }, () => {
   beforeAll(() => {
-    materializeSourceCorpus();
+    if (!fs.existsSync(path.join(corpusRoot, "README.md"))) {
+      materializeSourceCorpus(corpusRoot);
+    }
   }, 60000);
 
   afterEach(() => {
@@ -45,8 +52,6 @@ describe("source-search", { timeout: 60000 }, () => {
 
     expect(files).toContain("templates/chat/package.json");
 
-    // Core and Toolkit source already ship as dist/, docs/, and the Toolkit
-    // package's own src/; a corpus copy was the same bytes a second time.
     expect(
       files.filter(
         (file) => file.startsWith("core/") || file.startsWith("toolkit/"),

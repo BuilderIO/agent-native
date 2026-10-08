@@ -14,18 +14,16 @@ const CONTENT_DATABASE_REQUIRED_PROPERTIES = [
 ] as const;
 const MAX_DATABASE_DISCOVERY_PAGES = 10;
 
-// Cache for Notion data (refreshed less frequently)
 const contentCalendarCache = new Map<
   string,
   { entries: ContentCalendarEntry[]; ts: number }
 >();
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const CACHE_TTL_MS = 10 * 60 * 1000;
 const contentDatabaseCache = new Map<
   string,
   { databaseId: string; ts: number }
 >();
 
-// Page block cache
 const pageCache = new Map<string, { data: NotionPageData; ts: number }>();
 
 async function getApiKey(): Promise<string> {
@@ -81,13 +79,11 @@ async function notionPost(path: string, body: unknown): Promise<unknown> {
   return res.json();
 }
 
-// Extract plain text from a Notion rich_text array
 function richTextToString(rt: any[]): string {
   if (!rt || !Array.isArray(rt)) return "";
   return rt.map((t: any) => t.plain_text ?? "").join("");
 }
 
-// Extract property value from Notion page properties
 function extractProp(props: any, name: string): string {
   const prop = props[name];
   if (!prop) return "";
@@ -214,7 +210,6 @@ export interface ContentCalendarEntry {
   properties: Record<string, string>;
 }
 
-// Fetch all content calendar entries, paginating through results
 export async function getContentCalendar(
   requestedDatabaseId?: string,
 ): Promise<ContentCalendarEntry[]> {
@@ -242,13 +237,11 @@ export async function getContentCalendar(
       const props = page.properties ?? {};
       const propNames = Object.keys(props);
 
-      // Build a generic properties map
       const allProps: Record<string, string> = {};
       for (const name of propNames) {
         allProps[name] = extractProp(props, name);
       }
 
-      // Map to known Notion property names for this database
       const title = allProps["Topic"] || "";
       const status = allProps["Status"] || "";
       const author = allProps["Owner"] || "";
@@ -258,7 +251,6 @@ export async function getContentCalendar(
       const msvRaw = props["MSV"]?.number;
       const msv = msvRaw != null ? msvRaw : null;
 
-      // Extract blog handle from URL if available
       const handleMatch = url.match(/\/blog\/([^/?#]+)/);
       const handle = handleMatch?.[1] ?? "";
 
@@ -288,8 +280,6 @@ export async function getContentCalendar(
   contentCalendarCache.set(calendarCacheKey, { entries, ts: Date.now() });
   return entries;
 }
-
-// --- Page block fetching ---
 
 export interface RichText {
   type: string;
@@ -358,14 +348,12 @@ export async function getNotionPage(pageId: string): Promise<NotionPageData> {
     return cached.data;
   }
 
-  // Fetch page title
   const page = (await notionGet(`/pages/${pageId}`)) as any;
   const titleProp = Object.values(page.properties ?? {}).find(
     (p: any) => p.type === "title",
   ) as any;
   const title = titleProp ? richTextToString(titleProp.title) : "";
 
-  // Fetch all blocks recursively
   const blocks = await fetchBlocks(pageId);
 
   const data: NotionPageData = { title, blocks };

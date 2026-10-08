@@ -1,50 +1,89 @@
 import { writeClientAppState } from "@agent-native/core/client/application-state";
+import { callAction } from "@agent-native/core/client/hooks";
 import {
   CONTENT_LAST_LOCATION_STATE_KEY,
   contentSpaceLastLocationStateKey,
+  type ContentLandingResult,
   type ContentLastLocationState,
 } from "@shared/content-landing";
+import type { QueryClient } from "@tanstack/react-query";
+
+import { invalidateContentDatabaseNavigationQueries } from "@/hooks/use-content-database";
+import { LIST_DOCUMENTS_QUERY_KEY } from "@/hooks/use-documents";
 
 export const CONTENT_LANDING_PATH = "/home";
 
-export type ContentLandingRecoveryState = {
-  unavailableDocumentId: string;
-};
+// /home with no space returns to the last page opened anywhere, which is the
+// page a last-location hint names.
+export function isPersonalLanding(location: {
+  pathname: string;
+  search: string;
+}) {
+  return (
+    location.pathname === CONTENT_LANDING_PATH &&
+    !new URLSearchParams(location.search).get("spaceId")
+  );
+}
 
-/**
- * `resolve-content-landing` is the only surface that can promise a Page the
- * caller may actually open, and the landing route is its only entry point. A
- * deep link that resolves to an unauthorized or missing document therefore
- * hands off to that route rather than rendering a terminal screen — otherwise
- * a first arrival at a Page id the account cannot read (a signup resuming a
- * stale or foreign link) has no valid destination at all.
- *
- * Only the full-page host redirects. An embedded preview has no URL of its own
- * to replace, so it keeps the inline unavailable state.
- */
-export function contentLandingRecoveryTarget(input: {
-  host: string;
-  documentId: string;
-}): { pathname: string; state: ContentLandingRecoveryState } | null {
-  if (input.host !== "page" || !input.documentId) return null;
-  return {
-    pathname: CONTENT_LANDING_PATH,
-    state: { unavailableDocumentId: input.documentId },
+export type EarlyContentLanding =
+  | { ok: true; result: ContentLandingResult }
+  | { ok: false; error: unknown };
+
+let earlyLanding: {
+  locationKey: string;
+  answer: Promise<EarlyContentLanding> | null;
+} | null = null;
+
+// Only a newly created Welcome page changes what other queries show, and
+// refreshing them aborts and restarts their startup reads.
+export function refreshLandingCollections(queryClient: QueryClient) {
+  invalidateContentDatabaseNavigationQueries(queryClient, { parentId: null });
+  void queryClient.invalidateQueries({
+    queryKey: ["action", "get-content-recent"],
+  });
+  void queryClient.invalidateQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY });
+}
+
+// A load of /home asks where it lands alongside the session check, as it reads
+// the likely page, instead of after the route mounts behind that check. The
+// session is not known yet; the answer names the account it was resolved for.
+// The answer may never be taken, since the user can leave /home first, so the
+// request refreshes what a Welcome page it created, or may have created before
+// failing, changes.
+export function startEarlyContentLanding(
+  queryClient: QueryClient,
+  locationKey: string,
+) {
+  if (earlyLanding?.locationKey === locationKey) return;
+  earlyLanding = {
+    locationKey,
+    answer: callAction<ContentLandingResult>(
+      "resolve-content-landing",
+      {},
+    ).then(
+      (result) => {
+        if (result.welcomeCreated) refreshLandingCollections(queryClient);
+        return { ok: true, result };
+      },
+      (error: unknown) => {
+        refreshLandingCollections(queryClient);
+        return { ok: false, error };
+      },
+    ),
   };
 }
 
-/** Read the recovery handoff off a history entry. `null` when absent or shaped
- * differently, so a hand-written `/home` visit stays distinguishable from a
- * recovery arrival. */
-export function readContentLandingRecovery(
-  state: unknown,
-): ContentLandingRecoveryState | null {
-  if (!state || typeof state !== "object") return null;
-  const documentId = (state as { unavailableDocumentId?: unknown })
-    .unavailableDocumentId;
-  return typeof documentId === "string" && documentId
-    ? { unavailableDocumentId: documentId }
-    : null;
+// Only /home's mount for the same load adopts the answer, once: a later visit
+// to /home must ask again, since the last page opened has moved since. Taking
+// also closes the load to an early start, because a route that mounts in the
+// first commit runs its effect before Root's and has already asked.
+export function takeEarlyContentLanding(
+  locationKey: string,
+): Promise<EarlyContentLanding> | null {
+  const answer =
+    earlyLanding?.locationKey === locationKey ? earlyLanding.answer : null;
+  earlyLanding = { locationKey, answer: null };
+  return answer;
 }
 
 let landingWriteQueue = Promise.resolve();
@@ -70,13 +109,19 @@ export function rememberContentLandingDocument(
       : targetOrDocumentId;
   const spaceId =
     typeof targetOrDocumentId === "string" ? undefined : spaceIdOrTitle;
+  // The unscoped key is where /home returns, so every page open records it,
+  // whatever space the page is in; the space key is where that space returns.
+  const keys = [
+    CONTENT_LAST_LOCATION_STATE_KEY,
+    ...(spaceId ? [contentSpaceLastLocationStateKey(spaceId)] : []),
+  ];
   const write = landingWriteQueue.then(() =>
-    writeClientAppState<ContentLastLocationState>(
-      spaceId
-        ? contentSpaceLastLocationStateKey(spaceId)
-        : CONTENT_LAST_LOCATION_STATE_KEY,
-      target,
-      { requestSource: "content-landing" },
+    Promise.all(
+      keys.map((key) =>
+        writeClientAppState<ContentLastLocationState>(key, target, {
+          requestSource: "content-landing",
+        }),
+      ),
     ),
   );
   const result = write.then(() => undefined);

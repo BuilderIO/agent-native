@@ -110,11 +110,6 @@ export function previewBodyHydrationIsPending(args: {
   );
 }
 
-/**
- * A draft that began from an empty source snapshot must not automatically
- * replace a non-empty Builder body that arrived while hydration was running.
- * Keep the draft dirty/recoverable and let the user decide which body to keep.
- */
 export function previewDraftConflictsWithHydratedBody(args: {
   loadedContent: string | null | undefined;
   loadedUpdatedAt: string | null | undefined;

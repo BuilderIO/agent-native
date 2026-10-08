@@ -63,13 +63,39 @@ jobs:
 
           issue_title="[signup-e2e] Scheduled signup health check failing"
           issue_number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 --json number,title | jq -r --arg title "$issue_title" '[.[] | select(.title == $title) | .number] | first // empty')"
-          failed_jobs="$(gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --json jobs --jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .name] | join(", ")')"
+          # Each failed job with a link and the step it failed at, the last
+          # error annotations from its log, and the evidence artifact.
+          failed_jobs="$(gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --json jobs --jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled") | "- [\(.name)](\(.url)): \(.conclusion) at step \"\([.steps[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .name] | first // "unknown")\""] | join("\n")')"
+          error_lines=""
+          for job_id in $(gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --json jobs --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .databaseId' | head -n 3); do
+            if log="$(gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$job_id/logs")"; then
+              lines="$(printf '%s\n' "$log" | grep -F '##[error]' | tail -n 5 | sed -E 's/^[^ ]+ //' || true)"
+              error_lines="$error_lines${lines:-(no error annotations in the log of job $job_id)}"$'\n'
+            else
+              error_lines="${error_lines}(could not read the log of job $job_id)"$'\n'
+            fi
+          done
+          artifact_name="signup-e2e-$GITHUB_RUN_ID"
+          artifact_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --jq ".artifacts[] | select(.name == \"$artifact_name\") | .id" | head -n1)"
+          if [ -n "$artifact_id" ]; then
+            artifact="[$artifact_name]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts/$artifact_id) (gh run download $GITHUB_RUN_ID -n $artifact_name)"
+          else
+            artifact="none uploaded"
+          fi
           body="$(cat <<EOF
           The scheduled full signup E2E check failed.
 
           Run: $RUN_URL
-          Failed jobs: $failed_jobs
+          Failed jobs and the step each failed at:
+          $failed_jobs
+
+          Last error lines:
+          \`\`\`
+          $error_lines
+          \`\`\`
+          Artifact: $artifact
           Targets: $SIGNUP_E2E_APPS on $SIGNUP_E2E_ENVIRONMENTS
+          Reproduce: gh workflow run signup-e2e-scheduled.yml --ref main -f apps=$SIGNUP_E2E_APPS -f environments=$SIGNUP_E2E_ENVIRONMENTS
 
           The Playwright artifact contains failure screenshots without auth traces or videos.
           This issue is reused while open; a successful run comments with the recovery run and closes it.

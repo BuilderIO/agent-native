@@ -11,6 +11,7 @@ import {
   _fixWebManifestName,
   _getCoreDependencyVersion,
   _getDispatchDependencyVersion,
+  _getOtelDependencyVersion,
   _getToolkitDependencyVersion,
   _postProcessStandalone,
   _renameGitignore,
@@ -83,7 +84,6 @@ function git(cwd: string, args: string[]): string {
   });
 }
 
-/** Regular files only, skipping symlinks and never-scaffolded entries. */
 function scaffoldFileList(root: string): string[] {
   const out: string[] = [];
   const walk = (dir: string, prefix: string): void => {
@@ -298,6 +298,16 @@ describe("materializeTemplate", () => {
 
     const scaffoldFiles = scaffoldFileList(appDir);
     expect(scaffoldFiles.length).toBeGreaterThan(20);
+    // The OTel startup plugin ships with the scaffold and installs the
+    // published package, never the monorepo's workspace protocol.
+    expect(scaffoldFiles).toContain("server/plugins/otel.ts");
+    const scaffoldedPkg = JSON.parse(
+      fs.readFileSync(path.join(appDir, "package.json"), "utf-8"),
+    );
+    expect(scaffoldedPkg.dependencies["@agent-native/otel"]).toBeTruthy();
+    expect(scaffoldedPkg.dependencies["@agent-native/otel"]).not.toMatch(
+      /^workspace:/,
+    );
     expect(scaffoldFileList(materialized.dir)).toEqual(scaffoldFiles);
     for (const rel of scaffoldFiles) {
       expect(
@@ -324,15 +334,11 @@ describe("materializeTemplate", () => {
         2,
       )}\n`,
     );
-    // Real workspaces always have this by the time an app is scaffolded in —
-    // scaffoldWorkspaceRoot copies it from the workspace-root template first.
-    // workspacifyApp needs it to record the node-pty/node-gyp packageExtension.
     fs.writeFileSync(
       path.join(workspaceRoot, "pnpm-workspace.yaml"),
       "packages:\n  - packages/*\n  - apps/*\n",
     );
 
-    // Mirrors scaffoldOneAppIntoWorkspace's transform order exactly.
     const resolution = await _scaffoldAppTemplate(appDir, "chat");
     _replacePlaceholders(appDir, "crm", _appTitleForScaffold("crm"), "my-ws");
     _rewriteTrackingAppId(appDir, "crm", "chat");
@@ -345,6 +351,7 @@ describe("materializeTemplate", () => {
       coreDependencyVersion: _getCoreDependencyVersion(),
       dispatchDependencyVersion: _getDispatchDependencyVersion(),
       toolkitDependencyVersion: _getToolkitDependencyVersion(),
+      otelDependencyVersion: _getOtelDependencyVersion(),
     });
     _fixPackageJsonName(appDir, "crm", "chat", {
       ...resolution,
@@ -470,8 +477,6 @@ describe("agent-native template commands", () => {
     process.chdir(appDir);
     await runTemplate(["baseline"], collectIO().io);
 
-    // Rewrite the baseline as if the app had been generated from an older
-    // upstream, so the current template really is "newer".
     const store = resolveBaselineStore(appDir);
     const older = materializeBaseline(store, "baseline")!;
     fs.writeFileSync(path.join(older, "AGENTS.md"), "ancient guidance\n");
@@ -614,7 +619,6 @@ describe("template materialize command", () => {
       fs.readFileSync(path.join(dest, "package.json"), "utf-8"),
     ) as { name?: string };
     expect(pkg.name).toBe("chat");
-    // post-process ran: _gitignore renamed, chat appId, standalone netlify.
     expect(fs.existsSync(path.join(dest, ".gitignore"))).toBe(true);
     expect(fs.existsSync(path.join(dest, "_gitignore"))).toBe(false);
     expect(
@@ -623,7 +627,6 @@ describe("template materialize command", () => {
     expect(fs.readFileSync(path.join(dest, "netlify.toml"), "utf-8")).toContain(
       'publish = "dist"',
     );
-    // pristine, template-derived only: no private content, no workflows.
     expect(fs.existsSync(path.join(dest, ".github"))).toBe(false);
   }, 120_000);
 
@@ -650,8 +653,6 @@ describe("template materialize command", () => {
     fs.mkdirSync(dest, { recursive: true });
     fs.writeFileSync(path.join(dest, "existing.txt"), "keep me\n");
 
-    // Unknown template with no --to → materializeTemplate throws *after* the
-    // point where the naive (rm-first) version would have wiped dest.
     const run = collectIO();
     const code = await runTemplate(
       ["materialize", "--template", "does-not-exist", "--out", dest],
@@ -662,7 +663,6 @@ describe("template materialize command", () => {
     expect(fs.readFileSync(path.join(dest, "existing.txt"), "utf-8")).toBe(
       "keep me\n",
     );
-    // no leftover staging dir remains in the destination's parent.
     expect(
       fs.readdirSync(out).filter((e) => e.startsWith(".template-materialize-")),
     ).toEqual([]);
@@ -682,10 +682,8 @@ describe("template materialize command", () => {
     );
 
     expect(code).toBe(0);
-    // old tree replaced (moved aside then dropped), fresh tree in place.
     expect(fs.existsSync(path.join(dest, "stale.txt"))).toBe(false);
     expect(fs.existsSync(path.join(dest, "package.json"))).toBe(true);
-    // neither the staging dir nor the backup is left behind.
     expect(
       fs.readdirSync(out).filter((e) => e.startsWith(".template-materialize-")),
     ).toEqual([]);

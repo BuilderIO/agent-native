@@ -7,7 +7,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js"; // ensure registerShareableResource runs
+import { getDb, schema } from "../server/db/index.js";
 import { notifyDeckComment } from "../server/lib/comment-notifications.js";
 import {
   serializeSlideCommentAnchor,
@@ -60,6 +60,10 @@ export default defineAction({
   description:
     "Add a comment to a slide or reply to an existing thread on that same slide. Inline Markdown supports emphasis, inline code, links, and line breaks; headings are flattened. Comments may be anchored to slide positions or stable slide objects.",
   schema: addSlideCommentSchema,
+  changeResource: ({ deckId }) => ({
+    resourceType: "deck",
+    resourceId: deckId,
+  }),
   run: async (args, ctx) => {
     const {
       deckId,
@@ -97,8 +101,6 @@ export default defineAction({
 
     const db = getDb();
     await db.transaction(async (tx) => {
-      // Deck deletion takes this same lock before removing dependent rows, so
-      // slide validation and comment insertion share one serialized boundary.
       const [deck] = await tx
         .select({ id: schema.decks.id, data: schema.decks.data })
         .from(schema.decks)
@@ -130,8 +132,6 @@ export default defineAction({
       }
 
       if (requestedThreadId) {
-        // Resolution and replies take the same thread locks so a reply cannot
-        // pass a stale unresolved check while a concurrent resolve commits.
         const threadRows = await tx
           .select({
             id: schema.slideComments.id,

@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import type { ElementInfo } from "../types";
 import {
+  authoredPositionPatch,
   constraintsStylePatch,
   definiteAuthoredOffset,
   deriveConstraintsValue,
+  measuredPositionValue,
+  measuredPositionOffset,
 } from "./position-layout-properties";
 
 function element(overrides: Partial<ElementInfo> = {}): ElementInfo {
@@ -39,14 +42,166 @@ describe("definiteAuthoredOffset", () => {
   });
 });
 
+describe("measuredPositionOffset", () => {
+  it("uses the nearest frame origin even when a Group is the direct parent", () => {
+    const selected = element({
+      boundingRect: { x: 100, y: 100, width: 80, height: 80 },
+      parentBoundingRect: { x: 20, y: 20, width: 160, height: 160 },
+      positionReferenceRect: { x: 0, y: 0, width: 400, height: 400 },
+    });
+
+    expect(measuredPositionOffset(selected, "x")).toBe(100);
+    expect(measuredPositionOffset(selected, "y")).toBe(100);
+  });
+
+  it("resets position to a nested Frame's origin", () => {
+    const selected = element({
+      boundingRect: { x: 230, y: 70, width: 80, height: 80 },
+      parentBoundingRect: { x: 220, y: 60, width: 200, height: 200 },
+      positionReferenceRect: { x: 220, y: 60, width: 200, height: 200 },
+    });
+
+    expect(measuredPositionOffset(selected, "x")).toBe(10);
+    expect(measuredPositionOffset(selected, "y")).toBe(10);
+  });
+
+  it("uses the rendered offset directly when no parent geometry is available", () => {
+    const selected = element({
+      boundingRect: { x: 24, y: 24, width: 80, height: 40 },
+      parentBoundingRect: undefined,
+    });
+
+    expect(measuredPositionOffset(selected, "x")).toBe(24);
+    expect(measuredPositionOffset(selected, "y")).toBe(24);
+  });
+});
+
+describe("measuredPositionValue", () => {
+  it("maps live CSS drag deltas through a transformed containing block", () => {
+    const selected = element({
+      boundingRect: { x: 240, y: 150, width: 240, height: 30 },
+      positionReferenceRect: { x: 0, y: 0, width: 800, height: 600 },
+      positionContainingBlockOrigin: { x: 40, y: 30 },
+      positionContainingBlockTransform: { a: 2, b: 0, c: 0, d: 0.5 },
+      computedStyles: { left: "100px", top: "200px" },
+    });
+
+    const livePosition = { left: "110px", top: "240px" };
+    expect(measuredPositionValue(selected, "x", livePosition)).toBe("260px");
+    expect(measuredPositionValue(selected, "y", livePosition)).toBe("170px");
+  });
+});
+
+describe("authoredPositionPatch", () => {
+  it("converts Frame-relative X/Y back to a Group's local CSS offset", () => {
+    const selected = element({
+      boundingRect: { x: 100, y: 100, width: 80, height: 80 },
+      parentBoundingRect: { x: 20, y: 20, width: 160, height: 160 },
+      positionReferenceRect: { x: 0, y: 0, width: 400, height: 400 },
+      computedStyles: { left: "80px", top: "80px" },
+    });
+
+    expect(authoredPositionPatch(selected, "x", 110)).toEqual({
+      left: "90px",
+    });
+    expect(authoredPositionPatch(selected, "y", 115)).toEqual({
+      top: "95px",
+    });
+  });
+
+  it("converts Frame-relative X/Y through the CSS containing-block origin", () => {
+    const selected = element({
+      boundingRect: { x: 308, y: 188, width: 80, height: 40 },
+      parentBoundingRect: { x: 40, y: 30, width: 320, height: 240 },
+      positionReferenceRect: { x: 200, y: 100, width: 400, height: 300 },
+      positionContainingBlockOrigin: { x: 208, y: 108 },
+      computedStyles: { left: "100px", top: "80px" },
+    });
+
+    expect(authoredPositionPatch(selected, "x", 120)).toEqual({
+      left: "112px",
+    });
+    expect(authoredPositionPatch(selected, "y", 140)).toEqual({
+      top: "132px",
+    });
+  });
+
+  it("applies the visual position delta without reapplying an element transform", () => {
+    const selected = element({
+      boundingRect: { x: 120, y: 80, width: 80, height: 40 },
+      parentBoundingRect: { x: 0, y: 0, width: 400, height: 300 },
+      positionReferenceRect: { x: 0, y: 0, width: 400, height: 300 },
+      positionContainingBlockOrigin: { x: 0, y: 0 },
+      inlineStyles: {
+        left: "100px",
+        top: "80px",
+        transform: "translateX(20px)",
+      },
+      computedStyles: { left: "100px", top: "80px" },
+    });
+
+    expect(authoredPositionPatch(selected, "x", 130)).toEqual({
+      left: "110px",
+    });
+    expect(authoredPositionPatch(selected, "y", 90)).toEqual({
+      top: "90px",
+    });
+  });
+
+  it("emits a zero-delta axis so cancel can restore a live scrub preview", () => {
+    const selected = element({
+      boundingRect: { x: 120, y: 80, width: 80, height: 40 },
+      parentBoundingRect: { x: 0, y: 0, width: 400, height: 300 },
+      positionReferenceRect: { x: 0, y: 0, width: 400, height: 300 },
+      positionContainingBlockOrigin: { x: 0, y: 0 },
+      inlineStyles: { left: "100px", top: "80px" },
+      computedStyles: { left: "100px", top: "80px" },
+    });
+
+    expect(authoredPositionPatch(selected, "x", 120)).toEqual({
+      left: "100px",
+    });
+  });
+
+  it("inverts a transformed containing block while preserving the other visual axis", () => {
+    const selected = element({
+      boundingRect: { x: 240, y: 150, width: 240, height: 30 },
+      positionReferenceRect: { x: 0, y: 0, width: 800, height: 600 },
+      positionContainingBlockOrigin: { x: 0, y: 0 },
+      positionContainingBlockTransform: { a: 2, b: 0, c: 0, d: 0.5 },
+      computedStyles: { left: "100px", top: "300px" },
+    });
+
+    expect(authoredPositionPatch(selected, "x", 260)).toEqual({
+      left: "110px",
+    });
+    expect(authoredPositionPatch(selected, "y", 160)).toEqual({
+      top: "320px",
+    });
+  });
+
+  it("updates both CSS axes when a transformed containing block rotates them", () => {
+    const selected = element({
+      boundingRect: { x: 120, y: 80, width: 40, height: 80 },
+      positionReferenceRect: { x: 0, y: 0, width: 400, height: 300 },
+      positionContainingBlockOrigin: { x: 0, y: 0 },
+      positionContainingBlockTransform: { a: 0, b: 1, c: -1, d: 0 },
+      computedStyles: { left: "100px", top: "80px" },
+    });
+
+    expect(authoredPositionPatch(selected, "x", 130)).toEqual({
+      left: "100px",
+      top: "70px",
+    });
+    expect(authoredPositionPatch(selected, "y", 90)).toEqual({
+      left: "110px",
+      top: "80px",
+    });
+  });
+});
+
 describe("deriveConstraintsValue", () => {
   it("reads a plain, never-repositioned element as anchored left/top, not left-right/top-bottom", () => {
-    // No inlineStyles at all (the common case for an ordinary element that
-    // was never explicitly given left/right/top/bottom) — authoredStyleValue
-    // falls back to computedStyles, and getComputedStyle reports "auto" for
-    // an unpositioned element's left/right/top/bottom. Before the
-    // definiteAuthoredOffset guard, "auto" && "auto" read as truthy and this
-    // rendered as pinned to both edges on every ordinary element.
     const value = deriveConstraintsValue(
       element({
         computedStyles: {

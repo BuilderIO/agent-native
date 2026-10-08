@@ -155,9 +155,6 @@ function harness(
     pasteCascadeRef: ref(0),
     pasteCopiedScreens: () => {},
     pendingLocalFileContentsRef: ref(new Map()),
-    // Mirrors DesignEditor's real publisher. A stub that always succeeds hides
-    // every refusal, which is how a paste that the lineage blocks outright
-    // still passed here.
     publishAuthoritativeClipboardMutation: (publishArgs) => {
       const next = publishClipboardContentMutation({
         current: lineageRef.current.get(publishArgs.fileId),
@@ -364,10 +361,6 @@ describe("pasting copied layers with no explicit drop point", () => {
   });
 
   it("pastes directly above the source, not appended after a later sibling", async () => {
-    // A source with a later sibling in the same parent is the shape that
-    // distinguishes "insert directly above the source" from "append to the
-    // end of the parent's child list" — with only one child both look
-    // identical (see the frame-1/rect-1 case above).
     const GROUP_HTML = `<!DOCTYPE html>
 <html lang="en"><head></head><body>
 <div data-agent-native-node-id="group" data-agent-native-layer-name="Group" style="position:absolute;left:0px;top:0px;width:400px;height:300px">
@@ -557,8 +550,6 @@ describe("pasting copied layers with no explicit drop point", () => {
   });
 
   it("puts the copy somewhere visible when its source parent is gone", async () => {
-    // Stored left/top belong to the deleted parent, so reusing them at the
-    // screen root can place the copy off screen.
     const { args, writes } = harness();
     const deleted = HOME_HTML.replace(RECT_HTML, "");
     args.getScreenContent = () => deleted;
@@ -594,7 +585,6 @@ describe("pasting copied layers with no explicit drop point", () => {
 
     const copies = pastedCopies(writes[0]?.content ?? "");
     expect(copies).toHaveLength(2);
-    // frame-1 owns only rect-1, so adopting both would move rect-2's copy.
     for (const copy of copies) {
       expect(
         copy.parentElement?.getAttribute("data-agent-native-node-id"),
@@ -605,9 +595,6 @@ describe("pasting copied layers with no explicit drop point", () => {
 
   it("rebases on the latest edit, not the last clipboard mutation", async () => {
     const { args, writes } = harness();
-    // The clipboard cache still describes the pre-delete document; a delete
-    // carries no publication so nothing supersedes it. Rebasing there undoes
-    // the delete and the removed element comes back with the paste.
     const deleted = HOME_HTML.replace(RECT_HTML, "");
     args.latestClipboardMutationContentRef.current.set("home", {
       content: HOME_HTML,
@@ -624,13 +611,10 @@ describe("pasting copied layers with no explicit drop point", () => {
     expect(writes).toHaveLength(1);
     const written = writes[0]!.content;
     const rects = written.match(/data-an-primitive="rectangle"/g) ?? [];
-    // One pasted copy only — the deleted original must not be resurrected.
     expect(rects).toHaveLength(1);
   });
 
   it("ignores the clipboard lineage once the save has cleared pending", async () => {
-    // pending is dropped on save-ack, so after a delete + save the lineage is
-    // the only stale copy left and paste must not fall back to it.
     const { args, writes } = harness();
     args.latestClipboardMutationContentRef.current.set("home", {
       content: HOME_HTML,

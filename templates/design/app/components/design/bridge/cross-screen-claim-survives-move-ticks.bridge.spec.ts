@@ -3,24 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-/**
- * Figma parity (drag-reparent-1): dragging an element across a screen
- * boundary must leave the source screen and land in the destination, never
- * getting stuck committed in place inside the source.
- *
- * Every per-screen preview iframe renders oversized relative to its screen's
- * visible card, so `isOutsideIframeViewport` reads false even while the
- * pointer sits squarely over a DIFFERENT screen — the host's own
- * "agent-native:cross-screen-claim" reply is the only real signal that a
- * destination screen has claimed the drop. That reply is async (a
- * postMessage round trip), but a move tick fires on every animation frame
- * regardless, so the source bridge used to re-derive "am I still claimed?"
- * from the (always-false) `isOutsideIframeViewport` check on each of those
- * ticks and stomp the flag back to false a frame after the host had just set
- * it true — leaving it stale-false at the moment of mouseup on almost every
- * drag, so the element committed locally instead of ceding to the
- * cross-screen drop.
- */
 function hydratedEditorChromeBridgeScript(): string {
   return editorChromeBridgeScript
     .replace("__READ_ONLY__", "false")
@@ -66,11 +48,6 @@ describe("crossScreenClaimedByHost survives the move ticks between claim and rel
         (data: Record<string, unknown>) => messages.push(data),
       );
       await page.evaluate(() => {
-        // Stand in for the real host's claimCrossScreenDrop: it re-resolves
-        // the drop target on every "move" tick but only POSTS a fresh claim
-        // message when the claimed value actually changes (MultiScreenCanvas
-        // dedupes on crossScreenClaimSentRef) — so once it has claimed the
-        // drop, later ticks send no further message to re-affirm it.
         let claimSent: boolean | null = null;
         window.addEventListener("message", (e: MessageEvent) => {
           const data = e.data as { type?: string };
@@ -103,9 +80,6 @@ describe("crossScreenClaimedByHost survives the move ticks between claim and rel
       });
       await page.waitForTimeout(30);
 
-      // Several move ticks, each ~16ms apart (one rAF), well within the
-      // window's own bounds — isOutsideIframeViewport is false for every one
-      // of these, exactly like a real oversized preview iframe.
       await page.mouse.move(90, 320);
       await page.mouse.down();
       for (const [x, y] of [
@@ -117,9 +91,6 @@ describe("crossScreenClaimedByHost survives the move ticks between claim and rel
         await page.mouse.move(x, y);
         await page.waitForTimeout(16);
       }
-      // Give the last tick's async claim reply time to land before release —
-      // the real race this test targets is the RESET on the tick immediately
-      // after, not this reply itself arriving late.
       await page.waitForTimeout(20);
       await page.mouse.up();
       await page.waitForTimeout(30);

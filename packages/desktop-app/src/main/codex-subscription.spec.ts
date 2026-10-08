@@ -639,9 +639,6 @@ describe("CodexSubscriptionAdapter", () => {
       client.request.mockImplementation(async (method: string) => {
         if (method === "initialize") {
           initializeCalls += 1;
-          // The first respawn (inside start()) succeeds; every respawn
-          // triggered by a reconnect attempt fails, simulating a
-          // crash-looping app-server or a stale socket/lockfile.
           if (initializeCalls === 1) return {};
           throw new Error("app-server failed to respawn");
         }
@@ -662,14 +659,10 @@ describe("CodexSubscriptionAdapter", () => {
       client.emitExit();
       expect(adapter.getStatus().telemetry.state).toBe("stale");
 
-      // First reconnect attempt fires and its respawn fails.
       await vi.advanceTimersByTimeAsync(100);
       expect(initializeCalls).toBe(2);
       expect(adapter.getStatus().telemetry.state).toBe("stale");
 
-      // A second consecutive failure must not kill the loop: cleanup and
-      // scheduleRestart() have to run even though telemetry was already
-      // stale, so a third respawn attempt still fires.
       await vi.advanceTimersByTimeAsync(100);
       expect(initializeCalls).toBe(3);
       expect(adapter.getStatus().telemetry.state).toBe("stale");

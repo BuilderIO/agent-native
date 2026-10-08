@@ -112,12 +112,6 @@ export function clampRecordingPlayheadPosition(
   };
 }
 
-/**
- * Snap one axis to a screen edge while preserving the user's position on the
- * other axis. Desktop dragging uses this instead of the preset slot geometry:
- * docking should feel like the pill met an edge, not like it teleported to a
- * different place on that edge.
- */
 export function positionRecordingPlayheadAtEdge(
   dock: Exclude<RecordingPlayheadDock, "free">,
   proposedLeft: number,

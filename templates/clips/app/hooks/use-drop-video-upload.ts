@@ -3,6 +3,7 @@ import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { waitForAcceptedRecordingAfterFinalizeError } from "@shared/finalize-recovery";
 import {
+  classifyUploadResponseError,
   chunkUploadParallelism,
   chunkUploadUrl,
   UPLOAD_SLICE_BYTES,
@@ -11,8 +12,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { fetchVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import { MAX_UPLOAD_BYTES } from "@/lib/compress";
 import { defaultRecordingTitle } from "@/lib/recording-title";
+import { isMobileRecorderRuntime } from "@/lib/recording-visibility";
 import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
 import { uploadChunkRequest } from "@/lib/upload-request";
 import { probeVideoMetadata, resolveVideoMimeType } from "@/lib/video-metadata";
@@ -23,32 +26,28 @@ export interface DropUploadItem {
   key: string;
   fileName: string;
   progress: number;
-  /** The created recording id, once `create-recording` returns. The grid
-   * hides the real card for this id while its placeholder is on screen so a
-   * file never appears twice mid-upload. */
   recordingId?: string;
 }
 
 type QueuedDropUpload = {
+  key: string;
   file: File;
   scope: { spaceId?: string | null; folderId?: string | null };
 };
+
+export type VideoStorageGateIssue = "missing" | "unavailable";
 
 function defaultTitleFor(file: File): string {
   return file.name.replace(/\.[^/.]+$/, "") || defaultRecordingTitle();
 }
 
-/** Uploads dropped video files straight from the library grid — creates the
- * recording row via `create-recording`, then streams it to
- * `/api/uploads/:id/chunk` the same way the recorder's file picker does, so
- * `finalize-recording` treats it identically. Skips the recorder route's
- * bug-report/intake and re-encode paths (not applicable to a plain drop) and
- * never navigates away — the grid's own polling and the shared refresh
- * signal pick up the new "uploading" card as soon as the row exists. */
-export function useDropVideoUpload(scope: {
-  spaceId?: string | null;
-  folderId?: string | null;
-}) {
+export function useDropVideoUpload(
+  scope: {
+    spaceId?: string | null;
+    folderId?: string | null;
+  },
+  onStorageSetupRequired?: (issue: VideoStorageGateIssue) => void,
+) {
   const t = useT();
   const queryClient = useQueryClient();
   const [uploads, setUploads] = useState<DropUploadItem[]>([]);
@@ -67,12 +66,8 @@ export function useDropVideoUpload(scope: {
     async (
       file: File,
       scope: { spaceId?: string | null; folderId?: string | null },
+      key: string,
     ) => {
-      const key = `${file.name}-${file.size}-${Date.now()}-${Math.random()}`;
-      setUploads((prev) => [
-        ...prev,
-        { key, fileName: file.name, progress: 0 },
-      ]);
       const setProgress = (progress: number) => {
         setUploads((prev) =>
           prev.map((u) => (u.key === key ? { ...u, progress } : u)),
@@ -112,6 +107,9 @@ export function useDropVideoUpload(scope: {
             titleSource: "upload",
             hasCamera: false,
             hasAudio: true,
+            recordingPlatform: isMobileRecorderRuntime(navigator)
+              ? "mobile"
+              : "web",
             width: meta.width,
             height: meta.height,
             spaceIds: spaceId ? [spaceId] : undefined,
@@ -138,8 +136,6 @@ export function useDropVideoUpload(scope: {
           );
         }
         createdId = info.id;
-        // Tie the placeholder to the real row so the grid hides that row's
-        // card while this placeholder (with its progress bar) is on screen.
         setRecordingId(createdId);
 
         void uploadVideoBlobThumbnail(createdId, file, {
@@ -201,9 +197,25 @@ export function useDropVideoUpload(scope: {
               abort.abort();
               return;
             }
-            if (!chunkRes.ok) {
-              uploadError = new Error(
-                `Upload failed at chunk ${item.index + 1}/${totalChunks} (${chunkRes.status})`,
+            const chunkBody = await chunkRes.text();
+            const responseError = classifyUploadResponseError({
+              contentType: chunkRes.headers.get("content-type"),
+              body: chunkBody,
+              status: chunkRes.status,
+              stage: "chunk_upload",
+            });
+            if (!chunkRes.ok || responseError.isHtml) {
+              uploadError = Object.assign(
+                new Error(
+                  responseError.isHtml
+                    ? `Upload failed at chunk ${item.index + 1}/${totalChunks}: HTML error response (${chunkRes.status})`
+                    : `Upload failed at chunk ${item.index + 1}/${totalChunks} (${chunkRes.status})`,
+                ),
+                {
+                  status: responseError.status,
+                  failureCode: responseError.failureCode,
+                  failureStage: responseError.failureStage,
+                },
               );
               abort.abort();
               return;
@@ -239,6 +251,7 @@ export function useDropVideoUpload(scope: {
           waitingForStorage?: boolean;
         } | null = null;
         let finalRes: Response | null = null;
+        let finalResponseText = "";
         try {
           finalRes = await uploadChunkRequest({
             url: finalChunkDesc.url,
@@ -250,26 +263,41 @@ export function useDropVideoUpload(scope: {
           finalResult = await recoverFinalization();
           if (!finalResult) throw error;
         }
-        if (finalRes && !finalRes.ok) {
-          const error = new Error(
-            `Upload failed at the final chunk (${finalRes.status})`,
-          );
-          if (finalRes.status === 413) throw error;
-          finalResult = await recoverFinalization();
-          if (!finalResult) throw error;
-        } else if (finalRes?.ok) {
-          finalResult = (await finalRes.json()) as NonNullable<
-            typeof finalResult
-          >;
+        if (finalRes) {
+          finalResponseText = await finalRes.text();
+          const responseError = classifyUploadResponseError({
+            contentType: finalRes.headers.get("content-type"),
+            body: finalResponseText,
+            status: finalRes.status,
+            stage: "chunk_upload",
+          });
+          if (!finalRes.ok || responseError.isHtml) {
+            const error = Object.assign(
+              new Error(
+                responseError.isHtml
+                  ? `Upload failed at the final chunk: HTML error response (${finalRes.status})`
+                  : `Upload failed at the final chunk (${finalRes.status})`,
+              ),
+              {
+                status: responseError.status,
+                failureCode: responseError.failureCode,
+                failureStage: responseError.failureStage,
+              },
+            );
+            if (finalRes.status === 413) throw error;
+            finalResult = await recoverFinalization();
+            if (!finalResult) throw error;
+          } else {
+            finalResult = JSON.parse(finalResponseText) as NonNullable<
+              typeof finalResult
+            >;
+          }
         }
         if (finalResult?.ok !== true) {
           throw new Error("Upload finalization returned no success result.");
         }
         setProgress(1);
 
-        // The bytes are in, but with no storage connected the clip can't be
-        // served yet — say so rather than claiming a finished upload. The row
-        // persists in a "waiting for storage" state the card surfaces.
         if (
           finalResult?.waitingForStorage === true ||
           finalResult?.status === "waiting_storage"
@@ -281,8 +309,6 @@ export function useDropVideoUpload(scope: {
         } else {
           toast.success(t("recordRoute.videoUploaded"));
         }
-        // Refetch so the real card is present before the placeholder leaves,
-        // making the hand-off seamless (the finally block clears it).
         await invalidateRecordings().catch((error) => {
           console.warn("[clips] dropped-upload list refresh failed", error);
         });
@@ -291,10 +317,30 @@ export function useDropVideoUpload(scope: {
           err instanceof Error ? err.message : t("recordRoute.uploadFailed");
         console.warn("[clips] dropped video upload failed", err);
         if (createdId) {
+          const details =
+            err && typeof err === "object"
+              ? (err as Record<string, unknown>)
+              : {};
+          const httpStatus =
+            Number.isInteger(details.status) &&
+            Number(details.status) >= 100 &&
+            Number(details.status) <= 599
+              ? Number(details.status)
+              : undefined;
           fetch(`${appBasePath()}/api/uploads/${createdId}/abort`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ reason: message }),
+            body: JSON.stringify({
+              reason: message,
+              failureCode:
+                details.failureCode === "chunk_html_error"
+                  ? "chunk_html_error"
+                  : "upload_failed",
+              ...(details.failureStage === "chunk_upload"
+                ? { failureStage: "chunk_upload" }
+                : {}),
+              ...(httpStatus ? { httpStatus } : {}),
+            }),
           }).catch((abortError) => {
             console.warn("[clips] dropped-upload cleanup failed", abortError);
           });
@@ -324,7 +370,7 @@ export function useDropVideoUpload(scope: {
     try {
       while (fileQueueRef.current.length > 0) {
         const item = fileQueueRef.current.shift();
-        if (item) await uploadOne(item.file, item.scope);
+        if (item) await uploadOne(item.file, item.scope, item.key);
       }
     } catch (error) {
       console.warn("[clips] dropped video upload queue failed", error);
@@ -342,12 +388,42 @@ export function useDropVideoUpload(scope: {
         spaceId: scope.spaceId,
         folderId: scope.folderId,
       };
-      fileQueueRef.current.push(
-        ...Array.from(files, (file) => ({ file, scope: uploadScope })),
-      );
-      void drainFileQueue();
+      const queuedFiles = Array.from(files, (file) => ({
+        key: `${file.name}-${file.size}-${Date.now()}-${Math.random()}`,
+        file,
+        scope: uploadScope,
+      }));
+      if (queuedFiles.length === 0) return;
+      setUploads((prev) => [
+        ...prev,
+        ...queuedFiles.map(({ key, file }) => ({
+          key,
+          fileName: file.name,
+          progress: 0,
+        })),
+      ]);
+      const removePlaceholders = () => {
+        const keys = new Set(queuedFiles.map(({ key }) => key));
+        setUploads((prev) => prev.filter((upload) => !keys.has(upload.key)));
+      };
+      void fetchVideoStorageStatus()
+        .then((status) => {
+          if (!status.configured) {
+            removePlaceholders();
+            onStorageSetupRequired?.("missing");
+            toast.error(t("clipsFinalRaw.connectStorageToFinish"));
+            return;
+          }
+          fileQueueRef.current.push(...queuedFiles);
+          void drainFileQueue();
+        })
+        .catch(() => {
+          removePlaceholders();
+          onStorageSetupRequired?.("unavailable");
+          toast.error(t("meetingsRoute.calendarStatusUnavailable"));
+        });
     },
-    [drainFileQueue, scope.folderId, scope.spaceId],
+    [drainFileQueue, onStorageSetupRequired, scope.folderId, scope.spaceId, t],
   );
 
   return { uploads, uploadFiles };

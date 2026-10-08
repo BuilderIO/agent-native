@@ -4,18 +4,23 @@ export interface DocumentVersionChatContext {
   threadId?: string;
   runId?: string;
   turnId?: string;
+  phase?: "start" | "end";
 }
 
 function contextFromFields(value: {
   threadId?: unknown;
   runId?: unknown;
   turnId?: unknown;
+  phase?: unknown;
 }): DocumentVersionChatContext | undefined {
   const context: DocumentVersionChatContext = {};
   for (const key of ["threadId", "runId", "turnId"] as const) {
     if (typeof value[key] === "string" && value[key].trim()) {
       context[key] = value[key];
     }
+  }
+  if (value.phase === "start" || value.phase === "end") {
+    context.phase = value.phase;
   }
   return Object.keys(context).length > 0 ? context : undefined;
 }

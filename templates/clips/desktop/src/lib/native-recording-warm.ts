@@ -1,9 +1,3 @@
-/**
- * Hosted native start sequencing: create the recording, warm its one physical
- * SCK capture (which registers the shared audio producer), then attach Whisper
- * as a PCM subscriber. The countdown still hides this work, while the ordering
- * prevents a second microphone capture from muting both consumers.
- */
 export function planNativeFullscreenWarmOverlap<
   TRecording extends { id: string },
 >(input: {

@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parseDocument } from "yaml";
 
+import { WORKSPACE_SKILLS } from "./workspace-skill-policy.js";
 import { ensureNodePtyBuildDependency, workspacifyApp } from "./workspacify.js";
 
 const tmpRoots: string[] = [];
@@ -170,6 +171,35 @@ describe("workspacifyApp core pinning", () => {
     );
   });
 
+  it("resolves OTel to its published release, not the workspace protocol", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    fs.writeFileSync(
+      path.join(appDir, "package.json"),
+      JSON.stringify(
+        {
+          name: "chat",
+          dependencies: {
+            "@agent-native/core": "workspace:*",
+            "@agent-native/otel": "workspace:*",
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    workspacifyApp({
+      appDir,
+      appName: "chat",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+      coreDependencyVersion: "0.131.4",
+      otelDependencyVersion: "latest",
+    });
+
+    expect(appDependencyVersion(appDir, "@agent-native/otel")).toBe("latest");
+  });
+
   it("adds node-gyp to workspaces that install node-pty on Linux", () => {
     const { root, appDir } = makeWorkspace(undefined);
     fs.writeFileSync(
@@ -198,6 +228,23 @@ describe("workspacifyApp core pinning", () => {
     );
     expect(workspaceYaml).toContain("node-pty@*:");
     expect(workspaceYaml).toContain("node-gyp: ^12.4.0");
+  });
+
+  it("preserves long file URLs while adding node-pty package extensions", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-workspacify-"));
+    tmpRoots.push(root);
+    const workspacePath = path.join(root, "pnpm-workspace.yaml");
+    const url = `file:///tmp/${"nested/".repeat(12)}agent-native-toolkit-0.198.2.tgz`;
+    fs.writeFileSync(
+      workspacePath,
+      `overrides:\n  "@agent-native/toolkit": ${JSON.stringify(url)}\n`,
+    );
+
+    ensureNodePtyBuildDependency(root);
+
+    const updated = parseDocument(fs.readFileSync(workspacePath, "utf8"));
+    expect(updated.errors).toHaveLength(0);
+    expect(updated.getIn(["overrides", "@agent-native/toolkit"])).toBe(url);
   });
 
   it("detects optional node-pty dependencies", () => {
@@ -297,6 +344,17 @@ describe("workspacifyApp core pinning", () => {
       path.join(appSkillsDir, "feature-flags", "SKILL.md"),
       "copied optional skill\n",
     );
+    for (const skill of [
+      "build-an-app",
+      "client-side-routing",
+      "reliable-mutations",
+    ]) {
+      fs.mkdirSync(path.join(appSkillsDir, skill), { recursive: true });
+      fs.writeFileSync(
+        path.join(appSkillsDir, skill, "SKILL.md"),
+        `${skill}\n`,
+      );
+    }
     fs.mkdirSync(path.join(appSkillsDir, "call-coach"), { recursive: true });
     fs.writeFileSync(
       path.join(appSkillsDir, "call-coach", "SKILL.md"),
@@ -317,8 +375,101 @@ describe("workspacifyApp core pinning", () => {
       fs.readFileSync(path.join(appSkillsDir, "actions", "SKILL.md"), "utf8"),
     ).toBe("workspace actions\n");
     expect(fs.existsSync(path.join(appSkillsDir, "feature-flags"))).toBe(false);
+    for (const skill of [
+      "build-an-app",
+      "client-side-routing",
+      "reliable-mutations",
+    ]) {
+      expect(fs.existsSync(path.join(appSkillsDir, skill))).toBe(false);
+    }
     expect(
       fs.existsSync(path.join(appSkillsDir, "call-coach", "SKILL.md")),
     ).toBe(true);
+  });
+
+  it("inherits the workspace skill set into Chat apps", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    const workspaceSkillsDir = path.join(root, ".agents", "skills");
+    for (const skill of WORKSPACE_SKILLS) {
+      fs.mkdirSync(path.join(workspaceSkillsDir, skill), { recursive: true });
+      fs.writeFileSync(
+        path.join(workspaceSkillsDir, skill, "SKILL.md"),
+        `workspace ${skill}\n`,
+      );
+    }
+
+    const appSkillsDir = path.join(appDir, ".agents", "skills");
+    for (const skill of [
+      "build-an-app",
+      "client-side-routing",
+      "performance",
+      "reliable-mutations",
+    ]) {
+      fs.mkdirSync(path.join(appSkillsDir, skill), { recursive: true });
+      fs.writeFileSync(
+        path.join(appSkillsDir, skill, "SKILL.md"),
+        `standalone ${skill}\n`,
+      );
+    }
+
+    workspacifyApp({
+      appDir,
+      appName: "roomwise",
+      templateName: "chat",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+    });
+
+    for (const skill of WORKSPACE_SKILLS) {
+      const skillPath = path.join(appSkillsDir, skill);
+      expect(fs.lstatSync(skillPath).isSymbolicLink()).toBe(true);
+      expect(fs.readFileSync(path.join(skillPath, "SKILL.md"), "utf8")).toBe(
+        `workspace ${skill}\n`,
+      );
+    }
+  });
+
+  it("keeps Factory-only review skills when workspacifying", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    const workspaceSkillsDir = path.join(root, ".agents", "skills");
+    fs.mkdirSync(path.join(workspaceSkillsDir, "actions"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(workspaceSkillsDir, "actions", "SKILL.md"),
+      "workspace actions\n",
+    );
+
+    const appSkillsDir = path.join(appDir, ".agents", "skills");
+    for (const skill of ["review-latest-feedback", "review-prs", "actions"]) {
+      fs.mkdirSync(path.join(appSkillsDir, skill), { recursive: true });
+      fs.writeFileSync(
+        path.join(appSkillsDir, skill, "SKILL.md"),
+        `factory ${skill}\n`,
+      );
+    }
+
+    workspacifyApp({
+      appDir,
+      appName: "factory",
+      templateName: "factory",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+    });
+
+    for (const skill of ["review-latest-feedback", "review-prs"]) {
+      expect(
+        fs.lstatSync(path.join(appSkillsDir, skill)).isSymbolicLink(),
+      ).toBe(false);
+      expect(
+        fs.readFileSync(path.join(appSkillsDir, skill, "SKILL.md"), "utf8"),
+      ).toBe(`factory ${skill}\n`);
+    }
+    expect(
+      fs.lstatSync(path.join(appSkillsDir, "actions")).isSymbolicLink(),
+    ).toBe(true);
+    expect(
+      fs.readFileSync(path.join(appSkillsDir, "actions", "SKILL.md"), "utf8"),
+    ).toBe("workspace actions\n");
   });
 });

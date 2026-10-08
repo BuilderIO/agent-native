@@ -1,24 +1,19 @@
-/**
- * A2A auth policy helpers shared by discovery, the JSON-RPC gate, and task
- * handlers. Serverless providers do not always expose `NODE_ENV=production`
- * consistently at runtime, so production-like A2A checks also look at the
- * provider flags those platforms set in deployed functions.
- */
 import { getAppConfig } from "../app-config/index.js";
+import {
+  isDeployedServerRuntime,
+  isLocalPlatformEmulator,
+} from "../db/server-runtime.js";
 
 export function isA2AProductionRuntime(): boolean {
+  // Emulators set deploy markers, and often NODE_ENV=production, on a
+  // developer's machine, so they must lose before any signal below wins.
+  if (isLocalPlatformEmulator()) return false;
   if (process.env.NODE_ENV === "production") return true;
-  if (process.env.NETLIFY === "true" && process.env.NETLIFY_LOCAL !== "true") {
-    return true;
-  }
-  if (
-    process.env.AWS_LAMBDA_FUNCTION_NAME &&
-    process.env.NETLIFY_LOCAL !== "true"
-  ) {
-    return true;
-  }
+  // Hosted invocations and started production server builds, the same answer
+  // the database and auth secret refusals use.
+  if (isDeployedServerRuntime()) return true;
+  if (process.env.NETLIFY === "true") return true;
   if (process.env.CF_PAGES === "1") return true;
-  if ("__cf_env" in globalThis || "__env__" in globalThis) return true;
   if (process.env.VERCEL || process.env.VERCEL_ENV) return true;
   if (process.env.RENDER || process.env.FLY_APP_NAME || process.env.K_SERVICE) {
     return true;
@@ -54,7 +49,6 @@ export function isTrustedLocalRuntime(opts: { loopback: boolean }): boolean {
   return opts.loopback === true;
 }
 
-/** True if a socket peer address is a loopback/local address. */
 export function isLoopbackAddress(addr: string | undefined | null): boolean {
   if (!addr) return false;
   const a = addr.trim();

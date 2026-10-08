@@ -19,6 +19,7 @@ export {
   getCallbackOrigin,
   oauthRedirectUri,
   isInFrame,
+  isTrustedFrameMessage,
   enterStyleEditing,
   enterTextEditing,
   exitSelectionMode,
@@ -28,66 +29,22 @@ export {
   getBuilderParentOrigin,
   isInBuilderFrame,
   sendToBuilderChat,
+  shouldParentFrameOwnAgentPanel,
+  isTrustedBuilderMessage,
+  tryDelegateBuildRequestToBuilder,
   type BuilderChatMessage,
 } from "../builder-frame.js";
 export { getClientSurface, type ClientSurface } from "../client-surface.js";
-export {
-  AgentNative,
-  useAgentNativeScreenContext,
-  type AgentNativeCommandCallback,
-  type AgentNativeCommandCallbackInfo,
-  type AgentNativeProps,
-} from "../AgentNative.js";
-export {
-  AgentNativeEmbedded,
-  useAgentNativeEmbeddedBrowserSession,
-  type AgentNativeEmbeddedBrowserSessionOptions,
-  type AgentNativeEmbeddedCommandCallback,
-  type AgentNativeEmbeddedCommandCallbackInfo,
-  type AgentNativeEmbeddedProps,
-  type UseAgentNativeEmbeddedBrowserSessionOptions,
-} from "../AgentNativeEmbedded.js";
 export {
   defineClientAction,
   type AgentNativeClientActionDefinition,
   type AgentNativeClientActionRunner,
 } from "../client-action.js";
 export {
-  AgentNativeFrame,
-  type AgentNativeFrameProps,
-} from "../AgentNativeFrame.js";
-export {
-  AgentNativeRouteWarmup,
-  isClientRouteUrl,
-  type AgentNativeRouteWarmupProps,
-} from "../route-warmup.js";
-export {
-  AgentNativeExtensionFrame,
-  AgentNativeExtensionSlot,
-  type AgentNativeExtensionFrameProps,
-  type AgentNativeExtensionPermissionList,
-  type AgentNativeExtensionSlotProps,
-  type AgentNativeExtensionStorageScopeList,
-} from "../extensions/AgentNativeExtensionFrame.js";
-export {
-  AGENT_NATIVE_EXTENSION_MESSAGE_TYPES,
-  buildAgentNativeExtensionHtml,
-  createHttpAgentNativeExtensionStorage,
-  createLocalStorageAgentNativeExtensionStorage,
-  getAgentNativeExtensionManifest,
-  isAgentNativeExtensionAllowedInSlot,
-  normalizeAgentNativeExtensionSandbox,
-  type AgentNativeExtensionDefinition,
-  type AgentNativeExtensionManifest,
-  type AgentNativeExtensionMessageType,
-  type AgentNativeExtensionStorage,
-  type AgentNativeExtensionStorageContext,
-  type AgentNativeExtensionStorageOptions,
-  type AgentNativeExtensionStorageRow,
-  type AgentNativeExtensionStorageScope,
-  type BuildAgentNativeExtensionHtmlOptions,
-  type CreateHttpAgentNativeExtensionStorageOptions,
-} from "../extensions/portable-extension.js";
+  DESKTOP_LOCAL_CODE_CHANGE_EVENT,
+  requestDesktopLocalCodeChange,
+  type DesktopLocalCodeChangeDetail,
+} from "../desktop-local-code-change.js";
 export {
   buildSessionReplayIframeBootstrap,
   injectSessionReplayIframeBootstrap,
@@ -193,4 +150,3 @@ export type {
   CodeCompleteMessage,
   ChatRunningMessage,
 } from "../frame-protocol.js";
-export { IframeEmbed, parseEmbedBody } from "../IframeEmbed.js";

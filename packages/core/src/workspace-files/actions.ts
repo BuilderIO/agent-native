@@ -67,9 +67,6 @@ export const showWorkspaceFileAction = defineAction({
       throw new Error(`Workspace file not found: "${path}"`);
     }
 
-    // The card only ever renders name/size/type + a download link — it never
-    // inlines file content — so every content type, binary included, is safe
-    // to show here.
     return { file: toWorkspaceFileCard(file) };
   },
 });

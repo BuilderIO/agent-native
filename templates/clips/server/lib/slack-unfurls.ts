@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import {
   clipsShareDescription,
@@ -40,6 +40,7 @@ type SlackUnfurlRecording = {
   expiresAt: string | null;
   videoUrl: string | null;
   sourceAppName: string | null;
+  updatedAt: string | null;
 };
 
 export type SlackVideoBlock = {
@@ -273,6 +274,7 @@ export async function loadSlackVideoBlockForUrl(
   const share = extractShareLink(url);
   if (!share) return null;
 
+  // guard:allow-unscoped — Slack unfurls are anonymous public-share reads; private and password-protected recordings are filtered before metadata is loaded.
   const [recording] = await getDb()
     .select({
       id: schema.recordings.id,
@@ -289,9 +291,16 @@ export async function loadSlackVideoBlockForUrl(
       expiresAt: schema.recordings.expiresAt,
       videoUrl: schema.recordings.videoUrl,
       sourceAppName: schema.recordings.sourceAppName,
+      updatedAt: schema.recordings.updatedAt,
     })
     .from(schema.recordings)
-    .where(eq(schema.recordings.id, share.id))
+    .where(
+      and(
+        eq(schema.recordings.id, share.id),
+        eq(schema.recordings.visibility, "public"),
+        isNull(schema.recordings.password),
+      ),
+    )
     .limit(1);
 
   return recording

@@ -1,30 +1,73 @@
-import { useCallback, useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
-import type { AuthSession } from "../server/auth.js";
-import { setSentryUser, trackSessionStatus } from "./analytics.js";
+import type { AuthSession, AuthSessionResponse } from "../server/auth.js";
+import { navigateForSession as navigateForSessionOnce } from "../shared/ssr-session-bootstrap.js";
+import { setSentryUser, trackEvent, trackSessionStatus } from "./analytics.js";
 import { agentNativeApiDisabledReason } from "./api-surface.js";
 import {
+  expireClientStatusResult,
   fetchAuthSessionStatus,
   invalidateClientStatusRequest,
+  SESSION_RESULT_LIFETIME_MS,
 } from "./client-status-requests.js";
 import { getFrameOrigin, getFramePostMessageTargetOrigin } from "./frame.js";
 
 export type { AuthSession };
+export { isSessionNavigationPending } from "../shared/ssr-session-bootstrap.js";
 
 /**
- * `"unavailable"` is the session endpoint being unreadable — a 5xx, a network
- * failure, or a timeout. It is NOT the visitor being signed out, and a caller
- * that collapses the two either strands the user on a spinner forever or
- * bounces a signed-in user to the sign-in page over a transient blip.
- *
- * `"signing-out"` is the user having asked to leave. It is NOT
- * `"unauthenticated"`: the server session may still be live for the length of
- * the revoke request, and the sign-out flow — not a gate — owns the navigation
- * away. Collapsing it into `"authenticated"` (which is what a cache
- * invalidation alone does) leaves the app shell mounted with no cookie for the
- * whole revoke-plus-navigate window, long enough for its queries to 401 and
- * paint a load failure over the app the user is trying to leave.
+ * What the session endpoint said that the page acted on: a signed-out body,
+ * an HTTP 401, or a signed-in answer. Recorded with every session-driven
+ * navigation, so a redirect to sign-in names its evidence.
  */
+export type SessionEvidence = "signed_in" | "signed_out_body" | "http_401";
+
+export type SessionNavigationReason =
+  | "signed_out"
+  | "signed_in_app"
+  | "sso_probe"
+  | "beta_lane";
+
+interface SessionResolution {
+  evidence: SessionEvidence;
+  /** Unreadable answers (5xx, timeout, bad body) before the definitive one. */
+  readFailures: number;
+  resolvedAfterMs: number;
+}
+let cachedEvidence: SessionEvidence | undefined;
+let lastResolution: SessionResolution | undefined;
+
+/**
+ * The one way the client leaves a page because of what the session says (at
+ * most once per document), and the one place that says why: `session_navigation`
+ * carries the reason and, for a redirect to sign-in, the 401 or signed-out
+ * evidence that decided it. The destination is never recorded.
+ */
+export function navigateForSession(
+  href: string,
+  reason?: SessionNavigationReason,
+): boolean {
+  const navigated = navigateForSessionOnce(href);
+  if (navigated && reason) {
+    try {
+      trackEvent("session_navigation", {
+        reason,
+        ...(reason === "signed_out" && lastResolution
+          ? {
+              evidence: lastResolution.evidence,
+              read_failures: lastResolution.readFailures,
+              resolved_after_ms: lastResolution.resolvedAfterMs,
+            }
+          : {}),
+        page_age_ms: Math.round(performance.now()),
+      });
+    } catch {
+      // coercion-ok: telemetry must never stop the navigation it describes.
+    }
+  }
+  return navigated;
+}
+
 export type SessionStatus =
   | "loading"
   | "authenticated"
@@ -37,22 +80,10 @@ interface UseSessionResult {
   isLoading: boolean;
   status: SessionStatus;
   error: Error | null;
-  /** Restart the resolve loop, e.g. from a "Try again" control. */
   retry: () => void;
 }
 
-const SESSION_CACHE_TTL_MS = 30_000;
-/**
- * How long the resolve loop keeps trying before it tells the visitor the
- * server is unreachable: a wall-clock budget, deliberately not an attempt
- * count. An attempt count makes patience depend on how the backend fails. A
- * hung endpoint bought ~66s of retries, while an endpoint answering 503
- * instantly (a session lookup against a cold database, a deploy swap, a
- * connection-pool blip) spent every attempt in ~6s and painted the
- * "couldn't reach the server" screen over a backend that was about to come
- * back. The fast-failing case is the recoverable one, so it must not be the
- * impatient one.
- */
+const SESSION_CACHE_TTL_MS = SESSION_RESULT_LIFETIME_MS;
 const SESSION_RETRY_BUDGET_MS = 30_000;
 const SESSION_RETRY_BASE_DELAY_MS = 500;
 const SESSION_RETRY_MAX_DELAY_MS = 5_000;
@@ -62,42 +93,65 @@ let cachedSession: AuthSession | null | undefined;
 let cachedSessionAt = 0;
 let sessionRequest: Promise<SessionRead> | undefined;
 let trackedSessionIdentity: string | null | undefined;
+let trackedSessionAuthUserId: string | undefined;
 let sessionGeneration = 0;
 let sessionInvalidationListenersInstalled = false;
-const sessionInvalidationSubscribers = new Set<() => void>();
-// One-way for the life of the document. A sign-out is a decision, not a
-// reading, so nothing may flip this back — including an in-flight session
-// response that was issued while the cookie was still valid and lands after.
+let staleSessionRecheck: ReturnType<typeof setTimeout> | undefined;
 let signingOut = false;
 
 /**
- * The outcome of one read of the session endpoint.
- *
- * A superseded read is its own state so an ordinary cache invalidation (a tab
- * focus, a visibility change, a sign-out broadcast from another tab) is not
- * filed as a failed read. Nothing was unreadable in that case; the answer
- * simply arrived for a generation nobody is waiting on any more, and the right
- * response is to ask again rather than to spend the retry budget.
+ * "Is this visitor signed in" is one page-wide fact, not a per-component
+ * read. Every `useSession` consumer renders this snapshot, so a component
+ * mounted late (a dialog, a route remount) sees the answer the gate already
+ * has instead of starting at "loading" with `session: null` — the window in
+ * which callers that test `!session` showed a sign-in prompt to a signed-in
+ * user. A re-check keeps the last definitive answer on screen until the
+ * server gives a new one; a failed re-check never turns into "signed out".
  */
+interface SessionSnapshot {
+  session: AuthSession | null;
+  status: SessionStatus;
+  error: Error | null;
+}
+
+const LOADING_SNAPSHOT: SessionSnapshot = {
+  session: null,
+  status: "loading",
+  error: null,
+};
+let snapshot: SessionSnapshot = LOADING_SNAPSHOT;
+const snapshotListeners = new Set<() => void>();
+let resolveGeneration = 0;
+let activeResolveGeneration = 0;
+
+function isDefinitive(value: SessionSnapshot): boolean {
+  return value.status === "authenticated" || value.status === "unauthenticated";
+}
+
+function publish(next: SessionSnapshot): void {
+  if (snapshot.status === "signing-out") return;
+  if (
+    next.status === snapshot.status &&
+    next.session === snapshot.session &&
+    next.error === snapshot.error
+  ) {
+    return;
+  }
+  snapshot = next;
+  for (const listener of snapshotListeners) listener();
+}
+
 type SessionRead =
   | { state: "resolved"; session: AuthSession | null }
   | { state: "superseded" }
   | { state: "unreadable" };
 
-/** Elapsed-time source for the retry budget; immune to wall-clock jumps. */
 function monotonicNow(): number {
   return performance.now();
 }
 
 const RETRY_BUDGET_EXCEEDED = Symbol("retry-budget-exceeded");
 
-/**
- * Resolves once `remainingMs` elapses, racing against the actual session
- * read so a read starting near the retry budget cannot itself run past that
- * budget on the client request timeout. Distinguishable from a genuine
- * `SessionRead` so the loser (the still-pending shared request) can be
- * abandoned rather than left cached for the next caller to reuse.
- */
 function budgetExceededMarker(
   remainingMs: number,
 ): Promise<typeof RETRY_BUDGET_EXCEEDED> {
@@ -113,16 +167,23 @@ function hasFreshSessionCache(): boolean {
   );
 }
 
-function publishSessionIdentity(session: AuthSession | null): void {
+function publishSessionIdentity(session: AuthSessionResponse | null): void {
   const identity = session?.userId ?? session?.email ?? null;
-  if (trackedSessionIdentity !== identity) {
+  const authUserId = session?.authUserId;
+  if (
+    trackedSessionIdentity !== identity ||
+    trackedSessionAuthUserId !== authUserId
+  ) {
     trackedSessionIdentity = identity;
+    trackedSessionAuthUserId = authUserId;
     if (session) {
       setSentryUser(
         {
           id: session.userId,
           email: session.email,
           username: session.name,
+          authUserId,
+          testIdentity: session.testIdentity,
         },
         session.orgId ?? null,
       );
@@ -137,8 +198,6 @@ function notifyParentAuthState(
   status: "authenticated" | "unauthenticated",
 ): void {
   if (typeof window === "undefined" || window.parent === window) return;
-  // The frame-origin handshake validates the direct parent before this state
-  // crosses the frame boundary. Opaque sandbox frames still require "*".
   if (!getFrameOrigin()) return;
   const targetOrigin = getFramePostMessageTargetOrigin();
   if (!targetOrigin) return;
@@ -156,13 +215,69 @@ function notifyParentAuthState(
   }
 }
 
-function invalidateSessionCache(): void {
+function resetSessionCache(): void {
   sessionGeneration += 1;
   cachedSession = undefined;
   cachedSessionAt = 0;
+  cachedEvidence = undefined;
   sessionRequest = undefined;
+  clearTimeout(staleSessionRecheck);
+  staleSessionRecheck = undefined;
+}
+
+function notifySessionSubscribers(): void {
+  if (snapshotListeners.size === 0) {
+    // Nobody is showing the last answer, so it is not kept as a hint either.
+    resolveGeneration += 1;
+    activeResolveGeneration = 0;
+    if (snapshot.status !== "signing-out") snapshot = LOADING_SNAPSHOT;
+    return;
+  }
+  void resolveSession();
+}
+
+function invalidateSessionCache(): void {
+  resetSessionCache();
   invalidateClientStatusRequest(SESSION_STATUS_PATH);
-  for (const subscriber of sessionInvalidationSubscribers) subscriber();
+  notifySessionSubscribers();
+}
+
+function rereadSession(): void {
+  resetSessionCache();
+  expireClientStatusResult(SESSION_STATUS_PATH);
+  notifySessionSubscribers();
+}
+
+/**
+ * Focus and visibility say only that the answer may be stale; logout, a peer
+ * tab's invalidation, and a 401 each invalidate explicitly. A signed-in answer
+ * inside its lifetime therefore stands for now, which keeps a hard load to one
+ * session read, and is re-read when it expires if the tab still has focus. That
+ * bounds how long a tab can show an identity changed somewhere that sends
+ * neither a broadcast nor a 401. A signed-out answer is re-read at once,
+ * because signing in elsewhere is what focus reports. A read already in flight
+ * is shared rather than aborted, so analytics refreshing on the same focus
+ * event does not cost a second request.
+ */
+function revalidateStaleSession(): void {
+  if (!hasFreshSessionCache() || !cachedSession) {
+    rereadSession();
+    return;
+  }
+  if (staleSessionRecheck !== undefined) return;
+  const answeredAt = cachedSessionAt;
+  staleSessionRecheck = setTimeout(
+    () => {
+      staleSessionRecheck = undefined;
+      // Already re-read since this focus: that answer is its own recheck.
+      if (cachedSessionAt !== answeredAt) return;
+      if (document.visibilityState !== "visible" || !document.hasFocus()) {
+        return;
+      }
+      rereadSession();
+    },
+    Math.max(0, answeredAt + SESSION_CACHE_TTL_MS - Date.now()),
+  );
 }
 
 function installSessionInvalidationListeners(): void {
@@ -175,7 +290,7 @@ function installSessionInvalidationListeners(): void {
   }
   sessionInvalidationListenersInstalled = true;
 
-  window.addEventListener("focus", invalidateSessionCache);
+  window.addEventListener("focus", revalidateStaleSession);
   window.addEventListener("storage", (event) => {
     if (event.key === SESSION_INVALIDATION_STORAGE_KEY) {
       invalidateSessionCache();
@@ -184,12 +299,11 @@ function installSessionInvalidationListeners(): void {
   });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
-      invalidateSessionCache();
+      revalidateStaleSession();
     }
   });
 }
 
-/** Tell mounted session consumers to re-check auth after a logout. */
 export function notifySessionInvalidated(): void {
   if (typeof window === "undefined") return;
   installSessionInvalidationListeners();
@@ -204,7 +318,6 @@ export function notifySessionInvalidated(): void {
   }
 }
 
-/** True once this document has started signing out. Never true again after. */
 export function isSigningOut(): boolean {
   return signingOut;
 }
@@ -231,8 +344,6 @@ let lastUnauthorizedRecheckAt = 0;
  */
 export function recheckSessionAfterUnauthorized(): void {
   if (typeof window === "undefined") return;
-  // Already leaving. The sign-out flow owns the navigation from here, and
-  // re-reading could only reintroduce the session this document gave up.
   if (signingOut) return;
   const now = Date.now();
   if (now - lastUnauthorizedRecheckAt < UNAUTHORIZED_RECHECK_MIN_INTERVAL_MS) {
@@ -243,33 +354,21 @@ export function recheckSessionAfterUnauthorized(): void {
   invalidateSessionCache();
 }
 
-/**
- * Enter the terminal `"signing-out"` state for this document.
- *
- * Call this BEFORE revoking the server session, not after. Invalidating the
- * cache instead only asks mounted consumers to re-read, which keeps answering
- * `"authenticated"` from the previous read until the network replies — and the
- * app shell stays mounted, and its queries 401. Prefer `signOut()` from
- * `sign-out.ts`, which sequences this with the revoke and the navigation.
- */
 export function beginSignOut(): void {
   signingOut = true;
   publishSessionIdentity(null);
+  snapshot = { session: null, status: "signing-out", error: null };
+  for (const listener of snapshotListeners) listener();
   invalidateSessionCache();
 }
 
-/** Notify other browsing contexts after the server has confirmed revocation. */
 export function completeSignOut(): void {
   notifyParentAuthState("unauthenticated");
   notifySessionInvalidated();
 }
 
 function fetchSharedSession(): Promise<SessionRead> {
-  // Already leaving: the answer is known, and asking the server again can only
-  // reintroduce the session this document just gave up.
   if (signingOut) return Promise.resolve({ state: "resolved", session: null });
-  // A surface with no agent-native backend is genuinely signed out, which is a
-  // resolved answer, not an unreadable endpoint to retry until it gives up.
   if (agentNativeApiDisabledReason()) {
     return Promise.resolve({ state: "resolved", session: null });
   }
@@ -286,17 +385,33 @@ function fetchSharedSession(): Promise<SessionRead> {
   const requestResult = (async (): Promise<SessionRead> => {
     try {
       const result = await fetchAuthSessionStatus();
-      // Check the generation first: a failed read from an invalidated
-      // generation proved nothing about the current one and must not spend
-      // its retry budget, regardless of which way the stale request failed.
       if (requestGeneration !== sessionGeneration) {
         return { state: "superseded" };
       }
-      if (result.state === "unavailable") return { state: "unreadable" };
-      const data = result.value as AuthSession & { error?: unknown };
-      const session = data.error ? null : (data as AuthSession);
+      // Only the endpoint's own answer is definitive: a signed-out body or a
+      // 401. A 403 is a signed-in visitor without access to this app, and a
+      // 5xx, timeout, or unreadable body says nothing about the session.
+      if (result.state === "unavailable" && result.status !== 401) {
+        return { state: "unreadable" };
+      }
+      const data =
+        result.state === "available"
+          ? (result.value as AuthSessionResponse & { error?: unknown })
+          : { error: "Not authenticated" };
+      if (data.error !== undefined && data.error !== "Not authenticated") {
+        return { state: "unreadable" };
+      }
+      const session =
+        data.error === "Not authenticated"
+          ? null
+          : (data as AuthSessionResponse);
       cachedSession = session;
       cachedSessionAt = Date.now();
+      cachedEvidence = session
+        ? "signed_in"
+        : result.state === "unavailable"
+          ? "http_401"
+          : "signed_out_body";
       publishSessionIdentity(session);
       return { state: "resolved", session };
     } catch {
@@ -313,133 +428,144 @@ function fetchSharedSession(): Promise<SessionRead> {
 }
 
 /**
- * Client-side hook to get the current auth session.
- *
- * Fetches the current session from `/_agent-native/auth/session` and returns
- * it, or `null` when unauthenticated. This behavior is the same in all
- * environments — there is no dev bypass and no `local@localhost` sentinel.
- *
- * Templates should use this instead of building their own auth context.
+ * The one resolver behind the snapshot. Starting it again supersedes the run
+ * in flight; it retries unreadable answers for a time budget and only then
+ * reports "unavailable" — and only when there is no earlier definitive answer
+ * to keep showing.
  */
-export function useSession(): UseSessionResult {
-  installSessionInvalidationListeners();
-  const cached = hasFreshSessionCache() ? (cachedSession ?? null) : null;
-  const [session, setSession] = useState<AuthSession | null>(cached);
-  const [status, setStatus] = useState<SessionStatus>(() => {
-    if (!hasFreshSessionCache()) return "loading";
-    return cached ? "authenticated" : "unauthenticated";
-  });
-  const [error, setError] = useState<Error | null>(null);
-  const [retryToken, setRetryToken] = useState(0);
-  const [invalidationToken, setInvalidationToken] = useState(0);
-
-  const retry = useCallback(() => {
-    setError(null);
-    setStatus("loading");
-    setRetryToken((token) => token + 1);
-  }, []);
-
-  useEffect(() => {
-    const subscriber = () => {
-      setInvalidationToken((token) => token + 1);
-    };
-    sessionInvalidationSubscribers.add(subscriber);
-    return () => {
-      sessionInvalidationSubscribers.delete(subscriber);
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    let failures = 0;
-    const startedAt = monotonicNow();
-
-    const resolveSession = async () => {
+async function resolveSession(): Promise<void> {
+  if (signingOut) return;
+  const generation = ++resolveGeneration;
+  activeResolveGeneration = generation;
+  const isCurrent = () => generation === resolveGeneration && !signingOut;
+  const startedAt = monotonicNow();
+  let failures = 0;
+  try {
+    for (;;) {
       const remainingAtStart =
         SESSION_RETRY_BUDGET_MS - (monotonicNow() - startedAt);
       const raced = await Promise.race([
         fetchSharedSession(),
         budgetExceededMarker(remainingAtStart),
       ]);
-      if (cancelled) return;
+      if (!isCurrent()) return;
 
       let read: SessionRead;
+      let hung = false;
       if (raced === RETRY_BUDGET_EXCEEDED) {
-        // The shared request is still pending for whoever else is waiting on
-        // it, but this caller has given up. Invalidate it so a manual retry
-        // (or another consumer) issues a fresh request instead of reusing
-        // the one that just ran out this caller's patience.
-        invalidateSessionCache();
+        // Abandon the hung read so the next attempt is a fresh request.
+        resetSessionCache();
+        invalidateClientStatusRequest(SESSION_STATUS_PATH);
+        hung = true;
         read = { state: "unreadable" };
       } else {
         read = raced;
       }
 
-      if (read.state !== "resolved") {
-        if (read.state === "unreadable") failures += 1;
-        const remaining =
-          SESSION_RETRY_BUDGET_MS - (monotonicNow() - startedAt);
-        if (remaining <= 0) {
-          setError(
-            new Error(`Could not read the session after ${failures} attempts.`),
-          );
-          setStatus("unavailable");
-          return;
-        }
-        // A superseded read cost nothing and proved nothing, so it earns an
-        // immediate re-ask instead of a backoff step. Clamp to what's left of
-        // the budget so a near-boundary backoff step can't itself push the
-        // next check past the advertised wall-clock budget.
-        const delay =
-          read.state === "superseded"
-            ? 0
-            : Math.min(
-                SESSION_RETRY_BASE_DELAY_MS * 2 ** (failures - 1),
-                SESSION_RETRY_MAX_DELAY_MS,
-                remaining,
-              );
-        retryTimer = setTimeout(() => {
-          void resolveSession();
-        }, delay);
+      if (read.state === "resolved") {
+        lastResolution = {
+          evidence:
+            cachedEvidence ?? (read.session ? "signed_in" : "signed_out_body"),
+          readFailures: failures,
+          resolvedAfterMs: Math.round(monotonicNow() - startedAt),
+        };
+        publish({
+          session: read.session,
+          status: read.session ? "authenticated" : "unauthenticated",
+          error: null,
+        });
+        notifyParentAuthState(
+          read.session ? "authenticated" : "unauthenticated",
+        );
         return;
       }
 
-      const resolved = read.session;
-      setSession(resolved);
-      setError(null);
-      setStatus(resolved ? "authenticated" : "unauthenticated");
-      notifyParentAuthState(resolved ? "authenticated" : "unauthenticated");
-    };
+      if (read.state === "unreadable") failures += 1;
+      const remaining = SESSION_RETRY_BUDGET_MS - (monotonicNow() - startedAt);
+      if (remaining <= 0) {
+        const error = new Error(
+          `Could not read the session after ${failures} attempts.`,
+        );
+        publish(
+          isDefinitive(snapshot)
+            ? { ...snapshot, error }
+            : { session: null, status: "unavailable", error },
+        );
+        // A first read that hung past the budget keeps being retried in the
+        // background, so a backend that comes back recovers on its own.
+        if (hung && !isDefinitive(snapshot)) {
+          queueMicrotask(() => void resolveSession());
+        }
+        return;
+      }
+      const delay =
+        read.state === "superseded"
+          ? 0
+          : Math.min(
+              SESSION_RETRY_BASE_DELAY_MS * 2 ** (failures - 1),
+              SESSION_RETRY_MAX_DELAY_MS,
+              remaining,
+            );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      if (!isCurrent()) return;
+    }
+  } finally {
+    if (activeResolveGeneration === generation) activeResolveGeneration = 0;
+  }
+}
 
-    void resolveSession();
-    return () => {
-      cancelled = true;
-      if (retryTimer) clearTimeout(retryTimer);
-    };
-  }, [invalidationToken, retryToken]);
+function retrySession(): void {
+  if (signingOut) return;
+  publish(LOADING_SNAPSHOT);
+  void resolveSession();
+}
 
-  // Read after every hook so the hook order stays unconditional. A sign-out
-  // overrides whatever the last completed read said: `status` state is only
-  // written when a fetch resolves, so without this the previous
-  // "authenticated" answer (and its session object) stays on screen for the
-  // whole revoke-plus-navigate window.
+function subscribeSession(listener: () => void): () => void {
+  snapshotListeners.add(listener);
+  if (!signingOut && activeResolveGeneration === 0) {
+    if (!isDefinitive(snapshot)) {
+      if (snapshot.status === "loading") void resolveSession();
+    } else if (!hasFreshSessionCache()) {
+      // The answer outlived its lifetime: keep showing it and re-check.
+      rereadSession();
+    }
+  }
+  return () => {
+    snapshotListeners.delete(listener);
+  };
+}
+
+function getSessionSnapshot(): SessionSnapshot {
+  return snapshot;
+}
+
+function getServerSessionSnapshot(): SessionSnapshot {
+  return LOADING_SNAPSHOT;
+}
+
+export function useSession(): UseSessionResult {
+  installSessionInvalidationListeners();
+  const current = useSyncExternalStore(
+    subscribeSession,
+    getSessionSnapshot,
+    getServerSessionSnapshot,
+  );
   if (signingOut) {
     return {
       session: null,
       isLoading: true,
       status: "signing-out",
       error: null,
-      retry,
+      retry: retrySession,
     };
   }
-  // Callers that only read `isLoading`/`session` (most of the codebase, not
-  // yet migrated to `status`) must not see "unavailable" as "signed out" —
-  // that bounces an authenticated user through sign-in-only UI over a
-  // transient blip. Keeping `isLoading` true here reproduces this hook's
-  // pre-existing behavior for those callers (an indefinite "still resolving"
-  // instead of a wrong answer); only `status`-aware callers get the distinct
-  // "unavailable" treatment with a retry affordance.
-  const isLoading = status === "loading" || status === "unavailable";
-  return { session, isLoading, status, error, retry };
+  const isLoading =
+    current.status === "loading" || current.status === "unavailable";
+  return {
+    session: current.session,
+    isLoading,
+    status: current.status,
+    error: current.error,
+    retry: retrySession,
+  };
 }

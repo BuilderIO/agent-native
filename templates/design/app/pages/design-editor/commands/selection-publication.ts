@@ -12,7 +12,6 @@ export type AcceptedSourcePublication = Extract<
   { status: "accepted" }
 >;
 
-/** Build the selection projection from the exact locally accepted source bytes. */
 export function projectAcceptedSource(
   publication: AcceptedSourcePublication,
   source: CodeLayerSource,
@@ -20,7 +19,6 @@ export function projectAcceptedSource(
   return buildCodeLayerProjection(publication.content, { source });
 }
 
-/** Map a node from the submitted bytes to its unique accepted projection node. */
 export function mapAcceptedSelectionNode(
   publication: AcceptedSourcePublication,
   acceptedProjection: CodeLayerProjection,

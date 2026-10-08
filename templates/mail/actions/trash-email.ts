@@ -5,9 +5,6 @@ import { z } from "zod";
 
 import { trashEmail } from "../server/lib/email-state.js";
 
-// Gmail has no batch endpoint for trash (unlike label add/remove), so bulk
-// trash uses bounded-concurrency parallel calls instead of one-at-a-time or
-// fully-unbounded fan-out.
 const TRASH_CONCURRENCY = 5;
 
 export type TrashEmailActionResult = {

@@ -6,8 +6,6 @@ import {
   type RepeatSpan,
 } from "./repeat-data.js";
 
-// Every span here indexes the html passed in, so a write invalidates every
-// span the caller still holds. Re-read after each edit; never batch two.
 export type RepeatWrite =
   | { status: "written"; html: string }
   | { status: "refused"; reason: string };
@@ -16,7 +14,6 @@ function refuse(reason: string): RepeatWrite {
   return { status: "refused", reason };
 }
 
-/** Re-serialize a value using the quote style already in the document. */
 function literalFor(value: RepeatScalar, existing: string): string {
   if (value === null) return "null";
   if (typeof value === "boolean") return value ? "true" : "false";
@@ -44,10 +41,6 @@ function itemsFor(
   return { items: read.items };
 }
 
-/**
- * Replace one value: a scalar item, or one field of an object item.
- * `field` is required for object items and rejected for scalars.
- */
 export function writeRepeatValue(args: {
   html: string;
   xFor: string;
@@ -85,11 +78,6 @@ export function writeRepeatValue(args: {
   };
 }
 
-/**
- * Replace one field of the item a rendered row came from, identified by its
- * `:key` rather than its position. The only way to reach an item behind a
- * derived collection, where the row's index means nothing.
- */
 export function writeRepeatValueByKey(args: {
   html: string;
   keyField: string;
@@ -127,7 +115,6 @@ export function writeRepeatValueByKey(args: {
   };
 }
 
-/** Reorder one item. This is what dragging a repeated row means. */
 export function moveRepeatItem(args: {
   html: string;
   xFor: string;
@@ -240,11 +227,6 @@ function nextDuplicateKey(
   return undefined;
 }
 
-/**
- * Rewrite the whole item region from the first item's start to the last item's
- * end. Writing each span in place cannot express insert or delete, and the
- * separator between items is not part of any item's span.
- */
 function rewriteItems(
   html: string,
   items: RepeatDataItem[],
@@ -260,7 +242,6 @@ function rewriteItems(
   );
 }
 
-/** Reuse the document's own separator so a rewrite keeps its formatting. */
 function separatorBetween(
   html: string,
   items: RepeatDataItem[],

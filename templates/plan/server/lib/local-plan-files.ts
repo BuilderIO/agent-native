@@ -1,30 +1,3 @@
-/**
- * Local file sync for the no-login local mode.
- *
- * In local mode, created and updated plans are written to the repo as MDX so
- * that "synced to local files" is literally true and the plan is round-trippable
- * with `import-visual-plan-source` / `patch-visual-plan-source`.
- *
- * Layout (per plan), under the local plans directory:
- *
- *   <dir>/<plan-title-slug>/plan.mdx
- *   <dir>/<plan-title-slug>/canvas.mdx       (when present)
- *   <dir>/<plan-title-slug>/prototype.mdx    (when present)
- *   <dir>/<plan-title-slug>/.plan-state.json (when present)
- *
- * If another plan already owns that folder name, the mirror appends a human
- * numeric suffix such as `checkout-review-flow-2`.
- *
- * The directory is, in priority order:
- *   1. `PLAN_LOCAL_DIR` env var (absolute or relative to cwd).
- *   2. `<cwd>/plans` (the running app/template directory in `agent-native dev`).
- *
- * Writes are idempotent: the same plan content always produces the same files.
- * Hosted behavior is unchanged — callers only invoke this when
- * `isLocalPlanRuntime()` is true, and any filesystem error is swallowed so a
- * read-only or sandboxed environment never breaks a plan mutation.
- */
-
 import type { Dirent } from "node:fs";
 import * as fsSync from "node:fs";
 import fs from "node:fs/promises";
@@ -78,7 +51,6 @@ export interface LocalPlanPromoteInput extends LocalPlanLocationInput {
   overwrite?: boolean;
 }
 
-/** Absolute path to the local plans directory for this process. */
 export function localPlansDir(): string {
   const configured = process.env.PLAN_LOCAL_DIR;
   if (configured && configured.trim().length > 0) {
@@ -134,7 +106,6 @@ export function assertLocalPlanRelativePath(
   return normalized;
 }
 
-/** Absolute path to a single plan's local folder. */
 export function localPlanFolder(planId: string, title?: string): string {
   return path.join(
     localPlansDir(),
@@ -407,11 +378,9 @@ async function writePlanMdxFolderToDisk(
   await fs.mkdir(folder, { recursive: true });
   const written: string[] = [];
 
-  // plan.mdx is always present.
   await fs.writeFile(path.join(folder, "plan.mdx"), mdx["plan.mdx"], "utf-8");
   written.push("plan.mdx");
 
-  // canvas.mdx, prototype.mdx, and .plan-state.json are optional.
   if (mdx["canvas.mdx"]) {
     await fs.writeFile(
       path.join(folder, "canvas.mdx"),
@@ -420,8 +389,6 @@ async function writePlanMdxFolderToDisk(
     );
     written.push("canvas.mdx");
   } else {
-    // Remove a stale canvas file if the plan no longer has a board, so the
-    // mirror stays an accurate round-trip of the current content.
     await fs.rm(path.join(folder, "canvas.mdx"), { force: true });
   }
 
@@ -447,13 +414,11 @@ async function writePlanMdxFolderToDisk(
     await fs.rm(path.join(folder, ".plan-state.json"), { force: true });
   }
 
-  // Write binary assets to the local assets/ directory.
   const assetEntries = Object.entries(mdx["assets/"] ?? {});
   if (assetEntries.length > 0) {
     const assetsDir = path.join(folder, "assets");
     await fs.mkdir(assetsDir, { recursive: true });
     for (const [filename, base64] of assetEntries) {
-      // Sanitize: no path traversal, no absolute paths.
       const safe = path.basename(filename);
       if (!safe || safe !== filename) continue;
       const bytes = Buffer.from(base64, "base64");
@@ -493,11 +458,6 @@ async function clearExistingPlanMdxFolder(folder: string, targetPath: string) {
   ]);
 }
 
-/**
- * Write a plan's MDX folder to the local filesystem. Idempotent and best-effort:
- * filesystem errors are caught and returned as `{ written: false }` so a plan
- * mutation never fails just because the local mirror could not be written.
- */
 export async function writePlanLocalFiles(
   input: LocalPlanWriteInput,
 ): Promise<{ written: boolean; folder: string; files: string[] }> {
@@ -522,17 +482,10 @@ export async function writePlanLocalFiles(
       resolved.existingFolders,
     );
   } catch {
-    // Read-only FS, permissions, or a sandboxed runtime: never break the
-    // underlying plan operation just because the local mirror failed.
     return { written: false, folder, files: [] };
   }
 }
 
-/**
- * Write directly back to an already-opened local plan folder. Unlike the local
- * mirror path above, this preserves the folder slug even when the plan title
- * changes and lets filesystem errors surface to the caller.
- */
 export async function writePlanLocalFolder(
   input: LocalPlanFolderWriteInput,
 ): Promise<{ written: boolean; folder: string; files: string[] }> {
@@ -570,7 +523,6 @@ export async function readPlanLocalFolder(
     }
   }
 
-  // Read local binary assets from the assets/ directory (if present).
   try {
     const assetsDir = path.join(folder, "assets");
     const entries = await fs.readdir(assetsDir, { withFileTypes: true });
@@ -595,14 +547,10 @@ export async function readPlanLocalFolder(
     url: localPlanRoutePath(location.slug, location.repoPath),
     suggestedRepoPath: await defaultLocalPlanRepoPath(location.slug),
     mdx,
-    // Reading a local folder is a preview path, so preserve every valid block
-    // and render malformed authored blocks as warnings. Verification and import
-    // use the strict parser and still reject invalid source.
     content: await parsePlanMdxFolder(mdx, { salvageInvalidBlocks: true }),
   };
 }
 
-// Read agent-only review comments from the folder's comments.json (missing = none).
 export async function readLocalPlanComments(
   folder: string,
 ): Promise<PlanComment[]> {
@@ -618,7 +566,6 @@ export async function readLocalPlanComments(
   }
 }
 
-// Write comments.json; an empty array removes the file.
 export async function writeLocalPlanComments(
   folder: string,
   comments: PlanComment[],

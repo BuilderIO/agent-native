@@ -23,6 +23,11 @@ const messages = {
     retry: "重试",
     search: "搜索",
   },
+  chatHome: {
+    description:
+      "查看 Native SQL 和已连接记录中的授权账户背景、跟进工作和证据。",
+    placeholder: "询问你的 CRM",
+  },
   commandMenu: {
     placeholder: "搜索记录、列表和命令…",
     groupRecords: "记录",
@@ -58,17 +63,11 @@ const messages = {
     showHelp: "显示此帮助",
   },
   settings: {
-    title: "CRM 设置",
-    description:
-      "原生 SQL 让 CRM 自有的记录保存在 Postgres 中。HubSpot 和 Salesforce 使用工作区连接，其镜像只保存白名单字段、受限元数据和有界的证据引用。",
-    languageTitle: "语言",
-    languageDescription: "选择界面语言。此偏好会保存到你的账户。",
-    languageLabel: "界面语言",
+    mcpAbout:
+      "将 CRM 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 CRM 中工作：查找记录、更新字段并管理任务。它只能看到你有权看到的内容。",
   },
   connection: {
     tab: "连接",
-    title: "CRM 连接",
-    description: "此 CRM 的记录来自何处，以及每条记录中有多少由它拥有。",
     modesTitle: "可用模式",
     modeNative: "原生 SQL",
     modeNativeHelp:
@@ -97,9 +96,6 @@ const messages = {
   },
   fields: {
     tab: "字段",
-    title: "字段",
-    description:
-      "支撑每条记录和每个列表的类型化属性。字段的 API 别名和类型在创建后即固定，其余都可以修改。",
     target: "对象或列表",
     targetPlaceholder: "选择对象类型或列表",
     listsGroup: "列表",
@@ -237,8 +233,6 @@ const messages = {
   },
   advanced: {
     tab: "高级",
-    title: "高级",
-    description: "重新配置与数据保留行为。",
     reconfigure: "重新配置 CRM",
     reconfigureHelp:
       "在原生 SQL 与 HubSpot 或 Salesforce 伴随模式之间切换，或重新执行初始同步。",
@@ -353,6 +347,8 @@ const messages = {
     loadFailedDescription: "CRM 无法读取此记录，它可能不在你的访问范围内。",
     unavailableTitle: "此 CRM 记录不可用",
     unavailableDescription: "它可能已被删除，或不在你可访问的记录范围内。",
+    withheld:
+      "已连接的 CRM 中此记录的访问权限已更改。在下次同步之前，它将保持隐藏。",
     panelLoadFailed: "无法加载记录面板。",
     saveFailed: "无法保存此次更改。",
     signals: "信号",
@@ -536,9 +532,6 @@ const messages = {
   },
   intelligence: {
     tab: "智能洞察",
-    title: "智能洞察",
-    description:
-      "选择 CRM 应在受限通话证据中识别的时刻。智能跟踪器通过 Ask CRM 评估，绝不会直接在此设置页面中运行。",
     loading: "正在加载跟踪器…",
     kindKeyword: "关键词",
     kindSmart: "智能",
@@ -579,6 +572,19 @@ const messages = {
     evaluatedThroughAsk: "通过 Ask CRM 评估。",
   },
   recordActions: {
+    reviewDuplicates: "检查重复记录",
+    duplicateReviewTitle: "可能重复的记录",
+    duplicateReviewDescription:
+      "检查此记录与可访问的候选记录。运行 Jev 会将记录名称、类型及最多五条候选记录的匹配信号发送给 TypeSafe。概率仅供参考，合并仍需单独审核。",
+    duplicateReviewRun: "检查重复记录",
+    duplicateReviewLoading: "检查中…",
+    duplicateReviewFailed: "无法完成重复记录检查。",
+    duplicateReviewUnavailable:
+      "Jev 无法完成复核，规则筛出的候选记录仍会显示。",
+    duplicateReviewEmpty: "未发现可能重复的记录。",
+    duplicateRuleConfidence: "规则匹配度：{{percent}}%",
+    duplicateJevProbability: "Jev 同一实体概率：{{percent}}%",
+    duplicateMatchedOn: "匹配依据：{{values}}",
     evidenceAttached: "已附加通话证据。",
     evidenceAttachFailed: "无法附加证据。",
     addEvidence: "添加证据",

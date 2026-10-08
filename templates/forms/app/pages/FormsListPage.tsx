@@ -1,6 +1,6 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import {
   useSetHeaderActions,
   useSetPageTitle,
@@ -131,8 +131,6 @@ export function FormsListPage() {
   useSetHeaderActions(headerActions);
 
   async function handleDuplicate(form: (typeof forms)[0]) {
-    // The list payload no longer ships the heavy `fields` / `settings` JSON,
-    // so fetch the full form on demand to clone its schema and settings.
     try {
       const full = await callAction("get-form", { id: form.id });
       createForm.mutate(
@@ -417,8 +415,8 @@ export function FormsListPage() {
           </Button>
           <Button
             variant="ghost"
-            size="icon"
-            className="relative ms-auto size-10 transition-[background-color,box-shadow,transform] active:scale-[0.96] sm:size-8 sm:before:absolute sm:before:-inset-1 sm:before:content-['']"
+            size="icon-lg"
+            className="relative ms-auto transition-[background-color,box-shadow,transform] active:scale-[0.96] sm:size-8 sm:before:absolute sm:before:-inset-1 sm:before:content-['']"
             onClick={clearSelection}
             aria-label={t("forms.exitSelectionMode")}
           >
@@ -635,11 +633,6 @@ export function FormsListPage() {
                           </>
                         ) : (
                           (() => {
-                            // Viewers see a form they were granted access to but
-                            // can't manage it: hide Delete, Publish/Unpublish, and
-                            // Duplicate. Viewing responses is also editor-only —
-                            // submissions are sensitive and view access on the
-                            // form structure shouldn't grant access to them.
                             const formRole = (form as any).role as
                               | "owner"
                               | "viewer"

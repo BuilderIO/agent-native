@@ -342,8 +342,6 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
       )
       .toBe("rgb(128, 85, 0)");
 
-    // Exercise the async target after a source refresh for A. The upload must
-    // apply to A's latest markup, not a stale whole-document snapshot.
     const screenAHtmlBeforeEdit = await readScreenHtml(
       page,
       designId,

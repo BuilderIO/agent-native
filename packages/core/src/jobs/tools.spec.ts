@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { parseJobFrontmatter } from "./scheduler.js";
 import { createJobTools } from "./tools.js";
 
-// ── Mocks ──────────────────────────────────────────────────────────────────
 const resourcePutMock = vi.hoisted(() => vi.fn());
+const resourcePutIfAbsentMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourceListMock = vi.hoisted(() => vi.fn());
 const resourceDeleteMock = vi.hoisted(() => vi.fn());
@@ -17,6 +17,7 @@ const dbExecuteMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../resources/store.js", () => ({
   resourcePut: resourcePutMock,
+  resourcePutIfAbsent: resourcePutIfAbsentMock,
   resourceGetByPath: resourceGetByPathMock,
   resourceList: resourceListMock,
   resourceDelete: resourceDeleteMock,
@@ -29,8 +30,6 @@ vi.mock("../resources/store.js", () => ({
   SHARED_OWNER: "__shared__",
 }));
 
-// The timezone resolver reads the user's saved preference; unset here so the
-// tests exercise the request-header fallback.
 vi.mock("../settings/user-settings.js", () => ({
   getUserSetting: async () => null,
 }));
@@ -42,8 +41,6 @@ vi.mock("../server/request-context.js", () => ({
   getRequestTimezone: () => "UTC",
 }));
 
-// Partial-mock db/client so the org-admin lookup is stubbed while other
-// exports used transitively by db/schema stay real.
 vi.mock(import("../db/client.js"), async (importOriginal) => {
   const actual = await importOriginal();
   return {
@@ -101,6 +98,7 @@ describe("manage-jobs tool", () => {
     getRequestOrgIdMock.mockReturnValue("org-1");
     getIntegrationRequestContextMock.mockReturnValue(undefined);
     resourcePutMock.mockResolvedValue(undefined);
+    resourcePutIfAbsentMock.mockResolvedValue({ id: "created" });
     resourceDeleteMock.mockResolvedValue(true);
   });
 
@@ -120,7 +118,7 @@ describe("manage-jobs tool", () => {
     it("validates required fields", async () => {
       const out = JSON.parse(await run({ action: "create", name: "x" }));
       expect(out.error).toMatch(/name and instructions are required/);
-      expect(resourcePutMock).not.toHaveBeenCalled();
+      expect(resourcePutIfAbsentMock).not.toHaveBeenCalled();
     });
 
     it("rejects an invalid cron schedule", async () => {
@@ -133,7 +131,7 @@ describe("manage-jobs tool", () => {
         }),
       );
       expect(out.error).toMatch(/Invalid cron expression/);
-      expect(resourcePutMock).not.toHaveBeenCalled();
+      expect(resourcePutIfAbsentMock).not.toHaveBeenCalled();
     });
 
     it("creates a shared job in the active org partition", async () => {
@@ -151,13 +149,12 @@ describe("manage-jobs tool", () => {
       expect(out.scope).toBe("shared");
       expect(typeof out.nextRun).toBe("string");
 
-      const [owner, path, content] = resourcePutMock.mock.calls[0];
+      const [owner, path, content] = resourcePutIfAbsentMock.mock.calls[0];
       expect(owner).toBe(SHARED_OWNER);
       expect(path).toBe("jobs/daily-report.md");
       const { meta } = parseJobFrontmatter(content);
       expect(meta.createdBy).toBe("alice@example.com");
       expect(meta.orgId).toBe("org-1");
-      // Default runAs is "creator" unless explicitly "shared".
       expect(meta.runAs).toBe("creator");
       expect(meta.nextRun).toBeTruthy();
     });
@@ -172,7 +169,9 @@ describe("manage-jobs tool", () => {
       );
 
       expect(out.schedule).toBe("0 * * * *");
-      const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
+      const { meta } = parseJobFrontmatter(
+        resourcePutIfAbsentMock.mock.calls[0][2],
+      );
       expect(meta.schedule).toBe("0 * * * *");
     });
 
@@ -184,7 +183,9 @@ describe("manage-jobs tool", () => {
         instructions: "Summarize the calendar.",
       });
 
-      const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
+      const { meta } = parseJobFrontmatter(
+        resourcePutIfAbsentMock.mock.calls[0][2],
+      );
       expect(meta.appId).toBe("calendar");
     });
 
@@ -196,7 +197,9 @@ describe("manage-jobs tool", () => {
         instructions: "do it",
         scope: "personal",
       });
-      expect(resourcePutMock.mock.calls[0][0]).toBe("alice@example.com");
+      expect(resourcePutIfAbsentMock.mock.calls[0][0]).toBe(
+        "alice@example.com",
+      );
     });
 
     it("persists only explicit MCP tool capabilities with a job", async () => {
@@ -218,7 +221,9 @@ describe("manage-jobs tool", () => {
         "mcp__meeting-notes__list_meetings",
         "mcp__meeting-notes__get_transcript",
       ]);
-      const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
+      const { meta } = parseJobFrontmatter(
+        resourcePutIfAbsentMock.mock.calls[0][2],
+      );
       expect(meta.mcpTools).toEqual(out.mcpTools);
     });
 
@@ -234,7 +239,7 @@ describe("manage-jobs tool", () => {
       );
 
       expect(out.error).toMatch(/mcpTools must contain only framework MCP/);
-      expect(resourcePutMock).not.toHaveBeenCalled();
+      expect(resourcePutIfAbsentMock).not.toHaveBeenCalled();
     });
 
     it("partitions shared jobs by the active request org", async () => {
@@ -246,7 +251,9 @@ describe("manage-jobs tool", () => {
         instructions: "do it",
       });
 
-      expect(resourcePutMock.mock.calls[0][0]).toBe("__organization__:org-2");
+      expect(resourcePutIfAbsentMock.mock.calls[0][0]).toBe(
+        "__organization__:org-2",
+      );
     });
 
     it("honors runAs: shared when requested", async () => {
@@ -257,7 +264,9 @@ describe("manage-jobs tool", () => {
         instructions: "do it",
         runAs: "shared",
       });
-      const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
+      const { meta } = parseJobFrontmatter(
+        resourcePutIfAbsentMock.mock.calls[0][2],
+      );
       expect(meta.runAs).toBe("shared");
     });
 
@@ -281,7 +290,9 @@ describe("manage-jobs tool", () => {
         reasoningEffort: "high",
       });
 
-      const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
+      const { meta } = parseJobFrontmatter(
+        resourcePutIfAbsentMock.mock.calls[0][2],
+      );
       expect(meta).toMatchObject({
         originScopeId: "scope:slack:T1:C1",
         deliveryPlatform: "slack",
@@ -304,7 +315,67 @@ describe("manage-jobs tool", () => {
         }),
       );
       expect(out.error).toMatch(/Invalid reasoningEffort/);
+      expect(resourcePutIfAbsentMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses to replace a job that already exists", async () => {
+      resourcePutIfAbsentMock.mockResolvedValueOnce(null);
+      resourceGetByPathMock.mockResolvedValueOnce({
+        id: "r1",
+        owner: SHARED_OWNER,
+        path: "jobs/daily-report.md",
+        content: sharedJobContent({ createdBy: "alice@example.com" }),
+      });
+
+      const out = JSON.parse(
+        await run({
+          action: "create",
+          name: "daily-report",
+          schedule: "0 9 * * *",
+          instructions: "Overwrite the saved instructions.",
+        }),
+      );
+
+      expect(out.created).toBeUndefined();
+      expect(out.error).toMatch(/already exists.*action 'update'/);
       expect(resourcePutMock).not.toHaveBeenCalled();
+    });
+
+    it("sends the model to manage-automations when the existing file is an automation", async () => {
+      resourcePutIfAbsentMock.mockResolvedValueOnce(null);
+      resourceGetByPathMock.mockResolvedValueOnce({
+        id: "r1",
+        owner: SHARED_OWNER,
+        path: "jobs/factories/f1/factory-slack-feedback.md",
+        content: `---\nschedule: "*/5 * * * *"\nenabled: true\ntriggerType: schedule\nfactoryId: f1\n---\n\nBody`,
+      });
+
+      const out = JSON.parse(
+        await run({
+          action: "create",
+          name: "factories/f1/factory-slack-feedback",
+          instructions: "Replace the body.",
+        }),
+      );
+
+      expect(out.error).toMatch(/is an automation.*manage-automations/);
+      expect(resourcePutMock).not.toHaveBeenCalled();
+    });
+
+    it("does not report an existing job when the write was refused for another reason", async () => {
+      resourcePutIfAbsentMock.mockResolvedValueOnce(null);
+      resourceGetByPathMock.mockResolvedValueOnce(null);
+
+      const out = JSON.parse(
+        await run({
+          action: "create",
+          name: "never-written",
+          instructions: "do it",
+        }),
+      );
+
+      expect(out.error).toMatch(/was not created/);
+      expect(out.error).not.toMatch(/already exists/);
     });
   });
 
@@ -349,7 +420,6 @@ describe("manage-jobs tool", () => {
     });
 
     it("BLOCKS a non-creator non-admin from updating another user's shared job", async () => {
-      // Caller is mallory; job was created by alice; mallory is not an admin.
       getRequestUserEmailMock.mockReturnValue("mallory@example.com");
       resourceGetByPathMock.mockResolvedValueOnce({
         id: "r1",
@@ -360,7 +430,6 @@ describe("manage-jobs tool", () => {
           orgId: "org-1",
         }),
       });
-      // org_members lookup returns no membership row -> not admin.
       dbExecuteMock.mockResolvedValue({ rows: [] });
 
       const out = JSON.parse(
@@ -368,7 +437,6 @@ describe("manage-jobs tool", () => {
       );
 
       expect(out.error).toMatch(/Only the job's creator \(or an org admin\)/);
-      // The mutation must never reach the store.
       expect(resourcePutMock).not.toHaveBeenCalled();
     });
 
@@ -383,7 +451,6 @@ describe("manage-jobs tool", () => {
           orgId: "org-1",
         }),
       });
-      // Membership row with admin role.
       dbExecuteMock.mockResolvedValue({ rows: [{ role: "owner" }] });
 
       const out = JSON.parse(
@@ -414,16 +481,12 @@ describe("manage-jobs tool", () => {
     });
 
     it("allows a personal-scope job update without an admin check", async () => {
-      // resource owner is the caller, not SHARED_OWNER -> authorizeJobMutation
-      // returns null immediately and never queries org_members.
-      resourceGetByPathMock
-        .mockResolvedValueOnce(null) // shared lookup misses
-        .mockResolvedValueOnce({
-          id: "r2",
-          owner: "alice@example.com",
-          path: "jobs/j.md",
-          content: sharedJobContent({ createdBy: "alice@example.com" }),
-        });
+      resourceGetByPathMock.mockResolvedValueOnce(null).mockResolvedValueOnce({
+        id: "r2",
+        owner: "alice@example.com",
+        path: "jobs/j.md",
+        content: sharedJobContent({ createdBy: "alice@example.com" }),
+      });
 
       const out = JSON.parse(
         await run({ action: "update", name: "j", enabled: "false" }),
@@ -641,7 +704,6 @@ describe("manage-jobs tool", () => {
     });
 
     it("merges the caller's personal and shared jobs (org isolation: no other users')", async () => {
-      // resourceList is called for the caller and active org partition.
       resourceListMock.mockImplementation(async (owner: string) => {
         if (owner === "alice@example.com") {
           return [{ owner: "alice@example.com", path: "jobs/personal.md" }];
@@ -666,8 +728,6 @@ describe("manage-jobs tool", () => {
       expect(scopes.personal).toBe("personal");
       expect(scopes.team).toBe("shared");
 
-      // The two list queries are scoped to the caller and SHARED_OWNER only —
-      // never an arbitrary other user.
       const queriedOwners = resourceListMock.mock.calls.map((c) => c[0]).sort();
       expect(queriedOwners).toEqual([SHARED_OWNER, "alice@example.com"].sort());
     });

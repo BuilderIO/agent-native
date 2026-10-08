@@ -82,7 +82,6 @@ function waitForImageToSettle(image: HTMLImageElement): Promise<void> {
     timeoutId = window.setTimeout(finish, IMAGE_SETTLE_TIMEOUT_MS);
     image.addEventListener("error", handleLoad);
     image.addEventListener("load", handleLoad);
-    // The image can finish between the initial state read and listener setup.
     if (image.complete) decode();
   });
 }
@@ -205,9 +204,6 @@ export async function addSpeakerNotesToPptxBlob(
   }
 
   if (!presentationXml.includes("<p:notesSz")) {
-    // The notes page is a portrait rotation of the slide, so its cx/cy swap
-    // the slide's own width/height (matches PowerPoint's own notesMaster
-    // output, e.g. a 13.33x7.5in 16:9 slide gets a 7.5x13.33in notes page).
     const notesCx = Math.round(pptxInches.h * EMU_PER_INCH);
     const notesCy = Math.round(pptxInches.w * EMU_PER_INCH);
     presentationXml = presentationXml.replace(
@@ -429,15 +425,6 @@ function collectImageGeometry(root: HTMLElement) {
   );
 }
 
-/**
- * `slideScale` is how much the whole slide canvas is scaled on the page. The
- * export reads the active slide at the editor's zoom and every other slide from
- * its sidebar thumbnail, so a text element's own rect-to-layout ratio is mostly
- * that page scale; only what is left after dividing it out is a real transform
- * inside the slide, such as autofit. Using the raw ratio shrank every
- * non-active slide's type to thumbnail size and flagged its paragraphs as
- * single lines.
- */
 function collectTextGeometry(
   root: HTMLElement,
   slideScale: { x: number; y: number },
@@ -474,12 +461,6 @@ function collectTextGeometry(
     });
 }
 
-/**
- * The live slide is nested inside a positioned presentation wrapper, but the
- * export clone is not. Record only the outermost positioned descendants so
- * the clone can keep its source-space geometry without flattening nested
- * objects or changing the editable object hierarchy.
- */
 function collectPositionedGeometry(root: HTMLElement) {
   return Array.from(root.querySelectorAll<HTMLElement>("*"))
     .filter((element) => {
@@ -548,14 +529,6 @@ function resetAutofitTransforms(root: HTMLElement) {
   }
 }
 
-/**
- * `white-space: nowrap` does not only stop wrapping — it also switches the
- * element from preserving whitespace to collapsing it. dom-to-pptx trims each
- * inline run it extracts under a collapsing mode, so an imported PPTX run
- * boundary that carries the only space between two words ("IMAGE " +
- * "COMPOSITION") exports as one word, and a `<a:br/>`'s newline-only run
- * disappears entirely. `pre` suppresses wrapping without giving that up.
- */
 function noWrapWhiteSpace(element: HTMLElement) {
   return window.getComputedStyle(element).whiteSpace.startsWith("pre")
     ? "pre"
@@ -672,13 +645,6 @@ function restoreImageGeometry(
     const deltaY = desiredTop - (currentRect.top - cloneRect.top);
 
     if (record.position === "absolute" || record.position === "fixed") {
-      // A cropped imported image is absolutely positioned inside its own
-      // absolutely positioned wrapper, so its containing block is that
-      // wrapper — not the slide root these coordinates are measured against.
-      // Assigning slide-space left/top there adds the wrapper's offset a
-      // second time and doubles the position (a tile at x=313.8px exported at
-      // 627.6px, off the canvas). Shift the element's own offsets by the
-      // measured delta instead, which holds for any containing block.
       const style = window.getComputedStyle(element);
       const cssLeft = Number.parseFloat(style.left);
       const cssTop = Number.parseFloat(style.top);
@@ -701,14 +667,6 @@ function restoreImageGeometry(
   }
 }
 
-/**
- * Grows a text box to `width` without moving anything around it. The extra
- * width comes back out of the margin on the side the text is aligned away
- * from, so the element keeps its footprint in flow, flex and grid layout and
- * its text stays where it was drawn. Setting the width alone grew grid tracks
- * and slid every later column of a table sideways in the export, after
- * `restoreTextGeometry` had already pinned positions from the old layout.
- */
 export function widenInPlace(element: HTMLElement, width: number) {
   const rect = element.getBoundingClientRect();
   const extra = width - rect.width;
@@ -738,8 +696,6 @@ export function widenInPlace(element: HTMLElement, width: number) {
   element.style.width = `${width}px`;
   element.style.marginLeft = `${marginLeft - extra * share}px`;
   element.style.marginRight = `${marginRight - extra * (1 - share)}px`;
-  // Chrome reports a grid item's auto margins as 0px, so pinning them in
-  // pixels drops the centring they applied; move the box back by what it drifted.
   const drift =
     element.getBoundingClientRect().left - (rect.left - extra * share);
   if (Math.abs(drift) > 0.5) {
@@ -772,15 +728,6 @@ function normalizeSingleLineText(
       continue;
     }
 
-    // Headroom, not decoration. `restoreTextGeometry` writes each box at the
-    // width Chrome measured for this exact font, and the receiving app never
-    // has those metrics — PowerPoint substitutes a missing face, and Google
-    // Slides drops `wrap="none"` outright and re-wraps at whatever width the
-    // box states. A line that fits by one pixel here becomes two lines there.
-    // This ran on nothing before: `restoreTextGeometry` marks every element it
-    // touches with `exportTextGeometry`, and the early return above that mark
-    // meant the geometry-restored boxes — which is all of them — kept a
-    // zero-slack width.
     const buffer = Math.max(24, rect.width * 0.25);
     const available = Math.max(rect.width, cloneRect.right - rect.left);
     widenInPlace(
@@ -792,12 +739,6 @@ function normalizeSingleLineText(
 
 const CSS_PX_PER_INCH = 96;
 
-/**
- * dom-to-pptx fits the rendered clone into the requested slide size and
- * scales every measurement it takes by this same factor (dist/dom-to-pptx.mjs
- * `processSlide`). The bullet indent patched in afterward must match that
- * scale or it drifts off the deck's actual aspect ratio.
- */
 export function pptxExportScale(dims: {
   width: number;
   height: number;
@@ -809,11 +750,6 @@ export function pptxExportScale(dims: {
   );
 }
 
-/**
- * CSS markers live outside the LI box, so dom-to-pptx cannot infer the gap
- * between a bullet and its text from getBoundingClientRect alone. Add that
- * source-visible gap only on the export clone; the source DOM stays editable.
- */
 function normalizeListsForPptx(
   root: HTMLElement,
   dims: { width: number; height: number; pptxInches: { w: number; h: number } },
@@ -865,14 +801,6 @@ function normalizeListsForPptx(
   return bulletIndents;
 }
 
-/**
- * Imported PPTX paragraphs render their bullet as a decorative
- * `aria-hidden` marker span separated from the text only by CSS
- * margin-right (see server html-converter). dom-to-pptx extracts plain text
- * per DOM node and has no notion of margin, so without a real space
- * character the marker glyph and the first word run together in the
- * exported file (e.g. "•PLG-first approach"). Insert one.
- */
 function ensureBulletMarkerSpacing(root: HTMLElement) {
   for (const marker of root.querySelectorAll<HTMLElement>(
     'p[data-pptx-paragraph] > span[aria-hidden="true"]:first-child',
@@ -890,11 +818,6 @@ function ensureBulletMarkerSpacing(root: HTMLElement) {
 
 const EMU_PER_POINT = 12_700;
 
-/**
- * dom-to-pptx prepends a bullet run, then PptxGenJS lets the following text
- * run overwrite the paragraph properties. Restore the measured indent at the
- * package boundary so Google Slides receives both the marker and its gap.
- */
 function patchBulletIndentsInXml(xml: string, indentPoints: number[]) {
   let result = "";
   let cursor = 0;
@@ -996,38 +919,19 @@ export async function patchBulletIndentsInPptxBlob(
   });
 }
 
-/**
- * How long to wait for one family's CSS before giving up on embedding it.
- * The export must not be held hostage by a font CDN — a substituted face is a
- * downgrade, a hung download is a broken feature.
- */
 const FONT_RESOLVE_TIMEOUT_MS = 4_000;
 
-/** A family the deck actually renders with, paired with the roman font files to embed for it. */
 interface ResolvedExportFont {
   name: string;
   urls: string[];
 }
 
-/**
- * Families the export clones actually paint text with, first-in-stack the way
- * dom-to-pptx reads them, ordered by how much text each one sets.
- *
- * The order matters: the first entry becomes the theme font, so it has to be
- * the family the deck is mostly written in rather than whichever element the
- * walk happened to reach first.
- */
 export function usedFontFamilies(roots: HTMLElement[]): string[] {
   const weight = new Map<string, number>();
   for (const root of roots) {
     for (const node of [root, ...Array.from(root.querySelectorAll("*"))]) {
       if (!(node instanceof HTMLElement)) continue;
-      // A `<style>` block's CSS is a direct text node that inherits the slide's
-      // family, so a large stylesheet could outweigh every visible word and
-      // pick the theme font. Slide HTML is allowed to carry one.
       if (NON_RENDERING_TAGS.has(node.tagName)) continue;
-      // Only text this element sets itself; a wrapper would otherwise count
-      // every descendant's characters toward its own family.
       const own = Array.from(node.childNodes)
         .filter((child) => child.nodeType === Node.TEXT_NODE)
         .map((child) => child.nodeValue ?? "")
@@ -1054,7 +958,6 @@ export function usedFontFamilies(roots: HTMLElement[]): string[] {
     .map(([family]) => family);
 }
 
-/** Elements whose text is source, not something the slide paints. */
 const NON_RENDERING_TAGS = new Set(["SCRIPT", "STYLE", "TEMPLATE", "TITLE"]);
 
 const GENERIC_FAMILIES = new Set([
@@ -1070,16 +973,6 @@ const GENERIC_FAMILIES = new Set([
   "ui-serif",
 ]);
 
-/**
- * `src: url(...)` targets of the roman faces for one family, in document order.
- *
- * Italic faces are dropped deliberately. dom-to-pptx groups faces by family
- * name alone and keeps the first one's glyphs for any codepoint
- * (dist/dom-to-pptx.mjs merges `fonts[0]` then dedupes by unicode), and the
- * Google Fonts `css2` response lists italics first — so handing it a family's
- * full face list embeds the italic master and renders the whole deck slanted
- * in PowerPoint.
- */
 function romanFaceUrls(cssText: string, family: string): string[] {
   const urls: string[] = [];
   for (const block of cssText.split("@font-face")) {
@@ -1097,7 +990,6 @@ function romanFaceUrls(cssText: string, family: string): string[] {
   return urls;
 }
 
-/** Same-origin `@font-face` rules are the only ones the CSSOM will hand back; cross-origin sheets throw. */
 function localFaceUrls(family: string): string[] {
   const urls: string[] = [];
   for (const sheet of Array.from(document.styleSheets)) {
@@ -1128,11 +1020,7 @@ function localFaceUrls(family: string): string[] {
   return urls;
 }
 
-/** Whether the page loaded this family as a web font, rather than resolving it from the system. */
 function isLoadedWebFont(family: string): boolean {
-  // `FontFaceSet` is iterable in browsers but not in every test DOM, so this
-  // reads it through the callback form and treats an absent set as "nothing
-  // loaded" — which skips embedding rather than guessing at it.
   let found = false;
   document.fonts?.forEach?.((face) => {
     if (face.family.replace(/^["']|["']$/g, "") === family) found = true;
@@ -1140,19 +1028,6 @@ function isLoadedWebFont(family: string): boolean {
   return found;
 }
 
-/**
- * The font files to embed, for the families this deck actually paints with.
- *
- * dom-to-pptx's own `autoEmbedFonts` resolves families by walking
- * `document.styleSheets`, and a cross-origin sheet throws `SecurityError`,
- * which it catches and warns about. Every deck font that arrives through the
- * design system's Google Fonts `<link>` is therefore invisible to it, while
- * the app's own self-hosted Poppins is not — so it shipped 700KB of Poppins in
- * a deck set in Geist, and declared `typeface="Poppins"` for a face nobody
- * asked for. This resolves the same families deliberately: locally where the
- * rules are readable, and straight from the Google Fonts CSS where they are
- * not.
- */
 async function resolveExportFonts(
   roots: HTMLElement[],
 ): Promise<ResolvedExportFont[]> {
@@ -1160,20 +1035,8 @@ async function resolveExportFonts(
     async (family): Promise<ResolvedExportFont | undefined> => {
       const local = localFaceUrls(family);
       if (local.length) return { name: family, urls: local };
-      // Only families the page actually loaded as a web font are worth
-      // fetching. Anything else is a system face (or absent, and already
-      // rendering as its fallback) — embedding it would ship a file that looks
-      // different from the deck the user is looking at, and would put a
-      // network round-trip in front of an export that does not need one.
       if (!isLoadedWebFont(family)) return undefined;
       try {
-        // A weight list, not a single pinned weight: css2 answers a lone
-        // `wght@400` with the VARIABLE font, which dom-to-pptx's reader
-        // rejects as "ttf file damaged". A list returns static instances it
-        // can parse. Every URL is merged into one font where the first file
-        // wins each codepoint, filling OOXML's single `<p:regular>` slot —
-        // PowerPoint synthesises bold from it, which is what the deck's
-        // `b="1"` runs ask for.
         const href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(
           family,
         ).replace(/%20/g, "+")}:wght@400;500;600;700&display=swap`;
@@ -1186,11 +1049,6 @@ async function resolveExportFonts(
         if (!urls.length) return undefined;
         return { name: family, urls };
       } catch (err) {
-        // A family we cannot resolve is one the receiving app substitutes —
-        // a visible downgrade, and exactly what happened before this resolver
-        // existed. Never a reason to hold the export: an export that hangs on
-        // a slow font CDN is worse than one that ships with a substituted
-        // face, so this degrades and says so rather than waiting.
         console.warn(
           `[export-pptx] could not resolve "${family}" for embedding; the receiving app will substitute it`,
           err,
@@ -1199,33 +1057,11 @@ async function resolveExportFonts(
       }
     },
   );
-  // Concurrently and bounded: font resolution is an enhancement on the way to
-  // a file the user is waiting for, never a gate in front of it.
   return (await Promise.all(pending)).filter(
     (font): font is ResolvedExportFont => font !== undefined,
   );
 }
 
-/**
- * Rewrites every text body so a Google Slides import cannot re-fit it.
- *
- * dom-to-pptx derives `wrap` from the clone's computed `white-space`
- * (dist/dom-to-pptx.mjs `wrap: !(style.whiteSpace === "nowrap" || ...)`) and
- * hardcodes `autoFit: true`, so single-line text ships as
- * `wrap="none"` + `<a:spAutoFit/>`. PowerPoint honours both and the slide is
- * fine. Google Slides has no text-wrap property at all — its shape model
- * simply has no such field — so `wrap="none"` is dropped on import and the
- * text rewraps inside a box whose width Chrome measured for one unbroken
- * line. `spAutoFit` it *does* honour, as "resize shape to fit text", so the
- * shape then grows downward over whatever sits beneath it. That pair is what
- * turns a correct deck into overlapping text one import later.
- *
- * Both are fixed in the emitted XML rather than upstream, next to the two
- * passes that already rewrite it. Wrapping is made explicit so the box holds
- * its measured width, and autofit is switched off so the box holds its
- * measured height; `normalizeSingleLineText` gives single-line boxes the
- * headroom that keeps them on one line under either renderer's metrics.
- */
 export async function pinTextBoxesForImport(
   blob: Blob,
   themeFont?: string,
@@ -1241,11 +1077,6 @@ export async function pinTextBoxesForImport(
     zip.file(name, pinTextBoxesInXml(xml));
   }
 
-  // pptxgenjs writes a stock Calibri theme. Any run that inherits from it —
-  // `+mj-lt`/`+mn-lt` rather than a literal typeface — lands on a font this
-  // deck never used, and Calibri is not a Google Font, so Slides substitutes
-  // it a second time on its own terms. Point the theme at the deck's own
-  // family so inherited text falls where the rest of the text falls.
   if (themeFont) {
     for (const name of Object.keys(zip.files).filter((file) =>
       /^ppt\/theme\/theme\d+\.xml$/.test(file),
@@ -1262,7 +1093,6 @@ export async function pinTextBoxesForImport(
   });
 }
 
-/** Repoints a theme's latin major/minor typefaces at the deck's own family. */
 export function retypeThemeFonts(xml: string, family: string): string {
   const escaped = family.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
   return xml.replace(
@@ -1271,14 +1101,12 @@ export function retypeThemeFonts(xml: string, family: string): string {
   );
 }
 
-/** The XML half of `pinTextBoxesForImport`, split out so it can be tested without a zip. */
 export function pinTextBoxesInXml(xml: string): string {
   return xml
     .replace(/(<a:bodyPr\b[^>]*?)\swrap="none"/g, '$1 wrap="square"')
     .replace(/<a:spAutoFit\s*\/>/g, "<a:noAutofit/>");
 }
 
-/** Placement on the page; inside a standalone raster it is drawn a second time. */
 const SVG_PLACEMENT_PROPERTIES = [
   "bottom",
   "left",
@@ -1293,10 +1121,6 @@ function svgDataUrl(svg: SVGSVGElement) {
   if (!copy.getAttribute("xmlns")) {
     copy.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   }
-  // The rotation belongs to the shape's slot on the slide and is re-applied to
-  // the <img> that replaces it. Serialized into the SVG's own viewport it
-  // rotates the drawing a second time and pushes it off frame: infog1's arrows
-  // came back as slivers in the corner of an otherwise empty 810px bitmap.
   for (const property of SVG_PLACEMENT_PROPERTIES) {
     copy.style.removeProperty(property);
   }
@@ -1304,14 +1128,6 @@ function svgDataUrl(svg: SVGSVGElement) {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(serialized)}`;
 }
 
-/**
- * Whether a rasterized shape came back with nothing painted in it —
- * `undefined` when the canvas cannot be read at all, which is a third outcome
- * and not the same as "it has content". A fully transparent result is the
- * shape silently disappearing from the deck, so it is reported, not returned
- * as a successful render. Fully *opaque* pixels are left alone: a flat white
- * rectangle is a legitimate shape.
- */
 export function blankRasterResult(
   data: Uint8ClampedArray | undefined,
 ): boolean | undefined {
@@ -1352,8 +1168,6 @@ async function rasterizeSvgElement(
     try {
       pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
     } catch {
-      // A tainted canvas cannot be inspected. "Unreadable" is not "rendered",
-      // so say so rather than letting it pass as a verified shape.
       console.warn(
         "[export-pptx] rasterized shape could not be inspected; it may be missing from the export",
       );
@@ -1370,11 +1184,6 @@ async function rasterizeSvgElement(
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
-/**
- * The `d` of a computed `clip-path`, in the element's own pixels. `path()` is
- * already one; `polygon()` — what the importer draws every preset geometry
- * with — becomes the equivalent closed path so both take the same route out.
- */
 function clipPathOutline(
   clipPath: string,
   width: number,
@@ -1405,7 +1214,6 @@ const GRADIENT_SIDE_ANGLES: Record<string, number> = {
   "to left": 270,
 };
 
-/** Split a CSS argument list on top-level commas so functional color values stay one stop. */
 function splitTopLevel(list: string): string[] | undefined {
   const parts: string[] = [];
   let depth = 0;
@@ -1428,7 +1236,6 @@ function splitTopLevel(list: string): string[] | undefined {
 
 const round3 = (value: number) => `${Math.round(value * 1000) / 1000}`;
 
-/** `#RRGGBBAA` split into the two attributes SVG stops take; anything else is already a colour a stop accepts. */
 function stopPaint(color: string): { color: string; opacity?: string } {
   const hex8 = color.match(/^#([\da-f]{6})([\da-f]{2})$/i);
   if (!hex8) return { color };
@@ -1460,17 +1267,6 @@ function appendGradientStops(
   return gradient;
 }
 
-/**
- * A CSS gradient as an SVG paint server for the traced outline. Without this
- * the outline is filled with `background-color`, which a gradient-filled shape
- * leaves the paint fully transparent: canyon's layout draws 20 `gradFill` freeforms
- * behind every slide, and each one rasterized to a fully transparent PNG that
- * the export then shipped as a successful render.
- *
- * `userSpaceOnUse` rather than the default bounding box because both the
- * gradient line's length and the radial's farthest-corner radius depend on the
- * box's real proportions, which normalized coordinates have thrown away.
- */
 export function gradientPaint(
   backgroundImage: string,
   width: number,
@@ -1489,8 +1285,6 @@ export function gradientPaint(
     const focus = head.match(
       /^(?:circle|ellipse)?\s*at\s+(-?[\d.]+)%\s+(-?[\d.]+)%$/,
     );
-    // A size keyword, a length focus, or an ellipse's two radii are all shapes
-    // this does not place. Reporting them blank beats inventing a circle.
     if (!focus && head !== "circle" && head !== "ellipse") return undefined;
     const stopParts = parts.slice(1);
     if (stopParts.length < 2) return undefined;
@@ -1503,7 +1297,6 @@ export function gradientPaint(
     gradient.setAttribute("gradientUnits", "userSpaceOnUse");
     gradient.setAttribute("cx", round3(cx));
     gradient.setAttribute("cy", round3(cy));
-    // CSS sizes an unqualified radial to its farthest corner.
     gradient.setAttribute(
       "r",
       round3(
@@ -1521,8 +1314,6 @@ export function gradientPaint(
   const declaredAngle = head.match(/^(-?[\d.]+)deg$/)?.[1];
   const sideAngle = GRADIENT_SIDE_ANGLES[head];
   const hasDirection = declaredAngle != null || sideAngle !== undefined;
-  // A corner keyword or a unit this does not read is still a direction, so it
-  // is not a colour stop either. Reporting it blank beats inventing an angle.
   if (
     !hasDirection &&
     /^(to\b|calc\(|-?[\d.]+(deg|rad|grad|turn))/.test(head)
@@ -1557,20 +1348,6 @@ function clipPathPixels(raw: string | undefined, side: number) {
   return raw.endsWith("%") ? (value / 100) * side : value;
 }
 
-/**
- * dom-to-pptx has no custom-geometry surface — it never emits pptxgenjs
- * `points`, so a clipped element reaches PowerPoint as the filled rectangle of
- * its bounding box: infographics slide 5 shipped each 405px ring-segment arrow
- * as a 5.62in solid square, one of them covering the title. Redraw the clip as
- * a real path in an <svg> that takes the element's place, so
- * `replaceInlineSvgsWithImages` below carries the outline across.
- *
- * The replacement has to *be* the element rather than sit inside it: rotation
- * is read per node, so an <svg> child of a rotated shape would export
- * unrotated at the size of its rotated bounding box — bigger than the square
- * this replaces. Run it after the geometry passes that resolve recorded child
- * indexes; swapping a node keeps its index, adding one does not.
- */
 export function materializeClipPathShapes(root: HTMLElement) {
   for (const element of Array.from(root.querySelectorAll<HTMLElement>("*"))) {
     const style = window.getComputedStyle(element);
@@ -1580,8 +1357,6 @@ export function materializeClipPathShapes(root: HTMLElement) {
     const outline = clipPathOutline(style.clipPath, width, height);
     if (!outline) continue;
     const overlay = element.firstElementChild;
-    // Anything else inside the clip is its own exported object and would be
-    // flattened into the bitmap, so leave those shapes to the exporter.
     if (
       element.childElementCount > (overlay instanceof SVGSVGElement ? 1 : 0)
     ) {
@@ -1623,8 +1398,6 @@ export function materializeClipPathShapes(root: HTMLElement) {
       path.setAttribute("stroke-width", `${strokeWidth}`);
     }
     svg.appendChild(path);
-    // The importer's stroke overlay is already in this element's pixel box, so
-    // its strokes belong over the fill rather than in a second image.
     if (overlay instanceof SVGSVGElement) {
       svg.append(...Array.from(overlay.childNodes));
     }
@@ -1641,18 +1414,7 @@ const BORDER_CORNERS = [
 ] as const;
 const TRANSPARENT_COLOR = /^(?:transparent|rgba\([^)]*,\s*0(?:\.0+)?\))$/;
 
-/**
- * Redraws a border whose sides differ as boxes of its own.
- *
- * dom-to-pptx calls any border that is not identical on all four sides
- * `composite` (`getBorderInfo`) and lays an SVG picture over the shape, so a
- * table rule or a divider reaches Slides as an image nobody can edit. Each
- * side's width moves into that side's padding, which is neutral under either
- * `box-sizing`, so the boxes the geometry passes pinned stay where they are.
- */
 export function materializeCompositeBorders(root: HTMLElement) {
-  // The slide root carries its own border into the export, and is not part of
-  // its own `querySelectorAll`.
   for (const element of [
     root,
     ...Array.from(root.querySelectorAll<HTMLElement>("*")),
@@ -1676,11 +1438,9 @@ export function materializeCompositeBorders(root: HTMLElement) {
     ) {
       continue;
     }
-    // A dashed rule keeps its picture: a plain box would redraw it solid.
     if (edges.some((edge) => edge.width > 0 && edge.stroke !== "solid")) {
       continue;
     }
-    // Rounded corners would come back square.
     if (
       BORDER_CORNERS.some(
         (corner) =>
@@ -1690,8 +1450,6 @@ export function materializeCompositeBorders(root: HTMLElement) {
     ) {
       continue;
     }
-    // CSS mitres the corner where two sides meet, and two bars would simply
-    // stack there, so a border with a real join keeps its picture.
     if (
       edges.some((edge, index) => {
         const next = edges[(index + 1) % edges.length];
@@ -1704,9 +1462,6 @@ export function materializeCompositeBorders(root: HTMLElement) {
     ) {
       continue;
     }
-    // A border moved into the padding grows the padding box, which is the
-    // containing block anything inside is positioned against — and making a
-    // static box relative would hand it descendants it never held.
     const positioned = Array.from(
       element.querySelectorAll<HTMLElement>("*"),
     ).some((child) => {
@@ -1746,11 +1501,6 @@ export function materializeCompositeBorders(root: HTMLElement) {
   }
 }
 
-/**
- * Rasterize every inline `<svg>` in place, and return how many came back with
- * nothing painted. A blank bitmap is a shape that vanished from the deck, so
- * it is counted and named rather than passed on as a rendered image.
- */
 export async function replaceInlineSvgsWithImages(
   root: HTMLElement,
   slideNumber = 1,
@@ -1761,9 +1511,6 @@ export async function replaceInlineSvgsWithImages(
     const rect = svg.getBoundingClientRect();
     const viewBox = svg.viewBox?.baseVal;
     const style = window.getComputedStyle(svg);
-    // getBoundingClientRect on a rotated node is the axis-aligned box around
-    // it — 1.41x the real edge on a 45deg shape — and the rotation is carried
-    // onto the <img> below, so measuring it here would apply the angle twice.
     const width =
       computedLength(style.width, rect.width) ||
       Number(svg.getAttribute("width")) ||
@@ -1811,13 +1558,6 @@ export async function replaceInlineSvgsWithImages(
   return blankCount;
 }
 
-/**
- * A PPTX `srcRect` crop imports as an oversized <img> inside an
- * overflow-hidden wrapper. dom-to-pptx exports the image's own box and has no
- * notion of the clip, so soze slide 2's 193px portrait shipped 522px wide
- * across the body text. Bake the visible window into the bitmap and shrink the
- * element onto it.
- */
 async function flattenCroppedImages(root: HTMLElement) {
   for (const image of Array.from(root.querySelectorAll("img"))) {
     const clip = image.parentElement;
@@ -1846,17 +1586,12 @@ async function flattenCroppedImages(root: HTMLElement) {
       continue;
     }
 
-    // Only `fill` maps the displayed box linearly onto the bitmap; any other
-    // object-fit needs its own letterbox math, which dom-to-pptx already does
-    // for the uncropped box.
     if ((window.getComputedStyle(image).objectFit || "fill") !== "fill") {
       console.warn(
         `[export-pptx] cropped image uses object-fit and exports uncropped: ${image.src}`,
       );
       continue;
     }
-    // The clone's own <img> can still be in flight even though the source it
-    // was copied from had settled.
     await waitForImageToSettle(image);
     if (!image.complete || image.naturalWidth <= 0) {
       console.warn(
@@ -1945,12 +1680,6 @@ function widenNoWrapTextElements(root: HTMLElement) {
   }
 }
 
-/**
- * dom-to-pptx serializes CSS gradients as one malformed diagonal SVG. Imported
- * slides use a repeated master grid, so materialize that grid as a transparent
- * image before handing the clone to the exporter and leave the real text and
- * image objects editable.
- */
 function materializeImportedBackgroundGrid(root: HTMLElement) {
   const slideRoot = root.matches(".fmd-imported-pptx")
     ? root
@@ -2033,14 +1762,8 @@ function materializeImportedBackgroundGrid(root: HTMLElement) {
   slideRoot.style.backgroundRepeat = "no-repeat";
 }
 
-/** The app a PPTX is built for. Google Slides lays text out on its own terms; see `pptx-google-slides.ts`. */
 export type PptxExportTarget = "powerpoint" | "google-slides";
 
-/**
- * Ascent and descent, in em, of each family the clones paint text with — the
- * metrics Chrome centres each line's leading around. Families it cannot
- * measure are left out, and their boxes keep their measured position.
- */
 function measureFontMetrics(roots: HTMLElement[]): Record<string, FontMetrics> {
   const context = document.createElement("canvas").getContext?.("2d");
   if (!context || typeof context.measureText !== "function") return {};
@@ -2061,7 +1784,6 @@ function measureFontMetrics(roots: HTMLElement[]): Record<string, FontMetrics> {
 
 const FONT_PROBE_TEXT = "mmmmmmmmmmlli 0123 WwQq";
 
-/** Concrete faces for generic families, which name nothing a receiving app can set. */
 const GENERIC_EXPORT_FACES: Record<string, string> = {
   "sans-serif": "Arial",
   "system-ui": "Arial",
@@ -2075,7 +1797,6 @@ const GENERIC_EXPORT_FACES: Record<string, string> = {
   "ui-monospace": "Courier New",
 };
 
-/** Metric-compatible stand-ins for system faces Google Slides does not serve. */
 const GOOGLE_SLIDES_FACE_EQUIVALENTS: Record<string, string> = {
   helvetica: "Arial",
   "helvetica neue": "Arial",
@@ -2091,11 +1812,6 @@ const GOOGLE_SLIDES_FACE_EQUIVALENTS: Record<string, string> = {
   "sf mono": "Courier New",
 };
 
-/**
- * Whether Chrome is painting a family rather than falling through to the next
- * face in the stack — undefined when this document cannot measure text, which
- * is not the same as "every family is missing".
- */
 function createFontRenderProbe(): ((family: string) => boolean) | undefined {
   const context = document.createElement("canvas").getContext?.("2d");
   if (!context || typeof context.measureText !== "function") return undefined;
@@ -2121,15 +1837,6 @@ function createFontRenderProbe(): ((family: string) => boolean) | undefined {
   };
 }
 
-/**
- * Names, on every text element, the face Chrome actually paints it with.
- *
- * Agent-written slides ask for `font-family: Inter, sans-serif`, and unless the
- * viewer has Inter the slide is set in the fallback. dom-to-pptx declares the
- * first family in the stack regardless, so the file said Inter for text Chrome
- * measured in Helvetica, and Google Slides — which does serve Inter — set every
- * line wider than the box it was measured into.
- */
 export function pinRenderedFontFamilies(
   root: HTMLElement,
   target: PptxExportTarget,
@@ -2184,12 +1891,6 @@ function hasRotatedAncestor(
 
 const PRESERVED_NEWLINE_WHITE_SPACE = /^(pre|pre-wrap|pre-line|break-spaces)$/;
 
-/**
- * Marks each place Chrome wrapped a line inside a block with `WRAP_MARK`, so the
- * Google Slides build can pin the break rather than let Slides choose its own.
- * A line that starts after a `<br>`, a preserved newline, or a nested block is
- * already its own paragraph in dom-to-pptx and is left unmarked.
- */
 export function markWrappedLines(root: HTMLElement): number {
   const displays = new Map<Element, string>();
   const display = (element: Element) => {
@@ -2214,9 +1915,6 @@ export function markWrappedLines(root: HTMLElement): number {
 
   const rotation = new Map<Element, boolean>();
   const lineBottoms = new Map<Element, number>();
-  // A tall inline run can reach below the centres of the next line's glyphs,
-  // so a glyph that lands below the one before it and back toward the side
-  // lines start on also starts a line.
   const previousGlyphs = new Map<Element, DOMRect>();
   const marks: Array<{ node: Text; offset: number }> = [];
   const range = document.createRange();
@@ -2240,8 +1938,6 @@ export function markWrappedLines(root: HTMLElement): number {
     if (!(node instanceof Text)) continue;
     const parent = node.parentElement;
     if (!parent || NON_RENDERING_TAGS.has(parent.tagName)) continue;
-    // The export stage itself is aria-hidden, so only a hidden subtree inside
-    // the slide counts.
     const hidden = parent.closest('[aria-hidden="true"]');
     if (hidden && hidden !== root && root.contains(hidden)) continue;
     const container = containerOf(node);
@@ -2285,7 +1981,6 @@ export function markWrappedLines(root: HTMLElement): number {
       previousGlyphs.set(container, rect);
     }
   }
-  // Last offset first, so an insertion never shifts one still to be made.
   for (const { node, offset } of marks.reverse()) {
     node.insertData(offset, WRAP_MARK);
   }
@@ -2351,27 +2046,14 @@ export async function buildDeckPptxBlob(
         clone.imageGeometry,
         dims,
       );
-      // Runs after that restore, which re-applies each image's own measured
-      // box — the uncropped one — and would undo the crop.
       await flattenCroppedImages(clone.element);
       materializeCompositeBorders(clone.element);
-      // Runs last: it prepends a child to the slide root, which shifts every
-      // child index the geometry passes above resolve their recorded paths
-      // through.
       materializeImportedBackgroundGrid(clone.element);
       pinRenderedFontFamilies(clone.element, target);
-      // After the font swap, so the marked breaks are the ones the declared
-      // face produces.
       if (target === "google-slides") markWrappedLines(clone.element);
     }
 
-    // `autoEmbedFonts` is off because it cannot see this deck's fonts and
-    // confidently embeds the wrong one instead; `fonts` is merged into the same
-    // map when it is on, so leaving it enabled would put Poppins straight back.
     const cloneElements = exportClones.map((clone) => clone.element);
-    // The theme font is the family the deck is mostly set in, whether or not
-    // we can embed it: a deck whose body is a system font and whose caption is
-    // a web font would otherwise retype the theme to the caption's family.
     const [dominantFamily] = usedFontFamilies(cloneElements);
     const fonts = await resolveExportFonts(cloneElements);
     const initialBlob = await exportToPptx(cloneElements, {

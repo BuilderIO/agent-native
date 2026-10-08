@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { mayClearRecoveryDraft, savePageWithRecovery } from "./pageSession";
+import {
+  AbandonedPageSaveError,
+  mayClearRecoveryDraft,
+  ownRecoveryDraftSupersededBySave,
+  runPageSaveIfSessionActive,
+  savePageWithRecovery,
+} from "./pageSession";
 
 describe("savePageWithRecovery", () => {
   it("retains a rejected primary edit before surfacing the failure", async () => {
@@ -29,7 +35,46 @@ describe("savePageWithRecovery", () => {
         clear,
       }),
     ).resolves.toEqual({ contentPersisted: false });
-    expect(retain).toHaveBeenCalledWith("conflict");
+    expect(retain).toHaveBeenCalledWith("conflict", {
+      contentPersisted: false,
+    });
+    expect(clear).not.toHaveBeenCalled();
+  });
+
+  it("leaves a superseded queued save to its newer local generation", async () => {
+    const retain = vi.fn().mockResolvedValue(undefined);
+    const clear = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      savePageWithRecovery({
+        save: () =>
+          Promise.resolve({
+            contentPersisted: false,
+            outcome: "superseded",
+          }),
+        retain,
+        clear,
+      }),
+    ).resolves.toEqual({
+      contentPersisted: false,
+      outcome: "superseded",
+    });
+    expect(retain).not.toHaveBeenCalled();
+    expect(clear).not.toHaveBeenCalled();
+  });
+
+  it("does not retain or clear a save abandoned after its editor unmounts", async () => {
+    const retain = vi.fn().mockResolvedValue(undefined);
+    const clear = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      savePageWithRecovery({
+        save: () => Promise.reject(new AbandonedPageSaveError()),
+        retain,
+        clear,
+      }),
+    ).resolves.toEqual({ contentPersisted: false, outcome: "abandoned" });
+    expect(retain).not.toHaveBeenCalled();
     expect(clear).not.toHaveBeenCalled();
   });
 
@@ -84,6 +129,19 @@ describe("savePageWithRecovery", () => {
   });
 });
 
+describe("active-session page saves", () => {
+  it("does not start queued work after its editor session becomes inactive", async () => {
+    let active = true;
+    const save = vi.fn().mockResolvedValue({ contentPersisted: true });
+
+    active = false;
+    await expect(
+      runPageSaveIfSessionActive(() => active, save),
+    ).resolves.toEqual({ contentPersisted: false, outcome: "abandoned" });
+    expect(save).not.toHaveBeenCalled();
+  });
+});
+
 describe("recovery draft cleanup", () => {
   it("preserves a conflict draft after a no-op save of the winning server content", async () => {
     const draft = { title: "Page", content: "My conflicting edit" };
@@ -105,6 +163,43 @@ describe("recovery draft cleanup", () => {
     expect(mayClearRecoveryDraft(draft, { ...draft })).toBe(true);
     expect(
       mayClearRecoveryDraft(draft, { ...draft, title: "Another title" }),
+    ).toBe(false);
+  });
+});
+
+describe("own recovery draft supersession", () => {
+  const save = { editorSessionId: "live", editGeneration: 40 };
+  const draft = {
+    editorSessionId: "live",
+    editGeneration: 32,
+    supersedable: true,
+  };
+
+  it("clears a draft from an earlier unsaved attempt once a later own save lands", () => {
+    expect(ownRecoveryDraftSupersededBySave(draft, save)).toBe(true);
+    expect(
+      ownRecoveryDraftSupersededBySave(draft, { ...save, editGeneration: 32 }),
+    ).toBe(true);
+  });
+
+  it("keeps drafts from newer generations, other sessions, and conflicts or displaced text", () => {
+    expect(
+      ownRecoveryDraftSupersededBySave({ ...draft, editGeneration: 41 }, save),
+    ).toBe(false);
+    expect(
+      ownRecoveryDraftSupersededBySave(
+        { ...draft, editorSessionId: "other-tab" },
+        save,
+      ),
+    ).toBe(false);
+    expect(
+      ownRecoveryDraftSupersededBySave({ ...draft, supersedable: false }, save),
+    ).toBe(false);
+    expect(
+      ownRecoveryDraftSupersededBySave(
+        { ...draft, editGeneration: null },
+        save,
+      ),
     ).toBe(false);
   });
 });

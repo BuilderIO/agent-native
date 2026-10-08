@@ -2,12 +2,10 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 
 import { requireEnvKey } from "./missing-key.js";
 
-// Mock h3's setResponseStatus since we're testing in a Node context without a real H3 event
 vi.mock("h3", () => ({
   setResponseStatus: vi.fn(),
 }));
 
-// Minimal H3Event stub — requireEnvKey only uses it to call setResponseStatus
 function createMockEvent() {
   return {} as any;
 }

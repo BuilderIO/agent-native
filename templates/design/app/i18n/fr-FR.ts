@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "Intégrations" } },
   creativeContext: {
     title: "Bibliothèque",
     description:
@@ -167,14 +168,16 @@ export default {
     agentDescription:
       "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
     openAgentSettings: "Gérer l’agent",
-    languageTitle: "Langue",
-    languageDescription: "Choisissez la langue de l'interface de Design.",
-    languageLabel: "Langue de l'interface",
-    labs: "Labs",
-    labsIntro:
-      "Ces fonctionnalités sont nouvelles et instables, et peuvent contenir des bugs. Vos retours comptent pour nous.",
     labTweaks: "Ajustements de design",
     labTweaksDescription: "Essayez les ajustements de design avec l’IA.",
+    labFullAppBuilding: "Création d’applications complètes",
+    labFullAppBuildingDescription:
+      "Essayez de créer des applications fonctionnelles à partir de vos designs avec Builder.",
+    labDesignReviewTools: "Outils de révision des designs",
+    labDesignReviewToolsDescription:
+      "Vérifiez l’accessibilité de vos designs et comparez les changements visuels.",
+    mcpAbout:
+      "Connectez Design à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans Design pour vous : créer des designs et les modifier. Elle ne voit que ce que vous pouvez voir.",
   },
   pages: {
     presentEmpty: "Aucun contenu à présenter",
@@ -183,8 +186,17 @@ export default {
     notFoundDescription: "La page que vous recherchez n’existe pas.",
     notFoundSignIn: "Se connecter",
     notFoundBackToDesigns: "Retour aux designs",
-    teamCreateOrgDescription:
-      "Configurez une équipe pour partager des designs avec vos collègues.",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "Connecter un stockage pour envoyer des fichiers",
+    },
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "Impossible de confirmer que l’IA est prête.",
+    },
+    common: { retry: "Réessayer" },
   },
   chat: {
     emptyState: "Décrivez un design à créer",
@@ -204,7 +216,7 @@ export default {
       tokenLabel: "Jeton d’accès Figma",
       tokenPlaceholder: "Collez le jeton d’accès Figma",
       connecting: "Connexion…",
-      connect: "Connecter",
+      connect: "Connecter Figma",
       getToken: "Obtenir un jeton",
       importFrame: "Importer la frame",
       chooseFrame: "Choisir une frame",
@@ -215,6 +227,7 @@ export default {
     },
   },
   common: {
+    loading: "Chargement...",
     genericError: "Quelque chose s'est mal passé",
   },
   editPanel: {
@@ -264,6 +277,12 @@ export default {
       opacity: "Opacité",
       padding: "Rembourrage",
       margin: "Marge",
+      marginTop: "Marge supérieure",
+      marginRight: "Marge droite",
+      marginBottom: "Marge inférieure",
+      marginLeft: "Marge gauche",
+      linkMarginSides: "Lier les côtés de la marge",
+      unlinkMarginSides: "Délier les côtés de la marge",
       radius: "Rayon",
       flexGrow: "Grandir",
       flexShrink: "Réduire",
@@ -306,6 +325,8 @@ export default {
       bottomLeft: "BG",
       bottomRight: "BD",
       blend: "Fusion",
+      blendMode: "Mode de fusion",
+      removeBlendMode: "Supprimer le mode de fusion",
       border: "Bordure",
       outline: "Contour",
       inside: "Intérieur",
@@ -325,6 +346,18 @@ export default {
       customTransform:
         "Transformation personnalisée — ne peut pas être modifiée comme rotation X/Y/Z",
       shaderEffectType: "Shader",
+      imageScaleMode: "Mode de mise à l'échelle de l'image",
+      imageAdjustments: "Réglages de l'image",
+      imageExposure: "Exposition",
+      imageContrast: "Contraste",
+      imageSaturation: "Saturation",
+      imageScaleFill: "Remplir",
+      imageScaleFit: "Ajuster",
+      imageScaleCrop: "Recadrer",
+      noMirroring: "Pas de symétrie",
+      vector: "Vecteur",
+      mirrorAngle: "Symétrie d’angle",
+      mirrorAngleAndLength: "Symétrie d’angle et de longueur",
     },
     shaders: {
       fillsTitle: "Remplissages shader",
@@ -551,8 +584,33 @@ export default {
         adUnit: "Unité publicitaire",
       },
     },
+    scale: {
+      title: "Échelle",
+      exit: "Quitter la mise à l'échelle",
+      factor: "Facteur d'échelle",
+      presets: "Préréglages d'échelle",
+      anchor: "Point d'ancrage",
+      topLeft: "En haut à gauche",
+      topCenter: "En haut au centre",
+      topRight: "En haut à droite",
+      middleLeft: "Au milieu à gauche",
+      center: "Centre",
+      middleRight: "Au milieu à droite",
+      bottomLeft: "En bas à gauche",
+      bottomCenter: "En bas au centre",
+      bottomRight: "En bas à droite",
+    },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "Collaboration en direct",
+      description:
+        "Permet aux personnes qui n'ont pas accès au localhost du propriétaire de voir et de modifier une copie en direct de ce design.",
+      enabled: "Activée",
+      disabled: "Désactivée",
+      saving: "Enregistrement…",
+      enableError: "Impossible de mettre à jour la collaboration en direct.",
+    },
     vectorEndpoints: {
       startPoint: "Point de départ",
       endPoint: "Point d'arrivée",
@@ -788,6 +846,8 @@ export default {
       figmaPasteTarget: "Collez dans le canevas",
       figmaPasteApiKeyHint:
         "Connectez votre jeton d'accès Figma pour des imports de nœuds exacts.",
+      figmaPasteAccessDenied:
+        'Le jeton Figma connecté ne peut pas accéder à ce fichier. Vérifiez vos autorisations et assurez-vous que le jeton dispose du droit "File content".',
       figmaPasteMatchGuidance:
         "Impossible de faire correspondre à des nœuds Figma précis. Collez un lien de cadre pour un import exact.",
       figmaPasteUnreadable:
@@ -934,6 +994,11 @@ export default {
     signUpToSaveDescription:
       "Creez un compte gratuit pour enregistrer des designs, des mises en page et generer de nouvelles directions.",
     signUpToShare: "S'inscrire pour partager",
+    signUpToShareLiveCanvas:
+      "Inscrivez-vous pour partager un canevas en direct",
+    liveCanvasLink: "Lien du canevas en direct",
+    liveCanvasWaitingForOwner:
+      "En attente de l’instantané du canevas en direct de son propriétaire.",
     shareEditorLink: "Lien de l'editeur de design",
     shareEditorLinkDescription:
       "Toute personne ayant acces peut ouvrir ce design dans l'editeur.",
@@ -965,6 +1030,10 @@ export default {
     keyboardShortcuts: {
       title: "Raccourcis clavier",
       close: "Fermer: Raccourcis clavier",
+      search: "Rechercher",
+      searchLabel: "Rechercher des raccourcis clavier",
+      categoriesLabel: "Catégories de raccourcis",
+      empty: "Aucun raccourci ne correspond à « {{query}} »",
       codeContext: "Code",
       screenContext: "Écrans",
       nudgeAmount: {
@@ -997,12 +1066,6 @@ export default {
         leftBracket: "Crochet gauche",
         rightBracket: "Crochet droit",
       },
-      descriptions: {
-        toggleUi:
-          "Appuyez maintenant pour masquer les panneaux et vous concentrer sur votre travail",
-        undo: "Revenez sur votre dernière modification de design",
-        redo: "Restaurez la modification de design que vous venez d’annuler",
-      },
       categories: {
         essential: "Essentiels",
         tools: "Outils",
@@ -1034,6 +1097,7 @@ export default {
         showLayers: "Calques",
         showAssets: "Ressources",
         toggleUi: "View",
+        toggleMinimalUi: "Interface minimale",
         toggleComments: "Épingler un commentaire",
         zoomIn: "Zoom avant",
         zoomOut: "Zoom arrière",
@@ -1087,6 +1151,7 @@ export default {
         ungroup: "Dissocier",
         frameSelection: "Encadrer la sélection",
         autoLayout: "Mise en page auto",
+        imageVideo: "Image/vidéo...",
       },
     },
     undo: "Défaire",
@@ -1207,12 +1272,15 @@ export default {
     pendingVisualStyles: {
       applyAria: "Appliquer les modifications visuelles de style en attente",
       applyButton: "Appliquer les styles",
+      applySharedEdits: "Appliquer les modifications",
       previewLabel: "Aperçu visuel en attente",
       applyDesignUpdates: "Appliquer les mises à jour du design",
       applying: "Application…",
       verifying: "Vérification de la source et du runtime…",
       retryWithAgent: "Réessayer la vérification de la source",
       copyPrompt: "Copier le prompt vers votre agent",
+      copyAgentPrompt: "Copier le prompt de l’agent",
+      copyFullPrompt: "Copier le prompt complet",
       abortPreview: "Annuler l’aperçu et interagir",
       agentMessage:
         "Appliquez les modifications visuelles de style en attente à la source.",
@@ -1225,6 +1293,8 @@ export default {
       sourceCheckFailedToast:
         "Impossible de vérifier les fichiers source connectés. L’aperçu a été conservé pour réessayer ou annuler.",
       copiedToast: "Prompt de style copié",
+      copiedToastDescription:
+        "Collez-le dans votre agent de programmation et demandez-lui d’appliquer les modifications visuelles.",
       abortedToast: "Aperçu en attente supprimé",
       interactBlocked:
         "Appliquez ou annulez les modifications en direct en attente avant de passer à Interagir.",
@@ -1289,6 +1359,8 @@ export default {
       annotationSendError:
         "Impossible d’envoyer les annotations. Votre dessin est toujours là ; réessayez.",
       codingHandoffError: "Impossible de créer le transfert de code",
+      visualEditPendingConflict:
+        "Un autre collaborateur a des modifications en attente. Appliquez-les ou effacez-les avant d’en envoyer de nouvelles.",
       codingHandoffCopied: "Transfert de code copié",
       clipboardBlocked: "Presse-papiers bloqué",
       htmlCreateError: "Impossible de créer le téléchargement HTML",
@@ -1313,6 +1385,16 @@ export default {
         "La capture PNG n’est pas disponible dans les aperçus en lecture seule",
       pngSaveError: "Impossible d’enregistrer PNG",
       pngExportError: "Impossible d’exporter PNG",
+      exportTooLarge:
+        "L’export est trop volumineux. Les requêtes sont limitées à 5 Mo ; réduisez les ressources intégrées ou les dimensions de rastérisation, puis réessayez.",
+      exportResourcesUnavailable:
+        "L’export n’a pas pu être rendu fidèlement, car une ou plusieurs images, polices ou feuilles de style sont indisponibles. Vérifiez ces ressources, puis réessayez.",
+      exportTimedOut:
+        "Le délai d’export a expiré. Réessayez ou réduisez la taille du design.",
+      exportBusy:
+        "Un autre export est en cours de rendu. Patientez un instant, puis réessayez.",
+      exportChromiumUnavailable:
+        "L’export est indisponible, car le moteur de rendu n’a pas pu démarrer. Réessayez plus tard.",
       pdfExportError: "Impossible d’exporter le PDF",
       pdfDownloaded: "PDF téléchargé",
       pdfAllScreensDownloaded: "PDF téléchargé (tous les écrans)",
@@ -1373,11 +1455,17 @@ export default {
         "Impossible de localiser ce calque dans le code source. Réessayez une fois le chargement de l’application terminé, ou demandez à l’agent d’effectuer ce changement.",
       reactSourceAnchorsUnavailable:
         "Cette application n’expose pas les emplacements du code source à l’éditeur : ce calque ne peut donc pas être relié à une ligne. Demandez à l’agent d’effectuer ce changement.",
+      sourceLocationSnapshotFailed:
+        "Impossible de vérifier les emplacements du code source de cet aperçu.",
       screenSourceUpdated: "Source de l’écran mise à jour",
       screenSourceUpdateFailed:
         "Impossible de mettre à jour la source de l’écran",
       vectorEditUnsupported:
         "L’édition vectorielle n’est pas disponible pour cette forme ou transformation.",
+      imageUploading: "Import de l’image…",
+      pasteReplaceFailed: "Impossible de remplacer ce calque",
+      swapFillStrokeLayeredFill:
+        "Les remplissages multiples ou d'image ne peuvent pas encore devenir un contour",
     },
     commenterRoleLabel: "Commentateur",
     commenterRoleDescription:
@@ -1428,6 +1516,13 @@ export default {
         "Le pont de l’éditeur en direct n’a pas confirmé la connexion après plusieurs tentatives.",
       connectionNotConfirmed:
         "Le pont de l’éditeur en direct n’a pas confirmé la connexion. Le serveur de développement local est-il toujours en cours d’exécution ?",
+      permissionPromptTitle: "Connecter vos écrans locaux",
+      permissionPromptDescription:
+        "Choisissez Autoriser dans l’invite de Chrome pour activer la modification en direct.",
+      permissionPromptNoPrompt: "Aucune invite Chrome ?",
+      permissionPromptSettingsInstructions:
+        "Cliquez sur l’icône de commandes du site à gauche de la barre d’adresse, ouvrez les paramètres du site, puis définissez Réseau local sur Autoriser.",
+      permissionPromptRetry: "Réessayer la connexion",
     },
   },
   multiScreenCanvas: {
@@ -1513,6 +1608,8 @@ export default {
     assetAdded: "Actif ajouté",
     assetsNoImageUrl: "Assets n'a pas renvoyé d'URL d'image.",
     failedToUploadFile: "Échec du téléchargement du fichier",
+    imageAttachmentUnavailable:
+      "Impossible de préparer cette image comme référence visuelle. Joignez un fichier PNG, JPG, GIF ou WebP plus petit.",
     attachmentsTooLarge:
       "Ces pièces jointes sont trop volumineuses. Les téléversements sont limités à {{max}} Mo au total : joignez moins de fichiers ou des fichiers plus petits.",
     failedToSubmitPrompt: "Impossible d’envoyer le prompt",
@@ -1617,7 +1714,66 @@ export default {
       "Vous avez quitté cette vue : {{count}} brouillons de commentaires non envoyés ont été supprimés.",
     staleAnchorDetail: "L’élément d’origine est introuvable sur le canevas.",
   },
+  homeContext: {
+    websiteReference: "Ajouter un site web",
+    websiteUrlLabel: "URL du site web",
+    websiteUrl: "Collez l’URL d’un site web",
+    figmaUrlLabel: "Lien Figma",
+    invalidFigmaUrl:
+      "Saisissez une URL valide de cadre ou de fichier figma.com.",
+    tooMany: "Choisissez jusqu’à 20 références.",
+    invalidWebsiteUrl: "Saisissez une URL HTTP ou HTTPS valide.",
+    createSystem: "Créer un système de design",
+    noSystems:
+      "Vous n’avez pas encore de système de design. Créez-en un à partir d’un site web, de fichiers ou de Figma.",
+    searchSystems: "Rechercher des systèmes de design…",
+    searchFrames: "Rechercher des cadres Figma…",
+    searchDesigns: "Rechercher des designs…",
+    searchPresentations: "Rechercher des présentations…",
+    searchDesign: "Rechercher un design…",
+    useDesignSystem: "Utiliser un système de design",
+    notReady:
+      "La demande n’est pas prête. Vérifiez le contexte sélectionné et la connexion, puis réessayez.",
+    search: "Rechercher du contexte…",
+    figmaUrl: "Collez un lien Figma",
+    browse: "Parcourir les cadres",
+    loadFailed: "Impossible de charger cette référence.",
+    retry: "Réessayer",
+    empty: "Aucune référence correspondante.",
+    none: "Aucun",
+    design: "Design",
+    slides: "Diapositives",
+    referenceDesign: "Utiliser un design comme référence",
+    figmaReference: "Ajouter Figma",
+    referenceDeck: "Utiliser une présentation comme référence",
+    quickSaas: "Créer une page SaaS",
+    quickDashboard: "Créer un tableau de bord",
+    quickDeck: "Créer une présentation",
+    deckPrompt:
+      "Créez une présentation soignée avec une diapositive de titre, un récit clair, des données visuelles et une conclusion concise.",
+  },
   home: {
+    suggestedPrompts: "Prompts suggérés",
+    import: "Importer",
+    importOptions: "Options d’importation",
+    figmaLink: "Lien Figma",
+    importFromFigma: "Importer depuis Figma",
+    figmaFile: "Fichier Figma (.fig)",
+    openImport: "Ouvrir l’importation",
+    importSelectedFile: "Importer le fichier sélectionné",
+    starterSaasPrompt:
+      "Une page d’accueil SaaS moderne avec un thème sombre, une section principale, trois cartes de fonctionnalités et un appel à l’action final.",
+    starterDashboardPrompt:
+      "Un tableau de bord analytique épuré avec une navigation latérale, quatre indicateurs clés, un graphique et un tableau d’activité récente.",
+    starterMobilePrompt:
+      "Un prototype d’application mobile dans un cadre de téléphone, avec une barre d’onglets en bas et trois cartes de liste sur l’écran d’accueil.",
+    starterPricingPrompt:
+      "Une page de tarifs à trois offres avec un sélecteur mensuel/annuel, des listes de fonctionnalités et une offre recommandée mise en avant.",
+    designPromptTitle: "Créons votre premier design",
+    recent: "Récents",
+    browseAllTemplates: "Tout parcourir",
+    connectBuilderIo: "Utiliser Builder.io",
+    connectingBuilder: "Configuration de Builder.io…",
     pageTitle: "Design",
     searchPlaceholder: "Rechercher des modèles...",
     newDesign: "Nouveau Design",
@@ -1627,6 +1783,9 @@ export default {
     allAuthors: "Tous les auteurs",
     me: "Moi",
     designFilter: "Filtre de designs",
+    ownedByAnyone: "À tout le monde",
+    ownedByMe: "À moi",
+    sharedWithMe: "Partagés avec moi",
     mine: "Les miens",
     all: "Tous",
     showMineDesigns: "Afficher mes designs",
@@ -1661,6 +1820,7 @@ export default {
       "Choisissez un point de départ ou rédigez votre propre invite.",
     searchNoResultsTitle: "Aucun design ne correspond à cette recherche",
     searchNoResultsDescription: "Essayez une autre recherche.",
+    noDesignsMatchFilter: "Aucun design ne correspond au filtre actuel.",
     starterSaas: "Page de destination SaaS",
     starterDashboard: "Tableau de bord",
     starterPricing: "Page de tarification",
@@ -1684,6 +1844,8 @@ export default {
     layoutLabel: "Mise en page prete a enregistrer",
   },
   templatesPage: {
+    previewEmpty: "Ce modèle ne contient aucun écran à prévisualiser.",
+    loading: "Chargement des modèles",
     title: "Modèles",
     description:
       "Commencez avec les bonnes dimensions et valeurs, puis adaptez le contenu déverrouillé par invite.",
@@ -1712,7 +1874,7 @@ export default {
     deleteTitle: "Supprimer le modèle ?",
     deleteDescription:
       "Cela supprime définitivement {{title}}. Les designs déjà créés ne sont pas affectés.",
-    templateActions: "Actions du modèle",
+    templateActions: "Actions pour {{title}}",
     lockedCount: "{{count}} verrouillés",
     categories: {
       ad: "Publicité",
@@ -1890,6 +2052,15 @@ export default {
       "L'indexation du code et des dépôts nécessite le forfait Builder Enterprise",
   },
   designSystems: {
+    comingSoonTitle: "Les systèmes de conception arrivent bientôt",
+    waitlist: {
+      join: "Rejoindre la liste d’attente",
+      joining: "Inscription…",
+      joined: "Vous êtes sur la liste d’attente",
+      error: "Impossible de rejoindre la liste d’attente. Réessayez.",
+      unavailable:
+        "Les inscriptions à la liste d’attente sont indisponibles pour le moment. Réessayez plus tard.",
+    },
     deleteError: "Impossible de supprimer le système de conception",
     updateSuccess: "Système de conception mis à jour",
     updateError: "Impossible de mettre à jour le système de conception",

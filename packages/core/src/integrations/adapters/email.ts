@@ -22,20 +22,11 @@ import type {
   PlatformDeliveryReceipt,
 } from "../types.js";
 
-/** Max body length before truncation */
 const EMAIL_MAX_BODY_LENGTH = 15000;
 
-/** Rate limit: max emails per sender within the window */
 const RATE_LIMIT_MAX = 20;
-/** Rate limit window in ms (1 hour) */
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
-/**
- * One-shot warning flags so we don't spam logs on every webhook.
- * Cleared per process — one warning per cold start is enough to surface
- * a misconfiguration without leaking config status to anyone with log access
- * (M6 in the webhook security audit).
- */
 let _resendUnverifiedWarned = false;
 let _sendgridUnverifiedWarned = false;
 
@@ -111,7 +102,6 @@ export function emailAdapter(): PlatformAdapter {
     async handleVerification(
       _event: H3Event,
     ): Promise<{ handled: boolean; response?: unknown }> {
-      // Email webhooks don't need challenge handshakes
       return { handled: false };
     },
 
@@ -128,7 +118,6 @@ export function emailAdapter(): PlatformAdapter {
         return verifySendGridWebhook(event, secret);
       }
 
-      // No provider configured — reject
       console.warn("[email] No email provider configured, rejecting webhook");
       return false;
     },
@@ -155,11 +144,6 @@ export function emailAdapter(): PlatformAdapter {
 
       if (!parsed) return null;
 
-      // Rate limiting (SQL-backed heuristic — counts the sender's already-queued
-      // tasks within the last hour). The previous in-memory map reset on every
-      // serverless cold start, so the actual ceiling per attacker was
-      // RATE_LIMIT_MAX × number_of_active_instances. SQL-backed counting holds
-      // across instances. See H4 in the webhook security audit.
       const senderEmail = parsed.from.email.toLowerCase();
       if (await isRateLimited(senderEmail)) {
         console.warn(
@@ -168,7 +152,6 @@ export function emailAdapter(): PlatformAdapter {
         return null;
       }
 
-      // Check allowed domains
       const config = await getIntegrationConfig("email");
       if (config?.configData?.allowedDomains) {
         const allowed = config.configData.allowedDomains as string[];
@@ -183,7 +166,6 @@ export function emailAdapter(): PlatformAdapter {
         }
       }
 
-      // Determine if agent was CC'd (not in To, but in CC)
       const toAddresses = parsed.to.map((a) => a.toLowerCase());
       const ccAddresses = (parsed.cc ?? []).map((a) => a.toLowerCase());
       const isCC =
@@ -202,16 +184,13 @@ export function emailAdapter(): PlatformAdapter {
         senderEmail,
       );
 
-      // Build body text
       let bodyText = parsed.text || stripHtmlForPlainText(parsed.html || "");
 
-      // Truncate if needed
       if (bodyText.length > EMAIL_MAX_BODY_LENGTH) {
         bodyText =
           bodyText.slice(0, EMAIL_MAX_BODY_LENGTH) + "\n[Message truncated]";
       }
 
-      // Prefix CC'd emails with context
       if (isCC) {
         const otherRecipients = toAddresses
           .filter((a) => a !== agentAddress)
@@ -262,9 +241,6 @@ export function emailAdapter(): PlatformAdapter {
       const displayName =
         (config?.configData?.displayName as string) || "Dispatch Agent";
 
-      // EMAIL_FROM overrides the from-address — required when the receiving
-      // address is on a sub-domain that can't be a verified sender (e.g.
-      // *.resend.app). Inbound and outbound addresses can differ.
       const emailFrom = await resolveSecret("EMAIL_FROM");
       const fromAddress = emailFrom || `${displayName} <${agentAddress}>`;
 
@@ -358,10 +334,6 @@ export function emailAdapter(): PlatformAdapter {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Parsed email shape
-// ---------------------------------------------------------------------------
-
 interface ParsedEmail {
   messageId: string;
   subject: string;
@@ -383,10 +355,6 @@ interface ParsedEmail {
    */
   senderVerified: boolean;
 }
-
-// ---------------------------------------------------------------------------
-// Webhook verification
-// ---------------------------------------------------------------------------
 
 async function verifyResendWebhook(
   event: H3Event,
@@ -421,7 +389,6 @@ async function verifyResendWebhook(
     return false;
   }
 
-  // Reject requests older than 5 minutes (replay protection)
   const ts = parseInt(svixTimestamp, 10);
   if (Math.abs(Date.now() / 1000 - ts) > 300) {
     console.warn("[email] Svix timestamp too old, rejecting");
@@ -431,7 +398,6 @@ async function verifyResendWebhook(
   const body = await readRawBody(event);
   const crypto = await import("node:crypto");
 
-  // Svix signing secret may be prefixed with "whsec_"
   const rawSecret = secret.startsWith("whsec_") ? secret.slice(6) : secret;
   const secretBytes = Buffer.from(rawSecret, "base64");
 
@@ -441,7 +407,6 @@ async function verifyResendWebhook(
     .update(signedContent)
     .digest("base64");
 
-  // Svix sends multiple signatures separated by spaces, each prefixed with "v1,"
   const signatures = svixSignature.split(" ");
   for (const sig of signatures) {
     const sigValue = sig.startsWith("v1,") ? sig.slice(3) : sig;
@@ -494,10 +459,8 @@ async function verifySendGridWebhook(
     return true;
   }
 
-  // Check for the secret in a custom header or basic auth
   const authHeader = getHeader(event, "authorization");
   if (authHeader) {
-    // Basic auth: "Basic base64(user:pass)" — secret is the password
     if (authHeader.startsWith("Basic ")) {
       const decoded = Buffer.from(authHeader.slice(6), "base64").toString();
       const password = decoded.split(":")[1];
@@ -505,17 +468,12 @@ async function verifySendGridWebhook(
     }
   }
 
-  // Also check a custom header (common SendGrid Inbound Parse pattern)
   const customSecret = getHeader(event, "x-webhook-secret");
   if (customSecret !== undefined && safeEq(customSecret, secret)) return true;
 
   console.warn("[email] SendGrid webhook secret verification failed");
   return false;
 }
-
-// ---------------------------------------------------------------------------
-// Inbound email parsing
-// ---------------------------------------------------------------------------
 
 async function parseResendWebhook(event: H3Event): Promise<ParsedEmail | null> {
   const raw = await readRawBody(event);
@@ -525,8 +483,6 @@ async function parseResendWebhook(event: H3Event): Promise<ParsedEmail | null> {
   const data = body.data;
   if (!data) return null;
 
-  // Resend webhook payload provides email metadata directly in data
-  // Fields: from, to, cc, subject, text, html, headers, created_at
   const fromRaw = data.from as string | undefined;
   const from = fromRaw ? parseEmailAddress(fromRaw) : null;
   if (!from) return null;
@@ -536,14 +492,10 @@ async function parseResendWebhook(event: H3Event): Promise<ParsedEmail | null> {
   const ccRaw = data.cc as string | string[] | undefined;
   const cc = normalizeAddressList(ccRaw);
 
-  // Parse headers for Message-ID, In-Reply-To, References
   const headers = parseHeadersObject(data.headers);
   const messageId =
     headers["message-id"] || data.email_id || `resend-${Date.now()}`;
 
-  // Resend forwards the raw `Authentication-Results` header (and may also
-  // surface explicit `dkim`/`spf` fields). Derive a verified verdict from
-  // whichever is present; absent results fail closed (unverified).
   const senderVerified = computeSenderVerified({
     fromEmail: from.email,
     authResults: headers["authentication-results"],
@@ -573,8 +525,6 @@ async function parseSendGridWebhook(
   const body = JSON.parse(raw);
   if (!body) return null;
 
-  // SendGrid Inbound Parse sends form data with fields:
-  // from, to, cc, subject, text, html, headers, envelope
   const fromRaw = body.from as string | undefined;
   const from = fromRaw ? parseEmailAddress(fromRaw) : null;
   if (!from) return null;
@@ -584,15 +534,10 @@ async function parseSendGridWebhook(
   const ccRaw = body.cc as string | undefined;
   const cc = ccRaw ? ccRaw.split(",").map((a: string) => a.trim()) : [];
 
-  // Parse raw headers string
   const headersStr = body.headers as string | undefined;
   const headers = parseHeadersString(headersStr);
   const messageId = headers["message-id"] || `sendgrid-${Date.now()}`;
 
-  // SendGrid Inbound Parse posts explicit `dkim` (e.g. `{@example.com : pass}`)
-  // and `SPF` (e.g. `pass`) form fields, and also carries
-  // `Authentication-Results` inside the raw headers blob. Use all available
-  // signals; absent results fail closed (unverified).
   const senderVerified = computeSenderVerified({
     fromEmail: from.email,
     authResults: headers["authentication-results"],
@@ -615,17 +560,6 @@ async function parseSendGridWebhook(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Helpers — sender authentication (DKIM / SPF)
-// ---------------------------------------------------------------------------
-
-/**
- * Extract the registrable-ish domain from an email address (lowercased).
- * We keep the full host rather than collapsing to an eTLD+1 — exact-domain
- * alignment is the conservative choice here, and avoids bundling a public
- * suffix list. Subdomain senders that legitimately DKIM-sign with the parent
- * domain are handled by the suffix check in `domainsAlign`.
- */
 function emailDomain(email: string): string {
   const at = email.lastIndexOf("@");
   return at >= 0
@@ -636,12 +570,6 @@ function emailDomain(email: string): string {
     : "";
 }
 
-/**
- * True when `signingDomain` is the From domain or a parent of it (e.g.
- * From `user@mail.example.com` aligned with a `d=example.com` signature).
- * Both directions of subdomain nesting are accepted because senders sign
- * with either the exact From host or the organizational parent.
- */
 function domainsAlign(fromDomain: string, signingDomain: string): boolean {
   if (!fromDomain || !signingDomain) return false;
   if (fromDomain === signingDomain) return true;
@@ -671,8 +599,6 @@ function computeSenderVerified(input: {
   const fromDomain = emailDomain(input.fromEmail);
   if (!fromDomain) return false;
 
-  // 1. Provider DKIM field, e.g. SendGrid `{@example.com : pass}` or
-  //    `{@example.com : pass; @other.com : fail}`.
   if (input.dkim) {
     const dkimEntries = input.dkim.matchAll(
       /@([a-z0-9.-]+)\s*:\s*(pass|fail|none|neutral|softfail|temperror|permerror)/gi,
@@ -684,26 +610,18 @@ function computeSenderVerified(input: {
     }
   }
 
-  // 2. Provider SPF field. SendGrid posts a bare verdict (e.g. `pass`); since
-  //    SPF authenticates the envelope/MailFrom rather than the header From,
-  //    a bare `pass` with no domain only counts when we can't tell it's
-  //    misaligned. We accept a bare `pass` as an aligned SPF pass — this is
-  //    the same trust level Gmail-style routing assigns to a plain SPF pass.
   if (input.spf) {
     const spfVerdict = input.spf.trim().toLowerCase();
     if (spfVerdict === "pass") return true;
   }
 
-  // 3. RFC 8601 `Authentication-Results` header (may list multiple methods).
   if (input.authResults) {
     const ar = input.authResults.toLowerCase();
-    // DKIM with an aligned domain.
     const dkimRe = /dkim=pass[^;]*?(?:header\.(?:d|i)=|@)([a-z0-9.-]+)/g;
     for (const m of ar.matchAll(dkimRe)) {
       const domain = m[1].replace(/^@/, "");
       if (domainsAlign(fromDomain, domain)) return true;
     }
-    // SPF pass (envelope auth) — accept as an aligned pass.
     if (/spf=pass\b/.test(ar)) return true;
   }
 
@@ -760,11 +678,6 @@ async function isRateLimited(senderEmail: string): Promise<boolean> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers — email address parsing
-// ---------------------------------------------------------------------------
-
-/** Parse "Name <addr@example.com>" or plain "addr@example.com" */
 function parseEmailAddress(raw: string): { name?: string; email: string } {
   const match = raw.match(/^\s*(.*?)\s*<([^>]+)>\s*$/);
   if (match && match[2]) {
@@ -776,18 +689,12 @@ function parseEmailAddress(raw: string): { name?: string; email: string } {
   return { email: raw.trim() };
 }
 
-/** Normalize a to/cc field that may be a string, array, or undefined into a string[] of addresses */
 function normalizeAddressList(raw: string | string[] | undefined): string[] {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw.map((a) => a.trim());
   return raw.split(",").map((a) => a.trim());
 }
 
-// ---------------------------------------------------------------------------
-// Helpers — header parsing
-// ---------------------------------------------------------------------------
-
-/** Parse a headers object (Resend format: array of {name, value} or Record) */
 function parseHeadersObject(headers: unknown): Record<string, string> {
   const result: Record<string, string> = {};
   if (!headers) return result;
@@ -808,7 +715,6 @@ function parseHeadersObject(headers: unknown): Record<string, string> {
   return result;
 }
 
-/** Parse a raw headers string (SendGrid format: "Key: Value\nKey: Value\n...") */
 function parseHeadersString(raw: string | undefined): Record<string, string> {
   const result: Record<string, string> = {};
   if (!raw) return result;
@@ -818,12 +724,10 @@ function parseHeadersString(raw: string | undefined): Record<string, string> {
   let currentValue = "";
 
   for (const line of lines) {
-    // Continuation line (starts with whitespace)
     if (/^\s/.test(line) && currentKey) {
       currentValue += " " + line.trim();
       continue;
     }
-    // Save previous header
     if (currentKey) {
       result[currentKey.toLowerCase()] = currentValue;
     }
@@ -836,14 +740,12 @@ function parseHeadersString(raw: string | undefined): Record<string, string> {
       currentValue = "";
     }
   }
-  // Save last header
   if (currentKey) {
     result[currentKey.toLowerCase()] = currentValue;
   }
   return result;
 }
 
-/** Parse a References header value into an array of Message-IDs */
 function parseReferencesHeader(
   references: string | undefined,
 ): string[] | undefined {
@@ -852,15 +754,6 @@ function parseReferencesHeader(
   return ids && ids.length > 0 ? ids : undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers — threading
-// ---------------------------------------------------------------------------
-
-/**
- * Get the thread root ID using a Gmail-style approach:
- * the oldest Message-ID from the References chain is the thread root.
- * If no References, use the current Message-ID.
- */
 function getThreadRootId(messageId: string, references?: string[]): string {
   if (references && references.length > 0) {
     return references[0];
@@ -868,16 +761,6 @@ function getThreadRootId(messageId: string, references?: string[]): string {
   return messageId;
 }
 
-/**
- * Scope a raw thread root id by the sender's email address. Two different
- * senders crafting the same `References:` header value should NOT collide
- * onto the same internal thread mapping — that's the email-side fix for the
- * thread-injection finding (M1 in the webhook security audit).
- *
- * The returned id is opaque to callers and stays stable across messages
- * from the same sender on the same conversation thread, so reply behaviour
- * is unchanged.
- */
 function scopeThreadIdToSender(
   rawThreadId: string,
   senderEmail: string,
@@ -885,24 +768,16 @@ function scopeThreadIdToSender(
   return `${senderEmail.toLowerCase()}::${rawThreadId}`;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers — reply building
-// ---------------------------------------------------------------------------
-
-/** Build a References header from the platform context */
 function buildReferencesHeader(ctx: Record<string, unknown>): string {
   const parts: string[] = [];
 
-  // Include existing references
   const refs = ctx.references as string[] | undefined;
   if (refs) {
     parts.push(...refs);
   }
 
-  // Append the current message ID
   const messageId = ctx.messageId as string | undefined;
   if (messageId) {
-    // Avoid duplicates
     if (!parts.includes(messageId)) {
       parts.push(messageId);
     }
@@ -911,10 +786,6 @@ function buildReferencesHeader(ctx: Record<string, unknown>): string {
   return parts.join(" ");
 }
 
-/**
- * Build CC list for reply-all when agent was CC'd.
- * Include original To addresses and other CC addresses, excluding the agent and the original sender.
- */
 function buildReplyAllCc(
   context: IncomingMessage,
   agentAddress: string,
@@ -927,7 +798,6 @@ function buildReplyAllCc(
   const allRecipients = new Set<string>();
   for (const addr of [...toAddresses, ...ccAddresses]) {
     const normalized = addr.toLowerCase().trim();
-    // Exclude agent address and original sender (sender goes in To)
     if (normalized !== normalizedAgentAddress && normalized !== senderEmail) {
       allRecipients.add(normalized);
     }
@@ -936,11 +806,6 @@ function buildReplyAllCc(
   return allRecipients.size > 0 ? Array.from(allRecipients) : undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers — text conversion
-// ---------------------------------------------------------------------------
-
-/** Strip HTML tags for a plain-text version of the email */
 function stripHtmlForPlainText(html: string): string {
   return html
     .replace(/<br\s*\/?>/gi, "\n")
@@ -1047,22 +912,17 @@ function linkifyBareUrlsInHtml(html: string): string {
     .join("");
 }
 
-/** Convert basic markdown to HTML for email rendering */
 function markdownToHtml(md: string): string {
   let html = md;
 
-  // Escape HTML entities in the source (but not our generated tags)
   html = escapeHtml(html);
 
-  // Bold: **text** or __text__
   html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/__(.+?)__/g, "<strong>$1</strong>");
 
-  // Italic: *text* or _text_ (but not inside words with underscores)
   html = html.replace(/(?<!\w)\*([^*]+?)\*(?!\w)/g, "<em>$1</em>");
   html = html.replace(/(?<!\w)_([^_]+?)_(?!\w)/g, "<em>$1</em>");
 
-  // Links: [text](url)
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, url) => {
     const visibleLabel = /^https?:\/\//i.test(decodeBasicHtmlEntities(label))
       ? escapeHtml(labelForUrl(label))
@@ -1072,32 +932,25 @@ function markdownToHtml(md: string): string {
     )}" style="color:#2563eb;text-decoration:underline;">${visibleLabel}</a>`;
   });
 
-  // Inline code: `code`
   html = html.replace(
     /`([^`]+)`/g,
     '<code style="background:#f1f5f9;padding:1px 4px;border-radius:3px;font-size:0.9em;">$1</code>',
   );
 
-  // Bare URLs: keep the destination in href but avoid spelling long URLs out.
   html = linkifyBareUrlsInHtml(html);
 
-  // Unordered lists: lines starting with "- " or "* "
   html = html.replace(/^([*-]) (.+)$/gm, "<li>$2</li>");
-  // Wrap consecutive <li> in <ul>
   html = html.replace(
     /(<li>.*?<\/li>\n?)+/g,
     '<ul style="margin:8px 0;padding-left:20px;">$&</ul>',
   );
 
-  // Ordered lists: lines starting with "1. ", "2. " etc.
   html = html.replace(/^\d+\. (.+)$/gm, "<li>$1</li>");
-  // Wrap consecutive <li> that aren't in <ul> in <ol>
   html = html.replace(/(?<!<\/ul>)(<li>.*?<\/li>\n?)+/g, (match) => {
     if (match.includes("<ul")) return match;
     return `<ol style="margin:8px 0;padding-left:20px;">${match}</ol>`;
   });
 
-  // Headings: # through ###
   html = html.replace(
     /^### (.+)$/gm,
     '<h3 style="margin:16px 0 8px;font-size:1.1em;">$1</h3>',
@@ -1111,26 +964,20 @@ function markdownToHtml(md: string): string {
     '<h1 style="margin:16px 0 8px;font-size:1.4em;">$1</h1>',
   );
 
-  // Horizontal rules: --- or ***
   html = html.replace(
     /^(-{3,}|\*{3,})$/gm,
     '<hr style="border:none;border-top:1px solid #e2e8f0;margin:16px 0;">',
   );
 
-  // Paragraphs: double newlines
   html = html.replace(/\n\n/g, "</p><p>");
-  // Single newlines → <br>
   html = html.replace(/\n/g, "<br>");
 
-  // Wrap in paragraph tags
   html = `<p>${html}</p>`;
-  // Clean up empty paragraphs
   html = html.replace(/<p>\s*<\/p>/g, "");
 
   return html;
 }
 
-/** Wrap body HTML in a minimal email template with inline styles */
 function wrapInEmailTemplate(bodyHtml: string): string {
   return `<!DOCTYPE html>
 <html>

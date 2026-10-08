@@ -3,40 +3,29 @@ import {
   useCollaborativeDoc,
   type CollabUser,
 } from "@agent-native/core/client/collab";
-import { uploadEditorImage } from "@agent-native/core/client/uploads";
+import { callAction } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   createImageSlashCommand,
   DEFAULT_SLASH_COMMANDS,
   RichMarkdownEditor,
   type RichMarkdownCollabUser,
 } from "@agent-native/toolkit/editor";
-import { useCallback, useEffect, useRef } from "react";
+import { createDocument, type Editor } from "@tiptap/core";
+import { prosemirrorToYDoc } from "@tiptap/y-tiptap";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { toast } from "sonner";
+import { encodeStateAsUpdate } from "yjs";
 
 import { cn } from "@/lib/utils";
 
+import { usePlanImageUpload } from "../../hooks/use-plan-image-upload";
 import { PlanImageNode } from "./PlanImageNode";
 
-// Plans get the shared block-level image node: the `/image` slash command, plus
-// paste / drag-drop of image files. Each image uploads through the framework
-// `upload-image` action (`uploadEditorImage`) and is inserted as a standard
-// `![alt](url)` markdown image, so it autosaves through the existing
-// `update-rich-text` path and stays source-syncable.
-const PLAN_SLASH_COMMANDS = [
-  ...DEFAULT_SLASH_COMMANDS,
-  createImageSlashCommand(uploadEditorImage),
-];
-// `features.image` is off because `PlanImageNode` (injected below) IS the image
-// node — it extends the shared node with a React node view that adds the hover
-// zoom / lightbox / three-dots menu. Enabling the core image node too would
-// register a second `image` node and collide.
 const PLAN_EDITOR_FEATURES = { image: false } as const;
-const PLAN_EXTRA_EXTENSIONS = [PlanImageNode];
-
 const SAVE_DEBOUNCE_MS = 700;
 const SAVE_RETRY_MS = 120;
 
-// Stable per-tab request source so this client ignores its own collab updates
-// echoing back through the poll ring buffer.
 const TAB_ID = generateTabId();
 
 type PlanMarkdownEditorProps = {
@@ -46,14 +35,6 @@ type PlanMarkdownEditorProps = {
   className?: string;
   ariaLabel?: string;
   contentUpdatedAt?: string | null;
-  /**
-   * When both `planId` and `blockId` are present, prose for this block is edited
-   * collaboratively against a shared Y.Doc keyed `plan:${planId}:${blockId}`.
-   * Markdown still autosaves through `onSave` (the `update-rich-text` patch), so
-   * the canonical content in `plans.content` is unchanged. When absent (public
-   * read, SSR, or missing session) the editor falls back to today's controlled
-   * single-user editing.
-   */
   planId?: string | null;
   blockId?: string | null;
   user?: RichMarkdownCollabUser | null;
@@ -70,6 +51,7 @@ export function PlanMarkdownEditor({
   blockId,
   user,
 }: PlanMarkdownEditorProps) {
+  const { requestUpload, uploadImage, storagePrompt } = usePlanImageUpload();
   const onSaveRef = useRef(onSave);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPersistedMarkdownRef = useRef(markdown);
@@ -80,9 +62,6 @@ export function PlanMarkdownEditor({
 
   onSaveRef.current = onSave;
 
-  // Gate collab on an editable block with a real plan/block id and a known user
-  // with an email (cursors need a stable label + identity). Anything missing
-  // keeps the non-collab single-user path.
   const collabUser: CollabUser | null =
     user && user.email
       ? { name: user.name, email: user.email, color: user.color }
@@ -94,13 +73,87 @@ export function PlanMarkdownEditor({
     awareness,
     isSynced: collabSynced,
     initialization,
+    requestSync,
   } = useCollaborativeDoc({
     docId,
+    activityResource: planId
+      ? { resourceType: "plan", resourceId: planId }
+      : undefined,
     requestSource: TAB_ID,
     user: collabUser ?? undefined,
   });
   const editorEditable =
     editable && (!collabEnabled || initialization.status === "ready");
+
+  // Two people opening a plan together would each seed this block's empty live
+  // document from its saved markdown, and the two copies merge into duplicated
+  // text. The server seeds it once and every editor adopts that copy.
+  const requestInitialSeed = useCallback(
+    async (seedEditor: Editor, markdown: string): Promise<Uint8Array> => {
+      if (!planId || !blockId)
+        throw new Error("A plan and block ID are required to seed the editor.");
+      const parser = (
+        seedEditor.storage as {
+          markdown?: { parser?: { parse(content: string): string } };
+        }
+      ).markdown?.parser;
+      if (!parser) throw new Error("The editor cannot read markdown.");
+      const seedDoc = prosemirrorToYDoc(
+        createDocument(parser.parse(markdown), seedEditor.schema),
+        "default",
+      );
+      try {
+        const update = encodeStateAsUpdate(seedDoc);
+        let binary = "";
+        for (const byte of update) binary += String.fromCharCode(byte);
+        const result = await callAction<{ stateBase64: string }>(
+          "seed-plan-collab",
+          { planId, blockId, seedUpdateBase64: btoa(binary) },
+        );
+        return Uint8Array.from(atob(result.stateBase64), (char) =>
+          char.charCodeAt(0),
+        );
+      } finally {
+        seedDoc.destroy();
+      }
+    },
+    [planId, blockId],
+  );
+  const t = useT();
+  const seedErrorShownRef = useRef(false);
+  const onInitialSeedError = useCallback(
+    (error: unknown) => {
+      console.error("Failed to open the plan block for live editing:", error);
+      if (seedErrorShownRef.current) return;
+      seedErrorShownRef.current = true;
+      toast.error(t("raw.content.openFailed"));
+    },
+    [t],
+  );
+  const slashCommands = useMemo(() => {
+    const imageCommand = createImageSlashCommand(uploadImage);
+    return [
+      ...DEFAULT_SLASH_COMMANDS,
+      ...(editable
+        ? [
+            {
+              ...imageCommand,
+              action: (editor) => {
+                if (requestUpload()) imageCommand.action(editor);
+              },
+            },
+          ]
+        : []),
+    ];
+  }, [editable, requestUpload, uploadImage]);
+  const extraExtensions = useMemo(
+    () => [
+      PlanImageNode.configure({
+        onImageUpload: editable ? uploadImage : null,
+      }),
+    ],
+    [editable, uploadImage],
+  );
 
   const queueFlush = useCallback((delay = SAVE_DEBOUNCE_MS) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -166,25 +219,33 @@ export function PlanMarkdownEditor({
   );
 
   return (
-    <RichMarkdownEditor
-      value={markdown}
-      onChange={handleChange}
-      onBlur={() => void flushSave()}
-      editable={editorEditable}
-      contentUpdatedAt={contentUpdatedAt}
-      dialect="gfm"
-      preset="plan"
-      features={PLAN_EDITOR_FEATURES}
-      extraExtensions={PLAN_EXTRA_EXTENSIONS}
-      onImageUpload={uploadEditorImage}
-      slashItems={PLAN_SLASH_COMMANDS}
-      className={cn("plan-rich-markdown-editor mt-4", className)}
-      ariaLabel={ariaLabel}
-      interactive={editorEditable}
-      ydoc={collabEnabled ? ydoc : null}
-      collabSynced={collabEnabled ? collabSynced : true}
-      awareness={collabEnabled ? awareness : null}
-      user={collabEnabled ? collabUser : null}
-    />
+    <div>
+      <RichMarkdownEditor
+        value={markdown}
+        onChange={handleChange}
+        onBlur={() => void flushSave()}
+        editable={editorEditable}
+        contentUpdatedAt={contentUpdatedAt}
+        dialect="gfm"
+        preset="plan"
+        features={PLAN_EDITOR_FEATURES}
+        extraExtensions={extraExtensions}
+        onImageUpload={editable ? uploadImage : null}
+        slashItems={slashCommands}
+        className={cn("plan-rich-markdown-editor mt-4", className)}
+        ariaLabel={ariaLabel}
+        interactive={editorEditable}
+        ydoc={collabEnabled ? ydoc : null}
+        collabSynced={collabEnabled ? collabSynced : true}
+        requestCollabSync={collabEnabled ? requestSync : undefined}
+        requestInitialSeed={
+          collabEnabled && editable ? requestInitialSeed : undefined
+        }
+        onInitialSeedError={onInitialSeedError}
+        awareness={collabEnabled ? awareness : null}
+        user={collabEnabled ? collabUser : null}
+      />
+      {storagePrompt}
+    </div>
   );
 }

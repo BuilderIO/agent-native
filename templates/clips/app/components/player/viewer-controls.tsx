@@ -68,8 +68,9 @@ export const ViewerSwitch = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <Switch
     ref={ref}
+    size="sm"
     className={cn(
-      "relative !h-4 !w-7 after:absolute after:-inset-2 after:content-[''] [&>span]:!size-3 [&>span[data-state=checked]]:!translate-x-3 [&>span[data-state=unchecked]]:!translate-x-0",
+      "relative after:absolute after:-inset-2 after:content-['']",
       className,
     )}
     {...props}

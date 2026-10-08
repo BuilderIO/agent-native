@@ -9,7 +9,6 @@ import {
   isReconcileLeadClient,
 } from "./client.js";
 
-/** Minimal Awareness stand-in: isReconcileLeadClient only calls getStates(). */
 function fakeAwareness(states: Map<number, unknown>): any {
   return { getStates: () => states };
 }
@@ -57,7 +56,6 @@ describe("dedupeCollabUsersByEmail", () => {
     const [user] = dedupeCollabUsersByEmail([
       { name: "", email: "Kat@Example.com", color: "" },
     ]);
-    // Email is normalized (lowercased/trimmed); name/color are derived from it.
     expect(user.email).toBe("kat@example.com");
     expect(user.name).toBe(emailToName("kat@example.com"));
     expect(user.color).toBe(emailToColor("kat@example.com"));
@@ -131,7 +129,6 @@ describe("emailToName", () => {
   });
 
   it("handles a leading-@ email by using the original string", () => {
-    // local part is "" so it falls back to the full email, then capitalizes.
     expect(emailToName("@host")).toBe("@host");
   });
 });
@@ -175,7 +172,6 @@ describe("isReconcileLeadClient (CRDT snapshot leader election)", () => {
   });
 
   it("is the sole applier when no real peers are present", () => {
-    // Only the agent and stale (no user) entries — not real peers.
     const states = new Map<number, unknown>([
       [AGENT_CLIENT_ID, { user: { name: "AI" } }],
       [9, { user: undefined }],
@@ -184,12 +180,10 @@ describe("isReconcileLeadClient (CRDT snapshot leader election)", () => {
   });
 
   it("the agent client id can never be the lead even if lowest", () => {
-    // A visible human peer exists; local IS the agent. Agent must yield.
     const states = new Map<number, unknown>([
       [AGENT_CLIENT_ID, { user: { name: "AI" } }],
       [50, { user: { name: "Human" } }],
     ]);
-    // Local = agent id (max int) and there is a visible peer (50) lower than it.
     expect(isReconcileLeadClient(fakeAwareness(states), AGENT_CLIENT_ID)).toBe(
       false,
     );
@@ -200,20 +194,15 @@ describe("isReconcileLeadClient (CRDT snapshot leader election)", () => {
       [3, { user: { name: "A" } }],
       [7, { user: { name: "B" } }],
     ]);
-    // Local 3 is lowest among visible → leads.
     expect(isReconcileLeadClient(fakeAwareness(states), 3)).toBe(true);
-    // Local 7 is not lowest → yields to 3.
     expect(isReconcileLeadClient(fakeAwareness(states), 7)).toBe(false);
   });
 
   it("skips peers that published visible:false when electing", () => {
-    // Peer 2 is backgrounded (visible:false); only peer 8 is visible.
     const states = new Map<number, unknown>([
       [2, { user: { name: "Bg" }, visible: false }],
       [8, { user: { name: "Fg" } }],
     ]);
-    // Local 5: lower than the only visible peer (8), so it leads despite the
-    // hidden peer 2 having a lower id.
     expect(isReconcileLeadClient(fakeAwareness(states), 5)).toBe(true);
   });
 
@@ -221,7 +210,6 @@ describe("isReconcileLeadClient (CRDT snapshot leader election)", () => {
     const states = new Map<number, unknown>([
       [1, { user: { name: "Peer" } }], // no visible field → visible
     ]);
-    // Local 4 is higher than visible peer 1 → yields.
     expect(isReconcileLeadClient(fakeAwareness(states), 4)).toBe(false);
   });
 
@@ -231,22 +219,15 @@ describe("isReconcileLeadClient (CRDT snapshot leader election)", () => {
     });
 
     it("yields leadership to a visible peer even though it would otherwise lead", () => {
-      // Node has no `document`; stub a hidden one so the localHidden branch runs.
       vi.stubGlobal("document", { visibilityState: "hidden" });
       const states = new Map<number, unknown>([
         [3, { user: { name: "Peer" } }],
       ]);
-      // Local 1 is the lowest id and would normally lead, but its tab is hidden
-      // and a visible peer (3) exists — a backgrounded tab pauses its poll and
-      // must not hold the applier role, or the agent edit never reaches the
-      // visible tab. So it yields.
       expect(isReconcileLeadClient(fakeAwareness(states), 1)).toBe(false);
     });
 
     it("still leads as the sole client even when hidden", () => {
       vi.stubGlobal("document", { visibilityState: "hidden" });
-      // No real peers → the !hasPeer short-circuit fires before the hidden
-      // check, so a single-user hidden tab still applies its own agent edits.
       const states = new Map<number, unknown>([
         [AGENT_CLIENT_ID, { user: { name: "AI" } }],
       ]);

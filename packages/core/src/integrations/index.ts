@@ -1,4 +1,3 @@
-// Types
 export type {
   PlatformAdapter,
   IncomingMessage,
@@ -50,7 +49,6 @@ export {
   type IntegrationSupportMaturity,
 } from "./catalog.js";
 
-// Plugin
 export {
   BUILT_IN_INTEGRATION_ADAPTER_FACTORIES,
   BUILT_IN_INTEGRATION_ADAPTER_IDS,
@@ -125,7 +123,6 @@ export type {
   RemoteRunEvent,
 } from "./remote-types.js";
 
-// Adapters
 export {
   resolveSlackBotTokenForIncoming,
   slackAdapter,
@@ -142,19 +139,18 @@ export {
 export { googleDocsAdapter } from "./adapters/google-docs.js";
 export { emailAdapter } from "./adapters/email.js";
 
-// Google Docs integration
 export {
   startGoogleDocsPoller,
   stopGoogleDocsPoller,
   handlePushNotification,
 } from "./google-docs-poller.js";
 
-// Stores
 export {
   getIntegrationConfig,
   saveIntegrationConfig,
   deleteIntegrationConfig,
   listIntegrationConfigs,
+  listIntegrationConfigPage,
   type IntegrationConfig,
 } from "./config-store.js";
 

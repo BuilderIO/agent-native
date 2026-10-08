@@ -1,14 +1,175 @@
 import { defineAction } from "@agent-native/core/action";
-import { getRequestUserEmail } from "@agent-native/core/server";
-import { eq, and } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import {
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+  normalizeActionChangeResult,
+} from "@agent-native/core/action-ui";
+import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
+
+import {
+  aiFilterRuleActionsForMode,
+  aiFilterRuleLabelName,
+  aiFilterRuleMode,
+  type AiFilterRuleMode,
+} from "../shared/ai-filter-rules.js";
+import { automationActionSchema } from "../shared/automation-schema.js";
+import type { AutomationAction, AutomationRule } from "../shared/types.js";
+
+const actionSchema = z.array(automationActionSchema).min(1);
+
+function parseActions(value: string): AutomationAction[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("--actions must be valid JSON array");
+  }
+  return actionSchema.parse(parsed);
+}
+
+function isAiFilterRule(actions: AutomationAction[]): boolean {
+  return aiFilterRuleMode({ actions }) !== null;
+}
+
+type AgentRuleMode = "tag" | "important" | "notify" | "filter" | "archive";
+
+function actionsForAgentMode(
+  mode: AgentRuleMode,
+  tagName?: string,
+  existingActions: readonly AutomationAction[] = [],
+): AutomationAction[] {
+  if (mode === "tag" && !tagName?.trim()) {
+    throw new Error("--tagName is required for tag mode");
+  }
+  return aiFilterRuleActionsForMode(
+    mode === "filter" ? "filtered" : mode,
+    tagName,
+    existingActions,
+  );
+}
+
+function ruleNameForMode(mode: AgentRuleMode, sentence: string): string {
+  const prefix = mode === "filter" ? "spam" : mode;
+  return `AI ${prefix}: ${sentence.slice(0, 72)}`;
+}
+
+function agentModeForRule(
+  rule: AutomationRule | undefined,
+): AgentRuleMode | AiFilterRuleMode | "ai-filter" | "automation" {
+  if (!rule || rule.kind !== "ai-filter") return "automation";
+  const mode = aiFilterRuleMode(rule);
+  return mode === "filtered" ? "filter" : (mode ?? "ai-filter");
+}
+
+function settingsHref(kind: string | undefined): string {
+  const section = kind === "ai-filter" ? "ai-filter" : "automations";
+  return buildDeepLink({
+    app: "mail",
+    view: "settings",
+    to: `/settings?section=${section}`,
+  });
+}
+
+function ruleResult(
+  rule: AutomationRule | undefined,
+  operation: string,
+  extra: Record<string, unknown> = {},
+) {
+  return {
+    id: rule?.id,
+    name: rule?.name,
+    mode: agentModeForRule(rule),
+    operation,
+    sentence: rule?.condition ?? "",
+    actions: rule?.actions,
+    ...(rule?.kind === "ai-filter" && aiFilterRuleMode(rule) === "tag"
+      ? { tagName: aiFilterRuleLabelName(rule) }
+      : {}),
+    enabled: rule?.enabled ?? false,
+    appliedCounts: null,
+    settingsHref: settingsHref(rule?.kind),
+    ...extra,
+  };
+}
+
+function ruleChange(
+  verb: "created" | "updated" | "enabled" | "disabled",
+  rule: AutomationRule,
+) {
+  const title = rule.name.trim() || rule.condition.trim() || rule.id;
+  const detail = rule.condition.trim();
+  return {
+    change: {
+      verb,
+      kind: "mail-rule",
+      title: title.slice(0, 180),
+      ...(detail && detail !== title ? { detail: detail.slice(0, 500) } : {}),
+      url: settingsHref(rule.kind),
+    },
+  };
+}
+
+function ruleChanged(before: AutomationRule, after: AutomationRule): boolean {
+  return (
+    before.name !== after.name ||
+    before.condition !== after.condition ||
+    JSON.stringify(before.actions) !== JSON.stringify(after.actions) ||
+    before.enabled !== after.enabled ||
+    before.domain !== after.domain ||
+    before.kind !== after.kind
+  );
+}
+
+async function startRecentBackfill(ownerEmail: string, rule: AutomationRule) {
+  if (!rule.enabled) return { backfillStatus: "not-started-disabled" };
+
+  let runId: string;
+  try {
+    const { startMailAiFilterBackfill } =
+      await import("../server/lib/ai-filter-backfill.js");
+    ({ runId } = await startMailAiFilterBackfill(ownerEmail, [rule.id]));
+  } catch {
+    return {
+      appliedCounts: null,
+      backfillStatus: "failed",
+      backfillError:
+        "The rule was saved, but its recent-mail backfill could not start.",
+    };
+  }
+
+  return {
+    appliedCounts: null,
+    backfillRunId: runId,
+    backfillStatus: "queued",
+  };
+}
 
 export const createManageEmailRulesAction = (agentTool: boolean) =>
   defineAction({
     description:
-      "Create, list, update, or delete email automation rules. Rules are processed automatically against new inbox emails using AI.",
+      "Create, list, update, or delete inbox rules. For natural-language AI rules, use one sentence and a mode (tag, important, notify, filter, or archive); the rule is saved and recent-mail work is queued before this action returns. Model checks and matching continue in the background. Notify rules mark matches Important and notify the user only for new mail. Star, mark-read, and trash rules keep the legacy automation behavior.",
     agentTool,
+    ...(agentTool
+      ? {
+          chatUI: {
+            renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+            when: (args: Record<string, unknown>, result: unknown) =>
+              (args.action === "create" ||
+                args.action === "update" ||
+                args.action === "enable" ||
+                args.action === "disable") &&
+              !(
+                typeof result === "object" &&
+                result !== null &&
+                "backfillStatus" in result &&
+                result.backfillStatus === "failed"
+              ) &&
+              normalizeActionChangeResult(result) !== null,
+            projectResult: (_args: Record<string, unknown>, result: unknown) =>
+              normalizeActionChangeResult(result),
+          },
+        }
+      : {}),
     schema: z.object({
       action: z
         .enum(["list", "create", "update", "delete", "enable", "disable"])
@@ -22,14 +183,30 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
       condition: z
         .string()
         .optional()
-        .describe(
-          'Natural language condition, e.g. "from a newsletter" or "subject contains invoice"',
-        ),
+        .describe("Natural-language condition for matching incoming email"),
+      mode: z
+        .enum(["tag", "important", "notify", "filter", "archive"])
+        .optional()
+        .describe("AI rule mode for a new inbox rule"),
+      sentence: z
+        .string()
+        .trim()
+        .min(1)
+        .max(1_000)
+        .optional()
+        .describe("One-sentence description of the mail to match"),
+      tagName: z
+        .string()
+        .trim()
+        .min(1)
+        .max(128)
+        .optional()
+        .describe("Label name for a tag-mode rule"),
       actions: z
         .string()
         .optional()
         .describe(
-          'JSON array of actions, e.g. [{"type":"label","labelName":"newsletters"}]. Action types: label, archive, mark_read, star, trash',
+          'JSON array of actions, e.g. [{"type":"label","labelName":"newsletters"}]. Label/archive/notify use Mail AI filtering; use labelName "agent-native-important" plus notify to highlight and notify about matching mail, and "agent-native-filtered" plus archive for unwanted mail. mark_read, star, and trash use legacy automations.',
         ),
       enabled: z.coerce
         .boolean()
@@ -37,157 +214,164 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
         .describe("Whether the rule is enabled"),
     }),
     run: async (args) => {
-      const { action } = args;
-
-      // Lazy-import DB to avoid issues when running outside server context
-      const { db, schema } = await import("../server/db/index.js");
-
       const ownerEmail = getRequestUserEmail();
       if (!ownerEmail) throw new Error("no authenticated user");
+      const {
+        createAutomationRule,
+        deleteAutomationRule,
+        listAutomationRules,
+        updateAutomationRule,
+      } = await import("../server/lib/automations.js");
 
-      switch (action) {
+      switch (args.action) {
         case "list": {
-          const rules = await db
-            .select()
-            .from(schema.automationRules)
-            .where(eq(schema.automationRules.ownerEmail, ownerEmail));
-
-          if (rules.length === 0) {
-            return "No automation rules configured. Create one with --action=create.";
-          }
-
-          return rules
-            .map((r: any) => {
-              const actions = JSON.parse(r.actions);
-              const actionStr = actions
-                .map((a: any) =>
-                  a.type === "label" ? `label:"${a.labelName}"` : a.type,
-                )
-                .join(", ");
-              return `[${r.id}] ${r.enabled ? "✓" : "✗"} "${r.name}" — ${r.condition} → ${actionStr}`;
-            })
-            .join("\n");
+          const rules = await listAutomationRules(ownerEmail);
+          return {
+            mode: "list",
+            rules: rules.map((rule) => ruleResult(rule, "list")),
+          };
         }
 
         case "create": {
-          if (!args.name || !args.condition || !args.actions) {
-            throw new Error(
-              "--name, --condition, and --actions are required for create",
-            );
+          let name = args.name;
+          let condition = args.sentence ?? args.condition;
+          let actions: AutomationAction[];
+          if (args.mode) {
+            if (!condition)
+              throw new Error("--sentence is required for a rule");
+            actions = actionsForAgentMode(args.mode, args.tagName);
+            name ??= ruleNameForMode(args.mode, condition);
+          } else {
+            if (!name || !condition || !args.actions) {
+              throw new Error(
+                "--name, --condition, and --actions are required for create",
+              );
+            }
+            actions = parseActions(args.actions);
           }
-
-          let actions;
-          try {
-            actions = JSON.parse(args.actions);
-          } catch {
-            throw new Error("--actions must be valid JSON array");
-          }
-
-          const now = Math.floor(Date.now() / 1_000);
-          const rule = {
-            id: nanoid(12),
-            ownerEmail,
+          const kind: "ai-filter" | "automation" = isAiFilterRule(actions)
+            ? "ai-filter"
+            : "automation";
+          const input = {
+            name: name!,
+            condition,
+            actions,
             domain: "mail",
-            name: args.name,
-            condition: args.condition,
-            actions: JSON.stringify(actions),
-            enabled: 1,
-            createdAt: now,
-            updatedAt: now,
+            kind,
+            enabled: args.enabled,
           };
-
-          await db.insert(schema.automationRules).values(rule as any);
-          return `Created automation rule "${args.name}" (${rule.id})`;
+          const rule = await createAutomationRule(ownerEmail, input);
+          const backfill =
+            kind === "ai-filter"
+              ? await startRecentBackfill(ownerEmail, rule)
+              : { backfillStatus: "not-applicable" };
+          return ruleResult(rule, "create", {
+            ...backfill,
+            ...(agentTool ? ruleChange("created", rule) : {}),
+          });
         }
 
         case "update": {
           if (!args.id) throw new Error("--id is required for update");
 
-          const updates: Record<string, any> = {
-            updatedAt: Math.floor(Date.now() / 1_000),
-          };
-          if (args.name !== undefined) updates.name = args.name;
-          if (args.condition !== undefined) updates.condition = args.condition;
-          if (args.actions !== undefined) {
-            try {
-              JSON.parse(args.actions);
-              updates.actions = args.actions;
-            } catch {
-              throw new Error("--actions must be valid JSON array");
+          const existing = (await listAutomationRules(ownerEmail)).find(
+            (rule) => rule.id === args.id,
+          );
+          const patch: {
+            name?: string;
+            condition?: string;
+            actions?: AutomationAction[];
+            enabled?: boolean;
+            kind?: "automation" | "ai-filter";
+          } = {};
+          if (args.name !== undefined) patch.name = args.name;
+          if (args.mode !== undefined) {
+            const sentence =
+              args.sentence ?? args.condition ?? existing?.condition;
+            if (!sentence) throw new Error("--sentence is required for a rule");
+            const tagName =
+              args.tagName ??
+              (existing ? aiFilterRuleLabelName(existing) : undefined);
+            patch.condition = sentence;
+            patch.actions = actionsForAgentMode(
+              args.mode,
+              tagName,
+              existing?.actions,
+            );
+            patch.name ??= ruleNameForMode(args.mode, sentence);
+            if (existing?.domain === "mail") patch.kind = "ai-filter";
+          } else if (args.condition !== undefined) {
+            patch.condition = args.condition;
+          }
+          if (args.actions !== undefined && args.mode === undefined) {
+            patch.actions = parseActions(args.actions);
+            if (existing?.domain === "mail") {
+              patch.kind = isAiFilterRule(patch.actions)
+                ? "ai-filter"
+                : "automation";
             }
           }
-          if (args.enabled !== undefined)
-            updates.enabled = args.enabled ? 1 : 0;
+          if (args.enabled !== undefined) patch.enabled = args.enabled;
 
-          await db
-            .update(schema.automationRules)
-            .set(updates)
-            .where(
-              and(
-                eq(schema.automationRules.id, args.id),
-                eq(schema.automationRules.ownerEmail, ownerEmail),
-              ),
-            );
-
-          return `Updated automation rule ${args.id}`;
+          const rule = await updateAutomationRule(ownerEmail, args.id, patch);
+          const backfill =
+            rule.domain === "mail" && rule.kind === "ai-filter"
+              ? await startRecentBackfill(ownerEmail, rule)
+              : { backfillStatus: "not-applicable" };
+          return ruleResult(rule, "update", {
+            ...backfill,
+            ...(agentTool && existing && ruleChanged(existing, rule)
+              ? ruleChange("updated", rule)
+              : {}),
+          });
         }
 
         case "delete": {
           if (!args.id) throw new Error("--id is required for delete");
-
-          await db
-            .delete(schema.automationRules)
-            .where(
-              and(
-                eq(schema.automationRules.id, args.id),
-                eq(schema.automationRules.ownerEmail, ownerEmail),
-              ),
-            );
-
-          return `Deleted automation rule ${args.id}`;
+          const existing = (await listAutomationRules(ownerEmail)).find(
+            (rule) => rule.id === args.id,
+          );
+          await deleteAutomationRule(ownerEmail, args.id);
+          return ruleResult(existing, "delete", {
+            id: args.id,
+            deleted: Boolean(existing),
+            enabled: false,
+          });
         }
 
-        case "enable": {
-          if (!args.id) throw new Error("--id is required for enable");
-
-          await db
-            .update(schema.automationRules)
-            .set({
-              enabled: 1,
-              updatedAt: Math.floor(Date.now() / 1_000),
-            } as any)
-            .where(
-              and(
-                eq(schema.automationRules.id, args.id),
-                eq(schema.automationRules.ownerEmail, ownerEmail),
-              ),
-            );
-
-          return `Enabled automation rule ${args.id}`;
-        }
-
+        case "enable":
         case "disable": {
-          if (!args.id) throw new Error("--id is required for disable");
-
-          await db
-            .update(schema.automationRules)
-            .set({
-              enabled: 0,
-              updatedAt: Math.floor(Date.now() / 1_000),
-            } as any)
-            .where(
-              and(
-                eq(schema.automationRules.id, args.id),
-                eq(schema.automationRules.ownerEmail, ownerEmail),
-              ),
-            );
-
-          return `Disabled automation rule ${args.id}`;
+          if (!args.id) throw new Error(`--id is required for ${args.action}`);
+          const existing = agentTool
+            ? (await listAutomationRules(ownerEmail)).find(
+                (rule) => rule.id === args.id,
+              )
+            : undefined;
+          const patch = { enabled: args.action === "enable" };
+          const rule = await updateAutomationRule(ownerEmail, args.id, patch);
+          const backfill =
+            args.action === "enable" &&
+            rule.domain === "mail" &&
+            rule.kind === "ai-filter"
+              ? await startRecentBackfill(ownerEmail, rule)
+              : { backfillStatus: "not-applicable" };
+          return ruleResult(rule, args.action, {
+            ...backfill,
+            ...(agentTool &&
+            existing &&
+            existing.enabled !== rule.enabled &&
+            rule.enabled === (args.action === "enable")
+              ? ruleChange(
+                  args.action === "enable" ? "enabled" : "disabled",
+                  rule,
+                )
+              : {}),
+          });
         }
 
         default:
           throw new Error(
-            `Unknown action "${action}". Use: list, create, update, delete, enable, disable`,
+            `Unknown action "${args.action}". Use: list, create, update, delete, enable, disable`,
           );
       }
     },

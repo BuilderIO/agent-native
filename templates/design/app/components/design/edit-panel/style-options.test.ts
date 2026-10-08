@@ -2,16 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { resolveLineHeight, sidesAreLinked } from "./style-options";
 
-// ─── resolveLineHeight — px-as-ratio misparse regression ────────────────────
-//
-// `resolveLineHeight` converts a CSS line-height into the unitless ratio the
-// Typography section's numeric field displays/edits. When the browser
-// reports a px-computed value (e.g. "19.2px" for a 16px font at ratio 1.2),
-// it must be divided by the font-size to recover the ratio. If the font-size
-// isn't available/valid, the px string must NOT fall through to the generic
-// `parseFloat` path below — that silently reads "19.2px" as the number 19.2
-// and would display it directly as if it were already a unitless ratio
-// (i.e. a "19.2" line-height instead of "1.2").
 describe("resolveLineHeight", () => {
   it("divides a px-computed line-height by font-size to recover the ratio", () => {
     expect(resolveLineHeight("19.2px", "16px")).toBe(1.2);

@@ -54,7 +54,8 @@ export function getCommonPhraseCompletion(textBeforeCursor: string) {
   for (const { trigger, completion } of commonPhraseCompletions) {
     const start = lowerText.length - trigger.length;
     if (start < 0 || !lowerText.endsWith(trigger)) continue;
-    if (start > 0 && /[\p{L}\p{M}\p{N}]$/u.test(text.slice(0, start))) continue;
+    if (start > 0 && /(?:\p{L}|\p{M}|\p{N})$/u.test(text.slice(0, start)))
+      continue;
     return trailingSpace ? completion.trimStart() : completion;
   }
   return null;

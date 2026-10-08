@@ -1,11 +1,3 @@
-/**
- * motion-easing.spec.ts
- *
- * Tests for the Figma-Motion-parity easing engine: the curve preset catalog,
- * the spring(bounce[, settle]) token model, the damped-oscillator sampler,
- * spring → CSS linear() compilation, and linear() evaluation.
- */
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -20,8 +12,6 @@ import {
   springToCssLinear,
   springToken,
 } from "./motion-easing";
-
-// ─── Curve presets ────────────────────────────────────────────────────────────
 
 describe("MOTION_CURVE_PRESETS", () => {
   it("lists Figma Motion's Curve tab presets verbatim, in order", () => {
@@ -64,8 +54,6 @@ describe("MOTION_CURVE_PRESETS", () => {
   });
 });
 
-// ─── Spring token round-trip ──────────────────────────────────────────────────
-
 describe("spring token", () => {
   it("serialises and parses spring(bounce) round-trip", () => {
     const token = springToken({ bounce: 0.69, settle: 1 });
@@ -104,8 +92,6 @@ describe("spring token", () => {
   });
 });
 
-// ─── Spring presets ───────────────────────────────────────────────────────────
-
 describe("MOTION_SPRING_PRESETS", () => {
   it("lists Figma Motion's Spring tab presets verbatim, in order", () => {
     expect(MOTION_SPRING_PRESETS.map((p) => p.label)).toEqual([
@@ -131,8 +117,6 @@ describe("MOTION_SPRING_PRESETS", () => {
     }
   });
 });
-
-// ─── Spring sampler ───────────────────────────────────────────────────────────
 
 describe("sampleSpring", () => {
   it("starts at 0 and settles at exactly 1", () => {
@@ -178,12 +162,9 @@ describe("sampleSpring", () => {
     for (const x of [0.5, 0.6, 0.8, 1]) {
       expect(sampleSpring(spring, x)).toBe(1);
     }
-    // Still moving just before the settle point.
     expect(sampleSpring(spring, 0.05)).toBeLessThan(1);
   });
 });
-
-// ─── Spring → CSS linear() ────────────────────────────────────────────────────
 
 describe("springToCssLinear", () => {
   it("emits a deterministic linear(...) stop list from 0 to 1", () => {
@@ -235,13 +216,10 @@ describe("motionEaseToCss", () => {
     for (const x of [0.1, 0.25, 0.5, 0.75, 0.9]) {
       const viaLinear = evaluateCssLinear(css, x)!;
       const direct = sampleSpring(spring, x);
-      // Piecewise-linear approximation: allow a small tolerance.
       expect(Math.abs(viaLinear - direct)).toBeLessThan(0.08);
     }
   });
 });
-
-// ─── linear() evaluation ──────────────────────────────────────────────────────
 
 describe("evaluateCssLinear / parseCssLinearStops", () => {
   it("evaluates evenly distributed stops without percentages", () => {

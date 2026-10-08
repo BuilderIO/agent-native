@@ -11,23 +11,8 @@ import {
   waitForBridge,
 } from "./helpers";
 
-/**
- * Figma parity — Selection (spec §1 + Part 3 resolutions).
- *
- * Covers: click selects the outermost child of the current container (not the
- * deep child — Logan's report), double-click drills in, cmd+click deep-selects,
- * shift+click toggles, Esc backs out a level, Enter descends, empty-canvas
- * click deselects, marquee selects everything it INTERSECTS (not full
- * enclosure), cmd+marquee reaches nested children, Tab/Shift+Tab cycles
- * siblings — across elements inside a screen and board objects on the
- * overview canvas.
- */
-
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
-// A container with two children, plus two loose top-level siblings, mirrors
-// the shape a real Figma file uses to test "click hits the container, not
-// the child": Card is the current container; Kid A / Kid B are its children.
 const FIXTURE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Selection parity</title></head>
@@ -46,11 +31,6 @@ const FIXTURE = `<!doctype html>
   </body>
 </html>`;
 
-// A dedicated board-surface file. Set as `boardFileId`, this renders as the
-// overview canvas's board layer that screens sit on top of — the real
-// mechanism behind "board objects", per MultiScreenCanvas.tsx boardFileId
-// wiring (shared/board-objects.ts's JSON boardObjects array is unused by the
-// renderer).
 const BOARD_FIXTURE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Board</title></head>
@@ -59,6 +39,32 @@ const BOARD_FIXTURE = `<!doctype html>
          style="position:absolute;left:20px;top:520px;width:120px;height:80px;background:#f59e0b"></div>
     <div data-agent-native-node-id="board-b" data-agent-native-layer-name="Board B"
          style="position:absolute;left:170px;top:520px;width:120px;height:80px;background:#0ea5e9"></div>
+  </body>
+</html>`;
+
+const NESTED_BOARD_FIXTURE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Nested board drag</title></head>
+  <body style="margin:0;min-height:900px;background:#e5e5e5">
+    <div data-agent-native-node-id="outer" data-agent-native-layer-name="Outer" data-an-primitive="frame"
+         style="position:absolute;left:80px;top:100px;width:560px;height:420px;overflow:hidden;background:#111827">
+      <div data-agent-native-node-id="nested" data-agent-native-layer-name="Nested" data-an-primitive="frame"
+           style="position:absolute;left:40px;top:40px;width:280px;height:220px;background:#374151">
+        <div data-agent-native-node-id="existing-child" data-agent-native-layer-name="Existing child"
+             style="position:absolute;left:28px;top:32px;width:80px;height:40px;background:#3b82f6"></div>
+      </div>
+    </div>
+  </body>
+</html>`;
+
+const OVERLAPPING_BOARD_FRAMES = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Overlapping board frames</title></head>
+  <body style="margin:0;min-height:900px;background:#e5e5e5">
+    <div data-agent-native-node-id="drag-frame" data-agent-native-layer-name="Drag frame" data-an-primitive="frame"
+         style="position:absolute;left:80px;top:100px;width:240px;height:220px;background:#111827"></div>
+    <div data-agent-native-node-id="target-frame" data-agent-native-layer-name="Target frame" data-an-primitive="frame"
+         style="position:absolute;left:500px;top:100px;width:240px;height:220px;background:#374151"></div>
   </body>
 </html>`;
 
@@ -121,6 +127,125 @@ async function newBoardDesign(
   return id;
 }
 
+async function persistedBoardLayout(page: Page, designId: string) {
+  const response = await page.request.get(
+    `${baseURL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `get-design: ${response.status()} ${(await response.text()).slice(0, 300)}`,
+    );
+  }
+  const record = await response.json();
+  const boardHtml = (record.files ?? []).find(
+    (file: { filename?: string }) => file.filename === "__board__.html",
+  )?.content;
+  if (typeof boardHtml !== "string") {
+    throw new Error(`design ${designId} has no persisted __board__.html`);
+  }
+
+  return page.evaluate((html) => {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const node = (id: string) => {
+      const element = doc.querySelector<HTMLElement>(
+        `[data-agent-native-node-id="${id}"]`,
+      );
+      if (!element) throw new Error(`persisted board is missing ${id}`);
+      const left = Number.parseFloat(element.style.left);
+      const top = Number.parseFloat(element.style.top);
+      if (!Number.isFinite(left) || !Number.isFinite(top)) {
+        throw new Error(`persisted board has no finite left/top for ${id}`);
+      }
+      let worldLeft = 0;
+      let worldTop = 0;
+      let current: HTMLElement | null = element;
+      while (current && current !== doc.documentElement) {
+        worldLeft += Number.parseFloat(current.style.left) || 0;
+        worldTop += Number.parseFloat(current.style.top) || 0;
+        current = current.parentElement;
+      }
+      return {
+        left,
+        top,
+        parentTagName: element.parentElement?.tagName.toLowerCase(),
+        parentId: element.parentElement?.getAttribute(
+          "data-agent-native-node-id",
+        ),
+        worldLeft,
+        worldTop,
+      };
+    };
+
+    return {
+      outer: node("outer"),
+      nested: node("nested"),
+      child: node("existing-child"),
+    };
+  }, boardHtml);
+}
+
+async function persistedBoardPosition(
+  page: Page,
+  designId: string,
+  nodeId: string,
+) {
+  const response = await page.request.get(
+    `${baseURL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `get-design: ${response.status()} ${(await response.text()).slice(0, 300)}`,
+    );
+  }
+  const record = await response.json();
+  const boardHtml = (record.files ?? []).find(
+    (file: { filename?: string }) => file.filename === "__board__.html",
+  )?.content;
+  if (typeof boardHtml !== "string") {
+    throw new Error(`design ${designId} has no persisted __board__.html`);
+  }
+
+  return page.evaluate(
+    ({ html, id }) => {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const element = doc.querySelector<HTMLElement>(
+        `[data-agent-native-node-id="${CSS.escape(id)}"]`,
+      );
+      if (!element) throw new Error(`persisted board is missing ${id}`);
+      const left = Number.parseFloat(element.style.left);
+      const top = Number.parseFloat(element.style.top);
+      if (!Number.isFinite(left) || !Number.isFinite(top)) {
+        throw new Error(`persisted board has no finite left/top for ${id}`);
+      }
+      let worldLeft = 0;
+      let worldTop = 0;
+      let current: HTMLElement | null = element;
+      while (current && current !== doc.documentElement) {
+        worldLeft += Number.parseFloat(current.style.left) || 0;
+        worldTop += Number.parseFloat(current.style.top) || 0;
+        current = current.parentElement;
+      }
+      return {
+        left,
+        top,
+        parentTagName: element.parentElement?.tagName.toLowerCase(),
+        parentId: element.parentElement?.getAttribute(
+          "data-agent-native-node-id",
+        ),
+        worldLeft,
+        worldTop,
+      };
+    },
+    { html: boardHtml, id: nodeId },
+  );
+}
+
+function boardIframe(page: Page) {
+  return page
+    .locator("iframe[data-design-preview-iframe]:not([data-screen-iframe-id])")
+    .first();
+}
+
 function layersTree(page: Page): Locator {
   return page.getByRole("tree", { name: "Layers" });
 }
@@ -154,10 +279,6 @@ async function click(
   box: { x: number; y: number; width: number; height: number },
   modifiers?: ("Meta" | "Shift" | "Control")[],
 ) {
-  // page.mouse.click's `modifiers` option is unreliable against this canvas
-  // (see reference_browser_modifier_keys_not_delivered) — hold the keys with
-  // keyboard.down/up around a plain click instead, matching what a real user
-  // does with their hand on the modifier key.
   if (modifiers?.length) for (const m of modifiers) await page.keyboard.down(m);
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   if (modifiers?.length) for (const m of modifiers) await page.keyboard.up(m);
@@ -189,11 +310,383 @@ test.beforeEach(async ({ page }, testInfo) => {
     (testInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
 });
 
-test.describe("click selects the container, not the deep child", () => {
+test("board regression: an overlapping Frame drop into another board Frame persists after reload", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await page.addInitScript(() => {
+    const trace: Array<unknown> = [];
+    Object.defineProperty(window, "__boardDragTrace", {
+      configurable: true,
+      value: trace,
+    });
+    window.addEventListener("message", (event) => {
+      const data = event.data;
+      if (
+        data?.type === "visual-style-change" ||
+        data?.type === "visual-structure-change" ||
+        data?.type === "agent-native:cancel-active-drag"
+      ) {
+        trace.push(data);
+      }
+    });
+  });
+
+  const id = await newBoardDesign(page, OVERLAPPING_BOARD_FRAMES);
+  await openEditorAndExpandLayers(page, id);
+  const board = boardIframe(page).contentFrame();
+  const draggedFrame = board.locator(
+    '[data-agent-native-node-id="drag-frame"]',
+  );
+  const targetFrame = board.locator(
+    '[data-agent-native-node-id="target-frame"]',
+  );
+  await expect(draggedFrame).toBeVisible();
+  const sourceBox = (await draggedFrame.boundingBox())!;
+  const targetBox = (await targetFrame.boundingBox())!;
+  const targetPosition = await targetFrame.evaluate((element) => ({
+    left: Number.parseFloat((element as HTMLElement).style.left),
+    top: Number.parseFloat((element as HTMLElement).style.top),
+  }));
+  const start = {
+    x: sourceBox.x + sourceBox.width / 2,
+    y: sourceBox.y + sourceBox.height / 2,
+  };
+  const drop = {
+    x: targetBox.x + targetBox.width / 2,
+    y: targetBox.y + targetBox.height / 2,
+  };
+
+  await page.mouse.click(start.x, start.y);
+  await expect.poll(() => selectedLayerNames(page)).toContain("Drag frame");
+
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(drop.x, drop.y, { steps: 16 });
+  await page.waitForTimeout(300);
+  await page.mouse.up();
+
+  await expect
+    .poll(async () =>
+      draggedFrame.evaluate((element) => {
+        const html = element as HTMLElement;
+        return {
+          left: Number.parseFloat(html.style.left),
+          top: Number.parseFloat(html.style.top),
+          parentId: html.parentElement?.getAttribute(
+            "data-agent-native-node-id",
+          ),
+          worldLeft: Number.parseFloat(
+            (html.parentElement as HTMLElement).style.left,
+          ),
+          worldTop: Number.parseFloat(
+            (html.parentElement as HTMLElement).style.top,
+          ),
+        };
+      }),
+    )
+    .toEqual({
+      left: 0,
+      top: 0,
+      parentId: "target-frame",
+      worldLeft: targetPosition.left,
+      worldTop: targetPosition.top,
+    });
+  await expect
+    .poll(() => persistedBoardPosition(page, id, "drag-frame"))
+    .toEqual({
+      left: 0,
+      top: 0,
+      parentTagName: "div",
+      parentId: "target-frame",
+      worldLeft: targetPosition.left,
+      worldTop: targetPosition.top,
+    });
+
+  const parentTrace = await page.evaluate(
+    () =>
+      (window as Window & { __boardDragTrace?: Array<unknown> })
+        .__boardDragTrace ?? [],
+  );
+  const frameTrace = await board.locator("body").evaluate(
+    (body) =>
+      (
+        body.ownerDocument.defaultView as Window & {
+          __boardDragTrace?: Array<unknown>;
+        }
+      ).__boardDragTrace ?? [],
+  );
+  const sourceChanges = (
+    parentTrace as Array<{
+      type?: string;
+      selector?: string;
+      anchorSelector?: string;
+    }>
+  ).filter((event) => event.selector?.includes("drag-frame"));
+  expect(
+    sourceChanges.map((event) => event.type),
+    "the host must commit one structure change without a visual-style revert",
+  ).toEqual(["visual-structure-change"]);
+  expect(sourceChanges[0]?.anchorSelector).toContain("target-frame");
+  expect(
+    (frameTrace as Array<{ type?: string }>).some(
+      (event) => event.type === "agent-native:cancel-active-drag",
+    ),
+    "an in-place board move must not be cancelled as a cross-screen drop",
+  ).toBe(false);
+
+  await gotoEditor(page, id);
+  await expect
+    .poll(() => persistedBoardPosition(page, id, "drag-frame"))
+    .toEqual({
+      left: 0,
+      top: 0,
+      parentTagName: "div",
+      parentId: "target-frame",
+      worldLeft: targetPosition.left,
+      worldTop: targetPosition.top,
+    });
+});
+
+test("board regression: overlapping board Frames keep the pointer drop without cancel or revert", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await page.addInitScript(() => {
+    const trace: Array<unknown> = [];
+    Object.defineProperty(window, "__boardDragTrace", {
+      configurable: true,
+      value: trace,
+    });
+    window.addEventListener("message", (event) => {
+      if (
+        event.data?.type === "agent-native:editor-drag-state" &&
+        event.data.active === true
+      ) {
+        document.body.dataset.editorDragStarted = "true";
+      }
+      if (
+        event.data?.type === "visual-style-change" ||
+        event.data?.type === "agent-native:cancel-active-drag" ||
+        event.data?.type === "agent-native:cross-screen-drag" ||
+        event.data?.type === "agent-native:cross-screen-claim"
+      ) {
+        trace.push(event.data);
+      }
+    });
+  });
+
+  const id = await newBoardDesign(page, OVERLAPPING_BOARD_FRAMES);
+  await openEditorAndExpandLayers(page, id);
+  const board = boardIframe(page).contentFrame();
+  const draggedFrame = board.locator(
+    '[data-agent-native-node-id="drag-frame"]',
+  );
+  const targetFrame = board.locator(
+    '[data-agent-native-node-id="target-frame"]',
+  );
+  const sourceBox = (await draggedFrame.boundingBox())!;
+  const targetBox = (await targetFrame.boundingBox())!;
+  const start = {
+    x: sourceBox.x + sourceBox.width / 2,
+    y: sourceBox.y + sourceBox.height / 2,
+  };
+  const drop = {
+    x: targetBox.x - 20,
+    y: targetBox.y + targetBox.height / 2,
+  };
+  expect(drop.x).toBeLessThan(targetBox.x);
+  const scale = sourceBox.width / 240;
+  const expected = {
+    left: 80 + (drop.x - start.x) / scale,
+    top: 100 + (drop.y - start.y) / scale,
+  };
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 8, start.y, { steps: 2 });
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-editor-drag-started",
+    "true",
+  );
+  await page.mouse.move(drop.x, drop.y, { steps: 16 });
+  await page.mouse.up();
+  await page.waitForTimeout(250);
+  const parentTrace = await page.evaluate(
+    () =>
+      (window as Window & { __boardDragTrace?: Array<unknown> })
+        .__boardDragTrace ?? [],
+  );
+  const frameTrace = await board.locator("body").evaluate(
+    (body) =>
+      (
+        body.ownerDocument.defaultView as Window & {
+          __boardDragTrace?: Array<unknown>;
+        }
+      ).__boardDragTrace ?? [],
+  );
+
+  await expect
+    .poll(() => persistedBoardPosition(page, id, "drag-frame"))
+    .toMatchObject({ parentTagName: "body" });
+  const persisted = await persistedBoardPosition(page, id, "drag-frame");
+  expect(Math.abs(persisted.left - expected.left)).toBeLessThanOrEqual(6);
+  expect(Math.abs(persisted.top - expected.top)).toBeLessThanOrEqual(6);
+  expect(persisted.parentTagName).toBe("body");
+  const landedBox = (await draggedFrame.boundingBox())!;
+  expect(landedBox.x).toBeLessThan(targetBox.x + targetBox.width);
+  expect(landedBox.x + landedBox.width).toBeGreaterThan(targetBox.x);
+
+  const sourceChanges = (
+    parentTrace as Array<{ type?: string; selector?: string }>
+  ).filter(
+    (event) =>
+      event.type === "visual-style-change" &&
+      event.selector?.includes("drag-frame"),
+  );
+  expect(
+    sourceChanges.map((event) => event.type),
+    "the board move should commit once without a delayed revert",
+  ).toEqual(["visual-style-change"]);
+  expect(
+    (frameTrace as Array<{ type?: string }>).some(
+      (event) => event.type === "agent-native:cancel-active-drag",
+    ),
+  ).toBe(false);
+  await page.reload();
+  await openEditorAndExpandLayers(page, id);
+  const afterReload = await persistedBoardPosition(page, id, "drag-frame");
+  expect(Math.abs(afterReload.left - expected.left)).toBeLessThanOrEqual(6);
+  expect(Math.abs(afterReload.top - expected.top)).toBeLessThanOrEqual(6);
+  expect(afterReload.parentTagName).toBe("body");
+});
+
+// PR #5644 ("Use direct selection inside design screens") made a plain click
+// inside a SCREEN select the deepest block under the pointer directly — a
+// documented, human-directed exception to Figma (see
+// editor-chrome.bridge.ts's plainClickSelectionTarget). The infinite-canvas
+// board surface keeps the original Figma container-first behavior, so these
+// two tests run the same nested Card/Kid A fixture as a board object
+// (newBoardDesign) instead of a screen (newDesign) to assert the contract
+// where it still holds.
+test.describe("click selects the container on the board surface, not the deep child", () => {
+  test("selected nested frame drag from its grandchild tracks the pointer and persists", async ({
+    page,
+  }) => {
+    const id = await newBoardDesign(page, NESTED_BOARD_FIXTURE);
+    await openEditorAndExpandLayers(page, id);
+
+    const before = await persistedBoardLayout(page, id);
+    expect(before).toMatchObject({
+      outer: { left: 80, top: 100 },
+      nested: { left: 40, top: 40, parentId: "outer" },
+      child: { left: 28, top: 32, parentId: "nested" },
+    });
+
+    const childBefore = (await node(page, "existing-child").boundingBox())!;
+    const start = {
+      x: childBefore.x + childBefore.width / 2,
+      y: childBefore.y + childBefore.height / 2,
+    };
+    await page.mouse.click(start.x, start.y);
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message: "clicking a grandchild on the board selects its container",
+      })
+      .toBe("Nested");
+
+    const outerBefore = (await node(page, "outer").boundingBox())!;
+    const nestedBefore = (await node(page, "nested").boundingBox())!;
+    const selectedChildBefore = (await node(
+      page,
+      "existing-child",
+    ).boundingBox())!;
+    const dragStart = {
+      x: selectedChildBefore.x + selectedChildBefore.width / 2,
+      y: selectedChildBefore.y + selectedChildBefore.height / 2,
+    };
+    const dragEnd = { x: dragStart.x + 64, y: dragStart.y + 48 };
+
+    await page.mouse.move(dragStart.x, dragStart.y);
+    await page.mouse.down();
+    await page.mouse.move(dragEnd.x, dragEnd.y, { steps: 16 });
+    await page.waitForTimeout(350);
+    await page.mouse.up();
+
+    await expect
+      .poll(
+        async () => {
+          const after = await persistedBoardLayout(page, id);
+          return (
+            after.nested.left !== before.nested.left ||
+            after.nested.top !== before.nested.top
+          );
+        },
+        {
+          timeout: 15_000,
+          message:
+            "the physical drag must persist the selected board container's new position",
+        },
+      )
+      .toBe(true);
+
+    const after = await persistedBoardLayout(page, id);
+    expect(after.outer).toEqual(before.outer);
+    expect(after.nested.parentId).toBe("outer");
+    expect(after.nested.left).not.toBe(before.nested.left);
+    expect(after.nested.top).not.toBe(before.nested.top);
+    expect(after.child).toMatchObject({
+      left: before.child.left,
+      top: before.child.top,
+      parentId: before.child.parentId,
+    });
+
+    const outerAfter = (await node(page, "outer").boundingBox())!;
+    const nestedAfter = (await node(page, "nested").boundingBox())!;
+    const childAfter = (await node(page, "existing-child").boundingBox())!;
+    const nestedDelta = {
+      x: nestedAfter.x - nestedBefore.x,
+      y: nestedAfter.y - nestedBefore.y,
+    };
+    const childDelta = {
+      x: childAfter.x - selectedChildBefore.x,
+      y: childAfter.y - selectedChildBefore.y,
+    };
+    const pointerDelta = {
+      x: dragEnd.x - dragStart.x,
+      y: dragEnd.y - dragStart.y,
+    };
+    const scaleX = outerBefore.width / 560;
+    const scaleY = outerBefore.height / 420;
+    expect(outerAfter.x).toBeCloseTo(outerBefore.x, 0);
+    expect(outerAfter.y).toBeCloseTo(outerBefore.y, 0);
+    expect(
+      Math.abs(nestedDelta.x - pointerDelta.x),
+      `screen X moved ${nestedDelta.x}px for a ${pointerDelta.x}px pointer drag`,
+    ).toBeLessThanOrEqual(2);
+    expect(
+      Math.abs(nestedDelta.y - pointerDelta.y),
+      `screen Y moved ${nestedDelta.y}px for a ${pointerDelta.y}px pointer drag`,
+    ).toBeLessThanOrEqual(2);
+    expect(Math.abs(childDelta.x - nestedDelta.x)).toBeLessThanOrEqual(2);
+    expect(Math.abs(childDelta.y - nestedDelta.y)).toBeLessThanOrEqual(2);
+    expect(
+      Math.abs(
+        after.nested.left - before.nested.left - pointerDelta.x / scaleX,
+      ),
+    ).toBeLessThanOrEqual(3);
+    expect(
+      Math.abs(after.nested.top - before.nested.top - pointerDelta.y / scaleY),
+    ).toBeLessThanOrEqual(3);
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"))
+      .toBe("Nested");
+  });
+
   test("clicking a child inside Card selects Card, not Kid A", async ({
     page,
   }) => {
-    const id = await newDesign(page);
+    const id = await newBoardDesign(page, FIXTURE);
     await openEditorAndExpandLayers(page, id);
     const kidA = (await node(page, "kid-a").boundingBox())!;
     await click(page, kidA);
@@ -209,7 +702,8 @@ test.describe("click selects the container, not the deep child", () => {
           timeout: 10_000,
           message:
             'Figma spec §1: "clicking an object that lives inside a frame/group ' +
-            'selects the outermost/top-level container ... not the deep child."',
+            'selects the outermost/top-level container ... not the deep child." ' +
+            "(board surface only — screens deliberately select the deep child, see PR #5644)",
         },
       )
       .toContain("Card");
@@ -222,7 +716,7 @@ test.describe("click selects the container, not the deep child", () => {
   test("double-click after selecting Card drills into the clicked child", async ({
     page,
   }) => {
-    const id = await newDesign(page);
+    const id = await newBoardDesign(page, FIXTURE);
     await openEditorAndExpandLayers(page, id);
     const kidA = (await node(page, "kid-a").boundingBox())!;
     await click(page, kidA);
@@ -269,8 +763,6 @@ test.describe("click selects the container, not the deep child", () => {
     const id = await newDesign(page);
     await openEditorAndExpandLayers(page, id);
     const card = (await node(page, "card").boundingBox())!;
-    // Card's own padding, below both children: a plain click here selects
-    // the container directly (it is already top-level).
     await page.mouse.click(card.x + card.width / 2, card.y + card.height - 20);
     await expect
       .poll(async () => (await selectedLayerNames(page)).join("|"), {
@@ -354,7 +846,7 @@ test.describe("Esc / Enter traversal from a real drill-in", () => {
   test("Escape clears the selection entirely, even from a drilled-in child", async ({
     page,
   }) => {
-    const id = await newDesign(page);
+    const id = await newBoardDesign(page, FIXTURE);
     await openEditorAndExpandLayers(page, id);
     const kidA = (await node(page, "kid-a").boundingBox())!;
     await click(page, kidA);
@@ -376,8 +868,6 @@ test.describe("Esc / Enter traversal from a real drill-in", () => {
       .toContain("Kid A");
 
     await page.keyboard.press("Escape");
-    // Figma: Escape clears the selection entirely — it does not back out one
-    // level to the parent container.
     await expect
       .poll(async () => selectedLayerNames(page), {
         timeout: 10_000,
@@ -387,7 +877,7 @@ test.describe("Esc / Enter traversal from a real drill-in", () => {
   });
 
   test("Enter descends from Card to its first child", async ({ page }) => {
-    const id = await newDesign(page);
+    const id = await newBoardDesign(page, FIXTURE);
     await openEditorAndExpandLayers(page, id);
     const kidA = (await node(page, "kid-a").boundingBox())!;
     await click(page, kidA);
@@ -398,6 +888,7 @@ test.describe("Esc / Enter traversal from a real drill-in", () => {
       })
       .toContain("Card");
 
+    await page.locator("iframe[data-design-preview-iframe]").first().focus();
     await page.keyboard.press("Enter");
     await expect
       .poll(async () => (await selectedLayerNames(page)).join("|"), {
@@ -422,8 +913,6 @@ test("clicking empty canvas inside the screen deselects everything", async ({
     })
     .toBe(1);
 
-  // A point with no data-agent-native-node-id under it at all: below every
-  // fixture element but still inside the screen's own body background.
   const px = await canvasZoom(page);
   const empty = { x: soloA.x, y: soloA.y + 260 * px, width: 0, height: 0 };
   await click(page, empty);
@@ -441,8 +930,6 @@ test.describe("marquee semantics", () => {
     await openEditorAndExpandLayers(page, id);
     const soloA = (await node(page, "solo-a").boundingBox())!;
     const soloB = (await node(page, "solo-b").boundingBox())!;
-    // Start the band mid-way through Solo A and end it mid-way through
-    // Solo B: neither box is ever fully enclosed.
     await sweep(
       page,
       { x: soloA.x + soloA.width / 2, y: soloA.y - 20 },
@@ -592,10 +1079,6 @@ test.describe("board objects on the overview canvas", () => {
   test("cmd+click a child of an already-selected Card on the board surface replaces the selection with the child", async ({
     page,
   }) => {
-    // Reuses the nested Card/Kid A/Kid B fixture as the board file's content
-    // — the bug this guards is generic to the shared bridge/host round trip
-    // both the board surface and screen iframes funnel through, not specific
-    // to either one.
     const id = await newBoardDesign(page, FIXTURE);
     await openEditorAndExpandLayers(page, id);
     const card = (await node(page, "card").boundingBox())!;
@@ -701,13 +1184,6 @@ function screenCard(page: Page, index: number): Locator {
   return page.locator("[data-screen-card]").nth(index);
 }
 
-/**
- * Double-click a named leaf inside a specific screen's iframe (overview
- * mode). A plain single click always selects the outer content frame under
- * the pointer (see e2e/helpers.ts's selectableNodeByText); only a real
- * double-click descends to the exact leaf, which is what "a nested element
- * is selected" needs here.
- */
 async function selectByTextDeepInScreen(
   page: Page,
   screenId: string,
@@ -744,10 +1220,6 @@ async function selectByTextDeepInScreen(
   await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
   const message = await waitForBridge(page, "element-select");
   expect(String(message?.payload?.componentName ?? "")).toBe(text);
-  // A double-click on a text-bearing leaf also enters text editing, moving
-  // DOM focus inside the iframe — Escape exits editing without losing the
-  // shape selection, restoring the outer window as the hotkey listener's
-  // keydown target.
   await page.keyboard.press("Escape");
   await page.waitForTimeout(100);
 }
@@ -777,10 +1249,6 @@ test.describe
       })
       .toBe(1);
 
-    // Click Screen 2's name label (chrome above the card, never overlapping
-    // its content) WITHOUT deselecting the nested element first — clicking
-    // inside the card's rendered content selects the content element under
-    // the pointer instead, same as any other overview element click.
     await page
       .locator('[data-frame-title][title="page-two.html"]')
       .click({ force: true });
@@ -806,12 +1274,6 @@ test.describe
   test("marquee-selecting Screen 2 after a nested Screen 1 element replaces the layer selection, so Cmd+A selects all Screens", async ({
     page,
   }) => {
-    // The two screens stack with only a few px of gap between Screen 1's
-    // card and Screen 2's full frame (label included), so a marquee that
-    // fully encloses Screen 2's frame unavoidably clips into Screen 1's
-    // card too. Drag Screen 2 far away first — a real, independent gesture
-    // — so the marquee below can fully enclose it with generous padding on
-    // every side and unambiguously test screen-marquee selection alone.
     const label = page.locator('[data-frame-title][title="page-two.html"]');
     const labelBox = (await label.boundingBox())!;
     await page.mouse.move(
@@ -827,8 +1289,6 @@ test.describe
     await page.mouse.up();
     await page.waitForTimeout(300);
 
-    // Re-establish the repro precondition after the reposition above (which
-    // itself selects Screen 2 as a side effect of the drag).
     await selectByTextDeepInScreen(page, screen1Id, "Alpha Button");
     await expandAllLayers(page);
     await expect

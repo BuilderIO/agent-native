@@ -9,57 +9,44 @@ import {
 } from "../tool-call-journal.js";
 import type { AgentChatEvent } from "../types.js";
 
-/**
- * Minimal shape `runAgentLoop` needs from a prior tool call — kept local
- * (rather than importing `AgentLoopToolCallSummary` from `production-agent.js`)
- * so this module has no runtime dependency back on the file that calls it.
- */
 export interface PriorTurnToolCallSummary {
   name: string;
   input: unknown;
 }
 
-/** Minimal shape `runAgentLoop` needs from a prior tool result. See
- * `PriorTurnToolCallSummary` for why this is a local shape, not an import. */
+export type PriorTurnToolCallSequenceEntry =
+  | ({ event: "start" } & PriorTurnToolCallSummary)
+  | {
+      event: "done";
+      name: string;
+      input: unknown;
+      result: string;
+      isError: boolean;
+      completedSideEffect?: boolean;
+      replayed?: true;
+      matchedStart: boolean;
+    };
+
 export interface PriorTurnToolResultSummary {
   name: string;
-  /**
-   * Input of the `tool_start` this result was matched to, so the caller can
-   * rebuild the same `(tool, arguments)` breaker key its live counters use.
-   * Legacy `tool_done` events carry no input; those keep the positional
-   * FIFO-per-tool pairing documented in `tool-call-journal.ts`, so this is
-   * absent only when neither event carried one.
-   */
   input?: unknown;
   content: string;
   isError: boolean;
   artifacts?: ArtifactReceipt[];
 }
 
-/**
- * Outcome of reading the per-turn ledger. `unreadable` is deliberately NOT the
- * same value as a turn with no history: the repetition ledger, the read-only
- * result cache and the write-replay hard block are all seeded from this read,
- * so a swallowed ledger failure silently restores the per-chunk ceilings those
- * mechanisms exist to remove.
- */
 export type PriorTurnToolCallJournalRead =
   | {
       status: "read";
       toolCallJournal: ToolCallJournal | null;
       priorToolCalls: PriorTurnToolCallSummary[];
       priorToolResults: PriorTurnToolResultSummary[];
+      priorToolCallSequence: PriorTurnToolCallSequenceEntry[];
     }
   | { status: "unreadable"; error: string };
 
 const LEDGER_READ_RETRY_MS = 250;
 
-/**
- * `unreadable` ends the turn with a stop the user sees, so a single pool
- * timeout or connection blip must not produce one. One retry, because the
- * failures worth surviving are transient and the caller is holding the whole
- * turn open while we wait.
- */
 async function readCurrentTurnEventsWithRetry(
   threadId: string,
   turnId?: string,
@@ -77,38 +64,17 @@ async function readCurrentTurnEventsWithRetry(
   }
 }
 
-/**
- * Tool-call journal hard-block (resume safety). Snapshot the per-turn journal
- * ONCE here, before any tool runs in this chunk, so it reflects only PRIOR
- * run chunks of this logical turn. A write tool whose exact call already
- * completed in an earlier interrupted chunk must not re-fire its side effect;
- * when matched, `runToolCall` returns the journaled result instead of
- * executing.
- *
- * Loaded eagerly (not lazily mid-loop) so the current chunk's own
- * asynchronously-persisted tool_done events can never leak in and make a
- * same-chunk call wrongly short-circuit. Fresh first-turn calls see an empty
- * journal and are unaffected.
- *
- * Also returns the prior chunks' tool calls/results so the caller can seed
- * its own `toolCallHistory` / `toolResultHistory` accumulators — final
- * response guards must see successful reads from earlier chunks, not only
- * tools executed after the latest handoff. Otherwise a guard can reject a
- * grounded answer (or a successfully-created artifact) after the
- * evidence-producing query completed in a predecessor run.
- */
 export async function loadPriorTurnToolCallJournal(
   threadId: string | undefined,
   turnId?: string,
 ): Promise<PriorTurnToolCallJournalRead> {
   if (!threadId) {
-    // No thread means no durable ledger exists for this turn at all — a true
-    // "no prior history", not a read that failed.
     return {
       status: "read",
       toolCallJournal: null,
       priorToolCalls: [],
       priorToolResults: [],
+      priorToolCallSequence: [],
     };
   }
   let priorEvents: AgentChatEvent[];
@@ -123,21 +89,42 @@ export async function loadPriorTurnToolCallJournal(
   }
   const priorToolCalls: PriorTurnToolCallSummary[] = [];
   const priorToolResults: PriorTurnToolResultSummary[] = [];
-  // Open `tool_start` inputs per tool, so a legacy `tool_done` with no input of
-  // its own can still be attributed to the arguments it ran with.
-  const openInputsByTool = new Map<string, unknown[]>();
+  const priorToolCallSequence: PriorTurnToolCallSequenceEntry[] = [];
+  const openCallsById = new Map<string, PriorTurnToolCallSummary>();
+  const openCallsByTool = new Map<string, PriorTurnToolCallSummary[]>();
   for (const event of priorEvents) {
     if (event.type === "tool_start") {
       priorToolCalls.push({ name: event.tool, input: event.input });
-      const queue = openInputsByTool.get(event.tool);
-      if (queue) queue.push(event.input);
-      else openInputsByTool.set(event.tool, [event.input]);
+      const call = { name: event.tool, input: event.input };
+      priorToolCallSequence.push({ event: "start", ...call });
+      if (event.id) openCallsById.set(event.id, call);
+      const queue = openCallsByTool.get(event.tool);
+      if (queue) queue.push(call);
+      else openCallsByTool.set(event.tool, [call]);
     } else if (event.type === "tool_done") {
-      const fifoInput = openInputsByTool.get(event.tool)?.shift();
+      const queue = openCallsByTool.get(event.tool);
+      const call = event.id ? openCallsById.get(event.id) : queue?.[0];
+      if (call) {
+        const index = queue?.indexOf(call) ?? -1;
+        if (index >= 0) queue!.splice(index, 1);
+        if (event.id) openCallsById.delete(event.id);
+      }
+      priorToolCallSequence.push({
+        event: "done",
+        name: event.tool,
+        input: event.input ?? call?.input,
+        result: event.result,
+        isError: event.isError === true,
+        ...(event.completedSideEffect === true
+          ? { completedSideEffect: true }
+          : {}),
+        ...(event.replayed === true ? { replayed: true } : {}),
+        matchedStart: call !== undefined,
+      });
       const artifacts = event.artifacts?.filter(isArtifactReceipt);
       priorToolResults.push({
         name: event.tool,
-        input: event.input ?? fifoInput,
+        input: event.input ?? call?.input,
         content: event.result,
         isError: event.isError === true,
         ...(artifacts && artifacts.length > 0 ? { artifacts } : {}),
@@ -150,5 +137,162 @@ export async function loadPriorTurnToolCallJournal(
       priorEvents.length > 0 ? classifyToolCallJournal(priorEvents) : null,
     priorToolCalls,
     priorToolResults,
+    priorToolCallSequence,
   };
+}
+
+export const JOURNALED_TOOL_REPLAY_PREFIX =
+  "(Already completed in an earlier interrupted attempt - not re-run to avoid a duplicate side effect.)\n\n";
+export const RECOVERED_TOOL_REPLAY_PREFIX =
+  "(Recovered from prior interrupted chunk — action already completed.)\n\n";
+const LOADED_SKILL_CONTEXT_MAX_CHARS = 24_000;
+
+export function loadedSkillPagesContext(
+  results: readonly PriorTurnToolResultSummary[],
+  allowedSlugs: ReadonlySet<string>,
+): string {
+  const pages = new Map<string, string>();
+  for (const result of results) {
+    if (result.name !== "docs-search" || result.isError) continue;
+    const input =
+      result.input && typeof result.input === "object"
+        ? (result.input as Record<string, unknown>)
+        : null;
+    const slug = input?.slug;
+    if (
+      typeof slug !== "string" ||
+      !slug.startsWith("skill-") ||
+      !allowedSlugs.has(slug) ||
+      !result.content.startsWith("# Skill:") ||
+      result.content.includes("Doc not found:")
+    ) {
+      continue;
+    }
+    pages.delete(slug);
+    pages.set(slug, result.content);
+  }
+  if (pages.size === 0) return "";
+
+  const opening =
+    "<already-loaded-skills>These skill pages were already read earlier in this turn. Reuse them instead of calling docs-search again. If a page is marked truncated, read only when missing detail matters.\n";
+  const closing = "\n</already-loaded-skills>";
+  let remaining =
+    LOADED_SKILL_CONTEXT_MAX_CHARS - opening.length - closing.length;
+  const blocks: string[] = [];
+  for (const [slug, page] of pages) {
+    const heading = `\n## ${slug}\n`;
+    if (remaining <= heading.length) break;
+    const truncated = page.length > remaining - heading.length;
+    const marker = truncated
+      ? "\n[Skill page truncated to fit continuation context.]"
+      : "";
+    const body = page.slice(
+      0,
+      Math.max(0, remaining - heading.length - marker.length),
+    );
+    blocks.push(`${heading}${body}${marker}`);
+    remaining -= heading.length + body.length + marker.length;
+    if (truncated) break;
+  }
+  return blocks.length > 0 ? `${opening}${blocks.join("\n")}${closing}` : "";
+}
+
+export function seedRepeatedToolCallCountsFromJournal(
+  calls: readonly PriorTurnToolCallSequenceEntry[],
+  keyForCall: (name: string, input: unknown) => string,
+  isResurfacedReadOnlyDuplicate: (name: string, result: string) => boolean,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  const pendingStarts = new Map<string, number>();
+  const resetOtherCountsAfterWrite = (successfulWriteKey: string) => {
+    for (const otherKey of counts.keys()) {
+      if (
+        otherKey !== successfulWriteKey &&
+        (pendingStarts.get(otherKey) ?? 0) === 0
+      ) {
+        counts.delete(otherKey);
+      }
+    }
+  };
+  for (const call of calls) {
+    const key = keyForCall(call.name, call.input);
+    if (call.event === "start") {
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+      pendingStarts.set(key, (pendingStarts.get(key) ?? 0) + 1);
+      continue;
+    }
+
+    if (call.matchedStart) {
+      const pending = pendingStarts.get(key) ?? 0;
+      if (pending > 1) pendingStarts.set(key, pending - 1);
+      else pendingStarts.delete(key);
+    }
+
+    const replayed = call.replayed === true;
+    if (replayed || isResurfacedReadOnlyDuplicate(call.name, call.result)) {
+      if (call.matchedStart) {
+        const count = counts.get(key) ?? 0;
+        if (count > 1) counts.set(key, count - 1);
+        else counts.delete(key);
+      }
+      if (replayed && !call.isError && call.completedSideEffect === true) {
+        resetOtherCountsAfterWrite(key);
+      }
+      continue;
+    }
+
+    if (call.isError || call.completedSideEffect !== true) continue;
+    if (!call.matchedStart) counts.set(key, (counts.get(key) ?? 0) + 1);
+    resetOtherCountsAfterWrite(key);
+  }
+  return counts;
+}
+
+export function seedRepeatedToolErrorCountsFromJournal(
+  calls: readonly PriorTurnToolCallSequenceEntry[],
+  keyForCall: (name: string, input: unknown) => string,
+  normalizeError: (error: string) => string,
+): {
+  sameArguments: Map<string, number>;
+  sameTool: Map<string, number>;
+} {
+  const sameArguments = new Map<string, number>();
+  const sameTool = new Map<string, number>();
+  for (const call of calls) {
+    if (call.event === "start") continue;
+
+    if (call.replayed) {
+      if (!call.isError && call.completedSideEffect === true) {
+        const successfulWriteKey = keyForCall(call.name, call.input);
+        for (const key of sameArguments.keys()) {
+          if (!key.startsWith(`${successfulWriteKey}:`)) {
+            sameArguments.delete(key);
+          }
+        }
+        for (const key of sameTool.keys()) {
+          if (!key.startsWith(`${call.name}:`)) sameTool.delete(key);
+        }
+      }
+      continue;
+    }
+
+    if (call.isError) {
+      const error = normalizeError(call.result);
+      const toolKey = `${call.name}:${error}`;
+      sameTool.set(toolKey, (sameTool.get(toolKey) ?? 0) + 1);
+      const callKey = `${keyForCall(call.name, call.input)}:${error}`;
+      sameArguments.set(callKey, (sameArguments.get(callKey) ?? 0) + 1);
+      continue;
+    }
+
+    if (call.completedSideEffect !== true) continue;
+    const successfulWriteKey = keyForCall(call.name, call.input);
+    for (const key of sameArguments.keys()) {
+      if (!key.startsWith(`${successfulWriteKey}:`)) sameArguments.delete(key);
+    }
+    for (const key of sameTool.keys()) {
+      if (!key.startsWith(`${call.name}:`)) sameTool.delete(key);
+    }
+  }
+  return { sameArguments, sameTool };
 }

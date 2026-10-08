@@ -10,11 +10,6 @@ interface Fragment {
   sec: number;
 }
 
-/**
- * A synthetic fragment table. `bitrateAt` returns bytes per second of media at
- * a given time, so a test can build a clip whose byte<->time relationship is
- * deliberately non-linear — the shape that made byte-fraction seeks overshoot.
- */
 function buildFragments(opts: {
   durationSec: number;
   fragmentSec: number;
@@ -33,11 +28,6 @@ function totalBytesOf(fragments: Fragment[], trailing = 400_000): number {
   return fragments[fragments.length - 1].byte + trailing;
 }
 
-/**
- * Stand-in for `MseVideoLoader.probeFragmentAt`: the first fragment at or after
- * `startByte`, mirroring the real forward scan. Counts calls so tests can
- * assert the probe budget is not being burned.
- */
 function makeProbe(fragments: Fragment[]) {
   const calls: number[] = [];
   return {
@@ -88,8 +78,6 @@ describe("ByteTimeMap", () => {
 
   it("prefers real anchors over the end-of-file anchor", () => {
     const map = new ByteTimeMap(0);
-    // A clip whose first half is far sparser than average: 100 bytes/s to 10s,
-    // then much denser. A byte-fraction estimate for 5s would land at 25_000.
     map.add(0, 0);
     map.add(1000, 10);
     expect(map.estimate(5, { totalBytes: 50_000, durationSec: 20 })).toBe(500);
@@ -97,7 +85,7 @@ describe("ByteTimeMap", () => {
 
   it("extrapolates from observed bitrate when the total is unknown", () => {
     const map = new ByteTimeMap(0);
-    map.add(1000, 10); // 100 bytes per second
+    map.add(1000, 10);
     expect(map.estimate(20, { totalBytes: null, durationSec: 20 })).toBe(2000);
   });
 
@@ -116,9 +104,6 @@ describe("ByteTimeMap", () => {
 });
 
 describe("resolveSeekFragment", () => {
-  // The reported bug: a 10-minute screen recording whose first half is quieter
-  // than its second. Byte fraction 0.5 lands past the 5:00 mark, and appending
-  // there leaves the playhead in a gap MSE will never fill.
   const vbr = buildFragments({
     durationSec: 581,
     fragmentSec: 1,
@@ -147,9 +132,6 @@ describe("resolveSeekFragment", () => {
   });
 
   it("steps back with a growing stride past an oversized fragment", async () => {
-    // One fragment far larger than a probe window sits just past the target.
-    // A fixed step-back keeps re-finding it, because the window between holds
-    // only its mdat; the stride must grow to clear it.
     const fragments: Fragment[] = [
       { byte: INIT_LENGTH, sec: 0 },
       { byte: INIT_LENGTH + 1_000_000, sec: 10 },
@@ -164,19 +146,12 @@ describe("resolveSeekFragment", () => {
   });
 
   it("finds the first fragment when the target is near the start", async () => {
-    // The estimate for an early target, minus the probe-early bias, falls below
-    // the init segment. Reading that as "the estimate cannot move forward" and
-    // galloping ahead skips straight past the answer sitting at the floor.
     const { chosen, overshot } = await resolve(vbr, 1, 581);
     expect(overshot).toBe(false);
     expect(chosen!.sec).toBeLessThanOrEqual(1);
   });
 
   it("still probes a bracket narrower than one probe window", async () => {
-    // A declared duration well short of the real media inflates the implied
-    // bitrate, so the first probe overshoots at a position less than one window
-    // above the init segment. The window size says nothing about what a forward
-    // scan from lower down would return, so the bracket must still be probed.
     const dense = buildFragments({
       durationSec: 581,
       fragmentSec: 1,
@@ -201,7 +176,6 @@ describe("resolveSeekFragment", () => {
   });
 
   it("reports an overshoot when every fragment starts after the target", async () => {
-    // Only reachable for a target before the first fragment we can find.
     const fragments: Fragment[] = [{ byte: INIT_LENGTH + 5_000_000, sec: 100 }];
     const { chosen, overshot } = await resolve(fragments, 10, 200);
     expect(overshot).toBe(true);
@@ -209,9 +183,6 @@ describe("resolveSeekFragment", () => {
   });
 
   it("steps back instead of giving up when a probe runs past the end", async () => {
-    // An unknown total (cross-origin media hides Content-Range) makes the
-    // estimate overshoot the end of the asset, where the probe finds nothing.
-    // Abandoning there would strand a seek whose target is perfectly playable.
     const fragments = buildFragments({
       durationSec: 100,
       fragmentSec: 1,

@@ -218,7 +218,6 @@ describe("observational-memory store", () => {
       sourceEndIndex: 19,
       ownerEmail: "alice@example.com",
     });
-    // A different owner's larger range must NOT bleed into alice's accounting.
     await insertObservationalMemory({
       threadId: "t1",
       tier: "observation",

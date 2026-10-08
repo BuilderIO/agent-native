@@ -20,7 +20,7 @@ describe("desktop passive-access regressions", () => {
     const createWindow = between(
       main,
       "function createWindow(): BrowserWindow {",
-      "// ---------- DevTools: target the active app webview ----------",
+      'let activeAppId = "";',
     );
 
     expect(createWindow).toContain('win.webContents.on("will-navigate"');
@@ -32,7 +32,6 @@ describe("desktop passive-access regressions", () => {
   });
 
   it("keeps remote status read-only", () => {
-    // The Agent-Native Code IPC handlers live in ./ipc/code-agents.ts.
     const codeAgentsIpc = source("./ipc/code-agents.ts");
     const handler = between(
       codeAgentsIpc,
@@ -79,7 +78,7 @@ describe("desktop passive-access regressions", () => {
     const startup = between(
       main,
       "void app.whenReady().then(async () => {",
-      "// Webviews now run in per-app persisted partitions",
+      '\n});\n\napp.on("window-all-closed", () => {',
     );
 
     expect(projects).not.toContain("resolveUsableDirectory");
@@ -162,7 +161,6 @@ describe("desktop passive-access regressions", () => {
       "function normalizeContentFilesGrant(",
       "function loadContentFilesStore(",
     );
-    // The Content-files IPC handlers live in ./ipc/content-files.ts.
     const contentFilesIpc = source("./ipc/content-files.ts");
     const handler = between(
       contentFilesIpc,
@@ -231,7 +229,9 @@ describe("desktop passive-access regressions", () => {
       "<QueryClientProvider client={codeAgentsQueryClient}>",
     );
     expect(agent).not.toContain("AgentAdvancedMenu");
-    expect(agent).toContain("availableModels={availableModels}");
+    expect(agent).toContain(
+      "availableModels={showModelSelector ? availableModels : undefined}",
+    );
     expect(agent).toContain("onModelChange={(model, engine) =>");
   });
 
@@ -256,16 +256,25 @@ describe("desktop passive-access regressions", () => {
 
   it("retries a missing-provider chat after Builder connects", () => {
     const agent = source("../../../code-agents-ui/src/CodeAgentsApp.tsx");
-    const connectFlow = between(
+    const connectAction = between(
       agent,
-      "const connectBuilderProvider = useCallback(async () =>",
+      "const connectBuilderProvider = useCallback(() =>",
       "  const connectLocalRuntime = useCallback(",
     );
+    const connectedHandler = between(
+      agent,
+      "const handleBuilderConnected = useCallback(async () =>",
+      "  builderConnectedHandlerRef.current = handleBuilderConnected;",
+    );
 
-    expect(connectFlow).toContain('modelSelection.model === "auto"');
-    expect(connectFlow).toContain("hasMissingCredentialSignal(");
-    expect(connectFlow).toContain("await host.retryRun({");
-    expect(connectFlow).toContain("selectRun(retryResult.run.id)");
+    expect(connectAction).toContain(
+      "builderConnectFlow.start({ provisionAccount: false })",
+    );
+    expect(connectAction).not.toContain("window.open");
+    expect(connectedHandler).toContain('modelSelection.model === "auto"');
+    expect(connectedHandler).toContain("hasMissingCredentialSignal(");
+    expect(connectedHandler).toContain("await host.retryRun({");
+    expect(connectedHandler).toContain("selectRun(retryResult.run.id)");
     expect(agent).toContain("shouldShowCodeAgentCredentialCallout({");
     expect(agent).toContain("providerBlocked,");
     expect(agent).toContain("hasCredentialHistory,");
@@ -284,7 +293,6 @@ describe("desktop passive-access regressions", () => {
       "function hasPendingApproval(",
     );
     expect(detector).toContain("isCredentialGapCodeAgentEvent(event)");
-    // No local regex duplicate — the shared helper owns the fallback match.
     expect(detector).not.toContain("No LLM provider key was found");
   });
 
@@ -443,13 +451,9 @@ describe("desktop passive-access regressions", () => {
       "interface OAuthInjectionTarget {",
     );
 
-    // Reuses the same isDeepLinkArg/pendingDeepLink path as the macOS
-    // open-url cold start, instead of a parallel deep-link path.
     expect(singleInstanceSetup).toContain("argv.find(isDeepLinkArg)");
     expect(singleInstanceSetup).toContain("pendingDeepLink = deepLink;");
 
-    // Both the dev (no single-instance lock) and packaged (lock acquired)
-    // startup paths must capture it — a cold start can happen either way.
     const devBranch = between(singleInstanceSetup, "if (IS_DEV) {", "} else {");
     const lockAcquiredBranch = between(
       singleInstanceSetup,
@@ -464,12 +468,10 @@ describe("desktop passive-access regressions", () => {
       "capturePendingDeepLinkFromArgv(process.argv);",
     );
 
-    // app.whenReady() must be the only place pendingDeepLink is dispatched,
-    // so a cold-start link isn't handled before dependent startup steps run.
     const whenReady = between(
       main,
       "app.whenReady().then(async () => {",
-      "// Webviews now run in per-app persisted partitions",
+      '\n});\n\napp.on("window-all-closed", () => {',
     );
     expect(whenReady).toContain("if (pendingDeepLink) {");
     expect(whenReady).toContain("handleDeepLink(deepLink);");
@@ -510,7 +512,7 @@ describe("desktop passive-access regressions", () => {
     const navigation = between(
       main,
       "function installWebviewOAuthNavigationHandler(",
-      "// ---------- Webview popup handling ----------",
+      'app.on("web-contents-created", (_event, contents) => {',
     );
     expect(navigation).toContain(
       "denied desktop deep-link navigation from embedded content",

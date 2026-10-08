@@ -51,6 +51,1085 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.204.0
+
+### Minor Changes
+
+- b4285f5: Add `export-audit-ocsf` so org owners and admins can pull the organization audit trail into a SIEM as OCSF 1.9.0 API Activity events with overlap-aware cursor pagination. Harden service principal lifecycle and action grant enforcement, including audited refusals at MCP and A2A admission and queued-task processing.
+
+### Patch Changes
+
+- 4ba5ea5: Prebundle the shared chat entry in standalone AgentKit apps.
+- 59a6099: Preserve AgentKit transcript turn order and reconcile durable message mirrors when event history is incomplete.
+- 54f8526: Use the Dispatch app path for the default hosted workspace directory URL.
+- c3feada: Allow revocable organization service tokens to have a lifetime of up to ten years and give recap-auth failures the correct recovery command.
+- f823a43: A collab connection's own poll now counts another tab's resource-scoped action and Yjs events on the open resource as collaborator activity, so a viewer on a different screen of the same design or deck leaves the 1-5 minute idle cadence within one collab poll instead of waiting for the idle poll.
+- 9ac3cc7: Require the Factory feedback skill to reply with each status reaction.
+- d04dfdc: Fix Builder.io's managed storage provider returning 400 "No image specified" for `application/json` and `text/plain` chat attachments by routing those mimetypes through the signed-URL upload path instead of the legacy endpoint. Also normalize thrown provider upload errors to a 503 response instead of leaking the provider's raw status code.
+- 9f1a191: Preserve CLI action values that begin with option syntax.
+- b4285f5: Load service-principal grant enforcement only for service identities to reduce ordinary server startup work.
+- Release all public npm packages with a patch version bump.
+- 69b9fc6: Advertise each action's declared `mcpAnnotations` on every MCP catalog, not just the directory profile, so a Trash move or overwrite no longer reaches hosts as `destructiveHint: false`. Actions can also declare an optional `idempotentHint`.
+- f823a43: Poll reads that stop at a resource event whose access check is still running now wait up to one second for that check, so the first event after the access cache expires is delivered in the same poll instead of one poll interval later.
+- b4285f5: Preserve retryable service-principal authorization failures and audit denials across A2A, MCP resources, and sandbox child actions.
+- 5c1bae5: Pass authenticated caller identity into generated HTTP action handlers so actions such as org service-token management receive their verified user and organization context.
+- 13994d7: Persist explicit end timestamps for LLM trace spans and generation events.
+- b4285f5: Derive service-principal denial audit scope from the service identity and document ready-watermark cursor advancement for empty OCSF pages.
+- 1bffc30: Signing in from an emailed link no longer leaves the used `token`, `callbackURL`, and `newUserCallbackURL` in the address bar. Netlify copies a request's query string onto any redirect whose `Location` has none, so the bare redirect after a verified link landed on the page with the sign-in query still attached. When a browser navigation to a sign-in or OAuth callback would get a bare redirect, it now gets a small no-store HTML page that replaces itself with the clean destination, keeping every session cookie and the app's base path. This covers Better Auth callbacks, the new-user callback, Google OAuth completion, identity SSO, workspace connection OAuth, and MCP server OAuth. `queryEchoSafeRedirect` is exported from `@agent-native/core/server` for app-owned callbacks. API clients still get the redirect, and an expired or used link still lands with its `?error=` code.
+- 758bdba: Keep Design waitlist submissions within the published Forms use-case options.
+- Updated dependencies [c3feada]
+- Updated dependencies
+- Updated dependencies [bed3b01]
+  - @agent-native/recap-cli@0.5.66
+  - @agent-native/agentkit@0.204.0
+
+## 0.203.1
+
+### Patch Changes
+
+- 005805a: Label a model swapped in because the engine default was unchecked as `provider-selection-fallback` instead of `default`, so logs and traces can tell it from the engine's own default.
+- 005805a: Give lean hosted agent runs the `docs-search` tool their compact prompt tells the model to read skills with, and drop the skills summary from any prompt whose registry has no skill-read tool.
+- 005805a: Make the agent's end-of-turn follow-up call cheap, keep the tools array stable and let tool-search load several tools in one step, and report honest tool error signatures.
+- 005805a: Let a write action return a `_receipt` saying whether it changed anything and whether the change was verified, so the agent loop retries once or annotates the answer when the reply would claim more than the write proved.
+- df89804: Style the email authentication link confirmation page to match the shared auth flow.
+- ecfbb00: Preserve all app overrides when changing organization or personal model defaults, report the requested scope and effective app model separately, and keep reset-to-inherit explicit. App default changes preserve explicit chat and automation selections.
+- 044bbd7: Stop `manage-jobs` create from replacing an existing job file, and record a `job-fields-dropped` audit event when a write to a `jobs/` file removes its frontmatter fields.
+- Release all public npm packages with a patch version bump.
+- dc2b350: Expose verified directory widget read scope to frontend actions for safe read-only embeds.
+- d0fab3d: Add Design parity evidence and CI failure triage guidance to shipped feedback skills.
+- Updated dependencies
+  - @agent-native/agentkit@0.203.1
+  - @agent-native/recap-cli@0.5.65
+
+## 0.203.0
+
+### Minor Changes
+
+- 6b0f888: Show per-run provider or Builder credit costs in chat, and keep historical usage without billing metadata unclassified across usage dashboards.
+
+### Patch Changes
+
+- 3d573d7: Prevent duplicate chat output and bound custom transport snapshot persistence.
+- 8ec67cc: Pass HTTP client disconnect signals to action run contexts so long-running actions can cancel upstream work.
+- a3bda2e: Inline image data URLs now reach the agent as vision attachments instead of being mistaken for hosted file links.
+- 5fbfe23: Register private widget reads from the MCP directory profile.
+- 190fd73: Keep linked design-system guidance advisory when it is loaded from a style reference.
+- 839bbf0: Use action-specific labels in embedded app headers.
+- f00fe04: Fix event-triggered automation conditions failing with "No API key is available to evaluate this automation's condition" for owners whose only usable LLM credential is Builder Gateway or a non-Anthropic provider key. The condition evaluator now resolves its model through the same engine registry (`resolveEngine`) used by interactive chat and the automation's own run, instead of hardcoding a direct call to Anthropic's API with a raw provider key.
+- d317d31: Keep model choices current and show the Builder.io included-services count immediately.
+- a3bda2e: Deliver attached images with parameterized data URLs to agent vision paths.
+- Release all public npm packages with a patch version bump.
+- a676340: Keep MCP OAuth refresh grants valid until revoked instead of expiring them after inactivity.
+- 61543b2: Keep optional service packages out of new scaffolds unless the project's own environment enables them. Show the supported docs-search syntax when no search argument is provided. Keep the app-creation guide out of generic starter skill bundles while retaining Dispatch and Factory workflows, and document the domain-app generation path in the Chat starter. Give each first-party scaffold its appropriate app-building skill set, add a build-an-app guide where it fits, and stop scaffold updates from restoring skills that were intentionally removed.
+
+  Keep `agent-native typecheck` output focused on type errors instead of production deployment setup diagnostics emitted during React Router type generation.
+
+  Remove the shadowed `doctor` script alias from fresh scaffolds and keep the explicit `agent-native:doctor` command.
+
+- 53d886e: Treat malformed Builder credit usage responses as unavailable upstream data.
+- b236a46: Keep Design Systems waitlist submissions in their own Builder Forms routing bucket.
+- c9efc96: Keep email-change confirmation links scanner-safe and preserve configured app paths.
+- a845ec7: Keep email sign-in and verification links usable when mail security scanners prefetch them.
+- 03a0fbf: Stop offering Grok Code Fast and DeepSeek V4 Pro through Builder. Their upstream models were retired, so every request failed with a gateway internal error. Saved selections fall back to the default model.
+- bf9d6f8: New apps scaffolded from first-party templates keep the `@agent-native/otel` startup plugin and install the published package. It stays a no-op until `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+- 44bb794: Include authenticated read-only actions in scoped directory widget tickets when their profile explicitly permits them.
+- 31e4e13: Serialize event-subscription refreshes so a snapshot taken before a concurrent define or delete can no longer unsubscribe the newer automation. An interleaved refresh could leave an event automation without a bus subscription, silently dropping every event it should have received until the next refresh or process restart.
+- 87b11c5: Move the signup wave higher so it stays clear of marketing copy.
+- de755c7: Keep signup wave backgrounds empty until the ocean is ready and position them clear of the marketing copy.
+- 2aacdca: Include deployment and release failure checks in the factory feedback review skill.
+- 3d573d7: Persist AgentKit thread snapshots as bounded deltas so long conversations do not exceed hosting request limits.
+- 3d573d7: Persist sequence-advanced follow-up suggestions for completed runs and keep chat message counts aligned with the client when root replies mirror AgentKit messages, including folded continuations.
+- 4738d38: Include completed tool calls and results in the next AgentKit turn so the agent can answer questions about its prior tool activity.
+- 37b6513: Scope trigger condition cache entries to the classifier identity and reuse the background runner's resolved engine and model.
+- a5a7182: Allow Design Systems waitlist signups to use the shared Builder waitlist route.
+- f37033c: Persist opt-in prompt and response content on local LLM trace spans.
+- 5360c60: Keep ChatGPT directory widgets reloadable with verified-user-only publication, app-only renewal, and resource-scoped reads.
+- ed2afce: Rework the `turn-into-app` skill so generated apps open on a populated, domain-shaped surface instead of a stepper form: an archetype and named visual direction chosen before building, sample data shaped like the source, agent moments attached to the objects they act on, and a screenshot review loop before handoff. The skill body is leaner, with design guidance, source-brief recipes, and run/deploy detail moved into references.
+- d06e6bc: Restore the full shared MCP App widget for directory profiles.
+- Updated dependencies [3d573d7]
+- Updated dependencies
+- Updated dependencies [3d573d7]
+- Updated dependencies [4738d38]
+  - @agent-native/agentkit@0.203.0
+  - @agent-native/recap-cli@0.5.64
+
+## 0.202.0
+
+### Minor Changes
+
+- 123cf36: Add a session-authenticated Builder Gateway streaming endpoint for Desktop Code Agents.
+- 2f7e590: Agent-loop OpenTelemetry spans now follow the GenAI semantic conventions: `agent.run`, `llm.call`, and `tool.call` become `invoke_agent`, `chat {model}`, and `execute_tool {tool}` with `gen_ai.*` attributes. A registered meter provider also receives `gen_ai.client.operation.duration`, `gen_ai.client.token.usage`, `agent_native.agent.runs`, and `agent_native.tool.calls`. Spans and metrics carry the engine as `gen_ai.provider.name`; on metrics, a model the engine does not list as supported is recorded as `_OTHER`.
+- 6912f40: Report Core Web Vitals (TTFB, LCP, INP, CLS) once per page view as a `web_vitals` event keyed by React Router route template, mark them on session replays, and add the page's route template to `action.response`. Pages no manifest route matches send no route rather than a raw path, `web_vitals` never carries the page's `url` or `path`, a page loaded in a background tab sends no load, and a tab switch that measured nothing sends no page view. Session replay network events now carry `pageHidden: true` for requests made while the page was hidden. An `action.response` at or over `SLOW_ACTION_RESPONSE_MS` (1 s) that someone waited for (`isWaitedActionResponse`: the page stayed visible and the request wasn't cancelled) is also marked on the session replay as `agent-native.slow_request`, with its own duration, status, and outcome. Turn the capture off with `configureTracking({ webVitals: false })`.
+
+### Patch Changes
+
+- b22060c: Report why agent runs fail. `agent_run_outcome` now carries a `cause` (one of `AGENT_TROUBLE_CAUSES`) for a failed or interrupted run whose error code names one. It never carries the run's error message, and a code that is not an identifier, such as a sentence a route error set as its `data.code`, is sent as `unrecognized_code` (`agentErrorCodeForTelemetry`), so Analytics groups every other failure by its code. Stopped runs are reported unsampled under their own per-page cap, thumbs-up or thumbs-down feedback sends `agent_feedback_submitted` with the browser session, and every pageview carries `agent_signals: 1` so Analytics counts cancelled runs, thumbs-down, and quick backs only for sessions whose client reports them. Every pageview also carries a `page_load_id` that stays the same until the page reloads, so Analytics can tell a return to the previous page from a page another tab opened.
+
+  A turn the server refuses at its start, such as a chat with no model connected (`AGENT_CHAT_AI_SETUP_REQUIRED`, now named `no_model_connected`), reports its outcome under the turn id the server recorded. Framework route errors now keep a thrown error's `data.code` as `code` in the JSON body; before, the client only saw the HTTP status, so a chat with no model connected read as `forbidden`. A provider error whose HTTP status sits on a wrapped cause, like the Ollama provider's `status_code`, is now classified as `http_<status>`, so it reads as `provider_error` and gets the same retry handling as any other provider's status. `agent_chat_stuck_detected` now fires once per run, and only while the stuck banner shows. A session replay's console errors now carry `exception: false` for a plain `console.error` and `exception: true` for an exception Monitoring captured, so Analytics can tell which errors could have become issues. A session replay network event for a request the browser cancelled because the page was navigating or reloading now carries `pageLeaving: true`, so Analytics doesn't read it as a network failure.
+
+- c442bae: Record last touch beside first touch. The browser now keeps the latest visit that had a source (a `ref`, UTM tag or ad click id, a share link, or an outside referrer) in an `an_lt` cookie, and the signup event carries it as `last_touch_source`, `last_touch_ref`, `last_touch_via`, `last_touch_utm_*`, `last_touch_gclid`, `last_touch_msclkid`, `last_touch_vector_source`, `last_touch_referrer`, `last_touch_site_referrer`, `last_touch_path`, `last_touch_site_path`, and `last_touch_at`. As with first touch, `last_touch_path` is where the visitor entered the app, and `last_touch_site_path` is the marketing-site page a touch the site forwarded landed on. `last_touch_truncated: "true"` marks a last touch the browser had to trim to fit its cookie, or one dropped because both touches would overflow the signup handoff header, so first touch always survives. Magic-link signups carry last touch even when the browser has no first touch.
+
+  First touch is still first-write-wins, except that a visit with no source no longer blocks the first one that has a source. Referrers from `*.agent-native.com`, local dev servers, and Google sign-in don't count as a source, for capture and for `referral_source` alike. `getLastTouchAttribution()` is exported from `@agent-native/core/client/analytics`. The marketing site forwards its own last touch to the apps as `last_*` params, including `last_landing_path`, with `last_at`, the time of that visit, and an older site visit no longer replaces a newer one the app already recorded.
+
+- 053539c: The client replays a 401 or 403 for a minute only inside an embed, where it stops an expired embed token from setting off a retry storm. Outside an embed every read reaches the server, so a page shared with someone mid-session loads all of its reads as soon as access arrives instead of failing one of them with the earlier refusal. When a link's status turns `allowed`, `useResourceAccessGate` also forgets replayed refusals, so a tab that still holds an embed token after leaving the embed reads the page again instead of replaying the old refusal.
+- 6c0c4ef: Hold sign-up until the org tables exist on a fresh database. Sign-up checks org sign-in policy inside its transaction, and a missing table failed it as "Enter a valid email address".
+- 122d27a: Let a suggestion's author withdraw their own pending suggestion with comment access through `decide-resource-suggestion` (`decision: "withdrawn"`). A withdrawn suggestion gets the new `withdrawn` status, so it stays distinct from a reviewer's rejection. Accepting and rejecting still require edit access, and adapters' `coordinateDecision` now runs only for acceptance. Withdrawal skips the stale-base check, since withdrawing never applies the suggestion to the resource.
+- 123cf36: Keep Builder setup CTAs on the shared account chooser with one-click activation.
+- af9b97b: Fix chats with your own OpenAI or Anthropic key failing with 401 Unauthorized on hosts that inject a provider gateway URL (Netlify AI Gateway sets `OPENAI_BASE_URL` and `ANTHROPIC_BASE_URL` at runtime). A user, org, or workspace key now goes to the endpoint saved with it, or to the provider's official API; a deployment `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL` applies only to the deployment's own key.
+- f649ae6: Agent-readable links are shorter. Scoped agent-access tokens (`signScopedAgentAccessToken`, `createScopedAgentAccessGrant`) now use a compact format that no longer embeds the resource id in the payload; the signature covers it instead. A Slides deck link drops from about 290 to about 205 characters and a password-protected Clips link from about 360 to about 185, so both fit under the 250-character URL limit of Anthropic's web fetch tool. `viewerEmail`, `agentLabel`, and the expiry are still signed into the token. `verifyScopedAgentAccessToken` accepts both formats, so links minted before the upgrade keep working until they expire. Failures for a token minted for a different resource now report `bad_signature` instead of `wrong_resource`. `signShortLivedToken` and `verifyShortLivedToken` are unchanged.
+- 1ba0667: Add a `server-plugin-default-export` doctor guard that flags `server/plugins/` files with no default export, so `agent-native build` stops with a clear fix instead of failing later in the bundler with `[MISSING_EXPORT]`.
+- dfff955: Drop settled mutations from the query cache as soon as no hook observes them, so they no longer keep a render's data alive for five minutes.
+- 84e173d: Provider readiness preflights start a fresh status request instead of reusing an older in-flight probe.
+- a9879f8: Status checks that get refreshed mid-request now return the fresh answer instead of reporting the server as unreachable, so chat no longer gets stuck on "Couldn't confirm AI is ready" with prompts waiting to send. Retry on that message now clears the stuck state.
+- b22060c: `useLabState` now returns `refetch`, so a page can retry a Lab state that failed to load.
+- Release all public npm packages with a patch version bump.
+- b52ed3a: Bind cross-app MCP tokens to their endpoint, preserve verified user identity before organization fallback, and deduplicate organization-principal A2A submissions.
+- 1313fe1: Allow directory MCP profiles to omit MCP App widgets.
+- edc7f35: Shareable resources can take access requests. Set `accessRequests: true` on `registerShareableResource`, and a signed-in viewer who gets `denied` from `get-resource-access-status` sees `canRequest` and can call `request-resource-access` with an optional note. The owner and people shared directly as Admin, while their access still resolves, get an inbox notification and the `core.access-requested` email, which link to `/access-requests/<id>`; `approve-resource-access-request` grants through the same organization and recipient rules as `share-resource`, never lowers a stronger role, even one granted mid-approval, and emails the requester `core.access-granted`, returning `email` as `sent`, `skipped` (no email set up, or a test identity), or `failed`, while `decline-resource-access-request` records the decision without telling the requester, who can ask again after seven days. Requests are capped per requester and per owner each day, and asking again while a request is open notifies no one twice; a request whose send was cut off before anyone was told can be asked again, which sends it again under the same idempotency keys. `useResourceAccessGate` now offers `requestAccess` and checks the status every half minute while a request is open; `useAccessRequestReview` and `useResourceAccessRequests` read requests for review, the list returning the newest 50 with `hasMore`. Toolkit's `ResourceAccessScreen` takes a `request` prop for Request access with a note, `AccessRequestApprovalPage` is the review page an app mounts at `/access-requests/:requestId`, and the share panels of `ShareButton` and `ShareDialog` list pending requests with Allow and Decline for people who manage access.
+- 053539c: Add `get-resource-access-status`, which tells an app what a link the viewer can't open should say: `denied` (it exists, but not for them), `missing`, `trashed` (only to people who could open it), `signed-out`, or `allowed`. It never returns the resource's title, owner, visibility, or workspace, and signed-out callers learn nothing about existence. Shareable resources can declare an `availability` rule, such as not being in the trash, which joins the lightweight access projection. Apps read the status with `useResourceAccessGate` from `@agent-native/core/client/sharing` and render Toolkit's `ResourceAccessScreen`. A registration's `canManageAccess` hook now always receives the whole row, including during lightweight access checks. A registration can also declare a `fallbackAccessContext: { columns, resolve }`, such as the authority a space lends its members, which the status uses when the viewer's own context can't open the resource. Its columns join the lightweight projection, so `resolve` gets the row already loaded; `resolveAccess` and the share actions don't read it.
+- 3347175: Allow ChatGPT directory preflights from the documented OpenAI origins.
+- 4522907: Keep a session in one replay recording when the user reloads or navigates while an upload is in flight. Previously the next page resent the last chunk's number, the server rejected it with HTTP 409, and the recorder restarted under a new recording, splitting the session in two. An upload too large to outlive the page is no longer started as the page hides or closes; its events stay queued for the next upload of a page that survives.
+- dfff955: Session replay finds an iframe's closing head tag without copying the whole document, so large previews mount faster.
+- 7109d2c: Compact agent-access tokens keep session-replay links within the API URL limit.
+- c8fa837: Render hosted sign-in pages on the server, blur the signup form panel backdrop, and use the shared Calendar wave across signup pages and the homepage hero.
+- fa322d4: Route explicit local chat handoffs through the ChatGPT MCP App host.
+- a88e431: Recover exactly the automation runs a stopped worker left behind: settle every unfinished run past its liveness window instead of only the newest, leave a queued "Run now" dispatch alone while its claim lease is still valid, and finish a run only while the stored claim is unchanged from the one that was read. A queued run is no longer cancelled or overwritten before its worker starts, the stale run it hid behind is no longer left open, and a failed history write no longer stops the remaining runs from being settled.
+- 8283661: Accepting a suggestion that can no longer be placed now fails with a 409 `suggestion_stale` error and leaves the suggestion pending, instead of returning success while marking it stale. A decision sent with an outdated `observedBase` now fails with `suggestion_conflict` without changing the suggestion, and a stale proposal member reports `suggestion_stale` too.
+- e74a0f5: Correct widget metadata and resource handling for ChatGPT directory MCP profiles.
+- Updated dependencies
+  - @agent-native/agentkit@0.202.0
+  - @agent-native/recap-cli@0.5.63
+
+## 0.201.1
+
+### Patch Changes
+
+- 88908c5: Fix Builder OAuth origins and status checks for hosted previews, preserve signup errors when Sentry is unavailable, and bind organization A2A identities to verified membership.
+- cc3c820: Explain Builder.io's included services in first-run onboarding and keep the list collapsed until expanded.
+- 1aa53ac: Keep ChatGPT directory widget metadata and request diagnostics compatible with plugin review scans.
+- Release all public npm packages with a patch version bump.
+- 271c04f: Reload the app with a fresh shell when a deployed client chunk is missing.
+- c3d9b35: Expose the chat-first app creation prompt and focused PTY server modules.
+- b88b078: Declare the Tailwind typography plugin imported by the toolkit stylesheet and
+  show a localized unsupported-file message in the shared composer. Keep Core's
+  sync guard aligned with the Design and Slides tab variants already in main.
+- Updated dependencies
+  - @agent-native/agentkit@0.201.1
+  - @agent-native/recap-cli@0.5.62
+
+## 0.201.0
+
+### Minor Changes
+
+- af93f72: `useCollaborativeDoc` returns `flushUpdates()`, which resolves once every local edit has reached the server (or `false` when delivery failed), so a caller that also saves the same edit to SQL can send it through the document first and peers never apply the text twice. `SharedRichEditor` accepts `requestInitialSeed` and `onInitialSeedError`, so an editor that is not Content's can have the server seed an empty live document once instead of every client seeding its own copy; while that seed is pending the editor is read-only, and it does not emit an `update` for the editability change.
+- af93f72: Actions can declare `changeResource(input, result)` so their `action` change event also reaches every collaborator who can read that resource, not only the actor. A collaborative editor that never adopts a newer snapshot because its lead peer was not notified now adopts it itself after a grace period, and a server-merged save is no longer mistaken for the editor's own echo.
+
+### Patch Changes
+
+- e7b80a1: Fix agent chat failing with "column auto_continue_of of relation agent_runs does not exist" on deployments that apply schema changes at release.
+- 50ede47: Read agent SQL the way Postgres does before db-query, db-exec, and db-patch run it, and check in the transaction that every name resolves to the current user's scoped views. db-query now runs read-only. Adds `@agent-native/core/agent-sql` for apps that run agent-written SQL.
+
+  Adds `readAgentSqlQuery()` and `rewriteAgentSqlQuerySources()` for supported SELECT/WITH source names and exact text spans, and strengthens refusal of functions and operators outside `pg_catalog`, unsafe built-ins, and PostgreSQL escape-string continuation.
+
+  Adds `verifyAgentPostgresExpressions()` for routine, operator, and type-conversion resolution checks independently of source-view verification, so Analytics can reuse them in the same verified read-only transaction.
+
+  Protects MCP client, authorization-code, refresh-token, connect-token, and device-code metadata from raw SQL reads, writes, and patches.
+
+- 2e9fa5f: Continue an AgentKit chat turn automatically, in the same turn, when the server stopped it at its run time limit: at most three times per message, counted durably on the server, never after an error, stop, or credential or rate limit. Finished steps and cross-app delegations are reused instead of sent again, the chat shows a Resuming status with Stop still available, and past the cap the turn ends with Continue.
+- 2e9fa5f: Fail an automatic chat continuation with a retryable error when the server cannot read the stopped turn's history or run journal, or finds the thread missing, empty, or without the stopped turn's prompt, instead of continuing from the browser's copy, which lacks finished tool results and could repeat them. Resumed continuations now send a bounded window of earlier turns while keeping the stopped turn's tool calls and results whole.
+- 435a0c3: Background agent sessions (`startBackgroundAgentSession`) start again. Since the queued-message claim check, the agent-chat route rejected every background session with 409 "Queued message promotion claim expired", because a session sends its operation id as `queuedMessageId` without a queue claim. The route now recognizes a background session by its derived turn id and accepts it once, as before; a repeat of the same operation is still deduplicated, and queued chat messages still need a live claim.
+- 1bbb9fa: Send first-party analytics events, sign-in and sign-up events, replay uploads, and server events from hosted beta apps to beta Analytics instead of production Analytics.
+- 43694e6: Use Builder.io wording and one-click account activation across setup, recovery, voice, files, design, and Code Agents.
+- d63fd6c: Report a finished chat run as no longer active while keeping it available for replay, keep a queued follow-up's promotion claim when a thread save lands at the same time so the follow-up is answered, and stop a stale mid-stream save from adding a duplicate reply to the stored thread.
+- 7c73c56: Stop a reply saved mid-stream from coming back as a second, partial answer after a page reload replays the run.
+- 6deab14: Restore a completed assistant reply into the existing message when its run snapshot still identifies it after a reload.
+- 7c73c56: Generate chat titles on the engine and model the first prompt was sent with, and report a failed title call instead of returning an empty title.
+- 263c8a9: Keep corrupt Lab choices isolated to their own state reads.
+- af93f72: Collaborators editing different docs of one shared resource (two screens of a design, two slides of a deck) now keep each other's changes flowing: a resource-scoped action event from another tab or an agent boosts polling to 2.5 s for a minute when no realtime stream is connected, instead of falling back to the 1-5 minute idle cadence once presence on the same doc lapses. The history replayed by a tab's first poll does not count.
+- af93f72: Poll every 2.5 s while another person is present on the same collaborative document and no realtime stream is connected (serverless), so their edits land in seconds instead of up to a minute. Lone tabs and tabs on a live stream or hosted gateway keep their existing cadence.
+- 2e9fa5f: Add `deleteResolvedCredential` so a disconnect removes the credential the reader actually answers with, including a legacy `workspace` row, and refuses a member's removal of the organization's credential. `deleteCredential(key, { scope })` now clears every row that owner holds (secret, legacy setting, and legacy workspace/solo row), so a save that clears a value at its chosen scope never touches the other owner's.
+- 0eb2bf4: Preserve embedded SVG fragment references when rewriting CSS resources for Design exports and route binary Design exports through the shared action client.
+- 3a4824b: Exclude embed authentication metadata from generated worker GET action arguments.
+- a1b03c0: Record `error.type="suspended"` on `agent_native.telemetry.flush_failures` when the flush timer fires well past its deadline, which means the runtime froze the process mid-flush rather than the export being slow.
+- 60fb060: Allow Google Slides imports to include skipped slides so image placement stays aligned with the source deck.
+- 5504605: Return the typed AI setup error when chat title generation is requested without a connected model.
+- Release all public npm packages with a patch version bump.
+- 5b81f5d: Keep MCP HTTP servers connected when automatic protocol-version negotiation falls back after a rejected probe.
+- d63fd6c: Send action tools to the OpenAI Responses API as non-strict, so models can omit optional parameters instead of filling every one with a placeholder that validation rejects.
+- 2e9fa5f: Owners and admins now run on their organization's credentials (Builder.io connection, model provider keys, and other keys) ahead of their own, which stay as the fallback; members keep their own first. Key saves default to the organization for owners and admins and ask who can use the key. When the role can't be read, every key form, Email included, says so with a retry instead of saving.
+- 1fe679f: Keep external MCP action links as external URLs in desktop clients.
+- c325b49: Return a typed conflict when a queued message disappears during claim.
+- 3a4824b: Keep embed authorization query fields out of GET action arguments.
+- f0cc093: Tag the scaffold Docs card and onboarding links to agent-native.com with `utm_source=app`, and publish the npm README with `utm_source=npm` links. `docsUrl()` takes a `source` option, and `campaign: null` leaves `utm_campaign` off; otherwise it still defaults to `docs`.
+- a941a2e: Fix email/password sign-up hanging for about 45 seconds and returning 500 on serverless hosts. Better Auth's database handle now routes `getDbExec()` calls made inside its transaction onto that transaction, a database call that can never get the pool's only connection now fails immediately with `DbPoolSelfDeadlockError`, and on serverless a retry loop gives up before it can outlast the gateway.
+- af93f72: Scope collaborator activity boosts to the resource open in the tab, and require resource ACL checks before org membership exposes resource change events.
+- 3d6055f: Removed organization members lose org access through MCP OAuth and connect tokens on their next request. The MCP endpoint, the MCP OAuth token endpoint (code exchange and refresh), and bearer-authenticated framework action routes and recap uploads re-check that the token's user still belongs to its organization. If that check, the stored-org lookup for a connect token, or a connect token's revocation lookup cannot run, they answer a retryable 503 with `Retry-After` instead of a 401. A connect token whose revocation state can't be read was previously admitted. `@agent-native/core/server` exports `isCredentialMembershipUnavailable` so app routes that resolve bearer sessions themselves can give the same answer. The A2A endpoint no longer accepts MCP connect or OAuth tokens. A connect token with no stored row now runs Personal instead of taking its `org_domain` organization. `registerIdentityColumns` accepts a new `offboard: "revoke"` policy, and offboarding uses it to revoke a member's MCP refresh and connect tokens, and deletes their MCP authorization and device codes, instead of transferring them to the successor.
+
+  Membership checks require readable organization metadata. The service-identity exemption requires an authenticated connect credential with a matching stored service kind, owner, and organization; human OAuth subjects with service-shaped email addresses still require live membership.
+
+  New MCP authorization codes and refresh tokens retain their issuance owner binding in additive nullable columns. Unbound legacy grants and owner-binding mismatches fail with `invalid_grant`, without backfilling legacy owners. Intentional email rekeys update the issuance identity, while offboarding revokes or deletes grants and preserves the issuance binding. OAuth access tokens must carry `credential_version: 2`, so old OAuth access tokens are refused on rollout. Every existing OAuth connection must reconnect once, and pending old authorization codes must restart consent. Newly issued access tokens use their configured lifetime and live membership checks. Legacy A2A-format `mcp-connect` credentials and cross-app A2A tokens are unchanged by this cutover. Connections using old OAuth-format Connect tokens must reconnect too.
+
+  Failed refresh-renewal writes return retryable HTTP 503 with `Retry-After: 5`. Renewals of revoked or deleted grants return `invalid_grant` when no row is updated. Neither failure mints an access token. The cutover uses additive schema preparation without a bulk grant revoke or delete.
+
+  Human organization-bound OAuth and Connect issuance now shares a transactional membership lock with local offboarding. Authorization-code consumption and refresh-token creation commit together, and failed writes roll back consumption. Connect and device approval use the same boundary, so completed local offboarding cannot leave a newly issued grant behind. Remote membership-authority contracts are unchanged.
+
+  Account-email rekeying acquires organization membership locks before scanning credentials, matching issuance and offboarding lock order. This prevents missed organization-bound grants and opposing grant/member lock acquisition during concurrent rekeying and issuance.
+
+  Offboarding reads its credential-table catalog after acquiring membership locks, so the sweep includes first-time lazy table preparation completed by earlier issuance.
+
+  Refresh renewal and access-token signing use the same issuance transaction. Signing errors roll back renewal, and a failed transaction returns no access token. Membership-denial cleanup pins the validated owner/binding pair, preserving valid grants renamed concurrently; unavailable revocation counts return a retryable failure.
+
+  An account-email rekey records the old address as retired in its own transaction. MCP OAuth access and Connect tokens signed for that address before the rekey are refused, Personal ones included, and issuance refuses the address until an account registers it again. Rekey and every human credential issuance, Personal included, take a per-address transaction lock before any row lock, so issuance cannot write a grant for an address mid-rekey. Offboarding takes the same lock for the removed member, so a Personal grant issued during an account-wide offboarding is swept with the rest.
+
+  Org service-token creation rechecks, under the membership lock offboarding takes, that its creator is still an owner or admin, and records the token in the same transaction. A creator removed or demoted after the action's role check gets 403; an unreadable check gets a retryable 503. The create, list, and revoke service-token actions also answer a retryable 503, instead of a 400 or 403, when their caller's role or organization lookup fails. A template without organization tables still gets 400 or 403.
+
+- 1452a82: Scheduled integration recovery now dispatches recovered work to the deployment's own URL. Previously every recovery dispatch went to `localhost:3000` and failed, because the scheduled request carries no Host header. Integration tasks created more than 24 hours ago are no longer run, whether by recovery, as the next task in their thread, or as a multi-step campaign continuation, and they no longer hold up newer messages in that thread. Their rows are left as they are rather than answering long-stale messages.
+- d63fd6c: Restore a chat sent inside a resource after reloading that resource, instead of opening an empty new chat.
+- dff1e93: Raise a search index's target version before its migration installs change capture, so a build still running the previous version stops using the index instead of finishing a rebuild at that version. The migration also leaves capture alone when a newer version holds the index, and rebuilds the index when it finds capture was missing.
+- dff1e93: Install search change capture again when a release changes its trigger SQL, so a database that recorded an earlier build's capture doesn't stay on the fallback search.
+- dff1e93: Restart a search index rebuild that was still queueing rows or finishing when its index was discarded, instead of completing it without the writes made while change capture was missing.
+- 8b599e7: Capture `site_referrer` and `site_landing_path` from an app's landing URL into first-touch attribution and record them on the signup event. The marketing site forwards them on app links, so a visitor who reached www.agent-native.com from GitHub, YouTube, or search keeps that source when they sign up in an app. A forwarded referrer derives `referral_source: "external"`, the same as a referrer the app saw itself.
+
+  Add `captureAttribution()`, which stores the visitor's first touch right away instead of waiting for `configureTracking()`, for a page that reads it before tracking starts. Synthetic traffic is still skipped.
+
+- 2e9fa5f: Exclude test identities from metrics and non-auth email on every deployment through one rule, `isTestIdentity` (reserved `.test`/`.invalid`/`.localhost`/`.example` domains, the `+autoz` QA marker, and `AGENT_NATIVE_TEST_IDENTITY_EMAILS`). `sendEmail()` now returns `{ status: "sent" | "suppressed" }`; auth mail passes `authCritical: true` and still reaches test identities. Test identities are dropped from `to`, `cc`, and `bcc` alike (each logged), a real `cc` recipient stands in for a test-identity `to` (a `bcc` recipient never does), and a send left with no `to` or `cc` recipient is suppressed; `sendEmail()` now also delivers `bcc`. The `/_agent-native/auth/session` response now carries a server-resolved `testIdentity` boolean, so browser analytics, session replay, and exception capture skip configured identities too without the configured list reaching the browser.
+- 2e9fa5f: Flagged test-identity exceptions now carry the matched address as `test_identity_email`, so Agent-Native Analytics ingest can verify the identity instead of trusting a sender-set `test_identity` flag.
+- Updated dependencies
+- Updated dependencies [dd47e1b]
+  - @agent-native/agentkit@0.201.0
+  - @agent-native/recap-cli@0.5.61
+
+## 0.200.0
+
+### Minor Changes
+
+- 53f0c01: Default direct Anthropic and OpenRouter connections to Claude Sonnet 5.5, align the Builder model picker with the current gateway catalog, and refresh model labels.
+- 47c52cf: Add `registerObservabilityProvider()` to `@agent-native/core/server` so a host can hand core its OpenTelemetry tracer and meter providers. Core now records the unsampled `http.server.request.duration` histogram, measured at the response boundary, and the `agent_native.telemetry.flush_failures` counter, and force-flushes registered providers on the response hook with a 2-second cap so serverless exports are not lost; each provider's flush is awaited and counted on its own. `isServerlessRuntime()` is now exported from `@agent-native/core/server`. Scaffolded apps no longer carry a first-party template's workspace-only OpenTelemetry wiring.
+- ba09465: Pass app client compatibility versions through to action routes and support an explicit cache-busted retry after a stale-client reload is canceled.
+
+### Patch Changes
+
+- 1f6a79d: An app action that shares a name with a code-execution tool, such as `list-data-programs`, now keeps that name. Previously the framework's version replaced it on every agent and MCP surface, which dropped the app's `mcpTool` exposure.
+- 01131c3: Keep first-turn chat persistence reliable, record typed run failures, and expose chat readiness and signup attribution in analytics.
+- 563e22a: Creating a Builder.io account from "Create and activate" or "Create Builder.io account" is now one `POST /_agent-native/builder/provision` request with no popup window, so popup blockers no longer stop it; only connecting an existing account opens Builder's sign-in window, and composer runtimes without the consent popover never create an account.
+- 4f52c40: Builder.io asset uploads (signed URL, small-file, and upload-complete requests) now refresh the OAuth access token and retry once when refused with 401, instead of failing on a token that was revoked or rotated before its stated expiry. The retry only happens when the refresh produced a different token. `resolveOAuthCredentialAccess` gains a `forceRefresh` option that refreshes even a token with no stated expiry, and `resolveBuilderApiAuthorization`, `resolveBuilderRequestAuthorization`, `getBuilderOAuthSession`, and `getMcpOAuthAccessToken` pass it through.
+- 10aa0e1: Add a core search index that apps opt into with `registerSearchableResource`, fed by a general resource change feed that captures every write with database triggers. Search answers from the index only when it is current and never polls, so it never wakes a sleeping database. A term too long for the index throws `SearchTermTooLongError`, which apps answer with their previous search. The query parser moves to `@agent-native/core/search-query`.
+- 5c41297: Preserve verified request identity when recording completed agent runs.
+- 891062d: Label `agent_native.telemetry.flush_failures` with `agent_native.telemetry.signal` (`metrics` or `traces`) so a timed-out or failed flush can be attributed to the export that caused it.
+- da846cf: Keep the JWKS endpoint publishing the live signing key once an app's `jwks` table holds more than 100 rows, and stop minting a new key on every signature in that state.
+- 1323e3a: Store the default template's `.env.example` and `_gitignore`, and the package's `.npmignore`, with LF line endings like the rest of the repo. No content change.
+- 24f73c2: Keep Vite hot updates authenticated when a live Design frame has an opaque origin.
+- Release all public npm packages with a patch version bump.
+- 1f6a79d: Let apps limit `listVisibleMcpTools` and `callMcpTool` to servers whose URL belongs to a named provider, so a server that reuses another provider's tool names cannot receive its calls.
+- 5113a23: Make follow-up queueing reliable, preserve each prompt's run options, and keep internal context out of user-visible text.
+- 9a09590: Keep useful agent activity labels visible while a run is active.
+- 8aae00f: Keep CLI commands running when the platform browser opener is unavailable.
+- 2254122: Scope workspace navigation per app and preserve agent status lookup failures.
+- 73c2373: A prompt refused for missing AI setup now keeps what its retry needs (references, model, engine, effort, request mode) and a refusal marker in the thread, so the setup card finds it after a reload; the server lets only one tab send the after-setup resend of a refused run. The composer's `onBeforeSubmit` receives the draft it is holding and the handle gains `getDraftSnapshot()`, so a host resumes only a draft that was not edited while connecting. An unreadable provider 403 during a key check is retryable instead of a rejected key, and a misconfigured Builder host is no longer reported as a credit-service outage.
+- 73c2373: A refused prompt's refusal marker and retry context now survive a client thread save and reload, and the references stored with it are validated against the composer's bounded reference shape. The after-setup resend claim is released when the thread's run slot is busy and swept with a compare-and-delete, provider 408 and 425 answers during a key check are retryable, and the composer's draft snapshot tells apart a replaced attachment that has the same name and compares every field of each reference, so a held-back draft is resumed only when nothing it would submit changed.
+- 73c2373: Answer chat turns the server refuses before a run starts (AI setup missing, no usable model credential) in the thread itself: the prompt and a typed failed run are persisted server-side, the chat shows the connect card with a retry, and the refused prompt is sent again once after Builder or a provider key is connected. Run lifecycle analytics now carry the canonical user id from the request context and count refused turns as `run_no_reply`.
+- da846cf: Complete a chat reply that continued across several runs when the page was reloaded before the last continuation finished, instead of showing only the first half.
+- 73c2373: `onAgentRunComplete` now receives `{ turnContinues }` so an observer can tell a finished turn from a run that handed off to a continuation run. The retry marker on a recovery message now survives a reload, so a refused prompt is sent again only once across cards, tabs, and reloads, and only AI-setup refusal cards are hidden once a later run starts.
+- a2d1e33: Redact SQL bind parameters from error telemetry and server logs.
+- 393d119: Mark tracked browser analytics events on session replay timelines. Each marker records only the event name; telemetry events such as page views and action responses stay unmarked.
+- 4bee69d: Explain oversized agent chat requests and improve actionable failure recovery feedback.
+- 29a6eef: Restore chat runs and return typed run-slot conflicts after a thread reload.
+- 73c2373: Report Builder credit-service outages and unverifiable provider key checks as typed, retryable failures instead of generic 500s and "rejected key" 400s, and accept OpenAI project keys restricted from listing models.
+- 73c2373: Persist first-touch utm_source, utm_medium, utm_campaign, utm_term, gclid, msclkid, vector_source, and referring host on the Better Auth user row at signup (additive nullable columns), for every signup path that carries browser attribution.
+- Updated dependencies
+- Updated dependencies [5113a23]
+  - @agent-native/agentkit@0.200.0
+  - @agent-native/recap-cli@0.5.60
+
+## 0.199.0
+
+### Minor Changes
+
+- a80ad13: Add official Sign in with ChatGPT plan access for local open-source apps.
+- 9e1dbd1: Add a curated MCP directory profile with explicit tool annotations, widget origins, and the OpenAI domain challenge route.
+
+### Patch Changes
+
+- 917578c: Tag internal AgentKit startup activities with stable IDs so clients can hide them without matching display text.
+- 3f34a17: Keep active durable chat runs connected after repeated stream interruptions.
+- 2a52597: Show Builder credit balance and quota in the sidebar for workspace admins.
+- a77dfe9: Disable the remote MCP Apps bridge fallback for ChatGPT directory widgets, validate profiles against the request MCP action surface, keep dev-open requests on the sparse surface, resolve the configured owner through typed app config, and return a typed 503 for invalid profiles or widget origins.
+- a1e74f5: Gate ChatGPT plan access behind an opt-in lab and simplify account management.
+- a1e74f5: Count a connected ChatGPT plan as a model provider in Settings, offer its models as the default, and simplify the ChatGPT account row with a disconnect confirmation.
+- 628a01f: Fix local Claude Code runs failing at startup with "Cannot read properties of undefined (reading 'userEmail')" when loading workspace MCP servers.
+- 1ef02b8: Give local Claude Code runs the same workspace app MCP servers that Codex runs already receive, through a private `--mcp-config` file that is removed after the run. Both paths now reject MCP server IDs that normalize to the same key (for example `sales.prod` and `sales/prod`) instead of silently dropping one of them.
+- e00c9c1: Actions that throw `FeatureNotConfiguredError` now return its message with a 400 status and `errorCode: "feature_not_configured"` instead of a generic "Internal server error".
+- 44825d4: Preserve full structured results from read-only MCP tools in agent context.
+- ebface7: Harden the boundaries behind the most-reported breakage. A closed chat stream now asks the server for the run's real state before the UI shows an outcome, and a user message sent during an active run waits instead of erroring. Sign-in state is one shared fact with one navigator, so reloads no longer flash to sign-in. Credential state is one typed value, so the credits banner and chat errors agree and activation can no longer replace an organization's Builder connection. Attachments resolve through one typed reference. Background automations record their real failure cause and pause after repeated identical failures instead of re-failing every tick. Error capture classifies and aggregates floods, groups one error into one issue, and filters third-party noise at one boundary. Tool-call errors keep a redacted reason, and human-in-the-loop pauses are no longer counted as errors. Expected action failures are typed 4xx responses, action hooks back off and stop on terminal errors, and a guard rejects new bare `throw new Error(...)` in actions. The shared command menu opens from the focused agent composer.
+- Release all public npm packages with a patch version bump.
+- 00518ee: Expose request-scoped secret prefetching through the server API so apps can batch credential lookups.
+- d385f5a: Preserve the client asset directory when assembling a Netlify workspace app named `assets`.
+- e47f4a2: Protect hosted serverless schema guards when `NODE_ENV=test` is set.
+- d98fcf3: Validate raw MCP tool schemas with their declared or protocol-default JSON
+  Schema dialect.
+- 08d2811: Resolve the authenticated principal before building MCP configuration for Claude CLI runs, and reject inconsistent Builder credit quota totals.
+- 452757b: Normalize changing provider cooldown countdowns so repeated tool failures trigger the shared stop guard.
+- Updated dependencies
+  - @agent-native/agentkit@0.199.0
+  - @agent-native/recap-cli@0.5.59
+
+## 0.198.8
+
+### Patch Changes
+
+- 5b37ae2: Expose app actions to dev-mode sub-agents.
+- Release all public npm packages with a patch version bump.
+- eca03a6: Keep optional migration codemods out of application build graphs.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.8
+  - @agent-native/recap-cli@0.5.58
+
+## 0.198.7
+
+### Patch Changes
+
+- 1f2c8d5: Scope workspace dependency checks to Core apps, resolve Dispatch admin email settings through typed app config, and require Core 0.198.6 or newer for Dispatch.
+- 3ba09b7: Stop an agent from retrying a typed provider rate-limit error in the same turn.
+- 3ba09b7: Refresh chat readiness after a provider connection so chat unlocks immediately.
+- Release all public npm packages with a patch version bump.
+- 52d8c49: Include Drizzle ORM in generated app dependencies so production server bundles can resolve database modules.
+- 3ba09b7: Copy complete Visual Edit instructions by default and show Builder.io for Builder credit connections.
+- c3427be: `agent-native dev` no longer crashes in headless environments when no browser opener is installed. Workspace dev skips browser auto-open in CI, remote containers, and Linux without a display, and accepts `--no-open`.
+- Updated dependencies
+- Updated dependencies [3ba09b7]
+  - @agent-native/agentkit@0.198.7
+  - @agent-native/recap-cli@0.5.57
+
+## 0.198.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.6
+  - @agent-native/recap-cli@0.5.56
+
+## 0.198.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.5
+  - @agent-native/recap-cli@0.5.55
+
+## 0.198.4
+
+### Patch Changes
+
+- 85a87e6: Split ChatFirst navigation from its pane bundle, preserve queued chat intent through provider preparation, and keep client-only SSR stubs constructible.
+- 7a25922: Support Manual and Automatic Gong MCP OAuth registration.
+- df67544: Keep icon upload validation and transfer errors visible in the shared picker, with localized feedback for unsupported image formats and failed uploads.
+- c82ae28: Resolve migrated Labs choices against existing feature flag settings while preserving explicit Off and showing inherited mixed settings.
+- Release all public npm packages with a patch version bump.
+- df67544: Store uploaded icons in private blobs with scoped metadata and verified image reads.
+- a24f1d7: Route raw database queries through the active Drizzle transaction.
+- 20d3bb8: Restore typed workspace connection requests when chat resumes OAuth or a custom credential resolver finds no connection.
+- Updated dependencies [85a87e6]
+- Updated dependencies
+- Updated dependencies [20d3bb8]
+- Updated dependencies [be78352]
+  - @agent-native/agentkit@0.198.4
+  - @agent-native/recap-cli@0.5.54
+
+## 0.198.3
+
+### Patch Changes
+
+- 8f82288: Scaffold configured feature dependencies and preserve long workspace URLs.
+  Keep optional Playwright imports external to app bundles so builds do not require its optional Chromium dependency.
+- e6de282: Export the shared free email provider domain set for SQL-backed visitor classification.
+- 2384c2d: Apply every key in a fast burst to the `agent-native create` wizard in order, so typing ahead no longer toggles or picks a stale row.
+- bc1a43e: Connecting from a terminal now lets people who belong to several organizations choose one, and gives an account without an organization its default one. Connection tokens created on the connect page use that organization too.
+- 036c2c7: Tighten test-only assertions for the dev auth secret and the Dispatch auth plugin so they fail when the behavior they name breaks. No runtime change.
+- fd833a4: Allow equivalent loopback hostnames when serving live-edit previews.
+- Release all public npm packages with a patch version bump.
+- 64eb041: Omit an empty framework route prefix from workspace child and runtime environments.
+- ce1245c: Preserve queued chat intent through asynchronous preparation and resumed runtime streams.
+- a202db4: Allow the deployed Slack app's signing secret to verify webhooks under the integration owner's credential context while preserving scoped overrides and synthetic-request isolation. Keep unreadable hosted credential stores from falling through to deployment credentials.
+- e90dedc: Explain agent runs in the Observability dashboard: the Overview tab now summarizes spend, completion, and what the framework handled (parallel tool calls, recovered tool errors) with grouped "worth a look" findings, and the Conversations tab shows each prompt in plain language (what it did, which tools failed and why, what it cost per step) with the raw span trace one click away. Adds the `get-usage-insights` and `get-usage-run` actions.
+- Updated dependencies [8f82288]
+- Updated dependencies
+- Updated dependencies [ce1245c]
+  - @agent-native/recap-cli@0.5.53
+  - @agent-native/agentkit@0.198.3
+
+## 0.198.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.2
+  - @agent-native/recap-cli@0.5.52
+
+## 0.198.1
+
+### Patch Changes
+
+- 0b127e9: Clear chat input immediately on submit and show the pending response status in the transcript.
+- fc8fce1: Make MCP App chat bridges preserve host results and reject unsafe fallbacks.
+- Release all public npm packages with a patch version bump.
+- affa25c: Keep provider readiness checks quiet around chat composers.
+- 905b078: Fix the `useSendToAgentChat` migration from Core's mixed chat subpath to Toolkit's composer UI. See the [Core UI migration guide](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx).
+- bbd485b: The shared Vitest config (`@agent-native/core/vitest-config`) now allows 30 seconds per test instead of Vitest's 5-second default, so tests that boot PGlite or import a server bundle no longer time out when test workers use every core.
+- Updated dependencies [0b127e9]
+- Updated dependencies
+  - @agent-native/agentkit@0.198.1
+  - @agent-native/recap-cli@0.5.51
+
+## 0.198.0
+
+### Minor Changes
+
+- 6392530: Expose shared MCP Apps through OpenAI global and thread entrypoints, and route app chat buttons through standard MCP model-context and message methods.
+- afbee14: Move runtime-backed React surfaces and generated source corpus out of Core's default package path, and move AgentKit's React entrypoints to Toolkit in a breaking AgentKit release. Follow the [Core 0.198.0 upgrade guide](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx) when updating an existing app or consuming AgentKit directly.
+
+### Patch Changes
+
+- 9e370ee: Show app-specific settings immediately below Account in the settings navigation.
+- e6a53e1: Preserve retryable state when a session lookup fails.
+- 8853f61: Enable runtime skill discovery in the shared AgentKit composer so users can invoke exposed skills with `/`.
+- 033463d: Restore how Builder.io connections were stored and read before the Settings redesign. Account activation from a prompt that doesn't name the organization connection saves the new account personally for every role again, so an owner or admin can no longer replace the organization's Builder account by activating from it. Every role runs on their own Builder connection first and the organization's second, as before.
+- f580a07: Move the chat history revert control into the scrollable transcript.
+- 39ddf59: Style the server-rendered auth fallback so the signup page does not flash unstyled content before hydration.
+- 20cd76f: Fix Toolkit server builds when collaboration code imports `ySyncPluginKey`, and declare the docs app's optional database and source-map upload packages.
+- 8853f61: Keep reasoning inside collapsed work history, align disclosure chevrons with their labels, and tighten progress spacing. Show elapsed time once on the work summary instead of repeating the full run duration on each thought.
+- 8853f61: Render model-authored follow-up suggestions only for the latest successfully completed turn, retire stale suggestions across new turns and restores, and submit full suggestion prompts through normal context and permission checks. Keep initial empty-state starters separate from conversational follow-ups.
+
+  Pass the active thread ID to fullscreen callbacks instead of a menu selection event.
+
+- afbee14: Report moved stylesheet imports with Toolkit destinations and codemod guidance.
+- 0744fc1: Align Better Auth packages so npm can resolve the Core CLI without legacy peer dependency flags.
+- 8853f61: Let native chat agents author up to three contextual follow-up suggestions within the existing agent run, without a separate suggestion-generation service. Validate and publish quiet, run-scoped suggestion metadata only on successful completion; suppress it on interruption, pending approval, run-boundary continuation, or rejected responses. Independent harness runtimes without a structured follow-up contract do not synthesize suggestions.
+
+  Evaluate follow-ups in the interactive run's shared instructions. Save suggestions and canonical run status in the existing thread snapshot on server completion, including when the client is disconnected. Clear stale suggestions on new submissions and unsuccessful turns, and preserve completed results and richer client progress during snapshot merges.
+
+- 8853f61: Clear shared chat composers when AgentKit owns the recoverable user message instead of waiting for the agent request to start. Preserve newer drafts, explicit send failures, and queued-message acknowledgement timing without sending local callbacks to transports or persisted submissions.
+- 8853f61: Show catalog integration badges throughout live and expanded agent activity, retaining provider identity while tools run and keeping activity from different providers in separate groups.
+- 2267b42: Allow apps to redact additional URL query parameters from session replay at record time.
+- Release all public npm packages with a patch version bump.
+- d216480: Preserve MCP app chat delivery outcomes and prevent stale or duplicate submissions.
+- 7552336: Use the durable sync cursor directly for release-owned serverless polls instead of rescanning external change markers.
+- 8853f61: Collapse run activity by default, keep the latest active step visible, and group expanded history by purpose.
+- 77cde08: Treat contentless pasted-text descriptors as display-only and report rejected queued chat sends.
+- 8853f61: Keep fullscreen chat menu entries text-only without changing their current-thread handoff or navigation behavior.
+- 8853f61: Keep context launchers disabled with the composer, expose the disabled textbox state to assistive technology, and hide chat suggestions until AI is ready.
+- 8853f61: Complete omitted follow-up metadata once within the same agent run so contextual suggestions refresh after subsequent replies. Preserve deliberate empty decisions and completed answers, and report optional metadata failures without executing additional app actions.
+- 8853f61: Align the shared + and @ launcher above the composer with searchable categories and optional descriptions. Reuse scoped mention discovery for registered resource and agent references, report failed searches, and reserve discovery results for each source so files cannot crowd out connected agents.
+- 8853f61: Scope AgentKit capability caches and readiness checks to the current account, organization, and app; preserve visible cross-app MCP tools, invalidate changed integrations, and reject stale selections. Keep integration setup availability consistent across the legacy dialog and detail page, including app-scoped token fallbacks and supported managed OAuth flows.
+- 8853f61: Expose per-thread composer context providers so apps can share their reference and integration menus across home, sidebar, and full-page chat while revalidating captured context before submission. Preserve bounded, identity-scoped selection metadata across surface handoffs and re-read reference content on remount.
+- 8853f61: Connect AgentKit context menus to app-scoped provider credentials and currently available MCP tools.
+- 8853f61: Show available integrations in a shared composer submenu with explicit connection setup, loading, and recovery states.
+- 8853f61: Keep follow-up suggestion rendering owned by the Core chat host so completed turns show one row and hidden placement stays hidden, while standalone AgentKit retains its default suggestions.
+- 20cd76f: Fix `agent-native doctor` so mixed-subpath imports report each symbol's actual Toolkit destination and the migration guide. Rewrite literal dynamic imports for whole-module moves. The [Core UI upgrade guide](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx) documents the codemod workflow.
+- 8853f61: Preserve completed runs when history refresh or stream closure fails, honor resolved approvals during hydration, keep connection continuations responsive, and expose tool, approval, and cancellation failures. Reject retained attachments if standalone upload access is withdrawn instead of silently dropping files. Reset chat disclosures across threads, preserve host composer gates, recognize streamed provider arguments, and contain long transcript content. Integrate thread- and account-scoped app composer context with exact revalidation, active-surface checks, and accepted-only cleanup while preserving ambient context, composer mode instructions, and full menu defaults.
+- fb7479a: Keep capability-backed embed reads working after optional account requests fail.
+- 10287bf: Use the simple branded app format for default OG images instead of signup-page marketing copy.
+- 2512b44: Add the animated signup wave to branded auth pages and improve mobile heading spacing.
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies
+- Updated dependencies [8853f61]
+- Updated dependencies [afbee14]
+- Updated dependencies [8853f61]
+  - @agent-native/agentkit@0.198.0
+  - @agent-native/recap-cli@0.5.50
+
+## 0.197.0
+
+### Minor Changes
+
+- b8845eb: Bound framework list reads and remove the vault-wide resync from process startup.
+- 7032734: Add an Ink setup wizard to `agent-native create` with project previews and clear cancellation and help behavior.
+- 8fd97ec: Let workspaces choose which hosted first-party apps they offer with `agent-native.builtinAgents` (`mode: "all" | "none" | "selected"`, `include`) in the root or standalone `package.json`. Dispatch's app list now follows that config instead of always adding the chat-first defaults, and local workspaces outside the framework repo link built-ins to their hosted URLs.
+- 82ad87c: Move optional integration, ingestion, telemetry, and CLI packages out of Core's install-time dependency graph. Features now load peers on demand and report a typed install error when invoked without them. `initServerSentry` is now async and callers must await its `Promise<boolean>` result. Auth pages can use injected renderers, with a plain HTML fallback; without an injected renderer, the form is rendered after client hydration. Remove the decorative WebGPU ocean background from Core's auth and onboarding UI.
+- 6d1b545: Make background sync opt-in and refresh local agent edits from the chat run stream.
+- b8845eb: Remove `getAllSettings()` and `listSettingsByKeySegments()`; use `getSetting()` or `getSettings(keys)` when the required keys are known. Remove `CollabPluginOptions.resolveCollabDocumentId` and its whole-table lazy-seed lookup; use `resolveSourceIdFromCollabDocumentId` to map a collaboration document id to its keyed source row. These exported APIs are removed because they require table-wide reads.
+- bee46b1: The redesigned Settings is now the only Settings for every app, with no feature flag. `SETTINGS_REDESIGN_FLAG` is deprecated and no longer registered; `useFeatureFlag` and `useFeatureFlagState` read it as on, so apps generated from older templates that still check it keep the redesigned layout.
+- f12a2de: Add a speech-synthesis route: `POST /_agent-native/speak` turns text into
+  `audio/mpeg` bytes through the request's own `OPENAI_API_KEY`, and
+  `@agent-native/core/client/speak` exposes it to app code as `fetchSpeechClip`.
+
+  It returns 400 with `reason: "no-provider"` when no key is configured, so a
+  caller can fall back to the browser's speech synthesiser without mistaking an
+  unconfigured app for a failing one. Every other refusal carries its own reason,
+  and an empty 200 from the provider is reported as a failure rather than played
+  as silence.
+
+### Patch Changes
+
+- c3a770e: Expose the model's tool-call ID in action run context so apps can correlate each invocation with its progress and results.
+- b99ba49: Keep visitors on beta when they arrive there without a beta session.
+- fa62fdf: Allow routes to skip first-run onboarding while keeping the session gate active.
+- 4dae8b5: Allow Better Auth endpoints through the auth guard under a custom framework route prefix.
+- f2e8ffe: Center empty chat composers correctly and make send buttons circular across shared chat surfaces.
+- f396b49: Cast the scheduled failure-alert retry timestamp as `bigint` so PostgreSQL can run lease recovery on empty tables.
+- 9e87b45: Align settings content widths and controls with the shared settings layout.
+- 320d884: Report Builder-routed usage in Builder credits and show connected workspace credit balances to admins.
+- 4dae8b5: Follow server-driven run continuations in the native chat runtime.
+- c9129d5: Match the app shell backdrop to chat and square the open right-sidebar seam.
+- 23c2487: Allow apps to opt out of built-in sign-in marketing pages.
+- 4b0cea2: Report removed AgentKit chat imports in Doctor and include version-matched migration guides in diagnostics.
+- c37bd18: Match chat sidebar surfaces to app navigation and reduce composer spacing.
+- b6ce4c6: Deduplicate restored assistant messages when a server snapshot uses a new message ID.
+- f12a2de: Export `isUniqueViolation` from `@agent-native/core/db`. Apps that let a
+  partial unique index arbitrate a race — two schedulers allocating the same
+  sequence number, say — otherwise have to re-implement the Postgres/SQLite
+  error sniffing that `db/client.ts` already does.
+- f12a2de: Require a session on `POST /_agent-native/speak`, and bound the request before
+  it is parsed. The route previously enforced authentication only in production
+  and otherwise resolved `OPENAI_API_KEY` anonymously, so an unauthenticated
+  caller on any other deploy could spend its speech credits. It also parsed the
+  whole body before checking the script length, and never bounded `instructions`.
+  Callers that relied on anonymous synthesis now receive 401.
+
+  An anonymous caller is answered with the `no-provider` result rather than 401,
+  because that is the one reason the client starts browser speech: a no-login
+  reader would otherwise hear nothing instead of the local voice. No provider key
+  is resolved for them either way.
+
+- 0ca16fe: Report `db-queries` and `db-connects` in Server-Timing alongside `db-ops`, so a request's SQL statement count can be read without counting pool connects as statements.
+- 57e0a0f: Keep argument-dependent permission errors retryable, isolate terminal delegated-agent failures from parent turns, and alert on stale delegated tasks.
+- 4af4f69: A production server build now refuses to run on local PGlite: `node .output/server/index.mjs`, `agent-native start`, and Docker need `DATABASE_URL` set to Postgres, just like a hosted function. For local development, use `pnpm dev`, which still runs on PGlite. Netlify, Vercel, and Lambda invocations are now detected without `NODE_ENV=production`, so a fresh Netlify site with no `DATABASE_URL` refuses sign-up with `HostedRuntimeLocalDatabaseError` instead of a PGlite install error; `netlify dev` and `vercel dev` still count as local. Instead of exiting at boot, a Node or Docker server without a database now skips its boot migrations with the same message and stays up. On every host, while a deploy is missing a setting that sign-in needs, the server answers every sign-in page, including an app's own `loginHtml`, with an uncached 503 setup page that names each one: `DATABASE_URL`, and `BETTER_AUTH_SECRET`, or `A2A_SECRET` in a workspace, where it also derives the auth secret. A workspace missing only `A2A_SECRET` still signs in, and the in-app notice names it. Apps with a custom `getSession` keep their own sign-in page. A sign-up or sign-in refused for a missing setting now says so instead of showing a generic failure. The `/_agent-native/ping?configuration=1` probe reports these from the same checks the refusals use, so it also recognizes app-prefixed database URLs and the workspace-derived auth secret. A hosted function or production server build now requires its auth secret even when `NODE_ENV` is `test` or `development`, matching the database refusal. The async A2A processor now decides from the same host markers, so a started production server build or a hosted function without `NODE_ENV` counts as production too, so a bare `node .output/server/index.mjs` or Docker server without `NODE_ENV` answers 503 until `A2A_SECRET` is set instead of accepting unsigned tasks, and the configuration probe names `A2A_SECRET` exactly when that happens. `netlify dev`, `netlify serve`, `vercel dev`, and `sam local` (`AWS_SAM_LOCAL=true`) count as local for the database, auth secret, and A2A checks, even with `NODE_ENV=production`.
+- 1fd5c7a: Restore the searchable Dispatch app directory and localize its action labels.
+- f12a2de: Export `NarrowContainerProvider` and `useInNarrowContainer` from
+  `@agent-native/core/blocks`. Width-sensitive blocks (today `diff`) already
+  choose a container-appropriate default inside `tabs` and `columns`; apps that
+  render a borrowed block in their own narrow column — such as a Plan edition
+  story — can now opt into the same behaviour instead of getting a split diff
+  crushed into a half-width box.
+- 7220a4d: Keep development hosting markers on the local runtime path.
+- 19256a9: Refresh the retry cooldown after repeated automation identity failures so blocked jobs do not starve later scheduled jobs.
+- 56d047a: De-duplicate Settings and Team button wrappers into shared PrimitiveButton and apply ghost hover resets conditionally so solid primary buttons preserve text-primary-foreground on hover.
+- f2f6f43: Keep fresh triggers eligible while bounded stale Mail expiry leaves a backlog.
+- 4a681b7: Let `ffmpeg-static` run its install script in generated projects, so the binary is actually downloaded and the deploy's ffmpeg bundling has something to copy. Also stop the workspace YAML merge from skipping an entry because its name appears in a different section.
+- 023ee9b: Keep home chat visible while provider readiness is checked.
+- 4969087: Add `callAgent` to `IntegrationsPluginOptions`. It defaults to `true`; set it to `false` to leave `call-agent` out of messaging turns, which matches what agent-chat's `workspaceApps` tool group already allows on the web. `call-agent` is in `DEFAULT_INITIAL_TOOL_NAMES`, so it is on every first request even when it is not in `initialToolNames`. A deployment that shares no A2A secret with the first-party apps therefore had messaging turns calling `analytics` or `content` and getting back `401 Invalid or expired A2A token`, when the app's own connection had the answer.
+- 2197b46: Add `initialToolNames` to `IntegrationsPluginOptions`. Messaging turns sent every action the app passed in on their first request; an app with a large action surface can now name the tools to load up front, as it already does for agent-chat, and the rest stay discoverable through `tool-search`. Unset, the behaviour is unchanged.
+- a8ec661: Load LaunchDarkly evaluation only when its action runs so unrelated app cold starts do not load the server SDK.
+- 0a86389: First-run onboarding extensions can run before or after provider setup, contribute their steps to progress, and wait for completion before leaving. Manual setup skips capabilities already satisfied by sign-in, including Mail's Gmail connection.
+- a826bbe: Align Mail's startup skeleton with its current inbox layout.
+- 83f709e: Enforce recurring sweep deadlines, cancel abandoned Mail work, and stop notification fanout after a sweep aborts.
+- df7e3ce: Keep stale mail events out of trigger selection when a sweep cannot check expiry.
+- 3f9c125: Keep stale trigger expiry and terminal writes inside the background sweep budget.
+- Release all public npm packages with a patch version bump.
+- 5430f9c: Connecting an MCP client now gives an account without an organization its default one, so the connection is scoped to it. The consent page no longer offers Personal to people who belong to an organization.
+- b8845eb: Scope MCP configuration and connections to the authenticated user and organization, and keep anonymous sessions out of MCP.
+- 0ea21e5: Fix blank local visual-edit screens: the design bridge now adds the preview token to multi-line `import { … } from` clauses, such as Vite's pre-bundled dependency chunks.
+- 61770e5: Route serverless database requests through Neon pooling, cap function pools at one connection, and record observed per-request query counts.
+- ebf5f34: Avoid loading unrelated settings when enumerating MCP and scoped settings.
+- 9c186fc: Add localized labels for trace eval promotion.
+- c86c6fa: Read the session once per page load and lower the per-request auth cost. The session bootstrap, analytics, `useSession`, and the beta-lane probe now share one signed-in answer, and a focus or visibility change inside that 30-second lifetime re-reads it when it expires if the tab is still focused. The identity-rekey probe and the `active-org-id` preference are cached per process for 15 seconds and dropped on writes; the preference is also keyed by an httpOnly org-selection cookie that every org change made by the caller and every new session rotates, so that browser reads its current org on every instance. The legacy cookie path reads its user row once. Storage secrets are fetched in one batch, `file-upload/status` detects each provider once, and the onboarding summary is shared across the components that show it and, like the upload status, waits until startup reads have finished.
+- 15d1110: Export and import a portable text resource pack (secrets redacted).
+- 369632b: Promote a completed production trace into a CI eval case.
+- b6ce4c6: Keep AgentKit approval continuation output in its canonical chat message instead of folding it into the server placeholder.
+- 47985fe: Export the shared agent-engine readiness check for client-side submit preflights.
+- c65d6a8: Limit cross-app discovery and delegation to requests that need peer-owned data or capabilities.
+- f25679f: Load the built-in model catalog when a visible `AssistantChat` picker has no host-provided catalog.
+- cfedd43: Ignore global sidebar events and preference updates while the Agent sidebar is disabled.
+- 7032734: Clarify optional reply text in Observability eval promotion.
+- cae86e4: Skip schema catalog probes and release-owned runtime migrations during hosted function requests, even when NODE_ENV is unset.
+- 7342b95: Keep sign-in working inside Builder preview iframes: session, embed, and UI-capability cookies (and Better Auth's session cookie) now use `SameSite=None; Secure; Partitioned` when a dev server is served through Builder's HTTPS preview tunnel, and HTTPS detection lives in one shared helper.
+- fa62fdf: Improve provider setup controls, status retry backoff, and suggestion contrast.
+- 9071b38: Let command menu items take a stable `value`, so keyboard selection survives an item's text changing while it is shown.
+- 7161ec2: Keep AgentKit runs active while a server-driven continuation starts.
+- d2ba564: Keep agents from repeating completed mutations, stale reads, disabled features, or oversized discovery searches, and let them summarize cleanly when a loop is stopped.
+- b8845eb: Scope ownable reads and writes to their authorized user, organization, or share.
+- 9e35bba: Add core observability labels for promoting traces into evals.
+- b8845eb: Bound automation trigger claims to the scoped FIFO head.
+- 5430f9c: Switching organizations without an organization no longer leaves the account outside its organization; the request now keeps the current one.
+- 58fe222: Expose the existing per-user Jev credential lookup to server actions so template features can use a saved key without a separate configuration path.
+- 0e8e6f8: Clarify the required-text prompt when promoting trace evaluations.
+- 734137b: Persist notification channel and sent-event completion so idempotent sweep retries do not replay deliveries.
+- 4dae8b5: Preserve chat attachments while keeping pending selection tab-scoped and non-blocking.
+- 92020c0: Let apps replace the markup and copy of framework emails with `overrideTransactionalEmail(id, render)`, returning HTML or a React element from typed props. This covers verify signup, reset password, magic link, both email-change emails, organization invites, Builder credit limit, and the resource-shared notification. The resource-shared notification is now in the transactional email catalog as `core.resource-shared`. Catalog definitions accept an optional `previewAsync`, and the new `renderTransactionalEmailPreviewAsync` renders it so overridden framework emails preview with the app's design. `preview` and `renderTransactionalEmailPreview` keep their synchronous contracts.
+- 09b3645: Link the visual-edit skill to its worked usage guide.
+- 8d5f335: Run the esbuild JavaScript launcher through Node so production builds work on Windows.
+- 90048ab: New workspaces skip the 24-hour install delay for every `@agent-native` package, so a same-day framework publish no longer blocks `pnpm install`.
+- Updated dependencies [f2e8ffe]
+- Updated dependencies [023ee9b]
+- Updated dependencies [47985fe]
+- Updated dependencies
+- Updated dependencies [82ad87c]
+- Updated dependencies [57e0a0f]
+- Updated dependencies [fa62fdf]
+- Updated dependencies [82ad87c]
+  - @agent-native/agentkit@0.5.1
+  - @agent-native/toolkit@0.23.1
+  - @agent-native/recap-cli@0.5.49
+
+## 0.196.0
+
+### Minor Changes
+
+- a20f0b4: Add the redesigned Settings shell behind the `settings-redesign` feature flag: a page registry (`defineSettingsPage`, `registerSettingsPages`, `SETTINGS_PAGE_IDS`), Account, Connections, Agent, Organization, and app groups with role-gated pages, search, a sticky header, and a mobile drawer. `SettingsTabsPage` waits for the flag behind a layout-matching skeleton and bridges today's props and tabs into the new pages, so templates keep working unchanged. Also adds `useFeatureFlagState`, which tells a flag that is still loading apart from one that evaluated off.
+- a20f0b4: Settings links keep working in the redesigned Settings (`settings-redesign` flag). One redirect table (`@agent-native/core/navigation`) maps today's tab ids, nested ids, section hashes, `#secrets:KEY`, `?section=`, and `agent-panel:open-settings` sections onto the new pages, and the shell rewrites a legacy URL to the page's own path while keeping its query. `buildSettingsRoute(page, sub?)` builds page routes (the old `a:b:c` form and base-path argument still work), `buildSettingsEntryRoute` is exported, and today's Settings opens the closest tab for a new page id. Search indexes translated rows from core's sections, flashes the row it opens, and hides owner and admin pages from members. The shell records the open page in the tab-scoped `settings-view` application state, the agent sees it as `settingsPage` in `<current-url>`, and a new `open-settings-page` tool opens any page. With the flag on, `/extensions` opens the app's Extensions page (or its General page when it has none), Mail's `/team` opens Members, and `/settings/integrations/secrets/KEY` opens API keys on that key. `buildSettingsRoute` keeps a secret key's case (`integrations:secrets:OPENAI_API_KEY` is `/settings/integrations/secrets/OPENAI_API_KEY`), so the Voice section's key links open that key with the flag on or off. With the flag on or off, a settings request dispatched with only a hash (run recovery's agent limits, the composer's model link) opens that section instead of the Agent overview.
+- a20f0b4: Turn `OrgSwitcher` into an account menu (also exported as `AccountMenu`). The button shows the signed-in person's photo, name, and current organization. The menu lists organizations, invitations, domain matches, and Create organization, then Settings (with the `⌘,` hint), Usage, a "Get apps and extensions" drill-in when `utilityLinks` are passed, and Log out. Invite member, Organization settings, Profile, and the Tools header leave the menu, and Log out leaves Settings › Account. `settingsPath` and `profilePath` are deprecated and ignored.
+- a20f0b4: Cmd+, (Ctrl+, off macOS) opens Settings from any page, including inside inputs, and every command menu has a Settings command showing the shortcut. The agent panel's options menu links to Settings > Integrations. New exports from `@agent-native/core/client/navigation`: `useSettingsShortcut`, `SettingsShortcut`, `openSettingsPage`, `isSettingsShortcutEvent`, `isSettingsRoutePath`, `settingsPagePath`, and `OPEN_SETTINGS_PAGE_EVENT`.
+- a20f0b4: Provider keys are now checked by asking the provider which models they reach. Add the `check-provider-key` action (`{ provider, key?, baseUrl?, scope? }`) and the `fetchProviderModels` client helper that calls it, for OpenRouter, Ollama, Anthropic, OpenAI and OpenAI-compatible gateways, Google Gemini, Groq, Mistral, and Cohere. A failed check returns `ok: false` with a `code` (`rejected`, `wrong-provider`, `missing-key`, `invalid-endpoint`, `unreachable`, `provider-error`) and a reason such as "This looks like an Anthropic key." or "Groq keys start with gsk\_.". A key with another provider's prefix is refused before it is sent anywhere. A saved key is only checked against its saved endpoint (`baseUrl` without `key` is a 400), and checking the organization's key (`scope: "org"`) is for owners and admins (403 otherwise).
+
+  Saving a provider key through `/_agent-native/agent-engine/api-key` now runs the same check for every provider, not only OpenRouter, and refuses a rejected key (400) or one it couldn't verify (502), with the `code` in the response.
+
+  A key its provider rejected during a chat now shows as rejected instead of silently being skipped: `GET /_agent-native/secrets` reports `status: "invalid"` with `rejectedAt`, and `manage-agent-engine` `list` reports `credentialRejected` and `credentialRejectedAt`, until a call with the key succeeds or it is replaced.
+
+- a20f0b4: Add "Restrict personal API keys", an organization setting owners and admins change with the new `manage-provider-key-policy` action. While it is on, members' own model provider keys and personal Builder.io connection are skipped by every credential resolver (their chats use organization providers), members can't save new personal provider keys or connect a personal Builder.io account, and a chat with no usable key says "Owners and admins restricted personal API keys." Owners and admins keep their own keys, nothing is deleted, and turning it off restores members' keys. Reading the setting as an owner or admin lists each affected member and the providers that stop, and every change is audited.
+- a20f0b4: Builder.io connections are now explicit: the organization's and a member's personal connection. Builder status reports `grants` (OAuth grants and stored key pairs, told apart by `kind`), `effective`, and `canConnect`; `/builder/connect?scope=org|personal` and `/builder/disconnect` with `{ scope }` act on one connection, with owner/admin enforced for the organization's. `useBuilderConnectFlow` exposes the new fields and `start({ scope })`, and `BuilderConnectionMenu` and `BuilderConnectCard` take a `scope`, so a member riding the organization's connection no longer sees a Reconnect that would shadow it.
+- a20f0b4: Each model provider now keeps the models its owner checked, and only checked models appear in the chat model picker and the default-model select. A selection is stored at the same scope as the provider's key: a member's personal key uses their own selection, and the organization's selection belongs to owners and admins. With nothing checked, a provider shows its recommended models as before.
+  - New actions: `get-provider-models` (read the selection per provider and scope, with the recommended models) and `manage-provider-models` (`set` or `reset`; `scope: "org"` needs an owner or admin and is refused with 403 otherwise). Organization changes are recorded in the organization audit trail.
+  - `manage-agent-engine` `list` reports each engine's `supportedModels` as the models the picker offers, plus `recommendedModels` and `modelSelection` (`default`, `selected`, or `unreadable`). `/_agent-native/agent-model-defaults` offers the organization's checked models.
+  - Connecting Builder.io no longer hides other providers' models: providers with their own key show next to the Builder.io models. Builder.io model groups are labeled with a "· Builder.io" suffix ("OpenAI · Builder.io") so they read apart from a group on the provider's own key. Groq, Mistral, and Cohere show once they have a key, and Ollama shows once its models are checked.
+  - A chat already on an unchecked model keeps running on it. When nothing picked a model and the engine's default is unchecked, chats use the first checked model.
+  - `MultiTabAssistantChat` builds its model list with the same loader as `useChatModels`, so it now also swaps in Ollama's installed models.
+
+- a20f0b4: With the `settings-redesign` flag on, Settings › Model shows Organization providers (the organization's Builder.io connection and keys), Personal providers (a member's own Builder.io connection and keys, and the ChatGPT subscription while its lab is on), and Organization settings (Default model, Restrict personal API keys with a confirm that lists affected members, and Max iterations). Members see organization providers, the default model, and max iterations read-only. A key its provider rejected shows in red with Replace key, and a member's personal key reads "Not used while personal API keys are restricted." with Remove while the restriction is on.
+  - New `ProviderDialog` (from `@agent-native/core/client/settings`) is the one writer for a provider key, with `add`, `manage`, and `add-from-service` modes: it checks a pasted key (or Ollama endpoint) by listing the models it reaches, lists them as checkboxes, takes an optional OpenAI endpoint URL, sets who can use the key, and removes a provider after a confirm that lists what stops. Chat recovery and Clips' AI setup open it with the flag on. `AgentProviderSetupForm` is deprecated and keeps working for one release.
+  - New read-only action `list-model-providers`: each provider's organization and personal key (masked; members see only that an organization key exists), its endpoint, when its provider rejected it, whether personal API keys are restricted for the caller, and the stored default model.
+  - Settings search finds the Model page's rows (Default model, Max iterations, Restrict personal API keys, the provider groups, and each provider by name). Run recovery's Settings link opens Max iterations by its section instead of setting the URL hash.
+  - `list-model-providers` also reads legacy workspace rows the credential resolver uses (the organization's `workspace` row, and the caller's pre-organization solo row), marked `legacyWorkspaceRow`, so a key that powers chats never lists as absent. Removing a provider through `DELETE /_agent-native/agent-engine/api-key` deletes the matching legacy row too, so a removed key stops working.
+  - The Add provider dialog offers a provider whose key was rejected as Replace key at that key's scope, so chat recovery can replace a rejected personal or organization key. With nothing new to add, it offers the saved keys as explicit replaces instead of silently overwriting one.
+  - On the Model page, model counts and the Default model show placeholders while models load, and a failed read shows "Couldn't load this setting." with Try again instead of reading as no models. Background agents and rows a template adds to the Agent overview (`agentAdditionalContent`) stay on the Model page until their own pages land.
+
+- a20f0b4: With the `settings-redesign` flag on, Settings › Agent › Instructions, Memory, Skills, and Files list resources in Personal, {Org name}, and From Dispatch groups (Memory adds a Learnings group instead of From Dispatch). The organization group is read only for members, and From Dispatch is read only with an All apps chip and an Open Dispatch link in workspace apps. Instructions adds your personal AGENTS.md from a dialog, Memory adds a memory or a learning, Skills has an Add skill menu (Describe it to the agent, Upload a skill file), and Files has an Add file menu (Upload file, Create file); owners and admins get the same add menu on the organization group. Each row has Open, Download for text files, and Remove behind a confirm dialog. `ResourcesPanel` takes `settingsGroups` and `openResourceRef` for these pages. With the flag on or off, resource trees refetch after agent writes, so a memory or skill the agent saves appears without a reload, and a member opening an organization resource gets the read-only editor.
+- a20f0b4: With the `settings-redesign` flag on, Settings › Agent › Sub-agents lists every agent the main agent can delegate to, each once: {Org} apps (first-party and workspace apps with their reachability and URL), External agents, and Custom agents. Owners and admins get a Connect agent directory dialog (Microsoft Foundry, Gemini Enterprise, Anthropic Managed Agents, or any A2A agent by URL, plus a Global A2A Registry link) and an Edit or Remove menu on each agent; members see the list read only and can add personal custom agents by describing them to the agent or writing them. `?connect=` deep links and legacy Connected agents, Agent directory, and Remote agents links open this page. `AgentsSection.tsx` now exports `useRemoteAgents`, `AgentAddForm`, `AgentEditForm`, and `readAgentConnectRequest`. With the flag on or off, the connected agents list refetches after agent writes and says when it could not load instead of showing an empty list, and a peer's register-back link opens its Connected agents list.
+- a20f0b4: Registered and ad-hoc secrets now report `usedFor` (what each key powers, per app and feature) and `managedBy` (the Settings page that owns a key). Add the `preview-secret-removal` action to preview what stops or switches when a key is removed, including model picker and default model effects. Deleting a managed key (Builder.io credentials, S3 storage fields, channel tokens, calendar tokens) from the secrets routes now returns 409 naming its owner unless the owner surface passes `?managedBy=<id>`.
+
+  API keys now shows managed keys read-only with their owner, and each channel under Integrations can remove its stored credentials.
+
+- a20f0b4: With the `settings-redesign` flag on, Settings › API keys shows Your keys (each "{mask} · Used by {feature}"), Organization keys for owners and admins, and Managed by integrations (collapsed behind "Show N keys"; read-only, each linking to the page that owns it, with calendar tokens only while Meetings is on). A model provider key's Manage opens the provider dialog; other keys offer Test, Replace value, and Delete key. Add key takes a name, value, and who can use it (members are locked to Just me). Delete key lists what stops, per app and feature, before it deletes.
+  - New read-only action `list-api-keys`: every saved key the credential resolver can use for the caller, including legacy `solo:<email>` and organization `workspace` rows, with its mask, what uses it, its model provider, its owner page when another page manages it, and whether the caller can replace, delete, or test it. Members never see organization keys, and managed organization keys list without a mask. It also lists registered keys nobody has saved yet.
+  - New action `delete-api-key { name, scope, storedScope }` deletes exactly one listed row. It refuses managed and Vault-synced keys, needs an owner or admin for organization keys, is audited, and fails with 404 when nothing was removed.
+  - New client helpers `saveApiKeyValue` and `testSavedApiKey` wrap the secrets routes, so key values never pass through an action.
+  - Automation webhook signing secrets (`automation-webhook:*`) are now managed by Automations, so API keys lists them read-only and the secrets delete routes refuse them. The storage manager's route is now `infra`, the Infrastructure page id.
+  - The voice input settings link to a missing key opens Settings › API keys instead of Integrations. A model provider key (Gemini, OpenAI, Groq) opens the provider dialog for that provider; any other key opens Add key with its name.
+
+- a20f0b4: With the `settings-redesign` flag on, Settings › Integrations shows Builder.io first (under Recommended until it's connected, then under Connected), connected MCP servers, and the catalog by category with four tools each and "See more". Messaging channels and the Email row are no longer on this page. Builder.io has its own page at `/settings/integrations/builder` with the organization and personal connections, what Builder.io powers, and a disconnect confirmation that lists what stops working, including whether the default model switches to another provider or chats stop. Settings search finds every catalog tool and Builder.io. The legacy Integrations panel no longer keeps the Recommended badge on Builder.io once it's connected. New `manage-builder-connection` action: the agent and the page read the organization and personal Builder.io connections and the default model's dependence on Builder.io, and disconnect either one, with the organization connection limited to owners and admins on the server.
+- a20f0b4: Add the {App} › Channels page to the redesigned Settings (behind the `settings-redesign` flag): Slack, Google Docs, Telegram, WhatsApp, Discord, Microsoft Teams, and Email, each with its state, a page with the adapter's own required variables, the webhook URL to copy, and setup that only owners and admins can run. Owners and admins save, replace, and remove a channel's credentials there in any app, stored as the organization's workspace secrets, so a template no longer has to declare channel keys. New core actions `list-messaging-channels` and `manage-messaging-channel` (`save-credentials`, `enable`, `disable`, `remove-credentials`, `register-webhook`) back the page, so the agent can set up and switch channels too; the `/integrations/:platform/enable|disable|setup` routes share the same operations. `EnvKeyConfig` gains `deploymentOnly` for keys the runtime reads only from the environment, which Google Docs' service account key sets. Google Docs joins the channel catalog. Apps can add their own settings to a channel's page with `registerChannelSettingsExtensions`, and Clips shows its Slack link previews there. The old Integrations panel now lists the variables each adapter reports instead of a hardcoded set, which listed the wrong WhatsApp keys and missed Telegram's webhook secret. Dispatch's Messaging page uses the shared channel helpers from core.
+- a20f0b4: Owners and admins can pick the provider for Voice input, Image generation, and Embeddings with the new `manage-service-providers` action (org setting `service-providers`). Batch voice transcription tries the organization's choice first when the user's own provider is auto, then the usual Builder.io, Gemini, Groq, OpenAI order. Embeddings no longer turn off when several providers are available: `defaultEmbeddingFamily` uses the organization's choice, or Builder.io, then Gemini, Cohere, and Voyage, and `resolveDefaultEmbeddingFamily()` applies it for the current request. `/_agent-native/voice-providers/status` reports the choice as `orgProvider`.
+- a20f0b4: Add one S3-compatible file storage form (`StorageSettingsForm`) used by Settings, the onboarding checklist, and templates, backed by the new `get-file-storage` and `manage-file-storage` actions. Saving and clearing storage now requires an organization owner or admin on the server, and Clear credentials asks for confirmation before it deletes every saved storage key. Onboarding steps can declare a `kind: "file-storage"` method, and upload providers that serve files without a public URL set `publicBaseUrlOptional: true`.
+- a20f0b4: With the `settings-redesign` flag on, Settings › Organization › Infrastructure is a real page for owners and admins: Builder.io setup, the services and who powers each (AI model, file storage, Voice input, Image generation, Embeddings, and the Builder.io-only services), and the read-only environment (database, hosting and every app's address, required variables). Choosing a service's provider updates its row before the server answers and rolls back on failure. The new `get-infrastructure-status` action (owners and admins, `orgAdministration` group) reports the database provider and host, the hosting platform and app addresses, which deploy variables are set (never their values), and the app profile's Required/Recommended tags; `resolveDeployPlatform()` and `getInfrastructureStatus()` are exported from `@agent-native/core/server`. Background agents move from the bridged Model page to Infrastructure's Services list.
+- a20f0b4: Audit log: organization owners and admins can read their organization's settings and admin trail. A new `admins` visibility makes an event readable by the org's owners and admins (and its owner), never by other members; `private` events stay with their owner, admins included. `list-audit-events` and `export-audit-events` take `scope: "organization"` (owners and admins only, 403 otherwise) plus `app`, `beforeMs`, and `offset` filters, and `list-audit-events` returns `hasMore` and `nextOffset`. Every event now records the app that wrote it in a new nullable `app` column. A thrown 401 or 403 is recorded as a `denied` attempt instead of an `error`. Default model changes, app member and permission roles, workspace app access, and file storage are now `admins` events (they were `org` events every member could read), and org member role changes and Builder.io connect and disconnect are now recorded (org-scoped connections as `admins` events, personal ones as `private`). New helpers `orgAdminAudit` and `recordOrgAdminAuditEvent` in `@agent-native/core/audit` record other settings changes the same way.
+- a20f0b4: Settings gets an Audit log page for organization owners and admins, behind the `settings-redesign` flag. It lists the organization's settings and admin changes newest first, filters by time range and app, shows the Agent as the actor when the agent made the change, marks refused attempts, pages with "Show N more", and opens each event's details. `list-audit-events` accepts `includeApps: true` to also return the app ids with events in the scope.
+- a20f0b4: `get-usage-metrics` now covers every app by default and takes an `app` filter (`"all"`, `"current"`, or an app key). Results add a per-app breakdown (`byApp`) that sums to the totals, the apps with usage (`apps`), `appScope`, and `currentAppKey`. The deprecated `appId` parameter still filters to one app, and today's Usage settings tab still shows the current app.
+- a20f0b4: Add the redesigned Settings › Usage page behind the `settings-redesign` flag: Overview and Activity tabs, range, app, and Everyone / Just you filters, metric tiles, a usage history chart by feature, app, or model, top chats, top people, your alerts with an edit dialog, and tool and model call charts. Amounts read as Builder.io credits when the agent runs on Builder.io and as estimated dollars otherwise. `get-usage-metrics` now also returns `dailyBy` (the daily history split by feature, app, model, and surface), `byUser`, `topChats`, and `toolCalls`.
+- a20f0b4: Add the Organization General, Members, Authentication, and Apps pages to the redesigned Settings (behind the `settings-redesign` flag), exported as `OrgGeneralPage`, `OrgMembersPage` (takes `appRoles`), `OrgAuthenticationPage`, and `OrgAppsPage` from `@agent-native/core/client/org`. `GET /_agent-native/org/me` now returns `signInMethods` (email and password, Google, GitHub) to owners and admins, and the new `list-sign-in-methods` action gives the agent the same view.
+
+  Permission change: the cross-app (A2A) secret is now owner-only on the server. Admins get a 403 from reveal, set, and sync, and `org/me` omits `a2aSecretSet` for them, matching the UI. `canManageOrgDomain` now allows admins, matching the server, which already let admins set email domain auto-join. New `canManageOrgA2ASecret` helper. The legacy `auth` settings section now opens Organization › Authentication.
+
+- a20f0b4: Split Account into Profile, Preferences, and Security pages behind the `settings-redesign` flag. Profile has the photo, an inline name field, and a Change email dialog; Preferences has Interface language, Timezone, and the Voice transcription picker (moved off the Agent page); Security has Add or Change password and two-factor dialogs plus separate Request a copy and Request deletion rows. Every row has a search entry. `AccountSettingsCard` keeps working for the old Settings and now shares the pages' request logic. The compact voice picker now reports a failed read or save instead of showing Batch as the saved choice.
+- a20f0b4: Build the app's group in the redesigned Settings (behind `settings-redesign`): a General page with Agent › Default model (owners and admins change it, members see it read-only), the app's own groups, and This browser › Demo mode, with app areas as tabs; Notifications when the app passes it; Automations with the viewer's real role, a member footnote, and New automation in the header; MCP server with an about line and an Integrations footnote; Creative context and What's new with header chips; and Labs as one group named after the app. `SettingsTabsPage` gains `generalGroups`, `appAreas`, `notifications`, `notificationsSearchEntries`, and `mcpAbout`, which also render as today's tabs with the flag off. Labs now show each lab's `defaultEnabled` while loading and when `get-labs` fails (with an error line), and hide labs the server didn't register; `useLab` and `useLabState` accept a lab definition to use its default until the server answers. Flag-off Settings' Automations tab now shows members "You can manage automations you created." The `agent-model-defaults` route reports the organization's default as `orgDefault`.
+- a20f0b4: First-run "Choose your setup" and Settings › Organization › Infrastructure now read one list of shared services, `WORKSPACE_SERVICES` (exported from `@agent-native/core/onboarding`): AI model, file uploads and storage, Voice input, Image generation, Embeddings, and the Builder.io-only Design system intelligence, Background agents, and Browser automation. App profiles tag each of these capabilities with its `service` id (and `builderOnly` for the Builder.io-only ones), Infrastructure's Required/Recommended tags come from those ids, and the first-run Builder.io card lists them from the profile instead of a fixed list, so "Connected agents" and "Hosting and deployment", which Builder.io doesn't provide, are gone and Assets' Video generation shows as Builder.io-powered. The Email delivery onboarding step no longer saves `RESEND_API_KEY` or `SENDGRID_API_KEY`: it explains the host variables, and it's hidden when the deployment already provides email. With the `settings-redesign` flag on, "Skip and configure manually" opens Agent › Model for everyone, where the no-provider empty state adds a provider key in one click.
+- 108074a: Standardize full-page AgentKit chat homes and restore the Dispatch workspace app launcher.
+- 56a0c5b: Export a reusable Builder credit notice so sidebars can place it above their footer divider.
+
+### Patch Changes
+
+- 80a16c4: Show delegated task progress as compact chat cards.
+- a20f0b4: Deleting a provider key from Settings › API keys no longer removes a Vault-synced or managed endpoint or older key name saved beside it, so the provider keeps working until Vault syncs again.
+- 490b16a: Preserve assistant text in order with tool calls and results when resuming an approved chat action.
+- c636eb2: Keep the active chat tab visible in the tab strip.
+- 65fd4ed: Notify users when a Builder credits-limit error stops a run and surface live credit exhaustion beside the organization switcher.
+- 80a16c4: Show Mail rule changes with the filter icon and render successful automation changes as focused chat cards.
+- d898975: Restore hosted app signup pages with app descriptions and inline Learn more links.
+- e4c71b1: Show automation failure reasons, classify missing MCP tools, and email owners once per failure streak with one-click unsubscribe.
+- e1ef371: Improve light-mode auth form contrast and hide the redundant manual cross-app sign-in button on canonical hosted apps.
+- 7af9d3f: Refine AgentKit activity labels, approval details, and shared action cards.
+- a20f0b4: Owners and admins who activate a new Builder.io account now connect it for the organization, matching how they connect an existing account. Members still activate personally.
+- 8a9a428: Use Builder's active quota to report credit exhaustion and identify its daily or monthly period.
+- a20f0b4: Owners and admins run on their organization's Builder.io connection first, whether it's an OAuth grant or a key pair, so a personal connection kept from before a promotion no longer shadows it. Their own connection stays the fallback when the organization has none.
+- a20f0b4: The Builder.io OAuth callback decides where a connection is saved from the connector's current role in the organization the flow started in, so a promotion, demotion, restriction change, or organization switch during sign-in can't leave a personal grant that shadows the organization's connection or skips the personal API key restriction. The personal API key restriction view reads every member's Builder.io grant in a few batched queries instead of one per member.
+- 6175ad8: Keep MCP-only actions available on external MCP routes.
+- a20f0b4: In dev, a connection reset from a server-side socket now returns an error response and is logged, instead of closing the browser's request with an empty response.
+- a20f0b4: In Vite dev, framework responses close their connection to Nitro's worker, so a burst of requests no longer fails with `read ECONNRESET` when the worker drops idle keep-alive sockets.
+- 65fd4ed: Persist event automation deliveries in a FIFO queue with bounded retries and a terminal failure state; expose an awaited event bus API for durable acceptance.
+- 7c22552: Export `emailQuote` from `@agent-native/core/server` so templates can quote user-authored notes in notification emails.
+- a20f0b4: Previewing first-run onboarding with `?onboarding=preview` now ends when "Skip and configure manually" opens Settings, so the preview no longer covers the Settings page it opened.
+- 80a16c4: Show successful preference and appearance updates as compact chat cards.
+- a20f0b4: Return the JSON error from framework routes that fail after reading the request body instead of leaving the client waiting, and stop voice transcription from cancelling its provider call once the audio upload has been read.
+- a20f0b4: Owners and admins can invite members when email isn't configured. The invite dialog says invites won't be emailed, and the confirmation says the invite was saved unless the server reports the email went out. `canInviteOrgMembers(role)` now checks only the role; drop any second `emailConfigured` argument.
+- Release all public npm packages with a patch version bump.
+- e7685e8: Clarify the Builder monthly credit limit label.
+- a20f0b4: Fix member offboarding and email-change rekey on migrated app databases. Apps declare their own identity columns with `registerIdentityColumns()` from `@agent-native/core/org`, share tables made by `createSharesTable()` are recognized by shape, Better Auth sessions keyed by `user_id` are revoked, and org member routes log the underlying failure instead of discarding it.
+- a20f0b4: Removing a member lets you hand their data to anyone in the organization through a searchable picker, not only people on the loaded page, and member search drops the previous query's results as soon as you type. The invite form sends every valid address when one row is malformed, and flags that row inline instead of blocking the submit. Invites with no app role picked no longer send an app id the server rejects.
+- e783ff4: Preserve display-only attachment markers when chat submissions use serialized attachment metadata.
+- c26c809: Keep first-run onboarding in control until its startup screen is ready.
+- a20f0b4: Email changes and member offboarding now also rewrite `author_email` on Content suggestion proposals and their creation records, instead of refusing to run because those columns had no identity policy.
+- c786d97: Remove the Personal choice from the account menu and resolve accounts that picked it back to their organization, so connecting Builder.io works again.
+- 80a16c4: Show successful share and visibility changes as compact chat cards.
+- a20f0b4: Route warmup no longer prefetches `.data` for paths the server answers itself (`/mcp`, `/.well-known`, `/api`, `/assets`, and the framework namespace), so links such as the MCP Connect page stop logging 404s.
+- ddcd0b0: Make legacy session revocation authoritative across server instances and prevent caching authenticated session responses.
+- a20f0b4: Settings' "Back to {App}" returns to the page you came from even when the agent panel is closed. The return path used to be recorded only while the panel was mounted.
+- a20f0b4: Settings › Model and Settings › Infrastructure lead with Builder.io as the recommended setup. With no provider, the Model empty state offers Connect Builder.io as its primary action and Add provider as the secondary one, and the header returns to Add provider once a provider is set up. Infrastructure heads the page with a Recommended Builder.io row, and Builder.io-only services are marked "Builder.io only" with a Connect Builder.io action in place.
+- a20f0b4: The scaffolded `agent-native-toolkit` skill now says Settings is not a sidebar item: it opens from the account menu and ⌘, (Ctrl+, elsewhere), and apps keep the `/settings` route.
+- a20f0b4: Save model provider keys at the scope the caller picks. Members save personal keys instead of getting a 403, an owner's or admin's organization key no longer deletes their personal key for that provider, and removing a key takes the same `scope`.
+- a20f0b4: Security: the default model (the `agent-engine` setting) is now stored per organization, and only organization owners and admins can change or clear it. Before, it was one row for the whole deployment that any signed-in user could change or delete. `manage-agent-engine` `set` refuses members with a 403 (`default_model_admin_required`), `/_agent-native/agent-engine/disconnect` requires owner or admin, and both record audit events (target type `agent-default-model`), including refused attempts. A signed-in user with no organization keeps their own default. The old deployment-wide row is still read as a fallback for one release, so existing deployments keep their default until each organization saves its own. Saving a provider key can now pick that provider as the default in the same request (`defaultModel` on `saveAgentEngineProviderSettings`), so Settings no longer needs a separate Apply step. `manage-agent-engine` `list` reports `canUpdateDefault` and `defaultSource`.
+- a20f0b4: One Google Gemini key now powers chat models, voice input, embeddings, and image generation. Settings registers and writes `GOOGLE_GENERATIVE_AI_API_KEY`; keys saved under the older `GEMINI_API_KEY` name keep working everywhere, and removing the Gemini key removes it under both names. New `resolveGeminiApiKey()`, `resolveSecretWithAliases()`, and `readGeminiDeployCredentialEnv()` in `@agent-native/core/server`, and `GEMINI_API_KEY` / `secretKeyNames()` in `@agent-native/core/secrets`.
+
+  An older `GEMINI_API_KEY` row saved at another scope, such as Brain's workspace key, now appears with the custom keys so owners and admins can remove it, and `DELETE /_agent-native/secrets/adhoc/:name` accepts `?scope=user|workspace` to remove the listed row rather than a same-named personal one.
+
+- a20f0b4: Split `TeamPage` into reusable Organization sections (`OrgGeneralSection`, `MembersSection`, `GroupsSection`, `AuthenticationSection`, `AppsAccessSection`) exported from `@agent-native/core/client/org`. The Team page renders exactly as before.
+- a20f0b4: In the redesigned Settings (behind `settings-redesign`), a link to today's tab for an app area, such as `/settings/alerts`, now opens that area on the app's General page (`/settings/app/alerts`) instead of falling back to Profile.
+- a20f0b4: Export `ReadOnlySettingValue` from `@agent-native/core/client/settings`, so a template's own Settings rows can show members a value with a lock and a tooltip saying who can change it.
+- a20f0b4: New apps scaffolded from the default template open the redesigned Settings full height when `settings-redesign` is on, without their own Back link, title, or language card (the shell has Back to {App}, and core Preferences owns the interface language), and gain a `settings.$.tsx` splat route so `/settings/<page>` links resolve. With the flag off the scaffold's Settings page is unchanged.
+- a20f0b4: The scaffolded apps' agent-native-toolkit, context-awareness, and secrets skills describe the redesigned Settings: its page ids and groups, `buildSettingsRoute` links, the `settings-view` application state, and the `open-settings-page` tool.
+- a20f0b4: Polish the redesigned Settings › Agent pages (Model, Instructions, Memory, Skills, Files, Sub-agents). Empty groups now show a guided empty state with the action that fills them, and Model starts a workspace with no provider at "Add a model provider" with Add provider and Connect Builder.io. Page, row, and group-heading actions use the toolkit button sizes and variants, rows share one trailing edge, and scope tags are outline badges. Dialogs submit with Enter, stay disabled until valid, show a spinner and a "Saving"-style label while working, and keep a failed save open with the server's message. The sub-agent connect and edit forms use labeled toolkit fields.
+- a20f0b4: Settings polish follow-ups:
+  - `@agent-native/core/client/settings` now exports `KeyValueDialog` (with `KeyValueDialogMode` and `KeyValueDialogProps`) and the `ApiKeyEntry` and `ApiKeysListing` types, so an app page can add or replace a key in place instead of sending people to Settings › API keys.
+  - `NewKeyMenu` takes `size` (`xs`, `sm`, or `default`) and `variant` props and no longer restyles its trigger; `triggerClassName` is for layout only. The default is `xs` secondary, the group heading action size. The sub-agent dialog's credential picker uses the dialog control size, and the Dispatch Vault's New button uses `size="default"` instead of size classes.
+  - The custom integration dialog shows "Connecting…" and "Testing…" beside the spinner while a connect or test runs.
+  - Removed catalog keys that nothing reads anymore: `agentChat.settings.storage.missing`, `agentChat.settings.storage.missingPublicUrl`, `agentChat.settingsOrg.invite.close`, `agentChat.settingsShell.account.newEmailPlaceholder`, and `agentChat.settingsSubAgents.browseDirectory`.
+
+- a20f0b4: Only the organization owner can invite admins: `POST /_agent-native/org/invitations` now refuses an admin's `role: "admin"` invite with a 403, and in the bulk shape lists each such entry under `failed`. A signed-in user with no organization reads `get-infrastructure-status` and sees Organization › Authentication, Apps, Infrastructure, and Audit log only on a single-tenant self-hosted deployment; `/_agent-native/org/me` reports this as `soloDeploymentAdmin`. `fetchProviderModels` now calls the `check-provider-key` action. The Invite members dialog, Email domain auto-join, Shared secret, and Workspace URL rows are localized, and the default scaffold's home page shows the account menu, which holds Log out.
+- a20f0b4: With the `settings-redesign` flag on, each catalog integration opens its own Settings page at `/settings/integrations/<id>` instead of a full-screen dialog. The page keeps the Settings sidebar, shows "Integrations › {logo} {name}" in the header with its Connect, Add access token, or Set up action, and has the brand-tinted example prompts (clicking one asks the agent), what it does and what the agent can see, a callout when a provider or admin has to act first, and Connection and Information groups. Connecting stays on the page: OAuth opens in a popup, a token in a dialog, and provider setup in the connect dialog. Browser Back and the breadcrumb return to Integrations, a reload of the page works, and an unknown id shows a not-found state under the breadcrumb. Old Integrations links for a channel go to its Channels page. Channels rows and pages now show each service's brand logo, and channel pages gain the prompts hero, Developer and Category rows, and a copyable webhook URL; Slack's page is the app's Slack settings plus Agent in Slack, with Set up on its row. Builder.io's page shows its logo in the breadcrumb.
+- a20f0b4: Settings search fields (the sidebar search, Integrations, Members, and the group people picker) and the MCP integration dialog use the toolkit `InputGroup` instead of hand-positioned icons. The MCP integration dialog now uses toolkit form controls with inline URL validation. What's new uses a secondary button to expand older updates, dialog close buttons are labeled Close, and the local-schedules notice wraps its environment variable on narrow screens.
+- c9a1253: Suppress expected Vite import-analysis warnings when loading runtime Agent-Native configuration files.
+- bb56060: Run background agent turns as the member who submitted the turn.
+- 9199a7f: Standardize chat home suggestions and restore the compact Dispatch app grid.
+- f10632d: Let expanded organization pickers fill sidebar footer space.
+- 3ac7f50: Match signup Learn more link color to its description in dark and light themes.
+- 355870c: Preserve retryable HTTP status on transient Google OAuth refresh failures.
+- a20f0b4: Move the toolkit's Button, Switch, Select, and Input to shadcn new-york-v4 sizing. Buttons are 36px by default and 32px at `sm`, with new `xs`, `icon-xs`, `icon-sm`, and `icon-lg` sizes. `outline` is now the v4 bordered outline (`border bg-background shadow-xs`, with `bg-input/30` in dark mode) instead of an accent fill, and a new `outline-destructive` variant (outline with red text) marks destructive row actions; it maps to the design-system `danger` intent with `outline` emphasis. Switch is 32x18 with a `size` prop (`sm` is 24x14), SelectTrigger and Input take `size="sm" | "default"` (32px or 36px), Toggle is 36px (`sm` 32px), and TabsList is 36px. Alert sets `text-sm` on the root, so titles are 14px, and AlertDescription uses relaxed leading. Adds the shadcn `InputGroup` (`InputGroupAddon`, `InputGroupInput`, `InputGroupButton`, `InputGroupText`, `InputGroupTextarea`) for fields with icons or inline actions. Dispatch's local Button, Switch, Input, Tabs, Toggle, and AlertDialog now re-export the toolkit's, so its tabs and toggles follow the same heights and its confirm dialogs stack above toolkit dialogs. The Dispatch app search matches the 32px toolbar buttons beside it. Settings row, retry, and group-heading buttons use `outline` instead of `secondary`; dialog Cancel buttons stay `secondary`.
+- 4b62043: Stop deduping `@tabler/icons-react` in app builds so the toolkit icon catalog resolves the Tabler version it was generated from, instead of failing with `MISSING_EXPORT` when the app installs a newer Tabler that renamed icons.
+- a20f0b4: The integrations catalog and the custom integration dialog are translated into every built-in locale. The `mcpIntegrations` strings now load from the Core chat catalogs, like `contextXray`, instead of rendering English in every language.
+- Updated dependencies [7af9d3f]
+- Updated dependencies
+- Updated dependencies [230c5f0]
+- Updated dependencies [108074a]
+- Updated dependencies [a20f0b4]
+  - @agent-native/agentkit@0.5.0
+  - @agent-native/recap-cli@0.5.48
+  - @agent-native/toolkit@0.23.0
+
+## 0.195.0
+
+### Minor Changes
+
+- 5c48dff: Render action changes as grouped, persistent in-chat cards.
+- 01329c3: Add automatic personal memory recall and simple personalization settings.
+
+### Patch Changes
+
+- 55c9666: Expose provider logo identities for model selectors through the shared resource catalog.
+- 880740b: Match attached Connect AI card spacing and stacking across chat surfaces.
+- 8d96fa6: Include bounded action images in MCP tool results without exposing binary data in text or structured content.
+- 247c699: Refine the Human Review rollup into a compact, divided list.
+- 8f246ad: Allow budgeted action keepalive requests to use PUT as well as POST.
+- 55c9666: Expose configured chat model groups and an opt-in explicit recovery state for unavailable stored model selections.
+- 5c48dff: Queue approval edit prompts safely and keep saved Mail and Calendar action cards readable.
+- 29969ab: Clarify agent summary controls and queued feedback in Human Review.
+- 32ce77a: Improve Human Review search and clarify the summary regeneration action.
+- Release all public npm packages with a patch version bump.
+- aa8193d: Keep OAuth popups navigable from app pages and the MCP sign-in form. Framework pages now send `Cross-Origin-Opener-Policy: same-origin-allow-popups`, so a popup opened on the inert waiting page is no longer severed from its opener and left blank with an "allow popups" error. Validated embed-session responses keep `same-origin`.
+- 55c9666: Document the approved inline background-conversation pattern for object-owned AI surfaces, share stable receipt identity across clients and scoped servers, and authorize explicit loading of the exact protected background thread without adding it to ordinary scoped history.
+- 9fbf637: Include all grouped-run feedback in Human Review rollups.
+- f261320: Keep provider setup retries compact so connected chat surfaces preserve balanced spacing.
+- f47133b: Refine shared action cards for Calendar scheduling and Mail drafts.
+- d1db66e: Preserve approved action arguments and failed tool-result status when resuming an in-app agent call.
+- 9fbf637: Group recurring automation runs in Human Review by resource and search prompt and outcome text.
+- 5b7f665: Add breathing room between the file-storage prompt and its connection options.
+- 5c48dff: Keep completed action cards visible while related actions run and let users deny approvals without starting a revision prompt.
+- Updated dependencies [880740b]
+- Updated dependencies [55c9666]
+- Updated dependencies [55c9666]
+- Updated dependencies
+  - @agent-native/toolkit@0.22.3
+  - @agent-native/agentkit@0.4.1
+  - @agent-native/recap-cli@0.5.47
+
+## 0.194.0
+
+### Minor Changes
+
+- d462819: Move framework chat surfaces to AgentKit while preserving chat history, recovery, context, attachments, model selection, runs, and message actions. This removes the old assistant-ui transcript and stream owners, the `AssistantChat.createAdapter` prop, the public `AssistantMessageActionBar` export, and the adapter APIs `createAgentChatAdapter`, `createCodeAgentChatAdapter`, `createAgentChatRuntimeAdapter`, `codeAgentTranscriptEventsToContent`, and `codeAgentTranscriptHasPendingApproval`, plus their adapter-only options and event types. Use AgentKit `runtime` or `createTransport` for custom chat implementations.
+- 21055c8: Add durable suggestion proposals with independently reviewable members and atomic decisions for an exact observed member set.
+
+### Patch Changes
+
+- 797b3e2: Commit one initial collaborative XmlFragment seed atomically and return the winning Yjs state to concurrent editors.
+- 7ecd4d7: Bound API key settings reads so stalled requests show an error with a retry option.
+- b863d1f: Use stable-ref router links in sidebar tooltips and menus.
+- a902062: Isolate first-party auth sessions and clear lingering embed identities on logout.
+- b0b63b4: Trace Undici in Node server builds so SSRF dispatchers load in deployed functions.
+- 214d5f3: Give human-review votes and summary actions immediate, accessible feedback.
+- fdb196d: Restore Chat's missing model provider recovery and attachment-preserving retry.
+- e76947b: Return safe, source-specific Figma errors and preserve composer feedback for failed context operations.
+- Release all public npm packages with a patch version bump.
+- adc7497: Anchor storage setup to upload controls and keep it hidden until an upload is requested.
+- 467eb06: Register a configured workspace app when its organization owner first opens it.
+- fce2dc1: Keep organization app-access recovery controls available when a workspace app is disabled.
+- b0760e2: Keep action widgets visible when transcript text is truncated, preserve full widget results through ledger recovery, add the missing release ledger columns, log framework request errors that escape Nitro's Vite middleware, and treat incoming read resets as client disconnects during development.
+- adc7497: Show storage setup only after a user requests a file upload.
+- b0760e2: Render action chat widgets in AgentKit history with their stored inputs and results. Let actions select successful calls and project the bounded result fields needed to restore each widget.
+- 57d1d39: Show Human Review thread owners' email addresses and open linked designs in the editor.
+- ed3801e: Remove nonessential source comments.
+- 9ec2f7e: Include the workspace app id in Google OAuth state so the root callback relay can return to the initiating app.
+- 8362ebb: Support app-shaped loading skeletons for built-in app layouts.
+- a17945a: Recover interrupted write tool results before retrying side effects.
+- a050521: Preserve queued resource uploads when checking storage availability fails.
+- 77acfd8: Keep organization-scoped observability previews from resolving user credentials.
+- e7b6fcc: Share a joined quick-copy control, People/Agents tabs, and agent destinations between Content and Clips.
+- Updated dependencies [d462819]
+- Updated dependencies [797b3e2]
+- Updated dependencies [e76947b]
+- Updated dependencies
+- Updated dependencies [adc7497]
+- Updated dependencies [797b3e2]
+- Updated dependencies [ed3801e]
+- Updated dependencies [e7b6fcc]
+- Updated dependencies [e76947b]
+- Updated dependencies [2397f94]
+  - @agent-native/agentkit@0.4.0
+  - @agent-native/toolkit@0.22.2
+  - @agent-native/recap-cli@0.5.46
+
+## 0.193.0
+
+### Minor Changes
+
+- 7e8a10a: Gate chat until an LLM provider is ready and show setup choices when file storage is missing.
+
+### Patch Changes
+
+- cbf8a52: Use the local workspace app ACL when no Dispatch directory is mounted.
+- 9328cc4: Give API key provider buttons a soft background and comfortable spacing.
+- Release all public npm packages with a patch version bump.
+- 8700be3: Report Slides file storage readiness and omit absent AgentKit runtime run IDs.
+- c625807: Remove external-link markers from internal settings navigation.
+- 7582194: Tighten local development sign-in spacing and collapse account options by default.
+- a6b2eaa: Forward typed action cooldowns through HTTP Retry-After headers.
+- 2a87449: Make human review responsive and clearer, add search and artifact filtering, and allow the configured super-organization's admins to review other organizations without cross-tenant writes.
+- 0f78444: Remove framing around API key provider logos.
+- 8791318: Preserve canonical identity in analytics and align Clips completion events with recording attempts.
+- d12f203: Human review runs are easier to scan, and expanded details have a clear boundary.
+- d52c9a0: Use TypeSafe AI's Jev logo in API key settings.
+- af54bfd: Clarify usage trends with a labeled value axis and group repeated recent prompts by occurrence.
+- Updated dependencies [7e8a10a]
+- Updated dependencies
+  - @agent-native/toolkit@0.22.1
+  - @agent-native/agentkit@0.3.1
+  - @agent-native/recap-cli@0.5.45
+
+## 0.192.0
+
+### Minor Changes
+
+- ef74b99: Expose Builder referral links and show eligible invite prompts in credit usage and limit cards.
+- dbb10d5: Remove the split auth marketing UI and route app entry pages through the shared sign-in flow.
+- 39a89d0: Add bounded composer reference contracts and authenticated cross-app reference reads for Design and Slides, preserving receiver-owned access checks and explicit failures.
+- 39a89d0: Add declarative context dialogs for URL attachment and paginated multi-selection, with validation, cancellation, batch callbacks, and localized shared controls. Expose the additive picker configuration through AgentKit while preserving existing submenu pickers.
+
+  Add read-only website composer source requests and the server-side readComposerWebsiteSource helper. Website references retain bounded extraction status, warnings, rendering provenance, and explicit truncation, while failed extraction remains an error.
+
+- da924dd: Improve public share previews and recover Calendar bookings safely after Zoom outcomes.
+
+### Patch Changes
+
+- 05a2561: Persist localhost bridge tokens only after the bridge successfully binds and authenticates.
+- 05a2561: Keep visual-edit bridge credentials paired across repeated app opens and explain how to recover when a running bridge has a different token.
+- 251bd76: Do not treat deployment fallback credentials as a completed Builder OAuth connection.
+- 3e2cecb: Use the cataloged Agent Chat key for the Observability expand label.
+- 7eb9cbb: Scope provider credentials to their endpoints, coalesce workspace app access checks, and support desktop authenticator sign-in.
+- d9f5334: Include chat turn IDs in running events so app chrome can track overlapping turns.
+- 39a89d0: Allow localized search placeholders for composer context categories and reuse the standard upload label for the first context-menu action.
+- 39a89d0: Add connected cascading composer context menus with declarative search, list, link, loading, error, retry, and pagination behavior, plus persistent footer actions for existing links or modal workflows. Apps register authorized data loaders or local choices instead of rebuilding picker views. Allow host file-staging adapters through PromptComposer and AgentKitComposer while preserving shared upload controls and attachment chips, with an opt-out from ordinary text-file inlining when the host already extracts those files. Document scope resets and source-version refreshes, with localized defaults in every supported locale.
+- 39a89d0: Add opt-in hierarchical composer context menus, attachment status and recovery controls, bounded immutable context snapshots, and a shared quick-start submission handle. AgentKit awaits a beforeSend hook and carries the same context metadata through immediate and queued submissions. Composer drafts, files, and context can be staged before provider setup while submission remains gated; hosts can use `submissionDisabled` without disabling staging.
+- b3d823e: Use the Agent Chat catalog key for the observability expand label.
+- Release all public npm packages with a patch version bump.
+- 516469d: Keep existing-account mode selected when a Builder connection attempt fails.
+- 3df50a1: Allow apps to disable raw browser-session tools with `frameworkTools.browserSessions`.
+- 3df50a1: Show one recent usage prompt per chat turn.
+- 39a89d0: Add shared prompt-home layout, controlled template/recent library tabs, and template cards with semantic design-system controls, native link slots, and explicit loading, empty, and error states. Include home geometry in Toolkit styles and the app-shell ejection unit, with localized component documentation.
+- 39a89d0: Add a shared semantic template preview dialog with an inset viewport size, responsive thumbnail rail, keyboard selection, explicit loading/error/empty states, and app-owned rendered content. Align template menus beside captions, reveal them on hover or keyboard focus while keeping them visible on touch devices, and preserve direct primary activation and consistent card dimensions.
+- 51ea25f: Prevent concurrent or unreadable memory-index updates from silently dropping entries.
+- Updated dependencies [dbb10d5]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+  - @agent-native/toolkit@0.22.0
+  - @agent-native/agentkit@0.3.0
+  - @agent-native/recap-cli@0.5.44
+
+## 0.191.0
+
+### Minor Changes
+
+- 6ff4d47: Export the CDN-safe upstream status mapper for Builder-backed JSON routes.
+
+### Patch Changes
+
+- 6ff4d47: Include Android's resizing visual viewport policy in the default app shell.
+- 8aee298: Revoke Better Auth sessions and clear stale cookie scopes on logout.
+- caf68f7: Fit real Design and Slides canvases inside Human Review previews.
+- Release all public npm packages with a patch version bump.
+- 6ea2df9: Use the existing localized expand label in observability review previews.
+- 6ff4d47: Private blob providers can resolve credentials from request context.
+- 51ea6c2: Align assistant message feedback and backend actions into separate groups.
+- 04b3a91: Bound first-run onboarding summary loads so a stalled response cannot leave the setup screen on its skeleton indefinitely.
+- 6ff4d47: Apply safe request handling to SSRF-safe cross-origin redirects.
+- 6ff4d47: Open links in AgentChat messages in a new tab.
+- 6ff4d47: Stop agent turns after three tool errors that repeat across changing arguments.
+- 6ff4d47: Render OAuth account ownership conflicts as safe, readable callback errors.
+- Updated dependencies
+- Updated dependencies [6ff4d47]
+  - @agent-native/agentkit@0.2.13
+  - @agent-native/recap-cli@0.5.43
+  - @agent-native/toolkit@0.21.3
+
+## 0.190.0
+
+### Minor Changes
+
+- 0c3cac4: Allow app-owned handlers to run in the signed recurring-job sweep, and respect explicit AgentSidebar placement, open-state, and shortcut settings.
+- 946b570: Add a share success callback to the shared resource sharing control.
+- e5583a2: Add real Design and Slides previews to human-review rollups.
+
+### Patch Changes
+
+- 9de280f: Add the floating copy button to the annotated-code block (commented/walkthrough code snippets), matching the standard code block.
+- b412854: Include the SSRF dispatcher runtime dependency in serverless bundles.
+- 98a7a33: Use bounded thread context to select relevant Jev tools, memories, and app references before the first model response.
+- 28fe02e: Show the Builder connect choice above the model menu and New Deck dialog.
+- 81695b5: Keep hosted-harness chat on the app's configured sidebar side.
+- bd4b018: Keep the dev React Router browser manifest relative for same-origin requests, so client-side navigation works behind dev proxies that rewrite the Host header.
+- 01660b0: Show a Builder subscription link when AI credit limits stop a chat run.
+- cd72523: Join server tracking events to the authenticated request identity when the explicit user matches it.
+- e2f6175: Fix the expand label in Human Review thread details.
+- Release all public npm packages with a patch version bump.
+- 2ba6541: Link Custom keys to API settings and keep the composer surface opaque.
+- 5087a2c: Expose the recurring background-jobs switch through typed runtime configuration.
+- c8d264d: Remove Cloudflare Pages from workspace deploy and the standalone build. `agent-native deploy` now defaults to Netlify and accepts only `netlify` or `vercel`. `NITRO_PRESET=cloudflare_pages` fails like any unsupported preset. Standalone Cloudflare Workers stays on `cloudflare_module`.
+- 790e245: Render first-party app social preview images with the sign-in page's Geist branding, headline, and open-source badge; label share cards with the full product name, site name, and URL; version the image URL from the sign-in copy so edits refresh cached previews automatically; and keep `Cross-Origin-Resource-Policy: cross-origin` on OG image responses so browser-rendered link previews no longer show a broken image.
+- Updated dependencies
+- Updated dependencies [2ba6541]
+  - @agent-native/agentkit@0.2.12
+  - @agent-native/recap-cli@0.5.42
+  - @agent-native/toolkit@0.21.2
+
+## 0.189.0
+
+### Minor Changes
+
+- debfb07: Add a primary Continue with Agent-Native action to hosted sign-in pages.
+- d261070: Add per-message and beginning-of-chat revert controls for autosaved resources.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 34822ca: Improve the mobile login and signup layout.
+- 08b601f: Integration logos now use each brand's current official mark. Figma, GitLab, Cloudflare, PayPal, Supabase, Neon, Asana, Canva, Intercom, Netlify, Zapier, Notion, HubSpot, Stripe, Linear, Sentry, and GitHub replace single-color glyphs or retired versions; FullStory, PostHog, monday.com, and Grafana replace stand-in, outdated, or 16px favicon icons; and the Jira entry and Jira API key tile show Jira's mark instead of the Atlassian triangle. Intercom, Linear, Netlify, and Sentry now invert in dark mode like the other dark marks, and Notion no longer does because its official block carries its own white face.
+- Updated dependencies
+  - @agent-native/agentkit@0.2.11
+  - @agent-native/recap-cli@0.5.41
+  - @agent-native/toolkit@0.21.1
+
+## 0.188.0
+
+### Minor Changes
+
+- 9b9c28d: Add LaunchDarkly flag support: `@agent-native/core/launchdarkly` for server code, `@agent-native/core/client/launchdarkly` for browser hooks (`useLaunchDarklyFlag`, `useLaunchDarklyFlags`), and the auto-mounted `get-launchdarkly-flags` action. Configure with the `LAUNCHDARKLY_SDK_KEY` environment variable; every read fails closed to its caller-supplied default when unconfigured, unreachable, or slow.
+- 7045f6f: Use Builder-managed embeddings and video generation through an existing Builder connection.
+- 556f777: Show Builder workspace credit balances and daily or monthly plan usage in Usage settings.
+- 21fdd86: Add the shared serializable icon contract and reusable resource icon picker.
+- 21fdd86: Add persistent workspace icons with organization-admin updates, optimistic client integration, switcher and settings rendering, and cross-app identity revision propagation.
+
+### Patch Changes
+
+- 1795ecc: Rotate sessions after two-factor changes, filter resolved action surfaces by `initialToolNames`, preserve rich MCP chat submits, and retain device-flow catalog scope.
+- 7e1176b: Scope local visual-edit handoffs to the requested design.
+- b839826: Expand human review inline with saved Design previews, full thread history, and quick feedback actions.
+- f2bc8d1: Report exact Builder gateway credit usage in usage metrics and link credit-limit errors to Builder's subscription page.
+- dbb860c: Backfill safely attributable observability runs and bound organization review reads.
+- 3afa6be: Propagate canonical Better Auth IDs to authenticated tracking events.
+- e645755: Fail release migrations when the database role cannot apply schema changes.
+- 4917d34: Refresh the Builder model catalog and display current versions in the chat picker.
+- 14124f8: Keep the DOCX parser dependency discoverable in serverless builds.
+- dbb860c: Expose admin-scoped observability review actions
+- 8fe9fc4: Stop writing the first-run onboarding eligibility marker for apps whose first-run onboarding is positively known to be off at build time (e.g. Plan), so "completed ÷ eligible" onboarding metrics no longer include rows that can never complete. Apps where the build couldn't resolve the mode keep writing the marker, matching today's behavior.
+- 70e612f: Raise the default delegated agent-loop token budget (used by cross-app A2A calls and same-app `ask_app` MCP calls) from 750,000 to 5,000,000 input tokens. The old value was too low for tool-heavy apps and could trip `run-input-token-budget` on every multi-step turn regardless of task size.
+- 3866afe: Restart supervised dev servers that remain alive while serving persistent server errors.
+- 7e1176b: Preserve startup app state while first-run onboarding eligibility resolves and report unreadable onboarding cookies.
+- 61a856b: Close three remaining gaps in the hosted-database guard (refuses to silently open ephemeral PGlite when `DATABASE_URL` is missing on a real deployment): Cloudflare Pages' generated worker entry now sets `globalThis.__env__` like the Module/Workers entry already did, a production Node/Docker server now refuses PGlite too, detected via a process-local marker set the first time the real Nitro app wires up its H3 routes rather than an env-var heuristic that would misfire during builds, and Better Auth's database adapter setup now calls the same guard, so signup/login fail with `HostedRuntimeLocalDatabaseError` instead of attempting PGlite. Also exempts migration-authorized runtimes (`withMigrationRuntime()`) from the guard, since a durable background worker can be a real hosted invocation and is allowed to touch PGlite there.
+- bdd0a03: Fix the hosted tools-only harness being silently unavailable in production for apps that only set `harness` in `agent-native.config.ts` (Chat, Mail, Analytics, Calendar). `loadHostedHarnessConfig` read that file from disk at request time, but a deployed serverless function never ships `agent-native.config.ts`/`agent-native.json`, so the read resolved to "not configured" instead of the app's actual setting. The setting is now resolved once at build time from the same app config the client bundle uses and embedded into the server bundle; the disk read remains as a fallback for dev servers and `agent-native start`, where the config file is actually present.
+- fe7e5d8: Hide empty human-review preview placeholders.
+- 451cb34: Hide human-review thumbnails when the list has no renderable preview content.
+- Release all public npm packages with a patch version bump.
+- 83dffad: Keep deployment environment credentials out of API key settings and disable hosted model-provider key fallback.
+- c2a760f: Emit `invite_sent` and `invite_accepted` tracking events for the org invite lifecycle, so referral/virality reporting can see team growth. Register the telemetry with the request's `waitUntil` (or a bounded wait when no request is reachable) so a serverless runtime can't freeze the function before the event ships.
+- 67b921b: Show an organization loading placeholder in every app sidebar while organization data loads.
+- 5cd90b0: Remove the close button from first-run onboarding.
+- ac01083: Align PDF attachment limits with their serialized message budget.
+- dbb4504: Stop connect flows from waiting after an OAuth popup is cancelled.
+- 3afa6be: Keep tab-scoped agent chat state tied to its tab while identity resolves and let replay capture continue until explicitly stopped or capped by configuration.
+- 7e1176b: Authenticate local visual-edit bridge registration and pending handoffs with a design-scoped capability.
+- 3afa6be: Track replay upload quota pauses and oversized-event drops with bounded reason metadata so incomplete recordings can be diagnosed without capturing replay content.
+- 3afa6be: Remove the default replay duration cap while preserving configured limits and safely stopping at Analytics' per-recording chunk ceiling.
+- 3afa6be: Track first-run onboarding abandonment so setup drop-off is distinguishable from a completed or dismissed flow.
+- a15d38f: Keep app-driven continuations in their original chat, reopening closed tabs and waiting for delivery confirmation. `useGuidedQuestionFlow` also exposes `refetchPendingQuestion` so a caller can force a fresh check instead of racing the reactive app-state read before dropping run correlation.
+- 74fc788: Keep an explicit PGlite database URL in test processes ahead of inherited hosted database aliases for runtime, migration, and Drizzle configuration.
+- 185e25d: Move the auth page Learn more link beside the marketing copy and show a GitHub icon on the open-source project link.
+- b5efaf9: Show captured trace span details and open full conversations from observability.
+- Updated dependencies [21fdd86]
+- Updated dependencies [4917d34]
+- Updated dependencies
+- Updated dependencies [ac01083]
+- Updated dependencies [21fdd86]
+- Updated dependencies [185e25d]
+  - @agent-native/toolkit@0.21.0
+  - @agent-native/agentkit@0.2.10
+  - @agent-native/recap-cli@0.5.40
+
+## 0.187.0
+
+### Minor Changes
+
+- 48387db: Add `anonymousApplicationState` to `createCoreRoutesPlugin`. When enabled, `/_agent-native/application-state` scopes a request without a session to the `anonymousOwner` the app resolves, instead of answering 401, so a guest chat's navigation, URL and composer preference sync works for anonymous visitors. Off by default.
+- 68a89eb: Route Jev requests through enabled Builder spaces and allow direct Jev keys, while keeping Jev-only Mail features hidden when unavailable.
+
+### Patch Changes
+
+- 07a6277: Record a tool call interrupted by a run abort as an interrupted (unknown) outcome instead of a failure, so a resumed chunk goes through the ledger recovery and interruption budget rather than re-dispatching a write that may already have happened.
+- 97d8280: Make review comment and reply submissions safe to retry without duplicate comments or notifications.
+- 212d1b3: Preserve temporary credential lookup failures when discovering embedding providers.
+- 92d3374: Keep bring-your-own chat runtimes running past the periodic in-run save. The save no longer forces the live assistant message to complete, so external-runtime turns longer than five seconds stop reporting as stopped and their in-flight tool calls are no longer marked interrupted.
+- 039d52c: Add an opt-in directory page for multi-app workspace deployments.
+- 69fac98: Keep the core composer runtime adapters stable across re-renders, so composer effects keyed on them (such as the voice button's `voice-input-preference` read) no longer re-run and refetch on every render.
+- ee516e2: First-run "Choose your setup" screen now shows separate "Create Builder.io account" and "Sign in with Builder.io account" buttons instead of a consent popover.
+- a10ae73: Avoid showing the same failed-turn error in both chat text and its recovery notice.
+- 15e304f: Flatten a tool input schema with a top-level `anyOf`/`oneOf`/`allOf` into one object schema before it reaches the provider. An action whose Zod schema is a union compiled to a root `anyOf`, which the AI SDK engines forwarded unchanged and Anthropic rejects for the whole request; the native Anthropic translator dropped the composition and left the model with no parameters. Both translators now merge every branch's properties at the root. The root and each composition are conjuncts: a property declared more than once across them, or across `allOf` branches, becomes an `allOf` of its variants, while `anyOf`/`oneOf` branches that declare a property differently give an `anyOf`. `required` is the intersection over `anyOf`/`oneOf` branches and the union over `allOf`; `additionalProperties: false` survives when every `anyOf`/`oneOf` branch or any `allOf` branch declares it, and `patternProperties`, `propertyNames`, `minProperties` and `maxProperties` carry over where they combine exactly. Branch keywords a flat root cannot express are dropped, so the flattened schema over-approximates the action's own schema, which still validates the call.
+- a10ae73: Invalid user share recipients now return a client error instead of a server error.
+- a10ae73: Keep Google sign-in timeout errors user-facing across all locales.
+- 11208d2: Let Jev skip irrelevant tool and skill prefetch candidates, and expose the existing per-user Jev credential lookup to server actions.
+- 30aa31d: Honor an explicit `AGENT_CHAT_DURABLE_BACKGROUND=true` (with `A2A_SECRET`) on long-lived Node servers that carry no hosted-platform marker, and add `AGENT_NATIVE_SELF_DISPATCH_URL` so a deployment can send its self-dispatches over loopback instead of through its public edge.
+- ee70391: Resolve workspace databases from each app's isolated runtime URL.
+- 9a22c5b: Abort action response parsing when the request is cancelled.
+- Release all public npm packages with a patch version bump.
+- 1b15104: Replace the free-text "Set domain" flow on the Team page with a single one-click "Enable for @domain" button, since the server only ever accepts the owner's own eligible domain.
+- ddabced: Preserve in-flight integration campaigns and A2A continuation identities when durable dispatch is temporarily unavailable, while retaining explicit rollout cancellation.
+- c3c47f1: Render saved app outputs inline in a simpler thumbs-first human review feed.
+- eb6523c: Allow deployments to override the maximum connections in each framework database pool.
+- eb6523c: Constrain AI SDK provider requests to their configured endpoint origins.
+- fe9609c: Secure and document the tab-free visual-edit handoff for coding agents.
+- 34ad348: `ShareDialog` no longer loads resource shares or the org member list while it is closed. Hosts that mount one closed dialog per list row (such as every Slides deck card) were firing one `/_agent-native/org/members` request per row on page load. `useShareQuery` accepts an optional `enabled` argument.
+- 1b889ff: Add `withShareLinkAttribution` to `@agent-native/core/client/sharing` — a small shared helper for tagging a minted public share URL with `ref`/`via` viral-attribution params.
+- 7e014ff: Carry `approvedToolCalls` through `agent-chat:submit` to the run config, so an app that resumes a paused `needsApproval` call from the browser has its grant consumed instead of the model asking for approval again. The resume is sent as a hidden protocol continuation. Inside a Builder frame or an MCP App embed the resume stays with the app's own chat, which owns the paused run; neither Builder's chat nor the MCP host's chat can carry the keys.
+- 45ad5f3: Keep root-only workspace apps at their root after sign-in. The app runtime now reads its home path from the workspace manifest entry (the same `/` the launcher already links to), so the root auth handoff no longer redirects signed-in visitors to a `/home` route the app never defined.
+- Updated dependencies
+  - @agent-native/agentkit@0.2.9
+  - @agent-native/recap-cli@0.5.39
+  - @agent-native/toolkit@0.20.9
+
 ## 0.186.0
 
 ### Minor Changes
@@ -2809,264 +3888,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
   credential gate required a `BUILDER_PRIVATE_KEY`/`BUILDER_PUBLIC_KEY` pair, so
   a user connected through Builder OAuth alone had every turn rejected with "No
   LLM provider is connected" while the connect card reported them connected.
-
-## 0.165.4
-
-### Patch Changes
-
-- 841f072: Expand changelog history windows to 100 releases while preserving folder-backed history.
-
-## 0.165.3
-
-### Patch Changes
-
-- b6ca1a7: Warn when `GOOGLE_SIGN_IN_CLIENT_ID` and `GOOGLE_CLIENT_ID` name different Google clients. Sign-in silently preferred the sign-in pair, so repairing `GOOGLE_CLIENT_SECRET` on a deploy that also set `GOOGLE_SIGN_IN_CLIENT_SECRET` changed nothing while appearing correct.
-- b6ca1a7: Harden MCP OAuth reconnects for mounted apps, legacy settings, and concurrent updates.
-- b6ca1a7: Ensure prebuilt Netlify workspace deployments include the hosted feedback URL.
-
-## 0.165.2
-
-### Patch Changes
-
-- b130f4e: Keep app changelogs compact while preserving folder-backed history in the in-app What's new surface.
-- ac3acfa: Improve provider failure recovery and remove the retired Videos template from Dispatch app creation.
-
-## 0.165.1
-
-### Patch Changes
-
-- 43ef3a8: Fix reconnecting existing OAuth-backed MCP servers in place.
-
-## 0.165.0
-
-### Minor Changes
-
-- b39f22c: Stop regex lookaround from 400ing the whole model turn, and give three
-  always-on core kits a `frameworkTools` switch.
-  - `stripUnsupportedSchemaKeywords` now drops a `pattern` containing lookaround
-    (`(?=`, `(?!`, `(?<=`, `(?<!`). Anthropic rejects it with "regex lookaround is
-    not supported" and rejects the entire request, so one such tool takes every
-    other tool in the payload down with it — visible as an error in chat, and as
-    nothing at all in a background run. `z.string().email()` compiles to two
-    negative lookaheads and appears in ~35 action schemas, so this is answered at
-    the boundary every tool passes through, alongside the existing typeless-schema
-    and unsupported-`format` rewrites. The action's own zod schema still validates
-    the value, so nothing that was enforced is loosened.
-  - `emailCatalog`, `workspaceUserGroups`, and `orgServiceTokens` are new
-    `frameworkTools` groups covering twelve actions that previously had no switch.
-    All three default to on, so the available surface is unchanged — but they are
-    now tagged, which takes them out of every app's default first-request tool
-    list and leaves them reachable through `tool-search`.
-  - `mcp.catalog: "app"` alongside `mcp.connectorCatalog` now throws at plugin
-    init. `catalog: "app"` short-circuits the connector tier, so the two together
-    served the app's full registry while the allow-list sat in the config looking
-    authoritative.
-
-### Patch Changes
-
-- 483f03d: Stop the run-level no-progress backstop from killing runs while the model is
-  still generating. Two watchdogs guarded the same silence on different clocks:
-  the agent loop's `lastModelStreamProgressAt` bumps on every engine frame, while
-  the run manager's backstop only sees events the loop forwards. Extended thinking
-  produces the first without the second, so the 150s bound sat inside the working
-  distribution — runs whose worst gap crossed it were checkpointed as
-  `auto_continue { reason: "no_progress" }` and recorded as errors while still
-  streaming, some missing by a single second, and background automations discarded
-  results the agent went on to finish minutes later.
-
-  The agent loop now brackets each engine call with a `model_stream` start/end
-  pair, and the run manager counts it exactly like `tool_start`/`tool_done`: an
-  engine call in flight suspends the backstop, bounded by the loop's own 90s
-  model-stream watchdog the same way a tool call is bounded by its own timeout.
-  Keepalives still do not count as progress, so a wedged transport with no engine
-  call in flight trips the backstop as before.
-
-  Background automation failures now also report through `captureError`. Both
-  callers — the recurring-jobs scheduler and the trigger dispatcher — recorded the
-  failure onto the automation's own metadata and logged it, and neither reported
-  it, so a cut-off automation was visible only in a resource field and stdout.
-
-  A cut-off run now reports a terminal state instead of none. `runAgentLoop`
-  returns early at an `auto_continue` checkpoint and never reaches its outcome
-  classification, so a truncated run shipped `terminal_state` and `error_message`
-  as null and the reason was recoverable only from `agent_run_events`. Unplanned
-  boundaries (`no_progress`, `stream_ended`, `gateway_timeout`, …) now surface as a
-  retryable failure carrying the reason as the terminal code, while the planned
-  `run_timeout` chunk boundary — which a hosted foreground run hits roughly every
-  40s by design — records its reason without counting as an error.
-
-- Updated dependencies [60b7e74]
-  - @agent-native/toolkit@0.16.8
-
-## 0.164.26
-
-### Patch Changes
-
-- d5ceae9: Preserve the beta environment opt-out when custom authentication pages are served.
-
-## 0.164.25
-
-### Patch Changes
-
-- 562194a: Stop sending `temperature` on model requests that carry Claude thinking. Effort
-  defaults to High on every reasoning-capable Claude model, so internal callers
-  that asked only for `temperature: 0` — the Observational Memory compactor, eval
-  judges, sentiment inference — always got a 400 ("`temperature` may only be set
-  to 1 when thinking is enabled or in adaptive mode"). The Anthropic, AI SDK, and
-  Builder gateway engines now drop the sampling parameters when thinking is on or
-  when the model family removed them, and Observational Memory compaction runs at
-  low effort so thinking cannot consume its whole output budget.
-
-## 0.164.24
-
-### Patch Changes
-
-- 14a3f87: Preserve the beta environment opt-out when custom authentication pages are served.
-- 14a3f87: Keep BYOA sign-in and liveness routes available while unrelated serverless bootstrap work is waiting on the database.
-
-## 0.164.23
-
-### Patch Changes
-
-- b811566: Preserve the beta environment opt-out when custom authentication pages are served.
-
-## 0.164.22
-
-### Patch Changes
-
-- 7bb5be0: Reject host-native database binaries in Netlify server bundles before publication.
-- 7bb5be0: Persist beta-to-production opt-outs from the cached sign-in shell for 24 hours.
-
-## 0.164.21
-
-### Patch Changes
-
-- 68f299c: Clarify deployment targets and document Agent-Native app configuration.
-
-## 0.164.20
-
-### Patch Changes
-
-- bfe4163: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
-
-## 0.164.19
-
-### Patch Changes
-
-- 5f4031b: Restore ownerless legacy app visibility while preserving explicit private defaults for new apps.
-
-## 0.164.18
-
-### Patch Changes
-
-- b34de4c: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
-
-## 0.164.17
-
-### Patch Changes
-
-- d492462: Support TipTap mark rule helpers in generated SSR stubs.
-
-## 0.164.16
-
-### Patch Changes
-
-- 7d72340: Keep desktop Google exchanges alive through longer passkey ceremonies while retaining one-time verifier binding.
-
-## 0.164.15
-
-### Patch Changes
-
-- 3f1cf50: Send signed-out users directly to the shared sign-in journey after logout so private app data queries cannot flash before the session gate redirects.
-
-## 0.164.14
-
-### Patch Changes
-
-- 667a1c1: Deliver authenticated Desktop task tools to local code-agent MCP clients.
-- 667a1c1: Add a development-only configuration control for isolated Desktop authentication acceptance runs.
-
-## 0.164.13
-
-### Patch Changes
-
-- 62373a8: Fix Google sign-in callbacks in browsers by keeping the OAuth binding cookie available across the provider redirect.
-
-## 0.164.12
-
-### Patch Changes
-
-- 379f7ca: Simplify deployment documentation with dedicated app and workspace paths, a deployment target overview, and a clearer advanced reference.
-
-## 0.164.11
-
-### Patch Changes
-
-- ae91302: Make shared user-share writes conflict-aware when a resource enforces normalized principal uniqueness.
-
-## 0.164.10
-
-### Patch Changes
-
-- 6a18780: Keep the beta environment switcher visible to signed-out visitors, including the standalone auth page.
-- e439054: Support reusable Code Agent worktrees and reliable local chat forking across Desktop sessions.
-- 5ececad: Surface sync-version allocator reseed failures while preserving the existing retry and clock-fallback behavior.
-
-## 0.164.9
-
-### Patch Changes
-
-- b1c420b: Block agent prompts until an LLM provider is connected and provide an inline Connect AI recovery flow with a clear retry action.
-- 8690e40: Make automation details inspectable in Dispatch, including the prompt, trigger configuration, capabilities, and past runs.
-- e542242: Create every framework-owned table at release time, so a hosted deploy comes up with a complete database.
-
-  Most framework tables are defined by their owning store's `ensureTable()`, not by a migration list — `settings`, `application_state`, `app_secrets` and `resources` among them. On a long-lived server the first request creates whatever is missing. On production serverless it cannot: `schemaEnsureDisabled()` reports every table present so a cold start skips ~390 probes, which is correct for latency and means nothing on the request path can create a table. Only 15 of ~75 framework tables had a migration list, so the other 60 had no path to creation at all on a hosted deploy. Sites published successfully and then failed every request with `relation "public.settings" does not exist`.
-
-  `runFrameworkReleaseMigrations` now runs those stores' own ensure paths first, from an explicit list in `server/release-schema.ts`, and `schemaEnsureDisabled()` no longer applies to a caller holding migration duty — the release step was subject to its own skip, because the Netlify build environment also sets `NETLIFY=true`.
-
-  The list loads each store with a dynamic import, so re-exporting `runFrameworkReleaseMigrations` from `server/index.ts` does not pull 60 store modules into every server boot to serve a path that runs once.
-
-  A new `guard:release-schema-complete` fails the build when a module creates tables and is not in that list, so a new store cannot repeat this. It recognises both `ensureTableExists` and stores that execute DDL held in a named constant, which is how `extensions/slots` created its tables without the first version of the guard seeing it. The migration-duty check moved to `db/migration-runtime.ts` to keep it off `db/client.js`, which stores mock.
-
-  Already-published sites need one redeploy to pick up the missing tables.
-
-## 0.164.8
-
-### Patch Changes
-
-- 939f6d2: Keep the core CLI agent-tool imports formatter-clean for package builds.
-
-## 0.164.7
-
-### Patch Changes
-
-- 06cea8f: Keep the desktop chat composer blank while the identity gate is handling an unauthenticated saved thread.
-
-## 0.164.6
-
-### Patch Changes
-
-- 8e51925: Fix Electron chat feedback around app visibility, local development tools, and run recovery.
-
-## 0.164.5
-
-### Patch Changes
-
-- fc85cb2: Bind desktop Google OAuth exchanges to a high-entropy verifier so a known flow ID alone cannot retrieve a session token.
-
-  Previously `/_agent-native/auth/desktop-exchange` returned a live session token to any caller that named the flow ID, and the flow ID came straight from the query string. An attacker could pick an ID, send someone to `/_agent-native/google/auth-url?desktop=1&flow_id=<known>&redirect=1`, then poll the exchange after that person signed in and receive their session token. The verifier now travels in an `X-Agent-Native-Desktop-Verifier` request header — which a link navigation cannot set — only its hash is stored, and the exchange read fails closed when the verifier is missing or does not match.
-
-  **Desktop clients must be upgraded.** The old `GET ?desktop=1&flow_id=…` bootstrap is rejected, because that request shape is exactly what made the exchange stealable; there is no backward-compatible variant that keeps the fix. An older independently deployed desktop client will fail Google sign-in with `Invalid desktop exchange challenge.` until it ships the header-based bootstrap.
-
-- fc85cb2: Stop treating an unreadable code-agent schedules file as an empty schedule list. A transient read error, a corrupt file, or a partially-written `schedules.json` collapsed to `[]`, and because every create/update/delete rewrites the whole file, the next mutation silently deleted every stored schedule. Only a genuinely absent file initializes as empty now; anything unreadable raises `CodeAgentSchedulesUnreadableError` and mutations refuse to run.
-- 61ca441: Persist scheduled automation transcripts into chat threads so Open thread shows the run's agent steps.
-- Updated dependencies [fc85cb2]
-  - @agent-native/toolkit@0.16.7
-
-## 0.164.4
-
-### Patch Changes
-
-- c58cd6e: Preserve verified mutation receipts and exact member identity across Dispatch and A2A delegation.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

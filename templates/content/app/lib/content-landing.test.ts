@@ -9,8 +9,7 @@ vi.mock("@agent-native/core/client/application-state", () => ({
 }));
 
 import {
-  contentLandingRecoveryTarget,
-  readContentLandingRecovery,
+  isPersonalLanding,
   rememberContentLandingDocument,
 } from "./content-landing";
 
@@ -89,6 +88,27 @@ describe("rememberContentLandingDocument", () => {
     ).rejects.toThrow("state unavailable");
   });
 
+  it("records each page open where /home returns as well as in its space", async () => {
+    writeClientAppState.mockResolvedValue({ documentId: "doc-1" });
+
+    await rememberContentLandingDocument(
+      { documentId: "doc-1", title: "Plan" },
+      "space-1",
+    );
+
+    expect(writeClientAppState).toHaveBeenCalledTimes(2);
+    for (const key of [
+      "content-last-location-v1",
+      "content-last-location-v2:space-1",
+    ]) {
+      expect(writeClientAppState).toHaveBeenCalledWith(
+        key,
+        { documentId: "doc-1", title: "Plan" },
+        { requestSource: "content-landing" },
+      );
+    }
+  });
+
   it("stores exact destinations separately for each Content space", async () => {
     writeClientAppState.mockResolvedValue({ documentId: "doc-1" });
 
@@ -105,46 +125,13 @@ describe("rememberContentLandingDocument", () => {
   });
 });
 
-describe("contentLandingRecoveryTarget", () => {
-  it("sends an unavailable full-page deep link to the landing resolver", () => {
-    expect(
-      contentLandingRecoveryTarget({ host: "page", documentId: "inbox" }),
-    ).toEqual({
-      pathname: "/home",
-      state: { unavailableDocumentId: "inbox" },
-    });
-  });
-
-  it("leaves an embedded preview on its inline unavailable state", () => {
-    expect(
-      contentLandingRecoveryTarget({ host: "preview", documentId: "inbox" }),
-    ).toBeNull();
-  });
-
-  it("does not redirect without a requested document", () => {
-    expect(
-      contentLandingRecoveryTarget({ host: "page", documentId: "" }),
-    ).toBeNull();
-  });
-});
-
-describe("readContentLandingRecovery", () => {
-  it("reads the handoff written by the redirect", () => {
-    expect(
-      readContentLandingRecovery({ unavailableDocumentId: "inbox" }),
-    ).toEqual({ unavailableDocumentId: "inbox" });
-  });
-
-  it("keeps a plain landing visit distinguishable from a recovery", () => {
-    for (const state of [
-      null,
-      undefined,
-      "inbox",
-      {},
-      { unavailableDocumentId: "" },
-      { unavailableDocumentId: 7 },
-    ]) {
-      expect(readContentLandingRecovery(state)).toBeNull();
-    }
+describe("isPersonalLanding", () => {
+  it("is /home without a space", () => {
+    const home = { pathname: "/home", search: "" };
+    expect(isPersonalLanding(home)).toBe(true);
+    expect(isPersonalLanding({ ...home, search: "?spaceId=space-1" })).toBe(
+      false,
+    );
+    expect(isPersonalLanding({ ...home, pathname: "/page/inbox" })).toBe(false);
   });
 });

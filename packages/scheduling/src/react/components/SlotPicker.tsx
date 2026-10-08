@@ -1,14 +1,6 @@
 import { TZDate } from "@date-fns/tz";
 import { format } from "date-fns";
 
-/**
- * SlotPicker — minimal, unstyled primitive that renders a vertical list of
- * available slots grouped by date. Consumers style the buttons via their
- * own Tailwind class layer.
- *
- * This is the "headless" spec: consumers can wrap it with their app's design
- * system for a fully styled picker.
- */
 import type { Slot } from "../../shared/index.js";
 import { useSchedulingT } from "../i18n.js";
 

@@ -47,16 +47,11 @@ afterEach(async () => {
 
 describe("default resource seeding is once per database, not per process", () => {
   it("skips every seed write on a second cold start", async () => {
-    // `_doEnsureTable` runs once per PROCESS, which on serverless is once per
-    // cold start. Production showed 53,785 `INSERT INTO resources … DO NOTHING`
-    // for rows that had existed since day one.
     const first = await import("./store.js");
     await first.resourceList("__shared__");
     const firstSeeds = seedInserts().length;
     expect(firstSeeds).toBeGreaterThan(0);
 
-    // Simulate a fresh isolate against the SAME database: module state resets,
-    // the durable marker does not.
     writes = [];
     vi.resetModules();
     const second = await import("./store.js");

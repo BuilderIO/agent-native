@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "التكاملات" } },
   creativeContext: {
     title: "المكتبة",
     description: "سياق إبداعي قابل لإعادة الاستخدام يحافظ على الاتساق بين الأعمال.",
@@ -162,14 +163,16 @@ export default {
     agentDescription:
       "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
     openAgentSettings: "إدارة الوكيل",
-    languageTitle: "اللغة",
-    languageDescription: "اختر لغة واجهة Design.",
-    languageLabel: "لغة الواجهة",
-    labs: "Labs",
-    labsIntro:
-      "هذه ميزات جديدة وغير مستقرة وقد تحتوي على أخطاء. نحن نقدر ملاحظاتك.",
     labTweaks: "تعديلات التصميم",
     labTweaksDescription: "جرّب تعديلات التصميم المدعومة بالذكاء الاصطناعي.",
+    labFullAppBuilding: "إنشاء تطبيقات كاملة",
+    labFullAppBuildingDescription:
+      "جرّب إنشاء تطبيقات تعمل انطلاقًا من تصاميمك باستخدام Builder.",
+    labDesignReviewTools: "أدوات مراجعة التصميم",
+    labDesignReviewToolsDescription:
+      "افحص تصاميمك بحثًا عن مشكلات إمكانية الوصول وقارن التغييرات المرئية.",
+    mcpAbout:
+      "اربط Design بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Design نيابةً عنك: إنشاء التصاميم وتعديلها. ولا يرى إلا ما يمكنك رؤيته.",
   },
   pages: {
     presentEmpty: "لا يوجد محتوى للعرض",
@@ -178,7 +181,17 @@ export default {
     notFoundDescription: "الصفحة التي تبحث عنها غير موجودة.",
     notFoundSignIn: "تسجيل الدخول",
     notFoundBackToDesigns: "العودة إلى التصاميم",
-    teamCreateOrgDescription: "أعد فريقا لمشاركة التصاميم مع زملائك.",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "اختر تخزين الملفات",
+    },
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
+    },
+    common: { retry: "إعادة المحاولة" },
   },
   chat: {
     emptyState: "صف تصميمًا لإنشائه",
@@ -198,7 +211,7 @@ export default {
       tokenLabel: "رمز وصول Figma",
       tokenPlaceholder: "الصق رمز وصول Figma",
       connecting: "جار الاتصال…",
-      connect: "اتصال",
+      connect: "الاتصال بـ Figma",
       getToken: "الحصول على رمز",
       importFrame: "استيراد الإطار",
       chooseFrame: "اختيار إطار",
@@ -209,6 +222,7 @@ export default {
     },
   },
   common: {
+    loading: "جارٍ التحميل...",
     genericError: "حدث خطأ ما",
   },
   editPanel: {
@@ -258,6 +272,12 @@ export default {
       opacity: "العتامة",
       padding: "حشوة",
       margin: "هامِش",
+      marginTop: "الهامش العلوي",
+      marginRight: "الهامش الأيمن",
+      marginBottom: "الهامش السفلي",
+      marginLeft: "الهامش الأيسر",
+      linkMarginSides: "ربط جوانب الهامش",
+      unlinkMarginSides: "إلغاء ربط جوانب الهامش",
       radius: "نصف القطر",
       flexGrow: "تمدد",
       flexShrink: "انكماش",
@@ -300,6 +320,8 @@ export default {
       bottomLeft: "أسفل يسار",
       bottomRight: "أسفل يمين",
       blend: "مزج",
+      blendMode: "وضع المزج",
+      removeBlendMode: "إزالة وضع المزج",
       border: "حد",
       outline: "مخطط",
       inside: "داخلي",
@@ -318,6 +340,18 @@ export default {
       perspectiveHint: "المنظور (فارغ/0 = بلا)",
       customTransform: "تحويل مخصص — لا يمكن تعديله كدوران X/Y/Z",
       shaderEffectType: "التظليل",
+      imageScaleMode: "وضع تحجيم الصورة",
+      imageAdjustments: "تعديلات الصورة",
+      imageExposure: "التعريض",
+      imageContrast: "التباين",
+      imageSaturation: "التشبع",
+      imageScaleFill: "ملء",
+      imageScaleFit: "احتواء",
+      imageScaleCrop: "اقتصاص",
+      noMirroring: "بدون انعكاس",
+      vector: "متجه",
+      mirrorAngle: "عكس الزاوية",
+      mirrorAngleAndLength: "عكس الزاوية والطول",
     },
     shaders: {
       fillsTitle: "تعبئات التظليل",
@@ -539,8 +573,33 @@ export default {
         adUnit: "وحدة إعلانية",
       },
     },
+    scale: {
+      title: "تغيير الحجم",
+      exit: "إنهاء تغيير الحجم",
+      factor: "معامل التحجيم",
+      presets: "إعدادات التحجيم المسبقة",
+      anchor: "نقطة الارتكاز",
+      topLeft: "أعلى اليسار",
+      topCenter: "أعلى الوسط",
+      topRight: "أعلى اليمين",
+      middleLeft: "الوسط يسارًا",
+      center: "الوسط",
+      middleRight: "الوسط يمينًا",
+      bottomLeft: "أسفل اليسار",
+      bottomCenter: "أسفل الوسط",
+      bottomRight: "أسفل اليمين",
+    },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "التعاون المباشر",
+      description:
+        "اسمح للأشخاص الذين لا يستطيعون الوصول إلى localhost الخاص بالمالك بمشاهدة نسخة مباشرة من هذا التصميم وتحريرها.",
+      enabled: "مفعّل",
+      disabled: "متوقف",
+      saving: "جارٍ الحفظ…",
+      enableError: "تعذّر تحديث إعداد التعاون المباشر.",
+    },
     vectorEndpoints: {
       startPoint: "نقطة البداية",
       endPoint: "نقطة النهاية",
@@ -605,7 +664,7 @@ export default {
     makeItRealCard: {
       open: "فتح",
       choose: "اختيار",
-      connect: "ربط",
+      connect: "استخدم Builder.io",
       generating: "جارٍ الإنشاء",
       generate: "إنشاء",
       migrationFailed: "فشل الترحيل. يُرجى المحاولة مرة أخرى.",
@@ -765,6 +824,8 @@ export default {
       figmaPasteTarget: "الصق في اللوحة",
       figmaPasteApiKeyHint:
         "قم بربط رمز الوصول الخاص بك في Figma للحصول على استيراد دقيق للعقد.",
+      figmaPasteAccessDenied:
+        'لا يمكن لرمز Figma المتصل الوصول إلى هذا الملف. تحقق من أذونات الملف ومن أن الرمز يتضمن نطاق "File content".',
       figmaPasteMatchGuidance:
         "تعذّرت المطابقة مع عُقد Figma محددة. الصق رابط الإطار بدلاً من ذلك للحصول على استيراد دقيق.",
       figmaPasteUnreadable:
@@ -906,6 +967,9 @@ export default {
     signUpToSaveDescription:
       "انشئ حسابا مجانيا لحفظ التصاميم وتخطيطات الشاشة وانشاء اتجاهات جديدة.",
     signUpToShare: "سجل للمشاركة",
+    signUpToShareLiveCanvas: "سجّل لمشاركة لوحة مباشرة",
+    liveCanvasLink: "رابط اللوحة المباشرة",
+    liveCanvasWaitingForOwner: "بانتظار لقطة لوحة المالك المباشرة.",
     shareEditorLink: "رابط محرر التصميم",
     shareEditorLinkDescription:
       "يمكن لاي شخص لديه صلاحية الوصول فتح هذا التصميم في المحرر.",
@@ -937,6 +1001,10 @@ export default {
     keyboardShortcuts: {
       title: "اختصارات لوحة المفاتيح",
       close: "يغلق: اختصارات لوحة المفاتيح",
+      search: "بحث",
+      searchLabel: "البحث في اختصارات لوحة المفاتيح",
+      categoriesLabel: "فئات الاختصارات",
+      empty: "لا توجد اختصارات تطابق “{{query}}”",
       codeContext: "الكود",
       screenContext: "الشاشات",
       nudgeAmount: {
@@ -969,11 +1037,6 @@ export default {
         leftBracket: "القوس المربع الأيسر",
         rightBracket: "القوس المربع الأيمن",
       },
-      descriptions: {
-        toggleUi: "اضغطه الآن لإخفاء اللوحات بسرعة والتركيز على عملك",
-        undo: "تراجع عن أحدث تغيير في التصميم",
-        redo: "استعد تغيير التصميم الذي تراجعت عنه للتو",
-      },
       categories: {
         essential: "أساسي",
         tools: "الأدوات",
@@ -1005,6 +1068,7 @@ export default {
         showLayers: "الطبقات",
         showAssets: "الأصول",
         toggleUi: "View",
+        toggleMinimalUi: "واجهة مبسطة",
         toggleComments: "تثبيت تعليق",
         zoomIn: "تكبير",
         zoomOut: "تصغير",
@@ -1058,6 +1122,7 @@ export default {
         ungroup: "إلغاء التجميع",
         frameSelection: "تأطير التحديد",
         autoLayout: "تخطيط تلقائي",
+        imageVideo: "صورة/فيديو...",
       },
     },
     undo: "تراجع",
@@ -1175,12 +1240,15 @@ export default {
     pendingVisualStyles: {
       applyAria: "تطبيق تعديلات النمط المرئية المعلقة",
       applyButton: "تطبيق الأنماط",
+      applySharedEdits: "تطبيق التعديلات",
       previewLabel: "معاينة مرئية معلقة",
       applyDesignUpdates: "تطبيق تحديثات التصميم",
       applying: "جارٍ التطبيق…",
       verifying: "جارٍ التحقق من المصدر ووقت التشغيل…",
       retryWithAgent: "إعادة التحقق من المصدر",
       copyPrompt: "نسخ الموجه إلى وكيلك",
+      copyAgentPrompt: "نسخ موجه الوكيل",
+      copyFullPrompt: "نسخ الموجه الكامل",
       abortPreview: "إلغاء المعاينة والتفاعل",
       agentMessage: "طبّق تعديلات النمط المرئية المعلقة على المصدر.",
       sentToast: "تم إرسال تحديثات التصميم إلى الوكيل",
@@ -1192,6 +1260,8 @@ export default {
       sourceCheckFailedToast:
         "تعذر التحقق من ملفات المصدر المتصلة. تم الاحتفاظ بالمعاينة لتتمكن من إعادة المحاولة أو التراجع.",
       copiedToast: "تم نسخ موجه النمط",
+      copiedToastDescription:
+        "الصقه في وكيل البرمجة واطلب منه تطبيق التغييرات المرئية.",
       abortedToast: "تم تجاهل المعاينة المعلقة",
       interactBlocked:
         "طبّق التعديلات المباشرة المعلقة أو ألغها قبل الانتقال إلى التفاعل.",
@@ -1255,6 +1325,8 @@ export default {
       annotationSendError:
         "تعذّر إرسال التعليقات التوضيحية. لا يزال الرسم محفوظًا هنا، فحاول مرة أخرى.",
       codingHandoffError: "تعذر إنشاء تسليم الترميز",
+      visualEditPendingConflict:
+        "لدى متعاون آخر تعديلات بانتظار التطبيق. طبّقها أو امسحها قبل إرسال تعديلات جديدة.",
       codingHandoffCopied: "تم نسخ تسليم الترميز",
       clipboardBlocked: "تم حظر الحافظة",
       htmlCreateError: "تعذر إنشاء تنزيل HTML",
@@ -1276,6 +1348,14 @@ export default {
         "التقاط PNG غير متاح في المعاينات المخصصة للقراءة فقط",
       pngSaveError: "تعذر حفظ PNG",
       pngExportError: "تعذر تصدير PNG",
+      exportTooLarge:
+        "حجم التصدير كبير جدًا. الحد الأقصى للطلب 5 MB؛ قلّل الأصول المضمّنة أو أبعاد الصورة ثم حاول مرة أخرى.",
+      exportResourcesUnavailable:
+        "تعذر عرض التصدير بدقة لأن صورة أو خطًا أو ورقة أنماط واحدة أو أكثر غير متاحة. تحقّق من هذه الموارد ثم حاول مرة أخرى.",
+      exportTimedOut: "انتهت مهلة التصدير. حاول مرة أخرى أو قلّل حجم التصميم.",
+      exportBusy: "يجري عرض تصدير آخر. انتظر قليلًا ثم حاول مرة أخرى.",
+      exportChromiumUnavailable:
+        "التصدير غير متاح لتعذر بدء أداة العرض. حاول مرة أخرى لاحقًا.",
       pdfExportError: "تعذر تصدير PDF",
       pdfDownloaded: "تم تنزيل PDF",
       pdfAllScreensDownloaded: "تم تنزيل PDF (كل الشاشات)",
@@ -1330,9 +1410,15 @@ export default {
         "تعذر تحديد موقع هذه الطبقة في المصدر. أعد المحاولة بعد اكتمال تحميل التطبيق، أو اطلب من الوكيل إجراء هذا التغيير.",
       reactSourceAnchorsUnavailable:
         "لا يوفّر هذا التطبيق مواقع المصدر للمحرر، لذا لا يمكن ربط هذه الطبقة بسطر معيّن. اطلب من الوكيل إجراء هذا التغيير.",
+      sourceLocationSnapshotFailed:
+        "تعذر التحقق من مواضع المصدر لهذه المعاينة.",
       screenSourceUpdated: "تم تحديث مصدر الشاشة",
       screenSourceUpdateFailed: "تعذر تحديث مصدر الشاشة",
       vectorEditUnsupported: "تحرير المتجهات غير متاح لهذا الشكل أو التحويل.",
+      imageUploading: "جارٍ رفع الصورة…",
+      pasteReplaceFailed: "تعذر استبدال تلك الطبقة",
+      swapFillStrokeLayeredFill:
+        "لا يمكن نقل التعبئات المتعددة أو تعبئات الصور إلى حد بعد",
     },
     commenterRoleLabel: "معلّق",
     commenterRoleDescription: "يمكنه العرض وإضافة تعليقات المراجعة",
@@ -1382,6 +1468,13 @@ export default {
         "لم يؤكد جسر المحرر المباشر الاتصال بعد عدة محاولات.",
       connectionNotConfirmed:
         "لم يؤكد جسر المحرر المباشر الاتصال. هل لا يزال خادم التطوير المحلي قيد التشغيل؟",
+      permissionPromptTitle: "وصّل شاشاتك المحلية",
+      permissionPromptDescription:
+        "اختر «السماح» في مطالبة Chrome لتفعيل التحرير المباشر.",
+      permissionPromptNoPrompt: "لم تظهر مطالبة Chrome؟",
+      permissionPromptSettingsInstructions:
+        "انقر على رمز عناصر التحكم بالموقع إلى يسار شريط العناوين، وافتح إعدادات الموقع، ثم اضبط الشبكة المحلية على «السماح».",
+      permissionPromptRetry: "إعادة محاولة الاتصال",
     },
   },
   multiScreenCanvas: {
@@ -1464,6 +1557,8 @@ export default {
     assetAdded: "تمت إضافة الأصول",
     assetsNoImageUrl: "لم تُرجع Assets عنوان URL للصورة.",
     failedToUploadFile: "فشل تحميل الملف",
+    imageAttachmentUnavailable:
+      "تعذّر تجهيز هذه الصورة كمدخل مرئي. أرفق ملف PNG أو JPG أو GIF أو WebP أصغر.",
     attachmentsTooLarge:
       "المرفقات كبيرة جدًا. الحد الأقصى للرفع هو {{max}} ميغابايت إجمالًا — أرفق ملفات أقل أو أصغر.",
     failedToSubmitPrompt: "تعذر إرسال المطالبة",
@@ -1565,7 +1660,65 @@ export default {
       "تم تجاهل {{count}} مسودة تعليق غير مرسلة عند مغادرة هذا العرض.",
     staleAnchorDetail: "لم يعد العنصر الأصلي موجودًا على لوحة الرسم.",
   },
+  homeContext: {
+    websiteReference: "إضافة موقع ويب",
+    websiteUrlLabel: "عنوان URL لموقع الويب",
+    websiteUrl: "الصق عنوان URL لموقع ويب",
+    figmaUrlLabel: "رابط Figma",
+    invalidFigmaUrl: "أدخل عنوان URL صالحًا لإطار أو ملف على figma.com.",
+    tooMany: "اختر ما يصل إلى 20 مرجعًا.",
+    invalidWebsiteUrl: "أدخل عنوان URL صالحًا ببروتوكول HTTP أو HTTPS.",
+    createSystem: "إنشاء نظام تصميم",
+    noSystems:
+      "ليس لديك نظام تصميم بعد. أنشئ نظامًا من موقع ويب أو ملفات أو Figma.",
+    searchSystems: "البحث في أنظمة التصميم…",
+    searchFrames: "البحث في إطارات Figma…",
+    searchDesigns: "البحث في التصاميم…",
+    searchPresentations: "البحث في العروض التقديمية…",
+    searchDesign: "البحث في التصميم…",
+    useDesignSystem: "استخدام نظام تصميم",
+    notReady:
+      "الطلب غير جاهز للإرسال. تحقق من السياق المحدد والاتصال ثم أعد المحاولة.",
+    search: "البحث في السياق…",
+    figmaUrl: "ألصق رابط Figma",
+    browse: "تصفح الإطارات",
+    loadFailed: "تعذّر تحميل هذا المرجع.",
+    retry: "إعادة المحاولة",
+    empty: "لا توجد مراجع مطابقة.",
+    none: "بلا",
+    design: "التصميم",
+    slides: "الشرائح",
+    referenceDesign: "استخدام تصميم كمرجع",
+    figmaReference: "إضافة Figma",
+    referenceDeck: "استخدام عرض تقديمي كمرجع",
+    quickSaas: "إنشاء صفحة هبوط لخدمة SaaS",
+    quickDashboard: "إنشاء لوحة معلومات",
+    quickDeck: "إنشاء عرض تقديمي",
+    deckPrompt:
+      "أنشئ عرضًا تقديميًا أنيقًا يتضمن شريحة عنوان وسردًا واضحًا وبيانات مرئية وشريحة ختامية موجزة.",
+  },
   home: {
+    suggestedPrompts: "الاقتراحات المقترحة",
+    import: "استيراد",
+    importOptions: "خيارات الاستيراد",
+    figmaLink: "رابط Figma",
+    importFromFigma: "الاستيراد من Figma",
+    figmaFile: "ملف Figma (.fig)",
+    openImport: "فتح الاستيراد",
+    importSelectedFile: "استيراد الملف المحدد",
+    starterSaasPrompt:
+      "صفحة هبوط حديثة لخدمة SaaS بتصميم داكن، وقسم رئيسي، وثلاث بطاقات للميزات، وقسم أخير يحث على اتخاذ إجراء.",
+    starterDashboardPrompt:
+      "لوحة تحليلات واضحة تضم تنقلاً جانبياً وأربع بطاقات للمؤشرات الرئيسية ومخططاً وجدولاً للنشاط الأخير.",
+    starterMobilePrompt:
+      "نموذج أولي لتطبيق جوال داخل إطار هاتف، مع شريط تبويبات في الأسفل وثلاث بطاقات قوائم على الشاشة الرئيسية.",
+    starterPricingPrompt:
+      "صفحة أسعار بثلاث خطط، مع التبديل بين الدفع الشهري والسنوي، وقوائم للميزات، وإبراز الخطة الموصى بها.",
+    designPromptTitle: "لنصمم أول تصميم لك",
+    recent: "الأخيرة",
+    browseAllTemplates: "تصفح الكل",
+    connectBuilderIo: "استخدم Builder.io",
+    connectingBuilder: "جارٍ إعداد Builder.io…",
     pageTitle: "Designs",
     searchPlaceholder: "تصاميم البحث...",
     newDesign: "جديد Design",
@@ -1575,6 +1728,9 @@ export default {
     allAuthors: "جميع المؤلفين",
     me: "أنا",
     designFilter: "تصفية التصميمات",
+    ownedByAnyone: "مملوك لأي شخص",
+    ownedByMe: "مملوك لي",
+    sharedWithMe: "تمت مشاركته معي",
     mine: "تصميماتي",
     all: "الكل",
     showMineDesigns: "عرض تصميماتي",
@@ -1608,6 +1764,7 @@ export default {
     pickStartingPoint: "اختر نقطة بداية أو اكتب مطالبتك الخاصة.",
     searchNoResultsTitle: "لا توجد تصميمات تطابق هذا البحث",
     searchNoResultsDescription: "جرّب بحثًا مختلفًا.",
+    noDesignsMatchFilter: "لا توجد تصميمات تطابق عامل التصفية الحالي.",
     starterSaas: "الصفحة المقصودة SaaS",
     starterDashboard: "لوحة المعلومات",
     starterPricing: "صفحة التسعير",
@@ -1631,6 +1788,8 @@ export default {
     layoutLabel: "تخطيط الشاشة جاهز للحفظ",
   },
   templatesPage: {
+    previewEmpty: "لا توجد شاشات قابلة للمعاينة في هذا القالب.",
+    loading: "جارٍ تحميل القوالب",
     title: "القوالب",
     description:
       "ابدأ بالأبعاد والإعدادات الصحيحة، ثم عدّل المحتوى غير المقفل باستخدام مطالبة.",
@@ -1657,7 +1816,7 @@ export default {
     deleteTitle: "حذف القالب؟",
     deleteDescription:
       "سيؤدي هذا إلى حذف {{title}} نهائيًا. لن تتأثر التصاميم التي تم إنشاؤها بالفعل.",
-    templateActions: "إجراءات القالب",
+    templateActions: "إجراءات {{title}}",
     lockedCount: "{{count}} مقفلة",
     categories: {
       ad: "إعلان",
@@ -1826,6 +1985,14 @@ export default {
       "تتطلب فهرسة التعليمات البرمجية والمستودعات خطة Builder Enterprise",
   },
   designSystems: {
+    comingSoonTitle: "أنظمة التصميم قريبًا",
+    waitlist: {
+      join: "انضم إلى قائمة الانتظار",
+      joining: "جارٍ الانضمام…",
+      joined: "أُضيفت إلى قائمة الانتظار",
+      error: "تعذّر الانضمام إلى قائمة الانتظار. يُرجى المحاولة مجددًا.",
+      unavailable: "التسجيل في قائمة الانتظار غير متاح الآن. يُرجى المحاولة لاحقًا.",
+    },
     deleteError: "لا يمكن حذف نظام التصميم",
     updateSuccess: "تم تحديث نظام التصميم",
     updateError: "لا يمكن تحديث نظام التصميم",

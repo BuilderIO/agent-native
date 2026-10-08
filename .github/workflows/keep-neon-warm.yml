@@ -1,18 +1,5 @@
 name: Audit hosted app health
 
-# Each published Netlify app now warms itself with a one-minute Scheduled
-# Function. This GitHub workflow is an independent strict audit, not the
-# latency-control mechanism: GitHub Actions schedules can be delayed too long
-# to prevent a scale-to-zero database from suspending.
-#
-# --strict also asks every app to read its own pg_stat_activity, which is how
-# the database-pressure signals from the 2026-08-06 analytics outage get
-# checked every 15 minutes without putting a single production database credential in
-# CI. The app already holds its own.
-#
-# Scheduled workflows only run on the default branch, so this takes effect once
-# merged to main. Use the manual trigger to warm on demand.
-
 on:
   schedule:
     - cron: "*/15 * * * *"
@@ -76,13 +63,6 @@ jobs:
           echo "updated_at=$previous_updated_at" >>"$GITHUB_OUTPUT"
           echo "latest_failure_updated_at=$latest_failure_updated_at" >>"$GITHUB_OUTPUT"
 
-      # One rolling issue, and it means something: open == currently failing.
-      #
-      # The previous version posted "Scheduled audit failed: <run url>" on every
-      # red run. One app's health route hung for a day and buried the issue
-      # under 14 identical comments, which is exactly how a monitor teaches
-      # people to stop opening it. Now the comment names what broke, and repeats
-      # of the SAME breakage stay silent — a new comment means something changed.
       - name: Report failure on a rolling issue
         if: failure()
         shell: bash
@@ -138,6 +118,11 @@ jobs:
           # failure must not suppress the independent on-call escalation.
           pagerduty_status=0
           page_oncall || pagerduty_status=$?
+          # The job is still running, so match on its failed step rather than
+          # its conclusion. A failed lookup is said in the issue, not hidden.
+          JOB_LINKS="$(gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --json jobs --jq '[.jobs[] | select(any(.steps[]; .conclusion == "failure")) | "- [\(.name)](\(.url)): failed at step \"\([.steps[] | select(.conclusion == "failure") | .name] | first)\""] | join("\n")')" || JOB_LINKS="(failed-job link unavailable: gh run view failed)"
+          if [ -z "$JOB_LINKS" ]; then JOB_LINKS="(no failed step recorded yet)"; fi
+          BODY="$(printf '%s\n\nFailed job and step:\n%s\n\nReproduce: gh workflow run %s --ref main' "$BODY" "$JOB_LINKS" "keep-neon-warm.yml")"
           ISSUE_NUMBER=$(gh issue list --repo "${{ github.repository }}" --state open \
             --search "\"$ISSUE_TITLE\" in:title" --json number,title \
             --jq ".[] | select(.title == \"$ISSUE_TITLE\") | .number" | head -n1)

@@ -11,9 +11,10 @@ import {
   createMultiPageRasterPdf,
   waitForExportReady,
 } from "@/pages/design-editor/export-capture";
+import { createExportSnapshotFrame } from "@/pages/design-editor/export-snapshot-frame";
+import type { ExportSnapshotSource } from "@/pages/design-editor/export-snapshot-frame";
 import {
   PngCaptureError,
-  cropCanvasToRect,
   renderExportDocumentCanvas,
 } from "@/pages/design-editor/png-export-render";
 
@@ -24,6 +25,9 @@ export interface DownloadAllScreensPdfArgs {
   fallbackExportName: (extension: string, suffix?: string) => string;
   overviewScreens: OverviewScreen[];
   prepareScreenForExport: (screenId: string) => void;
+  resolveSnapshotExportSource?: (
+    screenId: string,
+  ) => ExportSnapshotSource | null | Promise<ExportSnapshotSource | null>;
   releaseScreenFromExport: () => void;
   pngExportingRef: RefObject<boolean>;
   setPngExporting: Dispatch<SetStateAction<boolean>>;
@@ -48,7 +52,7 @@ async function waitForScreenPreview(
   const deadline = window.performance.now() + SCREEN_PREVIEW_READY_TIMEOUT_MS;
   while (window.performance.now() < deadline) {
     const iframe = document.querySelector<HTMLIFrameElement>(
-      `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screen.id)}"]`,
+      `iframe[data-screen-iframe-id="${CSS.escape(screen.id)}"]`,
     );
     if (iframe?.isConnected) {
       let doc: Document | null = null;
@@ -192,6 +196,7 @@ export async function runDownloadAllScreensPdf({
   fallbackExportName,
   overviewScreens,
   prepareScreenForExport,
+  resolveSnapshotExportSource,
   releaseScreenFromExport,
   pngExportingRef,
   setPngExporting,
@@ -205,12 +210,12 @@ export async function runDownloadAllScreensPdf({
   setPngExporting(true);
   let requestedScreenId: string | null = null;
   try {
-    const html2canvas = (await import("html2canvas")).default;
     const pages: RasterPdfPage[] = [];
     for (const screen of overviewScreens) {
       requestedScreenId = screen.id;
       prepareScreenForExport(screen.id);
       let iframe: HTMLIFrameElement | null = null;
+      let snapshotFrameCleanup: (() => void) | null = null;
       let priorInlineHeight: string | null = null;
       try {
         const preview = await waitForScreenPreview(
@@ -218,7 +223,32 @@ export async function runDownloadAllScreensPdf({
           activeCanvasSourceType,
         );
         iframe = preview.iframe;
-        const doc = preview.doc;
+        let doc = preview.doc;
+        if (!doc) {
+          const sourceType =
+            normalizeDesignSourceType(iframe.dataset.designSourceType) ??
+            activeCanvasSourceType;
+          const snapshotSource =
+            sourceType !== "inline"
+              ? await resolveSnapshotExportSource?.(screen.id)
+              : null;
+          if (sourceType !== "inline" && snapshotSource) {
+            const snapshotFrame = await createExportSnapshotFrame({
+              source: snapshotSource,
+              width:
+                canvasFrameGeometryById[screen.id]?.width ??
+                screen.width ??
+                iframe.clientWidth,
+              height:
+                canvasFrameGeometryById[screen.id]?.height ??
+                screen.height ??
+                iframe.clientHeight,
+            });
+            iframe = snapshotFrame.iframe;
+            doc = snapshotFrame.doc;
+            snapshotFrameCleanup = snapshotFrame.dispose;
+          }
+        }
         if (!doc) {
           const sourceType =
             normalizeDesignSourceType(iframe.dataset.designSourceType) ??
@@ -264,30 +294,21 @@ export async function runDownloadAllScreensPdf({
         const rendered = await renderExportDocumentCanvas({
           doc,
           iframe,
-          // Same print-quality floor as the single-page path: a 1x capture
-          // stretched to fill a fixed physical page size reads as blurry.
           exportScale: PDF_MIN_PRINT_RASTER_SCALE,
-          render: html2canvas,
-        });
-        const view = doc.defaultView;
-        const viewportCanvas = cropCanvasToRect(
-          rendered.canvas,
-          {
-            x: view?.scrollX ?? 0,
-            y: view?.scrollY ?? 0,
+          cropRect: {
+            x: doc.defaultView?.scrollX ?? 0,
+            y: doc.defaultView?.scrollY ?? 0,
             width: Math.max(1, iframe.clientWidth),
             height: Math.max(1, iframe.clientHeight),
           },
-          rendered.scale,
-        );
-        const dataUrl = (viewportCanvas ?? rendered.canvas).toDataURL(
-          "image/png",
-        );
+        });
+        const dataUrl = rendered.canvas.toDataURL("image/png");
         pages.push({ dataUrl, width: pageWidth, height: pageHeight });
       } finally {
         if (iframe && priorInlineHeight !== null) {
           iframe.style.height = priorInlineHeight;
         }
+        snapshotFrameCleanup?.();
         releaseScreenFromExport();
         requestedScreenId = null;
       }
@@ -297,12 +318,7 @@ export async function runDownloadAllScreensPdf({
     toast.success(t("designEditor.toasts.pdfAllScreensDownloaded"));
   } catch (error) {
     console.error("All-screens PDF export failed:", error);
-    showRasterCaptureError(
-      error instanceof PngCaptureError
-        ? error
-        : new PngCaptureError("blob-failed"),
-      "pdf",
-    );
+    showRasterCaptureError(error, "pdf");
   } finally {
     if (requestedScreenId !== null) releaseScreenFromExport();
     pngExportingRef.current = false;

@@ -47,6 +47,10 @@ export const mcpConnectMessages: McpConnectMessages = {
   revoke: "Revocar",
   couldNotRevoke: "No se pudo revocar el token.",
   authorizeDevice: "Autorizar dispositivo",
+  organization: "Organización",
+  invalidOrganization: "Elige una organización a la que pertenezcas.",
+  fullCatalogRequested:
+    "Este dispositivo solicita acceso al catálogo completo de acciones.",
   createToken: "Crear token de conexión",
   authorizingDevice: "Autorizando dispositivo...",
   creatingToken: "Creando token...",
@@ -65,6 +69,23 @@ export const mcpConnectMessages: McpConnectMessages = {
   couldNotCreate: "No se pudo crear el token.",
   networkError: "Error de red. Inténtalo de nuevo.",
   urlTitle: "Tu URL de MCP",
+  servicePrincipals: "Principales de servicio",
+  principalUngoverned: "Sin gobernanza",
+  principalActive: "Activo",
+  principalSuspended: "Suspendido",
+  principalRetired: "Retirado",
+  principalUngovernedHint:
+    "No hay propietario ni permisos de acciones definidos.",
+  principalOwner: "Propietario",
+  principalRisk: "Riesgo",
+  riskLow: "bajo",
+  riskMedium: "medio",
+  riskHigh: "alto",
+  suspend: "Suspender",
+  resume: "Reanudar",
+  couldNotUpdatePrincipal: "No se pudo actualizar el principal de servicio.",
+  containmentIncomplete:
+    "Actualizado, pero no se pudieron detener algunas ejecuciones o tokens. Inténtalo de nuevo.",
 };
 
 export const mcpSettingsMessages: McpSettingsMessages = {

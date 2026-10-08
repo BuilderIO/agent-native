@@ -27,6 +27,23 @@ let commentIdForIdempotency: typeof import("../../actions/add-comment.js").comme
 const asUser = <T>(userEmail: string, run: () => Promise<T>) =>
   runWithRequestContext({ userEmail }, run);
 
+const asClassifier = <T>(
+  requestId: string,
+  threadId: string,
+  run: () => Promise<T>,
+) =>
+  runWithRequestContext(
+    {
+      userEmail: OWNER,
+      run: {
+        threadId,
+        allowedActionNames: ["submit-comment-ai-classification"],
+        actionScope: { kind: "content-comment-ai-classifier", requestId },
+      },
+    },
+    run,
+  );
+
 function startArgs(requestId = FIRST_REQUEST_ID) {
   return {
     requestId,
@@ -82,6 +99,222 @@ afterAll(() => {
 });
 
 describe("comment AI request persistence", () => {
+  it("persists an Auto submission and exposes its exact private classifier session", async () => {
+    const result = await asUser(OWNER, () =>
+      commentAi.startCommentAiRequest({
+        ...startArgs(),
+        intent: undefined,
+        submittedMode: "auto",
+        instructions: "Please decide whether this asks for a change.",
+        provider: "OpenAI",
+        model: "gpt-5-6-sol",
+        engine: "builder",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      submittedMode: "auto",
+      instructions: "Please decide whether this asks for a change.",
+      submittedProvider: "OpenAI",
+      submittedModel: "gpt-5-6-sol",
+      submittedEngine: "builder",
+      intent: null,
+      status: "classifying",
+      dispatch: true,
+      pendingSession: {
+        phase: "classification",
+        backgroundSession: {
+          operationId: `${FIRST_REQUEST_ID}:classification`,
+          scope: {
+            type: "content-comment-ai-classifier",
+            id: FIRST_REQUEST_ID,
+          },
+          actionScope: {
+            kind: "content-comment-ai-classifier",
+            requestId: FIRST_REQUEST_ID,
+          },
+        },
+      },
+    });
+    expect(result.pendingSession.backgroundSession.threadId).toMatch(
+      /^comment-ai-classifier-/,
+    );
+    const stored = await asUser(OWNER, () =>
+      commentAi.loadCommentAiRequest(FIRST_REQUEST_ID),
+    );
+    expect(stored).toMatchObject({
+      submittedMode: "auto",
+      submittedProvider: "OpenAI",
+      submittedModel: "gpt-5-6-sol",
+      submittedEngine: "builder",
+      status: "classifying",
+    });
+    expect(stored.classificationTurnId).toBeTruthy();
+  });
+
+  it("persists one finite classifier result and resumes an intent-bound execution session", async () => {
+    const started = await asUser(OWNER, () =>
+      commentAi.startCommentAiRequest({
+        ...startArgs(),
+        intent: undefined,
+        submittedMode: "auto",
+        instructions: "Make this clearer and resolve the comment.",
+      }),
+    );
+    const classifierThreadId =
+      started.pendingSession.backgroundSession.threadId;
+
+    const classified = await asClassifier(
+      FIRST_REQUEST_ID,
+      classifierThreadId,
+      () => commentAi.submitCommentAiClassification("apply-resolve"),
+    );
+    expect(classified).toMatchObject({
+      request: {
+        intent: "apply-resolve",
+        status: "classified",
+        submittedModel: null,
+        submittedEngine: null,
+      },
+      pendingSession: {
+        phase: "execution",
+        backgroundSession: {
+          operationId: FIRST_REQUEST_ID,
+          actionScope: {
+            kind: "content-comment-ai",
+            requestId: FIRST_REQUEST_ID,
+          },
+        },
+      },
+    });
+    const lateClassifierCompletion = await asUser(OWNER, () =>
+      commentAi.reconcileCommentAiSession({
+        operationId: FIRST_REQUEST_ID,
+        threadId: started.pendingSession.backgroundSession.threadId,
+        turnId: started.pendingSession.backgroundSession.turnId,
+        status: "completed",
+      }),
+    );
+    expect(lateClassifierCompletion).toMatchObject({
+      intent: "apply-resolve",
+      status: "classified",
+    });
+    await expect(
+      asClassifier(FIRST_REQUEST_ID, classifierThreadId, () =>
+        commentAi.submitCommentAiClassification("reply"),
+      ),
+    ).rejects.toThrow("no longer awaiting classification");
+  });
+
+  it("continues only resolved replies on the prior exact agent thread", async () => {
+    const prior = await asUser(OWNER, () =>
+      commentAi.startCommentAiRequest(startArgs()),
+    );
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "replied" })
+      .where(eq(schema.commentAiRequests.id, FIRST_REQUEST_ID));
+
+    const started = await asUser(OWNER, () =>
+      commentAi.startCommentAiRequest({
+        ...startArgs(SECOND_REQUEST_ID),
+        intent: undefined,
+        submittedMode: "auto",
+        instructions: "Can you explain that further?",
+        continuationOfRequestId: FIRST_REQUEST_ID,
+      }),
+    );
+    expect(started.continuationOfRequestId).toBe(FIRST_REQUEST_ID);
+    const freshExecutionThread = started.agentThreadId;
+    const classifierThread = started.pendingSession.backgroundSession.threadId;
+    const classified = await asClassifier(
+      SECOND_REQUEST_ID,
+      classifierThread,
+      () => commentAi.submitCommentAiClassification("reply"),
+    );
+
+    expect(classified.request.agentThreadId).toBe(prior.agentThreadId);
+    expect(classified.request.agentThreadId).not.toBe(freshExecutionThread);
+    expect(classified.request.continuationOfRequestId).toBe(FIRST_REQUEST_ID);
+  });
+
+  it("continues an explicit reply on the prior exact agent thread", async () => {
+    const prior = await asUser(OWNER, () =>
+      commentAi.startCommentAiRequest(startArgs()),
+    );
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "replied" })
+      .where(eq(schema.commentAiRequests.id, FIRST_REQUEST_ID));
+
+    const continued = await asUser(OWNER, () =>
+      commentAi.startCommentAiRequest({
+        ...startArgs(SECOND_REQUEST_ID),
+        continuationOfRequestId: FIRST_REQUEST_ID,
+      }),
+    );
+
+    expect(continued).toMatchObject({
+      intent: "reply",
+      continuationOfRequestId: FIRST_REQUEST_ID,
+      agentThreadId: prior.agentThreadId,
+      pendingSession: { phase: "execution" },
+    });
+  });
+
+  it("keeps a fresh execution thread when a continuation resolves to suggest", async () => {
+    const prior = await asUser(OWNER, () =>
+      commentAi.startCommentAiRequest(startArgs()),
+    );
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "replied" })
+      .where(eq(schema.commentAiRequests.id, FIRST_REQUEST_ID));
+    const started = await asUser(OWNER, () =>
+      commentAi.startCommentAiRequest({
+        ...startArgs(SECOND_REQUEST_ID),
+        intent: undefined,
+        submittedMode: "auto",
+        instructions: "Maybe propose a revision.",
+        continuationOfRequestId: FIRST_REQUEST_ID,
+      }),
+    );
+    const classified = await asClassifier(
+      SECOND_REQUEST_ID,
+      started.pendingSession.backgroundSession.threadId,
+      () => commentAi.submitCommentAiClassification("suggest"),
+    );
+
+    expect(classified.request.agentThreadId).toBe(started.agentThreadId);
+    expect(classified.request.agentThreadId).not.toBe(prior.agentThreadId);
+  });
+
+  it("fails closed when a classifier terminates without submitting an intent", async () => {
+    const started = await asUser(OWNER, () =>
+      commentAi.startCommentAiRequest({
+        ...startArgs(),
+        intent: undefined,
+        submittedMode: "auto",
+        instructions: "What should happen here?",
+      }),
+    );
+    const session = started.pendingSession.backgroundSession;
+    const failed = await asUser(OWNER, () =>
+      commentAi.reconcileCommentAiSession({
+        operationId: FIRST_REQUEST_ID,
+        threadId: session.threadId,
+        turnId: session.turnId,
+        status: "completed",
+      }),
+    );
+
+    expect(failed).toMatchObject({
+      intent: null,
+      status: "needs-review",
+      errorCode: "run_unavailable",
+    });
+  });
+
   it("binds a request ID immutably and keeps it private to its requester", async () => {
     await asUser(OWNER, () => commentAi.startCommentAiRequest(startArgs()));
 
@@ -90,6 +323,14 @@ describe("comment AI request persistence", () => {
         commentAi.startCommentAiRequest({
           ...startArgs(),
           intent: "apply-resolve",
+        }),
+      ),
+    ).rejects.toThrow("already bound to another comment or intent");
+    await expect(
+      asUser(OWNER, () =>
+        commentAi.startCommentAiRequest({
+          ...startArgs(),
+          provider: "Anthropic",
         }),
       ),
     ).rejects.toThrow("already bound to another comment or intent");
@@ -115,6 +356,9 @@ describe("comment AI request persistence", () => {
 
     expect(queuedReplay.requestId).toBe(first.requestId);
     expect(runningReplay.requestId).toBe(first.requestId);
+    expect(first.outcome).toBe("confirmed-start");
+    expect(queuedReplay.outcome).toBe("busy");
+    expect(runningReplay.outcome).toBe("busy");
     const rows = await getDb().select().from(schema.commentAiRequests);
     expect(rows).toHaveLength(1);
   });
@@ -127,12 +371,18 @@ describe("comment AI request persistence", () => {
     );
     expect(new Set(results.map((result) => result.requestId)).size).toBe(1);
     expect(results.filter((result) => result.dispatch)).toHaveLength(1);
+    expect(
+      results.filter((result) => result.outcome === "confirmed-start"),
+    ).toHaveLength(1);
+    expect(results.filter((result) => result.outcome === "busy")).toHaveLength(
+      2,
+    );
     expect(await getDb().select().from(schema.commentAiRequests)).toHaveLength(
       1,
     );
   });
 
-  it("atomically reclaims a failed request once for concurrent retries", async () => {
+  it("does not redispatch a failed request on its already terminal agent turn", async () => {
     await asUser(OWNER, () => commentAi.startCommentAiRequest(startArgs()));
     await getDb()
       .update(schema.commentAiRequests)
@@ -143,8 +393,10 @@ describe("comment AI request persistence", () => {
         asUser(OWNER, () => commentAi.startCommentAiRequest(startArgs())),
       ),
     );
-    expect(retries.filter((result) => result.dispatch)).toHaveLength(1);
-    expect(retries.every((result) => result.status === "queued")).toBe(true);
+    expect(retries.every((result) => !result.dispatch)).toBe(true);
+    expect(retries.every((result) => result.status === "needs-review")).toBe(
+      true,
+    );
   });
 
   it("excludes only its deterministic receipt from source drift detection", async () => {

@@ -360,23 +360,26 @@ Jeder Verbraucher ruft dieselbe zugrunde liegende Funktion auf, sodass es nur ei
 
 ## Live Sync {#polling-sync}
 
-Wenn der Agent Daten ändert, muss die UI das ohne manuelles Neuladen widerspiegeln. `useDbSync()` macht das automatisch. Auf einem langlebigen Host werden Schreibvorgänge im selben Prozess über `/_agent-native/events` gestreamt; `/_agent-native/poll` bleibt der prozessübergreifende Fallback. Wenn der Agent in die Datenbank schreibt (Anwendungsstatus, Einstellungen oder Domänendaten), erhöht sich ein Versionszähler und der Client invalidiert die relevanten React-Query-Caches.
+Der Chat-Laufstream invalidiert betroffene Action-Abfragen und Quellzähler nach jedem nebenwirkenden Tool und erneut am Laufende. Änderungen eines einzelnen Agenten brauchen daher kein Hintergrund-Polling. Die Hintergrundsynchronisierung über `useDbSync()` ist für Änderungen gedacht, die ohne Aktion des aktuellen Nutzers entstehen, etwa wenn ein Teammitglied einen gemeinsamen Datensatz ändert oder neue Mail eintrifft. Auf einem langlebigen Host werden diese Änderungen über `/_agent-native/events` gestreamt; `/_agent-native/poll` ist der Fallback.
+
+Jeder aktivierte Aufruf von `useDbSync()` braucht einen kurzen Grund. Ein Transport wird pro Tab geteilt; sichtbare aktivierte Tabs pollen im Leerlauf nach 1, dann 2, dann 5 Minuten. Nutzeraktivität oder eine lokale Mutation setzt den Takt zurück. Ausgeblendete Tabs pausieren. Für öffentliche oder SSR-Seiten, Docs, Einstellungen, Formulare und selten geänderte Listen bleibt Sync aus; aktualisieren Sie diese bei Fokus oder Navigation. Yjs behält seinen eigenen Kanal.
 
 ```ts
-// Client: subscribe to agent/UI data changes once near the app shell
+// Client: opt in only when this page needs external changes live
 import { useDbSync } from "@agent-native/core/client/hooks";
-useDbSync({ queryClient });
+useDbSync({
+  queryClient,
+  realtime: { reason: "teammates can edit this shared deck" },
+});
 ```
 
-Rufen Sie dies einmal auf, nahe der Wurzel der App. Dadurch abonniert die gesamte App Änderungsereignisse, sodass jede Komponente, die `useActionQuery` oder ein quellversioniertes `useQuery` verwendet, automatisch neu abruft, wenn sich die gelesenen Daten ändern.
+Rufen Sie den Hook nur auf einer privaten Route auf, deren Daten sich ohne Aktion des aktuellen Nutzers ändern können und deren Nutzer das Update vor dem Neuladen sehen muss. Jeder Hintergrundabonnent kostet einen Poll pro offenem Tab und Intervall.
 
-SSE deckt den häufigsten Fall ab statt WebSockets, weil es Schreibvorgängen im selben Prozess einen unmittelbaren Weg zum Browser über einfaches HTTP verschafft, während der Versionszähler-Poll als Fallback erhalten bleibt, der in jeder Deployment-Umgebung funktioniert. Auf einem serverlosen Produktions-Host (Netlify, Lambda, Vercel) ist der eigene `/_agent-native/events`-Stream der App kein langsamerer Weg – er ist deaktiviert. Den Stream offen zu halten würde eine Funktionsinstanz blockieren, die jeweils nur eine Anfrage bedient (und daher ohnehin nie den Schreibvorgang einer anderen Invocation sehen könnte), bis die Plattform sie beendet und den Container zurücksetzt; der Server antwortet stattdessen sofort mit 204, und `/_agent-native/poll` übernimmt die gesamte Synchronisierung, im gleichen Takt, sofern die App nicht das [gehostete Realtime-Sync-Gateway](/docs/real-time-collaboration#hosted-gateway) aktiviert hat, das stattdessen aus seinem eigenen langlebigen Prozess streamt.
+Der Ablauf für externe Änderungen:
 
-Der Ablauf ist:
-
-1. Der Agent führt eine Aktion aus, die in die Datenbank schreibt
+1. Eine andere Person oder ein Hintergrundjob ändert einen gemeinsamen Datensatz
 2. Der Server sendet ein Änderungsereignis mit einer Quelle wie `"action"` oder `"settings"`
-3. `useDbSync` empfängt es über SSE oder den Polling-Fallback
+3. Eine aktivierte `useDbSync`-Seite empfängt das Ereignis per SSE oder Polling; lokale Agentenläufe verwenden den Chat-Stream
 4. `useActionQuery`-Hooks und quellversionierte `useQuery`-Hooks rufen erneut ab
 5. Komponenten rendern die neuen Daten ohne Neuladen der Seite
 

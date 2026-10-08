@@ -1,20 +1,3 @@
-/**
- * Navigate the UI to a view.
- *
- * Writes a navigate command to application state which the UI reads and auto-deletes.
- *
- * Usage:
- *   pnpm action navigate --view=overview
- *   pnpm action navigate --view=dreams
- *   pnpm action navigate --view=<custom-dispatch-extension-id>
- *   pnpm action navigate --path=/some/route
- *
- * Options:
- *   --view   View name to navigate to
- *   --path   URL path to navigate to
- *   --threadId Chat thread ID to open on the chat route
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { z } from "zod";
@@ -42,7 +25,6 @@ export default defineAction({
       return "Error: At least --view, --path, or --threadId is required.";
     }
     const nav: Record<string, string> = {};
-    // A thread id without an explicit view implies the chat surface.
     if (args.view) nav.view = args.view;
     else if (threadId) nav.view = "chat";
     if (args.path) nav.path = args.path;

@@ -165,8 +165,6 @@ describe("screen deletion metadata history", () => {
                 },
               ],
             };
-            // Model delete-file's committed prune while keeping the surviving
-            // variant members and their order exactly as stored.
             designDataJsonRef.current = {
               ...designDataJsonRef.current,
               screenMetadata: {
@@ -187,8 +185,6 @@ describe("screen deletion metadata history", () => {
                 settings: {
                   id: "settings",
                   screenCount: 3,
-                  // The reference can still hold the pre-delete membership
-                  // list while a fresh concurrent edit to B arrives.
                   screens: [mobileMember, variantMember, updatedTabletMember],
                 },
                 // delete-file prunes the entire two-member set, while the

@@ -28,11 +28,6 @@ import {
   type UseCollaborativeDocResult,
 } from "./client.js";
 
-/**
- * Minimal EventSource stand-in so the shared transport never opens a real
- * SSE connection. Tracks every constructed instance so tests can push
- * synthetic push events without going through a real EventSource.
- */
 class FakeEventSource {
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
@@ -51,9 +46,15 @@ class FakeEventSource {
 }
 
 function emptyStateResponse(): Response {
-  // A valid Yjs update for a document whose `content` text is "seed".
   return new Response(
-    JSON.stringify({ state: "AQGw+tWiDgAEAQdjb250ZW50BHNlZWQA" }),
+    JSON.stringify({
+      state: "AQGw+tWiDgAEAQdjb250ZW50BHNlZWQA",
+      activityBaseline: {
+        status: "ready",
+        version: 1,
+        cursor: "1.baseline",
+      },
+    }),
   );
 }
 
@@ -70,7 +71,6 @@ function deferredResponse(): {
   };
 }
 
-/** Routes collab/poll endpoints to canned JSON and counts state fetches. */
 function makeFetchMock() {
   const stateFetches: string[] = [];
   const mock = vi.fn(async (input: RequestInfo | URL) => {
@@ -165,6 +165,11 @@ describe("useCollaborativeDoc connection registry", () => {
                 state: Buffer.from(Y.encodeStateAsUpdate(server)).toString(
                   "base64",
                 ),
+                activityBaseline: {
+                  status: "ready",
+                  version: 1,
+                  cursor: "1.baseline",
+                },
               }),
             );
           }
@@ -243,6 +248,11 @@ describe("useCollaborativeDoc connection registry", () => {
                 state: Buffer.from(Y.encodeStateAsUpdate(server)).toString(
                   "base64",
                 ),
+                activityBaseline: {
+                  status: "ready",
+                  version: 1,
+                  cursor: "1.baseline",
+                },
               }),
             );
           if (!url.endsWith("/update")) return fallback(input);
@@ -329,6 +339,11 @@ describe("useCollaborativeDoc connection registry", () => {
                 state: Buffer.from(Y.encodeStateAsUpdate(server)).toString(
                   "base64",
                 ),
+                activityBaseline: {
+                  status: "ready",
+                  version: 1,
+                  cursor: "1.baseline",
+                },
               }),
             );
           if (!url.endsWith("/update")) return fallback(input);
@@ -413,9 +428,71 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(a?.awareness).toBe(b?.awareness);
     expect(stateFetches).toHaveLength(1);
     expect(_collabDocRegistrySizeForTests()).toBe(1);
-    // Both subscribers converge on the same synced state.
     expect(a?.isSynced).toBe(true);
     expect(b?.isSynced).toBe(true);
+  });
+
+  it("reconciles state before accepting the first poll watermark without a baseline", async () => {
+    const server = new Y.Doc();
+    server.getText("content").insert(0, "seed");
+    const initialState = Buffer.from(Y.encodeStateAsUpdate(server)).toString(
+      "base64",
+    );
+    let stateVectorFetches = 0;
+    const pollUrls: string[] = [];
+    const mock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (/\/collab\/[^/]+\/state$/.test(url)) {
+        return new Response(
+          JSON.stringify({
+            state: initialState,
+            activityBaseline: { status: "unavailable" },
+          }),
+        );
+      }
+      if (/\/collab\/[^/]+\/state\?/.test(url)) {
+        stateVectorFetches++;
+        server.getText("content").insert(4, " updated");
+        const stateVector = Buffer.from(
+          new URL(url, window.location.href).searchParams.get("stateVector")!,
+          "base64",
+        );
+        const update = Y.encodeStateAsUpdate(server, stateVector);
+        return new Response(
+          JSON.stringify({ state: Buffer.from(update).toString("base64") }),
+        );
+      }
+      if (url.includes("/_agent-native/poll")) {
+        pollUrls.push(url);
+        return new Response(JSON.stringify({ version: 100, events: [] }));
+      }
+      if (url.includes("/awareness")) {
+        return new Response(JSON.stringify({ states: [] }));
+      }
+      return new Response(JSON.stringify({}));
+    });
+    vi.stubGlobal("fetch", mock);
+
+    let result: UseCollaborativeDocResult | undefined;
+    mount(
+      <Probe
+        docId="unavailable-baseline"
+        onResult={(next) => {
+          result = next;
+        }}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(pollUrls[0]).toContain("since=0");
+    expect(stateVectorFetches).toBe(1);
+    expect(result?.ydoc?.getText("content").toString()).toBe("seed updated");
+
+    server.destroy();
   });
 
   it("returns a fresh sync receipt after an older transport fetch completes", async () => {
@@ -434,8 +511,6 @@ describe("useCollaborativeDoc connection registry", () => {
       }
       if (/\/collab\/[^/]+\/state$/.test(url)) return emptyStateResponse();
       if (url.includes("/_agent-native/poll")) {
-        // Force the transport's ring-gap recovery path to have an older
-        // state-vector request in flight when requestSync is called.
         return new Response(JSON.stringify({ version: 2_000, events: [] }));
       }
       return new Response(JSON.stringify({ states: [] }));
@@ -459,8 +534,6 @@ describe("useCollaborativeDoc connection registry", () => {
     act(() => {
       receipt = result!.requestSync();
     });
-    // The receipt starts a fresh request immediately instead of waiting for
-    // the older transport recovery, which may never settle.
     expect(stateVectorFetches).toBe(2);
     expect(stateVectorRequests[1]?.cache).toBe("no-store");
 
@@ -667,8 +740,6 @@ describe("useCollaborativeDoc connection registry", () => {
       if (/\/collab\/[^/]+\/state/.test(url)) {
         attempts++;
         if (attempts === 1) {
-          // Truncated update: this version of Yjs applies "poison" before
-          // throwing, which proves validation must happen off the live doc.
           return new Response(
             JSON.stringify({
               state: "AQGp2K6eCgAEAQdjb250ZW50BnBvaXNvbg==",
@@ -740,9 +811,7 @@ describe("useCollaborativeDoc connection registry", () => {
 
     act(() => root.unmount());
     roots = roots.filter((r) => r !== root);
-    // Still registered during the linger window…
     expect(_collabDocRegistrySizeForTests()).toBe(1);
-    // …and evicted (doc destroyed) once it elapses.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1500);
     });
@@ -773,7 +842,7 @@ describe("useCollaborativeDoc connection registry", () => {
     act(() => root.unmount());
     roots = roots.filter((r) => r !== root);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(100); // < DISPOSE_LINGER_MS
+      await vi.advanceTimersByTimeAsync(100);
     });
 
     let second: UseCollaborativeDocResult | undefined;
@@ -784,7 +853,6 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(second?.ydoc).toBe(firstYdoc);
     expect(stateFetches).toHaveLength(1);
 
-    // With a live subscriber the linger must not fire later either.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
@@ -809,7 +877,6 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(stateFetches).toHaveLength(1);
     expect(_collabDocRegistrySizeForTests()).toBe(1);
 
-    // The StrictMode remount cancelled the linger — no delayed teardown.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
@@ -879,8 +946,6 @@ describe("useCollaborativeDoc connection registry", () => {
         user={{ name: "Local", email: "local@example.com", color: "#111" }}
       />,
     );
-    // Flush the initial state fetch + first poll cycle, then let the local
-    // `setUser` awareness push (origin "local") land.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
       await vi.advanceTimersByTimeAsync(200);
@@ -896,9 +961,6 @@ describe("useCollaborativeDoc connection registry", () => {
         (init as RequestInit | undefined)?.method === "POST",
     ).length;
 
-    // Simulate a REMOTE peer's cursor move arriving over the shared SSE
-    // transport — this is what `applyAwarenessEvent` receives, and it emits
-    // `awareness.emit("change", [changes, "remote"])` after reconciling.
     await act(async () => {
       source!.onmessage?.({
         data: JSON.stringify({
@@ -920,7 +982,6 @@ describe("useCollaborativeDoc connection registry", () => {
           ],
         }),
       });
-      // Past the 150ms fast-awareness-push throttle window.
       await vi.advanceTimersByTimeAsync(200);
     });
 
@@ -930,10 +991,6 @@ describe("useCollaborativeDoc connection registry", () => {
         (init as RequestInit | undefined)?.method === "POST",
     ).length;
 
-    // A remote-originated awareness change must not cause THIS client to
-    // re-broadcast its own (unchanged) state — otherwise every peer's cursor
-    // move would fan out into an extra POST from every other connected
-    // client (an awareness storm that gets worse as more people join).
     expect(awarenessPostsAfter).toBe(awarenessPostsBefore);
   });
 

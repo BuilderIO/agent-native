@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { shouldRetryAuthSessionProbe } from "../client/auth/AuthPage.js";
+import { shouldRetryAuthSessionProbe } from "../client/auth/auth-page-helpers.js";
 import { getOnboardingHtml } from "./onboarding-html.js";
 
 describe("login document session probe", () => {

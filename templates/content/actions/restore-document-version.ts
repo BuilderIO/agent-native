@@ -1,12 +1,15 @@
 import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { requireDocumentRequestActor } from "../server/lib/document-attribution.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { propagateDocumentTitle } from "../server/lib/document-title-propagation.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
@@ -14,15 +17,18 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { syncPrivateCalloutReferences } from "../server/lib/private-icon-references.js";
 import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
 import { reconcileInlineDatabasesForDocumentWithDb } from "./_content-database-lifecycle.js";
+import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import {
   documentContentHash,
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
+import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 
 function isLinkedLocalSource(
   documentId: string,
@@ -62,7 +68,9 @@ export default defineAction({
       .min(1)
       .describe("Current document updatedAt observed before choosing restore"),
   }),
+  changeResource: (input) => documentChangeResource(input.documentId),
   run: async (args, ctx) => {
+    const actor = requireDocumentRequestActor(ctx);
     if (!args.documentId) throw new Error("--documentId is required");
     if (!args.versionId) throw new Error("--versionId is required");
     const documentId = args.documentId;
@@ -78,6 +86,76 @@ export default defineAction({
     if (isLinkedLocalSource(documentId, source))
       linkedLocalRestoreUnsupported();
     const db = getDb();
+    const [versionForScope] = await db
+      .select({ title: schema.documentVersions.title })
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.id, versionId),
+          eq(schema.documentVersions.documentId, documentId),
+          eq(schema.documentVersions.ownerEmail, ownerEmail),
+        ),
+      )
+      .limit(1);
+    const [beforeFlush] = await db
+      .select({ updatedAt: schema.documents.updatedAt })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.id, documentId),
+          eq(schema.documents.ownerEmail, ownerEmail),
+        ),
+      )
+      .limit(1);
+    if (!beforeFlush) {
+      throw new ActionContractError("Document not found.", {
+        errorCode: "DOCUMENT_NOT_FOUND",
+        statusCode: 404,
+      });
+    }
+    if (beforeFlush.updatedAt !== args.expectedUpdatedAt) {
+      throw new ActionContractError(
+        "The document changed after this restore was prepared.",
+        {
+          errorCode: "DOCUMENT_RESTORE_CONFLICT",
+          statusCode: 409,
+          details: {
+            expectedUpdatedAt: args.expectedUpdatedAt,
+            currentUpdatedAt: beforeFlush.updatedAt,
+          },
+        },
+      );
+    }
+    await flushOpenDocumentEditorToSql({ documentId, ownerEmail });
+    const [afterFlush] = await db
+      .select({
+        title: schema.documents.title,
+        updatedAt: schema.documents.updatedAt,
+      })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.id, documentId),
+          eq(schema.documents.ownerEmail, ownerEmail),
+        ),
+      )
+      .limit(1);
+    if (!afterFlush) {
+      throw new ActionContractError("Document not found.", {
+        errorCode: "DOCUMENT_NOT_FOUND",
+        statusCode: 404,
+      });
+    }
+    const expectedUpdatedAt = afterFlush.updatedAt;
+    const requestUserEmail = getRequestUserEmail();
+    const titleOrganizationIds =
+      versionForScope &&
+      versionForScope.title !== afterFlush.title &&
+      requestUserEmail
+        ? (await listContentOrganizationMemberships(requestUserEmail)).map(
+            (membership) => membership.orgId,
+          )
+        : [];
     let softDeletedDatabaseIds: string[] = [];
     const updated = await db.transaction(async (rawTx) => {
       const tx = rawTx as any;
@@ -110,14 +188,14 @@ export default defineAction({
       if (isLinkedLocalSource(documentId, current)) {
         linkedLocalRestoreUnsupported();
       }
-      if (current.updatedAt !== args.expectedUpdatedAt) {
+      if (current.updatedAt !== expectedUpdatedAt) {
         throw new ActionContractError(
           "The document changed after this restore was prepared.",
           {
             errorCode: "DOCUMENT_RESTORE_CONFLICT",
             statusCode: 409,
             details: {
-              expectedUpdatedAt: args.expectedUpdatedAt,
+              expectedUpdatedAt,
               currentUpdatedAt: current.updatedAt,
             },
           },
@@ -176,12 +254,25 @@ export default defineAction({
           },
         );
       }
+      await syncPrivateCalloutReferences(
+        tx as unknown as ReturnType<typeof getDb>,
+        {
+          documentId,
+          before: current.content,
+          after: version.content,
+          userEmail: actor,
+          ownerEmail,
+          orgId: current.orgId,
+          source: { kind: "version", versionId },
+        },
+      );
       if (current.title !== version.title) {
         await propagateDocumentTitle({
           db: tx as unknown as ReturnType<typeof getDb>,
           documentId,
           title: version.title,
           updatedAt: now,
+          organizationIds: titleOrganizationIds,
         });
       }
       for (const field of primaryBlocksFields) {

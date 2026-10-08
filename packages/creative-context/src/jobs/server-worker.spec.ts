@@ -28,11 +28,20 @@ const mocks = vi.hoisted(() => ({
   processBackground: vi.fn(),
   isLocalDatabase: vi.fn(() => true),
   isInBackgroundFunctionRuntime: vi.fn(() => false),
+  isProductionServerlessFunctionRuntime: vi.fn(() => false),
+  recurringSweepHandlers: new Map<string, () => Promise<void>>(),
+  registerRecurringSweepHandler: vi.fn(),
+  scheduledTriggerAvailability: vi.fn(() => ({
+    available: true,
+    driver: "netlify-scheduled-function",
+  })),
 }));
 
 vi.mock("@agent-native/core/db", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/db")>()),
   isLocalDatabase: mocks.isLocalDatabase,
+  isProductionServerlessFunctionRuntime:
+    mocks.isProductionServerlessFunctionRuntime,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -43,6 +52,8 @@ vi.mock("@agent-native/core/server", () => ({
   getH3App: mocks.getH3App,
   isInBackgroundFunctionRuntime: mocks.isInBackgroundFunctionRuntime,
   readBody: mocks.readBody,
+  registerRecurringSweepHandler: mocks.registerRecurringSweepHandler,
+  scheduledTriggerAvailability: mocks.scheduledTriggerAvailability,
   verifyInternalToken: mocks.verifyInternalToken,
 }));
 
@@ -94,6 +105,20 @@ describe("creative context hosted worker", () => {
     mocks.isLocalDatabase.mockReturnValue(true);
     mocks.isInBackgroundFunctionRuntime.mockReset();
     mocks.isInBackgroundFunctionRuntime.mockReturnValue(false);
+    mocks.isProductionServerlessFunctionRuntime.mockReset();
+    mocks.isProductionServerlessFunctionRuntime.mockReturnValue(false);
+    mocks.registerRecurringSweepHandler.mockReset();
+    mocks.registerRecurringSweepHandler.mockImplementation(
+      (id: string, handler: () => Promise<void>) => {
+        mocks.recurringSweepHandlers.set(id, handler);
+        return () => mocks.recurringSweepHandlers.delete(id);
+      },
+    );
+    mocks.scheduledTriggerAvailability.mockReset();
+    mocks.scheduledTriggerAvailability.mockReturnValue({
+      available: true,
+      driver: "netlify-scheduled-function",
+    });
     mocks.getH3App.mockReturnValue({ use: mocks.h3Use });
     mocks.readBody.mockReset();
     vi.unstubAllEnvs();
@@ -134,6 +159,101 @@ describe("creative context hosted worker", () => {
       }),
     });
     expect(mocks.processDue).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the in-process sweep and maintenance timers on long-running servers", async () => {
+    await createCreativeContextWorkerPlugin({ appId: "long-running" })({});
+
+    expect(mocks.processDue).toHaveBeenCalledWith({ appId: "long-running" });
+    expect(mocks.processDueBackground).toHaveBeenCalledWith({
+      appId: "long-running",
+    });
+    expect(mocks.enqueueDailyMaintenance).toHaveBeenCalledWith({
+      appId: "long-running",
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mocks.processDue).toHaveBeenCalledTimes(2);
+  });
+
+  it("does no database work at boot in production serverless runtimes and leaves the sweep to the platform scheduler", async () => {
+    mocks.isProductionServerlessFunctionRuntime.mockReturnValue(true);
+
+    await createCreativeContextWorkerPlugin({ appId: "serverless" })({});
+
+    expect(mocks.h3Use).toHaveBeenCalledWith(
+      CREATIVE_CONTEXT_IMPORT_PROCESSOR_ROUTE,
+      expect.any(Function),
+    );
+    expect(mocks.processDue).not.toHaveBeenCalled();
+    expect(mocks.processDueBackground).not.toHaveBeenCalled();
+    expect(mocks.enqueueDailyMaintenance).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
+    expect(mocks.processDue).not.toHaveBeenCalled();
+    expect(mocks.enqueueDailyMaintenance).not.toHaveBeenCalled();
+
+    const sweep = mocks.recurringSweepHandlers.get(
+      "creative-context:serverless",
+    );
+    expect(sweep).toBeTypeOf("function");
+    await sweep!();
+    expect(mocks.processDue).toHaveBeenCalledWith({ appId: "serverless" });
+    expect(mocks.processDueBackground).toHaveBeenCalledWith({
+      appId: "serverless",
+    });
+    expect(mocks.enqueueDailyMaintenance).toHaveBeenCalledWith({
+      appId: "serverless",
+    });
+  });
+
+  it("scans for daily maintenance only on the hourly sweep tick", async () => {
+    mocks.isProductionServerlessFunctionRuntime.mockReturnValue(true);
+    await createCreativeContextWorkerPlugin({ appId: "serverless-hourly" })({});
+    const sweep = mocks.recurringSweepHandlers.get(
+      "creative-context:serverless-hourly",
+    );
+
+    vi.setSystemTime(new Date("2026-07-16T17:01:00.000Z"));
+    await sweep!();
+    expect(mocks.processDue).toHaveBeenCalledTimes(1);
+    expect(mocks.enqueueDailyMaintenance).not.toHaveBeenCalled();
+
+    vi.setSystemTime(new Date("2026-07-16T18:00:00.000Z"));
+    await sweep!();
+    expect(mocks.enqueueDailyMaintenance).toHaveBeenCalledTimes(1);
+  });
+
+  it("warns when a serverless runtime has no platform scheduler for the sweep", async () => {
+    mocks.isProductionServerlessFunctionRuntime.mockReturnValue(true);
+    mocks.scheduledTriggerAvailability.mockReturnValue({
+      available: false,
+      reason: "no-platform-scheduler",
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await createCreativeContextWorkerPlugin({ appId: "serverless-vercel" })({});
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("no platform scheduler"),
+    );
+    expect(mocks.processDue).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("fails the scheduled sweep loudly when due jobs cannot be dispatched", async () => {
+    mocks.isProductionServerlessFunctionRuntime.mockReturnValue(true);
+    await createCreativeContextWorkerPlugin({ appId: "serverless-failing" })(
+      {},
+    );
+    mocks.processDueBackground.mockResolvedValueOnce({
+      discovered: 2,
+      dispatched: 1,
+      failed: 1,
+    });
+
+    const sweep = mocks.recurringSweepHandlers.get(
+      "creative-context:serverless-failing",
+    );
+    await expect(sweep!()).rejects.toThrow(/1 due background dispatch/);
   });
 
   it("keeps a caller-supplied dispatcher when requested", async () => {

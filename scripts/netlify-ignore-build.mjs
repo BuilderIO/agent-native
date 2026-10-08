@@ -312,12 +312,6 @@ function commitSubject(ref) {
   }
 }
 
-// The changeset "Version Packages" PR is squash-merged to main with a title
-// like `chore: version packages (#NNNN)` (see auto-publish.yml and
-// auto-merge-version-packages.yml). Those commits only bump package versions,
-// regenerate pnpm-lock.yaml, rewrite CHANGELOGs, and delete .changeset/*.md.
-// But pnpm-lock.yaml and package.json are in `globalPaths`, so every release
-// commit otherwise enqueues a build for the whole fleet.
 export function isVersionPackagesSubject(subject) {
   return VERSION_PACKAGES_SUBJECT_RE.test(subject);
 }
@@ -384,19 +378,6 @@ function listCommitsBetween(baseRef, headRef) {
   }
 }
 
-/**
- * Return the first non-version-packages commit after `baseRef` (up to
- * `headRef`) that touches a watched path, or `false` when none do.
- *
- * Version Packages releases intentionally skip every Netlify site, but they
- * still rewrite package manifests and changelogs under watched package dirs.
- * An aggregate `git diff base..tip` therefore looks like a
- * "newer build that also changes this site" and cancels the real deploy that
- * the release followed. Inspect commits one-by-one and ignore version-packages
- * subjects so only a later deployable commit can supersede.
- *
- * Returns `null` when git failed (caller should fail open and build).
- */
 export function findSupersedingTouch(opts) {
   const {
     commits,
@@ -459,16 +440,6 @@ function changedFiles() {
     return null;
   }
 
-  // Pick the base commit to diff against. Normally that's CACHED_COMMIT_REF
-  // (the last commit Netlify built for this site). BUT Netlify shares the build
-  // cache across deploy contexts: after a PR's deploy-preview builds, the
-  // production deploy of the squash-merge commit inherits CACHED_COMMIT_REF =
-  // the preview head. That commit has an identical tree to the merge commit, so
-  // the diff comes back empty and the site is wrongly skipped ("no content
-  // change") even though the change really did land on main. Detect that case —
-  // the cached ref is missing or is NOT an ancestor of the commit being built —
-  // and diff against the commit's first parent instead (the true previous state
-  // on this branch), so per-site change detection stays correct on production.
   let baseRef = cachedRef;
   if (!commitExists(cachedRef) || !isAncestor(cachedRef, commitRef)) {
     const parent = firstParent(commitRef);

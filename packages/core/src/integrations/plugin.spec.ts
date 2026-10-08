@@ -214,6 +214,7 @@ vi.mock("../resources/store.js", () => ({
 
 vi.mock("./pending-tasks-store.js", () => ({
   MAX_PENDING_TASK_ATTEMPTS: 3,
+  MAX_RECOVERABLE_PENDING_TASK_AGE_MS: 24 * 60 * 60 * 1000,
   claimPendingTask: claimPendingTaskMock,
   getPendingTask: getPendingTaskMock,
   getNextPendingTaskForThread: getNextPendingTaskForThreadMock,
@@ -239,8 +240,6 @@ vi.mock("./webhook-handler.js", async () => {
   };
 });
 
-// Default mirrors the real non-Slack service path so existing webhook tests
-// keep their behavior; individual tests override with mockRejectedValueOnce.
 const resolveDefaultExecutionContextMock = vi.hoisted(() =>
   vi.fn(async (incoming: { platform: string }) => ({
     ownerEmail: `integration@${incoming.platform}`,
@@ -370,6 +369,24 @@ function signedTaskHeaders(taskId: string) {
   return { authorization: `Bearer ${timestamp}.${signature}` };
 }
 
+// Sweep dispatch prefers the deployment's configured URL over the request
+// host, so these tests must not inherit one from the developer's shell.
+function clearDeploymentUrlEnv() {
+  for (const key of [
+    "AGENT_NATIVE_SELF_DISPATCH_URL",
+    "DEPLOY_PRIME_URL",
+    "DEPLOY_URL",
+    "URL",
+    "APP_URL",
+    "VITE_APP_URL",
+    "BETTER_AUTH_URL",
+    "VITE_BETTER_AUTH_URL",
+  ]) {
+    vi.stubEnv(key, undefined);
+  }
+  resetAppConfigForTests();
+}
+
 describe("integrations plugin routes", () => {
   const originalNodeEnv = process.env.NODE_ENV;
   const originalA2ASecret = process.env.A2A_SECRET;
@@ -377,6 +394,7 @@ describe("integrations plugin routes", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
     delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
@@ -479,8 +497,6 @@ describe("integrations plugin routes", () => {
     const nitroApp = createNitroApp();
     await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
 
-    // No Slack handler is registered, so both paths fall past the named
-    // routes to the catch-all, which resolves an adapter and finds none.
     await expect(
       dispatch(nitroApp, "/_agent-native/integrations/slack/oauth/callback"),
     ).resolves.toMatchObject({
@@ -1012,6 +1028,7 @@ describe("integrations plugin routes", () => {
   });
 
   it("runs a bounded durable-only sweep with a valid internal token", async () => {
+    clearDeploymentUrlEnv();
     process.env.A2A_SECRET = "test-secret";
     process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
     retryStuckPendingTasksMock.mockResolvedValueOnce({
@@ -1038,8 +1055,6 @@ describe("integrations plugin routes", () => {
     );
 
     expect(result.status).toBe(200);
-    // Sweeps every dispatch mode: portable tasks are the ones most likely to
-    // be stranded, since their self-dispatch dies with the container.
     expect(retryStuckPendingTasksMock).toHaveBeenCalledWith({
       webhookBaseUrl: "https://app.test",
       limit: 20,
@@ -1052,6 +1067,43 @@ describe("integrations plugin routes", () => {
     );
     expect(recoverDueA2AContinuationsMock).toHaveBeenCalledWith({
       webhookBaseUrl: "https://app.test",
+      limit: 10,
+    });
+  });
+
+  it("dispatches recovered work to the deployment URL, not the sweep request host", async () => {
+    // Scheduled recovery functions rebuild the sweep request without a Host
+    // header; its host is not where this deployment answers.
+    clearDeploymentUrlEnv();
+    vi.stubEnv("URL", "https://deploy.example");
+    process.env.A2A_SECRET = "test-secret";
+    process.env.APP_BASE_PATH = "/dispatch";
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/retry-stuck-tasks",
+      "POST",
+      { taskId: "integration-pending-tasks-sweep" },
+      {
+        ...signedTaskHeaders("integration-pending-tasks-sweep"),
+        host: "localhost:3000",
+        "x-forwarded-proto": "http",
+      },
+    );
+
+    expect(result.status).toBe(200);
+    const expected = "https://deploy.example/dispatch";
+    expect(retryStuckPendingTasksMock).toHaveBeenCalledWith({
+      webhookBaseUrl: expected,
+      limit: 20,
+    });
+    expect(recoverDueIntegrationCampaignsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ webhookBaseUrl: expected }),
+    );
+    expect(recoverDueA2AContinuationsMock).toHaveBeenCalledWith({
+      webhookBaseUrl: expected,
       limit: 10,
     });
   });
@@ -1123,6 +1175,67 @@ describe("integrations plugin routes", () => {
     expect(markTaskCompletedMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { attempts: 2, retryable: true },
+    { attempts: 3, retryable: false },
+  ])(
+    "counts webhook automation failures against the task retry limit on attempt $attempts",
+    async ({ attempts, retryable }) => {
+      process.env.NODE_ENV = "development";
+      const task = {
+        id: "automation-webhook-failed-task",
+        platform: "automation-webhook",
+        externalThreadId: "owner+qa@example.com:jobs/webhook.md",
+        payload: JSON.stringify({
+          kind: "automation-webhook",
+          automationId: "automation-1",
+          owner: "owner+qa@example.com",
+          path: "jobs/webhook.md",
+          eventId: "event-1",
+          payload: { ok: true },
+        }),
+        ownerEmail: "owner+qa@example.com",
+        orgId: null,
+        status: "processing",
+        attempts,
+        errorMessage: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        completedAt: null,
+      };
+      claimPendingTaskMock.mockResolvedValueOnce(task);
+      dispatchAutomationWebhookTaskMock.mockRejectedValueOnce(
+        new Error("temporary agent failure"),
+      );
+      const nitroApp = createNitroApp();
+      await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+      const result = await dispatch(
+        nitroApp,
+        "/_agent-native/integrations/process-task",
+        "POST",
+        { taskId: task.id },
+      );
+
+      expect(result.status).toBe(500);
+      if (retryable) {
+        expect(markTaskRetryableMock).toHaveBeenCalledWith(
+          task.id,
+          "temporary agent failure",
+        );
+        expect(markTaskRetryableMock.mock.calls[0]).toHaveLength(2);
+        expect(markTaskFailedMock).not.toHaveBeenCalled();
+      } else {
+        expect(markTaskFailedMock).toHaveBeenCalledWith(
+          task.id,
+          "temporary agent failure",
+        );
+        expect(markTaskRetryableMock).not.toHaveBeenCalled();
+      }
+      expect(markTaskCompletedMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("finishes a checkpointed campaign delivery without rerunning the agent", async () => {
     process.env.NODE_ENV = "development";
     process.env.NETLIFY = "true";
@@ -1166,6 +1279,53 @@ describe("integrations plugin routes", () => {
       { status: "completed" },
     );
     expect(markTaskCompletedMock).toHaveBeenCalledWith(task.id);
+  });
+
+  it("does not continue a campaign whose task is more than a day old", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.NETLIFY = "true";
+    process.env.A2A_SECRET = "test-secret";
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    const baseTask = claimedTask(1);
+    const task = {
+      ...baseTask,
+      payload: JSON.stringify({
+        kind: "response-delivery",
+        incoming: JSON.parse(baseTask.payload).incoming,
+        message: { text: "Weeks-old checkpoint", platformContext: {} },
+        campaignTerminalStatus: "completed",
+      }),
+      createdAt: Date.now() - 25 * 60 * 60 * 1000,
+      updatedAt: Date.now() - 60_000,
+    };
+    getPendingTaskMock.mockResolvedValueOnce(task);
+    const sendResponse = vi.fn(adapter.sendResponse);
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
+    const timestamp = Date.now();
+    const signature = createHmac("sha256", process.env.A2A_SECRET)
+      .update(`${task.id}:${timestamp}`)
+      .digest("hex");
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id, __integrationCampaignContinuation: true },
+      { authorization: `Bearer ${timestamp}.${signature}` },
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      ok: true,
+      skipped: "campaign-task-expired",
+    });
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(processIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(terminalizeIntegrationCampaignForTaskMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
+    expect(markTaskFailedMock).not.toHaveBeenCalled();
   });
 
   it("leases an unreceipted campaign delivery so overlapping wakes send once", async () => {
@@ -2394,11 +2554,6 @@ describe("integrations plugin routes", () => {
     expect(options.systemPrompt).toBe("Base prompt.");
     expect(options.ownerEmail).toBe("owner+qa@example.com");
     expect(resourceGetByPathMock).not.toHaveBeenCalled();
-    // No app `actions` were configured on this plugin instance, so the
-    // "keep on the first request" list is empty — everything merged into
-    // `options.actions` (integration memory, call-agent) is deferred behind
-    // the tool-search entry `handleWebhook` attaches. See
-    // `initialToolNames` on `WebhookHandlerOptions`.
     expect(options.initialToolNames).toEqual([]);
   });
 
@@ -2440,11 +2595,186 @@ describe("integrations plugin routes", () => {
     expect(handleWebhookMock).toHaveBeenCalledTimes(1);
     const [, options] = handleWebhookMock.mock.calls[0];
     expect(options.initialToolNames).toEqual(["template-action"]);
-    // The framework additions are still present in the executable registry
-    // (so a tool-search-discovered call can still run) — just excluded from
-    // the "reveal up front" list checked above.
     expect(Object.keys(options.actions)).toEqual(
       expect.arrayContaining(["call-agent", "template-action"]),
+    );
+  });
+
+  it("leaves call-agent out of the registry when callAgent is false", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    const incomingAdapter: PlatformAdapter = {
+      ...adapter,
+      parseIncomingMessage: async () => ({
+        platform: "fake",
+        externalThreadId: "thread-qa",
+        text: "hello",
+        senderName: "QA User",
+        platformContext: {},
+        timestamp: Date.now(),
+      }),
+    };
+    handleWebhookMock.mockResolvedValue({ status: 200, body: "ok" });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [incomingAdapter],
+      systemPrompt: "Base prompt.",
+      callAgent: false,
+      initialToolNames: [],
+      actions: {
+        "template-action": {
+          tool: { description: "App action", parameters: {} },
+          run: async () => "ok",
+        } as any,
+      },
+    })(nitroApp);
+
+    await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(handleWebhookMock).toHaveBeenCalledTimes(1);
+    const [, options] = handleWebhookMock.mock.calls[0];
+    expect(Object.keys(options.actions)).toContain("template-action");
+    expect(Object.keys(options.actions)).not.toContain("call-agent");
+    expect(options.initialToolNames).toEqual([]);
+  });
+
+  it.each([
+    { initialToolNames: undefined, expected: ["starter", "deferred"] },
+    {
+      initialToolNames: Object.freeze(["starter"]),
+      expected: ["starter"],
+    },
+    { initialToolNames: Object.freeze([] as string[]), expected: [] },
+  ])(
+    "propagates initial tools $expected to webhooks, queued tasks, and Google Docs",
+    async ({ initialToolNames, expected }) => {
+      process.env.NODE_ENV = "development";
+      getSessionMock.mockResolvedValue({ email: "owner@example.test" });
+      const incomingAdapter: PlatformAdapter = {
+        ...adapter,
+        parseIncomingMessage: async () => ({
+          platform: "fake",
+          externalThreadId: "thread-qa",
+          text: "hello",
+          platformContext: {},
+          timestamp: Date.now(),
+        }),
+      };
+      const action = {
+        tool: {
+          description: "App action",
+          parameters: { type: "object" as const, properties: {} },
+        },
+        run: async () => "ok",
+      };
+      const nitroApp = createNitroApp();
+      await createIntegrationsPlugin({
+        adapters: [
+          incomingAdapter,
+          { ...adapter, platform: "google-docs", label: "Google Docs" },
+        ],
+        actions: { starter: action, deferred: action },
+        initialToolNames,
+      })(nitroApp);
+      getIntegrationConfigMock.mockResolvedValue({
+        configData: { enabled: true },
+      });
+
+      const webhook = await dispatch(
+        nitroApp,
+        "/_agent-native/integrations/fake/webhook",
+        "POST",
+        { event: "message" },
+      );
+      const task = claimedTask(1);
+      claimPendingTaskMock.mockResolvedValueOnce(task);
+      processIntegrationTaskMock.mockResolvedValueOnce(undefined);
+      const processor = await dispatch(
+        nitroApp,
+        "/_agent-native/integrations/process-task",
+        "POST",
+        { taskId: task.id },
+      );
+      const poller = await dispatch(
+        nitroApp,
+        "/_agent-native/integrations/google-docs/enable",
+        "POST",
+      );
+
+      expect([webhook.status, processor.status, poller.status]).toEqual([
+        200, 200, 200,
+      ]);
+      const forwarded = [
+        handleWebhookMock.mock.calls[0][1],
+        processIntegrationTaskMock.mock.calls[0][1],
+        startGoogleDocsPollerMock.mock.calls.at(-1)![0],
+      ];
+      for (const options of forwarded) {
+        expect(options.initialToolNames).toEqual(expected);
+        expect(options.initialToolNames).not.toBe(initialToolNames);
+        expect(Object.keys(options.actions)).toEqual(
+          expect.arrayContaining(["starter", "deferred", "call-agent"]),
+        );
+      }
+      if (initialToolNames) {
+        forwarded[0].initialToolNames.push("added-by-consumer");
+        expect(initialToolNames).toEqual(expected);
+        expect(Object.isFrozen(initialToolNames)).toBe(true);
+      }
+    },
+  );
+
+  it("uses the app's initialToolNames for the first request and keeps the rest registered", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    const incomingAdapter: PlatformAdapter = {
+      ...adapter,
+      parseIncomingMessage: async () => ({
+        platform: "fake",
+        externalThreadId: "thread-qa",
+        text: "hello",
+        senderName: "QA User",
+        platformContext: {},
+        timestamp: Date.now(),
+      }),
+    };
+    handleWebhookMock.mockResolvedValue({ status: 200, body: "ok" });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [incomingAdapter],
+      systemPrompt: "Base prompt.",
+      initialToolNames: ["eager-action"],
+      actions: {
+        "eager-action": {
+          tool: { description: "Loaded up front", parameters: {} },
+          run: async () => "ok",
+        } as any,
+        "deferred-action": {
+          tool: { description: "Found through tool-search", parameters: {} },
+          run: async () => "ok",
+        } as any,
+      },
+    })(nitroApp);
+
+    await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(handleWebhookMock).toHaveBeenCalledTimes(1);
+    const [, options] = handleWebhookMock.mock.calls[0];
+    expect(options.initialToolNames).toEqual(["eager-action"]);
+    expect(Object.keys(options.actions)).toEqual(
+      expect.arrayContaining(["eager-action", "deferred-action"]),
     );
   });
 

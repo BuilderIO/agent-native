@@ -1,12 +1,33 @@
-import { getDbExec } from "@agent-native/core/db";
-import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
+import {
+  lexAgentSql,
+  readAgentSqlQuery,
+  readAgentPostgresStatement,
+  rewriteAgentSqlQuerySources,
+  verifyAgentPostgresExpressions,
+  type AgentSqlQuery,
+  type AgentPostgresStatement,
+} from "@agent-native/core/agent-sql";
+import {
+  getDbExec,
+  type DbExec,
+  type DbExecStatement,
+} from "@agent-native/core/db";
+import {
+  isTestIdentity,
+  runWithRequestContext,
+  testIdentitySql,
+} from "@agent-native/core/server";
+import { testIdentityEmailSql } from "@agent-native/core/shared";
+import { accessFilter } from "@agent-native/core/sharing";
+import { and, eq, getTableName, isNull, lt, or, sql } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 
 import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { getDb, schema } from "../db/index.js";
 import {
   EXCEPTION_EVENT_NAME,
   ingestAnalyticsExceptionEvents,
+  recordErrorIngestFailure,
   type DerivedExceptionFields,
 } from "./error-capture.js";
 import {
@@ -32,11 +53,31 @@ import {
   recordFirstPartyAnalyticsQueryPressure,
 } from "./first-party-analytics-health.js";
 import { upsertFirstPartyAnalyticsRollups } from "./first-party-analytics-rollups.js";
+import { validateAnalyticsSqlFunctions } from "./first-party-analytics-sql-policy.js";
 import { reserveFirstPartyPostgresEventVolume } from "./first-party-analytics-volume.js";
+import {
+  MAX_APP_LENGTH,
+  MAX_EVENT_NAME_LENGTH,
+  MAX_PATH_LENGTH,
+  MAX_USER_KEY_LENGTH,
+  boundedIdentity,
+  boundedText,
+} from "./indexed-text.js";
+import { parseIngestBody, requestError } from "./request-errors.js";
+import {
+  recordEventCatalog,
+  recordSessionEventIndex,
+  type SessionEventIndexInputRow,
+} from "./session-event-index.js";
+import {
+  recordRoutePerformance,
+  recordSessionPerformance,
+} from "./session-performance.js";
 
 export interface AnalyticsScope {
   userEmail: string;
   orgId: string | null;
+  credentialScope?: "org";
 }
 
 export interface IncomingAnalyticsEvent {
@@ -56,15 +97,14 @@ export interface AnalyticsQueryResult {
 }
 
 export interface AnalyticsQueryOptions {
-  /** Cache only callers with a stable dashboard-panel lifecycle. */
   cache?: boolean;
-  /** Bound the database work for callers with a smaller delivery deadline. */
   timeoutMs?: number;
+  /** Debugging only: metrics exclude test identities by default. */
+  includeTestIdentities?: boolean;
 }
 
 const MAX_EVENTS_PER_REQUEST = 100;
 const MAX_QUERY_ROWS = 5_000;
-// Leave seven days for retries inside BigQuery's 3,650-day streaming limit.
 const MAX_ANALYTICS_TIMESTAMP_AGE_MS = (3_650 - 7) * 24 * 60 * 60 * 1_000;
 const FIRST_PARTY_QUERY_TABLE_NAMES = [
   "analytics_events",
@@ -77,24 +117,7 @@ const FIRST_PARTY_ROLLUP_TABLES = new Set([
   "analytics_event_daily_rollups",
   "analytics_user_days",
 ]);
-const FIRST_PARTY_QUERY_TABLE_PATTERN = FIRST_PARTY_QUERY_TABLE_NAMES.join("|");
 const FIRST_PARTY_QUERY_TABLE_LIST = FIRST_PARTY_QUERY_TABLE_NAMES.join(", ");
-const RESERVED_ALIAS_WORDS = new Set([
-  "where",
-  "on",
-  "group",
-  "order",
-  "limit",
-  "join",
-  "left",
-  "right",
-  "inner",
-  "outer",
-  "cross",
-  "full",
-  "having",
-  "union",
-]);
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -119,12 +142,9 @@ function id(prefix: string): string {
 
 async function persistBigQueryRowsWithMigrationFallback(
   db: any,
-  rows: Array<{
-    id: string;
-    ownerEmail: string;
-    orgId: string | null;
-    [key: string]: unknown;
-  }>,
+  rows: Array<
+    SessionEventIndexInputRow & { id: string; [key: string]: unknown }
+  >,
   table: string | null,
   scope: AnalyticsScope,
   receivedAt: string,
@@ -143,6 +163,8 @@ async function persistBigQueryRowsWithMigrationFallback(
           updatedAt: receivedAt,
         })),
       );
+      await recordSessionEventIndex(tx, rows, receivedAt);
+      await recordSessionPerformance(tx, rows, receivedAt);
     });
   } catch (error) {
     if (!isFirstPartyAnalyticsDeliveryQueueMissingError(error)) throw error;
@@ -167,6 +189,8 @@ async function persistBigQueryRowsWithMigrationFallback(
               ON CONFLICT (key) DO NOTHING`,
         );
       }
+      await recordSessionEventIndex(tx, rows, receivedAt);
+      await recordSessionPerformance(tx, rows, receivedAt);
     });
     try {
       const result = await runWithRequestContext(
@@ -305,31 +329,8 @@ export async function listAnalyticsPublicKeys(
   }));
 }
 
-/** How stale the last-used stamp must be before a request pays to refresh it. */
 const LAST_USED_AT_REFRESH_MS = 60_000;
 
-/**
- * Refresh a public key's last-used stamp without serializing ingest behind it.
- *
- * This UPDATE used to sit inside the ingest transaction, so every concurrent
- * request for one public key took an exclusive row lock on that key's row and
- * held it until the transaction committed — which meant through the rollup
- * upsert. Production stacked 36 writers on three hot rows waiting 38-57s each;
- * that exhausted the connection pool, and the whole app stopped loading while
- * Postgres reported "no server connection available, client being queued". The
- * stamp is bookkeeping: it needs neither atomicity with the events nor
- * second-precision, and losing one is harmless.
- *
- * The staleness predicate throttles in SQL rather than in the caller, because
- * Postgres only locks rows an UPDATE actually matches — a request whose key was
- * stamped seconds ago matches nothing and takes no lock at all. Doing the same
- * check in JS would reintroduce the convoy, since every racing request would
- * still issue its own unconditional write.
- *
- * `last_used_at` is TEXT holding ISO-8601 UTC (always `Z`-suffixed), so `lt` is
- * a lexicographic comparison that happens to be chronological. Storing a local
- * or offset-bearing timestamp here would silently break this ordering.
- */
 export async function touchPublicKeyLastUsedAt(
   keyId: string,
   receivedAt: string,
@@ -358,8 +359,6 @@ export async function touchPublicKeyLastUsedAt(
         ),
       );
   } catch (error) {
-    // Best-effort by design: a failed stamp must not reject an ingest whose
-    // events already committed. Loud enough to see if it starts failing always.
     console.warn(
       "[first-party-analytics] Failed to refresh key last-used stamp:",
       error,
@@ -426,7 +425,9 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function asString(value: unknown): string | null {
-  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
   if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
@@ -494,35 +495,35 @@ export function resolveAnalyticsEventDimensions({
   context: Record<string, unknown>;
   hostname: string | null;
 }): { app: string | null; template: string | null } {
-  const app =
+  const app = boundedDimension(
     asString(properties.app_name) ||
-    asString(properties.app) ||
-    asString((properties as any).agent_native_app) ||
-    asString((properties as any).agentNativeApp) ||
-    asString((context as any).app) ||
-    asString((context as any).agent_native_app) ||
-    asString((context as any).agentNativeApp) ||
-    (hostname ? hostname.split(".")[0] : null);
+      asString(properties.app) ||
+      asString((properties as any).agent_native_app) ||
+      asString((properties as any).agentNativeApp) ||
+      asString((context as any).app) ||
+      asString((context as any).agent_native_app) ||
+      asString((context as any).agentNativeApp) ||
+      (hostname ? hostname.split(".")[0] : null),
+  );
   const template =
-    asString(properties.template_name) ||
-    asString(properties.template) ||
-    asString((properties as any).templateId) ||
-    asString((properties as any).agent_native_template) ||
-    asString((properties as any).agentNativeTemplate) ||
-    asString((context as any).template) ||
-    asString((context as any).templateId) ||
-    asString((context as any).agent_native_template) ||
-    asString((context as any).agentNativeTemplate) ||
-    app;
+    boundedDimension(
+      asString(properties.template_name) ||
+        asString(properties.template) ||
+        asString((properties as any).templateId) ||
+        asString((properties as any).agent_native_template) ||
+        asString((properties as any).agentNativeTemplate) ||
+        asString((context as any).template) ||
+        asString((context as any).templateId) ||
+        asString((context as any).agent_native_template) ||
+        asString((context as any).agentNativeTemplate),
+    ) || app;
   return { app, template };
 }
 
-/**
- * The public marketing site does not have a product sign-in surface. It shares
- * the browser analytics write key, though, so its host-derived `www` dimension
- * must never enter signed-in product cohorts when a client sends session
- * telemetry.
- */
+function boundedDimension(value: string | null): string | null {
+  return value && boundedText(value, MAX_APP_LENGTH);
+}
+
 export function isMarketingWebsiteSessionEvent({
   eventName,
   hostname,
@@ -544,8 +545,6 @@ export function isMarketingWebsiteSessionEvent({
   ) {
     return true;
   }
-  // Some older browser events do not include a URL/hostname. Their only
-  // available attribution is the host-derived app/template dimension.
   const normalizedApp = app?.trim().toLowerCase();
   const normalizedTemplate = template?.trim().toLowerCase();
   return (
@@ -554,35 +553,43 @@ export function isMarketingWebsiteSessionEvent({
   );
 }
 
-export function parseAnalyticsTrackPayload(raw: unknown): {
+export function parseAnalyticsTrackPayload(
+  raw: unknown,
+  headerKey?: string | null,
+): {
   publicKey: string;
   events: IncomingAnalyticsEvent[];
 } {
-  const body =
-    typeof raw === "string" && raw.trim() ? JSON.parse(raw) : asRecord(raw);
+  const body = asRecord(parseIngestBody(raw));
   const publicKey =
+    asString(headerKey) ||
     asString((body as any).publicKey) ||
     asString((body as any).writeKey) ||
     asString((body as any).apiKey);
   if (!publicKey) {
-    throw new Error("Missing publicKey");
+    throw requestError("Missing publicKey", 400);
   }
 
   const rawEvents = Array.isArray((body as any).events)
     ? (body as any).events
     : [body];
   if (rawEvents.length === 0) {
-    throw new Error("No events provided");
+    throw requestError("No events provided", 400);
   }
   if (rawEvents.length > MAX_EVENTS_PER_REQUEST) {
-    throw new Error(`At most ${MAX_EVENTS_PER_REQUEST} events are accepted`);
+    throw requestError(
+      `At most ${MAX_EVENTS_PER_REQUEST} events are accepted`,
+      400,
+    );
   }
 
   const events = rawEvents.map((rawEvent: unknown) => {
     const obj = asRecord(rawEvent);
     const eventName =
       asString((obj as any).event) || asString((obj as any).name);
-    if (!eventName) throw new Error("Each event requires an event name");
+    if (!eventName) {
+      throw requestError("Each event requires an event name", 400);
+    }
     return {
       event: eventName,
       properties: asRecord((obj as any).properties),
@@ -597,10 +604,47 @@ export function parseAnalyticsTrackPayload(raw: unknown): {
   return { publicKey, events };
 }
 
+export interface RecordAnalyticsEventsResult {
+  accepted: number;
+  /**
+   * Test-identity events kept out of analytics tables. Their `$exception`
+   * events still reach error issues, flagged as test-identity occurrences.
+   */
+  suppressedTestIdentity: number;
+  keyId: string;
+}
+
+const IDENTITY_EMAIL_FIELDS = [
+  "user_email",
+  "userEmail",
+  "email",
+  "test_identity_email",
+] as const;
+
+// Senders drop most test-identity events, but a browser only knows the
+// built-in rule, so ingest re-checks every identity an event carries, its
+// context included, with the deployment's configured identities. Only an
+// identity counts: anyone holding the public write key can set a
+// `test_identity` flag on a real user's event to hide it and its alerts.
+function isTestIdentityEvent(
+  userId: string | null,
+  properties: Record<string, unknown>,
+  context: Record<string, unknown>,
+): boolean {
+  return [
+    userId,
+    ...IDENTITY_EMAIL_FIELDS.flatMap((field) => [
+      properties[field],
+      context[field],
+    ]),
+    asRecord(context.traits).email,
+  ].some(isTestIdentity);
+}
+
 export async function recordAnalyticsEvents(
   publicKey: string,
   events: IncomingAnalyticsEvent[],
-): Promise<{ accepted: number; keyId: string }> {
+): Promise<RecordAnalyticsEventsResult> {
   const db = getDb() as any;
   // guard:allow-unscoped -- public ingestion must resolve the owning tenant from the submitted write key before it can scope inserts.
   const [key] = await db
@@ -614,7 +658,7 @@ export async function recordAnalyticsEvents(
     )
     .limit(1);
   if (!key) {
-    throw new Error("Invalid analytics public key");
+    throw requestError("Invalid analytics public key", 401);
   }
 
   const receivedAt = nowIso();
@@ -622,7 +666,8 @@ export async function recordAnalyticsEvents(
     properties: Record<string, unknown>;
     derived: DerivedExceptionFields;
   }> = [];
-  const rows = events.map((event) => {
+  let suppressedTestIdentity = 0;
+  const rows = events.flatMap((event) => {
     const properties = event.properties ?? {};
     const context = event.context ?? {};
     const url =
@@ -652,7 +697,9 @@ export async function recordAnalyticsEvents(
       event.anonymousId ??
       asString((properties as any).anonymousId) ??
       asString((properties as any).distinctId);
-    const userKey = userId || anonymousId;
+    const rawUserKey = userId || anonymousId;
+    const userKey =
+      rawUserKey && boundedIdentity(rawUserKey, MAX_USER_KEY_LENGTH);
     const timestamp = normalizeAnalyticsTimestamp(event.timestamp, receivedAt);
     const sessionId =
       event.sessionId ??
@@ -666,6 +713,7 @@ export async function recordAnalyticsEvents(
     })
       ? "false"
       : reportedSignedIn;
+    const testIdentity = isTestIdentityEvent(userId, properties, context);
 
     if (event.event === EXCEPTION_EVENT_NAME) {
       exceptionSources.push({
@@ -674,19 +722,25 @@ export async function recordAnalyticsEvents(
           app,
           template,
           url: parts.url,
-          userId,
+          userId: userId && boundedIdentity(userId, MAX_USER_KEY_LENGTH),
           anonymousId,
           userKey,
           sessionId,
           timestamp,
+          testIdentity,
         },
       });
     }
+    if (testIdentity) {
+      suppressedTestIdentity += 1;
+      return [];
+    }
 
+    const path = parts.path ?? asString(properties.path);
     return {
       id: id("evt"),
       publicKeyId: key.id,
-      eventName: event.event,
+      eventName: boundedText(event.event, MAX_EVENT_NAME_LENGTH),
       userId,
       anonymousId,
       userKey,
@@ -695,7 +749,7 @@ export async function recordAnalyticsEvents(
       eventDate: eventDateFromTimestamp(timestamp),
       receivedAt,
       url: parts.url,
-      path: parts.path ?? asString(properties.path),
+      path: path && boundedText(path, MAX_PATH_LENGTH),
       hostname,
       referrer:
         asString(properties.referrer) || asString((context as any).referrer),
@@ -724,8 +778,6 @@ export async function recordAnalyticsEvents(
         () => insertFirstPartyAnalyticsRows(rows, backend.table),
       );
     } catch (error) {
-      // Dual-write mode keeps Postgres as the recoverable source until the
-      // backfill has completed. A BigQuery outage must not lose live events.
       console.error(
         "[first-party-analytics] BigQuery dual-write failed; retaining Postgres event:",
         error,
@@ -737,8 +789,6 @@ export async function recordAnalyticsEvents(
   if (rows.length) {
     try {
       if (backend.sink === "bigquery") {
-        // BigQuery-mode events stay in SQL until the scheduled worker confirms
-        // delivery. This is the recoverable boundary after warehouse cutover.
         await persistBigQueryRowsWithMigrationFallback(
           db,
           rows,
@@ -761,22 +811,22 @@ export async function recordAnalyticsEvents(
           }
           await tx.insert(schema.analyticsEvents).values(rows);
           await upsertFirstPartyAnalyticsRollups(rows, tx);
+          await recordSessionEventIndex(tx, rows, receivedAt);
+          await recordSessionPerformance(tx, rows, receivedAt);
         });
       }
     } catch (error) {
-      // Preserve SQL-only exception issues and public-key metadata below even
-      // when a Postgres volume reservation or insert rejects the batch.
       persistenceError = error;
     }
+  }
+  if (rows.length && !persistenceError) {
+    await recordEventCatalog(rows);
+    await recordRoutePerformance(rows, receivedAt);
   }
   if (rows.length) {
     await touchPublicKeyLastUsedAt(key.id, receivedAt);
   }
 
-  // Fork captured exceptions into the dedicated error-capture tables. This is
-  // best-effort: a malformed `$exception` payload must never reject the whole
-  // analytics ingest (the event is still recorded in analytics_events above,
-  // which keeps alerting working).
   if (exceptionSources.length) {
     try {
       await ingestAnalyticsExceptionEvents(
@@ -788,329 +838,89 @@ export async function recordAnalyticsEvents(
         exceptionSources,
       );
     } catch (error) {
-      console.warn("[first-party-analytics] Exception ingest failed:", error);
+      // The raw `$exception` rows above are already stored, but none of these
+      // reached `error_issues`: count them and log at error level.
+      recordErrorIngestFailure(exceptionSources.length, error);
     }
   }
 
   if (persistenceError) throw persistenceError;
 
-  return { accepted: rows.length, keyId: key.id };
+  return { accepted: rows.length, suppressedTestIdentity, keyId: key.id };
 }
 
-function stripSqlLiterals(sql: string): string {
-  let out = "";
-  let i = 0;
-  let inSingle = false;
-  let inDouble = false;
-  while (i < sql.length) {
-    const ch = sql[i];
-    const next = sql[i + 1];
-    if (!inSingle && !inDouble && ch === "-" && next === "-") {
-      while (i < sql.length && sql[i] !== "\n") i++;
-      out += " ";
-      continue;
-    }
-    if (!inSingle && !inDouble && ch === "/" && next === "*") {
-      i += 2;
-      while (i < sql.length && !(sql[i] === "*" && sql[i + 1] === "/")) i++;
-      i += 2;
-      out += " ";
-      continue;
-    }
-    if (!inDouble && ch === "'") {
-      out += " ";
-      if (inSingle && next === "'") {
-        i += 2;
-        continue;
-      }
-      inSingle = !inSingle;
-      i++;
-      continue;
-    }
-    if (!inSingle && ch === '"') {
-      out += " ";
-      inDouble = !inDouble;
-      i++;
-      continue;
-    }
-    out += inSingle || inDouble ? " " : ch;
-    i++;
-  }
-  return out;
-}
-
-interface AnalyticsSqlToken {
-  value: string;
-  quoted: boolean;
-  depth: number;
-}
-
-interface AnalyticsSqlSource {
-  ref: string;
-  quoted: boolean;
-  commaSeparated: boolean;
-}
-
-const SQL_SOURCE_CLAUSE_ENDS = new Set([
-  "where",
-  "group",
-  "order",
-  "limit",
-  "having",
-  "union",
-  "except",
-  "intersect",
-  "window",
-  "qualify",
-  "returning",
-]);
-
-function tokenizeAnalyticsSql(sql: string): AnalyticsSqlToken[] {
-  const tokens: AnalyticsSqlToken[] = [];
-  let depth = 0;
-
-  for (let i = 0; i < sql.length; ) {
-    const ch = sql[i];
-    const next = sql[i + 1];
-
-    if (ch === "-" && next === "-") {
-      i += 2;
-      while (i < sql.length && sql[i] !== "\n") i++;
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      i += 2;
-      while (i < sql.length && !(sql[i] === "*" && sql[i + 1] === "/")) {
-        i++;
-      }
-      i += 2;
-      continue;
-    }
-    if (ch === "'") {
-      i++;
-      while (i < sql.length) {
-        if (sql[i] === "'" && sql[i + 1] === "'") {
-          i += 2;
-          continue;
-        }
-        if (sql[i] === "'") {
-          i++;
-          break;
-        }
-        i++;
-      }
-      continue;
-    }
-    if (ch === '"' || ch === "`" || ch === "[") {
-      const closing = ch === "[" ? "]" : ch;
-      let value = "";
-      i++;
-      while (i < sql.length) {
-        if (sql[i] === closing && sql[i + 1] === closing) {
-          value += closing;
-          i += 2;
-          continue;
-        }
-        if (sql[i] === closing) {
-          i++;
-          break;
-        }
-        value += sql[i++];
-      }
-      tokens.push({ value, quoted: true, depth });
-      continue;
-    }
-    if (/[A-Za-z_]/.test(ch)) {
-      const start = i;
-      i++;
-      while (i < sql.length && /[A-Za-z0-9_$]/.test(sql[i])) i++;
-      tokens.push({ value: sql.slice(start, i), quoted: false, depth });
-      continue;
-    }
-    if (ch === "(") {
-      tokens.push({ value: ch, quoted: false, depth });
-      depth++;
-      i++;
-      continue;
-    }
-    if (ch === ")") {
-      depth = Math.max(0, depth - 1);
-      tokens.push({ value: ch, quoted: false, depth });
-      i++;
-      continue;
-    }
-    if (ch === "." || ch === ",") {
-      tokens.push({ value: ch, quoted: false, depth });
-    }
-    i++;
-  }
-
-  return tokens;
-}
-
-function isAnalyticsSqlKeyword(
-  token: AnalyticsSqlToken | undefined,
-  keyword: string,
-): boolean {
-  return Boolean(
-    token && !token.quoted && token.value.toLowerCase() === keyword,
-  );
-}
-
-function readAnalyticsSqlSource(
-  tokens: AnalyticsSqlToken[],
-  start: number,
-): { source: Omit<AnalyticsSqlSource, "commaSeparated"> | null; next: number } {
-  let index = start;
-  while (
-    isAnalyticsSqlKeyword(tokens[index], "only") ||
-    isAnalyticsSqlKeyword(tokens[index], "lateral")
-  ) {
-    index++;
-  }
-
-  const first = tokens[index];
-  if (!first) return { source: null, next: index };
-  if (first.value === "(") {
-    const groupDepth = first.depth;
-    index++;
-    while (
-      index < tokens.length &&
-      !(tokens[index].value === ")" && tokens[index].depth === groupDepth)
-    ) {
-      index++;
-    }
-    return { source: null, next: Math.min(index + 1, tokens.length) };
-  }
-  if (!first.quoted && !/^[A-Za-z_][A-Za-z0-9_$]*$/.test(first.value)) {
-    return { source: null, next: index + 1 };
-  }
-
-  let ref = first.value;
-  let quoted = first.quoted;
+function validateFirstPartyAnalyticsSqlShape(sql: string): AgentSqlQuery {
+  const tokens = lexAgentSql(sql, { dialect: "postgres" });
   if (
-    tokens[index + 1]?.value === "." &&
-    tokens[index + 2] &&
-    (tokens[index + 2].quoted ||
-      /^[A-Za-z_][A-Za-z0-9_$]*$/.test(tokens[index + 2].value))
+    tokens[0]?.kind !== "word" ||
+    !["select", "with"].includes(tokens[0].value)
   ) {
-    ref += `.${tokens[index + 2].value}`;
-    quoted ||= tokens[index + 2].quoted;
-    index += 2;
-  }
-  return { source: { ref, quoted }, next: index + 1 };
-}
-
-function collectAnalyticsSqlSources(sql: string): {
-  cteNames: Set<string>;
-  sources: AnalyticsSqlSource[];
-} {
-  const tokens = tokenizeAnalyticsSql(sql);
-  const cteNames = new Set<string>();
-  for (let i = 0; i + 2 < tokens.length; i++) {
-    if (
-      tokens[i].value &&
-      isAnalyticsSqlKeyword(tokens[i + 1], "as") &&
-      tokens[i + 2].value === "("
-    ) {
-      cteNames.add(tokens[i].value.toLowerCase());
-    }
-  }
-
-  const sources: AnalyticsSqlSource[] = [];
-  for (let i = 0; i < tokens.length; i++) {
-    if (!isAnalyticsSqlKeyword(tokens[i], "from")) continue;
-    const fromDepth = tokens[i].depth;
-    let expectSource = true;
-    let inJoinCondition = false;
-    let sourceAfterComma = false;
-
-    for (let j = i + 1; j < tokens.length; j++) {
-      const token = tokens[j];
-      if (token.depth < fromDepth) break;
-      if (token.depth > fromDepth) continue;
-
-      const word = token.quoted ? "" : token.value.toLowerCase();
-      if (SQL_SOURCE_CLAUSE_ENDS.has(word)) break;
-      if (word === "join") {
-        expectSource = true;
-        inJoinCondition = false;
-        sourceAfterComma = false;
-        continue;
-      }
-      if (word === "on" || word === "using") {
-        expectSource = false;
-        inJoinCondition = true;
-        continue;
-      }
-      if (token.value === "," && !inJoinCondition) {
-        expectSource = true;
-        sourceAfterComma = true;
-        continue;
-      }
-      if (!expectSource) continue;
-
-      const parsed = readAnalyticsSqlSource(tokens, j);
-      if (parsed.source) {
-        sources.push({
-          ...parsed.source,
-          commaSeparated: sourceAfterComma,
-        });
-      }
-      sourceAfterComma = false;
-      expectSource = false;
-      j = Math.max(j, parsed.next - 1);
-    }
-  }
-
-  return { cteNames, sources };
-}
-
-export function validateFirstPartyAnalyticsSql(sql: string): void {
-  const stripped = stripSqlLiterals(sql).trim();
-  const lowered = stripped.toLowerCase();
-  if (!/^(select|with)\b/.test(lowered)) {
     throw new Error(
       "First-party analytics queries must start with SELECT or WITH",
     );
   }
-  if (stripped.includes(";")) {
+  if (tokens.some((token) => token.text === ";")) {
     throw new Error("Only a single SELECT statement is allowed");
   }
+  const mutations = new Set([
+    "insert",
+    "update",
+    "delete",
+    "drop",
+    "alter",
+    "truncate",
+    "create",
+    "replace",
+    "grant",
+    "revoke",
+    "into",
+  ]);
   if (
-    /\b(insert|update|delete|drop|alter|truncate|create|replace|grant|revoke)\b/i.test(
-      stripped,
-    )
+    tokens.some((token) => token.kind === "word" && mutations.has(token.value))
   ) {
     throw new Error("Only read-only SELECT queries are allowed");
   }
-  if (stripped.includes("?")) {
+  if (tokens.some((token) => token.kind === "parameter")) {
     throw new Error("Bind placeholders are not supported in dashboard SQL");
   }
-  if (/\$\d+\b/.test(stripped)) {
-    throw new Error("Bind placeholders are not supported in dashboard SQL");
-  }
-  if (/\bonly\b/i.test(stripped)) {
+  if (tokens.some((token) => token.kind === "word" && token.value === "only")) {
     throw new Error(
       "ONLY-qualified table sources are not supported in first-party analytics queries",
     );
   }
-  if (/\bsession_replay_chunks\b/i.test(stripped)) {
+  if (
+    tokens.some(
+      (token) =>
+        ["word", "quoted-identifier"].includes(token.kind) &&
+        token.value.toLowerCase() === "session_replay_chunks",
+    )
+  ) {
     throw new Error(
       "First-party analytics queries cannot read session replay chunks",
     );
   }
-
-  const { cteNames, sources } = collectAnalyticsSqlSources(sql);
+  assertNoSessionRecordingFilterTables(sql);
+  const query = readAgentSqlQuery(sql, { dialect: "postgres" });
+  for (const cte of query.ctes) {
+    if (FIRST_PARTY_QUERY_TABLES.has(cte.name.toLowerCase())) {
+      throw new Error(
+        `First-party analytics queries can only read ${FIRST_PARTY_QUERY_TABLE_LIST} (found CTE ${cte.name})`,
+      );
+    }
+  }
   let usesAllowedTable = false;
-  for (const source of sources) {
-    const ref = source.ref.toLowerCase();
+  for (const source of query.sources) {
     if (source.commaSeparated) {
       throw new Error(
         "Comma-separated table sources are not supported in first-party analytics queries; use an explicit JOIN",
       );
     }
-    if (FIRST_PARTY_QUERY_TABLES.has(ref)) {
+    if (source.cte) continue;
+    const ref = [...source.qualifiers, source.name].join(".");
+    if (
+      source.qualifiers.length === 0 &&
+      FIRST_PARTY_QUERY_TABLES.has(source.name)
+    ) {
       if (source.quoted) {
         throw new Error(
           "Quoted table identifiers are not supported in first-party analytics queries",
@@ -1119,56 +929,188 @@ export function validateFirstPartyAnalyticsSql(sql: string): void {
       usesAllowedTable = true;
       continue;
     }
-    if (cteNames.has(ref)) continue;
     throw new Error(
-      `First-party analytics queries can only read ${FIRST_PARTY_QUERY_TABLE_LIST} (found ${source.ref})`,
+      `First-party analytics queries can only read ${FIRST_PARTY_QUERY_TABLE_LIST} (found ${ref})`,
     );
   }
   if (!usesAllowedTable) {
     throw new Error(`Query must read from ${FIRST_PARTY_QUERY_TABLE_LIST}`);
   }
+  return query;
 }
+
+export function validateFirstPartyAnalyticsSql(sql: string): void {
+  validateAnalyticsSqlFunctions(validateFirstPartyAnalyticsSqlShape(sql));
+}
+
+// The identity column each source can be filtered on. Daily event rollups
+// carry no identity, so ingest keeps test identities out of them instead.
+const TEST_IDENTITY_COLUMNS: Record<string, string> = {
+  analytics_events: "user_id",
+  analytics_user_days: "user_key",
+  session_recordings: "user_id",
+};
 
 function scopedTableSource(
   tableName: string,
   scope: AnalyticsScope,
   today: string,
   parameterOffset: number,
+  includeTestIdentities: boolean,
 ): {
   sql: string;
   args: Array<string | null>;
 } {
+  const identityColumn = TEST_IDENTITY_COLUMNS[tableName];
+  const testIdentityFilter =
+    identityColumn && !includeTestIdentities
+      ? ` AND NOT ${testIdentitySql(identityColumn)}`
+      : "";
   if (FIRST_PARTY_ROLLUP_TABLES.has(tableName)) {
+    if (scope.credentialScope === "org" && !scope.orgId) {
+      return {
+        sql: `(SELECT * FROM ${tableName} WHERE 1 = 0)`,
+        args: [],
+      };
+    }
     const tenantKeys = scope.orgId
-      ? [`org:${scope.orgId}`, `user:${scope.userEmail}`]
-      : [`user:${scope.userEmail}`];
+      ? [
+          `org:${scope.orgId}`,
+          ...(scope.credentialScope === "org"
+            ? []
+            : [`user:${scope.userEmail}`]),
+        ]
+      : scope.credentialScope === "org"
+        ? []
+        : [`user:${scope.userEmail}`];
     const branches = tenantKeys.map((_, index) => {
       const tenantKeyParameter = parameterOffset + index * 2 + 1;
-      return `SELECT * FROM ${tableName} WHERE tenant_key = $${tenantKeyParameter} AND event_date <= $${tenantKeyParameter + 1}`;
+      return `SELECT * FROM ${tableName} WHERE tenant_key = $${tenantKeyParameter} AND event_date <= $${tenantKeyParameter + 1}${testIdentityFilter}`;
     });
     return {
-      // Rollups have a tenant_key/event_date index. Keep the org and personal
-      // fallback branches separate so rollup reads stay indexable as well.
       sql: `(${branches.join(" UNION ALL ")})`,
       args: tenantKeys.flatMap((tenantKey) => [tenantKey, today]),
     };
   }
 
+  if (tableName === "session_recordings") {
+    return scopedSessionRecordingSource(
+      scope,
+      today,
+      parameterOffset,
+      testIdentityFilter,
+    );
+  }
+
   const ownerEmail = scope.userEmail.trim().toLowerCase();
   if (scope.orgId) {
     const orgParameter = parameterOffset + 1;
+    if (scope.credentialScope === "org") {
+      return {
+        sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${testIdentityFilter})`,
+        args: [scope.orgId, today],
+      };
+    }
     const ownerParameter = parameterOffset + 3;
     return {
-      // Keep the org and personal fallback as separate branches so Postgres can
-      // use each branch's composite tenant/date indexes instead of scanning one
-      // broad org index for an OR predicate.
-      sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)} UNION ALL SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${ownerParameter} AND ${freshnessClause(tableName, ownerParameter + 1)})`,
+      sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${testIdentityFilter} UNION ALL SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${ownerParameter} AND ${freshnessClause(tableName, ownerParameter + 1)}${testIdentityFilter})`,
       args: [scope.orgId, today, ownerEmail, today],
     };
   }
+  if (scope.credentialScope === "org") {
+    return { sql: `(SELECT * FROM ${tableName} WHERE 1 = 0)`, args: [] };
+  }
   return {
-    sql: `(SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${parameterOffset + 1} AND ${freshnessClause(tableName, parameterOffset + 2)})`,
+    sql: `(SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${parameterOffset + 1} AND ${freshnessClause(tableName, parameterOffset + 2)}${testIdentityFilter})`,
     args: [ownerEmail, today],
+  };
+}
+
+const pgDialect = new PgDialect();
+
+/**
+ * Tables the injected session-recording filter reads by bare name. A CTE with
+ * one of these names would stand in for the real table inside the filter, so
+ * SQL that reads recordings may not name them at all.
+ */
+export const SESSION_RECORDING_FILTER_TABLES: ReadonlySet<string> = new Set([
+  getTableName(schema.sessionRecordingShares),
+]);
+
+function assertNoSessionRecordingFilterTables(sql: string): void {
+  // The core lexer resolves quoted and unquoted names as Postgres does, and
+  // refuses spellings it cannot read, such as U& escapes.
+  for (const token of lexAgentSql(sql, { dialect: "postgres" })) {
+    if (
+      (token.kind === "word" || token.kind === "quoted-identifier") &&
+      SESSION_RECORDING_FILTER_TABLES.has(token.value)
+    ) {
+      throw new Error(
+        `First-party analytics queries cannot reference ${token.value}`,
+      );
+    }
+  }
+}
+
+/**
+ * Recordings are shareable resources, so agent SQL reads them through the
+ * same rule as the app: the caller's own recordings, plus recordings in their
+ * active org that are org-visible or shared with them or with that org. An
+ * org credential additionally keeps the read on the organization's rows.
+ */
+function scopedSessionRecordingSource(
+  scope: AnalyticsScope,
+  today: string,
+  parameterOffset: number,
+  testIdentityFilter: string,
+): { sql: string; args: Array<string | null> } {
+  if (scope.credentialScope === "org" && !scope.orgId) {
+    return { sql: "(SELECT * FROM session_recordings WHERE 1 = 0)", args: [] };
+  }
+  const access = pgDialect.sqlToQuery(
+    accessFilter(schema.sessionRecordings, schema.sessionRecordingShares, {
+      userEmail: scope.userEmail,
+      orgId: scope.orgId ?? undefined,
+    }),
+  );
+  const args: Array<string | null> = access.params.map((value) => {
+    if (typeof value !== "string") {
+      throw new Error("Session recording access filter has a non-text value");
+    }
+    return value;
+  });
+  // Re-emit the compiled filter token by token: binds move past the
+  // parameters already used, and layout whitespace collapses to one space,
+  // so the filter stays on one line even where the rewrite lands inside a
+  // `--` comment.
+  let accessSql = "";
+  let previousEnd: number | null = null;
+  for (const token of lexAgentSql(access.sql, { dialect: "postgres" })) {
+    if (previousEnd !== null && token.start > previousEnd) accessSql += " ";
+    previousEnd = token.end;
+    if (token.kind !== "parameter") {
+      accessSql += token.text;
+      continue;
+    }
+    const index = Number(token.text.slice(1));
+    if (!token.text.startsWith("$") || !Number.isInteger(index)) {
+      throw new Error("Session recording access filter has an unexpected bind");
+    }
+    accessSql += `$${parameterOffset + index}`;
+  }
+
+  const conditions = [`(${accessSql})`];
+  if (scope.credentialScope === "org") {
+    args.push(scope.orgId);
+    conditions.push(`org_id = $${parameterOffset + args.length}`);
+  }
+  args.push(today);
+  conditions.push(
+    freshnessClause("session_recordings", parameterOffset + args.length),
+  );
+  return {
+    sql: `(SELECT * FROM session_recordings WHERE ${conditions.join(" AND ")}${testIdentityFilter})`,
+    args,
   };
 }
 
@@ -1179,38 +1121,46 @@ function freshnessClause(tableName: string, parameter: number): string {
   return `(substr(started_at, 1, 10) <= $${parameter})`;
 }
 
+/**
+ * Dashboard SQL is stored and interpolated outside the server, so it can only
+ * carry the built-in matcher (`testIdentityEmailSql`). Widen each one to this
+ * deployment's configured identities, so a stored panel excludes the same
+ * people as every other query.
+ */
+function withConfiguredTestIdentities(sql: string): string {
+  const marker = "an_test_identity_column";
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const [head, ...rest] = testIdentityEmailSql(marker).split(marker);
+  const builtIn = new RegExp(
+    `${escape(head!)}([A-Za-z_][\\w.]*)${rest.map(escape).join("\\1")}`,
+    "g",
+  );
+  return sql.replace(builtIn, (_match, column: string) =>
+    testIdentitySql(column),
+  );
+}
+
 export function scopedAnalyticsSql(
   sql: string,
   scope: AnalyticsScope,
   today = todayIsoDate(),
+  { includeTestIdentities = false }: { includeTestIdentities?: boolean } = {},
 ): { sql: string; args: Array<string | null> } {
   const args: Array<string | null> = [];
-  const aliasRe = new RegExp(
-    `\\b(from|join)\\s+(${FIRST_PARTY_QUERY_TABLE_PATTERN})\\b(\\s+(?:as\\s+)?(?!where\\b|on\\b|group\\b|order\\b|limit\\b|join\\b|left\\b|right\\b|inner\\b|outer\\b|cross\\b|full\\b|having\\b|union\\b)([a-zA-Z_][a-zA-Z0-9_]*))?`,
-    "gi",
-  );
-  const rewritten = sql.replace(
-    aliasRe,
-    (full, keyword, tableName, aliasPart, alias) => {
-      const normalizedTable = String(tableName).toLowerCase();
-      const normalizedAlias =
-        typeof alias === "string" ? alias.toLowerCase() : "";
-      const usableAlias =
-        aliasPart &&
-        normalizedAlias &&
-        !RESERVED_ALIAS_WORDS.has(normalizedAlias)
-          ? aliasPart
-          : ` AS ${normalizedTable}`;
-      const scopedSource = scopedTableSource(
-        normalizedTable,
-        scope,
-        today,
-        args.length,
-      );
-      args.push(...scopedSource.args);
-      return `${keyword} ${scopedSource.sql}${usableAlias}`;
-    },
-  );
+  const configuredSql = withConfiguredTestIdentities(sql);
+  const query = validateFirstPartyAnalyticsSqlShape(configuredSql);
+  const rewritten = rewriteAgentSqlQuerySources(query, (source) => {
+    if (source.cte) return configuredSql.slice(source.start, source.end);
+    const scopedSource = scopedTableSource(
+      source.name,
+      scope,
+      today,
+      args.length,
+      includeTestIdentities,
+    );
+    args.push(...scopedSource.args);
+    return scopedSource.sql + (source.alias ? "" : ` AS ${source.name}`);
+  });
   return { sql: rewritten, args };
 }
 
@@ -1237,11 +1187,15 @@ function firstPartyAnalyticsQueryTarget(
   sink: FirstPartyAnalyticsSink,
 ): "sql-store" | "bigquery" {
   if (sink !== "bigquery") return "sql-store";
-  const usesSessionRecordings = /\bsession_recordings\b/i.test(sql);
-  const usesEventTables =
-    /\banalytics_events\b|\banalytics_event_daily_rollups\b|\banalytics_user_days\b/i.test(
-      sql,
-    );
+  const sources = readAgentSqlQuery(sql, {
+    dialect: "postgres",
+  }).sources.filter((source) => !source.cte);
+  const usesSessionRecordings = sources.some(
+    (source) => source.name === "session_recordings",
+  );
+  const usesEventTables = sources.some(
+    (source) => source.name !== "session_recordings",
+  );
   if (usesSessionRecordings && usesEventTables) {
     throw new Error(
       "Cross-backend joins are not supported; query first-party event tables in BigQuery and session_recordings in the Analytics SQL store separately.",
@@ -1250,13 +1204,61 @@ function firstPartyAnalyticsQueryTarget(
   return usesSessionRecordings ? "sql-store" : "bigquery";
 }
 
+async function withVerifiedPostgresQuery<T>(
+  statement: AgentPostgresStatement,
+  timeoutMs: number,
+  read: (transaction: DbExec) => Promise<T>,
+): Promise<T> {
+  const exec = getDbExec();
+  if (!exec.transaction) {
+    throw new Error("This database does not support interactive transactions.");
+  }
+  const deadlineAt = Date.now() + timeoutMs;
+  return exec.transaction(async (transaction) => {
+    const checked: DbExec = {
+      execute: (input: DbExecStatement) => {
+        const remainingMs = deadlineAt - Date.now();
+        if (remainingMs <= 0)
+          throw new Error("First-party analytics query timed out");
+        const query = typeof input === "string" ? { sql: input } : input;
+        return transaction.execute({
+          ...query,
+          timeoutMs: remainingMs,
+          maxAttempts: 1,
+        });
+      },
+    };
+    await checked.execute("SET TRANSACTION READ ONLY");
+    await verifyAgentPostgresExpressions(
+      {
+        unsafe: async (sql, args) =>
+          (await checked.execute({ sql, args })).rows,
+      },
+      statement,
+    );
+    return read(checked);
+  });
+}
+
 export async function validateFirstPartyAnalyticsSqlForScope(
   sql: string,
   scope: AnalyticsScope,
 ): Promise<void> {
-  validateFirstPartyAnalyticsSql(sql);
+  validateFirstPartyAnalyticsSqlShape(sql);
   const backend = await getFirstPartyAnalyticsBackend(scope);
-  if (firstPartyAnalyticsQueryTarget(sql, backend.sink) !== "bigquery") return;
+  if (firstPartyAnalyticsQueryTarget(sql, backend.sink) !== "bigquery") {
+    validateAnalyticsSqlFunctions(validateFirstPartyAnalyticsSqlShape(sql));
+    await withVerifiedPostgresQuery(
+      readAgentPostgresStatement(sql),
+      FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS,
+      async () => {},
+    );
+    return;
+  }
+  validateAnalyticsSqlFunctions(
+    validateFirstPartyAnalyticsSqlShape(sql),
+    "bigquery",
+  );
   assertFirstPartyAnalyticsBigQuerySql(sql);
 }
 
@@ -1265,37 +1267,43 @@ export async function queryFirstPartyAnalytics(
   scope: AnalyticsScope,
   options: AnalyticsQueryOptions = {},
 ): Promise<AnalyticsQueryResult> {
-  validateFirstPartyAnalyticsSql(sql);
+  validateFirstPartyAnalyticsSqlShape(sql);
   const backend = await getFirstPartyAnalyticsBackend(scope);
+  const scopeOptions = {
+    includeTestIdentities: options.includeTestIdentities === true,
+  };
   if (firstPartyAnalyticsQueryTarget(sql, backend.sink) === "bigquery") {
+    validateAnalyticsSqlFunctions(
+      validateFirstPartyAnalyticsSqlShape(sql),
+      "bigquery",
+    );
     const table = await getFirstPartyAnalyticsTable(backend.table);
-    const scoped = scopedAnalyticsSql(sql, scope);
+    const scoped = scopedAnalyticsSql(sql, scope, undefined, scopeOptions);
     return queryFirstPartyAnalyticsInBigQuery(scoped.sql, scoped.args, table);
   }
-  const scoped = scopedAnalyticsSql(sql, scope);
+  validateAnalyticsSqlFunctions(validateFirstPartyAnalyticsSqlShape(sql));
+  const scoped = scopedAnalyticsSql(sql, scope, undefined, scopeOptions);
   const scopedSql = scoped.sql;
-  const wrappedSql = `SELECT * FROM (${scopedSql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS}`;
+  const wrappedSql = `SELECT * FROM (${scopedSql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS + 1}`;
+  const statement = readAgentPostgresStatement(wrappedSql);
   const timeoutMs = Math.max(
     1,
     options.timeoutMs ?? FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS,
   );
-  // The cache key is the fully scoped SQL + args, which already embeds
-  // org_id/owner_email (see scopeClause) — a cache hit can only ever return
-  // rows the same tenant was already entitled to query.
-  const cacheKey = firstPartyCacheKey(wrappedSql, scoped.args);
+  const deadlineAt = Date.now() + timeoutMs;
+  const cacheKey = firstPartyCacheKey(wrappedSql, scoped.args, scope);
   const queryClass = classifyFirstPartyAnalyticsQuery(sql);
   const compute = async (
     queryTimeoutMs = timeoutMs,
   ): Promise<AnalyticsQueryResult> => {
-    const exec = getDbExec();
     const startedAt = Date.now();
     try {
-      const result = await exec.execute({
-        sql: wrappedSql,
-        args: scoped.args,
-        timeoutMs: queryTimeoutMs,
-        maxAttempts: 1,
-      });
+      const result = await withVerifiedPostgresQuery(
+        statement,
+        queryTimeoutMs,
+        (transaction) =>
+          transaction.execute({ sql: wrappedSql, args: scoped.args }),
+      );
       const durationMs = Date.now() - startedAt;
       void recordFirstPartyAnalyticsQueryPressure(scope, {
         durationMs,
@@ -1307,8 +1315,14 @@ export async function queryFirstPartyAnalytics(
           error,
         );
       });
-      const rows = result.rows as Record<string, unknown>[];
-      return { rows, schema: inferSchema(rows) };
+      const resultRows = result.rows as Record<string, unknown>[];
+      const truncated = resultRows.length > MAX_QUERY_ROWS;
+      const rows = truncated ? resultRows.slice(0, MAX_QUERY_ROWS) : resultRows;
+      return {
+        rows,
+        schema: inferSchema(rows),
+        ...(truncated ? { truncated: true } : {}),
+      };
     } catch (error) {
       void recordFirstPartyAnalyticsQueryPressure(scope, {
         durationMs: Date.now() - startedAt,
@@ -1324,5 +1338,12 @@ export async function queryFirstPartyAnalytics(
     }
   };
   if (!options.cache) return compute();
-  return withFirstPartyCache(cacheKey, wrappedSql, compute, { timeoutMs });
+  await withVerifiedPostgresQuery(statement, timeoutMs, async () => {});
+  const remainingMs = deadlineAt - Date.now();
+  if (remainingMs <= 0)
+    throw new Error("First-party analytics query timed out");
+  return withFirstPartyCache(cacheKey, wrappedSql, compute, {
+    timeoutMs,
+    deadlineAt,
+  });
 }

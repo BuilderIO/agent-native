@@ -1,17 +1,12 @@
-/**
- * Catalog entries for the transactional emails Slides sends.
- *
- * Registered from `server/plugins/transactional-emails.ts` so Dispatch can list
- * and preview them without the app having sent anything yet.
- */
-
 import {
   defineTransactionalEmail,
   getTransactionalEmail,
 } from "@agent-native/core/email-catalog";
 
 import {
+  renderDeckAccessGrantedEmail,
   renderDeckAccessRequestEmail,
+  SLIDES_DECK_ACCESS_GRANTED_EMAIL_ID,
   SLIDES_DECK_ACCESS_REQUEST_EMAIL_ID,
 } from "./access-request-email.js";
 import { renderDeckCommentEmail } from "./comment-notifications.js";
@@ -21,8 +16,6 @@ export const SLIDES_DECK_COMMENT_EMAIL_ID = "slides.deck-comment";
 let registered = false;
 
 export function registerSlidesEmails(): void {
-  // Nitro can re-evaluate this module during dev HMR while the core registry
-  // remains alive. Treat the existing Slides-owned entry as already registered.
   if (registered || getTransactionalEmail(SLIDES_DECK_COMMENT_EMAIL_ID)) return;
   registered = true;
 
@@ -66,6 +59,26 @@ export function registerSlidesEmails(): void {
         url: "https://example.com/deck/deck_sample",
         allowAccessUrl:
           "https://example.com/access-request/approve?deckId=deck_sample&token=preview-token",
+        note: "I'm putting together the board update and need the Q3 numbers.",
+      }),
+  });
+
+  defineTransactionalEmail({
+    id: SLIDES_DECK_ACCESS_GRANTED_EMAIL_ID,
+    name: "Deck access granted",
+    trigger:
+      "A deck owner or admin approves a private deck access request. Sent once, when the share is first created.",
+    recipientLabel: "Requester",
+    recipient:
+      "The person who requested access. Repeat approvals of an already-shared requester send nothing.",
+    senderLabel: "Agent-Native Slides",
+    sender:
+      "The configured default sender, with reply-to set to the approving owner or admin.",
+    preview: () =>
+      renderDeckAccessGrantedEmail({
+        approverName: "Alex Kim",
+        deckTitle: "Quarterly review",
+        url: "https://example.com/deck/deck_sample",
       }),
   });
 }

@@ -1,12 +1,3 @@
-/**
- * PTY WebSocket Server
- *
- * Creates an HTTP server with WebSocket support that spawns PTY processes
- * for AI CLI tools. Each WebSocket connection gets its own PTY.
- *
- * Used by both the embedded AgentTerminal component and the CLI frame.
- */
-
 import {
   createServer as createHttpServer,
   type IncomingMessage,
@@ -24,7 +15,6 @@ import {
   terminalPath,
 } from "./cli-registry.js";
 
-// Lazy singletons for Node-only modules (only available in Node.js)
 let _cp: typeof import("child_process") | undefined;
 async function getChildProcess(): Promise<typeof import("child_process")> {
   if (!_cp) {
@@ -72,11 +62,6 @@ export function ensurePtySpawnHelperPermissions(): void {
   }
 }
 
-/**
- * Kill a process and all its descendants.
- * node-pty's kill() only sends a signal to the shell, but child processes
- * (like `builder`) may be in their own process group and survive as orphans.
- */
 async function killProcessTree(
   pid: number,
   _logPrefix: string,
@@ -96,7 +81,6 @@ async function killProcessTree(
     return;
   }
 
-  // Find all descendant PIDs (children, grandchildren, etc.)
   const descendants: number[] = [];
   function findDescendants(parentPid: number) {
     try {
@@ -121,7 +105,6 @@ async function killProcessTree(
   }
   findDescendants(pid);
 
-  // Kill descendants first (deepest first), then the parent
   for (const childPid of descendants.reverse()) {
     try {
       process.kill(childPid, "SIGTERM");
@@ -135,7 +118,6 @@ async function killProcessTree(
     // coercion-ok: the process may exit between enumeration and termination.
   }
 
-  // Force-kill any survivors after a short delay
   setTimeout(() => {
     for (const childPid of descendants) {
       try {
@@ -153,26 +135,18 @@ async function killProcessTree(
 }
 
 export interface PtyServerOptions {
-  /** Working directory for PTY processes. Defaults to process.cwd() */
   appDir?: string;
-  /** Default CLI command. Defaults to 'claude' */
   command?: string;
-  /** Port to listen on. Defaults to 0 (random available port) */
   port?: number;
-  /** Auth check for WebSocket upgrade requests. Return false to reject. */
   authCheck?: (req: IncomingMessage) => boolean | Promise<boolean>;
-  /** Trusted host arguments appended to each validated CLI command. */
   getCommandArgs?: (command: string) => string[] | Promise<string[]>;
-  /** Trusted environment additions for the validated CLI command. */
   getEnvironment?: (
     command: string,
   ) => NodeJS.ProcessEnv | Promise<NodeJS.ProcessEnv>;
-  /** Per-connection setup for trusted host capabilities and cleanup. */
   getSessionSetup?: (
     command: string,
     context: PtySessionContext | null,
   ) => PtySessionSetup | Promise<PtySessionSetup>;
-  /** Log prefix for console output. Defaults to '[terminal]' */
   logPrefix?: string;
 }
 
@@ -183,22 +157,15 @@ export interface PtySessionContext {
 }
 
 export interface PtySessionSetup {
-  /** Working directory for this PTY session. Falls back to the server appDir. */
   cwd?: string;
-  /** Trusted arguments appended to the selected CLI command. */
   commandArgs?: string[];
-  /** Trusted environment additions for the selected CLI command. */
   environment?: NodeJS.ProcessEnv;
-  /** Releases per-connection resources such as scoped MCP relays. */
   onClose?: () => void | Promise<void>;
 }
 
 export interface PtyServerResult {
-  /** The underlying HTTP server */
   server: HttpServer;
-  /** The actual port the server is listening on */
   port: number;
-  /** Shut down the server and kill all PTY processes */
   close: () => void;
 }
 
@@ -218,14 +185,12 @@ export async function createPtyWebSocketServer(
 
   ensurePtySpawnHelperPermissions();
 
-  // Dynamic imports for optional native dependencies
   const { WebSocketServer, WebSocket } = await import("ws");
   const pty = await import("node-pty");
 
   const resolvedAppDir = path.resolve(appDir);
 
   const server = createHttpServer((req, res) => {
-    // CORS headers
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -243,7 +208,6 @@ export async function createPtyWebSocketServer(
   const wss = new WebSocketServer({ noServer: true });
   let closed = false;
 
-  // Handle WebSocket upgrades with optional auth
   server.on("upgrade", async (req, socket, head) => {
     if (closed) {
       socket.destroy();
@@ -294,7 +258,6 @@ export async function createPtyWebSocketServer(
     });
   });
 
-  // Track idempotent disposers so server shutdown covers every live socket.
   const activeDisposers = new Set<() => void>();
 
   wss.on("connection", async (ws: InstanceType<typeof WebSocket>, req) => {
@@ -315,7 +278,6 @@ export async function createPtyWebSocketServer(
       }
     };
 
-    // Validate command against allowlist to prevent injection
     if (!isAllowedCommand(command)) {
       sendStatus(
         "not-found",
@@ -325,7 +287,6 @@ export async function createPtyWebSocketServer(
       return;
     }
 
-    // Reject flags containing shell metacharacters
     if (extraFlags && /[;&|`$(){}\n\r<>]/.test(extraFlags)) {
       sendStatus("failed", "Invalid flags: shell metacharacters not allowed");
       if (ws.readyState === WebSocket.OPEN) ws.close();
@@ -406,7 +367,6 @@ export async function createPtyWebSocketServer(
       return;
     }
 
-    // Build env, stripping CLI-specific nesting vars
     const registry = CLI_REGISTRY[command];
     const env: Record<string, string | undefined> = {
       ...process.env,
@@ -566,8 +526,6 @@ export async function createPtyWebSocketServer(
         ) {
           const vars: Array<{ key: string; value: string }> = msg.data.vars;
 
-          // Legacy bridge message. Keep validating the keys, but do not persist
-          // them to .env or process.env; key storage is DB-scoped.
           const validKeyPattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
           const sanitizedVars = vars.filter(({ key }) => {
             if (!validKeyPattern.test(key)) {

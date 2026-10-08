@@ -491,7 +491,7 @@ test("removing a converted Solid gradient closes its picker and preserves the si
       '[data-inspector-layout="drag-paint-row"]',
     );
     const originalGradientRow = gradientRows.filter({
-      hasText: "Linear gradient 1",
+      has: page.getByRole("button", { name: "Linear gradient 1" }),
     });
     await expect(originalGradientRow).toHaveCount(1);
 
@@ -517,7 +517,7 @@ test("removing a converted Solid gradient closes its picker and preserves the si
     await expect(baseFillRow).toHaveCount(0);
 
     const convertedGradientRow = gradientRows.filter({
-      hasText: "Linear gradient 2",
+      has: page.getByRole("button", { name: "Linear gradient 2" }),
     });
     await expect(convertedGradientRow).toHaveCount(1);
     const convertedGradientTrigger = convertedGradientRow.getByRole("button", {

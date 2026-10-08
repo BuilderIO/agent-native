@@ -76,28 +76,6 @@
  */
 import { emit } from "@tauri-apps/api/event";
 
-/**
- * Preview (pre-record) vs recording tuning. During recording the popover
- * is also running MediaRecorder + chunked fetch uploads on this same main
- * thread, so we pace pump work and skip during hot upload windows.
- * The `window.clipsForceAlive` flag is set by the recording-start path
- * (see `app.tsx`) and serves double duty as our "recording active?"
- * signal — no extra wiring needed.
- *
- * 15 FPS preview / 12 FPS recording:
- * - Preview feels like a live camera.
- * - Recording should still look recognizably live when this fallback is used.
- *   Full-screen capture now uses the bubble's local camera path, but window
- *   capture can still hit this relay.
- *
- * 192px preview / 192px recording:
- * - Small bubble CSS size is ~96 logical px = 192 physical on retina.
- *   Staying at 192 avoids the visibly pixelated recording bubble users were
- *   seeing when the relay was downshifted.
- *
- * JPEG quality 0.6 preview / 0.72 recording — the recording path favors a
- * clean face bubble over marginal IPC savings.
- */
 const BUBBLE_PREVIEW_FPS = 15;
 const BUBBLE_RECORDING_FPS = 12;
 const BUBBLE_PREVIEW_FRAME_INTERVAL_MS = Math.round(1000 / BUBBLE_PREVIEW_FPS);
@@ -119,16 +97,7 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
   video.srcObject = stream;
   video.muted = true;
   video.playsInline = true;
-  // `autoplay` in addition to the explicit .play() below — WKWebView has
-  // been observed to pause MediaStream-backed <video> elements when the
-  // owning window loses visible area (e.g. shrunk during recording). The
-  // autoplay attribute nudges WebKit to resume on its own once the window
-  // is visible again; the heartbeat interval below catches any remaining
-  // cases.
   video.autoplay = true;
-  // Keep these elements off-screen and unrendered but still attached so
-  // WebKit keeps decoding the track. `display: none` stops decoding in
-  // some WebKit versions — a 1px offscreen layer is the safe pattern.
   video.style.position = "fixed";
   video.style.left = "-9999px";
   video.style.top = "-9999px";
@@ -142,9 +111,6 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
   });
 
   const canvas = document.createElement("canvas");
-  // Canvas starts at preview size; if we enter recording mode the tick
-  // loop grows/shrinks it in-place. Resizing a canvas clears it, which is
-  // fine — we re-draw every frame anyway.
   canvas.width = BUBBLE_PREVIEW_FRAME_SIZE;
   canvas.height = BUBBLE_PREVIEW_FRAME_SIZE;
   const ctx = canvas.getContext("2d", { willReadFrequently: false });
@@ -161,10 +127,6 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
   let rafHandle: number | null = null;
   let rvfcHandle: number | null = null;
 
-  // Defensive heartbeat: every 2s, if the video got paused (WKWebView can
-  // do this when its window briefly has no on-screen pixels, or after a
-  // visibility flap) nudge it back into play. Cheap when it's already
-  // playing — `play()` is a no-op when the element is already playing.
   const heartbeat = setInterval(() => {
     if (stopped) return;
     if (video.paused) {
@@ -176,15 +138,6 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
 
   function encodeAndEmit(): void {
     if (!ctx || busy || stopped) return;
-    // Skip when the tab/popover is hidden — rAF is already throttled but
-    // rVFC keeps firing on an active track, so guard it explicitly. We
-    // honor a `window.clipsForceAlive` flag as an override: during recording
-    // the popover is pinhole-sized (2×2) which SHOULD keep document.hidden
-    // false, but WKWebView on macOS 15+ sometimes flips visibility=hidden
-    // anyway when the window loses significant on-screen area. Setting the
-    // force-alive flag from the recording-start path bypasses the check so
-    // the bubble stays live. The same flag also serves as our "recording
-    // active?" signal so we can tune FPS / size / quality.
     const w = window as unknown as {
       clipsForceAlive?: boolean;
       clipsChunkBusy?: boolean;
@@ -204,31 +157,12 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
       ? BUBBLE_RECORDING_JPEG_QUALITY
       : BUBBLE_PREVIEW_JPEG_QUALITY;
 
-    // Throttle to the active-mode frame interval. Under both rAF and
-    // rVFC the callback can fire faster than we want to encode; this is
-    // the single pace-limiting gate.
     const now = performance.now();
     if (now - lastEmitMs < frameIntervalMs) return;
 
-    // Chunk-upload yield (recording-mode only): if the recorder's chunk
-    // POST is in flight we skip this tick outright. The next rVFC tick
-    // (≤33ms later) will re-check. MediaRecorder chunks land every
-    // ~1000ms so the upload window is ~150-300ms of that second — the
-    // pump still gets most of each second to work in. Without this,
-    // toDataURL and the fetch body-serializer fight for the same
-    // microtask queue and both progress at half speed.
     if (recording && w.clipsChunkBusy === true) return;
 
-    // Adaptive skip: if the LAST encode took longer than one frame
-    // interval, we've been falling behind. Drop this tick to give the
-    // main thread a real break. Trailing-edge only — the next tick re-
-    // evaluates fresh. This is cheap insurance against runaway pumps
-    // during very hot windows (e.g. the first 2s of recording when
-    // MediaRecorder is still spinning up codec state + the first chunk
-    // upload hits).
     if (lastEncodeDurationMs > frameIntervalMs) {
-      // Reset so we try once on the next tick instead of locking out
-      // forever if the thread recovers.
       lastEncodeDurationMs = 0;
       lastEmitMs = now;
       return;
@@ -236,40 +170,23 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
 
     lastEmitMs = now;
 
-    // Re-size the canvas if the recording mode flipped. `<canvas>.width`
-    // resets pixel data, which is fine because we redraw from the video
-    // every tick.
     if (canvas.width !== frameSize) canvas.width = frameSize;
     if (canvas.height !== frameSize) canvas.height = frameSize;
 
     busy = true;
     const encodeStart = performance.now();
-    // Yield to the compositor before synchronous encode work. The rVFC
-    // callback fires right before paint; returning quickly so WebKit can
-    // composite the window frame AND our encode work keeps both
-    // responsive. `queueMicrotask` runs after the current task yields
-    // but before the next task — fast enough that we stay at our target
-    // framerate, long enough that the compositor gets its tick.
     queueMicrotask(() => {
       if (stopped) {
         busy = false;
         return;
       }
       try {
-        // Center-crop the video into a square then scale to frameSize.
         const vw = video.videoWidth;
         const vh = video.videoHeight;
         const side = Math.min(vw, vh);
         const sx = (vw - side) / 2;
         const sy = (vh - side) / 2;
         ctx.drawImage(video, sx, sy, side, side, 0, 0, frameSize, frameSize);
-        // `toDataURL` is a synchronous main-thread encode, but it avoids
-        // the `toBlob` → `arrayBuffer` → `Array.from(Uint8Array)` round
-        // trip which dominated the old path's main-thread cost. The
-        // resulting string is a ready-to-emit JSON value — Tauri IPC
-        // serializes a single string in O(bytes) with zero per-byte JS
-        // allocation, vs O(bytes) allocations when serializing a number
-        // array of the same length.
         const dataUrl = canvas.toDataURL("image/jpeg", quality);
         if (stopped) return;
         emit("clips:bubble-frame", {
@@ -278,9 +195,6 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
           h: frameSize,
         }).catch(() => {});
       } catch (err) {
-        // Don't flood the console — one warning per failure-window is enough.
-        // A transient SecurityError / NS_ERROR_NOT_AVAILABLE can happen
-        // during track negotiation; the next tick will retry.
         console.warn("[clips-bubble-pump] tick failed", err);
       } finally {
         lastEncodeDurationMs = performance.now() - encodeStart;

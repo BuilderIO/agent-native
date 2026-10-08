@@ -9,12 +9,12 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { openAgentSidebar } from "@agent-native/core/client/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   useSetPageTitle,
   useSetHeaderActions,
 } from "@agent-native/toolkit/app-shell";
+import { openAgentSidebar } from "@agent-native/toolkit/app/shared";
 import {
   IconArrowLeft,
   IconBrandGithub,
@@ -38,12 +38,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { useDesignSystemWorkflowsState } from "@/hooks/use-design-system-workflows";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
   uploadAndIndexFigmaFiles,
   pollDecodeJobStatus,
   type DecodeJobStatus,
 } from "@/lib/builder-design-system-upload";
+
+import { JoinDesignSystemWaitlistButton } from "../components/design-system/JoinDesignSystemWaitlistButton";
 
 interface GitHubLink {
   id: string;
@@ -135,6 +138,25 @@ function designSystemIndexFailureMessage(
 }
 
 export default function DesignSystemSetup() {
+  const workflowsState = useDesignSystemWorkflowsState();
+  const t = useT();
+  return workflowsState.status === "ready" && workflowsState.enabled ? (
+    <DesignSystemSetupContent />
+  ) : (
+    <div className="flex flex-wrap items-center gap-2">
+      {workflowsState.status === "ready" && !workflowsState.enabled ? (
+        <JoinDesignSystemWaitlistButton />
+      ) : null}
+      <Button asChild variant="outline">
+        <Link to="/design-systems">
+          {t("designSystemSetup.backToDesignSystems")}
+        </Link>
+      </Button>
+    </div>
+  );
+}
+
+function DesignSystemSetupContent() {
   const t = useT();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -192,7 +214,6 @@ export default function DesignSystemSetup() {
   const existingProjects = designsData?.designs ?? [];
   const existingSystems = designSystemsData?.designSystems ?? [];
 
-  // --- Figma .fig import (Builder design-system indexing) -----------------
   const realFigInputRef = useRef<HTMLInputElement>(null);
   const [builderIndexing, setBuilderIndexing] = useState(false);
   const [builderIndexResult, setBuilderIndexResult] =
@@ -781,7 +802,7 @@ export default function DesignSystemSetup() {
           })),
           null,
           2,
-        )}\n\`\`\`\n\nBuilder is the source of truth for repo/code design-system indexing. The action creates one local selectable proxy design system for Design flows. If Builder is not connected, stop and tell me to connect Builder (free tier available) from Settings instead of asking me to paste repository credentials into chat.`,
+        )}\n\`\`\`\n\nBuilder is the source of truth for repo/code design-system indexing. The action creates one local selectable proxy design system for Design flows. If Builder is not connected, stop and tell me to use Builder.io (free tier available) from Settings instead of asking me to paste repository credentials into chat.`,
       );
     }
 
@@ -1911,8 +1932,6 @@ function isMarkdownFile(file: Pick<UploadedFile, "name">): boolean {
   return name.endsWith(".md") || name.endsWith(".mdx");
 }
 
-// Only the exact name, because this classifies a bulk code-file drop: widening it
-// to any Markdown silently promotes a README into design-system guidance.
 function isDesignMdFile(file: Pick<UploadedFile, "name">): boolean {
   const name = uploadedFileBasename(file);
   return name === "design.md" || name === "design.mdx";

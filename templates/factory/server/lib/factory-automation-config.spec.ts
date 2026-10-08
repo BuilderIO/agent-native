@@ -22,6 +22,7 @@ import {
   replaceUserPrompt,
   restoreFactoryAutomationIdentityFields,
   splitAutomationFrontmatter,
+  stampAutomationTriggerType,
   templateIdForSeedName,
 } from "./factory-automation-config.js";
 
@@ -273,16 +274,9 @@ with no single correct fix, a short reason, and reaction robot_face 🤖.`;
       factoryId: "product-an-feedback",
       config,
     });
-    // Recomposition always rebuilds guardrails/alignment from the current
-    // source, so an existing automation picks up the risk/confidence gate.
     expect(body).toContain(
       "Builder is only tagged when clearBug is true, risk is low, and confidence is high",
     );
-    // It does not rewrite the caller's own prompt text: an already-saved
-    // automation keeps whatever dispatch instructions it had (including
-    // retired wording with no risk/confidence) until someone updates the
-    // prompt by hand. This is intentional, not a bug -- there is no
-    // automated migration path for saved automation prompts.
     expect(body).toContain(retiredUserPrompt);
   });
 
@@ -333,5 +327,105 @@ Observe Slack.
     });
     expect(next).not.toContain("slackChannelId:");
     expect(next).not.toContain("slackChannelName:");
+  });
+});
+
+describe("stampAutomationTriggerType", () => {
+  const job = (frontmatter: string[]) =>
+    ["---", 'schedule: "*/5 * * * *"', ...frontmatter, "---", "", "Body."].join(
+      "\n",
+    );
+  const identified = job([
+    "createdBy: alice@example.com",
+    "runAs: creator",
+    "orgId: org-1",
+  ]);
+
+  it("tags a file that can pass the strict identity check, leaving its identity alone", () => {
+    const { content, skipped } = stampAutomationTriggerType(identified, {
+      orgId: "org-1",
+    });
+
+    expect(skipped).toBeUndefined();
+    expect(content).toContain("triggerType: schedule");
+    expect(content).toContain("createdBy: alice@example.com");
+    expect(content.match(/^runAs:/gm)).toHaveLength(1);
+    expect(content.match(/^orgId:/gm)).toHaveLength(1);
+  });
+
+  it("writes down the runAs and orgId the legacy path already assumes", () => {
+    const { content, skipped } = stampAutomationTriggerType(
+      job(["createdBy: alice@example.com"]),
+      { orgId: "org-1" },
+    );
+
+    expect(skipped).toBeUndefined();
+    expect(content).toContain("runAs: creator");
+    expect(content).toContain("orgId: org-1");
+    expect(content).toContain("triggerType: schedule");
+  });
+
+  it("reads quoted identity values", () => {
+    const { skipped } = stampAutomationTriggerType(
+      job([
+        'createdBy: "alice@example.com"',
+        "runAs: creator",
+        'orgId: "org-1"',
+      ]),
+      { orgId: "org-1" },
+    );
+
+    expect(skipped).toBeUndefined();
+  });
+
+  it("never invents a creator", () => {
+    const legacy = job(["runAs: creator", "orgId: org-1"]);
+    const { content, skipped } = stampAutomationTriggerType(legacy, {
+      orgId: "org-1",
+    });
+
+    expect(content).toBe(legacy);
+    expect(skipped).toBe("it has no createdBy");
+  });
+
+  it("leaves a file that runs as a shared identity untagged", () => {
+    const shared = job(["createdBy: alice@example.com", "runAs: shared"]);
+    const { content, skipped } = stampAutomationTriggerType(shared, {
+      orgId: "org-1",
+    });
+
+    expect(content).toBe(shared);
+    expect(skipped).toBe('it runs as "shared"');
+  });
+
+  it("leaves a file owned by another org untagged", () => {
+    const other = job(["createdBy: alice@example.com", "orgId: org-2"]);
+    const { content, skipped } = stampAutomationTriggerType(other, {
+      orgId: "org-1",
+    });
+
+    expect(content).toBe(other);
+    expect(skipped).toBe('its orgId is "org-2", not "org-1"');
+  });
+
+  it("keeps whatever trigger type a file already has", () => {
+    for (const existing of ["schedule", "event", "webhook", "custom"]) {
+      const tagged = job([`triggerType: ${existing}`]);
+      expect(stampAutomationTriggerType(tagged, { orgId: "org-1" })).toEqual({
+        content: tagged,
+      });
+    }
+  });
+
+  it("takes missing identity from the file it replaces and the trigger type it was given", () => {
+    const { content, skipped } = stampAutomationTriggerType(job([]), {
+      orgId: "org-1",
+      triggerType: "webhook",
+      identityFrom: identified,
+    });
+
+    expect(skipped).toBeUndefined();
+    expect(content).toContain("createdBy: alice@example.com");
+    expect(content).toContain("triggerType: webhook");
   });
 });

@@ -2,12 +2,21 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  cleanupSiteNames,
   mergeDeployTargets,
   parseNetlifyDeployIdFromPreviewUrl,
   previewBranchForPullRequest,
   previewDeployTitlePrefix,
   previewEnvironmentForSite,
 } from "./cleanup-netlify-pr-previews.ts";
+import { previewEligibleSiteNames } from "./netlify-pr-preview-targets.ts";
+
+test("limits PR preview cleanup to the requested eligible app", () => {
+  assert.deepEqual(cleanupSiteNames("analytics"), ["analytics"]);
+  assert.throws(() => cleanupSiteNames("unknown"), /Ineligible/);
+  assert.throws(() => cleanupSiteNames(""), /Ineligible/);
+  assert.deepEqual(cleanupSiteNames(), previewEligibleSiteNames());
+});
 
 test("parses Netlify preview deploy ids from environment URLs", () => {
   assert.equal(

@@ -17,8 +17,6 @@ export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
   variant?: BadgeVariant;
 }
 
-// A span rather than shadcn's historical div: badges here sit inside headings
-// and other phrasing-only containers.
 export function Badge({
   className,
   variant = "default",

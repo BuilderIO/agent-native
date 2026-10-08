@@ -24,6 +24,11 @@ const messages = {
     retry: "再試行",
     search: "検索",
   },
+  chatHome: {
+    description:
+      "Native SQL と接続済みレコード全体で、アクセス可能なアカウント情報、フォローアップ業務、根拠を確認できます。",
+    placeholder: "CRMについて質問する",
+  },
   commandMenu: {
     placeholder: "レコード、リスト、コマンドを検索…",
     groupRecords: "レコード",
@@ -59,19 +64,11 @@ const messages = {
     showHelp: "このヘルプを表示",
   },
   settings: {
-    title: "CRM の設定",
-    description:
-      "ネイティブ SQL は CRM 所有のレコードを Postgres に保持します。HubSpot と Salesforce はワークスペース接続を使用し、そのミラーには許可された項目、範囲を限定したメタデータ、制限付きの証拠参照だけが保存されます。",
-    languageTitle: "言語",
-    languageDescription:
-      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
-    languageLabel: "インターフェース言語",
+    mcpAbout:
+      "CRM を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって CRM で作業できます。レコードの検索、フィールドの更新、タスクの管理などです。アプリが見られるのは、あなたが見られるものだけです。",
   },
   connection: {
     tab: "接続",
-    title: "CRM の接続",
-    description:
-      "この CRM のレコードがどこから来て、各レコードのどこまでを CRM が所有するかを示します。",
     modesTitle: "利用できるモード",
     modeNative: "ネイティブ SQL",
     modeNativeHelp:
@@ -101,9 +98,6 @@ const messages = {
   },
   fields: {
     tab: "項目",
-    title: "項目",
-    description:
-      "すべてのレコードとリストを支える型付き属性です。項目の API スラッグと型は作成時に確定し、それ以外は後から変更できます。",
     target: "オブジェクトまたはリスト",
     targetPlaceholder: "オブジェクト種別かリストを選択",
     listsGroup: "リスト",
@@ -245,8 +239,6 @@ const messages = {
   },
   advanced: {
     tab: "詳細設定",
-    title: "詳細設定",
-    description: "再構成とデータ保持の挙動です。",
     reconfigure: "CRM を再構成",
     reconfigureHelp:
       "ネイティブ SQL と HubSpot / Salesforce 併用の切り替え、または初回同期の再実行を行います。",
@@ -368,6 +360,8 @@ const messages = {
     unavailableTitle: "この CRM レコードは利用できません",
     unavailableDescription:
       "削除されたか、アクセスできるレコードの範囲外にある可能性があります。",
+    withheld:
+      "接続先の CRM でこのレコードへのアクセス権が変更されました。次回の同期まで非表示になります。",
     panelLoadFailed: "レコードパネルを読み込めませんでした。",
     saveFailed: "変更を保存できませんでした。",
     signals: "シグナル",
@@ -563,9 +557,6 @@ const messages = {
   },
   intelligence: {
     tab: "インテリジェンス",
-    title: "インテリジェンス",
-    description:
-      "制限された通話証拠の中で CRM が注目すべき場面を選択します。スマートトラッカーは Ask CRM を通じて評価され、この設定画面で直接実行されることはありません。",
     loading: "トラッカーを読み込んでいます…",
     kindKeyword: "キーワード",
     kindSmart: "スマート",
@@ -606,6 +597,19 @@ const messages = {
     evaluatedThroughAsk: "Ask CRM を通じて評価されます。",
   },
   recordActions: {
+    reviewDuplicates: "重複を確認",
+    duplicateReviewTitle: "重複の可能性があるレコード",
+    duplicateReviewDescription:
+      "このレコードをアクセス可能な候補と比較します。Jev を実行すると、レコード名、種類、最大 5 件の候補の一致情報が TypeSafe に送信されます。確率は参考情報であり、統合には別途確認が必要です。",
+    duplicateReviewRun: "重複を調べる",
+    duplicateReviewLoading: "確認中…",
+    duplicateReviewFailed: "重複の確認を完了できませんでした。",
+    duplicateReviewUnavailable:
+      "Jev で確認できませんでした。ルールによる候補は引き続き表示されます。",
+    duplicateReviewEmpty: "重複の可能性があるレコードはありません。",
+    duplicateRuleConfidence: "ルールによる一致度: {{percent}}%",
+    duplicateJevProbability: "Jev による同一エンティティの確率: {{percent}}%",
+    duplicateMatchedOn: "一致した情報: {{values}}",
     evidenceAttached: "通話証拠を添付しました。",
     evidenceAttachFailed: "証拠を添付できませんでした。",
     addEvidence: "証拠を追加",

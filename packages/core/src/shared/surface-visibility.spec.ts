@@ -29,8 +29,6 @@ describe("surface visibility", () => {
   });
 
   it("honors the host flag even while the document claims visible", () => {
-    // This is the whole point: an Electron <webview> guest keeps reporting
-    // visibilityState "visible" while its element is display:none.
     (window as unknown as Record<string, unknown>)[SURFACE_HIDDEN_FLAG] = true;
     expect(isHostSurfaceHidden()).toBe(true);
     expect(isSurfaceHidden()).toBe(true);
@@ -68,7 +66,6 @@ describe("surface visibility", () => {
     expect(isHostSurfaceHidden()).toBe(true);
     expect(events).toBe(1);
 
-    // Re-declaring the same state must not churn subscribers.
     expect(eval(buildSurfaceVisibilityScript(true))).toBe(true);
     expect(events).toBe(1);
 

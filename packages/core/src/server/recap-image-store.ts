@@ -21,18 +21,10 @@ import { randomBytes } from "node:crypto";
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 
-/** Maximum stored image size (~5 MB of raw PNG bytes). */
 export const RECAP_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
-/** Only `image/png` is ever stored or served. */
 export const RECAP_IMAGE_CONTENT_TYPE = "image/png";
 
-/**
- * Stored recap images older than this are pruned on the next write (30 days).
- * Each PR push uploads a fresh screenshot under a new token; without expiry the
- * table — and the set of anonymously-fetchable image URLs — would grow without
- * bound. 30 days comfortably outlives any PR's review window.
- */
 export const RECAP_IMAGE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
@@ -63,7 +55,6 @@ export async function ensureRecapImageTable(): Promise<void> {
       const recapImagesCreateSql = buildRecapImagesCreateSql();
       await ensureTableExists("recap_images", recapImagesCreateSql);
     })().catch((error) => {
-      // Allow a later call to retry if the first init lost a DDL race.
       _initPromise = undefined;
       throw error;
     });
@@ -71,11 +62,6 @@ export async function ensureRecapImageTable(): Promise<void> {
   return _initPromise;
 }
 
-/**
- * Delete recap images older than {@link RECAP_IMAGE_TTL_MS}. Called best-effort
- * after each write so the table stays bounded. Returns the number of rows
- * removed with a plain `DELETE ... WHERE created_at < ?`.
- */
 export async function pruneExpiredRecapImages(
   now: number = Date.now(),
 ): Promise<number> {
@@ -88,12 +74,10 @@ export async function pruneExpiredRecapImages(
   return rowsAffected;
 }
 
-/** Generate a long, unguessable lowercase-hex token (default 32 bytes → 64 hex chars). */
 export function generateRecapImageToken(byteLength = 32): string {
   return randomBytes(byteLength).toString("hex");
 }
 
-/** True when `token` matches the strict hex token format (no traversal characters). */
 export function isValidRecapImageToken(
   token: string | undefined | null,
 ): boolean {
@@ -105,10 +89,6 @@ export interface StoredRecapImage {
   contentType: string;
 }
 
-/**
- * Store PNG bytes and return the freshly minted token. Caller is responsible
- * for enforcing the size cap before calling (we re-check defensively here too).
- */
 export async function saveRecapImage(
   png: Buffer,
   options: { ownerEmail?: string | null } = {},
@@ -132,8 +112,6 @@ export async function saveRecapImage(
       Date.now(),
     ],
   });
-  // Best-effort retention: expire old images so the table and the set of public
-  // image URLs stay bounded. Never let a cleanup failure fail the upload.
   await pruneExpiredRecapImages().catch(() => {});
   return { token };
 }
@@ -158,8 +136,6 @@ export async function getRecapImage(
   if (!row || typeof row.png_base64 !== "string") return null;
   return {
     bytes: Buffer.from(row.png_base64, "base64"),
-    // Stored content type is always image/png; never trust it for response
-    // headers — the route hard-codes image/png — but surface it for callers.
     contentType:
       typeof row.content_type === "string"
         ? row.content_type

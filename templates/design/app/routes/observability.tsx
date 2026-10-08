@@ -1,4 +1,4 @@
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 
 import enUSMessages from "@/i18n/en-US";
 

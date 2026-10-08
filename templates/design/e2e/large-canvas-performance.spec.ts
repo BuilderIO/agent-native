@@ -374,9 +374,6 @@ test.fixme("120-screen canvas stays usable, bounded, and responsive", async ({
     expect(placeholderCount).toBeGreaterThanOrEqual(
       SCREEN_COUNT - LIVE_IFRAME_BUDGET,
     );
-    // The live screens expose more than 2,000 authored nodes, so this proves
-    // the browser is exercising a real thousands-of-layers DOM workload even
-    // while the remaining screens stay correctly placeholder-culled.
     expect(authoredLayerCount).toBeGreaterThanOrEqual(2_000);
     expect(authoredLayerCount).toBeLessThanOrEqual(EXPECTED_AUTHORED_LAYERS);
     expect(

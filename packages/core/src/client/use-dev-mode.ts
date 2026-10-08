@@ -34,15 +34,9 @@ function fetchCodeMode(apiBase: string): Promise<CodeModeState> {
         return cached;
       })
       .catch(() => {
-        // If the server isn't reachable (503 during boot, connection refused,
-        // etc.) but we're clearly on localhost, assume Code mode is on so the
-        // CLI tab and Code mode toggle still work. Without this, a transient
-        // server error permanently disables code features in the sidebar.
         cached = isLocalhostHostname()
           ? { devMode: true, canToggle: true }
           : { devMode: false, canToggle: false };
-        // Null the in-flight promise so the next call retries the fetch
-        // and we can pick up the real answer once the server is back.
         fetchPromise = null;
         return cached;
       });
@@ -50,15 +44,6 @@ function fetchCodeMode(apiBase: string): Promise<CodeModeState> {
   return fetchPromise;
 }
 
-/**
- * Shared internal state machine backing both `useCodeMode` (primary) and the
- * deprecated `useDevMode` alias. Returns the raw `{ codeMode, canToggle,
- * isLoading, setCodeMode }` shape; the public hooks adapt the field names.
- *
- * The `/mode` endpoint and its `devMode` payload key are unchanged for
- * back-compat — only the user-facing concept name moved from "dev mode" to
- * "Code mode".
- */
 function useCodeModeInternal(apiBase: string): {
   codeMode: boolean;
   canToggle: boolean;
@@ -71,7 +56,6 @@ function useCodeModeInternal(apiBase: string): {
   const [isLoading, setIsLoading] = useState(cached === null);
 
   useEffect(() => {
-    // Subscribe to changes from other hook instances
     listeners.add(setState);
     return () => {
       listeners.delete(setState);
@@ -92,11 +76,6 @@ function useCodeModeInternal(apiBase: string): {
 
   const setCodeMode = useCallback(
     async (codeMode: boolean) => {
-      // Optimistic update — apply immediately, then confirm with server.
-      // The endpoint still speaks `devMode` for back-compat. Snapshot the
-      // prior state so we can roll back if the server rejects or the request
-      // throws; otherwise a failed toggle would leave every subscriber stuck
-      // showing the wrong mode until a full reload re-fetches `/mode`.
       const prev = cached;
       notifyListeners({
         devMode: codeMode,
@@ -129,15 +108,6 @@ function useCodeModeInternal(apiBase: string): {
   };
 }
 
-/**
- * Whether the agent is in "Code mode" — the capability toggle that lets the
- * agent run shell/file/raw-DB tools and edit the app's own source code. This is
- * distinct from environment dev mode (NODE_ENV / Vite).
- *
- * Fetches `/_agent-native/agent-chat/mode` on first call, then stays in sync via
- * `setCodeMode`. The endpoint, its `devMode` payload key, the `AGENT_MODE` env
- * var, and the `agent-chat.mode` settings key are unchanged for back-compat.
- */
 export function useCodeMode(
   apiBase = agentNativePath("/_agent-native/agent-chat"),
 ): {

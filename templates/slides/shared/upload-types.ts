@@ -6,6 +6,8 @@ export const SLIDES_REFERENCE_FILE_EXTENSIONS = [
   ".txt",
   ".md",
   ".markdown",
+  ".html",
+  ".htm",
   ".csv",
   ".json",
   ".png",

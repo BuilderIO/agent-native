@@ -187,7 +187,6 @@ export function runOverviewPrimitiveReparent(
   if (!destinationAnchor) return;
 
   if (sourceScreenId === targetScreenId) {
-    // --- Same-screen reparent ---
     const source = destinationSource;
     const moveBaseContent = moveDestinationContent;
     const durableTargetNodeId = destinationAnchorNodeId;
@@ -202,13 +201,6 @@ export function runOverviewPrimitiveReparent(
     const sourceAuthoredNodeId =
       sourceNode.dataAttributes["data-agent-native-node-id"] ?? sourceNodeId;
 
-    // 1. Move the node relative to the target anchor. For "inside" the
-    // anchor is the container itself (append); for "before"/"after" the
-    // anchor is a sibling child already inside an auto-layout container
-    // (flow-insert at that index) — applyMoveNodeEdit's
-    // prepareMovedFragmentForParent already strips absolute positioning
-    // from the moved fragment's root when the destination parent is a
-    // flow container, regardless of which placement resolved it there.
     const movePatch = applyVisualEdit(
       moveBaseContent,
       {
@@ -244,11 +236,6 @@ export function runOverviewPrimitiveReparent(
       )?.dataAttributes["data-agent-native-node-id"] ?? sourceNodeId;
 
     if (placement !== "inside") {
-      // Auto-layout flow-insert: belt-and-suspenders alongside
-      // prepareMovedFragmentForParent above — make sure the moved node
-      // itself carries no leftover position/left/top so it renders as a
-      // pure flow child at its new index instead of an absolute layer
-      // sitting on top of its new siblings.
       const flowContent = removeAbsolutePositioningFromNodeInHtml(
         movePatch.content,
         movedNodeAttrId,
@@ -283,13 +270,6 @@ export function runOverviewPrimitiveReparent(
       moveBaseContent,
       durableTargetNodeId,
     );
-    // Rebase the moved node's left/top to be PARENT-relative.
-    // computeReparentedChildPosition strips the board-surface offset
-    // (65536-multiples) from either side first, so a source that was
-    // persisted in board-iframe viewport coordinates (the historic
-    // container-drop poison — see BOARD_SURFACE_CONTENT_OFFSET_PX in
-    // shared/board-file.ts) still comes out as a sane parent-relative
-    // position instead of an off-world near-65536 value.
     const rebasedContent =
       sourcePosition && targetPosition
         ? setAbsolutePositioningForNodeInHtml(
@@ -298,10 +278,6 @@ export function runOverviewPrimitiveReparent(
             computeReparentedChildPosition(sourcePosition, targetPosition),
           )
         : movePatch.content;
-    // Board safety net: if any nested coordinate still carries the
-    // surface-offset fingerprint (e.g. the position pair above could not
-    // be resolved and the rebase was skipped), normalize the final
-    // content so a nested board child can never persist off-world.
     const nextContent = (() => {
       if (!boardFileId || sourceScreenId !== boardFileId) {
         return rebasedContent;
@@ -316,7 +292,6 @@ export function runOverviewPrimitiveReparent(
     });
     if (publication.status !== "accepted") return;
 
-    // Re-select the moved node.
     const nextProjection = buildCodeLayerProjection(nextContent, { source });
     const movedNodeCandidate = nextProjection.nodes.find(
       (n) =>
@@ -335,11 +310,9 @@ export function runOverviewPrimitiveReparent(
     return;
   }
 
-  // --- Cross-screen reparent ---
   const sourceContent = getScreenContent(sourceScreenId);
   if (!sourceContent) return;
 
-  // Resolve data-agent-native-node-id attributes for moveNodeBetweenDocuments.
   const sourceProjection = buildCodeLayerProjection(sourceContent, {
     source: { kind: "design-file", fileId: sourceScreenId },
   });
@@ -436,10 +409,6 @@ export function runOverviewPrimitiveReparent(
     );
     return;
   }
-  // Finding 8: the requested anchor placement landed inside a
-  // <template> interior and was redirected to a real DOM slot right
-  // after the enclosing template instead — let the user know the drop
-  // wasn't silently discarded, just relocated nearby.
   if (result.anchorRedirected) {
     toast(t("designEditor.toasts.layerMoveRedirected"), {
       duration: 4000,
@@ -447,8 +416,6 @@ export function runOverviewPrimitiveReparent(
   }
 
   const destNodeAttrId = result.movedNodeId ?? nodeAttrId;
-  // A regular flow insert normalizes in the shared move helper. Preserve and
-  // rebase only an ignored auto-layout child or a freeform absolute layer.
   const nextDestContent = (() => {
     const rebasedDestContent = (() => {
       const preserveAbsolute =
@@ -474,8 +441,6 @@ export function runOverviewPrimitiveReparent(
         moveDestContent,
         destinationParentAttrId,
       );
-      // Same parent-relative rebase + board-poison stripping as the
-      // same-screen branch above (see computeReparentedChildPosition).
       return sourcePosition && targetPosition
         ? setAbsolutePositioningForNodeInHtml(
             result.destHtml,
@@ -554,7 +519,6 @@ export function runOverviewPrimitiveReparent(
   reparentHistoryChanges[0].after = sourcePublication.content;
   reparentHistoryChanges[1].after = targetPublication.content;
 
-  // Re-select the moved node in the destination.
   const submittedProjection = buildCodeLayerProjection(nextDestContent, {
     source: { kind: "design-file", fileId: targetScreenId },
   });

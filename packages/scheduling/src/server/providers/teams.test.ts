@@ -232,6 +232,13 @@ describe("createTeamsProvider", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("requires a credential before deleting a meeting", async () => {
+    await expect(
+      provider().deleteMeeting!({ meetingId: "meeting-example" }),
+    ).rejects.toThrow("Microsoft Teams requires credentialId");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it.each([401, 403])(
     "marks a credential invalid on delete HTTP %s",
     async (status) => {

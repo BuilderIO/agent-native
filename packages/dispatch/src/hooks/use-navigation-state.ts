@@ -7,8 +7,8 @@ import {
   appBasePath,
   appPath,
 } from "@agent-native/core/client/api-path";
-import { extensionIdFromPathname } from "@agent-native/core/client/extensions";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { extensionIdFromPathname } from "@agent-native/toolkit/app/extensions";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -39,6 +39,7 @@ export interface NavigationState {
   query?: string;
   runId?: string;
   threadId?: string;
+  threadDebugItem?: string;
   agentPath?: string;
   usageScope?: "me" | "workspace" | "app";
   usageUserEmail?: string;
@@ -54,7 +55,6 @@ export function useNavigationState(
   const navigate = useNavigate();
   const qc = useQueryClient();
 
-  // Sync current route to application state
   useEffect(() => {
     const localPathname = routerPath(location.pathname);
     const state = buildDispatchNavigationState(
@@ -73,7 +73,6 @@ export function useNavigationState(
     }).catch(() => {});
   }, [browserTabId, extensions, location.pathname, location.search]);
 
-  // Listen for navigate commands from agent
   const { data: navCommand } = useQuery({
     queryKey: dispatchNavigationQueryKey(browserTabId),
     queryFn: async () => {
@@ -84,7 +83,6 @@ export function useNavigationState(
       if (!res.ok) return null;
       const data = await res.json();
       if (data) {
-        // Return with a timestamp to ensure uniqueness
         return { ...data, _ts: Date.now() };
       }
       return null;
@@ -94,7 +92,6 @@ export function useNavigationState(
 
   useEffect(() => {
     if (!navCommand) return;
-    // Delete the one-shot command AFTER reading it
     fetch(dispatchApplicationStatePath("navigate", browserTabId), {
       method: "DELETE",
       headers: dispatchApplicationStateHeaders(browserTabId, {
@@ -103,7 +100,6 @@ export function useNavigationState(
     }).catch(() => {});
     const cmd = navCommand as NavigationState;
 
-    // Navigate to a specific path or resolve view name to path
     const resolvedPath =
       cmd.path || resolvePath(cmd.view, extensions, cmd) || "/overview";
     const path =
@@ -221,6 +217,7 @@ export function buildDispatchNavigationState(
     const query = params.get("query");
     const runId = params.get("runId");
     const selectedThreadId = params.get("threadId");
+    const item = params.get("item");
     if (mode) state.threadDebugMode = mode;
     if (sourceId) state.sourceId = sourceId;
     if (inspectSourceId) state.inspectSourceId = inspectSourceId;
@@ -230,6 +227,7 @@ export function buildDispatchNavigationState(
     if (query) state.query = query;
     if (runId) state.runId = runId;
     if (selectedThreadId) state.threadId = selectedThreadId;
+    if (item) state.threadDebugItem = item;
   }
 
   if (state.view === "metrics") {
@@ -258,10 +256,6 @@ function routerPath(path: string): string {
   const basePath = appBasePath();
   if (!basePath) return path;
   let result = path;
-  // Iteratively strip basename. A path that arrives doubly-prefixed
-  // (e.g. "/dispatch/dispatch/overview", possibly from a stale link or a
-  // prior bug) would otherwise get partially stripped here and then
-  // re-prefixed by react-router's basename, restoring the bad URL.
   for (let i = 0; i < 4; i += 1) {
     if (result === basePath) return "/";
     if (!result.startsWith(`${basePath}/`)) break;
@@ -321,9 +315,6 @@ function resolveView(
   }
   if (pathname.startsWith("/browser-chat")) return "browser-chat";
   if (pathname.startsWith("/chat")) return "chat";
-  // A route below /apps/ always embeds one app, so it must not collapse to the
-  // apps list. An id that fails to decode still resolves here without a
-  // `workspaceAppId`, which view-screen reports as an unknown app.
   if (pathname.startsWith("/apps/") && pathname !== "/apps/") {
     return "workspace-app";
   }

@@ -44,4 +44,31 @@ describe("Design editor header", () => {
       "{!sessionResolved || isSignedIn ? publishWaitlistControl : null}",
     );
   });
+
+  it("offers signed-out Localhost owners the account-gated live-canvas path", () => {
+    const signedOutActionsStart = editorSource.indexOf(
+      "const signedOutPersistenceActions = (",
+    );
+    const signedOutActionsEnd = editorSource.indexOf(
+      "const rightToolbarCompact =",
+      signedOutActionsStart,
+    );
+    const signedOutActions = editorSource.slice(
+      signedOutActionsStart,
+      signedOutActionsEnd,
+    );
+
+    expect(editorSource).toContain(
+      "...(hasLocalhostScreens &&\n      sessionResolved &&\n      (!isSignedIn || canEditDesign)",
+    );
+    expect(editorSource).toContain("content: isSignedIn ? (");
+    expect(signedOutActions).toContain("{hasLocalhostScreens ? (");
+    expect(signedOutActions).toContain("<PopoverTrigger asChild>");
+    expect(signedOutActions).toContain('{t("designEditor.share")}');
+    expect(signedOutActions).toContain('<PopoverContent align="end"');
+    expect(signedOutActions).toContain("href={signInToShareHref}");
+    expect(signedOutActions).toContain(
+      '{t("designEditor.signUpToShareLiveCanvas")}',
+    );
+  });
 });

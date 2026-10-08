@@ -11,7 +11,16 @@ import type { Task, Message, TaskState, Artifact } from "./types.js";
 let _initPromise: Promise<void> | undefined;
 export const MAX_A2A_IDEMPOTENCY_KEY_CHARS = 128;
 const A2A_IDEMPOTENCY_INDEX = "idx_a2a_tasks_owner_scope_idempotency";
+const A2A_ORG_IDEMPOTENCY_INDEX = "idx_a2a_tasks_org_scope_idempotency";
+const A2A_RECOVERY_INDEX = "idx_a2a_tasks_recovery_created";
 export const A2A_PERSONAL_OWNER_SCOPE = "__personal__";
+export const A2A_ORG_ID_OWNER_SCOPE_PREFIX = "__a2a_org_id__:";
+const MAX_TASK_LIST_PAGE_SIZE = 100;
+
+export interface A2ATaskListCursor {
+  createdAt: number;
+  id: string;
+}
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
@@ -36,6 +45,14 @@ export async function ensureTable(): Promise<void> {
       const createIdempotencyIndexSql =
         `CREATE UNIQUE INDEX IF NOT EXISTS ${A2A_IDEMPOTENCY_INDEX} ` +
         `ON a2a_tasks(owner_email, owner_scope, idempotency_key)`;
+      const createOrgIdempotencyIndexSql =
+        `CREATE UNIQUE INDEX IF NOT EXISTS ${A2A_ORG_IDEMPOTENCY_INDEX} ` +
+        "ON a2a_tasks(owner_scope, idempotency_key) " +
+        "WHERE owner_email IS NULL AND idempotency_key IS NOT NULL";
+      const createRecoveryIndexSql =
+        `CREATE INDEX IF NOT EXISTS ${A2A_RECOVERY_INDEX} ` +
+        "ON a2a_tasks(created_at) " +
+        "WHERE status_state IN ('submitted', 'working', 'processing')";
       const createApprovalsSql = `
         CREATE TABLE IF NOT EXISTS a2a_approvals (
           id TEXT PRIMARY KEY,
@@ -71,9 +88,13 @@ export async function ensureTable(): Promise<void> {
         `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
       );
       await ensureIndexExists(A2A_IDEMPOTENCY_INDEX, createIdempotencyIndexSql);
+      await ensureIndexExists(
+        A2A_ORG_IDEMPOTENCY_INDEX,
+        createOrgIdempotencyIndexSql,
+      );
+      await ensureIndexExists(A2A_RECOVERY_INDEX, createRecoveryIndexSql);
       await ensureTableExists("a2a_approvals", createApprovalsSql);
     })().catch((err) => {
-      // Retry init on the next call after a failed startup.
       _initPromise = undefined;
       throw err;
     });
@@ -401,7 +422,11 @@ export async function createOrReuseTask(
   ownerScope: string | null,
   idempotencyKey: string | undefined,
 ): Promise<{ task: Task; reused: boolean }> {
-  if (!ownerEmail || !idempotencyKey) {
+  const normalizedOwner = ownerEmail?.trim().toLowerCase() || null;
+  const normalizedScope =
+    ownerScope?.trim().toLowerCase() ||
+    (normalizedOwner ? A2A_PERSONAL_OWNER_SCOPE : null);
+  if (!idempotencyKey || !normalizedScope) {
     return {
       task: await createTask(
         message,
@@ -419,16 +444,13 @@ export async function createOrReuseTask(
 
   await ensureTable();
   const client = getDbExec();
-  const normalizedOwner = ownerEmail.trim().toLowerCase();
-  const normalizedScope =
-    ownerScope?.trim().toLowerCase() || A2A_PERSONAL_OWNER_SCOPE;
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const id = crypto.randomUUID();
     const now = Date.now();
     const timestamp = new Date().toISOString();
     await client.execute({
-      sql: `INSERT INTO a2a_tasks (id, context_id, status_state, status_timestamp, history, artifacts, metadata, owner_email, owner_scope, idempotency_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(owner_email, owner_scope, idempotency_key) DO NOTHING`,
+      sql: `INSERT INTO a2a_tasks (id, context_id, status_state, status_timestamp, history, artifacts, metadata, owner_email, owner_scope, idempotency_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
       args: [
         id,
         contextId ?? null,
@@ -446,7 +468,7 @@ export async function createOrReuseTask(
     });
 
     const { rows } = await client.execute({
-      sql: `SELECT * FROM a2a_tasks WHERE owner_email = ? AND owner_scope = ? AND idempotency_key = ?`,
+      sql: `SELECT * FROM a2a_tasks WHERE owner_email IS NOT DISTINCT FROM ? AND owner_scope = ? AND idempotency_key = ?`,
       args: [normalizedOwner, normalizedScope, idempotencyKey],
     });
     if (rows.length === 0) {
@@ -474,14 +496,22 @@ export interface A2ATaskOwnership {
   ownerScope: string | null;
 }
 
-/**
- * Fetch the verified owner email recorded against a task at creation time.
- * Returns null when the task has no owner (legacy rows or unauthenticated
- * deployments) or when the task is missing.
- *
- * Used by `handleGet` / `handleCancel` to reject IDOR access — the JWT-
- * verified caller's email must match `owner_email` to read or cancel.
- */
+export interface A2ATaskAccessScope {
+  ownerEmail: string;
+  ownerScope: string | null;
+}
+
+function taskAccessPredicate(scope: A2ATaskAccessScope | undefined): {
+  sql: string;
+  args: unknown[];
+} {
+  if (!scope) return { sql: "", args: [] };
+  return {
+    sql: " AND LOWER(COALESCE(owner_email, '')) = LOWER(?) AND LOWER(COALESCE(owner_scope, '')) = LOWER(?)",
+    args: [scope.ownerEmail, scope.ownerScope ?? ""],
+  };
+}
+
 export async function getTaskOwner(id: string): Promise<string | null> {
   return (await getTaskOwnership(id)).ownerEmail;
 }
@@ -504,15 +534,6 @@ export async function getTaskOwnership(id: string): Promise<A2ATaskOwnership> {
   };
 }
 
-/**
- * Atomically claim a task for processing. Only succeeds when the task is in
- * state 'submitted' or 'working' — flipping it to 'processing' so concurrent
- * processors can't pick it up twice. Returns the task if claimed, null if it
- * was already claimed/completed/missing.
- *
- * Used by the cross-platform async processor (`_process-task` route) to avoid
- * duplicate handler runs when retries fire.
- */
 export async function claimA2ATaskForProcessing(
   id: string,
 ): Promise<Task | null> {
@@ -617,16 +638,6 @@ export async function resetStuckA2ATaskForRetry(
   return affected !== 0;
 }
 
-/**
- * Fail a processing task once it is stuck. Two independent conditions can
- * trigger this, either of which alone is sufficient:
- *   - `updated_at <= processingCutoff`: no heartbeat/progress touch in a
- *     while — the processor likely died.
- *   - `created_at <= createdAtCutoff` — a hard wall on total run time. A
- *     hung await inside a still-alive process keeps `updated_at` fresh via
- *     the liveness heartbeat forever, so staleness alone never trips; age
- *     since creation is the only bound that catches it.
- */
 export async function failStuckA2ATask(
   id: string,
   processingCutoff: number,
@@ -670,13 +681,6 @@ export async function failStuckA2ATask(
   return affected !== 0;
 }
 
-/**
- * Fail a queued (submitted/working) task whose age since creation exceeds
- * `createdAtCutoff` — the dispatch-retry loop kept throttling/refiring
- * without ever reaching `processing`. Mirrors `failStuckA2ATask` but is
- * gated on the queued state set and on `created_at` (queued tasks have no
- * heartbeat, so staleness of `updated_at` isn't a meaningful signal here).
- */
 export async function failStuckQueuedA2ATask(
   id: string,
   createdAtCutoff: number,
@@ -705,12 +709,16 @@ export async function failStuckQueuedA2ATask(
   return affected !== 0;
 }
 
-export async function getTask(id: string): Promise<Task | null> {
+export async function getTask(
+  id: string,
+  accessScope?: A2ATaskAccessScope,
+): Promise<Task | null> {
   await ensureTable();
   const client = getDbExec();
+  const predicate = taskAccessPredicate(accessScope);
   const { rows } = await client.execute({
-    sql: `SELECT * FROM a2a_tasks WHERE id = ?`,
-    args: [id],
+    sql: `SELECT * FROM a2a_tasks WHERE id = ?${predicate.sql}`,
+    args: [id, ...predicate.args],
   });
   if (rows.length === 0) return null;
   return taskFromRow(rows[0]);
@@ -723,14 +731,15 @@ export async function updateTask(
     message?: Message;
     artifacts?: Artifact[];
   },
+  accessScope?: A2ATaskAccessScope,
 ): Promise<Task | null> {
   await ensureTable();
   const client = getDbExec();
+  const predicate = taskAccessPredicate(accessScope);
 
-  // Read current task
   const { rows } = await client.execute({
-    sql: `SELECT * FROM a2a_tasks WHERE id = ?`,
-    args: [id],
+    sql: `SELECT * FROM a2a_tasks WHERE id = ?${predicate.sql}`,
+    args: [id, ...predicate.args],
   });
   if (rows.length === 0) return null;
 
@@ -753,8 +762,8 @@ export async function updateTask(
     task.artifacts = [...(task.artifacts ?? []), ...update.artifacts];
   }
 
-  await client.execute({
-    sql: `UPDATE a2a_tasks SET status_state = ?, status_message = ?, status_timestamp = ?, history = ?, artifacts = ?, updated_at = ? WHERE id = ?`,
+  const result = await client.execute({
+    sql: `UPDATE a2a_tasks SET status_state = ?, status_message = ?, status_timestamp = ?, history = ?, artifacts = ?, updated_at = ? WHERE id = ?${predicate.sql}`,
     args: [
       task.status.state,
       task.status.message ? JSON.stringify(task.status.message) : null,
@@ -763,8 +772,13 @@ export async function updateTask(
       JSON.stringify(task.artifacts),
       now,
       id,
+      ...predicate.args,
     ],
   });
+
+  if (accessScope && getAffectedRowCount(result) !== 1) {
+    return null;
+  }
 
   return task;
 }
@@ -851,20 +865,58 @@ export async function updateTaskStatusMessage(
   });
 }
 
-export async function listTasks(contextId?: string): Promise<Task[]> {
+export async function listTasksPage(
+  contextId?: string,
+  options: { limit?: number; before?: A2ATaskListCursor } = {},
+): Promise<{ tasks: Task[]; nextCursor: A2ATaskListCursor | null }> {
   await ensureTable();
   const client = getDbExec();
-
+  const requestedLimit = options.limit ?? MAX_TASK_LIST_PAGE_SIZE;
+  const limit = Number.isFinite(requestedLimit)
+    ? Math.min(MAX_TASK_LIST_PAGE_SIZE, Math.max(1, Math.floor(requestedLimit)))
+    : MAX_TASK_LIST_PAGE_SIZE;
+  const conditions: string[] = [];
+  const args: unknown[] = [];
   if (contextId) {
-    const { rows } = await client.execute({
-      sql: `SELECT * FROM a2a_tasks WHERE context_id = ? ORDER BY created_at DESC`,
-      args: [contextId],
-    });
-    return rows.map(taskFromRow);
+    conditions.push("context_id = ?");
+    args.push(contextId);
   }
+  if (options.before) {
+    conditions.push("(created_at < ? OR (created_at = ? AND id < ?))");
+    args.push(
+      options.before.createdAt,
+      options.before.createdAt,
+      options.before.id,
+    );
+  }
+  const where =
+    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const { rows } = await client.execute({
+    sql: `SELECT id, context_id, status_state, status_message, status_timestamp, history, artifacts, metadata, owner_email, owner_scope, created_at
+      FROM a2a_tasks ${where}
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?`,
+    args: [...args, limit + 1],
+  });
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const lastRow = pageRows.at(-1) as Record<string, unknown> | undefined;
+  return {
+    tasks: pageRows.map(taskFromRow),
+    nextCursor:
+      hasMore && lastRow
+        ? { createdAt: Number(lastRow.created_at), id: String(lastRow.id) }
+        : null,
+  };
+}
 
-  const { rows } = await client.execute(
-    `SELECT * FROM a2a_tasks ORDER BY created_at DESC`,
-  );
-  return rows.map(taskFromRow);
+export async function listTasks(contextId?: string): Promise<Task[]> {
+  const tasks: Task[] = [];
+  let before: A2ATaskListCursor | undefined;
+  while (true) {
+    const page = await listTasksPage(contextId, { before });
+    tasks.push(...page.tasks);
+    if (!page.nextCursor) return tasks;
+    before = page.nextCursor;
+  }
 }

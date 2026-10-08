@@ -1,6 +1,5 @@
-/**
- * Shared types for the org module. Server and client both depend on these.
- */
+import type { IconValue } from "../icons/index.js";
+import type { OrgSignInMethods } from "./sign-in-methods.js";
 
 export type OrgRole = "owner" | "admin" | "member";
 
@@ -19,6 +18,8 @@ export interface OrgSummary {
   orgId: string;
   orgName: string;
   role: OrgRole;
+  icon: IconValue | null;
+  iconRevision: number;
 }
 
 export interface OrgInvitationSummary {
@@ -38,7 +39,8 @@ export interface OrgInfo {
   orgId: string | null;
   orgName: string | null;
   role: OrgRole | null;
-  /** Whether invitations can be delivered by the configured email provider. */
+  icon: IconValue | null;
+  iconRevision: number;
   emailConfigured?: boolean;
   access?: {
     signup: "open" | "invited";
@@ -51,24 +53,26 @@ export interface OrgInfo {
   pendingInvitations: OrgInvitationSummary[];
   domainMatches: DomainMatchOrg[];
   allowedDomain: string | null;
-  /**
-   * Origin of the org's own workspace deployment, when it runs one. Members
-   * who land on a different host (a shared hosted app reached from the
-   * template catalog) get pointed here instead of concluding their team's
-   * apps are missing. Null for the common case of an org with no separate
-   * workspace.
-   */
   workspaceUrl: string | null;
-  /** Sign-in provider required for members of the active org. */
   requiredAuthProvider: RequiredAuthProvider;
-  /** Default visibility applied when a new workspace app is first registered. */
   workspaceAppDefaultVisibility?: WorkspaceAppDefaultVisibility;
   /**
-   * Whether the active org has an A2A secret. The value itself is never part
-   * of this payload — owners/admins fetch it on demand from
-   * `GET /_agent-native/org/a2a-secret`.
+   * The deployment's sign-in methods. Owners and admins only; absent for
+   * everyone else, which is not the same as "no methods".
+   */
+  signInMethods?: OrgSignInMethods;
+  /**
+   * Whether the active org has an A2A secret. Owners only; absent for
+   * everyone else. The value itself is never part of this payload — the owner
+   * fetches it on demand from `GET /_agent-native/org/a2a-secret`.
    */
   a2aSecretSet?: boolean;
+  /**
+   * Set only when the viewer has no active organization. True on a
+   * single-tenant self-hosted deployment, where that viewer manages the
+   * deployment's organization pages; false on a shared deployment.
+   */
+  soloDeploymentAdmin?: boolean;
 }
 
 export interface OrgPendingRemoval {

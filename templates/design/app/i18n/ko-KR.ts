@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "연동" } },
   creativeContext: {
     title: "라이브러리",
     description:
@@ -164,14 +165,16 @@ export default {
     agentDescription:
       "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
     openAgentSettings: "에이전트 관리",
-    languageTitle: "언어",
-    languageDescription: "Design의 인터페이스 언어를 선택하세요.",
-    languageLabel: "인터페이스 언어",
-    labs: "Labs",
-    labsIntro:
-      "이 기능은 새롭고 불안정하며 버그가 있을 수 있습니다. 여러분의 피드백을 소중히 여깁니다.",
     labTweaks: "디자인 트윅",
     labTweaksDescription: "AI 기반 디자인 트윅을 사용해 보세요.",
+    labFullAppBuilding: "전체 앱 만들기",
+    labFullAppBuildingDescription:
+      "Builder로 디자인을 바탕으로 작동하는 앱을 만들어 보세요.",
+    labDesignReviewTools: "디자인 검토 도구",
+    labDesignReviewToolsDescription:
+      "디자인의 접근성 문제를 확인하고 시각적 변경 사항을 비교하세요.",
+    mcpAbout:
+      "Design을 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 Design에서 디자인을 만들고 편집할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
   },
   pages: {
     presentEmpty: "발표할 콘텐츠가 없습니다",
@@ -180,7 +183,17 @@ export default {
     notFoundDescription: "찾고 있는 페이지가 없습니다.",
     notFoundSignIn: "로그인",
     notFoundBackToDesigns: "디자인으로 돌아가기",
-    teamCreateOrgDescription: "동료와 디자인을 공유할 팀을 설정하세요.",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "파일 업로드를 위해 저장소 연결",
+    },
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "AI를 사용할 수 있는지 확인할 수 없습니다.",
+    },
+    common: { retry: "다시 시도" },
   },
   chat: {
     emptyState: "만들 디자인을 설명하세요",
@@ -200,7 +213,7 @@ export default {
       tokenLabel: "Figma 액세스 토큰",
       tokenPlaceholder: "Figma 액세스 토큰 붙여넣기",
       connecting: "연결 중…",
-      connect: "연결",
+      connect: "Figma 연결",
       getToken: "토큰 받기",
       importFrame: "프레임 가져오기",
       chooseFrame: "프레임 선택",
@@ -211,6 +224,7 @@ export default {
     },
   },
   common: {
+    loading: "불러오는 중...",
     genericError: "문제가 발생했습니다.",
   },
   editPanel: {
@@ -259,7 +273,13 @@ export default {
       height: "키",
       opacity: "불투명",
       padding: "심",
-      margin: "여유",
+      margin: "여백",
+      marginTop: "위쪽 여백",
+      marginRight: "오른쪽 여백",
+      marginBottom: "아래쪽 여백",
+      marginLeft: "왼쪽 여백",
+      linkMarginSides: "여백 연결",
+      unlinkMarginSides: "여백 연결 해제",
       radius: "반지름",
       flexGrow: "확장",
       flexShrink: "축소",
@@ -302,6 +322,8 @@ export default {
       bottomLeft: "왼쪽 아래",
       bottomRight: "오른쪽 아래",
       blend: "혼합",
+      blendMode: "혼합 모드",
+      removeBlendMode: "혼합 모드 제거",
       border: "테두리",
       outline: "윤곽선",
       inside: "안쪽",
@@ -320,6 +342,18 @@ export default {
       perspectiveHint: "원근감 (비어 있음/0 = 없음)",
       customTransform: "사용자 지정 변환 — X/Y/Z 회전으로 편집할 수 없음",
       shaderEffectType: "셰이더",
+      imageScaleMode: "이미지 크기 조정 모드",
+      imageAdjustments: "이미지 조정",
+      imageExposure: "노출",
+      imageContrast: "대비",
+      imageSaturation: "채도",
+      imageScaleFill: "채우기",
+      imageScaleFit: "맞춤",
+      imageScaleCrop: "자르기",
+      noMirroring: "미러링 없음",
+      vector: "벡터",
+      mirrorAngle: "각도 미러링",
+      mirrorAngleAndLength: "각도 및 길이 미러링",
     },
     shaders: {
       fillsTitle: "셰이더 채우기",
@@ -541,8 +575,33 @@ export default {
         adUnit: "광고 단위",
       },
     },
+    scale: {
+      title: "크기 조정",
+      exit: "크기 조정 종료",
+      factor: "배율",
+      presets: "배율 프리셋",
+      anchor: "기준점",
+      topLeft: "왼쪽 위",
+      topCenter: "가운데 위",
+      topRight: "오른쪽 위",
+      middleLeft: "왼쪽 가운데",
+      center: "가운데",
+      middleRight: "오른쪽 가운데",
+      bottomLeft: "왼쪽 아래",
+      bottomCenter: "가운데 아래",
+      bottomRight: "오른쪽 아래",
+    },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "실시간 협업",
+      description:
+        "소유자의 localhost에 접근할 수 없는 사람도 이 디자인의 실시간 사본을 보고 편집할 수 있습니다.",
+      enabled: "켜짐",
+      disabled: "꺼짐",
+      saving: "저장 중…",
+      enableError: "실시간 협업을 업데이트하지 못했습니다.",
+    },
     vectorEndpoints: {
       startPoint: "시작점",
       endPoint: "끝점",
@@ -771,6 +830,8 @@ export default {
       figmaPasteTarget: "캔버스에 붙여넣기",
       figmaPasteApiKeyHint:
         "정확한 노드 가져오기를 위해 Figma 액세스 토큰을 연결하세요.",
+      figmaPasteAccessDenied:
+        '연결된 Figma 토큰으로 이 파일에 액세스할 수 없습니다. 파일 권한과 토큰에 "File content" 범위가 포함되어 있는지 확인하세요.',
       figmaPasteMatchGuidance:
         "특정 Figma 노드와 일치시킬 수 없습니다. 정확한 가져오기를 위해 프레임 링크를 붙여넣으세요.",
       figmaPasteUnreadable:
@@ -914,6 +975,10 @@ export default {
     signUpToSaveDescription:
       "무료 계정을 만들어 디자인과 화면 레이아웃을 저장하고 새 방향을 생성하세요.",
     signUpToShare: "가입하고 공유",
+    signUpToShareLiveCanvas: "실시간 캔버스를 공유하려면 가입하세요",
+    liveCanvasLink: "실시간 캔버스 링크",
+    liveCanvasWaitingForOwner:
+      "소유자의 실시간 캔버스 스냅샷을 기다리는 중입니다.",
     shareEditorLink: "디자인 편집기 링크",
     shareEditorLinkDescription:
       "액세스 권한이 있는 누구나 편집기에서 이 디자인을 열 수 있습니다.",
@@ -945,6 +1010,10 @@ export default {
     keyboardShortcuts: {
       title: "키보드 단축키",
       close: "닫다: 키보드 단축키",
+      search: "검색",
+      searchLabel: "키보드 단축키 검색",
+      categoriesLabel: "단축키 카테고리",
+      empty: "“{{query}}”와(과) 일치하는 단축키가 없습니다",
       codeContext: "코드",
       screenContext: "화면",
       nudgeAmount: {
@@ -977,11 +1046,6 @@ export default {
         leftBracket: "왼쪽 대괄호",
         rightBracket: "오른쪽 대괄호",
       },
-      descriptions: {
-        toggleUi: "지금 눌러 패널을 빠르게 숨기고 작업에 집중하세요",
-        undo: "가장 최근 디자인 변경을 되돌립니다",
-        redo: "방금 실행 취소한 디자인 변경을 복원합니다",
-      },
       categories: {
         essential: "필수",
         tools: "도구",
@@ -1013,6 +1077,7 @@ export default {
         showLayers: "레이어",
         showAssets: "에셋",
         toggleUi: "View",
+        toggleMinimalUi: "최소 UI",
         toggleComments: "댓글 고정",
         zoomIn: "확대",
         zoomOut: "축소",
@@ -1066,6 +1131,7 @@ export default {
         ungroup: "그룹 해제",
         frameSelection: "선택 영역 프레임화",
         autoLayout: "자동 레이아웃",
+        imageVideo: "이미지/동영상...",
       },
     },
     undo: "끄르다",
@@ -1183,12 +1249,15 @@ export default {
     pendingVisualStyles: {
       applyAria: "보류 중인 시각 스타일 편집 적용",
       applyButton: "스타일 적용",
+      applySharedEdits: "편집 내용 적용",
       previewLabel: "보류 중인 시각 미리보기",
       applyDesignUpdates: "디자인 업데이트 적용",
       applying: "적용 중…",
       verifying: "소스와 런타임 확인 중…",
       retryWithAgent: "소스 확인 다시 시도",
       copyPrompt: "에이전트에 프롬프트 복사",
+      copyAgentPrompt: "에이전트 프롬프트 복사",
+      copyFullPrompt: "전체 프롬프트 복사",
       abortPreview: "미리보기를 중단하고 상호작용",
       agentMessage: "보류 중인 시각 스타일 편집을 소스에 적용하세요.",
       sentToast: "디자인 업데이트를 에이전트로 보냈습니다",
@@ -1200,6 +1269,8 @@ export default {
       sourceCheckFailedToast:
         "연결된 소스 파일을 확인할 수 없습니다. 다시 시도하거나 실행 취소할 수 있도록 미리보기를 유지했습니다.",
       copiedToast: "스타일 프롬프트가 복사되었습니다",
+      copiedToastDescription:
+        "코딩 에이전트에 붙여넣고 시각적 변경 사항을 적용해 달라고 요청하세요.",
       abortedToast: "보류 중인 미리보기를 버렸습니다",
       interactBlocked:
         "상호작용 모드로 전환하기 전에 보류 중인 라이브 편집을 적용하거나 중단하세요.",
@@ -1263,6 +1334,8 @@ export default {
       annotationSendError:
         "주석을 보낼 수 없습니다. 그림은 그대로 남아 있으니 다시 시도하세요.",
       codingHandoffError: "코딩 인계를 만들 수 없음",
+      visualEditPendingConflict:
+        "다른 공동 작업자의 변경 사항이 적용 대기 중입니다. 새 변경 사항을 보내기 전에 적용하거나 지워 주세요.",
       codingHandoffCopied: "코딩 인계가 복사됨",
       clipboardBlocked: "클립보드가 차단됨",
       htmlCreateError: "HTML 다운로드를 만들 수 없음",
@@ -1285,6 +1358,16 @@ export default {
         "읽기 전용 미리보기에서는 PNG 캡처를 사용할 수 없음",
       pngSaveError: "PNG를 저장할 수 없음",
       pngExportError: "PNG를 내보낼 수 없음",
+      exportTooLarge:
+        "내보내기 크기가 너무 큽니다. 요청 한도는 5MB입니다. 포함된 리소스나 래스터 크기를 줄이고 다시 시도하세요.",
+      exportResourcesUnavailable:
+        "하나 이상의 이미지, 글꼴 또는 스타일시트를 사용할 수 없어 정확히 렌더링하지 못했습니다. 해당 리소스를 확인하고 다시 시도하세요.",
+      exportTimedOut:
+        "내보내기 시간이 초과되었습니다. 다시 시도하거나 디자인 크기를 줄이세요.",
+      exportBusy:
+        "다른 내보내기를 렌더링 중입니다. 잠시 기다린 후 다시 시도하세요.",
+      exportChromiumUnavailable:
+        "렌더러를 시작할 수 없어 내보내기를 사용할 수 없습니다. 나중에 다시 시도하세요.",
       pdfExportError: "PDF를 내보낼 수 없습니다.",
       pdfDownloaded: "PDF 다운로드됨",
       pdfAllScreensDownloaded: "PDF 다운로드됨 (모든 화면)",
@@ -1343,10 +1426,16 @@ export default {
         "이 레이어를 소스에서 찾을 수 없습니다. 앱 로딩이 끝난 후 다시 시도하거나, 에이전트에게 변경을 요청하세요.",
       reactSourceAnchorsUnavailable:
         "이 앱은 편집기에 소스 위치를 제공하지 않아 이 레이어를 코드 줄과 연결할 수 없습니다. 에이전트에게 변경을 요청하세요.",
+      sourceLocationSnapshotFailed:
+        "이 미리보기의 소스 위치를 확인할 수 없습니다.",
       screenSourceUpdated: "화면 소스가 업데이트됨",
       screenSourceUpdateFailed: "화면 소스를 업데이트할 수 없습니다",
       vectorEditUnsupported:
         "이 도형이나 변형은 벡터 편집을 지원하지 않습니다.",
+      imageUploading: "이미지 업로드 중…",
+      pasteReplaceFailed: "해당 레이어를 바꿀 수 없습니다",
+      swapFillStrokeLayeredFill:
+        "여러 채우기나 이미지 채우기는 아직 선으로 옮길 수 없습니다",
     },
     commenterRoleLabel: "댓글 작성자",
     commenterRoleDescription: "보고 검토 댓글을 추가할 수 있음",
@@ -1396,6 +1485,13 @@ export default {
         "여러 번 시도했지만 라이브 편집기 브리지가 연결을 확인하지 못했습니다.",
       connectionNotConfirmed:
         "라이브 편집기 브리지가 연결을 확인하지 못했습니다. 로컬 개발 서버가 아직 실행 중인가요?",
+      permissionPromptTitle: "로컬 화면 연결",
+      permissionPromptDescription:
+        "실시간 편집을 사용하려면 Chrome 프롬프트에서 ‘허용’을 선택하세요.",
+      permissionPromptNoPrompt: "Chrome 프롬프트가 표시되지 않나요?",
+      permissionPromptSettingsInstructions:
+        "주소 표시줄 왼쪽의 사이트 제어 아이콘을 클릭하고 사이트 설정을 연 다음 로컬 네트워크를 허용으로 설정하세요.",
+      permissionPromptRetry: "연결 재시도",
     },
   },
   multiScreenCanvas: {
@@ -1479,6 +1575,8 @@ export default {
     assetAdded: "자산이 추가됨",
     assetsNoImageUrl: "Assets에서 이미지 URL을 반환하지 않았습니다.",
     failedToUploadFile: "파일을 업로드하지 못했습니다.",
+    imageAttachmentUnavailable:
+      "이 이미지를 시각 입력으로 준비하지 못했습니다. 더 작은 PNG, JPG, GIF 또는 WebP 파일을 첨부하세요.",
     attachmentsTooLarge:
       "첨부 파일이 너무 큽니다. 업로드는 총 {{max}}MB까지 지원됩니다. 파일 수를 줄이거나 더 작은 파일을 첨부하세요.",
     failedToSubmitPrompt: "프롬프트를 제출하지 못했습니다",
@@ -1580,7 +1678,65 @@ export default {
       "이 보기를 벗어나면서 보내지 않은 댓글 초안 {{count}}개가 삭제되었습니다.",
     staleAnchorDetail: "원래 요소를 캔버스에서 더 이상 찾을 수 없습니다.",
   },
+  homeContext: {
+    websiteReference: "웹사이트 추가",
+    websiteUrlLabel: "웹사이트 URL",
+    websiteUrl: "웹사이트 URL 붙여넣기",
+    figmaUrlLabel: "Figma 링크",
+    invalidFigmaUrl: "유효한 figma.com 프레임 또는 파일 URL을 입력하세요.",
+    tooMany: "참조는 최대 20개까지 선택하세요.",
+    invalidWebsiteUrl: "유효한 HTTP 또는 HTTPS URL을 입력하세요.",
+    createSystem: "디자인 시스템 만들기",
+    noSystems:
+      "아직 디자인 시스템이 없습니다. 웹사이트, 파일 또는 Figma에서 만들어 보세요.",
+    searchSystems: "디자인 시스템 검색…",
+    searchFrames: "Figma 프레임 검색…",
+    searchDesigns: "디자인 검색…",
+    searchPresentations: "프레젠테이션 검색…",
+    searchDesign: "디자인 검색…",
+    useDesignSystem: "디자인 시스템 사용",
+    notReady:
+      "아직 요청을 제출할 수 없습니다. 선택한 컨텍스트와 연결을 확인한 후 다시 시도하세요.",
+    search: "컨텍스트 검색…",
+    figmaUrl: "Figma 링크 붙여넣기",
+    browse: "프레임 찾아보기",
+    loadFailed: "이 참조를 불러오지 못했습니다.",
+    retry: "다시 시도",
+    empty: "일치하는 참조가 없습니다.",
+    none: "없음",
+    design: "디자인",
+    slides: "슬라이드",
+    referenceDesign: "디자인 참조",
+    figmaReference: "Figma 추가",
+    referenceDeck: "프레젠테이션 참조",
+    quickSaas: "SaaS 랜딩 페이지 만들기",
+    quickDashboard: "대시보드 만들기",
+    quickDeck: "슬라이드 만들기",
+    deckPrompt:
+      "제목 슬라이드, 명확한 이야기, 시각화된 데이터와 간결한 마무리 슬라이드가 있는 세련된 프레젠테이션을 만들어 주세요.",
+  },
   home: {
+    suggestedPrompts: "추천 프롬프트",
+    import: "가져오기",
+    importOptions: "가져오기 옵션",
+    figmaLink: "Figma 링크",
+    importFromFigma: "Figma에서 가져오기",
+    figmaFile: "Figma 파일 (.fig)",
+    openImport: "가져오기 열기",
+    importSelectedFile: "선택한 파일 가져오기",
+    starterSaasPrompt:
+      "어두운 테마, 히어로 섹션, 기능 카드 3개, 마지막 행동 유도 섹션을 갖춘 현대적인 SaaS 랜딩 페이지.",
+    starterDashboardPrompt:
+      "사이드바 탐색, 핵심 지표 카드 4개, 차트, 최근 활동 표를 갖춘 깔끔한 분석 대시보드.",
+    starterMobilePrompt:
+      "휴대폰 프레임 안에 표시되는 모바일 앱 프로토타입. 하단에는 탭 바가 있고 홈 화면에는 목록 카드 3개가 있습니다.",
+    starterPricingPrompt:
+      "월간/연간 전환, 기능 체크리스트, 강조된 추천 요금제가 있는 3단계 요금 페이지.",
+    designPromptTitle: "첫 번째 디자인을 만들어 볼까요?",
+    recent: "최근",
+    browseAllTemplates: "모두 둘러보기",
+    connectBuilderIo: "Builder.io 사용",
+    connectingBuilder: "Builder.io 설정 중…",
     pageTitle: "Design",
     searchPlaceholder: "디자인 검색...",
     newDesign: "새로운 Design",
@@ -1590,6 +1746,9 @@ export default {
     allAuthors: "모든 작성자",
     me: "나",
     designFilter: "디자인 필터",
+    ownedByAnyone: "소유자 전체",
+    ownedByMe: "내가 소유",
+    sharedWithMe: "나와 공유됨",
     mine: "내 디자인",
     all: "전체",
     showMineDesigns: "내 디자인 보기",
@@ -1623,6 +1782,7 @@ export default {
     pickStartingPoint: "시작점을 선택하거나 자신만의 프롬프트를 작성하세요.",
     searchNoResultsTitle: "이 검색과 일치하는 디자인이 없습니다",
     searchNoResultsDescription: "다른 검색어를 입력해 보세요.",
+    noDesignsMatchFilter: "현재 필터와 일치하는 디자인이 없습니다.",
     starterSaas: "SaaS 랜딩 페이지",
     starterDashboard: "대시보드",
     starterPricing: "가격 페이지",
@@ -1646,6 +1806,8 @@ export default {
     layoutLabel: "저장할 준비가 된 화면 레이아웃",
   },
   templatesPage: {
+    previewEmpty: "이 템플릿에는 미리 볼 수 있는 화면이 없습니다.",
+    loading: "템플릿 로딩 중",
     title: "템플릿",
     description:
       "알맞은 크기와 기본값으로 시작한 뒤 잠기지 않은 내용을 프롬프트로 조정하세요.",
@@ -1673,7 +1835,7 @@ export default {
     deleteTitle: "템플릿을 삭제할까요?",
     deleteDescription:
       "{{title}}을(를) 영구 삭제합니다. 이미 만든 디자인에는 영향을 주지 않습니다.",
-    templateActions: "템플릿 작업",
+    templateActions: "{{title}} 작업",
     lockedCount: "{{count}}개 잠김",
     categories: {
       ad: "광고",
@@ -1844,6 +2006,15 @@ export default {
       "코드 및 저장소 색인 생성에는 Builder Enterprise 플랜이 필요합니다",
   },
   designSystems: {
+    comingSoonTitle: "디자인 시스템이 곧 제공됩니다",
+    waitlist: {
+      join: "대기 목록 등록",
+      joining: "등록 중…",
+      joined: "대기 목록에 등록되었습니다",
+      error: "대기 목록에 등록할 수 없습니다. 다시 시도해 주세요.",
+      unavailable:
+        "대기 목록 등록을 지금 사용할 수 없습니다. 나중에 다시 시도해 주세요.",
+    },
     deleteError: "디자인 시스템을 삭제할 수 없습니다.",
     updateSuccess: "디자인 시스템 업데이트",
     updateError: "디자인 시스템을 업데이트할 수 없습니다.",

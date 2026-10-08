@@ -9,13 +9,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { appPath, enterDirectMode, expandAllLayers } from "./helpers";
 
-/**
- * Figma-parity smart guides on the two surfaces that move an object: dragging
- * a screen on the overview canvas, and dragging an absolutely positioned
- * element inside a screen. Both prove the gesture landed (committed geometry)
- * before asserting the guide chrome, so a drag that silently no-ops fails.
- */
-
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SCREEN_W = 1280;
 const SCREEN_H = 900;
@@ -109,8 +102,6 @@ async function createDesign(
   return { designId, fileIds };
 }
 
-/** One unpositioned screen, which is what the single-screen editor opens on;
- *  the overview tests below place their frames explicitly instead. */
 async function createSingleScreenDesign(request: APIRequestContext) {
   const created = await action(request, "create-design", {
     title: `Snap guides QA ${Date.now()}`,
@@ -154,7 +145,6 @@ async function openOverview(page: Page, designId: string, screens: number) {
   await page.waitForTimeout(1500);
 }
 
-/** Screen px per canvas px, so a drag can be expressed in canvas units. */
 async function canvasScale(page: Page): Promise<number> {
   const card = (await page
     .locator("[data-screen-card]")
@@ -172,7 +162,6 @@ async function visibleCentre(page: Page, locator: Locator) {
   };
 }
 
-/** Frame positions in canvas units, keyed by file id. */
 async function frameOffsets(page: Page) {
   return page.evaluate(() =>
     Object.fromEntries(
@@ -205,8 +194,6 @@ async function guideBoxes(page: Page, kind: "alignment" | "spacing") {
   }, `[data-canvas-guide="${kind}"]`);
 }
 
-/** A guide whose colour resolves to nothing has the right geometry and is
- *  still invisible — the exact shape of the --destructive bug. */
 function isPainted(paint: string): boolean {
   return paint !== "" && !/rgba\(0, 0, 0, 0\)|transparent/.test(paint);
 }
@@ -220,9 +207,6 @@ test("dragging a screen into line draws a guide through every screen it aligns w
   page,
   request,
 }) => {
-  // Two screens share a left edge; the third is dragged onto that edge from
-  // far away. All three are the same width, so its left, centre and right all
-  // land on a shared coordinate at once.
   const { designId, fileIds } = await createDesign(request, [
     { x: 0, y: 0 },
     { x: 0, y: 1200 },
@@ -275,8 +259,6 @@ test("dragging a screen near an existing gap snaps the spacing to match it", asy
   page,
   request,
 }) => {
-  // A and B sit 320 canvas px apart. C is dragged to roughly — not exactly —
-  // that same distance from B, and should land on it exactly.
   const { designId, fileIds } = await createDesign(request, [
     { x: 0, y: 0 },
     { x: 1600, y: 0 },
@@ -294,7 +276,6 @@ test("dragging a screen near an existing gap snaps the spacing to match it", asy
     );
     await page.mouse.move(start.x, start.y);
     await page.mouse.down();
-    // 3400 -> 3204: four canvas px short of the 320 gap A and B already have.
     await page.mouse.move(start.x - 196 * scale, start.y, { steps: 20 });
     await page.waitForTimeout(400);
 
@@ -321,13 +302,6 @@ test("dragging a screen near an existing gap snaps the spacing to match it", asy
   }
 });
 
-/**
- * In-screen drags are driven by pointer/mouse events dispatched inside the
- * iframe document rather than page.mouse: the host scales and overlays the
- * preview, so a top-level gesture lands on canvas chrome instead of the
- * bridge's own shield. The bridge listens on its document, so this exercises
- * the real shipped drag path.
- */
 async function screenFrameWithNode(page: Page, nodeId: string) {
   const iframes = page.locator("iframe[data-design-preview-iframe]");
   for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -367,10 +341,6 @@ async function dragInsideScreen(
         );
       }
       const rect = box.getBoundingClientRect();
-      // Measured, not assumed: dispatching a client delta of D moves the
-      // element D * lineScale content px, so a content-space target must be
-      // divided by it. A review flagged this as an identity conversion; the
-      // "snaps to the 100px gap" test lands 9px short without the division.
       const lineScale =
         Number.parseFloat(
           getComputedStyle(document.documentElement).getPropertyValue(
@@ -406,11 +376,6 @@ async function dragInsideScreen(
       };
       const cx = rect.left + rect.width / 2;
       const cy = rect.top + rect.height / 2;
-      // The bridge starts the move on the first pointermove past its 3px
-      // threshold and measures from THAT event, so whatever this priming move
-      // covers is lost. Keep it just over the threshold instead of a flat 8px,
-      // which at low zoom exceeded the whole intended delta and moved the
-      // element backwards.
       const prime = 3.5;
       fire("down", cx, cy);
       fire("move", cx + Math.sign(dx) * prime, cy + Math.sign(dy) * prime);
@@ -430,12 +395,9 @@ async function dragInsideScreen(
         top: box.style.top,
         guidesVisible: layer ? layer.style.display !== "none" : false,
         guideNodes: layer ? layer.children.length : 0,
-        // Node count is blind to a guide painted with an undefined custom
-        // property: right geometry, transparent, invisible on screen.
         guidePaint: layer?.children[0]
           ? getComputedStyle(layer.children[0]).backgroundColor
           : "",
-        // A distance readout is a guide node carrying a number.
         distanceLabels: layer
           ? Array.from(layer.children).filter(
               (node) => (node.textContent ?? "").length > 0,
@@ -469,8 +431,6 @@ async function openScreenEditor(page: Page, designId: string) {
     .locator("iframe[data-design-preview-iframe]")
     .first()
     .waitFor({ timeout: 30_000 });
-  // No blind settle: expandAllLayers waits for the first layer row, which
-  // the editor cannot render before it has parsed the document.
   await expandAllLayers(page);
   await screenFrameWithNode(page, "box-a");
   await page.getByRole("treeitem").filter({ hasText: "Box A" }).first().click();
@@ -507,13 +467,9 @@ test("dragging an element near an existing gap snaps the spacing to match it", a
   page,
   request,
 }) => {
-  // Box B -> Box C already sit 100px apart. Box A is dragged to roughly, not
-  // exactly, that same distance above Box B.
   const designId = await createSingleScreenDesign(request);
   try {
     await openScreenEditor(page, designId);
-    // Box A starts at top 280; -19 puts its bottom 99px above Box B, one px
-    // short of the 100px gap Box B and Box C already have.
     const result = await dragInsideScreen(page, "box-a", 0, -19);
 
     expect(result.top, "the element never moved").not.toBe("280px");
@@ -558,8 +514,6 @@ test("dragging an element shows how far it is from its nearest neighbour", async
   const designId = await createSingleScreenDesign(request);
   try {
     await openScreenEditor(page, designId);
-    // Box A ends up ~130px above Box B: no shared edge, no matching gap, so
-    // the only reason to draw anything is proximity itself.
     const result = await dragInsideScreen(page, "box-a", 0, 30);
 
     expect(result.top, "the element never moved").not.toBe("280px");
@@ -580,13 +534,8 @@ test("a lone element far from anything stays quiet", async ({
   const designId = await createSingleScreenDesign(request);
   try {
     await openScreenEditor(page, designId);
-    // The proximity range is a constant 160px ON SCREEN, so zoomed out it
-    // spans hundreds of content px and this fixture has no "far away" left.
-    // Reset to 1:1 and the fixture's own distances mean what they say.
     await page.keyboard.press("ControlOrMeta+0");
     await page.waitForTimeout(400);
-    // Box C sits 620px down; dragging Box A up and away leaves every
-    // neighbour outside the proximity range.
     const result = await dragInsideScreen(page, "box-a", 0, -240);
 
     expect(result.top, "the element never moved").not.toBe("280px");

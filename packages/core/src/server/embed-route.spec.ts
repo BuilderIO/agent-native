@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createMcpDirectoryWidgetReadCapability } from "../shared/embed-auth.js";
+
 const setResponseHeader = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
@@ -8,6 +10,8 @@ vi.mock("h3", () => ({
     event.headers?.[name] ?? event.headers?.[name.toLowerCase()],
   getMethod: (event: any) => event.method ?? "GET",
   getQuery: (event: any) => event.query ?? {},
+  getRequestHeader: (event: any, name: string) =>
+    event.headers?.[name.toLowerCase()] ?? event.headers?.[name],
   setResponseHeader: (...a: any[]) => setResponseHeader(...a),
 }));
 
@@ -34,7 +38,11 @@ function fakeEvent(
   return {
     method,
     query,
-    headers,
+    headers: {
+      host: "app.test",
+      "x-forwarded-proto": "https",
+      ...headers,
+    },
     res: {
       headers: {
         getSetCookie: () => [],
@@ -99,12 +107,20 @@ describe("createEmbedStartRouteHandler", () => {
       targetPath: "/inbox",
       scope: "full",
       expiresAt: Date.now() + 60_000,
+      ticketCreatedAtMs: Date.now() - 1,
     });
 
     const handler = createEmbedStartRouteHandler();
 
     const res: Response = await handler(
-      fakeEvent("GET", { ticket: "ticket-123" }),
+      fakeEvent(
+        "GET",
+        { ticket: "ticket-123" },
+        {
+          host: "internal.gateway:3000",
+          "x-forwarded-host": "beta.calendar.agent-native.com",
+        },
+      ),
     );
 
     expect(consumeEmbedSessionTicket).toHaveBeenCalledWith(
@@ -116,7 +132,9 @@ describe("createEmbedStartRouteHandler", () => {
       ownerEmail: "steve@example.com",
       orgId: "builder",
       targetPath: "/inbox",
+      audienceHost: "beta.calendar.agent-native.com",
       scope: "full",
+      ticketCreatedAtMs: expect.any(Number),
     });
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(
@@ -238,6 +256,7 @@ describe("createEmbedStartRouteHandler", () => {
         ownerEmail: "steve@example.com",
         orgId: undefined,
         targetPath: "/visual-edit/design_1",
+        audienceHost: "app.test",
         scope: "capability:visual-edit:design:design_1",
         ttlSeconds: 45,
       });
@@ -271,6 +290,7 @@ describe("createEmbedStartRouteHandler", () => {
       ownerEmail: localWorkspacePrincipal,
       orgId: undefined,
       targetPath: "/visual-edit/design_1",
+      audienceHost: "app.test",
       scope: "capability:visual-edit:design:design_1",
       ttlSeconds: expect.any(Number),
     });
@@ -562,6 +582,54 @@ describe("createEmbedStartRouteHandler", () => {
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(
       "/inbox?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1&agentSidebar=closed",
+    );
+  });
+
+  it("does not expose directory widget scope in the embed URL", async () => {
+    const scope = createMcpDirectoryWidgetReadCapability({
+      appId: "content",
+      resourceUri: "ui://content/shell-v67",
+      resourceIds: { documentId: "doc-1" },
+      actionArguments: { "get-document": { id: "doc-1" } },
+    });
+    expect(scope).toBeDefined();
+    consumeEmbedSessionTicket.mockResolvedValue({
+      ownerEmail: "reviewer@example.test",
+      orgId: "org-widget",
+      targetPath: "/page/doc-1",
+      scope,
+      expiresAt: Date.now() + 60_000,
+      ticketCreatedAtMs: Date.now(),
+    });
+
+    const handler = createEmbedStartRouteHandler();
+    const res: Response = await handler(
+      fakeEvent("GET", { ticket: "directory-ticket" }),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(
+      "/page/doc-1?embedded=1&__an_embed_token=signed-token&agentSidebar=closed",
+    );
+  });
+
+  it("strips an untrusted directory widget marker from embed targets", async () => {
+    consumeEmbedSessionTicket.mockResolvedValue({
+      ownerEmail: "writer@example.test",
+      targetPath: "/page/doc-1?__an_mcp_directory_widget=1",
+      scope: "full",
+      expiresAt: Date.now() + 60_000,
+      ticketCreatedAtMs: Date.now(),
+    });
+
+    const handler = createEmbedStartRouteHandler();
+    const res: Response = await handler(
+      fakeEvent("GET", { ticket: "normal-ticket" }),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(
+      "/page/doc-1?embedded=1&__an_embed_token=signed-token&agentSidebar=closed",
     );
   });
 });

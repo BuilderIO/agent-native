@@ -38,6 +38,12 @@ conversations persistantes, la synchronisation en direct, le contexte de
 l’application et un répertoire `actions/`. Il comprend aussi une petite action
 `hello` que vous utiliserez tout au long de ce guide.
 
+<Callout tone="info">
+
+Si ces commandes échouent avec des erreurs de dépendances pairs, une copie obsolète d'un paquet dans votre cache npx peut en être la cause. Exécutez `npx clear-npx-cache` pour vider le cache, puis relancez les commandes.
+
+</Callout>
+
 ## Démarrer le serveur de développement
 
 Démarrez le serveur de développement :
@@ -58,7 +64,7 @@ besoin de saisir d’adresse e-mail ni de mot de passe pour le développement lo
 
 ## Connecter un LLM
 
-Connectez ensuite un LLM. Sélectionnez **Connect Builder.io** pour utiliser des
+Connectez ensuite un LLM. Sélectionnez **Utilisez Builder.io** pour utiliser des
 crédits gratuits, ou sélectionnez **Custom keys**, choisissez un fournisseur et
 saisissez les informations de connexion demandées.
 
@@ -146,7 +152,7 @@ export default function HelloRoute() {
 }
 ```
 
-<Callout tone="warning">
+<Callout tone="info">
 
 Redémarrez le serveur de développement afin qu’il détecte la nouvelle route,
 puis ouvrez `http://localhost:<port>/hello`.

@@ -1,63 +1,247 @@
 ---
 title: "Netlify"
-description: "Implante um app nativo do agente na Netlify com o preset Netlify do Nitro, e configure o keep-warm para bancos de dados com escala a zero."
+description: "Implante um app independente do Agent-Native na Netlify com a Netlify CLI e configure o keep-warm para bancos de dados com escala a zero."
 ---
 
 # Netlify
 
-O preset `netlify` do Nitro funciona bem e, na prática, tem nos dado cold starts muito mais rápidos do que o Cloudflare Pages (~200ms de TTFB vs ~9s) para templates que se comunicam com Postgres externo (Neon). Defina o preset em `vite.config.ts`:
+A Netlify hospeda o seu app para você, então não há nenhum servidor para configurar ou manter em execução.
+O build transforma o app em arquivos estáticos que a Netlify serve diretamente e em funções que a Netlify
+executa sob demanda. Além disso, a Netlify dá ao app um endereço público com HTTPS.
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "netlify" } })],
-});
+Este guia mostra como implantar um app independente do zero. Você vai
+criar o app, dar a ele um banco de dados de produção e um segredo de autenticação, criar um
+site da Netlify para ele, preparar o banco de dados e, depois, fazer o build e implantá-lo.
+
+<Callout tone="info">
+
+É necessário o Node.js `22.22+`.
+
+</Callout>
+
+Você também precisa de uma conta da Netlify. Execute os comandos deste guia no seu próprio
+computador. A Netlify CLI envia o build finalizado para a Netlify para você.
+
+## Passo 1: Crie o app {#step-1-create-the-app}
+
+Crie o seu novo app independente. O exemplo abaixo cria um app a partir do template Chat,
+mas você pode começar de qualquer template. Entre na pasta do app e
+instale as dependências. `corepack enable` ativa a versão do `pnpm` que o app
+espera, então você não precisa instalar o `pnpm` por conta própria.
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
 ```
 
-No scaffold de Chat gerado, o import continua sendo `agentNative`. A configuração atribui a função
-ao alias local `agentNativePlugins` com uma asserção de tipo e espalha o array de plugins retornado
-para alinhar os tipos dos pacotes Vite. O alias aceita as mesmas opções do exemplo `agentNative`
-acima. Para implantar esse scaffold na Netlify, adicione `nitro: { preset: "netlify" }` às opções
-da chamada existente `agentNativePlugins({ ... })`. Mantenha os outros plugins, opções e aliases
-específicos do Chat.
+Se quiser, substitua `my-app` pelo nome do seu app. O restante deste guia
+considera que você está dentro da pasta do app.
 
-…ou defina `NITRO_PRESET=netlify` no momento do build.
+<Callout tone="info">
 
-Para um app independente, gere a saída do Netlify e publique os assets e as funções:
+Se esses comandos falharem com erros de dependências peer, a causa pode ser uma cópia desatualizada de um pacote no seu cache do npx. Execute `npx clear-npx-cache` para limpar o cache e depois execute os comandos novamente.
+
+</Callout>
+
+## Passo 2: Configure os segredos do ambiente {#step-2-configure-environment-secrets}
+
+O app lê as configurações de produção a partir de variáveis de ambiente:
+
+| Variável             | Obrigatória | Finalidade                                                           |
+| -------------------- | ----------- | -------------------------------------------------------------------- |
+| `DATABASE_URL`       | Sim         | Conecta o app ao seu banco de dados PostgreSQL                       |
+| `BETTER_AUTH_SECRET` | Sim         | Assina as sessões dos usuários                                       |
+| `BETTER_AUTH_URL`    | Não         | Define o endereço público que as pessoas usam para acessar o seu app |
+
+Os exports abaixo fazem os comandos seguintes funcionarem neste shell. Antes de
+implantar, salve essas mesmas variáveis nas configurações de ambiente do projeto ou serviço do seu host.
+O próximo passo mostra como salvá-las na Netlify.
+
+### URL do banco de dados {#database-url}
+
+Durante o desenvolvimento local, o app armazena os dados em um banco de dados local quando
+`DATABASE_URL` não está definida. Um app implantado precisa de um banco de dados PostgreSQL real que
+mantenha os dados entre implantações. A Netlify não mantém arquivos entre requisições, então
+o banco de dados precisa ficar fora das funções da Netlify. Copie a string de conexão
+do seu provedor e exporte-a:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+Os [guias de provedores de banco de dados](/docs/neon) mostram onde encontrar a string de conexão
+de cada provedor.
+
+<Callout tone="warning">
+
+Escolha um provedor de PostgreSQL persistente, como Neon, Supabase ou Amazon RDS.
+
+</Callout>
+
+### Segredo de autenticação {#auth-secret}
+
+Gere este valor uma única vez e mantenha-o igual em todas as implantações.
+
+O app usa `BETTER_AUTH_SECRET` para assinar as sessões dos usuários. Se ele mudar, todos os
+usuários conectados são desconectados. O comando abaixo gera um valor aleatório:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Salve o valor gerado em um lugar seguro, como um gerenciador de senhas. Use o
+mesmo valor sempre que implantar.
+
+### URL pública {#public-url}
+
+É opcional. Defina-a ao usar um domínio personalizado, um proxy reverso ou um fluxo de autenticação ou OAuth
+que precise de uma origem pública fixa.
+
+`BETTER_AUTH_URL` é o endereço público que as pessoas usam para acessar o seu app. Sem
+ela, o app descobre o próprio endereço a partir de cada requisição recebida. Isso normalmente
+funciona bem no endereço que a Netlify fornece, mas defina-a quando conectar um domínio
+personalizado, para que os links de login e os redirecionamentos de OAuth usem esse domínio.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Passo 3: Vincule o site e salve os segredos {#step-3-link-the-site-and-save-the-secrets}
+
+Faça login na Netlify pela linha de comando e, depois, crie um site novo para o app.
+Por enquanto, você pode deixar o nome do projeto padrão e deixar o repositório do GitHub em branco.
+
+```bash
+npx netlify login
+
+npx netlify sites:create --name my-app
+```
+
+`sites:create` cria o site e o vincula à pasta do app, para que os comandos seguintes
+saibam qual site usar. O nome também se torna o endereço do site, por exemplo
+`my-app.netlify.app`. Os nomes de site são compartilhados em toda a Netlify, então escolha
+outro nome se `my-app` já estiver em uso. Você não precisa de um repositório do GitHub,
+porque você implanta o app a partir do seu computador no Passo 5.
+
+Salve as duas variáveis obrigatórias no ambiente do site:
+
+```bash
+npx netlify env:set DATABASE_URL "$DATABASE_URL"
+
+npx netlify env:set BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET"
+```
+
+Cada comando lê o valor que você exportou no Passo 2 e o salva na Netlify, então
+você não precisa colar os segredos manualmente. Se você definir `BETTER_AUTH_URL`, salve-a
+da mesma forma. Você também pode ver e alterar esses valores depois nas configurações
+do site no painel da Netlify.
+
+## Passo 4: Execute as migrações {#step-4-migrate}
+
+As migrações criam e atualizam as tabelas de que o app precisa no seu banco de dados. Execute
+isto antes da primeira implantação:
+
+```bash
+pnpm migrate:production
+```
+
+O comando é executado no seu computador e se conecta ao banco de dados de produção com
+a `DATABASE_URL` que você exportou no Passo 2. Execute-o novamente depois de atualizar o
+app e antes de implantar a nova versão.
+
+## Passo 5: Implante {#step-5-deploy}
+
+Faça o build do app para a Netlify:
 
 ```bash
 NITRO_PRESET=netlify pnpm build
+```
+
+`NITRO_PRESET=netlify` faz o build do app no formato que a Netlify espera. O build
+grava os arquivos estáticos do app na pasta `dist` e as funções de servidor na
+pasta `.netlify/functions-internal`.
+
+Envie o build e publique-o:
+
+```bash
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
-Antes do primeiro deploy de produção, defina `DATABASE_URL` e um `BETTER_AUTH_SECRET` estável nas variáveis de ambiente do site Netlify. Não dependa do banco PGlite local; `DATABASE_URL` deve apontar para um PostgreSQL persistente acessível pela função publicada.
+`--dir` e `--functions` informam à CLI onde encontrar os arquivos estáticos e as
+funções que você acabou de gerar. `--prod` os publica no seu endereço de produção
+em vez de em uma prévia de rascunho.
 
-Para um espaço de trabalho, implante todos os apps a partir de um único site Netlify executando:
+Quando o comando termina, ele mostra o endereço de produção do app. Abra-o e
+crie a primeira conta.
+
+## Implante atualizações {#deploy-updates}
+
+Para publicar uma nova versão, execute novamente os comandos de migração, build e implantação a partir
+da pasta do app:
 
 ```bash
-npx @agent-native/core@latest deploy --preset netlify
+pnpm migrate:production
+
+NITRO_PRESET=netlify pnpm build
+
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
-O build do espaço de trabalho grava assets estáticos em `dist/_workspace_static/` e roteia cada app para sua própria função Netlify sem redirecionamentos forçados de assets, então arquivos como `/mail/assets/...` são servidos estaticamente antes que a função do servidor trate as rotas do app.
+O vínculo do site e as variáveis salvas continuam no lugar, então você não precisa
+repetir o Passo 3.
 
 ## Keep-warm e bancos de dados com escala a zero {#netlify-keep-warm}
 
-Quando habilitado, o build da Netlify emite uma função agendada que solicita `/_agent-native/health` **a cada minuto**. Isso mantém a função do servidor e seu banco de dados aquecidos, para que o próximo visitante após um período de inatividade não pague um cold start (1–5s no Neon).
+Depois de um período de inatividade, a primeira requisição pode demorar enquanto a Netlify inicia a
+função e um banco de dados com escala a zero, como o nível gratuito do Neon, é reativado.
+O Agent-Native pode reduzir essa espera com o keep-warm. Quando ele está ativado, o
+build adiciona uma função agendada da Netlify que chama o endpoint
+`/_agent-native/health` do app **a cada minuto**, o que mantém ativos a função
+do servidor e o banco de dados dela.
 
-O keep-warm fica **desabilitado por padrão** porque despertar uma vez por minuto impede a autossuspensão em bancos de dados medidos com escala a zero. Em um Neon de nível gratuito isso pode esgotar a cota de computação, e o banco de dados então rejeita **todas** as leituras no meio da sessão. O sintoma é um app morto, não um app lento. Defina `AGENT_NATIVE_ENABLE_KEEP_WARM=1` quando a menor latência para o próximo visitante valer o tempo de banco de dados ativo.
+O keep-warm fica **desativado por padrão**. Manter o banco de dados ativo impede que ele
+seja suspenso, o que consome a cota de computação em planos gratuitos ou medidos. Se a cota
+acabar, o banco de dados rejeita **todas** as leituras e o app para de funcionar. Defina
+`AGENT_NATIVE_ENABLE_KEEP_WARM=1` quando uma primeira visita mais rápida valer o tempo extra
+de banco de dados.
 
-A programação do keep-warm e o aquecimento da função em segundo plano só se aplicam depois que a flag principal do keep-warm é habilitada:
+Estas variáveis controlam o keep-warm. As configurações de programação e de segundo plano só
+se aplicam depois que você ativa `AGENT_NATIVE_ENABLE_KEEP_WARM`:
 
-| Variável                                    | Efeito                                                                                                                                                                                                  |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Opta pelo aquecimento agendado do servidor/banco de dados. Não definida por padrão.                                                                                                                     |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Chave de desativação de compatibilidade que prevalece sobre a flag de opt-in quando definida.                                                                                                           |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Sobrescreve a cadência com uma expressão cron de 5 campos, por exemplo `*/5 * * * *`. A cadência padrão quando habilitado é `* * * * *`. Um valor não analisável **faz o build falhar**.                |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Descarta apenas o aquecimento da função em segundo plano, mantendo o servidor aquecido. Aquecer `server` é uma requisição. Aquecer `-background` inicia um container novo que sonda o schema novamente. |
+| Variável                                    | Efeito                                                                                                                                                                                                                                            |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Ativa o aquecimento agendado da função do servidor e do banco de dados. Não definida por padrão.                                                                                                                                                  |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Desativa o keep-warm mesmo quando `AGENT_NATIVE_ENABLE_KEEP_WARM` está definida. Mantida para compatibilidade com configurações antigas.                                                                                                          |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Altera a frequência do aquecimento com uma expressão cron de 5 campos, como `*/5 * * * *`. O padrão é `* * * * *`, a cada minuto. Um valor que não seja um cron válido **faz o build falhar**.                                                    |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Pula o aquecimento da função em segundo plano e continua aquecendo a função do servidor. Aquecer o servidor é uma única requisição. Aquecer a função em segundo plano inicia um container novo que verifica o schema do banco de dados novamente. |
 
-Se você estiver em um nível de banco de dados gratuito ou de outra forma limitado por cota, deixe `AGENT_NATIVE_ENABLE_KEEP_WARM` sem definir. Se optar por habilitá-lo, use uma cadência mais lenta ou defina `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` para descartar o aquecimento em segundo plano, mais caro.
+Se o seu banco de dados estiver em um plano gratuito ou limitado de outra forma, deixe
+`AGENT_NATIVE_ENABLE_KEEP_WARM` sem definir. Se você ativá-lo, escolha uma programação mais lenta
+ou defina `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` para pular o aquecimento em segundo plano,
+que é mais caro.
 
-## O que vem a seguir
+O build lê essas variáveis, não o app em execução. Como você faz o build no seu
+próprio computador no Passo 5, defina-as no mesmo shell antes do build. Salvá-las
+nas configurações do site da Netlify não tem efeito em um build executado localmente. Por
+exemplo, para ativar o keep-warm com uma programação de cinco minutos:
 
-- [**Implantação**](/docs/deployment) — escolha um banco de dados persistente e um preset antes da sua primeira implantação em produção
-- [**Cache SSR**](/docs/ssr-caching) — a política de cache padrão e o comportamento separado do `netlify-cdn-cache-control` da Netlify
-- [Node.js](/docs/node-js), [Docker](/docs/docker), [**Vercel**](/docs/vercel), [**Cloudflare**](/docs/cloudflare) e [**Outras Plataformas**](/docs/other-platforms) — os outros presets do Nitro
+```bash
+export AGENT_NATIVE_ENABLE_KEEP_WARM=1
+
+export AGENT_NATIVE_KEEP_WARM_SCHEDULE='*/5 * * * *'
+
+NITRO_PRESET=netlify pnpm build
+```
+
+Depois, implante normalmente.
+
+## O que vem a seguir {#whats-next}
+
+- [**Implantação: Variáveis de Ambiente**](/docs/deployment-environment-variables) - a lista completa de configurações de produção
+- [**Cache SSR**](/docs/ssr-caching) - a política de cache padrão e o comportamento separado do `netlify-cdn-cache-control` da Netlify
+- [**Implantação**](/docs/deployment) - compare destinos de hospedagem e pré-requisitos

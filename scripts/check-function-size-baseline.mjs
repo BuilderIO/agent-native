@@ -1,24 +1,4 @@
 #!/usr/bin/env node
-/**
- * Fail a deploy whose serverless functions grew past their recorded size.
- *
- * The existing budget (`netlifyFunctionSizeBudget`, build.ts) is a single
- * 120MB ceiling plus allowances. It has never fired, because it was set above
- * the fleet's worst app and every app sat under it while quietly doubling —
- * docs went 59.8MB to 159.9MB inside that headroom. A ceiling nobody is near
- * measures nothing; growth from where an app actually is, does.
- *
- * This compares each emitted function against a committed per-app baseline and
- * fails on growth beyond the tolerance. An app with no baseline fails too: a
- * deploy nothing has measured is unmeasured, not small, and letting it exit 0
- * would rebuild the same "everything passes" signal this replaces. The only
- * apps allowed through unmeasured are the ones named in UNMEASURABLE_APPS, so
- * every gap is a line in the diff a reviewer can see.
- *
- * Usage:
- *   node scripts/check-function-size-baseline.mjs --site slides --dir <functions-internal>
- *   node scripts/check-function-size-baseline.mjs --site slides --dir <dir> --update
- */
 import {
   existsSync,
   readdirSync,
@@ -33,74 +13,21 @@ const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-/**
- * The committed baseline. Overridable only so the guard's own test can record
- * and compare against a throwaway file instead of the tracked one — a test that
- * had to `--update` the real baseline would rewrite the thing it is asserting.
- */
 const BASELINE_FILE =
   process.env.AGENT_NATIVE_FUNCTION_SIZE_BASELINE_FILE ||
   path.join(REPO_ROOT, "scripts", "serverless-function-baseline.json");
 
-/**
- * Growth under this is normal drift — a dependency patch, a few new routes.
- * Above it is the shape that has actually hurt: a package tree arriving in the
- * function graph. Both bounds must be exceeded, so a small function is not
- * tripped by a rounding-scale change.
- */
 const TOLERANCE_RATIO = 1.1;
 const TOLERANCE_BYTES = 5 * 1024 * 1024;
 
-/**
- * A function the baseline has never seen fails only from here up.
- *
- * Conditionally emitted functions are ordinary: AGENT_NATIVE_ENABLE_KEEP_WARM,
- * AGENT_INTEGRATION_DURABLE_DISPATCH, AGENT_CHAT_DURABLE_BACKGROUND and
- * AGENT_NATIVE_DISABLE_RECURRING_JOBS each add or remove one, so which
- * functions exist is a property of the deploy's configuration, not a
- * regression. Failing on the name means every flag not enumerated breaks a
- * deploy. Failing on the size means the risk that motivated the check — a large
- * new payload shipping unmeasured — is still caught, and a new trigger entry
- * is just reported.
- */
 const NEW_FUNCTION_FAIL_BYTES = 5 * 1024 * 1024;
 
-/**
- * Apps with no recorded baseline that may still deploy, and why none exists.
- *
- * This waives only this check. It cannot rescue a deploy that failed earlier —
- * a build that never emitted functions never reaches here — so an entry means
- * exactly one thing: if this app does build, its size ships unasserted until
- * someone records a baseline.
- *
- * Both entries are here because the app could not be built locally to measure,
- * not because anything about them is unmeasurable in principle. Remove an entry
- * the moment a baseline is recorded; the app is then protected like the other
- * fifteen.
- */
 const mb = (bytes) => (bytes / 1024 / 1024).toFixed(1);
 
-/**
- * Functions emitted only when a build flag is set, so whether they exist
- * differs between a local build and a deploy. They can be neither recorded nor
- * missed reliably: baseline one and every build without the flag fails
- * "no longer emitted"; leave it out and every build with the flag fails
- * "not in baseline".
- *
- * So their absence is never a failure — but their presence still has to be
- * bounded, or the exemption becomes somewhere a payload can hide. Each entry
- * carries the ceiling that applies whenever it IS emitted:
- *
- *   bytes    a fixed ceiling, for trigger-sized entries
- *   like     the name of another function it is derived from and can never
- *            legitimately exceed
- */
 const BUILD_FLAG_GATED_FUNCTIONS = new Map([
   [
     "agent-native-keep-warm",
     {
-      // A scheduled ping, 4KB today. AGENT_NATIVE_ENABLE_KEEP_WARM=1 in the
-      // beta workflow; a plain local build does not emit it.
       bytes: 1024 * 1024,
       why: "a scheduled trigger entry, not a bundle",
     },
@@ -108,9 +35,6 @@ const BUILD_FLAG_GATED_FUNCTIONS = new Map([
   [
     "server-integration-recovery",
     {
-      // AGENT_INTEGRATION_DURABLE_DISPATCH, which no workflow sets today but a
-      // Netlify site env var can. It is a clone of the server function with the
-      // SSR island pruned, so server is the ceiling it cannot legitimately pass.
       like: "server",
       why: "a pruned clone of the server function",
     },
@@ -133,11 +57,6 @@ function gatedFunctionCap(name, measured, recorded) {
   return measured?.[rule.like] ?? recorded?.[rule.like] ?? null;
 }
 
-/**
- * Gated functions in `measured` that exceed their ceiling. Every exit path runs
- * this — including --update and the unmeasurable-app allowance — because a
- * ceiling only enforced on one path is not a ceiling.
- */
 function oversizedGatedFunctions(measured, recorded) {
   const over = [];
   for (const [name, bytes] of Object.entries(measured)) {
@@ -186,14 +105,6 @@ function arg(name) {
   return value && !value.startsWith("--") ? value : undefined;
 }
 
-/**
- * Total bytes under `dir`, or a throw.
- *
- * An unreadable entry must never be counted as zero here: this number decides
- * whether a payload grew, so a permissions or filesystem error that silently
- * shrinks the measurement is the one direction the check cannot fail in. A
- * partial measurement is not a small one.
- */
 function dirSize(dir) {
   let total = 0;
   const stack = [dir];
@@ -227,38 +138,6 @@ function dirSize(dir) {
   return total;
 }
 
-/**
- * Payloads whose presence is decided by the deploy environment rather than by
- * anything in the app, so the same commit emits them in one build context and
- * not another. They are reported at measurement time. Platform-native Resvg
- * binaries are excluded from the comparison because the committed baselines
- * are platform-neutral; ffmpeg stays in the raw metric because its historical
- * baselines are a mix of payload-inclusive and payload-free values.
- *
- * `ffmpeg-static` is bundled only when `AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH`
- * names an architecture matching the serverless target (`build.ts`,
- * `shouldBundleFfmpegStaticForServerless`). Production sets it, beta does not,
- * and the gap is ~76MB per emitted function.
- *
- * One baseline map serves both contexts, so whichever context recorded it last
- * decides what the other is measured against, and it fails in both directions:
- *
- *   - Recorded on beta, checked on production: clips read 112.6MB against a
- *     36.1MB baseline. Every production promotion of the media apps failed on
- *     a 76MB "regression" that was the same binary both builds intended, and
- *     clips served a stale build for two days because of it.
- *   - Recorded on production, checked on beta: the inverse, and worse, because
- *     it fails open — beta can absorb a real 76MB regression unnoticed.
- *
- * Printing the split does not fix that. It makes an otherwise inexplicable
- * ±76MB swing legible at the moment someone hits it, which is the part that
- * cost two days. Subtracting it here would NOT be safe while the committed
- * baselines are a mix of both units: a build measured after subtraction and
- * compared against a payload-inclusive baseline silently passes anything under
- * the payload's own size. Making the metric context-independent means
- * recording every baseline in one unit — a change to the baseline format, not
- * to this measurement.
- */
 const DEPLOY_GATED_RUNTIME_PAYLOADS = [
   {
     relativePath: path.join("node_modules", "ffmpeg-static"),
@@ -270,7 +149,6 @@ const DEPLOY_GATED_RUNTIME_PAYLOADS = [
 const RESVG_NATIVE_PACKAGE_NAME =
   /^resvg-js-(?:darwin|win32|linux|android|freebsd)-[a-z0-9]+(?:-[a-z0-9]+)?$/;
 
-/** Deploy-gated payloads present in one emitted function, for reporting. */
 function deployGatedPayloads(functionDir) {
   const found = [];
   for (const payload of DEPLOY_GATED_RUNTIME_PAYLOADS) {
@@ -352,9 +230,6 @@ const measured = measure(functionsDir);
 const baseline = readBaseline();
 
 if (update) {
-  // Recording is how a size becomes the thing future builds are measured
-  // against, so it must not be the way an over-ceiling gated function gets
-  // written in and normalised.
   const over = oversizedGatedFunctions(measured, baseline[site]);
   if (over.length > 0) {
     reportOversizedGated(site, over);
@@ -362,9 +237,6 @@ if (update) {
     process.exit(1);
   }
   baseline[site] = measured;
-  // Sort by rebuilding the object. JSON.stringify's second argument is a key
-  // ALLOWLIST, not a sort order — passing site names there silently drops every
-  // function entry and writes `{"slides":{}}`.
   const sorted = {};
   for (const key of Object.keys(baseline).sort()) {
     const fns = baseline[key];
@@ -388,9 +260,6 @@ if (!recorded) {
     console.log(`    ${name} ${mb(bytes)}MB`);
   }
   if (allowed) {
-    // The app-level allowance waives the baseline, never a gated function's own
-    // ceiling: an allowance is for a size nobody has measured, not a licence
-    // for one that is measured and too big.
     const over = oversizedGatedFunctions(measured, undefined);
     if (over.length > 0) {
       reportOversizedGated(site, over);
@@ -420,10 +289,6 @@ const oversizedGated = [];
 const newSmall = [];
 for (const [name, bytes] of Object.entries(measured).sort()) {
   const before = recorded[name];
-  // The ceiling applies whether or not the function is recorded. Being in the
-  // baseline would otherwise buy it the general tolerance, where both bounds
-  // must be exceeded — so a 4KB trigger entry could reach 5MB unchallenged,
-  // the opposite of what the ceiling is for.
   if (BUILD_FLAG_GATED_FUNCTIONS.has(name)) {
     const cap = gatedFunctionCap(name, measured, recorded);
     if (cap !== null && bytes > cap) {
@@ -435,13 +300,6 @@ for (const [name, bytes] of Object.entries(measured).sort()) {
     continue;
   }
   if (before === undefined) {
-    // A function the baseline has never seen is unmeasured, so it cannot be
-    // asserted — but whether that matters is a question of bytes, not of
-    // which build flag produced it. Enumerating the conditional functions was
-    // the losing version of this: there are at least five build flags that add
-    // or remove one, and every flag missed from the list breaks a deploy.
-    // Bound the thing that actually matters instead. A brand new 100MB
-    // function still cannot ship unchallenged; a new trigger entry is noise.
     if (bytes < NEW_FUNCTION_FAIL_BYTES) {
       console.log(`  new  ${name} ${mb(bytes)}MB (not in baseline, under cap)`);
       newSmall.push({ name, bytes });
@@ -459,14 +317,6 @@ for (const [name, bytes] of Object.entries(measured).sort()) {
   if (before - bytes > 3 * 1024 * 1024) shrunk.push({ name, before, bytes });
 }
 
-// A function in the baseline that the build no longer emits is not a pass. It
-// is a route, cron, or background worker that silently stopped shipping, and
-// "nothing grew" is exactly the wrong thing to say about it.
-// Reported, never failed. A function is absent because a feature is switched
-// off for this deploy at least as often as because something broke, and an
-// absence is not a size regression either way. Failing here would make a
-// legitimate configuration — durable background off, recurring jobs disabled —
-// unable to deploy.
 const missing = Object.keys(recorded)
   .filter((name) => measured[name] === undefined)
   .sort();
@@ -528,9 +378,6 @@ if (shrunk.length > 0) {
   );
 }
 
-// Individually under the bar, together over it. Without this, an unbounded
-// number of small unrecorded functions ships unasserted, which is the same
-// hole the per-function bar closes, arrived at by addition.
 const newSmallTotal = newSmall.reduce((sum, fn) => sum + fn.bytes, 0);
 if (newSmall.length > 0) {
   console.log(

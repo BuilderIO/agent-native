@@ -1,43 +1,205 @@
 ---
 title: "Cloudflare"
-description: "使用匹配的 Nitro 预设将代理本机应用部署到 Cloudflare Pages 或 Cloudflare Workers。"
+description: "使用 Wrangler 将独立的 Agent-Native 应用部署到 Cloudflare Workers。"
 ---
 
 # Cloudflare
 
-## Cloudflare Pages {#cloudflare-pages}
+<a id="cloudflare-workers"></a>
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
-});
-```
+Cloudflare Workers 在 Cloudflare 的网络上运行你的应用，因此无需搭建或维护服务器。
+构建会把应用转换为一个 Worker，由它处理应用的页面和 API，另外还有 Cloudflare 直接
+提供的静态文件。Cloudflare 会为应用提供一个支持 HTTPS 的公共地址。
 
-## Cloudflare Workers {#cloudflare-workers}
+本指南将从零开始演示如何部署一个独立应用。你将创建应用，为它配置生产数据库和
+身份验证密钥，准备好数据库，构建 Worker，把密钥保存到 Cloudflare，然后部署它。
 
-使用 Nitro 原生的模块输出来生成一个 Cloudflare Worker。这样可以
-保持 SSR 启用,并在 `.output/server` 和 `.output/public` 下生成
-Worker 入口点和静态资源:
+<Callout tone="info">
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
-});
-```
+需要 Node.js `22.22+`。
 
-用 Wrangler 构建并部署生成的 Worker:
+</Callout>
+
+你还需要一个 Cloudflare 账户。请在你自己的电脑上运行本指南中的命令。Cloudflare 的
+命令行工具 Wrangler 会替你把完成的 Worker 上传到 Cloudflare。
+
+## 第 1 步：创建应用 {#step-1-create-the-app}
+
+创建新的独立应用。下面的示例基于 Chat 模板创建应用，但你可以从任何模板开始。
+进入应用的文件夹并安装依赖。`corepack enable` 会启用应用所需的 `pnpm` 版本，
+因此你无需自己安装 `pnpm`。
 
 ```bash
-pnpm build
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+如果愿意，可以把 `my-app` 替换为你自己的应用名称。本指南的其余部分假定你位于
+应用的文件夹中。
+
+<Callout tone="info">
+
+如果这些命令因对等依赖错误而失败，原因可能是 npx 缓存中有过时的软件包副本。运行 `npx clear-npx-cache` 清除缓存，然后重新运行这些命令。
+
+</Callout>
+
+## 第 2 步：配置环境密钥 {#step-2-configure-environment-secrets}
+
+应用从环境变量中读取其生产设置：
+
+| 变量                 | 必填 | 用途                                 |
+| -------------------- | ---- | ------------------------------------ |
+| `DATABASE_URL`       | 是   | 将应用连接到它的 PostgreSQL 数据库   |
+| `BETTER_AUTH_SECRET` | 是   | 为用户会话签名                       |
+| `BETTER_AUTH_URL`    | 否   | 设置用户访问你的应用时使用的公共地址 |
+
+下面的 export 命令让后续命令能在当前 shell 中正常运行。部署之前，请把这些变量
+同样保存到主机的项目或服务环境设置中。第 5 步会介绍如何在 Cloudflare 中保存它们。
+
+### 数据库 URL {#database-url}
+
+在本地开发期间，如果未设置 `DATABASE_URL`，应用会把数据存储在本地数据库中。
+已部署的应用需要一个真正的 PostgreSQL 数据库，在各次部署之间保留数据。Worker
+无法在请求之间保留文件，因此数据库必须位于 Cloudflare Workers 之外。从你的提供商处
+复制连接字符串并导出它：
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[数据库提供商指南](/docs/neon)介绍了在每个提供商处查找连接字符串的位置。
+
+<Callout tone="warning">
+
+请选择持久的 PostgreSQL 提供商，例如 Neon、Supabase、Amazon RDS 等。
+
+</Callout>
+
+### 身份验证密钥 {#auth-secret}
+
+只需生成一次，并在各次部署之间保持不变。
+
+应用使用 `BETTER_AUTH_SECRET` 为用户会话签名。如果它发生变化，所有已登录的用户
+都会被登出。下面的命令会生成一个随机值：
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+请把生成的值保存在安全的地方，例如密码管理器。每次部署时都使用相同的值。
+
+### 公共 URL {#public-url}
+
+可选。在使用自定义域名、反向代理，或需要固定公共源的身份验证/OAuth 流程时设置它。
+
+`BETTER_AUTH_URL` 是用户访问你的应用时使用的公共地址。如果不设置，应用会根据
+每个传入请求推断自己的地址。在 Cloudflare 为你提供的地址上，这通常没有问题，但当你
+连接自定义域名时，请设置它，以便登录链接和 OAuth 重定向使用该域名。
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## 第 3 步：迁移 {#step-3-migrate}
+
+迁移会在你的数据库中创建和更新应用所需的表。请在首次部署之前运行此命令：
+
+```bash
+pnpm migrate:production
+```
+
+该命令在你的电脑上运行，并使用你在第 2 步中导出的 `DATABASE_URL` 连接到生产
+数据库。升级应用之后、部署新版本之前，请再次运行它。
+
+## 第 4 步：构建 {#step-4-build}
+
+将应用构建为 Cloudflare Worker：
+
+```bash
+NITRO_PRESET=cloudflare_module pnpm build
+```
+
+`NITRO_PRESET=cloudflare_module` 会按照 Cloudflare Workers 期望的格式构建应用。构建会把
+Worker 写入 `.output/server` 文件夹，并把静态文件写入 `.output/public` 文件夹。
+
+构建还会把一个 Wrangler 配置文件写入 `.output/server/wrangler.json`。这个文件告诉
+Wrangler 要部署什么，并为 Worker 命名。名称来自应用的 `package.json`，因此以
+`my-app` 创建的应用会成为名为 `my-app` 的 Worker。如果该文件夹是一个带有远程仓库的
+Git 仓库，名称则会取自该仓库。构建会输出它选定的名称。
+
+## 第 5 步：登录并保存密钥 {#step-5-log-in-and-save-the-secrets}
+
+从命令行登录 Cloudflare：
+
+```bash
+npx wrangler login
+```
+
+把两个必填变量作为密钥保存到 Worker 上：
+
+```bash
+printf '%s' "$DATABASE_URL" | npx wrangler secret put DATABASE_URL --config .output/server/wrangler.json
+```
+
+```bash
+printf '%s' "$BETTER_AUTH_SECRET" | npx wrangler secret put BETTER_AUTH_SECRET --config .output/server/wrangler.json
+```
+
+每条命令都会读取你在第 2 步中导出的值并保存到 Cloudflare，因此你无需手动粘贴密钥。
+`--config` 让 Wrangler 使用第 4 步生成的配置文件，这样密钥会保存到使用构建所选名称的
+Worker 上。第一次运行时，Worker 还不存在。由于值是通过管道传入的，Wrangler 会自动创建 Worker，不会询问。
+
+如果你设置了 `BETTER_AUTH_URL`，请用同样的方式保存它。之后你也可以在 Cloudflare
+控制台的 Worker 设置中查看和更改这些值。
+
+## 第 6 步：部署 {#step-6-deploy}
+
+上传 Worker 并发布它：
+
+```bash
 npx wrangler deploy --config .output/server/wrangler.json
 ```
 
-你也可以用 `NITRO_PRESET=cloudflare_module` 显式选择这个预设。
-部署之前请配置一个持久的外部 PostgreSQL 数据库。Worker 的文件系统
-不是一个持久的应用存储。
+`--config` 让 Wrangler 使用第 4 步生成的配置文件，该文件告诉它在哪里找到 Worker
+和静态文件。
 
-## 下一步
+命令完成后，会输出应用的地址，该地址以 `workers.dev` 结尾。打开它并创建第一个账户。
 
-- [**Deployment**](/docs/deployment) — 在第一次生产部署之前选择一个持久数据库和一个预设
-- [**Workspace Deployment**](/docs/workspace-deployment) — Cloudflare Pages 是统一 `deploy` 命令的默认预设
-- [Node.js](/docs/node-js), [Docker](/docs/docker)、[**Vercel**](/docs/vercel)、[**Netlify**](/docs/netlify) 和 [**Other Platforms**](/docs/other-platforms) — 其他 Nitro 预设
+## 部署更新 {#deploy-updates}
+
+要发布新版本，请在应用的文件夹中再次运行迁移、构建和部署命令：
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=cloudflare_module pnpm build
+
+npx wrangler deploy --config .output/server/wrangler.json
+```
+
+密钥会在各次部署之间一直保存在 Worker 上，因此你无需重复第 5 步。
+
+## 计划任务 {#cloudflare-scheduled-work}
+
+计划自动化、排队中的事件自动化以及被中断运行的清理，都在每分钟一次的清扫中完成。构建会在生成的 `wrangler.json` 中添加一个 `* * * * *` [Cron Trigger](https://developers.cloudflare.com/workers/configuration/cron-triggers/)，并保留你已经声明的所有 Cron Trigger。触发时，Worker 的 `scheduled` 处理程序会使用一个由 `A2A_SECRET` 签名的短期令牌直接调用清扫，因此请在部署前设置这个密钥：
+
+```bash
+npx wrangler secret put A2A_SECRET --config .output/server/wrangler.json
+```
+
+- **CPU 时间。** 在 Workers Free 计划中，每次 Cron Trigger 调用只有 10 毫秒的 CPU 时间，而运行代理作业的清扫需要更多。请为计划任务使用 Workers Paid 计划。
+- **触发时间。** Cron Trigger 按 UTC 运行，新的或更改过的触发器在部署后最多可能需要 15 分钟才会开始触发。
+- **本地测试。** 使用 `npx wrangler dev --test-scheduled --config .output/server/wrangler.json` 运行构建好的 Worker，然后请求 `/cdn-cgi/handler/scheduled?cron=*+*+*+*+*` 来触发一次清扫。
+
+参见 [调度程序如何运行](/docs/recurring-jobs#how-scheduler-runs) 了解其他托管平台。
+
+## 下一步 {#whats-next}
+
+- [**部署环境变量**](/docs/deployment-environment-variables) - 生产设置的完整列表
+- [**SSR 缓存**](/docs/ssr-caching) - 页面缓存在托管目标上的工作方式
+- [**部署**](/docs/deployment) - 比较各个托管目标及其前提条件

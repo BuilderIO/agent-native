@@ -18,25 +18,33 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("../server/db/index.js", () => ({
-  getDb: () => ({
-    transaction: async (callback: (tx: unknown) => Promise<unknown>) =>
-      callback({
-        update: () => ({
-          set: (fields: Record<string, unknown>) => ({
-            where: async () => {
-              state.updatedFields = fields;
-              return { rowsAffected: 1 };
-            },
-          }),
-        }),
+  getDb: () => {
+    const update = () => ({
+      set: (fields: Record<string, unknown>) => ({
+        where: async () => {
+          state.updatedFields = fields;
+          if (state.access) {
+            state.access.resource = { ...state.access.resource, ...fields };
+          }
+          return { rowsAffected: 1 };
+        },
       }),
-  }),
+    });
+    return {
+      update,
+      transaction: async (callback: (tx: unknown) => Promise<unknown>) =>
+        callback({ update }),
+    };
+  },
   schema: {
     decks: {
       id: "decks.id",
       title: "decks.title",
       data: "decks.data",
       designSystemId: "decks.designSystemId",
+      lastWriteClientId: "decks.lastWriteClientId",
+      lastWriteClientSequence: "decks.lastWriteClientSequence",
+      lastWriteRevision: "decks.lastWriteRevision",
       updatedAt: "decks.updatedAt",
     },
   },
@@ -64,24 +72,26 @@ vi.mock("./patch-deck", () => ({
     callback(),
 }));
 
-vi.mock("./_deck-write.js", () => ({
-  assertDeckWriteApplied: (result: { rowsAffected: number }) => {
-    if (result.rowsAffected !== 1) throw new Error("write failed");
-  },
-  assertDesignSystemReadable: () => Promise.resolve(),
-  assertHumanReadableDeckTitle: () => {},
-  assertValidAspectRatio: () => {},
-  deckDesignSystemId: (deck: Record<string, unknown>) =>
-    typeof deck.designSystemId === "string" && deck.designSystemId
-      ? deck.designSystemId
-      : null,
-  deckHttpError: (statusCode: number, message: string) =>
-    Object.assign(new Error(message), { statusCode }),
-  deckRevisionWhere: () => ({}),
-  deckTitle: (deck: Record<string, unknown>) =>
-    typeof deck.title === "string" && deck.title ? deck.title : "Untitled",
-  nextDeckRevision: () => "2026-05-12T00:00:00.001Z",
-}));
+vi.mock("./_deck-write.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./_deck-write.js")>();
+  return {
+    ...actual,
+    assertDeckWriteApplied: (result: { rowsAffected: number }) => {
+      if (result.rowsAffected !== 1) throw new Error("write failed");
+    },
+    assertDesignSystemReadable: () => Promise.resolve(),
+    assertHumanReadableDeckTitle: () => {},
+    assertValidAspectRatio: () => {},
+    deckDesignSystemId: (deck: Record<string, unknown>) =>
+      typeof deck.designSystemId === "string" && deck.designSystemId
+        ? deck.designSystemId
+        : null,
+    deckRevisionWhere: () => ({}),
+    deckTitle: (deck: Record<string, unknown>) =>
+      typeof deck.title === "string" && deck.title ? deck.title : "Untitled",
+    nextDeckRevision: () => "2026-05-12T00:00:00.001Z",
+  };
+});
 
 import saveDeckAction from "./save-deck";
 
@@ -137,6 +147,49 @@ describe("save-deck design-system relation persistence", () => {
     expect(state.updatedFields?.designSystemId).toBe("brand-1");
   });
 
+  it("refuses a full replacement that stores rendered editor markup", async () => {
+    await expect(
+      saveDeckAction.run(
+        {
+          deckId: "deck-1",
+          deck: {
+            title: "Existing",
+            slides: [
+              {
+                id: "slide-1",
+                content:
+                  '<p data-builder-id="b-1" contenteditable="false">old</p>',
+              },
+            ],
+          },
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({ errorCode: "render_artifact_in_slide_content" });
+    expect(state.updatedFields).toBeUndefined();
+  });
+
+  it("refuses to create a deck whose slides carry rendered editor markup", async () => {
+    state.access = undefined;
+    await expect(
+      saveDeckAction.run(
+        {
+          deckId: "deck-new",
+          deck: {
+            title: "New deck",
+            slides: [
+              {
+                id: "slide-1",
+                content: '<p data-src-i="slide-r1:0">New</p>',
+              },
+            ],
+          },
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({ errorCode: "render_artifact_in_slide_content" });
+  });
+
   it("skips a full replacement when only updatedAt differs", async () => {
     const result = await saveDeckAction.run(
       {
@@ -160,5 +213,47 @@ describe("save-deck design-system relation persistence", () => {
     });
     expect(state.updatedFields).toBeUndefined();
     expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  it("rejects an older full replacement after a newer pagehide write", async () => {
+    const expectedUpdatedAt = state.access!.resource.updatedAt as string;
+    await saveDeckAction.run(
+      {
+        deckId: "deck-1",
+        deck: {
+          title: "Newest",
+          slides: [{ id: "slide-1", content: "newest" }],
+        },
+        clientWrite: {
+          clientId: "editor-tab",
+          sequence: 2,
+          expectedUpdatedAt,
+        },
+      },
+      {},
+    );
+
+    await expect(
+      saveDeckAction.run(
+        {
+          deckId: "deck-1",
+          deck: {
+            title: "Older",
+            slides: [{ id: "slide-1", content: "older" }],
+          },
+          clientWrite: {
+            clientId: "editor-tab",
+            sequence: 1,
+            expectedUpdatedAt,
+          },
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(JSON.parse(state.access!.resource.data as string)).toMatchObject({
+      title: "Newest",
+      slides: [{ content: "newest" }],
+    });
   });
 });

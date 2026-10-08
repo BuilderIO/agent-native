@@ -330,6 +330,13 @@ await callAction(
           description: "轮询端点 URL。",
         },
         {
+          name: "realtime",
+          type: "{ reason: string }",
+          optional: true,
+          description:
+            "为此页面启用后台同步。简短原因会让决定及其成本在代码中清晰可见。不启用时不会建立后台连接。",
+        },
+        {
           name: "sseUrl",
           type: "string | false",
           optional: true,
@@ -341,7 +348,8 @@ await callAction(
           type: "number",
           optional: true,
           default: "2000",
-          description: "轮询间隔，单位毫秒。",
+          description:
+            "代理运行期间的轮询间隔，单位为毫秒。空闲时依次延长至 1、2、5 分钟。",
         },
         {
           name: "fallbackInterval",
@@ -349,15 +357,14 @@ await callAction(
           optional: true,
           default: "60000",
           description:
-            "SSE 已连接时的轮询间隔，作为遗漏事件时的备用手段。已断开连接的标签页则会以更快的 `interval`（或固定的空闲节奏）进行轮询。",
+            "SSE 已连接时的最小轮询间隔，单位为毫秒。成功的空轮询会将间隔延长至 1、2、5 分钟。",
         },
         {
           name: "pauseWhenHidden",
           type: "boolean",
           optional: true,
-          default: "false",
-          description:
-            "当浏览器标签页隐藏时暂停轮询。隐藏的标签页会保持 SSE 连接，活动时轮询间隔不超过每 10 秒一次，进入空闲后为每 60 秒一次。",
+          default: "true",
+          description: "浏览器标签页隐藏时暂停后台同步。",
         },
         {
           name: "ignoreSource",
@@ -370,7 +377,7 @@ await callAction(
           name: "onEvent",
           type: "(data) => void",
           optional: true,
-          description: "当 SSE 或轮询收到变更事件时的可选回调。",
+          description: "用于远程同步事件和本地聊天运行中工具完成的可选回调。",
         },
         {
           name: "actionInvalidatePredicate",
@@ -398,7 +405,7 @@ await callAction(
   returns={{ type: "void" }}
 />
 
-该钩子用于让 UI 与发生在您自己的 actions 之外的数据库变更保持同步，例如代理写入、webhook，或来自另一个浏览器标签页的变更。它通过 server-sent events 监听变更，在 server-sent events 不可用时回退到轮询。在生产环境无服务器部署上，应用自身的 `/_agent-native/events` 流按设计不可用——服务器会立即返回 204，而不是保持函数实例开启——因此那里的全部同步都由轮询以相同节奏承担，除非应用已接入[托管实时同步网关](/docs/real-time-collaboration#hosted-gateway)。
+`useDbSync()` 始终处理本地聊天运行中的工具完成事件，并在运行结束时刷新。这样，单用户代理编辑无需后台请求也能保持最新。来自其他标签页、用户、webhook 或任务的变化默认不进行后台同步，除非此页面提供简短原因并显式启用。每个标签页共享一个连接，隐藏时暂停，空闲轮询间隔依次延长至 1、2、5 分钟。
 
 ```ts
 import { useDbSync } from "@agent-native/core/client/hooks";
@@ -409,6 +416,7 @@ function App() {
 
   useDbSync({
     queryClient,
+    realtime: { reason: "teammates can edit this shared record" },
     pollUrl: "/_agent-native/poll",
     onEvent: (data) => console.log("Data changed:", data),
   });
@@ -417,7 +425,7 @@ function App() {
 }
 ```
 
-对于普通的 CRUD，优先使用 `useActionQuery()` 和 `useActionMutation()`。变更类 actions 会发出 `source: "action"`，因此这些钩子会立即重新获取。来自代理、webhook 或另一个标签页的变更，则是通过 `useDbSync()`（经由 SSE 或轮询回退）到达的。如果某个原始 `useQuery()` 调用需要基于自定义 key 同步，见 [同步内部机制](/docs/client-sync-internals)。如果您需要直接写入 `application_state`，见 [高级](/docs/client-advanced)。
+只有当数据可能在当前用户未操作时发生变化，且用户需要在刷新前看到变化时才启用实时同步。Slides 协作编辑和 Mail 收件箱是合适例子。公共页面、Docs、设置、表单、变化较少的列表以及单用户代理编辑都应保持关闭；可在页面重新获得焦点或导航时刷新。每个已订阅的打开标签页在每个空闲间隔增加一次轮询。
 
 ## 下一步
 

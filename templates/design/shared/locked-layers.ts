@@ -10,7 +10,6 @@ export interface LockedLayerSnapshot {
   id: string;
   label: string;
   source: string;
-  /** Null when nothing tells this node apart from another one. */
   token: string | null;
   ancestorTokens: (string | null)[];
   siblingTokens: (string | null)[];
@@ -37,11 +36,6 @@ function countBy<T>(items: readonly T[], key: (item: T) => string | null) {
   return counts;
 }
 
-/**
- * One identity per node, or null when nothing distinguishes it. Never derive
- * it from a byte offset: unrelated edits move offsets, and a node that merely
- * moved keeps its markup.
- */
 function buildTokens(
   projection: CodeLayerProjection,
 ): Map<string, string | null> {
@@ -105,7 +99,6 @@ function lockedNodes(projection: CodeLayerProjection): CodeLayerNode[] {
   );
 }
 
-/** Position among the siblings both documents can name, self included. */
 function orderAmongSharedSiblings(
   side: Pick<LockedLayerSnapshot, "token" | "siblingTokens">,
   other: Pick<LockedLayerSnapshot, "siblingTokens">,
@@ -116,11 +109,6 @@ function orderAmongSharedSiblings(
     .indexOf(side.token);
 }
 
-/**
- * Capture the exact source subtree for every durably locked Design layer.
- * Stable node ids are stamped before files are persisted, so the same layer
- * can be found after an agent proposes an updated document.
- */
 export function lockedLayerSnapshots(html: string): LockedLayerSnapshot[] {
   const projection = buildCodeLayerProjection(html);
   const tokens = buildTokens(projection);
@@ -165,18 +153,10 @@ function unverifiable(labels: string[]): Error {
   );
 }
 
-/**
- * Locked layers are agent-immutable in BOTH directions: re-adding the flag
- * undoes the human's unlock and re-blocks the agent forever. Ambiguous
- * identity never passes. The human editor's layer control writes as
- * `caller: "frontend"` and does not reach this guard.
- */
 export function assertLockedLayersPreserved(
   before: string,
   after: string,
 ): void {
-  // Both sides need projecting to compare lock sets, and most designs carry no
-  // locked layer. Keep that case off the parser on every guarded write.
   if (!before.includes(LOCKED_ATTRIBUTE) && !after.includes(LOCKED_ATTRIBUTE)) {
     return;
   }
@@ -234,8 +214,6 @@ export function assertLockedLayersPreserved(
       afterTokens,
       next.node,
     );
-    // A null anchor on the BEFORE side could be hiding the move we are looking
-    // for. Nulls only in AFTER are newly inserted siblings.
     if (
       snapshot.ancestorTokens.includes(null) ||
       placement.ancestorTokens.includes(null) ||

@@ -1,7 +1,6 @@
 import { useEffect, useImperativeHandle, useRef, forwardRef } from "react";
 
 export interface ConfettiHandle {
-  /** Fire a new confetti burst. */
   burst: (opts?: { count?: number; origin?: { x: number; y: number } }) => void;
 }
 
@@ -95,8 +94,6 @@ export const ConfettiCanvas = forwardRef<ConfettiHandle>(
         }
         particlesRef.current = live;
 
-        // Stop instead of redrawing an empty canvas at full refresh rate for
-        // the rest of the page's lifetime — burst() restarts the loop.
         if (live.length === 0) {
           rafRef.current = null;
           return;
@@ -106,8 +103,6 @@ export const ConfettiCanvas = forwardRef<ConfettiHandle>(
 
       startTickRef.current = () => {
         if (rafRef.current !== null) return;
-        // Reset the dt baseline so the first frame after a restart doesn't
-        // see a huge elapsed gap from the idle period.
         lastTs = performance.now();
         rafRef.current = window.requestAnimationFrame(tick);
       };

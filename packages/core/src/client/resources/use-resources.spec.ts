@@ -43,6 +43,20 @@ describe("resourceDownloadUrl", () => {
   });
 });
 
+describe("resourcePackScopeFromPanel", () => {
+  it("maps panel scopes onto pack export scopes", async () => {
+    const { resourcePackScopeFromPanel, resourcePackDownloadFilename } =
+      await import("./use-resources.js");
+    expect(resourcePackScopeFromPanel("shared")).toBe("organization");
+    expect(resourcePackScopeFromPanel("all")).toBe("accessible");
+    expect(resourcePackScopeFromPanel("personal")).toBe("personal");
+    expect(resourcePackScopeFromPanel("workspace")).toBe("workspace");
+    expect(resourcePackDownloadFilename(1_700_000_000_000)).toBe(
+      "agent-resource-pack-1700000000000.json",
+    );
+  });
+});
+
 describe("withAgentScratchFolder", () => {
   it("hides top-level scratch folders when show is false", () => {
     const tree: TreeNode[] = [

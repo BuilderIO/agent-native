@@ -1,10 +1,3 @@
-/**
- * MCP client module — symmetric counterpart to `@agent-native/core/mcp`
- * (the MCP server). Connects to local MCP servers configured in
- * `mcp.config.json` or the `MCP_SERVERS` env var and exposes their tools
- * to the agent-chat tool-use loop.
- */
-
 export {
   loadMcpConfig,
   autoDetectMcpConfig,
@@ -88,7 +81,6 @@ export {
   mountMcpServersRoutes,
   buildMergedConfig,
   builtinMergedConfigKey,
-  startMcpConfigRefresh,
   McpConfigUnreadableError,
   type ClientBuiltinCapability,
 } from "./routes.js";
@@ -111,6 +103,7 @@ export {
   listVisibleMcpTools,
   McpAppApiError,
   type AppMcpTool,
+  type CallMcpToolOptions,
   type ListVisibleMcpToolsOptions,
 } from "./app-api.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
@@ -156,11 +149,6 @@ import {
 
 import { MCP_APP_MIME_TYPE } from "../action.js";
 import type { EngineToolResultImagePart } from "../agent/engine/types.js";
-/**
- * Convert MCP tools into `ActionEntry` values suitable for registration in
- * the agent's action registry. Each tool is marked `http: false` so it's
- * never auto-mounted as an HTTP endpoint — MCP tools are agent-only.
- */
 import type { ActionEntry } from "../agent/production-agent.js";
 import { normalizeToolResultImages } from "../agent/tool-result-images.js";
 import {
@@ -178,9 +166,7 @@ import {
 
 export interface McpActionEntryOptions {
   invocationPolicy?: McpToolInvocationPolicy;
-  /** Restrict the generated entries to an explicit background capability set. */
   toolNames?: readonly string[];
-  /** Add app-owned approval metadata without replacing the MCP runtime wrapper. */
   resolveActionEntry?: (
     tool: McpTool,
   ) =>
@@ -203,15 +189,6 @@ export function mcpToolsToActionEntries(
   return entries;
 }
 
-/**
- * Mutate a target action dict in place so it matches the current MCP tool set:
- * - adds new `mcp__*` keys that aren't in target,
- * - removes `mcp__*` keys that no longer exist in the manager,
- * - leaves non-MCP keys untouched.
- *
- * Used by the agent-chat plugin to keep its `prodActions` / `devActions`
- * registries in sync after `McpClientManager.reconfigure()` runs.
- */
 export function syncMcpActionEntries(
   manager: McpClientManager,
   target: Record<string, ActionEntry>,
@@ -241,6 +218,7 @@ function mcpToolToActionEntry(
       parameters: tool.inputSchema as any,
     },
     http: false,
+    fromMcpServer: true,
     planMode: {
       effect: (args) =>
         evaluateMcpToolCallPolicy({ mode: "read-only" }, tool, args).effect,
@@ -304,7 +282,10 @@ export function isVisibleToMcpApp(tool: McpTool): boolean {
   }
 }
 
-export function flattenMcpToolResult(result: unknown): string {
+export function flattenMcpToolResult(
+  result: unknown,
+  options: { preferStructuredContent?: boolean } = {},
+): string {
   if (
     result &&
     typeof result === "object" &&
@@ -312,6 +293,26 @@ export function flattenMcpToolResult(result: unknown): string {
   ) {
     const parts = (result as any).content as Array<Record<string, any>>;
     const text = parts.map(formatMcpContentPart).join("\n");
+    const structuredContent = (result as any).structuredContent;
+    if (
+      !(result as any).isError &&
+      options.preferStructuredContent &&
+      structuredContent !== null &&
+      typeof structuredContent === "object" &&
+      !Array.isArray(structuredContent)
+    ) {
+      const structuredText = JSON.stringify(structuredContent, null, 2);
+      if (structuredText !== undefined) {
+        const supplemental = parts
+          .filter((part) => part?.type !== "text")
+          .map(formatMcpContentPart)
+          .join("\n");
+        return supplemental
+          ? `${structuredText}\n${supplemental}`
+          : structuredText;
+      }
+    }
+
     const fallback =
       text ||
       (hasStructuredContent(result)
@@ -350,13 +351,6 @@ function hasStructuredContent(result: unknown): boolean {
   );
 }
 
-/**
- * Extract vision images from a raw MCP tool result so the model can SEE
- * screenshots/previews returned by external MCP tools instead of only the
- * `[image: <mime>]` placeholder that `flattenMcpToolResult` leaves in the
- * text. Shares the per-result caps with `_agentImages` (max count, max base64
- * size); over-cap or unsupported images stay placeholder-only. Never throws.
- */
 export function extractMcpToolResultImages(
   result: unknown,
 ): EngineToolResultImagePart[] {
@@ -383,7 +377,9 @@ async function buildMcpActionResult(
   input: Record<string, unknown>,
   raw: unknown,
 ): Promise<McpActionResult> {
-  const text = flattenMcpToolResult(raw);
+  const text = flattenMcpToolResult(raw, {
+    preferStructuredContent: tool.annotations?.readOnlyHint === true,
+  });
   const mcpApp = await extractMcpAppPayload(manager, tool, input, raw);
   return {
     [MCP_ACTION_RESULT_MARKER]: true,

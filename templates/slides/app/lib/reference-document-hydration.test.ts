@@ -93,7 +93,6 @@ describe("hydrateReferenceDocuments", () => {
       }),
       expect.objectContaining({ timeoutMs: expect.any(Number) }),
     );
-    // `importIntoDeck` would seed the new deck with the reference's pages.
     expect(callActionImpl.mock.calls[0]?.[1]).not.toHaveProperty(
       "importIntoDeck",
     );
@@ -115,8 +114,6 @@ describe("hydrateReferenceDocuments", () => {
     expect(result.context).toContain(
       "Visual style could not be measured from this PDF (canvas renderer unavailable)",
     );
-    // Readable content, but no design to follow — the caller must keep its
-    // styling fallback rather than suppress it for a reference it cannot see.
     expect(result.measuredDesignCount).toBe(0);
   });
 
@@ -224,7 +221,6 @@ describe("hydrateReferenceDocuments", () => {
     expect(result.status).toBe("hydrated");
     if (result.status !== "hydrated") return;
     expect(result.context).toContain("Overview: Why this matters");
-    // A DOCX carries content, never a visual language.
     expect(result.measuredDesignCount).toBe(0);
   });
 
@@ -337,9 +333,6 @@ describe("hydrateReferenceDocuments", () => {
 
     expect(result.status).toBe("hydrated");
     if (result.status !== "hydrated") return;
-    // The styled PDF was read, but its digest never made it into the prompt,
-    // so the caller must keep its styling fallback rather than tell the agent
-    // to match a design it cannot see.
     expect(result.context).not.toContain("960x540pt, landscape");
     expect(result.measuredDesignCount).toBe(0);
     expect(result.context).toContain("one exception to the no-reread rule");
@@ -376,16 +369,12 @@ describe("hydrateReferenceDocuments", () => {
 
     expect(result.status).toBe("hydrated");
     if (result.status !== "hydrated") return;
-    // Present but clipped by the budget — "(PDF)" distinguishes a truncated
-    // block from the omitted-reference notice.
     expect(result.context).toContain("### styled.pdf (PDF)");
     expect(result.context).toContain("[truncated]");
-    // A digest the budget cut is not one the agent can be told to match.
     expect(result.measuredDesignCount).toBe(0);
   });
 
   it("names a reference the budget could only fit a fragment of", async () => {
-    // Leaves a positive remainder too small to carry a usable block.
     const filler = "x".repeat(11_800);
     const callActionImpl = vi
       .fn()
@@ -413,15 +402,12 @@ describe("hydrateReferenceDocuments", () => {
 
     expect(result.status).toBe("hydrated");
     if (result.status !== "hydrated") return;
-    // A stub the agent cannot identify is worse than a named omission.
     expect(result.context).toContain("### styled.pdf");
     expect(result.context).toContain("filled the reference budget");
     expect(result.measuredDesignCount).toBe(0);
   });
 
   it("keeps a small reference that still fits the remaining budget", async () => {
-    // Leaves a remainder under the partial-block floor but above this
-    // reference's own size.
     const filler = "x".repeat(11_750);
     const callActionImpl = vi
       .fn()
@@ -453,8 +439,6 @@ describe("hydrateReferenceDocuments", () => {
 
     expect(result.status).toBe("hydrated");
     if (result.status !== "hydrated") return;
-    // The remainder is under the partial-block floor, but this block needs no
-    // truncation at all, so dropping it would discard content that fit.
     expect(result.context).toContain("Scope: One line");
     expect(result.context).not.toContain("### tiny.docx\nRead successfully");
     expect(result.context).not.toContain("[truncated]");

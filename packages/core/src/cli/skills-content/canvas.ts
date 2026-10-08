@@ -1,5 +1,3 @@
-// Canvas/artboard placement mechanics. Used only by visual-plan modes
-// (visual-recap renders standalone wireframes, not a canvas).
 export const CANVAS_SURFACE_CORE = `<!-- SHARED-CORE:canvas-surface START -->
 
 **The coordinate rule.** The \`surface\` sets each artboard's default footprint
@@ -133,13 +131,6 @@ new-plan placement.
 
 <!-- SHARED-CORE:canvas-surface END -->`;
 
-// Progressive-disclosure reference files. Like `WIREFRAME_REFERENCE_MD`, each of
-// the canvas / document-quality / exemplar cores is the single source of truth
-// for its topic and is materialized verbatim into a sibling `references/*.md`
-// file in the visual-plan skill dir instead of being interpolated inline into
-// the SKILL.md body. The body carries only the matching `*_REFERENCE_POINTER`.
-// Keeping each reference body byte-identical to its core (markers included) lets
-// the sync guard assert the on-disk copies never drift from the constant.
 export const CANVAS_REFERENCE_MD = `# Canvas & artboard placement — single source of truth
 
 This file is the canonical guide for how the visual-plan canvas works: artboard
@@ -150,10 +141,6 @@ canvas layouts from memory or paraphrase these rules per mode.
 ${CANVAS_SURFACE_CORE}
 `;
 
-// Short pointers that replace the inline canvas / document-quality / exemplar
-// cores in the SKILL.md body. Authoring detail lives in the sibling reference
-// files so the SKILL.md stays lean (progressive disclosure); the agent loads the
-// detail on demand.
 export const CANVAS_REFERENCE_POINTER = `The canvas is the single source of truth for static UI mockups: the \`surface\`
 sets each artboard's default footprint and width, while an explicit taller
 \`height\` keeps long non-scrolling screens fully visible; mixed surfaces lay out

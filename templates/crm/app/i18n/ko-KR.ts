@@ -24,6 +24,11 @@ const messages = {
     retry: "다시 시도",
     search: "검색",
   },
+  chatHome: {
+    description:
+      "Native SQL과 연결된 레코드 전반에서 허용된 계정 정보, 후속 작업, 근거를 살펴보세요.",
+    placeholder: "CRM에 대해 질문하기",
+  },
   commandMenu: {
     placeholder: "레코드, 목록, 명령 검색…",
     groupRecords: "레코드",
@@ -59,19 +64,11 @@ const messages = {
     showHelp: "이 도움말 표시",
   },
   settings: {
-    title: "CRM 설정",
-    description:
-      "네이티브 SQL은 CRM 소유 레코드를 Postgres에 보관합니다. HubSpot과 Salesforce는 작업 공간 연결을 사용하며, 그 미러에는 허용된 필드, 범위가 제한된 메타데이터, 한정된 증거 참조만 저장됩니다.",
-    languageTitle: "언어",
-    languageDescription:
-      "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
-    languageLabel: "인터페이스 언어",
+    mcpAbout:
+      "CRM을 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 CRM에서 레코드를 찾고, 필드를 업데이트하고, 작업을 관리할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
   },
   connection: {
     tab: "연결",
-    title: "CRM 연결",
-    description:
-      "이 CRM의 레코드가 어디에서 오는지, 각 레코드의 어디까지를 CRM이 소유하는지 보여 줍니다.",
     modesTitle: "사용 가능한 모드",
     modeNative: "네이티브 SQL",
     modeNativeHelp:
@@ -101,9 +98,6 @@ const messages = {
   },
   fields: {
     tab: "필드",
-    title: "필드",
-    description:
-      "모든 레코드와 목록을 떠받치는 형식이 정해진 속성입니다. 필드의 API 슬러그와 형식은 만들 때 고정되고, 나머지는 나중에 바꿀 수 있습니다.",
     target: "객체 또는 목록",
     targetPlaceholder: "객체 유형이나 목록을 선택하세요",
     listsGroup: "목록",
@@ -247,8 +241,6 @@ const messages = {
   },
   advanced: {
     tab: "고급",
-    title: "고급",
-    description: "재구성 및 데이터 보존 동작입니다.",
     reconfigure: "CRM 재구성",
     reconfigureHelp:
       "네이티브 SQL과 HubSpot 또는 Salesforce 동반 모드를 전환하거나 초기 동기화를 다시 실행합니다.",
@@ -370,6 +362,8 @@ const messages = {
     unavailableTitle: "이 CRM 레코드를 사용할 수 없습니다",
     unavailableDescription:
       "삭제되었거나 접근할 수 있는 레코드 범위 밖일 수 있습니다.",
+    withheld:
+      "연결된 CRM에서 이 레코드에 대한 액세스 권한이 변경되었습니다. 다음 동기화까지 숨겨집니다.",
     panelLoadFailed: "레코드 패널을 불러오지 못했습니다.",
     saveFailed: "변경 사항을 저장하지 못했습니다.",
     signals: "신호",
@@ -564,9 +558,6 @@ const messages = {
   },
   intelligence: {
     tab: "인텔리전스",
-    title: "인텔리전스",
-    description:
-      "제한된 통화 증거에서 CRM이 알아차려야 할 순간을 선택하세요. 스마트 추적기는 Ask CRM을 통해 평가되며 이 설정 화면에서 직접 실행되지 않습니다.",
     loading: "추적기를 불러오는 중…",
     kindKeyword: "키워드",
     kindSmart: "스마트",
@@ -607,6 +598,19 @@ const messages = {
     evaluatedThroughAsk: "Ask CRM을 통해 평가됩니다.",
   },
   recordActions: {
+    reviewDuplicates: "중복 검토",
+    duplicateReviewTitle: "중복 가능성이 있는 레코드",
+    duplicateReviewDescription:
+      "이 레코드를 접근 가능한 후보와 비교합니다. Jev 실행 시 레코드 이름, 유형 및 최대 5개 후보의 일치 신호가 TypeSafe로 전송됩니다. 확률은 참고용이며 병합에는 별도 검토가 필요합니다.",
+    duplicateReviewRun: "중복 확인",
+    duplicateReviewLoading: "확인 중…",
+    duplicateReviewFailed: "중복 검토를 완료할 수 없습니다.",
+    duplicateReviewUnavailable:
+      "Jev가 이 레코드를 검토하지 못했습니다. 규칙 기반 후보는 계속 표시됩니다.",
+    duplicateReviewEmpty: "중복 가능성이 있는 레코드가 없습니다.",
+    duplicateRuleConfidence: "규칙 기반 일치도: {{percent}}%",
+    duplicateJevProbability: "Jev 동일 엔터티 확률: {{percent}}%",
+    duplicateMatchedOn: "일치 근거: {{values}}",
     evidenceAttached: "통화 증거가 첨부되었습니다.",
     evidenceAttachFailed: "증거를 첨부하지 못했습니다.",
     addEvidence: "증거 추가",

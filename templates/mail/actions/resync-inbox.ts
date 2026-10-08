@@ -2,11 +2,11 @@ import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { ensureInboxFresh, resetInboxSync } from "../server/lib/inbox-sync.js";
+import { resetInboxSync, syncInbox } from "../server/lib/inbox-sync.js";
 
 export default defineAction({
   description:
-    "Force the synced inbox store to resync from Gmail right now, ignoring the normal freshness window. list-inbox-threads already keeps the store fresh on its own (resyncs any account stale by more than 15s), so only call this when the inbox tabs or counts look stale or inconsistent despite that — not before every read.",
+    "Reset the selected account's inbox sync cursor and run one bounded Gmail sync step. The action returns as soon as that step commits or reaches a quota cooldown; call sync-inbox again to continue. list-inbox-threads is a fast SQL read and never syncs Gmail.",
   schema: z.object({
     accountEmail: z
       .string()
@@ -22,11 +22,8 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
 
     await resetInboxSync(ownerEmail, args.accountEmail);
-    const accounts = await ensureInboxFresh(ownerEmail, {
+    return syncInbox(ownerEmail, {
       accountEmails: args.accountEmail ? [args.accountEmail] : undefined,
-      maxAgeMs: 0,
-      budgetMs: 8_000,
     });
-    return { accounts };
   },
 });

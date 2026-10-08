@@ -18,7 +18,10 @@ import {
   sanitizeToolErrorText,
   sanitizeToolErrorValue,
 } from "../agent/tool-error-redaction.js";
-import { TOOL_SEARCH_ACTION_NAME } from "../agent/tool-search.js";
+import {
+  isTargetedToolSearch,
+  TOOL_SEARCH_ACTION_NAME,
+} from "../agent/tool-search.js";
 import { parseAcceptLanguage } from "../localization/server.js";
 import { getSession } from "./auth.js";
 import {
@@ -44,8 +47,6 @@ export const REALTIME_VOICE_MAX_TOOL_OUTPUT_CHARS = 16_000;
 export const REALTIME_VOICE_MAX_TOOLS = 32;
 export const REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES = 32_000;
 export const REALTIME_VOICE_MAX_SESSION_BYTES = 64_000;
-/** Absolute, not sliding — a signed grant cannot be extended server-side, so
- * this must outlast the provider's 60-minute maximum realtime session. */
 export const REALTIME_VOICE_TOOL_GRANT_TTL_MS = 75 * 60 * 1_000;
 export const REALTIME_VOICE_CAPABILITY_HEADER =
   "X-Agent-Native-Realtime-Capability";
@@ -57,7 +58,7 @@ const OPENAI_LIVE_SESSIONS_URL = "https://api.openai.com/v1/live/sessions";
 const OPENAI_REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const DEFAULT_MODEL = "gpt-live-1";
 const LEGACY_MODEL = "gpt-realtime-2.1";
-const DEFAULT_DELEGATED_MODEL = "gpt-5.6-luna";
+const DEFAULT_DELEGATED_MODEL = "gpt-6-luna";
 const DEFAULT_VOICE = "marin";
 const DEFAULT_INSTRUCTIONS =
   "You are the live voice interface for this Agent-Native app. Speak naturally, briefly, and conversationally. Use the available function tools when the user asks you to navigate or take an action. When the user asks about a previous conversation, saved chat details, or something they told you before, search with the `chat-history` tool before saying you cannot access it. Summarize a matching result and open a thread only when the user asks. If the user repeats a request, acknowledge the prior attempt and finish or correct the missing part instead of restarting from scratch or asking the same clarification again. Never claim an action succeeded until its tool result confirms success. If a tool requires approval, explain that the user must approve it in chat.";
@@ -87,11 +88,6 @@ const REALTIME_VOICE_REASONING_EFFORT = {
   deep: "medium",
 } as const;
 
-/**
- * Realtime sessions have a deliberately bounded tool manifest. Keep the
- * context/navigation tools ahead of large template registries so voice can
- * always see and operate the same UI navigation surface as text chat.
- */
 const REALTIME_VOICE_PRIORITY_TOOLS = [
   "navigate",
   "set-url-path",
@@ -122,25 +118,15 @@ export interface RealtimeVoiceToolExecutionResult {
 }
 
 export interface MountRealtimeVoiceRoutesOptions {
-  /** Server-controlled model. Defaults to gpt-live-1. */
   model?: string;
-  /** Server-controlled output voice. Defaults to marin. */
   voice?: string;
-  /** Static app guidance appended to the safe default voice instructions. */
   instructions?: string;
-  /** Per-request app/navigation guidance. It is sent only to OpenAI. */
   getInstructions?: (
     context: RealtimeVoiceRequestContext,
   ) => string | null | undefined | Promise<string | null | undefined>;
-  /** Optional app-specific active-organization resolver. */
   resolveOrgId?: (
     event: H3Event,
   ) => string | null | undefined | Promise<string | null | undefined>;
-  /**
-   * Central agent tool executor supplied by the agent-chat plugin. The executor
-   * owns validation, approval, journaling, timeout, mutation notification, and
-   * action-result normalization; this transport must not call ActionEntry.run.
-   */
   executeTool: (
     request: RealtimeVoiceToolExecutionRequest,
   ) =>
@@ -445,12 +431,10 @@ function grantDiscoveredRealtimeTools(input: {
   initialAllowedNames: ReadonlySet<string>;
   capability: RealtimeToolCapability;
 }): RealtimeFunctionTool[] {
-  const query = input.request.args.query;
   if (
     input.request.name !== TOOL_SEARCH_ACTION_NAME ||
     input.result.status !== "completed" ||
-    typeof query !== "string" ||
-    !query.trim()
+    !isTargetedToolSearch(input.request.args)
   ) {
     return [];
   }
@@ -536,10 +520,6 @@ async function buildInstructions(
   );
 }
 
-/**
- * Hash the authenticated identity before sending it to OpenAI. The stable
- * digest is useful for abuse detection without disclosing the user's email.
- */
 export async function realtimeVoiceSafetyIdentifier(
   userEmail: string,
 ): Promise<string> {
@@ -617,7 +597,7 @@ function createSessionHandler(
           setResponseStatus(event, 409);
           return {
             error: gatewayLaneUnavailableMessage(
-              "Connect Builder (free tier available) or configure an OpenAI API key to use realtime voice.",
+              "Use Builder.io (free tier available) or configure an OpenAI API key to use realtime voice.",
             ),
             code: "realtime_voice_setup_required",
           };
@@ -1030,7 +1010,6 @@ function createToolHandler(
   });
 }
 
-/** Mount the authenticated OpenAI Realtime WebRTC and tool bridge routes. */
 export function mountRealtimeVoiceRoutes(
   nitroApp: any,
   actions: Record<string, ActionEntry>,

@@ -1,3 +1,4 @@
+import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "@agent-native/core/action-ui";
 import {
   DATA_CHART_WIDGET,
   DATA_INSIGHTS_WIDGET,
@@ -199,6 +200,9 @@ describe("response-insights action", () => {
     const result = await runInsights();
 
     expect(result.widget).toBe(DATA_INSIGHTS_WIDGET);
+    expect(responseInsights.chatUI?.renderer).toBe(
+      ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
+    );
     expect(result.chartSeries).toBeDefined();
     expect(result.table).toBeDefined();
   });

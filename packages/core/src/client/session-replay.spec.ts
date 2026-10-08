@@ -90,18 +90,8 @@ async function parseReplayUpload(init: RequestInit): Promise<any> {
   return JSON.parse(bytes.toString("utf8"));
 }
 
-// The channel name the duplicated-tab claim guard uses internally
-// (SESSION_REPLAY_BROADCAST_CHANNEL_NAME in session-replay.ts). Not
-// exported -- kept in sync here rather than widening the module's public
-// surface just for a test.
 const REPLAY_BROADCAST_CHANNEL_NAME = "agent-native-session-replay";
 
-/**
- * A minimal same-process BroadcastChannel stand-in: instances constructed
- * with the same name and returned by the same factory call can message each
- * other (never themselves), same as the real API. Each test gets its own
- * isolated "network" by calling the factory fresh.
- */
 function createFakeBroadcastChannelClass() {
   const registry = new Map<string, Set<InstanceType<typeof FakeChannel>>>();
   class FakeChannel {
@@ -229,7 +219,6 @@ function installBrowser(
     setTimeout,
     clearTimeout,
   };
-  // A real top-level browsing context exposes itself as window.parent.
   windowStub.parent = windowStub;
   vi.stubGlobal("window", windowStub);
   vi.stubGlobal("document", {
@@ -245,10 +234,6 @@ function installBrowser(
   vi.stubGlobal("crypto", {
     randomUUID: vi.fn(() => `00000000-0000-4000-8000-${++idCounter}`),
   });
-  // Node exposes a real global BroadcastChannel, which would otherwise make
-  // every resumed-session start wait out the duplicated-tab claim timeout
-  // for no reason in tests that don't care about it. Tests exercising that
-  // guard stub their own BroadcastChannel back in.
   vi.stubGlobal("BroadcastChannel", undefined);
   const fetchMock = vi.fn(async (input: unknown) => {
     if (String(input).includes("/_agent-native/auth/session")) {
@@ -259,9 +244,6 @@ function installBrowser(
     return new Response("{}");
   });
   vi.stubGlobal("fetch", fetchMock);
-  // `storage` is the sessionStorage-backed map -- the replay session record
-  // (replayId + sequence) is per-tab and lives there. `localStorage` is
-  // exposed separately for tests asserting the legacy key gets cleared.
   return {
     fetchMock,
     history,
@@ -282,8 +264,22 @@ async function freshSessionReplay() {
   return import("./session-replay.js");
 }
 
+function mockMissingReplayRecorder() {
+  vi.doMock("../shared/optional-peer.js", async (importOriginal) => {
+    const optionalPeer =
+      await importOriginal<typeof import("../shared/optional-peer.js")>();
+    return {
+      ...optionalPeer,
+      loadOptionalPeer: async (packageName: string) => {
+        throw new optionalPeer.OptionalPeerDependencyError(packageName);
+      },
+    };
+  });
+}
+
 describe("session replay", () => {
   afterEach(() => {
+    vi.doUnmock("../shared/optional-peer.js");
     vi.resetModules();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
@@ -308,6 +304,52 @@ describe("session replay", () => {
     await tick();
 
     expect(recordMock).not.toHaveBeenCalled();
+  });
+
+  it("returns import-failed and install guidance when the rrweb peer is missing", async () => {
+    installBrowser();
+    mockMissingReplayRecorder();
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const { startSessionReplay } = await freshSessionReplay();
+
+    const result = await startSessionReplay({ publicKey: "anpk_test" });
+
+    expect(result).toMatchObject({
+      started: false,
+      reason: "import-failed",
+      sampled: true,
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      "[agent-native] Session replay cannot start:",
+      expect.stringContaining("pnpm add @rrweb/record"),
+    );
+  });
+
+  it("logs install guidance when configured replay auto-start lacks the rrweb peer", async () => {
+    installBrowser();
+    mockMissingReplayRecorder();
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    vi.resetModules();
+    const { configureTracking } = await import("./analytics.js");
+
+    configureTracking({
+      publicKey: "anpk_test",
+      sessionReplay: { requireSignedInUser: false },
+      pageviewTracking: false,
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+    });
+
+    await waitForAssertion(() =>
+      expect(consoleError).toHaveBeenCalledWith(
+        "[agent-native] Session replay cannot start:",
+        expect.stringContaining("pnpm add @rrweb/record"),
+      ),
+    );
   });
 
   it("adds content-free agent-chat correlation markers to active replay", async () => {
@@ -348,6 +390,175 @@ describe("session replay", () => {
         tabId: "tab-1",
       },
     );
+  });
+
+  it("marks tracked app events on the replay with only their name", async () => {
+    installBrowser("https://clips.agent-native.com/library");
+    const addCustomEvent = vi.fn();
+    (
+      recordMock as typeof recordMock & {
+        addCustomEvent: typeof addCustomEvent;
+      }
+    ).addCustomEvent = addCustomEvent;
+    recordMock.mockReturnValue(vi.fn());
+    const {
+      emitSessionReplayAnalyticsEvent,
+      startSessionReplay,
+      SESSION_REPLAY_ANALYTICS_EVENT_TAG,
+    } = await freshSessionReplay();
+
+    emitSessionReplayAnalyticsEvent("before_start");
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+    });
+    emitSessionReplayAnalyticsEvent("  recording_started  ");
+    emitSessionReplayAnalyticsEvent("   ");
+    emitSessionReplayAnalyticsEvent("x".repeat(300));
+
+    expect(addCustomEvent).toHaveBeenCalledTimes(2);
+    expect(addCustomEvent).toHaveBeenNthCalledWith(
+      1,
+      SESSION_REPLAY_ANALYTICS_EVENT_TAG,
+      { name: "recording_started" },
+    );
+    expect(addCustomEvent).toHaveBeenNthCalledWith(
+      2,
+      SESSION_REPLAY_ANALYTICS_EVENT_TAG,
+      { name: "x".repeat(120) },
+    );
+  });
+
+  it("marks page-view Web Vitals on the replay, leaving out unmeasured metrics", async () => {
+    installBrowser("https://clips.agent-native.com/library");
+    const addCustomEvent = vi.fn();
+    (
+      recordMock as typeof recordMock & {
+        addCustomEvent: typeof addCustomEvent;
+      }
+    ).addCustomEvent = addCustomEvent;
+    recordMock.mockReturnValue(vi.fn());
+    const {
+      emitSessionReplayWebVitals,
+      startSessionReplay,
+      SESSION_REPLAY_VITALS_EVENT_TAG,
+    } = await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+    });
+    emitSessionReplayWebVitals({
+      route: "/r/:id",
+      navigationType: "load",
+      ttfbMs: 120,
+      lcpMs: 2_600,
+      inpMs: undefined,
+      cls: Number.NaN,
+    });
+
+    expect(addCustomEvent).toHaveBeenCalledWith(
+      SESSION_REPLAY_VITALS_EVENT_TAG,
+      { route: "/r/:id", navigationType: "load", ttfbMs: 120, lcpMs: 2_600 },
+    );
+  });
+
+  it("marks a slow request on the replay with only its operational fields", async () => {
+    installBrowser("https://clips.agent-native.com/library");
+    const addCustomEvent = vi.fn();
+    (
+      recordMock as typeof recordMock & {
+        addCustomEvent: typeof addCustomEvent;
+      }
+    ).addCustomEvent = addCustomEvent;
+    recordMock.mockReturnValue(vi.fn());
+    const {
+      emitSessionReplaySlowRequest,
+      startSessionReplay,
+      SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG,
+    } = await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+    });
+    emitSessionReplaySlowRequest({
+      action: "save-clip",
+      method: "POST",
+      duration_ms: 1_307,
+      status_code: 500,
+      outcome: "error",
+      title: "Quarterly plan",
+    } as Parameters<typeof emitSessionReplaySlowRequest>[0]);
+    emitSessionReplaySlowRequest({ action: "list-clips" });
+
+    expect(addCustomEvent).toHaveBeenCalledTimes(1);
+    expect(addCustomEvent).toHaveBeenCalledWith(
+      SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG,
+      {
+        action: "save-clip",
+        method: "POST",
+        duration_ms: 1_307,
+        status_code: 500,
+        outcome: "error",
+        page_hidden: false,
+      },
+    );
+  });
+
+  it("caps app event markers per replay, across restarts and reloads", async () => {
+    const { storage, fetchMock } = installBrowser(
+      "https://clips.agent-native.com/library",
+    );
+    const addCustomEvent = vi.fn();
+    (
+      recordMock as typeof recordMock & {
+        addCustomEvent: typeof addCustomEvent;
+      }
+    ).addCustomEvent = addCustomEvent;
+    const recordOptions: any[] = [];
+    recordMock.mockImplementation((options) => {
+      recordOptions.push(options);
+      return vi.fn();
+    });
+    const {
+      emitSessionReplayAnalyticsEvent,
+      startSessionReplay,
+      stopSessionReplay,
+    } = await freshSessionReplay();
+    const options = {
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    };
+
+    await startSessionReplay(options);
+    for (let index = 0; index < 1_005; index += 1) {
+      emitSessionReplayAnalyticsEvent("clip_viewed");
+    }
+    expect(addCustomEvent).toHaveBeenCalledTimes(1_000);
+    // An upload rewrites the stored replay session; the count must survive it.
+    recordOptions[0].emit({ type: 3, data: { href: "/library" } });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    await stopSessionReplay();
+    await startSessionReplay(options);
+    emitSessionReplayAnalyticsEvent("clip_viewed");
+    expect(addCustomEvent).toHaveBeenCalledTimes(1_000);
+
+    await stopSessionReplay();
+    delete (globalThis as any)[replayStateKey];
+    const reloaded = await freshSessionReplay();
+    await reloaded.startSessionReplay(options);
+    reloaded.emitSessionReplayAnalyticsEvent("clip_viewed");
+    expect(addCustomEvent).toHaveBeenCalledTimes(1_000);
+
+    await reloaded.stopSessionReplay();
+    storage.delete("agent-native.session_replay_id");
+    await reloaded.startSessionReplay(options);
+    reloaded.emitSessionReplayAnalyticsEvent("clip_viewed");
+    expect(addCustomEvent).toHaveBeenCalledTimes(1_001);
   });
 
   it("keeps numeric agent-chat marker metadata usable", async () => {
@@ -440,6 +651,80 @@ describe("session replay", () => {
     });
   });
 
+  it("uploads a beta app's replay to beta Analytics", async () => {
+    const { fetchMock } = installBrowser(
+      "https://beta.clips.agent-native.com/library",
+      { email: "dev@example.com", userId: "auth-user-1" },
+    );
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    vi.resetModules();
+    const { configureTracking, stopSessionReplay } =
+      await import("./analytics.js");
+
+    configureTracking({});
+    await waitForAssertion(() => expect(recordOptions).toBeDefined());
+
+    recordOptions.emit({ type: 3, data: { href: "/library" } });
+    await stopSessionReplay();
+    await waitForAssertion(() =>
+      expect(
+        fetchMock.mock.calls.some(([url]) =>
+          String(url).includes("/api/analytics/replay"),
+        ),
+      ).toBe(true),
+    );
+
+    const replayCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/api/analytics/replay"),
+    );
+    expect(replayCalls[0][0]).toBe(
+      "https://beta.analytics.agent-native.com/api/analytics/replay",
+    );
+  });
+
+  it("reports the replay id once after rrweb starts, including active calls", async () => {
+    installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    const onRecordingStarted = vi.fn();
+    const { startSessionReplay } = await freshSessionReplay();
+
+    const first = await startSessionReplay({
+      publicKey: "anpk_test",
+      onRecordingStarted,
+    });
+    const alreadyActive = await startSessionReplay({
+      publicKey: "anpk_test",
+      onRecordingStarted,
+    });
+
+    expect(first.started).toBe(true);
+    expect(first.replayId).toBeDefined();
+    expect(alreadyActive.reason).toBe("already-active");
+    expect(recordMock).toHaveBeenCalledOnce();
+    expect(onRecordingStarted).toHaveBeenCalledOnce();
+    expect(onRecordingStarted).toHaveBeenCalledWith(first.replayId);
+  });
+
+  it("does not report a start when rrweb fails", async () => {
+    installBrowser();
+    recordMock.mockReturnValue(undefined);
+    const onRecordingStarted = vi.fn();
+    const { startSessionReplay } = await freshSessionReplay();
+
+    const result = await startSessionReplay({
+      publicKey: "anpk_test",
+      onRecordingStarted,
+    });
+
+    expect(result).toMatchObject({ started: false, reason: "record-failed" });
+    expect(onRecordingStarted).not.toHaveBeenCalled();
+  });
+
   it("times out a hung replay upload and releases the flush lock", async () => {
     vi.useFakeTimers();
     try {
@@ -485,15 +770,10 @@ describe("session replay", () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(recordMock).toHaveBeenCalledTimes(2);
 
-      // Client-side abort is not proof that the keepalive request was not
-      // accepted by the server. The old identity stays fenced, so a manual
-      // flush cannot retry its sequence.
       fetchMock.mockResolvedValue(new Response("{}"));
       await replay.flushSessionReplay("manual");
       expect(fetchMock).toHaveBeenCalledTimes(1);
 
-      // The timed-out episode is retired after the original request settles;
-      // the restarted recorder supplies a fresh Meta + FullSnapshot stream.
       recordOptions.emit({ type: 2, data: { href: "/restarted" } });
       await vi.advanceTimersByTimeAsync(0);
       expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -541,8 +821,6 @@ describe("session replay", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(vi.getTimerCount()).toBe(recorderTimers);
 
-      // Advancing past the upload timeout must not surface an orphaned
-      // rejection from a timer that outlived the synchronous fetch failure.
       await vi.advanceTimersByTimeAsync(15_000);
       expect(vi.getTimerCount()).toBe(recorderTimers);
 
@@ -594,9 +872,6 @@ describe("session replay", () => {
 
       await vi.advanceTimersByTimeAsync(15_000);
 
-      // With no transport-level cancellation, the timed-out batch stays fenced
-      // while its original request is still live. Retrying it here would allow
-      // a late success to race the same replay sequence.
       fetchMock.mockResolvedValue(new Response("{}"));
       const blockedFlush = replay.flushSessionReplay("manual");
       await vi.advanceTimersByTimeAsync(0);
@@ -604,9 +879,6 @@ describe("session replay", () => {
 
       let teardownStart: Promise<unknown> | undefined;
       firstStopRecorder?.mockImplementation(() => {
-        // Recovery tears down the old recorder before it chooses the pending
-        // restart. This call happens in that teardown gap and must win over
-        // the stale implicit restart request.
         teardownStart = replay.startSessionReplay({
           publicKey: "anpk_test",
           endpoint: "https://analytics.example.test/restarted-replay",
@@ -615,9 +887,6 @@ describe("session replay", () => {
         });
       });
 
-      // Once the original request settles, the old replay identity is retired.
-      // The restarted recorder supplies a fresh Meta + FullSnapshot stream; it
-      // must never send the uncertain batch a second time.
       resolveUpload(new Response("{}"));
       await vi.advanceTimersByTimeAsync(0);
       await blockedFlush;
@@ -730,9 +999,6 @@ describe("session replay", () => {
       await vi.advanceTimersByTimeAsync(15_000);
 
       firstStopRecorder?.mockImplementation(() => {
-        // The recovery path has already marked the recorder inactive before
-        // awaiting its final flush. This explicit stop must cancel recovery,
-        // not allow the old options to restart a fresh recorder afterward.
         explicitStop = replay.stopSessionReplay("manual");
       });
       resolveUpload(new Response("{}"));
@@ -885,8 +1151,6 @@ describe("session replay", () => {
       await visibilityFlush;
       await terminalFlush;
 
-      // The coalesced terminal reason suppresses the implicit restart even
-      // though the timed-out payload itself was labeled visibility-hidden.
       expect(recordMock).toHaveBeenCalledTimes(1);
       expect(fetchMock).toHaveBeenCalledTimes(1);
       await replay.stopSessionReplay();
@@ -938,9 +1202,6 @@ describe("session replay", () => {
       await vi.advanceTimersByTimeAsync(15_000);
       expect(recordMock).toHaveBeenCalledTimes(1);
 
-      // BFCache resume must rotate to a fresh identity even if the old
-      // keepalive request never settles. Waiting for it would leave replay
-      // fenced indefinitely after the page returns.
       fireWindowEvent("pageshow", { persisted: true });
       resolveUpload(new Response("{}"));
       await vi.advanceTimersByTimeAsync(0);
@@ -996,8 +1257,6 @@ describe("session replay", () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(fetchMock).toHaveBeenCalledTimes(1);
 
-      // pageshow can run before the timeout because BFCache freezes timers.
-      // The later timeout must still be connected to fresh-identity recovery.
       fireWindowEvent("pageshow", { persisted: true });
       await vi.advanceTimersByTimeAsync(0);
       expect(recordMock).toHaveBeenCalledTimes(1);
@@ -1011,8 +1270,6 @@ describe("session replay", () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(fetchMock).toHaveBeenCalledTimes(2);
 
-      // The pre-BFCache request remains uncertain and must not trigger a
-      // second recovery when it eventually settles.
       resolveUpload(new Response("{}"));
       await vi.advanceTimersByTimeAsync(0);
       expect(recordMock).toHaveBeenCalledTimes(2);
@@ -1072,8 +1329,6 @@ describe("session replay", () => {
       await vi.advanceTimersByTimeAsync(0);
       await vi.advanceTimersByTimeAsync(15_000);
 
-      // A later ordinary timeout must remain fenced until its old request
-      // settles; a stale BFCache marker would restart immediately here.
       expect(recordMock).toHaveBeenCalledTimes(1);
       resolveSecondUpload(new Response("{}"));
       await vi.advanceTimersByTimeAsync(0);
@@ -1116,8 +1371,6 @@ describe("session replay", () => {
       ).toBe(true),
     );
 
-    // Without a signal a hung endpoint never settles, `state.flushing` stays
-    // set, and every later flush early-returns while the queue keeps growing.
     const replayCall = fetchMock.mock.calls.find(([url]) =>
       String(url).includes("/api/analytics/replay"),
     );
@@ -1294,9 +1547,122 @@ describe("session replay", () => {
     });
   });
 
+  it("does not truncate the default replay at 30 minutes", async () => {
+    vi.useFakeTimers();
+    installBrowser("https://app.agent-native.com/", {
+      email: "dev@example.com",
+      userId: "auth-user-1",
+    });
+    const stopRecorder = vi.fn();
+    recordMock.mockReturnValue(stopRecorder);
+    try {
+      const { startSessionReplay, stopSessionReplay } =
+        await freshSessionReplay();
+      const result = await startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "https://analytics.example.test/session-replay",
+        flushIntervalMs: 60 * 60 * 1000,
+      });
+      expect(result.started).toBe(true);
+      expect(recordMock).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(31 * 60 * 1000);
+      expect(stopRecorder).not.toHaveBeenCalled();
+      await stopSessionReplay("manual");
+      expect(stopRecorder).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still honors an explicitly configured replay duration", async () => {
+    vi.useFakeTimers();
+    installBrowser("https://app.agent-native.com/", {
+      email: "dev@example.com",
+      userId: "auth-user-1",
+    });
+    const stopRecorder = vi.fn();
+    recordMock.mockReturnValue(stopRecorder);
+    try {
+      const { startSessionReplay } = await freshSessionReplay();
+      const result = await startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "https://analytics.example.test/session-replay",
+        maxDurationMs: 60_000,
+        flushIntervalMs: 60 * 60 * 1000,
+      });
+      expect(result.started).toBe(true);
+      expect(recordMock).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(stopRecorder).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops at the Analytics per-recording chunk ceiling", async () => {
+    const { fetchMock, storage, localStorage } = installBrowser(
+      "https://app.agent-native.com/",
+      { email: "dev@example.com", userId: "auth-user-1" },
+    );
+    const sessionId = "replay-cap-session";
+    localStorage.set("agent-native.session_id", sessionId);
+    localStorage.set("agent-native.session_last_activity", String(Date.now()));
+    storage.set(
+      "agent-native.session_replay_id",
+      JSON.stringify({
+        sessionId,
+        replayId: "replay-near-chunk-cap",
+        startedAtMs: Date.now(),
+        sequence: 1998,
+      }),
+    );
+    let emit!: (event: Record<string, unknown>) => void;
+    const stopRecorder = vi.fn();
+    recordMock.mockImplementation((options) => {
+      emit = options.emit;
+      return stopRecorder;
+    });
+    const replayUploads = () =>
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/session-replay"),
+      );
+    const { startSessionReplay } = await freshSessionReplay();
+
+    const result = await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    expect(result).toMatchObject({ replayId: "replay-near-chunk-cap" });
+
+    emit({ type: 3, data: { href: "/before-cap" } });
+    await waitForAssertion(() => expect(replayUploads()).toHaveLength(1));
+    emit({ type: 3, data: { href: "/at-cap" } });
+    await waitForAssertion(() => expect(replayUploads()).toHaveLength(2));
+
+    const bodies = await Promise.all(
+      replayUploads().map(([, init]) => parseReplayUpload(init as RequestInit)),
+    );
+    expect(bodies.map((body) => body.sequence)).toEqual([1998, 1999]);
+    expect(bodies[1]).toMatchObject({ status: "completed" });
+    expect(bodies[1].events).toContainEqual(
+      expect.objectContaining({
+        type: 5,
+        data: expect.objectContaining({
+          tag: "agent-native.session_replay",
+          payload: { outcome: "recording_capped", cap: "chunk_count" },
+        }),
+      }),
+    );
+    expect(stopRecorder).toHaveBeenCalledOnce();
+  });
+
   it("starts rrweb with privacy defaults and uploads scrubbed replay batches", async () => {
     const { fetchMock } = installBrowser(
-      "https://app.agent-native.com/inbox?code=secret&keep=1",
+      "https://app.agent-native.com/all?code=secret&q=private.sender%40example.com&keep=1",
     );
     let recordOptions: any;
     const stop = vi.fn();
@@ -1310,9 +1676,12 @@ describe("session replay", () => {
     const result = await startSessionReplay({
       publicKey: "anpk_test",
       endpoint: "https://analytics.example.test/session-replay",
+      sensitiveQueryParams: ["q"],
       maxEventsPerBatch: 1,
       flushIntervalMs: 100_000,
-      extraProperties: { route: "/inbox?token=private" },
+      extraProperties: {
+        route: "/all?token=private&q=private.sender%40example.com",
+      },
     });
 
     expect(result).toMatchObject({ started: true, sampled: true });
@@ -1340,7 +1709,7 @@ describe("session replay", () => {
       type: 3,
       timestamp: eventTimestamp,
       data: {
-        href: "https://app.agent-native.com/path?token=secret&ok=1",
+        href: "https://app.agent-native.com/path?token=secret&q=private.sender%40example.com&ok=1",
         source: "/oauth/callback?code=private",
       },
     });
@@ -1368,14 +1737,14 @@ describe("session replay", () => {
       startedAt: expect.any(String),
       endedAt: new Date(eventTimestamp).toISOString(),
       durationMs: expect.any(Number),
-      url: "https://app.agent-native.com/inbox?code=%3Credacted%3E&keep=1",
-      properties: { route: "/inbox?token=%3Credacted%3E" },
+      url: "https://app.agent-native.com/all?code=%3Credacted%3E&q=%3Credacted%3E&keep=1",
+      properties: { route: "/all?token=%3Credacted%3E&q=%3Credacted%3E" },
     });
     expect(Date.parse(body.startedAt)).toBeLessThanOrEqual(
       Date.parse(body.endedAt),
     );
     expect(body.events[0].data.href).toBe(
-      "https://app.agent-native.com/path?token=%3Credacted%3E&ok=1",
+      "https://app.agent-native.com/path?token=%3Credacted%3E&q=%3Credacted%3E&ok=1",
     );
     expect(body.events[0].data.source).toBe(
       "/oauth/callback?code=%3Credacted%3E",
@@ -1770,6 +2139,91 @@ describe("session replay", () => {
     );
   });
 
+  it("redacts configured query parameters in preserved resource URLs", async () => {
+    const { fetchMock } = installBrowser();
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { flushSessionReplay, startSessionReplay } =
+      await freshSessionReplay();
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      sensitiveQueryParams: ["q"],
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+
+    recordOptions.emit({
+      type: 2,
+      data: {
+        node: {
+          type: 0,
+          childNodes: [
+            {
+              type: 2,
+              id: 1,
+              tagName: "img",
+              attributes: {
+                src: "https://cdn.example.test/mail.png?token=signed-image&q=sender%40example.test,other%40example.test",
+                srcset:
+                  "https://cdn.example.test/mail-2x.png?token=signed-2x&q=sender%40example.test,other%40example.test 2x, https://cdn.example.test/mail-3x.png?token=signed-3x&q=third%40example.test 3x",
+              },
+            },
+            {
+              type: 2,
+              id: 2,
+              tagName: "link",
+              attributes: {
+                rel: "stylesheet",
+                href: "https://cdn.example.test/mail.css?token=signed-style&q=sender%40example.test",
+              },
+            },
+          ],
+        },
+      },
+    });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const snapshot = await parseReplayUpload(
+      fetchMock.mock.calls[0][1] as RequestInit,
+    );
+    const [image, stylesheet] = snapshot.events[0].data.node.childNodes;
+    expect(image.attributes.src).toBe(
+      "https://cdn.example.test/mail.png?token=signed-image&q=%3Credacted%3E",
+    );
+    expect(image.attributes.srcset).toBe(
+      "https://cdn.example.test/mail-2x.png?token=signed-2x&q=%3Credacted%3E 2x, https://cdn.example.test/mail-3x.png?token=signed-3x&q=%3Credacted%3E 3x",
+    );
+    expect(stylesheet.attributes.href).toBe(
+      "https://cdn.example.test/mail.css?token=signed-style&q=%3Credacted%3E",
+    );
+
+    recordOptions.emit({
+      type: 3,
+      data: {
+        source: 0,
+        attributes: [
+          {
+            id: 1,
+            attributes: {
+              src: "https://cdn.example.test/next.png?token=rotated&q=private,also-private",
+            },
+          },
+        ],
+      },
+    });
+    await flushSessionReplay("test");
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const mutation = await parseReplayUpload(
+      fetchMock.mock.calls[1][1] as RequestInit,
+    );
+    expect(mutation.events[0].data.attributes[0].attributes.src).toBe(
+      "https://cdn.example.test/next.png?token=rotated&q=%3Credacted%3E",
+    );
+  });
+
   it("does not force keepalive for oversized cross-origin replay batches", async () => {
     const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
     let recordOptions: any;
@@ -2056,8 +2510,6 @@ describe("session replay", () => {
     await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
     for (let index = 1; index <= 4; index += 1) {
-      // Each serialized event is below 1 KiB in UTF-16 code units but above
-      // half the cap in UTF-8, so no two may share a bounded upload.
       recordOptions.emit({
         type: 3,
         data: { href: `/event-${index}`, text: "é".repeat(350) },
@@ -2211,7 +2663,12 @@ describe("session replay", () => {
     ).toBe(2);
     expect(replay.isSessionReplayActive()).toBe(true);
     expect(replay.getSessionReplayId()).toBe(started.replayId);
-    expect(onUploadRejected).not.toHaveBeenCalled();
+    expect(onUploadRejected).toHaveBeenCalledWith({
+      status: 413,
+      restartAttempted: false,
+      restartSucceeded: false,
+      failureReason: "oversized_event",
+    });
     expect(warn).toHaveBeenCalledWith(
       "[session-replay] dropping oversized replay event (HTTP 413)",
       expect.any(Error),
@@ -2342,14 +2799,16 @@ describe("session replay", () => {
         true,
       ]);
       if (reason === "pagehide") {
-        // The rejected reservation rolls back to zero; each accepted half then
-        // reserves the sequence again before its keepalive request begins.
         expect(sequenceAtRequest).toEqual([1, 1, 2]);
       }
-      expect(
-        JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}")
-          .sequence,
-      ).toBe(2);
+      if (reason === "max-duration") {
+        expect(storage.has("agent-native.session_replay_id")).toBe(false);
+      } else {
+        expect(
+          JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}")
+            .sequence,
+        ).toBe(2);
+      }
     },
   );
 
@@ -2670,6 +3129,326 @@ describe("session replay", () => {
     );
   });
 
+  it.each([
+    { reason: "interval", maxEventsPerBatch: 50 },
+    { reason: "max-events", maxEventsPerBatch: 1 },
+  ] as const)(
+    "resumes past a $reason keepalive chunk still in flight when the page unloaded",
+    async ({ reason, maxEventsPerBatch }) => {
+      vi.useFakeTimers();
+      try {
+        const { fetchMock, fireWindowEvent } = installBrowser(
+          "https://app.agent-native.com/inbox",
+        );
+        const recordOptions: any[] = [];
+        recordMock.mockImplementation((options) => {
+          recordOptions.push(options);
+          return vi.fn();
+        });
+        const options = {
+          publicKey: "anpk_test",
+          endpoint: "https://analytics.example.test/session-replay",
+          maxEventsPerBatch,
+          flushIntervalMs: 5_000,
+        };
+        const first = await freshSessionReplay();
+        await first.startSessionReplay(options);
+        // The server stores this chunk, but the page navigates away before the
+        // response arrives, so this page never sees it settle.
+        fetchMock.mockImplementationOnce(() => new Promise<Response>(() => {}));
+
+        recordOptions[0].emit({
+          type: 3,
+          data: { href: "/before-navigation" },
+        });
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+        expect(init.keepalive).toBe(true);
+
+        recordOptions[0].emit({ type: 3, data: { href: "/navigating" } });
+        fireWindowEvent("pagehide", { persisted: false });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        delete (globalThis as any)[replayStateKey];
+        const second = await freshSessionReplay();
+        await second.startSessionReplay(options);
+        recordOptions[1].emit({ type: 2, data: { href: "/next-page" } });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+
+        const bodies = await Promise.all(
+          fetchMock.mock.calls.map(([, init]) =>
+            parseReplayUpload(init as RequestInit),
+          ),
+        );
+        expect(bodies.map((body) => body.reason)).toEqual([
+          reason,
+          "full-snapshot",
+        ]);
+        expect(bodies[1].replayId).toBe(bodies[0].replayId);
+        expect(bodies.map((body) => body.sequence)).toEqual([0, 1]);
+
+        await second.stopSessionReplay();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("resumes past a chunk too large for keepalive still in flight when the page unloaded", async () => {
+    vi.useFakeTimers();
+    try {
+      const { fetchMock, fireWindowEvent } = installBrowser(
+        "https://app.agent-native.com/inbox",
+      );
+      const recordOptions: any[] = [];
+      recordMock.mockImplementation((options) => {
+        recordOptions.push(options);
+        return vi.fn();
+      });
+      const options = {
+        publicKey: "anpk_test",
+        endpoint: "https://analytics.example.test/session-replay",
+        maxEventsPerBatch: 50,
+        flushIntervalMs: 5_000,
+      };
+      const first = await freshSessionReplay();
+      await first.startSessionReplay(options);
+      // Navigation cancels this request, but the server already has its body
+      // and stores the chunk.
+      fetchMock.mockImplementationOnce(() => new Promise<Response>(() => {}));
+
+      recordOptions[0].emit({
+        type: 2,
+        data: {
+          node: {
+            type: 2,
+            tagName: "html",
+            childNodes: [{ type: 3, textContent: "x".repeat(70 * 1024) }],
+          },
+        },
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(init.keepalive).toBe(false);
+
+      fireWindowEvent("pagehide", { persisted: false });
+      await vi.advanceTimersByTimeAsync(0);
+
+      delete (globalThis as any)[replayStateKey];
+      const second = await freshSessionReplay();
+      await second.startSessionReplay(options);
+      recordOptions[1].emit({ type: 2, data: { href: "/next-page" } });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      const bodies = await Promise.all(
+        fetchMock.mock.calls.map(([, init]) =>
+          parseReplayUpload(init as RequestInit),
+        ),
+      );
+      expect(bodies[1].replayId).toBe(bodies[0].replayId);
+      expect(bodies.map((body) => body.sequence)).toEqual([0, 1]);
+
+      await second.stopSessionReplay();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["pagehide", "pagehide-persisted", "visibility-hidden"])(
+    "does not start a %s upload too large for keepalive",
+    async (reason) => {
+      const { fetchMock, storage } = installBrowser(
+        "https://app.agent-native.com/inbox",
+      );
+      const storedSequence = () =>
+        JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}")
+          .sequence;
+      let recordOptions: any;
+      recordMock.mockImplementation((options) => {
+        recordOptions = options;
+        return vi.fn();
+      });
+      const { startSessionReplay, flushSessionReplay } =
+        await freshSessionReplay();
+
+      await startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "https://analytics.example.test/session-replay",
+        maxBatchBytes: 256 * 1024,
+        maxEventsPerBatch: 50,
+        flushIntervalMs: 100_000,
+      });
+      recordOptions.emit({
+        type: 3,
+        data: { href: "/leaving", text: "x".repeat(70 * 1024) },
+      });
+      await flushSessionReplay(reason);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(storedSequence()).toBe(0);
+
+      // A page that survives sends the events under the same index.
+      await flushSessionReplay("interval");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const upload = await parseReplayUpload(
+        fetchMock.mock.calls[0]?.[1] as RequestInit,
+      );
+      expect(upload.sequence).toBe(0);
+      expect(JSON.stringify(upload.events)).toContain("/leaving");
+      expect(storedSequence()).toBe(1);
+    },
+  );
+
+  it.each(["visibility-hidden", "pagehide"])(
+    "does not start an upload too large for keepalive when %s arrives while it is compressed",
+    async (reason) => {
+      const { fetchMock, storage } = installBrowser(
+        "https://app.agent-native.com/inbox",
+      );
+      vi.stubGlobal("CompressionStream", undefined);
+      const storedSequence = () =>
+        JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}")
+          .sequence;
+      let recordOptions: any;
+      recordMock.mockImplementation((options) => {
+        recordOptions = options;
+        return vi.fn();
+      });
+      const { startSessionReplay, flushSessionReplay } =
+        await freshSessionReplay();
+
+      await startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "/api/analytics/replay",
+        maxBatchBytes: 256 * 1024,
+        maxEventsPerBatch: 50,
+        flushIntervalMs: 100_000,
+      });
+      recordOptions.emit({
+        type: 3,
+        data: { href: "/leaving", text: "x".repeat(70 * 1024) },
+      });
+      const intervalFlush = flushSessionReplay("interval");
+      const leaveFlush = flushSessionReplay(reason);
+      await Promise.all([intervalFlush, leaveFlush]);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(storedSequence()).toBe(0);
+    },
+  );
+
+  it.each([
+    ["visibility-hidden", "pagehide"],
+    ["pagehide", "visibility-hidden"],
+  ])(
+    "leaves no gap when a page with an upload too large for keepalive fires %s, then %s",
+    async (firstReason, secondReason) => {
+      const { fetchMock } = installBrowser(
+        "https://app.agent-native.com/inbox",
+      );
+      const recordOptions: any[] = [];
+      recordMock.mockImplementation((options) => {
+        recordOptions.push(options);
+        return vi.fn();
+      });
+      const options = {
+        publicKey: "anpk_test",
+        endpoint: "https://analytics.example.test/session-replay",
+        maxBatchBytes: 256 * 1024,
+        maxEventsPerBatch: 50,
+        flushIntervalMs: 100_000,
+      };
+      const first = await freshSessionReplay();
+      await first.startSessionReplay(options);
+      recordOptions[0].emit({
+        type: 3,
+        data: { href: "/leaving", text: "x".repeat(70 * 1024) },
+      });
+      await first.flushSessionReplay(firstReason);
+      await first.flushSessionReplay(secondReason);
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      delete (globalThis as any)[replayStateKey];
+      const second = await freshSessionReplay();
+      await second.startSessionReplay(options);
+      recordOptions[1].emit({ type: 3, data: { href: "/next-page" } });
+      await second.flushSessionReplay("interval");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const upload = await parseReplayUpload(
+        fetchMock.mock.calls[0]?.[1] as RequestInit,
+      );
+      expect(upload.sequence).toBe(0);
+
+      await second.stopSessionReplay();
+    },
+  );
+
+  it.each([
+    { kind: "keepalive", text: "", keepalive: true },
+    { kind: "larger", text: "x".repeat(70 * 1024), keepalive: false },
+  ])(
+    "rolls back the reservation when a $kind upload fails in the page",
+    async ({ text, keepalive }) => {
+      const { fetchMock, storage } = installBrowser(
+        "https://app.agent-native.com/inbox",
+      );
+      const storedSequence = () =>
+        JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}")
+          .sequence;
+      const firstUpload = deferred<Response>();
+      fetchMock.mockImplementationOnce(() => firstUpload.promise);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      let recordOptions: any;
+      recordMock.mockImplementation((options) => {
+        recordOptions = options;
+        return vi.fn();
+      });
+      const { startSessionReplay, flushSessionReplay } =
+        await freshSessionReplay();
+
+      await startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "https://analytics.example.test/session-replay",
+        maxBatchBytes: 256 * 1024,
+        maxEventsPerBatch: 50,
+        flushIntervalMs: 100_000,
+      });
+      recordOptions.emit({ type: 3, data: { href: "/first", text } });
+      const flush = flushSessionReplay("interval");
+      await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      expect((fetchMock.mock.calls[0]?.[1] as RequestInit).keepalive).toBe(
+        keepalive,
+      );
+      expect(storedSequence()).toBe(1);
+
+      firstUpload.reject(new TypeError("Failed to fetch"));
+      await flush;
+      expect(storedSequence()).toBe(0);
+
+      await flushSessionReplay("interval");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const bodies = await Promise.all(
+        fetchMock.mock.calls.map(([, init]) =>
+          parseReplayUpload(init as RequestInit),
+        ),
+      );
+      expect(bodies.map((body) => body.sequence)).toEqual([0, 0]);
+      expect(bodies[1].events.map((event: any) => event.data.href)).toEqual([
+        "/first",
+      ]);
+      expect(storedSequence()).toBe(1);
+      expect(warn).toHaveBeenCalledWith(
+        "[session-replay] upload failed",
+        expect.any(Error),
+      );
+    },
+  );
+
   it("passes custom rrweb event sampling through to the recorder", async () => {
     installBrowser("https://app.agent-native.com/inbox");
     let recordOptions: any;
@@ -2781,6 +3560,8 @@ describe("session replay", () => {
     });
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const onUploadRejected = vi.fn();
+    const onUploadRejectedWithAttemptId = vi.fn();
+    const onRecordingStarted = vi.fn();
     const replay = await freshSessionReplay();
     const first = await replay.startSessionReplay({
       publicKey: "anpk_test",
@@ -2794,6 +3575,8 @@ describe("session replay", () => {
         maxErrorBodyLength: 123,
       },
       onUploadRejected,
+      onUploadRejectedWithAttemptId,
+      onRecordingStarted,
     });
     const initialNormalizedOptions = (globalThis as any)[replayStateKey]
       .options;
@@ -2805,9 +3588,6 @@ describe("session replay", () => {
     );
     expect(rejectedUpload.sessionId).toBe("sample-in");
 
-    // Simulate the analytics session rotating while the rejected upload is in
-    // flight. This id scores above 0.5, but conflict recovery must preserve the
-    // original recording's accepted sampling decision and session id.
     localStorage.set("agent-native.session_id", "a");
     localStorage.set("agent-native.session_last_activity", String(Date.now()));
     conflictResponse.resolve(new Response("conflict", { status: 409 }));
@@ -2829,11 +3609,21 @@ describe("session replay", () => {
       storage.get("agent-native.session_replay_id") ?? "{}",
     );
     expect(restarted.replayId).not.toBe(first.replayId);
+    expect(onRecordingStarted).toHaveBeenNthCalledWith(1, first.replayId);
+    expect(onRecordingStarted).toHaveBeenNthCalledWith(2, restarted.replayId);
     expect(onUploadRejected).toHaveBeenCalledWith({
       status: 409,
       restartAttempted: true,
       restartSucceeded: true,
     });
+    expect(onUploadRejectedWithAttemptId).toHaveBeenCalledWith(
+      {
+        status: 409,
+        restartAttempted: true,
+        restartSucceeded: true,
+      },
+      rejectedUpload.replayId,
+    );
 
     recordOptions[1].emit({ type: 3, data: { href: "/recovered" } });
     await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(2));
@@ -3016,10 +3806,6 @@ describe("session replay", () => {
     expect(firstResult.started).toBe(true);
     await first.stopSessionReplay();
 
-    // Simulate a second tab of the same browser session: same origin, same
-    // localStorage-backed analytics sessionId (localStorage is shared by
-    // every tab), but its own empty sessionStorage (never shared across
-    // tabs) -- so it must mint its own replayId rather than resume tab1's.
     const sharedSessionId = tab1.localStorage.get("agent-native.session_id");
     const sharedLastActivity = tab1.localStorage.get(
       "agent-native.session_last_activity",
@@ -3065,10 +3851,6 @@ describe("session replay", () => {
         .replayId,
     ).toBe(firstResult.replayId);
 
-    // Simulate a reload within the same tab: the module's in-memory state
-    // resets, but window.sessionStorage (this test's installBrowser() mock,
-    // never reset mid-test) persists exactly like a real tab's
-    // sessionStorage does across a reload/navigation.
     delete (globalThis as any)[replayStateKey];
     const second = await freshSessionReplay();
     const secondResult = await second.startSessionReplay({
@@ -3209,10 +3991,6 @@ describe("session replay", () => {
     await first.stopSessionReplay();
     const resumedReplayId = firstResult.replayId!;
 
-    // A peer that still owns (and replies "taken" for) the resumed id --
-    // e.g. the browser duplicated this tab, so both copies briefly share the
-    // exact same sessionStorage snapshot and would otherwise both try to
-    // resume the same replayId.
     const peer = new FakeBroadcastChannel(REPLAY_BROADCAST_CHANNEL_NAME);
     peer.onmessage = (event: { data: any }) => {
       if (
@@ -3261,8 +4039,6 @@ describe("session replay", () => {
     const peer = new FakeBroadcastChannel(REPLAY_BROADCAST_CHANNEL_NAME);
     peer.onmessage = (event: { data: any }) => {
       if (event.data?.type !== "an-replay-claim") return;
-      // Simulate another copied tab probing at the same time. Its lower nonce
-      // wins deterministically, so this tab must abandon the shared id.
       peer.postMessage({
         type: "an-replay-claim",
         replayId: event.data.replayId,
@@ -3299,8 +4075,6 @@ describe("session replay", () => {
       expect(firstResult.started).toBe(true);
       await first.stopSessionReplay();
 
-      // No peer is registered on the channel this time, so the claim goes
-      // unanswered -- advance fake time past the ~150ms claim timeout.
       delete (globalThis as any)[replayStateKey];
       const second = await freshSessionReplay();
       const startPromise = second.startSessionReplay({

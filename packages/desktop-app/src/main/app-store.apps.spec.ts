@@ -187,8 +187,6 @@ describe("loading a store that cannot be migrated", () => {
       enabled: true,
       mode: "prod" as const,
     };
-    // A single bad element is enough to throw inside migration, which used to
-    // replace the whole file with defaults.
     fs.writeFileSync(storePath, JSON.stringify([custom, null]));
 
     const apps = loadApps();

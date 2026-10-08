@@ -47,6 +47,8 @@ const callbackMocks = vi.hoisted(() => ({
   validateMcpOAuthCallbackIssuer: vi.fn(),
 }));
 
+afterEach(() => resolveSecretPairsMock.mockReset());
+
 vi.mock("../server/auth.js", () => ({
   getSession: callbackMocks.getSession,
   safeReturnPath: (value: string) => value,
@@ -159,7 +161,6 @@ describe("trusted MCP OAuth authorization scopes", () => {
     );
 
     expect(orgOnly).not.toBe(personalOnly);
-    // The reported bug was an org-only server answering with personal-only text.
     expect(orgOnly).toMatch(/set up for your workspace/i);
     expect(orgOnly).toMatch(/owner or admin/i);
     expect(orgOnly).not.toMatch(/personal connection/i);
@@ -239,6 +240,47 @@ describe("MCP OAuth callback flow validation", () => {
     });
   });
 
+  it("rejects anonymous OAuth starts before org lookup or MCP work", async () => {
+    const routes: Array<{ handler: (event: H3Event) => unknown }> = [];
+    callbackMocks.getH3App.mockReturnValue({
+      use: (_base: string, handler: (event: H3Event) => unknown) => {
+        routes.push({ handler });
+      },
+    });
+    callbackMocks.getSession.mockResolvedValue({
+      email: "anon-visitor@agent-native.com",
+    });
+    const reconfigure = vi.fn();
+    mountMcpOAuthRoutes({}, { reconfigure });
+
+    const event = mockEvent(
+      new Request(
+        "https://app.example.com/start?name=linear&url=https%3A%2F%2Fmcp.example.com%2Fmcp",
+      ),
+    );
+    await routes[0]!.handler(event);
+
+    expect(event.res.status).toBe(401);
+    expect(callbackMocks.getOrgContext).not.toHaveBeenCalled();
+    expect(callbackMocks.startMcpOAuthAuthorization).not.toHaveBeenCalled();
+    expect(reconfigure).not.toHaveBeenCalled();
+  });
+
+  it("rejects anonymous OAuth callbacks before resolving or persisting credentials", async () => {
+    callbackMocks.getSession.mockResolvedValue({
+      email: "anon-visitor@agent-native.com",
+    });
+    const reconfigure = vi.fn(async () => true);
+    const { event } = await invokeCallback(baseFlow, {}, reconfigure);
+
+    expect(event.res.status).toBe(401);
+    expect(callbackMocks.getOrgContext).not.toHaveBeenCalled();
+    expect(callbackMocks.finishMcpOAuthAuthorization).not.toHaveBeenCalled();
+    expect(callbackMocks.addOAuthRemoteServer).not.toHaveBeenCalled();
+    expect(callbackMocks.replaceOAuthRemoteServer).not.toHaveBeenCalled();
+    expect(reconfigure).not.toHaveBeenCalled();
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
   });
@@ -290,6 +332,43 @@ describe("MCP OAuth callback flow validation", () => {
             registration_endpoint: "https://auth.example.com/register",
           },
         },
+      }),
+    );
+  });
+
+  it("continues Gong org OAuth through dynamic registration without Manual credentials", async () => {
+    const routes: Array<{ handler: (event: H3Event) => unknown }> = [];
+    callbackMocks.getH3App.mockReturnValue({
+      use: (_base: string, handler: (event: H3Event) => unknown) => {
+        routes.push({ handler });
+      },
+    });
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-acme",
+      role: "owner",
+    });
+    callbackMocks.startMcpOAuthAuthorization.mockResolvedValue({
+      authorizationUrl: new URL("https://app.gong.io/oauth2/authorize"),
+      codeVerifier: "<CODE_VERIFIER>",
+      state: "<STATE>",
+      clientInformation: { client_id: "gong-dynamic-client" },
+    });
+    resolveSecretPairsMock.mockReset().mockImplementation(async () => null);
+    mountMcpOAuthRoutes({}, { reconfigure: vi.fn() });
+
+    const result = await routes[0]!.handler(
+      mockEvent(
+        new Request(
+          "https://app.example.com/start?name=Gong&url=https%3A%2F%2Fmcp.gong.io%2Fmcp&scope=org&orgId=org-acme",
+        ),
+      ),
+    );
+
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(302);
+    expect(callbackMocks.startMcpOAuthAuthorization).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverUrl: "https://mcp.gong.io/mcp",
       }),
     );
   });
@@ -579,6 +658,19 @@ describe("managed MCP OAuth clients", () => {
     ).toEqual({ ok: true, scope: "org" });
   });
 
+  it("allows Gong OAuth at personal or organization scope", () => {
+    const serverUrl = new URL("https://mcp.gong.io/mcp");
+
+    expect(resolveMcpOAuthScope(serverUrl, "user")).toEqual({
+      ok: true,
+      scope: "user",
+    });
+    expect(resolveMcpOAuthScope(serverUrl, "org")).toEqual({
+      ok: true,
+      scope: "org",
+    });
+  });
+
   it("matches the server org-only rule for hand-entered Builder Publish URLs", () => {
     for (const raw of [
       "https://mcp.builder.io/mcp/publish",
@@ -587,9 +679,6 @@ describe("managed MCP OAuth clients", () => {
       expect(mcpUrlRequiresOrganizationScope(raw)).toBe(true);
       expect(resolveMcpOAuthScope(new URL(raw), "user").ok).toBe(false);
     }
-    // A query or fragment takes the URL outside the trusted Builder Publish
-    // match on the server too, so it is a generic server that accepts either
-    // scope. Forcing org here would fail requests the server would allow.
     for (const raw of [
       "https://mcp.builder.io/mcp/fusion",
       "https://mcp.builder.io/mcp/publish?x=1",
@@ -612,7 +701,6 @@ describe("managed MCP OAuth clients", () => {
       if (integration.authMode !== "oauth" || !integration.url) continue;
       const serverUrl = new URL(integration.url);
 
-      // The client must not advertise a personal connection the server rejects.
       expect({
         id: integration.id,
         organizationScopeOnly: integration.organizationScopeOnly === true,
@@ -621,8 +709,6 @@ describe("managed MCP OAuth clients", () => {
         organizationScopeOnly: !resolveMcpOAuthScope(serverUrl, "user").ok,
       });
 
-      // The URL-level rule that buildMcpOAuthStartUrl enforces has to agree
-      // with the server too, since custom servers carry no catalog flag.
       expect({
         id: integration.id,
         urlRequiresOrg: mcpUrlRequiresOrganizationScope(integration.url),
@@ -631,8 +717,6 @@ describe("managed MCP OAuth clients", () => {
         urlRequiresOrg: !resolveMcpOAuthScope(serverUrl, "user").ok,
       });
 
-      // ...nor a workspace connection the server rejects. `managedOAuth` is
-      // what makes the UI hide the workspace option for those providers.
       expect({
         id: integration.id,
         managedOAuth: integration.managedOAuth === true,
@@ -659,6 +743,28 @@ describe("managed MCP OAuth clients", () => {
       client_secret: "hubspot-client-secret",
       token_endpoint_auth_method: "client_secret_post",
     });
+  });
+
+  it("resolves workspace credentials for a Manual Gong integration", async () => {
+    resolveSecretPairsMock.mockImplementation(
+      async ([[clientIdKey, clientSecretKey]]) =>
+        clientIdKey === "GONG_MCP_CLIENT_ID" &&
+        clientSecretKey === "GONG_MCP_CLIENT_SECRET"
+          ? ["gong-client-id", "gong-client-secret"]
+          : null,
+    );
+
+    await expect(
+      resolveManagedMcpOAuthClient(new URL("https://mcp.gong.io/mcp")),
+    ).resolves.toEqual({
+      client_id: "gong-client-id",
+      client_secret: "gong-client-secret",
+      token_endpoint_auth_method: "client_secret_post",
+    });
+    expect(resolveSecretPairsMock).toHaveBeenCalledWith(
+      [["GONG_MCP_CLIENT_ID", "GONG_MCP_CLIENT_SECRET"]],
+      { allowUserScope: false, preferWorkspaceScope: true },
+    );
   });
 
   it("resolves the shared Google client for official Workspace MCP servers", async () => {
@@ -802,8 +908,6 @@ describe("MCP OAuth start failure rendering", () => {
     expect(wantsHtmlResponse(jsonEvent())).toBe(false);
   });
 
-  // The Connect button opens this route in a popup, so a JSON body was painted
-  // across the window as a raw error object.
   it("renders an HTML page for the popup instead of the raw JSON body", async () => {
     const response = mcpOAuthStartFailureResponse(htmlEvent(), {
       status: 400,
@@ -831,8 +935,6 @@ describe("MCP OAuth start failure rendering", () => {
     expect(html).toContain("&lt;img");
   });
 
-  // The callback stages the flow-cookie deletion before it validates anything,
-  // and h3 does not merge staged Set-Cookie headers into a returned Response.
   it("carries the staged flow-cookie deletion onto the HTML page", async () => {
     const event = htmlEvent();
     clearMcpOAuthFlowCookies(event);

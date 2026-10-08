@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 function readDatabaseSource() {
   return [
     "./database/DatabaseView.tsx",
+    "./database/DatabaseViewSkeleton.tsx",
     "./database/ContentTable.tsx",
     "./database/settings.tsx",
     "./database/shared.tsx",
@@ -23,9 +24,8 @@ describe("document database layout", () => {
   it("wraps database toolbar controls instead of clipping them", () => {
     const source = readDatabaseSource();
 
-    expect(source).toContain(
-      '<div className="mt-4 min-w-0 w-full max-w-[calc(100vw-var(--content-sidebar-width,0px)-1.5rem)]">',
-    );
+    expect(source).toContain('"mt-4 min-w-0 w-full max-w-full"');
+    expect(source).toContain("<div className={DATABASE_VIEW_CLASS_NAME}>");
     expect(source).toContain(
       "mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1",
     );
@@ -33,7 +33,7 @@ describe("document database layout", () => {
       "flex min-h-8 max-w-full flex-wrap items-center justify-end gap-1",
     );
     expect(source).toContain(
-      "group/viewtabs relative flex min-w-0 flex-1 items-center gap-1 overflow-x-auto",
+      "group/viewtabs relative flex min-w-0 flex-auto items-center gap-1 overflow-x-auto",
     );
   });
 
@@ -172,8 +172,6 @@ describe("document database layout", () => {
     expect(
       source.match(/onClick=\{\(\) => onRefreshSource\(source\.id\)\}/g),
     ).toHaveLength(2);
-    // The independent DatabaseView continuation pump still resumes an already
-    // fetching snapshot after a reload; it is not a panel-open freshness read.
     expect(source).toContain(
       'builderSourceRowFetchStatus(source) === "fetching"',
     );
@@ -184,16 +182,11 @@ describe("document database layout", () => {
   it("reduces the connected source panel to read-only status plus a diff slot", () => {
     const source = readDatabaseSource();
 
-    // Read-only is the headline signal; live writes flip the same badge.
     expect(source).toContain('dbText("readOnly")');
     expect(source).toContain('dbText("liveWritesOn")');
-    // The dormant diff slot is the single push-review entry point.
     expect(source).toContain('dbText("reviewDiff")');
-    // A failed sync surfaces inline instead of silently going stale.
     expect(source).toContain('dbText("couldntSyncRetry")');
-    // Disconnect stays available, tucked at the bottom.
     expect(source).toContain('dbText("disconnectSource")');
-    // The aggregate field-mappings list is gone (mappings live in column menus).
     expect(source).not.toContain(">Field mappings<");
   });
 

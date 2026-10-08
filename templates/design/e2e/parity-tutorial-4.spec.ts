@@ -9,22 +9,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { gotoEditor } from "./helpers";
 
-/**
- * Figma tutorial parity — "Design a search icon"
- * https://help.figma.com/hc/en-us/articles/18886645808023-Design-a-search-icon
- * (figma-interaction-spec.md Part 2 §4)
- *
- * Recreates the 8-step tutorial as real editor gestures (tool hotkeys,
- * shift-drag, pen clicks, typed inspector values, shift-select + group,
- * align, layer rename), asserting after every step. Also covers 2-3 board
- * (overview-canvas, outside-any-screen) steps and one element crossing the
- * screen boundary, per the finder preamble.
- *
- * Figma has no boolean "Union selection" operation in this app (§6) — that
- * step is recorded as a finding and the closest equivalent (Group, ⌘G) is
- * used to continue the tutorial.
- */
-
 let designId: string;
 let baseURLForActions: string;
 
@@ -100,8 +84,6 @@ test.afterEach(async ({ page }) => {
   );
   designId = "";
 });
-
-// ── Shared helpers (copied/trimmed from canvas-tools.spec.ts patterns) ────
 
 function toolButton(page: Page, name: string): Locator {
   return page.locator(`button[aria-label="${name}"]`).first();
@@ -216,6 +198,12 @@ function inspectorSection(page: Page, title: RegExp | string): Locator {
   return page.locator("section").filter({ has: heading }).first();
 }
 
+function addStrokeButton(section: Locator): Locator {
+  return section
+    .locator('[data-inspector-action-rail] button[aria-label="Add stroke"]')
+    .first();
+}
+
 function layerTree(page: Page): Locator {
   return page.getByRole("tree", { name: "Layers" });
 }
@@ -234,13 +222,10 @@ function renameInput(page: Page): Locator {
 const undoShortcut = process.platform === "darwin" ? "Meta+z" : "Control+z";
 const groupShortcut = process.platform === "darwin" ? "Meta+g" : "Control+g";
 
-// ── Steps 1-8: build the icon inside the "Search icon" screen ─────────────
-
 test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
   const card = await homeScreenCard(page).boundingBox();
   if (!card) throw new Error("no screen card box");
 
-  // Step 1: Press O, Shift-drag a lens near the top-right of the icon grid.
   await test.step("O selects the Ellipse tool; Shift-drag draws an aspect-locked ellipse", async () => {
     await page.keyboard.press("o");
     await expect(toolButton(page, "Ellipse")).toHaveAttribute(
@@ -267,9 +252,6 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
       ellipse,
       "ellipse primitive must exist after the drag",
     ).not.toBeNull();
-    // Shift constrains the drag to a 1:1 aspect ratio — this is the concrete
-    // property that must change; a click-only drag (no shift) would also
-    // create a shape, but not necessarily a square one.
     expect(
       Math.abs((ellipse!.width ?? 0) - (ellipse!.height ?? 0)),
       `shift-drag must lock width==height, got ${ellipse!.width}x${ellipse!.height}`,
@@ -277,7 +259,6 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
     await expect(selectedLayerRow(page)).toContainText(/Ellipse/i);
   });
 
-  // Typed inspector values: pin the lens to the tutorial's exact 16x16.
   await test.step("typed W/H inspector fields resize the lens to 16x16", async () => {
     const wField = page.getByLabel("W size in pixels");
     const hField = page.getByLabel("H size in pixels");
@@ -291,22 +272,14 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
       .toEqual(expect.objectContaining({ width: 16, height: 16 }));
   });
 
-  // Step 2: Add stroke weight 2, remove fill.
   await test.step("Add stroke sets weight 2; Remove layer on Fill clears the fill", async () => {
     const strokeSection = inspectorSection(page, /^Stroke$/i);
-    await strokeSection.getByRole("button", { name: "Add stroke" }).click();
+    await addStrokeButton(strokeSection).click();
     const weightField = strokeSection.getByLabel("Weight").first();
     await expect(weightField).toBeVisible({ timeout: 10_000 });
     await weightField.fill("2");
     await weightField.press("Enter");
 
-    // search-icon-2 (fixed): a freshly drawn shape's committed `background`
-    // shorthand wasn't recognized as `backgroundColor` once the inspector's
-    // selection was refreshed from source (cssStyleAliases only aliased
-    // hyphenated longhands, never expanded a shorthand) — see
-    // code-layer-state.ts's cssStyleAliases. The inspector read no fill at
-    // all, so there was no removable row to match Figma's always-present
-    // solid fill layer on a new shape.
     const fillSection = inspectorSection(page, /^Fill$/i);
     await expect(
       fillSection.locator('button[aria-label="Remove layer"]'),
@@ -328,7 +301,6 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
       .not.toMatch(/background-color:\s*rgb/);
   });
 
-  // Step 4: Press P, click two points 4px apart (a straight handle), Enter.
   await test.step("P selects the Pen tool; two clicks + Enter commit a Vector handle", async () => {
     await page.keyboard.press("Escape");
     await page.keyboard.press("p");
@@ -349,10 +321,9 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
     await expect(selectedLayerRow(page)).toContainText(/Vector/i);
   });
 
-  // Step 5: stroke weight 2 on the handle; Figma's "endpoints: Round" cap.
   await test.step("stroke weight 2 applies to the handle; Round line-cap has no control (finding)", async () => {
     const strokeSection = inspectorSection(page, /^Stroke$/i);
-    await strokeSection.getByRole("button", { name: "Add stroke" }).click();
+    await addStrokeButton(strokeSection).click();
     const weightField = strokeSection.getByLabel("Weight").first();
     await expect(weightField).toBeVisible({ timeout: 10_000 });
     await weightField.fill("2");
@@ -362,27 +333,59 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
         const content = await fileContent(page, "index.html");
         return page.evaluate((html) => {
           const doc = new DOMParser().parseFromString(html, "text/html");
-          return (
-            doc
-              .querySelector('svg[data-agent-native-layer-name="Vector"]')
-              ?.getAttribute("style") ?? ""
+          const svg = doc.querySelector(
+            'svg[data-agent-native-layer-name="Vector"]',
           );
+          if (!svg) throw new Error("no Vector svg in index.html");
+          return [svg, ...Array.from(svg.querySelectorAll("*"))]
+            .map(
+              (element) =>
+                `${element.getAttribute("style") ?? ""};stroke-width:${element.getAttribute("stroke-width") ?? ""}`,
+            )
+            .join(";");
         }, content);
       })
-      .toMatch(/2px/);
-    // No cap/endpoint control exists anywhere in the Stroke section.
+      // Adding a stroke writes 1px; only the typed weight produces 2px. A bare
+      // /2px/ also matched geometry such as top:102px.
+      .toMatch(/(?:^|;)\s*stroke-width:\s*2(?:px)?(?:;|$)/);
     const capControl = strokeSection.getByRole("button", { name: /round/i });
     await expect(capControl).toHaveCount(0);
   });
 
-  // Step 6: Shift-select lens + handle, "Union selection" — no equivalent.
-  // Continue with the closest equivalent: Group (Cmd/Ctrl+G).
   await test.step("Union selection does not exist (finding); Cmd+G groups instead, one undo restores both layers", async () => {
     await layerRowButton(page, "Ellipse").click();
     await layerRowButton(page, "Vector").click({ modifiers: ["Shift"] });
     await expect(
       page.locator('[role="treeitem"][aria-selected="true"]'),
     ).toHaveCount(2);
+
+    const preGroupEllipseId = await layerRowButton(
+      page,
+      "Ellipse",
+    ).getAttribute("data-layer-node-id");
+    const preGroupVectorId = await layerRowButton(page, "Vector").getAttribute(
+      "data-layer-node-id",
+    );
+    if (!preGroupEllipseId || !preGroupVectorId) {
+      throw new Error(
+        `expected Ellipse/Vector layer rows to carry data-layer-node-id, got ${preGroupEllipseId}/${preGroupVectorId}`,
+      );
+    }
+
+    const preGroupNodeIds = await page.evaluate(
+      (html) => {
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        return ["Ellipse", "Vector"].map((name) => {
+          const node = doc.querySelector(
+            `[data-agent-native-layer-name="${name}"]`,
+          );
+          const id = node?.getAttribute("data-agent-native-node-id");
+          if (!id) throw new Error(`${name} has no data-agent-native-node-id`);
+          return { id, name };
+        });
+      },
+      await fileContent(page, "index.html"),
+    );
 
     const unionButton = page.getByRole("button", { name: /union/i });
     await expect(
@@ -405,18 +408,26 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
       page.locator('[role="treeitem"][aria-selected="true"]'),
     ).toHaveCount(1);
     await expect(selectedLayerRow(page)).toContainText(/Group/i);
-    const content = await fileContent(page, "index.html");
-    const groupChildren = await page.evaluate((html) => {
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      return Array.from(
-        doc.querySelector('[data-agent-native-layer-name="Group"]')?.children ??
-          [],
-      ).map((child) => child.getAttribute("data-agent-native-layer-name"));
-    }, content);
-    expect(groupChildren).toEqual(
-      expect.arrayContaining(["Ellipse", "Vector"]),
-    );
-    expect(groupChildren).toHaveLength(2);
+    const groupChildren = async () => {
+      const html = await fileContent(page, "index.html");
+      return page.evaluate((source) => {
+        const doc = new DOMParser().parseFromString(source, "text/html");
+        const group = doc.querySelector(
+          '[data-agent-native-layer-name="Group"]',
+        );
+        if (!group) throw new Error("no Group in index.html");
+        return Array.from(group.children)
+          .map((child) => ({
+            id: child.getAttribute("data-agent-native-node-id"),
+            name: child.getAttribute("data-agent-native-layer-name"),
+          }))
+          .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      }, html);
+    };
+    expect(
+      await groupChildren(),
+      "Cmd+G must wrap the two original nodes, not re-minted copies",
+    ).toEqual(preGroupNodeIds);
 
     await page.keyboard.press(undoShortcut);
     await expect
@@ -446,10 +457,28 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
           .sort(),
       );
     expect(selectedLayerNames).toEqual(["Ellipse", "Vector"]);
+    const selectedLayerIdsAfterUndo = await page
+      .locator(
+        '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
+      )
+      .evaluateAll((nodes) =>
+        nodes
+          .map((node) => node.getAttribute("data-layer-node-id"))
+          .filter((id): id is string => Boolean(id))
+          .sort(),
+      );
+    expect(selectedLayerIdsAfterUndo).toEqual(
+      [preGroupEllipseId, preGroupVectorId].sort(),
+    );
+    await expect(layerRowButton(page, "Vector")).toHaveAttribute(
+      "data-layer-node-id",
+      preGroupVectorId,
+    );
+    await expect(layerRowButton(page, "Ellipse")).toHaveAttribute(
+      "data-layer-node-id",
+      preGroupEllipseId,
+    );
 
-    // Redo the group so later steps have it again.
-    await layerRowButton(page, "Ellipse").click();
-    await layerRowButton(page, "Vector").click({ modifiers: ["Shift"] });
     await page.keyboard.press(groupShortcut);
     await expect
       .poll(async () => {
@@ -461,25 +490,15 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
         }, c);
       })
       .toBe(1);
+    expect(await groupChildren()).toEqual(preGroupNodeIds);
   });
 
-  // Step 7: align the merged shape centered "within equal padding". A
-  // single top-level object whose parent is the document root correctly
-  // disables Align (verified below) — matches Figma, where a lone
-  // root-level object with no parent frame has nothing to align against.
-  // The layers-panel drag needed to reparent the group into a real frame
-  // first is covered by the dedicated layers-panel parity spec, so here we
-  // exercise the other branch `align-selection.ts` actually offers a
-  // multi-object selection: two-or-more objects align to their own combined
-  // bounding box and never need a parent, which is exactly the shape of
-  // this tutorial step before the group existed (lens + handle).
   await test.step("Align disables for a lone root-level group (no parent frame); a 2-object selection aligns to its own bbox instead", async () => {
     await layerRowButton(page, "Group").click();
     await expect(
       page.getByRole("button", { name: "Align horizontal centers" }),
     ).toBeDisabled({ timeout: 5_000 });
 
-    // Ungroup back to the two layers to exercise the working alignment path.
     await page.keyboard.press(
       process.platform === "darwin" ? "Meta+Shift+g" : "Control+Shift+g",
     );
@@ -499,9 +518,6 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
     const afterVector = await primitiveStyle(page, "index.html", "path");
     expect(afterEllipse, "ellipse must still exist after align").not.toBeNull();
     expect(afterVector, "vector must still exist after align").not.toBeNull();
-    // The concrete property that must change: both members' vertical
-    // centers now coincide (Figma's "align vertical centers" on a
-    // multi-selection). Before the click they generally do not.
     const beforeCenterDelta = Math.abs(
       beforeEllipse!.top +
         beforeEllipse!.height / 2 -
@@ -517,7 +533,6 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
       `vertical centers must coincide after align (was ${beforeCenterDelta}px apart, now ${afterCenterDelta}px apart)`,
     ).toBeLessThan(1);
 
-    // Re-group so step 8 (rename) has the expected "Group" layer again.
     await layerRowButton(page, "Ellipse").click();
     await layerRowButton(page, "Vector").click({ modifiers: ["Shift"] });
     await page.keyboard.press(groupShortcut);
@@ -533,7 +548,6 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
       .toBe(1);
   });
 
-  // Step 8: rename the frame/group "search-icon".
   await test.step("double-click rename in the layers panel renames the group to search-icon", async () => {
     await layerRowButton(page, "Group").dblclick({ force: true });
     const input = renameInput(page);
@@ -559,8 +573,6 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
   });
 });
 
-// ── Overview canvas, outside any screen (2 steps) + one boundary crossing ──
-
 test("tutorial 4 (overview) — a board rectangle drawn, renamed, and dragged into the screen", async ({
   page,
 }) => {
@@ -569,8 +581,6 @@ test("tutorial 4 (overview) — a board rectangle drawn, renamed, and dragged in
 
   const boardStart = { x: cardBox.x + cardBox.width + 120, y: cardBox.y + 60 };
 
-  // Overview step 1: draw a board rectangle to the right of the screen with
-  // the Rectangle tool, shift-locked to a square (outside any screen).
   await test.step("R + shift-drag on the empty overview canvas creates a square board object, not a screen element", async () => {
     await page.keyboard.press("r");
     await expect(toolButton(page, "Rectangle")).toHaveAttribute(
@@ -591,7 +601,6 @@ test("tutorial 4 (overview) — a board rectangle drawn, renamed, and dragged in
         timeout: 20_000,
       })
       .toBe(1);
-    // It must NOT have landed inside the screen's own file.
     expect(await primitiveCount(page, "index.html", "rectangle")).toBe(0);
     const boardRect = await primitiveStyle(page, "__board__.html", "rectangle");
     expect(boardRect).not.toBeNull();
@@ -600,7 +609,6 @@ test("tutorial 4 (overview) — a board rectangle drawn, renamed, and dragged in
     ).toBeLessThan(1);
   });
 
-  // Overview step 2: rename the board rectangle from the layers panel.
   await test.step("double-click rename retitles the board rectangle", async () => {
     await layerRowButton(page, "Rectangle").dblclick({ force: true });
     const input = renameInput(page);
@@ -610,11 +618,7 @@ test("tutorial 4 (overview) — a board rectangle drawn, renamed, and dragged in
     await expect(layerRowButton(page, "board-sticker")).toBeVisible();
   });
 
-  // Boundary crossing: drag the board object INTO the screen.
   await test.step("dragging the board object into the screen reparents it into the screen's HTML, off the board", async () => {
-    // Read the rectangle's real on-canvas box straight from the board
-    // iframe's own content frame (its coordinate space already accounts for
-    // overview zoom), rather than recomputing it from inline style + zoom.
     const rectLocator = page
       .locator("[data-board-surface-layer] iframe")
       .first()

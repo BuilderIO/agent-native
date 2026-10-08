@@ -3,7 +3,6 @@ import type { DesignSystemData } from "@shared/api";
 import type { InlineTextStyleKey } from "./rich-text-selection";
 
 export interface SlideStyleSnapshot {
-  /** Omitted snapshots are existing object snapshots for backward compatibility. */
   mode?: "object";
   selector: string;
   label: string;
@@ -77,7 +76,6 @@ const MULTI_STYLE_KEYS = [
   "textDecoration",
 ] as const satisfies readonly InlineTextStyleKey[];
 
-/** Keep the first item's controls while marking values that disagree. */
 export function mergeSlideStyleSnapshots(
   snapshots: readonly SlideStyleSnapshot[],
 ): SlideStyleSnapshot | null {
@@ -94,8 +92,6 @@ export function mergeSlideStyleSnapshots(
 
   return {
     ...first,
-    // Group position controls would write one object's coordinates to every
-    // member, so group snapshots expose appearance controls only.
     isAbsolute: false,
     mixedTextStyles: first.isText
       ? MULTI_STYLE_KEYS.filter((key) =>
@@ -150,9 +146,6 @@ export function tokenPalette(
       ]
     : [];
 
-  // Fixed swatches offered when a deck has no design system. These are
-  // document colors the user paints onto slide content, so they must stay
-  // literal — theming them would repaint finished decks on a theme switch.
   const presets: Array<[key: string, hex: string]> = [
     ["white", "#ffffff"], // guard:allow-raw-color
     ["black", "#000000"], // guard:allow-raw-color

@@ -20,11 +20,6 @@ const PROVIDER_LABELS = {
   salesforce: "Salesforce",
 } as const;
 
-/**
- * A prepared field change. `beforeKnown` separates "the mirror holds no value
- * for this field" from "the mirrored value is empty" — collapsing them would
- * show a confident `— → Renewal` diff for a field we simply do not mirror.
- */
 interface PreparedField {
   name: string;
   beforeKnown: boolean;
@@ -175,8 +170,6 @@ export default defineAction({
         "CRM connection is missing its workspace connection reference.",
       );
     }
-    // Without a revision anchor the mirrored "before" column cannot be trusted
-    // to describe the record the user is about to edit by hand.
     if (!proposal.expectedRemoteRevision) {
       throw new Error(
         "CRM proposal has no remote revision and must be recreated from a refreshed record.",
@@ -236,9 +229,6 @@ export default defineAction({
 
     const scope = requireCrmScope(ctx);
     const now = new Date().toISOString();
-    // `approved` with `appliedAt` still null is the ledger's "prepared and
-    // handed off, never written upstream" state. `error` stays null so a
-    // working handoff is never mistaken for a failure.
     const claim = await db
       .update(schema.crmMutations)
       .set({
@@ -272,7 +262,6 @@ export default defineAction({
       recordId: record.id,
       recordName: record.displayName,
       status: "approved" as const,
-      /** This release never completes a provider write. Always false. */
       upstreamApplied: false,
       provider: connection.provider,
       providerLabel,

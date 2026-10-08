@@ -19,7 +19,7 @@ These three pages are easy to confuse. Pick by the question you're asking:
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)          | "Does the agent do the right thing on this fixed input?"   | Active, deterministic, a CI/deploy gate      | Quality        |
 | **[Observational Memory](/docs/observational-memory)** | "Is this long thread staying cheap and inside the window?" | Background compaction on long threads        | Cost / context |
 
-Observability and the CI Eval Gate both score _quality_ but from opposite ends — passive post-hoc scoring of real traffic vs. active pass/fail checks on fixed inputs. Observational Memory is unrelated to quality; it's about token cost and context-window pressure.
+Observability and the CI Eval Gate both score _quality_ but from opposite ends — passive post-hoc scoring of real traffic vs. active pass/fail checks on fixed inputs. Promote a completed production trace into a `*.eval.ts` case (dashboard **Promote to eval**, `promote-trace-eval`, or `agent-native eval promote <runId> --write evals/from-trace.eval.ts`) so the miss becomes the next CI gate. See [From a production trace](/docs/evals#from-trace). Observational Memory is unrelated to quality; it's about token cost and context-window pressure.
 
 ## What's captured automatically {#captured}
 
@@ -93,7 +93,7 @@ No code changes needed. The instrumentation hooks into `production-agent.ts` tra
 Add the dashboard to any template with a single route:
 
 ```tsx filename="app/routes/observability.tsx"
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -105,7 +105,7 @@ export default function ObservabilityPage() {
 
 All data is scoped to the signed-in user; there is no cross-user admin view today.
 
-The dashboard has 5 tabs:
+The dashboard has 6 tabs:
 
 | Tab               | What it shows                                                                   |
 | ----------------- | ------------------------------------------------------------------------------- |
@@ -114,6 +114,19 @@ The dashboard has 5 tabs:
 | **Evals**         | Automated eval scores by criteria, trends over time                             |
 | **Experiments**   | A/B test list with status badges, variant results with confidence intervals     |
 | **Feedback**      | Thumbs up/down stream, category breakdown, frustration scores                   |
+| **Human review**  | Review the ask and answer, record feedback, and draft instruction updates       |
+
+### Conversations {#conversations}
+
+Select a run to inspect its spans. Expand any span to view captured tool inputs, outputs, errors, and metadata. Use **Open full conversation** to jump to the associated chat thread.
+
+Tool arguments, results, and full error bodies are off by default. Enable `captureToolArgs` to store arguments and `captureToolResults` to store results and full error bodies in the `observability` config. Sensitive fields are redacted before storage. A failed tool always keeps a bounded first line of its error, with credentials, emails, and long opaque ids redacted, so failures stay diagnosable even when `captureToolResults` is off.
+
+Prompt capture is off by default. Set `capturePrompts: true` in the `observability` config, or set `AGENT_NATIVE_OBSERVABILITY_CAPTURE_PROMPTS=true`, to store each `llm_call` span's input and output for this detail view. The system prompt is excluded, structured sensitive fields are redacted, and each side is capped at 128 KiB. Existing spans are not backfilled.
+
+### Human review {#review}
+
+The Human review tab shows each run’s ask and answer, lets you record feedback, and lets you draft an instruction update for a human to review. Saving the draft does not change instructions automatically.
 
 ## User feedback {#feedback}
 
@@ -271,7 +284,7 @@ export default defineAppConfig({
 
 <Callout id="doc-block-1xvsimn" tone="info">
 
-Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+Content is **redacted by default**: token counts, costs, and timing are stored, plus, for a failed tool, a bounded first line of its error with credentials, emails, and long opaque ids redacted. Prompts, tool inputs, tool results, and full error bodies stay off unless `capturePrompts`, `captureToolArgs`, and `captureToolResults` are on. Turn them on only when you need prompt or argument content for debugging.
 
 </Callout>
 
@@ -279,23 +292,24 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 All auto-mounted at `/_agent-native/observability/`:
 
-| Method | Path                       | Purpose                        |
-| ------ | -------------------------- | ------------------------------ |
-| GET    | `/`                        | Overview stats                 |
-| GET    | `/traces`                  | List trace summaries           |
-| GET    | `/traces/:runId`           | Trace detail (summary + spans) |
-| GET    | `/traces/:runId/evals`     | Evals for a run                |
-| POST   | `/feedback`                | Submit feedback                |
-| GET    | `/feedback`                | List feedback                  |
-| GET    | `/feedback/stats`          | Feedback aggregation           |
-| GET    | `/satisfaction`            | Satisfaction scores            |
-| GET    | `/evals/stats`             | Eval statistics                |
-| POST   | `/experiments`             | Create experiment              |
-| GET    | `/experiments`             | List experiments               |
-| GET    | `/experiments/:id`         | Get experiment detail          |
-| PUT    | `/experiments/:id`         | Update experiment              |
-| POST   | `/experiments/:id/results` | Compute results                |
-| GET    | `/experiments/:id/results` | Get results                    |
+| Method | Path                       | Purpose                              |
+| ------ | -------------------------- | ------------------------------------ |
+| GET    | `/`                        | Overview stats                       |
+| GET    | `/traces`                  | List trace summaries                 |
+| GET    | `/traces/:runId`           | Trace detail (summary + spans)       |
+| GET    | `/traces/:runId/evals`     | Evals for a run                      |
+| POST   | `/traces/:runId/promote`   | Promote a completed run to a CI eval |
+| POST   | `/feedback`                | Submit feedback                      |
+| GET    | `/feedback`                | List feedback                        |
+| GET    | `/feedback/stats`          | Feedback aggregation                 |
+| GET    | `/satisfaction`            | Satisfaction scores                  |
+| GET    | `/evals/stats`             | Eval statistics                      |
+| POST   | `/experiments`             | Create experiment                    |
+| GET    | `/experiments`             | List experiments                     |
+| GET    | `/experiments/:id`         | Get experiment detail                |
+| PUT    | `/experiments/:id`         | Update experiment                    |
+| POST   | `/experiments/:id/results` | Compute results                      |
+| GET    | `/experiments/:id/results` | Get results                          |
 
 All endpoints support `?since=N` (ms timestamp) and `?limit=N` query params.
 
@@ -384,13 +398,164 @@ So the cost when you haven't wired OTel is a couple of cached property reads per
 
 The agent loop emits three span kinds:
 
-| Span        | When                       | Attributes                                                        |
-| ----------- | -------------------------- | ----------------------------------------------------------------- |
-| `agent.run` | once per agent run         | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | once per action invocation | `tool.name`, plus success/error status                            |
-| `llm.call`  | per model call             | timing + OK/error status                                          |
+| Span                  | When                       | Attributes                                                                                                                                                                    |
+| --------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invoke_agent`        | once per agent run         | `gen_ai.provider.name` (the engine), `gen_ai.conversation.id` (the thread), `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `agent.run_id` |
+| `chat {model}`        | per model call             | `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.response.finish_reasons`, `gen_ai.usage.*`                                                   |
+| `execute_tool {tool}` | once per action invocation | `gen_ai.tool.name`, `gen_ai.tool.call.id`, plus success/error status                                                                                                          |
 
 Spans are finished with OK/ERROR status and record the error message on failure. Zero/sentinel attribute values are pruned so spans aren't cluttered with noise. This OTel layer is purely additive to the in-house `agent_trace_spans` / `agent_trace_summaries` tables that power the dashboard above — both are produced from the same run events.
+
+### Metrics {#otel-metrics}
+
+Core also records metrics once the host registers a meter provider with `registerObservabilityProvider()` from `@agent-native/core/server`. Metrics are recorded for every request and run, with no sampling:
+
+| Instrument                              | Attributes                                                                                   |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+
+On metrics, `gen_ai.tool.name` is a framework action's name or `other`, and `gen_ai.request.model` is the model id only when the engine lists it as supported, otherwise `_OTHER`. App-defined tools and caller-supplied model ids therefore cannot create unbounded series; spans keep the exact values.
+
+## Connecting an OpenTelemetry back end {#otel-provider}
+
+Core ships no OpenTelemetry SDK or exporter. An app builds its own SDK providers and hands them to core with `registerObservabilityProvider()` from `@agent-native/core/server`. Core then emits the [spans](#otel) and [metrics](#otel-metrics) above through them, and the app's exporter sends them to any OTLP back end.
+
+### `registerObservabilityProvider()` {#register-observability-provider}
+
+`registerObservabilityProvider()` takes one object with two optional fields:
+
+- **tracerProvider**: an object with `getTracer(name, version?)`. Core takes its tracer from here. Without one, spans use the global `@opentelemetry/api` tracer.
+- **meterProvider**: an object with `getMeter(name, version?)`. Metrics are recorded only when a meter provider is registered. They have no global fallback, so without one every metric is a no-op.
+
+Either provider may also implement `forceFlush()`, which core calls after each response (see [Flushing on serverless](#otel-flush)). The SDK's `BasicTracerProvider` and `MeterProvider` already match these shapes.
+
+```ts
+function registerObservabilityProvider(
+  provider: ObservabilityProvider,
+): () => void;
+
+interface ObservabilityProvider {
+  tracerProvider?: ObservabilityTracerProvider;
+  meterProvider?: ObservabilityMeterProvider;
+}
+
+interface ObservabilityTracerProvider {
+  getTracer(name: string, version?: string): unknown;
+  forceFlush?(): Promise<void>;
+}
+
+interface ObservabilityMeterProvider {
+  getMeter(name: string, version?: string): unknown;
+  forceFlush?(): Promise<void>;
+}
+```
+
+A later call replaces the earlier provider. The returned function unregisters the provider if it is still the registered one. Spans also need `@opentelemetry/api` installed in the app. Without it, core turns tracing off and logs one warning.
+
+### Flushing on serverless {#otel-flush}
+
+Serverless functions freeze between invocations, so an SDK's export timer may never fire. When a registered provider implements `forceFlush()`, core calls it from the response hook after every request and waits for it. Each flush races one shared 2-second timeout, so telemetry never holds a response longer than that.
+
+When a flush fails or times out, core stops waiting for it and adds 1 to `agent_native.telemetry.flush_failures`, which the next flush exports. A timed-out export keeps running and can still arrive, unless the runtime freezes the process first. The failure's `error.type` is `timeout`, `suspended` when the runtime froze the process mid-flush, or the error's name.
+
+On a long-running server, a flush after every response means one export per request. Register providers without `forceFlush()` there and let the SDK's own timers export. `isServerlessRuntime()` from `@agent-native/core/server` tells the two apart. It is true on Netlify, Vercel, AWS Lambda, and Cloudflare.
+
+### Example: OTLP over HTTP {#otel-example}
+
+This server plugin wires the OpenTelemetry JS SDK to core. Install the SDK packages first:
+
+```bash
+pnpm add @opentelemetry/api @opentelemetry/context-async-hooks @opentelemetry/exporter-metrics-otlp-proto @opentelemetry/exporter-trace-otlp-proto @opentelemetry/resources @opentelemetry/sdk-metrics @opentelemetry/sdk-trace-base
+```
+
+```ts filename="server/plugins/otel.ts"
+import { randomUUID } from "node:crypto";
+
+import {
+  defineNitroPlugin,
+  isServerlessRuntime,
+  registerObservabilityProvider,
+} from "@agent-native/core/server";
+import { context } from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-proto";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
+import {
+  defaultResource,
+  detectResources,
+  envDetector,
+  resourceFromAttributes,
+} from "@opentelemetry/resources";
+import {
+  MeterProvider,
+  PeriodicExportingMetricReader,
+} from "@opentelemetry/sdk-metrics";
+import {
+  BasicTracerProvider,
+  BatchSpanProcessor,
+} from "@opentelemetry/sdk-trace-base";
+
+export default defineNitroPlugin(() => {
+  if (!process.env.OTEL_EXPORTER_OTLP_ENDPOINT) return;
+
+  // Metric counters are cumulative and restart with each process, so each
+  // process needs its own series.
+  const resource = defaultResource()
+    .merge(resourceFromAttributes({ "service.instance.id": randomUUID() }))
+    .merge(detectResources({ detectors: [envDetector] }));
+
+  const meterProvider = new MeterProvider({
+    resource,
+    readers: [
+      new PeriodicExportingMetricReader({
+        exporter: new OTLPMetricExporter(),
+        exportIntervalMillis: 60_000,
+      }),
+    ],
+  });
+
+  context.setGlobalContextManager(
+    new AsyncLocalStorageContextManager().enable(),
+  );
+  const tracerProvider = new BasicTracerProvider({
+    resource,
+    spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter())],
+  });
+
+  if (isServerlessRuntime()) {
+    registerObservabilityProvider({ meterProvider, tracerProvider });
+    return;
+  }
+  // Without forceFlush(), core leaves exporting to the SDK's own timers.
+  registerObservabilityProvider({
+    meterProvider: {
+      getMeter: (name, version) => meterProvider.getMeter(name, version),
+    },
+    tracerProvider: {
+      getTracer: (name, version) => tracerProvider.getTracer(name, version),
+    },
+  });
+});
+```
+
+The plugin does nothing until `OTEL_EXPORTER_OTLP_ENDPOINT` is set. The SDK reads the rest of its configuration from the standard OpenTelemetry environment variables:
+
+| Variable                                          | Effect                                                                                |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`                     | Base URL of the OTLP receiver. The exporters append `/v1/traces` and `/v1/metrics`.   |
+| `OTEL_EXPORTER_OTLP_HEADERS`                      | Headers sent with every export, e.g. `Authorization=Bearer%20<token>`                 |
+| `OTEL_SERVICE_NAME`                               | `service.name` on every span and metric                                               |
+| `OTEL_RESOURCE_ATTRIBUTES`                        | Extra resource attributes, e.g. `deployment.environment.name=production`              |
+| `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | Trace sampling, e.g. `parentbased_traceidratio` and `0.1`. Metrics are never sampled. |
+
+The `-proto` exporters send OTLP over HTTP with protobuf, so point the endpoint at the receiver's HTTP port (4318 by default), not its gRPC port. Spans carry no prompt or completion text. The `capture*` settings under [Configuration](#config) apply to the SQL traces and PostHog, not to OTLP.
+
+The repository's [`packages/otel`](https://github.com/BuilderIO/agent-native/tree/main/packages/otel) holds a fuller version of this plugin with per-signal endpoints and exporter validation. It is not published to npm, so start from the plugin above instead of installing it.
 
 ## Error reporting (Sentry or PostHog) {#sentry}
 

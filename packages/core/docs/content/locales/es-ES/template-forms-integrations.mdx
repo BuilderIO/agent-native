@@ -17,7 +17,7 @@ Si Formularios y Dispatch se generaron o se añadieron juntos en un mismo espaci
 
 ### Despliegues separados: un paso manual
 
-Si Formularios y Dispatch son dos proyectos de Agent-Native creados de forma independiente, no comparten un secreto y todavía no pueden llamarse entre sí. Conectarlos requiere un paso manual en cada lado: añade un recurso `remote-agents/<id>.json` con un secreto compartido, desde Configuración → Agentes conectados, la pestaña Conexiones de la página del Agent, o Dispatch → Agentes → Añadir agente externo. Consulta [Protocolo A2A](/docs/a2a-protocol) para ver el recorrido completo.
+Si Formularios y Dispatch son dos proyectos de Agent-Native creados de forma independiente, no comparten un secreto y todavía no pueden llamarse entre sí. Conectarlos requiere un paso manual en cada lado: añade un recurso `remote-agents/<id>.json` con un secreto compartido, desde Settings → Agent → Sub-agents (Connect agent), o Dispatch → Agentes → Añadir agente externo. Consulta [Protocolo A2A](/docs/a2a-protocol) para ver el recorrido completo.
 
 Para comprobar en qué situación estás, pregúntale al agente de cualquiera de las dos apps "¿qué apps puedes ver?" Si Formularios falta en la respuesta de Dispatch, estás en el segundo caso.
 

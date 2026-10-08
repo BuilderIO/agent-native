@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "Integraciones" } },
   creativeContext: {
     title: "Biblioteca",
     description:
@@ -166,14 +167,16 @@ export default {
     agentDescription:
       "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
     openAgentSettings: "Gestionar agente",
-    languageTitle: "Idioma",
-    languageDescription: "Elige el idioma de la interfaz de Design.",
-    languageLabel: "Idioma de la interfaz",
-    labs: "Labs",
-    labsIntro:
-      "Estas funciones son nuevas e inestables, y pueden tener errores. Valoramos tus comentarios.",
     labTweaks: "Ajustes de diseño",
     labTweaksDescription: "Prueba los ajustes de diseño con IA.",
+    labFullAppBuilding: "Creación de aplicaciones completas",
+    labFullAppBuildingDescription:
+      "Prueba a crear aplicaciones funcionales a partir de tus diseños con Builder.",
+    labDesignReviewTools: "Herramientas de revisión de diseños",
+    labDesignReviewToolsDescription:
+      "Comprueba si tus diseños tienen problemas de accesibilidad y compara los cambios visuales.",
+    mcpAbout:
+      "Conecta Design con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en Design por ti: crear diseños y editarlos. Solo ve lo que tú puedes ver.",
   },
   pages: {
     presentEmpty: "No hay contenido para presentar",
@@ -182,8 +185,17 @@ export default {
     notFoundDescription: "La página que buscas no existe.",
     notFoundSignIn: "Iniciar sesión",
     notFoundBackToDesigns: "Volver a diseños",
-    teamCreateOrgDescription:
-      "Configura un equipo para compartir diseños con tus compañeros.",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "Conecta almacenamiento para subir archivos",
+    },
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "No se pudo confirmar que la IA esté lista.",
+    },
+    common: { retry: "Reintentar" },
   },
   chat: {
     emptyState: "Describe el diseño que quieres crear",
@@ -203,7 +215,7 @@ export default {
       tokenLabel: "Token de acceso de Figma",
       tokenPlaceholder: "Pega el token de acceso de Figma",
       connecting: "Conectando…",
-      connect: "Conectar",
+      connect: "Conectar Figma",
       getToken: "Obtener token",
       importFrame: "Importar marco",
       chooseFrame: "Elegir marco",
@@ -214,6 +226,7 @@ export default {
     },
   },
   common: {
+    loading: "Cargando...",
     genericError: "algo salió mal",
   },
   editPanel: {
@@ -263,6 +276,12 @@ export default {
       opacity: "Opacidad",
       padding: "Relleno",
       margin: "Margen",
+      marginTop: "Margen superior",
+      marginRight: "Margen derecho",
+      marginBottom: "Margen inferior",
+      marginLeft: "Margen izquierdo",
+      linkMarginSides: "Vincular lados del margen",
+      unlinkMarginSides: "Desvincular lados del margen",
       radius: "Radio",
       flexGrow: "Crecer",
       flexShrink: "Encoger",
@@ -305,6 +324,8 @@ export default {
       bottomLeft: "II",
       bottomRight: "ID",
       blend: "Mezcla",
+      blendMode: "Modo de fusión",
+      removeBlendMode: "Quitar modo de fusión",
       border: "Borde",
       outline: "Contorno",
       inside: "Interior",
@@ -324,6 +345,18 @@ export default {
       customTransform:
         "Transformación personalizada — no se puede editar como rotación X/Y/Z",
       shaderEffectType: "Shader",
+      imageScaleMode: "Modo de escala de imagen",
+      imageAdjustments: "Ajustes de imagen",
+      imageExposure: "Exposición",
+      imageContrast: "Contraste",
+      imageSaturation: "Saturación",
+      imageScaleFill: "Rellenar",
+      imageScaleFit: "Ajustar",
+      imageScaleCrop: "Recortar",
+      noMirroring: "Sin simetría",
+      vector: "Vector",
+      mirrorAngle: "Simetría de ángulo",
+      mirrorAngleAndLength: "Simetría de ángulo y longitud",
     },
     shaders: {
       fillsTitle: "Rellenos de shader",
@@ -548,8 +581,33 @@ export default {
         adUnit: "Unidad de anuncio",
       },
     },
+    scale: {
+      title: "Escala",
+      exit: "Salir de la escala",
+      factor: "Factor de escala",
+      presets: "Preajustes de escala",
+      anchor: "Punto de anclaje",
+      topLeft: "Arriba a la izquierda",
+      topCenter: "Arriba al centro",
+      topRight: "Arriba a la derecha",
+      middleLeft: "Centro a la izquierda",
+      center: "Centro",
+      middleRight: "Centro a la derecha",
+      bottomLeft: "Abajo a la izquierda",
+      bottomCenter: "Abajo al centro",
+      bottomRight: "Abajo a la derecha",
+    },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "Colaboración en directo",
+      description:
+        "Permite que quienes no tienen acceso al localhost del propietario vean y editen una copia en directo de este diseño.",
+      enabled: "Activada",
+      disabled: "Desactivada",
+      saving: "Guardando…",
+      enableError: "No se pudo actualizar la colaboración en directo.",
+    },
     vectorEndpoints: {
       startPoint: "Punto inicial",
       endPoint: "Punto final",
@@ -783,6 +841,8 @@ export default {
       figmaPasteTarget: "Pega en el lienzo",
       figmaPasteApiKeyHint:
         "Conecta tu token de acceso de Figma para importaciones exactas de nodos.",
+      figmaPasteAccessDenied:
+        'El token de Figma conectado no puede acceder a este archivo. Comprueba tus permisos y que el token incluya el alcance "File content".',
       figmaPasteMatchGuidance:
         "No se pudo hacer coincidir con nodos específicos de Figma. Pega un enlace de marco para una importación exacta.",
       figmaPasteUnreadable:
@@ -927,6 +987,10 @@ export default {
     signUpToSaveDescription:
       "Crea una cuenta gratis para guardar diseños, diseños de pantalla y generar nuevas direcciones.",
     signUpToShare: "Registrarse para compartir",
+    signUpToShareLiveCanvas: "Regístrate para compartir un lienzo en vivo",
+    liveCanvasLink: "Enlace al lienzo en vivo",
+    liveCanvasWaitingForOwner:
+      "Esperando la instantánea del lienzo en vivo de su propietario.",
     shareEditorLink: "Enlace del editor de diseño",
     shareEditorLinkDescription:
       "Cualquier persona con acceso puede abrir este diseño en el editor.",
@@ -958,6 +1022,10 @@ export default {
     keyboardShortcuts: {
       title: "Atajos de teclado",
       close: "Cerca: Atajos de teclado",
+      search: "Buscar",
+      searchLabel: "Buscar atajos de teclado",
+      categoriesLabel: "Categorías de atajos",
+      empty: "Ningún atajo coincide con «{{query}}»",
       codeContext: "Código",
       screenContext: "Pantallas",
       nudgeAmount: {
@@ -990,12 +1058,6 @@ export default {
         leftBracket: "Corchete izquierdo",
         rightBracket: "Corchete derecho",
       },
-      descriptions: {
-        toggleUi:
-          "Púlsalo ahora para ocultar los paneles y concentrarte en tu trabajo",
-        undo: "Retrocede por el cambio de diseño más reciente",
-        redo: "Restaura el cambio de diseño que acabas de deshacer",
-      },
       categories: {
         essential: "Esenciales",
         tools: "Herramientas",
@@ -1027,6 +1089,7 @@ export default {
         showLayers: "Capas",
         showAssets: "Recursos",
         toggleUi: "View",
+        toggleMinimalUi: "Interfaz mínima",
         toggleComments: "Fijar comentario",
         zoomIn: "Acercar",
         zoomOut: "Alejar",
@@ -1080,6 +1143,7 @@ export default {
         ungroup: "Desagrupar",
         frameSelection: "Enmarcar selección",
         autoLayout: "Diseño automático",
+        imageVideo: "Imagen/video...",
       },
     },
     undo: "Deshacer",
@@ -1200,12 +1264,15 @@ export default {
     pendingVisualStyles: {
       applyAria: "Aplicar ediciones visuales de estilo pendientes",
       applyButton: "Aplicar estilos",
+      applySharedEdits: "Aplicar ediciones",
       previewLabel: "Vista previa visual pendiente",
       applyDesignUpdates: "Aplicar actualizaciones de diseño",
       applying: "Aplicando…",
       verifying: "Verificando el código y el runtime…",
       retryWithAgent: "Reintentar verificación del código",
       copyPrompt: "Copiar prompt a tu agente",
+      copyAgentPrompt: "Copiar prompt del agente",
+      copyFullPrompt: "Copiar el prompt completo",
       abortPreview: "Cancelar vista previa e interactuar",
       agentMessage:
         "Aplica las ediciones visuales de estilo pendientes al código fuente.",
@@ -1218,6 +1285,8 @@ export default {
       sourceCheckFailedToast:
         "No se pudieron verificar los archivos conectados. Se conservó la vista previa para reintentar o deshacer.",
       copiedToast: "Prompt de estilo copiado",
+      copiedToastDescription:
+        "Pégalo en tu agente de programación y pídele que aplique los cambios visuales.",
       abortedToast: "Vista previa pendiente descartada",
       interactBlocked:
         "Aplica o cancela las ediciones en vivo pendientes antes de cambiar a Interactuar.",
@@ -1282,6 +1351,8 @@ export default {
       annotationSendError:
         "No se pudieron enviar las anotaciones. Tu dibujo sigue aquí; inténtalo de nuevo.",
       codingHandoffError: "No se pudo crear la entrega para código",
+      visualEditPendingConflict:
+        "Otro colaborador tiene cambios pendientes. Aplícalos o elimínalos antes de enviar cambios nuevos.",
       codingHandoffCopied: "Entrega para código copiada",
       clipboardBlocked: "Portapapeles bloqueado",
       htmlCreateError: "No se pudo crear la descarga HTML",
@@ -1305,6 +1376,16 @@ export default {
         "La captura PNG no está disponible en vistas previas de solo lectura",
       pngSaveError: "No se pudo guardar PNG",
       pngExportError: "No se pudo exportar PNG",
+      exportTooLarge:
+        "La exportación es demasiado grande. Las solicitudes tienen un límite de 5 MB; reduce los recursos incrustados o las dimensiones de rasterización e inténtalo de nuevo.",
+      exportResourcesUnavailable:
+        "No se pudo renderizar correctamente la exportación porque faltan una o más imágenes, fuentes u hojas de estilo. Revisa esos recursos e inténtalo de nuevo.",
+      exportTimedOut:
+        "La exportación agotó el tiempo de espera. Vuelve a intentarlo o reduce el tamaño del diseño.",
+      exportBusy:
+        "Se está renderizando otra exportación. Espera un momento e inténtalo de nuevo.",
+      exportChromiumUnavailable:
+        "La exportación no está disponible porque no se pudo iniciar el renderizador. Inténtalo de nuevo más tarde.",
       pdfExportError: "No se pudo exportar PDF",
       pdfDownloaded: "PDF descargado",
       pdfAllScreensDownloaded: "PDF descargado (todas las pantallas)",
@@ -1363,10 +1444,16 @@ export default {
         "No se puede localizar esta capa en el código fuente. Vuelve a intentarlo cuando la aplicación termine de cargar, o pide al agente que haga el cambio.",
       reactSourceAnchorsUnavailable:
         "Esta aplicación no expone ubicaciones de código al editor, así que esta capa no se puede rastrear hasta una línea. Pide al agente que haga el cambio.",
+      sourceLocationSnapshotFailed:
+        "No se pudieron comprobar las ubicaciones del código fuente de esta vista previa.",
       screenSourceUpdated: "Fuente de pantalla actualizada",
       screenSourceUpdateFailed: "No se pudo actualizar la fuente de pantalla",
       vectorEditUnsupported:
         "La edición vectorial no está disponible para esta forma o transformación.",
+      imageUploading: "Subiendo imagen…",
+      pasteReplaceFailed: "No se pudo reemplazar esa capa",
+      swapFillStrokeLayeredFill:
+        "Los rellenos múltiples o de imagen aún no pueden pasar a un trazo",
     },
     commenterRoleLabel: "Comentarista",
     commenterRoleDescription: "Puede ver y añadir comentarios de revisión",
@@ -1416,6 +1503,13 @@ export default {
         "El puente del editor en vivo no confirmó la conexión tras varios intentos.",
       connectionNotConfirmed:
         "El puente del editor en vivo no confirmó la conexión. ¿Sigue ejecutándose el servidor de desarrollo local?",
+      permissionPromptTitle: "Conecta tus pantallas locales",
+      permissionPromptDescription:
+        "Selecciona Permitir en el aviso de Chrome para habilitar la edición en vivo.",
+      permissionPromptNoPrompt: "¿No aparece el aviso de Chrome?",
+      permissionPromptSettingsInstructions:
+        "Haz clic en el icono de controles del sitio a la izquierda de la barra de direcciones, abre Configuración del sitio y establece Red local en Permitir.",
+      permissionPromptRetry: "Reintentar conexión",
     },
   },
   multiScreenCanvas: {
@@ -1500,6 +1594,8 @@ export default {
     assetAdded: "Activo agregado",
     assetsNoImageUrl: "Assets no devolvió una URL de imagen.",
     failedToUploadFile: "No se pudo cargar el archivo",
+    imageAttachmentUnavailable:
+      "No se pudo preparar esta imagen como referencia visual. Adjunta un archivo PNG, JPG, GIF o WebP más pequeño.",
     attachmentsTooLarge:
       "Esos adjuntos son demasiado grandes. Las subidas están limitadas a {{max}} MB en total: adjunta menos archivos o más pequeños.",
     failedToSubmitPrompt: "No se pudo enviar el prompt",
@@ -1603,7 +1699,66 @@ export default {
       "Se descartaron {{count}} borradores de comentarios sin enviar al salir de esta vista.",
     staleAnchorDetail: "Ya no se encuentra el elemento original en el lienzo.",
   },
+  homeContext: {
+    websiteReference: "Añadir sitio web",
+    websiteUrlLabel: "URL del sitio web",
+    websiteUrl: "Pega la URL de un sitio web",
+    figmaUrlLabel: "Enlace de Figma",
+    invalidFigmaUrl:
+      "Introduce una URL válida de un marco o archivo de figma.com.",
+    tooMany: "Elige hasta 20 referencias.",
+    invalidWebsiteUrl: "Introduce una URL HTTP o HTTPS válida.",
+    createSystem: "Crear un sistema de diseño",
+    noSystems:
+      "Aún no tienes un sistema de diseño. Crea uno a partir de un sitio web, archivos o Figma.",
+    searchSystems: "Buscar sistemas de diseño…",
+    searchFrames: "Buscar marcos de Figma…",
+    searchDesigns: "Buscar diseños…",
+    searchPresentations: "Buscar presentaciones…",
+    searchDesign: "Buscar diseño…",
+    useDesignSystem: "Usar un sistema de diseño",
+    notReady:
+      "La solicitud aún no está lista. Revisa el contexto seleccionado y la conexión, e inténtalo de nuevo.",
+    search: "Buscar contexto…",
+    figmaUrl: "Pega un enlace de Figma",
+    browse: "Explorar marcos",
+    loadFailed: "No se pudo cargar esta referencia.",
+    retry: "Reintentar",
+    empty: "No hay referencias coincidentes.",
+    none: "Ninguno",
+    design: "Diseño",
+    slides: "Diapositivas",
+    referenceDesign: "Usar un diseño como referencia",
+    figmaReference: "Añadir Figma",
+    referenceDeck: "Usar una presentación como referencia",
+    quickSaas: "Crear una página de SaaS",
+    quickDashboard: "Crear un panel",
+    quickDeck: "Crear una presentación",
+    deckPrompt:
+      "Crea una presentación cuidada con una portada, una narrativa clara, datos visuales y una diapositiva final concisa.",
+  },
   home: {
+    suggestedPrompts: "Indicaciones sugeridas",
+    import: "Importar",
+    importOptions: "Opciones de importación",
+    figmaLink: "Enlace de Figma",
+    importFromFigma: "Importar desde Figma",
+    figmaFile: "Archivo de Figma (.fig)",
+    openImport: "Abrir importación",
+    importSelectedFile: "Importar archivo seleccionado",
+    starterSaasPrompt:
+      "Una página de inicio moderna para un SaaS con tema oscuro, sección principal, tres tarjetas de funciones y una llamada a la acción final.",
+    starterDashboardPrompt:
+      "Un panel de análisis sencillo con navegación lateral, cuatro tarjetas de indicadores clave, un gráfico y una tabla de actividad reciente.",
+    starterMobilePrompt:
+      "Un prototipo de aplicación móvil dentro de un marco de teléfono, con una barra de pestañas inferior y tres tarjetas de lista en la pantalla de inicio.",
+    starterPricingPrompt:
+      "Una página de precios con tres planes, un selector mensual/anual, listas de funciones y el plan recomendado destacado.",
+    designPromptTitle: "Vamos a crear tu primer diseño",
+    recent: "Recientes",
+    browseAllTemplates: "Ver todo",
+    connectBuilderIo: "Usar Builder.io",
+    connectingBuilder: "Configurando Builder.io…",
     pageTitle: "Design",
     searchPlaceholder: "Buscar diseños...",
     newDesign: "Nuevo Design",
@@ -1613,6 +1768,9 @@ export default {
     allAuthors: "Todos los autores",
     me: "Yo",
     designFilter: "Filtro de diseños",
+    ownedByAnyone: "De cualquiera",
+    ownedByMe: "Míos",
+    sharedWithMe: "Compartido conmigo",
     mine: "Míos",
     all: "Todos",
     showMineDesigns: "Mostrar mis diseños",
@@ -1646,6 +1804,7 @@ export default {
     pickStartingPoint: "Elija un punto de partida o escriba su propio mensaje.",
     searchNoResultsTitle: "Ningún diseño coincide con esta búsqueda",
     searchNoResultsDescription: "Prueba con otra búsqueda.",
+    noDesignsMatchFilter: "Ningún diseño coincide con el filtro actual.",
     starterSaas: "Página de inicio de SaaS",
     starterDashboard: "Panel",
     starterPricing: "Página de precios",
@@ -1669,6 +1828,8 @@ export default {
     layoutLabel: "Layout de pantalla listo para guardar",
   },
   templatesPage: {
+    previewEmpty: "Esta plantilla no contiene pantallas para previsualizar.",
+    loading: "Cargando plantillas",
     title: "Plantillas",
     description:
       "Empieza con las dimensiones y valores correctos y ajusta con indicaciones el contenido desbloqueado.",
@@ -1697,7 +1858,7 @@ export default {
     deleteTitle: "¿Eliminar plantilla?",
     deleteDescription:
       "Esto elimina permanentemente {{title}}. Los diseños ya creados no se verán afectados.",
-    templateActions: "Acciones de plantilla",
+    templateActions: "Acciones para {{title}}",
     lockedCount: "{{count}} bloqueadas",
     categories: {
       ad: "Anuncio",
@@ -1876,6 +2037,15 @@ export default {
       "La indexación de código y repositorios requiere el plan Builder Enterprise",
   },
   designSystems: {
+    comingSoonTitle: "Los sistemas de diseño estarán disponibles pronto",
+    waitlist: {
+      join: "Unirme a la lista de espera",
+      joining: "Uniéndome…",
+      joined: "Estás en la lista de espera",
+      error: "No se pudo añadirte a la lista de espera. Inténtalo de nuevo.",
+      unavailable:
+        "La inscripción en la lista de espera no está disponible ahora. Inténtalo más tarde.",
+    },
     deleteError: "No se pudo eliminar el sistema de diseño",
     updateSuccess: "Sistema de diseño actualizado.",
     updateError: "No se pudo actualizar el sistema de diseño",

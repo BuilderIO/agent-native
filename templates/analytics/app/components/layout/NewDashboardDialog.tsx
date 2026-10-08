@@ -1,6 +1,6 @@
-import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import { IconPlus } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -25,13 +25,13 @@ const DASHBOARD_CONTEXT =
   "Each panel needs: id (unique string), title, sql (the query), source ('bigquery' | 'ga4' | 'amplitude' | 'first-party' | 'demo' | 'prometheus'), " +
   "chartType ('line' | 'area' | 'bar' | 'metric' | 'table' | 'pie' | 'funnel' | 'heatmap' | 'callout' | 'section'), width (1 or 2). " +
   "Optional tab labels can use 'Group / Tab' for primary and secondary dashboard tabs. " +
-  "Optional config: { xKey, yKey, yKeys, color, colors, yFormatter ('number'|'currency'|'percent'), description, valueLabels }. For funnel panels, xKey is the stage label, yKey is the non-negative value, and SQL ORDER BY defines stage order. " +
+  "Optional config: { xKey, yKey, yKeys, colors (series colors), color (heatmap only: the row-dimension column name, never a color), yFormatter ('number'|'currency'|'percent'), description, valueLabels }. For funnel panels, xKey is the stage label, yKey is the non-negative value, and SQL ORDER BY defines stage order. " +
   "For first-party analytics, source is 'first-party' and sql may read analytics_events only; do not use db-query for datasource panels. " +
   "For the built-in demo dashboard, source is 'demo' and sql uses the same Prometheus JSON descriptor shape as source 'prometheus': { promql, mode, range, step }. " +
   "Call `data-source-status` if you need to see which data sources are connected. " +
   "Refer to AGENTS.md, .agents/skills, the data dictionary, and connected data-source instructions for SQL patterns and table names. " +
   "Do not create code files for an ordinary native dashboard. Use `connect-builder` only for an explicitly reusable/native code request. " +
-  "After saving, call the `navigate` action with view='adhoc' and dashboardId so the new dashboard opens immediately.";
+  "After saving, read the result's `verified` flag (on `verified: false` or an error, call `inspect-dashboard-panel` before saying the panels render), then call the `navigate` action with view='adhoc' and dashboardId so the new dashboard opens immediately.";
 
 export function NewDashboardDialog({
   triggerClassName,

@@ -6,8 +6,6 @@ import {
   getEventTypeById,
   getEventTypeBySlug,
 } from "../server/event-types-repo.js";
-import { currentOrgId } from "./_helpers.js";
-
 export default defineAction({
   description:
     "Create a booking. Either pass eventTypeId, or (ownerEmail|teamId)+slug.",
@@ -39,7 +37,9 @@ export default defineAction({
           })
         : null;
     if (!eventType) throw new Error("Event type not found");
-    const hostEmail = args.ownerEmail ?? eventType.ownerEmail ?? "";
+    const hostEmail = eventType.teamId
+      ? (args.ownerEmail ?? eventType.ownerEmail ?? "")
+      : (eventType.ownerEmail ?? args.ownerEmail ?? "");
     if (!hostEmail) throw new Error("Cannot resolve host for booking");
     return {
       booking: await createBooking({
@@ -56,7 +56,6 @@ export default defineAction({
         guests: args.guests?.map((g) => ({ email: g.email, name: g.name })),
         customResponses: args.customResponses,
         description: args.description,
-        orgId: currentOrgId(),
       }),
     };
   },

@@ -1,12 +1,3 @@
-/**
- * add-deck — insert a deck the browser editor has already created optimistically.
- *
- * The editor mints the deck id client-side (so the optimistic row and its URL
- * are stable before the round trip), which is why this is separate from
- * `create-deck`: that action generates its own id and owns the agent's
- * generation flow. Hidden from the agent — deck creation for the model goes
- * through `create-deck`.
- */
 import { defineAction } from "@agent-native/core/action";
 import {
   getRequestOrgId,
@@ -29,6 +20,7 @@ import {
   deckTitle,
   type DeckPayload,
 } from "./_deck-write.js";
+import { assertNoDeckRenderArtifacts } from "./_render-artifacts.js";
 
 export default defineAction({
   description:
@@ -62,6 +54,7 @@ export default defineAction({
       throw deckHttpError(400, "Deck must have an id");
     }
     assertValidAspectRatio(deck);
+    assertNoDeckRenderArtifacts(null, deck);
 
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) {

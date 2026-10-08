@@ -14,7 +14,7 @@ what is missing and link users to the exact fix.
   <Screen
     surface="desktop"
     html={
-      "<div style='min-height:520px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:1fr 300px;gap:18px'><main class='wf-card' style='display:flex;flex-direction:column;gap:12px'><h2 style='margin:0'>Finish setup</h2><small class='wf-muted'>2 of 4 steps complete</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><span data-icon='check'></span><div style='flex:1'>Connect Builder</div><span class='wf-pill'>Done</span></div><div class='wf-box' style='display:flex;align-items:center;gap:10px;border-color:var(--wf-accent)'><span data-icon='lock'></span><div style='flex:1'><strong>Add OpenAI key</strong><br/><small class='wf-muted'>Needed for the agent to run</small></div><button class='primary'>Fix</button></div><div class='wf-box' style='display:flex;align-items:center;gap:10px'><span data-icon='plus'></span><div style='flex:1'>Connect Slack</div><span class='wf-muted'>Optional</span></div><div class='wf-box' style='display:flex;align-items:center;gap:10px'><span data-icon='check'></span><div style='flex:1'>Enable GitHub OAuth</div><span class='wf-pill'>Ready</span></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Provider readiness</strong><div style='display:flex;align-items:center;gap:8px'><span data-icon='check'></span><div style='flex:1'>Builder</div><span class='wf-pill'>Connected</span></div><div style='display:flex;align-items:center;gap:8px'><span data-icon='x'></span><div style='flex:1'>LLM key</div><span class='wf-pill'>Missing</span></div><div style='display:flex;align-items:center;gap:8px'><span data-icon='check'></span><div style='flex:1'>GitHub</div><span class='wf-pill'>OAuth ready</span></div><div style='flex:1'></div><button class='primary'>Open settings</button></aside></div>"
+      "<div style='min-height:520px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:1fr 300px;gap:18px'><main class='wf-card' style='display:flex;flex-direction:column;gap:12px'><h2 style='margin:0'>Finish setup</h2><small class='wf-muted'>2 of 4 steps complete</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><span data-icon='check'></span><div style='flex:1'>Use Builder.io</div><span class='wf-pill'>Done</span></div><div class='wf-box' style='display:flex;align-items:center;gap:10px;border-color:var(--wf-accent)'><span data-icon='lock'></span><div style='flex:1'><strong>Add OpenAI key</strong><br/><small class='wf-muted'>Needed for the agent to run</small></div><button class='primary'>Fix</button></div><div class='wf-box' style='display:flex;align-items:center;gap:10px'><span data-icon='plus'></span><div style='flex:1'>Connect Slack</div><span class='wf-muted'>Optional</span></div><div class='wf-box' style='display:flex;align-items:center;gap:10px'><span data-icon='check'></span><div style='flex:1'>Enable GitHub OAuth</div><span class='wf-pill'>Ready</span></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Provider readiness</strong><div style='display:flex;align-items:center;gap:8px'><span data-icon='check'></span><div style='flex:1'>Builder</div><span class='wf-pill'>Connected</span></div><div style='display:flex;align-items:center;gap:8px'><span data-icon='x'></span><div style='flex:1'>LLM key</div><span class='wf-pill'>Missing</span></div><div style='display:flex;align-items:center;gap:8px'><span data-icon='check'></span><div style='flex:1'>GitHub</div><span class='wf-pill'>OAuth ready</span></div><div style='flex:1'></div><button class='primary'>Open settings</button></aside></div>"
     }
   />
 </WireframeBlock>
@@ -56,9 +56,12 @@ export function SettingsConnectionsTab() {
 ```
 
 Register setup steps close to the feature that needs them. Link users to the
-standard settings tab instead of building bespoke credential forms.
+Settings page that owns the credential instead of building bespoke credential
+forms: model provider keys live on Agent › Model, other keys on
+Connections › API keys, and Builder.io on Connections › Integrations.
 
 ```ts
+import { buildSettingsRoute } from "@agent-native/core/navigation";
 import { registerOnboardingStep } from "@agent-native/core/onboarding";
 
 registerOnboardingStep({
@@ -73,7 +76,7 @@ registerOnboardingStep({
       kind: "link",
       label: "Open settings",
       primary: true,
-      payload: { url: "/settings/integrations#secrets" },
+      payload: { url: buildSettingsRoute("model") },
     },
   ],
   isComplete: async () => hasOpenAIKey(),
@@ -94,14 +97,14 @@ registerWorkspaceConnectionOnboardingStep({
 ```
 
 For app settings, compose `SettingsTabsPage` with `SetupConnectionsPage` and the
-standard Settings Kit tabs so keys, connections, Builder connect, and team
-settings live in one predictable place.
+standard [Settings Kit](/docs/toolkit-settings) pages so keys, connections,
+Builder connect, and team settings live in one predictable place.
 
 ## UX Standard {#ux-standard}
 
 - Errors explain the missing connection and offer the direct settings link.
 - Secrets are never stored in app tables or pasted into docs/examples.
-- App setup pages and settings tabs use the same readiness source.
+- App setup pages and Settings pages use the same readiness source.
 - Builder connect is offered as a first-class path, not buried as an env-var
   fallback.
 

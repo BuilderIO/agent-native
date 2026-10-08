@@ -2,11 +2,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  expireClientStatusResult,
+  fetchAgentEngineStatus,
   fetchAuthSessionStatus,
   fetchBuilderStatus,
   fetchEnvironmentStatus,
+  fetchFileUploadStatus,
   invalidateClientStatusRequest,
   invalidateClientStatusRequests,
+  SESSION_RESULT_LIFETIME_MS,
 } from "./client-status-requests.js";
 
 function jsonResponse(data: unknown): Response {
@@ -15,7 +19,57 @@ function jsonResponse(data: unknown): Response {
   });
 }
 
+function untilAborted(signal: AbortSignal | null | undefined): Promise<never> {
+  return new Promise((_resolve, reject) => {
+    signal?.addEventListener("abort", () => {
+      reject(new DOMException("Aborted", "AbortError"));
+    });
+  });
+}
+
 describe("client status requests", () => {
+  it("refreshes model consumers after a successful agent default change", async () => {
+    const fetch = vi.fn(async () => jsonResponse({ configured: true }));
+    vi.stubGlobal("fetch", fetch);
+    await fetchBuilderStatus();
+    const changed = vi.fn();
+    window.addEventListener("agent-engine:configured-changed", changed);
+    try {
+      for (const detail of [
+        {
+          tool: "manage-agent-engine",
+          completedSideEffect: false,
+          isError: false,
+        },
+        {
+          tool: "manage-agent-engine",
+          completedSideEffect: true,
+          isError: true,
+        },
+        { tool: "other-action", completedSideEffect: true, isError: false },
+      ]) {
+        window.dispatchEvent(
+          new CustomEvent("agent-native:tool-done", { detail }),
+        );
+      }
+      expect(changed).not.toHaveBeenCalled();
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: {
+            tool: "manage-agent-engine",
+            completedSideEffect: true,
+            isError: false,
+          },
+        }),
+      );
+      expect(changed).toHaveBeenCalledTimes(1);
+      await fetchBuilderStatus();
+      expect(fetch).toHaveBeenCalledTimes(2);
+    } finally {
+      window.removeEventListener("agent-engine:configured-changed", changed);
+    }
+  });
+
   beforeEach(() => {
     invalidateClientStatusRequests();
     delete window.__agentNativeSessionBootstrap;
@@ -27,6 +81,7 @@ describe("client status requests", () => {
     delete window.__agentNativeSessionBootstrap;
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("coalesces concurrent reads", async () => {
@@ -44,6 +99,77 @@ describe("client status requests", () => {
     await expect(second).resolves.toEqual({
       state: "available",
       value: { configured: true },
+    });
+  });
+
+  it("starts a fresh status read and routes superseded callers to its result", async () => {
+    let resolvePassive!: (response: Response) => void;
+    const fetch = vi
+      .fn<() => Promise<Response>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolvePassive = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ chatEligible: false }));
+    vi.stubGlobal("fetch", fetch);
+
+    const passive = fetchAgentEngineStatus<{ chatEligible: boolean }>();
+    const fresh = fetchAgentEngineStatus<{ chatEligible: boolean }>({
+      fresh: true,
+    });
+    await expect(fresh).resolves.toEqual({
+      state: "available",
+      value: { chatEligible: false },
+    });
+    resolvePassive(jsonResponse({ chatEligible: true }));
+
+    await expect(passive).resolves.toEqual({
+      state: "available",
+      value: { chatEligible: false },
+    });
+    await expect(fetchAgentEngineStatus()).resolves.toEqual({
+      state: "available",
+      value: { chatEligible: false },
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("coalesces concurrent fresh status reads", async () => {
+    let resolveFresh!: (response: Response) => void;
+    const fetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFresh = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const first = fetchAgentEngineStatus<{ chatEligible: boolean }>({
+      fresh: true,
+    });
+    const second = fetchAgentEngineStatus<{ chatEligible: boolean }>({
+      fresh: true,
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+
+    resolveFresh(jsonResponse({ chatEligible: true }));
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { state: "available", value: { chatEligible: true } },
+      { state: "available", value: { chatEligible: true } },
+    ]);
+  });
+
+  it("keeps a failed file-storage status probe unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("storage check failed", { status: 503 })),
+    );
+
+    await expect(fetchFileUploadStatus()).resolves.toEqual({
+      state: "unavailable",
+      status: 503,
     });
   });
 
@@ -108,7 +234,7 @@ describe("client status requests", () => {
     resolveStale(jsonResponse({ configured: true }));
     await expect(stale).resolves.toEqual({
       state: "available",
-      value: { configured: true },
+      value: { configured: false },
     });
     await expect(fetchBuilderStatus()).resolves.toEqual({
       state: "available",
@@ -119,14 +245,13 @@ describe("client status requests", () => {
 
   it("does not abort another endpoint when one status request is invalidated", async () => {
     let resolveEnvironment!: (response: Response) => void;
+    let builderReads = 0;
     const fetch = vi.fn((input: string | URL | Request, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes("/builder/status")) {
-        return new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => {
-            reject(new DOMException("Aborted", "AbortError"));
-          });
-        });
+      if (String(input).includes("/builder/status")) {
+        builderReads += 1;
+        return builderReads === 1
+          ? untilAborted(init?.signal)
+          : Promise.resolve(jsonResponse({ configured: true }));
       }
       return new Promise<Response>((resolve) => {
         resolveEnvironment = resolve;
@@ -139,11 +264,32 @@ describe("client status requests", () => {
     invalidateClientStatusRequest("/_agent-native/builder/status");
     resolveEnvironment(jsonResponse([{ key: "ANTHROPIC_API_KEY" }]));
 
-    await expect(builder).resolves.toEqual({ state: "unavailable" });
+    await expect(builder).resolves.toEqual({
+      state: "available",
+      value: { configured: true },
+    });
+    expect(builderReads).toBe(2);
     await expect(environment).resolves.toEqual({
       state: "available",
       value: [{ key: "ANTHROPIC_API_KEY" }],
     });
+  });
+
+  it("gives callers of an invalidated engine status read the re-read result", async () => {
+    const fetch = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      if (fetch.mock.calls.length === 1) await untilAborted(init?.signal);
+      return jsonResponse({ chatEligible: true });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const joined = fetchAgentEngineStatus({ fresh: true });
+    window.dispatchEvent(new Event("agent-engine:configured-changed"));
+
+    await expect(joined).resolves.toEqual({
+      state: "available",
+      value: { chatEligible: true },
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("expires cached status on focus without aborting an in-flight request", async () => {
@@ -167,6 +313,73 @@ describe("client status requests", () => {
       state: "available",
       value: { configured: true },
     });
+  });
+
+  it("keeps the session answer through focus for its lifetime while endpoint statuses expire", async () => {
+    let now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const fetch = vi.fn(async (input: string | URL | Request) =>
+      String(input).includes("/auth/session")
+        ? jsonResponse({ email: "person@example.com" })
+        : jsonResponse({ configured: true }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const sessionReads = () =>
+      fetch.mock.calls.filter(([input]) =>
+        String(input).includes("/auth/session"),
+      ).length;
+
+    await fetchAuthSessionStatus();
+    await fetchBuilderStatus();
+    now += 5_000;
+    window.dispatchEvent(new Event("focus"));
+    await fetchAuthSessionStatus();
+    await fetchBuilderStatus();
+
+    expect(sessionReads()).toBe(1);
+    expect(fetch).toHaveBeenCalledTimes(3);
+
+    now += SESSION_RESULT_LIFETIME_MS;
+    await fetchAuthSessionStatus();
+    expect(sessionReads()).toBe(2);
+  });
+
+  it("keeps only the short status TTL for a signed-out session answer", async () => {
+    let now = 2_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const fetch = vi.fn(async () =>
+      jsonResponse({ error: "Not authenticated" }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    await fetchAuthSessionStatus();
+    now += 1_000;
+    await fetchAuthSessionStatus();
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("expires a session answer without aborting the read already in flight", async () => {
+    let respond!: (response: Response) => void;
+    const fetch = vi.fn(
+      (_input: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          respond = resolve;
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("Aborted", "AbortError"));
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const first = fetchAuthSessionStatus();
+    expireClientStatusResult("/_agent-native/auth/session");
+    const second = fetchAuthSessionStatus();
+    respond(jsonResponse({ email: "person@example.com" }));
+
+    await expect(first).resolves.toMatchObject({ state: "available" });
+    await expect(second).resolves.toMatchObject({ state: "available" });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("releases a shared request when the transport hangs so a retry is fresh", async () => {

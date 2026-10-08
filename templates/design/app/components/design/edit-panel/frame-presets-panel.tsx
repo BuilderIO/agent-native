@@ -8,12 +8,6 @@ import {
   type FrameSizePresetCategoryKey,
 } from "../inspector";
 
-/**
- * One collapsible category group in the frame-tool presets panel — e.g.
- * "Phone" or "Tablet". Unlike {@link PanelSection} (used for property
- * sections, which shows no chevron), this renders a leading chevron like
- * Figma's own preset list and LayersPanel's disclosure triangles.
- */
 function FramePresetCategoryGroup({
   title,
   presets,
@@ -58,7 +52,7 @@ function FramePresetCategoryGroup({
               </span>
               <span className="shrink-0 !text-[11px] tabular-nums text-muted-foreground">
                 {preset.width}
-                {"×" /* × */}
+                {"×"}
                 {preset.height}
               </span>
             </button>
@@ -83,13 +77,6 @@ const FRAME_PRESET_CATEGORY_LABEL_KEYS: Record<
   adUnit: "editPanel.framePresets.categories.adUnit",
 };
 
-/**
- * Figma-parity frame-tool panel: replaces the whole inspector body with a
- * scrollable, categorized list of screen-size presets while the Frame tool
- * is armed. Clicking a row calls `onCreateScreenFromPreset` with the exact
- * size — see the `activeTool`/`onCreateScreenFromPreset` doc comments on
- * `EditPanelProps` for the parent-side creation/tool-revert contract.
- */
 export function FramePresetsPanel({
   onPick,
 }: {

@@ -57,7 +57,7 @@ async function screenCheckpoint(
   const shell = page.locator(
     `[data-screen-shell][data-frame-id="${screenId}"]`,
   );
-  await shell.locator("[data-frame-title]").click();
+  await shell.locator("[data-frame-title]").click({ position: { x: 4, y: 4 } });
   const width = page.getByRole("textbox", {
     name: /^W(?: size in pixels)?$/,
   });
@@ -273,10 +273,18 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
     await layout
       .getByRole("textbox", { name: "Gap", exact: true })
       .press("Enter");
-    await layout.getByRole("textbox", { name: /Left.*Right/ }).fill("12");
-    await layout.getByRole("textbox", { name: /Left.*Right/ }).press("Enter");
-    await layout.getByRole("textbox", { name: /Top.*Bottom/ }).fill("12");
-    await layout.getByRole("textbox", { name: /Top.*Bottom/ }).press("Enter");
+    const horizontalPadding = layout.getByRole("textbox", {
+      name: "Left / Right",
+      exact: true,
+    });
+    await horizontalPadding.fill("12");
+    await horizontalPadding.press("Enter");
+    const verticalPadding = layout.getByRole("textbox", {
+      name: "Top / Bottom",
+      exact: true,
+    });
+    await verticalPadding.fill("12");
+    await verticalPadding.press("Enter");
     await expect(page.locator('[data-flow-value="vertical"]')).toBeVisible();
     await expect
       .poll(async () => {
@@ -327,8 +335,6 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
       name: "Absolute position",
       exact: true,
     });
-    // Figma adds a newly drawn child to an auto-layout frame's flow. Toggle
-    // ignore-auto-layout on and off to cover both states explicitly.
     await expect(absolutePosition).toHaveAttribute("aria-pressed", "false");
     await absolutePosition.click();
     await expect(absolutePosition).toHaveAttribute("aria-pressed", "true");
@@ -528,8 +534,6 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
       exact: true,
     });
     const flowStartedAt = Date.now();
-    // These text layers were created inside the Screen's auto-layout flow,
-    // so they already participate in it when selected together.
     await expect(flow).toBeVisible();
     await expect(flow).toHaveAttribute("aria-pressed", "false");
     await flow.click();

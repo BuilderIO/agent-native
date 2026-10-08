@@ -19,8 +19,6 @@ describe("design template source", () => {
       width: null,
       height: null,
     });
-    // The older helper deliberately falls back, which is why the baseline uses
-    // the exact lookup instead.
     expect(firstTemplateDimensions(data, "b")).toEqual({
       width: 1080,
       height: 1080,

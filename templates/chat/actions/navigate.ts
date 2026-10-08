@@ -1,18 +1,3 @@
-/**
- * Navigate the UI to a view.
- *
- * Writes a navigate command to application state which the UI reads and auto-deletes.
- *
- * Usage:
- *   pnpm action navigate --view=chat
- *   pnpm action navigate --path=/some/route
- *
- * Options:
- *   --view   View name to navigate to
- *   --path   URL path to navigate to
- *   --threadId Chat thread ID to open on the chat route
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { z } from "zod";

@@ -1,11 +1,3 @@
-/**
- * The fidelity harness is only worth its numbers if the comparator itself is
- * right. These cases pin the properties every conclusion in
- * `design-to-figma-svg.fidelity.spec.ts` rests on: identical renders score
- * zero, a wrongly-sized render is reported rather than silently rescaled, the
- * worst-region report points at the region that actually changed, and a render
- * that quietly lost an asset raises a warning instead of screenshotting a hole.
- */
 import { chromium, type Browser } from "@playwright/test";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -73,15 +65,12 @@ describe("comparePngs", () => {
     });
     expect(result.diffRatio).toBeGreaterThan(0.45);
     expect(result.diffRatio).toBeLessThan(0.55);
-    // Every fully-differing cell must be in the right-hand half.
     const hot = result.worstCells.filter((cell) => cell.diffRatio > 0.9);
     expect(hot.length).toBeGreaterThan(0);
     for (const cell of hot) expect(cell.x).toBeGreaterThanOrEqual(60);
   }, 60_000);
 
   it("reports a size mismatch instead of rescaling one side to fit", async () => {
-    // Rescaling would let a wrongly-sized export score as a near match, which
-    // is the failure mode this harness exists to catch.
     const small = await renderHtmlToPng(browser, box("background:#000"), {
       width: 60,
       height: 40,
@@ -96,7 +85,6 @@ describe("comparePngs", () => {
     expect(result.dimensionMismatch).toBe(true);
     expect(result.reference).toEqual({ width: 120, height: 80 });
     expect(result.candidate).toEqual({ width: 60, height: 40 });
-    // Only the overlapping region is compared, never a stretched one.
     expect(result.comparedPixels).toBe(60 * 40);
   }, 60_000);
 
@@ -153,8 +141,6 @@ describe("renderers", () => {
   }, 60_000);
 
   it("raises when a rootSelector matches nothing instead of falling back to the viewport", async () => {
-    // A silent viewport fallback would compare two different regions and score
-    // the mismatch as a rendering difference.
     await expect(
       renderDocumentToPng(
         browser,

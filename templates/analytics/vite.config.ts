@@ -13,11 +13,7 @@ export default defineConfig({
   plugins: [
     ...reactRouterPlugins(),
     ...agentNativePlugins({
-      // shiki only runs in AssistantChat's useEffect — keep it out of the
-      // CF Pages Functions bundle (25 MiB limit).
       ssrStubs: ["shiki"],
-      // Native data-source actions own these providers in Analytics; showing
-      // their MCP presets would create a second, conflicting setup path.
       mcpIntegrations: {
         defaults: { exclude: [...ANALYTICS_NATIVE_MCP_PRESET_EXCLUSIONS] },
       },

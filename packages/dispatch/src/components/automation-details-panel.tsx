@@ -1,7 +1,7 @@
 import { appPath } from "@agent-native/core/client/api-path";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   IconAlertTriangle,
   IconCheck,

@@ -30,9 +30,6 @@ export default defineAction({
     compactCatalog: true,
   },
   run: async (args) => {
-    // Consuming feedback requires editor access — same as authoring changes in
-    // update-visual-plan. Viewers can leave feedback but cannot mark it consumed
-    // on the agent's behalf.
     await assertPlanEditor(args.planId);
 
     const db = getDb();

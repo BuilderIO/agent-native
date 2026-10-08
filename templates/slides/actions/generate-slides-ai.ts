@@ -1,8 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
 import { createBuilderEngine } from "@agent-native/core/agent/engine";
 import {
+  resolveGeminiApiKey,
   resolveHasBuilderGatewayCredential,
-  resolveSecret,
 } from "@agent-native/core/server";
 import type { GeneratedSlide } from "@shared/api";
 import { z } from "zod";
@@ -11,8 +11,6 @@ const BUILDER_MODEL = "gpt-5-6-luna";
 const GEMINI_MODEL = "gemini-2.0-flash";
 
 export default defineAction({
-  // Runs the app's own model. External agents are the model; they draft with
-  // create-deck + add-slide, so this stays off MCP/WebMCP.
   mcpTool: false,
   description:
     "Legacy helper for the Generate Slides dialog that drafts a whole new deck outline (multiple slides) from a topic. It returns markdown slide drafts, not the app's rendered slide HTML. Agent chat should create decks with create-deck slides: [] plus add-slide HTML instead of this action. Do NOT use this for a request to generate one or more images/image variations for an existing slide — use generate-image-api for that. The configured Slides model and user Gemini fallback are implementation details, not visual direction.",
@@ -33,11 +31,6 @@ export default defineAction({
   }),
   run: async (args) => {
     const topic = args.topic;
-    // Cap at 10. Single-shot JSON generation reliably truncates
-    // beyond that — the resulting JSON fails to parse and the user sees
-    // an error. Larger decks should be assembled through the agent chat,
-    // which establishes the deck-level visual contract and appends later
-    // slides sequentially through `add-slide`.
     const slideCount = Math.min(args.slideCount ?? 8, 10);
     const style = args.style;
     const includeImages = args.includeImages !== false;
@@ -69,7 +62,7 @@ Rules:
 - Content should be concise and presentation-ready (not paragraphs)
 - Use bullet points for lists, keep each point brief
 - Keep title, section, statement, and call-to-action slides centered with generous, even margins
-- Do not use emoji as decorative icons or bullets; use plain text bullets or HTML/CSS shapes instead
+- Do not use emoji as decorative icons or bullets; use plain text or numbered bullets
 - Do not invent factual numbers, metrics, URLs, source attributions, dates, success rates, benchmarks, customer names, or case-study results. Only include concrete factual claims if they are present in the topic/context. If a useful metric is unknown, use qualitative wording, [metric TBD], or clearly label it as a draft assumption.
 - ${imageInstruction}
 
@@ -89,12 +82,12 @@ Respond ONLY with valid JSON. No markdown code fences, no explanation. Just the 
     }
 
     if (!text?.trim()) {
-      const apiKey = await resolveSecret("GEMINI_API_KEY");
+      const apiKey = await resolveGeminiApiKey();
       if (!apiKey) {
         throw (
           builderError ??
           new Error(
-            "Slides outline generation needs Builder.io Connect (free tier available) or GEMINI_API_KEY.",
+            "Slides outline generation needs Builder.io (free tier available) or a Gemini API key (GOOGLE_GENERATIVE_AI_API_KEY).",
           )
         );
       }
@@ -117,7 +110,6 @@ Respond ONLY with valid JSON. No markdown code fences, no explanation. Just the 
       const parsed = JSON.parse(text);
       slides = Array.isArray(parsed) ? parsed : parsed.slides || [];
     } catch {
-      // Try to extract JSON from the response
       const jsonMatch = text.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
         slides = JSON.parse(jsonMatch[0]);
@@ -126,7 +118,6 @@ Respond ONLY with valid JSON. No markdown code fences, no explanation. Just the 
       }
     }
 
-    // Validate and sanitize slides
     slides = slides.map((slide) => ({
       content: slide.content || "",
       layout: ["title", "content", "two-column", "image", "blank"].includes(

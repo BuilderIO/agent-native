@@ -2,7 +2,14 @@
   "$schema": "https://unpkg.com/@changesets/config@3.1.4/schema.json",
   "changelog": "@changesets/cli/changelog",
   "commit": false,
-  "fixed": [],
+  "fixed": [
+    [
+      "@agent-native/core",
+      "@agent-native/toolkit",
+      "@agent-native/agentkit",
+      "@agent-native/core-corpus"
+    ]
+  ],
   "linked": [],
   "access": "public",
   "baseBranch": "main",

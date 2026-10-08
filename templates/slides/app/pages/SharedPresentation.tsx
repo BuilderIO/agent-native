@@ -97,7 +97,6 @@ export default function SharedPresentation({
     ? mergeDesignSystemData(deck.designSystem)
     : undefined;
 
-  // Use a fake deckId that routes "exit" back to the share page itself
   return (
     <PresentationView
       slides={slides}

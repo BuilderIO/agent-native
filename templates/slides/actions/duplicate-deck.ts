@@ -36,6 +36,11 @@ export default defineAction({
       ),
   }),
   http: { method: "POST" },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async ({ deckId, title, newId: clientNewId, slideIds }) => {
     const access = await resolveAccess("deck", deckId);
     if (!access) throw new Error(`Deck not found: ${deckId}`);
@@ -46,9 +51,6 @@ export default defineAction({
     const now = new Date().toISOString();
     const deckData = JSON.parse(source.data);
 
-    // New IDs for all slides so edits to the copy don't collide with the
-    // original. A caller that already rendered an optimistic copy supplies the
-    // ids it used; anything it did not cover still gets a fresh one.
     const slides = deckData.slides || [];
     const originalSlideIds = slides.map((slide: { id?: unknown }) =>
       typeof slide.id === "string" ? slide.id : null,

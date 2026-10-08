@@ -6,54 +6,32 @@ import {
   index,
   ownableColumns,
   createSharesTable,
+  real,
   uniqueIndex,
 } from "@agent-native/core/db/schema";
+import { sql } from "drizzle-orm";
 import { boolean } from "drizzle-orm/pg-core";
 
-// Feature-owned schema modules. Re-exported so their tables join this app's
-// Drizzle schema namespace (schema.<table>). Each file is owned by a single
-// feature so parallel work never collides on this shared file.
 export * from "./schema-monitoring.js";
 export * from "./schema-errors.js";
 
-/**
- * Dashboards table — covers both Explorer and SQL dashboards. The
- * distinction lives in `kind` and the shape of the `config` JSON blob.
- * Previously stored in the settings KV store under
- * `u:<email>:dashboard-{id}` / `u:<email>:sql-dashboard-{id}` /
- * `o:<orgId>:sql-dashboard-{id}`. Those keys are read as a fallback
- * during lazy migration (see server/lib/dashboards-store.ts) and the
- * legacy rows can be removed once the team is sure everyone's migrated.
- */
 export const dashboards = table("dashboards", {
   id: text("id").primaryKey(),
   kind: text("kind", { enum: ["explorer", "sql"] }).notNull(),
   title: text("title").notNull().default("Untitled"),
-  /** Full dashboard config (SqlDashboardConfig or Explorer state) as JSON. */
   config: text("config").notNull(),
-  /** Server-owned AI trust metadata; never accepted from dashboard config writes. */
   certification: text("certification"),
   createdAt: text("created_at").notNull().default(now()),
-  /** Original authenticated creator. Null when historical provenance is unknown. */
   createdBy: text("created_by"),
   updatedAt: text("updated_at").notNull().default(now()),
-  /** Archive timestamp. Null = active. Archived rows are hidden from
-   *  default list responses but remain accessible by id and can be restored. */
   archivedAt: text("archived_at"),
-  /** Hidden dashboards are omitted from default navigation but remain openable. */
   hiddenAt: text("hidden_at"),
   hiddenBy: text("hidden_by"),
   folderId: text("folder_id"),
-  /** Last authenticated user who changed dashboard metadata/config, if tracked. */
   updatedBy: text("updated_by"),
   ...ownableColumns(),
 });
 
-/**
- * Persistent per-name rows serialize concurrent create/rename checks. The row
- * is deliberately independent of dashboard visibility: callers acquire the
- * same lock before applying their access-scoped collision check.
- */
 export const dashboardNameLocks = table("dashboard_name_locks", {
   nameKey: text("name_key").primaryKey(),
   createdAt: text("created_at").notNull().default(now()),
@@ -74,10 +52,6 @@ export const dashboardFolderShares = createSharesTable(
   "dashboard_folder_shares",
 );
 
-/**
- * Bounded dashboard history. Each row snapshots the previous dashboard config
- * before a meaningful save so users and agents can restore known-good states.
- */
 export const dashboardRevisions = table(
   "dashboard_revisions",
   {
@@ -104,25 +78,26 @@ export const dashboardRevisions = table(
   }),
 );
 
-/**
- * Saved filter views per dashboard. Lives alongside the parent and is
- * governed by the parent's sharing (no separate share rows).
- */
-export const dashboardViews = table("dashboard_views", {
-  id: text("id").primaryKey(),
-  dashboardId: text("dashboard_id").notNull(),
-  name: text("name").notNull(),
-  /** Filter params as JSON (Record<string, string>). */
-  filters: text("filters").notNull().default("{}"),
-  createdBy: text("created_by"),
-  createdAt: text("created_at").notNull().default(now()),
-});
+export const dashboardViews = table(
+  "dashboard_views",
+  {
+    id: text("id").primaryKey(),
+    dashboardId: text("dashboard_id").notNull(),
+    name: text("name").notNull(),
+    filters: text("filters").notNull().default("{}"),
+    isDefault: boolean("is_default").notNull().default(false),
+    createdBy: text("created_by"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (t) => ({
+    defaultDashboardViewIdx: uniqueIndex(
+      "dashboard_views_default_per_dashboard_idx",
+    )
+      .on(t.dashboardId)
+      .where(sql`${t.isDefault} = true`),
+  }),
+);
 
-/**
- * Scheduled email snapshots for SQL dashboards. Each row belongs to the user
- * who created the subscription; dashboard access is re-checked before every
- * send so revoking dashboard access also stops future deliveries.
- */
 export const dashboardReportSubscriptions = table(
   "dashboard_report_subscriptions",
   {
@@ -155,29 +130,18 @@ export const dashboardReportSubscriptions = table(
   },
 );
 
-/**
- * Ad-hoc analyses. Previously stored in the settings KV store under
- * `adhoc-analysis-{id}`. Those keys are read as a fallback during lazy
- * migration. See server/lib/analyses-store.ts.
- */
 export const analyses = table("analyses", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
-  /** Original user question that triggered the analysis. */
   question: text("question").notNull().default(""),
-  /** Step-by-step re-run instructions. */
   instructions: text("instructions").notNull().default(""),
-  /** Data sources referenced, as JSON array of strings. */
   dataSources: text("data_sources").notNull().default("[]"),
-  /** Full findings in Markdown. */
   resultMarkdown: text("result_markdown").notNull().default(""),
-  /** Optional structured result data, as JSON. */
   resultData: text("result_data"),
   author: text("author"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
-  /** Hidden analyses are omitted from default navigation but remain openable. */
   hiddenAt: text("hidden_at"),
   hiddenBy: text("hidden_by"),
   ...ownableColumns(),
@@ -211,10 +175,6 @@ export const analysisRevisions = table(
 
 export const analysisShares = createSharesTable("analysis_shares");
 
-/**
- * BigQuery result cache (pre-existing — moved here from db plugin so a
- * single drizzle schema covers the template).
- */
 export const bigqueryCache = table("bigquery_cache", {
   key: text("key").primaryKey(),
   sql: text("sql").notNull(),
@@ -222,12 +182,13 @@ export const bigqueryCache = table("bigquery_cache", {
   bytesProcessed: integer("bytes_processed").notNull().default(0),
   createdAt: text("created_at").notNull(),
   expiresAt: text("expires_at").notNull(),
+  generation: integer("generation").notNull().default(0),
+  fenceToken: text("fence_token"),
+  refreshInProgress: boolean("refresh_in_progress").notNull().default(false),
+  refreshForced: boolean("refresh_forced").notNull().default(false),
+  refreshStartedAt: text("refresh_started_at"),
 });
 
-/**
- * First-party dashboard panel result cache — see
- * server/lib/first-party-analytics-cache.ts.
- */
 export const firstPartyAnalyticsCache = table("first_party_analytics_cache", {
   key: text("key").primaryKey(),
   sql: text("sql").notNull(),
@@ -236,11 +197,6 @@ export const firstPartyAnalyticsCache = table("first_party_analytics_cache", {
   expiresAt: text("expires_at").notNull(),
 });
 
-/**
- * Public write keys for the first-party analytics ingestion endpoint.
- * The key is intentionally public/write-only: it can create events for the
- * owning user/org but grants no read or admin access.
- */
 export const analyticsPublicKeys = table("analytics_public_keys", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
@@ -260,11 +216,6 @@ export const analyticsPublicKeys = table("analytics_public_keys", {
   orgId: text("org_id"),
 });
 
-/**
- * First-party product analytics events recorded via /track.
- * Common dimensions are mirrored as columns so dashboards can group/filter
- * using those columns directly.
- */
 export const analyticsEvents = table("analytics_events", {
   id: text("id").primaryKey(),
   publicKeyId: text("public_key_id").notNull(),
@@ -289,7 +240,6 @@ export const analyticsEvents = table("analytics_events", {
   orgId: text("org_id"),
 });
 
-/** Temporary Postgres receipts for events waiting on the BigQuery sink. */
 export const analyticsBigQueryDeliveryQueue = table(
   "analytics_bigquery_delivery_queue",
   {
@@ -321,10 +271,6 @@ export const analyticsBigQueryDeliveryQueue = table(
   }),
 );
 
-/**
- * Compact daily event counts. The tenant key is non-null so the natural key
- * remains unique for both organization-scoped and personal analytics keys.
- */
 export const analyticsEventDailyRollups = table(
   "analytics_event_daily_rollups",
   {
@@ -340,7 +286,343 @@ export const analyticsEventDailyRollups = table(
   },
 );
 
-/** One row per identifiable visitor and normalized event day. */
+// Per-session event index, written at ingest for every storage sink so session
+// filters and the event catalog never read the event store per view.
+export const analyticsSessionEvents = table(
+  "analytics_session_events",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    eventName: text("event_name").notNull(),
+    app: text("app").notNull().default(""),
+    eventCount: integer("event_count").notNull().default(0),
+    firstAt: text("first_at").notNull(),
+    lastAt: text("last_at").notNull(),
+  },
+  (t) => ({
+    sessionEventUnique: uniqueIndex("analytics_session_events_key_idx").on(
+      t.tenantKey,
+      t.sessionId,
+      t.eventName,
+    ),
+    tenantLastAtIdx: index("analytics_session_events_tenant_last_at_idx").on(
+      t.tenantKey,
+      t.lastAt,
+    ),
+  }),
+);
+
+export const analyticsEventCatalogDaily = table(
+  "analytics_event_catalog_daily",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    eventDate: text("event_date").notNull(),
+    eventName: text("event_name").notNull(),
+    app: text("app").notNull().default(""),
+    eventCount: integer("event_count").notNull().default(0),
+    lastSeenAt: text("last_seen_at").notNull(),
+    propertyKeys: text("property_keys").notNull().default("[]"),
+  },
+  (t) => ({
+    catalogDayUnique: uniqueIndex("analytics_event_catalog_daily_key_idx").on(
+      t.tenantKey,
+      t.eventDate,
+      t.eventName,
+      t.app,
+    ),
+  }),
+);
+
+// Each event's latest sighting per app, so the catalog never scans daily
+// history for last-seen times.
+export const analyticsEventCatalogLatest = table(
+  "analytics_event_catalog_latest",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    eventName: text("event_name").notNull(),
+    app: text("app").notNull().default(""),
+    lastSeenAt: text("last_seen_at").notNull(),
+    propertyKeys: text("property_keys").notNull().default("[]"),
+  },
+  (t) => ({
+    catalogLatestUnique: uniqueIndex(
+      "analytics_event_catalog_latest_key_idx",
+    ).on(t.tenantKey, t.eventName, t.app),
+  }),
+);
+
+// Sessions whose index write failed. A later batch can still index them, so
+// "didn't" filters exclude them rather than read missing rows as absence.
+export const analyticsSessionEventGaps = table(
+  "analytics_session_event_gaps",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    recordedAt: text("recorded_at").notNull(),
+  },
+  (t) => ({
+    sessionGapUnique: uniqueIndex("analytics_session_event_gaps_key_idx").on(
+      t.tenantKey,
+      t.sessionId,
+    ),
+  }),
+);
+
+// When each tenant's session event index started. Sessions that began earlier
+// have incomplete event coverage, so event filters exclude them.
+export const analyticsSessionEventCoverage = table(
+  "analytics_session_event_coverage",
+  {
+    tenantKey: text("tenant_key").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    startedAt: text("started_at").notNull(),
+  },
+);
+
+// Friction a recording's own replay shows, measured as its chunks arrive. The
+// row covers the recording only while it has processed every stored chunk.
+export const sessionRecordingFriction = table(
+  "session_recording_friction",
+  {
+    recordingId: text("recording_id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    processedChunks: integer("processed_chunks").notNull().default(0),
+    deadClicks: integer("dead_clicks").notNull().default(0),
+    errorToasts: integer("error_toasts").notNull().default(0),
+    retryLoops: integer("retry_loops").notNull().default(0),
+    errorThenLeave: integer("error_then_leave").notNull().default(0),
+    stalledRequests: integer("stalled_requests").notNull().default(0),
+    http4xx: integer("http_4xx").notNull().default(0),
+    http5xx: integer("http_5xx").notNull().default(0),
+    // Null on a row measured before this was counted: unknown, not zero.
+    issueErrors: integer("issue_errors"),
+    score: integer("score").notNull().default(0),
+    detectorState: text("detector_state").notNull().default("{}"),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => ({
+    updatedAtIdx: index("session_recording_friction_updated_at_idx").on(
+      t.updatedAt,
+    ),
+  }),
+);
+
+// Friction a session's tracked events show, written with the session event
+// index so one gap marker covers both.
+export const analyticsSessionFriction = table(
+  "analytics_session_friction",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    failedActions: integer("failed_actions").notNull().default(0),
+    stuckChats: integer("stuck_chats").notNull().default(0),
+    thumbsDown: integer("thumbs_down").notNull().default(0),
+    cancelledRuns: integer("cancelled_runs").notNull().default(0),
+    agentFailures: integer("agent_failures").notNull().default(0),
+    quickBacks: integer("quick_backs").notNull().default(0),
+    // Cancelled runs, thumbs-down, and quick backs read as measured only
+    // while a pageview from a client that reports every stop, rating, and
+    // page load has arrived and no older tab of the same session (an
+    // unmarked pageview or a sampled stop) has: the session id is shared
+    // across tabs.
+    agentSignalsMeasured: boolean("agent_signals_measured")
+      .notNull()
+      .default(false),
+    agentSignalsMissing: boolean("agent_signals_missing")
+      .notNull()
+      .default(false),
+    score: integer("score").notNull().default(0),
+    navState: text("nav_state"),
+    firstAt: text("first_at").notNull(),
+    lastAt: text("last_at").notNull(),
+  },
+  (t) => ({
+    sessionUnique: uniqueIndex("analytics_session_friction_key_idx").on(
+      t.tenantKey,
+      t.sessionId,
+    ),
+    lastAtIdx: index("analytics_session_friction_last_at_idx").on(t.lastAt),
+  }),
+);
+
+// Sessions whose event friction write failed while the session event index
+// write committed. Their event friction reads as unmeasured, never as zero.
+export const analyticsSessionFrictionGaps = table(
+  "analytics_session_friction_gaps",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    recordedAt: text("recorded_at").notNull(),
+  },
+  (t) => ({
+    sessionGapUnique: uniqueIndex("analytics_session_friction_gaps_key_idx").on(
+      t.tenantKey,
+      t.sessionId,
+    ),
+  }),
+);
+
+// Failed actions and agent failures grouped per session: actions by name and
+// status, agent failures by named cause or else by error code.
+export const analyticsSessionTrouble = table(
+  "analytics_session_trouble",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    kind: text("kind", { enum: ["action", "agent"] }).notNull(),
+    label: text("label").notNull(),
+    status: text("status"),
+    cause: text("cause"),
+    eventCount: integer("event_count").notNull().default(0),
+    firstAt: text("first_at").notNull(),
+    lastAt: text("last_at").notNull(),
+  },
+  (t) => ({
+    sessionIdx: index("analytics_session_trouble_session_idx").on(
+      t.tenantKey,
+      t.sessionId,
+    ),
+    lastAtIdx: index("analytics_session_trouble_last_at_idx").on(t.lastAt),
+  }),
+);
+
+// When each tenant's session friction began. Event friction covers only
+// sessions that started after it.
+export const analyticsSessionFrictionCoverage = table(
+  "analytics_session_friction_coverage",
+  {
+    tenantKey: text("tenant_key").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    startedAt: text("started_at").notNull(),
+  },
+);
+
+// Weighted histogram buckets of page-view vitals and request durations, per
+// day, app, and route template. Buckets are positional within a histogram
+// version; see shared/session-performance.ts.
+export const analyticsRoutePerformanceDaily = table(
+  "analytics_route_performance_daily",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    eventDate: text("event_date").notNull(),
+    app: text("app").notNull().default(""),
+    route: text("route").notNull(),
+    metric: text("metric").notNull(),
+    histogramVersion: integer("histogram_version").notNull().default(1),
+    bucket: integer("bucket").notNull(),
+    weight: real("weight").notNull().default(0),
+  },
+  (t) => ({
+    routePerformanceUnique: uniqueIndex(
+      "analytics_route_performance_daily_key_idx",
+    ).on(
+      t.tenantKey,
+      t.eventDate,
+      t.app,
+      t.route,
+      t.metric,
+      t.histogramVersion,
+      t.bucket,
+    ),
+  }),
+);
+
+// Each session's worst measured page view and its slow requests. Null metrics
+// were never measured, which is not the same as fast.
+export const analyticsSessionPerformance = table(
+  "analytics_session_performance",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    app: text("app").notNull().default(""),
+    pageViews: integer("page_views").notNull().default(0),
+    maxTtfbMs: real("max_ttfb_ms"),
+    maxLcpMs: real("max_lcp_ms"),
+    maxInpMs: real("max_inp_ms"),
+    maxCls: real("max_cls"),
+    slowRequests: integer("slow_requests").notNull().default(0),
+    maxRequestMs: real("max_request_ms"),
+    firstAt: text("first_at").notNull(),
+    lastAt: text("last_at").notNull(),
+  },
+  (t) => ({
+    sessionPerformanceUnique: uniqueIndex(
+      "analytics_session_performance_key_idx",
+    ).on(t.tenantKey, t.sessionId),
+    tenantLastAtIdx: index(
+      "analytics_session_performance_tenant_last_at_idx",
+    ).on(t.tenantKey, t.lastAt),
+  }),
+);
+
+// Days, and sessions within them, whose performance aggregates failed to
+// record some events. An empty session id marks the day's route aggregates.
+export const analyticsPerformanceGaps = table(
+  "analytics_performance_gaps",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    eventDate: text("event_date").notNull(),
+    sessionId: text("session_id").notNull().default(""),
+    recordedAt: text("recorded_at").notNull(),
+  },
+  (t) => ({
+    performanceGapUnique: uniqueIndex("analytics_performance_gaps_key_idx").on(
+      t.tenantKey,
+      t.eventDate,
+      t.sessionId,
+    ),
+    performanceGapSessionIdx: index(
+      "analytics_performance_gaps_session_idx",
+    ).on(t.tenantKey, t.sessionId),
+  }),
+);
+
+// When each tenant's performance aggregates began.
+export const analyticsPerformanceCoverage = table(
+  "analytics_performance_coverage",
+  {
+    tenantKey: text("tenant_key").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    startedAt: text("started_at").notNull(),
+  },
+);
+
 export const analyticsUserDays = table("analytics_user_days", {
   id: text("id").primaryKey(),
   tenantKey: text("tenant_key").notNull(),
@@ -350,7 +632,6 @@ export const analyticsUserDays = table("analytics_user_days", {
   userKey: text("user_key").notNull(),
 });
 
-/** Atomic per-tenant event reservations used to cap future Postgres growth. */
 export const analyticsEventVolumeUsage = table(
   "analytics_event_volume_usage",
   {
@@ -373,11 +654,6 @@ export const analyticsEventVolumeUsage = table(
   }),
 );
 
-/**
- * Compact pressure signals for first-party queries that are already slow or
- * failing. Successful fast queries never write here, so the diagnostic path
- * cannot become another hot-path event log.
- */
 export const analyticsQueryPressureDaily = table(
   "analytics_query_pressure_daily",
   {
@@ -385,7 +661,6 @@ export const analyticsQueryPressureDaily = table(
     tenantKey: text("tenant_key").notNull(),
     ownerEmail: text("owner_email").notNull(),
     orgId: text("org_id"),
-    /** UTC day bucket; lastSeenAt carries the timestamp for trailing-window reads. */
     eventDate: text("event_date").notNull(),
     queryClass: text("query_class").notNull(),
     slowQueryCount: integer("slow_query_count").notNull().default(0),
@@ -397,10 +672,6 @@ export const analyticsQueryPressureDaily = table(
   },
 );
 
-/**
- * Generic alert rules over first-party analytics events. Rules are owned by a
- * user/org but can target any app, template, event name, or event property.
- */
 export const analyticsAlertRules = table("analytics_alert_rules", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
@@ -421,9 +692,7 @@ export const analyticsAlertRules = table("analytics_alert_rules", {
     .default("warning"),
   channels: text("channels").notNull().default('["inbox"]'),
   emailRecipients: text("email_recipients").notNull().default("[]"),
-  /** Optional per-rule Slack incoming webhook URL (overrides workspace env). */
   slackWebhookUrl: text("slack_webhook_url"),
-  /** Optional per-rule generic webhook URL (overrides workspace env). */
   webhookUrl: text("webhook_url"),
   enabled: boolean("enabled").notNull().default(true),
   lastEvaluatedAt: text("last_evaluated_at"),
@@ -456,11 +725,6 @@ export const analyticsAlertIncidents = table("analytics_alert_incidents", {
   orgId: text("org_id"),
 });
 
-/**
- * Admin-only registry of external agent-native app databases that Analytics can
- * inspect. Secret values live in app_secrets; this table stores metadata and
- * secret keys scoped to the active organization.
- */
 export const analyticsDbAdminConnections = table(
   "analytics_db_admin_connections",
   {
@@ -482,11 +746,6 @@ export const analyticsDbAdminConnections = table(
   }),
 );
 
-/**
- * Session replay summaries recorded through the first-party analytics replay
- * endpoint. Raw replay chunks live in session_replay_chunks and are only read
- * through scoped replay helpers, not first-party dashboard SQL.
- */
 export const sessionRecordings = table("session_recordings", {
   id: text("id").primaryKey(),
   publicKeyId: text("public_key_id").notNull(),
@@ -503,8 +762,6 @@ export const sessionRecordings = table("session_recordings", {
   totalBytes: integer("total_bytes").notNull().default(0),
   pageCount: integer("page_count").notNull().default(0),
   errorCount: integer("error_count").notNull().default(0),
-  // Additive column: failed network requests (status >= 400 or status 0)
-  // observed in captured replay diagnostics events.
   networkErrorCount: integer("network_error_count").notNull().default(0),
   rageClickCount: integer("rage_click_count").notNull().default(0),
   privacyMode: text("privacy_mode").notNull().default("unknown"),

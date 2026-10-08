@@ -14,6 +14,9 @@ The draft queue is for teammate-requested emails that need the owner to review b
   `requireQueueContext` throws if there's no active org, or if the caller isn't
   a member — both surface as plain errors, not empty results.
 - Slack requests should queue drafts, not send raw emails.
+- Slack intake is the agent's Slack connection. It's set up and switched on
+  in Settings › Channels › Slack (`navigate --settingsSection=slack`); Mail's
+  Draft requests group there links to the queue.
 - `queue-email-draft` returns `reviewUrl`; include that URL when replying to Slack so the owner can open the exact draft.
 - Slack intake verifies the sender email via Slack `users.info` when the app has `users:read.email`, and passes verified sender name/email into the agent context. If that scope is missing, Slack intake cannot resolve a real email and will not queue anything — tell the requester to ask an admin to grant `users:read.email` rather than guessing their address from their Slack display name.
 - Managed Slack installs request `users:read.email` through the generated OAuth

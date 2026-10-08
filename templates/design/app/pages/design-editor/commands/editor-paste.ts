@@ -8,6 +8,7 @@ import {
   getFigmaClipboardContent,
   isAttemptedFigmaPaste,
 } from "@/lib/design-import";
+import { extractSvgMarkup } from "@/lib/svg-paste";
 
 export interface EditorPasteArgs {
   adoptDesignClipboardPayload: (
@@ -42,10 +43,6 @@ export function runEditorPaste(
   event: ClipboardEvent,
 ) {
   if (event.defaultPrevented) return;
-  // Ahead of the editable-target guard on purpose. A Figma clipboard is base64
-  // buffer metadata, never text a focused field wants, so the guard below used
-  // to swallow every Cmd+V made while the agent composer or a panel textarea
-  // held focus — the whole paste vanished with nothing shown.
   const figmaContent = getFigmaClipboardContent(event.clipboardData);
   if (figmaContent) {
     event.preventDefault();
@@ -53,6 +50,25 @@ export function runEditorPaste(
     return;
   }
   if (isDesignHotkeyEditableTarget(event.target)) return;
+  const clipboardResult = readDesignClipboardPayloadFromDataTransfer(
+    event.clipboardData,
+  );
+  const clipboardPlainText = event.clipboardData?.getData("text/plain") ?? "";
+  const matchesInMemoryClipboard =
+    lastWrittenClipboardPlainTextRef.current !== null &&
+    clipboardPlainText === lastWrittenClipboardPlainTextRef.current;
+  if (canEditDesign && clipboardResult) {
+    if (clipboardResult.markerText !== lastWrittenClipboardMarkerRef.current) {
+      adoptDesignClipboardPayload(
+        clipboardResult.payload,
+        clipboardResult.markerText,
+        clipboardResult.plainText,
+      );
+    }
+    event.preventDefault();
+    void handlePasteSelection();
+    return;
+  }
   const svgHtml = event.clipboardData?.getData("text/html") ?? "";
   const svgText = event.clipboardData?.getData("text/plain") ?? "";
   const svgSource = /<svg\b/i.test(svgHtml)
@@ -60,11 +76,12 @@ export function runEditorPaste(
     : /<svg\b/i.test(svgText)
       ? svgText
       : "";
-  if (svgSource && canEditDesign && handlePastedSvg(svgSource)) {
+  let rejectedSvgMarkup = false;
+  if (svgSource && canEditDesign) {
     event.preventDefault();
-    return;
+    if (handlePastedSvg(svgSource)) return;
+    rejectedSvgMarkup = true;
   }
-  // File SVGs share the markup sanitizer path, not the opaque image layer path.
   const files = Array.from(event.clipboardData?.items ?? [])
     .filter((item) => item.kind === "file")
     .map((item) => item.getAsFile())
@@ -80,10 +97,27 @@ export function runEditorPaste(
       (file.type.startsWith("image/") || file.type.startsWith("video/")),
   );
   if (canEditDesign && (svgFiles.length > 0 || mediaFiles.length > 0)) {
-    // Consume file pastes before File.text() yields; otherwise the browser can
-    // insert its own image while the sanitized editable layer is being built.
     event.preventDefault();
     void handlePastedFiles([...svgFiles, ...mediaFiles]);
+    return;
+  }
+  const svgMarkup = extractSvgMarkup(
+    event.clipboardData?.getData("text/plain") ?? "",
+  );
+  if (svgMarkup && canEditDesign && typeof File !== "undefined") {
+    event.preventDefault();
+    void handlePastedFiles([
+      new File([svgMarkup], "pasted.svg", { type: "image/svg+xml" }),
+    ]);
+    return;
+  }
+  if (rejectedSvgMarkup) {
+    toast.error(t("common.genericError"));
+    return;
+  }
+  if (canEditDesign && hasCanvasClipboard && matchesInMemoryClipboard) {
+    event.preventDefault();
+    void handlePasteSelection();
     return;
   }
   if (isAttemptedFigmaPaste(event.clipboardData)) {
@@ -93,28 +127,4 @@ export function runEditorPaste(
     return;
   }
   if (!canEditDesign) return;
-  // The native paste event reflects the current clipboard synchronously.
-  // New copies carry their lossless marker in text/html; text/plain remains
-  // readable. The helper also accepts legacy markers from text/plain.
-  const clipboardResult = readDesignClipboardPayloadFromDataTransfer(
-    event.clipboardData,
-  );
-  if (
-    clipboardResult &&
-    clipboardResult.markerText !== lastWrittenClipboardMarkerRef.current
-  ) {
-    adoptDesignClipboardPayload(
-      clipboardResult.payload,
-      clipboardResult.markerText,
-      clipboardResult.plainText,
-    );
-  }
-  const clipboardPlainText = event.clipboardData?.getData("text/plain") ?? "";
-  const matchesInMemoryClipboard =
-    lastWrittenClipboardPlainTextRef.current !== null &&
-    clipboardPlainText === lastWrittenClipboardPlainTextRef.current;
-  if (clipboardResult || (hasCanvasClipboard && matchesInMemoryClipboard)) {
-    event.preventDefault();
-    void handlePasteSelection();
-  }
 }

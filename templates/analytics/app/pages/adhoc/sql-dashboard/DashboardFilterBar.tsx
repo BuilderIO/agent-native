@@ -4,10 +4,12 @@ import {
   IconDeviceFloppy,
   IconFilterOff,
 } from "@tabler/icons-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useId, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
@@ -31,97 +33,16 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-import type { DashboardFilter, FilterType } from "./types";
+import { DateRangeInput } from "../_shared/components/DateRangeInput";
+import {
+  FILTER_PARAM_PREFIX,
+  isDateRangePresetFilter,
+  resolveDefault,
+  resolveFilterVars,
+} from "./filter-vars";
+import type { DashboardFilter } from "./types";
 
-export const FILTER_PARAM_PREFIX = "f_";
-
-function daysAgo(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
-}
-
-// Keep the legacy "all" date-range sentinel out of provider queries. Analytics
-// data cannot predate the Unix epoch, so this is equivalent to an unbounded
-// lower date while remaining valid for BigQuery DATE/TIMESTAMP expressions.
-const ALL_TIME_START = "1970-01-01";
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-/** Date-valued filters whose default may use the "Nd" / "today" shorthand. */
-const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([
-  "date",
-  "date-range",
-  "toggle-date",
-]);
-
-/**
- * Resolve a filter's "default" string.
- *
- * For date-valued filters (date / date-range / toggle-date) the shorthand
- * tokens "Nd" (N days ago) and "today" are expanded into a concrete
- * YYYY-MM-DD date. For value filters (select / text / toggle) the default is
- * a LITERAL — e.g. a `select` whose option value is "90d" must stay "90d", not
- * be mis-expanded into a date. Expanding it would break the control (the date
- * matches no option, so the dropdown renders blank) and break every panel
- * whose SQL gates on `'{{id}}' = '90d'` (the date matches no branch, so the
- * WHERE is false and the panel returns "No data").
- */
-function resolveDefault(raw: string | undefined, type: FilterType): string {
-  if (!raw) return "";
-  if (DATE_FILTER_TYPES.has(type)) {
-    const m = /^(\d+)d$/.exec(raw);
-    if (m) return daysAgo(parseInt(m[1], 10));
-    if (raw === "today") return daysAgo(0);
-  }
-  return raw;
-}
-
-function resolveDateValue(
-  raw: string | undefined,
-  allTimeValue: string,
-): string {
-  const value = raw?.trim();
-  if (!value) return "";
-  if (value.toLowerCase() === "all") return allTimeValue;
-
-  const resolved = resolveDefault(value, "date");
-  return ISO_DATE_RE.test(resolved) ? resolved : "";
-}
-
-export function resolveFilterVars(
-  filters: DashboardFilter[],
-  getParam: (key: string) => string,
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const f of filters) {
-    if (f.type === "date-range") {
-      const startKey = `${f.id}Start`;
-      const endKey = `${f.id}End`;
-      out[startKey] =
-        resolveDateValue(getParam(startKey), ALL_TIME_START) ||
-        resolveDateValue(resolveDefault(f.default, f.type), ALL_TIME_START);
-      out[endKey] =
-        resolveDateValue(getParam(endKey), daysAgo(0)) || daysAgo(0);
-    } else if (f.type === "toggle" || f.type === "toggle-date") {
-      // Toggles have no "off value" default — if the user hasn't opted in
-      // via the URL, the SQL-side conditional block ({{?id}}...{{/id}})
-      // must see an empty value so it doesn't emit. Otherwise the filter
-      // looks "off" in the UI but still filters the data.
-      out[f.id] =
-        f.type === "toggle-date"
-          ? resolveDateValue(getParam(f.id), ALL_TIME_START)
-          : getParam(f.id);
-    } else {
-      const v = getParam(f.id);
-      out[f.id] =
-        f.type === "date"
-          ? resolveDateValue(v, ALL_TIME_START) ||
-            resolveDateValue(resolveDefault(f.default, f.type), ALL_TIME_START)
-          : v || resolveDefault(f.default, f.type);
-    }
-  }
-  return out;
-}
+export { FILTER_PARAM_PREFIX, resolveFilterVars } from "./filter-vars";
 
 /** Check if any filter param in the URL differs from the defaults */
 function hasActiveFilters(
@@ -133,13 +54,19 @@ function hasActiveFilters(
       if (searchParams.has(FILTER_PARAM_PREFIX + f.id + "Start")) return true;
       if (searchParams.has(FILTER_PARAM_PREFIX + f.id + "End")) return true;
     } else {
+      if (
+        isDateRangePresetFilter(f) &&
+        (searchParams.has(FILTER_PARAM_PREFIX + f.id + "Start") ||
+          searchParams.has(FILTER_PARAM_PREFIX + f.id + "End"))
+      ) {
+        return true;
+      }
       if (searchParams.has(FILTER_PARAM_PREFIX + f.id)) return true;
     }
   }
   return false;
 }
 
-/** Extract current filter params from URL search params */
 export function extractFilterParams(
   filters: DashboardFilter[],
   searchParams: URLSearchParams,
@@ -156,6 +83,12 @@ export function extractFilterParams(
     } else {
       const v = searchParams.get(FILTER_PARAM_PREFIX + f.id);
       if (v) result[FILTER_PARAM_PREFIX + f.id] = v;
+      if (isDateRangePresetFilter(f)) {
+        for (const key of [f.id + "Start", f.id + "End"]) {
+          const value = searchParams.get(FILTER_PARAM_PREFIX + key);
+          if (value) result[FILTER_PARAM_PREFIX + key] = value;
+        }
+      }
     }
   }
   return result;
@@ -163,14 +96,13 @@ export function extractFilterParams(
 
 interface DashboardFilterBarProps {
   filters: DashboardFilter[];
-  onSaveView?: (name: string, filters: Record<string, string>) => void;
+  onSaveView?: (
+    name: string,
+    filters: Record<string, string>,
+    isDefault: boolean,
+  ) => void | Promise<void>;
 }
 
-/**
- * Reads/writes filter state to URL search params under f_<id> keys, renders the
- * filter inputs, and emits a `vars` dict (suitable for SQL interpolation) to the
- * parent. Date-range filters emit `<id>Start` and `<id>End` keys.
- */
 export function DashboardFilterBar({
   filters,
   onSaveView,
@@ -179,6 +111,9 @@ export function DashboardFilterBar({
   const [searchParams, setSearchParams] = useSearchParams();
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [viewName, setViewName] = useState("");
+  const [setAsDefault, setSetAsDefault] = useState(false);
+  const [savingView, setSavingView] = useState(false);
+  const defaultCheckboxId = useId();
   const [filtersOpen, setFiltersOpen] = useState(true);
   const uniqueFilters = useMemo(() => {
     const seen = new Set<string>();
@@ -223,27 +158,47 @@ export function DashboardFilterBar({
   const clearAllFilters = useCallback(() => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      // Remove all f_ prefixed params
       const keysToRemove: string[] = [];
       next.forEach((_, k) => {
         if (k.startsWith(FILTER_PARAM_PREFIX)) keysToRemove.push(k);
       });
       keysToRemove.forEach((k) => next.delete(k));
-      // Also remove the view param since we're clearing
       next.delete("view");
       return next;
     });
   }, [setSearchParams]);
 
-  const handleSaveView = useCallback(() => {
-    if (!viewName.trim() || !onSaveView) return;
-    const currentFilters = extractFilterParams(uniqueFilters, searchParams);
-    onSaveView(viewName.trim(), currentFilters);
-    setViewName("");
-    setSaveDialogOpen(false);
-  }, [viewName, onSaveView, uniqueFilters, searchParams]);
+  const handleSaveView = useCallback(async () => {
+    if (!viewName.trim() || !onSaveView || savingView) return;
+    setSavingView(true);
+    try {
+      const currentFilters = extractFilterParams(uniqueFilters, searchParams);
+      await onSaveView(viewName.trim(), currentFilters, setAsDefault);
+      setViewName("");
+      setSetAsDefault(false);
+      setSaveDialogOpen(false);
+    } catch (error) {
+      toast.error(
+        t("sqlDashboard.saveViewFailedWithMessage", {
+          message:
+            error instanceof Error
+              ? error.message
+              : t("sqlDashboard.saveViewFailed"),
+        }),
+      );
+    } finally {
+      setSavingView(false);
+    }
+  }, [
+    viewName,
+    onSaveView,
+    savingView,
+    uniqueFilters,
+    searchParams,
+    setAsDefault,
+    t,
+  ]);
 
-  // Compute the live vars dict (URL value or default) for every filter.
   const vars = useMemo(
     () => resolveFilterVars(uniqueFilters, getParam),
     [uniqueFilters, getParam],
@@ -324,7 +279,16 @@ export function DashboardFilterBar({
         </div>
       </Collapsible>
 
-      <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
+      <Dialog
+        open={saveDialogOpen}
+        onOpenChange={(open) => {
+          setSaveDialogOpen(open);
+          if (!open) {
+            setViewName("");
+            setSetAsDefault(false);
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle>{t("sqlDashboard.saveAsView")}</DialogTitle>
@@ -334,24 +298,40 @@ export function DashboardFilterBar({
               placeholder={t("sqlDashboard.viewNameRecentPlaceholder")}
               value={viewName}
               onChange={(e) => setViewName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSaveView()}
+              onKeyDown={(e) => e.key === "Enter" && void handleSaveView()}
               autoFocus
             />
+            <label
+              htmlFor={defaultCheckboxId}
+              className="mt-3 flex cursor-pointer items-center gap-2 text-sm"
+            >
+              <Checkbox
+                id={defaultCheckboxId}
+                checked={setAsDefault}
+                onCheckedChange={(checked) => setSetAsDefault(checked === true)}
+              />
+              <span>{t("sqlDashboard.setAsDefault")}</span>
+            </label>
           </div>
           <DialogFooter>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setSaveDialogOpen(false)}
+              onClick={() => {
+                setSaveDialogOpen(false);
+                setViewName("");
+                setSetAsDefault(false);
+              }}
+              disabled={savingView}
             >
               {t("sidebar.cancel")}
             </Button>
             <Button
               size="sm"
-              onClick={handleSaveView}
-              disabled={!viewName.trim()}
+              onClick={() => void handleSaveView()}
+              disabled={!viewName.trim() || savingView}
             >
-              {t("explorer.save")}
+              {savingView ? t("sqlDashboard.saving") : t("explorer.save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -363,10 +343,6 @@ export function DashboardFilterBar({
 interface FilterControlProps {
   filter: DashboardFilter;
   vars: Record<string, string>;
-  /** True when the user has an explicit value in the URL for this key.
-   *  Distinct from `vars[key]`, which falls back to the resolved default —
-   *  toggle filters need to check "is the URL param set" to render On/Off
-   *  state correctly, not "does a resolved value exist". */
   hasParam: (key: string) => boolean;
   setValue: (updates: Record<string, string>) => void;
 }
@@ -382,24 +358,13 @@ function FilterControl({
     const startKey = `${filter.id}Start`;
     const endKey = `${filter.id}End`;
     return (
-      <div className="flex flex-col gap-1">
-        <label className="text-xs text-muted-foreground font-medium">
-          {filter.label}
-        </label>
-        <div className="flex items-center gap-2">
-          <DatePicker
-            value={vars[startKey] || ""}
-            onChange={(v) => setValue({ [startKey]: v })}
-          />
-          <span className="text-xs text-muted-foreground">
-            {t("sqlDashboard.to")}
-          </span>
-          <DatePicker
-            value={vars[endKey] || ""}
-            onChange={(v) => setValue({ [endKey]: v })}
-          />
-        </div>
-      </div>
+      <DateRangeInput
+        label={filter.label}
+        startDate={vars[startKey] || ""}
+        endDate={vars[endKey] || ""}
+        onStartChange={(v) => setValue({ [startKey]: v })}
+        onEndChange={(v) => setValue({ [endKey]: v })}
+      />
     );
   }
 
@@ -420,16 +385,32 @@ function FilterControl({
   if (filter.type === "select") {
     const current =
       vars[filter.id] || resolveDefault(filter.default, filter.type);
-    return (
+    const supportsCustomRange = isDateRangePresetFilter(filter);
+    const startKey = filter.id + "Start";
+    const endKey = filter.id + "End";
+    const selectControl = (
       <div className="flex flex-col gap-1">
         <label className="text-xs text-muted-foreground font-medium">
           {filter.label}
         </label>
         <Select
           value={current}
-          onValueChange={(v) => setValue({ [filter.id]: v })}
+          onValueChange={(v) =>
+            setValue({
+              [filter.id]: v,
+              ...(supportsCustomRange
+                ? {
+                    [startKey]: v === "custom" ? vars[startKey] || "" : "",
+                    [endKey]: v === "custom" ? vars[endKey] || "" : "",
+                  }
+                : {}),
+            })
+          }
         >
-          <SelectTrigger className="h-8 w-[140px] justify-start gap-2 text-xs">
+          <SelectTrigger
+            size="sm"
+            className="w-[140px] justify-start gap-2 text-xs"
+          >
             <SelectValue className="min-w-0 flex-1 text-left" />
           </SelectTrigger>
           <SelectContent>
@@ -438,10 +419,32 @@ function FilterControl({
                 {opt.label}
               </SelectItem>
             ))}
+            {supportsCustomRange &&
+              !filter.options?.some((option) => option.value === "custom") && (
+                <SelectItem value="custom" className="text-xs">
+                  {t("sqlDashboard.customRange")}
+                </SelectItem>
+              )}
           </SelectContent>
         </Select>
       </div>
     );
+    if (supportsCustomRange && current === "custom") {
+      return (
+        <div className="flex min-w-0 flex-wrap items-end gap-3">
+          {selectControl}
+          <DateRangeInput
+            label={t("sqlDashboard.customRange")}
+            startDate={vars[startKey] || ""}
+            endDate={vars[endKey] || ""}
+            onStartChange={(v) => setValue({ [startKey]: v })}
+            onEndChange={(v) => setValue({ [endKey]: v })}
+            className="shrink-0"
+          />
+        </div>
+      );
+    }
+    return selectControl;
   }
 
   if (filter.type === "toggle") {
@@ -454,7 +457,7 @@ function FilterControl({
         <Button
           variant={active ? "default" : "outline"}
           size="sm"
-          className="text-xs h-8 px-3"
+          className="text-xs"
           onClick={() => setValue({ [filter.id]: active ? "" : "true" })}
         >
           {active ? t("sqlDashboard.on") : t("sqlDashboard.off")}
@@ -464,9 +467,6 @@ function FilterControl({
   }
 
   if (filter.type === "toggle-date") {
-    // The toggle reflects whether the user has an explicit URL param, not
-    // whether a default would resolve to a value. Otherwise a filter with
-    // default "30d" would appear stuck in the "On" state forever.
     const active = hasParam(filter.id);
     const current = active ? vars[filter.id] || "" : "";
     return (
@@ -478,7 +478,7 @@ function FilterControl({
           <Button
             variant={active ? "default" : "outline"}
             size="sm"
-            className="text-xs h-8 px-3"
+            className="text-xs"
             onClick={() =>
               setValue({
                 [filter.id]: active
@@ -505,16 +505,16 @@ function FilterControl({
     );
   }
 
-  // text
   return (
     <div className="flex flex-col gap-1">
       <label className="text-xs text-muted-foreground font-medium">
         {filter.label}
       </label>
       <Input
+        size="sm"
         value={vars[filter.id] || ""}
         onChange={(e) => setValue({ [filter.id]: e.target.value })}
-        className="h-8 w-[160px] text-xs"
+        className="w-[160px] text-xs"
       />
     </div>
   );

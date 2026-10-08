@@ -9,11 +9,6 @@ const rootDir = path.resolve(
   "..",
 );
 
-// Dist-tags that either already mean something on npm (latest, nightly) or
-// would be confusing next to the real release trains (beta/rc/etc). The
-// workflow always publishes under `dev-<devTag>`, so a collision on the raw
-// npm registry isn't possible — this guards against a developer picking a
-// name that reads like a real release channel.
 export const RESERVED_DEV_TAGS = new Set([
   "latest",
   "nightly",

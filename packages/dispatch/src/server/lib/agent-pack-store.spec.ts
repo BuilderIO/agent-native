@@ -21,10 +21,6 @@ vi.mock("./workspace-resources-store.js", () => ({
 
 describe("applyAgentPackCreate", () => {
   it("rejects an attached-file path collision as a clean 409, not a crash", async () => {
-    // The action's own preflight only checks the generated profile path
-    // (`${root}.md`); a collision on an attached file path (`${root}/...`)
-    // only surfaces here, so this boundary must not fall back to a bare
-    // Error that the HTTP transport turns into an opaque 500.
     mocks.getWorkspaceResourceByPath.mockImplementation(async (path: string) =>
       path === "agents/researcher/context/glossary.md"
         ? { path, content: "existing" }
@@ -65,8 +61,6 @@ describe("applyAgentPackCreate", () => {
   });
 
   it("rejects two pack files that normalize to the same path", async () => {
-    // Neither path exists in the DB yet, so the preflight lookup alone would
-    // let both through and the create loop would insert two rows at one path.
     mocks.getWorkspaceResourceByPath.mockResolvedValue(null);
 
     const { applyAgentPackCreate } = await import("./agent-pack-store.js");

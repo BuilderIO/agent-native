@@ -1,6 +1,13 @@
-import { focusAgentChat } from "@agent-native/core/client/agent-chat";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { submitToAgent } from "@agent-native/core/client/navigation";
+import {
+  chatModelSelectionStorageKey,
+  focusAgentChat,
+  useAgentEngineConfigured,
+  useChatModels,
+} from "@agent-native/toolkit/app/chat";
+import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
+import { isLocalRuntimeEngine } from "@agent-native/toolkit/app/chat/composer";
+import { submitToAgent } from "@agent-native/toolkit/app/shared";
 import {
   IconLayoutSidebarRight,
   IconMessage,
@@ -15,8 +22,6 @@ import { buildSearchIndexAsync, type SearchEntry } from "./docs-content";
 import { docsPathForSlug } from "./docs-locale";
 import { useDocsTheme } from "./ThemeToggle";
 
-// Lazily built on first open — not at module scope — so the index and the full
-// docs corpus are not included in the initial page bundle.
 const cachedIndexes = new Map<string, SearchEntry[]>();
 const pendingIndexes = new Map<string, Promise<SearchEntry[]>>();
 function getCachedSearchIndex(locale: string): SearchEntry[] | null {
@@ -39,8 +44,6 @@ function loadSearchIndex(locale: string): Promise<SearchEntry[]> {
       return index;
     })
     .catch((error) => {
-      // A stale or unavailable document chunk must not poison retries for the
-      // rest of the session with the same rejected promise.
       pendingIndexes.delete(locale);
       throw error;
     });
@@ -89,7 +92,6 @@ function search(query: string, index: SearchEntry[]): SearchEntry[] {
         if (pageLower.includes(word)) score += isPageEntry ? 5 : 2;
         if (textLower.includes(word)) score += 3;
       }
-      // exact phrase bonus
       if (keywordsLower.includes(q)) score += 35;
       if (pageLower.includes(q)) score += isPageEntry ? 25 : 5;
       if (textLower.includes(q)) score += 20;
@@ -123,6 +125,20 @@ export function SearchModal({
   const navigate = useNavigate();
   const { locale } = useLocale();
   const t = useT();
+  const models = useChatModels({
+    enabled: false,
+    storageKey: chatModelSelectionStorageKey("docs"),
+  });
+  const shouldCheckProviderStatus = !isLocalRuntimeEngine(
+    models.selectedEngine,
+  );
+  const providerStatusCheck = useAgentEngineConfigured(
+    shouldCheckProviderStatus,
+  );
+  const providerStatus = shouldCheckProviderStatus
+    ? providerStatusCheck.state
+    : "configured";
+  const chatReady = providerStatus === "configured";
   const { theme, toggleTheme } = useDocsTheme();
   const results = search(query, index);
   const themeSearchTerms = [
@@ -163,6 +179,7 @@ export function SearchModal({
   }, []);
 
   const submitAskAi = useCallback(() => {
+    if (!chatReady) return;
     onClose();
     const message = query.trim();
     if (!message) {
@@ -170,7 +187,11 @@ export function SearchModal({
       return;
     }
     submitToAgent(message);
-  }, [onClose, query]);
+  }, [chatReady, onClose, query]);
+
+  const retryProviderStatus = useCallback(() => {
+    window.dispatchEvent(new Event("agent-engine:configured-changed"));
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -199,7 +220,6 @@ export function SearchModal({
     };
   }, [locale, open, retryCount]);
 
-  // Focus management: save focus before open, restore on close
   useEffect(() => {
     if (open) {
       previousFocusRef.current = document.activeElement;
@@ -230,7 +250,6 @@ export function SearchModal({
     [navigate, onClose],
   );
 
-  // Keyboard: Escape, arrows, Enter, and Tab focus trap
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
@@ -263,7 +282,6 @@ export function SearchModal({
         const result = results[activeIdx - resultIndexOffset];
         if (result) go(result);
       } else if (e.key === "Tab") {
-        // Focus trap: cycle focus within the modal
         const modal = modalRef.current;
         if (!modal) return;
         const focusable = Array.from(
@@ -514,12 +532,32 @@ export function SearchModal({
         </div>
 
         <div className="border-t border-[var(--docs-border)] py-2">
+          {providerStatus === "missing" ? (
+            <BuilderSetupCard attached fullWidth layout="sidebar" />
+          ) : providerStatus === "unavailable" ? (
+            <div
+              className="mx-3 mb-1 flex items-center justify-between gap-3 rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--fg-secondary)]"
+              role="status"
+            >
+              <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
+              {providerStatus === "unavailable" ? (
+                <button
+                  type="button"
+                  className="shrink-0 font-medium text-[var(--fg)] underline-offset-4 hover:underline"
+                  onClick={retryProviderStatus}
+                >
+                  {t("agentChat.common.retry")}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           <button
             ref={activeIdx === askAiIndex ? activeItemRef : undefined}
             type="button"
             onClick={submitAskAi}
             onMouseEnter={() => setActiveIdx(askAiIndex)}
-            className={`flex w-full items-center gap-3 px-4 py-3 text-start text-sm transition ${
+            disabled={!chatReady}
+            className={`flex w-full items-center gap-3 px-4 py-3 text-start text-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
               activeIdx === askAiIndex
                 ? "bg-[var(--docs-accent)]/10"
                 : "hover:bg-[var(--bg-secondary)]"

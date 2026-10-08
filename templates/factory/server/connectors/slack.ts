@@ -138,8 +138,6 @@ async function slackWrite<T extends { ok?: boolean; error?: string }>(
   const data = (await response.json()) as T;
   if (data.ok !== true)
     throw new Error(`Slack API error: ${data.error ?? "unknown_error"}`);
-  // A successful reaction or message write makes cached reads stale. This is
-  // especially important when a retry follows a partially recorded handoff.
   invalidateWorkspaceCache(workspace);
   return data;
 }

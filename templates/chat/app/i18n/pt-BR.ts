@@ -1,11 +1,6 @@
 const messages = {
   settings: {
     title: "Configurações",
-    description: "Preferências de idioma e espaço de trabalho deste app.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Escolha o idioma da interface. Essa preferência é salva na sua conta.",
-    languageLabel: "Idioma da interface",
     workspaceTitle: "Espaço de trabalho",
     workspaceDescription:
       "Gerencie membros da equipe, acesso da organização e preferências compartilhadas.",
@@ -34,6 +29,10 @@ const messages = {
     pinChat: "Fixar chat",
     pinned: "Fixados",
     recents: "Recentes",
+    retryPreviousRequest:
+      "Tente novamente minha solicitação anterior agora que o provedor do modelo está conectado.",
+    retryAttachmentUnavailable:
+      "O Chat não consegue reabrir este anexo para tentar novamente. Adicione uma URL de arquivo acessível e tente outra vez.",
     renameChat: "Renomear chat",
     renameFailed: "Falha ao renomear",
     renameThread: "Renomear conversa",

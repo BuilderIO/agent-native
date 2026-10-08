@@ -98,6 +98,13 @@ La mayoría de las acciones solo llegan a leer `ctx?.userEmail` y `ctx?.orgId`, 
             "La clave de registro de la acción que se está llamando (p. ej. `delete-recording`), establecida en cada punto de despacho para que preocupaciones transversales como el registro de auditoría puedan atribuir la llamada. `undefined` para llamadas `run()` programáticas directas que evitan el despachador.",
         },
         {
+          name: "toolCallId",
+          type: "string",
+          optional: true,
+          description:
+            "El ID de la llamada a herramienta del modelo (`toolCall.id`) para esta invocación. Lo establece el bucle del agente, también a través de los wrappers de `defineAction()`. Permite correlacionar eventos cuando la misma acción se ejecuta varias veces. No es una entrada de la acción y es `undefined` para los llamantes sin una llamada a herramienta del modelo.",
+        },
+        {
           name: "threadId",
           type: "string",
           optional: true,

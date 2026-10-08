@@ -221,6 +221,32 @@ describe("resolveExecutable", () => {
     );
   });
 
+  it("skips extensionless and .cmd shims on Windows and finds the .exe", () => {
+    const root = createTempRoot();
+    const npmBin = path.join(root, "npm");
+    const localBin = path.join(root, ".local", "bin");
+    fs.mkdirSync(npmBin, { recursive: true });
+    fs.mkdirSync(localBin, { recursive: true });
+    fs.writeFileSync(path.join(npmBin, "claude"), "#!/bin/sh\n", {
+      mode: 0o755,
+    });
+    fs.writeFileSync(path.join(npmBin, "claude.cmd"), "@ECHO off\n", {
+      mode: 0o755,
+    });
+    const environment = { HOME: root, PATH: npmBin };
+
+    expect(resolveExecutable("claude", environment, "win32")).toBeNull();
+
+    const nativeExecutable = path.join(localBin, "claude.exe");
+    fs.writeFileSync(nativeExecutable, "", { mode: 0o755 });
+    expect(resolveExecutable("claude", environment, "win32")).toBe(
+      nativeExecutable,
+    );
+    expect(resolveExecutable("claude", environment, "linux")).toBe(
+      path.join(npmBin, "claude"),
+    );
+  });
+
   it("propagates GUI-only CLI directories into child PATH", () => {
     const root = createTempRoot();
     const bin = path.join(root, ".local", "bin");

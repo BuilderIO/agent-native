@@ -82,7 +82,6 @@ export default function AuditPage() {
   const [promptSearch, setPromptSearch] = useState<string>("");
   const [openRunId, setOpenRunId] = useState<string | null>(null);
 
-  // First admin check — gates the whole page.
   const { data: adminCheck, isLoading: adminLoading } = useActionQuery(
     "is-audit-admin",
     {},

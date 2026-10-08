@@ -1,14 +1,14 @@
 import {
-  AgentSidebar,
-  focusAgentChat,
   isAgentChatHomeHandoffActive,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { InvitationBanner } from "@agent-native/core/client/org";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
+import { InvitationBanner } from "@agent-native/toolkit/app/org";
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 import { useMemo } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -19,9 +19,6 @@ import { Sidebar } from "./Sidebar";
 
 const BARE_ROUTES = new Set(["/form-preview"]);
 
-// Routes whose page renders its own custom toolbar (with AgentToggleButton).
-// Layout still mounts Sidebar + AgentSidebar, but skips its own Header so
-// there's no double-header.
 const NO_HEADER_PREFIXES = ["/forms/", "/extensions", "/response-insights"];
 
 interface LayoutProps {
@@ -33,6 +30,9 @@ export function Layout({ children }: LayoutProps) {
   const navigate = useNavigate();
   const t = useT();
   const isAskRoute = location.pathname === "/ask";
+  // Settings brings its own navigation, header, and agent toggle, so it
+  // renders full width.
+  const isSettingsRoute = isSettingsPathname(location.pathname);
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "forms",
     activePath: location.pathname,
@@ -45,9 +45,6 @@ export function Layout({ children }: LayoutProps) {
     requireActiveHandoff: true,
   });
 
-  // Bind chat to the currently-open form. The `/forms/:id` URL covers
-  // both the builder and the responses sub-page (`/forms/:id/responses`);
-  // either way we want both screens of the same form to share a chat.
   const formScope = useMemo(() => {
     const match = location.pathname.match(/^\/forms\/([^/]+)/);
     const formId = match?.[1];
@@ -58,13 +55,12 @@ export function Layout({ children }: LayoutProps) {
     return <>{children}</>;
   }
 
-  // Editor routes (/forms/:id, /forms/:id/responses) render their own
-  // toolbar with AgentToggleButton — skip the global Header to avoid
-  // a double-header.
   const showHeader =
     !NO_HEADER_PREFIXES.some((prefix) =>
       location.pathname.startsWith(prefix),
-    ) && !isAskRoute;
+    ) &&
+    !isAskRoute &&
+    !isSettingsRoute;
 
   function openAskAgentFullscreen() {
     focusAgentChat();
@@ -74,9 +70,11 @@ export function Layout({ children }: LayoutProps) {
   return (
     <HeaderActionsProvider>
       <div className="agent-layout-shell flex h-screen overflow-hidden">
-        <div className="agent-layout-left-drawer flex shrink-0">
-          <Sidebar />
-        </div>
+        {isSettingsRoute ? null : (
+          <div className="agent-layout-left-drawer flex shrink-0">
+            <Sidebar />
+          </div>
+        )}
         {isAskRoute ? (
           <div className="agent-layout-main-surface flex min-w-0 flex-1 overflow-hidden">
             <div className="flex h-full flex-1 flex-col overflow-hidden">

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import {
   appPath,
@@ -7,12 +7,6 @@ import {
   readSeedDesignId,
 } from "./helpers";
 
-/**
- * A screen reads as one object, the way a Figma frame does: one row in the
- * tree, and one inspector carrying both its box and its paint. Older screens
- * stamped their title onto <body>, which listed the same screen twice and put
- * its fill on the second row.
- */
 const STAMPED_BODY_HTML = `<!DOCTYPE html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Screen 1</title></head>
@@ -21,8 +15,8 @@ const STAMPED_BODY_HTML = `<!DOCTYPE html>
   </body>
 </html>`;
 
-const sectionTitle = (name: string) =>
-  `h3.design-sidebar-section-title:text-is("${name}")`;
+const sectionTitle = (page: Page, name: string) =>
+  page.getByRole("heading", { name, exact: true, level: 3 });
 
 test("a screen and its document are one object", async ({ page }, testInfo) => {
   const designId = await readSeedDesignId();
@@ -57,12 +51,19 @@ test("a screen and its document are one object", async ({ page }, testInfo) => {
     context,
   ).toBe(false);
 
-  // One inspector carries the box and the paint.
   await rows.first().click();
-  await expect(page.locator(sectionTitle("Position"))).toBeVisible();
-  await expect(page.locator(sectionTitle("Fill"))).toBeVisible();
-  await expect(page.locator(sectionTitle("Stroke"))).toBeVisible();
-  await expect(page.locator(sectionTitle("Effects"))).toBeVisible();
-  await expect(page.getByText("0F1115").first()).toBeVisible();
+  await expect(sectionTitle(page, "Position")).toBeVisible();
+  await expect(sectionTitle(page, "Fill")).toBeVisible();
+  await expect(sectionTitle(page, "Stroke")).toBeVisible();
+  await expect(sectionTitle(page, "Effects")).toBeVisible();
+  await expect
+    .poll(() =>
+      page
+        .getByRole("textbox", { name: "Color" })
+        .evaluateAll((inputs) =>
+          inputs.map((input) => (input as HTMLInputElement).value),
+        ),
+    )
+    .toContain("0F1115");
   await cdpScreenshot(page, testInfo.outputPath("merged-inspector.png"));
 });

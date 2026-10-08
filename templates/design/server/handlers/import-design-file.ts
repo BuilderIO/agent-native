@@ -35,8 +35,6 @@ import {
 
 const MAX_HTML_BYTES = 2 * 1024 * 1024;
 
-// Matches the local-kiwi clipboard frame cap so a token-free .fig hydration of
-// a multi-frame paste can fill every imported screen in one upload.
 const MAX_HYDRATE_FILES = 50;
 
 export const MAX_FIG_CHUNK_BYTES = 3 * 1024 * 1024;
@@ -79,11 +77,6 @@ function queryText(query: Record<string, unknown>, name: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-/**
- * Runs the `.fig` side of an import once the whole file is in memory, whether
- * it arrived as one multipart body or was reassembled from chunks. Both
- * transports must produce identical results, so neither owns this logic.
- */
 async function importFigBuffer({
   data,
   designId,
@@ -103,10 +96,6 @@ async function importFigBuffer({
     );
   }
 
-  // Token-free hydration: fill the image placeholders left by a no-token
-  // clipboard paste using the SAME .fig's embedded image bytes. No Figma
-  // token, no REST call — the .fig `images/` entries are keyed by the
-  // same SHA-1 hash the paste stamped into data-figma-image-ref.
   if (hydrateFileIdsRaw) {
     const fileIds = hydrateFileIdsRaw
       .split(",")
@@ -122,7 +111,6 @@ async function importFigBuffer({
     }
     const { hydrateFileImagesFromFig, indexFigImages } =
       await import("../lib/figma-image-hydration.js");
-    // Decode + index the uploaded .fig once, then reuse across screens.
     const figImages = indexFigImages(data);
     const results = [];
     let totalResolved = 0;
@@ -146,8 +134,6 @@ async function importFigBuffer({
     };
   }
 
-  // Keep Kiwi/Zstd and the sizeable editable renderer off the normal HTML
-  // upload path. They are loaded only for an actual `.fig` request.
   const { importFigFileToEditableHtml } =
     await import("../lib/fig-file-import.js");
   const converted = await importFigFileToEditableHtml({
@@ -194,8 +180,6 @@ async function discardFigUploadSession(
   );
   const orphaned = results.filter((result) => !result.deleted).length;
   if (orphaned > 0) {
-    // Leaving parked chunks behind must not fail the import, but it must not
-    // be invisible either — these are real bytes nobody will clean up later.
     console.warn("[design-fig-upload] chunk cleanup incomplete", {
       uploadId,
       orphaned,
@@ -204,16 +188,6 @@ async function discardFigUploadSession(
   await deleteAppState(sessionKey(uploadId));
 }
 
-/**
- * Chunked `.fig` transport. Netlify base64-encodes a function body into a 6 MB
- * payload, so a real Figma export (routinely 10-50 MB) can never arrive as one
- * multipart request — the platform 413s with an empty body before any handler
- * runs. Each chunk is parked in private blob storage and the final request
- * reassembles them, so the file bytes never exceed the wire cap in one hop.
- *
- * The upload id is client-generated; the session records the owner so a guessed
- * id cannot append to, read, or complete somebody else's upload.
- */
 async function handleFigUploadChunk(
   event: H3Event,
   query: Record<string, unknown>,
@@ -317,9 +291,6 @@ async function handleFigUploadChunk(
   if (!handle) {
     await discardFigUploadSession(uploadId, session);
     setResponseStatus(event, 503);
-    // The client falls back to the single-request multipart upload on this
-    // flag: without blob storage there is nowhere to park chunks, and a
-    // silent empty success here would look like a completed import.
     return {
       error:
         "Chunked upload needs configured file storage. Configure blob storage to import .fig files larger than the request body limit.",
@@ -473,8 +444,6 @@ export const importDesignFile = defineEventHandler(async (event) => {
         }
 
         if (ext === ".fig") {
-          // A single multipart body still cannot exceed the wire cap; larger
-          // files must arrive through the chunked transport above.
           if (data.length > MAX_UPLOAD_BYTES) {
             throw new Error(
               `.fig upload exceeded the single-request limit. Retry the import so it uploads in chunks.`,

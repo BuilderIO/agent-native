@@ -25,6 +25,20 @@ describe("appMountPath", () => {
     );
   });
 
+  it("keeps a root route inside its live workspace mount when omitted by the manifest", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "content", path: "/content" }]),
+    );
+    vi.stubGlobal("window", { location: { pathname: "/dispatch/" } });
+
+    expect(appMountPath("/")).toBe("/dispatch");
+    expect(appMountedPath("/settings/keys", "/")).toBe(
+      "/dispatch/settings/keys",
+    );
+  });
+
   it("resolves the mount from a deep route without runtime flags", () => {
     vi.stubGlobal("window", {
       location: {

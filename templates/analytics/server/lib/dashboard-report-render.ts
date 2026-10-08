@@ -5,7 +5,6 @@ import {
 
 import { resolveDualAxis } from "../../app/pages/adhoc/sql-dashboard/dual-axis";
 import { interpolate } from "../../app/pages/adhoc/sql-dashboard/interpolate";
-import { serializePanelSql } from "../../app/pages/adhoc/sql-dashboard/panel-sql";
 import {
   pivotRows,
   timeRangeDays,
@@ -22,11 +21,13 @@ import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
   MAX_CONCURRENT_SQL_QUERIES,
 } from "../../shared/sql-query-limits";
+import type { DashboardPanelSource } from "./dashboard-panel-query";
 import {
-  normalizeDashboardPanelQuery,
-  type DashboardPanelSource,
-} from "./dashboard-panel-query";
-import { resolveAnalyticsPanelSource } from "./dashboard-panel-source-resolver";
+  buildPanelQuery,
+  describeError,
+  runResolvedPanel,
+  type ReportPanelData,
+} from "./dashboard-panel-runner";
 import {
   renderReportChartSvg,
   renderFunnelChartSvg,
@@ -49,16 +50,7 @@ export type ReportSnapshot = {
   variables?: Record<string, string>;
 };
 
-export type ReportPanelData =
-  | {
-      status: "rows";
-      rows: Array<Record<string, unknown>>;
-      schema: Array<{ name: string; type: string }>;
-      truncated?: boolean;
-    }
-  | { status: "query-failed"; message: string }
-  | { status: "missing-credential"; message: string }
-  | { status: "not-emailable"; message: string };
+export type { ReportPanelData };
 
 export type RenderedReportEmail = {
   html: string;
@@ -70,17 +62,11 @@ export type RenderedReportEmail = {
     contentId: string;
     disposition: "inline";
   }>;
-  /** Panel ids that could not be rendered from real data. Empty === complete. */
   degradedPanelIds: string[];
 };
 
 type ReportAttachment = RenderedReportEmail["attachments"][number];
 
-/**
- * Sits one layer above the panel source's own query timeout so the source's
- * more specific error surfaces first. The heaviest first-party panels on a real
- * dashboard need well over 20s.
- */
 const DEFAULT_PANEL_TIMEOUT_MS = DASHBOARD_REPORT_ACTION_TIMEOUT_MS;
 const EMAIL_TABLE_ROW_CAP = 50;
 const MAX_CHART_POINTS = 400;
@@ -89,17 +75,6 @@ const CHART_HEIGHT = 360;
 const CHART_RASTER_SCALE = 2;
 const MAX_TOTAL_ATTACHMENT_BYTES = 14 * 1024 * 1024;
 
-/**
- * resvg resolves no CSS custom properties, so email charts cannot reuse the
- * dashboard's `var(--brand-*)` palette.
- */
-/**
- * Mirrors `DEFAULT_COLORS` in `app/components/dashboard/SqlChart.tsx`, including
- * its length — series colors are assigned `index % length`, so a different
- * length would recolor every series past the first cycle relative to the live
- * dashboard. The first two entries resolve `var(--brand-blue)` / `--brand-teal`
- * to hex because resvg cannot read CSS custom properties.
- */
 const CHART_COLORS = [
   "#0284c7",
   "#0d9488",
@@ -127,52 +102,6 @@ export function reportPanelVariables(
   return vars;
 }
 
-const SECRET_PATTERNS: RegExp[] = [
-  /\b(?:bearer|token|api[_-]?key|secret|password|authorization)\b["'\s:=]+\S+/gi,
-  /\b[A-Za-z0-9_-]{32,}\b/g,
-];
-
-function redactSecrets(message: string): string {
-  const redacted = SECRET_PATTERNS.reduce(
-    (acc, pattern) => acc.replace(pattern, "[redacted]"),
-    message,
-  );
-  return redacted.length > 500 ? `${redacted.slice(0, 500)}…` : redacted;
-}
-
-function describeError(error: unknown): string {
-  const raw =
-    error instanceof Error
-      ? error.message
-      : typeof error === "string"
-        ? error
-        : JSON.stringify(error);
-  return redactSecrets(raw || "Unknown error");
-}
-
-function panelFailureError(result: object): string | null {
-  const error = (result as { error?: unknown }).error;
-  return typeof error === "string" && error ? error : null;
-}
-
-function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  message: string,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-      timer.unref?.();
-    }),
-  ]).finally(() => {
-    if (timer) clearTimeout(timer);
-    void promise.catch(() => undefined);
-  });
-}
-
 async function fetchOnePanel(
   panel: SqlPanel,
   vars: Record<string, string>,
@@ -182,65 +111,11 @@ async function fetchOnePanel(
   const source = panel.source as DashboardPanelSource;
   let query: string;
   try {
-    query = normalizeDashboardPanelQuery(
-      source,
-      interpolate(serializePanelSql(panel.sql), vars, {
-        failClosedTimeVariables: true,
-      }),
-    );
+    query = buildPanelQuery(panel, vars);
   } catch (error) {
     return { status: "query-failed", message: describeError(error) };
   }
-
-  try {
-    const result = await withTimeout(
-      resolveAnalyticsPanelSource({ source, query, timeoutMs }, ctx),
-      timeoutMs,
-      `Panel query timed out after ${Math.round(timeoutMs / 1000)}s`,
-    );
-    const failure = panelFailureError(result);
-    if (failure === "missing_api_key") {
-      const message = (result as { message?: unknown }).message;
-      return {
-        status: "missing-credential",
-        message: redactSecrets(
-          typeof message === "string" && message
-            ? message
-            : "This panel's data source is not connected",
-        ),
-      };
-    }
-    if (failure) {
-      const message = (result as { message?: unknown }).message;
-      return {
-        status: "query-failed",
-        message: redactSecrets(
-          typeof message === "string" && message ? message : failure,
-        ),
-      };
-    }
-
-    const rows = (result as { rows?: unknown }).rows;
-    if (!Array.isArray(rows)) {
-      return {
-        status: "query-failed",
-        message: "Panel source returned no row set",
-      };
-    }
-    const schema = (result as { schema?: unknown }).schema;
-    return {
-      status: "rows",
-      rows: rows as Array<Record<string, unknown>>,
-      schema: Array.isArray(schema)
-        ? (schema as Array<{ name: string; type: string }>)
-        : [],
-      ...((result as { truncated?: unknown }).truncated
-        ? { truncated: true }
-        : {}),
-    };
-  } catch (error) {
-    return { status: "query-failed", message: describeError(error) };
-  }
+  return runResolvedPanel({ source, query, ctx, timeoutMs });
 }
 
 export async function fetchReportPanelData(args: {
@@ -541,7 +416,6 @@ function formatReportSeriesLabel(panel: SqlPanel, value: string): string {
     : match[1] || value;
 }
 
-/** Legacy saved dashboards still carry `stacked-bar` / `stacked-area`. */
 const REPORT_CHART_TYPES: Record<string, ReportChartType> = {
   bar: "bar",
   line: "line",
@@ -552,12 +426,6 @@ const REPORT_CHART_TYPES: Record<string, ReportChartType> = {
   "stacked-area": "area",
 };
 
-/**
- * The dashboard pivots before it picks a renderer, so tables, metrics, and
- * heatmaps see wide-form rows too. `fillDateGaps` must stay off for bar charts
- * (on the stored chart type, not the normalized one) because a filled day is a
- * fabricated zero bar, not a measurement.
- */
 function pivotPanelRows(
   panel: SqlPanel,
   rows: Array<Record<string, unknown>>,
@@ -615,10 +483,6 @@ function buildChartInput(
 async function rasterizeChartPng(svg: string, width: number): Promise<Buffer> {
   const { Resvg } = await import("@resvg/resvg-js");
   const fontFiles = resolveOgFontFiles();
-  // The fonts are embedded in core and only fail to materialize if tmpdir is
-  // unwritable. Falling back to system fonts would render every label blank on
-  // a Linux serverless runtime and still produce a valid-looking PNG, so refuse
-  // instead — the caller turns this into a visible degraded panel.
   if (!fontFiles?.length) {
     throw new Error(
       "Chart fonts are unavailable (could not materialize the bundled font files), so chart text would render blank",
@@ -989,16 +853,11 @@ async function renderChartBlock(args: {
   }
   const subtitle = subtitleParts.join(" · ");
 
-  // The card heading directly above already names the panel; repeating it here
-  // would read twice in a client that blocks images.
   const alt = `${chartType} chart of ${input.series
     .map((series) => series.label)
     .join(", ")}`;
 
   try {
-    // Title and description stay in the surrounding HTML card: text there is
-    // selectable, wraps instead of truncating, and cannot be duplicated by the
-    // image beneath it.
     const svg = renderReportChartSvg({
       labels: input.labels,
       series: input.series,

@@ -364,7 +364,6 @@ export function markdownUrlForPage(
   markdownPath?: string,
 ): string {
   if (markdownPath) return normalizePagePath(markdownPath);
-  // An asset path, not a route: the twin for `/about/` is `/about.md`.
   const base = trimTrailingSlash(normalizePagePath(pagePath));
   if (!base) return "/index.md";
   return `${base}.md`;
@@ -389,13 +388,6 @@ function absoluteResourceUrl(siteUrl: string, resourceUrl: string): string {
     : absoluteUrl(siteUrl, resourceUrl);
 }
 
-/**
- * Ensures a leading slash and otherwise leaves the path alone. A trailing
- * slash is significant: a site whose canonical URLs carry one must advertise
- * that exact form, or every sitemap entry and JSON-LD url points at a redirect
- * instead of the page. Callers building an asset path from a route path strip
- * it themselves -- see `markdownUrlForPage`.
- */
 function normalizePagePath(pagePath: string): string {
   return pagePath.startsWith("/") ? pagePath : `/${pagePath}`;
 }
@@ -422,9 +414,6 @@ function breadcrumbItemsForPath(
   const normalized = normalizePagePath(pagePath);
   if (normalized === "/") return [{ name: "Home", path: "/" }];
   const segments = normalized.split("/").filter(Boolean);
-  // Every crumb is a page URL, so they carry the same trailing slash the page
-  // does. Emitting bare crumbs under a slash-terminated page points structured
-  // data at redirects.
   const trailing = normalized.endsWith("/") ? "/" : "";
   const items = [{ name: "Home", path: "/" }];
   let current = "";

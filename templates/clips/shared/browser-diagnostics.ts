@@ -27,7 +27,6 @@ const UNQUOTED_SECRET_VALUE_RE = new RegExp(
 );
 
 export interface RedactBrowserDiagnosticStringOptions {
-  /** Redact every query value. Use for URL fields; leave off for console text. */
   redactQueryValues?: boolean;
 }
 

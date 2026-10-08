@@ -12,19 +12,9 @@ export interface CodingCommandResult {
   stderr: string;
   timedOut: boolean;
   durationMs?: number;
-  /**
-   * The command exited but something it started outlived it and still holds the
-   * output pipe, so the captured output stops here rather than at end-of-stream.
-   * Distinct from a clean finish — the caller is not looking at the whole story.
-   */
   outputStillOpen?: boolean;
 }
 
-/**
- * Structured metadata emitted on tool_start / tool_done events so the UI can
- * render bespoke cells (bash terminal, edit diff, etc.) instead of the generic
- * pill.  Fields are additive — older consumers that don't know them are unaffected.
- */
 export interface BashToolMetadata {
   toolKind: "bash";
   command: string;
@@ -37,9 +27,7 @@ export interface BashToolMetadata {
 export interface EditToolMetadata {
   toolKind: "edit";
   filePath: string;
-  /** The exact old text replaced (capped at EDIT_CONTENT_MAX_CHARS). */
   oldText?: string;
-  /** The exact new text written (capped at EDIT_CONTENT_MAX_CHARS). */
   newText?: string;
   truncated?: boolean;
 }
@@ -47,7 +35,6 @@ export interface EditToolMetadata {
 export interface WriteToolMetadata {
   toolKind: "write";
   filePath: string;
-  /** Full file content written (capped at EDIT_CONTENT_MAX_CHARS). */
   content?: string;
   truncated?: boolean;
   lineCount?: number;
@@ -65,7 +52,6 @@ export type StructuredToolMetadata =
   | WriteToolMetadata
   | ReadToolMetadata;
 
-/** Callback invoked with incremental bash output while the command is running. */
 export type BashOutputChunkCallback = (chunk: string) => void;
 
 export interface CreateCodingToolRegistryOptions {
@@ -81,14 +67,7 @@ export interface CreateCodingToolRegistryOptions {
     cwd: string;
     timeoutMs: number;
   }) => string | null | Promise<string | null>;
-  /** Called with incremental stdout+stderr chunks while a bash command runs. */
   onBashOutputChunk?: BashOutputChunkCallback;
-  /**
-   * Called when structured metadata is available for a tool call.  The
-   * `phase` is "start" (right before execution) or "done" (after execution).
-   * This is the side-channel used to populate bespoke tool-cell fields without
-   * changing the string-result contract that the agent sees.
-   */
   onToolMetadata?: (
     toolName: string,
     phase: "start" | "done",
@@ -104,20 +83,13 @@ interface EditOperation {
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_OUTPUT_CHARS = 50_000;
-/** How long `close` may lag `exit` before we settle on the exit code anyway. */
 const CLOSE_GRACE_MS = 500;
-/** How long a signalled process group has to exit before it is SIGKILLed. */
 const SIGKILL_GRACE_MS = 1_000;
 const DEFAULT_MAX_FILE_READ_CHARS = 120_000;
 
-/**
- * Output retention window for bash: keep first HEAD_CHARS + last TAIL_CHARS,
- * separated by a truncation marker.  Replaces the old flat 4 000-char cap.
- */
 export const BASH_OUTPUT_HEAD_CHARS = 4_096;
 export const BASH_OUTPUT_TAIL_CHARS = 16_384;
 
-/** Maximum chars stored per side of an edit/write for diff rendering. */
 export const EDIT_CONTENT_MAX_CHARS = 49_152;
 
 const mutationQueues = new Map<string, Promise<unknown>>();
@@ -399,7 +371,6 @@ export function createCodingToolRegistry(
           fs.writeFileSync(filePath, content, "utf8");
           recordFileMutation(args, filePath, content);
 
-          // Emit structured diff metadata so the UI can render a real diff.
           const truncated =
             originalContent.length > EDIT_CONTENT_MAX_CHARS ||
             content.length > EDIT_CONTENT_MAX_CHARS;
@@ -491,9 +462,6 @@ export async function runCodingCommand(
     signal?: AbortSignal;
   } = {},
 ): Promise<CodingCommandResult> {
-  // `detached` puts the child in its own process group so `abort` can signal
-  // everything it spawned. Without it a timeout signals only the `sh -c`
-  // wrapper, which a backgrounding command has usually already outlived.
   const child = spawn(command, {
     cwd,
     shell: true,
@@ -511,8 +479,6 @@ export async function runCodingCommand(
       if (child.pid !== undefined) process.kill(-child.pid, signal);
       else child.kill(signal);
     } catch {
-      // The group is already gone, or we never got a pid. Fall back to the
-      // direct child; if that also throws the process is already reaped.
       try {
         child.kill(signal);
       } catch {
@@ -547,10 +513,6 @@ export async function runCodingCommand(
     else options.signal.addEventListener("abort", abort, { once: true });
   }
   try {
-    // `close` fires only once every inherited pipe is closed, so a command that
-    // leaves a grandchild running (`npm run dev &`) never reaches it. Treat
-    // `exit` as authoritative and allow `close` a short grace to deliver
-    // buffered output, then settle on what we have.
     const code = await new Promise<number | null>((resolve, reject) => {
       let settled = false;
       let graceTimer: NodeJS.Timeout | undefined;
@@ -586,25 +548,10 @@ export async function runCodingCommand(
     };
   } finally {
     clearTimeout(timer);
-    // Deliberately NOT clearing `sigkillTimer`. It exists only when abort ran,
-    // and the exit-grace path can settle before the 1s escalation fires — a
-    // descendant that ignored SIGTERM would then outlive the call untouched.
-    // Letting it run costs nothing: it is unref'd, and `killGroup` on an
-    // already-dead group is a caught no-op.
     options.signal?.removeEventListener("abort", abort);
   }
 }
 
-/**
- * Spawn a command detached in the background.  Returns immediately with the
- * process PID and a temporary log file path where stdout + stderr are written.
- *
- * The child process is intentionally detached from the parent's process group
- * (`detached: true`, `unref()`) so it continues running after the tool call
- * completes and is not killed if the agent run exits.  The approval classifier
- * still applies before this function is reached (see `beforeBash` in the
- * calling registry).
- */
 export function spawnBackgroundCommand(command: string, cwd: string): string {
   const logDirectory = resolveCodingPath(
     cwd,
@@ -664,12 +611,6 @@ export function truncateCodingOutput(value: string, max: number): string {
   return `${value.slice(0, max)}\n\n...[truncated ${value.length - max} chars]`;
 }
 
-/**
- * Retain the first HEAD_CHARS and the last TAIL_CHARS of bash output, inserting
- * a truncation marker in the middle.  This is a better window than a simple
- * prefix slice because the end of the output usually contains the most important
- * signal (error messages, test results, etc.).
- */
 export function truncateBashOutput(
   value: string,
   headChars = BASH_OUTPUT_HEAD_CHARS,
@@ -719,12 +660,10 @@ export function canonicalizeShellCommand(command: string): {
     if (ch === "\\") {
       const next = command[i + 1];
       if (next === undefined) continue;
-      // Backslash-newline is a line continuation: both characters vanish.
       if (next !== "\n") canonical += next;
       i += 1;
       continue;
     }
-    // Substitution expands inside double quotes as well as unquoted.
     if (ch === "`" || (ch === "$" && command[i + 1] === "(")) {
       unanalyzable = true;
     }
@@ -747,21 +686,11 @@ export function isReadOnlyShellCommand(command: string): boolean {
   const normalized = command.trim().toLowerCase();
   if (!normalized) return false;
 
-  // Read-only modes get a deliberately tiny shell grammar: one command only,
-  // no redirection, pipes, sequencing, backgrounding, or command substitution.
-  // Prefix allowlists are not safe until these shell forms are excluded.
   if (/[\n\r;&|<>]/.test(normalized)) return false;
   if (/\$\(|`|\${|\\\n/.test(command)) return false;
 
-  // `sed` can WRITE even in `-n` mode via the `w`/`W` commands or `-i`
-  // (e.g. `sed -n '1w out.txt' file`), so the `^sed -n` allowlist entry
-  // below is not safe on its own. Reject any sed that can write.
   if (/^sed\b/.test(normalized)) {
     if (/(^|\s)-i(\b|=)|--in-place/.test(normalized)) return false;
-    // `w`/`W` used as a sed command: preceded by an address/separator
-    // (digit, $, /, }, ;, quote, space) and followed by a filename arg or
-    // end. Catches `1w f`, `$w f`, `/re/w f`, `s/x/y/w f`, `2W f`; leaves
-    // prints like `/window/p`, `1,5p`, `s/a/b/` untouched.
     if (/[\s'"0-9$}/;](w|W)([\s'"]|$)/.test(normalized)) return false;
   }
 

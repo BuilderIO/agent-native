@@ -39,8 +39,6 @@ export default defineAction({
       .limit(1);
     if (!run) throw new Error("Generation run not found.");
 
-    // Re-enforce scope on the specific run — defence in depth. If the admin's
-    // org is foo and the run belongs to org bar, refuse.
     if (scope.orgId && run.orgId && run.orgId !== scope.orgId) {
       throw new ForbiddenAuditError(
         "Run is not in this admin's org — access denied.",
@@ -57,7 +55,6 @@ export default defineAction({
       .where(eq(schema.assetLibraries.id, run.libraryId))
       .limit(1);
 
-    // Resolve references: the IDs are stored as a JSON array on the run.
     const referenceIds = parseJson<string[]>(run.referenceAssetIds, []);
     const referenceAssets = referenceIds.length
       ? await db
@@ -75,15 +72,12 @@ export default defineAction({
           )
       : [];
 
-    // Resolve child assets — the candidates / saved images this run produced.
     const childAssets = await db
       .select()
       .from(schema.assets)
       // guard:allow-unscoped — org-admin audit, gated by assertOrgAdmin above.
       .where(eq(schema.assets.generationRunId, run.id));
 
-    // Parent run, if this was a refinement. The parent assetId is stored
-    // in the run's metadata `sourceAssetId` field.
     const meta = parseJson<{
       sourceAssetId?: string;
       slotId?: string;

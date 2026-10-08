@@ -1,19 +1,22 @@
 import { isToolVisibilityModelOnly } from "@modelcontextprotocol/ext-apps/app-bridge";
 
-import { waitForGlobalMcpManager } from "../server/agent-chat/mcp-glue.js";
+import { getMcpManagerForPrincipal } from "../server/agent-chat/mcp-glue.js";
 import { getRequestContext } from "../server/request-context.js";
+import {
+  hasMcpProviderMatchRules,
+  mcpServerUrlMatchesProvider,
+} from "../shared/mcp-provider-hosts.js";
 import {
   buildMcpToolName,
   type McpClientManager,
   type McpTool,
 } from "./manager.js";
+import { normalizeMcpPrincipal } from "./principal.js";
 import { parseMergedKey } from "./remote-store.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
 
 export interface AppMcpTool {
-  /** Configured MCP server id. */
   serverId: string;
-  /** Original, unprefixed name reported by the MCP server. */
   name: string;
   title?: string;
   description: string;
@@ -24,8 +27,18 @@ export interface AppMcpTool {
 }
 
 export interface ListVisibleMcpToolsOptions {
-  /** Restrict the result to one configured server. */
   serverId?: string;
+  /**
+   * Keep only tools served from this provider's MCP endpoint, matched on the
+   * server URL. A server id is a name the user chose, so it cannot prove which
+   * provider answers the call.
+   */
+  providerId?: string;
+}
+
+export interface CallMcpToolOptions {
+  /** Refuse the call unless the server's URL belongs to this provider. */
+  providerId?: string;
 }
 
 export class McpAppApiError extends Error {
@@ -38,43 +51,41 @@ export class McpAppApiError extends Error {
   }
 }
 
-/**
- * List MCP tools that the authenticated request may expose to an app.
- *
- * The manager owns connection state and credentials; this API deliberately
- * projects only the tool contract and never returns server configuration.
- */
 export async function listVisibleMcpTools(
   options: ListVisibleMcpToolsOptions = {},
 ): Promise<AppMcpTool[]> {
   const context = requireAuthenticatedRequest();
-  const manager = await requireMcpManager();
+  const manager = await requireMcpManager(context);
   const tools = options.serverId
     ? manager.getToolsForServer(options.serverId)
     : manager.getTools();
 
   return tools
-    .filter((tool) => isToolVisibleToApp(tool, context))
+    .filter(
+      (tool) =>
+        isToolVisibleToApp(tool, context) &&
+        isServerForProvider(manager, tool.source, options.providerId),
+    )
     .map(toAppMcpTool);
 }
 
-/**
- * Call an app-visible MCP tool by server id and its original server-reported
- * name. The prefixed manager name is built only after the tool is found in
- * that server's current, request-visible tool list.
- */
 export async function callMcpTool(
   serverId: string,
   originalToolName: string,
   args: Record<string, unknown> = {},
+  options: CallMcpToolOptions = {},
 ): Promise<unknown> {
   const context = requireAuthenticatedRequest();
-  const manager = await requireMcpManager();
+  const manager = await requireMcpManager(context);
   const tool = manager
     .getToolsForServer(serverId)
     .find((candidate) => candidate.originalName === originalToolName);
 
-  if (!tool || !isToolVisibleToApp(tool, context)) {
+  if (
+    !tool ||
+    !isToolVisibleToApp(tool, context) ||
+    !isServerForProvider(manager, serverId, options.providerId)
+  ) {
     throw new McpAppApiError(
       "MCP tool is not available in this request scope.",
       403,
@@ -86,18 +97,38 @@ export async function callMcpTool(
 
 function requireAuthenticatedRequest() {
   const context = getRequestContext();
-  if (!context?.userEmail?.trim()) {
+  const principal = normalizeMcpPrincipal({
+    userEmail: context?.userEmail,
+    orgId: context?.orgId,
+  });
+  if (!principal) {
     throw new McpAppApiError("Authentication required.", 401);
   }
-  return context;
+  return {
+    ...(context ?? {}),
+    userEmail: principal.userEmail,
+    orgId: principal.orgId ?? undefined,
+  };
 }
 
-async function requireMcpManager(): Promise<McpClientManager> {
-  const manager = await waitForGlobalMcpManager();
-  if (!manager) {
-    throw new McpAppApiError("MCP client is not configured.", 503);
+async function requireMcpManager(
+  context: ReturnType<typeof requireAuthenticatedRequest>,
+): Promise<McpClientManager> {
+  try {
+    return await getMcpManagerForPrincipal({
+      userEmail: context.userEmail,
+      orgId: context.orgId ?? null,
+    });
+  } catch (error) {
+    throw new McpAppApiError(
+      error instanceof Error && error.message.includes("Authenticated MCP")
+        ? "Authentication required."
+        : "MCP client is not configured.",
+      error instanceof Error && error.message.includes("Authenticated MCP")
+        ? 401
+        : 503,
+    );
   }
-  return manager;
 }
 
 function isToolVisibleToApp(
@@ -106,20 +137,34 @@ function isToolVisibleToApp(
 ): boolean {
   if (!context) return false;
 
-  // `isMcpToolAllowedForRequest` intentionally permits missing identity in
-  // development for CLI/startup enumeration. App calls are stricter: an
-  // active org-scoped tool requires an active org even in development.
   if (!isMcpToolAllowedForRequest(tool.name)) return false;
   const merged = parseMergedKey(tool.name);
   if (merged?.scope === "user" && !context.userEmail?.trim()) return false;
   if (merged?.scope === "org" && !context.orgId?.trim()) return false;
 
   try {
-    // A malformed visibility declaration is not safe to expose to an app.
     return !isToolVisibilityModelOnly(tool.raw as any);
   } catch {
     return false;
   }
+}
+
+function isServerForProvider(
+  manager: McpClientManager,
+  serverId: string,
+  providerId: string | undefined,
+): boolean {
+  if (providerId === undefined) return true;
+  if (!hasMcpProviderMatchRules(providerId)) {
+    throw new Error(
+      `No MCP provider match rules for "${providerId}". Add it to MCP_PROVIDER_ENDPOINTS or MCP_LINK_HOSTS before filtering by it.`,
+    );
+  }
+  const config = manager.getServerConfig(serverId);
+  return (
+    config?.type === "http" &&
+    mcpServerUrlMatchesProvider(providerId, config.url) === true
+  );
 }
 
 function toAppMcpTool(tool: McpTool): AppMcpTool {

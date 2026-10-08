@@ -27,9 +27,21 @@ describe("db scripts parameterized SQL", () => {
     vi.restoreAllMocks();
   });
 
+  // The agent-SQL guards query the catalog before each statement, and
+  // db-query switches to read-only; answer those like a stock database so
+  // `unsafe` records only the statements the tests are about.
+  function answerAgentSqlChecks(unsafe: ReturnType<typeof vi.fn>) {
+    return async (sql: string, args?: unknown[]) => {
+      if (sql.includes("standard_conforming_strings")) return [{ value: "on" }];
+      if (sql.includes("pg_catalog.pg_")) return [];
+      if (sql === "SET TRANSACTION READ ONLY") return [];
+      return args === undefined ? unsafe(sql) : unsafe(sql, args);
+    };
+  }
+
   function mockPostgresClient(unsafe: ReturnType<typeof vi.fn>) {
     const end = vi.fn(async () => {});
-    const tx = { unsafe };
+    const tx = { unsafe: answerAgentSqlChecks(unsafe) };
     const begin = vi.fn(async (fn: (tx: typeof tx) => Promise<unknown>) =>
       fn(tx),
     );
@@ -71,7 +83,7 @@ describe("db scripts parameterized SQL", () => {
     vi.stubEnv("DATABASE_URL_UNPOOLED", "pglite:./data/pglite-unpooled");
     const unsafe = vi.fn(async () => []);
     const begin = vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
-      fn({ unsafe }),
+      fn({ unsafe: answerAgentSqlChecks(unsafe) }),
     );
     const end = vi.fn(async () => {});
     const capturedUrls: string[] = [];
@@ -85,10 +97,6 @@ describe("db scripts parameterized SQL", () => {
     const { default: dbQuery } = await import("./query.js");
     await dbQuery(["--sql", "SELECT 1"]);
 
-    // getRuntimeDatabaseUrl resolves DATABASE_URL_UNPOOLED; getDatabaseUrl
-    // ignores it entirely — running against the latter here would mean the
-    // same command reads a different database once a dev server (which
-    // hashes getRuntimeDatabaseUrl) is running to forward to.
     expect(capturedUrls).toEqual(["pglite:./data/pglite-unpooled"]);
   });
 
@@ -119,9 +127,6 @@ describe("db scripts parameterized SQL", () => {
 
   it("executes db-exec statement batches in one PostgreSQL transaction", async () => {
     vi.stubEnv("AGENT_USER_EMAIL", "params+qa@test.com");
-    // Return no columns so scoping introspection doesn't generate setup views.
-    // This keeps the test focused on transaction ordering. The first call is
-    // the introspection SELECT that returns [].
     const unsafe = vi.fn(async (sql: string) => {
       if (sql.includes("information_schema.columns")) return [];
       return Object.assign([], { count: 1 });

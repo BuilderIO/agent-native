@@ -7,6 +7,7 @@ import { describe, it, expect } from "vitest";
 import { isActionContractError } from "../action.js";
 import {
   parseArgs,
+  serializeCliArgs,
   camelCaseArgs,
   fail,
   isValidPath,
@@ -43,6 +44,15 @@ describe("parseArgs", () => {
 
   it("parses --key=value format", () => {
     expect(parseArgs(["--name=hello"])).toEqual({ name: "hello" });
+  });
+
+  it("preserves values that begin with option syntax", () => {
+    const content = "---\nname: spell-check\n---\n# Spell check";
+
+    const args = serializeCliArgs({ title: "Hi there", content });
+
+    expect(args).toEqual(["--title", "Hi there", `--content=${content}`]);
+    expect(parseArgs(args)).toEqual({ title: "Hi there", content });
   });
 
   it("parses --flag as boolean true", () => {
@@ -206,8 +216,6 @@ describe("isValidProjectPath", () => {
 
 describe("fail", () => {
   it("raises a typed contract error so the message survives the action route", () => {
-    // A bare `throw new Error(...)` is replaced by a generic 500 there; only a
-    // contract error is declared safe to echo to HTTP callers.
     const error = (() => {
       try {
         fail("Meeting not found");
@@ -221,7 +229,6 @@ describe("fail", () => {
     expect(error).toMatchObject({
       message: "Meeting not found",
       errorCode: "action_failed",
-      // 400, not 409: a refusal must not read as retryable to a browser query.
       statusCode: 400,
     });
   });

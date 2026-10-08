@@ -4,7 +4,6 @@ export interface CollapsibleInboxEvent {
   summary?: string | null;
 }
 
-/** Keep the latest of consecutive identical action+summary rows. */
 export function collapseConsecutiveInboxEvents<T extends CollapsibleInboxEvent>(
   events: readonly T[],
 ): T[] {

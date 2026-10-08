@@ -3,6 +3,64 @@
 All notable user-facing changes to Agent-Native Brain are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-06
+
+### Added
+
+- Zoom is now a source type on the Sources page. Admins can add or edit a Zoom source and list the meeting IDs or titles to import, plus how many days back to look, without using chat or JSON.
+
+### Improved
+
+- Source syncs recover from brief Jev outages on their own. Each Jev check now waits longer and retries twice, and a source that still fails is retried in about 10 minutes instead of an hour. Sync errors on the Sources page now explain what happened and what to do, instead of showing codes like `jev-timeout` or `[object ErrorEvent]`.
+- When Jev times out, Brain retries the sync within about 10 minutes instead of waiting for the next hourly run. A Slack source with no channels now says "No Slack channels are selected" instead of listing internal setting names.
+- Zoom sources now import transcripts from one account-wide recording list, so the Zoom app no longer needs permission to list users. It needs only the account recording-list and view-recording scopes. Sources that name specific Zoom users still read just those users' recordings.
+- Zoom sources can be limited to specific meetings by meeting ID or meeting title, so Brain imports only the meetings you choose instead of every cloud recording in the Zoom account.
+
+### Fixed
+
+- Zoom transcripts now import. Zoom's account-wide recording list leaves out download links, so Brain now looks up each matching meeting to get its transcript. Each Zoom sync also lists which meetings matched or were skipped, and which files Zoom returned, to make problems easier to spot.
+- Zoom transcript imports work with the standard admin recording scope again instead of failing with a master-account scope error. Brain chat can now change a source's settings, such as a Zoom meeting filter; before, its updates were silently saved as empty.
+
+## 2026-10-05
+
+### Improved
+
+- Messages from private Slack channels the Brain app is invited to are now searchable by everyone in the org once they pass sensitivity screening. Syncs no longer look up channel members, so a member without a visible email no longer stops a channel from syncing. Personal sources stay visible only to their owner and the people they are shared with.
+
+## 2026-10-02
+
+### Improved
+
+- With Jev as the privacy classifier, routine messages that mention words like "investigating", "interview", or "reorg" are no longer dropped automatically. Jev now decides whether they are sensitive. Credentials are still always blocked.
+
+## 2026-10-01
+
+### Improved
+
+- Brain answers from synced Slack and Zoom messages with their channel and date, including questions asked from Dispatch, Slack, or MCP.
+
+## 2026-09-30
+
+### Added
+
+- Brain syncs Zoom cloud-recording transcripts hourly alongside Slack.
+
+### Improved
+
+- Brain chat semantic-searches synced Slack and Zoom content and sees each item's source and date.
+- Knowledge writes publish directly with no manual approval step.
+- Slack messages and meeting transcripts are stored in full unless Jev flags them as sensitive.
+
+### Fixed
+
+- Slack, Granola, GitHub, and Zoom sources sync hourly again instead of silently stalling when a workspace has many sources that do not auto-sync.
+
+## 2026-09-25
+
+### Improved
+
+- Brain settings now live in tabs on Brain › General (Identity, Behavior, Publishing, Safety, and Privacy), and each change saves as you make it.
+
 ## 2026-09-22
 
 ### Added

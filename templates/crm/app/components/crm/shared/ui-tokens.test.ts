@@ -35,7 +35,6 @@ describe("selectionCornerRadius", () => {
   });
 
   it("rounds only where both border segments exist", () => {
-    // Top-left cell of a range: outer corner rounds, inner corners stay square.
     expect(
       selectionCornerRadius({
         top: true,

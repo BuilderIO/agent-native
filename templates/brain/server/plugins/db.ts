@@ -6,12 +6,6 @@ import {
 
 import * as schema from "../db/schema.js";
 
-/**
- * Every Drizzle table exported from schema.ts. Filters out type-only and
- * helper exports the same way db.spec.ts's `isDrizzleTable` regression guard
- * does: a real table carries a Symbol-keyed drizzle metadata bag, plain
- * exports don't.
- */
 function isDrizzleTable(value: unknown): value is object {
   return (
     !!value &&
@@ -232,41 +226,17 @@ export const runBrainMigrations = runMigrations(
     },
     {
       version: 20,
-      // Performance indexes for the ownable list/read hot paths and the
-      // shares-table EXISTS subqueries in `accessFilter`. All plain
-      // CREATE INDEX IF NOT EXISTS is idempotent.
-      // (no DESC, partial, or PG-only syntax). Existing indexes
-      // (brain_raw_captures_source_external_idx covering source_id, and
-      // brain_sources_signed_ingest_idx) are not duplicated here.
-      //
-      // Named per the v75-v83 analytics incident (packages/core/src/db/migrations.ts):
-      // a parallel branch shipped unrelated DDL (brain_ask_history tables) as
-      // its own v21/v22, which "used up" those version numbers in
-      // `brain_migrations` on shared databases before this entry ever ran.
-      // Since the legacy gate is `version > MAX(recorded version)`, any DB
-      // that already had v21/v22 recorded treated v20 as already applied even
-      // though none of its indexes had ever been created — confirmed via a
-      // live read-only audit (all 11 indexes below were missing on a DB with
-      // MAX(version) = 22). The SQL is untouched (still the original
-      // CREATE INDEX IF NOT EXISTS statements) — only `name` was added so it
-      // re-applies by name regardless of a database's recorded MAX(version).
       name: "brain-ownable-perf-indexes",
       sql: [
-        // Ownable list ORDER BY paths (accessFilter scopes owner_email/org_id).
         `CREATE INDEX IF NOT EXISTS brain_sources_owner_updated_idx ON brain_sources (owner_email, org_id, updated_at)`,
         `CREATE INDEX IF NOT EXISTS brain_knowledge_owner_updated_idx ON brain_knowledge (owner_email, org_id, updated_at)`,
         `CREATE INDEX IF NOT EXISTS brain_proposals_owner_created_idx ON brain_proposals (owner_email, org_id, created_at)`,
-        // Owner + status filters (list-captures filters sources by status;
-        // list-knowledge / search filter knowledge by status; list-proposals /
-        // review filter proposals by status).
         `CREATE INDEX IF NOT EXISTS brain_sources_owner_status_idx ON brain_sources (owner_email, status)`,
         `CREATE INDEX IF NOT EXISTS brain_knowledge_owner_status_idx ON brain_knowledge (owner_email, status)`,
         `CREATE INDEX IF NOT EXISTS brain_proposals_owner_status_idx ON brain_proposals (owner_email, status)`,
-        // Shares tables — the EXISTS subqueries match on these three columns.
         `CREATE INDEX IF NOT EXISTS brain_source_shares_principal_idx ON brain_source_shares (resource_id, principal_type, principal_id)`,
         `CREATE INDEX IF NOT EXISTS brain_knowledge_shares_principal_idx ON brain_knowledge_shares (resource_id, principal_type, principal_id)`,
         `CREATE INDEX IF NOT EXISTS brain_proposal_shares_principal_idx ON brain_proposal_shares (resource_id, principal_type, principal_id)`,
-        // Hot child FK loads not already covered by an existing index.
         `CREATE INDEX IF NOT EXISTS brain_sync_runs_source_started_idx ON brain_sync_runs (source_id, started_at)`,
         `CREATE INDEX IF NOT EXISTS brain_ingest_queue_capture_operation_idx ON brain_ingest_queue (capture_id, operation)`,
       ].join(";\n"),
@@ -531,8 +501,6 @@ export default async (nitroApp: any): Promise<void> => {
       );
     }
   } catch (err) {
-    // Never fail boot over the safety net itself — the authoritative
-    // migrations above already ran.
     console.warn(
       "[db] ensureAdditiveColumns failed (non-fatal):",
       err instanceof Error ? err.message : err,

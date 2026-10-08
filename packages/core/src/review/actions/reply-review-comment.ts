@@ -4,12 +4,20 @@ import { defineAction } from "../../action.js";
 import { sanitizeReviewCommentMetadata } from "../attachments.js";
 import { reviewAuthorNameFromContext } from "../identity.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
-import { notifyReviewComment } from "../notifications.js";
+import {
+  notifyReviewComment,
+  notifyReviewCommentWithReceipt,
+} from "../notifications.js";
 import {
   assertReviewableResourceAccess,
   normalizeReviewVisibility,
 } from "../registry.js";
-import { getReviewCommentById, insertReviewReply } from "../store.js";
+import {
+  getReviewCommentById,
+  insertReviewReply,
+  insertReviewReplyIdempotently,
+  reviewCommentIdForClientOperation,
+} from "../store.js";
 import type { ReviewActorKind, ReviewResourceContext } from "../types.js";
 
 const mentionSchema = z.object({
@@ -27,6 +35,11 @@ const schema = z.object({
   resolutionTarget: z.enum(["agent", "human"]).nullable().optional(),
   mentions: z.array(mentionSchema).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  clientOperationId: z
+    .string()
+    .uuid()
+    .optional()
+    .describe("Stable UUID for retrying the same reply submission"),
 });
 
 export default defineAction({
@@ -45,6 +58,14 @@ export default defineAction({
       actionCtx,
       "commenter",
     );
+    const clientOperationCommentId = args.clientOperationId
+      ? reviewCommentIdForClientOperation(args.clientOperationId)
+      : null;
+    const existingReply = clientOperationCommentId
+      ? await getReviewCommentById(clientOperationCommentId, scope, {
+          bypassScope: true,
+        })
+      : null;
     const parent = await getReviewCommentById(args.commentId, scope, {
       bypassScope: true,
     });
@@ -55,7 +76,7 @@ export default defineAction({
     ) {
       throw new Error("Review comment not found");
     }
-    if (parent.status !== "open") {
+    if (parent.status !== "open" && !existingReply) {
       throw new Error("Review thread is not open");
     }
     const mentions = normalizeReviewMentions([
@@ -65,34 +86,50 @@ export default defineAction({
 
     const routeTarget =
       args.resolutionTarget ?? (mentions.length > 0 ? "human" : null);
-    const reply = await insertReviewReply(
-      {
-        resourceType: args.resourceType,
-        resourceId: args.resourceId,
-        threadId: parent.threadId,
-        parentCommentId: parent.id,
-        targetId: parent.targetId,
-        kind: parent.kind,
-        anchor: parent.anchor,
-        body: args.body,
-        authorEmail: actionCtx?.userEmail ?? null,
-        authorName: args.authorName ?? reviewAuthorNameFromContext(actionCtx),
-        createdBy: actorKindFromContext(actionCtx),
-        resolutionTarget: null,
-        mentions,
-        ownerEmail: access.ownerEmail ?? actionCtx?.userEmail ?? null,
-        orgId: access.orgId ?? actionCtx?.orgId ?? null,
-        visibility: normalizeReviewVisibility(access.visibility),
-        metadata: await sanitizeReviewCommentMetadata(args.metadata),
-      },
-      routeTarget,
-      {
-        resourceType: args.resourceType,
-        resourceId: args.resourceId,
-      },
-    );
+    const input = {
+      resourceType: args.resourceType,
+      resourceId: args.resourceId,
+      threadId: parent.threadId,
+      parentCommentId: parent.id,
+      targetId: parent.targetId,
+      kind: parent.kind,
+      anchor: parent.anchor,
+      body: args.body,
+      authorEmail: actionCtx?.userEmail ?? null,
+      authorName: args.authorName ?? reviewAuthorNameFromContext(actionCtx),
+      createdBy: actorKindFromContext(actionCtx),
+      resolutionTarget: null,
+      mentions,
+      ownerEmail: access.ownerEmail ?? actionCtx?.userEmail ?? null,
+      orgId: access.orgId ?? actionCtx?.orgId ?? null,
+      visibility: normalizeReviewVisibility(access.visibility),
+      metadata: await sanitizeReviewCommentMetadata(args.metadata),
+    };
+    const resource = {
+      resourceType: args.resourceType,
+      resourceId: args.resourceId,
+    };
+    const result = args.clientOperationId
+      ? await insertReviewReplyIdempotently(
+          {
+            ...input,
+            id: clientOperationCommentId!,
+          },
+          routeTarget,
+          resource,
+        )
+      : {
+          comment: await insertReviewReply(input, routeTarget, resource),
+          replayed: false,
+        };
 
-    return { ...reply, notified: await notifyReviewComment(reply) };
+    return {
+      ...result.comment,
+      replayed: result.replayed,
+      notified: args.clientOperationId
+        ? await notifyReviewCommentWithReceipt(result.comment)
+        : await notifyReviewComment(result.comment),
+    };
   },
   audit: {
     target: (args, result) => {

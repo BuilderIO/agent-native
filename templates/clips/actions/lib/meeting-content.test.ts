@@ -21,8 +21,6 @@ describe("meetingRowHasContent", () => {
     expect(meetingRowHasContent({})).toBe(false);
   });
 
-  // The regression this whole filter exists for: the Meetings list used to
-  // require a linked recording, so desktop live notes disappeared from history.
   it("keeps notes and summaries that have no linked recording", () => {
     expect(
       meetingRowHasContent({
@@ -85,9 +83,6 @@ describe("SQL mirror in list-meetings", () => {
     "utf8",
   );
 
-  // The predicate above and meetingHasContentFilter() are a matched pair. A
-  // column added to one and not the other silently changes which meetings the
-  // history list returns, so pin every column the SQL side must cover.
   it("covers the same columns as the predicate", () => {
     const filter = source.slice(
       source.indexOf("function meetingHasContentFilter()"),

@@ -5,7 +5,6 @@ export function meta() {
   return [{ title: enUSMessages.routeTitles.manageBooking }];
 }
 
-// Public page — no AppLayout wrapper
 export default function ManageBookingRoute() {
   return <ManageBookingPage />;
 }

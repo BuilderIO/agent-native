@@ -2,16 +2,6 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useState } from "react";
 
-/**
- * Floating pill indicator visible on the right screen edge during an active
- * meeting recording. Vertical pill (44x120 logical px) with:
- *   - Green pulsing dot (8px, #16A34A) — reuses the `rec-pulse` keyframes
- *   - Meeting initial letter (white)
- *   - Drag handle (three horizontal lines)
- *
- * Click emits `meetings:nub-clicked` so the Rust side can bring the meeting
- * note window to focus. Drag via Tauri's `startDragging()`.
- */
 export function MeetingNub() {
   const [initial, setInitial] = useState("M");
 

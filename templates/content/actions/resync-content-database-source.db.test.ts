@@ -1,9 +1,3 @@
-// Integration test for the row-union resync over-claim fix (slice 6b). Boots a
-// real PGlite database, simulates the PRE-FIX corrupted state where source
-// A over-claimed every database item (including source B's row), then resyncs
-// A against a mocked live Builder read and asserts the self-heal: A keeps only
-// its own remote-backed rows and never re-claims B's row.
-
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,8 +35,6 @@ const builderReadMock = vi.hoisted(() => ({
     | ((args: { model: string; entryId: string }) => Promise<void> | void)
     | null,
 }));
-// Mock the Builder read client so resync runs "live" with deterministic entries
-// (no network). Real exports are preserved; only the two reads are overridden.
 vi.mock("./_builder-cms-read-client.js", async () => {
   const actual = await vi.importActual<
     typeof import("./_builder-cms-read-client.js")
@@ -1795,7 +1787,6 @@ it("resync re-links only the source's own rows, never another collection's (self
     createdAt: now,
     updatedAt: now,
   });
-  // Two sources so the multi-source restriction applies.
   await db.insert(schema.contentDatabaseSources).values([
     {
       id: "src-a",
@@ -1862,11 +1853,9 @@ it("resync re-links only the source's own rows, never another collection's (self
       updatedAt: now,
     };
   }
-  // Source B legitimately owns doc-b1.
   await db
     .insert(schema.contentDatabaseSourceRows)
     .values(srcRow("row-b1", "src-b", "doc-b1", "entry-b1"));
-  // PRE-FIX over-claim: source A claims ALL THREE docs, including B's row.
   await db
     .insert(schema.contentDatabaseSourceRows)
     .values([
@@ -1892,11 +1881,9 @@ it("resync re-links only the source's own rows, never another collection's (self
     .where(eq(schema.contentDatabaseSourceRows.sourceId, "src-a"));
   const aDocIds = aRows.map((r: { documentId: string }) => r.documentId).sort();
 
-  // A keeps only its own two remote-backed rows; the over-claimed B row is gone.
   expect(aDocIds).toEqual(["doc-a1", "doc-a2"]);
   expect(aDocIds).not.toContain("doc-b1");
 
-  // Source B's own row is untouched.
   const bRows = await db
     .select({ documentId: schema.contentDatabaseSourceRows.documentId })
     .from(schema.contentDatabaseSourceRows)
@@ -2097,9 +2084,6 @@ it("records freshly imported Builder row identities even when title and URL keys
   expect(retryDocuments).toHaveLength(2);
   expect(retryItems).toHaveLength(2);
 
-  // Attach and its background continuation can overlap before source rows are
-  // visible to the second importer. Stable Builder-derived local IDs make the
-  // two writes converge instead of duplicating every remote entry.
   await Promise.all([
     importBuilderEntries({
       database,
@@ -2978,9 +2962,6 @@ it("keeps a materialized required Builder reference dispatchable after full refr
     createdAt: now,
     updatedAt: now,
   });
-  // This is the persisted state after required-field materialization: the
-  // property is bound and stores the canonical Builder author entry id, while
-  // the older projected mapping still says `select`.
   await db.insert(schema.contentDatabaseSourceFields).values({
     id: "field-required-reference-author",
     ownerEmail: OWNER,
@@ -6112,9 +6093,6 @@ it("keeps Builder outbound change sets empty while body hydration streams", asyn
     sourceId,
     limit: 10,
   });
-  // The resync fires an unawaited background hydration kick; drain until the
-  // queue and item statuses settle so the completion assertions are
-  // deterministic. Change sets must stay empty at every drain step.
   for (let attempt = 0; attempt < 20; attempt++) {
     await expectZeroOutboundChangeSets(`during drain step ${attempt}`);
     const pendingItems = await db
@@ -6153,8 +6131,6 @@ it("keeps Builder outbound change sets empty while body hydration streams", asyn
     .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
 
   expect(items).toHaveLength(2);
-  // Hydrated content is the CONVERTED readable body, not the raw source
-  // value — assert completion and non-empty bodies, not raw equality.
   for (const item of items) {
     expect(item.status).toBe("hydrated");
     expect((item.content ?? "").trim().length).toBeGreaterThan(0);

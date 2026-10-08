@@ -56,7 +56,14 @@ export default defineAction({
       return {
         id: page.id,
         title,
-        icon: page.icon?.type === "emoji" ? page.icon.emoji || null : null,
+        icon:
+          page.icon?.type === "emoji" && page.icon.emoji
+            ? {
+                version: 1 as const,
+                kind: "emoji" as const,
+                emoji: page.icon.emoji,
+              }
+            : null,
         url: page.url || `https://notion.so/${page.id.replace(/-/g, "")}`,
         lastEditedTime: page.last_edited_time || null,
       };

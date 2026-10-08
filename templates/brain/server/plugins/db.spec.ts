@@ -31,8 +31,6 @@ function isDrizzleTable(value: unknown): value is DrizzleTable {
   return (
     !!value &&
     typeof value === "object" &&
-    // Drizzle tables carry a Symbol-keyed metadata bag; plain exports (types,
-    // functions) don't.
     Object.getOwnPropertySymbols(value).some((s) =>
       s.toString().includes("drizzle"),
     )
@@ -97,11 +95,6 @@ describe("brain db migrations cover every schema.ts column", () => {
  * and confirmed swallowed by the live audit above).
  */
 describe("brain db.ts migration entries follow the naming convention", () => {
-  // Matches one migration entry's `version: N` followed later (before the
-  // next `version:`) by an optional `name: "..."`. Entries in this file are
-  // written as `{ version: N, [comments/][name: "...",] sql: ... }`, so
-  // scanning for `version:` occurrences and capturing the next `name:` before
-  // the next `version:` is sufficient without a full parser.
   const entryRe =
     /version:\s*(\d+),[\s\S]*?(?=version:\s*\d+,|\]\s*,\s*\{\s*table)/g;
   const nameRe = /name:\s*"([^"]+)"/;
@@ -124,9 +117,6 @@ describe("brain db.ts migration entries follow the naming convention", () => {
   const entries = extractEntries(dbTsSource);
 
   it("finds migration entries to check (sanity guard against a regex drift)", () => {
-    // Brain currently has 20 migration entries (v1-v20, one of which — v20 —
-    // is a single entry with 11 statements joined together, not 11 separate
-    // entries). Guard against the regex finding ~zero entries.
     expect(entries.length).toBeGreaterThanOrEqual(20);
   });
 
@@ -150,15 +140,6 @@ describe("brain db.ts migration entries follow the naming convention", () => {
   });
 });
 
-/**
- * Belt-and-braces guard for the same bug class: even with the regression
- * guard above, a future column could still ship without a migration if
- * someone forgets to update this file. `ensureAdditiveColumns` (from
- * @agent-native/core/db) is the framework-level safety net that patches any
- * gap at boot. This asserts db.ts actually wires it in — after
- * `runMigrations(...)` so hand-written migrations stay authoritative — not
- * just that the regex guard above passes.
- */
 describe("brain db.ts wires ensureAdditiveColumns after runMigrations", () => {
   it("imports ensureAdditiveColumns from @agent-native/core/db", () => {
     expect(dbTsSource).toMatch(
@@ -173,8 +154,6 @@ describe("brain db.ts wires ensureAdditiveColumns after runMigrations", () => {
     expect(ensureCallIdx).toBeGreaterThan(-1);
     expect(ensureCallIdx).toBeGreaterThan(migrationsCallIdx);
 
-    // The runMigrations(...) plugin function must be awaited before
-    // ensureAdditiveColumns runs, not just textually after it.
     expect(dbTsSource).toMatch(
       /await\s+runBrainMigrations\([^)]*\)[\s\S]*?ensureAdditiveColumns\(\{/,
     );

@@ -279,10 +279,6 @@ describe("user profile actions", () => {
   });
 
   it("resolves password state for a caller with no Better Auth session cookie (e.g. AUTH_DISABLED dev sessions)", async () => {
-    // AUTH_DISABLED mints ctx.userEmail without ever setting a real Better
-    // Auth session cookie, so the cookie-based auth.api.listUserAccounts
-    // path always 401s for it — reproduce that failure here to prove the
-    // action no longer depends on that path for its data.
     auth.api.listUserAccounts.mockRejectedValue(
       Object.assign(new Error("UNAUTHORIZED"), { statusCode: 401 }),
     );

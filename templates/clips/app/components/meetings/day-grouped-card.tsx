@@ -1,10 +1,3 @@
-/**
- * <DayGroupedCard /> — the shared day-column shell behind both the Agenda
- * card and the Past history list. Per @shawnmcclelland's review on #2887:
- * Past used a bare `DayHeader` label over a flat row list while Agenda used
- * a bordered card with a day-number column; reusing one shell keeps the two
- * tabs reading as the same surface instead of two different UI languages.
- */
 import type { ReactNode } from "react";
 import { Fragment } from "react";
 
@@ -28,13 +21,6 @@ export function dayParts(iso: string): DayParts {
   };
 }
 
-/**
- * Groups items by calendar day (local time) using a caller-supplied ISO
- * getter, then optionally re-sorts each day's items by `sortWithin` — a group
- * cannot trust incoming order (see `historyTimestampMs` in the meetings
- * route), so callers that need a specific within-day order pass it explicitly
- * rather than assuming the input array was already sorted that way.
- */
 export function groupByCalendarDay<T>(
   items: T[],
   getIso: (item: T) => string,
@@ -67,7 +53,6 @@ export function DayGroupedCard<T extends { id: string }>({
   groups: Array<[string, T[]]>;
   getIso: (item: T) => string;
   renderRow: (item: T) => ReactNode;
-  /** Flat index (across all groups) to render `renderMarker` above. -1 = none. */
   markerIndex?: number;
   renderMarker?: () => ReactNode;
 }) {

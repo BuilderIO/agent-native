@@ -1,13 +1,41 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import { buildDataProgramPrelude } from "../data-programs/contract.js";
+import { getCredentialContext } from "../server/request-context.js";
 import { createRunCodeEntry, executeSandboxCode } from "./run-code.js";
+import {
+  registerSandboxAdapter,
+  resetSandboxAdapterForTests,
+} from "./sandbox/index.js";
+
+const evaluateServicePrincipalMock = vi.hoisted(() => vi.fn());
+vi.mock("../org/service-principal-policy.js", async (importActual) => ({
+  ...(await importActual<
+    typeof import("../org/service-principal-policy.js")
+  >()),
+  evaluateServicePrincipal: (...args: any[]) =>
+    evaluateServicePrincipalMock(...args),
+}));
+const recordActionAuditMock = vi.hoisted(() => vi.fn());
+vi.mock("../audit/record.js", () => ({
+  recordActionAudit: (...args: any[]) => recordActionAuditMock(...args),
+}));
 
 const tool = {
   description: "test action",
   parameters: { type: "object", properties: {} },
 };
+
+beforeEach(() => {
+  evaluateServicePrincipalMock.mockReset();
+  evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
+  recordActionAuditMock.mockReset();
+});
+
+afterEach(() => {
+  resetSandboxAdapterForTests();
+});
 
 describe("run-code bridge", () => {
   it("allows sandbox code to call agent-exposed read-only actions", async () => {
@@ -167,6 +195,123 @@ describe("run-code bridge", () => {
       saveToFile: "scratch/docs.html",
     });
   });
+
+  it("checks service-principal grants before invoking a plain bridge action", async () => {
+    const calls: Record<string, unknown>[] = [];
+    const actions: Record<string, ActionEntry> = {
+      "web-request": {
+        tool,
+        readOnly: true,
+        run: async (args) => {
+          calls.push(args);
+          return { status: 200 };
+        },
+      },
+    };
+    evaluateServicePrincipalMock.mockResolvedValue({
+      status: "active",
+      policy: { lifecycle: "active", allowedActions: ["run-code"] },
+    });
+    const entry = createRunCodeEntry(() => actions);
+
+    const result = await entry.run(
+      {
+        code: `
+          try {
+            await webFetch("https://example.com");
+          } catch (error) {
+            console.log(error.message);
+          }
+        `,
+        timeoutMs: 30_000,
+      },
+      {
+        userEmail: "svc-ci@service.org-1",
+        orgId: "org-1",
+        caller: "mcp",
+        actionName: "run-code",
+      },
+    );
+
+    expect(result).toContain(
+      "web-request is not permitted for this service principal",
+    );
+    expect(calls).toEqual([]);
+    expect(recordActionAuditMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ctx: {
+          actionName: "web-request",
+          caller: "mcp",
+          userEmail: "svc-ci@service.org-1",
+          orgId: "org-1",
+        },
+        status: "error",
+        error: expect.objectContaining({ statusCode: 403 }),
+      }),
+    );
+  });
+
+  it.each([
+    [
+      "denied child action",
+      403,
+      {
+        status: "active",
+        policy: { lifecycle: "active", allowedActions: ["run-code"] },
+      },
+    ],
+    ["unavailable policy store", 503, { status: "unavailable" }],
+  ])(
+    "preserves the service-principal refusal status for %s",
+    async (_label, expectedStatus, evaluation) => {
+      evaluateServicePrincipalMock.mockResolvedValue(evaluation);
+      registerSandboxAdapter({
+        id: "bridge-status-test",
+        async run(request) {
+          const token = request.moduleSource.match(
+            /const _bridgeToken = "([^"]+)";/,
+          )?.[1];
+          if (!token) throw new Error("Bridge token missing from test module.");
+          const response = await fetch(
+            `http://127.0.0.1:${request.bridgePort}/tool`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ tool: "web-request", args: {} }),
+            },
+          );
+          return {
+            stdout: `${response.status}\n${await response.text()}`,
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+          };
+        },
+      });
+
+      const entry = createRunCodeEntry(() => ({
+        "web-request": {
+          tool,
+          readOnly: true,
+          run: async () => "should not run",
+        },
+      }));
+      const result = await entry.run(
+        { code: 'await appAction("web-request", {});', timeoutMs: 5_000 },
+        {
+          userEmail: "svc-ci@service.org-1",
+          orgId: "org-1",
+          caller: "mcp",
+          actionName: "run-code",
+        },
+      );
+
+      expect(result).toContain(`stdout:\n${expectedStatus}\n`);
+    },
+  );
 
   it("paginates provider APIs inside sandbox code", async () => {
     const calls: Record<string, any>[] = [];
@@ -758,5 +903,30 @@ describe("run-code bridge", () => {
     expect(result.stdout).toContain(
       '__DATA_PROGRAM_RESULT__{"rows":[{"value":1}]}',
     );
+  });
+
+  it("restores org-only credential scope for sandbox action calls", async () => {
+    const result = await executeSandboxCode({
+      code: `console.log(JSON.stringify(await appAction("read-credential-context", {})));`,
+      timeoutMs: 30_000,
+      getActions: () => ({
+        "read-credential-context": {
+          tool,
+          readOnly: true,
+          run: async () => getCredentialContext(),
+        },
+      }),
+      context: {
+        caller: "tool",
+        userEmail: "admin@example.test",
+        orgId: "customer-org",
+        credentialScope: "org",
+      },
+      evaluator: "run",
+    });
+
+    expect(result.stdout).toContain('"userEmail":"admin@example.test"');
+    expect(result.stdout).toContain('"orgId":"customer-org"');
+    expect(result.stdout).toContain('"credentialScope":"org"');
   });
 });

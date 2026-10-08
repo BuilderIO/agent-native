@@ -44,35 +44,13 @@ import { comparePngs } from "./lib/compare.js";
 import { renderHtmlToPng } from "./lib/render.js";
 
 const OUT_DIR = ".tmp/figma-fidelity/import";
-/** Figma's per-minute rate limit clears in seconds, so a few waits absorb a burst. */
 const MAX_RATE_LIMIT_RETRIES = 6;
-/**
- * Figma answers a per-minute burst with `Retry-After` in seconds — but it uses
- * the SAME header for an exhausted account quota, where the value is days
- * (398128s / 4.6 days observed). Honouring that literally makes the run sit
- * there looking like it is still working. Anything past this cap is a quota
- * wall, not pacing, and has to be said out loud.
- */
 const MAX_RATE_LIMIT_WAIT_MS = 120_000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-/**
- * Figma allows 10-20 Tier 1 requests a minute. Retrying after the fact is not
- * enough: firing a whole corpus as fast as the loop can go trips the limit on
- * the first few cases, and Figma then answers with the ACCOUNT reset time
- * rather than the burst window, which reads as "quota exhausted for days" when
- * it is really "you asked too fast". Pace requests instead.
- */
 const MIN_REQUEST_INTERVAL_MS = 5_000;
-/** A stalled request must not look like a slow one — the run wedged silently for 27 minutes. */
 const REQUEST_TIMEOUT_MS = 60_000;
-/** Render cost scales with id count, so keep each request small. */
 const FALLBACK_RENDER_BATCH = 5;
-/**
- * Longest edge Figma will render. Past it `/images` silently returns the whole
- * node scaled down instead of erroring, so the caller has to ask for that scale
- * itself rather than discover it in the pixel dimensions afterwards.
- */
 const FIGMA_MAX_RENDER_EDGE_PX = 16_384;
 
 let nextRequestAt = 0;
@@ -109,17 +87,6 @@ function rateLimitWaitMs(response: Response, attempt: number): number {
 const CACHE_DIR = ".tmp/figma-fidelity/import-cache";
 const MANIFEST = "templates/design/scripts/figma-fidelity/import-corpus.json";
 
-/**
- * Replay a case purely from what is already on disk — the cached REST responses
- * and the saved reference render. Figma's Tier 1 budget is per file and a
- * Community file duplicated into Drafts exhausts it for days, which would
- * otherwise stop all converter iteration on exactly the complex real-world
- * designs that matter most. Offline replay decouples fixing from fetching.
- *
- * It never silently falls back to the network, and never silently pretends a
- * missing response is an empty one: an uncached request under `--offline` is an
- * error naming what is missing.
- */
 const offline = process.argv.includes("--offline");
 
 const token = process.env.FIGMA_FIDELITY_TOKEN?.trim();
@@ -133,24 +100,10 @@ if (!offline && !token) {
 interface ImportCase {
   id: string;
   url: string;
-  /** Optional note about what this case is meant to stress. */
   stresses?: string;
-  /**
-   * The node's expected "WxH", pinned so the corpus cannot drift underneath a
-   * run. Two cases silently grew a SECOND design inside them — a stray paste
-   * landed in the frame rather than beside it — and went on scoring as though
-   * nothing had happened: one page carried six foreign screens and measured
-   * 21306px tall instead of 4263. A number computed over the wrong content is
-   * worse than no number, so a size that no longer matches fails the case.
-   */
   expectSize?: string;
 }
 
-/**
- * Intrinsic pixel size from a PNG or JPEG header. Only these two: they are what
- * Figma serves for image fills, and a format we cannot read returns null rather
- * than a guessed size.
- */
 function imageSizeFromBytes(
   bytes: Buffer,
 ): { width: number; height: number } | null {
@@ -169,7 +122,6 @@ function imageSizeFromBytes(
         continue;
       }
       const marker = bytes[offset + 1]!;
-      // SOF0..SOF15, skipping the non-frame markers in that range.
       if (
         marker >= 0xc0 &&
         marker <= 0xcf &&
@@ -215,10 +167,6 @@ async function figmaJson<T>(
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     }),
   );
-  // Figma allows only 10-20 Tier 1 requests a minute and answers 429 with a
-  // `Retry-After` in seconds. Treating that as a case failure would report a
-  // pacing problem as an import defect — which is exactly the kind of
-  // misattribution this harness exists to avoid.
   if (response.status === 429 && attempt < MAX_RATE_LIMIT_RETRIES) {
     const waitMs = rateLimitWaitMs(response, attempt);
     process.stdout.write(
@@ -278,7 +226,6 @@ async function fetchBinary(url: string, attempt = 0): Promise<Buffer> {
 
 interface NodesResponse {
   nodes: Record<string, { document: FigmaNode } | undefined>;
-  /** Changes whenever the file changes; used to expire whole-file cache entries. */
   lastModified?: string;
 }
 interface ImagesResponse {
@@ -296,13 +243,9 @@ interface CaseOutcome {
   meanDelta?: number;
   dimensionMismatch?: boolean;
   fidelity?: { exact: number; approximated: number; imageFallback: number };
-  /** Nodes Figma had nothing to draw for; omitted from the render, never silent. */
   unrenderableNodes?: number;
-  /** <1 when the node was too tall for Figma to render at 1:1; both sides were scaled to match. */
   renderScale?: number;
-  /** Both sizes, so a 1px scaling round-off reads differently from a wrong node. */
   sizes?: { reference: string; candidate: string };
-  /** Image fills the file had no URL for: content missing from the render, never silent. */
   unresolvedImageFills?: number;
   renderWarnings?: string[];
   error?: string;
@@ -349,16 +292,6 @@ async function runCase(
     );
   }
 
-  // Image fills resolve to expiring S3 URLs; the harness renders them directly
-  // rather than mirroring them into storage the way the real import does.
-  //
-  // Cache this one per FILE VERSION, not per path. It returns a whole-file map
-  // that grows as the file does, so a path-keyed entry written when the file
-  // held 70 images kept answering for a file that had since grown to 295 —
-  // and every fill added after that resolved to no URL. The converter said so
-  // ("had no resolved URL; layer omitted"), but the run still printed a number,
-  // which is how a design lost the screenshots inside its device mockups and
-  // still scored 9%.
   const imageRefs = collectImageFillRefs(node);
   let imageFillUrls: Record<string, string> = {};
   if (imageRefs.length) {
@@ -374,28 +307,17 @@ async function runCase(
   const fallbackIds = collectFallbackNodeIds(node);
   const fallbackImageUrls: Record<string, string> = {};
   const unrenderable: string[] = [];
-  // Figma's rate limit is COST-based and a render request is charged per id, so
-  // asking for 21 nodes at once trips it immediately and comes back quoting the
-  // ACCOUNT reset time. The product batches for the same reason; match it.
   for (let i = 0; i < fallbackIds.length; i += FALLBACK_RENDER_BATCH) {
     const batch = fallbackIds.slice(i, i + FALLBACK_RENDER_BATCH);
     const response = await figmaJson<ImagesResponse>(
       `/images/${fileKey}?ids=${batch.map(encodeURIComponent).join(",")}&format=png&scale=2`,
     );
     for (const [id, url] of Object.entries(response.images)) {
-      // Figma returns null for a node with nothing to draw, and community files
-      // are full of empty placeholder vectors. That is a reportable omission,
-      // not a reason to fail the whole design — the product warns and omits
-      // too. Failing here made every instance-heavy file untestable.
       if (url) fallbackImageUrls[id] = url;
       else unrenderable.push(id);
     }
   }
 
-  // Figma upscales an image fill with nearest-neighbour sampling; the browser
-  // smooths. The converter matches it only when told the image's own size, and
-  // the product gets that for free from the bytes it already mirrors into
-  // storage. Here it comes from the cached asset.
   const imageFillSizes: Record<string, { width: number; height: number }> = {};
   const unsizedImageFills: string[] = [];
   for (const [ref, url] of Object.entries(imageFillUrls)) {
@@ -403,9 +325,6 @@ async function runCase(
     try {
       size = imageSizeFromBytes(await fetchBinary(url));
     } catch (error) {
-      // An unreadable size is not the same fact as a square one: the fill
-      // still renders, but on the smooth path, and the case's number then
-      // carries a blur nobody asked about. Name it rather than swallow it.
       unsizedImageFills.push(
         `${ref.slice(0, 8)}: ${error instanceof Error ? error.message.slice(0, 80) : String(error)}`,
       );
@@ -424,11 +343,6 @@ async function runCase(
   const fontUsage = collectFontUsage(node);
   const fontsUrl = buildGoogleFontsUrl(fontUsage);
   writeFileSync(join(dir, "import.html"), html);
-  // The exact document the product persists for this node. `import.html` is
-  // the bare converter fragment and only lays out correctly once wrapped; a
-  // consumer handed the fragment (the export harness did exactly this) lays it
-  // out with the browser's content-box default and every padded element grows.
-  // Anything measuring what happens AFTER import has to start from this.
   writeFileSync(
     join(dir, "stored.html"),
     normalizeImportedHtmlDocument(
@@ -441,19 +355,6 @@ async function runCase(
   );
   writeFileSync(join(dir, "fidelity.json"), JSON.stringify(fidelity, null, 2));
 
-  // `/images` renders the node's INK extent, not its frame box: an unclipped
-  // frame whose children or shadows spill out comes back bigger, and when the
-  // spill is up or left the image is shifted too. Figma reports that extent as
-  // `absoluteRenderBounds`, so render the same region rather than the frame
-  // box — otherwise the comparison scores the offset (a 2px table shadow read
-  // as 10%, and a dashboard lost the 106px its content overflows by).
-  //
-  // Take the UNION with the frame box rather than `absoluteRenderBounds`
-  // alone. That field is the ink still VISIBLE after ancestor clipping, but
-  // `/images` renders the node in isolation and ignores those ancestors: a
-  // frame sitting inside a clipping parent reports bounds cropped to the
-  // parent, and rendering that region cropped an 8356px page to its parent's
-  // 4835px and scored 66%.
   const renderBounds = node.absoluteRenderBounds;
   const ink = renderBounds
     ? (() => {
@@ -473,12 +374,6 @@ async function runCase(
     : box;
   const contentOffset = { left: box.x - ink.x, top: box.y - ink.y };
 
-  // Figma clamps a rendered node to 16384px on its longest side and silently
-  // scales the WHOLE image down to fit — a 1440x21306 frame comes back as
-  // 1108x16384 with no error and no header saying so. Comparing that against a
-  // full-size render measures the scale factor, not the converter (it read 24%
-  // on Landify, all of it the downscale). Ask for the scale Figma would have
-  // forced anyway and render ours to match, so both sides are the same pixels.
   const longestEdge = Math.max(ink.width, ink.height);
   const renderScale =
     longestEdge > FIGMA_MAX_RENDER_EDGE_PX
@@ -500,8 +395,6 @@ async function runCase(
     },
   );
   writeFileSync(join(dir, "import.png"), rendered.png);
-  // How this case was framed, so the round-trip harness can reproduce exactly
-  // the same region and scale instead of re-deriving them and drifting.
   writeFileSync(
     join(dir, "render.json"),
     JSON.stringify(
@@ -544,9 +437,6 @@ async function runCase(
     fidelity: fidelity.summary,
     renderWarnings: [
       ...rendered.warnings,
-      // One line, not one per fill: an offline replay cannot read any of them,
-      // and thousands of identical warnings bury the render warnings that are
-      // actually about this case.
       ...(unsizedImageFills.length
         ? [
             `${unsizedImageFills.length} image fill size(s) unknown, rendered smoothed ` +

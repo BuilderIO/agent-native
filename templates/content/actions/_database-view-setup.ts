@@ -1,7 +1,10 @@
+import { iconValueSchema } from "@agent-native/core/icons";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { syncPrivateViewIconReferences } from "../server/lib/private-icon-references.js";
 import type {
   ContentDatabaseFilter,
   ContentDatabaseFilterOperator,
@@ -103,6 +106,7 @@ const boundedTablePatchSchema = z
 const updateTablePatchSchema = z
   .object({
     name: z.string().trim().min(1).max(500).optional(),
+    icon: iconValueSchema.nullable().optional(),
     ...tablePatchFields,
   })
   .strict()
@@ -122,6 +126,7 @@ export const updateContentDatabaseViewAgentSchema = z.discriminatedUnion(
           .object({
             name: z.string().trim().min(1).max(500),
             type: z.literal("table"),
+            icon: iconValueSchema.nullable().optional(),
             config: boundedTablePatchSchema.optional(),
           })
           .strict(),
@@ -311,11 +316,13 @@ function defaultTableView(
   id: string,
   name: string,
   patch: z.infer<typeof boundedTablePatchSchema> = {},
+  icon?: z.infer<typeof iconValueSchema> | null,
 ): ContentDatabaseView {
   return {
     id,
     name,
     type: "table",
+    icon,
     sorts: patch.sorts ?? [],
     filters: patch.filters ?? [],
     filterMode: patch.filterMode ?? "and",
@@ -408,7 +415,12 @@ export async function runUpdateContentDatabaseView(
         viewId = nanoid();
         nextViews = [
           ...rawViews,
-          defaultTableView(viewId, input.view.name, input.view.config),
+          defaultTableView(
+            viewId,
+            input.view.name,
+            input.view.config,
+            input.view.icon,
+          ),
         ];
       } else {
         const existing = normalized.views.find(
@@ -469,6 +481,18 @@ export async function runUpdateContentDatabaseView(
       const nextJson = JSON.stringify(nextRaw);
       const changed = nextJson !== (context.database.viewConfigJson ?? "");
       if (changed) {
+        const userEmail = getRequestUserEmail();
+        if (!userEmail)
+          setupError("UNAUTHENTICATED", "Authentication is required.", 401);
+        await syncPrivateViewIconReferences(tx, {
+          databaseId: context.database.id,
+          documentId: context.database.documentId,
+          views: parseDatabaseViewConfig(nextJson).views,
+          previousViews: normalized.views,
+          ownerEmail: context.database.ownerEmail,
+          orgId: context.database.orgId,
+          userEmail,
+        });
         await tx
           .update(schema.contentDatabases)
           .set({
@@ -531,6 +555,20 @@ export async function runReplaceContentDatabaseViews(input: {
       const nextJson = JSON.stringify(nextRaw);
       const changed = nextJson !== (context.database.viewConfigJson ?? "");
       if (changed) {
+        const userEmail = getRequestUserEmail();
+        if (!userEmail)
+          setupError("UNAUTHENTICATED", "Authentication is required.", 401);
+        await syncPrivateViewIconReferences(tx, {
+          databaseId: context.database.id,
+          documentId: context.database.documentId,
+          views: parseDatabaseViewConfig(nextJson).views,
+          previousViews: parseDatabaseViewConfig(
+            context.database.viewConfigJson,
+          ).views,
+          ownerEmail: context.database.ownerEmail,
+          orgId: context.database.orgId,
+          userEmail,
+        });
         await tx
           .update(schema.contentDatabases)
           .set({

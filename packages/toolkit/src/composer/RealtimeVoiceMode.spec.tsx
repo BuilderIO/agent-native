@@ -19,8 +19,8 @@ const copy: RealtimeVoiceModeCopy = {
     "Voice mode keeps listening while the agent navigates and takes actions.",
   setupTitle: "Set up voice mode",
   setupDescription:
-    "Connect Builder.io to use managed voice with free credits, or add your own keys.",
-  connectBuilder: "Connect Builder.io",
+    "Use Builder.io for managed voice with free credits, or add your own keys.",
+  connectBuilder: "Use Builder.io",
   useOpenAiKey: "Add your own keys",
   startWithOpenAiKey: "Start with OpenAI key",
   startVoiceMode: "Start voice chat",
@@ -197,6 +197,7 @@ describe("RealtimeVoiceMode", () => {
       document.querySelectorAll<HTMLButtonElement>("button"),
     ).find((button) => button.textContent?.includes("Start voice chat"));
     expect(startVoiceMode?.disabled).toBe(true);
+    expect(document.querySelector(".animate-spin")).toBeNull();
     act(() => startVoiceMode?.click());
     expect(onStartVoiceMode).not.toHaveBeenCalled();
 
@@ -298,7 +299,7 @@ describe("RealtimeVoiceMode", () => {
     expect(document.body.textContent).toContain("Set up voice mode");
   });
 
-  it("makes Builder the primary setup action and own keys the secondary", () => {
+  it("does not launch Builder sign-in when the shared account chooser is unavailable", () => {
     const onConnectBuilder = vi.fn();
     const onUseOpenAiKey = vi.fn();
 
@@ -332,14 +333,9 @@ describe("RealtimeVoiceMode", () => {
       document.querySelectorAll<HTMLButtonElement>("button"),
     );
     expect(
-      buttons.find((button) => button.textContent === "Connect Builder.io"),
-    ).toBeDefined();
-    act(() =>
-      buttons
-        .find((button) => button.textContent === "Connect Builder.io")
-        ?.click(),
-    );
-    expect(onConnectBuilder).toHaveBeenCalledOnce();
+      buttons.find((button) => button.textContent === "Use Builder.io"),
+    ).toBeUndefined();
+    expect(onConnectBuilder).not.toHaveBeenCalled();
     expect(onUseOpenAiKey).not.toHaveBeenCalled();
   });
 

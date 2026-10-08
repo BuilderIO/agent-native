@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
-import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
+import { interpolateDashboardPanelSql } from "../app/pages/adhoc/sql-dashboard/interpolate";
 import {
   isDashboardPanelSource,
   normalizeDashboardPanelQuery,
@@ -31,11 +31,6 @@ function asPanels(config: Record<string, unknown>): DashboardPanel[] {
     : [];
 }
 
-/**
- * Any structured panel failure (`missing_api_key`, `unsupported_by_backend`)
- * carries its own explanation. Surface that rather than the generic
- * invalid-result message below, which reads as a bug in the export.
- */
 function panelFailureMessage(result: unknown): string | null {
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     return null;
@@ -96,7 +91,7 @@ export default defineAction({
 
     const rawQuery =
       typeof panel.sql === "string"
-        ? interpolate(panel.sql, filters, { failClosedTimeVariables: true })
+        ? interpolateDashboardPanelSql(panel.sql, filters, panel)
         : panel.sql;
     const query = normalizeDashboardPanelQuery(panel.source, rawQuery);
     const result = await resolveAnalyticsPanelSource(

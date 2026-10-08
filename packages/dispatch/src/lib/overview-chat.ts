@@ -5,6 +5,7 @@ import {
 
 interface OverviewChatOptions {
   openSidebar?: boolean;
+  reuseEmptyTab?: boolean;
   selectedEngine?: string | null;
   selectedEffort?: AgentChatMessage["effort"];
 }
@@ -21,6 +22,7 @@ export function submitOverviewPrompt(
     message: trimmed,
     submit: true,
     newTab: true,
+    ...(options?.reuseEmptyTab ? { reuseEmptyTab: true } : {}),
     model: selectedModel || undefined,
     ...(options?.selectedEngine ? { engine: options.selectedEngine } : {}),
     ...(options?.selectedEffort ? { effort: options.selectedEffort } : {}),

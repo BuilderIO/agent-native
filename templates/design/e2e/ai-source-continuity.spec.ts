@@ -266,9 +266,6 @@ test("AI-generated sidebar source keeps node IDs through bridge move, reparent, 
   if (typeof designId !== "string") throw new Error("create-design has no id");
 
   try {
-    // This is the same action boundary used by sidebar generation. The source
-    // deliberately has no editor IDs so this replay covers the first-save
-    // identity contract before a human ever opens the editor.
     const generatedResponse = await action(page, "generate-design", {
       designId,
       prompt: "Generate a dashboard with a movable hero card.",

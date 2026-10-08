@@ -108,8 +108,6 @@ function attemptCreatePrimitive(
       setRuntimeStructureInsertRequest: () => {},
       t: (key) => key,
       viewModeRef: { current: "single" },
-      // The creation command uses these to resolve the exact active screen
-      // iframe before deciding whether the selected host is computed flow.
       activeBreakpointWidthState: undefined,
       overviewScreens: [
         {
@@ -155,7 +153,10 @@ function runSameScreenReparent(
     source: { kind: "design-file", fileId: SCREEN_ID },
   });
   const tree = buildCodeLayerTree(projection);
-  const owners: LayerMoveArgs["codeLayerOwnerByNodeId"] = new Map();
+  const owners = new Map<
+    string,
+    NonNullable<ReturnType<LayerMoveArgs["codeLayerOwnerByNodeId"]["get"]>>
+  >();
   for (const node of projection.nodes) {
     owners.set(node.id, {
       fileId: SCREEN_ID,

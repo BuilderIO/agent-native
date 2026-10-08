@@ -49,6 +49,29 @@ async function sendFill(page: import("@playwright/test").Page, value: string) {
   }, value);
 }
 
+async function sendChildFill(
+  page: import("@playwright/test").Page,
+  nodeId: string,
+  value: string,
+) {
+  await page.evaluate(
+    ({ nodeId, value }) => {
+      window.postMessage(
+        {
+          type: "style-change",
+          selector: `[data-agent-native-node-id="${nodeId}"]`,
+          selectorCandidates: [],
+          nodeId,
+          property: "fill",
+          value,
+        },
+        "*",
+      );
+    },
+    { nodeId, value },
+  );
+}
+
 async function sendStroke(
   page: import("@playwright/test").Page,
   value: string,
@@ -122,6 +145,171 @@ async function pixels(page: import("@playwright/test").Page) {
 }
 
 describe("live SVG vector fill gradients", () => {
+  it("fans a root fill gradient out to every shape in a pasted SVG", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(GROUPED_VECTOR_HTML);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+
+      await sendFill(
+        page,
+        "linear-gradient(90deg, rgb(255, 0, 0) 0%, rgb(0, 0, 255) 100%)",
+      );
+      const gradient = await page.evaluate(() => {
+        const root = document.querySelector<SVGSVGElement>(
+          '[data-agent-native-node-id="vector.1"]',
+        )!;
+        const shapes = Array.from(root.querySelectorAll("path"));
+        return {
+          fills: shapes.map((shape) => shape.style.fill),
+          authoredFills: shapes.map((shape) => shape.getAttribute("fill")),
+          metadata: root.style.getPropertyValue("--an-vector-fill-gradient"),
+          shapeMetadata: shapes.map((shape) =>
+            shape.style.getPropertyValue("--an-vector-fill-gradient"),
+          ),
+          definitions: root.querySelectorAll(
+            ":scope > defs[data-an-vector-fill-gradient] linearGradient",
+          ).length,
+        };
+      });
+      expect(gradient.fills).toHaveLength(2);
+      expect(gradient.fills[0]).toBe(gradient.fills[1]);
+      expect(gradient.fills[0]).toMatch(
+        /^url\(["']?#vector\.1-fill-gradient["']?\)$/,
+      );
+      expect(gradient.authoredFills).toEqual(["#cccccc", "#cccccc"]);
+      expect(gradient.metadata).toContain("linear-gradient");
+      expect(gradient.shapeMetadata).toEqual(["", ""]);
+      expect(gradient.definitions).toBe(1);
+
+      await sendFill(page, "#00ff00");
+      const solid = await page.evaluate(() => {
+        const root = document.querySelector<SVGSVGElement>(
+          '[data-agent-native-node-id="vector.1"]',
+        )!;
+        return {
+          fills: Array.from(root.querySelectorAll("path")).map(
+            (shape) => shape.style.fill,
+          ),
+          metadata: root.style.getPropertyValue("--an-vector-fill-gradient"),
+          definitions: root.querySelectorAll(
+            ":scope > defs[data-an-vector-fill-gradient] linearGradient",
+          ).length,
+        };
+      });
+      expect(solid).toEqual({
+        fills: ["rgb(0, 255, 0)", "rgb(0, 255, 0)"],
+        metadata: "",
+        definitions: 0,
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("keeps a shared root gradient for shapes not repainted individually", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(GROUPED_VECTOR_HTML);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+
+      await sendFill(
+        page,
+        "linear-gradient(90deg, rgb(255, 0, 0) 0%, rgb(0, 0, 255) 100%)",
+      );
+      await sendChildFill(page, "vector.shape.1", "#00ff00");
+
+      const paint = await page.evaluate(() => {
+        const root = document.querySelector<SVGSVGElement>(
+          '[data-agent-native-node-id="vector.1"]',
+        )!;
+        return {
+          fills: Array.from(root.querySelectorAll("path")).map(
+            (shape) => shape.style.fill,
+          ),
+          metadata: Array.from(root.querySelectorAll("path")).map((shape) =>
+            shape.style.getPropertyValue("--an-vector-fill-gradient"),
+          ),
+          rootMetadata: root.style.getPropertyValue(
+            "--an-vector-fill-gradient",
+          ),
+          definitions: root.querySelectorAll(
+            ":scope > defs[data-an-vector-fill-gradient] linearGradient",
+          ).length,
+        };
+      });
+      expect(paint.fills[0]).toBe("rgb(0, 255, 0)");
+      expect(paint.fills[1]).toMatch(
+        /^url\(["']?#vector\.1-fill-gradient["']?\)$/,
+      );
+      expect(paint.metadata[0]).toBe("");
+      expect(paint.metadata[1]).toContain("linear-gradient");
+      expect(paint.rootMetadata).toBe("");
+      expect(paint.definitions).toBe(1);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("fans a root stroke gradient out to every shape in a pasted SVG", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(GROUPED_VECTOR_HTML);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+
+      await sendStroke(
+        page,
+        "linear-gradient(90deg, rgb(255, 0, 0) 0%, rgb(0, 0, 255) 100%)",
+      );
+      const gradient = await page.evaluate(() => {
+        const root = document.querySelector<SVGSVGElement>(
+          '[data-agent-native-node-id="vector.1"]',
+        )!;
+        const shapes = Array.from(root.querySelectorAll("path"));
+        return {
+          strokes: shapes.map((shape) => shape.style.stroke),
+          metadata: root.style.getPropertyValue("--an-vector-stroke-gradient"),
+          definitions: root.querySelectorAll(
+            ":scope > defs[data-an-vector-stroke-gradient] linearGradient",
+          ).length,
+        };
+      });
+      expect(gradient.strokes).toHaveLength(2);
+      expect(gradient.strokes[0]).toBe(gradient.strokes[1]);
+      expect(gradient.strokes[0]).toMatch(
+        /^url\(["']?#vector\.1-stroke-gradient["']?\)$/,
+      );
+      expect(gradient.metadata).toContain("linear-gradient");
+      expect(gradient.definitions).toBe(1);
+
+      await sendStroke(page, "#00ff00");
+      const solid = await page.evaluate(() => {
+        const root = document.querySelector<SVGSVGElement>(
+          '[data-agent-native-node-id="vector.1"]',
+        )!;
+        return {
+          strokes: Array.from(root.querySelectorAll("path")).map(
+            (shape) => shape.style.stroke,
+          ),
+          metadata: root.style.getPropertyValue("--an-vector-stroke-gradient"),
+          definitions: root.querySelectorAll(
+            ":scope > defs[data-an-vector-stroke-gradient] linearGradient",
+          ).length,
+        };
+      });
+      expect(solid).toEqual({
+        strokes: ["rgb(0, 255, 0)", "rgb(0, 255, 0)"],
+        metadata: "",
+        definitions: 0,
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("clears a grouped child's stroke gradient when changed back to solid", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

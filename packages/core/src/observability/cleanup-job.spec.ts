@@ -1,13 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-// The cleanup job's job is to bound trace storage by purging rows older
-// than a retention horizon. The high-value behavior to lock down is the
-// retention-cutoff math and the "disabled" escape hatch
-// (AGENT_NATIVE_TRACE_RETENTION_DAYS=0), plus the idempotency of the
-// recurring scheduler. We mock the store so no real DB is touched and so
-// we can read back exactly which cutoff timestamp was passed to the
-// delete.
-
 const deleteOldTraceData = vi.hoisted(() => vi.fn());
 
 vi.mock("./store.js", () => ({
@@ -62,8 +54,6 @@ describe("trace cleanup retention logic", () => {
     });
 
     it("returns null and does NOT purge when retention is disabled (=0)", async () => {
-      // 0 is the documented escape hatch for dev/debugging. It must never
-      // issue a delete — otherwise "disabled" would still destroy data.
       process.env[ENV_KEY] = "0";
 
       const result = await runTraceCleanupOnce();
@@ -104,14 +94,11 @@ describe("trace cleanup retention logic", () => {
 
       startTraceCleanupJob();
 
-      // Nothing fires immediately — the startup delay protects bootstrap.
       expect(deleteOldTraceData).not.toHaveBeenCalled();
 
-      // After the 5-minute startup delay, the first sweep runs.
       await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
       expect(deleteOldTraceData).toHaveBeenCalledTimes(1);
 
-      // Then a sweep every 24h.
       await vi.advanceTimersByTimeAsync(ONE_DAY_MS);
       expect(deleteOldTraceData).toHaveBeenCalledTimes(2);
     });
@@ -124,7 +111,6 @@ describe("trace cleanup retention logic", () => {
       startTraceCleanupJob();
 
       await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
-      // One scheduler => one sweep, not two.
       expect(deleteOldTraceData).toHaveBeenCalledTimes(1);
     });
 

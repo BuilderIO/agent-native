@@ -1,7 +1,7 @@
-import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat/composer";
 import {
   IconChevronDown,
   IconChevronUp,

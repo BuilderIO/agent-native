@@ -33,7 +33,6 @@ import {
 } from "../server/triage/metadata.js";
 import { readStoredUserLabels } from "../server/triage/slack-user-labels.js";
 
-/** Max runs `listAutomationRuns` will return; enough for merge-paging. */
 const AUTOMATION_RUN_FETCH_LIMIT = 100;
 
 export default defineAction({
@@ -88,8 +87,6 @@ export default defineAction({
           appId: "factory",
           limit: AUTOMATION_RUN_FETCH_LIMIT,
         });
-        // Absent must stay distinguishable from a stored label so the client
-        // can derive its own fallback instead of rendering the nested path.
         const displayName = readAutomationDisplayName(resource.content);
         return runs.map((run) => ({ run, displayName }));
       }),

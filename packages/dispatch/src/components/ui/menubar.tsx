@@ -4,11 +4,6 @@ import * as React from "react";
 
 import { cn } from "../../lib/utils";
 
-// Explicit type annotations needed because TS can't generate portable .d.ts
-// declarations for these without referencing internal Radix types from a
-// hoisted pnpm path. Casting to React.FC<any> erases the prop types from the
-// .d.ts but keeps these exports usable; consumers rarely tweak menubar
-// internals so this is an acceptable trade.
 const MenubarMenu: React.FC<any> = MenubarPrimitive.Menu;
 const MenubarGroup: React.FC<any> = MenubarPrimitive.Group;
 const MenubarPortal: React.FC<any> = MenubarPrimitive.Portal;

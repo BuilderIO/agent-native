@@ -12,6 +12,7 @@ import {
   resolveRegisteredAccessContext,
 } from "../access.js";
 import { requireShareableResource } from "../registry.js";
+import { resourceSharingChange } from "./change-result.js";
 import {
   getExtensionShareChangeTargets,
   notifyExtensionShareChanged,
@@ -20,8 +21,6 @@ import {
 export default defineAction({
   description:
     "Change the coarse visibility of a shareable resource: 'private' keeps it owner-only, 'org' shares it with all members of the owner's organization, 'public' makes it accessible to anyone with the link. Visibility changes require owner or admin role.",
-  // (audit H5) Visibility changes can flip a private resource org-wide or
-  // public. Refuse from the tools iframe bridge.
   toolCallable: false,
   mcpApp: {
     compactCatalog: true,
@@ -31,6 +30,19 @@ export default defineAction({
     resourceId: z.string(),
     visibility: z.enum(["private", "org", "public"]),
   }),
+  needsApproval: async (args) => {
+    if (args.visibility !== "public") return false;
+    const reg = requireShareableResource(args.resourceType);
+    if (reg.allowPublic === false) return false;
+    const access = await assertAccess(
+      args.resourceType,
+      args.resourceId,
+      "admin",
+      undefined,
+      { skipResourceBody: true },
+    );
+    return access.resource.visibility !== "public";
+  },
   run: async (args) => {
     const reg = requireShareableResource(args.resourceType);
     if (args.visibility === "public" && reg.allowPublic === false) {
@@ -43,6 +55,7 @@ export default defineAction({
       args.resourceId,
       "admin",
     );
+    const visibilityChanged = access.resource?.visibility !== args.visibility;
     const db = reg.getDb() as any;
     const update: Record<string, unknown> = { visibility: args.visibility };
     const rawAccess = currentAccess();
@@ -53,19 +66,12 @@ export default defineAction({
           !!rawAccess.orgId &&
           !!reg.resolveAccessContext &&
           access.role === "owner";
-        // Some templates intentionally normalize local single-user resources
-        // out of request org scope. In that mode, keep the row unbound while
-        // still allowing the owner to persist the visibility preference.
         if (!canKeepResourceUnscoped) {
           throw new ForbiddenError(
             `${reg.displayName} cannot be shared with your organization because no active organization is selected.`,
           );
         }
       } else {
-        // Only the resource owner may bind an org to a previously unscoped resource.
-        // If a non-owner admin did this, the resource would adopt the admin's org
-        // and ownerMatchesActiveScope would then lock the real owner out of their
-        // own resource. Non-owner admins can still flip visibility once orgId is set.
         if (access.role !== "owner") {
           throw new ForbiddenError(
             `${reg.displayName} can only be attached to an organization by its owner.`,
@@ -74,6 +80,7 @@ export default defineAction({
         update.orgId = currentOrgId;
       }
     }
+    const resourceChanged = visibilityChanged || update.orgId !== undefined;
     const beforeExtensionTargets = await getExtensionShareChangeTargets(
       args.resourceType,
       args.resourceId,
@@ -99,7 +106,7 @@ export default defineAction({
       args.resourceId,
       beforeExtensionTargets,
     );
-    if (access.resource?.visibility !== args.visibility) {
+    if (visibilityChanged) {
       const app = getAppConfig().app.slug ?? "unknown";
       track(
         "share_visibility_change",
@@ -114,6 +121,19 @@ export default defineAction({
         { userId: rawAccess.userEmail ?? undefined },
       );
     }
-    return { ok: true, visibility: args.visibility };
+    return {
+      ok: true,
+      visibility: args.visibility,
+      ...(resourceChanged
+        ? {
+            change: resourceSharingChange(
+              reg,
+              access.resource,
+              "updated",
+              args.visibility,
+            ).change,
+          }
+        : {}),
+    };
   },
 });

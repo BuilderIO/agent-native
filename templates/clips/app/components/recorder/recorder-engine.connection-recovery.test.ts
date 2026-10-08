@@ -8,10 +8,14 @@ import { uploadChunkRequest } from "@/lib/upload-request";
 
 import { RecorderEngine } from "./recorder-engine";
 
-vi.mock("@/lib/recording-backup", () => ({
+vi.mock("@/lib/recording-backup", async (importOriginal) => ({
+  verifyServerCopy: (
+    await importOriginal<typeof import("@/lib/recording-backup")>()
+  ).verifyServerCopy,
   deleteRecordingBackup: vi.fn(async () => {}),
   putRecordingBackupChunk: vi.fn(async () => {}),
   putRecordingBackupMeta: vi.fn(async () => {}),
+  updateRecordingBackupMeta: vi.fn(async () => ({})),
 }));
 
 vi.mock("@/lib/upload-request", () => ({
@@ -449,6 +453,31 @@ describe("RecorderEngine streaming connection recovery", () => {
       status: 409,
       restartRequired: true,
     });
+  });
+
+  it("classifies and sanitizes HTML chunk errors", async () => {
+    vi.stubGlobal("window", { setTimeout, clearTimeout });
+    vi.mocked(uploadChunkRequest).mockResolvedValueOnce(
+      new Response("<!doctype html><html>private proxy response</html>", {
+        status: 400,
+        headers: { "content-type": "text/html" },
+      }),
+    );
+    const engine = makeEngine();
+    const internals = engine as unknown as {
+      uploadChunk: (blob: Blob, index: number) => Promise<unknown>;
+    };
+    const error = await internals
+      .uploadChunk(new Blob(["source"]), 0)
+      .catch((error: unknown) => error as Error & Record<string, unknown>);
+
+    expect(error).toMatchObject({
+      status: 400,
+      failureCode: "chunk_html_error",
+      failureStage: "chunk_upload",
+    });
+    expect((error as Error).message).toContain("HTML error response (400)");
+    expect((error as Error).message).not.toContain("private proxy response");
   });
 
   it("keeps permanent streaming failures terminal", async () => {
@@ -1040,6 +1069,10 @@ describe("RecorderEngine streaming connection recovery", () => {
     });
     expect(internals.localChunks).toEqual([source]);
     expect(onError).not.toHaveBeenCalled();
-    expect(putRecordingBackupMeta).not.toHaveBeenCalled();
+    // Only the copy's starting metadata; the failed chunk wrote nothing more.
+    expect(putRecordingBackupMeta).toHaveBeenCalledOnce();
+    expect(putRecordingBackupMeta).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec-1", chunkCount: 0 }),
+    );
   });
 });

@@ -16,7 +16,7 @@
  * a drag ("commit storm").
  */
 
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -27,6 +27,7 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipProvider: ({ children }: { children?: unknown }) => children as never,
 }));
 
+import { buildGradientLayer } from "../edit-panel/fill-gradient-helpers";
 import { GradientEditor, type GradientValue } from "./GradientEditor";
 
 const baseValue: GradientValue = {
@@ -38,6 +39,28 @@ const baseValue: GradientValue = {
   ],
 };
 
+function ControlledGradientEditor({
+  onChange,
+  onCommit,
+}: {
+  onChange: (value: GradientValue) => void;
+  onCommit: () => void;
+}) {
+  const [value, setValue] = useState(baseValue);
+  return (
+    <GradientEditor
+      value={value}
+      onChange={(next) => {
+        onChange(next);
+        setValue(next);
+      }}
+      onCommit={onCommit}
+      selectedStopId="a"
+      onSelectStop={vi.fn()}
+    />
+  );
+}
+
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 let originalRect: typeof HTMLElement.prototype.getBoundingClientRect;
@@ -46,10 +69,6 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
-  // The bar's position math (`positionFromPointer`) divides by the bar's
-  // measured width, which happy-dom reports as 0 with no layout engine —
-  // stub a fixed 200px-wide rect starting at x=0 so clientX maps to a
-  // predictable 0-100 position.
   originalRect = HTMLElement.prototype.getBoundingClientRect;
   HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
     return {
@@ -87,6 +106,29 @@ function pointerEvent(
 }
 
 describe("GradientEditor onCommit", () => {
+  it("hides native steppers from the compact stop and angle fields", () => {
+    act(() => {
+      root.render(
+        <GradientEditor
+          value={baseValue}
+          onChange={vi.fn()}
+          selectedStopId="a"
+          onSelectStop={vi.fn()}
+        />,
+      );
+    });
+
+    for (const label of ["Stop position", "Gradient angle"]) {
+      const input = container.querySelector<HTMLInputElement>(
+        `input[aria-label="${label}"]`,
+      );
+      expect(input?.className).toContain("[appearance:textfield]");
+      expect(input?.className).toContain(
+        "[&::-webkit-inner-spin-button]:appearance-none",
+      );
+    }
+  });
+
   it("fires onChange on every tick but onCommit exactly once when dragging a stop handle", () => {
     const onChange = vi.fn();
     const onCommit = vi.fn();
@@ -182,8 +224,6 @@ describe("GradientEditor onCommit", () => {
   it("fires onCommit exactly once when removing the selected stop via the trash button", () => {
     const onChange = vi.fn();
     const onCommit = vi.fn();
-    // removeStop no-ops at exactly 2 stops (a gradient needs at least 2), so
-    // this needs a 3rd stop for the remove button to actually be enabled.
     const threeStopValue: GradientValue = {
       ...baseValue,
       stops: [...baseValue.stops, { id: "c", color: "#00ff00", position: 50 }],
@@ -310,10 +350,6 @@ describe("GradientEditor onCommit", () => {
     expect(angleField).not.toBeNull();
 
     act(() => {
-      // React implements onBlur via the native (bubbling) "focusout" event
-      // rather than "blur" (which doesn't bubble) — see React's
-      // SimpleEventPlugin. Dispatch that here so the synthetic handler
-      // actually fires.
       angleField!.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
       angleField!.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
     });
@@ -344,10 +380,6 @@ describe("GradientEditor onCommit", () => {
     expect(angleField).not.toBeNull();
 
     act(() => {
-      // Bypass React's tracked-value setter so the synthetic onChange
-      // handler actually observes the new value (a plain `.value =`
-      // assignment followed by a bare "input" event dispatch is a no-op
-      // under React's controlled-input change detection).
       const setValue = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,
         "value",
@@ -363,5 +395,69 @@ describe("GradientEditor onCommit", () => {
     });
 
     expect(onCommit).toHaveBeenCalledTimes(1);
+  });
+
+  it("persists a 135-degree gradient with its first stop at 25 percent", () => {
+    const values: GradientValue[] = [];
+    const onCommit = vi.fn();
+    act(() =>
+      root.render(
+        <ControlledGradientEditor
+          onChange={(value) => values.push(value)}
+          onCommit={onCommit}
+        />,
+      ),
+    );
+
+    const angle = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Gradient angle"]',
+    );
+    const position = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Stop position"]',
+    );
+    expect(angle).not.toBeNull();
+    expect(position).not.toBeNull();
+    const setValue = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    expect(setValue).toBeDefined();
+
+    act(() => {
+      angle!.focus();
+      setValue!.call(angle, "135");
+      angle!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      angle!.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+    act(() => {
+      setValue!.call(position, "25");
+      position!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      position!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    const finalValue = values[values.length - 1];
+    if (!finalValue) throw new Error("gradient update was not recorded");
+    expect(finalValue?.angle).toBe(135);
+    expect(finalValue?.stops.find((stop) => stop.id === "a")?.position).toBe(
+      25,
+    );
+    const css = buildGradientLayer(
+      "linear",
+      finalValue!.stops,
+      `${finalValue!.angle}deg`,
+    );
+    expect(css).toContain("linear-gradient(135deg");
+    expect(css).toContain("25%");
+    expect(onCommit).toHaveBeenCalledTimes(2);
   });
 });

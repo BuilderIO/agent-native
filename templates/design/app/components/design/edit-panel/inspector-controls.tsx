@@ -69,10 +69,6 @@ export function SectionIconButton({
   );
 }
 
-/**
- * Section-header toggle icon (the design editor's right-aligned section actions, e.g. the
- * auto-layout ⊞ toggle). Highlights with the accent color when active.
- */
 export function SectionIconToggle({
   label,
   active = false,
@@ -111,16 +107,6 @@ export function SectionIconToggle({
   );
 }
 
-/**
- * Compute the next `overIndex` for a dragover event on `hoverIndex`, given the
- * index of the row currently being dragged. Hovering back over the dragged
- * row itself has no meaningful drop position (dropping there is always a
- * no-op — see `resolveRowDrop`), so this returns `null` to clear the
- * indicator rather than echoing back `hoverIndex`, which would otherwise
- * render a stray "before" drop-indicator line on the dragged row itself.
- *
- * Pure — exported for tests.
- */
 export function nextRowDragOverIndex(
   hoverIndex: number,
   dragIndex: number,
@@ -128,19 +114,6 @@ export function nextRowDragOverIndex(
   return hoverIndex === dragIndex ? null : hoverIndex;
 }
 
-/**
- * Resolve a drop into a `{ from, to }` pair, or `null` for a no-op drop.
- *
- * Both `from` (the row that started the drag) and `to` (the row dropped on)
- * are re-validated against `count` — the CURRENT live row count at drop time
- * — rather than trusted from the drag-start snapshot. The underlying array
- * can shrink mid-drag (e.g. an external update removes rows while the
- * pointer is still down); re-checking only `to` and not `from` would let a
- * stale drag-start index (captured before the shrink) reach the caller's
- * `onReorder` out of bounds.
- *
- * Pure — exported for tests.
- */
 export function resolveRowDrop(
   from: number | null,
   to: number,
@@ -151,16 +124,6 @@ export function resolveRowDrop(
   return { from, to };
 }
 
-/**
- * Minimal pointer-based reorder for a flat row list (fill layers, shadow
- * layers). Deliberately not shared with LayersPanel.tsx's tree-drag logic —
- * that implementation is coupled to nested/multi-select layer nodes, while
- * this only ever needs "move index A to index B" over a flat array.
- *
- * Reads live in a ref (not React state) so a fast pointermove sequence never
- * reorders against a stale `count`/`onReorder` closure, mirroring why
- * ScrubInput tracks its draft in a ref alongside state.
- */
 export function useRowDragReorder(
   count: number,
   onReorder: (from: number, to: number) => void,
@@ -192,7 +155,6 @@ export function useRowDragReorder(
   const getHandleProps = (index: number) => ({
     draggable: true,
     onDragStart: (event: DragEvent<HTMLSpanElement>) => {
-      // Firefox requires setData to be called for the drag to start at all.
       event.dataTransfer.setData("text/plain", String(index));
       event.dataTransfer.effectAllowed = "move";
       setDragIndex(index);
@@ -211,10 +173,6 @@ export function useRowDragReorder(
   };
 }
 
-/** Drag handle + before/after drop-indicator line for a reorderable row.
- * Grip is hover-revealed (Figma convention); the row itself uses always-visible
- * eye/remove buttons per this file's existing convention, so only the grip
- * gets the opacity treatment. */
 export function RowDragHandle({
   label,
   dropIndicator,
@@ -261,7 +219,6 @@ export function InspectorIconButton({
   disabled?: boolean;
   onClick?: () => void;
   children: ReactNode;
-  /** Optional keyboard-shortcut hint (e.g. "⌥A") appended to the tooltip only — aria-label stays plain text. */
   shortcut?: string;
 }) {
   return (

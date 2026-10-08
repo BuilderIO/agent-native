@@ -7,8 +7,6 @@ import {
   SELECTION_TEXT_LIMIT,
 } from "./content-selection";
 
-// Minimal doc/heading/paragraph/text schema — enough to exercise the block and
-// heading lookups without pulling in the full editor.
 const schema = new Schema({
   nodes: {
     doc: { content: "block+" },
@@ -35,8 +33,6 @@ function mkDoc(
   );
 }
 
-/** Locate a text node's ProseMirror range by its content, so tests don't have
- *  to hand-compute open/close token offsets across sibling blocks. */
 function findTextRange(
   doc: PMNode,
   needle: string,
@@ -59,7 +55,6 @@ describe("captureBlockContext", () => {
       { type: "heading", text: "Section One" },
       { type: "paragraph", text: "Hello world foo" },
     ]);
-    // Position inside the paragraph's text ("world").
     const pos = doc.content.size - 5;
     const { blockText, heading } = captureBlockContext(doc, pos);
     expect(blockText).toBe("Hello world foo");
@@ -98,8 +93,6 @@ describe("buildContentSelectionPayload", () => {
     expect(payload.collapsed).toBe(false);
     expect(payload.selectedText).toBe("world");
     expect(payload.textTruncated).toBe(false);
-    // captureAnchor flattens text across block boundaries (see
-    // comment-anchors.ts), so the prefix can include the prior block's text.
     expect(payload.prefix).toBe("IntroHello ");
     expect(payload.suffix).toBe(" foo");
     expect(payload.heading).toBe("Intro");

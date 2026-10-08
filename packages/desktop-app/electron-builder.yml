@@ -9,6 +9,9 @@ files:
   - out/**
   - "!node_modules/**"
   - node_modules/node-pty/**
+  - node_modules/@agent-native/core/package.json
+  - node_modules/@agent-native/core/dist/**
+  - node_modules/ws/**
   - "!src/**"
   - "!shared/**"
   - "!electron.vite.config.*"
@@ -21,9 +24,6 @@ asarUnpack:
 extraResources:
   - from: ../agent-chrome-extension/dist
     to: chrome-extension
-  # `electron-builder --dir` skips its normal onAfterPack updater metadata
-  # write. Keep local packaged builds installable by supplying the same cache
-  # configuration that release builds receive automatically.
   - from: desktop-update-config.yml
     to: app-update.yml
 

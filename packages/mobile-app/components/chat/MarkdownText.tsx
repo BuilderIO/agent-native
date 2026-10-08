@@ -5,12 +5,6 @@ import {
   TextFadeInStaggeredIfStreaming,
 } from "./StreamingFade";
 
-/**
- * Minimal streaming-safe markdown renderer. Re-parses the full text each
- * render (messages are short enough that this stays cheap) and never throws
- * on incomplete markup, so it can render mid-stream deltas.
- */
-
 const MONO_FONT = Platform.select({ ios: "Menlo", android: "monospace" });
 
 type Block =
@@ -215,7 +209,7 @@ export function MarkdownText({ text }: { text: string }) {
         } else if (block.kind === "bullet") {
           blockLength = block.items.reduce((acc, item) => acc + item.length, 0);
         }
-        blockOffset += blockLength + 1; // spacing offset
+        blockOffset += blockLength + 1;
 
         if (block.kind === "heading") {
           return (

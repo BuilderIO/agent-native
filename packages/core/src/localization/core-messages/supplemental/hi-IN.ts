@@ -46,6 +46,9 @@ export const mcpConnectMessages: McpConnectMessages = {
   revoke: "Revoke करें",
   couldNotRevoke: "Token revoke नहीं किया जा सका।",
   authorizeDevice: "डिवाइस को अनुमति दें",
+  organization: "संगठन",
+  invalidOrganization: "ऐसा संगठन चुनें जिसके आप सदस्य हैं।",
+  fullCatalogRequested: "यह डिवाइस पूरे एक्शन कैटलॉग तक पहुंच का अनुरोध कर रहा है।",
   createToken: "कनेक्शन token बनाएँ",
   authorizingDevice: "डिवाइस को अनुमति दी जा रही है...",
   creatingToken: "Token बनाया जा रहा है...",
@@ -64,6 +67,22 @@ export const mcpConnectMessages: McpConnectMessages = {
   couldNotCreate: "Token बनाया नहीं जा सका।",
   networkError: "Network error. फिर से कोशिश करें।",
   urlTitle: "आपका MCP URL",
+  servicePrincipals: "सर्विस प्रिंसिपल",
+  principalUngoverned: "अनियंत्रित",
+  principalActive: "सक्रिय",
+  principalSuspended: "निलंबित",
+  principalRetired: "सेवानिवृत्त",
+  principalUngovernedHint: "कोई स्वामी या कार्रवाई अनुमति सेट नहीं है।",
+  principalOwner: "स्वामी",
+  principalRisk: "जोखिम",
+  riskLow: "कम",
+  riskMedium: "मध्यम",
+  riskHigh: "उच्च",
+  suspend: "निलंबित करें",
+  resume: "फिर शुरू करें",
+  couldNotUpdatePrincipal: "सर्विस प्रिंसिपल अपडेट नहीं किया जा सका।",
+  containmentIncomplete:
+    "अपडेट हो गया, लेकिन कुछ रन या टोकन रोके नहीं जा सके। फिर से प्रयास करें।",
 };
 
 export const mcpSettingsMessages: McpSettingsMessages = {

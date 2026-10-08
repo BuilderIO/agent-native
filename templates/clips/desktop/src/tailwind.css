@@ -23,8 +23,6 @@
 
 @source "./**/*.{ts,tsx}";
 
-/* Native recovery shares the recorder's fixed-width row geometry. These
-   scoped rules must sit above utilities, not in the legacy stylesheet. */
 .recording-recovery-entry {
   padding: 0 14px 7px;
 }
@@ -161,39 +159,16 @@
   }
 }
 
-/**
- * The parts of preflight a Tailwind-era surface cannot live without, scoped to
- * subtrees marked `data-tw-surface` so the hand-written tray surfaces keep the
- * UA defaults their CSS was written against.
- *
- * Every rule here exists because a shadcn component assumes preflight already
- * ran. Skipping it cost us, in order: phantom UA margins under headings, the
- * native grey `ButtonFace` box behind `ghost` variants, `currentColor` borders
- * painting black instead of a hairline, and icons riding ~2px high because an
- * un-reset `svg` is an inline box on a text baseline. If a shadcn primitive
- * looks subtly wrong here, suspect this list before editing the primitive.
- *
- * In `theme` so every utility still wins. Portaled shadcn content (popover and
- * select) carries the attribute itself, since it renders outside the subtree.
- */
 @layer theme {
   [data-tw-surface] :is(h1, h2, h3, h4, h5, h6, p, figure, blockquote) {
     margin: 0;
   }
 
-  /* Icons are laid out as boxes, not as glyphs on a baseline. Without this an
-     `svg` stays `display: inline` and sits ~2px above the centre of whatever
-     flex row is meant to be centring it — visible on every checkmark, chevron,
-     and button icon. */
   [data-tw-surface] :is(img, svg, video, canvas, audio, iframe, embed, object) {
     display: block;
     vertical-align: middle;
   }
 
-  /* Tailwind's `border` utility sets width only — preflight is what gives every
-     element a default border COLOR. Without it a bare `border` (shadcn's
-     popover and select content, among others) falls back to `currentColor` and
-     paints a hard near-black rule instead of a hairline. */
   [data-tw-surface],
   [data-tw-surface] *,
   [data-tw-surface] *::before,
@@ -230,10 +205,6 @@
     opacity: 1;
   }
 
-  /* The remainder of preflight, ported in one pass rather than discovered one
-     bug at a time. Headings keep UA size/weight without this, lists keep their
-     markers and indent, links keep browser blue — each of which would read as
-     a broken shadcn component rather than a missing reset. */
   [data-tw-surface] :is(h1, h2, h3, h4, h5, h6) {
     font-size: inherit;
     font-weight: inherit;
@@ -290,8 +261,6 @@
   }
 }
 
-/* The tray follows the OS, so dark mode is a media query rather than the web
-   app's `.dark` class. Both resolve the same token names. */
 @custom-variant dark (@media (prefers-color-scheme: dark));
 
 /**
@@ -307,11 +276,6 @@
  * color. Only tailwind.css maps these into Tailwind's namespace.
  */
 :root {
-  /* Motion and elevation, mirroring `--ease-*` in
-     packages/core/src/styles/agent-native.css. The desktop app carries no
-     dependency on core, so the curves are restated here rather than
-     hand-typed at each call site — four copies of one bezier is how two
-     surfaces end up moving differently. */
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --ease-collapse: cubic-bezier(0.2, 0, 0, 1);
   --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
@@ -321,9 +285,6 @@
     var(--recorder-mode-option-radius) + var(--recorder-mode-toggle-inset)
   );
 
-  /* Layered rather than one soft blur: a hairline for the edge, a tight
-     contact shadow for the lift, a wide ambient one for depth. A single
-     30px blur reads as a smudge at this size. */
   --elevation-sheet:
     0 -0.5px 0 hsl(var(--ui-foreground) / 0.07),
     0 -6px 16px -6px hsl(var(--ui-foreground) / 0.1),
@@ -353,10 +314,8 @@
   --ui-border: 0 0% 90%;
   --ui-input: 0 0% 87%;
   --ui-ring: 0 0% 40%;
-  /* macOS convention for an engaged switch, and the one accent the tray uses. */
   --ui-success: 142 71% 45%;
   --ui-success-foreground: 0 0% 100%;
-  /* Reserved for explicit "there is something new here" alerts and notices. */
   --ui-info: 217 91% 55%;
 }
 
@@ -388,20 +347,9 @@
 }
 
 @theme inline {
-  /**
-   * Absolute, not rem. The tray sets `:root { font-size: 13px }`, so every
-   * rem-based Tailwind scale silently computed ~19% small against it —
-   * `text-xs` landed at 9.75px and `h-8` at 26px, which is what made control
-   * typography look off next to the px-based rest of the app. Pinning these to
-   * px makes the utility scale mean the same thing here as in the web app.
-   */
   --spacing: 4px;
-  /* Softer than shadcn's 8px default: a 32px-tall control wants ~10px to read
-     as the rounded pill the rest of this product uses. */
   --radius: 10px;
 
-  /* One scale, anchored on the tray's 13px baseline. `text-base` is body copy,
-     `text-sm` is every in-row control, `text-xs` is the grounding line. */
   --text-2xs: 10px;
   --text-2xs--line-height: 1.4;
   --text-xs: 11px;
@@ -453,10 +401,6 @@
   --radius-sm: calc(var(--radius) - 4px);
 }
 
-/* Recording pill (overlays/record-pill.tsx). The pill is floating capture
-   chrome that renders over arbitrary screen content, so its palette is
-   theme-invariant by design — these values are contractual from the tray
-   redesign spec, not theme tokens. */
 .record-pill-scope {
   /* guard:allow-raw-color — theme-invariant capture chrome, spec-contractual palette */
   --pill-chrome: #1e1e1e;
