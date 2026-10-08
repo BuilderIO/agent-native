@@ -291,11 +291,13 @@ export async function emitSignupEventForCreatedUser(
   // so an account created by another signed-in user (admin or API creation)
   // must not inherit it.
   const actingUserId = context?.context?.session?.user?.id;
-  const eventSessionId =
-    !actingUserId || actingUserId === user.id ? sessionId : undefined;
-  if (user.id && attribution && (!actingUserId || actingUserId === user.id)) {
+  const ownsSignupAttribution = !actingUserId || actingUserId === user.id;
+  const eventAttribution = ownsSignupAttribution ? attribution : undefined;
+  const eventAnonymousId = ownsSignupAttribution ? anonymousId : undefined;
+  const eventSessionId = ownsSignupAttribution ? sessionId : undefined;
+  if (user.id && eventAttribution) {
     try {
-      await persistUserFirstTouchAttribution(user.id, attribution);
+      await persistUserFirstTouchAttribution(user.id, eventAttribution);
     } catch (err) {
       // The signup itself already succeeded; the event below still carries
       // the attribution, so only the row copy is missing, and loudly so.
@@ -315,8 +317,8 @@ export async function emitSignupEventForCreatedUser(
     authUserId: user.id,
     email,
     name: user.name,
-    attribution,
-    anonymousId,
+    attribution: eventAttribution,
+    anonymousId: eventAnonymousId,
     sessionId: eventSessionId,
   });
 }

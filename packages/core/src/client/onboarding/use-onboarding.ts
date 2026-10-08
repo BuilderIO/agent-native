@@ -87,6 +87,7 @@ interface PendingCustomKeyOnboardingAttempt {
   attempt: Omit<CustomKeyOnboardingAttempt, "identityKey"> & {
     identityKey?: string;
   };
+  identityKeyAtStart: string | undefined;
   status: "resolving" | "stored" | "memory" | "unavailable";
   outcomes: CustomKeyOnboardingOutcome[];
 }
@@ -225,6 +226,7 @@ export function setCustomKeyOnboardingAttempt(
       documentId: getOnboardingDocumentId(),
       setupKind: "credential",
     },
+    identityKeyAtStart: getAnalyticsIdentityKey(),
     status: "resolving",
     outcomes: [],
   };
@@ -286,6 +288,18 @@ function trackUnavailableCustomKeyOnboardingOutcome(
   pending: PendingCustomKeyOnboardingAttempt,
   outcome: CustomKeyOnboardingOutcome,
 ): CustomKeyOutcomeResult {
+  const identityKey = pending.attempt.identityKey ?? pending.identityKeyAtStart;
+  if (identityKey !== getAnalyticsIdentityKey()) {
+    if (pendingCustomKeyOnboardingAttempt === pending) {
+      pendingCustomKeyOnboardingAttempt = null;
+    }
+    try {
+      window.sessionStorage.removeItem(CUSTOM_KEY_ATTEMPT_STORAGE_KEY);
+    } catch {
+      return "unavailable";
+    }
+    return "identity_mismatch";
+  }
   const attemptOutcomeKey = `${pending.attempt.id}:${outcome}`;
   if (locallyTrackedCustomKeyOutcomes.has(attemptOutcomeKey)) {
     return "duplicate";
@@ -559,9 +573,7 @@ async function withCustomKeyOnboardingSave<T>(
   }
 }
 
-function handleCustomKeyOnboardingAbandonment(
-  deferWhileSavePending = true,
-): void {
+function handleCustomKeyOnboardingAbandonment(): void {
   const stored = readCustomKeyOnboardingAttempt();
   const attempt =
     stored.kind === "available"
@@ -593,14 +605,7 @@ function handleCustomKeyOnboardingAbandonment(
     }
     const pending = pendingCustomKeyCredentialSaves.get(attemptId);
     if (pending && pending.count > 0) {
-      if (deferWhileSavePending) {
-        pending.abandonmentRequested = true;
-      } else {
-        trackCustomKeyOnboardingOutcomeForAttempt(
-          attemptId,
-          pending.abandonmentOutcome,
-        );
-      }
+      pending.abandonmentRequested = true;
       return;
     }
     trackCustomKeyOnboardingOutcome(
@@ -627,7 +632,7 @@ export function useCustomKeyOnboardingAttemptLifecycle(): void {
     }
     const handlePageHide = (event: PageTransitionEvent) => {
       if (!event.persisted) {
-        handleCustomKeyOnboardingAbandonment(false);
+        handleCustomKeyOnboardingAbandonment();
       }
     };
     window.addEventListener("pagehide", handlePageHide);
@@ -726,6 +731,7 @@ export function trackOnboardingEvent(
     properties.integration_id,
     properties.role,
     properties.step_view_id,
+    properties.onboarding_attempt_id,
   ]
     .map((value) => String(value ?? ""))
     .join(":");

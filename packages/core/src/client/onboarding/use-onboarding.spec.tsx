@@ -387,6 +387,22 @@ describe("trackOnboardingEvent", () => {
     expect(trackEventMock).toHaveBeenCalledTimes(2);
   });
 
+  it("deduplicates correlation-unavailable events within an attempt", () => {
+    const properties = {
+      flow: "first_run",
+      step_id: "choice",
+      onboarding_attempt_id: "attempt-correlation-unavailable-1",
+    };
+    trackOnboardingEvent("onboarding_correlation_unavailable", properties);
+    trackOnboardingEvent("onboarding_correlation_unavailable", properties);
+    trackOnboardingEvent("onboarding_correlation_unavailable", {
+      ...properties,
+      onboarding_attempt_id: "attempt-correlation-unavailable-2",
+    });
+
+    expect(trackEventMock).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps abandonment events distinct across onboarding attempts", () => {
     const properties = {
       flow: "first_run",
@@ -543,6 +559,21 @@ describe("trackOnboardingEvent", () => {
     );
   });
 
+  it("discards an unavailable attempt when analytics identity changes", async () => {
+    analyticsIdentityResolverMock.mockResolvedValueOnce(undefined);
+
+    expect(
+      await setCustomKeyOnboardingAttempt("attempt-unavailable-identity"),
+    ).toBe("no_session");
+    analyticsIdentityKeyMock.mockReturnValue("browser-identity-43");
+
+    expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe(
+      "identity_mismatch",
+    );
+    expect(trackEventMock).not.toHaveBeenCalled();
+    expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe("missing");
+  });
+
   it("uses the in-memory attempt if session storage becomes unavailable", async () => {
     const key = "agent-native.onboarding.custom_keys_attempt";
     const storage = window.sessionStorage;
@@ -578,6 +609,46 @@ describe("trackOnboardingEvent", () => {
           onboarding_attempt_id: "attempt-memory-fallback",
           outcome: "credential_saved",
         }),
+      );
+    } finally {
+      sessionStorage.mockRestore();
+    }
+  });
+
+  it("discards a memory fallback when analytics identity changes", async () => {
+    const key = "agent-native.onboarding.custom_keys_attempt";
+    const storage = window.sessionStorage;
+    storage.removeItem(key);
+    const sessionStorage = vi
+      .spyOn(window, "sessionStorage", "get")
+      .mockReturnValue({
+        clear: () => storage.clear(),
+        getItem: (itemKey) => storage.getItem(itemKey),
+        key: (index) => storage.key(index),
+        removeItem: (itemKey) => storage.removeItem(itemKey),
+        setItem: (itemKey, value) => {
+          if (itemKey === key) {
+            throw new Error("session storage unavailable");
+          }
+          storage.setItem(itemKey, value);
+        },
+        get length() {
+          return storage.length;
+        },
+      } as Storage);
+
+    try {
+      expect(
+        await setCustomKeyOnboardingAttempt("attempt-memory-identity-change"),
+      ).toBe("unavailable");
+      analyticsIdentityKeyMock.mockReturnValue("browser-identity-43");
+
+      expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe(
+        "identity_mismatch",
+      );
+      expect(trackEventMock).not.toHaveBeenCalled();
+      expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe(
+        "missing",
       );
     } finally {
       sessionStorage.mockRestore();
@@ -839,8 +910,10 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
     ).toBeNull();
   });
 
-  it("classifies a dismissed pending local endpoint save by its result", async () => {
+  it("lets a pending local endpoint save win over pagehide abandonment", async () => {
     await setCustomKeyOnboardingAttempt("attempt-local-endpoint-save");
+    expect(setCustomKeyOnboardingSetupKind("local_endpoint")).toBe("stored");
+    await act(async () => root?.render(<Harness />));
 
     let resolveSave!: () => void;
     const save = withCustomKeyOnboardingLocalEndpointSave(
@@ -849,9 +922,16 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
           resolveSave = resolve;
         }),
     );
-    requestCustomKeyOnboardingAbandonment();
+    const pagehide = new Event("pagehide");
+    Object.defineProperty(pagehide, "persisted", { value: false });
+    act(() => window.dispatchEvent(pagehide));
 
     expect(trackEventMock).not.toHaveBeenCalled();
+    expect(
+      window.sessionStorage.getItem(
+        "agent-native.onboarding.custom_keys_attempt",
+      ),
+    ).not.toBeNull();
 
     await act(async () => {
       resolveSave();
@@ -902,7 +982,7 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
     });
   });
 
-  it("records page-exit abandonment while a save is still pending", async () => {
+  it("defers pagehide abandonment until a pending credential save fails", async () => {
     await setCustomKeyOnboardingAttempt("attempt-failed-save-after-unmount");
     await act(async () => root?.render(<Harness />));
 
@@ -917,6 +997,18 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
     const event = new Event("pagehide");
     Object.defineProperty(event, "persisted", { value: false });
     act(() => window.dispatchEvent(event));
+    expect(trackEventMock).not.toHaveBeenCalled();
+    expect(
+      window.sessionStorage.getItem(
+        "agent-native.onboarding.custom_keys_attempt",
+      ),
+    ).not.toBeNull();
+
+    await act(async () => {
+      rejectSave(new Error("save failed"));
+      await expect(save).rejects.toThrow("save failed");
+    });
+
     expect(trackEventMock).toHaveBeenCalledTimes(1);
     expect(trackEventMock).toHaveBeenCalledWith(
       "onboarding_method_outcome",
@@ -930,13 +1022,48 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
         "agent-native.onboarding.custom_keys_attempt",
       ),
     ).toBeNull();
+  });
+
+  it("lets a pending credential save win over pagehide abandonment", async () => {
+    await setCustomKeyOnboardingAttempt("attempt-credential-pagehide-save");
+    await act(async () => root?.render(<Harness />));
+
+    let resolveSave!: () => void;
+    const save = withCustomKeyOnboardingCredentialSave(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+    const pagehide = new Event("pagehide");
+    Object.defineProperty(pagehide, "persisted", { value: false });
+    act(() => window.dispatchEvent(pagehide));
+
+    expect(trackEventMock).not.toHaveBeenCalled();
+    expect(
+      window.sessionStorage.getItem(
+        "agent-native.onboarding.custom_keys_attempt",
+      ),
+    ).not.toBeNull();
 
     await act(async () => {
-      rejectSave(new Error("save failed"));
-      await expect(save).rejects.toThrow("save failed");
+      resolveSave();
+      await save;
     });
 
     expect(trackEventMock).toHaveBeenCalledTimes(1);
+    expect(trackEventMock).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        onboarding_attempt_id: "attempt-credential-pagehide-save",
+        outcome: "credential_saved",
+      }),
+    );
+    expect(
+      window.sessionStorage.getItem(
+        "agent-native.onboarding.custom_keys_attempt",
+      ),
+    ).toBeNull();
   });
 
   it("leaves an attempt available for retry after a save fails while settings stays mounted", async () => {

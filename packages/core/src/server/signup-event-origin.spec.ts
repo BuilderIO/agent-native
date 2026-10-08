@@ -294,12 +294,19 @@ describe("emitSignupEventForCreatedUser", () => {
     });
     expect(persisted).toEqual([]);
     expect(tracked).toHaveLength(1);
+    expect(tracked[0].source?.anonymousId).toBeUndefined();
+    expect(tracked[0].source?.sessionId).toBeUndefined();
+    expect(tracked[0].properties).not.toHaveProperty("utm_source");
 
     await emitSignupEventForCreatedUser(USER, {
       headers,
       context: { session: { user: { id: USER.id } } },
     });
     expect(persisted).toHaveLength(1);
+    expect(tracked[1].source?.anonymousId).toBe("anon_admin");
+    expect(tracked[1].properties).toMatchObject({
+      utm_source: "admin-campaign",
+    });
   });
 
   it("persists nothing for a row created with no browser attribution", async () => {
