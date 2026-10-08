@@ -4,12 +4,20 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import {
+  cutRangesOf,
+  parseEdits,
+  type CutRange,
+} from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import {
   CHAPTERS_CHANGED,
   parseStoredChapters,
   sameChapters,
+  sameCuts,
 } from "../shared/stored-chapters.js";
+
+const cutRanges = (editsJson: string) => cutRangesOf(parseEdits(editsJson));
 
 const ChapterSchema = z.object({
   startMs: z.coerce.number().int().min(0),
@@ -23,19 +31,23 @@ const StoredChapterSchema = z.object({
   title: z.string(),
 });
 
+const CutRangeSchema = z.object({ startMs: z.number(), endMs: z.number() });
+
 type Chapter = { startMs: number; title: string };
 
-function parseChapterList(
+/** A list passed as an array (agent) or a JSON-encoded string (CLI). */
+function parseList<T>(
   value: unknown,
   label: string,
-  itemSchema: z.ZodType<Chapter>,
-): Chapter[] {
-  if (typeof value !== "string") return value as Chapter[];
+  itemSchema: z.ZodType<T>,
+  errorCode: string,
+): T[] {
+  if (typeof value !== "string") return value as T[];
   try {
     return z.array(itemSchema).parse(JSON.parse(value));
   } catch (e: any) {
     fail(`Invalid --${label} JSON: ${e.message ?? e}`, {
-      errorCode: "invalid_chapters",
+      errorCode,
       statusCode: 400,
     });
   }
@@ -57,6 +69,12 @@ export default defineAction({
       .describe(
         "Optional. The chapters this edit started from; if the stored chapters differ, nothing is written and the call fails with errorCode chapters_changed.",
       ),
+    expectedCuts: z
+      .union([z.string(), z.array(CutRangeSchema)])
+      .optional()
+      .describe(
+        "Optional. The cut ranges ({startMs,endMs}, original-media ms) the chapter times were mapped through; if the recording's cuts differ, nothing is written and the call fails with errorCode chapters_changed.",
+      ),
   }),
   run: async (args) => {
     await assertAccess("recording", args.recordingId, "editor");
@@ -66,13 +84,28 @@ export default defineAction({
     const expected =
       args.expectedChapters === undefined
         ? null
-        : parseChapterList(
+        : parseList(
             args.expectedChapters,
             "expectedChapters",
             StoredChapterSchema,
+            "invalid_chapters",
+          );
+    const expectedCuts: CutRange[] | null =
+      args.expectedCuts === undefined
+        ? null
+        : parseList(
+            args.expectedCuts,
+            "expectedCuts",
+            CutRangeSchema,
+            "invalid_cuts",
           );
     const chapters = [
-      ...parseChapterList(args.chapters, "chapters", ChapterSchema),
+      ...parseList(
+        args.chapters,
+        "chapters",
+        ChapterSchema,
+        "invalid_chapters",
+      ),
     ]
       .map((c) => ({ startMs: Math.max(0, c.startMs), title: c.title.trim() }))
       .filter((c) => c.title.length > 0)
@@ -82,55 +115,71 @@ export default defineAction({
       .select({
         id: schema.recordings.id,
         chaptersJson: schema.recordings.chaptersJson,
+        editsJson: schema.recordings.editsJson,
       })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId));
     if (!existing) {
       throw new Error(`Recording not found: ${args.recordingId}`);
     }
-    // The current list goes back with the refusal, so the editor can check
-    // against it without reloading the page's data. A list that already
-    // holds what was asked for is no conflict.
-    const checkAgainst = (stored: Chapter[]): "write" | "done" => {
-      if (sameChapters(stored, chapters)) return "done";
-      if (expected && !sameChapters(stored, expected)) {
-        fail(
-          "The chapters changed since this edit started. Read them again before saving.",
-          {
-            errorCode: CHAPTERS_CHANGED,
-            statusCode: 409,
-            details: { chapters: stored },
-          },
-        );
-      }
-      return "write";
-    };
-    if (
-      expected &&
-      checkAgainst(parseStoredChapters(existing.chaptersJson)) === "done"
-    ) {
-      return { id: args.recordingId, chapters };
-    }
 
-    const written = await db
-      .update(schema.recordings)
-      .set({
-        chaptersJson: JSON.stringify(chapters),
-        updatedAt: new Date().toISOString(),
-      })
-      .where(
-        expected
-          ? and(
-              eq(schema.recordings.id, args.recordingId),
-              eq(schema.recordings.chaptersJson, existing.chaptersJson),
-            )
-          : eq(schema.recordings.id, args.recordingId),
-      )
-      .returning({ id: schema.recordings.id });
-    // A write that landed between the read and this update.
-    if (expected && written.length === 0) {
+    // The current list and cuts go back with a refusal, so the editor can
+    // check against them without reloading the page's data. A stored list
+    // that already holds what was asked for is no conflict.
+    const guarded = expected !== null || expectedCuts !== null;
+    const refuse = (row: { chaptersJson: string; editsJson: string }) =>
+      fail(
+        "The chapters or cuts changed since this edit started. Read them again before saving.",
+        {
+          errorCode: CHAPTERS_CHANGED,
+          statusCode: 409,
+          details: {
+            chapters: parseStoredChapters(row.chaptersJson),
+            cuts: cutRanges(row.editsJson),
+          },
+        },
+      );
+    const done = () => ({ id: args.recordingId, chapters });
+
+    // A write can land between a check and the update. The update only
+    // matches the row as checked; on a miss the row is checked once more and
+    // written if it still fits, so an unrelated edit (a thumbnail, say)
+    // doesn't refuse the save.
+    let row: { chaptersJson: string; editsJson: string } = existing;
+    for (let attempt = 1; ; attempt++) {
+      if (guarded) {
+        const stored = parseStoredChapters(row.chaptersJson);
+        if (sameChapters(stored, chapters)) return done();
+        if (
+          (expected && !sameChapters(stored, expected)) ||
+          (expectedCuts && !sameCuts(cutRanges(row.editsJson), expectedCuts))
+        ) {
+          refuse(row);
+        }
+      }
+      const written = await db
+        .update(schema.recordings)
+        .set({
+          chaptersJson: JSON.stringify(chapters),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(
+          guarded
+            ? and(
+                eq(schema.recordings.id, args.recordingId),
+                eq(schema.recordings.chaptersJson, row.chaptersJson),
+                eq(schema.recordings.editsJson, row.editsJson),
+              )
+            : eq(schema.recordings.id, args.recordingId),
+        )
+        .returning({ id: schema.recordings.id });
+      if (!guarded || written.length > 0) break;
+
       const [latest] = await db
-        .select({ chaptersJson: schema.recordings.chaptersJson })
+        .select({
+          chaptersJson: schema.recordings.chaptersJson,
+          editsJson: schema.recordings.editsJson,
+        })
         .from(schema.recordings)
         .where(eq(schema.recordings.id, args.recordingId));
       if (!latest) {
@@ -139,13 +188,17 @@ export default defineAction({
           statusCode: 404,
         });
       }
-      // Anything else was refused above, so this list matches the request.
-      checkAgainst(parseStoredChapters(latest.chaptersJson));
-      return { id: args.recordingId, chapters };
+      if (attempt === 2) {
+        if (sameChapters(parseStoredChapters(latest.chaptersJson), chapters)) {
+          return done();
+        }
+        refuse(latest);
+      }
+      row = latest;
     }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     console.log(`Set ${chapters.length} chapter(s) on ${args.recordingId}`);
-    return { id: args.recordingId, chapters };
+    return done();
   },
 });

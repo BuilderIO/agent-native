@@ -1,3 +1,5 @@
+export type CutRange = { startMs: number; endMs: number };
+
 export interface TrimRange {
   id?: string;
   startMs: number;
@@ -124,6 +126,18 @@ export function serializeEdits(edits: EditsJson): string {
 
 export function getExcludedRanges(edits: EditsJson): TrimRange[] {
   return normalizeExcluded(edits.trims.filter((t) => t.excluded));
+}
+
+/**
+ * The cut ranges chapter times are mapped through, as plain {startMs,endMs}.
+ * set-chapters compares an editor's copy with the stored one, so both sides
+ * build it here.
+ */
+export function cutRangesOf(edits: EditsJson): CutRange[] {
+  return getExcludedRanges(edits).map(({ startMs, endMs }) => ({
+    startMs,
+    endMs,
+  }));
 }
 
 export function normalizeExcluded(ranges: TrimRange[]): TrimRange[] {

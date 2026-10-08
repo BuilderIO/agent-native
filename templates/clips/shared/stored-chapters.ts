@@ -36,3 +36,13 @@ export function sameChapters(
     a.every((c, i) => c.startMs === b[i].startMs && c.title === b[i].title)
   );
 }
+
+export function sameCuts(
+  a: readonly { startMs: number; endMs: number }[],
+  b: readonly { startMs: number; endMs: number }[],
+): boolean {
+  return (
+    a.length === b.length &&
+    a.every((r, i) => r.startMs === b[i].startMs && r.endMs === b[i].endMs)
+  );
+}

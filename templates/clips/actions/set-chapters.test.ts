@@ -6,11 +6,14 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => ({
     recordings: {
       id: "recordings.id",
       chaptersJson: "recordings.chaptersJson",
+      editsJson: "recordings.editsJson",
     },
   },
   stored: {
     chaptersJson: "[]",
-    changedBeforeWrite: null as string | null,
+    editsJson: "{}",
+    // Racing writes, one landing just before each update in turn.
+    changedBeforeWrite: [] as { chaptersJson?: string; editsJson?: string }[],
   },
   written: [] as unknown[],
 }));
@@ -40,20 +43,32 @@ beforeEach(() => {
   vi.clearAllMocks();
   written.length = 0;
   stored.chaptersJson = JSON.stringify([intro]);
-  stored.changedBeforeWrite = null;
+  stored.editsJson = "{}";
+  stored.changedBeforeWrite = [];
   mockDb.select.mockReturnValue({
     from: () => ({
-      where: async () => [{ id: "rec_1", chaptersJson: stored.chaptersJson }],
+      where: async () => [
+        {
+          id: "rec_1",
+          chaptersJson: stored.chaptersJson,
+          editsJson: stored.editsJson,
+        },
+      ],
     }),
   });
   mockDb.update.mockReturnValue({
     set: (values: unknown) => ({
       where: (condition: any) => ({
         returning: async () => {
-          if (stored.changedBeforeWrite !== null) {
-            stored.chaptersJson = stored.changedBeforeWrite;
-            return [];
-          }
+          const racing = stored.changedBeforeWrite.shift();
+          if (racing) Object.assign(stored, racing);
+          const terms = condition.and ?? [condition];
+          const current: Record<string, unknown> = {
+            "recordings.id": "rec_1",
+            "recordings.chaptersJson": stored.chaptersJson,
+            "recordings.editsJson": stored.editsJson,
+          };
+          if (terms.some((t: any) => current[t.column] !== t.value)) return [];
           written.push({ values, condition });
           return [{ id: "rec_1" }];
         },
@@ -78,6 +93,7 @@ describe("set-chapters", () => {
               column: "recordings.chaptersJson",
               value: JSON.stringify([intro]),
             },
+            { column: "recordings.editsJson", value: "{}" },
           ],
         },
       }),
@@ -100,7 +116,9 @@ describe("set-chapters", () => {
   });
 
   it("refuses when another write lands between the read and the update", async () => {
-    stored.changedBeforeWrite = JSON.stringify([intro, demo]);
+    stored.changedBeforeWrite = [
+      { chaptersJson: JSON.stringify([intro, demo]) },
+    ];
     await expect(
       action.run({
         recordingId: "rec_1",
@@ -114,7 +132,7 @@ describe("set-chapters", () => {
   });
 
   it("succeeds when a racing write stored exactly the requested list", async () => {
-    stored.changedBeforeWrite = JSON.stringify([demo]);
+    stored.changedBeforeWrite = [{ chaptersJson: JSON.stringify([demo]) }];
     await expect(
       action.run({
         recordingId: "rec_1",
@@ -143,6 +161,116 @@ describe("set-chapters expected list", () => {
       recordingId: "rec_1",
       chapters: [demo],
       expectedChapters: odd,
+    } as any);
+    expect(written).toHaveLength(1);
+  });
+});
+
+describe("set-chapters expected cuts", () => {
+  const cutEdits = JSON.stringify({
+    trims: [{ id: "t1", startMs: 10_000, endMs: 40_000, excluded: true }],
+  });
+
+  it("refuses when the cuts differ from the ones the times were mapped through", async () => {
+    stored.editsJson = cutEdits;
+    await expect(
+      action.run({
+        recordingId: "rec_1",
+        chapters: [intro, demo],
+        expectedChapters: [intro],
+        expectedCuts: [],
+      } as any),
+    ).rejects.toMatchObject({
+      errorCode: "chapters_changed",
+      details: {
+        chapters: [intro],
+        cuts: [{ startMs: 10_000, endMs: 40_000 }],
+      },
+    });
+    expect(written).toHaveLength(0);
+  });
+
+  it("writes when the cuts match", async () => {
+    stored.editsJson = cutEdits;
+    await action.run({
+      recordingId: "rec_1",
+      chapters: [intro, demo],
+      expectedChapters: [intro],
+      expectedCuts: [{ startMs: 10_000, endMs: 40_000 }],
+    } as any);
+    expect(written).toHaveLength(1);
+  });
+
+  it("writes after a racing write that left the same list in a different form", async () => {
+    stored.changedBeforeWrite = [
+      {
+        chaptersJson: JSON.stringify([{ ...intro, extra: true }]),
+      },
+    ];
+    await action.run({
+      recordingId: "rec_1",
+      chapters: [demo],
+      expectedChapters: [intro],
+    } as any);
+    expect(written).toHaveLength(1);
+  });
+
+  it("writes after a racing edit that didn't touch the cuts", async () => {
+    stored.changedBeforeWrite = [
+      {
+        editsJson: JSON.stringify({ thumbnail: { atMs: 1000 } }),
+      },
+    ];
+    await action.run({
+      recordingId: "rec_1",
+      chapters: [demo],
+      expectedChapters: [intro],
+      expectedCuts: [],
+    } as any);
+    expect(written).toHaveLength(1);
+  });
+
+  it("refuses after a racing edit that added a cut", async () => {
+    stored.changedBeforeWrite = [{ editsJson: cutEdits }];
+    await expect(
+      action.run({
+        recordingId: "rec_1",
+        chapters: [demo],
+        expectedChapters: [intro],
+        expectedCuts: [],
+      } as any),
+    ).rejects.toMatchObject({
+      errorCode: "chapters_changed",
+      details: { cuts: [{ startMs: 10_000, endMs: 40_000 }] },
+    });
+    expect(written).toHaveLength(0);
+  });
+
+  it("refuses with the latest list when writes race both updates", async () => {
+    stored.changedBeforeWrite = [
+      { editsJson: JSON.stringify({ thumbnail: { atMs: 1000 } }) },
+      { chaptersJson: JSON.stringify([intro, demo]) },
+    ];
+    await expect(
+      action.run({
+        recordingId: "rec_1",
+        chapters: [demo],
+        expectedChapters: [intro],
+      } as any),
+    ).rejects.toMatchObject({
+      errorCode: "chapters_changed",
+      details: { chapters: [intro, demo] },
+    });
+    expect(written).toHaveLength(0);
+  });
+
+  it("takes expectedCuts as a JSON string from the CLI", async () => {
+    stored.editsJson = cutEdits;
+    await action.run({
+      recordingId: "rec_1",
+      chapters: [demo],
+      expectedChapters: [intro],
+      expectedCuts: JSON.stringify([{ startMs: 10_000, endMs: 40_000 }]),
     } as any);
     expect(written).toHaveLength(1);
   });

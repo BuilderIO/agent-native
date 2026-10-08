@@ -20,7 +20,11 @@
 
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { CHAPTERS_CHANGED, sameChapters } from "@shared/stored-chapters";
+import {
+  CHAPTERS_CHANGED,
+  sameChapters,
+  sameCuts,
+} from "@shared/stored-chapters";
 import { IconPencil, IconPlus } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -41,9 +45,10 @@ import {
   editedToOriginal,
   effectiveDuration,
   formatMs,
-  getExcludedRanges,
+  cutRangesOf,
   isExcluded,
   parseEdits,
+  type CutRange,
   type EditsJson,
 } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
@@ -347,7 +352,7 @@ function EditableChapterList({
   // draft's times mean something else, so Save compares against these.
   const [editingFrom, setEditingFrom] = useState<{
     chapters: Chapter[];
-    cuts: string;
+    cuts: CutRange[];
     /** The text first shown; null after a conflict, when any Save writes. */
     draft: string | null;
   } | null>(null);
@@ -357,7 +362,7 @@ function EditableChapterList({
   // the server refused it as stale, the list the server has now.
   const [failedSave, setFailedSave] = useState<{
     draft: string;
-    from: { chapters: Chapter[]; cuts: string; draft: string | null };
+    from: { chapters: Chapter[]; cuts: CutRange[]; draft: string | null };
     changed: boolean;
   } | null>(null);
   const mutation = useActionMutation("set-chapters");
@@ -375,7 +380,7 @@ function EditableChapterList({
   }, [mode]);
 
   const edits = useMemo(() => parseEdits(editsJson), [editsJson]);
-  const cuts = useMemo(() => JSON.stringify(getExcludedRanges(edits)), [edits]);
+  const cuts = useMemo(() => cutRangesOf(edits), [edits]);
   const shown = pending ?? chapters;
   const visible = useMemo(() => visibleChapters(shown, edits), [shown, edits]);
 
@@ -449,7 +454,7 @@ function EditableChapterList({
       setError(describe(parsed.error));
       return;
     }
-    if (!sameChapters(from.chapters, shown) || from.cuts !== cuts) {
+    if (!sameChapters(from.chapters, shown) || !sameCuts(from.cuts, cuts)) {
       // Keep the draft; from now on it is compared with the latest list, so
       // a second Save, after checking, replaces it.
       setEditingFrom({ chapters: shown, cuts, draft: null });
@@ -465,26 +470,34 @@ function EditableChapterList({
     setPending(next);
     leaveEditing();
     mutation.mutate(
-      { recordingId, chapters: next, expectedChapters: from.chapters },
+      {
+        recordingId,
+        chapters: next,
+        expectedChapters: from.chapters,
+        expectedCuts: from.cuts,
+      },
       {
         onError: (err) => {
           const refusal = err as {
             errorCode?: unknown;
-            details?: { chapters?: unknown };
+            details?: { chapters?: unknown; cuts?: unknown };
           } | null;
           const changed = refusal?.errorCode === CHAPTERS_CHANGED;
-          const serverList =
-            changed && Array.isArray(refusal?.details?.chapters)
-              ? (refusal.details.chapters as Chapter[])
+          const server =
+            changed &&
+            Array.isArray(refusal?.details?.chapters) &&
+            Array.isArray(refusal?.details?.cuts)
+              ? {
+                  chapters: refusal.details.chapters as Chapter[],
+                  cuts: refusal.details.cuts as CutRange[],
+                }
               : null;
           // Show the server's list until the page's data catches up; the
           // next Save is checked against it and replaces it.
-          setPending(serverList);
+          setPending(server?.chapters ?? null);
           setFailedSave({
             draft: draftBeforeSave,
-            from: serverList
-              ? { chapters: serverList, cuts, draft: null }
-              : from,
+            from: server ? { ...server, draft: null } : from,
             changed,
           });
           if (changed) {
