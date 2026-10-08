@@ -1568,9 +1568,7 @@ async function setFillImage(page: Page, layerName: string, imagePath: string) {
       applied = await persistedLayer(page, layerName);
       const url = savedImageUrl(applied.tag);
       return Boolean(
-        url &&
-        url !== previousUrl &&
-        url.includes("/api/qa-import-assets/"),
+        url && url !== previousUrl && url.includes("/api/qa-import-assets/"),
       );
     })
     .toBe(true);

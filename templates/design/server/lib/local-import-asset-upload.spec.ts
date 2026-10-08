@@ -40,7 +40,9 @@ describe("local import-asset upload provider", () => {
   });
 
   it("stores bounded images in an owner-isolated opaque path", async () => {
-    const rootDir = await mkdtemp(path.join(os.tmpdir(), "design-import-assets-"));
+    const rootDir = await mkdtemp(
+      path.join(os.tmpdir(), "design-import-assets-"),
+    );
     roots.push(rootDir);
     const provider = createLocalImportAssetUploadProvider({
       rootDir,
@@ -54,7 +56,11 @@ describe("local import-asset upload provider", () => {
       ownerEmail: "qa@example.test",
     });
     const assetId = result.id!;
-    const filepath = localImportAssetAssetPath("qa@example.test", assetId, rootDir);
+    const filepath = localImportAssetAssetPath(
+      "qa@example.test",
+      assetId,
+      rootDir,
+    );
 
     expect(result.url).toBe(`/api/qa-import-assets/${assetId}`);
     expect(filepath).not.toBeNull();
@@ -66,7 +72,9 @@ describe("local import-asset upload provider", () => {
   });
 
   it("stores SVG images in the same owner-isolated QA route", async () => {
-    const rootDir = await mkdtemp(path.join(os.tmpdir(), "design-import-assets-"));
+    const rootDir = await mkdtemp(
+      path.join(os.tmpdir(), "design-import-assets-"),
+    );
     roots.push(rootDir);
     const provider = createLocalImportAssetUploadProvider({
       rootDir,
@@ -83,7 +91,11 @@ describe("local import-asset upload provider", () => {
       ownerEmail: "qa@example.test",
     });
     const assetId = result.id!;
-    const filepath = localImportAssetAssetPath("qa@example.test", assetId, rootDir);
+    const filepath = localImportAssetAssetPath(
+      "qa@example.test",
+      assetId,
+      rootDir,
+    );
 
     expect(result.url).toBe(`/api/qa-import-assets/${assetId}`);
     expect(assetId).toMatch(/\.svg$/);
@@ -119,7 +131,9 @@ describe("local import-asset upload provider", () => {
   });
 
   it("round-trips private blobs and refuses ids outside its store", async () => {
-    const rootDir = await mkdtemp(path.join(os.tmpdir(), "design-import-assets-"));
+    const rootDir = await mkdtemp(
+      path.join(os.tmpdir(), "design-import-assets-"),
+    );
     roots.push(rootDir);
     const provider = createLocalImportAssetPrivateBlobProvider({
       rootDir,

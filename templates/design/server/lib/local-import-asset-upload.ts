@@ -89,11 +89,15 @@ export function createLocalImportAssetUploadProvider(options?: {
         (mimeType ?? "").split(";", 1)[0]!.trim().toLowerCase(),
       );
       if (!extension) {
-        throw new Error("Local import-asset storage accepts image assets only.");
+        throw new Error(
+          "Local import-asset storage accepts image assets only.",
+        );
       }
       const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
       if (bytes.byteLength === 0 || bytes.byteLength > MAX_QA_ASSET_BYTES) {
-        throw new Error("Local import-asset asset size is outside the safe limit.");
+        throw new Error(
+          "Local import-asset asset size is outside the safe limit.",
+        );
       }
 
       const assetId = `${randomUUID()}.${extension}`;

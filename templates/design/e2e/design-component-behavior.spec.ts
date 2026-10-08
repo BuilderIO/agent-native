@@ -291,7 +291,9 @@ async function selectNodeById(
 test.beforeAll(async ({}, workerInfo) => {
   baseURL =
     (workerInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
-  rootPath = fs.mkdtempSync(path.join(os.tmpdir(), "design-component-behavior-"));
+  rootPath = fs.mkdtempSync(
+    path.join(os.tmpdir(), "design-component-behavior-"),
+  );
   devServer = http.createServer((_, response) => {
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     response.end(fs.readFileSync(REACT_FIXTURE, "utf8"));

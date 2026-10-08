@@ -51,9 +51,7 @@ describe("local import-asset upload security contract", () => {
       ownerEmail: "qa-owner@example.test",
     });
 
-    expect(result.url).toMatch(
-      /^\/api\/qa-import-assets\/[a-f0-9-]{36}\.png$/,
-    );
+    expect(result.url).toMatch(/^\/api\/qa-import-assets\/[a-f0-9-]{36}\.png$/);
     expect(result.url).not.toMatch(/^(?:data|blob):/i);
     expect(result).not.toHaveProperty("data");
   });
@@ -83,7 +81,11 @@ describe("local import-asset upload security contract", () => {
       ),
     ).not.toBeNull();
     expect(
-      localImportAssetAssetPath("first-owner@example.test", "../x.png", rootDir),
+      localImportAssetAssetPath(
+        "first-owner@example.test",
+        "../x.png",
+        rootDir,
+      ),
     ).toBeNull();
     expect(localImportAssetAssetMimeType(assetId)).toBe("image/png");
     expect(

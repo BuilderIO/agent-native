@@ -374,11 +374,11 @@ each independently.
   side-by-side frames; added via a **Breakpoint button** on the page selection
   (infinite, resizable). Desktop-first: a frame drawn on Desktop propagates down to
   smaller breakpoints; a smaller-breakpoint edit overrides only that frame.
-**Our model — mobile-first by default, because the output is Tailwind.** We make
-the **base = mobile** and let larger
-breakpoints layer overrides upward — which is exactly Tailwind's min-width cascade
-(`base` → `md:` → `lg:`). This matches the requested preference and makes "edit on
-screen → responsive class" deterministic.
+  **Our model — mobile-first by default, because the output is Tailwind.** We make
+  the **base = mobile** and let larger
+  breakpoints layer overrides upward — which is exactly Tailwind's min-width cascade
+  (`base` → `md:` → `lg:`). This matches the requested preference and makes "edit on
+  screen → responsive class" deterministic.
 
 - **Overview:** a screen carries a **breakpoint set**; `MultiScreenCanvas` renders
   one iframe **per breakpoint at its width**, laid left→right (Mobile → Tablet →

@@ -771,9 +771,7 @@ test("undo walks back through a trailing selection change before reverting a san
   ).toHaveAttribute("aria-selected", "true");
 });
 
-test("Escape (deselect to nothing) is its own undo step", async ({
-  page,
-}) => {
+test("Escape (deselect to nothing) is its own undo step", async ({ page }) => {
   const id = await newDesign(page);
   await openEditor(page, id);
 

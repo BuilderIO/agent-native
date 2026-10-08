@@ -307,9 +307,7 @@ test("8:35 — a frame adopts an element drawn inside it", async ({ page }) => {
   ).toBe(true);
 });
 
-test("a rectangle does not adopt children", async ({
-  page,
-}) => {
+test("a rectangle does not adopt children", async ({ page }) => {
   const designId = await newDesign(page);
   await openEditor(page, designId);
   await drawRect(page, { left: 20, top: 150, width: 280, height: 300 });

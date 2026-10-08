@@ -4044,16 +4044,24 @@ it(
           },
           nativeVector: {
             width: document
-              .querySelector<SVGSVGElement>("#vector-native-measurement-fixture")!
+              .querySelector<SVGSVGElement>(
+                "#vector-native-measurement-fixture",
+              )!
               .getBoundingClientRect().width,
             height: document
-              .querySelector<SVGSVGElement>("#vector-native-measurement-fixture")!
+              .querySelector<SVGSVGElement>(
+                "#vector-native-measurement-fixture",
+              )!
               .getBoundingClientRect().height,
             fontSize: getComputedStyle(
-              document.querySelector<SVGSVGElement>("#vector-native-measurement-fixture")!,
+              document.querySelector<SVGSVGElement>(
+                "#vector-native-measurement-fixture",
+              )!,
             ).fontSize,
             textWidth: document
-              .querySelector<SVGTextElement>("#vector-native-measurement-fixture-text")!
+              .querySelector<SVGTextElement>(
+                "#vector-native-measurement-fixture-text",
+              )!
               .getBoundingClientRect().width,
           },
           vectorCommitted: (

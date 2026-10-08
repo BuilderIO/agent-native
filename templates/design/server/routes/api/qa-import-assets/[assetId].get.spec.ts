@@ -32,7 +32,8 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("../../../lib/local-import-asset-upload.js", () => ({
-  isLocalImportAssetUploadEnabled: (...args: unknown[]) => mockIsEnabled(...args),
+  isLocalImportAssetUploadEnabled: (...args: unknown[]) =>
+    mockIsEnabled(...args),
   localImportAssetAssetMimeType: (...args: unknown[]) => mockMimeType(...args),
   localImportAssetAssetPath: (...args: unknown[]) => mockAssetPath(...args),
 }));

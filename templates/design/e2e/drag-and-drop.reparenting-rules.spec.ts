@@ -293,7 +293,7 @@ test.describe("reparenting rules", () => {
       });
     expect(
       directParent,
-      'Dropping a smaller object over a frame should place it inside the frame.',
+      "Dropping a smaller object over a frame should place it inside the frame.",
     ).toBe("frame-a");
   });
 

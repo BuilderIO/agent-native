@@ -36,6 +36,25 @@ const CHROME_FIXTURE = `<!doctype html>
   </body>
 </html>`;
 
+const APP_GEOMETRY_CONTRACT = {
+  inspectorHeaderHeight: 48,
+  inspectorTabsListHeight: 28,
+  inspectorTabHeight: 24,
+  layersHeaderHeight: 28,
+  layerRowHeight: 32,
+  layerActionSize: 20,
+  layerIconSize: 16,
+  layerRowIconSize: 12,
+  layerChevronSize: 16,
+  layerChevronGlyphSize: 12,
+  layerIndentWidth: 24,
+  autoLayoutSectionHeaderHeight: 40,
+  autoLayoutSectionPadding: 8,
+  autoLayoutPairGutter: 16,
+  sizingMenuItemMinHeight: 24,
+  sizingMenuItemMaxHeight: 32,
+} as const;
+
 const ARTIFACT_DIR = path.resolve(import.meta.dirname, "../../../.tmp");
 const COMPACT_SCREENSHOT = path.join(
   ARTIFACT_DIR,
@@ -125,18 +144,34 @@ async function selectLayer(page: Page, name: string): Promise<void> {
 async function assertInspectorTabs(page: Page): Promise<void> {
   const header = page.locator("[data-design-inspector-tabs]");
   const list = page.locator("[data-design-inspector-tabs-list]");
+  const headerGeometry = await readGeometry(header, [
+    "padding-top",
+    "padding-bottom",
+    "border-bottom-width",
+  ]);
   await expect(header).toBeVisible();
   await expect(list).toBeVisible();
-  expect((await readGeometry(header)).height).toBeGreaterThan(0);
-  expect((await readGeometry(list)).height).toBeGreaterThan(0);
+  expect(headerGeometry.height).toBe(
+    APP_GEOMETRY_CONTRACT.inspectorHeaderHeight,
+  );
+  expect(headerGeometry.styles["padding-top"]).toBe("8px");
+  expect(headerGeometry.styles["padding-bottom"]).toBe("8px");
+  expect(headerGeometry.styles["border-bottom-width"]).toBe("1px");
+  expect((await readGeometry(list)).height).toBe(
+    APP_GEOMETRY_CONTRACT.inspectorTabsListHeight,
+  );
 
   const tabs = page.locator("[data-design-inspector-tab]");
   await expect(tabs).toHaveCount(3);
-  await expect(page.locator('[data-design-inspector-tab="code"]')).toBeVisible();
+  await expect(
+    page.locator('[data-design-inspector-tab="code"]'),
+  ).toBeVisible();
   for (let index = 0; index < (await tabs.count()); index += 1) {
     const tab = tabs.nth(index);
     await expect(tab).toBeVisible();
-    expect((await readGeometry(tab)).height).toBeGreaterThan(0);
+    expect((await readGeometry(tab)).height).toBe(
+      APP_GEOMETRY_CONTRACT.inspectorTabHeight,
+    );
   }
 }
 
@@ -144,7 +179,9 @@ async function assertLayersChrome(page: Page): Promise<void> {
   const panel = page.locator("[data-layers-panel]");
   const layersHeader = page.locator('[data-layers-panel-header="layers"]');
   await expect(layersHeader).toBeVisible();
-  expect((await readGeometry(layersHeader)).height).toBeGreaterThan(0);
+  expect((await readGeometry(layersHeader)).height).toBe(
+    APP_GEOMETRY_CONTRACT.layersHeaderHeight,
+  );
 
   const actions = page.locator("[data-layers-panel-action]");
   await expect(actions).toHaveCount(3);
@@ -152,10 +189,10 @@ async function assertLayersChrome(page: Page): Promise<void> {
     const button = actions.nth(index);
     const buttonGeometry = await readGeometry(button);
     const glyphGeometry = await readGeometry(button.locator("svg"));
-    expect(buttonGeometry.width).toBeGreaterThan(0);
-    expect(buttonGeometry.height).toBeGreaterThan(0);
-    expect(glyphGeometry.width).toBeGreaterThan(0);
-    expect(glyphGeometry.height).toBeGreaterThan(0);
+    expect(buttonGeometry.width).toBe(APP_GEOMETRY_CONTRACT.layerActionSize);
+    expect(buttonGeometry.height).toBe(APP_GEOMETRY_CONTRACT.layerActionSize);
+    expect(glyphGeometry.width).toBe(APP_GEOMETRY_CONTRACT.layerIconSize);
+    expect(glyphGeometry.height).toBe(APP_GEOMETRY_CONTRACT.layerIconSize);
   }
 
   const row = layerRow(page, "Auto Card").locator(
@@ -165,15 +202,25 @@ async function assertLayersChrome(page: Page): Promise<void> {
   const chevron = row.locator("[data-layer-row-chevron]");
   const icon = row.locator("[data-layer-row-icon]");
   const rowGeometry = await readGeometry(rowContent);
-  expect(rowGeometry.height).toBeGreaterThan(0);
-  for (const locator of [chevron, icon, chevron.locator("svg")]) {
-    const geometry = await readGeometry(locator);
-    expect(geometry.width).toBeGreaterThan(0);
-    expect(geometry.height).toBeGreaterThan(0);
-  }
+  expect(rowGeometry.height).toBe(APP_GEOMETRY_CONTRACT.layerRowHeight);
+  const chevronGeometry = await readGeometry(chevron);
+  expect(chevronGeometry.width).toBe(APP_GEOMETRY_CONTRACT.layerChevronSize);
+  expect(chevronGeometry.height).toBe(APP_GEOMETRY_CONTRACT.layerChevronSize);
+  const chevronGlyphGeometry = await readGeometry(chevron.locator("svg"));
+  expect(chevronGlyphGeometry.width).toBe(
+    APP_GEOMETRY_CONTRACT.layerChevronGlyphSize,
+  );
+  expect(chevronGlyphGeometry.height).toBe(
+    APP_GEOMETRY_CONTRACT.layerChevronGlyphSize,
+  );
+  const iconGeometry = await readGeometry(icon);
+  expect(iconGeometry.width).toBe(APP_GEOMETRY_CONTRACT.layerRowIconSize);
+  expect(iconGeometry.height).toBe(APP_GEOMETRY_CONTRACT.layerRowIconSize);
   const indents = rowContent.locator("[data-layer-row-indent]");
   for (let index = 0; index < (await indents.count()); index += 1) {
-    expect((await readGeometry(indents.nth(index))).width).toBeGreaterThan(0);
+    expect((await readGeometry(indents.nth(index))).width).toBe(
+      APP_GEOMETRY_CONTRACT.layerIndentWidth,
+    );
   }
   const panelGeometry = await readGeometry(panel);
   expect(rowGeometry.x).toBeGreaterThanOrEqual(panelGeometry.x);
@@ -194,7 +241,9 @@ async function assertAutoLayoutGeometry(page: Page): Promise<void> {
   const sectionContent = section.locator(
     "[data-design-inspector-section-content]",
   );
-  expect((await readGeometry(sectionHeader)).height).toBeGreaterThan(0);
+  expect((await readGeometry(sectionHeader)).height).toBe(
+    APP_GEOMETRY_CONTRACT.autoLayoutSectionHeaderHeight,
+  );
   const sectionStyles = await readGeometry(section, ["box-shadow"]);
   expect(sectionStyles.styles["box-shadow"]).toContain("inset");
   const contentStyles = await readGeometry(sectionContent, [
@@ -202,21 +251,36 @@ async function assertAutoLayoutGeometry(page: Page): Promise<void> {
     "padding-right",
     "padding-bottom",
   ]);
-  for (const property of ["padding-left", "padding-right", "padding-bottom"]) {
-    expect(contentStyles.styles[property]).toMatch(/^-?\d+(?:\.\d+)?px$/);
-  }
+  expect(contentStyles.styles["padding-left"]).toBe(
+    `${APP_GEOMETRY_CONTRACT.autoLayoutSectionPadding}px`,
+  );
+  expect(contentStyles.styles["padding-right"]).toBe(
+    `${APP_GEOMETRY_CONTRACT.autoLayoutSectionPadding}px`,
+  );
+  expect(contentStyles.styles["padding-bottom"]).toBe(
+    `${APP_GEOMETRY_CONTRACT.autoLayoutSectionPadding}px`,
+  );
 
   const pair = section.locator('[data-inspector-layout="pair-flow"]').first();
   const cells = pair.locator(":scope > [data-inspector-grid-cell]");
   await expect(cells).toHaveCount(2);
   const pairGeometry = await readGeometry(pair, ["grid-template-columns"]);
-  expect(pairGeometry.styles["grid-template-columns"].trim().split(/\s+/)).toHaveLength(2);
+  const pairColumns = pairGeometry.styles["grid-template-columns"]
+    .trim()
+    .split(/\s+/);
+  expect(pairColumns).toHaveLength(3);
+  expect(pairColumns[1]).toBe(
+    `${APP_GEOMETRY_CONTRACT.autoLayoutPairGutter}px`,
+  );
   const left = await readGeometry(cells.nth(0));
   const right = await readGeometry(cells.nth(1));
   expect(left.width).toBeGreaterThan(0);
   expect(right.width).toBeGreaterThan(0);
   expect(Math.abs(left.width - right.width)).toBeLessThan(1);
-  expect(right.x).toBeGreaterThanOrEqual(left.x + left.width - 0.5);
+  expect(right.x - (left.x + left.width)).toBeCloseTo(
+    APP_GEOMETRY_CONTRACT.autoLayoutPairGutter,
+    0,
+  );
   expect(right.x + right.width).toBeLessThanOrEqual(
     pairGeometry.x + pairGeometry.width + 1,
   );
@@ -229,20 +293,28 @@ async function assertAutoLayoutGeometry(page: Page): Promise<void> {
   await expect(fill).toBeVisible();
   await expect
     .poll(async () => (await readGeometry(hug)).height, { timeout: 2_000 })
-    .toBeGreaterThan(0);
+    .toBeGreaterThanOrEqual(APP_GEOMETRY_CONTRACT.sizingMenuItemMinHeight);
   const hugGeometry = await readGeometry(hug, [
     "padding-top",
     "padding-bottom",
     "line-height",
   ]);
   const fillGeometry = await readGeometry(fill);
+  expect(hugGeometry.height).toBeLessThanOrEqual(
+    APP_GEOMETRY_CONTRACT.sizingMenuItemMaxHeight,
+  );
   expect(fillGeometry.height).toBeCloseTo(hugGeometry.height, 1);
-  expect(fillGeometry.y).toBeGreaterThan(hugGeometry.y);
-  expect(hugGeometry.styles["padding-top"]).toMatch(/^-?\d+(?:\.\d+)?px$/);
-  expect(hugGeometry.styles["padding-bottom"]).toMatch(/^-?\d+(?:\.\d+)?px$/);
-  expect(Number.parseFloat(hugGeometry.styles["line-height"])).toBeGreaterThan(0);
-  expect((await readGeometry(hug.locator("span").first())).width).toBeGreaterThan(0);
-  expect((await readGeometry(hug.locator("span").last())).width).toBeGreaterThan(0);
+  expect(fillGeometry.y - hugGeometry.y).toBeCloseTo(hugGeometry.height, 0);
+  expect(hugGeometry.styles["padding-top"]).toBe("6px");
+  expect(hugGeometry.styles["padding-bottom"]).toBe("6px");
+  expect(
+    Number.parseFloat(hugGeometry.styles["line-height"]),
+  ).toBeGreaterThanOrEqual(12);
+  expect(
+    Number.parseFloat(hugGeometry.styles["line-height"]),
+  ).toBeLessThanOrEqual(20);
+  expect((await readGeometry(hug.locator("span").first())).width).toBe(16);
+  expect((await readGeometry(hug.locator("span").last())).width).toBe(14);
   await page.keyboard.press("Escape");
   await expect(hug).toBeHidden();
   await page.mouse.move(600, 300);

@@ -581,7 +581,8 @@ async function previewWindowMarkerSurvived(page: Page): Promise<boolean> {
     .locator("html")
     .evaluate(
       (el) =>
-        (el.ownerDocument.defaultView as any).__previewReorderMarker === "alive",
+        (el.ownerDocument.defaultView as any).__previewReorderMarker ===
+        "alive",
     );
 }
 

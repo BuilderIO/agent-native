@@ -157,7 +157,10 @@ test("single-screen PDF download preserves localhost source pixels", async ({
     recursive: true,
   });
   const artifactPath = fs.mkdtempSync(
-    path.resolve(process.cwd(), ".tmp/design-export-validation/single-screen-pdf-"),
+    path.resolve(
+      process.cwd(),
+      ".tmp/design-export-validation/single-screen-pdf-",
+    ),
   );
 
   try {

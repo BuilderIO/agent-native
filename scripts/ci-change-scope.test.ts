@@ -795,12 +795,12 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   ]);
   assert.deepEqual(fixedLocations(inspectorThreeAStart, inspectorThreeBStart), [
     "e2e/canvas-invariants.spec.ts:1170",
-    "e2e/inspector-styles.spec.ts:833",
-    "e2e/inspector-styles.spec.ts:999",
+    "e2e/inspector-styles.spec.ts:832",
+    "e2e/inspector-styles.spec.ts:998",
   ]);
   assert.deepEqual(fixedLocations(inspectorThreeBStart, inspectorFourAStart), [
     "e2e/canvas-invariants.spec.ts:1320",
-    "e2e/inspector-styles.spec.ts:880",
+    "e2e/inspector-styles.spec.ts:879",
   ]);
   assert.deepEqual(fixedLocations(dragOneAStart, dragOneBStart), [
     "e2e/corner-radius-handle-drag.spec.ts:239",
@@ -1039,17 +1039,17 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ],
     [
       "e2e/inspector-styles.spec.ts",
-      833,
+      832,
       "resizing a selected element emits a visual-style-change payload",
     ],
     [
       "e2e/inspector-styles.spec.ts",
-      880,
+      879,
       "pointercancel restores a scrubbed value without adding a history step",
     ],
     [
       "e2e/inspector-styles.spec.ts",
-      999,
+      998,
       "can capture a screenshot of inspector coverage via CDP",
     ],
     [

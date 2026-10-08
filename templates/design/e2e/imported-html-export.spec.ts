@@ -890,7 +890,9 @@ test("static design documents retain their rendered pixels through Design PNG ex
       (outcome) => typeof outcome.diffRatio === "number",
     );
     const minimumComparedOutcomes = caseFilter
-      ? Number(STATIC_EXPORT_FIXTURES.some((entry) => entry.name === caseFilter))
+      ? Number(
+          STATIC_EXPORT_FIXTURES.some((entry) => entry.name === caseFilter),
+        )
       : STATIC_EXPORT_FIXTURES.length;
     expect(
       comparedOutcomes.length,

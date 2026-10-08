@@ -591,14 +591,14 @@ jobs:
             inspector-3a)
               fixed_specs=( \
                 e2e/canvas-invariants.spec.ts:1170 \
-                e2e/inspector-styles.spec.ts:833 \
-                e2e/inspector-styles.spec.ts:999 \
+                e2e/inspector-styles.spec.ts:832 \
+                e2e/inspector-styles.spec.ts:998 \
               )
               ;;
             inspector-3b)
               fixed_specs=( \
                 e2e/canvas-invariants.spec.ts:1320 \
-                e2e/inspector-styles.spec.ts:880 \
+                e2e/inspector-styles.spec.ts:879 \
               )
               ;;
             inspector-4a)
