@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const { completeProgressRunMock, getProgressRunMock, insertNotificationMock } =
+  vi.hoisted(() => ({
+    completeProgressRunMock: vi.fn(),
+    getProgressRunMock: vi.fn(),
+    insertNotificationMock: vi.fn(),
+  }));
+
 let queueRows: Record<string, any>[] = [];
 let failNextDispatchStateRead = false;
 let reclaimAfterNextDispatchStateRead = false;
@@ -334,12 +341,12 @@ vi.mock("../agent/run-manager.js", () => ({
             "loop_limit",
             "auto_continue",
           ].includes(e?.type);
+          if (terminal) return;
           pendingEventWrites.push(
             options
-              .persistEvent(async () => {}, { terminal })
+              .persistEvent(async () => {}, { terminal: false })
               .then(() => {
                 persistedRunEventIds.push(runId);
-                if (terminal) persistedTerminalRunEventIds.push(runId);
               }),
           );
         }
@@ -366,27 +373,10 @@ vi.mock("../agent/run-manager.js", () => ({
         startedAt: Date.now(),
       };
       if (onComplete) await onComplete(run);
-      if (
-        options?.persistEvent &&
-        !events.some(({ event }) =>
-          [
-            "done",
-            "error",
-            "missing_api_key",
-            "loop_limit",
-            "auto_continue",
-          ].includes(event?.type),
-        )
-      ) {
-        pendingEventWrites.push(
-          options
-            .persistEvent(async () => {}, { terminal: true })
-            .then(() => {
-              persistedRunEventIds.push(runId);
-              persistedTerminalRunEventIds.push(runId);
-            }),
-        );
-        await Promise.allSettled(pendingEventWrites);
+      if (options?.persistEvent) {
+        await options.persistEvent(async () => {}, { terminal: true });
+        persistedRunEventIds.push(runId);
+        persistedTerminalRunEventIds.push(runId);
       }
     })();
     startRunWork.push(work);
@@ -399,6 +389,7 @@ vi.mock("../agent/run-manager.js", () => ({
       subscribers: new Set(),
       abort: new AbortController(),
       startedAt: Date.now(),
+      finalized: work,
     };
   },
   abortRun: abortRunMock,
@@ -489,7 +480,12 @@ vi.mock("../agent/tool-search.js", () => ({
 vi.mock("../progress/registry.js", () => ({
   startRun: vi.fn(async () => ({})),
   updateRunProgress: vi.fn(async () => ({})),
-  completeRun: vi.fn(async () => ({})),
+  completeRun: completeProgressRunMock,
+  getRun: getProgressRunMock,
+}));
+
+vi.mock("../notifications/store.js", () => ({
+  insertNotification: insertNotificationMock,
 }));
 
 vi.mock("../org/context.js", () => ({
@@ -612,6 +608,12 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     subscribeToRunMock.mockReset();
     getRunEventsSinceMock.mockReset();
     getRunEventsSinceMock.mockResolvedValue([]);
+    completeProgressRunMock.mockReset();
+    completeProgressRunMock.mockResolvedValue({ status: "succeeded" });
+    getProgressRunMock.mockReset();
+    getProgressRunMock.mockResolvedValue({ status: "succeeded" });
+    insertNotificationMock.mockReset();
+    insertNotificationMock.mockResolvedValue({ id: "notification-1" });
     fireInternalDispatchMock.mockReset();
     fireInternalDispatchMock.mockImplementation(async (o: any) => {
       dispatches.push({ taskId: o.taskId, body: o.body, event: o.event });
@@ -976,6 +978,34 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     );
   });
 
+  it("persists a chunk terminal event before a fast continuation claim", async () => {
+    runAgentLoopMock.mockImplementation(async (opts: any) => {
+      opts.send({ type: "text", text: "partial result" });
+      opts.send({ type: "auto_continue", reason: "run_timeout" });
+    });
+    await seedTask("continuation-terminal-order");
+    fireInternalDispatchMock.mockImplementation(async (options: any) => {
+      dispatches.push({
+        taskId: options.taskId,
+        body: options.body,
+        event: options.event,
+      });
+      await queue.claimAgentTeamRun(options.taskId);
+    });
+
+    await processAgentTeamRun({
+      taskId: "continuation-terminal-order",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    expect(persistedTerminalRunEventIds).toContain(
+      "run-task-continuation-terminal-order-a1-c0",
+    );
+    expect(
+      await queue.getAgentTeamRunDispatchState("continuation-terminal-order"),
+    ).toMatchObject({ status: "running", attempts: 2 });
+  });
+
   it("re-fires stale queued work with the caller event", async () => {
     const now = Date.UTC(2026, 5, 2, 12, 0, 0);
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
@@ -1301,6 +1331,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
 
     expect(reconciled?.status).toBe("completed");
     expect(reconciled?.terminalEffectsVersion).toBe(1);
+    expect(reconciled?.terminalEffectsReconciled).toBe(true);
     expect(reconciled?.parentCompletionEnqueued).toBe(true);
     expect(
       appState.get("parent-completion:parent-thread:inj-reconcile-completion"),
@@ -1308,6 +1339,80 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       taskId: "reconcile-completion",
       status: "completed",
     });
+  });
+
+  it("skips terminal-effect writes after reconciliation succeeds", async () => {
+    await seedTask("terminal-effects-once");
+    const task = appState.get("agent-task:terminal-effects-once");
+    Object.assign(task, {
+      status: "completed",
+      summary: "finished",
+      terminalEffectsVersion: 1,
+      terminalEffectsReconciled: false,
+      parentCompletionEnqueued: true,
+    });
+    appState.set("agent-task:terminal-effects-once", task);
+    const row = queueRows.find(
+      (candidate) => candidate.task_id === "terminal-effects-once",
+    );
+    if (!row) throw new Error("missing queued task row");
+    row.status = "done";
+
+    const firstRead = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getTask("terminal-effects-once"),
+    );
+    const transactionCount = queueDb.transaction.mock.calls.length;
+    const progressReadCount = getProgressRunMock.mock.calls.length;
+    const notificationCount = insertNotificationMock.mock.calls.length;
+
+    expect(firstRead?.terminalEffectsReconciled).toBe(true);
+    expect(
+      appState.get("agent-task:terminal-effects-once")
+        .terminalEffectsReconciled,
+    ).toBe(true);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      getTask("terminal-effects-once"),
+    );
+
+    expect(queueDb.transaction).toHaveBeenCalledTimes(transactionCount);
+    expect(getProgressRunMock).toHaveBeenCalledTimes(progressReadCount);
+    expect(insertNotificationMock).toHaveBeenCalledTimes(notificationCount);
+  });
+
+  it("retries terminal effects after notification persistence fails", async () => {
+    await seedTask("terminal-effects-retry");
+    const task = appState.get("agent-task:terminal-effects-retry");
+    Object.assign(task, {
+      status: "completed",
+      summary: "finished",
+      terminalEffectsVersion: 1,
+      terminalEffectsReconciled: false,
+      parentCompletionEnqueued: true,
+    });
+    appState.set("agent-task:terminal-effects-retry", task);
+    const row = queueRows.find(
+      (candidate) => candidate.task_id === "terminal-effects-retry",
+    );
+    if (!row) throw new Error("missing queued task row");
+    row.status = "done";
+    insertNotificationMock.mockRejectedValueOnce(
+      new Error("notification store unavailable"),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const firstRead = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getTask("terminal-effects-retry"),
+    );
+    expect(firstRead?.terminalEffectsReconciled).toBe(false);
+
+    const secondRead = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getTask("terminal-effects-retry"),
+    );
+    expect(secondRead?.terminalEffectsReconciled).toBe(true);
+    expect(insertNotificationMock).toHaveBeenCalledTimes(2);
+
+    warn.mockRestore();
   });
 
   it("returns the stored task when direct-read reconciliation fails", async () => {
