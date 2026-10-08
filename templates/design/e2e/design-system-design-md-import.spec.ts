@@ -1,6 +1,13 @@
 import { expect, test } from "@playwright/test";
+import { enableFeatureFlag } from "./helpers.js";
+
+let restoreDesignSystemWorkflows: (() => Promise<void>) | undefined;
 
 test.beforeEach(async ({ page }) => {
+  restoreDesignSystemWorkflows = await enableFeatureFlag(
+    page,
+    "design-system-workflows",
+  );
   await page.route("**/_agent-native/actions/list-designs**", async (route) => {
     await route.fulfill({
       contentType: "application/json",
@@ -16,6 +23,11 @@ test.beforeEach(async ({ page }) => {
       });
     },
   );
+});
+
+test.afterEach(async () => {
+  await restoreDesignSystemWorkflows?.();
+  restoreDesignSystemWorkflows = undefined;
 });
 
 test("imports design.md guidance through Builder DSI", async ({ page }) => {
