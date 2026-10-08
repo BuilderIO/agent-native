@@ -42,8 +42,16 @@ import {
 } from "@agent-native/toolkit/ui/tooltip";
 import { IconCpu, IconLock, IconPlus } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import { useLocation } from "react-router";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { useLocation, useNavigate } from "react-router";
 
 import { ErrorRow, SettingsEmpty } from "../../resources/index.js";
 import { DeferredBuilderConnectPopover } from "../deferred-builder-connect-popover.js";
@@ -90,6 +98,11 @@ const LOOP_QUERY_KEY = [
 type DialogState =
   | { mode: "add" }
   | { mode: "manage"; provider: AgentProviderId; scope: AgentEngineKeyScope };
+
+type ActiveDialogState = {
+  dialog: DialogState;
+  trackingFlow: "chat_setup" | "settings";
+};
 
 type ChatGPTSubscriptionStatusRead = {
   connected: boolean;
@@ -158,11 +171,11 @@ function useChatGPTModels(
 export default function ModelSettingsPage(_props: SettingsPageProps) {
   const t = useT();
   const location = useLocation();
-  const trackingFlow =
+  const navigate = useNavigate();
+  const chatSetupTrackingPending = useRef(
     (location.state as { providerSetupTrackingFlow?: string } | null)
-      ?.providerSetupTrackingFlow === "chat_setup"
-      ? "chat_setup"
-      : "settings";
+      ?.providerSetupTrackingFlow === "chat_setup",
+  );
   const org = useOrg();
   const listing = useActionQuery<ModelProvidersListing>(
     "list-model-providers" as never,
@@ -175,8 +188,28 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
     trackingSource: "settings_model",
     trackingFlow: "connect_llm",
   });
-  const [dialog, setDialog] = useState<DialogState | null>(null);
+  const [dialog, setDialog] = useState<ActiveDialogState | null>(null);
   const [removing, setRemoving] = useState<ProviderKeyRow | null>(null);
+  const openProviderDialog = useCallback(
+    (nextDialog: DialogState) => {
+      const trackingFlow = chatSetupTrackingPending.current
+        ? "chat_setup"
+        : "settings";
+      if (chatSetupTrackingPending.current) {
+        chatSetupTrackingPending.current = false;
+        navigate(
+          {
+            pathname: location.pathname,
+            search: location.search,
+            hash: location.hash,
+          },
+          { replace: true, state: null },
+        );
+      }
+      setDialog({ dialog: nextDialog, trackingFlow });
+    },
+    [location.hash, location.pathname, location.search, navigate],
+  );
 
   const chatgptLab = useLabState("chatgpt-subscription");
   const chatgptStatus = useActionQuery<ChatGPTSubscriptionStatusRead>(
@@ -219,10 +252,12 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
     () => ({
       action:
         canAdd && !needsProvider ? (
-          <AddProviderButton onClick={() => setDialog({ mode: "add" })} />
+          <AddProviderButton
+            onClick={() => openProviderDialog({ mode: "add" })}
+          />
         ) : undefined,
     }),
-    [canAdd, needsProvider],
+    [canAdd, needsProvider, openProviderDialog],
   );
   useSettingsPageHeader(header);
 
@@ -247,7 +282,11 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
       : { status: "loading" };
   const orgName = org.data?.orgName ?? "";
   const openManage = (row: ProviderKeyRow) =>
-    setDialog({ mode: "manage", provider: row.provider, scope: row.key.scope });
+    openProviderDialog({
+      mode: "manage",
+      provider: row.provider,
+      scope: row.key.scope,
+    });
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -258,7 +297,7 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
               listing={data}
               canAdd={canAdd}
               builder={builder}
-              onAdd={() => setDialog({ mode: "add" })}
+              onAdd={() => openProviderDialog({ mode: "add" })}
             />
           </SettingsGroup>
         ) : data.hasOrganization ? (
@@ -302,13 +341,16 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
       </div>
       <ProviderDialog
         open={dialog !== null}
-        trackingFlow={trackingFlow}
+        trackingFlow={dialog?.trackingFlow ?? "settings"}
         onOpenChange={(open) => {
           if (!open) setDialog(null);
         }}
-        mode={dialog?.mode ?? "add"}
-        {...(dialog?.mode === "manage"
-          ? { provider: dialog.provider, scope: dialog.scope }
+        mode={dialog?.dialog.mode ?? "add"}
+        {...(dialog?.dialog.mode === "manage"
+          ? {
+              provider: dialog.dialog.provider,
+              scope: dialog.dialog.scope,
+            }
           : {})}
       />
       {removing ? (

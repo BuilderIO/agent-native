@@ -31,6 +31,7 @@ import {
 import {
   deleteRecordingChunks,
   recordingUploadBrowserSessionId,
+  recordingUploadStateMatchesAttempt,
   recordingUploadStateForAttempt,
   recordingUploadStateForAttemptIfCurrent,
   sumRecordingChunkBytes,
@@ -74,7 +75,11 @@ async function persistRecordingUploadSession(params: {
     uploadGenerationId: string | null;
   };
   browserSessionId: string;
-}): Promise<boolean> {
+}): Promise<
+  | { outcome: "persisted" }
+  | { outcome: "stale_attempt" }
+  | { outcome: "contention" }
+> {
   let currentState = await readAppState(params.key);
   for (let retry = 0; retry < 3; retry += 1) {
     const nextState = recordingUploadStateForAttemptIfCurrent({
@@ -82,17 +87,26 @@ async function persistRecordingUploadSession(params: {
       attempt: params.attempt,
       browserSessionId: params.browserSessionId,
     });
-    if (!nextState) return false;
+    if (!nextState) return { outcome: "stale_attempt" };
     const expectedState =
       currentState && typeof currentState === "object"
         ? (currentState as Record<string, unknown>)
         : null;
     if (await compareAndSetAppState(params.key, expectedState, nextState)) {
-      return true;
+      return { outcome: "persisted" };
     }
     currentState = await readAppState(params.key);
   }
-  return false;
+  const sameAttempt = recordingUploadStateForAttemptIfCurrent({
+    state: currentState,
+    attempt: params.attempt,
+    browserSessionId: params.browserSessionId,
+  });
+  if (!sameAttempt) return { outcome: "stale_attempt" };
+  return recordingUploadBrowserSessionId(currentState, params.attempt) ===
+    params.browserSessionId
+    ? { outcome: "persisted" }
+    : { outcome: "contention" };
 }
 
 async function relayWithRetryOwnershipHeartbeat<T>(
@@ -164,6 +178,100 @@ function stateNumber(
 ): number | undefined {
   const raw = value?.[key];
   return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
+}
+
+type FinalizeUploadStateSnapshot =
+  | { readable: true; raw: unknown; state: Record<string, unknown> }
+  | { readable: false };
+
+async function readFinalizeUploadState(params: {
+  recordingId: string;
+  mode: "buffered" | "resumable";
+}): Promise<FinalizeUploadStateSnapshot> {
+  try {
+    const raw = await readAppState(`recording-upload-${params.recordingId}`);
+    return {
+      readable: true,
+      raw,
+      state:
+        raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {},
+    };
+  } catch (error) {
+    const prefix =
+      params.mode === "buffered"
+        ? "[clips]"
+        : `[resumable-chunk-${params.recordingId}]`;
+    console.warn(
+      `${prefix} failed to read upload state after finalize failure; skipping state repair:`,
+      {
+        recordingId: params.recordingId,
+        err: error instanceof Error ? error.message : String(error),
+      },
+    );
+    return { readable: false };
+  }
+}
+
+async function repairFinalizeUploadState(params: {
+  recordingId: string;
+  mode: "buffered" | "resumable";
+  attempt: {
+    recordingId: string;
+    uploadAttemptId: string | null;
+    uploadGenerationId: string | null;
+  };
+  snapshot: FinalizeUploadStateSnapshot;
+  updates: Record<string, unknown>;
+  preserveCancellation?: boolean;
+}): Promise<boolean> {
+  if (!params.snapshot.readable) return false;
+  const { raw, state } = params.snapshot;
+  const prefix =
+    params.mode === "buffered"
+      ? "[clips]"
+      : `[resumable-chunk-${params.recordingId}]`;
+  if (
+    raw !== null &&
+    raw !== undefined &&
+    !recordingUploadStateMatchesAttempt(raw, params.attempt)
+  ) {
+    console.warn(
+      `${prefix} upload state belongs to a different attempt; skipping finalize state repair:`,
+      {
+        recordingId: params.recordingId,
+        uploadAttemptId: params.attempt.uploadAttemptId,
+        uploadGenerationId: params.attempt.uploadGenerationId,
+      },
+    );
+    return false;
+  }
+  if (
+    params.preserveCancellation &&
+    (state.aborted === true || state.failureCode === "user_cancelled")
+  ) {
+    return false;
+  }
+  const expectedState =
+    raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+  const updated = await compareAndSetAppState(
+    `recording-upload-${params.recordingId}`,
+    expectedState,
+    {
+      ...state,
+      ...params.updates,
+    },
+  );
+  if (!updated) {
+    console.warn(
+      `${prefix} upload state changed during finalize state repair; skipped the stale snapshot:`,
+      {
+        recordingId: params.recordingId,
+        uploadAttemptId: params.attempt.uploadAttemptId,
+        uploadGenerationId: params.attempt.uploadGenerationId,
+      },
+    );
+  }
+  return updated;
 }
 
 function pendingMediaVerificationState(
@@ -516,20 +624,24 @@ export async function handleRecordingChunk(
       );
     }
     if (resumableSession) {
-      if (
-        browserSessionId &&
-        !(await persistRecordingUploadSession({
+      if (browserSessionId) {
+        const persistence = await persistRecordingUploadSession({
           key: uploadStateKey,
           attempt: uploadAttempt,
           browserSessionId,
-        }))
-      ) {
-        setResponseStatus(event, 409);
-        return {
-          ok: false,
-          error: "A newer upload retry is already active.",
-          staleAttempt: true,
-        };
+        });
+        if (persistence.outcome === "stale_attempt") {
+          setResponseStatus(event, 409);
+          return {
+            ok: false,
+            error: "A newer upload retry is already active.",
+            staleAttempt: true,
+          };
+        }
+        if (persistence.outcome === "contention") {
+          setResponseStatus(event, 503);
+          return;
+        }
       }
       return handleResumableChunk(
         event,
@@ -895,34 +1007,41 @@ export async function handleRecordingChunk(
               error: err instanceof Error ? err.message : String(err),
             },
           );
-          const priorReadyStateRaw = await readAppState(
-            `recording-upload-${recordingId}`,
-          ).catch(() => null);
-          const priorReadyState =
-            priorReadyStateRaw && typeof priorReadyStateRaw === "object"
-              ? (priorReadyStateRaw as Record<string, unknown>)
-              : {};
+          const priorReadySnapshot = await readFinalizeUploadState({
+            recordingId,
+            mode: "buffered",
+          });
+          const priorReadyState = priorReadySnapshot.readable
+            ? priorReadySnapshot.state
+            : {};
           const sourceSizeBytes =
             stateNumber(priorReadyState, "sourceSizeBytes") ??
             stateNumber(priorReadyState, "bytesReceived");
           try {
-            await writeAppState(`recording-upload-${recordingId}`, {
-              ...priorReadyState,
+            const repaired = await repairFinalizeUploadState({
               recordingId,
-              status: "ready",
-              progress: 100,
-              pendingMediaVerification: false,
-              uploadAttemptId: attemptId,
-              uploadGenerationId,
-              failureReason: null,
-              failureCode: null,
-              videoUrl: committed.videoUrl,
-              videoSizeBytes: committed.videoSizeBytes,
-              sourceSizeBytes,
-              durationMs: committed.durationMs,
-              finishedAt: new Date().toISOString(),
+              mode: "buffered",
+              attempt: uploadAttempt,
+              snapshot: priorReadySnapshot,
+              updates: {
+                recordingId,
+                status: "ready",
+                progress: 100,
+                pendingMediaVerification: false,
+                uploadAttemptId: attemptId,
+                uploadGenerationId,
+                failureReason: null,
+                failureCode: null,
+                videoUrl: committed.videoUrl,
+                videoSizeBytes: committed.videoSizeBytes,
+                sourceSizeBytes,
+                durationMs: committed.durationMs,
+                finishedAt: new Date().toISOString(),
+              },
             });
-            await deleteAppState(mediaVerificationStateKey(recordingId));
+            if (repaired) {
+              await deleteAppState(mediaVerificationStateKey(recordingId));
+            }
           } catch (stateErr) {
             console.warn("[clips] committed-ready state repair failed:", {
               recordingId,
@@ -960,10 +1079,16 @@ export async function handleRecordingChunk(
           };
         }
         if (committed?.status === "processing" && committed.videoUrl) {
+          const pendingSnapshot = await readFinalizeUploadState({
+            recordingId,
+            mode: "buffered",
+          });
+          if (!pendingSnapshot.readable) {
+            setResponseStatus(event, 503);
+            return;
+          }
           const pendingState = pendingMediaVerificationState(
-            await readAppState(`recording-upload-${recordingId}`).catch(
-              () => null,
-            ),
+            pendingSnapshot.state,
           );
           if (pendingState) {
             return acceptedProcessingResponse(event, recordingId, pendingState);
@@ -995,13 +1120,13 @@ export async function handleRecordingChunk(
         if (failed.length !== 1) {
           throw err;
         }
-        const failedUploadStateRaw = await readAppState(
-          `recording-upload-${recordingId}`,
-        );
-        const failedUploadState =
-          failedUploadStateRaw && typeof failedUploadStateRaw === "object"
-            ? (failedUploadStateRaw as Record<string, unknown>)
-            : {};
+        const failedUploadSnapshot = await readFinalizeUploadState({
+          recordingId,
+          mode: "buffered",
+        });
+        const failedUploadState = failedUploadSnapshot.readable
+          ? failedUploadSnapshot.state
+          : undefined;
         const failureSessionId =
           recordingUploadBrowserSessionId(failedUploadState, uploadAttempt) ??
           uploadSessionId;
@@ -1026,12 +1151,21 @@ export async function handleRecordingChunk(
           failureCode: "finalize_failed",
           browserSessionId: failureSessionId,
         });
-        await writeAppState(`recording-upload-${recordingId}`, {
-          ...failedUploadState,
+        await repairFinalizeUploadState({
           recordingId,
-          status: "failed",
-          failureReason: err instanceof Error ? err.message : "Finalize failed",
-          updatedAt: new Date().toISOString(),
+          mode: "buffered",
+          attempt: uploadAttempt,
+          snapshot: failedUploadSnapshot,
+          preserveCancellation: true,
+          updates: {
+            recordingId,
+            status: "failed",
+            uploadAttemptId: attemptId,
+            uploadGenerationId,
+            failureReason:
+              err instanceof Error ? err.message : "Finalize failed",
+            updatedAt: new Date().toISOString(),
+          },
         });
         setResponseStatus(event, 500);
         return {
@@ -1505,39 +1639,50 @@ async function handleResumableChunk(
         `[resumable-chunk-${recordingId}] finalize reported an error after committing a ready recording; returning committed success.`,
         { error: err instanceof Error ? err.message : String(err) },
       );
-      const priorReadyStateRaw = await readAppState(
-        `recording-upload-${recordingId}`,
-      ).catch(() => null);
-      const priorReadyState =
-        priorReadyStateRaw && typeof priorReadyStateRaw === "object"
-          ? (priorReadyStateRaw as Record<string, unknown>)
-          : {};
+      const priorReadySnapshot = await readFinalizeUploadState({
+        recordingId,
+        mode: "resumable",
+      });
+      const priorReadyState = priorReadySnapshot.readable
+        ? priorReadySnapshot.state
+        : {};
       const sourceSizeBytes =
         stateNumber(priorReadyState, "sourceSizeBytes") ??
         finalizedSourceSizeBytes;
-      await writeAppState(`recording-upload-${recordingId}`, {
-        ...priorReadyState,
+      const repaired = await repairFinalizeUploadState({
         recordingId,
-        status: "ready",
-        progress: 100,
-        pendingMediaVerification: false,
-        uploadAttemptId: attemptId,
-        uploadGenerationId,
-        failureReason: null,
-        failureCode: null,
-        videoUrl: committed.videoUrl,
-        videoSizeBytes: committed.videoSizeBytes,
-        sourceSizeBytes,
-        durationMs: committed.durationMs,
-        finishedAt: new Date().toISOString(),
+        mode: "resumable",
+        attempt: {
+          recordingId,
+          uploadAttemptId: attemptId,
+          uploadGenerationId,
+        },
+        snapshot: priorReadySnapshot,
+        updates: {
+          recordingId,
+          status: "ready",
+          progress: 100,
+          pendingMediaVerification: false,
+          uploadAttemptId: attemptId,
+          uploadGenerationId,
+          failureReason: null,
+          failureCode: null,
+          videoUrl: committed.videoUrl,
+          videoSizeBytes: committed.videoSizeBytes,
+          sourceSizeBytes,
+          durationMs: committed.durationMs,
+          finishedAt: new Date().toISOString(),
+        },
       });
-      await deleteAppState(mediaVerificationStateKey(recordingId)).catch(
-        (stateErr) =>
-          console.warn(
-            `[resumable-chunk-${recordingId}] committed-ready state repair failed:`,
-            stateErr,
-          ),
-      );
+      if (repaired) {
+        await deleteAppState(mediaVerificationStateKey(recordingId)).catch(
+          (stateErr) =>
+            console.warn(
+              `[resumable-chunk-${recordingId}] committed-ready state repair failed:`,
+              stateErr,
+            ),
+        );
+      }
       return {
         ok: true,
         finalized: true,
@@ -1555,9 +1700,15 @@ async function handleResumableChunk(
       };
     }
     if (sameUpload && committed.status === "processing" && committed.videoUrl) {
-      const pendingState = pendingMediaVerificationState(
-        await readAppState(`recording-upload-${recordingId}`).catch(() => null),
-      );
+      const pendingSnapshot = await readFinalizeUploadState({
+        recordingId,
+        mode: "resumable",
+      });
+      if (!pendingSnapshot.readable) {
+        setResponseStatus(event, 503);
+        return;
+      }
+      const pendingState = pendingMediaVerificationState(pendingSnapshot.state);
       if (pendingState) {
         return acceptedProcessingResponse(event, recordingId, pendingState);
       }
@@ -1593,13 +1744,13 @@ async function handleResumableChunk(
         recordingPlatform: schema.recordings.recordingPlatform,
       });
     if (failed.length !== 1) throw err;
-    const failedUploadStateRaw = await readAppState(
-      `recording-upload-${recordingId}`,
-    );
-    const failedUploadState =
-      failedUploadStateRaw && typeof failedUploadStateRaw === "object"
-        ? (failedUploadStateRaw as Record<string, unknown>)
-        : {};
+    const failedUploadSnapshot = await readFinalizeUploadState({
+      recordingId,
+      mode: "resumable",
+    });
+    const failedUploadState = failedUploadSnapshot.readable
+      ? failedUploadSnapshot.state
+      : undefined;
     const failureSessionId =
       recordingUploadBrowserSessionId(failedUploadState, {
         recordingId,
@@ -1627,22 +1778,25 @@ async function handleResumableChunk(
       failureCode: "finalize_failed",
       browserSessionId: failureSessionId,
     });
-    if (
-      failedUploadState.aborted !== true &&
-      failedUploadState.failureCode !== "user_cancelled"
-    ) {
-      await compareAndSetAppState(
-        `recording-upload-${recordingId}`,
-        failedUploadState,
-        {
-          ...failedUploadState,
-          recordingId,
-          status: "failed",
-          failureReason,
-          updatedAt: failedAt,
-        },
-      );
-    }
+    await repairFinalizeUploadState({
+      recordingId,
+      mode: "resumable",
+      attempt: {
+        recordingId,
+        uploadAttemptId: attemptId,
+        uploadGenerationId,
+      },
+      snapshot: failedUploadSnapshot,
+      preserveCancellation: true,
+      updates: {
+        recordingId,
+        status: "failed",
+        uploadAttemptId: attemptId,
+        uploadGenerationId,
+        failureReason,
+        updatedAt: failedAt,
+      },
+    });
     setResponseStatus(event, 500);
     return {
       ok: false,

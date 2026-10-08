@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import englishMessages from "../../i18n/catalogs/en-US.js";
@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
   preview: undefined as unknown,
   header: null as { action?: React.ReactNode } | null,
   providerDialog: null as unknown,
+  location: null as unknown,
 }));
 const callActionMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
@@ -91,6 +92,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 import { DeleteKeyDialog, ServiceKeyDialog } from "./ApiKeyDialogs.js";
 import ApiKeysSettingsPage from "./ApiKeysSettingsPage.js";
+
+function LocationProbe() {
+  state.location = useLocation();
+  return null;
+}
 
 function entry(overrides: Partial<ApiKeyEntry>): ApiKeyEntry {
   return {
@@ -196,11 +202,12 @@ describe("ApiKeysSettingsPage", () => {
     state.preview = undefined;
     state.header = null;
     state.providerDialog = null;
+    state.location = null;
     callActionMock.mockReset();
     navigateMock.mockReset();
     clientMock.save.mockReset();
     clientMock.test.mockReset();
-    window.history.replaceState(null, "", "/settings/api-keys");
+    window.history.replaceState(null, "", "/settings/keys");
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -217,13 +224,20 @@ describe("ApiKeysSettingsPage", () => {
     labs: Record<string, boolean> = {},
     locationState?: unknown,
   ) {
+    const entry = new URL(window.location.href);
     await act(async () => {
       root.render(
         <MemoryRouter
           initialEntries={[
-            { pathname: "/settings/keys", state: locationState },
+            {
+              pathname: entry.pathname,
+              search: entry.search,
+              hash: entry.hash,
+              state: locationState,
+            },
           ]}
         >
+          <LocationProbe />
           <QueryClientProvider client={new QueryClient()}>
             <ApiKeysSettingsPage
               pageId="api-keys"
@@ -237,10 +251,42 @@ describe("ApiKeysSettingsPage", () => {
     });
   }
 
-  it("uses chat setup attribution for a ProviderDialog reached from chat", async () => {
+  it("uses chat setup attribution for the first provider dialog opening only", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/settings/keys?from=chat#secrets:GROQ_API_KEY",
+    );
     await render({}, { providerSetupTrackingFlow: "chat_setup" });
 
-    expect(state.providerDialog).toMatchObject({ trackingFlow: "chat_setup" });
+    expect(state.providerDialog).toMatchObject({
+      open: true,
+      mode: "add",
+      provider: "groq",
+      trackingFlow: "chat_setup",
+    });
+    expect(state.location).toMatchObject({
+      pathname: "/settings/keys",
+      search: "?from=chat",
+      hash: "#secrets:GROQ_API_KEY",
+      state: null,
+    });
+
+    await act(async () => {
+      (
+        state.providerDialog as { onOpenChange: (open: boolean) => void }
+      ).onOpenChange(false);
+    });
+    await act(async () =>
+      buttonByText("Manage", row("secrets:ANTHROPIC_API_KEY")).click(),
+    );
+    expect(state.providerDialog).toMatchObject({
+      open: true,
+      mode: "manage",
+      provider: "anthropic",
+      scope: "user",
+      trackingFlow: "settings",
+    });
   });
 
   async function renderHeader() {
@@ -427,7 +473,7 @@ describe("ApiKeysSettingsPage", () => {
     window.history.replaceState(
       null,
       "",
-      "/settings/api-keys#secrets:GOOGLE_APPLICATION_CREDENTIALS",
+      "/settings/keys#secrets:GOOGLE_APPLICATION_CREDENTIALS",
     );
     await render();
     const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
@@ -439,7 +485,7 @@ describe("ApiKeysSettingsPage", () => {
     window.history.replaceState(
       null,
       "",
-      "/settings/api-keys#secrets:GROQ_API_KEY",
+      "/settings/keys#secrets:GROQ_API_KEY",
     );
     await render();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -455,7 +501,7 @@ describe("ApiKeysSettingsPage", () => {
     window.history.replaceState(
       null,
       "",
-      "/settings/api-keys#secrets:ANTHROPIC_API_KEY",
+      "/settings/keys#secrets:ANTHROPIC_API_KEY",
     );
     await render();
     expect(document.querySelector('[role="dialog"]')).toBeNull();

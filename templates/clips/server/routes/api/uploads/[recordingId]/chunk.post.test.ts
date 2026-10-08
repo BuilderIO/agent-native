@@ -211,7 +211,18 @@ describe("/api/uploads/:recordingId/chunk route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAppState.clear();
-    mockCompareAndSetAppState.mockResolvedValue(true);
+    mockCompareAndSetAppState.mockImplementation(
+      async (
+        key: string,
+        expected: Record<string, unknown> | null,
+        next: Record<string, unknown>,
+      ) => {
+        const current = mockAppState.get(key) ?? null;
+        if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
+        mockAppState.set(key, next);
+        return true;
+      },
+    );
     mockUpdateSets.length = 0;
     mockUpdateRows.current = [{ id: "rec-1" }];
     mockEqCalls.length = 0;
@@ -353,6 +364,153 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
     expect(mockReadRawBody).not.toHaveBeenCalled();
     expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("keeps stale resumable attribution attempts distinct from CAS contention", async () => {
+    const attemptState = {
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    mockAppState.set(UPLOAD_KEY, attemptState);
+    mockSelectRows.rows[0] = {
+      ...mockSelectRows.rows[0],
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    mockGetHeader.mockImplementation((_, name) =>
+      name === "x-agent-native-session-id" ? "browser-session-1" : undefined,
+    );
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "s3",
+      sessionId: "sess-1",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 0,
+      lastCommittedIndex: -1,
+    });
+    mockCompareAndSetAppState.mockImplementationOnce(async (key: string) => {
+      mockAppState.set(key, {
+        ...attemptState,
+        uploadAttemptId: "attempt-2",
+        uploadGenerationId: "generation-2",
+      });
+      return false;
+    });
+    setRequest({
+      query: {
+        index: "0",
+        mimeType: "video/webm",
+        attemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+      body: new Uint8Array([1]),
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: false,
+      error: "A newer upload retry is already active.",
+      staleAttempt: true,
+    });
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
+    expect(mockCompareAndSetAppState).toHaveBeenCalledTimes(1);
+    expect(mockRelayChunk).not.toHaveBeenCalled();
+  });
+
+  it("returns a retryable 503 after same-attempt session CAS contention", async () => {
+    mockAppState.set(UPLOAD_KEY, {
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    });
+    mockSelectRows.rows[0] = {
+      ...mockSelectRows.rows[0],
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    mockGetHeader.mockImplementation((_, name) =>
+      name === "x-agent-native-session-id" ? "browser-session-1" : undefined,
+    );
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "s3",
+      sessionId: "sess-1",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 0,
+      lastCommittedIndex: -1,
+    });
+    mockCompareAndSetAppState.mockResolvedValue(false);
+    setRequest({
+      query: {
+        index: "0",
+        mimeType: "video/webm",
+        attemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+      body: new Uint8Array([1]),
+    });
+
+    await expect(handler({} as any)).resolves.toBeUndefined();
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 503);
+    expect(mockCompareAndSetAppState).toHaveBeenCalledTimes(3);
+    expect(mockRelayChunk).not.toHaveBeenCalled();
+  });
+
+  it("accepts a browser session already persisted during CAS contention", async () => {
+    const attemptState = {
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    mockAppState.set(UPLOAD_KEY, attemptState);
+    mockSelectRows.rows[0] = {
+      ...mockSelectRows.rows[0],
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    mockGetHeader.mockImplementation((_, name) =>
+      name === "x-agent-native-session-id" ? "browser-session-1" : undefined,
+    );
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "s3",
+      sessionId: "sess-1",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 0,
+      lastCommittedIndex: -1,
+    });
+    let compareAndSetAttempts = 0;
+    mockCompareAndSetAppState.mockImplementation(async (key: string) => {
+      compareAndSetAttempts += 1;
+      if (compareAndSetAttempts === 3) {
+        mockAppState.set(key, {
+          ...attemptState,
+          browserSessionId: "browser-session-1",
+        });
+      }
+      return false;
+    });
+    setRequest({
+      query: {
+        index: "0",
+        mimeType: "video/webm",
+        attemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+      body: new Uint8Array([1]),
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      finalized: false,
+      index: 0,
+      bytes: 1,
+    });
+
+    expect(mockCompareAndSetAppState).toHaveBeenCalledTimes(3);
+    expect(mockRelayChunk).toHaveBeenCalledOnce();
   });
 
   it("preserves a fenced retry when the retry flag switches off between chunks", async () => {
@@ -930,6 +1088,58 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 202);
   });
 
+  it("keeps a processing recording intact when pending-state reads fail", async () => {
+    mockFinalizeRun.mockImplementationOnce(async () => {
+      mockSelectRows.rows = [
+        {
+          id: "rec-1",
+          status: "processing",
+          ownerEmail: "owner@example.com",
+          uploadAttemptId: null,
+          uploadGenerationId: null,
+          videoUrl: "https://cdn.example/rec-1.webm",
+        },
+      ];
+      throw new Error("finalize response lost");
+    });
+    mockReadAppState.mockImplementation(async (key: string) => {
+      if (
+        key === UPLOAD_KEY &&
+        mockSelectRows.rows[0]?.status === "processing"
+      ) {
+        throw new Error("state read unavailable");
+      }
+      return mockAppState.get(key) ?? null;
+    });
+    setRequest({
+      query: {
+        index: "0",
+        total: "1",
+        isFinal: "1",
+        mimeType: "video/webm",
+      },
+      body: new Uint8Array([1]),
+    });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const consoleWarn = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    try {
+      await expect(handler({} as any)).resolves.toBeUndefined();
+    } finally {
+      consoleError.mockRestore();
+      consoleWarn.mockRestore();
+    }
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 503);
+    expect(mockUpdateSets).not.toContainEqual(
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
   it("acks a duplicate final during verification without touching the provider", async () => {
     mockSelectRows.rows = [
       {
@@ -1067,10 +1277,100 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     expect(mockTrack).not.toHaveBeenCalled();
   });
 
+  it("tracks buffered finalize failure when upload-state reads fail", async () => {
+    mockSelectRows.rows[0] = {
+      ...mockSelectRows.rows[0],
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+      recordingPlatform: "web",
+    };
+    let finalizeFailed = false;
+    mockFinalizeRun.mockImplementationOnce(async () => {
+      mockSelectRows.rows = [
+        {
+          id: "rec-1",
+          status: "processing",
+          ownerEmail: "owner@example.com",
+          uploadAttemptId: "attempt-1",
+          uploadGenerationId: "generation-1",
+          videoUrl: null,
+        },
+      ];
+      finalizeFailed = true;
+      throw new Error("finalize exploded");
+    });
+    mockUpdateRows.current = [{ id: "rec-1" }];
+    mockGetHeader.mockImplementation((_, name) =>
+      name === "x-agent-native-session-id" ? "browser-session-1" : undefined,
+    );
+    mockReadAppState.mockImplementation(async (key: string) => {
+      if (key === UPLOAD_KEY && finalizeFailed) {
+        throw new Error("state read unavailable");
+      }
+      return mockAppState.get(key) ?? null;
+    });
+    setRequest({
+      query: {
+        index: "0",
+        total: "1",
+        isFinal: "1",
+        mimeType: "video/webm",
+        attemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+      body: new Uint8Array([1]),
+    });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const consoleWarn = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    let warningCalls: unknown[][] = [];
+
+    try {
+      await expect(handler({} as any)).resolves.toEqual({
+        ok: false,
+        error: "finalize exploded",
+      });
+      warningCalls = consoleWarn.mock.calls;
+    } finally {
+      consoleError.mockRestore();
+      consoleWarn.mockRestore();
+    }
+
+    expect(mockTrack).toHaveBeenCalledTimes(2);
+    expect(mockTrack).toHaveBeenCalledWith(
+      "clips_upload_blocking_failure",
+      expect.any(Object),
+      expect.objectContaining({ sessionId: "browser-session-1" }),
+    );
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_failed",
+      expect.any(Object),
+      expect.objectContaining({ sessionId: "browser-session-1" }),
+    );
+    expect(warningCalls).toContainEqual([
+      expect.stringContaining(
+        "failed to read upload state after finalize failure",
+      ),
+      expect.objectContaining({
+        recordingId: "rec-1",
+        err: "state read unavailable",
+      }),
+    ]);
+    expect(mockWriteAppState.mock.calls).not.toContainEqual([
+      UPLOAD_KEY,
+      expect.objectContaining({ status: "failed" }),
+    ]);
+  });
+
   it("preserves cancellation when resumable finalize failure publication loses its app-state race", async () => {
     mockAppState.set(UPLOAD_KEY, {
       recordingId: "rec-1",
       status: "processing",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
     });
     mockSelectRows.rows = [
       {
@@ -1183,6 +1483,118 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       UPLOAD_KEY,
       expect.objectContaining({ status: "failed" }),
     );
+  });
+
+  it("tracks resumable finalize failure when upload-state reads fail", async () => {
+    mockAppState.set(UPLOAD_KEY, {
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    });
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        failureReason: null,
+        ownerEmail: "owner@example.com",
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+        failureCode: null,
+        videoUrl: null,
+        recordingPlatform: "web",
+      },
+    ];
+    mockGetResumableSession.mockResolvedValueOnce({
+      providerId: "s3",
+      sessionId: "session-1",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 5,
+      lastCommittedIndex: 0,
+    });
+    mockRelayChunk.mockResolvedValueOnce({ ok: true, status: 200 });
+    let finalizeFailed = false;
+    mockFinalizeRun.mockImplementationOnce(async () => {
+      mockSelectRows.rows = [
+        {
+          id: "rec-1",
+          status: "processing",
+          ownerEmail: "owner@example.com",
+          uploadAttemptId: "attempt-1",
+          uploadGenerationId: "generation-1",
+          videoUrl: null,
+        },
+      ];
+      finalizeFailed = true;
+      throw new Error("finalize exploded");
+    });
+    mockUpdateRows.current = [
+      {
+        id: "rec-1",
+        uploadAttemptId: "attempt-1",
+        recordingPlatform: "web",
+      },
+    ];
+    mockGetHeader.mockImplementation((_, name) =>
+      name === "x-agent-native-session-id" ? "browser-session-1" : undefined,
+    );
+    mockReadAppState.mockImplementation(async (key: string) => {
+      if (key === UPLOAD_KEY && finalizeFailed) {
+        throw new Error("state read unavailable");
+      }
+      return mockAppState.get(key) ?? null;
+    });
+    setRequest({
+      query: {
+        index: "1",
+        total: "2",
+        isFinal: "1",
+        mimeType: "video/webm",
+        attemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+      body: new Uint8Array([1]),
+    });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const consoleWarn = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    let warningCalls: unknown[][] = [];
+
+    try {
+      await expect(handler({} as any)).resolves.toEqual({
+        ok: false,
+        error: "finalize exploded",
+      });
+      warningCalls = consoleWarn.mock.calls;
+    } finally {
+      consoleError.mockRestore();
+      consoleWarn.mockRestore();
+    }
+
+    expect(mockTrack).toHaveBeenCalledTimes(2);
+    expect(mockTrack).toHaveBeenCalledWith(
+      "clips_upload_blocking_failure",
+      expect.any(Object),
+      expect.objectContaining({ sessionId: "browser-session-1" }),
+    );
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_failed",
+      expect.any(Object),
+      expect.objectContaining({ sessionId: "browser-session-1" }),
+    );
+    expect(warningCalls).toContainEqual([
+      expect.stringContaining(
+        "failed to read upload state after finalize failure",
+      ),
+      expect.objectContaining({
+        recordingId: "rec-1",
+        err: "state read unavailable",
+      }),
+    ]);
+    expect(mockCompareAndSetAppState).toHaveBeenCalledTimes(1);
   });
 
   it("does not track or publish a resumable finalize failure without claiming its row", async () => {
