@@ -139,6 +139,7 @@ type CollabActivityEvent = {
 // update, or a resource event such as Slides' `deck` carrying the writing tab.
 function namesHumanSender(event: CollabActivityEvent): boolean {
   return (
+    (event.source === "collab" || event.source === "deck") &&
     typeof event.requestSource === "string" &&
     event.requestSource !== "" &&
     event.requestSource !== "agent"

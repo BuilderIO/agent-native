@@ -259,6 +259,12 @@ describe("collab poll boost", () => {
         expect(await boosted(deckEvent())).toBeLessThanOrEqual(1);
         expect(await boosted(deckEvent("agent"))).toBeLessThanOrEqual(1);
       });
+
+      it("ignores other resource events even when they name a sender", async () => {
+        expect(
+          await boosted({ ...deckEvent("other-tab"), source: "resource" }),
+        ).toBeLessThanOrEqual(1);
+      });
     });
 
     it("does not treat the history replayed by the first poll as collaborator activity", async () => {
