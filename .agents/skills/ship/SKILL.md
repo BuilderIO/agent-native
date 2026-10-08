@@ -217,9 +217,13 @@ for the user or a separate watchdog invocation. In `ready-only` mode, the
 endpoint is the verified ready-PR gate with the PR intentionally left open.
 Under `merge-authorized`, `reviewDecision: REVIEW_REQUIRED` is not a user
 handoff: once required checks are green, the live PR is `MERGEABLE`, and every
-review item has a verified fix, reply, or terminal disposition, the task must
-perform the guarded admin merge after the unchanged soak. Never ask the user
-to click Merge for that routine authorized step.
+review item has a verified fix, a reply permitted by the comment-authorization
+rule, or a terminal disposition, the task must perform the guarded admin merge
+after the unchanged soak. Replies on the active user's own PR need no extra
+authorization; replies on another person's PR require authorization for that
+exact PR. If a needed reply is not authorized, leave the item unresolved and
+do not merge. Never ask the user to click Merge for that routine authorized
+step.
 
 ## 1. Preflight
 
@@ -385,8 +389,9 @@ continuous minutes on the unchanged live PR head:
 
 - working tree is clean and there are no unpushed commits;
 - required GitHub Actions checks are green;
-- every human or bot review item has a verified fix/reply or a valid terminal
-  disposition;
+- every human or bot review item has a verified fix, a reply permitted by the
+  comment-authorization rule, or a valid terminal disposition. Feedback that
+  cannot be replied to under that rule remains unresolved and blocks merging;
 - GitHub reports the PR mergeable;
 - no new actionable feedback arrived during the soak.
 

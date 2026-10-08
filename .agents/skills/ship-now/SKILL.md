@@ -181,7 +181,9 @@ isolated safely, preserve all state and report the exact paths or commits.
      or rerun and its narrow recovery check passed as described above;
    - all nonignored local changes are pushed, with only the routine exclusions
      remaining;
-   - every review item has a fix or an explicit reply;
+   - every review item has a fix, a reply permitted by the comment-authorization
+     rule, or a valid terminal disposition; feedback that cannot be replied to
+     under that rule remains unresolved and blocks merging;
    - the PR is not conflicting; and
    - the user has explicitly authorized this `/ship-now` invocation; when the
      existing PR is authored by someone else, the current request separately
@@ -241,7 +243,8 @@ isolated safely, preserve all state and report the exact paths or commits.
   branch; for fork or differently named PR heads, follow `babysit-pr`'s verified
   head remote/ref procedure.
 - Never silently skip a review comment, CI failure, package release failure,
-  or production deploy failure.
+  or production deploy failure. Fix it, reply when the comment gate permits it,
+  or keep it as a blocker.
 - Never treat a Netlify lock as the production promotion mechanism or remove it
   manually to force a promotion.
 - Never create a fresh branch before verifying that `origin/main` contains the
