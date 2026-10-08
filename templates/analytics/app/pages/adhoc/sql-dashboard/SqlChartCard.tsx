@@ -30,6 +30,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -148,6 +149,9 @@ export function SqlChartCard({
 }: SqlChartCardProps) {
   const t = useT();
   const timeRange = timeRangeDays(filters?.timeRange);
+  const timeRangeOverrideLabel = timeRangeFilter?.options?.find(
+    (option) => option.value === timeRangeOverride,
+  )?.label;
   const exportToGoogleSheets = useActionMutation(
     "export-dashboard-panel-to-google-sheet",
   );
@@ -604,6 +608,15 @@ export function SqlChartCard({
           <CardTitle className="text-sm font-medium flex-1 truncate">
             {panel.title}
           </CardTitle>
+          {timeRangeOverrideLabel ? (
+            <Badge
+              variant="secondary"
+              className="max-w-32 shrink-0 truncate px-1.5 py-0 text-[10px] font-normal"
+              title={timeRangeOverrideLabel}
+            >
+              {timeRangeOverrideLabel}
+            </Badge>
+          ) : null}
           <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
             {!editable || onSaveSql ? (
               <ViewSqlPopover
@@ -650,9 +663,7 @@ export function SqlChartCard({
                   <DropdownMenuSeparator />
                   {timeRangeFilter?.options?.length ? (
                     <DropdownMenuSub>
-                      <DropdownMenuSubTrigger
-                        aria-label={t("sqlDashboard.chartTimeRangeOverride")}
-                      >
+                      <DropdownMenuSubTrigger>
                         {timeRangeFilter.label}
                       </DropdownMenuSubTrigger>
                       <DropdownMenuSubContent className="w-52">
