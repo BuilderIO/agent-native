@@ -358,11 +358,15 @@ pub(crate) mod macos {
             && guard.owner_stop_generation == current_owner_stop_generation
     }
 
+    fn stop_generation_changed(start_stop_generation: u64, current_stop_generation: u64) -> bool {
+        start_stop_generation != current_stop_generation
+    }
+
     fn superseded_start_result(
         start_owner_stop_generation: u64,
         current_owner_stop_generation: u64,
     ) -> Result<(), &'static str> {
-        if start_owner_stop_generation != current_owner_stop_generation {
+        if stop_generation_changed(start_owner_stop_generation, current_owner_stop_generation) {
             Ok(())
         } else {
             Err("speech-engine-start-superseded")
@@ -1419,6 +1423,7 @@ pub(crate) mod macos {
         restart_guard: Option<RestartGuard>,
         restart_reserved_generation: Option<Arc<AtomicU64>>,
     ) -> Result<(), String> {
+        let start_stop_generation = owner_stop_generation(owner).load(Ordering::SeqCst);
         {
             let slot = session_slot().lock().map_err(|e| e.to_string())?;
             if let Some(guard) = restart_guard {
@@ -1437,6 +1442,12 @@ pub(crate) mod macos {
             }
         }
 
+        if stop_generation_changed(
+            start_stop_generation,
+            owner_stop_generation(owner).load(Ordering::SeqCst),
+        ) {
+            return Ok(());
+        }
         ensure_authorized()?;
 
         let (my_gen, my_stop_gen) = {
@@ -1449,6 +1460,10 @@ pub(crate) mod macos {
                 ) {
                     return Ok(());
                 }
+            }
+            let current_stop_generation = owner_stop_generation(owner).load(Ordering::SeqCst);
+            if stop_generation_changed(start_stop_generation, current_stop_generation) {
+                return Ok(());
             }
             let generation = session_generation().fetch_add(1, Ordering::SeqCst) + 1;
             if let Some(prev) = slot.active.take() {
@@ -1467,10 +1482,7 @@ pub(crate) mod macos {
                     unsafe { prev.task.cancel() };
                 }
             }
-            (
-                generation,
-                owner_stop_generation(owner).load(Ordering::SeqCst),
-            )
+            (generation, current_stop_generation)
         };
         if let Some(reserved_generation) = &restart_reserved_generation {
             reserved_generation.store(my_gen, Ordering::SeqCst);
@@ -2064,7 +2076,7 @@ pub(crate) mod macos {
         use super::{
             native_speech_voice_processing_mode, put_session_if_current_generation,
             restart_guard_is_current, restart_setup_is_current, restore_stopped_session,
-            retain_session_until_callback, superseded_start_result,
+            retain_session_until_callback, stop_generation_changed, superseded_start_result,
             take_sessions_if_generation_matches, MicVoiceProcessingMode, RestartGuard,
             SessionOwner, SessionRegistry, StoppedSessionDisposition,
         };
@@ -2298,6 +2310,12 @@ pub(crate) mod macos {
                 superseded_start_result(2, 2),
                 Err("speech-engine-start-superseded")
             );
+        }
+
+        #[test]
+        fn stop_during_authorization_cancels_before_resource_start() {
+            assert!(stop_generation_changed(2, 3));
+            assert!(!stop_generation_changed(2, 2));
         }
 
         #[test]
