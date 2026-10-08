@@ -68,33 +68,55 @@ const screenshot = {
   eventCount: 3,
 };
 
-function pngBytes(width = screenshot.viewportWidth): Buffer {
+function pngBytes(
+  width = screenshot.viewportWidth,
+  height = screenshot.viewportHeight,
+): Buffer {
   const bytes = Buffer.alloc(24);
   bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   bytes.write("IHDR", 12, "ascii");
   bytes.writeUInt32BE(width, 16);
-  bytes.writeUInt32BE(screenshot.viewportHeight, 20);
+  bytes.writeUInt32BE(height, 20);
   return bytes;
 }
 
-function makeFormData(width?: number) {
+function makeFormData({
+  screenshots = [screenshot],
+  pixelWidthOverride,
+}: {
+  screenshots?: Array<typeof screenshot>;
+  pixelWidthOverride?: number;
+} = {}) {
   const form = new FormData();
+  const replayCount = new Set(screenshots.map(({ replayId }) => replayId)).size;
   form.set(
     "manifest",
     JSON.stringify({
       designId,
-      cohortTotal: 1,
-      selectedReplayCount: 1,
-      screenshots: [screenshot],
+      cohortTotal: replayCount,
+      selectedReplayCount: replayCount,
+      screenshots,
     }),
   );
-  form.append(
-    "screenshot-0",
-    new Blob([new Uint8Array(pngBytes(width)).buffer as ArrayBuffer], {
-      type: "image/png",
-    }),
-    "replay.png",
-  );
+  screenshots.forEach((shot, index) => {
+    form.append(
+      `screenshot-${index}`,
+      new Blob(
+        [
+          new Uint8Array(
+            pngBytes(
+              pixelWidthOverride ?? shot.viewportWidth,
+              shot.viewportHeight,
+            ),
+          ).buffer as ArrayBuffer,
+        ],
+        {
+          type: "image/png",
+        },
+      ),
+      `replay-${index}.png`,
+    );
+  });
   return form;
 }
 
@@ -230,10 +252,28 @@ describe("POST /api/session-replay-storyboard", () => {
 
   it("rejects pixels whose dimensions differ from replay metadata", async () => {
     await expect(
-      (handler as any)(makeEvent(makeFormData(3))),
+      (handler as any)(makeEvent(makeFormData({ pixelWidthOverride: 3 }))),
     ).rejects.toMatchObject({
       statusCode: 400,
       statusMessage: "Screenshot pixels do not match the replay viewport",
+    });
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
+  });
+
+  it("rejects a screenshot batch above the decoded pixel limit before writing", async () => {
+    const screenshots = Array.from({ length: 5 }, (_, index) => ({
+      ...screenshot,
+      replayId: `sr_${index}`,
+      viewportWidth: 4_000,
+      viewportHeight: 2_000,
+    }));
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData({ screenshots }))),
+    ).rejects.toMatchObject({
+      statusCode: 413,
+      statusMessage: "Screenshot batch exceeds the decoded pixel limit",
     });
     expect(mocks.assertAccess).not.toHaveBeenCalled();
     expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();

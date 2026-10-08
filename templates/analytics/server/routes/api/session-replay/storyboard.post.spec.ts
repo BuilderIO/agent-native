@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   assertCredentialedA2AUrl: vi.fn(),
+  canonicalA2AAudience: vi.fn(),
   getSessionReplaySummary: vi.fn(),
   invokeAgentAction: vi.fn(),
   readMultipartFormData: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock("h3", async (importOriginal) => {
 
 vi.mock("@agent-native/core/a2a", () => ({
   assertCredentialedA2AUrl: mocks.assertCredentialedA2AUrl,
+  canonicalA2AAudience: mocks.canonicalA2AAudience,
   invokeAgentAction: mocks.invokeAgentAction,
   resolveA2ACallerAuth: mocks.resolveA2ACallerAuth,
   resolveAgentInvocationTarget: mocks.resolveAgentInvocationTarget,
@@ -64,33 +66,56 @@ const screenshot = {
   capturedAt: "2026-10-07T12:00:00.000Z",
 };
 
-function pngBytes(): Buffer {
+function pngBytes(
+  width = screenshot.viewportWidth,
+  height = screenshot.viewportHeight,
+): Buffer {
   const bytes = Buffer.alloc(24);
   bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   bytes.write("IHDR", 12, "ascii");
-  bytes.writeUInt32BE(screenshot.viewportWidth, 16);
-  bytes.writeUInt32BE(screenshot.viewportHeight, 20);
+  bytes.writeUInt32BE(width, 16);
+  bytes.writeUInt32BE(height, 20);
   return bytes;
 }
 
-function makeFormData() {
+function makeFormData({
+  screenshots = [screenshot],
+  pixelWidthOverride,
+}: {
+  screenshots?: Array<typeof screenshot>;
+  pixelWidthOverride?: number;
+} = {}) {
   const form = new FormData();
+  const replayCount = new Set(screenshots.map(({ recordingId }) => recordingId))
+    .size;
   form.set(
     "manifest",
     JSON.stringify({
       designId,
-      cohortTotal: 1,
-      selectedReplayCount: 1,
-      screenshots: [screenshot],
+      cohortTotal: replayCount,
+      selectedReplayCount: replayCount,
+      screenshots,
     }),
   );
-  form.append(
-    "screenshot-0",
-    new Blob([new Uint8Array(pngBytes()).buffer as ArrayBuffer], {
-      type: "image/png",
-    }),
-    "replay.png",
-  );
+  screenshots.forEach((shot, index) => {
+    form.append(
+      `screenshot-${index}`,
+      new Blob(
+        [
+          new Uint8Array(
+            pngBytes(
+              pixelWidthOverride ?? shot.viewportWidth,
+              shot.viewportHeight,
+            ),
+          ).buffer as ArrayBuffer,
+        ],
+        {
+          type: "image/png",
+        },
+      ),
+      `replay-${index}.png`,
+    );
+  });
   return form;
 }
 
@@ -124,6 +149,7 @@ function matchingBoardContent(): string {
 describe("POST /api/session-replay/storyboard", () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) mock.mockReset();
+    mocks.canonicalA2AAudience.mockReturnValue(designUrl);
     mocks.workspacePrivateOrigins.mockReturnValue(["http://127.0.0.1:3000"]);
     mocks.resolveVercelDeploymentProtectionHeaders.mockReturnValue({
       "x-test-deployment-protection": "enabled",
@@ -226,6 +252,37 @@ describe("POST /api/session-replay/storyboard", () => {
       },
     );
     expect(mocks.invokeAgentAction).toHaveBeenCalledTimes(4);
+  });
+
+  it("canonicalizes the Design audience before minting the upload token", async () => {
+    mocks.resolveAgentInvocationTarget.mockResolvedValueOnce({
+      url: `${designUrl}/`,
+    });
+
+    await (handler as any)(makeEvent(makeFormData()));
+
+    expect(mocks.canonicalA2AAudience).toHaveBeenCalledWith(`${designUrl}/`);
+    expect(mocks.resolveA2ACallerAuth).toHaveBeenCalledWith({
+      audience: designUrl,
+    });
+  });
+
+  it("rejects a screenshot batch above the decoded pixel limit before replay lookups", async () => {
+    const screenshots = Array.from({ length: 5 }, (_, index) => ({
+      ...screenshot,
+      recordingId: `sr_${index}`,
+      viewportWidth: 4_000,
+      viewportHeight: 2_000,
+    }));
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData({ screenshots }))),
+    ).rejects.toMatchObject({
+      statusCode: 413,
+      statusMessage: "Screenshot batch exceeds the decoded pixel limit",
+    });
+    expect(mocks.getSessionReplaySummary).not.toHaveBeenCalled();
+    expect(mocks.resolveAgentInvocationTarget).not.toHaveBeenCalled();
   });
 
   it("shows the Design storage error instead of masking it with a boolean", async () => {

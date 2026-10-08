@@ -1,5 +1,6 @@
 import {
   assertCredentialedA2AUrl,
+  canonicalA2AAudience,
   invokeAgentAction,
   resolveA2ACallerAuth,
   resolveAgentInvocationTarget,
@@ -14,6 +15,7 @@ import { getSessionReplaySummary } from "../../../lib/session-replay";
 
 const MAX_SCREENSHOTS = 9;
 const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024;
+const MAX_BATCH_PIXELS = 32_000_000;
 const MAX_BATCH_BYTES = 20 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 32_000;
 const MAX_DESIGN_UPLOAD_RESPONSE_BYTES = 64_000;
@@ -133,6 +135,15 @@ function parseManifest(value: unknown): ManifestInput {
       capturedAt: date.toISOString(),
     };
   });
+  if (
+    screenshots.reduce(
+      (total, screenshot) =>
+        total + screenshot.viewportWidth * screenshot.viewportHeight,
+      0,
+    ) > MAX_BATCH_PIXELS
+  ) {
+    return badRequest("Screenshot batch exceeds the decoded pixel limit", 413);
+  }
   const recordingIds = new Set(
     screenshots.map((screenshot) => screenshot.recordingId),
   );
@@ -582,7 +593,7 @@ export default defineEventHandler(async (event) =>
         selfAppId: "analytics",
       });
       const caller = await resolveA2ACallerAuth({
-        audience: designTarget.url,
+        audience: canonicalA2AAudience(designTarget.url),
       });
       let previousBoardContent = "";
       let designTargetUrl = designTarget.url;

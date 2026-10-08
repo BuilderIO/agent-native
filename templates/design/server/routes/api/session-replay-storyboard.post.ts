@@ -20,6 +20,7 @@ import addSessionReplayScreenshotsToBoard from "../../../actions/add-session-rep
 
 const MAX_SCREENSHOTS = 9;
 const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024;
+const MAX_BATCH_PIXELS = 32_000_000;
 const MAX_BATCH_BYTES = 20 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 32_000;
 const MAX_REQUEST_BYTES = MAX_BATCH_BYTES + MAX_MANIFEST_BYTES + 64_000;
@@ -188,6 +189,15 @@ function parseManifest(value: unknown): Manifest {
       eventCount: Number(item.eventCount),
     };
   });
+  if (
+    screenshots.reduce(
+      (total, screenshot) =>
+        total + screenshot.viewportWidth * screenshot.viewportHeight,
+      0,
+    ) > MAX_BATCH_PIXELS
+  ) {
+    return badRequest("Screenshot batch exceeds the decoded pixel limit", 413);
+  }
   const designId =
     typeof raw.designId === "string" && raw.designId.trim()
       ? raw.designId.trim()
