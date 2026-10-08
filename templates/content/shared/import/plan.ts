@@ -77,12 +77,22 @@ export function importImageMediaType(path: string): string | null {
   return format ? (IMAGE_MEDIA_TYPES[format] ?? null) : null;
 }
 
-/** Decoded size of a base64 `data:` URL, without decoding it. */
-export function dataUrlByteLength(dataUrl: string): number {
+/**
+ * Decoded size of a `data:` URL, measured without decoding base64. A
+ * percent-encoded payload that can't be decoded, such as a stray `%`, has no
+ * size, so the preview reports the image missing instead of apply failing.
+ */
+export function dataUrlByteLength(dataUrl: string): number | null {
   const comma = dataUrl.indexOf(",");
   const header = dataUrl.slice(0, comma);
   const payload = dataUrl.slice(comma + 1);
-  if (!/;base64$/i.test(header)) return payload.length;
+  if (!/;base64$/i.test(header)) {
+    try {
+      return new TextEncoder().encode(decodeURIComponent(payload)).length;
+    } catch {
+      return null;
+    }
+  }
   const padding = payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0;
   return Math.floor((payload.length * 3) / 4) - padding;
 }
@@ -142,11 +152,11 @@ export function planMarkdownPages(input: {
               imageMatches.set(request.path, match);
               upload = { ...request, path: match };
             }
-          } else if (
-            isImportImageMediaType(request.mediaType) &&
-            dataUrlByteLength(request.dataUrl) <= MAX_IMPORT_IMAGE_BYTES
-          ) {
-            upload = request;
+          } else if (isImportImageMediaType(request.mediaType)) {
+            const bytes = dataUrlByteLength(request.dataUrl);
+            if (bytes !== null && bytes <= MAX_IMPORT_IMAGE_BYTES) {
+              upload = request;
+            }
           }
           if (!upload) return { status: "missing" };
           const key = assetKey(upload);

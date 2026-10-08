@@ -118,9 +118,28 @@ describe("Import planning", () => {
     expect(stored.report.status).toBe("preserved");
   });
 
-  it("measures embedded images without decoding them", () => {
+  it("measures embedded images, and gives no size to one that won't decode", () => {
     expect(dataUrlByteLength("data:image/png;base64,AAAA")).toBe(3);
     expect(dataUrlByteLength("data:image/png;base64,AAA=")).toBe(2);
-    expect(dataUrlByteLength("data:image/svg+xml,%3Csvg%3E")).toBe(9);
+    expect(dataUrlByteLength("data:image/svg+xml,%3Csvg%3E")).toBe(5);
+    expect(dataUrlByteLength("data:image/svg+xml,100%")).toBeNull();
+    expect(dataUrlByteLength("data:image/svg+xml,%FF")).toBeNull();
+  });
+
+  it("previews an embedded image that won't decode as missing", () => {
+    const [page] = planMarkdownPages({
+      markdown: [
+        {
+          path: "guide.md",
+          text: "![Chart](data:image/svg+xml,<svg>100%</svg>)",
+        },
+      ],
+      imagePaths: new Set(),
+    });
+
+    expect(page.uploads).toEqual([]);
+    expect(page.preview.assets.map((asset) => asset.status)).toEqual([
+      "missing",
+    ]);
   });
 });
