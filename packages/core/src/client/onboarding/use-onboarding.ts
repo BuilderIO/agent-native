@@ -26,6 +26,10 @@ const seenOnboardingEvents = new Set<string>();
 const CUSTOM_KEY_ATTEMPT_STORAGE_KEY =
   "agent-native.onboarding.custom_keys_attempt";
 const locallyTrackedCustomKeyOutcomes = new Set<string>();
+const pendingCustomKeyCredentialSaves = new Map<
+  string,
+  { count: number; abandonmentRequested: boolean; saved: boolean }
+>();
 let onboardingDocumentId: string | null = null;
 let onboardingCorrelationSequence = 0;
 const ONBOARDING_SUMMARY_TIMEOUT_MS = 15_000;
@@ -149,18 +153,25 @@ export function trackCustomKeyOnboardingOutcome(
     }
     return "session_mismatch";
   }
-  const attemptOutcomeKey =
-    outcome === "credential_entry_started" || outcome === "credential_validated"
-      ? `${attempt.id}:${outcome}`
-      : null;
+  const attemptOutcomeKey = `${attempt.id}:${outcome}`;
   const alreadyTracked =
     (outcome === "credential_entry_started" && attempt.entryStarted) ||
     (outcome === "credential_validated" && attempt.credentialValidated);
   if (
     alreadyTracked ||
-    (attemptOutcomeKey !== null &&
-      locallyTrackedCustomKeyOutcomes.has(attemptOutcomeKey))
+    locallyTrackedCustomKeyOutcomes.has(attemptOutcomeKey)
   ) {
+    if (
+      outcome === "credential_saved" ||
+      outcome === "credential_skipped" ||
+      outcome === "credential_abandoned"
+    ) {
+      try {
+        window.sessionStorage.removeItem(CUSTOM_KEY_ATTEMPT_STORAGE_KEY);
+      } catch {
+        return "unavailable";
+      }
+    }
     return "duplicate";
   }
 
@@ -172,8 +183,11 @@ export function trackCustomKeyOnboardingOutcome(
     outcome,
   });
 
-  if (attemptOutcomeKey !== null) {
-    locallyTrackedCustomKeyOutcomes.add(attemptOutcomeKey);
+  locallyTrackedCustomKeyOutcomes.add(attemptOutcomeKey);
+  if (
+    outcome === "credential_entry_started" ||
+    outcome === "credential_validated"
+  ) {
     try {
       window.sessionStorage.setItem(
         CUSTOM_KEY_ATTEMPT_STORAGE_KEY,
@@ -201,6 +215,121 @@ export function trackCustomKeyOnboardingOutcome(
   return "tracked";
 }
 
+function trackCustomKeyOnboardingOutcomeForAttempt(
+  attemptId: string,
+  outcome: CustomKeyOnboardingOutcome,
+): CustomKeyOutcomeResult {
+  const stored = readCustomKeyOnboardingAttempt();
+  if (
+    stored.kind !== "available" ||
+    stored.attempt?.id !== attemptId ||
+    stored.attempt.sessionId !== getAnalyticsSessionId()
+  ) {
+    return "missing";
+  }
+  return trackCustomKeyOnboardingOutcome(outcome);
+}
+
+function beginCustomKeyOnboardingCredentialSave(): {
+  finish: (saved: boolean) => void;
+} | null {
+  const stored = readCustomKeyOnboardingAttempt();
+  if (
+    stored.kind !== "available" ||
+    !stored.attempt ||
+    stored.attempt.sessionId !== getAnalyticsSessionId()
+  ) {
+    return null;
+  }
+
+  const attemptId = stored.attempt.id;
+  const pending = pendingCustomKeyCredentialSaves.get(attemptId) ?? {
+    count: 0,
+    abandonmentRequested: false,
+    saved: false,
+  };
+  pending.count += 1;
+  pendingCustomKeyCredentialSaves.set(attemptId, pending);
+
+  let finished = false;
+  return {
+    finish(saved) {
+      if (finished) return;
+      finished = true;
+      const current = pendingCustomKeyCredentialSaves.get(attemptId);
+      if (!current) return;
+
+      try {
+        if (saved) {
+          const result = trackCustomKeyOnboardingOutcomeForAttempt(
+            attemptId,
+            "credential_saved",
+          );
+          if (
+            result === "tracked" ||
+            result === "tracked_storage_unavailable" ||
+            result === "duplicate"
+          ) {
+            current.saved = true;
+          }
+        }
+      } finally {
+        current.count -= 1;
+        if (current.count === 0) {
+          pendingCustomKeyCredentialSaves.delete(attemptId);
+          if (current.abandonmentRequested && !current.saved) {
+            trackCustomKeyOnboardingOutcomeForAttempt(
+              attemptId,
+              "credential_abandoned",
+            );
+          }
+        }
+      }
+    },
+  };
+}
+
+export async function withCustomKeyOnboardingCredentialSave<T>(
+  save: () => Promise<T>,
+): Promise<T> {
+  const credentialSave = beginCustomKeyOnboardingCredentialSave();
+  let saved = false;
+  try {
+    const result = await save();
+    saved = true;
+    return result;
+  } finally {
+    credentialSave?.finish(saved);
+  }
+}
+
+function requestCustomKeyOnboardingAbandonment(): void {
+  const stored = readCustomKeyOnboardingAttempt();
+  const attempt = stored.kind === "available" ? stored.attempt : null;
+  if (attempt && attempt.sessionId === getAnalyticsSessionId()) {
+    const attemptId = attempt.id;
+    const completedOutcome = (
+      [
+        "credential_saved",
+        "credential_skipped",
+        "credential_abandoned",
+      ] as const
+    ).find((outcome) =>
+      locallyTrackedCustomKeyOutcomes.has(`${attemptId}:${outcome}`),
+    );
+    if (completedOutcome) {
+      trackCustomKeyOnboardingOutcome(completedOutcome);
+      return;
+    }
+    const pending = pendingCustomKeyCredentialSaves.get(attemptId);
+    if (pending && pending.count > 0) {
+      pending.abandonmentRequested = true;
+      return;
+    }
+  }
+  trackCustomKeyOnboardingOutcome("credential_abandoned");
+}
+
 export function useCustomKeyOnboardingAttemptLifecycle(): void {
   const mountedRef = useRef(false);
 
@@ -211,7 +340,7 @@ export function useCustomKeyOnboardingAttemptLifecycle(): void {
     }
     const handlePageHide = (event: PageTransitionEvent) => {
       if (!event.persisted) {
-        trackCustomKeyOnboardingOutcome("credential_abandoned");
+        requestCustomKeyOnboardingAbandonment();
       }
     };
     window.addEventListener("pagehide", handlePageHide);
@@ -220,7 +349,7 @@ export function useCustomKeyOnboardingAttemptLifecycle(): void {
       mountedRef.current = false;
       queueMicrotask(() => {
         if (!mountedRef.current) {
-          trackCustomKeyOnboardingOutcome("credential_abandoned");
+          requestCustomKeyOnboardingAbandonment();
         }
       });
     };

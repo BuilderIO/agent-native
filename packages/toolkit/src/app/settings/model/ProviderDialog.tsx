@@ -10,7 +10,10 @@ import {
 } from "@agent-native/core/client/agent-provider-catalog";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { trackCustomKeyOnboardingOutcome } from "@agent-native/core/client/onboarding/use-onboarding";
+import {
+  trackCustomKeyOnboardingOutcome,
+  withCustomKeyOnboardingCredentialSave,
+} from "@agent-native/core/client/onboarding/use-onboarding";
 import { useOrg } from "@agent-native/core/client/org";
 import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import { Button } from "@agent-native/toolkit/ui/button";
@@ -483,26 +486,27 @@ function ProviderDialogForm({
     let keySaved = false;
     try {
       if (replacing) {
-        await saveAgentEngineProviderSettings({
-          provider,
-          ...(isOllama ? { baseUrl: value } : { apiKey: value }),
-          ...(gateway ? { baseUrl: gateway } : {}),
-          ...(isOpenAi && !gateway && existing?.endpoint
-            ? { clearBaseUrl: true }
-            : {}),
-          scope,
-        });
+        await withCustomKeyOnboardingCredentialSave(() =>
+          saveAgentEngineProviderSettings({
+            provider,
+            ...(isOllama ? { baseUrl: value } : { apiKey: value }),
+            ...(gateway ? { baseUrl: gateway } : {}),
+            ...(isOpenAi && !gateway && existing?.endpoint
+              ? { clearBaseUrl: true }
+              : {}),
+            scope,
+          }),
+        );
         keySaved = true;
       } else if (endpointChanged) {
-        await saveAgentEngineProviderSettings({
-          provider,
-          ...(gateway ? { baseUrl: gateway } : { clearBaseUrl: true }),
-          scope,
-        });
+        await withCustomKeyOnboardingCredentialSave(() =>
+          saveAgentEngineProviderSettings({
+            provider,
+            ...(gateway ? { baseUrl: gateway } : { clearBaseUrl: true }),
+            scope,
+          }),
+        );
         keySaved = true;
-      }
-      if (keySaved) {
-        trackCustomKeyOnboardingOutcome("credential_saved");
       }
       if (modelsChanged) {
         await callAction(

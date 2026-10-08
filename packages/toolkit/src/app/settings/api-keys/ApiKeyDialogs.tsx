@@ -1,7 +1,10 @@
 import { getAgentProviderOption } from "@agent-native/core/client/agent-provider-catalog";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { trackCustomKeyOnboardingOutcome } from "@agent-native/core/client/onboarding/use-onboarding";
+import {
+  trackCustomKeyOnboardingOutcome,
+  withCustomKeyOnboardingCredentialSave,
+} from "@agent-native/core/client/onboarding/use-onboarding";
 import { useOrg } from "@agent-native/core/client/org";
 import type { SecretRemovalPreview } from "@agent-native/core/secrets/usage";
 import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
@@ -205,13 +208,14 @@ function KeyValueDialogContent({
     onSavingChange?.(true);
     setError(null);
     try {
-      await saveApiKeyValue({
-        name: target.kind === "registered" ? target.key.name : target.name,
-        value: value.trim(),
-        registered: target.kind === "registered",
-        shared: isShared,
-      });
-      trackCustomKeyOnboardingOutcome("credential_saved");
+      await withCustomKeyOnboardingCredentialSave(() =>
+        saveApiKeyValue({
+          name: target.kind === "registered" ? target.key.name : target.name,
+          value: value.trim(),
+          registered: target.kind === "registered",
+          shared: isShared,
+        }),
+      );
       void refreshKeys(queryClient);
       toast.success(replacing ? t(`${K}valueReplaced`) : t(`${K}keyAdded`));
       onSaved?.();

@@ -24,6 +24,7 @@ const keyMock = vi.hoisted(() => ({
 }));
 const callActionMock = vi.hoisted(() => vi.fn());
 const onboardingOutcomeMock = vi.hoisted(() => vi.fn());
+const credentialSaveBoundaryMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (name: string) => ({
@@ -45,6 +46,14 @@ vi.mock("@agent-native/core/client/agent-engine-key", () => keyMock);
 
 vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
   trackCustomKeyOnboardingOutcome: onboardingOutcomeMock,
+  withCustomKeyOnboardingCredentialSave: async (
+    save: () => Promise<unknown>,
+  ) => {
+    credentialSaveBoundaryMock();
+    const result = await save();
+    onboardingOutcomeMock("credential_saved");
+    return result;
+  },
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({
@@ -193,6 +202,7 @@ describe("ProviderDialog", () => {
       .mockResolvedValue(undefined);
     callActionMock.mockReset().mockResolvedValue({});
     onboardingOutcomeMock.mockReset();
+    credentialSaveBoundaryMock.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -354,6 +364,7 @@ describe("ProviderDialog", () => {
     );
     expect(outcomes).toContain("credential_saved");
     expect(outcomes).not.toContain("credential_skipped");
+    expect(credentialSaveBoundaryMock).toHaveBeenCalledTimes(1);
   });
 
   it("locks members to a personal key", async () => {

@@ -22,9 +22,18 @@ const clientMock = vi.hoisted(() => ({
   notify: vi.fn(),
 }));
 const onboardingOutcomeMock = vi.hoisted(() => vi.fn());
+const credentialSaveBoundaryMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
   trackCustomKeyOnboardingOutcome: onboardingOutcomeMock,
+  withCustomKeyOnboardingCredentialSave: async (
+    save: () => Promise<unknown>,
+  ) => {
+    credentialSaveBoundaryMock();
+    const result = await save();
+    onboardingOutcomeMock("credential_saved");
+    return result;
+  },
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -209,6 +218,7 @@ describe("ApiKeysSettingsPage", () => {
     clientMock.save.mockReset();
     clientMock.test.mockReset();
     onboardingOutcomeMock.mockReset();
+    credentialSaveBoundaryMock.mockReset();
     window.history.replaceState(null, "", "/settings/api-keys");
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -501,6 +511,7 @@ describe("ApiKeysSettingsPage", () => {
     );
     expect(outcomes).toContain("credential_saved");
     expect(outcomes).not.toContain("credential_skipped");
+    expect(credentialSaveBoundaryMock).toHaveBeenCalledTimes(1);
   });
 
   it("opens Add key for a #secrets:KEY link to a key nobody saved", async () => {

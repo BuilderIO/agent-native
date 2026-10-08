@@ -23,6 +23,7 @@ import {
   trackOnboardingEvent,
   useCustomKeyOnboardingAttemptLifecycle,
   useOnboarding,
+  withCustomKeyOnboardingCredentialSave,
   type UseOnboardingResult,
 } from "./use-onboarding.js";
 
@@ -488,6 +489,7 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     trackEventMock.mockReset();
     analyticsSessionIdMock.mockReturnValue("browser-session-42");
+    window.sessionStorage.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -546,6 +548,103 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
         outcome: "credential_abandoned",
       }),
     );
+  });
+
+  it("keeps an attempt through settings unmount until a pending save succeeds", async () => {
+    setCustomKeyOnboardingAttempt("attempt-save-during-unmount");
+    await act(async () => root?.render(<Harness />));
+
+    let resolveSave!: () => void;
+    const save = withCustomKeyOnboardingCredentialSave(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+
+    await act(async () => {
+      root?.unmount();
+      root = null;
+      await Promise.resolve();
+    });
+
+    expect(trackEventMock).not.toHaveBeenCalled();
+    expect(
+      window.sessionStorage.getItem(
+        "agent-native.onboarding.custom_keys_attempt",
+      ),
+    ).not.toBeNull();
+
+    await act(async () => {
+      resolveSave();
+      await save;
+    });
+
+    expect(trackEventMock).toHaveBeenCalledTimes(1);
+    expect(trackEventMock).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        onboarding_attempt_id: "attempt-save-during-unmount",
+        outcome: "credential_saved",
+      }),
+    );
+    expect(
+      window.sessionStorage.getItem(
+        "agent-native.onboarding.custom_keys_attempt",
+      ),
+    ).toBeNull();
+  });
+
+  it("records abandonment after a failed save settles following unmount", async () => {
+    setCustomKeyOnboardingAttempt("attempt-failed-save-after-unmount");
+    await act(async () => root?.render(<Harness />));
+
+    let rejectSave!: (error: Error) => void;
+    const save = withCustomKeyOnboardingCredentialSave(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSave = reject;
+        }),
+    );
+
+    await act(async () => {
+      root?.unmount();
+      root = null;
+      await Promise.resolve();
+    });
+    expect(trackEventMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      rejectSave(new Error("save failed"));
+      await expect(save).rejects.toThrow("save failed");
+    });
+
+    expect(trackEventMock).toHaveBeenCalledTimes(1);
+    expect(trackEventMock).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        onboarding_attempt_id: "attempt-failed-save-after-unmount",
+        outcome: "credential_abandoned",
+      }),
+    );
+  });
+
+  it("leaves an attempt available for retry after a save fails while settings stays mounted", async () => {
+    setCustomKeyOnboardingAttempt("attempt-retry-save");
+    await act(async () => root?.render(<Harness />));
+
+    await expect(
+      withCustomKeyOnboardingCredentialSave(() =>
+        Promise.reject(new Error("save failed")),
+      ),
+    ).rejects.toThrow("save failed");
+
+    expect(trackEventMock).not.toHaveBeenCalled();
+    expect(
+      window.sessionStorage.getItem(
+        "agent-native.onboarding.custom_keys_attempt",
+      ),
+    ).not.toBeNull();
   });
 
   it("uses fallback correlation IDs without crypto.randomUUID", () => {
