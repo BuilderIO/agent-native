@@ -4,14 +4,13 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  queueAiRequest,
-  withAiRequestStatusInstructions,
-} from "./lib/ai-request-status.js";
+import { computeSilenceTrimRanges } from "../shared/silence-ranges.js";
+import { parseTranscriptSegments } from "../shared/transcript-segments.js";
+import { applyTrims } from "./lib/apply-trims.js";
 
 export default defineAction({
   description:
-    "Ask the agent to find long silences in the recording and delegate trimming them out via the Editor's trim-recording action.",
+    "Trim long silences out of a recording. Finds gaps between transcript segments longer than thresholdMs and excludes each gap (keeping 200ms of padding beside speech) in one edit. Call this directly; do not compute gaps or call trim-recording per silence yourself.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     thresholdMs: z
@@ -37,40 +36,37 @@ export default defineAction({
       );
     }
 
-    const requestedAt = new Date().toISOString();
-    const message =
-      `Find silences longer than ${args.thresholdMs}ms in recording ${args.recordingId} ` +
-      `by analyzing the transcript segments (gaps between segment.endMs and the next segment.startMs). ` +
-      `For each gap > ${args.thresholdMs}ms, add a trim range covering the silence minus a 200ms ` +
-      `buffer on each side so speech isn't clipped. Then call ` +
-      `\`trim-recording --recordingId=${args.recordingId} --startMs=<start> --endMs=<end>\` once for each silence.`;
-    const request = {
-      kind: "remove-silences" as const,
-      recordingId: args.recordingId,
-      requestedAt,
-      thresholdMs: args.thresholdMs,
-      segmentsJson: transcript.segmentsJson,
-      message: withAiRequestStatusInstructions({
-        message,
+    const ranges = computeSilenceTrimRanges(
+      parseTranscriptSegments(transcript.segmentsJson),
+      args.thresholdMs,
+    );
+    if (ranges.length === 0) {
+      return {
         recordingId: args.recordingId,
-        kind: "remove-silences",
-        requestedAt,
-      }),
-    };
+        updated: false,
+        silencesRemoved: 0,
+        removedMs: 0,
+      };
+    }
 
-    await queueAiRequest({
-      recordingId: args.recordingId,
-      kind: "remove-silences",
-      requestedAt,
-      request,
-    });
-
-    console.log(`Delegation queued: remove-silences for ${args.recordingId}`);
+    const { editsJson, trimCount } = await applyTrims(
+      args.recordingId,
+      ranges,
+    );
+    const removedMs = ranges.reduce(
+      (total, range) => total + range.endMs - range.startMs,
+      0,
+    );
+    console.log(
+      `Removed ${ranges.length} silences (${removedMs} ms) from ${args.recordingId}`,
+    );
     return {
-      queued: true,
-      kind: "remove-silences",
-      requestedAt,
       recordingId: args.recordingId,
+      updated: true,
+      silencesRemoved: ranges.length,
+      removedMs,
+      trimCount,
+      editsJson,
     };
   },
 });

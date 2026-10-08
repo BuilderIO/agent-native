@@ -396,10 +396,14 @@ describe("workflow generation cancellation", () => {
               recordingId: "rec_123",
               requestedAt,
               message: "Generate chapters",
+              openInChat: true,
             },
           ],
           titleCandidates: [],
         };
+      }
+      if (name === "claim-ai-request") {
+        return { claimed: true, consumed: true };
       }
       return { cancelled: true };
     });
@@ -447,10 +451,14 @@ describe("workflow generation cancellation", () => {
               recordingId: "rec_123",
               requestedAt,
               message: "Generate chapters",
+              openInChat: true,
             },
           ],
           titleCandidates: [],
         };
+      }
+      if (name === "claim-ai-request") {
+        return { claimed: true, consumed: true };
       }
       return { status: "failed" };
     });
@@ -498,10 +506,14 @@ describe("workflow generation cancellation", () => {
               recordingId: "rec_123",
               requestedAt,
               message: "Generate chapters",
+              openInChat: true,
             },
           ],
           titleCandidates: [],
         };
+      }
+      if (name === "claim-ai-request") {
+        return { claimed: true, consumed: true };
       }
       return { status: "completed" };
     });

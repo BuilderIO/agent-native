@@ -23,9 +23,11 @@ import {
 } from "@agent-native/core/shared";
 import { usePersistentSidebarCollapsed } from "@agent-native/toolkit/app-shell";
 import { AgentPanel } from "@agent-native/toolkit/app/chat";
-import type {
-  ClipsAiRequestKind,
-  ClipsAiRequestStatus,
+import {
+  AI_REQUEST_STALL_MS,
+  isAiRequestStalled,
+  type ClipsAiRequestKind,
+  type ClipsAiRequestStatus,
 } from "@shared/ai-request-status";
 import {
   BUILDER_CREDITS_UPGRADE_URL,
@@ -1320,7 +1322,8 @@ export default function RecordingPage() {
     ],
     enabled: Boolean(recording?.id),
     refetchInterval: (query) =>
-      query.state.data?.status === "queued" ||
+      (query.state.data?.status === "queued" &&
+        !isAiRequestStalled(query.state.data)) ||
       query.state.data?.status === "working"
         ? 2000
         : false,
@@ -1339,6 +1342,28 @@ export default function RecordingPage() {
   const aiRequestStatus = aiRequestStatusQ.data?.kind
     ? aiRequestStatusQ.data
     : null;
+  const [aiRequestStallCheckAt, setAiRequestStallCheckAt] = useState(0);
+  useEffect(() => {
+    if (aiRequestStatus?.status !== "queued") return;
+    const queuedAt = Date.parse(
+      aiRequestStatus.updatedAt ?? aiRequestStatus.requestedAt ?? "",
+    );
+    const delay = Number.isFinite(queuedAt)
+      ? Math.max(0, queuedAt + AI_REQUEST_STALL_MS - Date.now()) + 100
+      : 0;
+    const timer = window.setTimeout(
+      () => setAiRequestStallCheckAt(Date.now()),
+      delay,
+    );
+    return () => window.clearTimeout(timer);
+  }, [
+    aiRequestStatus?.requestedAt,
+    aiRequestStatus?.status,
+    aiRequestStatus?.updatedAt,
+  ]);
+  const aiRequestStalled =
+    aiRequestStallCheckAt > 0 &&
+    isAiRequestStalled(aiRequestStatus, aiRequestStallCheckAt);
 
   useEffect(() => {
     activeAiRequestRef.current = null;
@@ -1395,6 +1420,7 @@ export default function RecordingPage() {
     const status = aiRequestStatus?.status;
     if (!kind || !status) return;
 
+    if (status === "queued" && aiRequestStalled) return;
     if (status === "queued" || status === "working") {
       activeAiRequestRef.current = {
         kind,
@@ -1435,6 +1461,7 @@ export default function RecordingPage() {
     }
     activeAiRequestRef.current = null;
   }, [
+    aiRequestStalled,
     aiRequestStatus?.kind,
     aiRequestStatus?.message,
     aiRequestStatus?.status,
@@ -1651,6 +1678,11 @@ export default function RecordingPage() {
   const handleBackgroundAiError = (err: Error) => {
     activeAiRequestRef.current = null;
     cancelCompletionCue();
+    if ((err as { errorCode?: unknown }).errorCode === "request_busy") {
+      stopAiRequestToast(t("recordingPage.aiRequestBusy"));
+      void aiRequestStatusQ.refetch();
+      return;
+    }
     failAiRequestToast(t("recordingPage.aiRequestFailed"), {
       description: actionErrorMessage(err) ?? t("recordingPage.tryAgainMoment"),
       duration: Number.POSITIVE_INFINITY,
@@ -1783,14 +1815,14 @@ export default function RecordingPage() {
   });
   const removeSilences = useActionMutation("remove-silences" as any, {
     onSuccess: (result: any) => {
-      if (result?.queued === true && recording?.id) {
-        notifyAiRequestQueued(recording.id);
-        activeAiRequestRef.current = {
-          kind: "remove-silences",
-          requestedAt: result?.requestedAt ?? null,
-        };
-        startAiRequestToast(t(aiRequestProgressKey("remove-silences")));
-        void aiRequestStatusQ.refetch();
+      activeAiRequestRef.current = null;
+      void playerDataQ.refetch();
+      if (result?.updated === true) {
+        completeAiRequestToast(t("recordingPage.silenceCompleted"));
+        playCompletionCue();
+      } else {
+        cancelCompletionCue();
+        stopAiRequestToast(t("recordingPage.noSilencesFound"));
       }
     },
     onError: handleBackgroundAiError,
@@ -1802,8 +1834,56 @@ export default function RecordingPage() {
     regenerateChapters.isPending ||
     removeFillerWords.isPending ||
     removeSilences.isPending ||
-    aiRequestStatus?.status === "queued" ||
+    (aiRequestStatus?.status === "queued" && !aiRequestStalled) ||
     aiRequestStatus?.status === "working";
+  const retryAiRequest = (kind: ClipsAiRequestKind) => {
+    if (!recording?.id) return;
+    const recordingId = recording.id;
+    beginAiRequest(kind);
+    switch (kind) {
+      case "generate-metadata":
+      case "regenerate-title":
+        regenerateTitle.mutate({
+          recordingId,
+          includeSummary: kind === "generate-metadata",
+        } as any);
+        return;
+      case "regenerate-summary":
+        regenerateSummary.mutate({ recordingId, openInChat: true } as any);
+        return;
+      case "regenerate-chapters":
+        regenerateChapters.mutate({ recordingId, openInChat: true } as any);
+        return;
+      case "remove-filler-words":
+        removeFillerWords.mutate({ recordingId } as any);
+        return;
+      case "remove-silences":
+        removeSilences.mutate({ recordingId, thresholdMs: 1200 } as any);
+        return;
+    }
+  };
+  const retryAiRequestRef = useRef(retryAiRequest);
+  retryAiRequestRef.current = retryAiRequest;
+  useEffect(() => {
+    const kind = aiRequestStatus?.kind;
+    if (!aiRequestStalled || !kind) return;
+    activeAiRequestRef.current = null;
+    cancelCompletionCue();
+    failAiRequestToast(t("recordingPage.aiRequestStalled"), {
+      duration: Number.POSITIVE_INFINITY,
+      action: {
+        label: t("recordingPage.retryAiRequest"),
+        onClick: () => retryAiRequestRef.current(kind),
+      },
+    });
+  }, [
+    aiRequestStalled,
+    aiRequestStatus?.kind,
+    aiRequestStatus?.requestedAt,
+    cancelCompletionCue,
+    failAiRequestToast,
+    t,
+  ]);
   const generateWorkflow = useActionMutation("generate-workflow" as any, {
     onSuccess: (result: any) => {
       if (result?.queued === true && recording?.id) {
@@ -2424,8 +2504,9 @@ export default function RecordingPage() {
           />
         </TabsContent>
         <TabsContent
+          forceMount
           value="agent"
-          className="mt-0 flex min-h-0 flex-1 flex-col overflow-y-auto"
+          className="mt-0 flex min-h-0 flex-1 flex-col overflow-y-auto data-[state=inactive]:hidden"
           ref={agentPanelContentRef}
         >
           <AgentPanel

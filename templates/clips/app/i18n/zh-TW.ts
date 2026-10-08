@@ -295,6 +295,10 @@ const messages = {
     silenceWorking: "正在消除靜音…",
     silenceCompleted: "靜音消除完成",
     silenceFailed: "靜音消除失敗",
+    noSilencesFound: "未發現較長的靜音",
+    aiRequestBusy: "此剪輯正在處理中",
+    aiRequestStalled: "無法開始此請求",
+    retryAiRequest: "重試",
     generatePrSummary: "產生 PR 摘要",
     generateSop: "產生 SOP",
     generateSopTooltip:

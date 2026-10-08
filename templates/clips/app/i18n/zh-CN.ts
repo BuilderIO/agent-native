@@ -294,6 +294,10 @@ const messages = {
     silenceWorking: "正在消除静音…",
     silenceCompleted: "静音消除完成",
     silenceFailed: "静音消除失败",
+    noSilencesFound: "未发现较长的静音",
+    aiRequestBusy: "此剪辑正在处理中",
+    aiRequestStalled: "无法开始此请求",
+    retryAiRequest: "重试",
     generatePrSummary: "生成公关摘要",
     generateSop: "生成SOP",
     generateSopTooltip:

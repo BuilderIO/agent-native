@@ -314,6 +314,10 @@ const messages = {
     silenceWorking: "Removendo silêncios…",
     silenceCompleted: "Remoção de silêncios concluída",
     silenceFailed: "Falha ao remover silêncios",
+    noSilencesFound: "Nenhum silêncio longo encontrado",
+    aiRequestBusy: "Este clipe já está sendo processado",
+    aiRequestStalled: "Não foi possível iniciar esta solicitação",
+    retryAiRequest: "Tentar novamente",
     generatePrSummary: "Gerar resumo de PR",
     generateSop: "Gerar SOP",
     generateSopTooltip:

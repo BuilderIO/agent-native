@@ -301,6 +301,10 @@ const messages = {
     silenceWorking: "मौन हटाए जा रहे हैं…",
     silenceCompleted: "मौन हटाना पूरा हुआ",
     silenceFailed: "मौन हटाना विफल रहा",
+    noSilencesFound: "कोई लंबा मौन नहीं मिला",
+    aiRequestBusy: "यह क्लिप पहले से प्रोसेस हो रही है",
+    aiRequestStalled: "यह अनुरोध शुरू नहीं हो सका",
+    retryAiRequest: "फिर से कोशिश करें",
     generatePrSummary: "पीआर सारांश तैयार करें",
     generateSop: "SOP उत्पन्न करें",
     generateSopTooltip:

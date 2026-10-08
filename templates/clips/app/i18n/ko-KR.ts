@@ -307,6 +307,10 @@ const messages = {
     silenceWorking: "무음 구간을 제거하는 중…",
     silenceCompleted: "무음 구간 제거 완료",
     silenceFailed: "무음 구간 제거 실패",
+    noSilencesFound: "긴 무음 구간이 없습니다",
+    aiRequestBusy: "이 클립은 이미 처리 중입니다",
+    aiRequestStalled: "이 요청을 시작할 수 없습니다",
+    retryAiRequest: "다시 시도",
     generatePrSummary: "PR 요약 생성",
     generateSop: "SOP 생성",
     generateSopTooltip:

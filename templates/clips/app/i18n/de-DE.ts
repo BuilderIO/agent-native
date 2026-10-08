@@ -319,6 +319,10 @@ const messages = {
     silenceWorking: "Stille wird entfernt…",
     silenceCompleted: "Entfernen der Stille abgeschlossen",
     silenceFailed: "Entfernen der Stille fehlgeschlagen",
+    noSilencesFound: "Keine langen Pausen gefunden",
+    aiRequestBusy: "Dieser Clip wird bereits verarbeitet",
+    aiRequestStalled: "Diese Anfrage konnte nicht gestartet werden",
+    retryAiRequest: "Erneut versuchen",
     generatePrSummary: "Erstellen Sie eine PR-Zusammenfassung",
     generateSop: "Generieren Sie SOP",
     generateSopTooltip:

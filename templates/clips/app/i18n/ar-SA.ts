@@ -303,6 +303,10 @@ const messages = {
     silenceWorking: "جارٍ إزالة فترات الصمت…",
     silenceCompleted: "اكتملت إزالة فترات الصمت",
     silenceFailed: "فشلت إزالة فترات الصمت",
+    noSilencesFound: "لم يتم العثور على فترات صمت طويلة",
+    aiRequestBusy: "جارٍ معالجة هذا المقطع بالفعل",
+    aiRequestStalled: "تعذر بدء هذا الطلب",
+    retryAiRequest: "إعادة المحاولة",
     generatePrSummary: "إنشاء ملخص للعلاقات العامة",
     generateSop: "توليد SOP",
     generateSopTooltip:

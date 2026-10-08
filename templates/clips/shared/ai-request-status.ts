@@ -49,6 +49,37 @@ export interface ClipsAiRequestStatus {
   updatedAt?: string;
 }
 
+/** A request still `queued` this long was never started by any tab. */
+export const AI_REQUEST_STALL_MS = 45_000;
+/** A `working` request older than this no longer blocks a new one. */
+export const AI_REQUEST_WORKING_LEASE_MS = 15 * 60_000;
+
+function statusAgeMs(status: ClipsAiRequestStatus, now: number): number {
+  const updatedAt = Date.parse(status.updatedAt ?? status.requestedAt ?? "");
+  return Number.isFinite(updatedAt) ? now - updatedAt : Number.POSITIVE_INFINITY;
+}
+
+export function isAiRequestStalled(
+  status: ClipsAiRequestStatus | null | undefined,
+  now = Date.now(),
+): boolean {
+  return (
+    status?.status === "queued" && statusAgeMs(status, now) > AI_REQUEST_STALL_MS
+  );
+}
+
+export function isAiRequestLive(
+  status: ClipsAiRequestStatus | null | undefined,
+  now = Date.now(),
+): boolean {
+  if (!status) return false;
+  if (status.status === "queued") return !isAiRequestStalled(status, now);
+  return (
+    status.status === "working" &&
+    statusAgeMs(status, now) <= AI_REQUEST_WORKING_LEASE_MS
+  );
+}
+
 /** A recording the browser bridge may auto-title once it is old enough. */
 export interface AutoTitleCandidate {
   id: string;

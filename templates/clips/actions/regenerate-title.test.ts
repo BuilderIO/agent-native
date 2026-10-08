@@ -29,6 +29,8 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
+  readAppState: async () => null,
+  compareAndSetAppState: async () => true,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({

@@ -1,9 +1,9 @@
 import {
   generateTabId,
   sendToAgentChatAndConfirm,
+  startBackgroundAgentSession,
   type AgentChatMessage,
 } from "@agent-native/core/client/agent-chat";
-import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   bumpChangeVersion,
   callAction,
@@ -73,18 +73,52 @@ const DISPATCHABLE_REQUESTS = new Set([
   "regenerate-summary",
   "regenerate-chapters",
   "remove-filler-words",
-  "remove-silences",
   "generate-workflow",
 ]);
 
-async function clearRequest(recordingId: string): Promise<void> {
-  const url = agentNativePath(
-    `/_agent-native/application-state/${encodeURIComponent(
-      `clips-ai-request-${recordingId}`,
-    )}`,
-  );
-  await fetch(url, { method: "DELETE" }).catch(() => {});
-  bumpAiRequestRefresh();
+interface AiRequestIdentity {
+  recordingId: string;
+  kind: ClipsAiRequestKind;
+  requestedAt: string;
+}
+
+async function claimAiRequestRun(
+  identity: AiRequestIdentity,
+): Promise<"claimed" | "gone" | "retry"> {
+  try {
+    const result = (await callAction(
+      "claim-ai-request" as any,
+      { operation: "claim", ...identity } as any,
+    )) as { claimed?: boolean; reason?: string } | null;
+    if (result?.claimed === true) return "claimed";
+    return result?.reason === "missing" ? "gone" : "retry";
+  } catch (error) {
+    console.warn("[clips] could not claim AI request", { ...identity, error });
+    return "retry";
+  }
+}
+
+async function finishAiRequestClaim(
+  operation: "consume" | "release",
+  identity: AiRequestIdentity,
+): Promise<boolean> {
+  try {
+    const result = (await callAction(
+      "claim-ai-request" as any,
+      { operation, ...identity } as any,
+    )) as { consumed?: boolean; released?: boolean } | null;
+    return operation === "consume"
+      ? result?.consumed === true
+      : result?.released === true;
+  } catch (error) {
+    console.warn(`[clips] could not ${operation} AI request`, {
+      ...identity,
+      error,
+    });
+    return false;
+  } finally {
+    bumpAiRequestRefresh();
+  }
 }
 
 export function useAutoTitleBridge(): void {
@@ -259,21 +293,35 @@ export function useAutoTitleBridge(): void {
             retrySoon();
             continue;
           }
-          const delivery = await dispatchAiRequest(
-            request,
-            aiRequestTabId(
-              request.recordingId,
-              request.kind as ClipsAiRequestKind,
-              request.requestedAt,
-            ),
+          const identity: AiRequestIdentity = {
+            recordingId: request.recordingId,
+            kind: request.kind as ClipsAiRequestKind,
+            requestedAt: request.requestedAt,
+          };
+          const claim = await claimAiRequestRun(identity);
+          if (claim !== "claimed") {
+            if (claim === "retry") retrySoon();
+            continue;
+          }
+          const threadId = aiRequestTabId(
+            identity.recordingId,
+            identity.kind,
+            identity.requestedAt,
           );
-          if (!delivery.delivered) {
-            dispatched.current.delete(dispatchKey);
+          const started =
+            request.openInChat === true
+              ? (await dispatchAiRequest(request, threadId)).delivered
+              : await startAiRequestSession(request, threadId);
+          if (!started) {
+            await finishAiRequestClaim("release", identity);
             retrySoon();
             continue;
           }
           dispatched.current.add(dispatchKey);
-          void clearRequest(request.recordingId);
+          void finishAiRequestClaim("consume", identity).then((consumed) => {
+            // Re-claiming after the lease reattaches to the same thread id.
+            if (!consumed) dispatched.current.delete(dispatchKey);
+          });
         }
 
         for (const candidate of snapshot.titleCandidates) {
@@ -468,6 +516,36 @@ function requestedAtFromTab(tabId: string) {
 function requestIdFromTab(tabId: string) {
   const match = /^clips-workflow:[^:]+:[^:]+:([^:]+):[^:]+$/.exec(tabId);
   return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+async function startAiRequestSession(
+  request: QueuedAiRequest,
+  threadId: string,
+): Promise<boolean> {
+  const options = buildAiRequestChatOptions(request);
+  try {
+    // A repeated operationId + threadId reattaches to the existing run, so a
+    // second tab or a retry can never start the same request twice.
+    const session = startBackgroundAgentSession({
+      message: options.message,
+      instructions: options.context,
+      scope: { type: "recording", id: request.recordingId },
+      operationId: threadId,
+      threadId,
+      engine: options.engine,
+      model: options.model,
+      usageLabel: `clips:${request.kind}`,
+    });
+    await session.accepted;
+    return true;
+  } catch (error) {
+    console.warn("[clips] background AI request did not start", {
+      recordingId: request.recordingId,
+      kind: request.kind,
+      error,
+    });
+    return false;
+  }
 }
 
 function dispatchAiRequest(request: QueuedAiRequest, tabId: string) {

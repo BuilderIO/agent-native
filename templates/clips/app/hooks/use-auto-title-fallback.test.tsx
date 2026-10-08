@@ -11,11 +11,16 @@ const mocks = vi.hoisted(() => ({
     tabId: options.tabId,
     delivered: true,
   })),
+  startBackgroundAgentSession: vi.fn((options: { threadId?: string }) => ({
+    threadId: options.threadId,
+    accepted: Promise.resolve({ threadId: options.threadId }),
+  })),
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   generateTabId: () => "chat-123",
   sendToAgentChatAndConfirm: mocks.sendToAgentChatAndConfirm,
+  startBackgroundAgentSession: mocks.startBackgroundAgentSession,
 }));
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
@@ -47,6 +52,8 @@ vi.mock("@shared/clips-ai-prefs", () => ({
   fullVideoAiModelSelection: () => null,
 }));
 
+import { aiRequestTabId } from "@shared/ai-request-status";
+
 import { useAutoTitleBridge } from "./use-auto-title";
 
 const NOW = Date.parse("2026-09-28T12:00:00.000Z");
@@ -64,8 +71,16 @@ let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 
 async function renderWith(result: Record<string, unknown>) {
-  mocks.callAction.mockImplementation(async (name: string) =>
-    name === "list-ai-requests" ? result : {},
+  mocks.callAction.mockImplementation(
+    async (name: string, payload?: { operation?: string }) => {
+      if (name === "list-ai-requests") return result;
+      if (name === "claim-ai-request") {
+        return payload?.operation === "claim"
+          ? { claimed: true }
+          : { consumed: true, released: true };
+      }
+      return {};
+    },
   );
   container = document.createElement("div");
   root = createRoot(container);
@@ -177,8 +192,9 @@ describe("auto-title fallback", () => {
     });
 
     await vi.waitFor(() =>
-      expect(mocks.sendToAgentChatAndConfirm).toHaveBeenCalledOnce(),
+      expect(mocks.startBackgroundAgentSession).toHaveBeenCalledOnce(),
     );
+    expect(mocks.sendToAgentChatAndConfirm).not.toHaveBeenCalled();
     expect(regenerateTitleCalls()).toHaveLength(0);
   });
 
@@ -197,11 +213,96 @@ describe("auto-title fallback", () => {
     });
 
     await vi.waitFor(() =>
-      expect(mocks.sendToAgentChatAndConfirm).toHaveBeenCalledOnce(),
+      expect(mocks.startBackgroundAgentSession).toHaveBeenCalledOnce(),
     );
-    const [options] = mocks.sendToAgentChatAndConfirm.mock.calls[0] as [
-      { context: string },
+    const [options] = mocks.startBackgroundAgentSession.mock.calls[0] as [
+      { instructions: string; scope: unknown },
     ];
-    expect(JSON.parse(options.context).currentTitle).toBe("Quarterly planning");
+    expect(JSON.parse(options.instructions).currentTitle).toBe(
+      "Quarterly planning",
+    );
+    expect(options.scope).toEqual({ type: "recording", id: "rec_titled" });
+  });
+});
+
+describe("AI request claims", () => {
+  const queued = {
+    requests: [
+      {
+        kind: "remove-filler-words",
+        recordingId: "rec_claim",
+        requestedAt: "2026-09-28T11:59:30.000Z",
+        message: "Remove filler words",
+      },
+    ],
+    titleCandidates: [],
+  };
+
+  it("does not start a request another tab already claimed", async () => {
+    mocks.callAction.mockImplementation(
+      async (name: string, payload?: { operation?: string }) => {
+        if (name === "list-ai-requests") return queued;
+        if (name === "claim-ai-request" && payload?.operation === "claim") {
+          return { claimed: false, reason: "claimed" };
+        }
+        return {};
+      },
+    );
+    container = document.createElement("div");
+    root = createRoot(container);
+    await act(async () => root.render(<TestBridge />));
+
+    await vi.waitFor(() =>
+      expect(mocks.callAction).toHaveBeenCalledWith("claim-ai-request", {
+        operation: "claim",
+        recordingId: "rec_claim",
+        kind: "remove-filler-words",
+        requestedAt: "2026-09-28T11:59:30.000Z",
+      }),
+    );
+    expect(mocks.startBackgroundAgentSession).not.toHaveBeenCalled();
+  });
+
+  it("releases its claim when the background run does not start", async () => {
+    mocks.startBackgroundAgentSession.mockImplementationOnce(
+      (options: { threadId?: string }) => ({
+        threadId: options.threadId,
+        accepted: Promise.reject(new Error("HTTP 503")),
+      }),
+    );
+    await renderWith(queued);
+
+    await vi.waitFor(() =>
+      expect(mocks.callAction).toHaveBeenCalledWith(
+        "claim-ai-request",
+        expect.objectContaining({ operation: "release" }),
+      ),
+    );
+    expect(mocks.callAction).not.toHaveBeenCalledWith(
+      "claim-ai-request",
+      expect.objectContaining({ operation: "consume" }),
+    );
+  });
+
+  it("consumes the request once its run is accepted, on a stable thread", async () => {
+    await renderWith(queued);
+
+    await vi.waitFor(() =>
+      expect(mocks.callAction).toHaveBeenCalledWith(
+        "claim-ai-request",
+        expect.objectContaining({ operation: "consume" }),
+      ),
+    );
+    const [options] = mocks.startBackgroundAgentSession.mock.calls[0] as [
+      { threadId: string; operationId: string },
+    ];
+    expect(options.threadId).toBe(
+      aiRequestTabId(
+        "rec_claim",
+        "remove-filler-words",
+        "2026-09-28T11:59:30.000Z",
+      ),
+    );
+    expect(options.operationId).toBe(options.threadId);
   });
 });

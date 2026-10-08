@@ -12,6 +12,7 @@ import {
 // why `autoDiscoverActions` on its own produces 404s for action routes in
 // production.
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { settleAiRequestRunOutcome } from "../lib/ai-request-run-outcome.js";
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
@@ -43,6 +44,8 @@ export default createAgentChatPlugin({
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   durableBackgroundRuns: true,
+  onAgentRunComplete: (_scope, run, outcome) =>
+    settleAiRequestRunOutcome(run, outcome),
   extraContext: async () =>
     `<clips-transcript-guidance>
 The transcript in view-screen and get-recording-player-data is bounded when called by the agent. When previewTruncated is true, the text is expected to end mid-sentence and is never evidence that transcription stopped early. Continue the same recording with get-recording-player-data and transcriptOffset set to each nextFullTextOffset until that value is null, then interpret the chunks together. Do not search other recordings to reconstruct omitted content. For a failed or pending transcript, use request-transcript with force=true. For an explicit fresh retry of an existing ready transcript, also pass regenerate=true. Agent-triggered retries are queued for the durable worker and return pending while processing.

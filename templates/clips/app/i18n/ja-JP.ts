@@ -313,6 +313,10 @@ const messages = {
     silenceWorking: "無音部分を削除しています…",
     silenceCompleted: "無音部分の削除が完了しました",
     silenceFailed: "無音部分の削除に失敗しました",
+    noSilencesFound: "長い無音部分は見つかりませんでした",
+    aiRequestBusy: "このクリップはすでに処理中です",
+    aiRequestStalled: "このリクエストを開始できませんでした",
+    retryAiRequest: "再試行",
     generatePrSummary: "PRサマリーを生成する",
     generateSop: "SOPを生成する",
     generateSopTooltip:
