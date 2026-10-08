@@ -7,6 +7,12 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { asc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+const { outcomeCounter } = vi.hoisted(() => ({ outcomeCounter: vi.fn() }));
+vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/tracking")>()),
+  countOutcome: outcomeCounter,
+}));
+
 vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/creative-context/server")
@@ -94,25 +100,48 @@ async function documentRow(documentId: string) {
   return document;
 }
 
+async function measuredSave<T>(
+  save: () => Promise<T>,
+  expected: Record<string, unknown>,
+) {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  outcomeCounter.mockClear();
+  const result = await save();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(outcomeCounter).toHaveBeenCalledExactlyOnceWith(
+    "content_save_outcome_counts",
+    expect.objectContaining({ operation: "update_document", ...expected }),
+  );
+  return result;
+}
+
 describe("update-document compare-and-swap", () => {
   it("normalizes a duplicate title heading in an authored browser save", async () => {
     const id = await createDocument({ title: "Page", content: "Body before" });
     const revision = documentRevisionToken(0, "Body before");
-    const saved = await runWithRequestContext({ userEmail: OWNER }, () =>
-      updateDocumentAction.run(
-        {
-          id,
-          content: "# Page\nBody after",
-          baseRevision: revision,
-          authoredBaseRevision: revision,
-          authoredBaseContent: "Body before",
-          authoredCandidateContent: "# Page\nBody after",
-          editorSessionId: nextId("heading-session"),
-          editorEditGeneration: 1,
-          browserSaveAttemptId: nextId("heading-attempt"),
-        },
-        { caller: "frontend", userEmail: OWNER },
-      ),
+    const saved = await measuredSave(
+      () =>
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          updateDocumentAction.run(
+            {
+              id,
+              content: "# Page\nBody after",
+              baseRevision: revision,
+              authoredBaseRevision: revision,
+              authoredBaseContent: "Body before",
+              authoredCandidateContent: "# Page\nBody after",
+              editorSessionId: nextId("heading-session"),
+              editorEditGeneration: 1,
+              browserSaveAttemptId: nextId("heading-attempt"),
+            },
+            {
+              caller: "frontend",
+              userEmail: OWNER,
+              actionName: "update-document",
+            },
+          ),
+        ),
+      { outcome: "written", stale_base: "false", history_effect: "transition" },
     );
     expect(saved.content).toBe("Body after");
     expect((await documentRow(id)).content).toBe("Body after");
@@ -134,21 +163,25 @@ describe("update-document compare-and-swap", () => {
         { caller: "mcp", userEmail: OWNER },
       ),
     );
-    const saved = await runWithRequestContext({ userEmail: OWNER }, () =>
-      updateDocumentAction.run(
-        {
-          id,
-          content: "First passage\nBrowser second",
-          baseUpdatedAt: before.updatedAt,
-          authoredBaseRevision: documentRevisionToken(0, base),
-          authoredBaseContent: base,
-          authoredCandidateContent: "First passage\nBrowser second",
-          editorSessionId: nextId("timestamp-session"),
-          editorEditGeneration: 1,
-          browserSaveAttemptId: nextId("timestamp-attempt"),
-        },
-        { caller: "frontend", userEmail: OWNER },
-      ),
+    const saved = await measuredSave(
+      () =>
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          updateDocumentAction.run(
+            {
+              id,
+              content: "First passage\nBrowser second",
+              baseUpdatedAt: before.updatedAt,
+              authoredBaseRevision: documentRevisionToken(0, base),
+              authoredBaseContent: base,
+              authoredCandidateContent: "First passage\nBrowser second",
+              editorSessionId: nextId("timestamp-session"),
+              editorEditGeneration: 1,
+              browserSaveAttemptId: nextId("timestamp-attempt"),
+            },
+            { caller: "frontend", userEmail: OWNER },
+          ),
+        ),
+      { outcome: "merged", stale_base: "true", history_effect: "transition" },
     );
     expect(saved).toMatchObject({
       content: "Agent first\nBrowser second",
@@ -232,8 +265,15 @@ describe("update-document compare-and-swap", () => {
           userEmail: OWNER,
         }),
       );
-    const first = await invoke(args);
-    const retry = await invoke(args);
+    const first = await measuredSave(() => invoke(args), {
+      outcome: "preserved_to_history",
+      history_effect: "preservation",
+      reason_code: "structure",
+    });
+    const retry = await measuredSave(() => invoke(args), {
+      outcome: "replayed",
+      history_effect: "none",
+    });
     expect(first).toMatchObject({
       preservationRequired: true,
       reason: "structure",
@@ -683,8 +723,14 @@ describe("update-document compare-and-swap", () => {
           { caller: "frontend", userEmail: OWNER },
         ),
       );
-    const first = await save(nextId("first-attempt"));
-    const retry = await save(nextId("retry-attempt"));
+    const first = await measuredSave(() => save(nextId("first-attempt")), {
+      outcome: "merged_with_displaced_text",
+      history_effect: "preservation",
+    });
+    const retry = await measuredSave(() => save(nextId("retry-attempt")), {
+      outcome: "replayed",
+      history_effect: "none",
+    });
     expect(first.bodyIntentOutcome).toMatchObject({
       status: "displaced-preserved",
     });
@@ -2120,4 +2166,473 @@ describe("update-document compare-and-swap", () => {
       status: "success",
     });
   });
+});
+
+describe("update-document save outcome counts", () => {
+  it.each(["frontend", "http"] as const)(
+    "counts a %s save-separately recovery copy once with no History transition on creation",
+    async (caller) => {
+      const resolveDraft = (await import("./resolve-preview-document-draft.js"))
+        .default;
+      const id = await createDocument({ title: "Page", content: "Body" });
+      const before = await documentRow(id);
+      await getDb()
+        .insert(schema.documentPreviewDrafts)
+        .values({
+          id: nextId("separate-draft"),
+          ownerEmail: OWNER,
+          orgId: "",
+          documentId: id,
+          title: "Recovered page",
+          content: "Recovered body",
+          baseDocumentUpdatedAt: before.updatedAt,
+        });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      outcomeCounter.mockClear();
+      const request = {
+        choice: "save_separately" as const,
+        documentId: id,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: "Recovered page",
+        expectedDraftContent: "Recovered body",
+        expectedDocumentUpdatedAt: before.updatedAt,
+      };
+      const invoke = () =>
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          resolveDraft.run(request, { caller, userEmail: OWNER }),
+        );
+      const first = await invoke();
+      const replay = await invoke();
+      expect(first).toMatchObject({
+        status: "resolved",
+        choice: "save_separately",
+      });
+      expect(replay.document.id).toBe(first.document.id);
+      expect((await documentRow(first.document.id)).content).toBe(
+        "Recovered body",
+      );
+      expect((await documentRow(id)).content).toBe("Body");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(outcomeCounter).toHaveBeenCalledExactlyOnceWith(
+        "content_save_outcome_counts",
+        {
+          operation: "create_document",
+          outcome: "written",
+          origin: "recovery",
+          stale_base: "unknown",
+          history_effect: "none",
+        },
+      );
+      expect(
+        await getDb()
+          .select()
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.documentId, first.document.id)),
+      ).toHaveLength(0);
+    },
+  );
+
+  it("classifies a current-body save as written even when an unused title base is stale", async () => {
+    const id = await createDocument({
+      title: "Canonical title",
+      content: "Body",
+    });
+    const revision = documentRevisionToken(0, "Body");
+    await measuredSave(
+      () =>
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          updateDocumentAction.run(
+            {
+              id,
+              title: "Canonical title",
+              baseTitle: "Earlier title",
+              content: "Changed body",
+              baseRevision: revision,
+              authoredBaseRevision: revision,
+              authoredBaseContent: "Body",
+              authoredCandidateContent: "Changed body",
+              editorSessionId: nextId("current-body-session"),
+              editorEditGeneration: 1,
+              browserSaveAttemptId: nextId("current-body-attempt"),
+            },
+            { caller: "frontend", userEmail: OWNER },
+          ),
+        ),
+      {
+        outcome: "written",
+        stale_base: "true",
+        history_effect: "transition",
+      },
+    );
+  });
+
+  it("keeps the committed outcome in counters and audit when post-save refresh fails", async () => {
+    const appState = await import("@agent-native/core/application-state");
+    const error = new Error("injected refresh failure");
+    const refresh = vi
+      .spyOn(appState, "writeAppState")
+      .mockRejectedValueOnce(error);
+    const id = await createDocument({ title: "Before", content: "Body" });
+    try {
+      await measuredSave(
+        async () => {
+          await expect(
+            runWithRequestContext({ userEmail: OWNER }, () =>
+              updateDocumentAction.run(
+                {
+                  id,
+                  title: "After",
+                  baseTitle: "Before",
+                },
+                {
+                  caller: "frontend",
+                  userEmail: OWNER,
+                  actionName: "update-document",
+                },
+              ),
+            ),
+          ).rejects.toBe(error);
+        },
+        { outcome: "written", history_effect: "transition" },
+      );
+      expect((await documentRow(id)).title).toBe("After");
+      const { queryAuditEvents } = await import("@agent-native/core/audit");
+      const events = await queryAuditEvents(
+        { userEmail: OWNER },
+        {
+          action: "update-document",
+          targetType: "document",
+          targetId: id,
+        },
+      );
+      expect(events[0]).toMatchObject({
+        status: "error",
+        summary: `update-document outcome=written document=${id}`,
+      });
+    } finally {
+      refresh.mockRestore();
+    }
+  });
+
+  it("reports actual transitions and preservation together for a partially displaced merge", async () => {
+    const base = "Shared passage\nOther passage";
+    const id = await createDocument({ content: base });
+    const revision = documentRevisionToken(0, base);
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      editDocumentAction.run(
+        {
+          id,
+          baseRevision: revision,
+          idempotencyKey: nextId("agent-partial-overlap"),
+          find: "Shared passage",
+          replace: "Agent passage",
+        },
+        { caller: "mcp", userEmail: OWNER },
+      ),
+    );
+    const candidate = "Browser passage\nBrowser other passage";
+    const saved = await measuredSave(
+      () =>
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          updateDocumentAction.run(
+            {
+              id,
+              content: candidate,
+              baseRevision: revision,
+              authoredBaseRevision: revision,
+              authoredBaseContent: base,
+              authoredCandidateContent: candidate,
+              editorSessionId: nextId("partially-displaced-session"),
+              editorEditGeneration: 1,
+              browserSaveAttemptId: nextId("partially-displaced-attempt"),
+            },
+            {
+              caller: "frontend",
+              userEmail: OWNER,
+              actionName: "update-document",
+            },
+          ),
+        ),
+      {
+        outcome: "merged_with_displaced_text",
+        stale_base: "true",
+        history_effect: "transition_and_preservation",
+      },
+    );
+    expect(saved.content).toBe("Agent passage\nBrowser other passage");
+    expect((await documentRow(id)).content).toBe(saved.content);
+    const { queryAuditEvents } = await import("@agent-native/core/audit");
+    const events = await queryAuditEvents(
+      { userEmail: OWNER },
+      {
+        action: "update-document",
+        targetType: "document",
+        targetId: id,
+      },
+    );
+    expect(events[0].summary).toBe(
+      `update-document outcome=merged_with_displaced_text document=${id}`,
+    );
+  });
+
+  it("counts nested draft recovery only at its inner save", async () => {
+    const resolveDraft = (await import("./resolve-preview-document-draft.js"))
+      .default;
+    const id = await createDocument({ title: "Page", content: "Body" });
+    const before = await documentRow(id);
+    await getDb()
+      .insert(schema.documentPreviewDrafts)
+      .values({
+        id: nextId("nested-draft"),
+        ownerEmail: OWNER,
+        orgId: "",
+        documentId: id,
+        title: "Page",
+        content: "Recovered body",
+        baseDocumentUpdatedAt: before.updatedAt,
+      });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    outcomeCounter.mockClear();
+    const request = {
+      choice: "keep_mine" as const,
+      documentId: id,
+      expectedDraftVersion: 1,
+      expectedDraftTitle: "Page",
+      expectedDraftContent: "Recovered body",
+      expectedDocumentUpdatedAt: before.updatedAt,
+    };
+    const invoke = () =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        resolveDraft.run(request, { caller: "frontend", userEmail: OWNER }),
+      );
+    expect(await invoke()).toMatchObject({ status: "resolved" });
+    expect(await invoke()).toMatchObject({ status: "resolved" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(outcomeCounter).toHaveBeenCalledExactlyOnceWith(
+      "content_save_outcome_counts",
+      {
+        operation: "update_document",
+        outcome: "written",
+        origin: "recovery",
+        stale_base: "false",
+        history_effect: "transition",
+      },
+    );
+    expect((await documentRow(id)).content).toBe("Recovered body");
+  });
+
+  it("reclassifies a rolled-back preservation as the concurrently committed replay", async () => {
+    const receipts = await import("./_browser-document-save-attempt.js");
+    const id = await createDocument({ title: "Page", content: "Body" });
+    const before = await documentRow(id);
+    const args = {
+      id,
+      content: "Unlineaged candidate",
+      browserSaveAttemptId: nextId("rollback-attempt"),
+    };
+    const db = getDb();
+    const originalTransaction = db.transaction.bind(db);
+    const transaction = vi
+      .spyOn(db, "transaction")
+      .mockImplementation((callback: any) =>
+        originalTransaction(async (tx: any) => {
+          await callback(tx);
+          throw new Error("injected concurrent receipt collision");
+        }),
+      );
+    const originalLookup = receipts.findBrowserSaveAttempt;
+    const parsedArgs =
+      await updateDocumentAction.schema["~standard"].validate(args);
+    if (parsedArgs.issues) throw new Error("Invalid rollback fixture");
+    let lookups = 0;
+    const lookup = vi
+      .spyOn(receipts, "findBrowserSaveAttempt")
+      .mockImplementation(async (input) => {
+        lookups += 1;
+        if (lookups < 3) return originalLookup(input);
+        return {
+          attemptId: args.browserSaveAttemptId,
+          payloadDigest: receipts.browserSavePayloadDigest(parsedArgs.value),
+          resultJson: JSON.stringify({
+            kind: "preservation-required",
+            revision: documentRevisionToken(0, "Body"),
+            updatedAt: before.updatedAt,
+            reason: "provenance",
+            checkpointId: "concurrent-checkpoint",
+          }),
+        };
+      });
+    try {
+      const replay = await measuredSave(
+        () =>
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            updateDocumentAction.run(args, {
+              caller: "frontend",
+              userEmail: OWNER,
+            }),
+          ),
+        {
+          outcome: "replayed",
+          stale_base: "unknown",
+          history_effect: "none",
+        },
+      );
+      expect(replay).toMatchObject({
+        preservationRequired: true,
+        checkpointId: "concurrent-checkpoint",
+      });
+      expect(
+        await getDb()
+          .select()
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.documentId, id)),
+      ).toHaveLength(0);
+      expect(outcomeCounter.mock.calls[0][1]).not.toHaveProperty("reason_code");
+    } finally {
+      lookup.mockRestore();
+      transaction.mockRestore();
+    }
+  });
+
+  it("counts unchanged, stale conflict, refusal and superseded saves once", async () => {
+    const id = await createDocument({ title: "Page", content: "Body" });
+    const frontend = { caller: "frontend" as const, userEmail: OWNER };
+    const invoke = (args: Parameters<typeof updateDocumentAction.run>[0]) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run(args, frontend),
+      );
+    await measuredSave(() => invoke({ id, title: "Page" }), {
+      outcome: "unchanged",
+      history_effect: "none",
+    });
+    await measuredSave(
+      () => invoke({ id, title: "Changed", baseTitle: "Stale title" }),
+      {
+        outcome: "conflict",
+        history_effect: "none",
+        reason_code: "title_base_changed",
+      },
+    );
+    await measuredSave(
+      async () => {
+        await expect(
+          invoke({ id, editorSessionId: "incomplete" }),
+        ).rejects.toMatchObject({
+          errorCode: "INVALID_EDITOR_EDIT_IDENTITY",
+        });
+      },
+      {
+        outcome: "refused",
+        history_effect: "none",
+        reason_code: "INVALID_EDITOR_EDIT_IDENTITY",
+      },
+    );
+    const editorSessionId = nextId("discarded-session");
+    await getDb()
+      .insert(schema.documentPreviewDraftSettlements)
+      .values({
+        id: nextId("discarded-settlement"),
+        ownerEmail: OWNER,
+        orgId: "",
+        documentId: id,
+        editorSessionId,
+        settledGeneration: 2,
+        discardedGeneration: 2,
+      });
+    const superseded = await measuredSave(
+      () =>
+        invoke({
+          id,
+          title: "Discarded",
+          editorSessionId,
+          editorEditGeneration: 1,
+        }),
+      { outcome: "superseded", history_effect: "none" },
+    );
+    expect(superseded).toMatchObject({ superseded: true });
+    expect((await documentRow(id)).title).toBe("Page");
+  });
+
+  it("keeps recovery context outside the hashed payload and gives keepalive/flush replays no History effect", async () => {
+    const id = await createDocument({ title: "Page", content: "Body" });
+    const args = {
+      id,
+      title: "Recovery title",
+      browserSaveAttemptId: nextId("recovery-attempt"),
+    };
+    const invoke = (recovery: boolean) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run(args, {
+          caller: "frontend",
+          userEmail: OWNER,
+          ...(recovery
+            ? {
+                requestHeaders: new Headers({
+                  "X-Content-Save-Origin": "recovery",
+                }),
+              }
+            : {}),
+        }),
+      );
+    const saved = await measuredSave(() => invoke(true), {
+      outcome: "written",
+      origin: "recovery",
+      history_effect: "transition",
+    });
+    const replay = await measuredSave(() => invoke(false), {
+      outcome: "replayed",
+      origin: "browser",
+      history_effect: "none",
+    });
+    expect(replay.browserSaveAttempt?.result).toBe("replayed");
+    expect(replay.revision).toBe(saved.revision);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentBrowserSaveAttempts)
+        .where(eq(schema.documentBrowserSaveAttempts.documentId, id)),
+    ).toHaveLength(1);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentVersions)
+        .where(eq(schema.documentVersions.documentId, id)),
+    ).toHaveLength(2);
+  });
+
+  it.each(["throws", "rejects", "never settles"])(
+    "preserves real save results and ordering when telemetry %s",
+    async (failure) => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      outcomeCounter.mockClear();
+      outcomeCounter.mockImplementation(() => {
+        if (failure === "throws") throw new Error("provider failed");
+        if (failure === "rejects")
+          return Promise.reject(new Error("provider failed"));
+        return new Promise(() => {});
+      });
+      try {
+        const id = await createDocument({ title: "Before", content: "Body" });
+        const invoke = (title: string, baseTitle: string) =>
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            updateDocumentAction.run(
+              { id, title, baseTitle },
+              { caller: "frontend", userEmail: OWNER },
+            ),
+          );
+        const first = await invoke("First", "Before");
+        expect(first.title).toBe("First");
+        const second = await invoke("Second", "First");
+        expect(second.title).toBe("Second");
+        expect(new Date(second.updatedAt).getTime()).toBeGreaterThan(
+          new Date(first.updatedAt).getTime(),
+        );
+        expect((await documentRow(id)).title).toBe("Second");
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(outcomeCounter).toHaveBeenCalledTimes(2);
+      } finally {
+        outcomeCounter.mockReset();
+      }
+    },
+  );
 });

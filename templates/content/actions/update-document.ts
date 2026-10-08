@@ -75,6 +75,11 @@ import {
   favoritesSystemIds,
   setFavoriteMembership,
 } from "./_content-favorites.js";
+import {
+  contentSaveOutcome,
+  contentSaveOutcomeForArgs,
+  observeDocumentUpdateOutcome,
+} from "./_content-save-outcomes.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
 import {
@@ -571,20 +576,10 @@ export default defineAction({
       };
     },
     summary: (args, result) =>
-      (result as DocumentUpdateConflictResponse | null)?.conflict
-        ? `Document update conflicted for ${args.id}`
-        : `Updated document ${args.id}`,
+      `update-document outcome=${contentSaveOutcome(result) ?? contentSaveOutcomeForArgs(args) ?? "refused"} document=${args.id}`,
   },
   changeResource: (input) => documentChangeResource(input.id),
-  run: async (
-    args,
-    ctx,
-  ): Promise<
-    | BrowserDocumentUpdateResponse
-    | DocumentUpdateConflictResponse
-    | DocumentUpdateSupersededResponse
-    | DocumentUpdatePreservationResponse
-  > => {
+  run: observeDocumentUpdateOutcome(async (args, ctx, measurement) => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
     if (
@@ -742,6 +737,7 @@ export default defineAction({
         attemptId: args.browserSaveAttemptId,
       });
       if (stored) {
+        measurement.outcome = "replayed";
         const receipt = readBrowserSaveAttempt(stored, browserSavePayload);
         const [current] = await db
           .select()
@@ -832,6 +828,7 @@ export default defineAction({
           })
         ) {
           browserSaveContentRejected = true;
+          measurement.reason_code = "stale_builder_image";
           content = existing.content;
         }
       }
@@ -845,10 +842,12 @@ export default defineAction({
         })
       ) {
         browserSaveContentRejected = true;
+        measurement.reason_code = "stale_empty_body";
         content = existing.content;
       }
     }
     if (browserSaveContentRejected && args.browserSaveAttemptId) {
+      measurement.outcome = "conflict";
       return scopeDocumentAudit(
         documentConflictResponse(existing, access.role, currentFavorite),
         ownerEmail,
@@ -911,6 +910,8 @@ export default defineAction({
       let committedEditorSnapshot: { title: string; content: string } | null =
         null;
       const mutate = async (tx: any) => {
+        measurement.outcome = "unchanged";
+        measurement.history_effect = "none";
         await tx
           .select({ id: schema.documents.id })
           .from(schema.documents)
@@ -925,6 +926,7 @@ export default defineAction({
             attemptId: args.browserSaveAttemptId,
           });
           if (stored) {
+            measurement.outcome = "replayed";
             const receipt = readBrowserSaveAttempt(stored, browserSavePayload);
             if ("kind" in receipt) {
               preservationRequired = {
@@ -960,6 +962,7 @@ export default defineAction({
             (args.editorEditGeneration as number) <= discardedGeneration
           ) {
             discardedEditorGeneration = discardedGeneration;
+            measurement.outcome = "superseded";
             return;
           }
         }
@@ -975,10 +978,39 @@ export default defineAction({
           .from(schema.documents)
           .where(eq(schema.documents.id, id))
           .limit(1);
+        const observedBaseRevision =
+          args.authoredBaseRevision ?? args.baseRevision;
+        const bodyBaseStale =
+          observedBaseRevision !== undefined &&
+          observedBaseRevision !==
+            documentRevisionToken(
+              historyBefore.bodyRevision,
+              historyBefore.content,
+            );
+        const staleComparisons = [
+          ...(observedBaseRevision
+            ? [bodyBaseStale]
+            : args.baseUpdatedAt !== undefined
+              ? [args.baseUpdatedAt !== historyBefore.updatedAt]
+              : []),
+          ...(args.baseTitle !== undefined
+            ? [args.baseTitle !== historyBefore.title]
+            : []),
+          ...(args.recoveryExpectedUpdatedAt !== undefined
+            ? [args.recoveryExpectedUpdatedAt !== historyBefore.updatedAt]
+            : []),
+        ];
+        measurement.stale_base =
+          staleComparisons.length === 0
+            ? "unknown"
+            : staleComparisons.some(Boolean)
+              ? "true"
+              : "false";
         if (
           args.recoveryExpectedUpdatedAt !== undefined &&
           historyBefore.updatedAt !== args.recoveryExpectedUpdatedAt
         ) {
+          measurement.reason_code = "recovery_base_changed";
           contentCasConflict = true;
           return;
         }
@@ -1054,6 +1086,9 @@ export default defineAction({
             now: nextDocumentUpdatedAt(historyBefore.updatedAt),
           });
           preservationRequired = { reason, checkpointId };
+          measurement.outcome = "preserved_to_history";
+          measurement.history_effect = "preservation";
+          measurement.reason_code = reason;
           if (args.browserSaveAttemptId && browserSavePayload) {
             await tx.insert(schema.documentBrowserSaveAttempts).values({
               id: randomUUID(),
@@ -1107,6 +1142,7 @@ export default defineAction({
                   displacedCheckpointId: prior.displacedCheckpointId,
                 }
               : { status: "applied" };
+            measurement.outcome = "replayed";
             await confirmBrowserSave(historyBefore, historyBefore.updatedAt);
             return;
           }
@@ -1190,6 +1226,7 @@ export default defineAction({
               historyBefore.content,
             )
         ) {
+          measurement.reason_code = "body_base_changed";
           contentCasConflict = true;
           return;
         }
@@ -1198,6 +1235,7 @@ export default defineAction({
           args.baseTitle !== undefined &&
           historyBefore.title !== args.baseTitle
         ) {
+          measurement.reason_code = "title_base_changed";
           contentCasConflict = true;
           return;
         }
@@ -1312,6 +1350,11 @@ export default defineAction({
           );
         }
         committedContentChanged = lockedContentChanged;
+        measurement.outcome = lockedDocumentFieldsChanged
+          ? intentMerge && bodyBaseStale && lockedContentChanged
+            ? "merged"
+            : "written"
+          : "unchanged";
         committedContentBefore = historyBefore.content;
 
         if (lockedTitleChanged && args.title !== undefined) {
@@ -1349,6 +1392,7 @@ export default defineAction({
             },
             now: updatedAt,
           });
+          measurement.history_effect = "transition";
         }
         if (intentMerge && authoredBase) {
           const intent = {
@@ -1370,6 +1414,13 @@ export default defineAction({
                 now: updatedAt,
               })
             : undefined;
+          if (displacedCheckpointId) {
+            measurement.outcome = "merged_with_displaced_text";
+            measurement.history_effect =
+              measurement.history_effect === "transition"
+                ? "transition_and_preservation"
+                : "preservation";
+          }
           await recordDocumentBodyIntent({
             db: tx as ReturnType<typeof getDb>,
             ownerEmail,
@@ -1429,6 +1480,10 @@ export default defineAction({
           favorite: args.isFavorite as boolean,
           now: nextDocumentUpdatedAt(existing.updatedAt),
         });
+        measurement.outcome =
+          favoriteChanged || args.isFavorite === false
+            ? "written"
+            : "unchanged";
       } else {
         try {
           await db.transaction(mutate);
@@ -1443,6 +1498,10 @@ export default defineAction({
           });
           if (!stored) throw error;
           const receipt = readBrowserSaveAttempt(stored, browserSavePayload);
+          measurement.outcome = "replayed";
+          measurement.history_effect = "none";
+          measurement.stale_base = "unknown";
+          delete measurement.reason_code;
           if ("kind" in receipt) {
             preservationRequired = {
               reason: receipt.reason,
@@ -1453,6 +1512,10 @@ export default defineAction({
           }
         }
       }
+
+      if (contentCasConflict && measurement.outcome !== "replayed")
+        measurement.outcome = "conflict";
+      measurement.settled = true;
 
       if (discardedEditorGeneration !== undefined) {
         const [current] = await db
@@ -1561,6 +1624,7 @@ export default defineAction({
       }
     }
 
+    measurement.settled = true;
     const [doc] = await db
       .select()
       .from(schema.documents)
@@ -1606,5 +1670,5 @@ export default defineAction({
       } satisfies BrowserDocumentUpdateResponse,
       ownerEmail,
     );
-  },
+  }),
 });

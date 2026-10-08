@@ -22,6 +22,7 @@ import {
   type UseCollabReconcileResult,
 } from "@agent-native/toolkit/editor";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import type { EditorMountMode } from "@shared/editor-mount-outcomes";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   serializeRegistryBlockToMdx,
@@ -109,6 +110,7 @@ import {
   isEditorDraftSaveAccepted,
   type EditorDraftSaveResult,
 } from "./editor-draft-save";
+import { observeEditorMount } from "./editor-mount-telemetry";
 import { AudioNode } from "./extensions/AudioNode";
 import { BodyElementTiming } from "./extensions/BodyElementTiming";
 import { CodeBlock } from "./extensions/CodeBlockNode";
@@ -1548,6 +1550,8 @@ function writeContentSelectionState(value: unknown) {
 }
 
 interface VisualEditorProps {
+  visitKey?: string;
+  editorMountMode?: EditorMountMode;
   documentId?: string;
   contentSpaceId?: string;
   content: string;
@@ -3000,6 +3004,8 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
 }
 
 export function VisualEditor({
+  visitKey,
+  editorMountMode,
   documentId,
   contentSpaceId,
   content,
@@ -3432,6 +3438,18 @@ export function VisualEditor({
     ReturnType<typeof setTimeout> | undefined
   >(undefined);
   const editor = useEditor({
+    onCreate: ({ editor }) => {
+      if (editor.isDestroyed || !editor.view.dom.isConnected) return;
+      if (documentId && visitKey !== undefined) {
+        observeEditorMount(
+          editor,
+          documentId,
+          visitKey,
+          editorMountMode ??
+            (!editable ? "readonly" : suggesting ? "suggesting" : "editing"),
+        );
+      }
+    },
     extensions,
     content: ydoc ? undefined : nfmToDoc(content),
     editorProps: {
@@ -4195,6 +4213,17 @@ export function VisualEditor({
   );
 
   const editableMarkedRef = useRef(false);
+  useEffect(() => {
+    if (editor && !editor.isDestroyed && documentId && visitKey !== undefined) {
+      observeEditorMount.modeChanged(
+        editor,
+        documentId,
+        visitKey,
+        editorMountMode ??
+          (!editable ? "readonly" : suggesting ? "suggesting" : "editing"),
+      );
+    }
+  }, [editor, editable, documentId, visitKey, suggesting, editorMountMode]);
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     editor.setEditable(editable);

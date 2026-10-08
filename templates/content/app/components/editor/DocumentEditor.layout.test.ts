@@ -3126,7 +3126,7 @@ describe("document editor layout", () => {
     const bounds = [
       source.indexOf("const sendKeepaliveSave"),
       source.indexOf("const onVisibilityChange"),
-      source.indexOf("return await updateDocument.mutateAsync({"),
+      source.indexOf("return await updateDocument.mutateAsync("),
       source.indexOf("editorSnapshotTitle: options.editorSnapshotTitle"),
     ];
     expect(bounds).not.toContain(-1);
@@ -3138,8 +3138,8 @@ describe("document editor layout", () => {
     expect(keepalive).toContain(
       "loadedUpdatedAtForSave(\n          pending.contentBase,\n          documentUpdatedAtRef.current,\n        )",
     );
-    expect(flush).toContain(
-      "loadedUpdatedAtForSave(\n            options.contentBase,\n            documentUpdatedAtRef.current,\n          )",
+    expect(flush).toMatch(
+      /loadedUpdatedAtForSave\(\s*options\.contentBase,\s*documentUpdatedAtRef\.current,\s*\)/,
     );
     expect(
       loadedUpdatedAtForSave(

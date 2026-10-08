@@ -39,6 +39,7 @@ import {
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
+import { observeRecoveryDocumentCreate } from "./_content-save-outcomes.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { resolveContentSpaceTarget } from "./_content-space-target.js";
 import {
@@ -169,7 +170,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
-  run: async (args, ctx) => {
+  run: observeRecoveryDocumentCreate(async (args, ctx, measurement) => {
     const hasCreativeContextInput = Boolean(
       args.contextPackId ||
       args.contextModeOverride ||
@@ -439,6 +440,8 @@ export default defineAction({
             orgId: orgId ?? undefined,
           });
         });
+        measurement.outcome = "written";
+        measurement.settled = true;
       },
     );
 
@@ -501,7 +504,7 @@ export default defineAction({
       updatedAt: doc.updatedAt,
       ...(creativeContextProvenance ?? {}),
     };
-  },
+  }),
   link: ({ result }) => {
     const id = (result as { id?: string } | null)?.id;
     if (!id) return null;

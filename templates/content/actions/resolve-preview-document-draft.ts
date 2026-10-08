@@ -704,6 +704,8 @@ export default defineAction({
           current.bodyRevision,
           current.content,
         );
+        const requestHeaders = new Headers(ctx?.requestHeaders);
+        requestHeaders.set("X-Content-Save-Origin", "recovery");
         const saved = await updateDocument.run(
           {
             id: args.documentId,
@@ -727,7 +729,7 @@ export default defineAction({
             preserveLeadingTitleHeading: true,
             reuseLabels: [],
           },
-          { ...ctx, caller: "frontend" },
+          { ...ctx, caller: "frontend", requestHeaders },
         );
         if ("conflict" in saved && saved.conflict === true) {
           const [winner] = await db
@@ -847,6 +849,8 @@ export default defineAction({
     let created;
     try {
       try {
+        const requestHeaders = new Headers(ctx?.requestHeaders);
+        requestHeaders.set("X-Content-Save-Origin", "recovery");
         created = await createDocument.run(
           {
             id: destinationId,
@@ -855,7 +859,7 @@ export default defineAction({
             preserveLeadingTitleHeading: true,
             reuseLabels: [],
           },
-          ctx,
+          { ...ctx, caller: ctx?.caller ?? "frontend", requestHeaders },
         );
       } catch (error) {
         const existing = await findExistingRecovery();

@@ -40,6 +40,8 @@ import {
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 
+import { contentSaveTelemetryHeaders } from "@/lib/content-save-telemetry";
+
 import type {
   DocumentUpdateConflictResponse,
   DocumentUpdateSupersededResponse,
@@ -1199,7 +1201,7 @@ function recoverRecentAfterDocumentSaves(queryClient: QueryClient) {
   reconcile();
 }
 
-export function useUpdateDocument() {
+export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
   const queryClient = useQueryClient();
   const t = useT();
   const restoreContentDatabase = useRestoreContentDatabase();
@@ -1210,6 +1212,8 @@ export function useUpdateDocument() {
     "update-document",
     {
       mutationKey: DOCUMENT_UPDATE_MUTATION_KEY,
+      headers: (payload) =>
+        contentSaveTelemetryHeaders(payload, options?.saveOrigin),
       skipActionQueryInvalidation: true,
       onMutate: async (variables) => {
         // This tab's own saves never come back through sync.

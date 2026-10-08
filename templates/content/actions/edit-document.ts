@@ -29,6 +29,11 @@ import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
+import {
+  observeDocumentEditOutcome,
+  recordContentSaveOutcome,
+  type ContentSaveOutcomeDimensions,
+} from "./_content-save-outcomes.js";
 import { mutateDocumentBody } from "./_document-edit-mutation.js";
 import { editLinkedLocalDocumentThroughBrowser } from "./_linked-local-document-edit.js";
 
@@ -234,7 +239,21 @@ export default defineAction({
     openWorldHint: false,
   },
   changeResource: (input) => documentChangeResource(input.id),
-  run: async (args, ctx) => {
+  run: observeDocumentEditOutcome(async (args, ctx, measurement) => {
+    const countOutcome = (
+      outcome: ContentSaveOutcomeDimensions["outcome"],
+      historyEffect: ContentSaveOutcomeDimensions["history_effect"],
+      reasonCode?: string,
+    ) => {
+      measurement.settled = true;
+      recordContentSaveOutcome("edit_document", {
+        outcome,
+        origin: "agent",
+        stale_base: "unknown",
+        history_effect: historyEffect,
+        reason_code: reasonCode,
+      });
+    };
     const id = args.id;
     if (!id) throw new Error("--id is required");
     const actor = requireDocumentRequestActor(ctx);
@@ -315,6 +334,7 @@ export default defineAction({
       const mutation = initializesBody
         ? { initializeContent: args.initializeContent as string }
         : { edits };
+      measurement.settled = true;
       const result = await mutateDocumentBody({
         documentId: id,
         baseRevision: args.baseRevision,
@@ -375,6 +395,11 @@ export default defineAction({
     const { results, changeCount } = applied;
 
     if (changeCount === 0) {
+      countOutcome(
+        edits.length === 0 ? "unchanged" : "refusal",
+        "none",
+        edits.length === 0 ? undefined : "EDIT_MATCH_MISSING",
+      );
       return { applied: 0, total: edits.length, results };
     }
 
@@ -418,6 +443,7 @@ export default defineAction({
     if (isLinkedLocalSource) {
       const ownerEmail = getRequestUserEmail();
       if (!ownerEmail) {
+        countOutcome("refusal", "none", "local_source_unavailable");
         return {
           applied: 0,
           total: edits.length,
@@ -458,6 +484,7 @@ export default defineAction({
         receipt.status !== "source-persisted/history-pending" &&
         receipt.status !== "source-persisted/readback-pending"
       ) {
+        countOutcome("refusal", "none", "local_source_refused");
         return {
           applied: 0,
           total: edits.length,
@@ -537,6 +564,7 @@ export default defineAction({
       });
     } catch (error) {
       if (!linkedLocalPersistence) throw error;
+      countOutcome("refusal", "none", "source_persisted_history_pending");
       return {
         applied: changeCount,
         total: edits.length,
@@ -551,6 +579,11 @@ export default defineAction({
     }
 
     if (linkedLocalHistoryReconciliation) {
+      countOutcome(
+        "refusal",
+        "transition",
+        "source_persisted_history_reconciled",
+      );
       return {
         applied: 0,
         total: edits.length,
@@ -561,6 +594,14 @@ export default defineAction({
           "The source changed during verification. Content history was reconciled to the physical file, but the requested agent edit was not confirmed.",
       };
     }
+
+    countOutcome(
+      "applied",
+      "transition",
+      linkedLocalPersistence?.status === "source-persisted/readback-pending"
+        ? "local_source_readback_pending"
+        : undefined,
+    );
 
     if (isAgentCaller) {
       try {
@@ -616,5 +657,5 @@ export default defineAction({
           }
         : {}),
     };
-  },
+  }),
 });
