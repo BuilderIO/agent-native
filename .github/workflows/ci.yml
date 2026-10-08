@@ -423,7 +423,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -431,15 +431,22 @@ jobs:
           [
             inspector-1,
             inspector-2,
+            inspector-3,
+            inspector-4,
             drag-1,
             drag-2,
-            position,
+            position-1,
+            position-2,
+            position-3,
             changed-1,
             changed-2,
             changed-3,
             changed-4,
             changed-5,
             changed-6,
+            screen-history-1,
+            screen-history-2,
+            screen-history-3,
           ]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -458,22 +465,39 @@ jobs:
           restore-keys: playwright-${{ runner.os }}-
 
       - name: Install Playwright Chromium
-        run: pnpm exec playwright install --only-shell --with-deps chromium
+        run: pnpm exec playwright install --only-shell chromium
 
       - name: Run focused Screen selection history regressions
+        if: startsWith(matrix.shard, 'screen-history-')
         working-directory: templates/design
-        timeout-minutes: 10
+        timeout-minutes: 4
         env:
-          E2E_RUN_ID: design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}
+          E2E_RUN_ID: design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
         run: |
+          case "${{ matrix.shard }}" in
+            screen-history-1)
+              grep='undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id|undo restores a child layer with its additive Screen selection|marquee-selecting child elements after a Screen pick deletes only the elements|undoing a canvas element click restores its explicit Screen target for Delete|failed Screen deletion keeps the explicit Screen target for retry'
+              ;;
+            screen-history-2)
+              grep='a newer layer selection survives failed Screen deletion settlement|Shift-marquee adds a hit Screen to the existing Delete selection|a newer Screen pick survives failed Screen deletion settlement|a newer sidebar Screen selection survives failed Screen deletion settlement|Select All Screens survives failed Screen deletion settlement'
+              ;;
+            screen-history-3)
+              grep='deleting a selected child layer keeps its owning Screen|marquee selection persists and deletes Screens after a prior layer selection|deep-select marquee over a Screen deletes only the child|Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete|Shift-marquee reselecting an owner Screen makes Delete target the Screen'
+              ;;
+            *)
+              echo "::error::Unknown Screen-history shard: ${{ matrix.shard }}"
+              exit 2
+              ;;
+          esac
           pnpm exec playwright test \
             e2e/parity-selection-history-delete-screen.spec.ts \
-            --grep "deleting a selected child layer keeps its owning Screen|undo restores a child layer with its additive Screen selection|marquee-selecting child elements after a Screen pick deletes only the elements|undoing a canvas element click restores its explicit Screen target for Delete|failed Screen deletion keeps the explicit Screen target for retry|a newer layer selection survives failed Screen deletion settlement|Shift-marquee adds a hit Screen to the existing Delete selection|a newer Screen pick survives failed Screen deletion settlement|a newer sidebar Screen selection survives failed Screen deletion settlement|Select All Screens survives failed Screen deletion settlement|marquee selection persists and deletes Screens after a prior layer selection|deep-select marquee over a Screen deletes only the child|Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete|Shift-marquee reselecting an owner Screen makes Delete target the Screen" \
+            --grep "$grep" \
             --workers=1
 
       - name: Run focused Design regression cases
+        if: ${{ !startsWith(matrix.shard, 'screen-history-') }}
         working-directory: templates/design
-        timeout-minutes: 15
+        timeout-minutes: 20
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
@@ -513,27 +537,39 @@ jobs:
                 e2e/inspector-styles.spec.ts:176 \
                 e2e/inspector-styles.spec.ts:238 \
                 e2e/inspector-styles.spec.ts:314 \
-                e2e/inspector-styles.spec.ts:426 \
-                e2e/inspector-styles.spec.ts:452 \
-                e2e/inspector-styles.spec.ts:541 \
               )
               ;;
             inspector-2)
               fixed_specs=( \
+                e2e/canvas-invariants.spec.ts:383 \
+                e2e/canvas-invariants.spec.ts:538 \
+                e2e/inspector-styles.spec.ts:452 \
+                e2e/inspector-styles.spec.ts:610 \
+                e2e/inspector-styles.spec.ts:737 \
+              )
+              ;;
+            inspector-3)
+              fixed_specs=( \
                 e2e/canvas-invariants.spec.ts:1170 \
                 e2e/canvas-invariants.spec.ts:1320 \
-                e2e/inspector-styles.spec.ts:610 \
-                e2e/inspector-styles.spec.ts:667 \
-                e2e/inspector-styles.spec.ts:737 \
-                e2e/inspector-styles.spec.ts:798 \
                 e2e/inspector-styles.spec.ts:833 \
                 e2e/inspector-styles.spec.ts:880 \
                 e2e/inspector-styles.spec.ts:999 \
               )
               ;;
+            inspector-4)
+              fixed_specs=( \
+                e2e/canvas-invariants.spec.ts:553 \
+                e2e/inspector-styles.spec.ts:541 \
+                e2e/inspector-styles.spec.ts:667 \
+                e2e/inspector-styles.spec.ts:798 \
+                e2e/inspector-styles.spec.ts:426 \
+              )
+              ;;
             drag-1)
               fixed_specs=( \
-                e2e/corner-radius-handle-drag.spec.ts:202 \
+                e2e/corner-radius-handle-drag.spec.ts:239 \
+                e2e/overview-wheel-zoom.spec.ts:185 \
                 e2e/drag-and-drop.drag-feedback.spec.ts:24 \
                 e2e/drag-and-drop.moving-by-drag.spec.ts:42 \
               )
@@ -541,21 +577,32 @@ jobs:
             drag-2)
               fixed_specs=( \
                 e2e/drag-and-drop.moving-by-drag.spec.ts:105 \
+                e2e/parity-alt-drag-duplicate.spec.ts:1293 \
                 e2e/parity-selection.spec.ts:313 \
                 e2e/parity-selection.spec.ts:451 \
                 e2e/parity-selection.spec.ts:572 \
               )
               ;;
-            position)
+            position-1)
               fixed_specs=( \
                 e2e/pasted-svg-image-inspector.spec.ts:656 \
                 e2e/pasted-svg-image-inspector.spec.ts:693 \
                 e2e/position-alignment.spec.ts:361 \
                 e2e/position-alignment.spec.ts:431 \
                 e2e/position-alignment.spec.ts:509 \
+              )
+              ;;
+            position-2)
+              fixed_specs=( \
+                e2e/position-alignment.spec.ts:292 \
                 e2e/position-alignment.spec.ts:570 \
                 e2e/position-alignment.spec.ts:615 \
                 e2e/position-alignment.spec.ts:661 \
+              )
+              ;;
+            position-3)
+              fixed_specs=( \
+                e2e/position-alignment.spec.ts:312 \
                 e2e/position-alignment.spec.ts:708 \
                 e2e/position-alignment.spec.ts:740 \
                 e2e/position-alignment.spec.ts:780 \

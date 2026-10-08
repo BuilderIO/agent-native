@@ -1472,8 +1472,12 @@ export default {
     time: "时间",
     storageSetupTitle: "连接回放存储",
     storageSetupDescription:
-      "保存会话回放录制片段前需要先配置存储。可使用 Builder.io 使用免费层存储，或配置您自己的 S3 兼容存储桶。",
+      "会话回放需要经过授权的文件上传服务。授予上传权限后，Builder.io 可以存储回放；您也可以配置自己的 S3 兼容存储桶。",
     storageConnected: "存储已连接",
+    storageStatusUnavailable:
+      "无法检查回放存储状态。请重试以确认上传是否已就绪。",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io 已连接，可用于 AI 和额度，但回放上传还需要单独的存储权限。",
     connectBuilder: "使用 Builder.io",
     configureS3: "配置 S3 存储",
     devtools: "开发工具",

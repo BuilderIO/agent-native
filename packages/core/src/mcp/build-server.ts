@@ -106,6 +106,17 @@ type MCPActionEntry = ActionEntry & {
   [PRESERVE_MCP_OBJECT_RESULT]?: true;
 };
 
+// A GET action is a query, so its result is the payload the model asked for
+// even when it declares readOnly: false because the read also repairs or caches
+// (Slides get-deck). Collapsing that result into a write confirmation leaves
+// the model with only "<title> is ready.".
+function returnsQueryPayload(entry: ActionEntry): boolean {
+  return (
+    entry.readOnly === true ||
+    (entry.http !== false && entry.http?.method === "GET")
+  );
+}
+
 export interface MCPConfig {
   name: string;
   title?: string;
@@ -3176,7 +3187,7 @@ export async function createMCPServerForRequest(
             toolVisibility.length > 0 &&
             toolVisibility.every((v) => v === "app");
           const structuredResult =
-            (entry.readOnly === true ||
+            (returnsQueryPayload(entry) ||
               entry.mcpApp?.structuredContent === true) &&
             actionResultForClient &&
             typeof actionResultForClient === "object"
@@ -3202,7 +3213,7 @@ export async function createMCPServerForRequest(
               )
             : conciseToolResultText(name, textResultForClient, {
                 preserveObjectResult:
-                  entry.readOnly === true ||
+                  returnsQueryPayload(entry) ||
                   (entry as MCPActionEntry)[PRESERVE_MCP_OBJECT_RESULT] ===
                     true,
               });

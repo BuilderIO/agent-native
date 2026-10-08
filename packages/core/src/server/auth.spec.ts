@@ -6199,6 +6199,7 @@ describe("server/auth", () => {
           )}`,
           "x-forwarded-proto": "https",
         },
+        "https://localhost",
       );
       const result = await registerHandler(event);
 
@@ -7157,7 +7158,7 @@ describe("server/auth", () => {
       expect(baHandler).toBeTypeOf("function");
 
       const fullPath = "/docs/_agent-native/auth/ba/sign-in/email";
-      const request = new Request(`http://localhost${fullPath}`, {
+      const request = new Request(`https://localhost${fullPath}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: "{}",
@@ -7741,7 +7742,7 @@ describe("server/auth", () => {
       });
       const event = {
         req: request,
-        url: new URL("http://localhost/send-verification-email"),
+        url: new URL("https://localhost/send-verification-email"),
         res: { headers: new Headers(), status: 200 },
         node: {
           req: { headers: {}, url: fullPath, method: "POST" },
@@ -7763,7 +7764,7 @@ describe("server/auth", () => {
 
       expect(forwardedBody).toEqual({
         email: "user@example.com",
-        callbackURL: "http://localhost/",
+        callbackURL: "https://localhost/",
       });
     });
 

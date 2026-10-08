@@ -556,7 +556,7 @@ function ChatCanvas({
   return (
     <AgentKitChat
       className="h-full"
-      title={thread.thread?.title ?? APP_TITLE}
+      title={thread.thread?.title?.trim() || APP_TITLE}
       toolbar={toolbar}
       emptyComposerPlacement="center"
       composerProps={{

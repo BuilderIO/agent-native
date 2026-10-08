@@ -1529,8 +1529,12 @@ export default {
     time: "시간",
     storageSetupTitle: "재생 저장소 연결",
     storageSetupDescription:
-      "세션 재생 녹화를 저장하려면 먼저 저장소가 필요합니다. 무료 등급 저장소를 사용하려면 Builder.io를 사용하거나, 직접 S3 호환 버킷을 구성하세요.",
+      "세션 재생에는 승인된 파일 업로드 제공업체가 필요합니다. 업로드 권한을 허용하면 Builder.io에 저장할 수 있고, 직접 S3 호환 버킷을 구성할 수도 있습니다.",
     storageConnected: "저장소 연결됨",
+    storageStatusUnavailable:
+      "재생 저장소 상태를 확인할 수 없습니다. 업로드가 준비되었는지 다시 확인하세요.",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io가 AI 및 크레딧용으로 연결되어 있지만 재생 업로드에는 별도의 저장소 권한이 필요합니다.",
     connectBuilder: "Builder.io 사용",
     configureS3: "S3 저장소 구성",
     devtools: "개발자 도구",

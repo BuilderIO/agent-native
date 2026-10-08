@@ -126,7 +126,7 @@ const messages = {
     googleOAuthNotConfigured:
       "이 배포에는 Google OAuth가 구성되어 있지 않습니다.",
     googlePickerNeedsKeys:
-      "Google Picker를 사용하려면 GOOGLE_PICKER_API_KEY와 GOOGLE_PICKER_APP_ID가 필요합니다.",
+      "Google Drive 파일 선택 기능이 설정되지 않았습니다. 문서 링크를 붙여넣어 계속 가져올 수 있습니다.",
     imageUploadFailed: "이미지 업로드 실패",
     imageUploadNeedsBuilder:
       "이미지를 업로드하려면 개체 스토리지를 연결하세요. Builder.io(무료)를 연결하거나 설정 → 파일 업로드에서 자체 S3 호환 스토리지 키를 추가하세요.",
@@ -773,6 +773,10 @@ const messages = {
     exportFailed: "导出失败",
     agentRunFailed:
       "슬라이드를 만들기 전에 에이전트 실행이 실패했습니다. 채팅에서 세부 정보를 확인한 뒤 다시 시도하세요.",
+    generationFailed:
+      "슬라이드를 만들지 못했습니다. 채팅에서 세부 정보를 확인한 뒤 다시 시도하세요.",
+    generationOutcomeUnresolved:
+      "슬라이드가 생성되었는지 확인할 수 없습니다. 덱이나 채팅을 확인한 다음 다시 시도하세요.",
     deckHasNoSlides: "덱에 슬라이드가 없습니다.",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",

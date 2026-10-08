@@ -97,6 +97,16 @@ describe("builderFileUploadProvider", () => {
     });
   });
 
+  it("treats a missing Builder asset as already deleted", async () => {
+    fetchMock.mockResolvedValue(errorResponse(404));
+
+    await expect(
+      builderFileUploadProvider.delete!({
+        url: "https://cdn.builder.io/api/v1/file/assets%2Fmissing.bin",
+      }),
+    ).resolves.toBe(true);
+  });
+
   it("deletes Builder assets with OAuth without legacy API key fields", async () => {
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "<OAUTH_TOKEN_EXAMPLE>",

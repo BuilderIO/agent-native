@@ -161,6 +161,7 @@ interface ProtocolRun {
   resumeAttempts?: number;
   quietAuthorityReads?: number;
   subscribeFailures?: number;
+  initialAuthorityRead?: RunAuthorityRead;
   terminalDrain?: TerminalDrain;
   readingTerminalDrain?: boolean;
   successorWaitStartedAtMs?: number;
@@ -1223,6 +1224,7 @@ export function createAgentKitProtocolAdapter(
   const sessions = new Map<string, Promise<AgentChatRuntimeSession>>();
   const runs = new Map<string, ProtocolRun>();
   const runtimeRunAliases = new Map<string, ProtocolRun>();
+  const pendingQueuePromotionRuns = new Map<string, Promise<string>>();
   const disposedSessions = new WeakSet<AgentChatRuntimeSession>();
   let retentionTimer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
@@ -1235,6 +1237,35 @@ export function createAgentKitProtocolAdapter(
     readRunState && subscribeToRuntimeRun
       ? { readRunState, subscribe: subscribeToRuntimeRun }
       : undefined;
+
+  async function readAuthoritativeRunState(input: {
+    sessionId: string;
+    runId?: string;
+    turnId?: string;
+  }): Promise<RunAuthorityRead> {
+    if (!runAuthority) {
+      throw new Error("The runtime does not provide run authority.");
+    }
+    try {
+      return {
+        kind: "read",
+        state: await runAuthority.readRunState({
+          ...input,
+          abortSignal: readers.signal,
+        }),
+      };
+    } catch (error) {
+      const failure = asRecord(error);
+      return failure?.retryable === false
+        ? {
+            kind: "refused",
+            ...(typeof failure.status === "number"
+              ? { status: failure.status }
+              : {}),
+          }
+        : { kind: "unreachable", error };
+    }
+  }
 
   function timeMs(value = now()): number {
     const parsed = Date.parse(value);
@@ -1256,6 +1287,22 @@ export function createAgentKitProtocolAdapter(
       return undefined;
     }
     return aliasedRun;
+  }
+
+  function findRunByTurnId(
+    threadId: string,
+    turnId: string,
+  ): ProtocolRun | undefined {
+    const owners = [...runs.values()].filter(
+      (run) => run.threadId === threadId && run.turn.id === turnId,
+    );
+    const activeOwners = owners.filter((run) => !run.terminal);
+    if (activeOwners.length > 1) {
+      throw new Error(
+        `Turn ${turnId} is owned by multiple active AgentKit runs in thread ${threadId}.`,
+      );
+    }
+    return activeOwners[0] ?? owners.at(-1);
   }
 
   function indexRun(
@@ -1288,6 +1335,72 @@ export function createAgentKitProtocolAdapter(
       runtimeRunAliases.set(aliasKey, run);
     }
     runs.set(run.runId, run);
+  }
+
+  async function resolveRuntimeRunOwner(
+    threadId: string,
+    runtimeRunId: string,
+    sessionId?: string,
+    authorityRead?: RunAuthorityRead,
+  ): Promise<{ owner?: ProtocolRun; read?: RunAuthorityRead }> {
+    if (!runAuthority) return {};
+    const candidates = [...runs.values()].filter(
+      (run) =>
+        run.threadId === threadId && !run.terminal && Boolean(run.turn.id),
+    );
+    const candidate = candidates[0];
+    const resolvedSessionId = sessionId ?? candidate?.session.id;
+    if (!resolvedSessionId) return {};
+
+    const read =
+      authorityRead ??
+      (await readAuthoritativeRunState({
+        sessionId: resolvedSessionId,
+        runId: runtimeRunId,
+      }));
+    if (read.kind !== "read") return { read };
+    const { state } = read;
+    if (state.status === "missing" || !state.turnId) return { read };
+
+    const current = findRun(threadId, runtimeRunId);
+    if (current?.turn.id === state.turnId) return { owner: current, read };
+
+    const pendingQueuePromotion = pendingQueuePromotionRuns.get(
+      JSON.stringify([threadId, state.turnId]),
+    );
+    if (pendingQueuePromotion) {
+      try {
+        const runId = await pendingQueuePromotion;
+        const owner = findRun(threadId, runId);
+        if (owner?.turn.id === state.turnId) {
+          const currentOwner = findRun(threadId, runtimeRunId);
+          if (currentOwner) {
+            return currentOwner.turn.id === state.turnId
+              ? { owner: currentOwner, read }
+              : { read };
+          }
+          indexRun(owner, runtimeRunId);
+          return { owner, read };
+        }
+      } catch {
+        // coercion-ok: startRun surfaces this rejection; restore from the separate authoritative read.
+      }
+    }
+
+    const currentCandidates = [...runs.values()].filter(
+      (run) =>
+        run.threadId === threadId && !run.terminal && Boolean(run.turn.id),
+    );
+    const owners = currentCandidates.filter(
+      (run) => run.turn.id === state.turnId,
+    );
+    if (owners.length !== 1) return { read };
+    const owner = owners[0];
+    if (current) return { read, ...(current === owner ? { owner } : {}) };
+
+    // The server can expose a successor before this run's stream follows it.
+    indexRun(owner, runtimeRunId);
+    return { owner, read };
   }
 
   function removeRun(run: ProtocolRun): void {
@@ -1555,7 +1668,21 @@ export function createAgentKitProtocolAdapter(
     ) {
       throw new Error(`Unknown AgentKit run: ${input.runId}`);
     }
+    const initialResolution = await resolveRuntimeRunOwner(
+      input.threadId,
+      input.runId,
+    );
+    if (initialResolution.owner) return initialResolution.owner;
     const session = await getSession(input.threadId);
+    const resolution = await resolveRuntimeRunOwner(
+      input.threadId,
+      input.runId,
+      session.id,
+      initialResolution.read,
+    );
+    if (resolution.owner) return resolution.owner;
+    const state =
+      resolution.read?.kind === "read" ? resolution.read.state : undefined;
     const resumeInput = {
       sessionId: session.id,
       runId: input.runId,
@@ -1566,8 +1693,12 @@ export function createAgentKitProtocolAdapter(
     // first read goes through the same server check as every reconnect.
     const turn: AgentChatRuntimeTurn = runAuthority
       ? {
+          ...(state?.status !== "missing" && state?.turnId
+            ? { id: state.turnId }
+            : {}),
           sessionId: session.id,
-          runId: input.runId,
+          runId:
+            state && state.status !== "missing" ? state.runId : input.runId,
           events: (async function* () {})(),
         }
       : runtime.resume
@@ -1582,7 +1713,7 @@ export function createAgentKitProtocolAdapter(
       [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
         observability: {
           protocolRunId: input.runId,
-          runtimeRunId: input.runId,
+          runtimeRunId: turn.runId ?? input.runId,
           runtimeId: runtime.id,
           sessionId: session.id,
           ...(turn.id !== undefined ? { turnId: turn.id } : {}),
@@ -1625,7 +1756,8 @@ export function createAgentKitProtocolAdapter(
       ...(runAuthority ? { restoredWithoutStream: true } : {}),
       listeners: new Set(),
     };
-    indexRun(run, input.runId);
+    indexRun(run, turn.runId ?? input.runId);
+    if (resolution.read) run.initialAuthorityRead = resolution.read;
     append(run, {
       type: "run.started",
       agentId: runtime.id,
@@ -2940,31 +3072,14 @@ export function createAgentKitProtocolAdapter(
     }
     while (!stopped()) {
       const runtimeRunId = run.turn.runId ?? run.runId;
-      let read: RunAuthorityRead;
-      try {
-        read = {
-          kind: "read",
-          state: await authority.readRunState({
-            sessionId: run.session.id,
-            ...(run.turn.id ? { turnId: run.turn.id } : {}),
-            ...(run.turn.runId ? { runId: run.turn.runId } : {}),
-            abortSignal: readers.signal,
-          }),
-        };
-      } catch (error) {
-        const failure = asRecord(error);
-        // Network failures and 5xx/408/429 are retryable; anything else is
-        // the server's definitive answer about this reader.
-        read =
-          failure?.retryable === false
-            ? {
-                kind: "refused",
-                ...(typeof failure.status === "number"
-                  ? { status: failure.status }
-                  : {}),
-              }
-            : { kind: "unreachable", error };
-      }
+      const read =
+        run.initialAuthorityRead ??
+        (await readAuthoritativeRunState({
+          sessionId: run.session.id,
+          ...(run.turn.id ? { turnId: run.turn.id } : {}),
+          ...(run.turn.runId ? { runId: run.turn.runId } : {}),
+        }));
+      run.initialAuthorityRead = undefined;
       if (stopped()) return null;
       // An unreachable server says nothing about a successor; keep holding
       // through the usual backoff until it answers.
@@ -3321,49 +3436,75 @@ export function createAgentKitProtocolAdapter(
         input.options?.mode ? { mode: input.options.mode } : undefined,
         isRecoveryRetry ? { agentNativeInternalContinuation: true } : undefined,
       );
-      const session = await getSession(input.threadId, turnMetadata);
-      const messages = input.messages.map(protocolMessageToRuntimeMessage);
-      const attachments =
-        latestUserMessage?.parts.flatMap((part) =>
-          part.type === "file"
-            ? [
-                {
-                  name: part.name,
-                  ...(part.fileId ? { id: part.fileId } : {}),
-                  ...(part.mediaType ? { mediaType: part.mediaType } : {}),
-                  ...(part.url ? { url: part.url } : {}),
-                },
-              ]
-            : [],
-        ) ?? [];
-      const turn = await session.startTurn({
-        prompt: latestUserPrompt(input.messages),
-        messages,
-        ...(input.queuePromotion
-          ? { queuePromotion: input.queuePromotion }
-          : {}),
-        ...(attachments.length ? { attachments } : {}),
-        model: input.options?.model,
-        reasoningEffort: input.options?.reasoningEffort,
-        temperature: input.options?.temperature,
-        providerOptions: {
-          ...(input.options?.toolChoice === undefined
-            ? {}
-            : { toolChoice: input.options.toolChoice }),
-          ...(input.options?.parallelToolCalls === undefined
-            ? {}
-            : { parallelToolCalls: input.options.parallelToolCalls }),
-        },
-        metadata: turnMetadata,
-        abortSignal: readers.signal,
-      });
-      const runId = await openStartedRun(
-        input.threadId,
-        session,
-        turn,
-        turnMetadata,
-      );
-      return { runId, capabilities };
+      const queuePromotionKey = input.queuePromotion
+        ? JSON.stringify([input.threadId, input.queuePromotion.turnId])
+        : undefined;
+      if (input.queuePromotion) {
+        const existingRun = findRunByTurnId(
+          input.threadId,
+          input.queuePromotion.turnId,
+        );
+        if (existingRun) {
+          touchRun(existingRun);
+          ensurePump(existingRun);
+          return { runId: existingRun.runId, capabilities };
+        }
+        const pendingRun = pendingQueuePromotionRuns.get(queuePromotionKey!);
+        if (pendingRun) {
+          return { runId: await pendingRun, capabilities };
+        }
+      }
+      const createRun = async (): Promise<string> => {
+        const session = await getSession(input.threadId, turnMetadata);
+        const messages = input.messages.map(protocolMessageToRuntimeMessage);
+        const attachments =
+          latestUserMessage?.parts.flatMap((part) =>
+            part.type === "file"
+              ? [
+                  {
+                    name: part.name,
+                    ...(part.fileId ? { id: part.fileId } : {}),
+                    ...(part.mediaType ? { mediaType: part.mediaType } : {}),
+                    ...(part.url ? { url: part.url } : {}),
+                  },
+                ]
+              : [],
+          ) ?? [];
+        const turn = await session.startTurn({
+          prompt: latestUserPrompt(input.messages),
+          messages,
+          ...(input.queuePromotion
+            ? { queuePromotion: input.queuePromotion }
+            : {}),
+          ...(attachments.length ? { attachments } : {}),
+          model: input.options?.model,
+          reasoningEffort: input.options?.reasoningEffort,
+          temperature: input.options?.temperature,
+          providerOptions: {
+            ...(input.options?.toolChoice === undefined
+              ? {}
+              : { toolChoice: input.options.toolChoice }),
+            ...(input.options?.parallelToolCalls === undefined
+              ? {}
+              : { parallelToolCalls: input.options.parallelToolCalls }),
+          },
+          metadata: turnMetadata,
+          abortSignal: readers.signal,
+        });
+        return openStartedRun(input.threadId, session, turn, turnMetadata);
+      };
+      if (!queuePromotionKey) {
+        return { runId: await createRun(), capabilities };
+      }
+      const pendingRun = Promise.resolve().then(createRun);
+      pendingQueuePromotionRuns.set(queuePromotionKey, pendingRun);
+      try {
+        return { runId: await pendingRun, capabilities };
+      } finally {
+        if (pendingQueuePromotionRuns.get(queuePromotionKey) === pendingRun) {
+          pendingQueuePromotionRuns.delete(queuePromotionKey);
+        }
+      }
     },
     async *subscribeToRun(input) {
       pruneRetainedRuns();
@@ -3380,7 +3521,9 @@ export function createAgentKitProtocolAdapter(
     },
     async getRun(input) {
       pruneRetainedRuns();
-      const run = findRun(input.threadId, input.runId);
+      const run =
+        findRun(input.threadId, input.runId) ??
+        (await resolveRuntimeRunOwner(input.threadId, input.runId)).owner;
       if (!run) return null;
       touchRun(run);
       return {
@@ -3465,6 +3608,7 @@ export function createAgentKitProtocolAdapter(
           await disposeSession(resolved);
         }),
       );
+      pendingQueuePromotionRuns.clear();
       runs.clear();
       sessions.clear();
     },

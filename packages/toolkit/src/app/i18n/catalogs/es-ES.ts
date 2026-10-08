@@ -126,8 +126,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "Omitir por ahora",
   "onboarding.saveRoleError": "No se pudo guardar tu rol.",
   "onboarding.builderCreateAccount": "Usar Builder.io",
-  "onboarding.builderSignInWithAccount":
-    "Iniciar sesión con una cuenta de Builder.io",
+  "onboarding.builderSignInWithAccount": "Usar Builder.io",
   "onboarding.builderActivateDescription":
     "Crea o reutiliza tu cuenta de Builder.io y activa sus créditos gratuitos con un solo clic.",
   "onboarding.builderActiveCredits":
@@ -159,7 +158,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "Términos de servicio",
   "onboarding.builderPrivacy": "Política de privacidad",
   "onboarding.builderConsentAnd": "y",
-  "onboarding.builderExistingAccount": "Tengo una cuenta de Builder.io",
+  "onboarding.builderExistingAccount": "Usar Builder.io",
   "onboarding.builderActivating":
     "Activando los créditos gratuitos de Builder.io",
   "onboarding.builderConnecting":
@@ -214,7 +213,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Almacenamiento de Builder o un bucket compatible con S3",
   "onboarding.capability.clipsObjectStorage.why":
-    "Los vídeos grabados necesitan almacenamiento de objetos duradero antes de poder reproducirse o compartirse.",
+    "Puedes grabar, previsualizar y descargar Clips sin almacenamiento. Conecta un almacenamiento de objetos duradero para tener las grabaciones disponibles en distintos dispositivos y compartirlas.",
   "onboarding.capability.clipsTranscription.keySummary":
     "Clave de proveedor de voz a texto",
   "onboarding.capability.about": "Acerca de {{label}}",
@@ -2218,7 +2217,7 @@ const messages: ToolkitAgentChatTranslation = {
     "No se pudo desconectar Builder.io.",
   "settingsShell.builder.disconnectTitle": "¿Desconectar Builder.io?",
   "settingsShell.builder.grantsFailed":
-    "No se pudieron leer las conexiones de Builder.io.",
+    "No se pudo comprobar la conexión con Builder.io.",
   "settingsShell.builder.setupStartFailed":
     "No se pudo iniciar la configuración de Builder.io. Actualiza esta página e inténtalo de nuevo.",
   "settingsShell.builder.setupHostFailed":

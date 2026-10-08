@@ -119,7 +119,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "暂时跳过",
   "onboarding.saveRoleError": "无法保存你的角色。",
   "onboarding.builderCreateAccount": "使用 Builder.io",
-  "onboarding.builderSignInWithAccount": "使用 Builder.io 账户登录",
+  "onboarding.builderSignInWithAccount": "使用 Builder.io",
   "onboarding.builderActivateDescription":
     "一键创建或重新使用您的 Builder.io 账户，并激活免费额度。",
   "onboarding.builderActiveCredits": "包含在有效的 Builder.io 免费额度中",
@@ -146,7 +146,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "服务条款",
   "onboarding.builderPrivacy": "隐私政策",
   "onboarding.builderConsentAnd": "和",
-  "onboarding.builderExistingAccount": "我有 Builder.io 账户",
+  "onboarding.builderExistingAccount": "使用 Builder.io",
   "onboarding.builderActivating": "正在激活 Builder.io 免费额度",
   "onboarding.builderConnecting": "正在设置 Builder.io 免费额度",
   "onboarding.builderProvisioningDescription":
@@ -192,7 +192,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Builder 存储或兼容 S3 的存储桶",
   "onboarding.capability.clipsObjectStorage.why":
-    "录制的视频需要持久对象存储后才能播放或分享。",
+    "无需存储即可录制、预览和下载 Clips。连接持久对象存储后，可在不同设备上查看和分享录制内容。",
   "onboarding.capability.clipsTranscription.keySummary": "语音转文字提供商密钥",
   "onboarding.capability.about": "关于{{label}}",
   "onboarding.capability.why": "为什么需要{{label}}",
@@ -1924,7 +1924,7 @@ const messages: ToolkitAgentChatTranslation = {
     "这会影响 {{org}} 中所有未连接自己账号的人。",
   "settingsShell.builder.disconnectFailed": "无法断开 Builder.io。",
   "settingsShell.builder.disconnectTitle": "断开 Builder.io？",
-  "settingsShell.builder.grantsFailed": "无法读取 Builder.io 连接。",
+  "settingsShell.builder.grantsFailed": "无法检查 Builder.io 连接。",
   "settingsShell.builder.setupStartFailed":
     "无法启动 Builder.io 设置。请刷新此页面后重试。",
   "settingsShell.builder.setupHostFailed":

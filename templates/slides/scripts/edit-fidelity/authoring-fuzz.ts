@@ -626,6 +626,10 @@ export async function assertSlideIsScaled(page: Page, selector: string) {
   }
 }
 
+export function isConflictResourceConsoleError(message: string) {
+  return /\bstatus of 409\b/.test(message);
+}
+
 export async function runAuthoringFuzz(
   page: Page,
   options: AuthoringFuzzOptions,

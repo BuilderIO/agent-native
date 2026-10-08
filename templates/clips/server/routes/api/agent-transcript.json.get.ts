@@ -1,7 +1,7 @@
+import { getForwardedRequestOrigin } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getQuery,
-  getRequestURL,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -153,7 +153,7 @@ export default defineEventHandler(async (event: H3Event) => {
     recording.durationMs,
   );
   const api = buildAgentApiUrls(recording.id, {
-    origin: getRequestURL(event).origin,
+    origin: getForwardedRequestOrigin(event),
     basePath: getServerAppBasePath(),
     token: accessResult.access.apiToken,
   });
