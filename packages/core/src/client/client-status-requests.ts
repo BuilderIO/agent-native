@@ -191,7 +191,7 @@ async function fetchClientStatus<T>(
   const request = Promise.race([transport, timeout])
     .then((result) => {
       if (supersededRequests.has(request)) {
-        return fetchClientStatus<T>(path);
+        return fetchClientStatus<T>(path, options);
       }
       if (
         currentGeneration() === requestGeneration &&

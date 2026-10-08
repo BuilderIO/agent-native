@@ -136,6 +136,47 @@ describe("client status requests", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  it("preserves a custom status transport when a read is superseded", async () => {
+    let resolvePassive!: (response: Response) => void;
+    const statusUrl =
+      "https://chat.example.test/_agent-native/agent-engine/status";
+    const transportFetch = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolvePassive = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ chatEligible: false }));
+    const globalFetch = vi.fn(async () => jsonResponse({ chatEligible: true }));
+    vi.stubGlobal("fetch", globalFetch);
+    const options = {
+      url: statusUrl,
+      fetch: transportFetch as typeof fetch,
+      headers: { Authorization: "Bearer test-token" },
+      credentials: "include" as const,
+    };
+
+    const passive = fetchAgentEngineStatus<{ chatEligible: boolean }>(options);
+    const fresh = fetchAgentEngineStatus<{ chatEligible: boolean }>({
+      ...options,
+      fresh: true,
+    });
+    await expect(fresh).resolves.toEqual({
+      state: "available",
+      value: { chatEligible: false },
+    });
+    resolvePassive(jsonResponse({ chatEligible: true }));
+
+    await expect(passive).resolves.toEqual({
+      state: "available",
+      value: { chatEligible: false },
+    });
+    expect(transportFetch).toHaveBeenCalledTimes(2);
+    expect(globalFetch).not.toHaveBeenCalled();
+  });
+
   it("coalesces concurrent fresh status reads", async () => {
     let resolveFresh!: (response: Response) => void;
     const fetch = vi.fn(

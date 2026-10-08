@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   agentEngineStatusUrlForChatApi,
+  ensureAgentEngineReadiness,
+  getAgentEngineReadiness,
   resetAgentEngineReadinessForTests,
+  subscribeAgentEngineReadiness,
 } from "./agent-engine-readiness.js";
 import {
   fetchEnvironmentStatus,
@@ -212,6 +215,66 @@ describe("useAgentEngineConfigured", () => {
 
     expect(engineFetchCount).toBe(2);
     expect(container.textContent).toBe("configured");
+  });
+
+  it("refreshes every store named by same-turn scoped invalidations", async () => {
+    let readyA = false;
+    let readyB = false;
+    const sourceA = {
+      statusUrl:
+        "https://chat-a.example.test/_agent-native/agent-engine/status",
+      fetch: vi.fn(async () =>
+        jsonResponse({ chatEligible: readyA }),
+      ) as typeof fetch,
+    };
+    const sourceB = {
+      statusUrl:
+        "https://chat-b.example.test/_agent-native/agent-engine/status",
+      fetch: vi.fn(async () =>
+        jsonResponse({ chatEligible: readyB }),
+      ) as typeof fetch,
+    };
+    const unsubscribeA = subscribeAgentEngineReadiness(vi.fn(), {
+      source: sourceA,
+      threadId: "thread-a",
+    });
+    const unsubscribeB = subscribeAgentEngineReadiness(vi.fn(), {
+      source: sourceB,
+      threadId: "thread-b",
+    });
+
+    try {
+      await Promise.all([
+        ensureAgentEngineReadiness({ source: sourceA }),
+        ensureAgentEngineReadiness({ source: sourceB }),
+      ]);
+      expect(sourceA.fetch).toHaveBeenCalledOnce();
+      expect(sourceB.fetch).toHaveBeenCalledOnce();
+      readyA = true;
+      readyB = true;
+
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:missing-api-key", {
+            detail: { threadId: "thread-a" },
+          }),
+        );
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:missing-api-key", {
+            detail: { threadId: "thread-b" },
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(sourceA.fetch).toHaveBeenCalledTimes(2);
+      expect(sourceB.fetch).toHaveBeenCalledTimes(2);
+      expect(getAgentEngineReadiness(sourceA)).toBe("configured");
+      expect(getAgentEngineReadiness(sourceB)).toBe("configured");
+    } finally {
+      unsubscribeA();
+      unsubscribeB();
+    }
   });
 
   it("rechecks readiness after a missing-key event", async () => {

@@ -62,6 +62,7 @@ interface AgentEngineReadinessStore {
 }
 
 const stores = new Map<string, AgentEngineReadinessStore>();
+const pendingRefreshStores = new Set<AgentEngineReadinessStore>();
 let eventsInstalled = false;
 let invalidationQueued = false;
 
@@ -165,11 +166,14 @@ function refreshStores(scope?: { tabId?: unknown; threadId?: unknown }): void {
     return hasInterestedSubscriber;
   });
   if (matchingStores.length === 0) return;
+  for (const store of matchingStores) pendingRefreshStores.add(store);
   if (invalidationQueued) return;
   invalidationQueued = true;
   queueMicrotask(() => {
     invalidationQueued = false;
-    for (const store of matchingStores) {
+    const storesToRefresh = [...pendingRefreshStores];
+    pendingRefreshStores.clear();
+    for (const store of storesToRefresh) {
       invalidateStore(store);
       void ensureStoreReadiness(store, { fresh: true });
     }
@@ -399,6 +403,7 @@ export function resetAgentEngineReadinessForTests(): void {
     invalidateClientStatusRequest(store.statusUrl);
   }
   stores.clear();
+  pendingRefreshStores.clear();
   invalidationQueued = false;
 }
 
