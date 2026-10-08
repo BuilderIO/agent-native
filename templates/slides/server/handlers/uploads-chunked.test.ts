@@ -347,6 +347,11 @@ describe("chunked reference uploads", () => {
       data: Buffer.from([0x50, 0x4b, 0x03, 0x04]),
     });
     expect(mocks.saveFile).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetSession).toHaveBeenCalledWith(
+      "session-1",
+      expect.any(Object),
+      expect.objectContaining({ finalizingAt: expect.any(String) }),
+    );
     expect(mocks.deleteSession).toHaveBeenCalledWith("session-1");
   });
 
@@ -414,6 +419,54 @@ describe("chunked reference uploads", () => {
       expect(mocks.deleteBlob).toHaveBeenCalledWith(handle);
     }
     expect(mocks.deleteSession).toHaveBeenCalledWith("session-1");
+  });
+
+  it("does not abort an upload after finalization has claimed the session", async () => {
+    const finalizingAt = new Date().toISOString();
+    const handle = {
+      id: "chunk-0",
+      provider: "public-upload:builder",
+      opaque: true,
+      encrypted: true,
+    };
+    mocks.getSession.mockResolvedValue(
+      session({
+        uploadType: "video",
+        filename: "clip.mp4",
+        finalizingAt,
+        chunks: { "0": handle },
+        chunkSizes: { "0": 4 },
+      }),
+    );
+
+    await expect(abortChunkedUpload({} as never)).resolves.toEqual({
+      error: "Upload session is already finalizing",
+    });
+    expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 409);
+    expect(mocks.compareAndSetSession).not.toHaveBeenCalled();
+    expect(mocks.deleteBlob).not.toHaveBeenCalled();
+    expect(mocks.deleteSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects an abort when its session CAS loses to finalization", async () => {
+    const activeSession = session({
+      uploadType: "video",
+      filename: "clip.mp4",
+    });
+    mocks.getSession
+      .mockResolvedValueOnce(activeSession)
+      .mockResolvedValueOnce({
+        ...activeSession,
+        finalizingAt: new Date().toISOString(),
+      });
+    mocks.compareAndSetSession.mockResolvedValueOnce(false);
+
+    await expect(abortChunkedUpload({} as never)).resolves.toEqual({
+      error: "Upload session is already finalizing",
+    });
+    expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 409);
+    expect(mocks.deleteBlob).not.toHaveBeenCalled();
+    expect(mocks.deleteSession).not.toHaveBeenCalled();
   });
 
   it("treats an absent session as already cleaned", async () => {
@@ -507,5 +560,28 @@ describe("chunked reference uploads", () => {
       expect.objectContaining({ id: "blob-1" }),
     );
     expect(mocks.createSession).not.toHaveBeenCalled();
+  });
+
+  it("does not store a video asset when abort wins the final chunk CAS", async () => {
+    mocks.compareAndSetSession.mockResolvedValueOnce(false);
+    mocks.getQuery.mockReturnValue({ index: "0", isFinal: "1" });
+    mocks.getSession.mockResolvedValue(
+      session({
+        uploadType: "video",
+        filename: "clip.mp4",
+        mimeType: "video/mp4",
+        declaredSize: 4,
+      }),
+    );
+
+    await expect(uploadChunkedChunk({} as never)).resolves.toEqual({
+      error: "Upload session changed while saving the chunk",
+    });
+    expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 409);
+    expect(mocks.deleteBlob).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "blob-1" }),
+    );
+    expect(mocks.uploadVideoAsset).not.toHaveBeenCalled();
+    expect(mocks.deleteSession).not.toHaveBeenCalled();
   });
 });

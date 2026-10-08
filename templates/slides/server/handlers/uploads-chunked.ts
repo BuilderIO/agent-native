@@ -43,6 +43,9 @@ const STORAGE_NOT_CONNECTED: StorageUnavailable = {
 const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 const MAX_CHUNKS = 128;
 const SESSION_TTL_MS = 60 * 60 * 1000;
+const FINALIZATION_TTL_MS = SESSION_TTL_MS;
+
+class UploadSessionFinalizingError extends Error {}
 
 interface StartBody {
   filename?: unknown;
@@ -78,10 +81,14 @@ function sessionBelongsToRequest(
 async function markSessionForCleanup(
   sessionId: string,
   initialSession: ChunkedUploadSession,
+  allowFinalizing = false,
 ): Promise<ChunkedUploadSession | null> {
   let session = initialSession;
   for (let attempt = 0; attempt < 5; attempt++) {
     if (session.cleanupState === "aborting") return session;
+    if (session.finalizingAt && !allowFinalizing) {
+      throw new UploadSessionFinalizingError();
+    }
     const cleanupSession = { ...session, cleanupState: "aborting" as const };
     if (
       await compareAndSetChunkedUploadSession(
@@ -102,8 +109,13 @@ async function markSessionForCleanup(
 async function discardSession(
   sessionId: string,
   session: ChunkedUploadSession,
+  { allowFinalizing = false }: { allowFinalizing?: boolean } = {},
 ): Promise<boolean> {
-  const cleanupSession = await markSessionForCleanup(sessionId, session);
+  const cleanupSession = await markSessionForCleanup(
+    sessionId,
+    session,
+    allowFinalizing,
+  );
   if (!cleanupSession) return true;
   const cleaned = await cleanupChunks(cleanupSession);
   if (cleaned) await deleteChunkedUploadSession(sessionId);
@@ -116,15 +128,26 @@ async function reapExpiredChunkedUploads(): Promise<void> {
   await Promise.all(
     sessions.map(async ({ sessionId, session }) => {
       const expiresAt = Date.parse(session.expiresAt);
+      const finalizationExpiresAt = session.finalizingAt
+        ? Date.parse(session.finalizingAt) + FINALIZATION_TTL_MS
+        : Number.NaN;
+      const finalizationExpired =
+        session.finalizingAt !== undefined &&
+        (!Number.isFinite(finalizationExpiresAt) ||
+          finalizationExpiresAt <= now);
       if (
         session.cleanupState !== "aborting" &&
-        Number.isFinite(expiresAt) &&
-        expiresAt > now
+        ((session.finalizingAt && !finalizationExpired) ||
+          (!session.finalizingAt &&
+            Number.isFinite(expiresAt) &&
+            expiresAt > now))
       ) {
         return;
       }
       try {
-        const cleaned = await discardSession(sessionId, session);
+        const cleaned = await discardSession(sessionId, session, {
+          allowFinalizing: finalizationExpired,
+        });
         if (!cleaned) {
           console.warn("[slides-upload] expired session cleanup incomplete", {
             sessionId,
@@ -145,7 +168,9 @@ async function cleanupCommittedSession(
   session: ChunkedUploadSession,
 ): Promise<void> {
   try {
-    const cleaned = await discardSession(sessionId, session);
+    const cleaned = await discardSession(sessionId, session, {
+      allowFinalizing: true,
+    });
     if (!cleaned) {
       console.warn("[slides-upload] committed session cleanup incomplete", {
         sessionId,
@@ -273,6 +298,10 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
         setResponseStatus(event, 410);
         return { error: "Upload session was cancelled" };
       }
+      if (session.finalizingAt) {
+        setResponseStatus(event, 409);
+        return { error: "Upload session is already finalizing" };
+      }
       if (Date.parse(session.expiresAt) <= Date.now()) {
         await discardSession(sessionId, session);
         setResponseStatus(event, 410);
@@ -346,6 +375,7 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
         ...session,
         chunks: { ...session.chunks, [chunkKey]: handle },
         chunkSizes: { ...session.chunkSizes, [chunkKey]: bytes.byteLength },
+        ...(isFinal ? { finalizingAt: new Date().toISOString() } : {}),
       };
       if (
         !(await compareAndSetChunkedUploadSession(
@@ -404,7 +434,7 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
         orderedIndices.length === 0 ||
         receivedSize !== session.declaredSize
       ) {
-        await discardSession(sessionId, session);
+        await discardSession(sessionId, session, { allowFinalizing: true });
         setResponseStatus(event, 400);
         return { error: "Upload is incomplete or has an invalid size" };
       }
@@ -438,7 +468,7 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
                 type: session.mimeType,
               });
       } catch (err) {
-        await discardSession(sessionId, session);
+        await discardSession(sessionId, session, { allowFinalizing: true });
         const statusCode =
           typeof (err as { statusCode?: unknown })?.statusCode === "number"
             ? (err as { statusCode: number }).statusCode
@@ -486,6 +516,10 @@ export const abortChunkedUpload = defineEventHandler(async (event) => {
         const cleaned = await discardSession(sessionId, session);
         if (cleaned) return { ok: true };
       } catch (error) {
+        if (error instanceof UploadSessionFinalizingError) {
+          setResponseStatus(event, 409);
+          return { error: "Upload session is already finalizing" };
+        }
         console.warn("[slides-upload] aborted session cleanup failed", {
           sessionId,
           error: error instanceof Error ? error.message : String(error),
