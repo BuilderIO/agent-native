@@ -72,7 +72,6 @@ import {
   CouldNotRun,
   getHarnessUnavailableError,
   isPlaywrightTargetTransportFailure,
-  rethrowIfHarnessUnavailable,
   runSetupActionAsCouldNotRun,
   runSetupAsCouldNotRun,
 } from "./run-outcomes.ts";
