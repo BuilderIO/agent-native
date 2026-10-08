@@ -519,9 +519,9 @@ function ConversationNotice({ notice }: { notice: AgentConversationNotice }) {
       <IconAlertTriangle size={15} />
       <div>
         {notice.title && <strong>{notice.title}</strong>}
-        <span {...(notice.tone === "error" ? SESSION_REPLAY_MASK_PROPS : {})}>
-          {notice.text}
-        </span>
+        {/* Tone doesn't mark failures: a harness error that mentions approval
+            is classified as an approval and rendered with the warning tone. */}
+        <span {...SESSION_REPLAY_MASK_PROPS}>{notice.text}</span>
       </div>
       {notice.action}
     </div>

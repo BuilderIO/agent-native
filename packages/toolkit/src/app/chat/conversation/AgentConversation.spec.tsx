@@ -192,8 +192,8 @@ describe("AgentConversationMessageView", () => {
     },
   );
 
-  it.each(["error", "info"] as const)(
-    "masks only error notice text (%s)",
+  it.each(["error", "warning", "info"] as const)(
+    "masks notice text but not its title or action (%s)",
     (tone) => {
       act(() =>
         root.render(
@@ -216,7 +216,7 @@ describe("AgentConversationMessageView", () => {
       );
       const notice = container.querySelector(".agent-conversation-notice");
       expect(notice?.querySelector("span")?.hasAttribute("data-an-mask")).toBe(
-        tone === "error",
+        true,
       );
       expect(
         notice?.querySelector("strong")?.closest("[data-an-mask]"),
