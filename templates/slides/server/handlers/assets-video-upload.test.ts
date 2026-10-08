@@ -159,4 +159,23 @@ describe("asset upload request size limit", () => {
 
     expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 500);
   });
+
+  it("preserves unexpected multipart parser TypeErrors as server errors", async () => {
+    mockReadMultipartFormData.mockRejectedValueOnce(
+      new TypeError("unexpected parser failure"),
+    );
+    const event = {
+      req: new Request("https://slides.example.test/api/assets/upload", {
+        method: "POST",
+        headers: { "content-type": "multipart/form-data; boundary=test" },
+        body: "--test--\r\n",
+      }),
+    };
+
+    await expect(uploadVideoAssetHandler(event as never)).resolves.toEqual({
+      error: "Video upload failed",
+    });
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 500);
+  });
 });

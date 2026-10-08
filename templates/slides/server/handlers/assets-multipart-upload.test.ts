@@ -137,6 +137,29 @@ it("returns 400 for malformed image multipart data without writing an asset", as
   expect(mocks.insertAsset).not.toHaveBeenCalled();
 });
 
+it("parses video multipart data before validating the video file", async () => {
+  const form = new FormData();
+  form.append(
+    "file",
+    new Blob([new Uint8Array([1, 2, 3])], { type: "video/mp4" }),
+    "clip.mp4",
+  );
+  const event = mockEvent(
+    new Request("https://slides.example.test/api/assets/upload-video", {
+      method: "POST",
+      body: form,
+    }),
+  );
+
+  await expect(uploadVideoAssetHandler(event as never)).resolves.toEqual({
+    error: "Only valid MP4 and WebM videos are allowed",
+  });
+
+  expect(getResponseStatus(event as never)).toBe(400);
+  expect(mocks.uploadFile).not.toHaveBeenCalled();
+  expect(mocks.insertAsset).not.toHaveBeenCalled();
+});
+
 it("returns 413 when a video multipart request exceeds the real body limit", async () => {
   let remaining = MAX_VIDEO_ASSET_REQUEST_SIZE + 1;
   const body = new ReadableStream<Uint8Array>({

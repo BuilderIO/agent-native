@@ -70,7 +70,10 @@ async function readBoundedMultipartFormData(
   try {
     return await readMultipartFormData(multipartEvent);
   } catch (error) {
-    if (error instanceof TypeError) {
+    if (
+      error instanceof TypeError &&
+      error.message === "Failed to parse body as FormData."
+    ) {
       throw Object.assign(error, { statusCode: 400 });
     }
     throw error;
