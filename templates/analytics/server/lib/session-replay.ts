@@ -29,6 +29,7 @@ import {
   asc,
   desc,
   eq,
+  gt,
   gte,
   inArray,
   isNull,
@@ -72,6 +73,7 @@ import {
   finalizeReplayFriction,
   getSessionFrictionCoverageStart,
   pruneSessionFriction,
+  type ReadStoredReplayChunks,
   recordReplayFriction,
   sessionFrictionFilterConditions,
   sessionFrictionSortOrder,
@@ -1887,6 +1889,7 @@ export async function recordSessionReplayChunks(
     errorCount,
     rageClickCount,
     recordingEnded,
+    readStoredChunks: storedReplayChunkReader(recording.id),
     ingestedAt,
   });
 
@@ -2487,6 +2490,62 @@ function parseInlineReplayEvents(inlineData: string): unknown[] {
   }
 }
 
+/** A stored chunk's events as JSON text, or `null` when they cannot be read. */
+async function readStoredReplayChunkText(row: any): Promise<string | null> {
+  if (row.storageKind === "inline") {
+    return typeof row.inlineData === "string" ? row.inlineData : null;
+  }
+  const ref =
+    row.storageKind === "blob" ? decodeReplayBlobRef(row.storageRef) : null;
+  if (!ref) {
+    console.warn(
+      "[session-replay] A stored replay chunk has no readable storage reference; its recording reads as unmeasured:",
+      { recordingId: row.recordingId, seq: row.seq },
+    );
+    return null;
+  }
+  try {
+    const blob = await readPrivateBlob(ref.handle);
+    return gunzipSync(Buffer.from(blob.data)).toString("utf8");
+  } catch (error) {
+    console.warn(
+      "[session-replay] Could not read a stored replay chunk; its recording reads as unmeasured:",
+      { recordingId: row.recordingId, seq: row.seq },
+      error,
+    );
+    // coercion-ok: null is "unreadable"; friction leaves the recording unmeasured.
+    return null;
+  }
+}
+
+/**
+ * A recording's stored chunks in sequence order, read a page at a time so a
+ * long recording is never held in memory at once.
+ */
+function storedReplayChunkReader(recordingId: string): ReadStoredReplayChunks {
+  return async function* () {
+    const db = getDb() as any;
+    const c = schema.sessionReplayChunks;
+    let afterSeq = -1;
+    for (let read = 0; read < MAX_REPLAY_CHUNKS_PER_RECORDING; ) {
+      // guard:allow-unscoped -- the caller already holds this recording in its owner's scope, and the chunks feed only that recording's friction row.
+      const rows = await db
+        .select()
+        .from(c)
+        .where(and(eq(c.recordingId, recordingId), gt(c.seq, afterSeq)))
+        .orderBy(asc(c.seq))
+        .limit(MAX_REPLAY_CHUNKS_PER_REQUEST);
+      const texts = await Promise.all(rows.map(readStoredReplayChunkText));
+      for (const [index, row] of rows.entries()) {
+        yield { seq: row.seq, inlineData: texts[index]! };
+      }
+      if (rows.length < MAX_REPLAY_CHUNKS_PER_REQUEST) return;
+      read += rows.length;
+      afterSeq = rows[rows.length - 1].seq;
+    }
+  };
+}
+
 async function readStoredReplayEvents(row: any): Promise<unknown[]> {
   if (row.storageKind === "inline" && row.inlineData) {
     return parseInlineReplayEvents(row.inlineData);
@@ -3038,6 +3097,7 @@ export async function finalizeAbandonedSessionRecordings(
           rageClickCount: Number(row.rageClickCount ?? 0),
         },
         now.toISOString(),
+        storedReplayChunkReader(row.id),
       );
     } catch (error) {
       console.warn(
@@ -3053,7 +3113,9 @@ export async function finalizeAbandonedSessionRecordings(
       Number.isFinite(started) && Number.isFinite(ended)
         ? Math.max(0, ended - started)
         : (row.durationMs ?? null);
-    await db
+    // Reading a recording that fell behind can take a while, and an upload
+    // in the meantime reopens it; that recording stays active.
+    const completed = await db
       .update(schema.sessionRecordings)
       .set({
         status: "completed",
@@ -3061,8 +3123,15 @@ export async function finalizeAbandonedSessionRecordings(
         durationMs,
         updatedAt: now.toISOString(),
       })
-      .where(eq(schema.sessionRecordings.id, row.id));
-    finalized++;
+      .where(
+        and(
+          eq(schema.sessionRecordings.id, row.id),
+          eq(schema.sessionRecordings.status, "active"),
+          eq(schema.sessionRecordings.updatedAt, row.updatedAt),
+        ),
+      )
+      .returning({ id: schema.sessionRecordings.id });
+    if (completed.length) finalized++;
   }
 
   return { finalized };
