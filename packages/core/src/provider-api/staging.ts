@@ -24,7 +24,9 @@
  * here; redaction is applied to the response returned to the model.
  */
 
+import { fail } from "../action.js";
 import type { ProviderApiRequestArgs } from "./index.js";
+import { rejectFailedProviderResult } from "./result-outcome.js";
 import {
   upsertStagedDataset,
   deriveColumns,
@@ -275,12 +277,16 @@ export async function stagingExecuteRequest(
             typeof json?.retryAt === "string"
               ? ` Retry after ${json.retryAt}.`
               : "";
-          throw new Error(`Provider API quota exhausted (429).${retryAt}`);
+          fail(`Provider API quota exhausted (429).${retryAt}`, {
+            statusCode: 429,
+            errorCode: "http_429",
+          });
         }
         if (attempt >= 5) {
-          throw new Error(
+          fail(
             `Provider returned 429 Too Many Requests after ${attempt + 1} attempts. ` +
               `Try again later or reduce the page count.`,
+            { statusCode: 429, errorCode: "http_429" },
           );
         }
         const waitMs = getRetryAfterMs(
@@ -291,7 +297,7 @@ export async function stagingExecuteRequest(
         attempt++;
         continue;
       }
-      result = raw;
+      result = rejectFailedProviderResult(args.provider, raw);
       break;
     }
 
@@ -303,13 +309,10 @@ export async function stagingExecuteRequest(
 
     const response = result.response as Record<string, unknown> | undefined;
     if (!response?.ok) {
-      if (pageIndex === 0) {
-        throw new Error(
-          `Provider API returned status ${response?.status}: ${JSON.stringify(response?.json ?? response?.text).slice(0, 200)}`,
-        );
-      }
-      truncated = true;
-      break;
+      fail(
+        `Provider API returned status ${response?.status}: ${JSON.stringify(response?.json ?? response?.text).slice(0, 200)}`,
+        { errorCode: "provider_api_rejected" },
+      );
     }
 
     const body =

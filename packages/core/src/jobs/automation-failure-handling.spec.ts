@@ -192,7 +192,7 @@ vi.mock("./scheduler-health.js", async (importOriginal) => ({
   recordAutomationSchedulerHealth: vi.fn(async () => undefined),
 }));
 
-const { processRecurringJobs } = await import("./scheduler.js");
+const { processRecurringJobs, runJobNow } = await import("./scheduler.js");
 const { registerErrorCaptureProvider } =
   await import("../server/capture-error.js");
 const { automationHash } = await import("./automation-events.js");
@@ -226,6 +226,34 @@ const okUsage = {
   cacheWriteTokens: 0,
   model: "test-model",
 };
+
+async function successfulAutomationRun({
+  send,
+}: Parameters<
+  typeof import("../agent/run-loop-with-resume.js").runAgentLoopDirectWithSoftTimeout
+>[0]) {
+  send({
+    type: "tool_done",
+    tool: "send-notification",
+    result: "Sent",
+    completedSideEffect: true,
+  });
+  return okUsage;
+}
+
+const NO_OP_REASON = "No bookings need reminders during this scheduled window.";
+
+async function declaredNoOpRun({
+  actions,
+}: Parameters<
+  typeof import("../agent/run-loop-with-resume.js").runAgentLoopDirectWithSoftTimeout
+>[0]) {
+  await actions["automation-no-op"].run(
+    { reason: NO_OP_REASON },
+    { caller: "automation" },
+  );
+  return okUsage;
+}
 
 function putJob(
   owner: string,
@@ -289,7 +317,7 @@ beforeEach(async () => {
   resourceStore.rows.clear();
   createThreadMock.mockClear();
   insertRunSpy.mockClear();
-  runAgentLoopMock.mockReset().mockResolvedValue(okUsage);
+  runAgentLoopMock.mockReset().mockImplementation(successfulAutomationRun);
   engineUsableMock.mockReset().mockResolvedValue(true);
   sendFailureEmailMock.mockClear();
   trackMock.mockClear();
@@ -311,6 +339,94 @@ beforeEach(async () => {
 });
 
 describe("scheduled automations that cannot run", () => {
+  it("keeps repeated declared no-ops enabled with skipped history and no failure email", async () => {
+    runAgentLoopMock.mockImplementation(declaredNoOpRun);
+    putOrgReminderJob();
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      await tickAt(START + attempt * 15 * MINUTE);
+      const job = readJob(ORG_OWNER, "booking-reminder-emails");
+      expect(job).toMatchObject({
+        enabled: true,
+        lastStatus: "skipped",
+        lastError: NO_OP_REASON,
+      });
+      expect(job.consecutiveFailures).toBeUndefined();
+      expect(job.pausedReason).toBeUndefined();
+    }
+
+    expect(runAgentLoopMock).toHaveBeenCalledTimes(6);
+    const history = await historyOf("booking-reminder-emails");
+    expect(history).toHaveLength(6);
+    expect(history).toEqual(
+      Array.from({ length: 6 }, () => ({
+        status: "skipped",
+        error: NO_OP_REASON,
+        error_code: null,
+        failure_alert_state: null,
+      })),
+    );
+    expect(sendFailureEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("returns skipped for a manual no-op without resuming a framework-paused job", async () => {
+    runAgentLoopMock.mockImplementation(declaredNoOpRun);
+    putJob("alice@agent-native.test", "paused-no-op", [
+      'schedule: "0 * * * *"',
+      "enabled: false",
+      "createdBy: alice@agent-native.test",
+      'appId: "calendar"',
+      'lastErrorCode: "missing_tools"',
+      "consecutiveFailures: 3",
+      'pausedReason: "missing_tools"',
+      `pausedAt: "${new Date(START - MINUTE).toISOString()}"`,
+    ]);
+
+    expect(
+      await runJobNow("alice@agent-native.test", "paused-no-op", deps),
+    ).toMatchObject({ status: "skipped", error: NO_OP_REASON });
+    expect(readJob("alice@agent-native.test", "paused-no-op")).toMatchObject({
+      enabled: false,
+      lastStatus: "skipped",
+      lastError: NO_OP_REASON,
+      consecutiveFailures: 3,
+      pausedReason: "missing_tools",
+    });
+    expect(await historyOf("paused-no-op")).toEqual([
+      expect.objectContaining({ status: "skipped", error: NO_OP_REASON }),
+    ]);
+    expect(sendFailureEmailMock).not.toHaveBeenCalled();
+    expect(trackMock).not.toHaveBeenCalledWith(
+      "automation_resumed",
+      expect.anything(),
+    );
+  });
+
+  it("records a failed tool followed by a no-op declaration as an error", async () => {
+    runAgentLoopMock.mockImplementation(async (opts) => {
+      opts.send({
+        type: "tool_done",
+        tool: "send-notification",
+        result: "Reminder delivery failed.",
+        isError: true,
+        errorCode: "http_502",
+      });
+      return declaredNoOpRun(opts);
+    });
+    putOrgReminderJob();
+
+    await tickAt(START);
+
+    expect(readJob(ORG_OWNER, "booking-reminder-emails")).toMatchObject({
+      lastStatus: "error",
+      lastErrorCode: "http_502",
+      consecutiveFailures: 1,
+    });
+    expect(await historyOf("booking-reminder-emails")).toEqual([
+      expect.objectContaining({ status: "error", error_code: "http_502" }),
+    ]);
+  });
+
   it("records the real cause on the first failure and creates no thread or run", async () => {
     engineUsableMock.mockResolvedValue(false);
     putOrgReminderJob();
@@ -541,7 +657,7 @@ describe("scheduled automations that cannot run", () => {
     expect(await historyOf("credit-digest")).toHaveLength(6);
 
     // The daily credits reset: the next probe runs and the streak is gone.
-    runAgentLoopMock.mockReset().mockResolvedValue(okUsage);
+    runAgentLoopMock.mockReset().mockImplementation(successfulAutomationRun);
     await tickAt(Date.parse(repaused.pausedAt!) + 6 * 60 * MINUTE);
     const resumed = readJob("alice@agent-native.test", "credit-digest");
     expect(resumed.enabled).toBe(true);
@@ -685,7 +801,10 @@ describe("owners that cannot run automations", () => {
 
     const job = readJob("alice@agent-native.test", "digest");
     expect(job.enabled).toBe(true);
-    expect(job.lastStatus).toBe("skipped");
+    expect(job.lastStatus).toBe("error");
+    expect(job.lastErrorCode).toBe("owner_unverifiable");
+    expect(job.lastError).toContain("could not verify user");
+    expect(job.consecutiveFailures).toBeUndefined();
     expect(job.pausedReason).toBeUndefined();
   });
 
@@ -745,7 +864,7 @@ describe("owners that cannot run automations", () => {
     const org = readJob(ORG_OWNER, "org-digest");
     expect(org.enabled).toBe(true);
     expect(org.pausedReason).toBeUndefined();
-    expect(org.lastStatus).toBe("skipped");
+    expect(org.lastStatus).toBe("error");
   });
 
   it("does not run test-identity jobs in production, and runs them elsewhere", async () => {
