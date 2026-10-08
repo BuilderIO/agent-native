@@ -184,7 +184,7 @@ function decompressChunk(buf: Uint8Array, maxBytes: number): Uint8Array {
     if (/too large/i.test(String(e))) throw chunkTooLarge(maxBytes);
     /* fall through */
   }
-  return checkDecompressedSize(buf.slice(), maxBytes);
+  return checkDecompressedSize(buf, maxBytes).slice();
 }
 
 export function decodeKiwiContainer(

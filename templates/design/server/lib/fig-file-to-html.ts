@@ -1074,10 +1074,7 @@ function paintToBackground(p: Paint, node: FigNode, ctx: Ctx): string | null {
   if (p.type?.startsWith("GRADIENT") && Array.isArray(p.stops)) {
     const box = node.size ? { width: node.size.x, height: node.size.y } : null;
     const kind = p.type.slice("GRADIENT_".length) as
-      | "LINEAR"
-      | "RADIAL"
-      | "ANGULAR"
-      | "DIAMOND";
+      "LINEAR" | "RADIAL" | "ANGULAR" | "DIAMOND";
     const geometry =
       p.transform && box
         ? gradientGeometryFromTransform(kind, p.transform, box)
@@ -2597,10 +2594,7 @@ function gradientSvgFill(
   if (stops.length === 0) return null;
   const firstStop = () => solidSvgFill(stops[0]!.color, paint.opacity);
   const kind = paint.type!.slice("GRADIENT_".length) as
-    | "LINEAR"
-    | "RADIAL"
-    | "ANGULAR"
-    | "DIAMOND";
+    "LINEAR" | "RADIAL" | "ANGULAR" | "DIAMOND";
   if (kind === "ANGULAR") {
     recordApproximation(
       node,
@@ -3735,8 +3729,9 @@ const TOP_LEVEL_RENDERABLE_TYPES = new Set(["FRAME", "SYMBOL", "INSTANCE"]);
 export function collectTopLevelFrames(
   parent: FigNode,
   childrenOf: Map<string, FigNode[]>,
+  maxNodes = DEFAULT_MAX_RENDERED_NODES,
 ): FigNode[] {
-  return collectTopLevelFrameBounds(parent, childrenOf).map(
+  return collectTopLevelFrameBounds(parent, childrenOf, maxNodes).map(
     (entry) => entry.node,
   );
 }
@@ -3744,6 +3739,7 @@ export function collectTopLevelFrames(
 function collectTopLevelFrameBounds(
   parent: FigNode,
   childrenOf: Map<string, FigNode[]>,
+  maxNodes: number,
 ): Array<{ node: FigNode; x: number; y: number }> {
   type Affine = {
     m00: number;
@@ -3794,7 +3790,7 @@ function collectTopLevelFrameBounds(
   while (stack.length > 0) {
     const { node, depth, matrix } = stack.pop()!;
     visited += 1;
-    if (visited > DEFAULT_MAX_RENDERED_NODES) {
+    if (visited > maxNodes) {
       throw new Error(".fig section traversal exceeded its node budget.");
     }
     if (depth > DEFAULT_MAX_TREE_DEPTH) {
@@ -4086,9 +4082,11 @@ export function renderHtmlTemplates(
   const pages = selection
     ? allPages.filter((page) => {
         if (selection.has(guidKey(page.guid))) return true;
-        return collectTopLevelFrames(page, childrenOf).some((frame) =>
-          selection.has(guidKey(frame.guid)),
-        );
+        return collectTopLevelFrames(
+          page,
+          childrenOf,
+          ctx.maxRenderedNodes,
+        ).some((frame) => selection.has(guidKey(frame.guid)));
       })
     : allPages;
 
@@ -4097,12 +4095,14 @@ export function renderHtmlTemplates(
     const page = pages[pageIdx]!;
     const pageDirName = sanitizeFilename(page.name, `page-${pageIdx + 1}`);
     const pageSelected = selection?.has(guidKey(page.guid)) ?? false;
-    const pageFrames = collectTopLevelFrameBounds(page, ctx.childrenOf).filter(
-      (c) => {
-        if (!selection || pageSelected) return true;
-        return selection.has(guidKey(c.node.guid));
-      },
-    );
+    const pageFrames = collectTopLevelFrameBounds(
+      page,
+      ctx.childrenOf,
+      ctx.maxRenderedNodes,
+    ).filter((c) => {
+      if (!selection || pageSelected) return true;
+      return selection.has(guidKey(c.node.guid));
+    });
     if (frames.length + pageFrames.length > maxFrames) {
       throw new Error(
         `.fig document has too many top-level frames (max ${maxFrames}).`,

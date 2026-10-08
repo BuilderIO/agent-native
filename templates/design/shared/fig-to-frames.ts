@@ -134,13 +134,15 @@ export function inspectDecodedFig(
     documentNode ? (childrenOf.get(guidKey(documentNode.guid)) ?? []) : []
   ).filter((node) => node.type === "CANVAS" && !node.internalOnly);
   const frames = pages.flatMap((page, pageIndex) =>
-    collectTopLevelFrames(page, childrenOf).map((frame, frameIndex) => ({
-      id: guidKey(frame.guid),
-      pageName: page.name ?? `Page ${pageIndex + 1}`,
-      frameName: frame.name ?? `Frame ${frameIndex + 1}`,
-      width: frame.size?.x,
-      height: frame.size?.y,
-    })),
+    collectTopLevelFrames(page, childrenOf, limits.renderedNodes).map(
+      (frame, frameIndex) => ({
+        id: guidKey(frame.guid),
+        pageName: page.name ?? `Page ${pageIndex + 1}`,
+        frameName: frame.name ?? `Frame ${frameIndex + 1}`,
+        width: frame.size?.x,
+        height: frame.size?.y,
+      }),
+    ),
   );
 
   return {
