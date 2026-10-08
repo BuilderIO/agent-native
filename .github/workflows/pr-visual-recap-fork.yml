@@ -1265,7 +1265,7 @@ jobs:
             if [ "$FAILURE_STAGE" = "readback" ]; then
               CLI_READBACK_REASON="$FAILURE_DIAGNOSTIC"
               FAILURE_TITLE="Visual recap readback failed"
-              FAILURE_SUMMARY="The recap was published, but the configured PR token could not verify it. Screenshot capture was skipped. This informational check does not block the PR."
+              FAILURE_SUMMARY="The recap was published, but the workflow could not verify it. Screenshot capture was skipped. This informational check does not block the PR."
               FAILURE_TEXT="[Open visual recap]($PLAN_URL) — readback failed: $FAILURE_DIAGNOSTIC. Screenshot capture was skipped. See this workflow run for details."
             else
               CLI_SHOT_REASON="$FAILURE_DIAGNOSTIC"
@@ -1285,20 +1285,70 @@ jobs:
               > /dev/null; then
               exit 0
             fi
-            echo "::warning::Could not set $FAILURE_STAGE failure on the Visual Recap check; using CLI compatibility fallback."
-            RECAP_CLI_HELP=$($RECAP_CLI recap help 2>/dev/null || true)
-            if ! printf '%s' "$RECAP_CLI_HELP" | grep -q -- '--shot-ok' || ! printf '%s' "$RECAP_CLI_HELP" | grep -q -- '--readback-ok'; then
-              CLI_FAILURE_SUMMARY="Published recap $FAILURE_STAGE failed: $FAILURE_DIAGNOSTIC"
-              if [ "$FAILURE_STAGE" = "readback" ]; then
-                CLI_FAILURE_SUMMARY="$CLI_FAILURE_SUMMARY. Screenshot capture was skipped"
-                if ! printf '%s' "$RECAP_CLI_HELP" | grep -q -- '--readback-ok'; then
-                  CLI_SHOT_OK="true"
-                fi
-              fi
-              if [ -n "$RECAP_AGENT_SUMMARY" ]; then
-                CLI_FAILURE_SUMMARY="$CLI_FAILURE_SUMMARY. Agent output: $RECAP_AGENT_SUMMARY"
-              fi
+            echo "::warning::Could not set $FAILURE_STAGE failure on the Visual Recap check with gh; retrying through the workflow-owned API fallback."
+            if node --input-type=module - "$FAILURE_STAGE" "$FAILURE_TITLE" "$FAILURE_SUMMARY" "$FAILURE_TEXT" <<'NODE'
+          const [failureStage, failureTitle, failureSummary, failureText] = process.argv.slice(2);
+          const token = process.env.GH_TOKEN;
+          const repository = process.env.GITHUB_REPOSITORY;
+          const [owner, name, ...extra] = (repository || '').split('/');
+          const checkRunId = process.env.CHECK_RUN_ID;
+          if (!token || !owner || !name || extra.length || !/^\d+$/.test(checkRunId || '')) {
+            process.stderr.write('Visual Recap check fallback is missing required GitHub API context.\n');
+            process.exit(1);
+          }
+
+          const apiBase = (process.env.GITHUB_API_URL || 'https://api.github.com').replace(/\/+$/, '');
+          const endpoint = `${apiBase}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/check-runs/${checkRunId}`;
+          const payload = {
+            status: 'completed',
+            conclusion: 'failure',
+            completed_at: new Date().toISOString(),
+            details_url: process.env.PLAN_URL,
+            output: {
+              title: failureTitle,
+              summary: failureSummary,
+              text: failureText,
+            },
+          };
+          async function updateCheckRun() {
+            const delays = [0, 500, 1500];
+            let lastStatus;
+
+            for (let attempt = 0; attempt < delays.length; attempt += 1) {
+              if (delays[attempt]) await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+              try {
+                const response = await fetch(endpoint, {
+                  method: 'PATCH',
+                  headers: {
+                    Accept: 'application/vnd.github+json',
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify(payload),
+                });
+                if (response.ok) {
+                  process.stdout.write('Visual Recap failure detail was written through the workflow-owned API fallback.\n');
+                  return true;
+                }
+                lastStatus = response.status;
+                if (response.status !== 408 && response.status !== 429 && response.status < 500) break;
+              } catch {
+                lastStatus = 'network error';
+              }
+            }
+
+            process.stderr.write(`Visual Recap API fallback could not record the ${failureStage} failure (${lastStatus || 'unknown error'}).\n`);
+            return false;
+          }
+
+          if (await updateCheckRun()) process.exit(0);
+          process.exit(1);
+          NODE
+            then
+              exit 0
             fi
+            echo "::error::Visual Recap failure details could not be written; leaving the informational check unresolved rather than replacing the stage-specific failure with a generic legacy CLI result."
+            exit 1
           fi
           $RECAP_CLI recap check complete \
             --check-run-id "$CHECK_RUN_ID" \

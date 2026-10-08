@@ -2374,6 +2374,26 @@ describe("published recap readback workflow", () => {
     return match[1];
   }
 
+  function checkRunFallbackScript(file: string): string {
+    const workflow = parseYaml(
+      readFileSync(path.join(repoRoot, file), "utf8"),
+    ) as {
+      jobs: {
+        recap: {
+          steps: Array<{ name?: string; run?: string }>;
+        };
+      };
+    };
+    const step = workflow.jobs.recap.steps.find(
+      ({ name }) => name === "Complete visual recap check",
+    );
+    const match = step?.run?.match(
+      /if node --input-type=module - "\$FAILURE_STAGE" "\$FAILURE_TITLE" "\$FAILURE_SUMMARY" "\$FAILURE_TEXT" <<'NODE'\n([\s\S]*?)\nNODE/,
+    );
+    if (!match) throw new Error(`${file} is missing its API fallback`);
+    return match[1];
+  }
+
   function executeUrlValidation(
     script: string,
     input: { planUrl: string; appUrl: string },
@@ -2455,6 +2475,80 @@ describe("published recap readback workflow", () => {
     return { result: JSON.parse(writes[0]!), fetchFn };
   }
 
+  async function executeCheckRunFallback(
+    script: string,
+    responses: Array<Pick<Response, "ok" | "status">>,
+    stage: "readback" | "screenshot",
+  ) {
+    const pendingResponses = [...responses];
+    const fetchCalls: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
+    const fetchFn: typeof fetch = async (input, init) => {
+      fetchCalls.push([input, init]);
+      const response = pendingResponses.shift();
+      if (!response) throw new Error("No mocked GitHub API response");
+      return response as Response;
+    };
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    let exitCode: number | undefined;
+    try {
+      await runInNewContext(`(async () => {\n${script}\n})()`, {
+        fetch: fetchFn,
+        process: {
+          env: {
+            GH_TOKEN: "fake-github-token",
+            GITHUB_REPOSITORY: "BuilderIO/example",
+            CHECK_RUN_ID: "123",
+            GITHUB_API_URL: "https://api.github.com",
+            PLAN_URL: "https://plan.agent-native.com/recaps/abc123",
+          },
+          argv: [
+            "/usr/bin/node",
+            "-",
+            stage,
+            stage === "readback"
+              ? "Visual recap readback failed"
+              : "Visual recap screenshot failed",
+            "The recap was published, but the workflow could not verify it.",
+            stage === "readback"
+              ? "readback failed: get-visual-plan returned HTTP 403. Screenshot capture was skipped."
+              : "screenshot failed: screenshot upload failed",
+          ],
+          stdout: {
+            write: (chunk: string) => {
+              stdout.push(chunk);
+              return true;
+            },
+          },
+          stderr: {
+            write: (chunk: string) => {
+              stderr.push(chunk);
+              return true;
+            },
+          },
+          exit: (code: number) => {
+            exitCode = code;
+            throw Object.assign(new Error(`exit:${code}`), { exitCode: code });
+          },
+        },
+        setTimeout: (callback: () => void) => {
+          callback();
+          return 0;
+        },
+      });
+    } catch (error) {
+      const code = (error as { exitCode?: number }).exitCode;
+      if (code === undefined) throw error;
+      exitCode = code;
+    }
+    return {
+      exitCode,
+      fetchCalls,
+      stdout: stdout.join(""),
+      stderr: stderr.join(""),
+    };
+  }
+
   it("keeps the authenticated readback script in sync across every PR workflow", () => {
     const scripts = workflowFiles.map(readbackScript);
     expect(scripts[1]).toBe(scripts[0]);
@@ -2494,14 +2588,20 @@ describe("published recap readback workflow", () => {
         'FAILURE_TITLE="Visual recap screenshot failed"',
       );
       expect(workflow).toContain(
-        "RECAP_CLI_HELP=$($RECAP_CLI recap help 2>/dev/null || true)",
+        'FAILURE_SUMMARY="The recap was published, but the workflow could not verify it.',
       );
-      expect(workflow).toContain('CLI_SHOT_OK="$SHOT_OK"');
-      expect(workflow).toContain('CLI_SHOT_OK="true"');
-      expect(workflow).toContain('--shot-ok "$CLI_SHOT_OK"');
+      expect(workflow).not.toContain("configured PR token could not verify it");
       expect(workflow).toContain(
-        'CLI_FAILURE_SUMMARY="Published recap $FAILURE_STAGE failed: $FAILURE_DIAGNOSTIC"',
+        'if node --input-type=module - "$FAILURE_STAGE" "$FAILURE_TITLE" "$FAILURE_SUMMARY" "$FAILURE_TEXT"',
       );
+      expect(workflow).toContain("Authorization: `Bearer ${token}`");
+      expect(workflow).toContain("response.status !== 408");
+      expect(workflow).toContain(
+        "leaving the informational check unresolved rather than replacing the stage-specific failure",
+      );
+      expect(workflow).not.toContain("RECAP_CLI_HELP=");
+      expect(workflow).toContain('CLI_SHOT_OK="$SHOT_OK"');
+      expect(workflow).toContain('--shot-ok "$CLI_SHOT_OK"');
       expect(workflow).toContain('CLI_READBACK_REASON="$FAILURE_DIAGNOSTIC"');
       expect(workflow).toContain('CLI_SHOT_REASON="$FAILURE_DIAGNOSTIC"');
       expect(workflow).toContain('--readback-ok "$READBACK_OK"');
@@ -2527,6 +2627,45 @@ describe("published recap readback workflow", () => {
     );
     expect(basicDiagnostic).toContain("Authorization: [redacted]");
     expect(basicDiagnostic).not.toContain(basicCredential);
+  });
+
+  it("retries check updates through the workflow API with the stage-specific failure", async () => {
+    const scripts = workflowFiles.map(checkRunFallbackScript);
+    expect(scripts[1]).toBe(scripts[0]);
+    expect(scripts[2]).toBe(scripts[0]);
+
+    const { exitCode, fetchCalls, stdout, stderr } =
+      await executeCheckRunFallback(
+        scripts[0]!,
+        [
+          { ok: false, status: 502 },
+          { ok: true, status: 200 },
+        ],
+        "screenshot",
+      );
+    expect(exitCode, `${stderr} (calls: ${fetchCalls.length})`).toBe(0);
+    expect(fetchCalls).toHaveLength(2);
+    expect(fetchCalls[1]?.[0]).toBe(
+      "https://api.github.com/repos/BuilderIO/example/check-runs/123",
+    );
+    const request = fetchCalls[1]?.[1];
+    expect(request?.headers).toMatchObject({
+      Authorization: "Bearer fake-github-token",
+      "Content-Type": "application/json",
+    });
+    expect(JSON.parse(String(request?.body))).toMatchObject({
+      status: "completed",
+      conclusion: "failure",
+      details_url: "https://plan.agent-native.com/recaps/abc123",
+      output: {
+        title: "Visual recap screenshot failed",
+        summary:
+          "The recap was published, but the workflow could not verify it.",
+        text: "screenshot failed: screenshot upload failed",
+      },
+    });
+    expect(stdout).toContain("workflow-owned API fallback");
+    expect(stderr).toBe("");
   });
 
   it("keeps bearer requests on the Plan origin for a double-slash base path", async () => {
