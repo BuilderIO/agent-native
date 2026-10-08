@@ -5819,7 +5819,8 @@ export default function SlideEditor({
             guide.orientation === guides[index]?.orientation &&
             guide.position === guides[index]?.position &&
             guide.start === guides[index]?.start &&
-            guide.end === guides[index]?.end,
+            guide.end === guides[index]?.end &&
+            guide.equalSpacing === guides[index]?.equalSpacing,
         );
       const viewportUnchanged =
         previous?.viewport.rect.left === viewport.rect.left &&

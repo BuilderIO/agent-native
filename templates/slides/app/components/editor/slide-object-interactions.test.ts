@@ -1990,11 +1990,13 @@ describe("slide object interactions", () => {
 
     expect(result.deltaX).toBe(20);
     expect(result.deltaY).toBe(0);
+    // The guide spans the two objects it aligns (peer 50..130, moved 160..200),
+    // not the slide.
     expect(result.guides).toContainEqual({
       orientation: "vertical",
       position: 200,
-      start: 0,
-      end: 720,
+      start: 50,
+      end: 200,
     });
   });
 
@@ -3804,6 +3806,182 @@ describe("object interaction geometry hardening", () => {
 
     expect(snap(13).deltaX).toBe(20);
     expect(snap(11).deltaX).toBe(11);
+  });
+
+  it("snaps at 3 screen px and not at 4 (gs-truth 9.1)", () => {
+    const snap = (deltaX: number) =>
+      snapSlideObjectMove({
+        moving: { x: 100, y: 0, width: 80, height: 40 },
+        deltaX,
+        deltaY: 0,
+        peers: [{ x: 200, y: 300, width: 50, height: 50 }],
+        scale: 1,
+      });
+
+    expect(snap(17).deltaX).toBe(20);
+    expect(snap(16).deltaX).toBe(16);
+  });
+
+  it("spans an alignment guide across every object it aligns, and the slide for slide anchors (gs-truth 9.2)", () => {
+    const canvas = { width: 1280, height: 720 };
+    const result = snapSlideObjectMove({
+      moving: { x: 300, y: 500, width: 80, height: 40 },
+      deltaX: 1,
+      deltaY: 0,
+      peers: [
+        { x: 100, y: 100, width: 80, height: 40 },
+        { x: 301, y: 200, width: 60, height: 60 },
+        { x: 301, y: 340, width: 60, height: 60 },
+      ],
+      canvas,
+    });
+
+    expect(result.deltaX).toBe(1);
+    // Left edge 301 is shared with the second and third peers: A.top..C.bottom.
+    expect(result.guides).toContainEqual({
+      orientation: "vertical",
+      position: 301,
+      start: 200,
+      end: 540,
+    });
+    expect(
+      result.guides.filter((guide) => guide.orientation === "vertical"),
+    ).toHaveLength(1);
+
+    const centred = snapSlideObjectMove({
+      moving: { x: 590, y: 100, width: 100, height: 40 },
+      deltaX: 1,
+      deltaY: 0,
+      peers: [{ x: 700, y: 400, width: 60, height: 60 }],
+      canvas,
+    });
+    expect(centred.guides).toContainEqual({
+      orientation: "vertical",
+      position: 640,
+      start: 0,
+      end: 720,
+    });
+    expect(
+      snapSlideObjectMove({
+        moving: { x: 590, y: 100, width: 100, height: 40 },
+        deltaX: 1,
+        deltaY: 0,
+        peers: [],
+      }).guides,
+    ).toEqual([]);
+  });
+
+  it("snaps to equal spacing and draws one blue guide per gap (gs-truth 9.4)", () => {
+    const peers = [
+      { x: 100, y: 100, width: 100, height: 60 },
+      { x: 300, y: 100, width: 100, height: 60 },
+    ];
+    // A [100,200], B [300,400]: a gap of 100 puts the next object at x=500.
+    const chain = snapSlideObjectMove({
+      moving: { x: 450, y: 115, width: 100, height: 40 },
+      deltaX: 51,
+      deltaY: 0,
+      peers,
+      scale: 1,
+    });
+    expect(chain.deltaX).toBe(50);
+    expect(chain.guides.filter((guide) => guide.equalSpacing)).toEqual([
+      {
+        orientation: "horizontal",
+        position: 168,
+        start: 200,
+        end: 300,
+        equalSpacing: true,
+      },
+      {
+        orientation: "horizontal",
+        position: 168,
+        start: 400,
+        end: 500,
+        equalSpacing: true,
+      },
+    ]);
+
+    // Within 3 px it snaps, at 4 or 5 px it does not.
+    const near = (deltaX: number) =>
+      snapSlideObjectMove({
+        moving: { x: 450, y: 115, width: 100, height: 40 },
+        deltaX,
+        deltaY: 0,
+        peers,
+        scale: 1,
+      });
+    expect(near(53).deltaX).toBe(50);
+    expect(near(54).deltaX).toBe(54);
+    expect(near(55).guides).toEqual([]);
+
+    // Centred between A and B: gaps of 100 either side of a 100-wide object.
+    const centred = snapSlideObjectMove({
+      moving: { x: 190, y: 115, width: 100, height: 40 },
+      deltaX: 7,
+      deltaY: 0,
+      peers: [
+        { x: 0, y: 100, width: 100, height: 60 },
+        { x: 400, y: 100, width: 100, height: 60 },
+      ],
+      scale: 1,
+    });
+    expect(centred.deltaX).toBe(10);
+    expect(
+      centred.guides
+        .filter((guide) => guide.equalSpacing)
+        .map((g) => [g.start, g.end]),
+    ).toEqual([
+      [100, 200],
+      [300, 400],
+    ]);
+  });
+
+  it("measures equal spacing down a column and ignores objects outside the row", () => {
+    const column = snapSlideObjectMove({
+      moving: { x: 110, y: 297, width: 60, height: 40 },
+      deltaX: 0,
+      deltaY: 1,
+      peers: [
+        { x: 100, y: 100, width: 100, height: 40 },
+        { x: 100, y: 200, width: 100, height: 40 },
+      ],
+      scale: 1,
+    });
+    expect(column.deltaY).toBe(3);
+    expect(
+      column.guides.filter(
+        (guide) => guide.equalSpacing && guide.orientation === "vertical",
+      ),
+    ).toHaveLength(2);
+
+    const offRow = snapSlideObjectMove({
+      moving: { x: 450, y: 600, width: 100, height: 40 },
+      deltaX: 51,
+      deltaY: 0,
+      peers: [
+        { x: 100, y: 100, width: 100, height: 60 },
+        { x: 300, y: 100, width: 100, height: 60 },
+      ],
+      scale: 1,
+    });
+    expect(offRow.deltaX).toBe(51);
+    expect(offRow.guides.some((guide) => guide.equalSpacing)).toBe(false);
+  });
+
+  it("does not snap to equal spacing when Cmd/Ctrl bypasses snapping (gs-truth 9.6)", () => {
+    const result = snapSlideObjectMove({
+      moving: { x: 450, y: 115, width: 100, height: 40 },
+      deltaX: 51,
+      deltaY: 0,
+      peers: [
+        { x: 100, y: 100, width: 100, height: 60 },
+        { x: 300, y: 100, width: 100, height: 60 },
+      ],
+      scale: 1,
+      bypass: true,
+    });
+    expect(result).toEqual({ deltaX: 51, deltaY: 0, guides: [] });
   });
 });
 

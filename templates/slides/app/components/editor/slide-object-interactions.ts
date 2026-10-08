@@ -2951,6 +2951,8 @@ export interface SlideAlignmentGuide {
   position: number;
   start: number;
   end: number;
+  /** One gap of an equal-spacing snap; drawn blue, not as an alignment line. */
+  equalSpacing?: boolean;
 }
 
 export interface SlideObjectSnapResult {
@@ -2978,7 +2980,7 @@ function nearestSnapAdjustment(
   proposedDelta: number,
   targetPositions: number[],
   tolerance: number,
-): { delta: number; position: number } | null {
+): { delta: number; distance: number; position: number } | null {
   const anchors = [0, movingSize / 2, movingSize];
   let closest: { distance: number; delta: number; position: number } | null =
     null;
@@ -2988,14 +2990,206 @@ function nearestSnapAdjustment(
     for (const position of targetPositions) {
       const adjustment = position - proposedPosition;
       const distance = Math.abs(adjustment);
-      if (distance > tolerance) continue;
+      // Google Slides snaps at 3 screen px and not at 4, so the radius is open.
+      if (distance >= tolerance) continue;
       if (!closest || distance < closest.distance) {
         closest = { distance, delta: proposedDelta + adjustment, position };
       }
     }
   }
 
-  return closest ? { delta: closest.delta, position: closest.position } : null;
+  return closest
+    ? {
+        delta: closest.delta,
+        distance: closest.distance,
+        position: closest.position,
+      }
+    : null;
+}
+
+interface SnapSpan {
+  start: number;
+  end: number;
+  crossStart: number;
+  crossEnd: number;
+}
+
+function snapSpan(geometry: SlideObjectGeometry, axis: "x" | "y"): SnapSpan {
+  return axis === "x"
+    ? {
+        start: geometry.x,
+        end: geometry.x + geometry.width,
+        crossStart: geometry.y,
+        crossEnd: geometry.y + geometry.height,
+      }
+    : {
+        start: geometry.y,
+        end: geometry.y + geometry.height,
+        crossStart: geometry.x,
+        crossEnd: geometry.x + geometry.width,
+      };
+}
+
+function spansOverlap(a0: number, a1: number, b0: number, b1: number) {
+  return a0 < b1 && b0 < a1;
+}
+
+// Gaps under one slide unit are adjacency, which the edge anchors already snap.
+const MIN_EQUAL_SPACING_GAP = 1;
+const ALIGNMENT_EPSILON = 0.01;
+// Google draws the spacing guide just below the row (right of a column).
+const EQUAL_SPACING_GUIDE_OFFSET = 8;
+
+interface EqualSpacingSnap {
+  delta: number;
+  distance: number;
+  gaps: Array<[number, number]>;
+  /** Far cross-axis edge of the objects the spacing is measured against. */
+  crossEnd: number;
+}
+
+/**
+ * Snap `moving` so the gaps between it and its row/column neighbours match:
+ * either it ends a chain whose last gap equals the one before it, or it sits
+ * centred between two objects. Only objects sharing the moving object's row
+ * (cross-axis overlap) take part.
+ */
+function nearestEqualSpacingSnap(
+  moving: SnapSpan,
+  proposedDelta: number,
+  peers: readonly SnapSpan[],
+  tolerance: number,
+): EqualSpacingSnap | null {
+  const size = moving.end - moving.start;
+  const start = moving.start + proposedDelta;
+  const row = peers.filter((peer) =>
+    spansOverlap(
+      peer.crossStart,
+      peer.crossEnd,
+      moving.crossStart,
+      moving.crossEnd,
+    ),
+  );
+  let best: EqualSpacingSnap | null = null;
+  const consider = (
+    target: number,
+    gaps: Array<[number, number]>,
+    involved: readonly SnapSpan[],
+  ) => {
+    const distance = Math.abs(target - start);
+    if (distance >= tolerance || (best && distance >= best.distance)) return;
+    best = {
+      delta: proposedDelta + target - start,
+      distance,
+      gaps,
+      crossEnd: Math.max(...involved.map((span) => span.crossEnd)),
+    };
+  };
+
+  for (const first of row) {
+    for (const second of row) {
+      const gap = second.start - first.end;
+      if (
+        first === second ||
+        gap < MIN_EQUAL_SPACING_GAP ||
+        !spansOverlap(
+          first.crossStart,
+          first.crossEnd,
+          second.crossStart,
+          second.crossEnd,
+        )
+      ) {
+        continue;
+      }
+      const pair = [first, second];
+      consider(
+        second.end + gap,
+        [
+          [first.end, second.start],
+          [second.end, second.end + gap],
+        ],
+        pair,
+      );
+      consider(
+        first.start - gap - size,
+        [
+          [first.start - gap, first.start],
+          [first.end, second.start],
+        ],
+        pair,
+      );
+      if (gap >= size + 2 * MIN_EQUAL_SPACING_GAP) {
+        const target = (first.end + second.start - size) / 2;
+        consider(
+          target,
+          [
+            [first.end, target],
+            [target + size, second.start],
+          ],
+          pair,
+        );
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Red guides through every edge or centre the moved object now shares with a
+ * peer or the slide. A guide spans the union of the objects it aligns, or the
+ * whole slide when the target is a slide edge or centre.
+ */
+function alignmentGuidesFor(
+  moved: SlideObjectGeometry,
+  peers: readonly SlideObjectGeometry[],
+  canvas: { width: number; height: number } | undefined,
+  axis: "x" | "y",
+): SlideAlignmentGuide[] {
+  const movedSpan = snapSpan(moved, axis);
+  const peerSpans = peers.map((peer) => snapSpan(peer, axis));
+  const slideLength = axis === "x" ? canvas?.width : canvas?.height;
+  const slideCross = axis === "x" ? canvas?.height : canvas?.width;
+  const slideAnchors =
+    slideLength === undefined ? [] : [0, slideLength / 2, slideLength];
+  const anchorsOf = (span: SnapSpan) => [
+    span.start,
+    (span.start + span.end) / 2,
+    span.end,
+  ];
+  const aligned = (a: number, b: number) => Math.abs(a - b) < ALIGNMENT_EPSILON;
+
+  const guides: SlideAlignmentGuide[] = [];
+  const seen = new Set<number>();
+  for (const position of anchorsOf(movedSpan)) {
+    const key = Math.round(position / ALIGNMENT_EPSILON);
+    if (seen.has(key)) continue;
+    const alignedPeers = peerSpans.filter((peer) =>
+      anchorsOf(peer).some((anchor) => aligned(anchor, position)),
+    );
+    const alignedSlide = slideAnchors.some((anchor) =>
+      aligned(anchor, position),
+    );
+    if (alignedPeers.length === 0 && !alignedSlide) continue;
+    seen.add(key);
+    const crossStart =
+      alignedSlide && slideCross !== undefined
+        ? 0
+        : Math.min(
+            movedSpan.crossStart,
+            ...alignedPeers.map((p) => p.crossStart),
+          );
+    const crossEnd =
+      alignedSlide && slideCross !== undefined
+        ? slideCross
+        : Math.max(movedSpan.crossEnd, ...alignedPeers.map((p) => p.crossEnd));
+    guides.push({
+      orientation: axis === "x" ? "vertical" : "horizontal",
+      position,
+      start: crossStart,
+      end: crossEnd,
+    });
+  }
+  return guides;
 }
 
 function uniquePositions(positions: number[]): number[] {
@@ -3058,29 +3252,66 @@ export function snapSlideObjectMove({
     uniquePositions(yTargets),
     tolerance,
   );
-  const guides: SlideAlignmentGuide[] = [];
-  if (xSnap) {
-    guides.push({
-      orientation: "vertical",
-      position: xSnap.position,
-      start: 0,
-      end: canvas?.height ?? moving.y + moving.height,
-    });
-  }
-  if (ySnap) {
+  const peerSpans = (axis: "x" | "y") =>
+    peers.map((peer) => snapSpan(peer, axis));
+  const xSpacing = nearestEqualSpacingSnap(
+    snapSpan(moving, "x"),
+    deltaX,
+    peerSpans("x"),
+    tolerance,
+  );
+  const ySpacing = nearestEqualSpacingSnap(
+    snapSpan(moving, "y"),
+    deltaY,
+    peerSpans("y"),
+    tolerance,
+  );
+  // Equal spacing only wins when strictly closer, so a tie keeps the edge snap.
+  const xEqual = xSpacing && (!xSnap || xSpacing.distance < xSnap.distance);
+  const yEqual = ySpacing && (!ySnap || ySpacing.distance < ySnap.distance);
+  const snappedDeltaX = xEqual ? xSpacing.delta : (xSnap?.delta ?? deltaX);
+  const snappedDeltaY = yEqual ? ySpacing.delta : (ySnap?.delta ?? deltaY);
+
+  const moved = {
+    ...moving,
+    x: moving.x + snappedDeltaX,
+    y: moving.y + snappedDeltaY,
+  };
+  const guides = [
+    ...alignmentGuidesFor(moved, peers, canvas, "x"),
+    ...alignmentGuidesFor(moved, peers, canvas, "y"),
+  ];
+  // The spacing also holds when an edge snap landed on the same position.
+  const spacingAt = (spacing: EqualSpacingSnap | null, snappedDelta: number) =>
+    spacing && Math.abs(spacing.delta - snappedDelta) < ALIGNMENT_EPSILON
+      ? spacing
+      : null;
+  const xGaps = spacingAt(xSpacing, snappedDeltaX);
+  const yGaps = spacingAt(ySpacing, snappedDeltaY);
+  for (const gap of xGaps?.gaps ?? []) {
     guides.push({
       orientation: "horizontal",
-      position: ySnap.position,
-      start: 0,
-      end: canvas?.width ?? moving.x + moving.width,
+      position:
+        Math.max(xGaps?.crossEnd ?? 0, moved.y + moved.height) +
+        EQUAL_SPACING_GUIDE_OFFSET,
+      start: gap[0],
+      end: gap[1],
+      equalSpacing: true,
+    });
+  }
+  for (const gap of yGaps?.gaps ?? []) {
+    guides.push({
+      orientation: "vertical",
+      position:
+        Math.max(yGaps?.crossEnd ?? 0, moved.x + moved.width) +
+        EQUAL_SPACING_GUIDE_OFFSET,
+      start: gap[0],
+      end: gap[1],
+      equalSpacing: true,
     });
   }
 
-  return {
-    deltaX: xSnap?.delta ?? deltaX,
-    deltaY: ySnap?.delta ?? deltaY,
-    guides,
-  };
+  return { deltaX: snappedDeltaX, deltaY: snappedDeltaY, guides };
 }
 
 export function unionSlideObjectGeometries(
