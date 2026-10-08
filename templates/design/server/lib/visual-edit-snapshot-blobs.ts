@@ -74,14 +74,16 @@ export async function deleteVisualEditSnapshotBlobs(
     }
   }
 
-  const remainingQuery = db
-    .select({ blobHandle: table.blobHandle })
-    .from(table);
   const remaining = handles.length
-    ? await remainingQuery
+    ? await db
+        .select({ blobHandle: table.blobHandle })
+        .from(table)
         .where(inArray(table.blobHandle, handles))
         .limit(handles.length)
-    : await remainingQuery.limit(CLEANUP_BATCH_SIZE);
+    : await db
+        .select({ blobHandle: table.blobHandle })
+        .from(table)
+        .limit(CLEANUP_BATCH_SIZE);
   return remaining.length > 0;
 }
 
