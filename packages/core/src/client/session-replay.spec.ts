@@ -8,6 +8,7 @@ import {
   SESSION_REPLAY_IFRAME_START,
   SESSION_REPLAY_IFRAME_STOP,
 } from "../session-replay-iframe-protocol.js";
+import { SESSION_REPLAY_BLOCK_ATTRIBUTE } from "./session-replay-privacy.js";
 
 const recordMock = vi.hoisted(() => vi.fn());
 const sentryMock = vi.hoisted(() => ({
@@ -1660,6 +1661,27 @@ describe("session replay", () => {
     expect(stopRecorder).toHaveBeenCalledOnce();
   });
 
+  it("keeps the framework text mask with an app-specific selector and class", async () => {
+    installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    const { startSessionReplay } = await freshSessionReplay();
+
+    const result = await startSessionReplay({
+      publicKey: "anpk_test",
+      maskTextSelector: ".customer-private, [data-app-secret]",
+      maskTextClass: "customer-mask",
+    });
+
+    expect(result.started).toBe(true);
+    expect(recordMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maskTextClass: "customer-mask",
+        maskTextSelector:
+          "[data-an-mask], .customer-private, [data-app-secret]",
+      }),
+    );
+  });
+
   it("starts rrweb with privacy defaults and uploads scrubbed replay batches", async () => {
     const { fetchMock } = installBrowser(
       "https://app.agent-native.com/all?code=secret&q=private.sender%40example.com&keep=1",
@@ -1794,6 +1816,9 @@ describe("session replay", () => {
     expect(recordOptions.blockSelector).toContain(
       `iframe[${SESSION_REPLAY_IFRAME_ATTRIBUTE}]`,
     );
+    expect(recordOptions.blockSelector).toContain(
+      `[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`,
+    );
     await replay.stopSessionReplay();
 
     windowStub.parent = {};
@@ -1803,6 +1828,28 @@ describe("session replay", () => {
       recordCrossOriginIframes: true,
     });
     expect(recordOptions.recordCrossOriginIframes).toBe(true);
+    await replay.stopSessionReplay();
+  });
+
+  it("keeps the bare block markers when a custom selector only mentions one", async () => {
+    installBrowser();
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const replay = await freshSessionReplay();
+
+    await replay.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      blockSelector: `[${SESSION_REPLAY_BLOCK_ATTRIBUTE}] .app-secret`,
+    });
+    expect(recordOptions.blockSelector.split(", ")).toEqual([
+      `[${SESSION_REPLAY_BLOCK_ATTRIBUTE}] .app-secret`,
+      `iframe[${SESSION_REPLAY_IFRAME_ATTRIBUTE}]`,
+      `[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`,
+    ]);
     await replay.stopSessionReplay();
   });
 

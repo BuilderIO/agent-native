@@ -1362,13 +1362,25 @@ button[title="Open agent sidebar"] {
   line-height: 1.5;
 }
 
+/* Selection chrome mirrors measured Google Slides values and stays screen-px
+   constant. The overlay elements carry inline border-radius / box-shadow, so
+   those declarations need !important. */
 [data-slide-layer-hover-outline="true"] {
-  border: 1px solid rgba(96, 159, 248, 0.55);
-  box-shadow: 0 0 0 1px rgba(96, 159, 248, 0.12);
+  border: 1px solid #747775;
+  border-radius: 0 !important;
+  box-shadow: none !important;
 }
 
 [data-slide-container-outline="true"] {
-  border: 1px dashed rgba(96, 159, 248, 0.7);
+  border: 2px solid #747775;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+[data-slide-marquee="true"] {
+  border: 1px solid #0096fd !important;
+  border-radius: 0 !important;
+  background: transparent !important;
 }
 
 [data-layer-row-content]:hover {
@@ -1381,6 +1393,26 @@ button[title="Open agent sidebar"] {
   outline-offset: -1px;
 }
 
+[data-slide-selection-chrome="true"] {
+  --slide-chrome-color: #1a73e8;
+  --slide-chrome-halo: 0 0 0 4px rgba(138, 180, 248, 0.6);
+  border: 2px solid var(--slide-chrome-color) !important;
+  border-radius: 0 !important;
+  box-shadow: var(--slide-chrome-halo) !important;
+}
+
+/* Group whose member is selected: same geometry, gray. */
+[data-slide-selection-chrome="true"][data-slide-selection-chrome-parent="true"] {
+  --slide-chrome-color: #747775;
+  --slide-chrome-halo: none;
+}
+
+/* The group's chrome only shows context; the selected member owns the gestures. */
+[data-slide-selection-chrome-parent="true"] *,
+[data-slide-selection-chrome-parent="true"] *::after {
+  pointer-events: none !important;
+}
+
 [data-slide-selection-chrome="true"] [data-slide-resize-handle] {
   box-sizing: border-box;
 }
@@ -1390,7 +1422,9 @@ button[title="Open agent sidebar"] {
 [data-slide-selection-chrome="true"] [data-slide-resize-handle="sw"],
 [data-slide-selection-chrome="true"] [data-slide-resize-handle="se"],
 [data-slide-selection-chrome="true"] [data-slide-resize-handle-bar="true"] {
-  border: 1px solid #609ff8;
+  box-sizing: border-box;
+  border: 2px solid var(--slide-chrome-color);
+  border-radius: 9999px;
   background: #fff;
   box-shadow: none;
 }
@@ -1399,60 +1433,76 @@ button[title="Open agent sidebar"] {
 [data-slide-selection-chrome="true"] [data-slide-resize-handle="ne"],
 [data-slide-selection-chrome="true"] [data-slide-resize-handle="sw"],
 [data-slide-selection-chrome="true"] [data-slide-resize-handle="se"] {
-  width: 7px;
-  height: 7px;
+  width: 12px;
+  height: 12px;
+  /* The visible circle is 12px; only its 8px padding box grabs (GS 1.6). */
+  pointer-events: none !important;
 }
 
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="nw"]::after,
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="ne"]::after,
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="sw"]::after,
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="se"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+}
+
+/* Offsets are from the padding box, 2px inside the outline's outer edge, so
+   -7px centres each corner handle on the 2px border's centreline. */
 [data-slide-selection-chrome="true"] [data-slide-resize-handle="nw"] {
-  top: -4px;
-  left: -4px;
+  top: -7px;
+  left: -7px;
 }
 
 [data-slide-selection-chrome="true"] [data-slide-resize-handle="ne"] {
-  top: -4px;
-  right: -4px;
+  top: -7px;
+  right: -7px;
 }
 
 [data-slide-selection-chrome="true"] [data-slide-resize-handle="sw"] {
-  bottom: -4px;
-  left: -4px;
+  bottom: -7px;
+  left: -7px;
 }
 
 [data-slide-selection-chrome="true"] [data-slide-resize-handle="se"] {
-  right: -4px;
-  bottom: -4px;
+  right: -7px;
+  bottom: -7px;
 }
 
 [data-slide-selection-chrome="true"] [data-slide-resize-handle="n"],
 [data-slide-selection-chrome="true"] [data-slide-resize-handle="s"] {
   width: 22px;
-  height: 12px;
+  height: 8px;
   left: 50%;
   transform: translateX(-50%);
 }
 
+/* Edge hit areas are 8px thick, +-4px around the pill's centre on the border
+   centreline (GS 1.6: 3px off resizes, 5px off does not). */
 [data-slide-selection-chrome="true"] [data-slide-resize-handle="n"] {
-  top: -6.5px;
+  top: -5px;
 }
 
 [data-slide-selection-chrome="true"] [data-slide-resize-handle="s"] {
-  bottom: -6.5px;
+  bottom: -5px;
 }
 
 [data-slide-selection-chrome="true"] [data-slide-resize-handle="e"],
 [data-slide-selection-chrome="true"] [data-slide-resize-handle="w"] {
-  width: 12px;
+  width: 8px;
   height: 22px;
   top: 50%;
   transform: translateY(-50%);
 }
 
 [data-slide-selection-chrome="true"] [data-slide-resize-handle="e"] {
-  right: -6.5px;
+  right: -5px;
 }
 
 [data-slide-selection-chrome="true"] [data-slide-resize-handle="w"] {
-  left: -6.5px;
+  left: -5px;
 }
 
 [data-slide-selection-chrome="true"]
@@ -1461,8 +1511,8 @@ button[title="Open agent sidebar"] {
 [data-slide-selection-chrome="true"]
   [data-slide-resize-handle="s"]
   [data-slide-resize-handle-bar="true"] {
-  width: 14px;
-  height: 4px;
+  width: 22px;
+  height: 6.4px;
 }
 
 [data-slide-selection-chrome="true"]
@@ -1471,8 +1521,29 @@ button[title="Open agent sidebar"] {
 [data-slide-selection-chrome="true"]
   [data-slide-resize-handle="w"]
   [data-slide-resize-handle-bar="true"] {
-  width: 4px;
-  height: 14px;
+  width: 6.4px;
+  height: 22px;
+}
+
+/* Rotate handle: 18px disc centred 29px above the outline's centreline,
+   joined by a 2px stem. Stem is the chrome's aria-hidden direct child. */
+[data-slide-selection-chrome="true"] [data-slide-rotate-handle] {
+  top: -38px;
+  width: 18px;
+  height: 18px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-rotate-handle] > span {
+  inset: 0;
+  border: 1px solid #fff;
+  background: var(--slide-chrome-color);
+}
+
+[data-slide-selection-chrome="true"] > span[aria-hidden="true"] {
+  top: -20px !important;
+  width: 2px;
+  height: 19px;
+  background: var(--slide-chrome-color);
 }
 
 @keyframes slide-fade-in {

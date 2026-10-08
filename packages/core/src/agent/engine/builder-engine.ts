@@ -1437,6 +1437,7 @@ function captureBuilderGatewayTransportError(
 ): void {
   captureError(err, {
     route: "/_agent-native/agent-chat",
+    errorMessagePolicy: "omit",
     tags: {
       source: "builder-engine",
       phase: context.phase,
@@ -1484,6 +1485,7 @@ function captureBuilderGatewayNoDetailError(context: {
   err.name = "BuilderGatewayNoDetailError";
   captureError(err, {
     route: "/_agent-native/agent-chat",
+    errorMessagePolicy: "omit",
     tags: {
       source: "builder-engine",
       phase: "stream",

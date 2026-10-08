@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import * as captureErrorModule from "../../server/capture-error.js";
+import { captureException } from "../../tracking/error-capture.js";
+import {
+  registerTrackingProvider,
+  unregisterTrackingProvider,
+} from "../../tracking/registry.js";
+import type { TrackingEvent } from "../../tracking/types.js";
 import { BUILDER_CLAUDE_SONNET_MODEL_ID } from "../model-config.js";
 import {
   BUILDER_CAPABILITIES,
@@ -194,8 +200,10 @@ describe("createBuilderEngine", () => {
     expect(engine.capabilities).toMatchObject(BUILDER_CAPABILITIES);
     expect(engine.supportedModels).toContain(BUILDER_CLAUDE_SONNET_MODEL_ID);
     expect(engine.supportedModels).toContain("auto");
+    expect(engine.supportedModels).toContain("claude-haiku-5-5");
+    expect(engine.supportedModels).toContain("claude-sonnet-5-5");
     expect(engine.supportedModels).toContain("claude-opus-5-5");
-    expect(engine.supportedModels).toContain("gpt-6.1-sol");
+    expect(engine.supportedModels).toContain("gpt-6-1-sol");
     expect(engine.supportedModels).toContain("gpt-5-4");
     expect(engine.supportedModels).toContain("gpt-5-5");
     expect(engine.supportedModels).toContain("gpt-5-4-mini");
@@ -206,8 +214,14 @@ describe("createBuilderEngine", () => {
     expect(engine.supportedModels).not.toContain("claude-opus-4-7");
     expect(engine.supportedModels).not.toContain("gpt-5-6-luna");
     expect(engine.supportedModels).not.toContain("claude-opus-4-8");
+    expect(engine.supportedModels).not.toContain("claude-haiku-4-5");
+    expect(engine.supportedModels).not.toContain("gpt-6.1-sol");
     expect(engine.supportedModels).toContain("gemini-3-1-flash-lite");
+    expect(engine.supportedModels).toContain("grok-code-fast");
+    expect(engine.supportedModels).toContain("deepseek-v4-pro");
+    expect(engine.supportedModels).toContain("deepseek-v4-1-flash");
     expect(engine.supportedModels).toContain("z-ai-glm-4-5");
+    expect(engine.supportedModels).toContain("z-ai-glm-5-3-flash");
   });
 
   it("preserves optional action schemas in GPT gateway requests", async () => {
@@ -2239,6 +2253,80 @@ describe("createBuilderEngine", () => {
       requestId: "req_invalid_request",
     });
     expect(JSON.stringify(stop)).not.toContain("must not be surfaced");
+  });
+
+  it("omits named run errors from gateway transport Monitoring payloads", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "gateway-run-privacy",
+      track: (event) => {
+        events.push(event);
+      },
+    });
+    const unregister = captureErrorModule.registerErrorCaptureProvider(
+      "gateway-run-privacy",
+      captureException,
+    );
+    const message = "Jane Doe's notes are locked";
+    const error = new TypeError(`connection reset: ${message}`);
+    error.stack = `TypeError: connection reset: ${message}\n    at streamNotes (/app/notes.ts:10:2)`;
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(error));
+    try {
+      await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+      const payload = events.find((event) => event.name === "$exception");
+      expect(payload).toBeDefined();
+      expect(JSON.stringify(payload)).not.toContain("Jane Doe");
+      expect(payload?.properties).toMatchObject({
+        exceptionType: "TypeError",
+        exceptionTags: { errorCode: "builder_gateway_network_error" },
+      });
+      expect(payload?.properties?.exceptionStack).toContain("at streamNotes");
+    } finally {
+      unregister();
+      unregisterTrackingProvider("gateway-run-privacy");
+    }
+  });
+
+  it("omits ambiguous gateway stop payloads from Monitoring", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "gateway-run-privacy",
+      track: (event) => {
+        events.push(event);
+      },
+    });
+    const unregister = captureErrorModule.registerErrorCaptureProvider(
+      "gateway-run-privacy",
+      captureException,
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            requestId: "req_no_detail",
+            providerNote: "Jane Doe's notes are locked",
+          },
+        ]),
+      ),
+    );
+    try {
+      await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+      const payload = events.find((event) => event.name === "$exception");
+      expect(payload).toBeDefined();
+      expect(JSON.stringify(payload)).not.toContain("Jane Doe");
+      expect(payload?.properties).toMatchObject({
+        exceptionTags: {
+          errorCode: "builder_gateway_error",
+          gatewayRequestId: "req_no_detail",
+        },
+      });
+    } finally {
+      unregister();
+      unregisterTrackingProvider("gateway-run-privacy");
+    }
   });
 
   it("captures no-detail gateway stop errors to Sentry with model + requestId tags", async () => {
