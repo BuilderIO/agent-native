@@ -241,6 +241,20 @@ describe("Builder gateway error retryability", () => {
         expectedErrorCode: "invalid_request",
       },
       {
+        label: "in-stream invalid_request with transient wording",
+        response: () =>
+          jsonlResponse([
+            {
+              type: "stop",
+              reason: "error",
+              code: "invalid_request",
+              error: "Request timed out while validating the payload",
+            },
+          ]),
+        retryable: false,
+        expectedErrorCode: "invalid_request",
+      },
+      {
         label: "in-stream gateway internal error envelope",
         response: () =>
           jsonlResponse([

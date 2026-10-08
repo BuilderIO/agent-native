@@ -1040,10 +1040,10 @@ async function* parseJsonlStream(
                 ? { upgradeUrl: await buildUpgradeUrl() }
                 : {}),
               ...(isBareRejection ? { statusCode: 403 } : {}),
-              ...(isBareRejection || isTransientGatewayFailure(String(errMsg))
-                ? { providerRetryable: true }
-                : isInvalidRequest
-                  ? { providerRetryable: false }
+              ...(isInvalidRequest
+                ? { providerRetryable: false }
+                : isBareRejection || isTransientGatewayFailure(String(errMsg))
+                  ? { providerRetryable: true }
                   : {}),
               ...(gatewayRequestId ? { requestId: gatewayRequestId } : {}),
             });
