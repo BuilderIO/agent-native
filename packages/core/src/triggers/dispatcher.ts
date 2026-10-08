@@ -831,6 +831,18 @@ export async function hasEventAutomation(eventName: string): Promise<boolean> {
   return (await readCurrentEventAutomationNames()).has(eventName);
 }
 
+/**
+ * A refresh that lands mid-scan means the scan may predate a new automation;
+ * only a scan that is still current when it finishes counts.
+ */
+async function currentEventAutomationResources(): Promise<Resource[]> {
+  for (;;) {
+    const generation = _eventAutomationGeneration;
+    const jobResources = await listEventAutomationResources();
+    if (generation === _eventAutomationGeneration) return jobResources;
+  }
+}
+
 async function handleAnyEvent(
   eventName: string,
   payload: unknown,
@@ -851,7 +863,7 @@ async function handleEvent(
   if (!deps) return;
 
   try {
-    const jobResources = await listEventAutomationResources();
+    const jobResources = await currentEventAutomationResources();
     const matchingTriggers = jobResources.filter((resource) => {
       if (!resource.path.endsWith(".md")) return false;
       const { meta, body } = parseTriggerFrontmatter(resource.content);
