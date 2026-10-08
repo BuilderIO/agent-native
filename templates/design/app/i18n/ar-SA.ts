@@ -924,6 +924,7 @@ export default {
         uploadFailed: "فشل رفع الملف",
         invalidFigFile: "اختر ملفا ينتهي بـ .fig.",
         unsupportedFileType: "اختر ملف ‎.fig‎ أو ‎.html‎ أو ‎.htm‎.",
+        importBusy: "هناك استيراد آخر قيد التنفيذ. أنهِه أو ألغِه أولاً.",
         figFileTooLarge:
           "ملف ‎.fig‎ كبير جدًا — الحد الأقصى للرفع {{max}} ميغابايت. في Figma، انسخ الإطار المطلوب فقط إلى ملف جديد وصدّر ذلك الملف بصيغة ‎.fig‎، أو استخدم اللصق من Figma.",
       },

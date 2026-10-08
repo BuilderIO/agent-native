@@ -945,6 +945,8 @@ export default {
         uploadFailed: "Dateiupload fehlgeschlagen",
         invalidFigFile: "Wähle eine Datei mit der Endung .fig.",
         unsupportedFileType: "Wähle eine .fig-, .html- oder .htm-Datei.",
+        importBusy:
+          "Ein anderer Import läuft gerade. Schließe ihn ab oder brich ihn ab.",
         figFileTooLarge:
           "Diese .fig-Datei ist zu groß – Uploads sind auf {{max}} MB begrenzt. Kopiere in Figma nur den gewünschten Frame in eine neue Datei und exportiere diese als .fig, oder nutze „Aus Figma einfügen“.",
       },

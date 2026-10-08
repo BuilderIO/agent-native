@@ -587,6 +587,10 @@ export const DesignImportPanel = forwardRef<
     ref,
     () => ({
       importFile: (file) => {
+        if (busy) {
+          toast.error(t("designEditor.import.errors.importBusy"));
+          return;
+        }
         if (/\.fig$/i.test(file.name)) void handleFigFileChange(file);
         else if (/\.html?$/i.test(file.name)) void handleHtmlFileChange(file);
         else
@@ -595,7 +599,7 @@ export const DesignImportPanel = forwardRef<
           });
       },
     }),
-    [handleFigFileChange, handleHtmlFileChange, t],
+    [busy, handleFigFileChange, handleHtmlFileChange, t],
   );
 
   return (

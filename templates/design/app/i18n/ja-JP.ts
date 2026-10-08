@@ -943,6 +943,8 @@ export default {
         uploadFailed: "ファイルのアップロードに失敗しました",
         invalidFigFile: ".fig で終わるファイルを選択してください。",
         unsupportedFileType: ".fig、.html、.htm ファイルを選択してください。",
+        importBusy:
+          "別のインポートを実行中です。先に完了するかキャンセルしてください。",
         figFileTooLarge:
           "この .fig ファイルは大きすぎます。アップロードは {{max}} MB までです。Figma で目的のフレームだけを新しいファイルにコピーし、そのファイルを .fig として書き出すか、「Figma から貼り付け」をご利用ください。",
       },

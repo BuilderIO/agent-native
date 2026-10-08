@@ -929,6 +929,7 @@ export default {
         uploadFailed: "File upload विफल रहा",
         invalidFigFile: ".fig पर समाप्त होने वाली file चुनें।",
         unsupportedFileType: "कोई .fig, .html या .htm फ़ाइल चुनें।",
+        importBusy: "एक और आयात जारी है। पहले उसे पूरा करें या रद्द करें।",
         figFileTooLarge:
           "यह .fig बहुत बड़ी है — uploads की सीमा {{max}} MB है। Figma में जिस frame को import करना है उसे एक नई file में copy करें और उस file को .fig के रूप में export करें, या Paste from Figma का उपयोग करें।",
       },

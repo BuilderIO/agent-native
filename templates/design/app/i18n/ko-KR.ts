@@ -930,6 +930,8 @@ export default {
         uploadFailed: "파일 업로드 실패",
         invalidFigFile: ".fig로 끝나는 파일을 선택하세요.",
         unsupportedFileType: ".fig, .html 또는 .htm 파일을 선택하세요.",
+        importBusy:
+          "다른 가져오기가 진행 중입니다. 먼저 완료하거나 취소하세요.",
         figFileTooLarge:
           "이 .fig 파일은 너무 큽니다. 업로드는 {{max}}MB까지 지원됩니다. Figma에서 원하는 프레임만 새 파일로 복사한 뒤 그 파일을 .fig로 내보내거나, 'Figma에서 붙여넣기'를 사용하세요.",
       },

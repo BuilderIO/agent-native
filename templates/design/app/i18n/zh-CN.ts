@@ -911,6 +911,7 @@ export default {
         uploadFailed: "文件上传失败",
         invalidFigFile: "请选择以 .fig 结尾的文件。",
         unsupportedFileType: "请选择 .fig、.html 或 .htm 文件。",
+        importBusy: "另一个导入正在进行。请先完成或取消。",
         figFileTooLarge:
           "该 .fig 文件太大 — 上传上限为 {{max}} MB。请在 Figma 中将需要导入的画板复制到新文件，然后导出该文件为 .fig，或改用“从 Figma 粘贴”。",
       },

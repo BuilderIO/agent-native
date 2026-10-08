@@ -940,6 +940,8 @@ export default {
         uploadFailed: "Falha no upload do arquivo",
         invalidFigFile: "Escolha um arquivo que termine em .fig.",
         unsupportedFileType: "Escolha um arquivo .fig, .html ou .htm.",
+        importBusy:
+          "Outra importação está em andamento. Conclua ou cancele-a primeiro.",
         figFileTooLarge:
           "Esse .fig é grande demais — os envios são limitados a {{max}} MB. No Figma, copie apenas o frame desejado para um novo arquivo e exporte esse arquivo como .fig, ou use Colar do Figma.",
       },

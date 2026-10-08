@@ -948,6 +948,8 @@ export default {
         uploadFailed: "Échec du téléversement",
         invalidFigFile: "Choisissez un fichier se terminant par .fig.",
         unsupportedFileType: "Choisissez un fichier .fig, .html ou .htm.",
+        importBusy:
+          "Une autre importation est en cours. Terminez-la ou annulez-la d’abord.",
         figFileTooLarge:
           "Ce .fig est trop volumineux : les téléversements sont limités à {{max}} Mo. Dans Figma, copiez uniquement le frame souhaité dans un nouveau fichier et exportez ce fichier en .fig, ou utilisez Coller depuis Figma.",
       },
