@@ -476,6 +476,15 @@ describe("Markdown import", () => {
     expect(page.report.status).toBe("preserved");
   });
 
+  it("stops indenting untabbed NFM containers past a bounded depth", () => {
+    const source = `${"<callout>\n".repeat(2000)}Deep body\n${"</callout>\n".repeat(2000)}`;
+    const page = importMarkdown(source);
+
+    expect(page.dialect).toBe("nfm");
+    expect(page.content.length).toBeLessThan(source.length);
+    expect(noteKinds(page)).toContain("text-not-landed");
+  });
+
   it("names source text that never reached the page", () => {
     const draft = parseMarkdownImport({
       sourcePath: "notes/page.md",

@@ -1219,25 +1219,36 @@ const NFM_CONTAINER_OPEN_RE =
   /^(\t*)<(callout|details|columns|column|synced_block|synced_block_reference)\b[^>]*>\s*$/;
 
 /**
+ * Each repaired container adds a tab to every line inside it, so a run of
+ * untabbed opening tags would grow the text quadratically. Bodies nested
+ * deeper than this are left as written.
+ */
+const MAX_REPAIRED_NESTING = 16;
+
+/**
  * NFM nests a container's body one tab deeper than its tags, and the parser
  * drops an untabbed body. Hand-written and agent-written NFM often omits the
  * tab, so indent such a body before parsing instead of losing it.
  */
 function indentContainerBodies(nfm: string): string {
-  const stack: Array<{ tag: string; indent: number; shift: number | null }> =
-    [];
+  // `base` is the tabs added to the container's own tags; `shift` is the
+  // extra tab its body needs, decided at the body's first line.
+  const stack: Array<{
+    tag: string;
+    indent: number;
+    base: number;
+    shift: number | null;
+  }> = [];
   const out: string[] = [];
   let fence: string | null = null;
   for (const line of nfm.split("\n")) {
     const tabs = /^\t*/.exec(line)?.[0].length ?? 0;
     const trimmed = line.trim();
     const top = stack[stack.length - 1];
-    const shiftOf = (items: typeof stack) =>
-      items.reduce((total, item) => total + (item.shift ?? 0), 0);
 
     if (!fence && top && trimmed === `</${top.tag}>` && tabs === top.indent) {
       stack.pop();
-      out.push("\t".repeat(shiftOf(stack)) + line);
+      out.push("\t".repeat(top.base) + line);
       continue;
     }
     if (
@@ -1247,14 +1258,12 @@ function indentContainerBodies(nfm: string): string {
       trimmed &&
       !(top.tag === "details" && trimmed.startsWith("<summary"))
     ) {
-      top.shift = tabs <= top.indent ? 1 : 0;
+      top.shift = tabs <= top.indent && top.base < MAX_REPAIRED_NESTING ? 1 : 0;
     }
     const isSummary =
       !fence && top?.tag === "details" && trimmed.startsWith("<summary");
-    out.push(
-      "\t".repeat(isSummary ? shiftOf(stack.slice(0, -1)) : shiftOf(stack)) +
-        line,
-    );
+    const added = top ? top.base + (isSummary ? 0 : (top.shift ?? 0)) : 0;
+    out.push("\t".repeat(added) + line);
 
     const fenceMatch = /^(`{3,}|~{3,})/.exec(trimmed);
     if (fenceMatch) {
@@ -1264,7 +1273,9 @@ function indentContainerBodies(nfm: string): string {
     }
     if (fence) continue;
     const open = NFM_CONTAINER_OPEN_RE.exec(line);
-    if (open) stack.push({ tag: open[2], indent: tabs, shift: null });
+    if (open) {
+      stack.push({ tag: open[2], indent: tabs, base: added, shift: null });
+    }
   }
   return out.join("\n");
 }
