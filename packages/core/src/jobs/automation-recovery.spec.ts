@@ -320,6 +320,73 @@ describe("automation worker recovery", () => {
     expect(mocks.reap).not.toHaveBeenCalled();
   });
 
+  it.each([undefined, "test-destination"])(
+    "recovers a completed no-op before history settlement with destination %s",
+    async (deliveryDestination) => {
+      mocks.get.mockResolvedValue({ id: "job-1", status: "completed" });
+      mocks.events.mockResolvedValue([
+        {
+          type: "tool_done",
+          tool: "automation-no-op",
+          result: JSON.stringify({
+            status: "skipped",
+            reason: "No urgent mail found.",
+          }),
+        },
+      ]);
+      expect(
+        await inspectAutomationRecovery(
+          resource,
+          { ...meta, deliveryDestination },
+          now,
+        ),
+      ).toMatchObject({
+        state: "settle",
+        status: "skipped",
+        error: "No urgent mail found.",
+      });
+    },
+  );
+
+  it.each(["confirmed action", "failed tool"])(
+    "does not let a no-op erase a %s",
+    async (scenario) => {
+      mocks.get.mockResolvedValue({ id: "job-1", status: "completed" });
+      mocks.events.mockResolvedValue([
+        {
+          type: "tool_done",
+          tool: "automation-no-op",
+          result: JSON.stringify({ status: "skipped", reason: "No work." }),
+        },
+        {
+          type: "tool_done",
+          tool: "send-test-email",
+          result: scenario,
+          ...(scenario === "confirmed action"
+            ? { completedSideEffect: true }
+            : { isError: true }),
+        },
+      ]);
+      expect(
+        await inspectAutomationRecovery(
+          resource,
+          { ...meta, deliveryDestination: "test-destination" },
+          now,
+        ),
+      ).toMatchObject({ state: "settle", status: "error" });
+    },
+  );
+
+  it("does not settle a malformed persisted no-op result", async () => {
+    mocks.get.mockResolvedValue({ id: "job-1", status: "completed" });
+    mocks.events.mockResolvedValue([
+      { type: "tool_done", tool: "automation-no-op", result: "{" },
+    ]);
+    await expect(
+      inspectAutomationRecovery(resource, meta, now),
+    ).rejects.toThrow();
+  });
+
   it.each([
     ["missing", null],
     ["another owner", { ...history, owner: "other@example.com" }],

@@ -17,7 +17,9 @@ import { inspectAutomationRecovery } from "./automation-recovery.js";
 import { parseJobResource, patchJobFrontmatterFields } from "./frontmatter.js";
 import {
   attachAutomationRunThread,
+  finishAutomationRun,
   getAutomationRun,
+  RUNS_RETAINED_PER_AUTOMATION,
   startAutomationRun,
 } from "./run-history.js";
 
@@ -27,6 +29,58 @@ afterAll(async () => {
 });
 
 describe("atomic automation firing marker", () => {
+  it("retains unfinished firings while pruning older finished history", async () => {
+    await withDbExec(db, async () => {
+      const owner = "owner@example.com";
+      const automation = "retention-fixture";
+      const path = `jobs/${automation}.md`;
+      const interrupted = await startAutomationRun({
+        owner,
+        automation,
+        path,
+        runId: "interrupted-retention-worker",
+        threadId: "interrupted-retention-thread",
+      });
+      const oldest = Date.now() - 120_000;
+      await db.execute({
+        sql: "UPDATE automation_runs SET started_at = ? WHERE id = ?",
+        args: [oldest, interrupted],
+      });
+      await db.execute({
+        sql: `INSERT INTO automation_runs
+          (id, owner, automation, path, status, started_at, finished_at)
+          SELECT 'retention-finished-' || n, ?, ?, ?, 'success', ?::bigint + n, ?::bigint + n
+          FROM generate_series(1, ?) n`,
+        args: [
+          owner,
+          automation,
+          path,
+          oldest,
+          oldest,
+          RUNS_RETAINED_PER_AUTOMATION + 1,
+        ],
+      });
+      await startAutomationRun({ owner, automation, path });
+      expect(await getAutomationRun(interrupted)).toMatchObject({
+        runId: "interrupted-retention-worker",
+        finishedAt: null,
+      });
+      expect(await getAutomationRun("retention-finished-1")).toBeNull();
+      const retained = await db.execute({
+        sql: "SELECT count(*) AS count FROM automation_runs WHERE owner = ? AND automation = ? AND finished_at IS NOT NULL",
+        args: [owner, automation],
+      });
+      expect(Number(retained.rows[0]?.count)).toBe(
+        RUNS_RETAINED_PER_AUTOMATION,
+      );
+      await expect(
+        finishAutomationRun(interrupted, "success", undefined, undefined, {
+          requirePersisted: true,
+        }),
+      ).resolves.toBeUndefined();
+    });
+  });
+
   const admissionStates = [
     "insert interrupted",
     "marker conflict",

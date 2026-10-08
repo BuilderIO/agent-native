@@ -14,6 +14,7 @@ import {
   organizationResourceOwner,
   type Resource,
 } from "../resources/store.js";
+import { automationNoOpReasonFromEvents } from "./actions/automation-no-op.js";
 import { withDeliveryNote } from "./automation-outcome.js";
 import {
   recoveredFactoryOwnerOrgId,
@@ -194,8 +195,6 @@ export async function inspectAutomationRecovery(
       `Automation worker ${history.runId} has no durable run record`,
     );
   if (run.status === "running") return { state: "active" };
-  if (run.status === "completed" && !meta.deliveryDestination)
-    return { state: "settle", status: "success", history };
   const ref = await getRunTurnRef(run.id);
   if (!ref || ref.threadId !== history.threadId)
     throw new Error(`Automation worker ${run.id} has no matching turn`);
@@ -204,6 +203,23 @@ export async function inspectAutomationRecovery(
       ref.threadId,
       ref.turnId,
     );
+    const noOpReason = automationNoOpReasonFromEvents(events);
+    if (
+      noOpReason &&
+      !events.some(
+        (event) =>
+          event.type === "tool_done" &&
+          (event.isError || event.completedSideEffect === true),
+      )
+    )
+      return {
+        state: "settle",
+        status: "skipped",
+        history,
+        error: noOpReason,
+      };
+    if (!meta.deliveryDestination)
+      return { state: "settle", status: "success", history };
     return {
       state: "settle",
       status: "error",

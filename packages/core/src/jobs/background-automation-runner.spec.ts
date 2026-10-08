@@ -136,7 +136,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
     model: "test-model",
   };
 
-  it.each(["nothing-needed", "failed-send", "confirmed-work"])(
+  it.each(["nothing-needed", "journal-no-op", "failed-send", "confirmed-work"])(
     "settles a declared no-op: %s",
     async (scenario) => {
       const { runAgentLoopDirectWithSoftTimeout } =
@@ -160,13 +160,25 @@ describe("runBackgroundAutomation — confirmed work", () => {
               completedSideEffect: true,
             });
           }
-          const declaration = await opts.actions["automation-no-op"].run({
-            reason: "No urgent mail found.",
-          });
-          expect(declaration).toEqual({
-            status: "skipped",
-            reason: "No urgent mail found.",
-          });
+          if (scenario === "journal-no-op") {
+            opts.send({
+              type: "tool_done",
+              tool: "automation-no-op",
+              result: JSON.stringify({
+                status: "skipped",
+                reason: "No urgent mail found.",
+              }),
+              replayed: true,
+            });
+          } else {
+            const declaration = await opts.actions["automation-no-op"].run({
+              reason: "No urgent mail found.",
+            });
+            expect(declaration).toEqual({
+              status: "skipped",
+              reason: "No urgent mail found.",
+            });
+          }
           opts.send({ type: "text", text: "No notification was sent." });
           return usage;
         },
@@ -183,7 +195,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
           runOptions(
             precondition(
               name,
-              scenario === "nothing-needed"
+              scenario === "nothing-needed" || scenario === "journal-no-op"
                 ? {
                     deliveryPlatform: "slack",
                     deliveryDestination: "example-channel",
@@ -197,8 +209,8 @@ describe("runBackgroundAutomation — confirmed work", () => {
           await expect(run).rejects.toMatchObject({ errorCode: "http_503" });
         } else {
           await expect(run).resolves.toMatchObject({
-            status: scenario === "nothing-needed" ? "skipped" : "success",
-            ...(scenario === "nothing-needed"
+            status: scenario === "confirmed-work" ? "success" : "skipped",
+            ...(scenario !== "confirmed-work"
               ? { reason: "No urgent mail found." }
               : {}),
           });
@@ -212,12 +224,12 @@ describe("runBackgroundAutomation — confirmed work", () => {
             .get(name),
         ).toMatchObject({
           status:
-            scenario === "nothing-needed"
+            scenario === "nothing-needed" || scenario === "journal-no-op"
               ? "skipped"
               : scenario === "failed-send"
                 ? "error"
                 : "success",
-          ...(scenario === "nothing-needed"
+          ...(scenario === "nothing-needed" || scenario === "journal-no-op"
             ? { error: "No urgent mail found." }
             : {}),
         });

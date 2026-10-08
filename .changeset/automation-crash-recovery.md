@@ -24,3 +24,5 @@ Report post-commit notification and history-retention failures without aborting 
 
 Recover from an absent or mismatched firing-history reference as an explicit error without replaying work or modifying unrelated history; retain scheduled backoff and manual-run policy.
 Preserve completed no-op outcomes when reconciling recovery alongside the shared automation outcome runner, and keep its clock context in the saved request.
+
+Retain unfinished firing history during pruning and recover journal-confirmed no-op results when terminal history persistence was interrupted.

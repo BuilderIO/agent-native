@@ -88,6 +88,7 @@ import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.j
 import automationNoOpAction, {
   AUTOMATION_NO_OP_TOOL,
   automationNoOpSchema,
+  automationNoOpReasonFromEvents,
 } from "./actions/automation-no-op.js";
 import {
   applyAutomationFailure,
@@ -855,6 +856,9 @@ async function confirmAutomationWork(
   noOpReason: string | undefined,
 ): Promise<{ status: "success" } | { status: "skipped"; reason: string }> {
   const events = run.events ?? [];
+  noOpReason ??= automationNoOpReasonFromEvents(
+    events.map(({ event }) => event),
+  );
   const hasConfirmedAction = events.some(
     ({ event }) =>
       event.type === "tool_done" &&

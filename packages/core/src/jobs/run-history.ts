@@ -100,7 +100,7 @@ export function automationRunClaimLeaseMs(): number {
   return claimLeaseMs();
 }
 
-/** How many runs each automation retains; pruning bounds unfinished rows to this. */
+/** How many finished runs each automation retains, in addition to unfinished runs. */
 export const RUNS_RETAINED_PER_AUTOMATION = 50;
 const FAILURE_ALERT_LEASE_MS = 60_000;
 const FAILURE_ALERT_RETRY_BASE_MS = 60_000;
@@ -464,11 +464,13 @@ async function pruneAutomationRuns(
   await getDbExec().execute({
     sql: `DELETE FROM ${TABLE}
           WHERE owner = ? AND automation = ?
+            AND finished_at IS NOT NULL
             AND COALESCE(failure_alert_state, '') NOT IN ('evaluating', 'pending', 'sending')
             AND started_at < (
             SELECT MIN(started_at) FROM (
               SELECT started_at FROM ${TABLE}
               WHERE owner = ? AND automation = ?
+                AND finished_at IS NOT NULL
               ORDER BY started_at DESC
               LIMIT ${RUNS_RETAINED_PER_AUTOMATION}
             ) recent
