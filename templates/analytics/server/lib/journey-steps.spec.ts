@@ -230,7 +230,7 @@ describe("buildSessionSteps", () => {
 
     expect(steps.map((step) => step.key)).toEqual([
       "step:choice",
-      "onboarding:step_skipped:1",
+      "onboarding:step_skipped:1:flow:first_run",
       "step:connecting",
     ]);
   });
@@ -250,8 +250,8 @@ describe("buildSessionSteps", () => {
     ]);
 
     expect(steps.map((step) => step.key)).toEqual([
-      "onboarding:step_skipped:0",
-      "onboarding:step_skipped:1",
+      "onboarding:step_skipped:0:flow:first_run",
+      "onboarding:step_skipped:1:flow:first_run",
     ]);
     expect(steps.map((step) => step.label)).toEqual([
       "Onboarding step skipped",
@@ -289,7 +289,7 @@ describe("buildSessionSteps", () => {
     const expected = [
       "step:other",
       "step:first",
-      "onboarding:step_skipped:1",
+      "onboarding:step_skipped:1:flow:first_run",
       "step:second",
     ];
 
@@ -297,6 +297,30 @@ describe("buildSessionSteps", () => {
     expect(
       buildSessionSteps([...rows].reverse()).map((step) => step.key),
     ).toEqual(expected);
+  });
+
+  it("keeps consecutive skips from different flows with the same index", () => {
+    const steps = buildSessionSteps([
+      row("onboarding_step_skipped", 100, {
+        flow: "first_run",
+        stepId: "role",
+        stepIndex: 0,
+      }),
+      row("onboarding_step_skipped", 110, {
+        flow: "chat_setup",
+        stepId: "connect_ai",
+        stepIndex: 0,
+      }),
+    ]);
+
+    expect(steps.map((step) => step.key)).toEqual([
+      "onboarding:step_skipped:0:flow:first_run",
+      "onboarding:step_skipped:0:flow:chat_setup",
+    ]);
+    expect(steps.map((step) => step.label)).toEqual([
+      "Onboarding step skipped",
+      "Onboarding step skipped",
+    ]);
   });
 
   it("collapses consecutive repeats into the first and keeps its timestamp", () => {

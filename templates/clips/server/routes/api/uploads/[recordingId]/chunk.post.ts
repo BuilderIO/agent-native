@@ -99,6 +99,12 @@ async function persistRecordingUploadSession(params: {
   if (!initialState.readable) return { outcome: "unavailable" };
   let currentState = initialState.state;
   for (let retry = 0; retry < 3; retry += 1) {
+    if (
+      recordingUploadBrowserSessionId(currentState, params.attempt) ===
+      params.browserSessionId
+    ) {
+      return { outcome: "persisted" };
+    }
     const nextState = recordingUploadStateForAttemptIfCurrent({
       state: currentState,
       attempt: params.attempt,

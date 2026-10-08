@@ -129,8 +129,10 @@ export function deriveJourneyStep(
         row.stepIndex >= 0
           ? `:${row.stepIndex}`
           : "";
+      const flow = row.flow?.trim().toLowerCase();
+      const flowKey = flow ? `:flow:${encodeURIComponent(flow)}` : "";
       return {
-        key: `onboarding:step_skipped${stepIndex}`,
+        key: `onboarding:step_skipped${stepIndex}${flowKey}`,
         label: "Onboarding step skipped",
       };
     }

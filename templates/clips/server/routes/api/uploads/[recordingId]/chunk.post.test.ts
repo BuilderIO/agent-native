@@ -877,13 +877,35 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       uploadAttemptId: "attempt-1",
       uploadGenerationId: "generation-1",
     };
+    mockAppState.set(UPLOAD_KEY, {
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    });
     mockGetHeader.mockImplementation((_, name) =>
       name === "x-agent-native-session-id" ? "browser-session-1" : undefined,
+    );
+    let resumableSession = {
+      providerId: "s3",
+      sessionId: "sess-1",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 0,
+      lastCommittedIndex: -1,
+    };
+    mockGetResumableSession.mockImplementation(async () => resumableSession);
+    mockCompareAndSetResumableSession.mockImplementation(
+      async (_recordingId, expected, next) => {
+        if (JSON.stringify(resumableSession) !== JSON.stringify(expected)) {
+          return false;
+        }
+        resumableSession = next;
+        return true;
+      },
     );
     setRequest({
       query: {
         index: "0",
-        total: "2",
         mimeType: "video/webm",
         attemptId: "attempt-1",
         uploadGenerationId: "generation-1",
@@ -905,12 +927,11 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         browserSessionId: "browser-session-1",
       }),
     );
+    expect(mockCompareAndSetAppState).toHaveBeenCalledOnce();
 
-    mockGetHeader.mockReturnValue(undefined);
     setRequest({
       query: {
         index: "1",
-        total: "2",
         mimeType: "video/webm",
         attemptId: "attempt-1",
         uploadGenerationId: "generation-1",
@@ -918,7 +939,12 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       body: new Uint8Array([4, 5, 6]),
     });
 
-    await handler({} as any);
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: true,
+      finalized: false,
+      index: 1,
+      bytes: 3,
+    });
     expect(mockAppState.get(UPLOAD_KEY)).toEqual(
       expect.objectContaining({
         uploadAttemptId: "attempt-1",
@@ -926,6 +952,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         browserSessionId: "browser-session-1",
       }),
     );
+    expect(mockCompareAndSetAppState).toHaveBeenCalledOnce();
   });
 
   it("finalizes on the empty final sentinel and reports the finalize result", async () => {
