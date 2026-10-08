@@ -32,7 +32,10 @@ const WORKFLOW_ACTION_RETRY_DELAY_MS = 1000;
 // writer is. Sync drops this tab's own events, so local queues bump it too.
 const AI_REQUEST_REFRESH_SOURCE = "app-state:refresh-signal";
 const AI_REQUEST_DELIVERY_TIMEOUT_MS = 10_000;
+const AI_REQUEST_RETRY_INITIAL_DELAY_MS = 1_000;
+const AI_REQUEST_RETRY_MAX_DELAY_MS = 30_000;
 const BACKGROUND_SESSION_POLL_INTERVAL_MS = 2_000;
+export const BACKGROUND_SESSION_MISSING_CONFIRMATION_MS = 3 * 60 * 1000;
 
 function bumpAiRequestRefresh(): void {
   bumpChangeVersion(
@@ -78,6 +81,7 @@ interface ActiveAiRequestSession extends BackgroundAgentSessionReceipt {
   recordingId: string;
   kind: "remove-filler-words";
   requestedAt: string;
+  runId?: string;
   updatedAt?: string;
 }
 
@@ -118,6 +122,8 @@ export function useAutoTitleBridge(): void {
   const monitoredSessions = useRef<Set<string>>(new Set());
   const inflight = useRef<boolean>(false);
   const mounted = useRef(false);
+  const retryDelay = useRef(AI_REQUEST_RETRY_INITIAL_DELAY_MS);
+  const retryNotBefore = useRef(0);
 
   useEffect(() => {
     mounted.current = true;
@@ -178,20 +184,80 @@ export function useAutoTitleBridge(): void {
   useEffect(() => {
     if (!data) return;
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let concurrencyTimer: ReturnType<typeof setTimeout> | null = null;
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryScheduled = false;
+    let completedWork = false;
+
+    function scheduleRetryWakeup() {
+      if (cancelled || retryTimer) return;
+      retryTimer = setTimeout(
+        () => {
+          retryTimer = null;
+          if (cancelled) return;
+          const remaining = retryNotBefore.current - Date.now();
+          if (remaining > 0) {
+            scheduleRetryWakeup();
+            return;
+          }
+          retryScheduled = false;
+          void refetch()
+            .then((result) => {
+              if (cancelled) return;
+              if (result.data) void deliver(result.data);
+              else retrySoon();
+            })
+            .catch(() => {
+              if (!cancelled) retrySoon();
+            });
+        },
+        Math.max(0, retryNotBefore.current - Date.now()),
+      );
+    }
 
     function retrySoon() {
-      timer = setTimeout(() => {
-        void refetch().then((result) => {
-          if (!cancelled && result.data) void deliver(result.data);
-        });
-      }, 1000);
+      if (cancelled || retryScheduled) return;
+      retryScheduled = true;
+      recordRetryDelay();
+      scheduleRetryWakeup();
+    }
+
+    function recordRetryDelay() {
+      const delay = retryDelay.current;
+      retryDelay.current = nextAiRequestRetryDelay(delay);
+      retryNotBefore.current = Math.max(
+        retryNotBefore.current,
+        Date.now() + delay,
+      );
+    }
+
+    function retryTitleFallback(key: string) {
+      dispatched.current.delete(key);
+      if (!cancelled) {
+        retrySoon();
+        return;
+      }
+
+      if (!retryScheduled) {
+        retryScheduled = true;
+        recordRetryDelay();
+      }
+      bumpAiRequestRefresh();
     }
 
     async function deliver(snapshot: ListAiRequestsResult) {
       if (cancelled) return;
+      if (Date.now() < retryNotBefore.current) {
+        scheduleRetryWakeup();
+        return;
+      }
       if (inflight.current) {
-        timer = setTimeout(() => void deliver(snapshot), 50);
+        if (concurrencyTimer) return;
+        concurrencyTimer = setTimeout(() => {
+          concurrencyTimer = null;
+          void deliver(snapshot);
+        }, 50);
         return;
       }
       inflight.current = true;
@@ -225,6 +291,7 @@ export function useAutoTitleBridge(): void {
             };
             if (request.deliveredTabId) {
               dispatched.current.add(dispatchKey);
+              completedWork = true;
               void consumeWorkflowRequest({
                 ...workflowRequest,
                 tabId: request.deliveredTabId,
@@ -272,6 +339,7 @@ export function useAutoTitleBridge(): void {
               continue;
             }
             dispatched.current.add(dispatchKey);
+            completedWork = true;
             void persistAndConsumeWorkflowRequest({
               ...workflowRequest,
               tabId,
@@ -296,6 +364,7 @@ export function useAutoTitleBridge(): void {
               continue;
             }
             dispatched.current.add(dispatchKey);
+            completedWork = true;
             if (result.accepted) {
               bumpAiRequestRefresh();
               void refetch();
@@ -316,6 +385,7 @@ export function useAutoTitleBridge(): void {
             continue;
           }
           dispatched.current.add(dispatchKey);
+          completedWork = true;
           void clearRequest(request.recordingId);
         }
 
@@ -325,20 +395,33 @@ export function useAutoTitleBridge(): void {
           if (autoTitleFallbackDelay(candidate, dispatched.current) !== 0) {
             continue;
           }
-          dispatched.current.add(fallbackKey(candidate.id));
+          const key = fallbackKey(candidate.id);
+          dispatched.current.add(key);
           callAction(
             "regenerate-title" as any,
             { recordingId: candidate.id } as any,
           )
             .then((result) => {
-              if ((result as { queued?: boolean } | null)?.queued === true) {
+              const outcome = result as {
+                queued?: boolean;
+                updated?: boolean;
+              } | null;
+              if (outcome?.queued === true) {
                 bumpAiRequestRefresh();
+              } else if (outcome?.updated !== true) {
+                retryTitleFallback(key);
               }
             })
-            .catch(() => {});
+            .catch(() => {
+              retryTitleFallback(key);
+            });
         }
       } finally {
         inflight.current = false;
+        if (completedWork && !retryScheduled) {
+          retryDelay.current = AI_REQUEST_RETRY_INITIAL_DELAY_MS;
+          retryNotBefore.current = 0;
+        }
       }
     }
 
@@ -349,21 +432,23 @@ export function useAutoTitleBridge(): void {
         dispatched.current,
       );
       if (delay === null) return;
-      timer = setTimeout(
+      fallbackTimer = setTimeout(
         () => {
-          timer = null;
+          fallbackTimer = null;
           void deliver(data).finally(scheduleNextFallback);
         },
-        Math.max(delay, 50),
+        Math.max(delay, retryNotBefore.current - Date.now(), 50),
       );
     }
 
     void deliver(data).finally(scheduleNextFallback);
     return () => {
       cancelled = true;
-      if (timer) clearTimeout(timer);
+      if (retryTimer) clearTimeout(retryTimer);
+      if (concurrencyTimer) clearTimeout(concurrencyTimer);
+      if (fallbackTimer) clearTimeout(fallbackTimer);
     };
-  }, [data, refetch]);
+  }, [data, refetch, refreshVersion]);
 
   useEffect(() => {
     for (const session of data?.activeSessions ?? []) {
@@ -377,6 +462,13 @@ export function useAutoTitleBridge(): void {
       );
     }
   }, [data?.activeSessions]);
+}
+
+export function nextAiRequestRetryDelay(currentDelay: number): number {
+  return Math.min(
+    Math.max(currentDelay, AI_REQUEST_RETRY_INITIAL_DELAY_MS) * 2,
+    AI_REQUEST_RETRY_MAX_DELAY_MS,
+  );
 }
 
 function fallbackKey(recordingId: string): string {
@@ -698,7 +790,9 @@ async function dispatchFillerWordsRequest(
   } catch (error) {
     let snapshot: BackgroundAgentSessionSnapshot | undefined;
     try {
-      snapshot = handle ? await handle.status() : undefined;
+      snapshot = handle
+        ? await getBackgroundAgentSessionStatus(handle)
+        : undefined;
     } catch {
       // A failed status read cannot confirm that the run manager accepted it.
     }
@@ -764,24 +858,61 @@ async function monitorFillerWordsSession(
   shouldStop: () => boolean,
 ): Promise<void> {
   let retryDelay = BACKGROUND_SESSION_POLL_INTERVAL_MS;
+  let knownRunId = session.runId;
+  let missingSince: number | null = null;
 
   while (!shouldStop()) {
     let snapshot: BackgroundAgentSessionSnapshot | undefined;
     try {
       snapshot = await getBackgroundAgentSessionStatus(session);
-      retryDelay = BACKGROUND_SESSION_POLL_INTERVAL_MS;
     } catch {
       if (shouldStop()) return;
+      missingSince = null;
       await new Promise((resolve) => setTimeout(resolve, retryDelay));
       retryDelay = Math.min(retryDelay * 2, 10_000);
       continue;
     }
     if (shouldStop()) return;
 
+    if (snapshot.status === "unavailable") {
+      missingSince ??= Date.now();
+      if (
+        Date.now() - missingSince >=
+        BACKGROUND_SESSION_MISSING_CONFIRMATION_MS
+      ) {
+        if (await persistFillerWordsStatus(session, "failed", snapshot)) {
+          return;
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, retryDelay));
+      retryDelay = Math.min(retryDelay * 2, 10_000);
+      continue;
+    }
+    missingSince = null;
+
     const terminalStatus = backgroundAiRequestStatus(snapshot);
     if (terminalStatus) {
       if (await persistFillerWordsStatus(session, terminalStatus, snapshot)) {
         return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, retryDelay));
+      retryDelay = Math.min(retryDelay * 2, 10_000);
+      continue;
+    }
+
+    if (!snapshot.runId) {
+      await new Promise((resolve) => setTimeout(resolve, retryDelay));
+      retryDelay = Math.min(retryDelay * 2, 10_000);
+      continue;
+    }
+
+    retryDelay = BACKGROUND_SESSION_POLL_INTERVAL_MS;
+    if (knownRunId !== snapshot.runId) {
+      knownRunId = snapshot.runId;
+      if (!(await persistFillerWordsStatus(session, "working", snapshot))) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelay));
+        retryDelay = Math.min(retryDelay * 2, 10_000);
+        continue;
       }
     }
 

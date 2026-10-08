@@ -20,6 +20,7 @@ interface ActiveAiRequestSession {
   operationId: string;
   threadId: string;
   turnId: string;
+  runId?: string;
   updatedAt?: string;
 }
 

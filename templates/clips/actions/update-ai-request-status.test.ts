@@ -61,7 +61,7 @@ describe("update-ai-request-status", () => {
     );
   });
 
-  it("supports filler-word progress and preserves the request timestamp", async () => {
+  it("persists filler-word run ids with progress and preserves the request timestamp", async () => {
     mockReadAppState.mockResolvedValue({
       kind: "remove-filler-words",
       status: "queued",
@@ -72,6 +72,7 @@ describe("update-ai-request-status", () => {
       kind: "remove-filler-words",
       requestedAt: "2026-09-04T12:00:00.000Z",
       status: "working",
+      runId: "run-1",
     });
 
     await action.run(args);
@@ -83,6 +84,7 @@ describe("update-ai-request-status", () => {
         kind: "remove-filler-words",
         status: "working",
         requestedAt: "2026-09-04T12:00:00.000Z",
+        runId: "run-1",
       }),
     );
   });

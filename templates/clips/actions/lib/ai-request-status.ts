@@ -44,41 +44,12 @@ export async function queueAiRequest({
   requestedAt: string;
   request: Record<string, unknown>;
 }): Promise<void> {
-  const statusKey = `${STATUS_KEY_PREFIX}${recordingId}`;
-  await writeAppState(statusKey, {
+  await queueBackgroundAiRequest({
+    recordingId,
     kind,
-    status: "queued",
-    message: null,
     requestedAt,
-    updatedAt: requestedAt,
+    request,
   });
-
-  try {
-    await writeAppState(`clips-ai-request-${recordingId}`, request as any);
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "The request could not be queued.";
-    await writeAppState(statusKey, {
-      kind,
-      status: "failed",
-      message,
-      requestedAt,
-      updatedAt: new Date().toISOString(),
-    });
-    throw error;
-  }
-
-  try {
-    await writeAppState("refresh-signal", { ts: Date.now() });
-  } catch (error) {
-    console.warn("[clips] failed to publish AI request refresh signal", {
-      recordingId,
-      kind,
-      error,
-    });
-  }
 }
 
 export async function queueBackgroundAiRequest({

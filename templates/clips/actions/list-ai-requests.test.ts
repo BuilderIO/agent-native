@@ -129,6 +129,7 @@ describe("list-ai-requests", () => {
           operationId: "operation-1",
           threadId: "thread-1",
           turnId: "turn-1",
+          runId: "run-1",
         },
       },
     ];
@@ -145,6 +146,7 @@ describe("list-ai-requests", () => {
         operationId: "operation-1",
         threadId: "thread-1",
         turnId: "turn-1",
+        runId: "run-1",
       },
     ]);
   });

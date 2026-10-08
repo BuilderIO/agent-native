@@ -111,6 +111,56 @@ const invalidTimestampCases: Array<[string, string]> = [
   ],
 ];
 
+const malformedStoredEditCases: Array<[string, string]> = [
+  [
+    "trim has a negative start time",
+    JSON.stringify({ trims: [{ startMs: -1, endMs: 200, excluded: true }] }),
+  ],
+  ["trims is not an array", JSON.stringify({ trims: "bad" })],
+  [
+    "trim entry has invalid shape",
+    JSON.stringify({
+      trims: [{ startMs: 100, endMs: 200, excluded: "true" }],
+    }),
+  ],
+  ["blurs is not an array", JSON.stringify({ blurs: "bad" })],
+  [
+    "blur entry has invalid shape",
+    JSON.stringify({
+      blurs: [
+        {
+          id: "blur-1",
+          startMs: 0,
+          endMs: 1_000,
+          x: 0,
+          y: 0,
+          w: 1.1,
+          h: 1,
+          intensity: "strong",
+        },
+      ],
+    }),
+  ],
+  [
+    "blur coordinates are outside normalized bounds",
+    JSON.stringify({
+      blurs: [
+        {
+          id: "blur-1",
+          startMs: 0,
+          endMs: 1_000,
+          x: -0.1,
+          y: 0,
+          w: 0.5,
+          h: 0.5,
+          intensity: 1,
+        },
+      ],
+    }),
+  ],
+  ["stitchedFrom is not an array", JSON.stringify({ stitchedFrom: "bad" })],
+];
+
 beforeEach(() => {
   state.recording = {
     id: "rec_1",
@@ -176,6 +226,54 @@ describe("remove-silences", () => {
       [{ startMs: 1_200, endMs: 2_800 }],
     );
   });
+
+  it.each(["{not json", "null", "[]"])(
+    "does not overwrite unreadable stored edits (%s)",
+    async (editsJson) => {
+      state.recording!.editsJson = editsJson;
+      const args = removeSilences.schema.parse({
+        recordingId: "rec_1",
+        thresholdMs: 1_200,
+      });
+
+      await expect(removeSilences.run(args)).rejects.toThrow(
+        "Saved recording edits are unreadable",
+      );
+      expect(state.writes).toHaveLength(0);
+      expect(state.recording?.editsJson).toBe(editsJson);
+    },
+  );
+
+  it("does not treat an empty edits value as a default document", async () => {
+    state.recording!.editsJson = "";
+    const args = removeSilences.schema.parse({
+      recordingId: "rec_1",
+      thresholdMs: 1_200,
+    });
+
+    await expect(removeSilences.run(args)).rejects.toThrow(
+      "Saved recording edits are unreadable",
+    );
+    expect(state.writes).toHaveLength(0);
+    expect(state.recording?.editsJson).toBe("");
+  });
+
+  it.each(malformedStoredEditCases)(
+    "does not overwrite stored edits when %s",
+    async (_description, editsJson) => {
+      state.recording!.editsJson = editsJson;
+      const args = removeSilences.schema.parse({
+        recordingId: "rec_1",
+        thresholdMs: 1_200,
+      });
+
+      await expect(removeSilences.run(args)).rejects.toThrow(
+        "Saved recording edits are unreadable or malformed",
+      );
+      expect(state.writes).toHaveLength(0);
+      expect(state.recording?.editsJson).toBe(editsJson);
+    },
+  );
 
   it("applies every detected trim in one recording update and preserves split markers", async () => {
     const args = removeSilences.schema.parse({

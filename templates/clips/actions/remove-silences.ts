@@ -10,10 +10,102 @@ import {
   serializeEdits,
 } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
+import { readEditsRecord } from "../server/lib/pending-redactions.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 import { findSilenceTrimRanges } from "./lib/silence-trim-ranges.js";
 
 const MAX_CAS_ATTEMPTS = 5;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isValidStoredTrim(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return (
+    isFiniteNumber(value.startMs) &&
+    value.startMs >= 0 &&
+    isFiniteNumber(value.endMs) &&
+    value.endMs >= value.startMs &&
+    typeof value.excluded === "boolean" &&
+    (value.id === undefined ||
+      (typeof value.id === "string" && value.id.length > 0))
+  );
+}
+
+function isValidStoredBlur(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    isFiniteNumber(value.startMs) &&
+    isFiniteNumber(value.endMs) &&
+    value.endMs >= value.startMs &&
+    isFiniteNumber(value.x) &&
+    value.x >= 0 &&
+    value.x <= 1 &&
+    isFiniteNumber(value.y) &&
+    value.y >= 0 &&
+    value.y <= 1 &&
+    isFiniteNumber(value.w) &&
+    value.w >= 0 &&
+    value.w <= 1 &&
+    isFiniteNumber(value.h) &&
+    value.h >= 0 &&
+    value.h <= 1 &&
+    isFiniteNumber(value.intensity)
+  );
+}
+
+function hasValidStoredEditFields(edits: Record<string, unknown>): boolean {
+  return (
+    (edits.version === undefined || edits.version === 1) &&
+    (edits.trims === undefined ||
+      (Array.isArray(edits.trims) && edits.trims.every(isValidStoredTrim))) &&
+    (edits.blurs === undefined ||
+      (Array.isArray(edits.blurs) && edits.blurs.every(isValidStoredBlur))) &&
+    (edits.thumbnail === undefined ||
+      edits.thumbnail === null ||
+      (isRecord(edits.thumbnail) &&
+        (edits.thumbnail.kind === "url" ||
+          edits.thumbnail.kind === "frame" ||
+          edits.thumbnail.kind === "gif") &&
+        typeof edits.thumbnail.value === "string")) &&
+    (edits.stitchedFrom === undefined ||
+      (Array.isArray(edits.stitchedFrom) &&
+        edits.stitchedFrom.every((id) => typeof id === "string"))) &&
+    (edits.mediaStorageLayout === undefined ||
+      edits.mediaStorageLayout === "external") &&
+    (edits.rewindOriginalStartMs === undefined ||
+      (isFiniteNumber(edits.rewindOriginalStartMs) &&
+        edits.rewindOriginalStartMs > 0)) &&
+    (edits.overlays === undefined || Array.isArray(edits.overlays)) &&
+    (edits.burnedRedactions === undefined ||
+      Array.isArray(edits.burnedRedactions))
+  );
+}
+
+function parseStoredEdits(editsJson: string | null | undefined) {
+  const edits = readEditsRecord(editsJson);
+  if (
+    (typeof editsJson === "string" && !editsJson.trim()) ||
+    !edits ||
+    !hasValidStoredEditFields(edits)
+  ) {
+    fail(
+      "Saved recording edits are unreadable or malformed; silence removal was not applied.",
+      {
+        errorCode: "edits_unreadable",
+        statusCode: 422,
+      },
+    );
+  }
+  return parseEdits(editsJson);
+}
 
 export default defineAction({
   description:
@@ -59,6 +151,7 @@ export default defineAction({
       }
       assertNativeRecordingMedia(recording);
 
+      const currentEdits = parseStoredEdits(recording.editsJson);
       ranges ??= findSilenceTrimRanges(
         transcript.segmentsJson,
         args.thresholdMs,
@@ -69,16 +162,14 @@ export default defineAction({
           id: args.recordingId,
           status: "completed" as const,
           removedRangeCount: 0,
-          trimCount: parseEdits(recording.editsJson).trims.filter(
-            (trim) => trim.excluded,
-          ).length,
+          trimCount: currentEdits.trims.filter((trim) => trim.excluded).length,
         };
       }
 
       const previousEditsJson = recording.editsJson;
       const next = ranges.reduce(
         (edits, range) => mergeExcluded(edits, range.startMs, range.endMs),
-        parseEdits(previousEditsJson),
+        currentEdits,
       );
       const nextEditsJson = serializeEdits(next);
       if (nextEditsJson === previousEditsJson) {

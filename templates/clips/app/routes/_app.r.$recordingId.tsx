@@ -1661,10 +1661,14 @@ export default function RecordingPage() {
   };
   const handleBackgroundAiError = (err: Error) => {
     const retryKind = activeAiRequestRef.current?.kind;
+    const errorCode = (err as Error & { errorCode?: unknown }).errorCode;
     activeAiRequestRef.current = null;
     cancelCompletionCue();
     failAiRequestToast(t("recordingPage.aiRequestFailed"), {
-      description: actionErrorMessage(err) ?? t("recordingPage.tryAgainMoment"),
+      description:
+        errorCode === "edits_unreadable"
+          ? t("recordingPage.silenceEditsUnreadable")
+          : (actionErrorMessage(err) ?? t("recordingPage.tryAgainMoment")),
       ...(retryKind === "remove-filler-words" || retryKind === "remove-silences"
         ? {
             action: {
