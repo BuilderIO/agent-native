@@ -432,4 +432,20 @@ describe("loadedSkillPagesContext", () => {
       result.indexOf("## skill-slide-editing"),
     );
   });
+
+  it("lists skill pages dropped by the budget so they can be re-read", () => {
+    const result = loadedSkillPagesContext(
+      [],
+      new Map([
+        ["skill-old", `# Skill: old\n${"o".repeat(100)}`],
+        ["skill-big", `# Skill: big\n${"b".repeat(50_000)}`],
+        ["skill-older", `# Skill: older\n${"x".repeat(100)}`],
+      ]),
+      new Set(),
+    );
+
+    expect(result).toContain("Skill page truncated");
+    expect(result).toContain("read with docs-search if needed: skill-old]");
+    expect(result).not.toContain("## skill-old\n");
+  });
 });

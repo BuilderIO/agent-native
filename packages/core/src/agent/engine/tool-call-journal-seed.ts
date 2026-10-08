@@ -185,14 +185,19 @@ function renderLoadedSkillPages(pages: ReadonlyMap<string, string>): string {
   if (pages.size === 0) return "";
 
   const opening =
-    "<already-loaded-skills>These skill pages were already read earlier in this conversation. Reuse them instead of calling docs-search again. If a page is marked truncated, read only when missing detail matters.\n";
+    "<already-loaded-skills>These skill pages were already read earlier in this conversation. Reuse them instead of calling docs-search again. If a page is marked truncated or listed as omitted, read it with docs-search when missing detail matters.\n";
   const closing = "\n</already-loaded-skills>";
   let remaining =
     LOADED_SKILL_CONTEXT_MAX_CHARS - opening.length - closing.length;
   const blocks: string[] = [];
-  for (const [slug, page] of [...pages].reverse()) {
+  const entries = [...pages].reverse();
+  let omitted: string[] = [];
+  for (const [index, [slug, page]] of entries.entries()) {
     const heading = `\n## ${slug}\n`;
-    if (remaining <= heading.length) break;
+    if (remaining <= heading.length) {
+      omitted = entries.slice(index).map(([omittedSlug]) => omittedSlug);
+      break;
+    }
     const truncated = page.length > remaining - heading.length;
     const marker = truncated
       ? "\n[Skill page truncated to fit loaded-skill context.]"
@@ -203,9 +208,18 @@ function renderLoadedSkillPages(pages: ReadonlyMap<string, string>): string {
     );
     blocks.push(`${heading}${body}${marker}`);
     remaining -= heading.length + body.length + marker.length;
-    if (truncated) break;
+    if (truncated) {
+      omitted = entries.slice(index + 1).map(([omittedSlug]) => omittedSlug);
+      break;
+    }
   }
-  return blocks.length > 0 ? `${opening}${blocks.join("\n")}${closing}` : "";
+  if (blocks.length === 0) return "";
+  if (omitted.length > 0) {
+    blocks.push(
+      `\n[Omitted to fit loaded-skill context; read with docs-search if needed: ${omitted.join(", ")}]`,
+    );
+  }
+  return `${opening}${blocks.join("\n")}${closing}`;
 }
 
 export function seedRepeatedToolCallCountsFromJournal(
