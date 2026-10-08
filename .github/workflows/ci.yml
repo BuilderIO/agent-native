@@ -476,13 +476,13 @@ jobs:
         run: |
           case "${{ matrix.shard }}" in
             screen-history-1)
-              grep='undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id|deleting a selected child layer keeps its owning Screen|undo restores a child layer with its additive Screen selection|marquee-selecting child elements after a Screen pick deletes only the elements|undoing a canvas element click restores its explicit Screen target for Delete|failed Screen deletion keeps the explicit Screen target for retry'
+              grep='undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id|undo restores a child layer with its additive Screen selection|marquee-selecting child elements after a Screen pick deletes only the elements|undoing a canvas element click restores its explicit Screen target for Delete|failed Screen deletion keeps the explicit Screen target for retry'
               ;;
             screen-history-2)
               grep='a newer layer selection survives failed Screen deletion settlement|Shift-marquee adds a hit Screen to the existing Delete selection|a newer Screen pick survives failed Screen deletion settlement|a newer sidebar Screen selection survives failed Screen deletion settlement|Select All Screens survives failed Screen deletion settlement'
               ;;
             screen-history-3)
-              grep='marquee selection persists and deletes Screens after a prior layer selection|deep-select marquee over a Screen deletes only the child|Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete|Shift-marquee reselecting an owner Screen makes Delete target the Screen'
+              grep='deleting a selected child layer keeps its owning Screen|marquee selection persists and deletes Screens after a prior layer selection|deep-select marquee over a Screen deletes only the child|Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete|Shift-marquee reselecting an owner Screen makes Delete target the Screen'
               ;;
             *)
               echo "::error::Unknown Screen-history shard: ${{ matrix.shard }}"
