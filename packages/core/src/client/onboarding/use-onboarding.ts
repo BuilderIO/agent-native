@@ -303,7 +303,7 @@ export async function withCustomKeyOnboardingCredentialSave<T>(
   }
 }
 
-function requestCustomKeyOnboardingAbandonment(
+function handleCustomKeyOnboardingAbandonment(
   deferWhileSavePending = true,
 ): void {
   const stored = readCustomKeyOnboardingAttempt();
@@ -339,6 +339,10 @@ function requestCustomKeyOnboardingAbandonment(
   trackCustomKeyOnboardingOutcome("credential_abandoned");
 }
 
+export function requestCustomKeyOnboardingAbandonment(): void {
+  handleCustomKeyOnboardingAbandonment();
+}
+
 export function useCustomKeyOnboardingAttemptLifecycle(): void {
   const mountedRef = useRef(false);
 
@@ -349,7 +353,7 @@ export function useCustomKeyOnboardingAttemptLifecycle(): void {
     }
     const handlePageHide = (event: PageTransitionEvent) => {
       if (!event.persisted) {
-        requestCustomKeyOnboardingAbandonment(false);
+        handleCustomKeyOnboardingAbandonment(false);
       }
     };
     window.addEventListener("pagehide", handlePageHide);
@@ -358,7 +362,7 @@ export function useCustomKeyOnboardingAttemptLifecycle(): void {
       mountedRef.current = false;
       queueMicrotask(() => {
         if (!mountedRef.current) {
-          requestCustomKeyOnboardingAbandonment();
+          handleCustomKeyOnboardingAbandonment();
         }
       });
     };

@@ -22,9 +22,11 @@ const clientMock = vi.hoisted(() => ({
   notify: vi.fn(),
 }));
 const onboardingOutcomeMock = vi.hoisted(() => vi.fn());
+const onboardingAbandonmentRequestMock = vi.hoisted(() => vi.fn());
 const credentialSaveBoundaryMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  requestCustomKeyOnboardingAbandonment: onboardingAbandonmentRequestMock,
   trackCustomKeyOnboardingOutcome: onboardingOutcomeMock,
   withCustomKeyOnboardingCredentialSave: async (
     save: () => Promise<unknown>,
@@ -194,6 +196,17 @@ function buttonByText(text: string, scope: ParentNode = document) {
   return button;
 }
 
+function pointerDown(element: Element | null | undefined) {
+  if (!element) throw new Error("Nothing to open");
+  element.dispatchEvent(
+    new PointerEvent("pointerdown", {
+      bubbles: true,
+      button: 0,
+      pointerType: "mouse",
+    }),
+  );
+}
+
 function typeInto(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(
     HTMLInputElement.prototype,
@@ -218,6 +231,7 @@ describe("ApiKeysSettingsPage", () => {
     clientMock.save.mockReset();
     clientMock.test.mockReset();
     onboardingOutcomeMock.mockReset();
+    onboardingAbandonmentRequestMock.mockReset();
     credentialSaveBoundaryMock.mockReset();
     window.history.replaceState(null, "", "/settings/api-keys");
     container = document.createElement("div");
@@ -315,6 +329,32 @@ describe("ApiKeysSettingsPage", () => {
       provider: "anthropic",
       scope: "user",
     });
+  });
+
+  it("does not count testing an arbitrary saved key as onboarding validation", async () => {
+    state.listing = listing({ keys: [entry({ canTest: true })] });
+    clientMock.test.mockResolvedValue({ ok: true });
+    await render();
+
+    const keyRow = row("secrets:STRIPE_SECRET_KEY");
+    const menuTrigger = keyRow.querySelector(
+      '[aria-label="Manage STRIPE_SECRET_KEY"]',
+    );
+    await act(async () => pointerDown(menuTrigger));
+    const testItem = [...document.querySelectorAll('[role="menuitem"]')].find(
+      (item) => item.textContent?.trim() === "Test",
+    );
+    if (!testItem) throw new Error("No Test menu item");
+    await act(async () =>
+      testItem.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+
+    await vi.waitFor(() =>
+      expect(clientMock.test).toHaveBeenCalledWith("STRIPE_SECRET_KEY"),
+    );
+    expect(onboardingOutcomeMock).not.toHaveBeenCalledWith(
+      "credential_validated",
+    );
   });
 
   it("lists organization keys for admins", async () => {
@@ -455,7 +495,7 @@ describe("ApiKeysSettingsPage", () => {
     expect(outcomes).not.toContain("credential_validated");
   });
 
-  it("keeps a key attempt open to the save outcome while saving", async () => {
+  it("allows leaving a key dialog while preserving its pending save outcome", async () => {
     let resolveSave!: () => void;
     clientMock.save.mockReturnValue(
       new Promise<void>((resolve) => {
@@ -498,8 +538,8 @@ describe("ApiKeysSettingsPage", () => {
     });
 
     await act(async () => buttonByText("Close", dialog).click());
-    await act(async () => buttonByText("Cancel", dialog).click());
-    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onboardingAbandonmentRequestMock).toHaveBeenCalledTimes(1);
     expect(
       onboardingOutcomeMock.mock.calls.map(([outcome]) => outcome),
     ).not.toContain("credential_skipped");
@@ -750,7 +790,7 @@ describe("DeleteKeyDialog", () => {
     expect(onboardingOutcomeMock).toHaveBeenCalledWith("credential_skipped");
   });
 
-  it("keeps a service-key attempt open to the save outcome while saving", async () => {
+  it("allows leaving a service-key dialog while preserving its pending save outcome", async () => {
     let resolveSave!: () => void;
     clientMock.save.mockReturnValue(
       new Promise<void>((resolve) => {
@@ -787,8 +827,8 @@ describe("DeleteKeyDialog", () => {
     await vi.waitFor(() => expect(clientMock.save).toHaveBeenCalled());
 
     await act(async () => buttonByText("Close", dialog).click());
-    await act(async () => buttonByText("Cancel", dialog).click());
-    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onboardingAbandonmentRequestMock).toHaveBeenCalledTimes(1);
     expect(
       onboardingOutcomeMock.mock.calls.map(([outcome]) => outcome),
     ).not.toContain("credential_skipped");

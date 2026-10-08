@@ -2,6 +2,7 @@ import { getAgentProviderOption } from "@agent-native/core/client/agent-provider
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  requestCustomKeyOnboardingAbandonment,
   trackCustomKeyOnboardingOutcome,
   withCustomKeyOnboardingCredentialSave,
 } from "@agent-native/core/client/onboarding/use-onboarding";
@@ -89,8 +90,11 @@ export interface KeyValueDialogProps {
 export function KeyValueDialog(props: KeyValueDialogProps) {
   const savePending = useRef(false);
   const dismiss = () => {
-    if (savePending.current) return;
-    trackCustomKeyOnboardingOutcome("credential_skipped");
+    if (savePending.current) {
+      requestCustomKeyOnboardingAbandonment();
+    } else {
+      trackCustomKeyOnboardingOutcome("credential_skipped");
+    }
     props.onOpenChange(false);
   };
 
@@ -401,8 +405,11 @@ export interface ServiceKeyDialogProps {
 export function ServiceKeyDialog(props: ServiceKeyDialogProps) {
   const savePending = useRef(false);
   const dismiss = () => {
-    if (savePending.current) return;
-    trackCustomKeyOnboardingOutcome("credential_skipped");
+    if (savePending.current) {
+      requestCustomKeyOnboardingAbandonment();
+    } else {
+      trackCustomKeyOnboardingOutcome("credential_skipped");
+    }
     props.onOpenChange(false);
   };
 

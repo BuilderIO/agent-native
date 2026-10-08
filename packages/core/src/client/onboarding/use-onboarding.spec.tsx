@@ -18,6 +18,7 @@ vi.mock("../analytics.js", () => ({
 import {
   __resetOnboardingSummaryReadsForTests,
   createOnboardingCorrelationId,
+  requestCustomKeyOnboardingAbandonment,
   setCustomKeyOnboardingAttempt,
   trackCustomKeyOnboardingOutcome,
   trackOnboardingEvent,
@@ -586,6 +587,79 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
       expect.objectContaining({
         onboarding_attempt_id: "attempt-save-during-unmount",
         outcome: "credential_saved",
+      }),
+    );
+    expect(
+      window.sessionStorage.getItem(
+        "agent-native.onboarding.custom_keys_attempt",
+      ),
+    ).toBeNull();
+  });
+
+  it("resolves a requested abandonment to the pending save outcome", async () => {
+    setCustomKeyOnboardingAttempt("attempt-dismiss-pending-save");
+
+    let resolveSave!: () => void;
+    const save = withCustomKeyOnboardingCredentialSave(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+    requestCustomKeyOnboardingAbandonment();
+
+    expect(trackEventMock).not.toHaveBeenCalled();
+    expect(
+      window.sessionStorage.getItem(
+        "agent-native.onboarding.custom_keys_attempt",
+      ),
+    ).not.toBeNull();
+
+    await act(async () => {
+      resolveSave();
+      await save;
+    });
+
+    expect(trackEventMock).toHaveBeenCalledTimes(1);
+    expect(trackEventMock).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        onboarding_attempt_id: "attempt-dismiss-pending-save",
+        outcome: "credential_saved",
+      }),
+    );
+    expect(
+      window.sessionStorage.getItem(
+        "agent-native.onboarding.custom_keys_attempt",
+      ),
+    ).toBeNull();
+  });
+
+  it("records abandonment after a dismissed pending save fails", async () => {
+    setCustomKeyOnboardingAttempt("attempt-dismiss-failed-save");
+
+    let rejectSave!: (error: Error) => void;
+    const save = withCustomKeyOnboardingCredentialSave(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSave = reject;
+        }),
+    );
+    requestCustomKeyOnboardingAbandonment();
+
+    expect(trackEventMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      rejectSave(new Error("save failed"));
+      await expect(save).rejects.toThrow("save failed");
+    });
+
+    expect(trackEventMock).toHaveBeenCalledTimes(1);
+    expect(trackEventMock).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        onboarding_attempt_id: "attempt-dismiss-failed-save",
+        outcome: "credential_abandoned",
       }),
     );
     expect(

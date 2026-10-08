@@ -24,6 +24,7 @@ const keyMock = vi.hoisted(() => ({
 }));
 const callActionMock = vi.hoisted(() => vi.fn());
 const onboardingOutcomeMock = vi.hoisted(() => vi.fn());
+const onboardingAbandonmentRequestMock = vi.hoisted(() => vi.fn());
 const credentialSaveBoundaryMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -45,6 +46,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("@agent-native/core/client/agent-engine-key", () => keyMock);
 
 vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  requestCustomKeyOnboardingAbandonment: onboardingAbandonmentRequestMock,
   trackCustomKeyOnboardingOutcome: onboardingOutcomeMock,
   withCustomKeyOnboardingCredentialSave: async (
     save: () => Promise<unknown>,
@@ -202,6 +204,7 @@ describe("ProviderDialog", () => {
       .mockResolvedValue(undefined);
     callActionMock.mockReset().mockResolvedValue({});
     onboardingOutcomeMock.mockReset();
+    onboardingAbandonmentRequestMock.mockReset();
     credentialSaveBoundaryMock.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -322,7 +325,7 @@ describe("ProviderDialog", () => {
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
 
-  it("keeps a provider attempt open to the save outcome while saving", async () => {
+  it("allows leaving a provider dialog while preserving its pending save outcome", async () => {
     let resolveSave!: () => void;
     keyMock.saveAgentEngineProviderSettings.mockReturnValue(
       new Promise<void>((resolve) => {
@@ -346,11 +349,9 @@ describe("ProviderDialog", () => {
       expect(keyMock.saveAgentEngineProviderSettings).toHaveBeenCalled();
     });
 
-    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
     await act(async () => button("Close").click());
-    await act(async () => button("Cancel").click());
-    expect(dialog.isConnected).toBe(true);
-    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onboardingAbandonmentRequestMock).toHaveBeenCalledTimes(1);
     expect(
       onboardingOutcomeMock.mock.calls.map(([outcome]) => outcome),
     ).not.toContain("credential_skipped");
@@ -501,6 +502,40 @@ describe("ProviderDialog", () => {
       scope: "org",
       models: ["gpt-a"],
     });
+  });
+
+  it("does not count an endpoint-only update as a credential save", async () => {
+    state.listing = listing(
+      {},
+      {
+        openai: {
+          org: {
+            scope: "org",
+            masked: "••••9f3a",
+            updatedAt: 1,
+            endpoint: "https://old.example",
+          },
+        },
+      },
+    );
+    state.models = models({ openai: { org: ["model-a"] } });
+    const { onSaved } = render({
+      mode: "manage",
+      provider: "openai",
+      scope: "org",
+    });
+
+    typeInto(inputByLabel("Endpoint URL"), "https://gateway.example");
+    await act(async () => button("Save").click());
+    await vi.waitFor(() => expect(onSaved).toHaveBeenCalled());
+
+    expect(keyMock.saveAgentEngineProviderSettings).toHaveBeenCalledWith({
+      provider: "openai",
+      baseUrl: "https://gateway.example",
+      scope: "org",
+    });
+    expect(credentialSaveBoundaryMock).not.toHaveBeenCalled();
+    expect(onboardingOutcomeMock).not.toHaveBeenCalledWith("credential_saved");
   });
 
   it("asks for a new key when the saved one was rejected", () => {

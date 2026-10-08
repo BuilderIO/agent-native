@@ -11,6 +11,7 @@ import {
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
+  requestCustomKeyOnboardingAbandonment,
   trackCustomKeyOnboardingOutcome,
   withCustomKeyOnboardingCredentialSave,
 } from "@agent-native/core/client/onboarding/use-onboarding";
@@ -140,8 +141,11 @@ function unique(models: readonly string[]): string[] {
 export function ProviderDialog(props: ProviderDialogProps) {
   const savePending = useRef(false);
   const dismiss = () => {
-    if (savePending.current) return;
-    trackCustomKeyOnboardingOutcome("credential_skipped");
+    if (savePending.current) {
+      requestCustomKeyOnboardingAbandonment();
+    } else {
+      trackCustomKeyOnboardingOutcome("credential_skipped");
+    }
     props.onOpenChange(false);
   };
 
@@ -483,7 +487,7 @@ function ProviderDialogForm({
 
     setSaving(true);
     onSavingChange(true);
-    let keySaved = false;
+    let settingsSaved = false;
     try {
       if (replacing) {
         await withCustomKeyOnboardingCredentialSave(() =>
@@ -497,16 +501,14 @@ function ProviderDialogForm({
             scope,
           }),
         );
-        keySaved = true;
+        settingsSaved = true;
       } else if (endpointChanged) {
-        await withCustomKeyOnboardingCredentialSave(() =>
-          saveAgentEngineProviderSettings({
-            provider,
-            ...(gateway ? { baseUrl: gateway } : { clearBaseUrl: true }),
-            scope,
-          }),
-        );
-        keySaved = true;
+        await saveAgentEngineProviderSettings({
+          provider,
+          ...(gateway ? { baseUrl: gateway } : { clearBaseUrl: true }),
+          scope,
+        });
+        settingsSaved = true;
       }
       if (modelsChanged) {
         await callAction(
@@ -524,8 +526,10 @@ function ProviderDialogForm({
       onOpenChange(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(keySaved ? t(`${K}modelsSaveFailed`, { message }) : message);
-      if (keySaved) {
+      setError(
+        settingsSaved ? t(`${K}modelsSaveFailed`, { message }) : message,
+      );
+      if (settingsSaved) {
         void queryClient.invalidateQueries({ queryKey: ["action"] });
       }
     } finally {
