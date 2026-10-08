@@ -75,6 +75,9 @@ import {
   resolveFreeformSizing,
   resolveSelectionIdentity,
   resolveSlideSelectionAnchor,
+  hasRotatedAncestor,
+  probeScreenBasis,
+  screenDeltaToLocal,
   type SlideObjectGeometry,
   type SlideObjectGeometryApplier,
   type SlideObjectGeometryPlan,
@@ -4161,6 +4164,81 @@ describe("default text box colour", () => {
     const layer = root.querySelector<HTMLElement>(".fmd-slide")!;
 
     expect(getSlideTextBoxDefaultColor(null, layer)).toBe("#F2EFE6");
+    root.remove();
+  });
+});
+
+describe("rotated containing block basis", () => {
+  const rotation = (degrees: number, scale: number) => {
+    const radians = (degrees * Math.PI) / 180;
+    return {
+      a: Math.cos(radians) * scale,
+      b: Math.sin(radians) * scale,
+      c: -Math.sin(radians) * scale,
+      d: Math.cos(radians) * scale,
+    };
+  };
+
+  it("inverts a rotated and scaled basis back to local axes", () => {
+    const basis = rotation(20, 0.8);
+    const screen = {
+      x: 3 * basis.a + 4 * basis.c,
+      y: 3 * basis.b + 4 * basis.d,
+    };
+    const local = screenDeltaToLocal(basis, screen);
+    expect(local.x).toBeCloseTo(3, 9);
+    expect(local.y).toBeCloseTo(4, 9);
+  });
+
+  it("probes the basis from where a hidden marker lands, then removes it", () => {
+    const basis = rotation(30, 0.5);
+    const space = document.createElement("div");
+    document.body.append(space);
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const left = Number.parseFloat(this.style.left || "0");
+        const top = Number.parseFloat(this.style.top || "0");
+        return DOMRect.fromRect({
+          x: 50 + basis.a * left + basis.c * top,
+          y: 70 + basis.b * left + basis.d * top,
+        });
+      });
+
+    const probed = probeScreenBasis(space);
+    rectSpy.mockRestore();
+
+    expect(probed?.a).toBeCloseTo(basis.a, 9);
+    expect(probed?.b).toBeCloseTo(basis.b, 9);
+    expect(probed?.c).toBeCloseTo(basis.c, 9);
+    expect(probed?.d).toBeCloseTo(basis.d, 9);
+    expect(space.children).toHaveLength(0);
+    space.remove();
+  });
+
+  it("reports no basis when the block collapses to a point", () => {
+    const space = document.createElement("div");
+    document.body.append(space);
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue(DOMRect.fromRect({ x: 5, y: 5 }));
+    expect(probeScreenBasis(space)).toBeNull();
+    rectSpy.mockRestore();
+    space.remove();
+  });
+
+  it("finds rotation on the block or an ancestor, but not a plain scale", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `<div id="scaled" style="transform: scale(0.5)"><div id="group" style="transform: rotate(20deg)"><div id="member"></div></div></div>`;
+    document.body.append(root);
+    const scaled = root.querySelector<HTMLElement>("#scaled")!;
+    const group = root.querySelector<HTMLElement>("#group")!;
+    const member = root.querySelector<HTMLElement>("#member")!;
+
+    expect(hasRotatedAncestor(scaled, root)).toBe(false);
+    expect(hasRotatedAncestor(group, root)).toBe(true);
+    expect(hasRotatedAncestor(member, root)).toBe(true);
+    expect(hasRotatedAncestor(member, group)).toBe(true);
     root.remove();
   });
 });

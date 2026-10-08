@@ -61,6 +61,7 @@ import {
 } from "../lib/normalize-slide-padding";
 import { mergeSlideContent } from "../lib/slide-content-merge";
 import { renderArtifactGrowth } from "../lib/slide-source-map";
+import { undoRevealForOps, type UndoReveal } from "../lib/undo-reveal";
 
 type GranularOp =
   | {
@@ -564,6 +565,8 @@ interface DeckContextType {
   undo: (deckId?: string) => void;
   redo: (deckId?: string) => void;
   undoAvailability: Record<string, { canUndo: boolean; canRedo: boolean }>;
+  /** Called after each Undo/Redo with the objects the step changed. */
+  subscribeUndoReveal: (listener: (reveal: UndoReveal) => void) => () => void;
 }
 
 const DeckContext = createContext<DeckContextType | null>(null);
@@ -3963,6 +3966,18 @@ export function DeckProvider({
     new Map<string, LocalOpUndoController<DeckUndoOp>>(),
   );
   const lastUndoDeckIdRef = useRef<string | null>(null);
+  const undoRevealListenersRef = useRef(
+    new Set<(reveal: UndoReveal) => void>(),
+  );
+  const subscribeUndoReveal = useCallback(
+    (listener: (reveal: UndoReveal) => void) => {
+      undoRevealListenersRef.current.add(listener);
+      return () => {
+        undoRevealListenersRef.current.delete(listener);
+      };
+    },
+    [],
+  );
   const lastExternalUpdateRef = useRef(0);
   const pendingCreateIdsRef = useRef<Set<string>>(new Set());
   const confirmedPendingCreateIdsRef = useRef<Set<string>>(new Set());
@@ -4523,6 +4538,12 @@ export function DeckProvider({
             direction === "undo" ? entry.redo : entry.undo,
             startingDecks,
           );
+          const reveal = undoRevealForOps(
+            startingDecks.find((deck) => deck.id === deckId),
+            deckId,
+            applicableOps,
+            direction,
+          );
           setDecks((prev) => {
             let next = prev;
             for (const op of applicableOps) {
@@ -4530,6 +4551,11 @@ export function DeckProvider({
             }
             return next;
           });
+          if (reveal) {
+            for (const listener of undoRevealListenersRef.current) {
+              listener(reveal);
+            }
+          }
           let currentDecks = startingDecks;
           for (const op of applicableOps) {
             markDeckDirty(op.deckId);
@@ -6807,6 +6833,7 @@ export function DeckProvider({
         undo,
         redo,
         undoAvailability,
+        subscribeUndoReveal,
       }}
     >
       {children}

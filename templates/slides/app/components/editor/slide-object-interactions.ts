@@ -2743,6 +2743,94 @@ function rotatedSlideObjectMatrix(
   return `matrix${parsed.values.length === 16 ? "3d" : ""}(${nextValues.map(format).join(", ")})`;
 }
 
+/** Screen px moved per local css px: screen = [a c; b d] * local. */
+export interface ScreenBasis {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+}
+
+const SCREEN_BASIS_PROBE_UNITS = 100;
+
+/**
+ * Whether `from` or an ancestor up to `to` rotates or skews. A uniform scale
+ * converts pointer deltas by width and height alone; a rotation needs the
+ * full basis.
+ */
+export function hasRotatedAncestor(
+  from: HTMLElement,
+  to: HTMLElement,
+): boolean {
+  for (
+    let element: HTMLElement | null = from;
+    element;
+    element = element === to ? null : element.parentElement
+  ) {
+    const style = window.getComputedStyle(element);
+    if (style.rotate && style.rotate !== "none" && style.rotate !== "0deg") {
+      return true;
+    }
+    if (!style.transform || style.transform === "none") continue;
+    const matrix = parseSlideObjectMatrix2d(style.transform);
+    if (!matrix) return true;
+    const [, bIndex, cIndex] = matrix.indexes;
+    if (
+      Math.abs(matrix.values[bIndex] ?? 0) > 1e-4 ||
+      Math.abs(matrix.values[cIndex] ?? 0) > 1e-4
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Read how a containing block maps local `left`/`top` to the screen by
+ * placing a hidden probe in it, so ancestors' rotations and scales (including
+ * AutoFit) are measured rather than reconstructed. Null when the block has no
+ * invertible mapping.
+ */
+export function probeScreenBasis(space: HTMLElement): ScreenBasis | null {
+  const probe = space.ownerDocument.createElement("div");
+  probe.setAttribute("aria-hidden", "true");
+  probe.style.cssText =
+    "position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;visibility:hidden";
+  space.append(probe);
+  try {
+    const origin = probe.getBoundingClientRect();
+    probe.style.left = `${SCREEN_BASIS_PROBE_UNITS}px`;
+    const along = probe.getBoundingClientRect();
+    probe.style.left = "0";
+    probe.style.top = `${SCREEN_BASIS_PROBE_UNITS}px`;
+    const down = probe.getBoundingClientRect();
+    const basis = {
+      a: (along.left - origin.left) / SCREEN_BASIS_PROBE_UNITS,
+      b: (along.top - origin.top) / SCREEN_BASIS_PROBE_UNITS,
+      c: (down.left - origin.left) / SCREEN_BASIS_PROBE_UNITS,
+      d: (down.top - origin.top) / SCREEN_BASIS_PROBE_UNITS,
+    };
+    const determinant = basis.a * basis.d - basis.b * basis.c;
+    return Object.values(basis).every(Number.isFinite) &&
+      Math.abs(determinant) > 1e-6
+      ? basis
+      : null;
+  } finally {
+    probe.remove();
+  }
+}
+
+export function screenDeltaToLocal(
+  basis: ScreenBasis,
+  delta: { x: number; y: number },
+): { x: number; y: number } {
+  const determinant = basis.a * basis.d - basis.b * basis.c;
+  return {
+    x: (basis.d * delta.x - basis.c * delta.y) / determinant,
+    y: (basis.a * delta.y - basis.b * delta.x) / determinant,
+  };
+}
+
 export function readSlideObjectRotation(element: HTMLElement): number {
   const transform =
     element.style.transform || window.getComputedStyle(element).transform;

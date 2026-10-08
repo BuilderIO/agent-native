@@ -219,6 +219,7 @@ import {
   shouldActivateRectangleTool,
   shouldActivateTextTool,
 } from "@/lib/text-tool-shortcut";
+import type { UndoSelectionRequest } from "@/lib/undo-reveal";
 import {
   discardUploadedSlideVideo,
   uploadSlideVideo,
@@ -556,6 +557,7 @@ export default function DeckEditor() {
     undo,
     redo,
     undoAvailability,
+    subscribeUndoReveal,
     loading,
     loadError,
   } = useDecks();
@@ -2470,6 +2472,36 @@ export default function DeckEditor() {
       if (!widgetEmbed && window.innerWidth < 768) setSidebarOpen(false);
     },
     [deck, selectedSlideIds, widgetEmbed],
+  );
+
+  // Undo/redo shows the slide it rewrote and re-selects what changed. The
+  // request travels with the slide update so the editor applies it to the
+  // DOM that already carries the restored content.
+  const [undoSelection, setUndoSelection] =
+    useState<UndoSelectionRequest | null>(null);
+  const undoSelectionSequenceRef = useRef(0);
+  const handleSlideSelectionRef = useRef(handleSlideSelection);
+  handleSlideSelectionRef.current = handleSlideSelection;
+  useEffect(
+    () =>
+      subscribeUndoReveal((reveal) => {
+        if (reveal.deckId !== id) return;
+        const currentSlideId = currentSlideRef.current?.id;
+        const rewritten =
+          reveal.slides.find((slide) => slide.slideId === currentSlideId) ??
+          reveal.slides[0];
+        if (!rewritten) return;
+        if (rewritten.slideId !== currentSlideId) {
+          handleSlideSelectionRef.current(rewritten.slideId);
+        }
+        undoSelectionSequenceRef.current += 1;
+        setUndoSelection({
+          sequence: undoSelectionSequenceRef.current,
+          slideId: rewritten.slideId,
+          targets: rewritten.targets,
+        });
+      }),
+    [id, subscribeUndoReveal],
   );
 
   const uploadImageAsset = useCallback(
@@ -4388,6 +4420,7 @@ export default function DeckEditor() {
             }}
             deckSlides={widgetEmbed ? deck.slides : undefined}
             onSelectFollowingSlide={handleSlideSelection}
+            undoSelection={undoSelection}
             deckId={id}
             onFlushInlineEdit={() => {
               flushPendingSaves();

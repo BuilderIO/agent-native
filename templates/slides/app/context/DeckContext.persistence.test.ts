@@ -6280,6 +6280,71 @@ describe("DeckContext deck creation persistence", () => {
     );
   });
 
+  it("tells subscribers which objects an undo and redo changed", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const slideHtml = (left: string) =>
+      `<div class="fmd-slide"><div data-slide-object-id="a" style="left: ${left}">A</div></div>`;
+    setAccessibleDeck({
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: slideHtml("10px"),
+          notes: "",
+          layout: "content",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    act(() => {
+      result.current.updateSlide("shared-deck", "slide-1", {
+        content: slideHtml("40px"),
+      });
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck("shared-deck")?.slides[0]?.content).toBe(
+        slideHtml("40px"),
+      ),
+    );
+
+    const reveals: unknown[] = [];
+    const unsubscribe = result.current.subscribeUndoReveal((reveal) =>
+      reveals.push(reveal),
+    );
+    act(() => {
+      result.current.undo();
+    });
+    await waitFor(() => expect(reveals).toHaveLength(1));
+    act(() => {
+      result.current.redo();
+    });
+    await waitFor(() => expect(reveals).toHaveLength(2));
+    unsubscribe();
+
+    const target = [{ objectId: "a", path: [0] }];
+    expect(reveals).toEqual([
+      {
+        deckId: "shared-deck",
+        direction: "undo",
+        slides: [{ slideId: "slide-1", targets: target }],
+      },
+      {
+        deckId: "shared-deck",
+        direction: "redo",
+        slides: [{ slideId: "slide-1", targets: target }],
+      },
+    ]);
+  });
+
   it("skips unchanged multi-slide commits", async () => {
     window.history.pushState({}, "", "/deck/shared-deck");
     const { fetchMock, setAccessibleDeck } = setupFetch();

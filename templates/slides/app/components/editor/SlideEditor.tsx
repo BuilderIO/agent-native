@@ -96,6 +96,7 @@ import { publishSlidesSelection } from "@/lib/slide-agent-context";
 import {
   getElementPreview,
   getPersistedElementPath,
+  resolveElementPath,
   type SelectedAnimationTarget,
 } from "@/lib/slide-animation-elements";
 import {
@@ -124,6 +125,7 @@ import {
   type VideoPlaybackSettings,
 } from "@/lib/slide-video";
 import { TAB_ID } from "@/lib/tab-id";
+import type { UndoSelectionRequest } from "@/lib/undo-reveal";
 import { shortcutLabel } from "@/lib/utils";
 import { enterSelectionMode } from "@/root";
 
@@ -239,6 +241,8 @@ import {
   resolveFitTextBoxResize,
   resolveFreeformSizing,
   resolveSelectionIdentity,
+  hasRotatedAncestor,
+  probeScreenBasis,
   resolveSlideObjectContainingBlock,
   resolveSlideObjectGroupRoot,
   resolveSlideObjectInsertionContainingBlock,
@@ -247,6 +251,7 @@ import {
   resizeTransformedSlideObject,
   scaleSlideObjectGroupMembers,
   rotateSlideObjectMembers,
+  screenDeltaToLocal,
   resolveSlideClipboardElement,
   resolveSlideSelectionAnchor,
   restoreSlideObjectStyle,
@@ -399,11 +404,18 @@ function resolveSlidePositioningLayer(
  * `left`/`top` resolve against the containing block, and AutoFit scales that
  * layer independently of the canvas root, so pointer deltas must convert
  * through it. Markdown slides have no fmd layer yet and keep the canvas root.
+ * Inside a rotated block the block's bounding rect is not its size, so the
+ * basis is probed and `toLocalDelta` maps the screen delta instead; snapping
+ * is off there because its guides are drawn from that bounding rect.
  */
 function readGestureViewport(
   element: HTMLElement,
   slideCanvas: HTMLElement,
-): { rect: DOMRect; canvas: { width: number; height: number } } | null {
+): {
+  rect: DOMRect;
+  canvas: { width: number; height: number };
+  toLocalDelta?: (delta: { x: number; y: number }) => { x: number; y: number };
+} | null {
   const layer = element.closest(".fmd-slide")
     ? resolveSlidePositioningLayer(element)
     : null;
@@ -415,7 +427,14 @@ function readGestureViewport(
   if (!rect.width || !rect.height || !canvas.width || !canvas.height) {
     return null;
   }
-  return { rect, canvas };
+  if (!hasRotatedAncestor(space, slideCanvas)) return { rect, canvas };
+  const basis = probeScreenBasis(space);
+  if (!basis) return null;
+  return {
+    rect: new DOMRect(rect.left, rect.top, canvas.width, canvas.height),
+    canvas,
+    toLocalDelta: (delta) => screenDeltaToLocal(basis, delta),
+  };
 }
 
 /** Screen px per slide unit, so snapping keeps a screen-constant radius. */
@@ -1088,6 +1107,8 @@ interface SlideEditorProps {
   deckSlides?: readonly Slide[];
   /** Makes a clicked following slide the current slide. */
   onSelectFollowingSlide?: (slideId: string) => void;
+  /** Objects the last Undo/Redo changed; selected once the slide shows them. */
+  undoSelection?: UndoSelectionRequest | null;
   /** Zero-based index of the current slide */
   slideIndex?: number;
   /** Design system to inject as CSS custom properties on the slide */
@@ -1663,6 +1684,7 @@ export default function SlideEditor({
   agentActive,
   deckSlides,
   onSelectFollowingSlide,
+  undoSelection,
   slideIndex = 0,
   designSystem,
   aspectRatio,
@@ -4042,6 +4064,70 @@ export default function SlideEditor({
     applyMultiSelectionRef.current(ids);
   }, [slide.content, getSlideContent]);
 
+  // Undo/redo leaves the objects the step changed selected, like Google
+  // Slides. This runs after the content effect above, which drops the old
+  // selection because the DOM was replaced.
+  const appliedUndoSelectionRef = useRef(0);
+  useEffect(() => {
+    if (
+      !undoSelection ||
+      undoSelection.slideId !== slide.id ||
+      undoSelection.sequence <= appliedUndoSelectionRef.current ||
+      !undoSelection.targets ||
+      editingElRef.current
+    ) {
+      return;
+    }
+    const slideContent = getSlideContent();
+    if (!slideContent) return;
+    appliedUndoSelectionRef.current = undoSelection.sequence;
+    const root = slideContent.querySelector(".fmd-slide");
+    const elements = undoSelection.targets
+      .map(
+        (target) =>
+          (target.objectId &&
+            findSlideObjectById(slideContent, target.objectId)) ||
+          (root && resolveElementPath(root, target.path)),
+      )
+      .filter(
+        (element): element is HTMLElement => element instanceof HTMLElement,
+      );
+    stampBuilderIds(slideContent);
+    const selectable = elements.filter((element) =>
+      element.hasAttribute("data-builder-id"),
+    );
+    if (selectable.length > 1) {
+      pendingMultiSelectionResyncRef.current = {
+        objectIds: selectable.map((element) =>
+          element.getAttribute("data-slide-object-id"),
+        ),
+        paths: [],
+      };
+      applyMultiSelectionRef.current(
+        new Set(
+          selectable.map((element) => element.getAttribute("data-builder-id")!),
+        ),
+      );
+    } else if (selectable[0]) {
+      applyMultiSelectionRef.current(new Set());
+      selectElementForStyling(
+        selectable[0],
+        `[data-builder-id="${selectable[0].getAttribute("data-builder-id")}"]`,
+      );
+    } else if (!resolveSelectedElement()) {
+      applyMultiSelectionRef.current(new Set());
+      clearSelectedElement();
+    }
+  }, [
+    clearSelectedElement,
+    getSlideContent,
+    resolveSelectedElement,
+    selectElementForStyling,
+    slide.content,
+    slide.id,
+    undoSelection,
+  ]);
+
   // One Escape owner for the HTML editor. Radix dialogs/popovers and native
   // form controls retain their own Escape behavior before we arbitrate canvas
   // state. Gesture cancellation is deliberately ahead of selection clearing.
@@ -5991,6 +6077,7 @@ export default function SlideEditor({
       };
 
       const controller = createSlidesCanvasGestureController({
+        toLocalDelta: viewport.toLocalDelta,
         preview: (gesture) => {
           if (!promoteForDrag()) {
             return { handled: false, reason: "unhandled" };
@@ -6034,7 +6121,10 @@ export default function SlideEditor({
             peers: getSnapPeerGeometries([activeElement], positioningLayer),
             canvas: snapCanvas,
             scale: readScreenScale(containingBlock),
-            bypass: gesture.pointer.metaKey || gesture.pointer.ctrlKey,
+            bypass:
+              gesture.pointer.metaKey ||
+              gesture.pointer.ctrlKey ||
+              Boolean(viewport.toLocalDelta),
           });
           applyObjectGeometry(
             activeElement,
@@ -6354,6 +6444,7 @@ export default function SlideEditor({
       };
 
       const controller = createSlidesCanvasGestureController({
+        toLocalDelta: viewport.toLocalDelta,
         preview: (gesture) => {
           if (gesture.kind !== "resize" || !beginResize()) {
             return { handled: false, reason: "unhandled" };
@@ -6619,6 +6710,7 @@ export default function SlideEditor({
       };
 
       const controller = createSlidesCanvasGestureController({
+        toLocalDelta: viewport.toLocalDelta,
         preview: (gesture) => {
           if (gesture.kind !== "resize") {
             return { handled: false, reason: "unhandled" };
@@ -6912,6 +7004,7 @@ export default function SlideEditor({
       };
 
       const controller = createSlidesCanvasGestureController({
+        toLocalDelta: viewport.toLocalDelta,
         preview: (gesture) => {
           if (!prepareGroup()) {
             return { handled: false, reason: "unhandled" };
@@ -6947,7 +7040,10 @@ export default function SlideEditor({
             ),
             canvas: snapCanvas,
             scale: readScreenScale(containingBlock),
-            bypass: gesture.pointer.metaKey || gesture.pointer.ctrlKey,
+            bypass:
+              gesture.pointer.metaKey ||
+              gesture.pointer.ctrlKey ||
+              Boolean(viewport.toLocalDelta),
           });
           applySlideObjectMoveDelta(
             members,
