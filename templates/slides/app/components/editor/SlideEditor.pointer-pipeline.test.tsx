@@ -52,7 +52,7 @@ const CLIP_SLIDE = `
   </div>`;
 
 const GROUP_SLIDE = `
-  <div class="fmd-slide" style="position:relative">
+  <div id="slide" class="fmd-slide" style="position:relative">
     <div id="group" class="fmd-slide-group" data-slide-group="true" data-slide-object-id="group-1" style="position:absolute;left:100px;top:100px;width:400px;height:120px">
       <div id="memberA" class="fmd-text-box" data-slide-object-id="member-a" style="position:absolute;left:0;top:0;width:180px;font-size:24px">First member</div>
       <div id="memberB" class="fmd-text-box" data-slide-object-id="member-b" style="position:absolute;left:200px;top:0;width:180px;font-size:24px">Second member</div>
@@ -332,9 +332,13 @@ async function mountEditor(
     if (!outline) return null;
     const top = Number.parseFloat(outline.style.top) + 2;
     const left = Number.parseFloat(outline.style.left) + 2;
+    const height = Number.parseFloat(outline.style.height) - 4;
     return (
       Object.entries(BOX_RECTS).find(
-        ([, rect]) => rect.top === top && rect.left === left,
+        ([, rect]) =>
+          rect.top === top &&
+          rect.left === left &&
+          rect.bottom - rect.top === height,
       )?.[0] ?? null
     );
   };
@@ -1108,6 +1112,39 @@ describe("SlideEditor pointer pipeline on groups", () => {
     });
     expect(editor.isEditing("memberB")).toBe(true);
     expect(editor.isEditing("group")).toBe(false);
+  });
+
+  it("selects the group from just outside a text-box member, then drills to that member", async () => {
+    const editor = await mountEditor(GROUP_SLIDE);
+
+    // 4 px left of memberA, outside the group's bounds.
+    editor.hover("slide", { x: 96, y: 120 });
+    expect(editor.canvas.style.cursor).toBe("move");
+    expect(editor.hoverOutlineOwner()).toBe("group");
+
+    editor.click("slide", { x: 96, y: 120 });
+    expect(editor.lastSelected()).toBe(editor.el("group"));
+
+    editor.click("slide", { x: 96, y: 120 });
+    expect(editor.lastSelected()).toBe(editor.el("memberA"));
+
+    // 4 px right of memberA, in the gap inside the group's bounds.
+    fireEvent.keyDown(window, { key: "Escape" });
+    editor.click("slide", { x: 284, y: 120 });
+    expect(editor.lastSelected()).toBe(editor.el("group"));
+    editor.click("slide", { x: 284, y: 120 });
+    expect(editor.lastSelected()).toBe(editor.el("memberA"));
+  });
+
+  it("selects nothing from 6 px outside a text-box member", async () => {
+    const editor = await mountEditor(GROUP_SLIDE);
+
+    editor.hover("slide", { x: 94, y: 120 });
+    expect(editor.canvas.style.cursor).toBe("");
+    expect(editor.hoverOutlineOwner()).toBeNull();
+
+    editor.click("slide", { x: 94, y: 120 });
+    expect(editor.hasSelection()).toBe(false);
   });
 });
 

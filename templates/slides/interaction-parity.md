@@ -57,6 +57,22 @@ all: OS cursor glyphs, Firefox/WebKit, touch, Retina, zoom-in, AutoFit scale
 below 1, rotation, Shift/Alt resize. Slide-number tokens and translate-based
 moves are also deferred.
 
+### Edge slop by object kind (2026-10-08)
+
+The 5 px edge band (`SLIDE_POINTER_EDGE_SLOP`) belongs only to objects Google
+Slides hit-tests by outline (oracle 1.5, 2.13, 7.9-7.11): `.fmd-text-box`,
+`<hr>` and `data-slide-shape="line"` always, and any other absolutely
+positioned object with no fill and no image, video, canvas, iframe or table
+inside. Filled shapes, images and tables have none. Group members keep their
+own slop, and a slop press resolves exactly like a direct press on that member
+(the group while unselected, the member once the group is selected or a
+sibling is drilled). Deviations: a filled text block without the
+`.fmd-text-box` marker (an imported PPTX text box with a fill, a filled card
+with text) cannot be told from a filled shape and gets no slop; inline `svg`
+content is not treated as an image; a selected group's own edge bands take
+presses on its outer edge before the resolver does, so drilling by slop works
+inside the group and in its gaps but not on its outer edge.
+
 ## Google Help references
 
 Consulted on 2026-09-13 as authoritative desktop workflow references; they
