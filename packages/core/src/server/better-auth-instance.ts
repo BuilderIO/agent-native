@@ -82,6 +82,7 @@ import {
   enforceSignupAdmission,
   isBootstrapAdmin,
 } from "../org/signup-admission.js";
+import { normalizeAnalyticsSessionId } from "../shared/analytics-session-id.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
@@ -260,19 +261,16 @@ export async function emitSignupEventForCreatedUser(
 
   const requestHeaders = context?.headers ?? context?.request?.headers ?? null;
   if (!requestHeaders) return;
-  const candidateSessionId = requestHeaders
-    .get("x-agent-native-session-id")
-    ?.trim();
-  const sessionId =
-    candidateSessionId && /^[!-~]{1,127}$/.test(candidateSessionId)
-      ? candidateSessionId
-      : undefined;
+  const requestSessionId = normalizeAnalyticsSessionId(
+    requestHeaders.get("x-agent-native-session-id"),
+  );
 
   const scoped = hasContinuationLocalRequestContext()
     ? getRequestContext()
     : undefined;
   let attribution: Record<string, string> | undefined;
   let anonymousId: string | undefined;
+  let sessionId: string | undefined;
   try {
     const browser =
       (context?.request?.url?.includes("newUserCallbackURL")
@@ -283,6 +281,8 @@ export async function emitSignupEventForCreatedUser(
       signupAttributionContextFromCookieHeader(requestHeaders.get("cookie"));
     attribution = browser?.attribution;
     anonymousId = browser?.anonymousId;
+    sessionId =
+      normalizeAnalyticsSessionId(browser?.sessionId) ?? requestSessionId;
   } catch (err) {
     console.error("[auth] failed to derive signup attribution", err);
   }
@@ -291,6 +291,8 @@ export async function emitSignupEventForCreatedUser(
   // so an account created by another signed-in user (admin or API creation)
   // must not inherit it.
   const actingUserId = context?.context?.session?.user?.id;
+  const eventSessionId =
+    !actingUserId || actingUserId === user.id ? sessionId : undefined;
   if (user.id && attribution && (!actingUserId || actingUserId === user.id)) {
     try {
       await persistUserFirstTouchAttribution(user.id, attribution);
@@ -315,7 +317,7 @@ export async function emitSignupEventForCreatedUser(
     name: user.name,
     attribution,
     anonymousId,
-    ...(sessionId ? { sessionId } : {}),
+    sessionId: eventSessionId,
   });
 }
 

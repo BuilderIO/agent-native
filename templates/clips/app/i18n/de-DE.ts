@@ -220,6 +220,7 @@ const messages = {
   recordingPage: {
     back: "Zurück",
     done: "Fertig",
+    backToClip: "Zurück zum Clip",
     untitledClip: "Unbenannter Clip",
     recordingNotFound: "Aufnahme nicht gefunden",
     noAccess: "Möglicherweise haben Sie keinen Zugriff auf diesen Clip.",
@@ -1375,6 +1376,9 @@ const messages = {
     burningRedactionsPercent:
       "Die Schwärzungen werden in das Video gerendert … {{percent}} %",
     editFailed: "Diese Änderung konnte nicht gespeichert werden",
+    autoSaveHint: "Änderungen werden automatisch in diesem Clip gespeichert",
+    savingChanges: "Änderungen werden gespeichert…",
+    changesSaved: "Änderungen in diesem Clip gespeichert",
     nothingToRedo: "Nichts zum Wiederherstellen",
   },
   transcriptEditor: {

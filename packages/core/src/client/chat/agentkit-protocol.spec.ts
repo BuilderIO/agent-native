@@ -2191,7 +2191,6 @@ describe("createAgentKitProtocolAdapter", () => {
           yield { type: "done", reason: "complete" };
         }
         return {
-          id: "turn-2",
           sessionId: "thread-1",
           events: resumed(),
         };
@@ -2238,6 +2237,9 @@ describe("createAgentKitProtocolAdapter", () => {
     expect(replacementRun?.metadata).not.toHaveProperty(
       "x-agent-native.observability.runtimeRunId",
     );
+    expect(replacementRun?.metadata).not.toHaveProperty(
+      "x-agent-native.observability.turnId",
+    );
     expect(await iterator.next()).toMatchObject({ done: true });
     const remaining = await drain(
       transport.subscribeToRun({
@@ -2249,6 +2251,9 @@ describe("createAgentKitProtocolAdapter", () => {
     expect(continueTurnCalled).toBe(true);
     expect(remaining.map((event) => event.type)).toContain("approval.resolved");
     expect(remaining.map((event) => event.type)).toContain("run.completed");
+    remaining.forEach((event) =>
+      expect(() => parseAgentEvent(event)).not.toThrow(),
+    );
   });
 
   it("omits a missing runtime run id from initial run metadata", async () => {
@@ -2277,6 +2282,121 @@ describe("createAgentKitProtocolAdapter", () => {
     });
     expect(startedRun?.metadata).not.toHaveProperty(
       "x-agent-native.observability.runtimeRunId",
+    );
+  });
+
+  it("omits a missing runtime turn id from initial run metadata", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(events);
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        sessionId: "thread-1",
+        events: events(),
+      }),
+    });
+
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Run it")],
+    });
+    const startedRun = await transport.getRun?.({
+      threadId: "thread-1",
+      runId,
+    });
+    expect(startedRun?.metadata).not.toHaveProperty(
+      "x-agent-native.observability.turnId",
+    );
+    const eventsReceived = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    eventsReceived.forEach((event) =>
+      expect(() => parseAgentEvent(event)).not.toThrow(),
+    );
+  });
+
+  it("includes a provided runtime turn id in replacement run metadata", async () => {
+    async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "approval-request",
+        approvalId: "approval-1",
+        toolCallId: "tool-1",
+        toolName: "publish",
+        message: "Publish the release?",
+      };
+      yield { type: "done", reason: "tool-use" };
+    }
+    const runtime = createRuntime(approvalEvents, {
+      capabilities: {
+        messages: { streaming: true },
+        tools: { events: true, approvals: true },
+      },
+    });
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "runtime-run-1",
+        sessionId: "thread-1",
+        events: approvalEvents(),
+      }),
+      continueTurn: async () => ({
+        id: "turn-2",
+        sessionId: "thread-1",
+        events: (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+          yield { type: "done", reason: "complete" };
+        })(),
+      }),
+    });
+
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Publish it")],
+    });
+    const iterator = transport
+      .subscribeToRun({ threadId: "thread-1", runId })
+      [Symbol.asyncIterator]();
+    let approvalSeen = false;
+    while (!approvalSeen) {
+      const next = await iterator.next();
+      expect(next.done).toBe(false);
+      approvalSeen = next.value?.type === "approval.requested";
+    }
+
+    const resumed = await transport.resumeRun?.({
+      threadId: "thread-1",
+      runId,
+      resume: [
+        resumeEntryFromApproval({
+          approvalId: "approval-1",
+          response: approvalResponse("approve"),
+        }),
+      ],
+    });
+    const replacementRun = await transport.getRun?.({
+      threadId: "thread-1",
+      runId: resumed!.runId,
+    });
+
+    expect(replacementRun?.metadata).toHaveProperty(
+      "x-agent-native.observability.turnId",
+      "turn-2",
+    );
+    expect(await iterator.next()).toMatchObject({ done: true });
+    const replacementEvents = await drain(
+      transport.subscribeToRun({
+        threadId: "thread-1",
+        runId: resumed!.runId,
+      }),
+    );
+    replacementEvents.forEach((event) =>
+      expect(() => parseAgentEvent(event)).not.toThrow(),
     );
   });
 

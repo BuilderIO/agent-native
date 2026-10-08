@@ -278,7 +278,7 @@ function trackAuth(
     if (!config?.agentNativeAnalyticsPublicKey) return;
     const anonymousId = readStorage(ANALYTICS_ANONYMOUS_ID_KEY);
     if (!anonymousId) return;
-    const sessionId = getAnalyticsSessionId() ?? "";
+    const sessionId = getAnalyticsSessionId();
     const endpoint = resolveLaneEndpoint(
       config.agentNativeAnalyticsEndpoint ??
         "https://analytics.agent-native.com/track",
@@ -297,7 +297,7 @@ function trackAuth(
         event: event.name,
         properties: event.properties,
         anonymousId,
-        sessionId: sessionId || undefined,
+        sessionId,
         timestamp: new Date().toISOString(),
       });
       if (navigator.sendBeacon?.(endpoint, body)) continue;

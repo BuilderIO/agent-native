@@ -30,6 +30,10 @@ import {
 } from "../agent/run-manager.js";
 import { claimBackgroundRun, insertRun } from "../agent/run-store.js";
 import {
+  buildCurrentTimeUserContext,
+  buildRuntimeContextPrompt,
+} from "../agent/runtime-context.js";
+import {
   buildAssistantMessage,
   buildUserMessage,
   extractThreadMeta,
@@ -80,6 +84,7 @@ import {
   withDeliveryNote,
   type AutomationFailure,
 } from "./automation-outcome.js";
+import { effectiveTimezone } from "./cron.js";
 import {
   recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
@@ -1047,16 +1052,27 @@ async function executeBackgroundAutomation(
           runId,
           thread.id,
           async (send, signal, control) => {
+            const runtimeContext = {
+              now: new Date(),
+              timezone: effectiveTimezone(automation.meta.timezone),
+            };
             const loopOpts = {
               engine,
               model,
-              systemPrompt,
+              systemPrompt:
+                systemPrompt + buildRuntimeContextPrompt(runtimeContext),
               tools,
               availableTools,
               messages: [
                 {
                   role: "user" as const,
-                  content: [{ type: "text" as const, text: prompt }],
+                  content: [
+                    {
+                      type: "text" as const,
+                      text:
+                        prompt + buildCurrentTimeUserContext(runtimeContext),
+                    },
+                  ],
                 },
               ],
               actions,

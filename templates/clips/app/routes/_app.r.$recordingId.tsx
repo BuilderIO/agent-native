@@ -51,7 +51,6 @@ import type { WorkflowKind } from "@shared/workflow";
 import {
   IconCalendar,
   IconAlertTriangle,
-  IconCheck,
   IconEdit,
   IconHelpCircle,
   IconBolt,
@@ -2489,23 +2488,6 @@ export default function RecordingPage() {
       ) : null}
 
       <div className="flex items-center gap-2">
-        {canUseNativeEditor && editing ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <ViewerIconButton
-                variant="secondary"
-                onClick={() => setEditing(false)}
-                aria-label={t("recordingPage.done")}
-              >
-                <IconCheck className="size-4" />
-              </ViewerIconButton>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {t("recordingPage.done")}
-            </TooltipContent>
-          </Tooltip>
-        ) : null}
-
         {/* Reactions are pinned to a moment on the timeline, so they have
             nowhere to land on a still. */}
         {!editing && recording.enableReactions && !isImage ? (
@@ -2811,7 +2793,11 @@ export default function RecordingPage() {
             )}
           >
             {editing && canUseNativeEditor ? (
-              <EditorLayout recordingId={recording.id} className="flex-1" />
+              <EditorLayout
+                recordingId={recording.id}
+                onBack={() => setEditing(false)}
+                className="flex-1"
+              />
             ) : (
               <div className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-0 sm:gap-4 lg:max-w-[min(100%,1600px,calc(177.778dvh-35.556rem))]">
                 <div className="flex w-full shrink-0 justify-center">

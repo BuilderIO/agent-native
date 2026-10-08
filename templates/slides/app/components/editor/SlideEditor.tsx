@@ -9919,6 +9919,7 @@ export default function SlideEditor({
       <div
         ref={contentReplaceBoundaryRef}
         className="flex min-h-0 flex-1 overflow-hidden"
+        onContextMenu={(event) => event.preventDefault()}
       >
         <div className="min-w-0 flex-1 overflow-hidden">
           {slide.excalidrawData ? (

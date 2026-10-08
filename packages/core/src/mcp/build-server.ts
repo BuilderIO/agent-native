@@ -3590,6 +3590,11 @@ async function verifyA2AJwtForMcp(
   if (globalSecret) {
     const payload = await verifyWithSecret(globalSecret);
     if (payload) {
+      const tokenScope =
+        typeof payload.scope === "string" ? payload.scope : undefined;
+      const firstPartyMcp = payload.agent_native_first_party_mcp === true;
+      const locallyIssuedConnectToken =
+        tokenScope === MCP_CONNECT_SCOPE && !firstPartyMcp;
       if (orgDomain) {
         let organization: {
           orgId: string;
@@ -3604,7 +3609,12 @@ async function verifyA2AJwtForMcp(
         } catch (error) {
           throw new McpIdentityVerificationUnavailableError(error);
         }
-        if (organization?.secret.trim() === globalSecret) {
+        // Locally issued connect identities are admitted below only after
+        // their active JTI row confirms the stored owner and organization.
+        if (
+          organization?.secret.trim() === globalSecret &&
+          !locallyIssuedConnectToken
+        ) {
           return organizationPrincipalClaims(
             payload as JWTPayload,
             organization,
@@ -3612,17 +3622,12 @@ async function verifyA2AJwtForMcp(
         }
       }
 
-      const tokenScope =
-        typeof payload.scope === "string" ? payload.scope : undefined;
-      const firstPartyMcp = payload.agent_native_first_party_mcp === true;
       const hasOrganizationClaim =
         Object.prototype.hasOwnProperty.call(payload, "org_id") &&
         payload.org_id !== null;
       const hasOrganizationDomainClaim =
         Object.prototype.hasOwnProperty.call(payload, "org_domain") &&
         payload.org_domain !== null;
-      const locallyIssuedConnectToken =
-        tokenScope === MCP_CONNECT_SCOPE && !firstPartyMcp;
       const unclaimedFirstPartyToken =
         firstPartyMcp && !hasOrganizationClaim && !hasOrganizationDomainClaim;
       if (locallyIssuedConnectToken || unclaimedFirstPartyToken) {

@@ -220,6 +220,7 @@ const messages = {
   recordingPage: {
     back: "Dos",
     done: "Terminé",
+    backToClip: "Retour au clip",
     untitledClip: "Extrait sans titre",
     recordingNotFound: "Enregistrement introuvable",
     noAccess: "Vous n’aurez peut-être pas accès à ce clip.",
@@ -1371,6 +1372,10 @@ const messages = {
     burningRedactionsPercent:
       "Application des masquages à la vidéo… {{percent}} %",
     editFailed: "Impossible d'enregistrer cette modification",
+    autoSaveHint:
+      "Les modifications sont enregistrées automatiquement sur ce clip",
+    savingChanges: "Enregistrement des modifications…",
+    changesSaved: "Modifications enregistrées sur ce clip",
     nothingToRedo: "Rien à rétablir",
   },
   transcriptEditor: {
