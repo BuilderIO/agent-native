@@ -257,6 +257,43 @@ describe("AgentKit lifecycle projections", () => {
     });
   });
 
+  it("keeps a shared assistant message streaming when the predecessor run settles", () => {
+    let thread = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: "Partial",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+    thread = reduceAgentEvent(thread, {
+      ...event(1, { type: "run.started" }),
+      id: "run-2-started",
+      runId: "run-2",
+    });
+    thread = reduceAgentEvent(thread, {
+      ...event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: " still",
+      }),
+      id: "run-2-delta",
+      runId: "run-2",
+    });
+    thread = reduceAgentEvent(thread, event(3, { type: "run.completed" }));
+
+    expect(thread.runs["run-1"]?.status).toBe("completed");
+    expect(thread.runs["run-2"]).toMatchObject({
+      status: "running",
+      activeMessageId: "assistant-shared",
+    });
+    expect(thread.messages[0]).toMatchObject({
+      id: "assistant-shared",
+      status: "streaming",
+      parts: [{ type: "text", text: "Partial still" }],
+    });
+  });
+
   it("ignores late work after a terminal lifecycle event", () => {
     const terminal = [
       event(1, { type: "run.started" }),
