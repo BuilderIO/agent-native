@@ -311,7 +311,6 @@ describe("POST /api/session-replay-storyboard", () => {
         () => undefined,
         (error: unknown) => error,
       );
-
       expect(thrown).toMatchObject({
         statusCode: 409,
         statusMessage: "The storyboard action was rejected",
@@ -322,7 +321,10 @@ describe("POST /api/session-replay-storyboard", () => {
           ...(cleanupPending ? { cleanupPending: true } : {}),
         },
       });
-      expect((thrown as Error & { cause?: unknown }).cause).toBe(contractError);
+      const cause = (thrown as { cause?: unknown }).cause as
+        | { cause?: unknown }
+        | undefined;
+      expect(cause?.cause).toBe(contractError);
     },
   );
 });
