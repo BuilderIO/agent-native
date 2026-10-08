@@ -511,6 +511,8 @@ jobs:
               ;;
             inspector-2)
               fixed_specs=( \
+                e2e/canvas-invariants.spec.ts:383 \
+                e2e/canvas-invariants.spec.ts:538 \
                 e2e/inspector-styles.spec.ts:452 \
                 e2e/inspector-styles.spec.ts:610 \
                 e2e/inspector-styles.spec.ts:737 \
@@ -527,6 +529,7 @@ jobs:
               ;;
             inspector-4)
               fixed_specs=( \
+                e2e/canvas-invariants.spec.ts:553 \
                 e2e/inspector-styles.spec.ts:541 \
                 e2e/inspector-styles.spec.ts:667 \
                 e2e/inspector-styles.spec.ts:798 \
@@ -558,6 +561,7 @@ jobs:
               ;;
             position-2)
               fixed_specs=( \
+                e2e/position-alignment.spec.ts:292 \
                 e2e/position-alignment.spec.ts:570 \
                 e2e/position-alignment.spec.ts:615 \
                 e2e/position-alignment.spec.ts:661 \
@@ -565,6 +569,7 @@ jobs:
               ;;
             position-3)
               fixed_specs=( \
+                e2e/position-alignment.spec.ts:312 \
                 e2e/position-alignment.spec.ts:708 \
                 e2e/position-alignment.spec.ts:740 \
                 e2e/position-alignment.spec.ts:780 \

@@ -644,11 +644,14 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "e2e/inspector-styles.spec.ts:426",
   ]);
   assert.deepEqual(fixedLocations(inspectorTwoStart, inspectorThreeStart), [
+    "e2e/canvas-invariants.spec.ts:383",
+    "e2e/canvas-invariants.spec.ts:538",
     "e2e/inspector-styles.spec.ts:452",
     "e2e/inspector-styles.spec.ts:610",
     "e2e/inspector-styles.spec.ts:737",
   ]);
   assert.deepEqual(fixedLocations(inspectorFourStart, dragOneStart), [
+    "e2e/canvas-invariants.spec.ts:553",
     "e2e/inspector-styles.spec.ts:541",
     "e2e/inspector-styles.spec.ts:667",
     "e2e/inspector-styles.spec.ts:798",
@@ -678,11 +681,13 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "e2e/position-alignment.spec.ts:509",
   ]);
   assert.deepEqual(fixedLocations(positionTwoStart, positionThreeStart), [
+    "e2e/position-alignment.spec.ts:292",
     "e2e/position-alignment.spec.ts:570",
     "e2e/position-alignment.spec.ts:615",
     "e2e/position-alignment.spec.ts:661",
   ]);
   assert.deepEqual(fixedLocations(positionThreeStart, fallbackStart), [
+    "e2e/position-alignment.spec.ts:312",
     "e2e/position-alignment.spec.ts:708",
     "e2e/position-alignment.spec.ts:740",
     "e2e/position-alignment.spec.ts:780",
@@ -732,6 +737,21 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     /if \[ "\$DESIGN_CANVAS_E2E" = "true" \]; then\s+if \[ "\$DESIGN_CANVAS_RESULT" != "success" \]; then\s+echo "::error::Design canvas interaction acceptance did not succeed \(\$DESIGN_CANVAS_RESULT\)"\s+exit 1\s+fi/,
   );
   const selectedTests = [
+    [
+      "e2e/canvas-invariants.spec.ts",
+      383,
+      "X/Y match the element's real position, not 0,0",
+    ],
+    [
+      "e2e/canvas-invariants.spec.ts",
+      538,
+      "setting X moves the element by exactly that amount",
+    ],
+    [
+      "e2e/canvas-invariants.spec.ts",
+      553,
+      "setting Y moves the element by exactly that amount",
+    ],
     [
       "e2e/canvas-invariants.spec.ts",
       508,
@@ -861,6 +881,16 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       "e2e/pasted-svg-image-inspector.spec.ts",
       693,
       "rejected SVG HTML is consumed instead of inserted as native markup",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      292,
+      "Left and Right alignment controls move to their named edges",
+    ],
+    [
+      "e2e/position-alignment.spec.ts",
+      312,
+      "Top and Bottom alignment controls move to their named edges",
     ],
     [
       "e2e/position-alignment.spec.ts",
