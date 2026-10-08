@@ -674,7 +674,12 @@ export default defineEventHandler(async (event) =>
           uploadResponseBody = upload.body;
         } catch (error) {
           if (controller.signal.aborted) {
-            badRequest("Design screenshot upload timed out", 504);
+            throw createError({
+              statusCode: 504,
+              statusMessage:
+                "Design screenshot upload timed out. It may have saved the storyboard; check Design before retrying.",
+              data: { saveOutcomeUnknown: true },
+            });
           }
           throw error;
         } finally {

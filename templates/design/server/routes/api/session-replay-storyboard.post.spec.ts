@@ -25,7 +25,16 @@ vi.mock("@agent-native/core/a2a", () => ({
   verifyA2AToken: mocks.verifyA2AToken,
 }));
 
-vi.mock("@agent-native/core/action", () => ({}));
+vi.mock("@agent-native/core/action", () => ({
+  isActionContractError: (error: unknown) =>
+    Boolean(
+      error &&
+      typeof error === "object" &&
+      (error as { actionContractError?: unknown }).actionContractError ===
+        true &&
+      typeof (error as { errorCode?: unknown }).errorCode === "string",
+    ),
+}));
 
 vi.mock("@agent-native/core/private-blob", () => ({
   deleteAttachment: mocks.deleteAttachment,
@@ -277,4 +286,43 @@ describe("POST /api/session-replay-storyboard", () => {
       { ownerEmail: "ada@example.test", orgId: null },
     );
   });
+
+  it.each([false, true])(
+    "normalizes action contract errors when cleanupPending is %s",
+    async (cleanupPending) => {
+      const contractError = Object.assign(
+        new Error("The storyboard action was rejected"),
+        {
+          actionContractError: true,
+          errorCode: "storyboard_conflict",
+          details: { designId },
+          statusCode: 409,
+        },
+      );
+      mocks.runAction.mockRejectedValueOnce(contractError);
+      if (cleanupPending) {
+        mocks.deleteAttachment.mockResolvedValueOnce({
+          status: "ok",
+          deleted: false,
+        });
+      }
+
+      const thrown = await (handler as any)(makeEvent(makeFormData())).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+      expect(thrown).toMatchObject({
+        statusCode: 409,
+        statusMessage: "The storyboard action was rejected",
+        data: {
+          error: "The storyboard action was rejected",
+          errorCode: "storyboard_conflict",
+          details: { designId },
+          ...(cleanupPending ? { cleanupPending: true } : {}),
+        },
+      });
+      expect((thrown as Error & { cause?: unknown }).cause).toBe(contractError);
+    },
+  );
 });

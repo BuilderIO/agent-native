@@ -1,5 +1,8 @@
 import { verifyA2AToken } from "@agent-native/core/a2a";
-import type { ActionRunContext } from "@agent-native/core/action";
+import {
+  isActionContractError,
+  type ActionRunContext,
+} from "@agent-native/core/action";
 import {
   deleteAttachment,
   mintAttachmentRef,
@@ -392,6 +395,21 @@ export default defineEventHandler(async (event) => {
         }
       }
       if (actionFailed) {
+        if (isActionContractError(actionFailure)) {
+          throw createError({
+            statusCode: actionFailure.statusCode,
+            statusMessage: actionFailure.message,
+            data: {
+              error: actionFailure.message,
+              errorCode: actionFailure.errorCode,
+              ...(actionFailure.details === undefined
+                ? {}
+                : { details: actionFailure.details }),
+              ...(cleanupPending ? { cleanupPending: true } : {}),
+            },
+            cause: actionFailure,
+          });
+        }
         if (!cleanupPending) throw actionFailure;
         const failure =
           actionFailure && typeof actionFailure === "object"

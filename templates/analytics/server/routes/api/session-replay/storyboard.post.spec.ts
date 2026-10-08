@@ -299,7 +299,9 @@ describe("POST /api/session-replay/storyboard", () => {
       const pending = (handler as any)(makeEvent(makeFormData()));
       const rejected = expect(pending).rejects.toMatchObject({
         statusCode: 504,
-        statusMessage: "Design screenshot upload timed out",
+        statusMessage:
+          "Design screenshot upload timed out. It may have saved the storyboard; check Design before retrying.",
+        data: { saveOutcomeUnknown: true },
       });
       await started;
       await vi.advanceTimersByTimeAsync(240_000);
@@ -359,7 +361,9 @@ describe("POST /api/session-replay/storyboard", () => {
       const pending = (handler as any)(makeEvent(makeFormData()));
       const rejected = expect(pending).rejects.toMatchObject({
         statusCode: 504,
-        statusMessage: "Design screenshot upload timed out",
+        statusMessage:
+          "Design screenshot upload timed out. It may have saved the storyboard; check Design before retrying.",
+        data: { saveOutcomeUnknown: true },
       });
       await bodyRead;
       await vi.advanceTimersByTimeAsync(240_000);
