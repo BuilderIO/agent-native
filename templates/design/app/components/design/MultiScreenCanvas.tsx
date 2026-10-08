@@ -7983,10 +7983,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // A membership-only toggle is reported by onSelectionChange; onPick
         // also changes the active edit target and must stay tied to the primary.
         if (nextPrimaryId && nextPrimaryId !== activeId) {
-          onPick(nextPrimaryId, {
-            screenId: id,
-            selected: nextSelectedIds.includes(id),
-          });
+          onPick(nextPrimaryId);
         }
         return;
       }

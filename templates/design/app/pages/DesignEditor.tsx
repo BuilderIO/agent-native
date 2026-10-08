@@ -11282,11 +11282,15 @@ function DesignEditor() {
         );
         return;
       }
-      if (pendingId && ids.length === 0) {
+      if (!intent?.screenSelectionToggle && pendingId && ids.length === 0) {
         explicitOverviewScreenSelectionRef.current = [];
         return;
       }
-      if (pendingId && ids.includes(pendingId)) {
+      if (
+        !intent?.screenSelectionToggle &&
+        pendingId &&
+        ids.includes(pendingId)
+      ) {
         explicitOverviewScreenSelectionRef.current =
           overviewScreenSelectionForPendingEcho({
             screenIds: nextIds,
@@ -24432,6 +24436,7 @@ function DesignEditor() {
       intent: ElementSelectionIntent,
       options: {
         clearExplicitScreenSelection?: boolean;
+        clearExplicitScreenIds?: string[];
         marqueeSelectedScreenIds?: string[];
       } = {},
     ) => {
@@ -24442,6 +24447,13 @@ function DesignEditor() {
           (intent.source !== "marquee" || options.clearExplicitScreenSelection)
         ) {
           explicitOverviewScreenSelectionRef.current = [];
+        }
+        if (!intent.cancelled && options.clearExplicitScreenIds?.length) {
+          const clearedScreenIds = new Set(options.clearExplicitScreenIds);
+          explicitOverviewScreenSelectionRef.current =
+            explicitOverviewScreenSelectionRef.current.filter(
+              (screenId) => !clearedScreenIds.has(screenId),
+            );
         }
         if (
           !intent.cancelled &&
@@ -24548,6 +24560,12 @@ function DesignEditor() {
           (!resolvedIntent.shiftKey &&
             resolvedIntent.selectedScreenIds !== undefined &&
             resolvedIntent.selectedScreenIds.length === 0),
+        clearExplicitScreenIds:
+          resolvedIntent.shiftKey &&
+          resolvedIntent.metaKey !== true &&
+          resolvedIntent.ctrlKey !== true
+            ? [...new Set(selection.map(({ screenId }) => screenId))]
+            : undefined,
         marqueeSelectedScreenIds:
           resolvedIntent.final &&
           !resolvedIntent.metaKey &&
@@ -24581,6 +24599,12 @@ function DesignEditor() {
             !intent?.shiftKey ||
             intent?.metaKey === true ||
             intent?.ctrlKey === true,
+          clearExplicitScreenIds:
+            intent?.shiftKey &&
+            intent.metaKey !== true &&
+            intent.ctrlKey !== true
+              ? [screenId]
+              : undefined,
         },
       );
     },
@@ -25757,23 +25781,12 @@ function DesignEditor() {
   // zero-dep useCallback) — hoisting removes a fresh-arrow-per-render prop
   // on MultiScreenCanvas without changing behavior.
   const handleOverviewScreenPick = useCallback(
-    (
-      pickedId: string,
-      selectionToggle?: { screenId: string; selected: boolean },
-    ) => {
+    (pickedId: string) => {
       pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = null;
       clearPendingOverviewLayerSelectionTimer();
       setCreatedOverviewLayerSelection(null);
-      if (selectionToggle) {
-        explicitOverviewScreenSelectionRef.current =
-          applyExplicitOverviewScreenSelectionToggle({
-            currentExplicitScreenIds:
-              explicitOverviewScreenSelectionRef.current,
-            screenId: selectionToggle.screenId,
-            selected: selectionToggle.selected,
-          });
-      } else if (!shiftKeyHeldRef.current) {
+      if (!shiftKeyHeldRef.current) {
         explicitOverviewScreenSelectionRef.current = [pickedId];
       }
       setSelectedElement(null);
