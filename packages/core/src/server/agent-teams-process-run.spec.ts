@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { completeProgressRunMock, getProgressRunMock, insertNotificationMock } =
@@ -11,6 +13,9 @@ let queueRows: Record<string, any>[] = [];
 let failNextDispatchStateRead = false;
 let reclaimAfterNextDispatchStateRead = false;
 let failParentCompletionReadFor: string | null = null;
+let rejectNextThreadDataUpdate = false;
+let transactionTail: Promise<void> = Promise.resolve();
+const transactionContext = new AsyncLocalStorage<{ aborted: boolean }>();
 function affected(n: number) {
   return { rows: [], rowsAffected: n };
 }
@@ -18,6 +23,9 @@ const queueDb = {
   execute: vi.fn(async (q: string | { sql: string; args?: any[] }) => {
     const s = (typeof q === "string" ? q : q.sql).replace(/\s+/g, " ").trim();
     const args = typeof q === "string" ? [] : (q.args ?? []);
+    if (transactionContext.getStore()?.aborted) {
+      throw new Error("current transaction is aborted");
+    }
     if (s.includes("CREATE TABLE") || s.includes("CREATE INDEX"))
       return affected(0);
     if (s.includes("INSERT INTO agent_team_run_queue")) {
@@ -237,7 +245,30 @@ const queueDb = {
     }
     return affected(0);
   }),
-  transaction: vi.fn(async <T>(fn: (tx: any) => Promise<T>) => fn(queueDb)),
+  transaction: vi.fn(async <T>(fn: (tx: any) => Promise<T>) => {
+    const previousTransaction = transactionTail;
+    let releaseTransaction!: () => void;
+    transactionTail = new Promise<void>((resolve) => {
+      releaseTransaction = resolve;
+    });
+    await previousTransaction;
+    const rowsBeforeTransaction = structuredClone(queueRows);
+    const context = { aborted: false };
+    try {
+      return await transactionContext.run(context, async () => {
+        const value = await fn(queueDb);
+        if (context.aborted) {
+          throw new Error("current transaction is aborted");
+        }
+        return value;
+      });
+    } catch (error) {
+      queueRows = rowsBeforeTransaction;
+      throw error;
+    } finally {
+      releaseTransaction();
+    }
+  }),
 };
 vi.mock("../db/client.js", () => ({
   getDbExec: () => queueDb,
@@ -306,6 +337,12 @@ vi.mock("../chat-threads/store.js", () => ({
     ownerEmail: "owner@example.com",
   })),
   updateThreadData: vi.fn(async (id: string, data: string) => {
+    if (rejectNextThreadDataUpdate) {
+      rejectNextThreadDataUpdate = false;
+      const transaction = transactionContext.getStore();
+      if (transaction) transaction.aborted = true;
+      throw new Error("database write failed");
+    }
     threadData.set(id, data);
     return true;
   }),
@@ -588,6 +625,8 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     failNextDispatchStateRead = false;
     reclaimAfterNextDispatchStateRead = false;
     failParentCompletionReadFor = null;
+    rejectNextThreadDataUpdate = false;
+    transactionTail = Promise.resolve();
     appState.clear();
     threadData.clear();
     dispatches.length = 0;
@@ -648,6 +687,97 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     );
     expect(threadData.get("thread-1")).toContain("the result");
   }, 20_000);
+
+  it("does not replay completed actions when terminal transcript persistence fails", async () => {
+    let completedActionCount = 0;
+    runAgentLoopMock.mockImplementation(async (opts: any) => {
+      completedActionCount += 1;
+      opts.send({ type: "text", text: "the action completed" });
+    });
+    rejectNextThreadDataUpdate = true;
+    await seedTask("terminal-transcript-save-failure");
+
+    await processAgentTeamRun({
+      taskId: "terminal-transcript-save-failure",
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    expect(completedActionCount).toBe(1);
+    expect(
+      (
+        await queue.getAgentTeamRunDispatchState(
+          "terminal-transcript-save-failure",
+        )
+      )?.status,
+    ).toBe("failed");
+    expect(
+      appState.get("agent-task:terminal-transcript-save-failure"),
+    ).toMatchObject({
+      status: "errored",
+      summary: "the action completed",
+      error: expect.stringContaining("Automatic retry was stopped"),
+    });
+    const failedTerminalRow = queueRows.find(
+      (row) => row.task_id === "terminal-transcript-save-failure",
+    );
+    if (!failedTerminalRow) throw new Error("missing failed terminal row");
+    failedTerminalRow.updated_at =
+      Date.now() - queue.RUN_PROCESSING_STUCK_AFTER_MS - 1;
+    await expect(reconcileStaleAgentTeamRuns()).resolves.toEqual({
+      examined: 0,
+      failed: 0,
+    });
+    expect(completedActionCount).toBe(1);
+    expect(dispatches).toHaveLength(0);
+  });
+
+  it("does not requeue a continuation when chunk transcript persistence fails", async () => {
+    let completedActionCount = 0;
+    runAgentLoopMock.mockImplementation(async (opts: any) => {
+      completedActionCount += 1;
+      opts.send({ type: "text", text: "the chunk action completed" });
+      opts.send({ type: "auto_continue", reason: "run_timeout" });
+    });
+    rejectNextThreadDataUpdate = true;
+    await seedTask("continuation-transcript-save-failure");
+
+    await processAgentTeamRun({
+      taskId: "continuation-transcript-save-failure",
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    expect(completedActionCount).toBe(1);
+    expect(
+      (
+        await queue.getAgentTeamRunDispatchState(
+          "continuation-transcript-save-failure",
+        )
+      )?.status,
+    ).toBe("failed");
+    expect(
+      appState.get("agent-task:continuation-transcript-save-failure"),
+    ).toMatchObject({
+      status: "errored",
+      summary: "the chunk action completed",
+      error: expect.stringContaining("Automatic retry was stopped"),
+    });
+    expect(dispatches).toHaveLength(0);
+    const failedContinuationRow = queueRows.find(
+      (row) => row.task_id === "continuation-transcript-save-failure",
+    );
+    if (!failedContinuationRow) {
+      throw new Error("missing failed continuation row");
+    }
+    failedContinuationRow.updated_at =
+      Date.now() - queue.RUN_PROCESSING_STUCK_AFTER_MS - 1;
+    await expect(reconcileStaleAgentTeamRuns()).resolves.toEqual({
+      examined: 0,
+      failed: 0,
+    });
+    expect(completedActionCount).toBe(1);
+  });
 
   it("persists the terminal event after the queue row is finalized", async () => {
     runAgentLoopMock.mockImplementation(async (opts: any) => {

@@ -1760,6 +1760,68 @@ async function persistTaskThreadData(
   return assistantText;
 }
 
+async function failAgentTeamRunAfterTranscriptSaveError(
+  task: AgentTask,
+  claimedAttempts: number,
+  summaryText: string,
+  error: unknown,
+  hitContinuationLimit = false,
+): Promise<void> {
+  console.warn(
+    `[agent-teams] transcript save failed for task ${task.taskId}; completed actions will not be retried:`,
+    describeDbError(error),
+  );
+  if (!(await completeAgentTeamRun(task.taskId, "failed", claimedAttempts))) {
+    throw new Error(
+      "The agent task run changed before transcript failure was saved.",
+    );
+  }
+
+  const failure =
+    "Sub-agent transcript could not be saved. Automatic retry was stopped to avoid repeating completed actions.";
+  const summary = summaryText.trim() || task.preview.trim() || failure;
+  task.status = "errored";
+  task.summary = summary.slice(-TASK_SUMMARY_MAX_CHARS);
+  task.preview = task.summary.slice(-800);
+  task.error = failure;
+  task.currentStep = "";
+  task.completedAt = Date.now();
+  task.hitContinuationLimit = hitContinuationLimit;
+  task.terminalEffectsVersion = 1;
+  task.terminalEffectsReconciled = false;
+  task.parentCompletionEnqueued = !task.parentThreadId;
+
+  try {
+    await saveTask(task);
+  } catch (saveError) {
+    console.warn(
+      `[agent-teams] could not save transcript failure for task ${task.taskId}; the failed queue state prevents replay:`,
+      describeDbError(saveError),
+    );
+  }
+}
+
+async function stopAgentTeamRunAfterTranscriptSaveError(
+  task: AgentTask,
+  claimedAttempts: number,
+  summaryText: string,
+  error: unknown,
+  ownerEmail: string | null,
+  hitContinuationLimit = false,
+): Promise<void> {
+  await failAgentTeamRunAfterTranscriptSaveError(
+    task,
+    claimedAttempts,
+    summaryText,
+    error,
+    hitContinuationLimit,
+  );
+  const dispatch = await getAgentTeamRunDispatchState(task.taskId);
+  if (dispatch) {
+    await reconcileTerminalTaskEffects(task, dispatch, ownerEmail);
+  }
+}
+
 async function finalizeAgentTeamRun(
   task: AgentTask,
   run: ActiveRun,
@@ -1772,6 +1834,8 @@ async function finalizeAgentTeamRun(
   },
 ): Promise<void> {
   let progressReconciled = true;
+  let transcriptSaveFailed = false;
+  let transcriptSaveError: unknown;
   const result = await withCurrentAgentTeamRunAttempt(
     task.taskId,
     options.claimedAttempts,
@@ -1781,13 +1845,20 @@ async function finalizeAgentTeamRun(
           requeue: false,
         });
       }
-      const transcriptText = await persistTaskThreadData(
-        task,
-        task.description,
-        run,
-        options.runId,
-        run.turnId,
-      );
+      let transcriptText: string;
+      try {
+        transcriptText = await persistTaskThreadData(
+          task,
+          task.description,
+          run,
+          options.runId,
+          run.turnId,
+        );
+      } catch (error) {
+        transcriptSaveFailed = true;
+        transcriptSaveError = error;
+        throw error;
+      }
       const terminal = resolveTaskCompletion(run, transcriptText || fullText, {
         hitContinuationLimit: options.hitContinuationLimit,
       });
@@ -1827,9 +1898,20 @@ async function finalizeAgentTeamRun(
           terminal.progressStep,
         );
       }
-      return terminal;
+      return true;
     },
-  );
+  ).catch(async (error) => {
+    if (!transcriptSaveFailed) throw error;
+    await stopAgentTeamRunAfterTranscriptSaveError(
+      task,
+      options.claimedAttempts,
+      fullText,
+      transcriptSaveError ?? error,
+      ownerEmail,
+      options.hitContinuationLimit,
+    );
+    return { current: false as const };
+  });
   if (!result.current || !result.value) return;
   const notificationReconciled = ownerEmail
     ? await ensureTaskCompletionNotification(
@@ -2263,6 +2345,8 @@ export async function processAgentTeamRun(
                 claimed.continuationCount + 1 <= MAX_AGENT_TEAM_CONTINUATIONS &&
                 !hitNoProgressLimit;
               if (canContinue) {
+                let transcriptSaveFailed = false;
+                let transcriptSaveError: unknown;
                 const continuation = await withCurrentAgentTeamRunAttempt(
                   opts.taskId,
                   claimedAttempts,
@@ -2280,13 +2364,20 @@ export async function processAgentTeamRun(
                         "The agent task continuation changed before it could be saved.",
                       );
                     }
-                    const fullText = await persistTaskThreadData(
-                      task,
-                      payload.description,
-                      run,
-                      runId,
-                      turnId,
-                    );
+                    let fullText: string;
+                    try {
+                      fullText = await persistTaskThreadData(
+                        task,
+                        payload.description,
+                        run,
+                        runId,
+                        turnId,
+                      );
+                    } catch (error) {
+                      transcriptSaveFailed = true;
+                      transcriptSaveError = error;
+                      throw error;
+                    }
                     task.transcriptRunIds = [
                       ...new Set([...(task.transcriptRunIds ?? []), runId]),
                     ];
@@ -2307,7 +2398,21 @@ export async function processAgentTeamRun(
                       await updateTaskProgressRun(task, ownerEmail);
                     }
                   },
-                );
+                ).catch(async (error) => {
+                  if (!transcriptSaveFailed) throw error;
+                  await stopAgentTeamRunAfterTranscriptSaveError(
+                    task,
+                    claimedAttempts,
+                    accumulatedText,
+                    transcriptSaveError ?? error,
+                    ownerEmail,
+                  );
+                  return {
+                    current: false as const,
+                    transcriptSaveFailed: true as const,
+                  };
+                });
+                if ("transcriptSaveFailed" in continuation) return;
                 if (!continuation.current) {
                   markLeaseLost();
                   return;
