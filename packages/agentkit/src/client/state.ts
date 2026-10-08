@@ -475,6 +475,15 @@ function settleRunItems(
         break;
     }
   }
+  for (const run of Object.values(thread.runs)) {
+    if (
+      run.id !== runId &&
+      !isTerminalRunStatus(run.status) &&
+      run.activeMessageId
+    ) {
+      messageIds.delete(run.activeMessageId);
+    }
+  }
   const settleStatus = <
     T extends { status: "running" | AgentTerminalRunStatus },
   >(
