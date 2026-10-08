@@ -1773,7 +1773,6 @@ const zhCN = {
       heroDescription:
         "Plans 是一款免费开源的可视化规划工具，通过图表、线框图和带注释的代码，帮助你审阅编码代理的方案、给出反馈并理解代码改动。",
       heroCta: "可视化规划",
-      heroSecondaryCta: "打开 Plans",
       useCasesHeading: "用 Plans 能做什么？",
       useCasesBody:
         "和你的 AI 编码代理一起审阅实现方案、梳理界面细节，或理解一次已完成的改动。",

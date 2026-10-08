@@ -1773,7 +1773,6 @@ const messages = {
       heroDescription:
         "Plans 是一款免費開源的視覺規劃工具，讓你透過圖表、線框圖和帶註解的程式碼，審閱編碼代理的做法、提供意見回饋，並理解程式碼變更。",
       heroCta: "視覺化規劃",
-      heroSecondaryCta: "開啟 Plans",
       useCasesHeading: "用 Plans 能做什麼？",
       useCasesBody:
         "與你的 AI 編碼代理一起審閱實作方式、討論介面設計，或理解已完成的變更。",

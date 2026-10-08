@@ -1902,7 +1902,6 @@ const deDE = {
       heroDescription:
         "Plans ist ein kostenloses Open-Source-Tool zur visuellen Planung, mit dem du den Ansatz deines Coding-Agenten prüfst, Feedback gibst und Codeänderungen anhand von Diagrammen, Wireframes und kommentiertem Code verstehst.",
       heroCta: "Plane visuell",
-      heroSecondaryCta: "Plans öffnen",
       useCasesHeading: "Was kannst du mit Plans machen?",
       useCasesBody:
         "Prüfe einen Implementierungsansatz, arbeite eine Oberfläche durch oder verstehe eine abgeschlossene Änderung gemeinsam mit deinem KI-Coding-Agenten.",
