@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { memo } from "react";
+import { type CSSProperties, memo } from "react";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
@@ -31,12 +31,13 @@ const FollowingSlideButton = memo(function FollowingSlideButton({
       aria-label={t("editorSidebar.selectSlide", { number })}
       data-following-slide-id={slide.id}
       onClick={() => onSelect(slide.id)}
+      style={
+        {
+          "--following-slide-size": `${width}px ${height}px`,
+        } as CSSProperties
+      }
       // Offscreen slides skip layout and paint until they scroll near.
-      style={{
-        contentVisibility: "auto",
-        containIntrinsicSize: `${width}px ${height}px`,
-      }}
-      className="block w-full shrink-0 cursor-pointer border-t border-border text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      className="block w-full shrink-0 cursor-pointer border-t border-border text-left [content-visibility:auto] [contain-intrinsic-size:var(--following-slide-size)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
       <SlideRenderer
         slide={slide}
