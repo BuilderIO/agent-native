@@ -3348,6 +3348,8 @@ async function assertAgentKitChatAcceptance(
   assert.equal(provider.widgetActionResults.length, widgetToolCalls.length);
   await page
     .getByText("All seven local sample widgets are ready.", { exact: true })
+    .filter({ visible: true })
+    .first()
     .waitFor({ state: "visible" });
   await assertAgentKitWidgetSamples(page);
   await assertActivitiesCollapsed(page);
