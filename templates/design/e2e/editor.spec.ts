@@ -289,6 +289,30 @@ test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
   }
 });
 
+// oracle: none — verifies which shell carries the moved controls, not parity with a design reference.
+test("visual-edit route has no top bar and keeps Share, zoom and the mode tabs", async ({
+  page,
+}) => {
+  await page.goto(appPath(`/visual-edit/${designId}`), {
+    waitUntil: "domcontentloaded",
+  });
+  const rightPanel = page.locator('[data-design-chrome-region="right-panel"]');
+  await expect(rightPanel).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator("[data-design-top-bar]")).toHaveCount(0);
+  await expect(
+    rightPanel.getByRole("button", { name: /^share/i }).first(),
+  ).toBeVisible();
+  await expect(
+    rightPanel.getByRole("button", { name: /^\d+%$/ }),
+  ).toBeVisible();
+  const toolbar = page.locator("[data-design-bottom-toolbar]");
+  for (const tab of ["Annotate", "Edit", "Interact"]) {
+    await expect(
+      toolbar.getByRole("button", { name: tab, exact: true }),
+    ).toBeVisible();
+  }
+});
+
 // oracle: none — verifies the top bar's own height and containment, not parity with a design reference.
 test("top bar is 48px and keeps Share, presence and zoom inside the bar", async ({
   page,

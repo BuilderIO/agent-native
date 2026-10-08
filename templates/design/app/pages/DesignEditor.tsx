@@ -1206,6 +1206,7 @@ import {
   shouldAskOnNewDesignArrival,
   shouldAutoEnableDrawOverlay,
 } from "./design-editor/tool-state";
+import { TOP_BAR_HEIGHT_PX, isTopBarVisible } from "./design-editor/top-bar";
 import {
   type DesignData,
   type DesignFile,
@@ -1254,7 +1255,6 @@ type RequestDesignAccessResult = {
 // first overview camera render — before any layout effect could measure the
 // DOM — already accounts for it; see chromeInsetLeft below.
 const DESIGN_CHROME_RAIL_WIDTH_PX = 64;
-const TOP_BAR_HEIGHT_PX = 48;
 
 const NO_SELECTORS: string[] = [];
 const NO_SELECTOR_GROUPS: string[][] = [];
@@ -26765,8 +26765,12 @@ function DesignEditor() {
     </div>
   );
 
-  const topBarVisible =
-    !embedded && !isVisualEditSurface && !minimalUi && !uiHidden;
+  const topBarVisible = isTopBarVisible({
+    embedded,
+    isVisualEditSurface,
+    minimalUi,
+    uiHidden,
+  });
   const topBarControlsVisible = !initialGenerationChromeLimited;
   // The mode switch used to live in the bottom toolbar, so it keeps that
   // toolbar's gating.
@@ -27454,6 +27458,8 @@ function DesignEditor() {
               onScale={handleScaleTool}
               onMediaFiles={handleDesignMediaFiles}
               onCommentPin={handlePinToolToggle}
+              onModeChange={handleModeChange}
+              showModeTabs={!topBarVisible}
               shortcutsPanelOpen={keyboardShortcutsOpen}
             />
           )}
@@ -28797,7 +28803,7 @@ function DesignEditor() {
               className="absolute left-[-2px] top-0 z-[80] h-full w-1 cursor-col-resize bg-transparent transition-colors hover:bg-[var(--design-editor-selection-color)]"
               onPointerDown={(event) => startSidebarResize("right", event)}
             />
-            {minimalUi ? (
+            {!topBarVisible ? (
               rightSidebarActions
             ) : localPreviewRow ? (
               <div

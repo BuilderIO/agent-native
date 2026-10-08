@@ -3425,6 +3425,7 @@ test.fixme("overview undo skips deleted screen content history", async ({
   ).toBe(false);
 });
 
+// oracle: none — verifies undo of deleted-screen geometry, not parity with a design reference.
 test("overview undo does not restore ghost geometry for deleted screens", async ({
   page,
 }) => {
@@ -3434,6 +3435,10 @@ test("overview undo does not restore ghost geometry for deleted screens", async 
     content: FIXTURE_HTML.replace("E2E Fixture", "E2E Second Fixture"),
     fileType: "html",
   });
+  // The 48px top bar shortens the canvas, which lowers the fit zoom until
+  // Home's bottom hit area overlaps About's title strip, where this test
+  // grabs it. Add the bar's height back so the canvas keeps its original size.
+  await page.setViewportSize({ width: 1440, height: 1000 + 48 });
   await gotoEditor(page, designId);
   await expect(screenShell(page, "About")).toBeVisible();
 

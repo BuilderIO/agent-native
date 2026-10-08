@@ -7,20 +7,24 @@ import {
   IconCircle,
   IconDevices,
   IconFrame,
+  IconHandClick,
   IconHandStop,
   IconLine,
   IconMessage,
   IconPhotoVideo,
   IconPointer,
   IconScale,
+  IconScribble,
   IconSquare,
   IconStar,
+  IconTransformPoint,
   IconTriangle,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { DesignToolbarOption } from "@/components/design/editor/toolbar-controls";
 import {
+  DesignModeTab,
   DesignPenToolIcon,
   DesignToolbarTool,
 } from "@/components/design/editor/toolbar-controls";
@@ -60,6 +64,8 @@ export function DesignBottomToolbar({
   onScale,
   onMediaFiles,
   onCommentPin,
+  onModeChange,
+  showModeTabs,
   shortcutsPanelOpen,
 }: {
   mode: EditorMode;
@@ -81,6 +87,13 @@ export function DesignBottomToolbar({
   onScale: () => void;
   onMediaFiles: (files: File[]) => void;
   onCommentPin: () => void;
+  onModeChange: (mode: EditorMode) => void;
+  /**
+   * The Interact / Design / Annotate switch lives in the editor top bar. Shells
+   * that do not render that bar (minimal UI, embedded chrome, the visual-edit
+   * route, hidden UI) still render this toolbar, so it carries the switch there.
+   */
+  showModeTabs: boolean;
   shortcutsPanelOpen: boolean;
 }) {
   const t = useT();
@@ -363,6 +376,35 @@ export function DesignBottomToolbar({
     },
   ];
 
+  const modes: Array<{
+    key: EditorMode;
+    active: boolean;
+    label: string;
+    icon: ReactNode;
+    onClick: () => void;
+  }> = [
+    {
+      key: "annotate",
+      active: mode === "annotate",
+      label: t("designEditor.modes.annotate"),
+      icon: <IconScribble className="size-[18px]" />,
+      onClick: () => onModeChange("annotate"),
+    },
+    {
+      key: "edit",
+      active: mode === "edit",
+      label: t("designEditor.modes.edit"),
+      icon: <IconTransformPoint className="size-[18px]" />,
+      onClick: () => onModeChange("edit"),
+    },
+    {
+      key: "interact",
+      active: mode === "interact",
+      label: t("designEditor.modes.interact"),
+      icon: <IconHandClick className="size-[18px]" />,
+      onClick: () => onModeChange("interact"),
+    },
+  ];
   return (
     <div
       data-design-bottom-toolbar
@@ -408,6 +450,26 @@ export function DesignBottomToolbar({
             }
           : { status: "missing" as const })}
       />
+
+      {showModeTabs ? (
+        <>
+          {/* guard:allow-raw-color — fixed dark editor chrome, intentionally theme-independent */}
+          <div className="h-9 w-px shrink-0 bg-white/15" />
+
+          {/* guard:allow-raw-color — fixed dark editor chrome, intentionally theme-independent */}
+          <div className="flex shrink-0 items-center gap-0.5 rounded-md bg-white/10 p-0.5">
+            {modes.map((item) => (
+              <DesignModeTab
+                key={item.key}
+                active={item.active}
+                label={item.label}
+                icon={item.icon}
+                onClick={item.onClick}
+              />
+            ))}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

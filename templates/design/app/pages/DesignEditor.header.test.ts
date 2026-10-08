@@ -36,23 +36,25 @@ describe("Design editor header", () => {
     expect(surface).toContain("min-w-0");
   });
 
-  it("mounts the top bar only on the docked editor chrome", () => {
-    expect(editorSource).toContain(
-      "const topBarVisible =\n    !embedded && !isVisualEditSurface && !minimalUi && !uiHidden;",
-    );
+  it("mounts the top bar from the shared visibility rule", () => {
+    expect(editorSource).toContain("const topBarVisible = isTopBarVisible({");
     expect(editorSource).toMatch(/\{topBarVisible \? \(\s*<EditorTopBar/);
   });
 
-  it("keeps the moved controls in minimal UI's own right bar", () => {
+  it("falls back to the rail row and toolbar tabs wherever the top bar is absent", () => {
     const railStart = editorSource.indexOf("{/* ── Render: right rail ── */}");
     const railEnd = editorSource.indexOf(
       "{minimalUi && !hostOwnsChrome ? (",
       railStart,
     );
     const rail = editorSource.slice(railStart, railEnd);
-    // Docked rail: only the local-preview row. Minimal UI: the full action row.
-    expect(rail).toContain("{minimalUi ? (\n              rightSidebarActions");
+    // Docked rail: only the local-preview row. Every other shell keeps the
+    // full action row (visual-edit route, embedded chrome, minimal UI).
+    expect(rail).toContain(
+      "{!topBarVisible ? (\n              rightSidebarActions",
+    );
     expect(rail).toContain("{localPreviewRow}");
+    expect(editorSource).toContain("showModeTabs={!topBarVisible}");
     const minimalBarStart = editorSource.indexOf(
       'data-design-minimal-bar="right"',
     );
