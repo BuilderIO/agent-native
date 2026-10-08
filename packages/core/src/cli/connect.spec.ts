@@ -316,10 +316,7 @@ describe("runDeviceFlow", () => {
     );
   });
 
-  it("refuses an approved grant whose server name is not a plain name", async () => {
-    const err = vi
-      .spyOn(process.stderr, "write")
-      .mockImplementation(() => true);
+  it("still returns the token when the grant's server name is not a plain name", async () => {
     const grant = await runDeviceFlow("https://app.example.com", "app", "all", {
       fetchImpl: makeFetch([
         {
@@ -333,9 +330,7 @@ describe("runDeviceFlow", () => {
       openBrowser: vi.fn(),
     });
 
-    expect(grant).toBeNull();
-    const errors = err.mock.calls.map(([chunk]) => String(chunk)).join("");
-    expect(errors).toContain("is not a plain name");
+    expect(grant?.token).toBe("tok-abc");
   });
 
   it("can wrap browser launch with an embedded spinner hook", async () => {
@@ -854,6 +849,77 @@ describe("runConnect", () => {
       expect(toml).toContain('[mcp_servers."plan"]');
       expect(toml).toContain('"Authorization" = "Bearer tok-plan-device"');
       expect(toml).not.toContain('[mcp_servers."agent-native-plan"]');
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
+  it("refuses an approved grant whose server name is not a plain name", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    try {
+      await runConnect(["https://app.example.com", "--client", "codex"], {
+        fetchImpl: makeFetch([
+          {
+            status: "approved",
+            token: "tok-abc",
+            mcpUrl: "https://app.example.com/mcp",
+            serverName: "app\n[mcp_servers.slack]",
+          },
+        ]),
+        sleep: noopSleep,
+        openBrowser: vi.fn(),
+      });
+
+      expect(process.exitCode).toBe(1);
+      const errors = err.mock.calls.map(([chunk]) => String(chunk)).join("");
+      expect(errors).toContain("is not a plain name");
+      expect(fs.existsSync(path.join(home, ".codex", "config.toml"))).toBe(
+        false,
+      );
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
+  it("lets --name replace an approved grant's unusable server name", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+
+    try {
+      await runConnect(
+        ["https://app.example.com", "--client", "codex", "--name", "my-app"],
+        {
+          fetchImpl: makeFetch([
+            {
+              status: "approved",
+              token: "tok-abc",
+              mcpUrl: "https://app.example.com/mcp",
+              serverName: "app\n[mcp_servers.slack]",
+            },
+          ]),
+          sleep: noopSleep,
+          openBrowser: vi.fn(),
+        },
+      );
+
+      expect(process.exitCode).toBeFalsy();
+      const toml = fs.readFileSync(
+        path.join(home, ".codex", "config.toml"),
+        "utf-8",
+      );
+      expect(toml).toContain('[mcp_servers."my-app"]');
+      expect(toml).not.toContain("slack");
     } finally {
       process.env.HOME = oldHome;
     }

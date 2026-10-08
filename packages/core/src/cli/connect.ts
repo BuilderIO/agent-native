@@ -776,6 +776,27 @@ async function lookupConnectServerName(
 }
 
 /**
+ * `--name` is the person's own choice and is escaped where it is written. The
+ * grant's name comes from the server, so it meets the same plain-name rule as
+ * the identity lookup, and only once `--name` has not replaced it: the device
+ * flow also mints tokens for callers that never use the name.
+ */
+function serverNameForGrant(
+  grant: { mcpUrl: string; serverName: string },
+  requestedName: string | undefined,
+): string | null {
+  if (requestedName !== undefined) return requestedName;
+  const name =
+    reconnectServerNameForMcpUrl(grant.mcpUrl, grant.serverName) ??
+    grant.serverName;
+  if (!PLAIN_MCP_SERVER_NAME.test(name)) {
+    logErr(`  Could not connect: ${unusableServerNameReason(name)}.`);
+    return null;
+  }
+  return name;
+}
+
+/**
  * The server owns its name (it adds the environment suffix that keeps beta
  * and local entries apart from production), so ask it before guessing from
  * the hostname. Only a server without the identity route keeps the hostname
@@ -933,10 +954,6 @@ export async function runDeviceFlow(
       const token = poll.token ?? "";
       const mcpUrl = mcpUrlForBaseUrl(poll.mcpUrl ?? baseUrl);
       const serverName = poll.serverName ?? `${SERVER_NAME_PREFIX}-${appSlug}`;
-      if (!PLAIN_MCP_SERVER_NAME.test(serverName)) {
-        logErr(`  Could not connect: ${unusableServerNameReason(serverName)}.`);
-        return null;
-      }
       const headers =
         poll.mcpServerEntry &&
         typeof poll.mcpServerEntry === "object" &&
@@ -2066,13 +2083,11 @@ async function connectOne(
       { fullCatalog: parsed.fullCatalog },
     );
     if (!grant) return { ok: false };
+    const name = serverNameForGrant(grant, parsed.name);
+    if (!name) return { ok: false };
     token = grant.token;
     mcpUrl = grant.mcpUrl;
-    serverName =
-      parsed.name ??
-      reconnectServerNameForMcpUrl(grant.mcpUrl, grant.serverName) ??
-      grant.serverName ??
-      defaultServerName(baseUrl);
+    serverName = name;
     headers = grant.headers;
   }
 
@@ -2098,13 +2113,11 @@ async function connectOne(
           { fullCatalog: parsed.fullCatalog },
         );
         if (!grant) return { ok: false };
+        const name = serverNameForGrant(grant, parsed.name);
+        if (!name) return { ok: false };
         token = grant.token;
         mcpUrl = grant.mcpUrl;
-        serverName =
-          parsed.name ??
-          reconnectServerNameForMcpUrl(grant.mcpUrl, grant.serverName) ??
-          grant.serverName ??
-          defaultServerName(baseUrl);
+        serverName = name;
         headers = grant.headers;
       }
 
