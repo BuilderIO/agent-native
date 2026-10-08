@@ -24,6 +24,7 @@ import {
   assertAuthoringPersistence,
   authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
+  formatAuthoringFuzzCleanupIssue,
   formatAuthoringFuzzUnavailable,
   lineNavigationKeys,
   resolveAuthoringFuzzScratchDeck,
@@ -5172,12 +5173,13 @@ async function runAuthoringFuzzQa(
     } finally {
       const cleanupErrors: string[] = [];
       const recordCleanupFailure = (label: string, error: unknown) => {
+        cleanupErrors.push(
+          formatAuthoringFuzzCleanupIssue(label, deckId, error),
+        );
         const unavailable = getHarnessUnavailableError(error);
         if (unavailable) {
           seedHarnessUnavailable ??= unavailable;
-          return;
         }
-        cleanupErrors.push(`${label}: ${String(error)}`);
       };
       const onConsole = (message: { type(): string; text(): string }) => {
         if (message.type() === "error") {

@@ -228,6 +228,14 @@ export function resolveAuthoringFuzzScratchDeck(
     : { status: "not-found" as const };
 }
 
+export function formatAuthoringFuzzCleanupIssue(
+  label: string,
+  deckId: string | null,
+  error: unknown,
+) {
+  return `${label} [deckId=${deckId || "unknown"}]: ${String(error)}`;
+}
+
 export function outsideAuthoringChangesFor(
   before: OutsideSnapshot,
   after: OutsideSnapshot,

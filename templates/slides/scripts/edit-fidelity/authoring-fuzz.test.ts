@@ -10,6 +10,7 @@ import {
   authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
   createAuthoringFuzzPlan,
+  formatAuthoringFuzzCleanupIssue,
   formatAuthoringFuzzUnavailable,
   findAuthoringFuzzScratchDeckId,
   resolveAuthoringFuzzScratchDeck,
@@ -275,6 +276,27 @@ it("distinguishes an absent deck list from a missing scratch deck", () => {
   expect(resolveAuthoringFuzzScratchDeck({}, title)).toEqual({
     status: "missing-decks",
   });
+});
+
+it("keeps the cleanup action and scratch deck id in failure diagnostics", () => {
+  expect(
+    formatAuthoringFuzzCleanupIssue(
+      "could not delete scratch deck",
+      "deck-123",
+      new Error("Target closed"),
+    ),
+  ).toBe(
+    "could not delete scratch deck [deckId=deck-123]: Error: Target closed",
+  );
+  expect(
+    formatAuthoringFuzzCleanupIssue(
+      "could not look up scratch deck",
+      null,
+      new Error("Target closed"),
+    ),
+  ).toBe(
+    "could not look up scratch deck [deckId=unknown]: Error: Target closed",
+  );
 });
 
 it("recognizes resource conflicts with or without browser status text", () => {
