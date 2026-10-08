@@ -640,6 +640,25 @@ describe("outline while typing", () => {
 
     expect(editor.outline()!.style.height).toBe("64px");
   });
+
+  it("keeps the authored frame of a fixed-height block that stays in flow", async () => {
+    const editor = await mountEditor(
+      FLOW_SLIDE.replace(
+        '<h2 id="h2">',
+        '<h2 id="h2" style="height:44px;overflow:visible">',
+      ),
+    );
+    editor.click("h2", { x: 100, y: 165 });
+    const h2 = editor.el("h2");
+    expect(editor.outline()!.style.height).toBe("44px");
+
+    window.getSelection()!.collapse(h2.firstChild!, 3);
+    overflowHeights.set("h2", 100);
+    type(h2, "x");
+    await wait(40);
+
+    expect(editor.outline()!.style.height).toBe("44px");
+  });
 });
 
 describe("selection outline in a new text box", () => {
