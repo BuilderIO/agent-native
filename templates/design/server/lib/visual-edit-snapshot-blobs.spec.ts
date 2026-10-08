@@ -6,19 +6,24 @@ const cleanupQueue = vi.hoisted(() => {
   const table = { blobHandle: "cleanup.blobHandle" };
   const selectQuery = {
     filter: null as string[] | null,
+    excluded: null as string[] | null,
     from: vi.fn(() => {
       selectQuery.filter = null;
+      selectQuery.excluded = null;
       return selectQuery;
     }),
-    where: vi.fn((condition: { values: string[] }) => {
-      selectQuery.filter = condition.values;
+    where: vi.fn((condition: { values?: string[]; excluded?: string[] }) => {
+      selectQuery.filter = condition.values ?? null;
+      selectQuery.excluded = condition.excluded ?? null;
       return selectQuery;
     }),
     limit: vi.fn(async (limit = 50) =>
       [...rows.values()]
         .filter(
           ({ blobHandle }) =>
-            !selectQuery.filter || selectQuery.filter.includes(blobHandle),
+            (!selectQuery.filter || selectQuery.filter.includes(blobHandle)) &&
+            (!selectQuery.excluded ||
+              !selectQuery.excluded.includes(blobHandle)),
         )
         .slice(0, limit),
     ),
@@ -49,6 +54,7 @@ vi.mock("@agent-native/core/private-blob", () => ({
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((_column, value) => ({ value })),
   inArray: vi.fn((_column, values) => ({ values })),
+  notInArray: vi.fn((_column, values) => ({ excluded: values })),
 }));
 vi.mock("../db/index.js", () => ({
   getDb: () => cleanupQueue.db,
@@ -116,5 +122,40 @@ describe("visual-edit snapshot blob cleanup", () => {
     expect(deletePrivateBlob).toHaveBeenCalledTimes(2);
     expect(cleanupQueue.rows.has(JSON.stringify(handle))).toBe(false);
     warn.mockRestore();
+  });
+
+  it("prioritizes newly queued handles before older failed deletions", async () => {
+    const oldHandles = Array.from({ length: 50 }, (_, index) =>
+      JSON.stringify({ ...handle, id: `old-snapshot-${index}` }),
+    );
+    for (const blobHandle of oldHandles) {
+      cleanupQueue.rows.set(blobHandle, { blobHandle });
+    }
+    const newHandle = JSON.stringify({ ...handle, id: "new-screenshot" });
+    const attempted: string[] = [];
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    deletePrivateBlob.mockImplementation(async (value: typeof handle) => {
+      attempted.push(value.id);
+      return value.id === "new-screenshot"
+        ? { deleted: true }
+        : {
+            deleted: false,
+            provider: "private-provider",
+            reason: "provider unavailable",
+          };
+    });
+
+    try {
+      await expect(deleteVisualEditSnapshotBlobs([newHandle])).resolves.toBe(
+        false,
+      );
+
+      expect(attempted[0]).toBe("new-screenshot");
+      expect(attempted).toHaveLength(50);
+      expect(cleanupQueue.rows.has(newHandle)).toBe(false);
+      expect(cleanupQueue.rows.size).toBe(50);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

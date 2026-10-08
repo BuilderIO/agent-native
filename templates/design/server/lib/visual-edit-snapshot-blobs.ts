@@ -2,7 +2,7 @@ import {
   deletePrivateBlob,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, notInArray } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import type { DesignDataMutationTransaction } from "./design-data-mutation.js";
@@ -50,10 +50,28 @@ export async function deleteVisualEditSnapshotBlobs(
       .onConflictDoNothing();
   }
 
-  const pending = await db
-    .select({ blobHandle: table.blobHandle })
-    .from(table)
-    .limit(CLEANUP_BATCH_SIZE);
+  const prioritized = handles.length
+    ? await db
+        .select({ blobHandle: table.blobHandle })
+        .from(table)
+        .where(inArray(table.blobHandle, handles))
+        .limit(CLEANUP_BATCH_SIZE)
+    : [];
+  const backlogCapacity = CLEANUP_BATCH_SIZE - prioritized.length;
+  const backlog =
+    backlogCapacity === 0
+      ? []
+      : handles.length
+        ? await db
+            .select({ blobHandle: table.blobHandle })
+            .from(table)
+            .where(notInArray(table.blobHandle, handles))
+            .limit(backlogCapacity)
+        : await db
+            .select({ blobHandle: table.blobHandle })
+            .from(table)
+            .limit(backlogCapacity);
+  const pending = [...prioritized, ...backlog];
   for (const { blobHandle } of pending) {
     try {
       const result = await deletePrivateBlob(
