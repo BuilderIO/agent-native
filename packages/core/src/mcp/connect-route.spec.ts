@@ -1432,6 +1432,22 @@ describe("explicit server name", () => {
     ).rejects.toThrow(/not a plain name/);
     expect(recordMintedToken).not.toHaveBeenCalled();
   });
+
+  it("still lets users list and revoke their tokens when it is refused", async () => {
+    const options = { serverName: "plan; echo hi" };
+    const list = await handleMcpConnect(
+      ev({ host: "plan.agent-native.com" }),
+      "/tokens",
+      options,
+    );
+    expect(list.status).toBe(200);
+    const revoke = await handleMcpConnect(
+      ev({ method: "POST", host: "plan.agent-native.com", body: { id: "x" } }),
+      "/tokens/revoke",
+      options,
+    );
+    expect(revoke.status).toBe(200);
+  });
 });
 
 describe("connect identity", () => {
@@ -1458,7 +1474,7 @@ describe("connect identity", () => {
       appUrl: "https://content.agent-native.com",
       mcpUrl: "https://content.agent-native.com/mcp",
       environment: "production",
-      oauth: true,
+      connect: true,
     });
   });
 
@@ -1537,6 +1553,15 @@ describe("connect identity", () => {
     } finally {
       delete process.env.A2A_SECRET;
     }
+  });
+
+  it("advertises the public URL OAuth discovery uses, not the request host", async () => {
+    vi.stubEnv("APP_URL", "https://mail.agent-native.com");
+    defineAppConfig({ app: { id: "mail" } });
+    const identity = await identityFor("mail-internal:3000");
+    expect(identity.appUrl).toBe("https://mail.agent-native.com");
+    expect(identity.mcpUrl).toBe("https://mail.agent-native.com/mcp");
+    expect(identity.serverName).toBe("agent-native-mail");
   });
 
   it("rejects writes", async () => {

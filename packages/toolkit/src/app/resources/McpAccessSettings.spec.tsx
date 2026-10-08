@@ -14,7 +14,7 @@ const IDENTITY = {
   appUrl: "https://beta.content.agent-native.com",
   mcpUrl: "https://beta.content.agent-native.com/mcp",
   environment: "beta",
-  oauth: true,
+  connect: true,
 };
 
 function stubFetch(identity: { ok: boolean; body?: unknown }) {
@@ -288,8 +288,8 @@ describe("McpAccessSettings localization", () => {
     });
   });
 
-  it("keeps the manual steps but offers no install links when the server has no OAuth sign-in", async () => {
-    stubFetch({ ok: true, body: { ...IDENTITY, oauth: false } });
+  it("shows only the MCP URL when the server has no connect routes", async () => {
+    stubFetch({ ok: true, body: { ...IDENTITY, connect: false } });
     window.history.replaceState({}, "", "/settings/mcp?guide=cursor");
 
     await act(async () => {
@@ -303,15 +303,18 @@ describe("McpAccessSettings localization", () => {
         </AgentNativeI18nProvider>,
       );
     });
-    await waitForGuides(container);
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain(IDENTITY.mcpUrl),
+    );
 
-    const cursorPanel = container.querySelector("#mcp-guide-panel-cursor");
-    expect(cursorPanel?.querySelectorAll("li").length).toBeGreaterThan(0);
+    expect(container.querySelector("#mcp-guide-tab-claude")).toBeNull();
     expect(
-      Array.from(container.querySelectorAll("a")).some((link) =>
-        link.textContent?.includes("Add to Cursor"),
+      Array.from(container.querySelectorAll("a")).filter(
+        (link) =>
+          link.textContent?.includes("Add to Cursor") ||
+          link.getAttribute("href")?.includes("/mcp/connect"),
       ),
-    ).toBe(false);
+    ).toEqual([]);
   });
 
   it("shows a retryable error instead of guessing a server name when the identity fails", async () => {

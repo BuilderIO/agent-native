@@ -65,6 +65,7 @@ import {
   McpCredentialIssuanceError,
   withMcpCredentialIssuance,
 } from "./credential-issuance.js";
+import { getMcpOAuthIssuer } from "./oauth-route.js";
 import {
   MCP_OAUTH_DEFAULT_SCOPE,
   signMcpOAuthAccessToken,
@@ -187,7 +188,7 @@ export function resolveMcpConnectIdentity(
     appUrl,
     mcpUrl: mcpResourceUrl(appUrl),
     environment,
-    oauth: options.connect !== false,
+    connect: options.connect !== false,
   };
 }
 
@@ -1432,9 +1433,13 @@ export async function handleMcpConnect(
   const origin = deriveOrigin(event);
   const basePath = getConfiguredAppBasePath();
   const appUrl = `${origin}${basePath}`;
-  // Before any subroute mints a token: a name that cannot be published must
-  // fail the request before a token record exists that no response returns.
-  const identity = resolveMcpConnectIdentity(appUrl, options);
+  // Clients installed from the identity sign in through OAuth discovery, so
+  // its URL is the resource discovery advertises, not the request's Host.
+  // Only subroutes that publish it resolve it, before minting anything: a
+  // refused name must neither leave a token no response returned nor block
+  // listing and revoking existing tokens.
+  const resolveIdentity = () =>
+    resolveMcpConnectIdentity(getMcpOAuthIssuer(event) || appUrl, options);
   let requestUrl: URL | null = null;
   try {
     requestUrl = new URL(
@@ -1460,6 +1465,7 @@ export async function handleMcpConnect(
     if (method !== "GET" && method !== "HEAD") {
       return json({ error: "Method not allowed" }, 405);
     }
+    const identity = resolveIdentity();
     const session = await getSession(event);
     if (!session?.email) {
       const loginPage = getConfiguredLoginHtml(event);
@@ -1512,11 +1518,12 @@ export async function handleMcpConnect(
     if (method !== "GET" && method !== "HEAD") {
       return json({ error: "Method not allowed" }, 405);
     }
-    return json(identity);
+    return json(resolveIdentity());
   }
 
   if (sub === "/token") {
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
+    const identity = resolveIdentity();
     const session = await getSession(event);
     if (!session?.email) return json({ error: "Unauthorized" }, 401);
     if (
@@ -1661,6 +1668,7 @@ export async function handleMcpConnect(
 
   if (sub === "/device/poll") {
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
+    const identity = resolveIdentity();
     const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
       device_code?: unknown;
     };

@@ -33,7 +33,7 @@ interface AccessUrls {
   appUrl: string;
   mcpUrl: string;
   serverName: string;
-  oauth: boolean;
+  connect: boolean;
   connectUrl: string;
   agentCardUrl: string;
 }
@@ -107,16 +107,14 @@ type McpConnectGuide = ReturnType<typeof getMcpConnectGuides>[number];
 function McpGuidePanel({
   guide,
   templateValues,
-  installLinks,
 }: {
   guide: McpConnectGuide;
   templateValues: McpConnectTemplateValues;
-  installLinks: boolean;
 }) {
   const t = useT();
   return (
     <>
-      {installLinks && guide.install?.length ? (
+      {guide.install?.length ? (
         <div className="flex flex-wrap gap-2">
           {guide.install.map((option, index) => {
             const link = buildMcpInstallLink(option.client, {
@@ -256,7 +254,7 @@ export function McpAccessSettings({
       appUrl: identity.appUrl,
       mcpUrl: identity.mcpUrl,
       serverName: identity.serverName,
-      oauth: identity.oauth,
+      connect: identity.connect,
       connectUrl: connectUrl.toString(),
       agentCardUrl: new URL(
         appPath("/.well-known/agent-card.json"),
@@ -325,65 +323,70 @@ export function McpAccessSettings({
                 docsLabel={t("settings.a2aOpenDocs")}
               />
             )}
-            <section className="space-y-3 border-t border-border/70 pt-6">
-              <div>
-                <h3 className="text-sm font-semibold text-foreground">
-                  {t("settings.mcpClientSetup")}
-                </h3>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t("settings.mcpClientSetupDescription")}
-                </p>
-              </div>
-              <Tabs value={activeGuide} onValueChange={selectGuide}>
-                <TabsList
-                  aria-label={t("settings.mcpChooseAssistant")}
-                  className="max-w-full justify-start overflow-x-auto"
-                >
-                  {guides.map((item) => (
-                    <TabsTrigger
-                      key={item.id}
-                      value={item.id}
-                      id={`mcp-guide-tab-${item.id}`}
-                      aria-controls={`mcp-guide-panel-${item.id}`}
+            {/* The guides sign in through, and the token comes from, connect
+                routes that are not mounted when `mcp.connect` is off. */}
+            {urls.connect ? (
+              <>
+                <section className="space-y-3 border-t border-border/70 pt-6">
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">
+                      {t("settings.mcpClientSetup")}
+                    </h3>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t("settings.mcpClientSetupDescription")}
+                    </p>
+                  </div>
+                  <Tabs value={activeGuide} onValueChange={selectGuide}>
+                    <TabsList
+                      aria-label={t("settings.mcpChooseAssistant")}
+                      className="max-w-full justify-start overflow-x-auto"
                     >
-                      {item.label}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-                {templateValues
-                  ? guides.map((item) => (
-                      <TabsContent
-                        key={item.id}
-                        value={item.id}
-                        id={`mcp-guide-panel-${item.id}`}
-                        aria-labelledby={`mcp-guide-tab-${item.id}`}
-                        className="mt-4 space-y-3"
-                      >
-                        <McpGuidePanel
-                          guide={item}
-                          templateValues={templateValues}
-                          installLinks={urls?.oauth === true}
-                        />
-                      </TabsContent>
-                    ))
-                  : null}
-              </Tabs>
-            </section>
-            <section className="border-t border-border/70 pt-6">
-              <h3 className="text-sm font-semibold text-foreground">
-                {staticTokenFallback.title}
-              </h3>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                {staticTokenFallback.state}.{" "}
-                {t("settings.mcpStaticTokenDescription")}
-              </p>
-              <Button asChild variant="outline" size="sm" className="mt-3">
-                <a href={urls.connectUrl} target="_blank" rel="noopener">
-                  {t("settings.mcpOpenConnectPage")}
-                  <IconExternalLink aria-hidden="true" />
-                </a>
-              </Button>
-            </section>
+                      {guides.map((item) => (
+                        <TabsTrigger
+                          key={item.id}
+                          value={item.id}
+                          id={`mcp-guide-tab-${item.id}`}
+                          aria-controls={`mcp-guide-panel-${item.id}`}
+                        >
+                          {item.label}
+                        </TabsTrigger>
+                      ))}
+                    </TabsList>
+                    {templateValues
+                      ? guides.map((item) => (
+                          <TabsContent
+                            key={item.id}
+                            value={item.id}
+                            id={`mcp-guide-panel-${item.id}`}
+                            aria-labelledby={`mcp-guide-tab-${item.id}`}
+                            className="mt-4 space-y-3"
+                          >
+                            <McpGuidePanel
+                              guide={item}
+                              templateValues={templateValues}
+                            />
+                          </TabsContent>
+                        ))
+                      : null}
+                  </Tabs>
+                </section>
+                <section className="border-t border-border/70 pt-6">
+                  <h3 className="text-sm font-semibold text-foreground">
+                    {staticTokenFallback.title}
+                  </h3>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    {staticTokenFallback.state}.{" "}
+                    {t("settings.mcpStaticTokenDescription")}
+                  </p>
+                  <Button asChild variant="outline" size="sm" className="mt-3">
+                    <a href={urls.connectUrl} target="_blank" rel="noopener">
+                      {t("settings.mcpOpenConnectPage")}
+                      <IconExternalLink aria-hidden="true" />
+                    </a>
+                  </Button>
+                </section>
+              </>
+            ) : null}
           </>
         ) : identityState.status === "error" ? (
           <div className="space-y-3" role="alert">

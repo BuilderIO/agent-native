@@ -13,7 +13,7 @@ const IDENTITY = {
   appUrl: "https://beta.content.agent-native.com",
   mcpUrl: "https://beta.content.agent-native.com/mcp",
   environment: "beta",
-  oauth: true,
+  connect: true,
 };
 
 function stubIdentity(ok: boolean, identity = IDENTITY) {
@@ -129,8 +129,8 @@ describe("McpInstallActions", () => {
     expect(onNavigate).toHaveBeenCalledWith("/settings/mcp");
   });
 
-  it("offers only the other-agents path when the server has no OAuth sign-in", async () => {
-    stubIdentity(true, { ...IDENTITY, oauth: false });
+  it("offers only the other-agents path when the server has no connect routes", async () => {
+    stubIdentity(true, { ...IDENTITY, connect: false });
     await render();
     await vi.waitFor(() =>
       expect(container.querySelector('[aria-busy="true"]')).toBeNull(),

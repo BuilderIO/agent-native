@@ -21,7 +21,7 @@ const lanIdentity = {
   appUrl: "https://192.168.1.20:8080",
   mcpUrl: "https://192.168.1.20:8080/mcp",
   environment: "production",
-  oauth: true,
+  connect: true,
 };
 
 afterEach(() => {

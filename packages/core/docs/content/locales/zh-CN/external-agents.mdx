@@ -189,7 +189,7 @@ Dispatch 不会重写 ChatGPT 或 Claude 的缓存日历/邮件/等。
 `npx @agent-native/core@latest connect`。生产环境使用不带后缀的名称，例如
 `agent-native-mail`。Beta、预览和本地部署会加上环境名，例如
 `agent-native-mail-beta`，这样同一个客户端可以同时保留生产和 Beta 两个条目。
-脚本可以通过 `GET /mcp/connect/identity` 读取名称；该接口无需登录，返回服务器名称、应用名称、应用 URL、MCP URL、环境，以及在 `mcp.connect` 关闭时为 `false` 的 `oauth` 标志。
+脚本可以通过 `GET /mcp/connect/identity` 读取名称；该接口无需登录，返回服务器名称、应用名称、应用 URL、MCP URL、环境，以及在 `mcp.connect` 关闭时为 `false` 的 `connect` 标志。
 
 ### 快速测试提示 {#quick-test}
 

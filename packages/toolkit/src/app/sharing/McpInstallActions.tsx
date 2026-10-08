@@ -72,9 +72,9 @@ export function McpInstallActions({
       <div className="text-xs font-medium text-muted-foreground">{heading}</div>
       <div className="-mx-1.5 flex flex-col gap-0.5">
         {identityState.status === "ready" ? (
-          // Without OAuth discovery an installed client cannot sign in, so
-          // only the Other agents row, with its token steps, is offered.
-          identityState.identity.oauth ? (
+          // Without the connect routes an installed client cannot sign in, so
+          // only the Other agents row is offered.
+          identityState.identity.connect ? (
             clients.map((client) => {
               const link = buildMcpInstallLink(client, {
                 serverName: identityState.identity.serverName,
