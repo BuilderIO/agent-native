@@ -1900,8 +1900,16 @@ export async function processAgentTeamRun(
   const heartbeat = setInterval(() => {
     if (leaseLost || heartbeatInFlight) return;
     heartbeatInFlight = touchAgentTeamRun(opts.taskId, claimedAttempts)
-      .then((current) => {
+      .then(async (current) => {
         if (!current) {
+          const dispatch = await getAgentTeamRunDispatchState(opts.taskId);
+          if (
+            dispatch?.attempts === claimedAttempts &&
+            dispatch.status !== "running"
+          ) {
+            lastSuccessfulHeartbeatAt = Date.now();
+            return;
+          }
           markLeaseLost();
           return;
         }

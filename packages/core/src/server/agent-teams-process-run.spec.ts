@@ -1689,4 +1689,71 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       "done",
     );
   });
+
+  it("does not treat its own queue transition as lease loss, but detects a later claim", async () => {
+    let heartbeatTick: (() => void) | undefined;
+    const timer = vi.spyOn(globalThis, "setInterval").mockImplementation(((
+      callback: () => void,
+    ) => {
+      heartbeatTick = callback;
+      return { unref: vi.fn() } as unknown as ReturnType<typeof setInterval>;
+    }) as typeof setInterval);
+    let markLoopStarted!: () => void;
+    const loopStarted = new Promise<void>((resolve) => {
+      markLoopStarted = resolve;
+    });
+    let finishLoop!: () => void;
+    const loopFinished = new Promise<void>((resolve) => {
+      finishLoop = resolve;
+    });
+    runAgentLoopMock.mockImplementation(async () => {
+      markLoopStarted();
+      await loopFinished;
+    });
+    await seedTask("heartbeat-transition");
+
+    const processing = processAgentTeamRun({
+      taskId: "heartbeat-transition",
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+    const dispatchStateReadCount = () =>
+      queueDb.execute.mock.calls.filter(
+        ([query]) =>
+          typeof query !== "string" &&
+          query.sql.includes(
+            "SELECT * FROM agent_team_run_queue WHERE task_id = ?",
+          ),
+      ).length;
+
+    try {
+      await loopStarted;
+      const row = queueRows.find(
+        (candidate) => candidate.task_id === "heartbeat-transition",
+      );
+      if (!row) throw new Error("missing row");
+
+      row.status = "queued";
+      const queuedReadCount = dispatchStateReadCount();
+      heartbeatTick?.();
+      await vi.waitFor(() =>
+        expect(dispatchStateReadCount()).toBeGreaterThan(queuedReadCount),
+      );
+      expect(abortRunMock).not.toHaveBeenCalled();
+
+      expect(
+        (await queue.claimAgentTeamRun("heartbeat-transition"))?.attempts,
+      ).toBe(2);
+      const reclaimedReadCount = dispatchStateReadCount();
+      heartbeatTick?.();
+      await vi.waitFor(() =>
+        expect(dispatchStateReadCount()).toBeGreaterThan(reclaimedReadCount),
+      );
+      expect(abortRunMock).toHaveBeenCalledTimes(1);
+    } finally {
+      finishLoop();
+      await processing;
+      timer.mockRestore();
+    }
+  });
 });
