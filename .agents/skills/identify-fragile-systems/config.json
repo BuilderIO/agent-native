@@ -4,6 +4,7 @@
   "windowHours": 24,
   "lookbackDays": 21,
   "bugLookbackDays": 60,
+  "regressionDays": 21,
   "reFixDays": 7,
   "minWindowCommits": 2,
   "maxHotSystems": 15,

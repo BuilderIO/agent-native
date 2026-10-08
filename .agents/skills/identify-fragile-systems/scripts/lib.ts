@@ -14,6 +14,7 @@ export interface Config {
   windowHours: number;
   lookbackDays: number;
   bugLookbackDays: number;
+  regressionDays: number;
   reFixDays: number;
   minWindowCommits: number;
   maxHotSystems: number;

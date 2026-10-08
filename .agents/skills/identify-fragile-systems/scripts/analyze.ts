@@ -104,6 +104,7 @@ export interface Analysis {
   mode: "nightly" | "bug";
   bug: { title: string; ref: string; url: string | null } | null;
   focus: string[];
+  regressionCandidates: (CommitRef & { kind: string; files: string[] })[];
   related: {
     keywords: string[];
     commits: (CommitRef & { systems: string[]; touchesFocus: boolean })[];
@@ -266,6 +267,14 @@ main((args) => {
       ? { title: bug.title, ref: bug.source.ref, url: bug.source.url }
       : null,
     focus,
+    regressionCandidates: bug
+      ? regressionCandidates(
+          focus,
+          data.commits,
+          Date.parse(data.windowEnd) - config.regressionDays * DAY,
+          { ignoredSubject, sweeps: sweepShas },
+        )
+      : [],
     related: keywords.length
       ? {
           keywords,
@@ -296,6 +305,16 @@ main((args) => {
   console.log(
     `${rel(md)}: ${hot.length} hot systems (baseline: ${population.length} systems, repo fix ratio ${pct(analysis.baseline.repoFixRatio)})`,
   );
+  if (analysis.regressionCandidates.length) {
+    console.log(
+      `  ${analysis.regressionCandidates.length} changes to the traced path in the last ${config.regressionDays}d (read each with pr.ts):`,
+    );
+    for (const c of analysis.regressionCandidates.slice(0, 12)) {
+      console.log(
+        `    ${c.date} #${c.pr ?? "?"} [${c.kind}] ${c.subject.slice(0, 80)} — ${c.files.map((f) => path.basename(f)).join(", ")}`,
+      );
+    }
+  }
   for (const r of hot) {
     for (const f of r.focus ?? [])
       console.log(
@@ -359,6 +378,30 @@ function focusFile(
     fixCommits: fixes.map(commitRef),
     broadCommits: touching.length - counted.length,
   };
+}
+
+// Every kind of commit counts here, not only fixes: features and refactors
+// break things too, and "got busted" reports are usually a recent change.
+function regressionCandidates(
+  focus: string[],
+  commits: Commit[],
+  since: number,
+  filters: { ignoredSubject: (s: string) => boolean; sweeps: Set<string> },
+): Analysis["regressionCandidates"] {
+  const focusSet = new Set(focus);
+  return commits
+    .filter(
+      (c) =>
+        Date.parse(c.date) >= since &&
+        !filters.ignoredSubject(c.subject) &&
+        !filters.sweeps.has(c.sha),
+    )
+    .map((c) => ({
+      ...commitRef(c),
+      kind: c.kind,
+      files: c.files.map((f) => f.path).filter((p) => focusSet.has(p)),
+    }))
+    .filter((c) => c.files.length > 0);
 }
 
 function relatedFixes(
@@ -627,6 +670,18 @@ function renderMarkdown(a: Analysis): string {
     ? [
         `Bug report: ${a.bug.url ? `[${a.bug.title}](${a.bug.url})` : a.bug.title} (${a.bug.ref}). Lookback from ${a.lookbackStart} to ${a.windowEnd}. Head \`${a.head.slice(0, 9)}\`.`,
         `Systems below are the ones containing the focus files (${a.focus.map((f) => `\`${f}\``).join(", ")}). Window counts do not apply to a bug run.`,
+        "",
+        "## Regression candidates",
+        "",
+        "Every recent change (any kind, not only fixes) to a file on the traced path, newest first. Read each diff with pr.ts and say whether it broke a hop's precondition.",
+        "",
+        ...(a.regressionCandidates.length
+          ? a.regressionCandidates.map(
+              (c) =>
+                `- ${c.date} #${c.pr ?? "?"} [${c.kind}] ${c.subject} — ${c.files.map((f) => `\`${f}\``).join(", ")}`,
+            )
+          : ["- none in the regression window"]),
+        "",
       ]
     : [
         `Window ${a.windowStart} to ${a.windowEnd}. Lookback from ${a.lookbackStart}. Head \`${a.head.slice(0, 9)}\`. PR metadata: ${a.prMetadata}.`,

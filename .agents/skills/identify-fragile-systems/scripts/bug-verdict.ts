@@ -25,6 +25,9 @@ export interface BugVerdict {
   symptom: string;
   verdict: "one-off" | "pattern" | "known" | "needs-info";
   rootCause: string;
+  trigger: string | null;
+  ruledOut: string | null;
+  evidence: "reproduced" | "traced" | "inferred";
   reason: string;
   fix: string | null;
   plan: string | null;
@@ -36,6 +39,7 @@ export interface BugVerdict {
 }
 
 const VERDICTS = ["one-off", "pattern", "known", "needs-info"] as const;
+const EVIDENCE = ["reproduced", "traced", "inferred"] as const;
 
 main((args) => {
   const verdict = argString(args, "verdict");
@@ -43,13 +47,28 @@ main((args) => {
   const reason = argString(args, "reason");
   if (args.help || !verdict || !rootCause || !reason) {
     console.log(
-      'bug-verdict --run <id> --verdict one-off|pattern|known|needs-info --root-cause "<file:line, what goes wrong>" --reason "<why>" [--symptom "<label>"] [--fix "<local fix>"] [--plan <file>] [--unfiled "<why no ticket>"] [--ticket ENG-123] [--ask "<what to get from the reporter>"]\n  one-off needs --fix; pattern needs --plan; known needs --ticket with a sighting recorded in this run; needs-info needs --ask.',
+      'bug-verdict --run <id> --verdict one-off|pattern|known|needs-info --root-cause "<file:line, what goes wrong>" --reason "<why>" [--symptom "<label>"] [--fix "<local fix>"] [--plan <file>] [--unfiled "<why no ticket>"] [--ticket ENG-123] [--ask "<what to get from the reporter>"] --evidence reproduced|traced|inferred --trigger "<what changed to break it now, or none-found: what you checked>" --ruled-out "<other explanations and the check that ruled each out>"\n  one-off needs --fix; pattern needs --plan; known needs --ticket with a sighting recorded in this run; needs-info needs --ask.\n  --trigger and --ruled-out are required for one-off and pattern.',
     );
     if (!args.help) process.exitCode = 1;
     return;
   }
   if (!(VERDICTS as readonly string[]).includes(verdict))
     throw new ScriptError(`--verdict must be one of ${VERDICTS.join(", ")}`);
+  const evidence = argString(args, "evidence");
+  if (!evidence || !(EVIDENCE as readonly string[]).includes(evidence))
+    throw new ScriptError(`--evidence must be one of ${EVIDENCE.join(", ")}`);
+  const trigger = argString(args, "trigger") ?? null;
+  const ruledOut = argString(args, "ruled-out") ?? null;
+  // A decided verdict must explain "why now" and survive at least one rival
+  // explanation; a single plausible story is how the real cause gets missed.
+  if (
+    (verdict === "one-off" || verdict === "pattern") &&
+    (!trigger || !ruledOut)
+  ) {
+    throw new ScriptError(
+      `${verdict} needs --trigger (the recent change that broke it, or "none-found: <what you checked>") and --ruled-out (rival explanations and the check that ruled each out)`,
+    );
+  }
   const config = loadConfig();
   const id = runId(args);
   if (!isBugRun(config, id))
@@ -108,6 +127,9 @@ main((args) => {
     symptom: argString(args, "symptom") ?? "main",
     verdict: verdict as BugVerdict["verdict"],
     rootCause,
+    trigger,
+    ruledOut,
+    evidence: evidence as BugVerdict["evidence"],
     reason,
     fix,
     plan,

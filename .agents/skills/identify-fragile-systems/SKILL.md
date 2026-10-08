@@ -127,15 +127,19 @@ instance of a pattern that will keep producing bugs". One run per report.
    later step. `bug.json` is what puts the other scripts into bug mode.
 3. **Split symptoms**: a report often lists several. Treat each as its own
    symptom with its own verdict. Name them with short labels.
-4. **Locate**: for each symptom, find the code path from the working tree.
-   Name the files the defect lives in and, if you can, the line. Reproducing
-   is welcome but optional. Never change product code.
+4. **Trace**: for each symptom, follow `references/bug-investigation.md`
+   steps 1 and 2. Write the path from the user's action to the visible failure
+   as hops, each with file:line and its runtime precondition (what must be
+   mounted, running, or present). The focus files are every file on that
+   path, not just where the error shows. Never change product code.
 5. **Collect**: `collect.ts --run <id>`. In a bug run the lookback defaults
    to `bugLookbackDays` (60) and window PR metadata is skipped.
 6. **Score the focus**: `analyze.ts --run <id> --focus <file,file> --keywords <word,word>`.
    `--focus` takes the files from step 4, across all symptoms. It scores
-   the systems that contain them against the repo baseline and lists every
-   lookback fix to each focus file. `--keywords` lists fixes anywhere
+   the systems that contain them against the repo baseline, lists every
+   lookback fix to each focus file, and lists **regression candidates**:
+   every commit of any kind that touched the path in the last
+   `regressionDays` (21). `--keywords` lists fixes anywhere
    whose subject matches, which is how you find the same bug class landing in
    another template. Re-run it as your focus sharpens.
 7. **Dedup early**: `jira-findings.ts --run <id>`. If an existing ticket's
@@ -143,19 +147,25 @@ instance of a pattern that will keep producing bugs". One run per report.
    `jira-sighting.ts --key <KEY> --system <system> --note "<how this bug is an instance>" --apply`.
    A bug-run sighting always comments once, because a real bug is new
    evidence. The symptom's verdict is `known`.
-8. **Investigate** each remaining symptom:
-   - Read the earlier fixes to the focus files with `pr.ts`. Did one of
-     them fix the same mechanism? Did it regress here?
-   - Search the working tree for the faulty construct elsewhere: the same
-     helper misuse, the same unguarded call, the same parallel copy of a core
-     primitive. Sibling sites carrying the bug today count as instances.
+8. **Investigate** each remaining symptom with steps 3 to 6 of
+   `references/bug-investigation.md`. When fanning out, give each
+   sub-agent the symptom, its entry point, and that whole file. Do not give
+   it a theory or a short file list; that becomes the boundary of its search.
+   - Read every regression candidate with `pr.ts`. Find the trigger: the
+     change that broke a hop's precondition.
+   - Hold two or more explanations and run the check that separates them.
+   - Reproduce in the branch browser when the path runs there.
+   - Check `AGENTS.md`, skills, and `packages/core` for a rule or primitive
+     the code bypasses.
+   - Search for sibling sites carrying the same construct.
    - Decide using "Bug reports" in `references/rubric.md`.
 9. **Plan if pattern**: `new-plan.ts --run <id> --slug ... --systems ...`
    as in nightly step 6. The scaffold adds a Trigger section for the bug.
    Prefer a slug the nightly run would also choose, so both converge on one
    fingerprint. Then `jira-upsert.ts --plan <file>`, then add `--apply`.
 10. **Record a verdict per symptom**:
-    `bug-verdict.ts --run <id> --symptom <label> --verdict one-off|pattern|known --root-cause "<file:line, what goes wrong>" --reason "<why>"`,
+    `bug-verdict.ts --run <id> --symptom <label> --verdict one-off|pattern|known --root-cause "<file:line, what goes wrong>" --reason "<why>" --evidence reproduced|traced|inferred --trigger "<commit and what it broke>" --ruled-out "<rivals and the check>"`.
+    `--trigger` and `--ruled-out` are required for one-off and pattern.
     plus `--fix "<local fix>"` for one-off, `--plan <file>` for pattern
     (with `--unfiled "<why>"` if it has no ticket), or `--ticket KEY` for known.
     Use `needs-info` with `--ask "<log, repro, or detail>"` when code and

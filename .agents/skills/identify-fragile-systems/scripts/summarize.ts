@@ -152,7 +152,9 @@ function renderBug(
     lines.push(
       `## ${v.symptom}: ${label[v.verdict]}`,
       "",
-      `- Root cause: ${v.rootCause}`,
+      `- Root cause (${v.evidence ?? "unstated"}): ${v.rootCause}`,
+      ...(v.trigger ? [`- Why now: ${v.trigger}`] : []),
+      ...(v.ruledOut ? [`- Ruled out: ${v.ruledOut}`] : []),
       `- Why: ${v.reason}`,
       `- ${outcome}`,
       "",
