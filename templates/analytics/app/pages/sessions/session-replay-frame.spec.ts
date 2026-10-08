@@ -19,6 +19,15 @@ describe("replayFramePath", () => {
     expect(replayFramePath("/plain")).toBe("/plain");
     expect(replayFramePath("")).toBe("");
   });
+
+  it("names dynamic segments instead of copying them", () => {
+    expect(replayFramePath("/invite/alice@example.com/accept?x=1")).toBe(
+      "/invite/:email/accept",
+    );
+    expect(replayFramePath("/reset/9f8e7d6c5b4a39281706f5e4d3c2b1a0")).toBe(
+      "/reset/:id",
+    );
+  });
 });
 
 describe("isReplayFrameRequest", () => {

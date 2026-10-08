@@ -268,7 +268,7 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
       return failAll(`replay_unavailable: ${state.reason ?? "unknown"}`);
     }
 
-    for (const item of plan.items) {
+    for (const [index, item] of plan.items.entries()) {
       const fail = (reason: string) =>
         ctx.failures.push({
           nodeKey: item.nodeKey,
@@ -278,15 +278,18 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
           reason,
         });
       try {
-        const captured = await page.evaluate<{
-          width: number;
-          height: number;
-          route: string;
-          capturedAt: string;
-          png: string;
-        }>(
-          (offsetMs) => (window as any).__anReplayFrame.capture(offsetMs),
-          item.offsetMs,
+        const captured = await withTimeout(
+          page.evaluate<{
+            width: number;
+            height: number;
+            route: string;
+            capturedAt: string;
+            png: string;
+          }>(
+            (offsetMs) => (window as any).__anReplayFrame.capture(offsetMs),
+            item.offsetMs,
+          ),
+          ctx.timeoutMs,
         );
         if (!aspectInRange(captured.width, captured.height, ctx)) {
           fail("aspect_out_of_range");
@@ -302,8 +305,17 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
           fail("screenshot_invalid");
           continue;
         }
-        // With --upload a frame without its attachmentRef is a failure, not a
-        // frame: nothing is written or listed for it.
+        // The file is written before the upload, so a disk failure cannot
+        // leave a stored private frame nobody holds a ref to. With --upload a
+        // frame without its attachmentRef is a failure, not a frame: its file
+        // is removed again and it is not listed.
+        const fileName = frameFileName(
+          item.nodeKey,
+          item.exampleIndex,
+          ctx.usedNames,
+        );
+        const filePath = path.join(ctx.outDir, fileName);
+        await writeFile(filePath, bytes);
         let attachmentRef: string | undefined;
         if (ctx.upload) {
           try {
@@ -322,17 +334,12 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
             }
             attachmentRef = uploaded.attachmentRef;
           } catch (error) {
+            await rm(filePath, { force: true });
             if (error instanceof AuthError) throw error;
             fail(`upload_failed: ${reasonFromError(error)}`);
             continue;
           }
         }
-        const fileName = frameFileName(
-          item.nodeKey,
-          item.exampleIndex,
-          ctx.usedNames,
-        );
-        await writeFile(path.join(ctx.outDir, fileName), bytes);
         ctx.frames.push({
           nodeKey: item.nodeKey,
           exampleIndex: item.exampleIndex,
@@ -348,6 +355,20 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
       } catch (error) {
         if (error instanceof AuthError) throw error;
         fail(reasonFromError(error));
+        if (error instanceof CaptureTimeout) {
+          // The page has one playhead and it is stuck, so no later frame of
+          // this recording can be captured.
+          for (const later of plan.items.slice(index + 1)) {
+            ctx.failures.push({
+              nodeKey: later.nodeKey,
+              exampleIndex: later.exampleIndex,
+              recordingId: plan.recordingId,
+              offsetMs: later.offsetMs,
+              reason: "capture_timeout: an earlier frame did not finish",
+            });
+          }
+          break;
+        }
       }
     }
   } catch (error) {
@@ -356,6 +377,21 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
   } finally {
     await context.close();
   }
+}
+
+class CaptureTimeout extends Error {}
+
+/** Rejects with CaptureTimeout when `work` has not settled within `ms`. */
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(new CaptureTimeout(`capture_timeout: no frame within ${ms} ms`)),
+      ms,
+    );
+  });
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
 }
 
 async function runPool<T>(
@@ -541,7 +577,13 @@ async function main(argv: string[]): Promise<number> {
   const chromium = await importChromium();
   let browser: Browser;
   try {
-    browser = await chromium.launch({ headless: true });
+    // The run handles Ctrl-C itself (below) so it can write its manifest.
+    browser = await chromium.launch({
+      headless: true,
+      handleSIGINT: false,
+      handleSIGTERM: false,
+      handleSIGHUP: false,
+    });
   } catch (error) {
     console.error(
       `Chromium could not start (${reasonFromError(error)}). Run: npx playwright install chromium`,
@@ -561,6 +603,36 @@ async function main(argv: string[]): Promise<number> {
     frames: [],
     failures: [],
   };
+  // Frames already uploaded exist only in memory until the manifest is
+  // written, so an interrupt writes it before exiting. A second signal falls
+  // through to the default and ends the process.
+  const signals = ["SIGINT", "SIGTERM"] as const;
+  const onSignal = (signal: NodeJS.Signals) => {
+    const failures = [
+      ...ctx.failures,
+      ...unattemptedFailures(
+        items,
+        ctx.frames,
+        ctx.failures,
+        `run_stopped: ${signal}`,
+      ),
+    ];
+    writeManifest([...ctx.frames], failures).then(
+      () => {
+        console.error(
+          `${signal}: the run stopped early; ${ctx.frames.length} frames captured so far are in ${manifestPath}, and the frames it never reached are listed under "failures".`,
+        );
+        process.exit(signal === "SIGINT" ? 130 : 143);
+      },
+      (error) => {
+        console.error(
+          `${signal}: the run stopped early and its manifest could not be written (${reasonFromError(error)}).`,
+        );
+        process.exit(1);
+      },
+    );
+  };
+  for (const signal of signals) process.once(signal, onSignal);
   let stopped: { error: unknown } | undefined;
   try {
     await runPool(plans, concurrency, async (plan) => {
@@ -574,6 +646,8 @@ async function main(argv: string[]): Promise<number> {
     });
   } catch (error) {
     stopped = { error };
+  } finally {
+    for (const signal of signals) process.off(signal, onSignal);
   }
 
   // Whatever stopped the run, the frames and uploads it already produced get a

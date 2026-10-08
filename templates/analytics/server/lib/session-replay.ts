@@ -2025,7 +2025,7 @@ export async function listJourneyRecordings(
   for (let i = 0; i < sessionIds.length; i += JOURNEY_RECORDING_BATCH) {
     const batch = sessionIds.slice(i, i + JOURNEY_RECORDING_BATCH);
     const limit = batch.length * JOURNEY_RECORDINGS_PER_SESSION;
-    const rows = await db
+    const read = await db
       .select({
         id: r.id,
         sessionId: r.sessionId,
@@ -2049,8 +2049,10 @@ export async function listJourneyRecordings(
         ),
       )
       .orderBy(asc(r.startedAt), asc(r.id))
-      .limit(limit);
-    if (rows.length >= limit) complete = false;
+      // One row past the ceiling tells a batch that ended there from one cut.
+      .limit(limit + 1);
+    if (read.length > limit) complete = false;
+    const rows = read.slice(0, limit);
     for (const row of rows) {
       const startedAtMs = Date.parse(row.startedAt);
       const endedAtMs = row.endedAt ? Date.parse(row.endedAt) : null;

@@ -1,3 +1,4 @@
+import { normalizeJourneyPath } from "@shared/journey-path";
 import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
 
 /**
@@ -36,12 +37,12 @@ export type ReplayFrameCapture = {
 };
 
 /**
- * A recorded route reduced to its path. The query and hash of a recorded URL
- * can carry codes or personal data, and a capture manifest is meant to be
- * shared.
+ * A recorded route as the shared capture manifest lists it: path only, with
+ * the same dynamic-segment naming as the journey tree. A recorded query, hash,
+ * or path segment can carry codes or personal data.
  */
 export function replayFramePath(route: string): string {
-  return route.split(/[?#]/, 1)[0] ?? "";
+  return normalizeJourneyPath(route) ?? "";
 }
 
 /** What a driver reads from `window.__anReplayFrame`. */

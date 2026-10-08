@@ -64,6 +64,7 @@ import {
   getSessionReplaySummary,
   getSessionReplayTokenizedEvents,
   getSessionReplayTokenizedSummary,
+  listJourneyRecordings,
   listSessionRecordings,
   listSessionRecordingsPage,
   MAX_REPLAY_CHUNK_READ_BATCH_BYTES,
@@ -2554,5 +2555,57 @@ describe("replay viewport", () => {
     ).toEqual({
       status: "unreadable",
     });
+  });
+});
+
+describe("listJourneyRecordings", () => {
+  const row = (id: string) => ({
+    id,
+    sessionId: "s1",
+    startedAt: "2026-10-01T12:00:00.000Z",
+    endedAt: "2026-10-01T12:01:00.000Z",
+    durationMs: 60_000,
+    metadata: "{}",
+  });
+  const readWith = async (rows: unknown[]) => {
+    const limits: number[] = [];
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            orderBy: vi.fn(() => ({
+              limit: vi.fn(async (n: number) => {
+                limits.push(n);
+                return rows.slice(0, n);
+              }),
+            })),
+          })),
+        })),
+      })),
+    });
+    const read = await listJourneyRecordings(
+      { userEmail: "owner@example.com", orgId: null },
+      ["s1"],
+      {
+        fromIso: "2026-09-30T00:00:00.000Z",
+        toIso: "2026-10-03T00:00:00.000Z",
+      },
+    );
+    return { read, limits };
+  };
+
+  it("reads one row past the ceiling, so a batch that ends exactly there is complete", async () => {
+    const five = ["r1", "r2", "r3", "r4", "r5"].map(row);
+    const { read, limits } = await readWith(five);
+    expect(limits).toEqual([6]);
+    expect(read.complete).toBe(true);
+    expect(read.recordings).toHaveLength(5);
+  });
+
+  it("reports an incomplete read, and keeps only the ceiling, when more rows exist", async () => {
+    const six = ["r1", "r2", "r3", "r4", "r5", "r6"].map(row);
+    const { read } = await readWith(six);
+    expect(read.complete).toBe(false);
+    expect(read.recordings).toHaveLength(5);
   });
 });
