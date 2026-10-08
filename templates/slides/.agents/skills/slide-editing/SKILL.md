@@ -193,6 +193,9 @@ objects the way Google Slides does, so write markup that maps cleanly:
 - Text containers, including `.fmd-text-box`, have no fixed `height`
   (`min-height` only for a deliberate minimum), so text grows instead of
   overflowing.
+- Never write `contain` or `contain-intrinsic-size`; they break the editor's
+  measuring and the PPTX export.
+- No inline `<svg>`; the sanitizer removes it. Use styled divs or an `<img>`.
 - Keep nesting shallow. Unpainted wrappers with no direct text (grid rows,
   columns) are fine; the pointer skips them.
 - Ids belong to freeform objects only. Never stamp `data-slide-object-id` on a
