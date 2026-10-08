@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
-import { upgradeModelToLatestSupportedVersion } from "../agent/model-version.js";
+import { upgradeModelForProvider } from "../agent/model-version.js";
 
 export { DEFAULT_MODEL };
 import {
@@ -156,11 +156,20 @@ export async function loadChatModelCatalog(): Promise<ChatModelCatalogLoad> {
       currentEngineName,
       currentModel,
     });
+  const groups = build(enginesData.engines);
+  const defaultModel = currentModel
+    ? (upgradeModelForProvider(
+        currentModel,
+        groups.find((group) => group.engine === currentEngineName)?.models ??
+          [],
+        currentEngineName ?? "",
+      ) ?? currentModel)
+    : DEFAULT_MODEL;
 
   return {
     state: "available",
-    groups: build(enginesData.engines),
-    defaultModel: currentModel ?? DEFAULT_MODEL,
+    groups,
+    defaultModel,
     loadLiveGroups: async () => {
       // Gated on Ollama actually being the current engine (not merely present
       // in the catalog, which it always is): every app registers it by
@@ -462,9 +471,10 @@ export function useChatModels({
                   group.preserveCustomModels &&
                   selection.selectedEngine === group.engine
                     ? selection.selectedModel
-                    : upgradeModelToLatestSupportedVersion(
+                    : upgradeModelForProvider(
                         selection.selectedModel,
                         group.models,
+                        group.engine,
                       );
                 return model ? [{ group, model }] : [];
               });
@@ -478,9 +488,10 @@ export function useChatModels({
           const selectedGroup = exactSelectedGroup ?? upgradedSelection?.group;
           if (selectedGroup) {
             const selectedModel =
-              upgradeModelToLatestSupportedVersion(
+              upgradeModelForProvider(
                 selection.selectedModel,
                 selectedGroup.models,
+                selectedGroup.engine,
               ) ?? selection.selectedModel;
             const nextSelection = {
               ...selection,

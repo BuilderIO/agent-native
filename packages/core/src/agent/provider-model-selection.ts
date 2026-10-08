@@ -46,10 +46,7 @@ import {
 } from "./engine/openai-compatible-endpoint.js";
 import { PROVIDER_ENV_META } from "./engine/provider-env-vars.js";
 import { BUILDER_MODEL_CONFIG } from "./model-config.js";
-import {
-  upgradeBuilderModelAlias,
-  upgradeModelToLatestSupportedVersion,
-} from "./model-version.js";
+import { upgradeModelForProvider } from "./model-version.js";
 
 export const PROVIDER_MODEL_SELECTION_KEY_PREFIX = "agent-provider-models";
 
@@ -197,11 +194,7 @@ export function normalizeSelectedModels(
       [...seen].map((id) =>
         options.preserveCustomModels
           ? id
-          : ((provider === "builder"
-              ? upgradeBuilderModelAlias(id, supportedModels)
-              : undefined) ??
-            upgradeModelToLatestSupportedVersion(id, supportedModels) ??
-            id),
+          : (upgradeModelForProvider(id, supportedModels, provider) ?? id),
       ),
     ),
   ];
@@ -351,10 +344,7 @@ function parseRow(
       models.map((model) =>
         preserveCustomModels
           ? model
-          : ((provider === "builder"
-              ? upgradeBuilderModelAlias(model, supportedModels)
-              : undefined) ??
-            upgradeModelToLatestSupportedVersion(model, supportedModels) ??
+          : (upgradeModelForProvider(model, supportedModels, provider) ??
             model),
       ),
     ),
@@ -620,9 +610,10 @@ export async function resolveUncheckedDefaultModelReplacement(engine: {
   if (selection.state !== "selected") return undefined;
   const currentDefault = selection.preserveCustomModels
     ? engine.defaultModel
-    : (upgradeModelToLatestSupportedVersion(
+    : (upgradeModelForProvider(
         engine.defaultModel,
         recommendedProviderModels(provider),
+        provider,
       ) ?? engine.defaultModel);
   if (selection.models.includes(currentDefault)) return undefined;
   return selection.models[0];

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { BUILDER_MODEL_CONFIG } from "./model-config.js";
-import { upgradeBuilderModelAlias } from "./model-version.js";
+import {
+  upgradeBuilderModelAlias,
+  upgradeModelForProvider,
+} from "./model-version.js";
 
 describe("upgradeBuilderModelAlias", () => {
   it("moves retired Builder IDs to the current catalog entries", () => {
@@ -35,6 +38,19 @@ describe("upgradeBuilderModelAlias", () => {
     expect(upgradeBuilderModelAlias("claude-haiku-4-5", [])).toBeUndefined();
     expect(
       upgradeBuilderModelAlias("unknown-model", ["unknown-model"]),
+    ).toBeUndefined();
+  });
+});
+
+describe("upgradeModelForProvider", () => {
+  it("applies Builder aliases only for Builder selections", () => {
+    const supportedModels = ["claude-sonnet-5-5"];
+
+    expect(
+      upgradeModelForProvider("claude-sonnet-5", supportedModels, "builder"),
+    ).toBe("claude-sonnet-5-5");
+    expect(
+      upgradeModelForProvider("claude-sonnet-5", supportedModels, "anthropic"),
     ).toBeUndefined();
   });
 });

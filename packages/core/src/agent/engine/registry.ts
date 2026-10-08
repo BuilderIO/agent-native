@@ -44,8 +44,7 @@ import {
 import {
   findLatestSupportedVersionMatch,
   isNewerVersionedModel,
-  upgradeBuilderModelAlias,
-  upgradeModelToLatestSupportedVersion,
+  upgradeModelForProvider,
 } from "../model-version.js";
 import { createProviderEndpointFetch } from "./ai-sdk-engine.js";
 import {
@@ -243,11 +242,11 @@ export function normalizeModelForEngine(
     return candidate;
   }
 
-  const upgradedModel =
-    (engine.name === "builder"
-      ? upgradeBuilderModelAlias(candidate, engine.supportedModels)
-      : undefined) ??
-    upgradeModelToLatestSupportedVersion(candidate, engine.supportedModels);
+  const upgradedModel = upgradeModelForProvider(
+    candidate,
+    engine.supportedModels,
+    engine.name,
+  );
   if (upgradedModel) return upgradedModel;
 
   if (

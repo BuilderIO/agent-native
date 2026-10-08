@@ -101,3 +101,16 @@ export function upgradeModelToLatestSupportedVersion(
     ? latest
     : undefined;
 }
+
+export function upgradeModelForProvider(
+  candidate: string,
+  supportedModels: readonly string[],
+  provider: string,
+): string | undefined {
+  return (
+    (provider === "builder"
+      ? upgradeBuilderModelAlias(candidate, supportedModels)
+      : undefined) ??
+    upgradeModelToLatestSupportedVersion(candidate, supportedModels)
+  );
+}
