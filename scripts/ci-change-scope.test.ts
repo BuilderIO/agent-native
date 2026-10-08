@@ -676,7 +676,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   assert.deepEqual(fixedLocations(positionOneStart, positionTwoStart), [
     "e2e/pasted-svg-image-inspector.spec.ts:656",
     "e2e/pasted-svg-image-inspector.spec.ts:693",
-    "e2e/position-alignment.spec.ts:361",
     "e2e/position-alignment.spec.ts:431",
     "e2e/position-alignment.spec.ts:509",
   ]);
@@ -688,6 +687,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   ]);
   assert.deepEqual(fixedLocations(positionThreeStart, fallbackStart), [
     "e2e/position-alignment.spec.ts:312",
+    "e2e/position-alignment.spec.ts:361",
     "e2e/position-alignment.spec.ts:708",
     "e2e/position-alignment.spec.ts:740",
     "e2e/position-alignment.spec.ts:780",
