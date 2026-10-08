@@ -76,7 +76,9 @@ async function getDesignFiles(
     `${baseURL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
   );
   if (!response.ok()) {
-    throw new Error(`get-design: ${response.status()} ${await response.text()}`);
+    throw new Error(
+      `get-design: ${response.status()} ${await response.text()}`,
+    );
   }
   const design = await response.json();
   return (design.files ?? []) as Array<{ filename: string; content: string }>;
@@ -511,7 +513,8 @@ test.describe("dragging back into a screen", () => {
     await page.mouse.up();
     await expect
       .poll(async () => fileOwners(await getDesignFiles(page, id), "box-a"), {
-        message: "the first leg of screen-entry must move the layer to the board",
+        message:
+          "the first leg of screen-entry must move the layer to the board",
       })
       .toEqual(["__board__.html"]);
 

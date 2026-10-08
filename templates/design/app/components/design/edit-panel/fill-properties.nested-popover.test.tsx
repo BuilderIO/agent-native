@@ -259,9 +259,7 @@ describe("FillProperties — existing layer fill popover", () => {
       undefined,
     );
     expect(
-      document.querySelector(
-        'button[aria-label="Solid"][aria-pressed="true"]',
-      ),
+      document.querySelector('button[aria-label="Solid"][aria-pressed="true"]'),
     ).not.toBeNull();
   });
 
