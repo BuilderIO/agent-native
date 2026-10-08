@@ -393,6 +393,27 @@ describe("POST /api/session-replay/storyboard", () => {
     ).toBe("Bearer fallback-a2a-token");
   });
 
+  it("preserves a Design authorization failure without trying the fallback token", async () => {
+    mocks.resolveA2ACallerAuth.mockResolvedValueOnce({
+      apiKey: "test-a2a-token",
+      apiKeyFallbacks: ["fallback-a2a-token"],
+    });
+    mocks.ssrfSafeFetch.mockResolvedValueOnce(
+      Response.json(
+        { statusMessage: "You do not have editor access" },
+        { status: 403 },
+      ),
+    );
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData())),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      statusMessage: "You do not have editor access",
+    });
+    expect(mocks.ssrfSafeFetch).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the upload deadline active while reading the Design response body", async () => {
     let markBodyRead!: () => void;
     const bodyRead = new Promise<void>((resolve) => {

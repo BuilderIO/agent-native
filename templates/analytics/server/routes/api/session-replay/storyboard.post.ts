@@ -667,7 +667,7 @@ export default defineEventHandler(async (event) =>
                 },
               );
               if (
-                (response.status === 401 || response.status === 403) &&
+                response.status === 401 &&
                 tokenIndex < uploadTokens.length - 1
               ) {
                 controller.abort();
@@ -696,9 +696,7 @@ export default defineEventHandler(async (event) =>
         } finally {
           if (timeout) clearTimeout(timeout);
         }
-        if (uploadResponse.status !== 401 && uploadResponse.status !== 403) {
-          break;
-        }
+        if (uploadResponse.status !== 401) break;
       }
       if (!uploadResponse) {
         badRequest("Design screenshot upload did not return a response", 502);
