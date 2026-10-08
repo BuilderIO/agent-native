@@ -200,7 +200,7 @@ describe("Mail Jev automation routing", () => {
   it("checks model availability while processing a queued backfill", async () => {
     mocks.resolveAutomationModelSettings.mockResolvedValueOnce({
       engine: "ai-sdk:openrouter",
-      model: "openai/gpt-5.6-luna",
+      model: "openai/gpt-6-luna",
     });
     mocks.isResolvedEngineUsableForRequest.mockResolvedValue(false);
 
