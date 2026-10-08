@@ -56,7 +56,9 @@ export const BROWSER_FIG_LIMITS: FigImportLimits = {
   nodes: 1_500_000,
   renderedNodes: 4_000_000,
   images: 20_000,
-  imageBytes: 2 * 1024 * 1024 * 1024,
+  // The worker copies image bytes for transfer while still holding the source
+  // file, so this stays well below fileBytes.
+  imageBytes: 1024 * 1024 * 1024,
   frames: 2_000,
   totalHtmlBytes: 256 * 1024 * 1024,
 };

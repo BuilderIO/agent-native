@@ -264,6 +264,40 @@ describe("bounded .fig decoding", () => {
     ).toThrow(/too many entries \(max 1\)/);
   });
 
+  it("rejects stored zip entries that alias the same bytes", () => {
+    const image = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      randomBytes(4096),
+    ]);
+    const zip = storedZip([
+      ["canvas.fig", encodedHelloFig()],
+      ["images/a", image],
+    ]);
+    const directoryOffset = zip.readUInt32LE(zip.length - 6);
+    const firstHeaderLength = 46 + zip.readUInt16LE(directoryOffset + 28);
+    const imageHeader = zip.subarray(
+      directoryOffset + firstHeaderLength,
+      zip.length - 22,
+    );
+    const aliases = Array.from({ length: 8 }, () => imageHeader);
+    const end = Buffer.from(zip.subarray(zip.length - 22));
+    end.writeUInt16LE(2 + aliases.length, 8);
+    end.writeUInt16LE(2 + aliases.length, 10);
+    end.writeUInt32LE(
+      zip.length - 22 - directoryOffset + imageHeader.length * aliases.length,
+      12,
+    );
+    const aliased = Buffer.concat([
+      zip.subarray(0, zip.length - 22),
+      ...aliases,
+      end,
+    ]);
+
+    expect(() => decodeFig(aliased, { limits: BROWSER_FIG_LIMITS })).toThrow(
+      /Overlapping .fig zip entries/,
+    );
+  });
+
   it("decodes valid browser-local containers above the server upload ceiling", () => {
     const fig = encodedHelloFig([
       randomBytes(25 * 1024 * 1024),

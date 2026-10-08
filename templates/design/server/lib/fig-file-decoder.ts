@@ -255,7 +255,8 @@ interface ZipEntry {
 }
 
 // Stored entries (how Figma writes images/) are views into `file`, not
-// copies: they cannot grow past the raw file, which the caller already bounded.
+// copies, so their combined size is bounded by the raw file instead of the
+// inflate budget.
 function readZip(file: Uint8Array, limits: FigImportLimits): ZipEntry[] {
   const EOCD_SIG = 0x06054b50;
   const maxScan = Math.min(file.length, 65557);
@@ -295,6 +296,7 @@ function readZip(file: Uint8Array, limits: FigImportLimits): ZipEntry[] {
   const entries: ZipEntry[] = [];
   let p = cdOffset;
   let inflatedBytes = 0;
+  let storedBytes = 0;
   for (let i = 0; i < totalEntries; i++) {
     if (p + 46 > file.length) {
       throw new Error(`Truncated central directory entry at offset ${p}`);
@@ -350,6 +352,13 @@ function readZip(file: Uint8Array, limits: FigImportLimits): ZipEntry[] {
         throw new Error(
           `Decompressed .fig data is too large (max ${mb(limits.inflatedBytes)} MB).`,
         );
+      }
+    } else {
+      // Entries can alias the same region; without this, overlaps would
+      // multiply how many bytes later get scanned and hashed.
+      storedBytes += uncompressedSize;
+      if (storedBytes > file.length) {
+        throw new Error("Overlapping .fig zip entries are not supported.");
       }
     }
 
