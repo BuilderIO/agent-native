@@ -1502,15 +1502,28 @@ const messages = {
     placeholder: "Clip title (현지화됨)",
     editLabel: "Edit clip title (현지화됨)",
   },
+  chapterList: {
+    add: "챕터 추가",
+    editLabel: "챕터 편집",
+    placeholder: "0:00 소개\n1:30 다음 섹션",
+    errorLineShape:
+      '{{line}}번째 줄: 시간 다음에 제목을 입력하세요. 예: "0:48 메모 날짜 저장".',
+    errorBadTime:
+      '{{line}}번째 줄: "{{value}}"은(는) 0:48 같은 시간이 아닙니다.',
+    errorDuplicate: "{{line}}번째 줄: {{value}}에 이미 챕터가 있습니다.",
+    errorPastEnd: "{{line}}번째 줄: {{value}}은(는) 클립이 끝난 뒤입니다.",
+    changedWhileEditing:
+      "편집하는 동안 챕터가 변경되었습니다. 줄을 확인한 뒤 다시 저장하면 대체됩니다.",
+  },
   chapters: {
-    title: "Chapters (현지화됨)",
-    addHere: "Add here (현지화됨)",
-    empty: "No chapters yet. (현지화됨)",
-    remove: "Remove chapter (현지화됨)",
-    saveFailed: "Failed to save chapters (현지화됨)",
-    duplicateAtPoint: "A chapter already exists at this point (현지화됨)",
-    defaultTitle: "Chapter {{count}} (현지화됨)",
-    seekTo: "Seek to {{time}} (현지화됨)",
+    title: "챕터",
+    addHere: "여기에 추가",
+    empty: "아직 챕터가 없습니다.",
+    remove: "챕터 삭제",
+    saveFailed: "챕터를 저장하지 못했습니다",
+    duplicateAtPoint: "이 위치에 이미 챕터가 있습니다",
+    defaultTitle: "챕터 {{count}}",
+    seekTo: "{{time}}(으)로 이동",
   },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl+Z) (현지화됨)",

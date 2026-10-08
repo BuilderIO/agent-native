@@ -180,6 +180,22 @@ export function effectiveDuration(
   return Math.max(0, durationMs - excluded);
 }
 
+/**
+ * Where a mark stored at an original-media time (a chapter, comment or
+ * reaction) sits on the edited timeline, or null when a cut hides it. The
+ * player's marks and the chapter list both use this, so they agree on which
+ * marks show and where.
+ */
+export function editedMarkerMs(
+  originalMs: number,
+  edits: EditsJson,
+): number | null {
+  if (!Number.isFinite(originalMs) || isExcluded(originalMs, edits)) {
+    return null;
+  }
+  return originalToEdited(originalMs, edits);
+}
+
 export function isExcluded(originalMs: number, edits: EditsJson): boolean {
   for (const range of getExcludedRanges(edits)) {
     if (originalMs >= range.startMs && originalMs < range.endMs) return true;

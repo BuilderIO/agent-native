@@ -1437,6 +1437,18 @@ const messages = {
     placeholder: "Clip title",
     editLabel: "Edit clip title",
   },
+  chapterList: {
+    add: "Add chapters",
+    editLabel: "Edit chapters",
+    placeholder: "0:00 Introduction\n1:30 Next section",
+    errorLineShape:
+      'Line {{line}}: put a time then a title, e.g. "0:48 Saved note dates".',
+    errorBadTime: 'Line {{line}}: "{{value}}" isn\'t a time like 0:48.',
+    errorDuplicate: "Line {{line}}: there's already a chapter at {{value}}.",
+    errorPastEnd: "Line {{line}}: {{value}} is past the end of the clip.",
+    changedWhileEditing:
+      "Chapters changed while you were editing. Check your lines, then Save again to replace them.",
+  },
   chapters: {
     title: "Chapters",
     addHere: "Add here",

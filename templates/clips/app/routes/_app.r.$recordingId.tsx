@@ -88,6 +88,7 @@ import {
   VIEWER_PREVIEW_BROWSER_DIAGNOSTICS,
   VIEWER_PREVIEW_DIAGNOSTICS_DURATION_MS,
 } from "@/components/player/browser-diagnostics.fixture";
+import { ChapterList } from "@/components/player/chapter-list";
 import { useClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
 import {
@@ -3070,6 +3071,17 @@ export default function RecordingPage() {
                         ) : null}
                       </div>
                     ) : null}
+                    {isImage ? null : (
+                      <ChapterList
+                        key={recording.id}
+                        recordingId={recording.id}
+                        chapters={chapters}
+                        editsJson={recording.editsJson}
+                        durationMs={recording.durationMs}
+                        canEdit={canEdit}
+                        onSeek={(ms) => playerRef.current?.seek(ms)}
+                      />
+                    )}
                     <RecordingTagsBar
                       recordingId={recording.id}
                       tags={playerDataQ.data?.tags ?? []}

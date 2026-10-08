@@ -1440,6 +1440,17 @@ const messages = {
     placeholder: "剪輯標題",
     editLabel: "編輯剪輯標題",
   },
+  chapterList: {
+    add: "新增章節",
+    editLabel: "編輯章節",
+    placeholder: "0:00 簡介\n1:30 下一部分",
+    errorLineShape:
+      "第 {{line}} 行：請先寫時間再寫標題，例如「0:48 已儲存筆記日期」。",
+    errorBadTime: "第 {{line}} 行：「{{value}}」不是像 0:48 的時間。",
+    errorDuplicate: "第 {{line}} 行：{{value}} 處已有章節。",
+    errorPastEnd: "第 {{line}} 行：{{value}} 超出了片段結尾。",
+    changedWhileEditing: "你編輯時章節已被變更。請檢查各行，再次儲存即可取代。",
+  },
   chapters: {
     title: "章節",
     addHere: "在此新增",
