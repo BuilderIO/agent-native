@@ -85,7 +85,9 @@ function mockDb(
         return { rows: [{ identity_authority: null, identity_id: null }] };
       }
       if (
-        /SELECT org_id, owner_email, kind FROM mcp_connect_tokens/.test(sql) &&
+        /SELECT org_id, owner_email, kind, revoked_at FROM mcp_connect_tokens/.test(
+          sql,
+        ) &&
         opts.storedToken?.jti === String(args[0])
       ) {
         return {
@@ -94,6 +96,7 @@ function mockDb(
               org_id: opts.storedToken.orgId,
               owner_email: "owner@plans.test",
               kind: "personal",
+              revoked_at: null,
             },
           ],
         };
