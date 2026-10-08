@@ -8,8 +8,10 @@ import { isolateUserHome } from "../../vitest.isolated-home";
 import { remoteDeviceConfigPath } from "./code-agent-connector.js";
 import { codeAgentStoreRoot } from "./code-agent-runs.js";
 import { connectPreferencesPath, connectProfilesPath } from "./connect.js";
+import { installLocalContextXray } from "./context-xray-local.js";
 import { CLIENTS, configPathFor } from "./mcp-config-writers.js";
 import { planPublishConfigPath } from "./plan-publish-store.js";
+import { builtInCommandsRootForAgent } from "./skills.js";
 
 // vitest.setup.ts gives every test file a temporary home (vitest.isolated-home.ts).
 // CLI specs once wrote the developer's real ~/.claude.json and ~/.codex/config.toml
@@ -44,6 +46,9 @@ function userScopePaths(): string[] {
     planPublishConfigPath(),
     codeAgentStoreRoot(),
     remoteDeviceConfigPath(),
+    ...["claude-code", "codex", "pi"].map((agent) =>
+      builtInCommandsRootForAgent(agent, "user", project),
+    ),
   ];
 }
 
@@ -83,6 +88,7 @@ describe("test home isolation", () => {
       PLAN_PUBLISH_CONFIG_PATH: path.join(outside, "plan-publish.json"),
       AGENT_NATIVE_CODE_AGENTS_HOME: path.join(outside, "code-agents"),
       AGENT_NATIVE_REMOTE_DEVICE_PATH: path.join(outside, "remote-device.json"),
+      PI_CODING_AGENT_DIR: path.join(outside, ".pi", "agent"),
     };
     const previous = Object.fromEntries(
       Object.keys(overrides).map((name) => [name, process.env[name]]),
@@ -99,6 +105,20 @@ describe("test home isolation", () => {
         if (value === undefined) delete process.env[name];
         else process.env[name] = value;
       }
+    }
+  });
+
+  it("installs context-xray for Codex and Claude Code inside that home", () => {
+    // Checked first, so a broken setup fails here instead of writing the real home.
+    expect(inside(os.homedir(), os.tmpdir())).toBe(true);
+    const { written } = installLocalContextXray({
+      baseDir: path.join(os.tmpdir(), "project-outside-home"),
+      clients: ["codex", "claude-code"],
+      scope: "user",
+    });
+    expect(written.length).toBeGreaterThan(0);
+    for (const file of written) {
+      expect(inside(file, os.homedir()), file).toBe(true);
     }
   });
 });
