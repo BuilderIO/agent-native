@@ -303,6 +303,34 @@ describe("Markdown import", () => {
     expect(notes["link-title-dropped"]).toEqual(["Docs home"]);
   });
 
+  it("resolves references only inside the import root", () => {
+    const requested: string[] = [];
+    const resolvers: ImportResolvers = {
+      asset: (request) => {
+        if (request.kind === "file") requested.push(request.path);
+        return { status: "resolved", url: "https://files.example/chart.png" };
+      },
+      link: (path) => {
+        requested.push(path);
+        return "/page/api123";
+      },
+    };
+    const source = "![Chart](chart.png)\n\nSee [the API](api.md).";
+
+    const outside = importMarkdown(source, {
+      sourcePath: "../private/page.md",
+      resolvers,
+    });
+    expect(requested).toEqual([]);
+    expect(noteKinds(outside)).toEqual([
+      "asset-missing",
+      "link-target-not-imported",
+    ]);
+
+    importMarkdown(source, { sourcePath: "notes/../page.md", resolvers });
+    expect(requested).toEqual(["chart.png", "api.md"]);
+  });
+
   it("keeps README HTML readable and names what it flattened", () => {
     const page = importMarkdown(README_MD, {
       sourcePath: "repo/README.md",

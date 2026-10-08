@@ -49,7 +49,7 @@ export function classifyImportReference(
 
 /**
  * Resolves `reference` against the folder holding `sourcePath`. Both are
- * import-root-relative. Returns null when the reference climbs above the root.
+ * import-root-relative. Returns null when either climbs above the root.
  */
 export function resolveImportPath(
   sourcePath: string,
@@ -57,11 +57,22 @@ export function resolveImportPath(
 ): string | null {
   const withoutSuffix = reference.replace(/[?#].*$/, "");
   const decoded = safeDecode(withoutSuffix).replace(/\\/g, "/");
-  const base = decoded.startsWith("/")
+  const folder = decoded.startsWith("/")
     ? []
-    : normalizeSegments(sourcePath.replace(/\\/g, "/")).slice(0, -1);
-  const segments = [...base];
-  for (const segment of decoded.split("/")) {
+    : walkSegments([], sourcePath.replace(/\\/g, "/"))?.slice(0, -1);
+  if (!folder) return null;
+  const segments = walkSegments(folder, decoded);
+  return segments?.length ? segments.join("/") : null;
+}
+
+export function isMarkdownFilePath(path: string): boolean {
+  return MARKDOWN_FILE_RE.test(path);
+}
+
+/** Follows `path` down from `start`, or null when it climbs above the root. */
+function walkSegments(start: string[], path: string): string[] | null {
+  const segments = [...start];
+  for (const segment of path.split("/")) {
     if (!segment || segment === ".") continue;
     if (segment === "..") {
       if (segments.length === 0) return null;
@@ -70,15 +81,7 @@ export function resolveImportPath(
     }
     segments.push(segment);
   }
-  return segments.length ? segments.join("/") : null;
-}
-
-export function isMarkdownFilePath(path: string): boolean {
-  return MARKDOWN_FILE_RE.test(path);
-}
-
-function normalizeSegments(path: string): string[] {
-  return path.split("/").filter((segment) => segment && segment !== ".");
+  return segments;
 }
 
 function safeDecode(value: string): string {
