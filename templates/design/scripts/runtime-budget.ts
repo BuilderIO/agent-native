@@ -9,6 +9,11 @@ import { parseArgs } from "node:util";
 
 import { chromium, type CDPSession, type Page } from "@playwright/test";
 
+import {
+  readZoomUntilAvailable,
+  waitForAnimationFrame,
+} from "./runtime-budget-zoom.ts";
+
 type BudgetFile = {
   copies: number;
   iterations: number;
@@ -302,31 +307,61 @@ const zoomOf = () =>
     return match ? Number(match[1]) * 100 : null;
   });
 async function zoomTo(target: number, x: number, y: number): Promise<boolean> {
-  const distance = async () => Math.log(((await zoomOf()) ?? 10) / target);
   // A CI runner reads the zoom back several times slower than a laptop.
-  const giveUpAt = Date.now() + 60_000;
+  const startedAt = Date.now();
+  const giveUpAt = startedAt + 60_000;
+  let inputs = 0;
   while (Date.now() < giveUpAt) {
-    const off = await distance();
+    const zoom = await readZoomUntilAvailable(
+      zoomOf,
+      (ms) => page.waitForTimeout(ms),
+      giveUpAt,
+      () => cdp.send("Runtime.terminateExecution"),
+    );
+    if (zoom === null) break;
+    const off = Math.log(zoom / target);
     if (Math.abs(off) < 0.06) break;
-    // Fire and forget: awaiting each wheel event lets the camera settle between
-    // them. Smaller steps near the target, because events queued behind a long
-    // frame all land at once and overshoot.
-    void cdp.send("Input.dispatchMouseEvent", {
+    // Keep Ctrl+wheel deltas out of the pinch band and scale them to the
+    // remaining distance so a long zoom does not time out on a loaded runner.
+    await cdp.send("Input.dispatchMouseEvent", {
       type: "mouseWheel",
       x,
       y,
       deltaX: 0,
-      deltaY: Math.sign(off) * Math.min(40, Math.max(2, Math.abs(off) * 40)),
+      deltaY: Math.sign(off) * Math.min(240, Math.max(40, Math.abs(off) * 600)),
       modifiers: 2,
     });
-    // Near the target, let the camera apply each step before reading again;
-    // otherwise a slow runner overshoots back and forth around it.
-    await new Promise((resolve) =>
-      setTimeout(resolve, Math.abs(off) < 0.3 ? 120 : 16),
+    inputs += 1;
+    // Wait for the camera to apply each input before measuring again.
+    const frameArrived = await waitForAnimationFrame(
+      () =>
+        page.evaluate(
+          () =>
+            new Promise<void>((resolve) =>
+              requestAnimationFrame(() => resolve()),
+            ),
+        ),
+      giveUpAt - Date.now(),
+      () => cdp.send("Runtime.terminateExecution"),
+    );
+    if (!frameArrived) break;
+  }
+  await page.waitForTimeout(
+    Math.min(1_500, Math.max(0, giveUpAt - Date.now())),
+  );
+  const actual = await readZoomUntilAvailable(
+    zoomOf,
+    (ms) => page.waitForTimeout(ms),
+    giveUpAt,
+    () => cdp.send("Runtime.terminateExecution"),
+  );
+  const arrived = actual !== null && Math.abs(Math.log(actual / target)) < 0.15;
+  if (!arrived) {
+    console.log(
+      `  zoom ${target}% ended at ${actual ?? "unavailable"}% after ${inputs} inputs in ${Date.now() - startedAt}ms`,
     );
   }
-  await page.waitForTimeout(1500);
-  return Math.abs(await distance()) < 0.15;
+  return arrived;
 }
 
 async function until(check: () => Promise<boolean>, timeoutMs = 30_000) {

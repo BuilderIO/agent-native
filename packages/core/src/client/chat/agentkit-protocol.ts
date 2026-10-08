@@ -1217,6 +1217,7 @@ export function createAgentKitProtocolAdapter(
   }
   const sessions = new Map<string, Promise<AgentChatRuntimeSession>>();
   const runs = new Map<string, ProtocolRun>();
+  const runtimeRunAliases = new Map<string, ProtocolRun>();
   const disposedSessions = new WeakSet<AgentChatRuntimeSession>();
   let retentionTimer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
@@ -1233,6 +1234,62 @@ export function createAgentKitProtocolAdapter(
   function timeMs(value = now()): number {
     const parsed = Date.parse(value);
     return Number.isFinite(parsed) ? parsed : Date.now();
+  }
+
+  function runtimeRunAliasKey(threadId: string, runtimeRunId: string): string {
+    return JSON.stringify([threadId, runtimeRunId]);
+  }
+
+  function findRun(threadId: string, runId: string): ProtocolRun | undefined {
+    const run = runs.get(runId);
+    if (run?.threadId === threadId) return run;
+    const aliasKey = runtimeRunAliasKey(threadId, runId);
+    const aliasedRun = runtimeRunAliases.get(aliasKey);
+    if (!aliasedRun) return undefined;
+    if (runs.get(aliasedRun.runId) !== aliasedRun) {
+      runtimeRunAliases.delete(aliasKey);
+      return undefined;
+    }
+    return aliasedRun;
+  }
+
+  function indexRun(
+    run: ProtocolRun,
+    runtimeRunId = run.turn.runId ?? run.runId,
+  ): void {
+    const existingRun = runs.get(run.runId);
+    if (existingRun && existingRun !== run) {
+      throw new Error(`Duplicate AgentKit run id: ${run.runId}`);
+    }
+    if (runtimeRunId && runtimeRunId !== run.runId) {
+      const conflictingRun = runs.get(runtimeRunId);
+      if (conflictingRun?.threadId === run.threadId) {
+        throw new Error(
+          `Runtime run id ${runtimeRunId} conflicts with an AgentKit run id.`,
+        );
+      }
+      const aliasKey = runtimeRunAliasKey(run.threadId, runtimeRunId);
+      const previousRun = runtimeRunAliases.get(aliasKey);
+      if (
+        previousRun &&
+        previousRun !== run &&
+        runs.get(previousRun.runId) === previousRun &&
+        !previousRun.terminal
+      ) {
+        throw new Error(
+          `Runtime run id ${runtimeRunId} is already owned by active AgentKit run ${previousRun.runId}.`,
+        );
+      }
+      runtimeRunAliases.set(aliasKey, run);
+    }
+    runs.set(run.runId, run);
+  }
+
+  function removeRun(run: ProtocolRun): void {
+    if (runs.get(run.runId) === run) runs.delete(run.runId);
+    for (const [aliasKey, aliasedRun] of runtimeRunAliases) {
+      if (aliasedRun === run) runtimeRunAliases.delete(aliasKey);
+    }
   }
 
   function touchRun(run: ProtocolRun): void {
@@ -1280,7 +1337,7 @@ export function createAgentKitProtocolAdapter(
         run.terminalAtMs !== undefined &&
         referenceTimeMs - run.terminalAtMs >= retainedRunTtlMs
       ) {
-        runs.delete(run.runId);
+        removeRun(run);
       }
     }
 
@@ -1294,7 +1351,7 @@ export function createAgentKitProtocolAdapter(
       .sort((left, right) => left.lastAccessedAtMs - right.lastAccessedAtMs);
     while (retainedCompleted.length > maxRetainedRuns) {
       const run = retainedCompleted.shift();
-      if (run) runs.delete(run.runId);
+      if (run) removeRun(run);
     }
     scheduleRetentionSweep(referenceTimeMs);
   }
@@ -1563,7 +1620,7 @@ export function createAgentKitProtocolAdapter(
       ...(runAuthority ? { restoredWithoutStream: true } : {}),
       listeners: new Set(),
     };
-    runs.set(input.runId, run);
+    indexRun(run, input.runId);
     append(run, {
       type: "run.started",
       agentId: runtime.id,
@@ -1638,7 +1695,7 @@ export function createAgentKitProtocolAdapter(
       );
     }
     pruneRetainedRuns(run.lastAccessedAtMs);
-    runs.set(runId, run);
+    indexRun(run, turn.runId);
     append(run, {
       type: "run.started",
       agentId: runtime.id,
@@ -3069,6 +3126,7 @@ export function createAgentKitProtocolAdapter(
       run.successorWaitStartedAtMs = undefined;
     }
     run.turn = resumed;
+    indexRun(run, resumed.runId);
   }
 
   function ensurePump(run: ProtocolRun): void {
@@ -3269,9 +3327,11 @@ export function createAgentKitProtocolAdapter(
     },
     async *subscribeToRun(input) {
       pruneRetainedRuns();
-      let run = runs.get(input.runId);
-      if (!run || run.threadId !== input.threadId) {
-        if (run) throw new Error(`Unknown AgentKit run: ${input.runId}`);
+      let run = findRun(input.threadId, input.runId);
+      if (!run) {
+        if (runs.has(input.runId)) {
+          throw new Error(`Unknown AgentKit run: ${input.runId}`);
+        }
         run = await restoreRunFromRuntime(input);
       }
       touchRun(run);
@@ -3280,8 +3340,8 @@ export function createAgentKitProtocolAdapter(
     },
     async getRun(input) {
       pruneRetainedRuns();
-      const run = runs.get(input.runId);
-      if (!run || run.threadId !== input.threadId) return null;
+      const run = findRun(input.threadId, input.runId);
+      if (!run) return null;
       touchRun(run);
       return {
         id: run.runId,
@@ -3298,8 +3358,8 @@ export function createAgentKitProtocolAdapter(
     },
     async cancelRun(input) {
       pruneRetainedRuns();
-      let run = runs.get(input.runId);
-      if (run && run.threadId !== input.threadId) {
+      let run = findRun(input.threadId, input.runId);
+      if (!run && runs.has(input.runId)) {
         throw new Error(`Unknown AgentKit run: ${input.runId}`);
       }
       if (!run) {
@@ -3315,7 +3375,6 @@ export function createAgentKitProtocolAdapter(
           }
         }
         run = await restoreRunFromRuntime(input);
-        runs.set(input.runId, run);
       }
       touchRun(run);
       if (run.terminal) return;
@@ -3512,8 +3571,8 @@ export function createAgentKitProtocolAdapter(
       input,
     ) => {
       pruneRetainedRuns();
-      const run = runs.get(input.runId);
-      if (!run || run.threadId !== input.threadId) {
+      const run = findRun(input.threadId, input.runId);
+      if (!run) {
         throw new Error(`Unknown AgentKit run: ${input.runId}`);
       }
       touchRun(run);
@@ -3622,7 +3681,7 @@ export function createAgentKitProtocolAdapter(
         run.pendingApprovalId = undefined;
         run.terminal = true;
         run.terminalAtMs = timeMs();
-        runs.set(nextRunId, replacementRun);
+        indexRun(replacementRun, nextTurn.runId);
         append(replacementRun, {
           type: "run.started",
           agentId: runtime.id,
@@ -3710,8 +3769,8 @@ export function createAgentKitProtocolAdapter(
   if (runtime.capabilities.rich?.connectionRequests) {
     transport.resolveConnectionRequest = async (input) => {
       pruneRetainedRuns();
-      const run = runs.get(input.runId);
-      if (!run || run.threadId !== input.threadId) {
+      const run = findRun(input.threadId, input.runId);
+      if (!run) {
         throw new Error(`Unknown AgentKit run: ${input.runId}`);
       }
       touchRun(run);
@@ -3787,6 +3846,7 @@ export function createAgentKitProtocolAdapter(
         run.waitingForContinuation = false;
         run.pendingConnectionRequestId = undefined;
         run.turn = nextTurn;
+        indexRun(run, nextTurn.runId);
         run.streamClosed = false;
         update(input.response.status);
         append(run, { type: "run.status", status: "running" });

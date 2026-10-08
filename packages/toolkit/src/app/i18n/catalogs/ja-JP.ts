@@ -126,7 +126,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "役割を入力してください",
   "onboarding.skipForNow": "今はスキップ",
   "onboarding.saveRoleError": "役割を保存できませんでした。",
-  "onboarding.builderCreateAccount": "Builder.io アカウントを作成",
+  "onboarding.builderCreateAccount": "Builder.io を使う",
   "onboarding.builderSignInWithAccount": "Builder.io アカウントでサインイン",
   "onboarding.builderActivateDescription":
     "Builder.io アカウントを作成または再利用し、ワンクリックで無料クレジットを有効化します。",
@@ -138,6 +138,11 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderMonthlyCredits": "月間 60 Agent Credits",
   "onboarding.builderIncludedFree": "無料で利用可能",
   "onboarding.builderMoreServices": "+ 他 {{count}} 件のサービス",
+  "onboarding.builderLlmCredits": "LLM クレジット",
+  "onboarding.builderLlmCreditsAndMoreServices":
+    "LLM クレジット + 他 {{count}} 件のサービス",
+  "onboarding.builderAccountCreated":
+    "Builder.io アカウントを作成して接続しました。",
   "onboarding.builderIncludedServices": "含まれるサービス",
   "onboarding.builderActivateTitle": "無料クレジットを有効化",
   "onboarding.builderAccountExistsTitle":
@@ -158,7 +163,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivating": "Builder.io 無料クレジットを有効化しています",
   "onboarding.builderConnecting": "Builder.io の無料クレジットを設定しています",
   "onboarding.builderProvisioningDescription":
-    "Builder.io アカウントを作成または再利用しています。通常は数秒かかります。",
+    "Builder.io アカウントを作成し、無料クレジットを有効化しています。",
   "onboarding.builderConnectionDescription":
     "新しいウィンドウでワンクリック接続を完了してください。",
   "onboarding.builderReadyWithCodeChanges":
@@ -413,6 +418,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.connectAbove": "続行するには上で AI に接続してください...",
   "composer.connectBuilder": "Builder.io を使用",
   "composer.connectKeys": "キーを接続",
+  "composer.connectAgent": "エージェントを接続",
   "composer.connectingBuilder": "Builder.io を設定中…",
   "composer.costHigher": "高コスト",
   "composer.costLower": "低コスト",
@@ -1028,6 +1034,19 @@ const messages: ToolkitAgentChatTranslation = {
   "message.actions": "メッセージの操作",
   "message.copyMessage": "メッセージをコピー",
   "message.copyRequestId": "リクエスト ID をコピー",
+  "message.usage": "使用量",
+  "message.usageLoading": "使用量を読み込み中…",
+  "message.usageUnavailable": "使用量を利用できません",
+  "message.usageNotRecorded": "使用量は記録されていません",
+  "message.usageIncomplete":
+    "一部の使用量を分類できなかったため、合計は非表示です。",
+  "message.usageReportedCost": "費用 {{amount}}",
+  "message.usageEstimatedCost": "推定費用 {{amount}}",
+  "message.usageBuilderCredits": "使用した Builder クレジット {{amount}}",
+  "message.usageEstimatedBuilderCredits": "推定 Builder クレジット {{amount}}",
+  "message.usageMixedCost": "報告済み・推定の費用 {{amount}}",
+  "message.usageMixedBuilderCredits":
+    "報告済み・推定の Builder クレジット {{amount}}",
   "message.requestIdUnavailable": "リクエスト ID を利用できません",
   "message.unavailable": "この会話ではこのメッセージを利用できなくなりました。",
   "message.navigationUnavailable": "会話のナビゲーションは利用できません。",
@@ -1633,6 +1652,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.appFilterLabel": "アプリ",
   "settings.usage.allApps": "すべてのアプリ",
   "settings.usage.unattributedApp": "未分類",
+  "settings.usage.unclassifiedUsage": "未分類の利用",
   "settings.usage.peopleFilterLabel": "メンバー",
   "settings.usage.everyone": "全員",
   "settings.usage.justYou": "自分のみ",

@@ -1016,6 +1016,10 @@ export default {
     keyboardShortcuts: {
       title: "Keyboard shortcuts",
       close: "Close keyboard shortcuts",
+      search: "Search",
+      searchLabel: "Search keyboard shortcuts",
+      categoriesLabel: "Shortcut categories",
+      empty: "No shortcuts match “{{query}}”",
       codeContext: "Code",
       screenContext: "Screen",
       nudgeAmount: {
@@ -1048,12 +1052,6 @@ export default {
         leftBracket: "Left Bracket",
         rightBracket: "Right Bracket",
       },
-      descriptions: {
-        toggleUi:
-          "Press it now to quickly hide the panes and focus on your work",
-        undo: "Step back through your most recent design change",
-        redo: "Restore the design change you just undid",
-      },
       categories: {
         essential: "Essential",
         tools: "Tools",
@@ -1085,6 +1083,7 @@ export default {
         showLayers: "Show layers",
         showAssets: "Show assets",
         toggleUi: "Show/Hide UI",
+        toggleMinimalUi: "Minimal UI",
         toggleComments: "Show or hide comments",
         zoomIn: "Zoom in",
         zoomOut: "Zoom out",
@@ -1581,6 +1580,8 @@ export default {
     assetAdded: "Asset added",
     assetsNoImageUrl: "Assets did not return an image URL.",
     failedToUploadFile: "Failed to upload file",
+    imageAttachmentUnavailable:
+      "We couldn't prepare this image as visual input. Attach a smaller PNG, JPG, GIF, or WebP file.",
     attachmentsTooLarge:
       "Those attachments are too large. Uploads are limited to {{max}} MB in total — attach fewer or smaller files.",
     failedToSubmitPrompt: "Failed to submit prompt",
@@ -2011,10 +2012,12 @@ export default {
   designSystems: {
     comingSoonTitle: "Design systems are coming soon",
     waitlist: {
-      join: "Join the waitlist",
-      joining: "Joining...",
+      join: "Join waitlist",
+      joining: "Joining…",
       joined: "You're on the waitlist",
-      error: "Couldn't join the waitlist. Please try again.",
+      error: "Could not join the waitlist. Please try again.",
+      unavailable:
+        "Waitlist sign-up isn't available right now. Please try again later.",
     },
     deleteError: "Could not delete design system",
     updateSuccess: "Design system updated",

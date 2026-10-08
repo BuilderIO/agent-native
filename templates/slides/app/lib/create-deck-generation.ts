@@ -367,6 +367,7 @@ export interface DeckGenerationContext {
   mode: "new" | "source-preserving";
   targetSlideCount?: number;
   generationAttemptId?: string;
+  generationStartedAt?: number;
 }
 
 export async function persistDeckGenerationContext(

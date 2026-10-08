@@ -1,15 +1,195 @@
 ---
 title: "Render"
-description: "Localized pointer to the the Nitro render-com preset."
+description: "将独立的 Agent-Native 应用作为 Node.js Web 服务部署到 Render。"
 ---
-
-<!-- i18n-docs-ignore -->
 
 # Render
 
-Read the [English Render guide](/docs/render) for the build steps and
-provider-specific production configuration.
+<Badge label="Beta" color="orange" icon="rocket" />
 
-The deployment must use a persistent PostgreSQL database. Configure `DATABASE_URL`
-and `BETTER_AUTH_SECRET` in the provider environment. The Nitro preset is
-`render-com`.
+Render 会把你的应用作为 Web 服务托管，因此无需搭建或维护服务器。Render 运行的是
+[Node.js 指南](/docs/node-js)中介绍的同一个 Node.js 服务器，它会从你的 Git 仓库
+构建应用，并为应用提供一个支持 HTTPS 的公共地址。
+
+本指南将从零开始演示如何部署一个独立应用。你将创建应用并把它推送到 Git 仓库，
+为它配置生产数据库和身份验证密钥，准备好数据库，然后创建一个负责构建和运行它的
+Render Web 服务。
+
+<Callout tone="info">
+
+需要 Node.js `22.22+`。
+
+</Callout>
+
+你还需要一个 Render 账户，以及一个位于 GitHub、GitLab 或 Bitbucket 上的仓库。请在
+你自己的电脑上运行本指南中的命令。Render 会从你的仓库构建并运行应用。
+
+## 第 1 步：创建应用 {#step-1-create-the-app}
+
+创建新的独立应用。下面的示例基于 Chat 模板创建应用，但你可以从任何模板开始。
+进入应用的文件夹并安装依赖。`corepack enable` 会启用应用所需的 `pnpm` 版本，
+因此你无需自己安装 `pnpm`。
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+如果愿意，可以把 `my-app` 替换为你自己的应用名称。本指南的其余部分假定你位于
+应用的文件夹中。
+
+Render 会从 Git 仓库构建应用，因此在继续之前，请把应用的文件夹推送到 GitHub、
+GitLab 或 Bitbucket 上的一个新仓库。也请提交 `pnpm-lock.yaml` 文件，因为构建会
+安装其中列出的确切版本。
+
+<Callout tone="info">
+
+如果这些命令因对等依赖错误而失败，原因可能是 npx 缓存中有过时的软件包副本。运行 `npx clear-npx-cache` 清除缓存，然后重新运行这些命令。
+
+</Callout>
+
+## 第 2 步：配置环境密钥 {#step-2-configure-environment-secrets}
+
+应用从环境变量中读取其生产设置：
+
+| 变量                 | 必填 | 用途                                 |
+| -------------------- | ---- | ------------------------------------ |
+| `DATABASE_URL`       | 是   | 将应用连接到它的 PostgreSQL 数据库   |
+| `BETTER_AUTH_SECRET` | 是   | 为用户会话签名                       |
+| `BETTER_AUTH_URL`    | 否   | 设置用户访问你的应用时使用的公共地址 |
+
+下面的 export 命令让后续命令能在当前 shell 中正常运行。部署之前，请把这些变量
+同样保存到主机的项目或服务环境设置中。第 4 步会介绍如何在 Render 中保存它们。
+
+### 数据库 URL {#database-url}
+
+在本地开发期间，如果未设置 `DATABASE_URL`，应用会把数据存储在本地数据库中。
+已部署的应用需要一个真正的 PostgreSQL 数据库，在各次部署之间保留数据。Render
+会在每次部署和重启时替换服务的文件，因此数据库必须位于 Web 服务之外。从你的
+提供商处复制连接字符串并导出它：
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[数据库提供商指南](/docs/neon)介绍了在每个提供商处查找连接字符串的位置。也可以
+使用 Render Postgres。在这里使用它的外部连接字符串，在 Web 服务的设置中使用它的
+内部连接字符串。
+
+<Callout tone="warning">
+
+请选择持久的 PostgreSQL 提供商，例如 Neon、Supabase、Amazon RDS 等。
+
+</Callout>
+
+### 身份验证密钥 {#auth-secret}
+
+只需生成一次，并在各次部署之间保持不变。
+
+应用使用 `BETTER_AUTH_SECRET` 为用户会话签名。如果它发生变化，所有已登录的用户
+都会被登出。下面的命令会生成一个随机值：
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+请把生成的值保存在安全的地方，例如密码管理器。每次部署时都使用相同的值。
+
+### 公共 URL {#public-url}
+
+可选。在使用自定义域名、反向代理，或需要固定公共源的身份验证/OAuth 流程时设置它。
+
+`BETTER_AUTH_URL` 是用户访问你的应用时使用的公共地址。如果不设置，应用会根据
+每个传入请求推断自己的地址。在 Render 为你提供的地址上，这通常没有问题，但当你
+连接自定义域名时，请设置它，以便登录链接和 OAuth 重定向使用该域名。
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## 第 3 步：迁移 {#step-3-migrate}
+
+迁移会在你的数据库中创建和更新应用所需的表。请在首次部署之前运行此命令：
+
+```bash
+pnpm migrate:production
+```
+
+该命令在你的电脑上运行，并使用你在第 2 步中导出的 `DATABASE_URL` 连接到生产
+数据库。升级应用之后、部署新版本之前，请再次运行它。
+
+在付费的 Render 实例上，你也可以把服务的 **Pre-Deploy Command** 设置为
+`pnpm migrate:production`。这样 Render 会在每次部署上线之前运行迁移。Free 实例
+类型不提供 Pre-Deploy Command。
+
+## 第 4 步：创建 Web 服务 {#step-4-create-the-web-service}
+
+在 Render 控制台中，创建一个新的 **Web Service**，并连接第 1 步中的仓库。使用以下
+设置：
+
+| 设置          | 值                                                                                        |
+| ------------- | ----------------------------------------------------------------------------------------- |
+| Language      | `Node`                                                                                    |
+| Branch        | 你用于部署的分支，例如 `main`                                                             |
+| Build Command | `corepack enable && pnpm install --frozen-lockfile && NITRO_PRESET=render_com pnpm build` |
+| Start Command | `node .output/server/index.mjs`                                                           |
+
+Build Command 会启用应用的 `pnpm` 版本，安装 `pnpm-lock.yaml` 中列出的依赖，并
+构建应用。`NITRO_PRESET=render_com` 会构建与 Node.js 指南中相同的 Node.js 服务器，
+并将其设置为自行提供静态文件。Start Command 会运行这个服务器。Render 通过 `PORT`
+环境变量告诉服务器要使用哪个端口，服务器会自动读取它。
+
+在 **Environment Variables** 下，添加 `DATABASE_URL` 和 `BETTER_AUTH_SECRET`，值为
+你在第 2 步中导出的值。如果你设置了 `BETTER_AUTH_URL`，请用同样的方式添加它。
+
+Render 会依次根据 `NODE_VERSION` 环境变量、`.node-version` 或 `.nvmrc` 文件，以及
+`package.json` 中的 `engines` 字段选择 Node.js 版本。新服务默认使用的版本满足上述
+要求。要固定版本，请添加 `NODE_VERSION`，例如将值设为 `24`。
+
+## 第 5 步：部署 {#step-5-deploy}
+
+<Steps>
+
+### 选择实例类型
+
+为 Web 服务选择实例类型。Free 实例类型适合试用应用。如果应用需要立即响应，或者你
+想使用第 3 步中的 Pre-Deploy Command，请选择付费实例类型。
+
+### 创建 Web 服务
+
+创建 Web 服务。Render 会从你的仓库构建应用并启动它。首次构建需要几分钟，你可以在
+服务的日志中跟踪进度。
+
+### 打开应用
+
+部署完成后，控制台会显示应用的地址，该地址以 `onrender.com` 结尾。打开它并创建
+第一个账户。
+
+</Steps>
+
+在 Free 实例类型上，如果服务 15 分钟内没有流量，Render 会将其暂停。之后的下一次
+访问需要等待大约一分钟，让服务重新启动。
+
+## 部署更新 {#deploy-updates}
+
+每次你推送到第 4 步中选择的分支时，Render 都会重新部署。要发布新版本，请先运行
+迁移，然后推送：
+
+```bash
+pnpm migrate:production
+
+git push
+```
+
+服务设置和已保存的变量会保持不变，因此你无需重复第 4 步。
+
+## 下一步 {#whats-next}
+
+- [**Node.js**](/docs/node-js) - 在你管理的机器上运行同一个服务器
+- [**部署环境变量**](/docs/deployment-environment-variables) - 生产设置的完整列表
+- [**部署**](/docs/deployment) - 比较各个托管目标及其前提条件

@@ -4,6 +4,7 @@ import {
   localizeKnownChatErrorText,
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { BuilderBMark } from "@agent-native/core/client/builder-mark";
 import { formatClientFailureReport } from "@agent-native/core/client/failure-report";
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
@@ -265,10 +266,13 @@ export function BuilderConnectCta({
                 <IconLoader2 size={10} className="animate-spin" />
                 {t("agentChat.common.waiting")}
               </>
-            ) : reconnect ? (
-              t("agentChat.recovery.reconnectBuilder")
             ) : (
-              t("agentChat.setup.connectBuilder")
+              <>
+                <BuilderBMark className="size-3.5" />
+                {reconnect
+                  ? t("agentChat.recovery.reconnectBuilder")
+                  : t("agentChat.setup.connectBuilder")}
+              </>
             )}
           </button>
         </DeferredBuilderConnectPopover>

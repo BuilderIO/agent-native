@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseChangelog } from "../changelog/parse.js";
 import { DEV_SERVER_RECOVERY_EXIT_CODE } from "../cli/process.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
+import { AGENT_NATIVE_TYPEGEN_ENV } from "../shared/runtime-config.js";
 import { readAgentNativeBuildConfigMarker } from "./agent-native-config-loader.js";
 import {
   _debounceNitroFullReloadHotUpdate,
@@ -2230,6 +2231,40 @@ describe("agent-native app config", () => {
     }
   });
 
+  it("skips build diagnostics only for React Router typegen", async () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-typegen-config-"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.json"),
+      JSON.stringify({
+        runtime: { auth: { enabled: true }, database: { required: true } },
+      }),
+    );
+
+    try {
+      process.chdir(tmpDir);
+      const configPlugin = flatPlugins(agentNative()).find(
+        (plugin) => plugin?.name === "agent-native-config",
+      );
+      vi.stubEnv(AGENT_NATIVE_TYPEGEN_ENV, "1");
+      await configPlugin.config({}, { command: "build", mode: "production" });
+      expect(warn).not.toHaveBeenCalled();
+
+      vi.stubEnv(AGENT_NATIVE_TYPEGEN_ENV, undefined);
+      await configPlugin.config({}, { command: "build", mode: "production" });
+      expect(warn).toHaveBeenCalledOnce();
+      expect(warn.mock.calls[0][0]).toContain(
+        "production configuration errors",
+      );
+    } finally {
+      warn.mockRestore();
+      vi.unstubAllEnvs();
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it("loads agent-native.json defaults from the app root", async () => {
     const previousCwd = process.cwd();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-json-config-"));
@@ -3803,6 +3838,7 @@ describe("local-core dev aliases and router dedupe", () => {
           "@agent-native/toolkit/app/agentkit/react/components",
           "@agent-native/toolkit/app/agentkit/react/context",
           "@agent-native/toolkit/app/agentkit/react/root",
+          "@agent-native/toolkit/app/chat",
           "@agent-native/toolkit/app/chat/agentkit-chat/index",
           "@agent-native/core/client/agent-native-icon",
           "@agent-native/core/client/agentkit-chat/composer",

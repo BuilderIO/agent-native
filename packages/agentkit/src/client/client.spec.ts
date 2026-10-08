@@ -2590,6 +2590,113 @@ describe("AgentKitClient", () => {
     });
   });
 
+  it("lets the host persist a filtered message snapshot", async () => {
+    const persistThreadSnapshot = vi.fn(async () => undefined);
+    const transport = createTransport([]);
+    transport.persistThreadSnapshot = persistThreadSnapshot;
+    const client = new AgentKitClient({ transport });
+    const transcript: AgentMessage = {
+      id: "voice-transcript-1",
+      role: "user",
+      parts: [{ type: "text", text: "Voice transcript" }],
+      status: "complete",
+    };
+
+    await client.persistThreadSnapshot("thread-1", [transcript]);
+
+    expect(persistThreadSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: "thread-1",
+        snapshot: expect.objectContaining({ messages: [transcript] }),
+      }),
+      expect.anything(),
+    );
+    await client.shutdown();
+  });
+
+  it("reloads the durable annotation after a concurrent snapshot update", async () => {
+    const original = {
+      id: "annotation-1",
+      kind: "source",
+      label: "Original source",
+    };
+    const snapshotEdit = {
+      id: "annotation-1",
+      kind: "source",
+      label: "Snapshot edit",
+    };
+    const concurrentEdit = {
+      id: "annotation-1",
+      kind: "source",
+      label: "Concurrent edit",
+    };
+    let persistedSnapshot: AgentThreadSnapshot = {
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      messages: [],
+      annotations: [{ messageId: "assistant-1", annotation: original }],
+    };
+    const transport = createTransport([
+      protocolEvent(1, { type: "run.started" }),
+      protocolEvent(2, {
+        type: "message.created",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          parts: [],
+          status: "streaming",
+        },
+      }),
+      protocolEvent(3, {
+        type: "annotation.updated",
+        messageId: "assistant-1",
+        annotation: snapshotEdit,
+      }),
+      protocolEvent(4, {
+        type: "message.completed",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          parts: [{ type: "text", text: "Answer." }],
+          status: "complete",
+        },
+      }),
+      protocolEvent(5, { type: "run.completed" }),
+    ]);
+    const observedAnnotations: string[] = [];
+    const getThreadSnapshot = vi.fn(async () => {
+      observedAnnotations.push(
+        persistedSnapshot.annotations?.[0]?.annotation.label ?? "",
+      );
+      return persistedSnapshot;
+    });
+    transport.getThreadSnapshot = getThreadSnapshot;
+    let persistedAnnotations: AgentThreadSnapshot["annotations"];
+    transport.persistThreadSnapshot = async ({ snapshot }) => {
+      persistedAnnotations = snapshot.annotations;
+      // Simulate the server preserving a later annotation edit on CAS retry.
+      persistedSnapshot = {
+        ...snapshot,
+        annotations: [{ messageId: "assistant-1", annotation: concurrentEdit }],
+      };
+    };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-1");
+
+    const run = await client.sendMessage({ threadId: "thread-1", text: "Go" });
+    await run.completed;
+
+    expect(persistedAnnotations).toEqual([
+      { messageId: "assistant-1", annotation: snapshotEdit },
+    ]);
+    expect(getThreadSnapshot).toHaveBeenCalledTimes(2);
+    expect(observedAnnotations).toEqual(["Original source", "Concurrent edit"]);
+    expect(client.getThread("thread-1").annotations).toEqual({
+      "annotation-1": concurrentEdit,
+    });
+  });
+
   it("reports snapshot persistence failures without failing the completed run", async () => {
     const transport = createTransport([
       protocolEvent(1, { type: "run.started" }),
@@ -6450,6 +6557,87 @@ describe("AgentKitClient", () => {
       expect(client.getThread("thread-1").queuedMessages).toEqual([]);
     });
     expect(subscriptions).toBe(2);
+  });
+
+  it("waits for a replacement approval run before promoting queued work", async () => {
+    const replacementStarted = Promise.withResolvers<void>();
+    const releaseReplacement = Promise.withResolvers<void>();
+    const queued: AgentQueuedMessage = {
+      id: "queued-after-replacement-approval",
+      threadId: "thread-1",
+      text: "Continue after approval",
+      createdAt: "2026-08-29T00:00:00.000Z",
+    };
+    const promoted = vi.fn(async () => ({ runId: "run-queued" }));
+    const transport: AgentTransport = {
+      capabilities: { approvals: true, messageQueue: true },
+      async startRun() {
+        return { runId: "run-approval" };
+      },
+      async queueMessage() {
+        return { message: queued };
+      },
+      steerQueuedMessage: promoted,
+      async *subscribeToRun({ runId }) {
+        if (runId === "run-approval") {
+          yield { ...protocolEvent(1, { type: "run.started" }), runId };
+          yield {
+            ...protocolEvent(2, {
+              type: "approval.requested",
+              request: { id: "approval-1", title: "Continue?" },
+            }),
+            runId,
+          };
+          return;
+        }
+        if (runId === "run-resumed") {
+          replacementStarted.resolve();
+          yield { ...protocolEvent(1, { type: "run.started" }), runId };
+          await releaseReplacement.promise;
+          yield {
+            ...protocolEvent(2, {
+              type: "approval.resolved",
+              approvalId: "approval-1",
+              response: { decision: "approve" },
+            }),
+            runId,
+          };
+          yield { ...protocolEvent(3, { type: "run.completed" }), runId };
+          return;
+        }
+        yield { ...protocolEvent(1, { type: "run.started" }), runId };
+        yield { ...protocolEvent(2, { type: "run.completed" }), runId };
+      },
+      async cancelRun() {},
+      async resumeRun() {
+        return { runId: "run-resumed" };
+      },
+    };
+    const client = new AgentKitClient({ transport });
+    const initialRun = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Wait for approval",
+    });
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").runs["run-approval"]?.status).toBe(
+        "awaiting_approval",
+      ),
+    );
+    await client.queueMessage({ threadId: "thread-1", text: queued.text });
+
+    await client.resolveApproval({
+      threadId: "thread-1",
+      runId: "run-approval",
+      approvalId: "approval-1",
+      response: { decision: "approve" },
+    });
+    await replacementStarted.promise;
+    expect(promoted).not.toHaveBeenCalled();
+
+    releaseReplacement.resolve();
+    await vi.waitFor(() => expect(promoted).toHaveBeenCalledOnce());
+    await initialRun.completed;
+    await client.dispose();
   });
 
   it("reports replacement-run failures and permits an explicit reattach", async () => {

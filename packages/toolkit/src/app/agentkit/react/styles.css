@@ -1715,9 +1715,14 @@ button.agentkit-object {
 
 .agentkit-composer-error {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.375rem;
   padding: 0.375rem 0.625rem 0;
+}
+
+.agentkit-composer-error > span {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
 }
 
 .agentkit-file {

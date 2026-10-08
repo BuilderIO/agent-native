@@ -344,7 +344,10 @@ export function useContentDatabaseRowSearch(
 export function useDocumentProperties(
   documentId: string | null,
   databaseId: string | null,
-  options: { placeholder?: DocumentPropertiesResponse } = {},
+  options: {
+    enabled?: boolean;
+    placeholder?: DocumentPropertiesResponse;
+  } = {},
 ) {
   return useActionQuery<DocumentPropertiesResponse>(
     "list-document-properties",
@@ -352,7 +355,7 @@ export function useDocumentProperties(
       ? { documentId, ...(databaseId ? { databaseId } : {}) }
       : undefined,
     {
-      enabled: !!documentId,
+      enabled: options.enabled !== false && !!documentId,
       placeholderData: (prev) => options.placeholder ?? prev,
     },
   );

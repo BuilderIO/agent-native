@@ -10,6 +10,7 @@ import {
   RecentEditHighlights,
 } from "@agent-native/toolkit/collab-ui";
 import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
+import { nextAutosaveRetryDelayMs } from "@shared/plan-autosave-retry";
 import type { PlanFileTreeBlock } from "@shared/plan-content";
 import type {
   PlanAnnotation,
@@ -307,8 +308,6 @@ export function PlanContentRenderer({
   );
 
   const AUTOSAVE_DEBOUNCE_MS = 600;
-  const AUTOSAVE_MAX_RETRIES = 5;
-  const AUTOSAVE_MAX_BACKOFF_MS = 30_000;
   const pendingBlocksRef = useRef<PlanBlock[] | null>(null);
   const savingRef = useRef(false);
   const saveTimerRef = useRef<number | null>(null);
@@ -391,16 +390,11 @@ export function PlanContentRenderer({
         }
         if (pendingBlocksRef.current !== null) {
           if (failed) {
-            if (
-              !awaitingManualRetryRef.current &&
-              consecutiveFailuresRef.current < AUTOSAVE_MAX_RETRIES
-            ) {
-              const backoffMs = Math.min(
-                1_000 * 2 ** (consecutiveFailuresRef.current - 1),
-                AUTOSAVE_MAX_BACKOFF_MS,
-              );
-              scheduleSaveRef.current(backoffMs);
-            }
+            const retryMs = nextAutosaveRetryDelayMs(
+              consecutiveFailuresRef.current,
+              awaitingManualRetryRef.current,
+            );
+            if (retryMs !== null) scheduleSaveRef.current(retryMs);
           } else {
             flushSaveRef.current();
           }
@@ -416,8 +410,8 @@ export function PlanContentRenderer({
   };
   const retryAutosaveRef = useRef(retryAutosave);
   retryAutosaveRef.current = retryAutosave;
-  // Backoff gives up after a few attempts, which a long offline stretch
-  // outlasts; the edits are still pending, so save them as soon as we are back.
+  // The next scheduled retry can be half a minute away; the edits are still
+  // pending, so save them as soon as we are back.
   useEffect(() => {
     if (!autosaveFailed) return;
     const onOnline = () => retryAutosaveRef.current();

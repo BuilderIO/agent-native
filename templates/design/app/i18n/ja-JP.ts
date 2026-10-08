@@ -1023,6 +1023,10 @@ export default {
     keyboardShortcuts: {
       title: "キーボードショートカット",
       close: "近い: キーボードショートカット",
+      search: "検索",
+      searchLabel: "キーボードショートカットを検索",
+      categoriesLabel: "ショートカットのカテゴリ",
+      empty: "「{{query}}」に一致するショートカットはありません",
       codeContext: "コード",
       screenContext: "画面",
       nudgeAmount: {
@@ -1055,11 +1059,6 @@ export default {
         leftBracket: "左角括弧",
         rightBracket: "右角括弧",
       },
-      descriptions: {
-        toggleUi: "今すぐ押してパネルを隠し、作業に集中できます",
-        undo: "直前のデザイン変更を元に戻します",
-        redo: "元に戻したデザイン変更を復元します",
-      },
       categories: {
         essential: "基本",
         tools: "ツール",
@@ -1091,6 +1090,7 @@ export default {
         showLayers: "レイヤー",
         showAssets: "アセット",
         toggleUi: "View",
+        toggleMinimalUi: "ミニマルUI",
         toggleComments: "コメントをピン留め",
         zoomIn: "拡大",
         zoomOut: "縮小",
@@ -1596,6 +1596,8 @@ export default {
     assetAdded: "アセットが追加されました",
     assetsNoImageUrl: "Assets が画像 URL を返しませんでした。",
     failedToUploadFile: "ファイルのアップロードに失敗しました",
+    imageAttachmentUnavailable:
+      "この画像を視覚入力として準備できませんでした。より小さい PNG、JPG、GIF、WebP ファイルを添付してください。",
     attachmentsTooLarge:
       "添付ファイルが大きすぎます。アップロードは合計 {{max}} MB までです。ファイル数を減らすか、より小さいファイルを添付してください。",
     failedToSubmitPrompt: "プロンプトを送信できませんでした",
@@ -2035,9 +2037,11 @@ export default {
     comingSoonTitle: "デザインシステムは近日公開予定です",
     waitlist: {
       join: "ウェイトリストに登録",
-      joining: "登録中...",
+      joining: "登録中…",
       joined: "ウェイトリストに登録されました",
       error: "ウェイトリストに登録できませんでした。もう一度お試しください。",
+      unavailable:
+        "ウェイトリストへの登録は現在利用できません。後でもう一度お試しください。",
     },
     deleteError: "デザインシステムを削除できませんでした",
     updateSuccess: "デザインシステムが更新されました",

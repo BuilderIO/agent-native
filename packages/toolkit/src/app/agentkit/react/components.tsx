@@ -68,6 +68,8 @@ import {
   Surface,
   TextField,
   agentSuggestionPrompt,
+  createChatAttachmentAdapter,
+  formatAttachmentError,
   type PromptComposerFile,
   type PromptComposerProps,
   type TiptapComposerHandle,
@@ -129,6 +131,7 @@ import {
   type AgentKitRegistry,
   type AgentKitRenderProps,
   type AgentKitRenderSurface,
+  type AgentKitRunUsage,
   type AgentKitSlots,
   type AgentKitSuggestionsRenderProps,
   type AgentRunFailureRenderProps,
@@ -3047,6 +3050,7 @@ export function AgentMessageActions({
     onThreadForked,
     onCopyMessage,
     branchNavigation,
+    loadRunUsage,
   } = useAgentKit();
   const thread = useAgentThread(threadId);
   const feedbackCapability = useAgentCapability("feedback");
@@ -3070,6 +3074,18 @@ export function AgentMessageActions({
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [requestIdCopied, setRequestIdCopied] = useState(false);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const [usageDetails, setUsageDetails] = useState<
+    | { runId: string; status: "loading" }
+    | { runId: string; status: "error" }
+    | { runId: string; status: "loaded"; data: AgentKitRunUsage | null }
+    | null
+  >(null);
+  const usageCacheRef = useRef<{
+    runId: string;
+    fetchedAt: number;
+    runFinished: boolean;
+    data: AgentKitRunUsage;
+  } | null>(null);
   const requestIdCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -3077,13 +3093,68 @@ export function AgentMessageActions({
     () => resolveAgentMessageRequestId(message, thread.events),
     [message, thread.events],
   );
-  const hasMessageMenuActions = Boolean(
-    requestId || (forkingCapability.visible && onThreadForked),
-  );
   const runId = useMemo(
     () => resolveAgentMessageRunId(message, thread.events),
     [message, thread.events],
   );
+  const hasRunUsage =
+    message.role === "assistant" && Boolean(runId) && Boolean(loadRunUsage);
+  const runFinished = useMemo(
+    () =>
+      Boolean(
+        runId &&
+        thread.events.some(
+          (event) =>
+            event.runId === runId &&
+            (event.type === "run.completed" ||
+              event.type === "run.failed" ||
+              event.type === "run.cancelled" ||
+              (event.type === "run.status" &&
+                (event.status === "completed" ||
+                  event.status === "failed" ||
+                  event.status === "cancelled"))),
+        ),
+      ),
+    [runId, thread.events],
+  );
+  const hasMessageMenuActions = Boolean(
+    requestId || hasRunUsage || (forkingCapability.visible && onThreadForked),
+  );
+  useEffect(() => {
+    if (!actionsMenuOpen || !hasRunUsage || !runId || !loadRunUsage) return;
+    const cached = usageCacheRef.current;
+    if (
+      cached?.runId === runId &&
+      cached.runFinished === runFinished &&
+      Date.now() - cached.fetchedAt < 5 * 60_000
+    ) {
+      setUsageDetails({ runId, status: "loaded", data: cached.data });
+      return;
+    }
+    const controller = new AbortController();
+    let active = true;
+    setUsageDetails({ runId, status: "loading" });
+    void loadRunUsage({ runId, signal: controller.signal })
+      .then((data) => {
+        if (!active) return;
+        if (data)
+          usageCacheRef.current = {
+            runId,
+            fetchedAt: Date.now(),
+            runFinished,
+            data,
+          };
+        setUsageDetails({ runId, status: "loaded", data });
+      })
+      .catch(() => {
+        if (!active || controller.signal.aborted) return;
+        setUsageDetails({ runId, status: "error" });
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [actionsMenuOpen, hasRunUsage, loadRunUsage, runFinished, runId]);
   const messageSeq = thread.messages.findIndex(
     (item) => item.id === message.id,
   );
@@ -3197,6 +3268,141 @@ export function AgentMessageActions({
     requestIdAction.error ??
     forkAction.error ??
     regenerateAction.error;
+  const usageMenuItems = hasRunUsage
+    ? (() => {
+        const result = usageDetails?.runId === runId ? usageDetails : null;
+        if (!result || result.status === "loading") {
+          return [
+            {
+              id: "usage-loading",
+              label: labels.usageLoading,
+              disabled: true,
+            },
+          ];
+        }
+        if (result.status === "error") {
+          return [
+            {
+              id: "usage-unavailable",
+              label: labels.usageUnavailable,
+              disabled: true,
+            },
+          ];
+        }
+        const usage = result.data;
+        if (!usage) {
+          return [
+            {
+              id: "usage-not-recorded",
+              label: labels.usageNotRecorded,
+              disabled: true,
+            },
+          ];
+        }
+        const rows = [];
+        if (usage.durationMs !== null) {
+          rows.push({
+            id: "usage-duration",
+            label: labels.workedFor.replace(
+              "{{duration}}",
+              formatAgentKitDuration(usage.durationMs, {
+                hour: labels.durationHourShort,
+                minute: labels.durationMinuteShort,
+                second: labels.durationSecondShort,
+              }),
+            ),
+            disabled: true,
+          });
+        }
+        if (usage.billing.incomplete) {
+          rows.push({
+            id: "usage-incomplete",
+            label: labels.usageIncomplete,
+            disabled: true,
+          });
+        }
+        if (usage.billing.providerCostUsd !== null) {
+          const usd = usage.billing.providerCostUsd;
+          const amount =
+            usd > 0 && usd < 0.0001
+              ? "<$0.0001"
+              : usd.toLocaleString(undefined, {
+                  style: "currency",
+                  currency: "USD",
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 4,
+                });
+          rows.push({
+            id: "usage-provider-cost",
+            label: (usage.billing.providerCostSource === "reported"
+              ? labels.usageReportedCost
+              : usage.billing.providerCostSource === "estimated"
+                ? labels.usageEstimatedCost
+                : labels.usageMixedCost
+            ).replace("{{amount}}", amount),
+            disabled: true,
+          });
+        }
+        if (usage.billing.builderCredits !== null) {
+          const amount = usage.billing.builderCredits.toLocaleString(
+            undefined,
+            { minimumFractionDigits: 1, maximumFractionDigits: 1 },
+          );
+          rows.push({
+            id: "usage-builder-credits",
+            label: (usage.billing.builderCreditsSource === "reported"
+              ? labels.usageBuilderCredits
+              : usage.billing.builderCreditsSource === "estimated"
+                ? labels.usageEstimatedBuilderCredits
+                : labels.usageMixedBuilderCredits
+            ).replace("{{amount}}", amount),
+            disabled: true,
+          });
+        }
+        if (rows.length === 0) {
+          rows.push({
+            id: "usage-unavailable",
+            label: labels.usageUnavailable,
+            disabled: true,
+          });
+        }
+        return rows;
+      })()
+    : [];
+  const actionMenuItems = [
+    ...(requestId
+      ? [
+          {
+            id: "copy-request-id",
+            label: requestIdCopied ? labels.copied : labels.copyRequestId,
+            icon: requestIdCopied ? (
+              <IconCircleCheck size={14} aria-hidden="true" />
+            ) : (
+              <IconId size={14} aria-hidden="true" />
+            ),
+            disabled: requestIdAction.pending,
+          },
+        ]
+      : []),
+    ...(forkingCapability.visible && onThreadForked
+      ? [
+          {
+            id: "fork-chat",
+            label: <span title={forkingCapability.reason}>{labels.fork}</span>,
+            icon: <IconGitBranch size={14} aria-hidden="true" />,
+            disabled: !forkingCapability.enabled || forkAction.pending,
+          },
+        ]
+      : []),
+  ];
+  const messageMenuSections = [
+    ...(actionMenuItems.length > 0
+      ? [{ id: "actions", items: actionMenuItems }]
+      : []),
+    ...(usageMenuItems.length > 0
+      ? [{ id: "usage", label: labels.usage, items: usageMenuItems }]
+      : []),
+  ];
   return (
     <div
       className="agentkit-message-actions"
@@ -3394,7 +3600,7 @@ export function AgentMessageActions({
                 }}
                 placement="bottom"
                 align="end"
-                className="agentkit-message-menu w-48"
+                className="agentkit-message-menu w-56"
                 trigger={
                   <IconButton
                     label={labels.messageActions}
@@ -3404,39 +3610,7 @@ export function AgentMessageActions({
                     title={labels.messageActions}
                   />
                 }
-                items={[
-                  ...(requestId
-                    ? [
-                        {
-                          id: "copy-request-id",
-                          label: requestIdCopied
-                            ? labels.copied
-                            : labels.copyRequestId,
-                          icon: requestIdCopied ? (
-                            <IconCircleCheck size={14} aria-hidden="true" />
-                          ) : (
-                            <IconId size={14} aria-hidden="true" />
-                          ),
-                          disabled: requestIdAction.pending,
-                        },
-                      ]
-                    : []),
-                  ...(forkingCapability.visible && onThreadForked
-                    ? [
-                        {
-                          id: "fork-chat",
-                          label: (
-                            <span title={forkingCapability.reason}>
-                              {labels.fork}
-                            </span>
-                          ),
-                          icon: <IconGitBranch size={14} aria-hidden="true" />,
-                          disabled:
-                            !forkingCapability.enabled || forkAction.pending,
-                        },
-                      ]
-                    : []),
-                ]}
+                sections={messageMenuSections}
                 onAction={(id) => {
                   if (id === "copy-request-id") {
                     void requestIdAction.execute().catch(() => undefined);
@@ -3932,6 +4106,10 @@ export function AgentKitComposer({
   }, []);
   const [uncontrolledMode, setUncontrolledMode] = useState(defaultMode);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const composerAttachmentAdapter = useMemo(
+    () => attachmentAdapter ?? createChatAttachmentAdapter(),
+    [attachmentAdapter],
+  );
   const executionMode = mode ?? uncontrolledMode;
   const active = hasActiveRuns(thread);
   const composerInitialText = editingMessage
@@ -3962,12 +4140,13 @@ export function AgentKitComposer({
         await composer.addAttachment(file);
         setAttachmentError(null);
       } catch (error) {
-        const message = error instanceof Error ? error.message : labels.error;
-        reportAttachmentError(message);
+        reportAttachmentError(
+          `${file.name}: ${formatAttachmentError(error, labels.dropFileFailed)}`,
+        );
         throw error;
       }
     },
-    [labels.error, reportAttachmentError],
+    [labels.dropFileFailed, labels.error, reportAttachmentError],
   );
   useEffect(() => {
     const receiveAttachments = (event: Event) => {
@@ -4361,7 +4540,7 @@ export function AgentKitComposer({
         onInspectContextItem={onInspectContextItem}
         onRetryContextItem={onRetryContextItem}
         contextMenuItems={contextMenuItems}
-        attachmentAdapter={attachmentAdapter}
+        attachmentAdapter={composerAttachmentAdapter}
         inlineTextAttachments={inlineTextAttachments}
         rootClassName="agentkit-composer"
         className={

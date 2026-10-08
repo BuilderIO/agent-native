@@ -2279,6 +2279,132 @@ describe("createAgentKitProtocolAdapter", () => {
     );
   });
 
+  it("resolves a resumed runtime run ID to its protocol run", async () => {
+    async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "approval-request",
+        approvalId: "approval-1",
+        toolCallId: "tool-1",
+        toolName: "publish",
+        message: "Publish the release?",
+      };
+      yield { type: "done", reason: "tool-use" };
+    }
+    async function* continuationEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: {
+          id: "assistant-after-approval",
+          role: "assistant",
+          content: [],
+        },
+      };
+      yield {
+        type: "widget",
+        operation: "create",
+        widget: {
+          id: "tool-1:chat-ui",
+          kind: "release.summary",
+          data: { toolCallId: "tool-1", toolName: "publish" },
+        },
+      };
+      yield {
+        type: "message-done",
+        message: {
+          id: "assistant-after-approval",
+          role: "assistant",
+          content: [],
+        },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const resume = vi.fn(async () => ({
+      id: "turn-restored",
+      runId: "runtime-after-approval",
+      sessionId: "thread-1",
+      events: continuationEvents(),
+    }));
+    const runtime = createRuntime(approvalEvents, {
+      capabilities: {
+        messages: { streaming: true },
+        tools: { events: true, approvals: true },
+        resumableRuns: true,
+      },
+      resume,
+    });
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-before-approval",
+        runId: "runtime-before-approval",
+        sessionId: "thread-1",
+        events: approvalEvents(),
+      }),
+      continueTurn: async () => ({
+        id: "turn-after-approval",
+        runId: "runtime-after-approval",
+        sessionId: "thread-1",
+        events: continuationEvents(),
+      }),
+    });
+
+    const transport = createAgentKitProtocolAdapter(runtime, {
+      createId: () => "protocol-after-approval",
+    });
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Publish it")],
+    });
+    const initial = transport.subscribeToRun({ threadId: "thread-1", runId });
+    const initialIterator = initial[Symbol.asyncIterator]();
+    while (true) {
+      const next = await initialIterator.next();
+      expect(next.done).toBe(false);
+      if (next.value?.type === "approval.requested") break;
+    }
+
+    const resumed = await transport.resumeRun?.({
+      threadId: "thread-1",
+      runId,
+      resume: [
+        resumeEntryFromApproval({
+          approvalId: "approval-1",
+          response: approvalResponse("approve"),
+        }),
+      ],
+    });
+    expect(resumed?.runId).toBe("protocol-after-approval");
+    expect(
+      await transport.getRun?.({
+        threadId: "thread-1",
+        runId: "runtime-after-approval",
+      }),
+    ).toMatchObject({ id: "protocol-after-approval" });
+
+    const replayed = await drain(
+      transport.subscribeToRun({
+        threadId: "thread-1",
+        runId: "runtime-after-approval",
+      }),
+    );
+
+    expect(resume).not.toHaveBeenCalled();
+    expect(
+      replayed.filter((event) => event.type === "message.completed"),
+    ).toHaveLength(1);
+    expect(
+      replayed.filter(
+        (event) =>
+          event.type === "widget.created" || event.type === "widget.updated",
+      ),
+    ).toHaveLength(1);
+    expect(new Set(replayed.map((event) => event.runId))).toEqual(
+      new Set(["protocol-after-approval"]),
+    );
+    await initialIterator.return?.();
+  });
+
   it("omits a missing runtime turn id from restored run metadata", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield { type: "done", reason: "complete" };

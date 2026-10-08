@@ -984,6 +984,10 @@ export default {
     keyboardShortcuts: {
       title: "键盘快捷键",
       close: "关闭: 键盘快捷键",
+      search: "搜索",
+      searchLabel: "搜索键盘快捷键",
+      categoriesLabel: "快捷键分类",
+      empty: "没有与“{{query}}”匹配的快捷键",
       codeContext: "代码",
       screenContext: "屏幕",
       nudgeAmount: {
@@ -1016,11 +1020,6 @@ export default {
         leftBracket: "左方括号",
         rightBracket: "右方括号",
       },
-      descriptions: {
-        toggleUi: "立即按下以快速隐藏面板并专注于工作",
-        undo: "逐步撤销最近的设计更改",
-        redo: "恢复刚刚撤销的设计更改",
-      },
       categories: {
         essential: "基本",
         tools: "工具",
@@ -1052,6 +1051,7 @@ export default {
         showLayers: "图层",
         showAssets: "资源",
         toggleUi: "View",
+        toggleMinimalUi: "极简界面",
         toggleComments: "固定评论",
         zoomIn: "放大",
         zoomOut: "缩小",
@@ -1523,6 +1523,8 @@ export default {
     assetAdded: "添加资产",
     assetsNoImageUrl: "Assets 未返回图片 URL。",
     failedToUploadFile: "上传文件失败",
+    imageAttachmentUnavailable:
+      "无法将此图片准备为视觉输入。请附加较小的 PNG、JPG、GIF 或 WebP 文件。",
     attachmentsTooLarge:
       "这些附件太大。上传总大小上限为 {{max}} MB — 请减少文件数量或使用更小的文件。",
     failedToSubmitPrompt: "无法提交提示",
@@ -1934,9 +1936,10 @@ export default {
     comingSoonTitle: "设计系统即将推出",
     waitlist: {
       join: "加入候补名单",
-      joining: "正在加入...",
-      joined: "你已加入候补名单",
+      joining: "正在加入…",
+      joined: "您已加入候补名单",
       error: "无法加入候补名单。请重试。",
+      unavailable: "候补名单报名暂不可用。请稍后重试。",
     },
     deleteError: "无法删除设计系统",
     updateSuccess: "设计系统更新",
