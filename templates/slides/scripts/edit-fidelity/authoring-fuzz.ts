@@ -613,6 +613,31 @@ export function createAuthoringFuzzPlan(
 
 const MAX_FAILURE_LOG_OPERATIONS = 20;
 const MAX_FAILURE_MESSAGE_LENGTH = 3500;
+const MAX_PRIOR_REGRESSION_SUMMARIES = 5;
+const MAX_PRIOR_REGRESSION_SUMMARY_LENGTH = 300;
+
+export function formatAuthoringFuzzUnavailable(
+  message: string,
+  problems: readonly string[],
+) {
+  if (problems.length === 0) return message;
+  const summaries = problems
+    .slice(0, MAX_PRIOR_REGRESSION_SUMMARIES)
+    .map(
+      (problem) =>
+        `- ${problem.replaceAll(/\s+/g, " ").slice(0, MAX_PRIOR_REGRESSION_SUMMARY_LENGTH)}`,
+    );
+  if (problems.length > summaries.length) {
+    summaries.push(
+      `- ${problems.length - summaries.length} more regression(s)`,
+    );
+  }
+  return [
+    message,
+    `Earlier authoring regression(s) before the harness became unavailable (${problems.length}):`,
+    ...summaries,
+  ].join("\n");
+}
 
 export function formatAuthoringFuzzFailure(
   seed: number,

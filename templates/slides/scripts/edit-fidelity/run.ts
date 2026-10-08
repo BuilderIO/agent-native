@@ -24,6 +24,7 @@ import {
   assertAuthoringPersistence,
   authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
+  formatAuthoringFuzzUnavailable,
   findAuthoringFuzzScratchDeckId,
   lineNavigationKeys,
   runAuthoringFuzz,
@@ -69,6 +70,7 @@ import { readValueOption } from "./run-options.ts";
 import {
   ActionTransportError,
   CouldNotRun,
+  getHarnessUnavailableError,
   isPlaywrightTargetTransportFailure,
   rethrowIfHarnessUnavailable,
   runSetupActionAsCouldNotRun,
@@ -5013,6 +5015,7 @@ async function runAuthoringFuzzQa(
   const problems: string[] = [];
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
   const exercisedProfiles = new Set<string>();
+  let harnessUnavailable: CouldNotRun | null = null;
 
   for (let round = 0; round < seeds; round += 1) {
     const seed = firstSeed + round;
@@ -5023,6 +5026,7 @@ async function runAuthoringFuzzQa(
     let deckId: string | null = null;
     let authoringSucceeded = false;
     let createAttempted = false;
+    let seedHarnessUnavailable: CouldNotRun | null = null;
     const scratchTitle = `[edit-fidelity] authoring fuzz ${seed} ${randomUUID()}`;
     try {
       const activePage = await runSetupAsCouldNotRun(
@@ -5159,12 +5163,22 @@ async function runAuthoringFuzzQa(
         `[edit-fidelity] fuzz seed=${result.seed} passed ${result.stepsRun} steps on ${profile ? `committed-${profile.kind}` : "synthetic"} (${result.undoSteps} undo steps)`,
       );
     } catch (error) {
-      rethrowIfHarnessUnavailable(error);
-      const problem = `seed ${seed} ${profile ? `committed-${profile.kind}` : "synthetic"}: ${String(error)}`;
-      problems.push(problem);
-      console.error(`[edit-fidelity] ${problem}`);
+      seedHarnessUnavailable = getHarnessUnavailableError(error);
+      if (!seedHarnessUnavailable) {
+        const problem = `seed ${seed} ${profile ? `committed-${profile.kind}` : "synthetic"}: ${String(error)}`;
+        problems.push(problem);
+        console.error(`[edit-fidelity] ${problem}`);
+      }
     } finally {
       const cleanupErrors: string[] = [];
+      const recordCleanupFailure = (label: string, error: unknown) => {
+        const unavailable = getHarnessUnavailableError(error);
+        if (unavailable) {
+          seedHarnessUnavailable ??= unavailable;
+          return;
+        }
+        cleanupErrors.push(`${label}: ${String(error)}`);
+      };
       const onConsole = (message: { type(): string; text(): string }) => {
         if (message.type() === "error") {
           cleanupErrors.push(`console: ${message.text()}`);
@@ -5204,8 +5218,9 @@ async function runAuthoringFuzzQa(
               scratchTitle,
             );
           } catch (error) {
-            cleanupErrors.push(
-              `could not find scratch deck after ambiguous creation: ${String(error)}`,
+            recordCleanupFailure(
+              "could not find scratch deck after ambiguous creation",
+              error,
             );
           }
         }
@@ -5215,13 +5230,13 @@ async function runAuthoringFuzzQa(
               await exitEdit(page, slideId, "escape");
             }
           } catch (error) {
-            cleanupErrors.push(`could not exit editing: ${String(error)}`);
+            recordCleanupFailure("could not exit editing", error);
           }
           if (authoringSucceeded) {
             try {
               await settleSaved(page, deckId, slideId, () => 0);
             } catch (error) {
-              cleanupErrors.push(`could not settle saves: ${String(error)}`);
+              recordCleanupFailure("could not settle saves", error);
             }
           }
           try {
@@ -5230,16 +5245,12 @@ async function runAuthoringFuzzQa(
               timeout: 120_000,
             });
           } catch (error) {
-            cleanupErrors.push(
-              `could not leave scratch deck: ${String(error)}`,
-            );
+            recordCleanupFailure("could not leave scratch deck", error);
           }
           try {
             await action(page, "delete-deck", { id: deckId }, "DELETE");
           } catch (error) {
-            cleanupErrors.push(
-              `could not delete scratch deck: ${String(error)}`,
-            );
+            recordCleanupFailure("could not delete scratch deck", error);
           }
         }
       } finally {
@@ -5253,9 +5264,7 @@ async function runAuthoringFuzzQa(
         try {
           await page.close();
         } catch (error) {
-          cleanupErrors.push(
-            `could not close authoring page: ${String(error)}`,
-          );
+          recordCleanupFailure("could not close authoring page", error);
         }
       }
       if (cleanupErrors.length) {
@@ -5264,6 +5273,15 @@ async function runAuthoringFuzzQa(
         console.error(`[edit-fidelity] ${problem}`);
       }
     }
+    if (seedHarnessUnavailable) {
+      harnessUnavailable = seedHarnessUnavailable;
+      break;
+    }
+  }
+  if (harnessUnavailable) {
+    throw new CouldNotRun(
+      formatAuthoringFuzzUnavailable(harnessUnavailable.message, problems),
+    );
   }
   if (problems.length) {
     return problems;

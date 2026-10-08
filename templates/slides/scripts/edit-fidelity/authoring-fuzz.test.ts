@@ -10,6 +10,7 @@ import {
   authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
   createAuthoringFuzzPlan,
+  formatAuthoringFuzzUnavailable,
   findAuthoringFuzzScratchDeckId,
   formatAuthoringFuzzFailure,
   isConflictResourceConsoleError,
@@ -24,6 +25,7 @@ import type { Snapshot } from "./lib/in-page.ts";
 import {
   ActionTransportError,
   CouldNotRun,
+  getHarnessUnavailableError,
   isPlaywrightTargetTransportFailure,
   rethrowIfHarnessUnavailable,
   runSetupActionAsCouldNotRun,
@@ -60,11 +62,17 @@ it("keeps authoring page setup errors out of seed regression results", async () 
 });
 
 it("classifies fuzz action transport failures as could-not-run", () => {
+  const transportFailure = new ActionTransportError(
+    "get-slide-content request failed",
+  );
+  expect(getHarnessUnavailableError(transportFailure)).toMatchObject({
+    message:
+      "authoring action transport failed: Error: get-slide-content request failed",
+  });
+
   let caught: unknown;
   try {
-    rethrowIfHarnessUnavailable(
-      new ActionTransportError("get-slide-content request failed"),
-    );
+    rethrowIfHarnessUnavailable(transportFailure);
   } catch (error) {
     caught = error;
   }
@@ -79,6 +87,28 @@ it("classifies fuzz action transport failures as could-not-run", () => {
       new Error("get-slide-content returned HTTP 500"),
     ),
   ).not.toThrow();
+  expect(
+    getHarnessUnavailableError(
+      new Error("get-slide-content returned HTTP 500"),
+    ),
+  ).toBeNull();
+});
+
+it("preserves earlier authoring regressions when the harness becomes unavailable", () => {
+  expect(formatAuthoringFuzzUnavailable("browser transport failed", [])).toBe(
+    "browser transport failed",
+  );
+  expect(
+    formatAuthoringFuzzUnavailable("browser transport failed", [
+      "seed 1: caret moved",
+      "seed 2: saved HTML did not match",
+    ]),
+  ).toBe(
+    "browser transport failed\n" +
+      "Earlier authoring regression(s) before the harness became unavailable (2):\n" +
+      "- seed 1: caret moved\n" +
+      "- seed 2: saved HTML did not match",
+  );
 });
 
 it("classifies raw Playwright target failures as could-not-run", () => {

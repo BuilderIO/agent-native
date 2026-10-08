@@ -36,16 +36,22 @@ export async function runSetupActionAsCouldNotRun<T>(
   }
 }
 
-export function rethrowIfHarnessUnavailable(error: unknown): void {
-  if (error instanceof CouldNotRun) throw error;
+export function getHarnessUnavailableError(error: unknown): CouldNotRun | null {
+  if (error instanceof CouldNotRun) return error;
   if (error instanceof ActionTransportError) {
-    throw new CouldNotRun(
+    return new CouldNotRun(
       `authoring action transport failed: ${String(error)}`,
     );
   }
   if (isPlaywrightTargetTransportFailure(error)) {
-    throw new CouldNotRun(
+    return new CouldNotRun(
       `Playwright target transport failed: ${String(error)}`,
     );
   }
+  return null;
+}
+
+export function rethrowIfHarnessUnavailable(error: unknown): void {
+  const unavailable = getHarnessUnavailableError(error);
+  if (unavailable) throw unavailable;
 }
