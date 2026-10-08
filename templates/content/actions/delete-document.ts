@@ -7,6 +7,7 @@ import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { chunks } from "./_batch-utils.js";
 import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import {
@@ -1154,6 +1155,7 @@ export async function deleteTrashedDocumentSubtree(
 }
 
 export default defineAction({
+  changeResource: (input) => documentChangeResource(input.id),
   description:
     "Move a document and all its children to Trash. Use permanently-delete-document to destroy an item already in Trash.",
   schema: z.object({
