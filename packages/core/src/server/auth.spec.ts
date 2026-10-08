@@ -3776,6 +3776,43 @@ describe("server/auth", () => {
       ).resolves.toEqual({ error: "Unauthorized" });
     });
 
+    it("matches public route parameters as exact path segments", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+
+      await autoMountAuth(app, {
+        publicPaths: [
+          "/api/session-replay/recordings/:recordingId/manifest",
+          "/api/session-replay/recordings/:recordingId/chunks/:seq",
+        ],
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      for (const path of [
+        "/api/session-replay/recordings/replay-1/manifest?agent_access=token",
+        "/api/session-replay/recordings/replay-1/chunks/0?agent_access=token",
+      ]) {
+        await expect(guard(createMockEvent({ path }))).resolves.toBeUndefined();
+      }
+
+      for (const path of [
+        "/api/session-replay/recordings/replay-1/events",
+        "/api/session-replay/recordings/replay-1/manifest/nested",
+        "/api/session-replay/recordings/replay-1/chunks",
+        "/api/session-replay/recordings/replay-1/chunks/0/raw",
+      ]) {
+        await expect(guard(createMockEvent({ path }))).resolves.toEqual({
+          error: "Unauthorized",
+        });
+      }
+    });
+
     it("lets device-token remote relay routes reach their own verifier", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
