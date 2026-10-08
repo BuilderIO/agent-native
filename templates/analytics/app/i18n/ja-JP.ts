@@ -1641,6 +1641,8 @@ export default {
       "Design からストーリーボードの結果が返されませんでした。",
     storyboardTemporaryCleanupPending:
       "ストーリーボードは保存されましたが、一時スクリーンショットを削除できませんでした。",
+    storyboardTemporaryCleanupFailed:
+      "ストーリーボードのエクスポートに失敗し、一時スクリーンショットを削除できませんでした。",
     storyboardUnexpectedResponse:
       "スクリーンショットのエクスポートから読み取れない応答が返されました。もう一度お試しください。",
     openStoryboard: "Design でストーリーボードを開く",

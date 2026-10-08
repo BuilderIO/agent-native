@@ -1599,6 +1599,8 @@ export default {
     storyboardNoDesignResponse: "لم يُرجع Design نتيجة للوحة القصصية.",
     storyboardTemporaryCleanupPending:
       "حُفظت لوحة القصص، لكن تعذّر حذف ملفات لقطات الشاشة المؤقتة.",
+    storyboardTemporaryCleanupFailed:
+      "فشل تصدير لوحة القصص، وتعذّر حذف ملفات لقطات الشاشة المؤقتة.",
     storyboardUnexpectedResponse:
       "أعاد تصدير لقطات الشاشة استجابة يتعذّر قراءتها. أعد المحاولة.",
     openStoryboard: "فتح اللوحة القصصية في Design",

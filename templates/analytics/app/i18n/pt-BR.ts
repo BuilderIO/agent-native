@@ -1642,6 +1642,8 @@ export default {
       "O Design não retornou um resultado do storyboard.",
     storyboardTemporaryCleanupPending:
       "O storyboard foi salvo, mas não foi possível remover os arquivos temporários de captura.",
+    storyboardTemporaryCleanupFailed:
+      "A exportação do storyboard falhou e não foi possível remover os arquivos temporários de captura.",
     storyboardUnexpectedResponse:
       "A exportação das capturas retornou uma resposta ilegível. Tente novamente.",
     openStoryboard: "Abrir storyboard no Design",

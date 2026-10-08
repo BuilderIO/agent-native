@@ -1668,6 +1668,8 @@ export default {
       "Design n’a renvoyé aucun résultat de storyboard.",
     storyboardTemporaryCleanupPending:
       "Le storyboard a été enregistré, mais les captures temporaires n’ont pas pu être supprimées.",
+    storyboardTemporaryCleanupFailed:
+      "L’exportation du storyboard a échoué et les captures temporaires n’ont pas pu être supprimées.",
     storyboardUnexpectedResponse:
       "L’export des captures a renvoyé une réponse illisible. Réessayez.",
     openStoryboard: "Ouvrir le storyboard dans Design",

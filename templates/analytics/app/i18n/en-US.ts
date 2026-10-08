@@ -1694,6 +1694,8 @@ export default {
     storyboardNoDesignResponse: "Design returned no storyboard result.",
     storyboardTemporaryCleanupPending:
       "The storyboard was saved, but temporary screenshot files could not be removed.",
+    storyboardTemporaryCleanupFailed:
+      "The storyboard export failed, and temporary screenshot files could not be removed.",
     storyboardUnexpectedResponse:
       "The screenshot export returned an unreadable response. Retry the export.",
     openStoryboard: "Open storyboard in Design",

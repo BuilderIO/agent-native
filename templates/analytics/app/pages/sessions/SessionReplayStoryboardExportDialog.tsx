@@ -457,7 +457,16 @@ export function SessionReplayStoryboardExportDialog({
         throw new Error(t("sessions.storyboardUnexpectedResponse"));
       }
       if (result?.cleanupPending || result?.data?.cleanupPending) {
-        setWarning(t("sessions.storyboardTemporaryCleanupPending"));
+        const storyboardWasConfirmed = Boolean(
+          upload.ok && result?.response?.trim() && result?.boardUrl?.trim(),
+        );
+        setWarning(
+          t(
+            storyboardWasConfirmed
+              ? "sessions.storyboardTemporaryCleanupPending"
+              : "sessions.storyboardTemporaryCleanupFailed",
+          ),
+        );
       }
       if (!upload.ok) {
         const errorMessage =
