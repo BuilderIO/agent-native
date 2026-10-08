@@ -4985,6 +4985,36 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
     resolvedPackageDir?: string;
   };
   type PackageRequest = string | PackageReference;
+  const candidateReferencesByFile = new Map<string, PackageReference[]>();
+  const packageReferencesByDirectory = new Map<string, PackageReference[]>();
+  const isEnoent = (error: unknown) =>
+    error !== null &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "ENOENT";
+  const isMissingDanglingSymlink = (fileStats: fs.Stats, error: unknown) =>
+    fileStats.isSymbolicLink() && isEnoent(error);
+  const resolveScannablePath = (
+    filePath: string,
+  ): { path: string; stats: fs.Stats } | null => {
+    const fileStats = fs.lstatSync(filePath);
+    let resolvedPath: string;
+    try {
+      resolvedPath = fs.realpathSync(filePath);
+    } catch (error) {
+      if (isMissingDanglingSymlink(fileStats, error)) return null;
+      throw error;
+    }
+    if (!isWithinFunction(resolvedPath)) return null;
+    let stats: fs.Stats;
+    try {
+      stats = fs.statSync(filePath);
+    } catch (error) {
+      if (isMissingDanglingSymlink(fileStats, error)) return null;
+      throw error;
+    }
+    return { path: resolvedPath, stats };
+  };
   const collect = (
     roots: Iterable<PackageRequest>,
     scanPackageReferences?: (packageDir: string) => Iterable<PackageReference>,
@@ -5055,31 +5085,13 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
         !SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name),
     ),
   );
-  const findCandidateReferences = (filePath: string): PackageReference[] => {
-    const fileStats = fs.lstatSync(filePath);
-    const isMissingDanglingSymlink = (error: unknown) =>
-      fileStats.isSymbolicLink() &&
-      error !== null &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "ENOENT";
-    let resolvedFilePath: string;
-    try {
-      resolvedFilePath = fs.realpathSync(filePath);
-    } catch (error) {
-      if (isMissingDanglingSymlink(error)) return [];
-      throw error;
-    }
+  const findCandidateReferences = (
+    resolvedFilePath: string,
+  ): PackageReference[] => {
+    const cached = candidateReferencesByFile.get(resolvedFilePath);
+    if (cached) return cached;
     const fromPackageDir = path.dirname(resolvedFilePath);
-    if (!isWithinFunction(fromPackageDir)) return [];
-    if (!fs.statSync(resolvedFilePath).isFile()) return [];
-    let source: string;
-    try {
-      source = fs.readFileSync(resolvedFilePath, "utf8");
-    } catch (error) {
-      if (isMissingDanglingSymlink(error)) return [];
-      throw error;
-    }
+    const source = fs.readFileSync(resolvedFilePath, "utf8");
     const references = new Map<string, PackageReference>();
     const addReference = (reference: PackageReference) => {
       const identity = `${reference.name}\0${reference.fromPackageDir}\0${reference.resolvedPackageDir ?? ""}`;
@@ -5167,6 +5179,7 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
     for (const name of candidates) {
       if (
         !SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name) &&
+        source.includes(name) &&
         (hasExternalSsrRuntimeReference(source, name) ||
           ["/", '"', "'", "`"].some((boundary) =>
             source.includes(`node_modules/${name}${boundary}`),
@@ -5174,41 +5187,63 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
       )
         addReference({ name, fromPackageDir });
     }
+    const found = [...references.values()];
+    candidateReferencesByFile.set(resolvedFilePath, found);
+    return found;
+  };
+  const collectTreeReferences = (roots: Iterable<string>) => {
+    const references = new Map<string, PackageReference>();
+    const visitedDirectories = new Set<string>();
+    const visitedFiles = new Set<string>();
+    const visit = (entryPath: string) => {
+      const resolved = resolveScannablePath(entryPath);
+      if (!resolved) return;
+      if (resolved.stats.isDirectory()) {
+        if (visitedDirectories.has(resolved.path)) return;
+        visitedDirectories.add(resolved.path);
+        for (const entry of fs.readdirSync(resolved.path, {
+          withFileTypes: true,
+        })) {
+          if (
+            entry.isDirectory() ||
+            entry.isSymbolicLink() ||
+            (entry.isFile() && /\.(?:[cm]?js)$/.test(entry.name))
+          )
+            visit(path.join(resolved.path, entry.name));
+        }
+        return;
+      }
+      if (
+        !resolved.stats.isFile() ||
+        !/\.(?:[cm]?js)$/.test(path.basename(entryPath)) ||
+        visitedFiles.has(resolved.path)
+      )
+        return;
+      visitedFiles.add(resolved.path);
+      for (const reference of findCandidateReferences(resolved.path)) {
+        const identity = `${reference.name}\0${reference.fromPackageDir}\0${reference.resolvedPackageDir ?? ""}`;
+        references.set(identity, reference);
+      }
+    };
+    for (const root of roots) visit(root);
     return [...references.values()];
   };
-  const emittedReferences: PackageReference[] = [];
-  for (const entry of fs.readdirSync(functionDir)) {
-    if (entry === "node_modules") continue;
-    const file = path.join(functionDir, entry);
-    const inspect = (filePath: string) => {
-      emittedReferences.push(...findCandidateReferences(filePath));
-    };
-    let stats = fs.lstatSync(file);
-    if (stats.isSymbolicLink()) {
-      try {
-        stats = fs.statSync(file);
-      } catch (error) {
-        if (
-          error !== null &&
-          typeof error === "object" &&
-          "code" in error &&
-          error.code === "ENOENT"
-        ) {
-          // A dangling emitted symlink has no runtime code to inspect.
-          continue;
-        }
-        throw error;
-      }
-    }
-    if (!isWithinFunction(fs.realpathSync(file))) continue;
-    if (stats.isDirectory()) walkServerJavaScriptFiles(file, inspect);
-    else if (/\.(?:[cm]?js)$/.test(entry)) inspect(file);
-  }
+  const emittedRoots = fs
+    .readdirSync(functionDir, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.name !== "node_modules" &&
+        (entry.isDirectory() ||
+          entry.isSymbolicLink() ||
+          (entry.isFile() && /\.(?:[cm]?js)$/.test(entry.name))),
+    )
+    .map((entry) => path.join(functionDir, entry.name));
+  const emittedReferences = collectTreeReferences(emittedRoots);
   const needed = collect([...retained, ...emittedReferences], (packageDir) => {
-    const references: PackageReference[] = [];
-    walkServerJavaScriptFiles(packageDir, (filePath) => {
-      references.push(...findCandidateReferences(filePath));
-    });
+    const cached = packageReferencesByDirectory.get(packageDir);
+    if (cached) return cached;
+    const references = collectTreeReferences([packageDir]);
+    packageReferencesByDirectory.set(packageDir, references);
     return references;
   });
   return new Set([...candidates].filter((name) => !needed.has(name)));

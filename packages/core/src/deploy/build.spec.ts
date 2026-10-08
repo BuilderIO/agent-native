@@ -4548,6 +4548,140 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
     }
   });
 
+  it("follows in-bounds directory symlinks in retained package code", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const browserDir = path.join(nodeModulesDir, "@puppeteer", "browsers");
+    fs.mkdirSync(browserDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(browserDir, "package.json"),
+      JSON.stringify({
+        name: "@puppeteer/browsers",
+        dependencies: {
+          "installer-retained": "1",
+          "unused-installer-child": "1",
+        },
+      }),
+    );
+    for (const name of ["installer-retained", "unused-installer-child"]) {
+      const packageDir = path.join(nodeModulesDir, name);
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name }),
+      );
+    }
+    const runtimeDir = path.join(nodeModulesDir, "runtime");
+    const helperDir = path.join(runtimeDir, "helpers");
+    fs.mkdirSync(helperDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(runtimeDir, "package.json"),
+      JSON.stringify({ name: "runtime" }),
+    );
+    fs.writeFileSync(path.join(runtimeDir, "index.js"), "export default {};");
+    fs.writeFileSync(
+      path.join(helperDir, "reference.js"),
+      'require("installer-retained");',
+    );
+    fs.symlinkSync("helpers", path.join(runtimeDir, "linked-helpers"), "dir");
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@puppeteer/browsers": "1",
+          "installer-retained": "1",
+          "unused-installer-child": "1",
+          runtime: "1",
+        },
+      }),
+    );
+
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(manifest.dependencies).toEqual({
+      "installer-retained": "1",
+      runtime: "1",
+    });
+    expect(fs.existsSync(path.join(nodeModulesDir, "installer-retained"))).toBe(
+      true,
+    );
+    expect(
+      fs.existsSync(path.join(nodeModulesDir, "unused-installer-child")),
+    ).toBe(false);
+  });
+
+  it("follows only in-bounds emitted directory symlinks and stops cycles", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const candidateNames = [
+      "installer-emitted",
+      "installer-outside",
+      "unused-installer-child",
+    ];
+    const browserDir = path.join(nodeModulesDir, "@puppeteer", "browsers");
+    fs.mkdirSync(browserDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(browserDir, "package.json"),
+      JSON.stringify({
+        name: "@puppeteer/browsers",
+        dependencies: Object.fromEntries(
+          candidateNames.map((name) => [name, "1"]),
+        ),
+      }),
+    );
+    for (const name of candidateNames) {
+      const packageDir = path.join(nodeModulesDir, name);
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name }),
+      );
+    }
+    const routesDir = path.join(functionDir, "routes");
+    const emittedDir = path.join(routesDir, "actual");
+    fs.mkdirSync(emittedDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(emittedDir, "route.js"),
+      'require("installer-emitted");',
+    );
+    fs.symlinkSync("actual", path.join(routesDir, "linked"), "dir");
+    fs.symlinkSync(routesDir, path.join(emittedDir, "cycle"), "dir");
+
+    const outsideDir = path.join(path.dirname(functionDir), "outside-code");
+    fs.mkdirSync(outsideDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(outsideDir, "route.js"),
+      'require("installer-outside");',
+    );
+    fs.symlinkSync(outsideDir, path.join(routesDir, "outside"), "dir");
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: Object.fromEntries(
+          ["@puppeteer/browsers", ...candidateNames].map((name) => [name, "1"]),
+        ),
+      }),
+    );
+
+    expect(() =>
+      sanitizeServerlessFunctionPackageManifest(functionDir),
+    ).not.toThrow();
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(manifest.dependencies).toEqual({ "installer-emitted": "1" });
+    expect(fs.existsSync(path.join(nodeModulesDir, "installer-emitted"))).toBe(
+      true,
+    );
+    for (const name of ["installer-outside", "unused-installer-child"]) {
+      expect(fs.existsSync(path.join(nodeModulesDir, name))).toBe(false);
+    }
+  });
+
   it("skips dangling function-root symlinks but propagates other stat errors", () => {
     const functionDir = setupFunctionDir();
     const nodeModulesDir = path.join(functionDir, "node_modules");
@@ -4565,7 +4699,9 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
       recursive: true,
     });
     const failingLink = path.join(functionDir, "failing.mjs");
-    fs.symlinkSync("missing-target.mjs", failingLink);
+    const failingTarget = path.join(functionDir, "existing-target.mjs");
+    fs.writeFileSync(failingTarget, "export default {};");
+    fs.symlinkSync(path.basename(failingTarget), failingLink);
     const originalStatSync = fs.statSync;
     const statSync = vi.spyOn(fs, "statSync");
     statSync.mockImplementation(((filePath: fs.PathLike) => {

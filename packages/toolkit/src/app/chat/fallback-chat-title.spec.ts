@@ -26,6 +26,14 @@ describe("fallbackChatTitle", () => {
     expect(fallbackChatTitle(prompt)).toBe(prompt);
   });
 
+  it("preserves raw lookalike tags before a canonical encoded context block", () => {
+    const message =
+      "A <context-menu>x</context-menu> <Context.Provider>y</Context.Provider>";
+    const prompt = `${message}\n\n<context data-agentkit-context-encoding="entities-v1">\nprivate\n</context>`;
+
+    expect(fallbackChatTitle(prompt)).toBe(message);
+  });
+
   it("preserves an authored exact marker through the encoded producer", () => {
     expect(
       fallbackChatTitle(

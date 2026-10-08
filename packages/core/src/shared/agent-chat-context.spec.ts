@@ -107,6 +107,14 @@ describe("stripAgentChatContextFromMessage", () => {
     expect(stripAgentChatContextFromMessage(prompt)).toBe(prompt);
   });
 
+  it("preserves raw lookalike tags before a canonical encoded context block", () => {
+    const message =
+      "A <context-menu>x</context-menu> <Context.Provider>y</Context.Provider>";
+    const prompt = `${message}\n\n<context data-agentkit-context-encoding="entities-v1">\nprivate\n</context>`;
+
+    expect(stripAgentChatContextFromMessage(prompt)).toBe(message);
+  });
+
   it("restores an authored line-start context tag from the encoded producer", () => {
     const prompt = "<context>";
 
