@@ -27980,6 +27980,7 @@ function DesignEditor() {
                               )?.id ?? null)
                             : undefined
                         }
+                        fillFocusedViewport={readOnlyWidget}
                         chromeInsetLeft={chromeInsetLeft}
                         chromeInsetRight={chromeInsetRight}
                         visibleCanvasRectRef={visibleCanvasRectRef}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getFocusedLineupFillHeight,
   getFocusedLineupScale,
   resolveFocusedLineupScreenId,
 } from "./overview-layout";
@@ -113,5 +114,48 @@ describe("getFocusedLineupScale", () => {
         maxScale: 1,
       }),
     ).toBe(minScale);
+  });
+});
+
+describe("getFocusedLineupFillHeight", () => {
+  const base = {
+    frameWidth: 1440,
+    availableWidth: 620,
+    minScale: 0.1,
+    maxScale: 1,
+  };
+
+  it("grows a short frame to the pane's viewport height at the fitted scale", () => {
+    const height = getFocusedLineupFillHeight({
+      ...base,
+      frameHeight: 900,
+      viewportHeight: 860,
+    });
+    // 860 / (620 / 1440) = 1997.4 canvas px, so the pane is filled to its edge.
+    expect(height).toBe(1998);
+    expect(height * (620 / 1440)).toBeGreaterThanOrEqual(860);
+  });
+
+  it("never shrinks a frame already taller than the pane", () => {
+    expect(
+      getFocusedLineupFillHeight({
+        ...base,
+        frameHeight: 4000,
+        viewportHeight: 860,
+      }),
+    ).toBe(4000);
+  });
+
+  it("needs only the viewport height when the frame is shown at 100%", () => {
+    expect(
+      getFocusedLineupFillHeight({
+        frameWidth: 390,
+        frameHeight: 600,
+        availableWidth: 390,
+        viewportHeight: 860,
+        minScale: 0.1,
+        maxScale: 1,
+      }),
+    ).toBe(860);
   });
 });

@@ -79,6 +79,7 @@ describe("MultiScreenCanvas auto-fit framing", () => {
       chromeInsetLeft = 0,
       chromeInsetRight = 0,
       initialFitScreenId,
+      fillFocusedViewport,
       selectedScreenIds,
       paneSize,
     }: {
@@ -87,6 +88,7 @@ describe("MultiScreenCanvas auto-fit framing", () => {
       chromeInsetLeft?: number;
       chromeInsetRight?: number;
       initialFitScreenId?: string | null;
+      fillFocusedViewport?: boolean;
       selectedScreenIds?: string[];
       paneSize?: { width: number; height: number };
     } = {},
@@ -116,6 +118,7 @@ describe("MultiScreenCanvas auto-fit framing", () => {
           chromeInsetLeft={chromeInsetLeft}
           chromeInsetRight={chromeInsetRight}
           initialFitScreenId={initialFitScreenId}
+          fillFocusedViewport={fillFocusedViewport}
           selectedScreenIds={selectedScreenIds}
         />,
       );

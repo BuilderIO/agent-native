@@ -65,6 +65,24 @@ export function getFocusedLineupScale(args: {
   return Math.max(args.minScale, Math.min(args.maxScale, fit));
 }
 
+/**
+ * Height a focused frame renders at so the pane below it is never empty: at
+ * least the pane's viewport height at the focused scale, so the screen's own
+ * layout reflows into the taller viewport the way a resized device frame does.
+ * A screen already taller than that keeps its height and scrolls.
+ */
+export function getFocusedLineupFillHeight(args: {
+  frameWidth: number;
+  frameHeight: number;
+  availableWidth: number;
+  viewportHeight: number;
+  minScale: number;
+  maxScale: number;
+}): number {
+  const scale = getFocusedLineupScale(args);
+  return Math.max(args.frameHeight, Math.ceil(args.viewportHeight / scale));
+}
+
 export function shouldSuppressLineupRecenter(args: {
   armed: LineupRecenterDuplicateArm | null;
   nowMs: number;
