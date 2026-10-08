@@ -48,8 +48,13 @@ vi.mock("h3", () => ({
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
   getRequestHeader: (event: any, name: string) =>
     event._headers?.[name.toLowerCase()],
+  getRequestIP: (event: any) =>
+    event._ip ?? event.req?.socket?.remoteAddress ?? event.ip ?? "127.0.0.1",
   getRequestURL: (event: any) =>
-    new URL(event.req?.url ?? "http://localhost/_agent-native/actions/test"),
+    new URL(
+      event.req?.url ??
+        `${event._headers?.["x-forwarded-proto"] ?? "http"}://${event._headers?.host ?? "localhost"}/_agent-native/actions/test`,
+    ),
   setResponseStatus: (event: any, status: number) => {
     event._status = status;
   },

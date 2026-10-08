@@ -30,6 +30,7 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  getForwardedRequestURL: (event: { url: string }) => new URL(event.url),
   runWithRequestContext: (...args: unknown[]) =>
     mockRunWithRequestContext(...args),
 }));

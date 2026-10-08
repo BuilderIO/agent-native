@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("h3", () => ({
+  createError: (details: { statusCode: number; statusMessage: string }) =>
+    Object.assign(new Error(details.statusMessage), details),
   getRequestHeader: (event: any, name: string) =>
     event.headers?.[name] ?? event.headers?.[name.toLowerCase()],
   getRequestIP: (event: any) => event.ip,
@@ -134,7 +136,12 @@ describe("getForwardedRequestOrigin", () => {
           { ip: "127.0.0.1", url: "http://internal.gateway:3000/" },
         ),
       ),
-    ).toThrow("Invalid forwarded request protocol");
+    ).toThrow(
+      expect.objectContaining({
+        statusCode: 400,
+        statusMessage: "Invalid forwarded request origin",
+      }),
+    );
   });
 
   it("rejects a forwarded hostname containing a path", () => {
@@ -149,7 +156,12 @@ describe("getForwardedRequestOrigin", () => {
           { ip: "127.0.0.1", url: "http://internal.gateway:3000/" },
         ),
       ),
-    ).toThrow("Invalid forwarded request hostname");
+    ).toThrow(
+      expect.objectContaining({
+        statusCode: 400,
+        statusMessage: "Invalid forwarded request origin",
+      }),
+    );
   });
 
   it("resolves the same normalized hostname from Node and Fetch headers", () => {

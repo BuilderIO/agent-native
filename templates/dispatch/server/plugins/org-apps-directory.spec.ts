@@ -57,15 +57,19 @@ async function request(
   const app = createApp();
   app.use(orgAppsHandler);
   const requestUrl = new URL(url);
-  return app.request(url, {
-    headers: {
-      host: requestUrl.host,
-      "x-forwarded-proto": requestUrl.protocol.slice(0, -1),
-      authorization: await authorization(),
-      "x-agent-native-include-directory-app": "1",
-      ...extraHeaders,
+  return app.request(
+    url,
+    {
+      headers: {
+        host: requestUrl.host,
+        "x-forwarded-proto": requestUrl.protocol.slice(0, -1),
+        authorization: await authorization(),
+        "x-agent-native-include-directory-app": "1",
+        ...extraHeaders,
+      },
     },
-  });
+    { clientAddress: "127.0.0.1" },
+  );
 }
 
 describe("org apps directory handler", () => {

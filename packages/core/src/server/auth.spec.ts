@@ -7749,7 +7749,7 @@ describe("server/auth", () => {
 
       expect(forwardedBody).toEqual({
         email: "user@example.com",
-        callbackURL: "http://localhost/",
+        callbackURL: "https://localhost/",
       });
     });
 

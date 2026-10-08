@@ -1,6 +1,7 @@
 import type { IncomingHttpHeaders } from "node:http";
 
 import {
+  createError,
   getRequestHeader,
   getRequestIP,
   getRequestURL,
@@ -22,16 +23,31 @@ export function getForwardedRequestOrigin(event: H3Event): string {
     const rawHost = getRequestHeader(event, "x-forwarded-host");
     const headerHost = rawHost?.split(",")[0]?.trim();
     if (rawHost !== undefined && !headerHost) {
-      throw new Error("Invalid forwarded request hostname");
+      throw createError({
+        statusCode: 400,
+        statusMessage: "Invalid forwarded request origin",
+      });
     }
     const rawProto = getRequestHeader(event, "x-forwarded-proto");
-    const headerProto = rawProto
-      ? rawProto.split(",")[0]?.trim().toLowerCase()
-      : requestUrl.protocol.slice(0, -1);
+    const headerProto =
+      rawProto === undefined
+        ? requestUrl.protocol.slice(0, -1)
+        : rawProto.split(",")[0]?.trim().toLowerCase();
     if (headerProto !== "http" && headerProto !== "https") {
-      throw new Error("Invalid forwarded request protocol");
+      throw createError({
+        statusCode: 400,
+        statusMessage: "Invalid forwarded request origin",
+      });
     }
-    const origin = new URL(`${headerProto}://${headerHost || requestUrl.host}`);
+    let origin: URL;
+    try {
+      origin = new URL(`${headerProto}://${headerHost || requestUrl.host}`);
+    } catch {
+      throw createError({
+        statusCode: 400,
+        statusMessage: "Invalid forwarded request origin",
+      });
+    }
     if (
       origin.username ||
       origin.password ||
@@ -39,7 +55,10 @@ export function getForwardedRequestOrigin(event: H3Event): string {
       origin.search ||
       origin.hash
     ) {
-      throw new Error("Invalid forwarded request hostname");
+      throw createError({
+        statusCode: 400,
+        statusMessage: "Invalid forwarded request origin",
+      });
     }
     return origin.origin;
   }
