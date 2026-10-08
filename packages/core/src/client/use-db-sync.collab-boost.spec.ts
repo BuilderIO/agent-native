@@ -163,10 +163,11 @@ describe("collab poll boost", () => {
     async function pollsAfterFirstEvent(
       event: Record<string, unknown>,
       resourceId = "d1",
+      resourceType = "design",
     ) {
       const unsub = await subscribeRefused();
       const releaseResource = registerCollabActivityResource({
-        resourceType: "design",
+        resourceType,
         resourceId,
       });
       // The idle poll that carries the event; no lease is ever held.
@@ -228,6 +229,36 @@ describe("collab poll boost", () => {
       expect(
         await pollsAfterFirstEvent(action("other-tab", null)),
       ).toBeLessThanOrEqual(1);
+    });
+
+    describe("resource events that are not actions (Slides deck tombstones)", () => {
+      const deckEvent = (requestSource?: string) => ({
+        source: "deck",
+        type: "deck-deleted",
+        key: "d1",
+        resourceType: "deck",
+        resourceId: "d1",
+        ...(requestSource ? { requestSource } : {}),
+      });
+      const boosted = (event: Record<string, unknown>) =>
+        pollsAfterFirstEvent(event, "d1", "deck");
+
+      it("polls every 2.5 s once another tab's deck event names its sender", async () => {
+        expect(await boosted(deckEvent("other-tab"))).toBeGreaterThanOrEqual(
+          11,
+        );
+      });
+
+      it("stays idle for this tab's own deck saves, so a lone editor is never boosted", async () => {
+        expect(await boosted(deckEvent(getBrowserTabId()))).toBeLessThanOrEqual(
+          1,
+        );
+      });
+
+      it("stays idle for a deck event that names no sender or the agent", async () => {
+        expect(await boosted(deckEvent())).toBeLessThanOrEqual(1);
+        expect(await boosted(deckEvent("agent"))).toBeLessThanOrEqual(1);
+      });
     });
 
     it("does not treat the history replayed by the first poll as collaborator activity", async () => {
