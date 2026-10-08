@@ -249,6 +249,24 @@ describe("poll event SSE handler", () => {
       event.close?.();
     });
 
+    it("does not wait on another user's slow access check", async () => {
+      const { state, event, keys } = await openStream((_type, _id, ctx) =>
+        ctx.userEmail === "carol@example.com"
+          ? new Promise(() => {})
+          : Promise.resolve({ role: "viewer" }),
+      );
+      state.getChangeVisibilityForUser(
+        deckChange("probe"),
+        "carol@example.com",
+        undefined,
+      );
+
+      state.recordChange(deckChange("first"));
+      await vi.waitFor(() => expect(keys()).toEqual(["first"]));
+
+      event.close?.();
+    });
+
     it("keeps stream order when a later event is visible before the held one", async () => {
       let confirm!: () => void;
       const { state, event, keys } = await openStream(

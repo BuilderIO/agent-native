@@ -884,19 +884,49 @@ export class AppSyncState {
     );
   }
 
-  /**
-   * Wait (bounded) for the access checks already running, so a caller that
-   * got "pending" can ask again instead of dropping the event.
-   */
-  async waitForAccessChecks(timeoutMs: number): Promise<void> {
+  private async waitForAccessChecks(
+    checks: Iterable<Promise<void>>,
+    timeoutMs: number,
+  ): Promise<void> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([
-      Promise.allSettled(this.accessInFlight.values()),
+      Promise.allSettled(checks),
       new Promise((resolve) => {
         timer = setTimeout(resolve, timeoutMs);
       }),
     ]);
     clearTimeout(timer);
+  }
+
+  /**
+   * Like `getChangeVisibilityForUser`, but a "pending" verdict waits (bounded)
+   * for this event's own access check and answers again, so a caller that
+   * cannot poll later does not lose the event. Still "pending" after the wait
+   * means the check did not finish.
+   */
+  async resolveChangeVisibilityForUser(
+    event: Pick<
+      ChangeEvent,
+      "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
+    >,
+    userEmail: string,
+    orgId: string | undefined,
+    timeoutMs: number,
+  ): Promise<ChangeVisibility> {
+    const visibility = this.getChangeVisibilityForUser(event, userEmail, orgId);
+    if (visibility !== "pending" || !event.resourceType || !event.resourceId) {
+      return visibility;
+    }
+    const check = this.accessInFlight.get(
+      accessCacheKey(
+        userEmail.trim().toLowerCase(),
+        orgId,
+        event.resourceType,
+        event.resourceId,
+      ),
+    );
+    if (check) await this.waitForAccessChecks([check], timeoutMs);
+    return this.getChangeVisibilityForUser(event, userEmail, orgId);
   }
 
   getChangeVisibilityForUser(
@@ -1445,7 +1475,10 @@ export class AppSyncState {
     // A read stopped at an event whose access check had not finished. The
     // check is already running, so waiting for it here (bounded) delivers the
     // event now instead of one poll interval later.
-    await this.waitForAccessChecks(ACCESS_CHECK_WAIT_MS);
+    await this.waitForAccessChecks(
+      this.accessInFlight.values(),
+      ACCESS_CHECK_WAIT_MS,
+    );
     const { accessPending: _pending, ...result } =
       await this.readCombinedChangesSinceForUser(
         since,

@@ -82,13 +82,12 @@ export function createPollEventsHandler(
     let held: Promise<void> | null = null;
 
     const deliver = async (change: ChangeEvent) => {
-      const visibilityOf = () =>
-        state.getChangeVisibilityForUser(change, session.email, session.orgId);
-      let visibility = visibilityOf();
-      if (visibility === "pending") {
-        await state.waitForAccessChecks(ACCESS_CHECK_WAIT_MS);
-        visibility = visibilityOf();
-      }
+      const visibility = await state.resolveChangeVisibilityForUser(
+        change,
+        session.email,
+        session.orgId,
+        ACCESS_CHECK_WAIT_MS,
+      );
       if (closed) return;
       if (visibility === "visible") {
         safePush(JSON.stringify(change));
