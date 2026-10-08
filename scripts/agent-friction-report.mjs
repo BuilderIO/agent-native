@@ -2223,10 +2223,12 @@ const FEEDBACK_RELEASE_COVERAGE_REGEX_CASES = [
 ];
 
 const E2E_ISSUE_FANOUT_RE =
-  /\b(?:e2e|end[- ]to[- ]end|playwright)\b[^.!?\n]{0,120}\b(?:too many|multiple|100|separate|per[- ](?:test|spec)|flood|overload|duplicate)\b[^.!?\n]{0,80}\b(?:issues?|tickets?)\b|\b(?:too many|multiple|100|separate|per[- ](?:test|spec)|flood|overload|duplicate)\b[^.!?\n]{0,80}\b(?:issues?|tickets?)\b[^.!?\n]{0,120}\b(?:e2e|end[- ]to[- ]end|playwright)\b/i;
+  /\b(?:e2e|end[- ]to[- ]end|playwright)\b[^.!?\n]{0,120}\b(?:too many|multiple|100|separate|per[- ](?:test|spec)|flood|overload|duplicate)\b[^.!?\n]{0,80}\b(?:issues?|tickets?)\b|\b(?:too many|multiple|100|separate|per[- ](?:test|spec)|flood|overload|duplicate)\b[^.!?\n]{0,80}\b(?:issues?|tickets?)\b[^.!?\n]{0,120}\b(?:e2e|end[- ]to[- ]end|playwright)\b|\bissues?\b[^.!?\n]{0,80}\b(?:for|per)\s+(?:each|every)\b[^.!?\n]{0,80}\b(?:e2e|end[- ]to[- ]end|playwright)\b|\b(?:each|every)\b[^.!?\n]{0,80}\b(?:e2e|end[- ]to[- ]end|playwright)\b[^.!?\n]{0,80}\b(?:own|separate|individual)\b[^.!?\n]{0,40}\b(?:issues?|tickets?)\b/i;
 const E2E_ISSUE_FANOUT_REGEX_CASES = [
   [true, "When an E2E test fails, don't open up 100 issues. Just one."],
   [true, "Stop creating a separate issue for every Design E2E spec."],
+  [true, "Please don't open an issue for every failing E2E test."],
+  [true, "Each Playwright test got its own issue."],
   [true, "There are multiple duplicate tickets for Playwright failures."],
   [false, "The E2E suite had 100 failing tests."],
   [false, "There are 100 issues in this unrelated database test."],
