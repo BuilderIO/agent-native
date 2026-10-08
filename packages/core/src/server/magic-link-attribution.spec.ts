@@ -61,6 +61,7 @@ describe("magic-link attribution handoff", () => {
           utm_campaign: "launch + % & 日本語",
         },
         anonymousId: "anon_123",
+        sessionId: "session_123",
       },
       SECRET,
       NOW,
@@ -84,6 +85,7 @@ describe("magic-link attribution handoff", () => {
         utm_campaign: "launch + % & 日本語",
       },
       anonymousId: "anon_123",
+      sessionId: "session_123",
     });
   });
 

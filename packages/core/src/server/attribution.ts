@@ -4,6 +4,10 @@ import {
   normalizeAnalyticsAnonymousId,
 } from "../shared/analytics-anonymous-id.js";
 import {
+  ANALYTICS_SESSION_ID_COOKIE_NAME,
+  normalizeAnalyticsSessionId,
+} from "../shared/analytics-session-id.js";
+import {
   isSourceReferrerHost,
   shareLandingSource,
 } from "../shared/attribution-source.js";
@@ -83,6 +87,7 @@ export type SignupOrigin =
 export interface SignupAttributionContext {
   attribution: Record<string, string>;
   anonymousId?: string;
+  sessionId?: string;
 }
 
 export const SIGNUP_ATTRIBUTION_HEADER_NAME =
@@ -231,6 +236,21 @@ export function readAnalyticsAnonymousId(
       parseCookieHeader(cookieHeader)[ANALYTICS_ANONYMOUS_ID_COOKIE_NAME],
     );
   } catch {
+    // coercion-ok: malformed anonymous id cookies are absent analytics context.
+    return undefined;
+  }
+}
+
+export function readAnalyticsSessionId(
+  cookieHeader: string | null | undefined,
+): string | undefined {
+  try {
+    const value =
+      parseCookieHeader(cookieHeader)[ANALYTICS_SESSION_ID_COOKIE_NAME];
+    if (!value) return undefined;
+    return normalizeAnalyticsSessionId(decodeURIComponent(value));
+  } catch {
+    // coercion-ok: malformed session cookie input is absent analytics context.
     return undefined;
   }
 }
@@ -371,13 +391,17 @@ export function signupAttributionContextFromCookieHeader(
   const firstTouch = readFirstTouchAttribution(cookieHeader);
   const lastTouch = readLastTouchAttribution(cookieHeader);
   const anonymousId = readAnalyticsAnonymousId(cookieHeader);
-  if (!firstTouch && !lastTouch && !anonymousId) return undefined;
+  const sessionId = readAnalyticsSessionId(cookieHeader);
+  if (!firstTouch && !lastTouch && !anonymousId && !sessionId) {
+    return undefined;
+  }
   return {
     attribution: withLastTouchAttribution(
       deriveSignupAttribution(firstTouch),
       lastTouch,
     ),
     ...(anonymousId ? { anonymousId } : {}),
+    ...(sessionId ? { sessionId } : {}),
   };
 }
 
@@ -419,9 +443,11 @@ export function decodeSignupAttributionContext(
     }
     if (Object.keys(attribution).length === 0) return undefined;
     const anonymousId = normalizeAnalyticsAnonymousId(parsed?.anonymousId);
+    const sessionId = normalizeAnalyticsSessionId(parsed?.sessionId);
     return {
       attribution,
       ...(anonymousId ? { anonymousId } : {}),
+      ...(sessionId ? { sessionId } : {}),
     };
   } catch (error) {
     void error;
