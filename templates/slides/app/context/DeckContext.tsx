@@ -3959,6 +3959,7 @@ export function DeckProvider({
   const lastUndoDeckIdRef = useRef<string | null>(null);
   const lastExternalUpdateRef = useRef(0);
   const pendingCreateIdsRef = useRef<Set<string>>(new Set());
+  const confirmedPendingCreateIdsRef = useRef<Set<string>>(new Set());
   const pendingCreatePromisesRef = useRef<Map<string, Promise<void>>>(
     new Map(),
   );
@@ -4752,6 +4753,11 @@ export function DeckProvider({
       return listRead.status;
     }
     const fresh = listRead.decks;
+    for (const deck of fresh) {
+      if (pendingCreateIdsRef.current.has(deck.id)) {
+        confirmedPendingCreateIdsRef.current.add(deck.id);
+      }
+    }
     staleDeckIdsRef.current.clear();
     const currentDecks = decksRef.current;
     const currentIds = new Set(currentDecks.map((d) => d.id));
@@ -4901,6 +4907,12 @@ export function DeckProvider({
       if (openDeckRequestIdByDeckRef.current.get(currentOpenId) !== requestId) {
         return { read: "superseded", deck: null };
       }
+      if (
+        read.status === "ok" &&
+        pendingCreateIdsRef.current.has(currentOpenId)
+      ) {
+        confirmedPendingCreateIdsRef.current.add(currentOpenId);
+      }
       pollControlRef.current.onRead(currentOpenId, read.status);
       if (read.status === "ok") clearDeckAccessLost(currentOpenId);
       else if (
@@ -4915,7 +4927,13 @@ export function DeckProvider({
         !options?.clearPendingWrites &&
         (deckLocalWriteSeq.get(currentOpenId) ?? 0) !== writeSeqAtReadStart
       ) {
-        deferredRemoteSyncDecks.add(currentOpenId);
+        if (activeInlineEditSlides.get(currentOpenId)?.size) {
+          deferredRemoteSyncDecks.delete(currentOpenId);
+          inlineEditRemoteRetryDecks.add(currentOpenId);
+        } else {
+          deferredRemoteSyncDecks.add(currentOpenId);
+        }
+        flushDeferredRemoteSyncs();
         return { read: read.status, deck: null };
       }
       if (read.status !== "ok") return { read: read.status, deck: null };
@@ -5008,6 +5026,11 @@ export function DeckProvider({
       snapshotGeneration = serverSnapshotGenerationRef.current,
     ) => {
       ++deckListRequestIdRef.current;
+      for (const deck of nextDecks) {
+        if (pendingCreateIdsRef.current.has(deck.id)) {
+          confirmedPendingCreateIdsRef.current.add(deck.id);
+        }
+      }
       for (const deck of nextDecks) clearDeckAccessLost(deck.id);
       const reconciledDecks = nextDecks.map((deck) =>
         deck.previewSlide
@@ -5145,6 +5168,7 @@ export function DeckProvider({
     ++serverSnapshotGenerationRef.current;
     openDeckRequestIdByDeckRef.current.clear();
     pendingCreateIdsRef.current.clear();
+    confirmedPendingCreateIdsRef.current.clear();
     pendingCreatePromisesRef.current.clear();
     deferredCreateDecksRef.current.clear();
     pendingDuplicateSourceIdsRef.current.clear();
@@ -5713,11 +5737,14 @@ export function DeckProvider({
               scopeGeneration === deckScopeGenerationRef.current &&
               decksRef.current.some((deck) => deck.id === newDeck.id)
             ) {
-              markDeckCreateFailed(newDeck.id, err);
+              if (!confirmedPendingCreateIdsRef.current.has(newDeck.id)) {
+                markDeckCreateFailed(newDeck.id, err);
+              }
             }
           })
           .finally(() => {
             pendingCreateIdsRef.current.delete(newDeck.id);
+            confirmedPendingCreateIdsRef.current.delete(newDeck.id);
             if (
               pendingCreatePromisesRef.current.get(newDeck.id) === createPromise
             ) {

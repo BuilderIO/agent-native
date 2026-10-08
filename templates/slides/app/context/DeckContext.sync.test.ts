@@ -22,12 +22,15 @@ vi.mock("@agent-native/core/client/org", () => ({
   useOrg: () => orgQueryState,
 }));
 
+import { registerInlineEditRemoteApplier } from "../lib/inline-edit-remote";
 import {
   DeckProvider,
+  clearSlideEditingActive,
   fallbackPollIntervalMs,
   getDeckSaveError,
   hasFailedDeckSave,
   hasUnsavedDeckChanges,
+  markSlideEditingActive,
   useDecks,
   type Deck,
 } from "./DeckContext";
@@ -1172,6 +1175,104 @@ describe("DeckContext fallback polling", () => {
     });
 
     expect(hasFailedDeckSave(created.id)).toBe(false);
+  });
+
+  it("does not report create failure after a successful read confirms the deck", async () => {
+    const { api, result } = await renderOpenDeck();
+    let created!: Deck;
+    act(() => {
+      created = result.current.createDeck("Confirmed Deck");
+    });
+    api.setServerDecks([openDeck(), created]);
+
+    await act(async () => {
+      await result.current.refreshOpenDeck(created.id);
+    });
+    await act(async () => {
+      api.resolveCreate(new Response("", { status: 500 }));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(result.current.getDeck(created.id)).toBeDefined();
+    expect(hasFailedDeckSave(created.id)).toBe(false);
+    expect(getDeckSaveError(created.id)).toBeUndefined();
+  });
+
+  it("retries a remote read when a draft save settles during the read", async () => {
+    const initial = {
+      ...openDeck(),
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Original</div>",
+          notes: "",
+          layout: "content" as const,
+        },
+      ],
+    };
+    const { api, result } = await renderOpenDeck({ decks: [initial] });
+    const remoteContent = "<div>Agent update</div>";
+    const remote = {
+      ...initial,
+      slides: [{ ...initial.slides[0]!, content: remoteContent }],
+    };
+    const draft = "<div>Local draft</div>";
+    const applier = vi.fn(() => "applied" as const);
+    const unregister = registerInlineEditRemoteApplier(
+      initial.id,
+      "slide-1",
+      applier,
+    );
+    const beforeReads = deckCallIds(api.fetchMock).length;
+    const real = api.fetchMock.getMockImplementation()!;
+    let releaseRead = () => {};
+    const readGate = new Promise<void>((resolve) => (releaseRead = resolve));
+    api.setServerDecks([initial]);
+    api.fetchMock.mockImplementationOnce((url) => {
+      const response = real(url);
+      return requestString(url).includes("get-deck?id=open-deck")
+        ? response.then((r) => readGate.then(() => r))
+        : response;
+    });
+    let read: Promise<Deck | null> = Promise.resolve(null);
+
+    try {
+      act(() => {
+        markSlideEditingActive(initial.id, "slide-1");
+        read = result.current.refreshOpenDeck(initial.id);
+      });
+      await waitFor(() =>
+        expect(deckCallIds(api.fetchMock).length).toBe(beforeReads + 1),
+      );
+
+      act(() => {
+        result.current.updateSlide(
+          initial.id,
+          "slide-1",
+          { content: draft },
+          { persistence: "immediate", preserveLocalState: true },
+        );
+      });
+      await act(async () => {
+        await result.current.flushDeckSave(initial.id);
+      });
+      api.setServerDecks([remote]);
+
+      await act(async () => {
+        releaseRead();
+        await read;
+      });
+
+      await waitFor(() =>
+        expect(applier).toHaveBeenCalledWith(draft, remoteContent),
+      );
+      expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+        remoteContent,
+      );
+    } finally {
+      unregister();
+      clearSlideEditingActive(initial.id, "slide-1");
+    }
   });
 
   it("clears a read-side access-loss flag after a successful save", async () => {
