@@ -31,7 +31,7 @@ describe("proactive delivery", () => {
           { text: "Digest", platformContext: {} },
           { destination: "example-target" },
         ),
-      ).rejects.toThrow("not configured");
+      ).rejects.toMatchObject({ errorCode: "config_invalid" });
     },
   );
 

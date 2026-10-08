@@ -1090,6 +1090,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "Warte weiterhin auf {{stage}}. Anfrage: {{action}}.",
+    widgetDocumentLoadStage: "den Inhalt der gespeicherten Seite",
+    widgetDraftCheckStage: "die Wiederherstellung des Seitenentwurfs",
+    widgetEditorInitStage: "die Initialisierung des Rich-Text-Editors",
     iconPickerIcons: "Symbole",
     iconPickerEmoji: "Emoji",
     iconPickerRecent: "Zuletzt verwendet",

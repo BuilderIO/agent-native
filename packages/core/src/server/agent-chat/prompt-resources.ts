@@ -420,6 +420,29 @@ function ensureSentence(value: string): string {
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
+/** The compact prompt's skills index. `skillReadTool` is the tool the request
+ *  registry actually has for reading a skill; with none, the index is dropped
+ *  because it would send the model to a tool it cannot call. */
+export function buildCompactSkillsSummary(
+  skills: ReadonlyArray<{ meta: { name: string; description?: string } }>,
+  skillReadTool: string | null,
+): string | null {
+  if (skills.length === 0 || !skillReadTool) return null;
+  const listedSkills = skills.slice(0, PROMPT_SKILL_SUMMARY_LIMIT);
+  const lines = listedSkills.map((s) => {
+    const description = s.meta.description?.trim()
+      ? ` - ${ensureSentence(compactPromptLine(s.meta.description, PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS))}`
+      : "";
+    return `- \`${s.meta.name}\`${description} Read with \`${skillReadTool} --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to; reuse that page for subsequent steps in this turn.`;
+  });
+  if (skills.length > listedSkills.length) {
+    lines.push(
+      `- ...${skills.length - listedSkills.length} more codebase skills. Use \`${skillReadTool} --query "<topic>"\` to discover the relevant one.`,
+    );
+  }
+  return `<skills-summary>\nCodebase skills bundled from \`.agents/skills/\` (or legacy \`.agent/skills/\`) are available as ${skillReadTool} pages. Do not use MCP resource reads for these skills. Read each relevant page once per turn and reuse it; do not repeat an equivalent ${skillReadTool} lookup unless the page or question is different.\n\n${lines.join("\n")}\n</skills-summary>`;
+}
+
 function escapeXmlAttribute(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }
@@ -1551,9 +1574,17 @@ export async function loadResourcesForPrompt(
   compact = false,
   selfAppId?: string,
   orgId: string | null = getRequestOrgId() ?? null,
-  opts?: { disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup> },
+  opts?: {
+    disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup>;
+    /** The tool the compact skills summary sends the model to for skill text,
+     *  or `null` when the request registry has none. Omitted means
+     *  `docs-search`, the framework default. */
+    skillReadTool?: string | null;
+  },
 ): Promise<string> {
   await ensurePersonalDefaults(owner);
+  const skillReadTool =
+    opts?.skillReadTool === undefined ? "docs-search" : opts.skillReadTool;
 
   const sections: PromptSection[] = [];
   const addSection = (
@@ -1615,22 +1646,8 @@ export async function loadResourcesForPrompt(
   if (!compact) {
     const skillsBlock = generateSkillsPromptBlock(bundle, runtimeSkills);
     addSection(skillsBlock);
-  } else if (runtimeSkills.length > 0) {
-    const listedSkills = runtimeSkills.slice(0, PROMPT_SKILL_SUMMARY_LIMIT);
-    const lines = listedSkills.map((s) => {
-      const description = s.meta.description?.trim()
-        ? ` - ${ensureSentence(compactPromptLine(s.meta.description, PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS))}`
-        : "";
-      return `- \`${s.meta.name}\`${description} Read with \`docs-search --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to; reuse that page for subsequent steps in this turn.`;
-    });
-    if (runtimeSkills.length > listedSkills.length) {
-      lines.push(
-        `- ...${runtimeSkills.length - listedSkills.length} more codebase skills. Use \`docs-search --query "<topic>"\` to discover the relevant one.`,
-      );
-    }
-    addSection(
-      `<skills-summary>\nCodebase skills bundled from \`.agents/skills/\` (or legacy \`.agent/skills/\`) are available as docs-search pages. Do not use MCP resource reads for these skills. Read each relevant page once per turn and reuse it; do not repeat an equivalent docs-search lookup unless the page or question is different.\n\n${lines.join("\n")}\n</skills-summary>`,
-    );
+  } else {
+    addSection(buildCompactSkillsSummary(runtimeSkills, skillReadTool));
   }
 
   const workspaceOwner = workspaceResourceOwner(orgId);

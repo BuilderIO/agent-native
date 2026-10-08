@@ -29,6 +29,15 @@
   --c-neutral-950-90p: #0a0a0ae6;
   --c-white-5p: #ffffff0d;
 
+  --b-product-mock-bg: hsl(0 0% 13%);
+  --b-product-mock-sidebar: hsl(0 0% 10%);
+  --b-product-mock-surface: hsl(0 0% 15%);
+  --b-product-mock-raised: hsl(0 0% 18%);
+  --b-product-mock-divider: hsl(0 0% 20%);
+  --b-product-mock-border: hsl(0 0% 24%);
+  --b-product-mock-text: hsl(0 0% 93%);
+  --b-product-mock-muted: hsl(0 0% 55%);
+
   --b-bg-page: #0a0a0a;
   --b-bg-surface: #0a0a0a;
   --b-bg-raised: #0f0f0f;
@@ -169,6 +178,15 @@
   --c-neutral-800: #e0e0d7;
   --c-blue-300: #00677f;
   --c-blue-400: #00677f;
+
+  --b-product-mock-bg: hsl(0 0% 100%);
+  --b-product-mock-sidebar: hsl(0 0% 97%);
+  --b-product-mock-surface: hsl(0 0% 100%);
+  --b-product-mock-raised: hsl(0 0% 96%);
+  --b-product-mock-divider: hsl(0 0% 90%);
+  --b-product-mock-border: hsl(0 0% 90%);
+  --b-product-mock-text: hsl(0 0% 10%);
+  --b-product-mock-muted: hsl(0 0% 46%);
 
   --b-bg-page: #faf9f5;
   --b-bg-surface: #faf9f5;

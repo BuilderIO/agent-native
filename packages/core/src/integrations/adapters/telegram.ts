@@ -1,6 +1,7 @@
 import type { H3Event } from "h3";
 import { getHeader } from "h3";
 
+import { fail } from "../../action.js";
 import { getAppConfig } from "../../app-config/index.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
 import { resolveSecret } from "../../server/credential-provider.js";
@@ -256,7 +257,9 @@ export function telegramAdapter(): PlatformAdapter {
     ): Promise<void> {
       const token = await resolveSecret("TELEGRAM_BOT_TOKEN");
       if (!token) {
-        throw new Error("[telegram] TELEGRAM_BOT_TOKEN not configured");
+        fail("[telegram] TELEGRAM_BOT_TOKEN not configured", {
+          errorCode: "config_invalid",
+        });
       }
 
       const chunks = splitMessage(message.text, TELEGRAM_MAX_LENGTH);

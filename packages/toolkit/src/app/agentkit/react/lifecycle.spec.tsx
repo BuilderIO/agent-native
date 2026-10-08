@@ -42,6 +42,7 @@ import {
   AgentKitProvider,
   useAgentKit,
   useAgentKitSelector,
+  type AgentKitRunUsageLoader,
 } from "./context.js";
 import { AgentKitRoot } from "./root.js";
 
@@ -4670,6 +4671,285 @@ describe("AgentKit subscriptions and recovery", () => {
       } else {
         Reflect.deleteProperty(navigator, "clipboard");
       }
+      await tree.unmount();
+    }
+  });
+
+  it("retries usage details after a streaming run completes", async () => {
+    const thread = createAgentThreadState("thread-run-usage");
+    const message = {
+      id: "assistant-run-usage",
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, text: "Ready." }],
+      metadata: { runId: "run-usage" },
+    };
+    thread.messages = [message];
+    thread.events = [
+      {
+        id: "run-usage-started",
+        threadId: thread.id,
+        runId: "run-usage",
+        sequence: 1,
+        occurredAt: "2026-10-06T00:00:00.000Z",
+        type: "run.started",
+      },
+    ];
+    const initialSnapshot: AgentKitSnapshot = {
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [thread.id]: thread },
+      revision: 0,
+    };
+    const store = observableController(initialSnapshot);
+    const loadRunUsage = vi
+      .fn<AgentKitRunUsageLoader>()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        durationMs: 1_000,
+        billing: {
+          providerCostUsd: 0.02,
+          providerCostSource: "mixed",
+          builderCredits: 2,
+          builderCreditsSource: "mixed",
+          incomplete: false,
+        },
+      });
+    const tree = mount();
+
+    try {
+      await tree.render(
+        <AgentKitProvider
+          controller={store.controller}
+          threadId={thread.id}
+          loadRunUsage={loadRunUsage}
+        >
+          <AgentMessageActions threadId={thread.id} value={message} />
+        </AgentKitProvider>,
+      );
+      const trigger = tree.container.querySelector(
+        'button[aria-label="Message actions"]',
+      );
+      await act(async () => {
+        trigger?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+        await Promise.resolve();
+      });
+      await flush();
+
+      expect(loadRunUsage).toHaveBeenCalledTimes(1);
+      expect(
+        document.body.querySelector(".agentkit-message-menu")?.textContent,
+      ).toContain("Usage not recorded");
+
+      const completedEvent: AgentEvent = {
+        id: "run-usage-completed",
+        threadId: thread.id,
+        runId: "run-usage",
+        sequence: 2,
+        occurredAt: "2026-10-06T00:00:01.000Z",
+        type: "run.completed",
+      };
+      store.update({
+        ...initialSnapshot,
+        revision: 1,
+        threads: {
+          [thread.id]: {
+            ...thread,
+            events: [...thread.events, completedEvent],
+          },
+        },
+      });
+      await flush();
+
+      expect(loadRunUsage).toHaveBeenCalledTimes(2);
+      const menuText = document.body.querySelector(
+        ".agentkit-message-menu",
+      )?.textContent;
+      expect(menuText).toContain("Worked for 1s");
+      expect(menuText).toContain("Reported and estimated cost $0.02");
+      expect(menuText).toContain("Reported and estimated Builder credits 2");
+    } finally {
+      await tree.unmount();
+    }
+  });
+
+  it("refreshes partial usage details when a streaming run completes", async () => {
+    const thread = createAgentThreadState("thread-partial-run-usage");
+    const message = {
+      id: "assistant-partial-run-usage",
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, text: "Ready." }],
+      metadata: { runId: "run-partial-usage" },
+    };
+    thread.messages = [message];
+    thread.events = [
+      {
+        id: "partial-run-started",
+        threadId: thread.id,
+        runId: "run-partial-usage",
+        sequence: 1,
+        occurredAt: "2026-10-06T00:00:00.000Z",
+        type: "run.started",
+      },
+    ];
+    const initialSnapshot: AgentKitSnapshot = {
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [thread.id]: thread },
+      revision: 0,
+    };
+    const store = observableController(initialSnapshot);
+    const loadRunUsage = vi
+      .fn<AgentKitRunUsageLoader>()
+      .mockResolvedValueOnce({
+        durationMs: 1_000,
+        billing: {
+          providerCostUsd: 0.01,
+          providerCostSource: "estimated",
+          builderCredits: 1,
+          builderCreditsSource: "estimated",
+          incomplete: false,
+        },
+      })
+      .mockResolvedValueOnce({
+        durationMs: 2_000,
+        billing: {
+          providerCostUsd: 0.05,
+          providerCostSource: "reported",
+          builderCredits: 6,
+          builderCreditsSource: "reported",
+          incomplete: false,
+        },
+      });
+    const tree = mount();
+
+    try {
+      await tree.render(
+        <AgentKitProvider
+          controller={store.controller}
+          threadId={thread.id}
+          loadRunUsage={loadRunUsage}
+        >
+          <AgentMessageActions threadId={thread.id} value={message} />
+        </AgentKitProvider>,
+      );
+      const trigger = tree.container.querySelector(
+        'button[aria-label="Message actions"]',
+      );
+      await act(async () => {
+        trigger?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+        await Promise.resolve();
+      });
+      await flush();
+
+      expect(loadRunUsage).toHaveBeenCalledTimes(1);
+      expect(
+        document.body.querySelector(".agentkit-message-menu")?.textContent,
+      ).toContain("Estimated cost $0.01");
+
+      const completedEvent: AgentEvent = {
+        id: "partial-run-completed",
+        threadId: thread.id,
+        runId: "run-partial-usage",
+        sequence: 2,
+        occurredAt: "2026-10-06T00:00:02.000Z",
+        type: "run.completed",
+      };
+      store.update({
+        ...initialSnapshot,
+        revision: 1,
+        threads: {
+          [thread.id]: {
+            ...thread,
+            events: [...thread.events, completedEvent],
+          },
+        },
+      });
+      await flush();
+
+      expect(loadRunUsage).toHaveBeenCalledTimes(2);
+      const menuText = document.body.querySelector(
+        ".agentkit-message-menu",
+      )?.textContent;
+      expect(menuText).toContain("Worked for 2s");
+      expect(menuText).toContain("$0.05");
+      expect(menuText).toContain("Builder credits used 6");
+    } finally {
+      await tree.unmount();
+    }
+  });
+
+  it("explains when per-message usage totals are incomplete", async () => {
+    const thread = createAgentThreadState("thread-incomplete-run-usage");
+    const message = {
+      id: "assistant-incomplete-run-usage",
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, text: "Ready." }],
+      metadata: { runId: "run-incomplete-usage" },
+    };
+    thread.messages = [message];
+    const initialSnapshot: AgentKitSnapshot = {
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [thread.id]: thread },
+      revision: 0,
+    };
+    const store = observableController(initialSnapshot);
+    const loadRunUsage = vi.fn<AgentKitRunUsageLoader>().mockResolvedValue({
+      durationMs: 1_000,
+      billing: {
+        providerCostUsd: null,
+        providerCostSource: null,
+        builderCredits: null,
+        builderCreditsSource: null,
+        incomplete: true,
+      },
+    });
+    const tree = mount();
+
+    try {
+      await tree.render(
+        <AgentKitProvider
+          controller={store.controller}
+          threadId={thread.id}
+          loadRunUsage={loadRunUsage}
+        >
+          <AgentMessageActions threadId={thread.id} value={message} />
+        </AgentKitProvider>,
+      );
+      const trigger = tree.container.querySelector(
+        'button[aria-label="Message actions"]',
+      );
+      await act(async () => {
+        trigger?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+        await Promise.resolve();
+      });
+      await flush();
+
+      expect(
+        document.body.querySelector(".agentkit-message-menu")?.textContent,
+      ).toContain("Some usage could not be classified; totals are hidden.");
+    } finally {
       await tree.unmount();
     }
   });

@@ -195,7 +195,7 @@ describe("createBuilderEngine", () => {
     expect(engine.supportedModels).toContain(BUILDER_CLAUDE_SONNET_MODEL_ID);
     expect(engine.supportedModels).toContain("auto");
     expect(engine.supportedModels).toContain("claude-opus-5-5");
-    expect(engine.supportedModels).toContain("gpt-6-sol");
+    expect(engine.supportedModels).toContain("gpt-6.1-sol");
     expect(engine.supportedModels).toContain("gpt-5-4");
     expect(engine.supportedModels).toContain("gpt-5-5");
     expect(engine.supportedModels).toContain("gpt-5-4-mini");

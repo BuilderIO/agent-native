@@ -473,7 +473,7 @@ async function claimEvaluatingFailureAlert(
       sql: `SELECT status, notification_email, failure_alerted FROM ${TABLE}
             WHERE owner = ? AND automation = ? AND path = ?
               ${appFilter}
-              AND id <> ? AND status IN ('success', 'error', 'interrupted', 'skipped')
+              AND id <> ? AND status IN ('success', 'error', 'interrupted')
             ORDER BY started_at DESC LIMIT 1`,
       args: [
         stringifyValue(row.owner),

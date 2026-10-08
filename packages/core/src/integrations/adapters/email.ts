@@ -276,7 +276,9 @@ export function emailAdapter(): PlatformAdapter {
     ): Promise<void> {
       const agentAddress = await resolveSecret("EMAIL_AGENT_ADDRESS");
       if (!agentAddress) {
-        throw new Error("[email] EMAIL_AGENT_ADDRESS not configured");
+        fail("[email] EMAIL_AGENT_ADDRESS not configured", {
+          errorCode: "config_invalid",
+        });
       }
 
       const config = await getIntegrationConfig("email");

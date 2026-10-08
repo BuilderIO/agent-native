@@ -413,6 +413,73 @@ describe("automation run history", () => {
     ]);
   });
 
+  it("keeps failure alerts suppressed across skipped runs", async () => {
+    const pglite = await createTestPglite();
+    try {
+      await pglite.exec(`CREATE TABLE automation_runs (
+        id TEXT, owner TEXT, automation TEXT, path TEXT, app_id TEXT,
+        status TEXT, notification_email TEXT, failure_alerted BIGINT,
+        started_at BIGINT
+      );
+      INSERT INTO automation_runs VALUES
+        ('previous-error', 'alice@example.com', 'digest', 'jobs/digest.md',
+         'calendar', 'error', 'alice@example.com', 1, 1),
+        ('previous-skip', 'alice@example.com', 'digest', 'jobs/digest.md',
+         'calendar', 'skipped', 'alice@example.com', 0, 2)`);
+      executeMock
+        .mockResolvedValueOnce({
+          rows: [
+            row({
+              app_id: "calendar",
+              notification_email: "alice@example.com",
+            }),
+          ],
+        })
+        .mockResolvedValueOnce({ rowsAffected: 1 })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [
+            row({
+              app_id: "calendar",
+              notification_email: "alice@example.com",
+              status: "error",
+              error: "MCP tool unavailable",
+              failure_alert_state: "evaluating",
+            }),
+          ],
+        })
+        .mockResolvedValueOnce({ rowsAffected: 1 })
+        .mockImplementationOnce(async (statement: DbExecStatement) => {
+          if (typeof statement === "string")
+            throw new Error("Expected parameterized query");
+          const query = await pglite.prepare(statement.sql);
+          return {
+            rows: await query.all(...(statement.args ?? [])),
+            rowsAffected: 0,
+          };
+        })
+        .mockResolvedValueOnce({ rowsAffected: 1 });
+
+      await finishAutomationRun(
+        "run-1",
+        "error",
+        "MCP tool unavailable",
+        "mcp_missing",
+      );
+
+      expect(sendAutomationFailureNotificationMock).not.toHaveBeenCalled();
+      expect(
+        executeMock.mock.calls.some(
+          ([statement]) =>
+            typeof statement === "object" &&
+            statement.sql.includes("failure_alert_state = 'suppressed'"),
+        ),
+      ).toBe(true);
+    } finally {
+      await pglite.close();
+    }
+  });
+
   it("checks legacy failure streaks without an untyped app id parameter", async () => {
     executeMock
       .mockResolvedValueOnce({
