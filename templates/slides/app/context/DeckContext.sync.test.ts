@@ -1011,6 +1011,26 @@ describe("DeckContext fallback polling", () => {
       expect(getDeckSaveError(created.id)?.status).toBeUndefined();
     });
 
+    it("leaves no failure behind when the deck was deleted while its create was pending", async () => {
+      const route = { deckId: "open-deck" as string | null };
+      const { api, result } = await renderOpenDeck({ route });
+      let created!: Deck;
+      act(() => {
+        created = result.current.createDeck("Doomed Deck");
+      });
+      act(() => {
+        result.current.deleteDeck(created.id);
+      });
+
+      await act(async () => {
+        api.resolveCreate(new Response("", { status: 500 }));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(hasFailedDeckSave(created.id)).toBe(false);
+      expect(hasUnsavedDeckChanges(created.id)).toBe(false);
+    });
+
     it("is not reported as lost access when a later write answers 404", async () => {
       const { api, result, created } = await openFailedCreate();
       const real = api.fetchMock.getMockImplementation()!;

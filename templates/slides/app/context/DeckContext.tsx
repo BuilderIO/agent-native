@@ -5691,7 +5691,12 @@ export function DeckProvider({
         createPromise
           .catch((err) => {
             console.error(`Failed to create deck ${newDeck.id}:`, err);
-            if (scopeGeneration === deckScopeGenerationRef.current) {
+            // A deck deleted or undone while its create was pending has no
+            // local copy left to protect.
+            if (
+              scopeGeneration === deckScopeGenerationRef.current &&
+              decksRef.current.some((deck) => deck.id === newDeck.id)
+            ) {
               markDeckCreateFailed(newDeck.id, err);
             }
           })
