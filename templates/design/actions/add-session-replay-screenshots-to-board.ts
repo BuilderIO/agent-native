@@ -678,7 +678,6 @@ export default defineAction({
         }
         if (
           screenshotMetadataRollbackCommitted &&
-          requestedDesignId &&
           rollbackQueuedBlobHandles.length > 0
         ) {
           try {

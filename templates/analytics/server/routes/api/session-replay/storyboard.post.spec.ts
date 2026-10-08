@@ -376,7 +376,7 @@ describe("POST /api/session-replay/storyboard", () => {
         data: { saveOutcomeUnknown: true },
       });
       await started;
-      await vi.advanceTimersByTimeAsync(240_000);
+      await vi.advanceTimersByTimeAsync(60_000);
       await rejected;
     } finally {
       vi.useRealTimers();
@@ -395,6 +395,60 @@ describe("POST /api/session-replay/storyboard", () => {
       statusMessage: expect.stringContaining("Check Design before retrying"),
       data: { saveOutcomeUnknown: true },
     });
+  });
+
+  it.each([
+    "SSRF blocked: refusing to fetch private/internal address",
+    "SSRF protection is unavailable because the server dispatcher could not be loaded.",
+  ])("preserves definite pre-dispatch failures: %s", async (message) => {
+    mocks.ssrfSafeFetch.mockRejectedValueOnce(new Error(message));
+
+    const error = await (handler as any)(makeEvent(makeFormData())).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toMatchObject({ statusCode: 502 });
+    expect(error).not.toHaveProperty("data.saveOutcomeUnknown");
+  });
+
+  it("preserves workspace-origin configuration errors before dispatch", async () => {
+    mocks.workspacePrivateOrigins.mockImplementationOnce(() => {
+      throw new Error("Invalid workspace app manifest");
+    });
+
+    const error = await (handler as any)(makeEvent(makeFormData())).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toMatchObject({
+      statusCode: 502,
+      statusMessage: expect.stringContaining("Invalid workspace app manifest"),
+    });
+    expect(error).not.toHaveProperty("data.saveOutcomeUnknown");
+    expect(mocks.ssrfSafeFetch).not.toHaveBeenCalled();
+  });
+
+  it("preserves a non-OK status when Design's error body cannot be read", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(new Error("response stream failed"));
+      },
+    });
+    mocks.ssrfSafeFetch.mockResolvedValueOnce(
+      new Response(body, { status: 503 }),
+    );
+
+    const error = await (handler as any)(makeEvent(makeFormData())).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toMatchObject({
+      statusCode: 503,
+      statusMessage: expect.stringContaining(
+        "Analytics could not read its response",
+      ),
+    });
+    expect(error).not.toHaveProperty("data.saveOutcomeUnknown");
   });
 
   it("does not retry a 401 with an organization-principal fallback token", async () => {
@@ -486,7 +540,7 @@ describe("POST /api/session-replay/storyboard", () => {
         data: { saveOutcomeUnknown: true },
       });
       await bodyRead;
-      await vi.advanceTimersByTimeAsync(240_000);
+      await vi.advanceTimersByTimeAsync(60_000);
       await rejected;
     } finally {
       vi.useRealTimers();

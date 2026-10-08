@@ -22,7 +22,8 @@ const MAX_DESIGN_UPLOAD_RESPONSE_BYTES = 64_000;
 const MAX_MULTIPART_OVERHEAD_BYTES = 64_000;
 const MAX_REQUEST_BYTES =
   MAX_BATCH_BYTES + MAX_MANIFEST_BYTES + MAX_MULTIPART_OVERHEAD_BYTES;
-const DESIGN_UPLOAD_TIMEOUT_MS = 240_000;
+// Leave headroom under Analytics' 75-second Netlify function limit.
+const DESIGN_UPLOAD_TIMEOUT_MS = 60_000;
 
 type ScreenshotInput = {
   recordingId: string;
@@ -672,6 +673,15 @@ export default defineEventHandler(async (event) =>
       };
       const uploadUrl = designScreenshotUploadUrl(designTargetUrl);
       assertCredentialedA2AUrl(uploadUrl, true);
+      const allowedPrivateOrigins = workspacePrivateOrigins();
+      const uploadHeaders = {
+        ...resolveVercelDeploymentProtectionHeaders(uploadUrl),
+        Authorization: `Bearer ${uploadToken}`,
+      };
+      const uploadBody = createDesignUploadForm(
+        designManifest,
+        screenshotBytes,
+      );
       let uploadResponse: Response | undefined;
       let uploadResponseBody: string | undefined;
       const controller = new AbortController();
@@ -694,15 +704,12 @@ export default defineEventHandler(async (event) =>
               uploadUrl,
               {
                 method: "POST",
-                headers: {
-                  ...resolveVercelDeploymentProtectionHeaders(uploadUrl),
-                  Authorization: `Bearer ${uploadToken}`,
-                },
-                body: createDesignUploadForm(designManifest, screenshotBytes),
+                headers: uploadHeaders,
+                body: uploadBody,
                 signal: controller.signal,
               },
               {
-                allowedPrivateOrigins: workspacePrivateOrigins(),
+                allowedPrivateOrigins,
                 followRedirects: false,
                 maxRedirects: 0,
                 requireDispatcher: true,
@@ -734,6 +741,20 @@ export default defineEventHandler(async (event) =>
               "Design screenshot upload timed out. It may have saved the storyboard; check Design before retrying.",
             data: { saveOutcomeUnknown: true },
           });
+        }
+        if (uploadResponse && !uploadResponse.ok) {
+          throw createError({
+            statusCode: uploadResponse.status,
+            statusMessage: `Design returned HTTP ${uploadResponse.status}, but Analytics could not read its response.`,
+            cause: error,
+          });
+        }
+        if (
+          error instanceof Error &&
+          (error.message.startsWith("SSRF blocked:") ||
+            error.message.startsWith("SSRF protection is unavailable"))
+        ) {
+          throw error;
         }
         throw unknownSaveOutcomeError(
           "Design may have received the screenshot upload, but Analytics lost the connection. Check Design before retrying.",

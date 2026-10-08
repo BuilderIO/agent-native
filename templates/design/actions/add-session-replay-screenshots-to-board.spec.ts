@@ -523,6 +523,108 @@ describe("add-session-replay-screenshots-to-board cleanup", () => {
     expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
   });
 
+  it("reports pending blob cleanup when a newly created Design rolls back", async () => {
+    const events: string[] = [];
+    const metadataRows: Array<Record<string, unknown>> = [];
+    const boardFile = {
+      id: "board-file",
+      designId: "generated-1",
+      filename: "index.html",
+      fileType: "html",
+      content: "<html><body></body></html>",
+      createdAt: null,
+      updatedAt: null,
+    };
+    const tx = {
+      select: vi.fn(() => selectChain(metadataRows)),
+      delete: vi.fn(
+        () =>
+          ({
+            where: vi.fn(async () => {
+              metadataRows.length = 0;
+            }),
+          }) as never,
+      ),
+    };
+    mocks.withDesignSourceMutationTransaction.mockImplementation(
+      async (_designId, callback) => {
+        const result = await callback(tx as never);
+        events.push("transaction-commit");
+        return result;
+      },
+    );
+    mocks.queueVisualEditSnapshotBlobCleanupInTransaction.mockImplementation(
+      async () => {
+        events.push("queue-handles");
+      },
+    );
+    mocks.deleteVisualEditSnapshotBlobs.mockImplementation(async () => {
+      events.push("drain-queue");
+      return true;
+    });
+    mocks.migrateBoardObjectsToFile.mockResolvedValue({
+      boardFileId: "board-file",
+    });
+    mocks.readLiveSourceFile.mockResolvedValue({
+      content: "<html><body></body></html>",
+      versionHash: "before",
+    });
+    mocks.writeInlineSourceFile.mockResolvedValue({ versionHash: "after" });
+    mocks.getDb.mockReturnValue({
+      select: vi.fn(() => selectChain([boardFile])),
+      insert: vi.fn(
+        () =>
+          ({
+            values: vi.fn(async (rows: Array<Record<string, unknown>>) => {
+              metadataRows.push(...rows);
+              throw new Error("metadata insert failed after persistence");
+            }),
+          }) as never,
+      ),
+    });
+
+    const error = await action
+      .run(
+        {
+          screenshots: [
+            {
+              attachmentRef: "attachment-ref",
+              replayId: "replay-id",
+              capturedAt: "2026-10-07T12:00:00.000Z",
+              app: "clips",
+              route: "/library",
+              offsetMs: 13_000,
+              viewportWidth: 430,
+              viewportHeight: 932,
+              eventCount: 12,
+            },
+          ],
+        } as never,
+        {
+          caller: "frontend",
+          actionName: "add-session-replay-screenshots-to-board",
+        } as never,
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      actionContractError: true,
+      message: "metadata insert failed after persistence",
+      details: { cleanupPending: true },
+    });
+    expect(events.indexOf("queue-handles")).toBeLessThan(
+      events.indexOf("transaction-commit"),
+    );
+    expect(events.indexOf("transaction-commit")).toBeLessThan(
+      events.indexOf("drain-queue"),
+    );
+    expect(mocks.deleteVisualEditSnapshotBlobs).toHaveBeenCalledOnce();
+    expect(mocks.deleteDesign).toHaveBeenCalledWith(
+      { id: "generated-1" },
+      expect.anything(),
+    );
+  });
+
   it("queues the blob when a failed metadata insert left no persisted row", async () => {
     const events: string[] = [];
     const boardFile = {
