@@ -288,6 +288,8 @@ export interface AgentChatRequest {
   displayMessage?: string;
   history?: AgentMessage[];
   structuredHistory?: AgentChatStructuredMessage[];
+  /** Skill doc slugs the agent read earlier in this thread, oldest first. */
+  loadedSkillSlugs?: string[];
   references?: AgentChatReference[];
   threadId?: string;
   parentId?: string | null;

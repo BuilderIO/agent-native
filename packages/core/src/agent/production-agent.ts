@@ -1910,6 +1910,40 @@ const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const MAX_RESOURCE_INVENTORY_ITEMS = 40;
 const MAX_RESOURCE_INVENTORY_DESCRIPTION_CHARS = 160;
 const MAX_INLINE_SKILL_REFERENCE_CHARS = 40_000;
+
+const MAX_LOADED_SKILL_SLUGS = 16;
+const LOADED_SKILL_SLUG_PATTERN = /^skill-[a-z0-9]+(?:-+[a-z0-9]+)*$/;
+
+export function normalizeLoadedSkillSlugs(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const slugs = value.filter(
+    (slug): slug is string =>
+      typeof slug === "string" &&
+      slug.length <= 200 &&
+      LOADED_SKILL_SLUG_PATTERN.test(slug),
+  );
+  return [...new Set(slugs.reverse())]
+    .slice(0, MAX_LOADED_SKILL_SLUGS)
+    .reverse();
+}
+
+function skillPageIntactInHistory(
+  messages: readonly EngineMessage[],
+  slug: string,
+  page: string,
+): boolean {
+  const ending = page.trimEnd().slice(-200);
+  return messages.some((message) =>
+    message.content.some(
+      (part) =>
+        part.type === "tool-result" &&
+        part.toolName === "docs-search" &&
+        !part.isError &&
+        part.toolInput.includes(JSON.stringify(slug)) &&
+        part.content.includes(ending),
+    ),
+  );
+}
 export function resolveSourceSweepToolCallThreshold(): number {
   return getAppConfig().agent.sourceSweepToolCallThreshold;
 }
@@ -4938,6 +4972,8 @@ export async function runAgentLoop(opts: {
   finalResponseGuardRequestText?: string;
   threadId?: string;
   turnId?: string;
+  /** Skill doc slugs read in earlier turns of this thread, oldest first. */
+  loadedSkillSlugs?: readonly string[];
   runSoftTimeoutMs?: number;
   toolLimits?: {
     timeoutMs?: number;
@@ -5224,16 +5260,37 @@ export async function runAgentLoop(opts: {
       result.content.startsWith("# Skill:")
     );
   });
-  if (isInternalContinuationTurn(messages) && hasLoadedSkillPage) {
-    const { loadAgentsBundle, getRuntimeSkillsForUser, skillDocsSlug } =
-      await import("../server/agents-bundle.js");
-    const runtimeSkills = await getRuntimeSkillsForUser(
-      await loadAgentsBundle(),
-      opts.ownerEmail ?? getRequestUserEmail(),
+  const reuseJournaledSkillPages =
+    isInternalContinuationTurn(messages) && hasLoadedSkillPage;
+  const threadSkillSlugs = opts.loadedSkillSlugs ?? [];
+  if (reuseJournaledSkillPages || threadSkillSlugs.length > 0) {
+    const skillUserEmail = opts.ownerEmail ?? getRequestUserEmail();
+    const { loadSkillDocPages } = await import("../scripts/docs/search.js");
+    const threadSkillPages = await loadSkillDocPages(
+      threadSkillSlugs,
+      skillUserEmail,
     );
+    for (const [slug, page] of threadSkillPages) {
+      if (skillPageIntactInHistory(messages, slug, page)) {
+        threadSkillPages.delete(slug);
+      }
+    }
+    let allowedJournalSlugs = new Set<string>();
+    if (reuseJournaledSkillPages) {
+      const { loadAgentsBundle, getRuntimeSkillsForUser, skillDocsSlug } =
+        await import("../server/agents-bundle.js");
+      const runtimeSkills = await getRuntimeSkillsForUser(
+        await loadAgentsBundle(),
+        skillUserEmail,
+      );
+      allowedJournalSlugs = new Set(
+        runtimeSkills.map((skill) => skillDocsSlug(skill.meta.name)),
+      );
+    }
     loadedSkillsContext = loadedSkillPagesContext(
-      journaledPriorToolResults,
-      new Set(runtimeSkills.map((skill) => skillDocsSlug(skill.meta.name))),
+      reuseJournaledSkillPages ? journaledPriorToolResults : [],
+      threadSkillPages,
+      allowedJournalSlugs,
     );
   }
   const continuationSystemPrompt = loadedSkillsContext
@@ -9131,6 +9188,7 @@ export function createProductionAgentHandler(
       message,
       history = [],
       structuredHistory,
+      loadedSkillSlugs: requestedLoadedSkillSlugs,
       references = [],
       threadId,
       attachments,
@@ -11377,6 +11435,9 @@ export function createProductionAgentHandler(
           maxIterations: loopSettings.maxIterations,
           maxRunInputTokens: loopSettings.maxRunInputTokens,
           priorTurnInputTokens: turnInputTokens,
+          loadedSkillSlugs: normalizeLoadedSkillSlugs(
+            requestedLoadedSkillSlugs,
+          ),
           finalResponseGuard: options.finalResponseGuard,
           finalResponseGuardRequestText: messageToPersist,
           ...(resolvedRunSoftTimeoutMs > 0

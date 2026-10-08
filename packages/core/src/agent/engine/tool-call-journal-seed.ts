@@ -145,10 +145,12 @@ export const JOURNALED_TOOL_REPLAY_PREFIX =
   "(Already completed in an earlier interrupted attempt - not re-run to avoid a duplicate side effect.)\n\n";
 export const RECOVERED_TOOL_REPLAY_PREFIX =
   "(Recovered from prior interrupted chunk — action already completed.)\n\n";
-const LOADED_SKILL_CONTEXT_MAX_CHARS = 24_000;
+const LOADED_SKILL_CONTEXT_MAX_CHARS = 40_000;
 
+/** `threadPages` holds pages read in earlier turns, oldest read first. */
 export function loadedSkillPagesContext(
   results: readonly PriorTurnToolResultSummary[],
+  threadPages: ReadonlyMap<string, string>,
   allowedSlugs: ReadonlySet<string>,
 ): string {
   const pages = new Map<string, string>();
@@ -171,20 +173,30 @@ export function loadedSkillPagesContext(
     pages.delete(slug);
     pages.set(slug, result.content);
   }
+  const merged = new Map(threadPages);
+  for (const [slug, page] of pages) {
+    merged.delete(slug);
+    merged.set(slug, page);
+  }
+  return renderLoadedSkillPages(merged);
+}
+
+/** `pages` is ordered oldest read first; the newest reads win the budget. */
+function renderLoadedSkillPages(pages: ReadonlyMap<string, string>): string {
   if (pages.size === 0) return "";
 
   const opening =
-    "<already-loaded-skills>These skill pages were already read earlier in this turn. Reuse them instead of calling docs-search again. If a page is marked truncated, read only when missing detail matters.\n";
+    "<already-loaded-skills>These skill pages were already read earlier in this conversation. Reuse them instead of calling docs-search again. If a page is marked truncated, read only when missing detail matters.\n";
   const closing = "\n</already-loaded-skills>";
   let remaining =
     LOADED_SKILL_CONTEXT_MAX_CHARS - opening.length - closing.length;
   const blocks: string[] = [];
-  for (const [slug, page] of pages) {
+  for (const [slug, page] of [...pages].reverse()) {
     const heading = `\n## ${slug}\n`;
     if (remaining <= heading.length) break;
     const truncated = page.length > remaining - heading.length;
     const marker = truncated
-      ? "\n[Skill page truncated to fit continuation context.]"
+      ? "\n[Skill page truncated to fit loaded-skill context.]"
       : "";
     const body = page.slice(
       0,

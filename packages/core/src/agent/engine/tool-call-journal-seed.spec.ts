@@ -364,7 +364,7 @@ describe("loadedSkillPagesContext", () => {
         {
           name: "docs-search",
           input: { slug: "skill-slide-editing" },
-          content: `# Skill: slide-editing\n${"x".repeat(30_000)}`,
+          content: `# Skill: slide-editing\n${"x".repeat(50_000)}`,
           isError: false,
         },
         {
@@ -392,15 +392,48 @@ describe("loadedSkillPagesContext", () => {
           isError: false,
         },
       ],
+      new Map(),
       new Set(["skill-slide-editing"]),
     );
 
-    expect(result.length).toBeLessThanOrEqual(24_000);
+    expect(result.length).toBeLessThanOrEqual(40_000);
     expect(result).toContain("skill-slide-editing");
     expect(result).toContain("Skill page truncated");
     expect(result).not.toContain("skill-missing");
     expect(result).not.toContain("skill-failed");
     expect(result).not.toContain("creative-context");
     expect(result).not.toContain("# Docs index");
+  });
+
+  it("keeps both slides skills whole and prefers this run's reads", () => {
+    const editing = `# Skill: slide-editing\n${"e".repeat(17_100)}`;
+    const design = `# Skill: slide-design\n${"d".repeat(8_200)}`;
+    const result = loadedSkillPagesContext(
+      [
+        {
+          name: "docs-search",
+          input: { slug: "skill-slide-design" },
+          content: `${design}\nfresh`,
+          isError: false,
+        },
+      ],
+      new Map([
+        ["skill-slide-design", design],
+        ["skill-slide-editing", editing],
+      ]),
+      new Set(["skill-slide-design"]),
+    );
+
+    expect(result).toContain("earlier in this conversation");
+    expect(result).toContain(editing);
+    expect(result).toContain(`${design}\nfresh`);
+    expect(result).not.toContain("Skill page truncated");
+    expect(result.indexOf("## skill-slide-design")).toBeLessThan(
+      result.indexOf("## skill-slide-editing"),
+    );
+  });
+
+  it("renders nothing without loaded pages", () => {
+    expect(loadedSkillPagesContext([], new Map(), new Set())).toBe("");
   });
 });
