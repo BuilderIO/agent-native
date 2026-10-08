@@ -3437,6 +3437,69 @@ export async function runShot(
       });
     }
     const page = await context.newPage();
+    const trustedAppOrigin = new URL(appUrl ?? url).origin;
+    const planActionResponses: Array<{ action: string; status: number }> = [];
+    let pageErrorCount = 0;
+    page.on("pageerror", () => {
+      pageErrorCount += 1;
+    });
+    page.on("response", (response) => {
+      const responseUrl = new URL(response.url());
+      if (responseUrl.origin !== trustedAppOrigin) return;
+      const action = responseUrl.pathname.match(
+        /\/_agent-native\/actions\/(get-visual-plan|get-plan-access-status)$/,
+      )?.[1];
+      if (action) {
+        planActionResponses.push({ action, status: response.status() });
+      }
+    });
+
+    const describeDocumentTimeout = async (error: unknown) => {
+      let state:
+        | {
+            kind: "available";
+            readyState: string;
+            hasPlanDocument: boolean;
+            hasSignInPrompt: boolean;
+            hasAccessError: boolean;
+          }
+        | { kind: "unavailable" };
+      try {
+        const browserState = await page.evaluate(() => {
+          const bodyText = document.body?.innerText ?? "";
+          return {
+            readyState: document.readyState,
+            hasPlanDocument: Boolean(
+              document.querySelector("[data-plan-document]"),
+            ),
+            hasSignInPrompt: /sign in|log in/i.test(bodyText),
+            hasAccessError: /belongs to|no access|forbidden/i.test(bodyText),
+          };
+        });
+        state = { kind: "available", ...browserState };
+      } catch {
+        state = { kind: "unavailable" };
+      }
+      const actions = ["get-visual-plan", "get-plan-access-status"].map(
+        (action) => {
+          const latest = [...planActionResponses]
+            .reverse()
+            .find((response) => response.action === action);
+          return `${action}=${latest ? `HTTP ${latest.status}` : "not requested"}`;
+        },
+      );
+      const pageState =
+        state.kind === "available"
+          ? `document=${state.readyState}, plan-document=${state.hasPlanDocument}, sign-in=${state.hasSignInPrompt}, access-error=${state.hasAccessError}`
+          : "document state unavailable";
+      const clientErrors = pageErrorCount
+        ? `, client runtime errors=${pageErrorCount}`
+        : "";
+      return new Error(
+        `${errorMessage(error)}; recap readiness: ${actions.join(", ")}; ${pageState}${clientErrors}`,
+      );
+    };
+
     for (
       let attempt = 1;
       attempt <= RECAP_DOCUMENT_LOAD_ATTEMPTS;
@@ -3471,11 +3534,11 @@ export async function runShot(
         });
         break;
       } catch (err) {
-        if (
-          attempt === RECAP_DOCUMENT_LOAD_ATTEMPTS ||
-          !shouldRetryRecapDocumentLoad(err)
-        ) {
+        if (!shouldRetryRecapDocumentLoad(err)) {
           throw err;
+        }
+        if (attempt === RECAP_DOCUMENT_LOAD_ATTEMPTS) {
+          throw await describeDocumentTimeout(err);
         }
         process.stderr.write(
           `[recap shot] recap document did not become ready; retrying once\n`,

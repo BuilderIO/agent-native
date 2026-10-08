@@ -927,14 +927,110 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-1-${{ runner.os }}
 
+      - name: Verify published recap readback
+        id: readback
+        if: steps.url.outputs.ok == 'true'
+        env:
+          PLAN_URL: ${{ steps.url.outputs.plan_url }}
+        run: |
+          set -uo pipefail
+          READBACK_JSON=$(node <<'NODE'
+          void (async () => {
+            const emit = (value) => process.stdout.write(JSON.stringify(value));
+            try {
+              const base = new URL(process.env.PLAN_RECAP_APP_URL || "https://plan.agent-native.com");
+              const recap = new URL(process.env.PLAN_URL || "");
+              if (recap.origin !== base.origin) {
+                emit({ ok: false, reason: "published recap URL origin does not match the configured Plan app" });
+                return;
+              }
+              const basePath = base.pathname.replace(/\/+$/, "");
+              let recapPath = recap.pathname;
+              if (basePath && recapPath.startsWith(`${basePath}/`)) recapPath = recapPath.slice(basePath.length);
+              const match = recapPath.match(/^\/(?:plans|recaps)\/([A-Za-z0-9_-]+)\/?$/);
+              if (!match) {
+                emit({ ok: false, reason: "published recap URL does not contain a valid Plan ID" });
+                return;
+              }
+              const actionUrl = new URL(base.href);
+              actionUrl.pathname = `${basePath}/_agent-native/actions/get-visual-plan`;
+              actionUrl.search = "";
+              actionUrl.hash = "";
+              if (actionUrl.origin !== base.origin) {
+                emit({ ok: false, reason: "get-visual-plan URL origin does not match the configured Plan app" });
+                return;
+              }
+              actionUrl.searchParams.set("id", match[1]);
+              actionUrl.searchParams.set("includeHtml", "false");
+              actionUrl.searchParams.set("includeMdx", "false");
+              const response = await fetch(actionUrl, {
+                headers: { authorization: `Bearer ${process.env.PLAN_RECAP_TOKEN || ""}` },
+                signal: AbortSignal.timeout(15000),
+              });
+              if (!response.ok) {
+                const hint = response.status === 401 || response.status === 403
+                  ? "the configured token cannot read this published recap"
+                  : response.status === 404
+                    ? "the Plan read action or published recap is not available"
+                    : "the Plan read action returned an error";
+                emit({ ok: false, reason: `get-visual-plan returned HTTP ${response.status}; ${hint}` });
+                return;
+              }
+              const payload = await response.json();
+              const returnedId = payload?.plan?.id ?? payload?.planId ?? payload?.data?.plan?.id;
+              if (returnedId !== match[1]) {
+                emit({ ok: false, reason: "get-visual-plan returned a response without the published Plan ID" });
+                return;
+              }
+              emit({ ok: true, reason: "" });
+            } catch (error) {
+              const reason = error?.name === "TimeoutError"
+                ? "get-visual-plan readback timed out"
+                : "get-visual-plan readback request failed";
+              emit({ ok: false, reason });
+            }
+          })();
+          NODE
+          )
+          READBACK_OK=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).ok===true?"true":"false")}catch{process.stdout.write("false")}' "$READBACK_JSON")
+          READBACK_REASON=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).reason||"")}catch{process.stdout.write("invalid readback result")}' "$READBACK_JSON")
+          if [ "$READBACK_OK" = "true" ]; then
+            echo "[recap readback] published plan is readable"
+          else
+            echo "::warning::Published recap readback failed: $READBACK_REASON"
+          fi
+          echo "ok=$READBACK_OK" >> "$GITHUB_OUTPUT"
+          {
+            echo 'reason<<__RECAP_READBACK_REASON_EOF__'
+            echo "$READBACK_REASON"
+            echo '__RECAP_READBACK_REASON_EOF__'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Screenshot + upload
         id: shot
         if: steps.url.outputs.ok == 'true'
         continue-on-error: true
         env:
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
+          PLAN_READBACK_OK: ${{ steps.readback.outputs.ok }}
+          PLAN_READBACK_REASON: ${{ steps.readback.outputs.reason }}
         run: |
           set -uo pipefail
+          if [ "${PLAN_READBACK_OK:-false}" != "true" ]; then
+            SHOT_REASON="Published recap readback failed: ${PLAN_READBACK_REASON:-the readback step did not complete.}"
+            echo "::warning::$SHOT_REASON"
+            echo "shot_ok=false" >> "$GITHUB_OUTPUT"
+            echo "captured=false" >> "$GITHUB_OUTPUT"
+            echo "image_url=" >> "$GITHUB_OUTPUT"
+            echo "light_image_url=" >> "$GITHUB_OUTPUT"
+            echo "dark_image_url=" >> "$GITHUB_OUTPUT"
+            {
+              echo 'shot_reason<<__RECAP_SHOT_REASON_EOF__'
+              echo "$SHOT_REASON"
+              echo '__RECAP_SHOT_REASON_EOF__'
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ -n "${RECAP_PLAYWRIGHT:-}" ] && [ -x "$RECAP_PLAYWRIGHT" ]; then
             "$RECAP_PLAYWRIGHT" install --with-deps chromium || true
           elif command -v pnpm >/dev/null 2>&1; then

@@ -2,6 +2,7 @@ import fs, { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
 
 import { describe, expect, it, vi } from "vitest";
 import { parse as parseYaml } from "yaml";
@@ -1805,8 +1806,18 @@ describe("recap screenshot capture", () => {
       waitForSelector: vi.fn(async () => undefined),
       waitForTimeout: vi.fn(async () => undefined),
       evaluate: vi.fn(async (_fn: unknown, arg?: unknown) => {
-        return typeof arg === "number" ? 320 : undefined;
+        if (typeof arg === "number") return 320;
+        if (arg === undefined) {
+          return {
+            readyState: "complete",
+            hasPlanDocument: false,
+            hasSignInPrompt: false,
+            hasAccessError: false,
+          };
+        }
+        return undefined;
       }),
+      on: vi.fn(),
       setViewportSize: vi.fn(async () => undefined),
       screenshot: vi.fn(async ({ path: outPath }: { path: string }) => {
         fs.writeFileSync(
@@ -1905,6 +1916,61 @@ describe("recap screenshot capture", () => {
     }
   });
 
+  it("forwards the publish token only to requests on the configured Plan app origin", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
+    const out = path.join(dir, "recap.png");
+    const { context, importPlaywright } = createShotPlaywright([
+      Buffer.from("png"),
+    ]);
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+
+    try {
+      await runShot(
+        {
+          url: "https://plan.agent-native.com/recaps/plan-abc123",
+          out,
+          token: "recap-token",
+          "app-url": "https://plan.agent-native.com",
+        },
+        importPlaywright,
+      );
+
+      const routeHandler = context.route.mock.calls[0]?.[1] as
+        | ((route: unknown) => Promise<void>)
+        | undefined;
+      expect(routeHandler).toBeDefined();
+      const continueRoute = vi.fn(async () => undefined);
+      await routeHandler!({
+        request: () => ({
+          url: () =>
+            "https://plan.agent-native.com/_agent-native/actions/get-visual-plan?id=plan-abc123",
+          headers: () => ({ accept: "application/json" }),
+        }),
+        continue: continueRoute,
+      });
+      await routeHandler!({
+        request: () => ({
+          url: () => "https://outside.example/collect",
+          headers: () => ({ accept: "application/json" }),
+        }),
+        continue: continueRoute,
+      });
+
+      expect(continueRoute).toHaveBeenNthCalledWith(1, {
+        headers: {
+          accept: "application/json",
+          authorization: "Bearer recap-token",
+        },
+      });
+      expect(continueRoute).toHaveBeenNthCalledWith(2);
+    } finally {
+      stdout.mockRestore();
+      fs.rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
   it("refuses to capture the app shell while the recap is still on its loading skeleton", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
     const out = path.join(dir, "recap.png");
@@ -1986,6 +2052,63 @@ describe("recap screenshot capture", () => {
       expect(stderr).toHaveBeenCalledWith(
         "[recap shot] recap document did not become ready; retrying once\n",
       );
+    } finally {
+      stderr.mockRestore();
+      stdout.mockRestore();
+      fs.rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("reports plan access responses when the recap document never renders", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
+    const out = path.join(dir, "recap.png");
+    const { page, importPlaywright } = createShotPlaywright([
+      Buffer.from("png"),
+    ]);
+    page.on.mockImplementation(
+      (event: string, listener: (value: unknown) => void) => {
+        if (event === "response") {
+          listener({
+            url: () =>
+              "https://plan.agent-native.com/_agent-native/actions/get-visual-plan?id=private",
+            status: () => 403,
+          });
+        }
+      },
+    );
+    page.waitForSelector.mockRejectedValue(
+      new Error(
+        "page.waitForSelector: Timeout 30000ms exceeded while waiting for locator('[data-plan-document]')",
+      ),
+    );
+    const writes: string[] = [];
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      });
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    try {
+      await runShot(
+        {
+          url: "https://plan.agent-native.com/recaps/plan-private",
+          out,
+          token: "do-not-log-this-token",
+          "app-url": "https://plan.agent-native.com",
+        },
+        importPlaywright,
+      );
+
+      const result = JSON.parse(writes.join("").trim());
+      expect(result).toMatchObject({ ok: false });
+      expect(result.reason).toContain("get-visual-plan=HTTP 403");
+      expect(result.reason).toContain("sign-in=false, access-error=false");
+      expect(result.reason).not.toContain("do-not-log-this-token");
+      expect(page.screenshot).not.toHaveBeenCalled();
     } finally {
       stderr.mockRestore();
       stdout.mockRestore();
@@ -2112,6 +2235,126 @@ describe("recap screenshot capture", () => {
       stdout.mockRestore();
       fs.rmSync(dir, { force: true, recursive: true });
     }
+  });
+});
+
+describe("published recap readback workflow", () => {
+  const workflowFiles = [
+    ".github/workflows/pr-visual-recap.yml",
+    ".github/workflows/pr-visual-recap-reusable.yml",
+    ".github/workflows/pr-visual-recap-fork.yml",
+  ];
+
+  function readbackScript(file: string): string {
+    const workflow = parseYaml(
+      readFileSync(path.join(repoRoot, file), "utf8"),
+    ) as {
+      jobs: {
+        recap: {
+          steps: Array<{ name?: string; run?: string }>;
+        };
+      };
+    };
+    const step = workflow.jobs.recap.steps.find(
+      ({ name }) => name === "Verify published recap readback",
+    );
+    const match = step?.run?.match(/node <<'NODE'\n([\s\S]*?)\nNODE/);
+    if (!match) throw new Error(`${file} is missing its readback script`);
+    return match[1];
+  }
+
+  async function executeReadback(
+    script: string,
+    input: { planUrl: string; appUrl: string },
+    response: Response,
+  ) {
+    const writes: string[] = [];
+    const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(response);
+    runInNewContext(script, {
+      URL,
+      AbortSignal,
+      fetch: fetchFn,
+      process: {
+        env: {
+          PLAN_URL: input.planUrl,
+          PLAN_RECAP_APP_URL: input.appUrl,
+          PLAN_RECAP_TOKEN: "recap-token",
+        },
+        stdout: {
+          write: (chunk: string) => {
+            writes.push(chunk);
+            return true;
+          },
+        },
+      },
+    });
+    await vi.waitFor(() => expect(writes).toHaveLength(1));
+    return { result: JSON.parse(writes[0]!), fetchFn };
+  }
+
+  it("keeps the authenticated readback script in sync across every PR workflow", () => {
+    const scripts = workflowFiles.map(readbackScript);
+    expect(scripts[1]).toBe(scripts[0]);
+    expect(scripts[2]).toBe(scripts[0]);
+  });
+
+  it("keeps bearer requests on the Plan origin for a double-slash base path", async () => {
+    const script = readbackScript(workflowFiles[0]!);
+    const { result, fetchFn } = await executeReadback(
+      script,
+      {
+        planUrl: "https://plan.agent-native.com//tenant/recaps/recap_123",
+        appUrl: "https://plan.agent-native.com//tenant",
+      },
+      textResponse(JSON.stringify({ planId: "recap_123" })),
+    );
+
+    expect(result).toEqual({ ok: true, reason: "" });
+    const [url, init] = fetchFn.mock.calls[0]!;
+    expect(new URL(String(url)).origin).toBe("https://plan.agent-native.com");
+    expect(new URL(String(url)).pathname).toBe(
+      "//tenant/_agent-native/actions/get-visual-plan",
+    );
+    expect(new Headers(init?.headers).get("authorization")).toBe(
+      "Bearer recap-token",
+    );
+  });
+
+  it("reports a rejected read without logging response details or the token", async () => {
+    const script = readbackScript(workflowFiles[0]!);
+    const { result, fetchFn } = await executeReadback(
+      script,
+      {
+        planUrl: "https://plan.agent-native.com/recaps/recap_123",
+        appUrl: "https://plan.agent-native.com",
+      },
+      textResponse("private response detail", 403),
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      reason:
+        "get-visual-plan returned HTTP 403; the configured token cannot read this published recap",
+    });
+    expect(JSON.stringify(result)).not.toContain("private response detail");
+    expect(JSON.stringify(result)).not.toContain("recap-token");
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a published recap URL from outside the configured Plan origin", async () => {
+    const script = readbackScript(workflowFiles[0]!);
+    const { result, fetchFn } = await executeReadback(
+      script,
+      {
+        planUrl: "https://outside.example/recaps/recap_123",
+        appUrl: "https://plan.agent-native.com",
+      },
+      textResponse(JSON.stringify({ planId: "recap_123" })),
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.reason).toContain("origin does not match");
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 });
 
