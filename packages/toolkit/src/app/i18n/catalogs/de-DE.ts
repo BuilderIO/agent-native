@@ -2193,7 +2193,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io konnte nicht getrennt werden.",
   "settingsShell.builder.disconnectTitle": "Builder.io trennen?",
   "settingsShell.builder.grantsFailed":
-    "Die Verbindung zu Builder.io konnte nicht überprüft werden.",
+    "Der Verbindungsstatus ist nicht verfügbar. Versuche es erneut, um ihn zu prüfen.",
   "settingsShell.builder.setupStartFailed":
     "Das Builder.io-Setup konnte nicht gestartet werden. Aktualisiere diese Seite und versuche es erneut.",
   "settingsShell.builder.setupHostFailed":
@@ -2647,7 +2647,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "Modellzugriff, Browserautomatisierung, Dateispeicher und Workspace-Identität. Kostenloser Tarif verfügbar.",
   "settingsShell.integrations.builderStatusFailed":
-    "Die Builder.io-Verbindung konnte nicht geprüft werden.",
+    "Der Verbindungsstatus ist nicht verfügbar. Versuche es erneut, um ihn zu prüfen.",
   "settingsShell.integrations.category.analytics": "Analytics",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Entwicklung",
@@ -2803,6 +2803,11 @@ const messages: ToolkitAgentChatTranslation = {
     "Ein Deployment-Fallback ist verfügbar. Nutze dein eigenes Builder.io-Konto, um ihn zu überschreiben.",
   "settingsInfra.builderStorageHint":
     "Objektspeicher bewahrt hochgeladene Dateien dauerhaft auf und hält ihre URLs im gesamten Thread wiederverwendbar. Nutze Builder.io oder den S3-kompatiblen Bucket unten.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io ist verbunden, kann aber noch keine hochgeladenen Dateien speichern. Autorisiere Builder.io erneut für Uploads oder richte unten einen Bucket ein.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Die Upload-Berechtigung von Builder.io konnte nicht geprüft werden. Versuche es erneut oder richte unten einen Bucket ein.",
+  "settingsInfra.reconnectBuilderUploads": "Upload-Zugriff gewähren",
   "settingsInfra.builderUnknown":
     "Die Builder.io-Verbindung konnte nicht geprüft werden.",
   "settingsInfra.manage": "Verwalten",

@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -9,6 +7,7 @@ import {
   rightInspectorCanvasInset,
   rightInspectorPanelClassName,
 } from "./minimal-inspector";
+import { readDesignEditorSource } from "./read-design-editor-source";
 
 describe("rightInspectorCanvasInset", () => {
   it("reserves the panel width for a visible inspector", () => {
@@ -107,10 +106,7 @@ describe("rightInspectorPanelClassName", () => {
 });
 
 describe("DesignEditor minimal inspector wiring", () => {
-  const editorSource = readFileSync(
-    new URL("../DesignEditor.tsx", import.meta.url),
-    "utf8",
-  );
+  const editorSource = readDesignEditorSource();
 
   it("hides the manual right-sidebar toggle in minimal mode", () => {
     expect(editorSource).not.toContain('data-design-minimal-toggle="right"');
