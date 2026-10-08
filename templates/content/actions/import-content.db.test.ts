@@ -224,6 +224,32 @@ describe("import-content", () => {
     expect(await importedChildren()).toEqual([]);
   });
 
+  it("refuses a page that grows past what a page can hold once its image urls are filled in", async () => {
+    const files = [
+      { name: "small.md", text: "# Small\n\nHello." },
+      {
+        name: "gallery.md",
+        text: `# Gallery\n\n${"![D](./diagram.png)\n\n".repeat(130)}`,
+      },
+      { name: "diagram.png", url: `/uploads/${"d".repeat(4000)}.png` },
+    ];
+    const preview = await asOwner(() =>
+      importContent.run({ files, parentId: PARENT_ID, dryRun: true }),
+    );
+    expect(preview.pages.map((page) => page.sourceName)).toEqual([
+      "small.md",
+      "gallery.md",
+    ]);
+
+    await expect(
+      asOwner(() =>
+        importContent.run({ files, parentId: PARENT_ID, dryRun: false }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "IMPORT_PAGE_TOO_LARGE" });
+    expect(await importedChildren()).toEqual([]);
+    expect(blobs.put).not.toHaveBeenCalled();
+  });
+
   it("fails closed when file storage is not configured", async () => {
     blobs.configured = false;
     const preview = await asOwner(() =>

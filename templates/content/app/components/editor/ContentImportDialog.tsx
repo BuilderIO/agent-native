@@ -16,6 +16,7 @@ import {
   importFileKind,
   type ImportSkippedFile,
   MAX_IMPORT_FILES,
+  MAX_IMPORT_IMAGE_BYTES,
   MAX_IMPORT_MARKDOWN_BYTES,
   normalizeImportPath,
 } from "@shared/import/plan";
@@ -47,6 +48,7 @@ import { cn } from "@/lib/utils";
 
 import { FileStorageStatusGate } from "./FileStorageStatusGate";
 import { uploadImageFile } from "./image-upload";
+import { uploadPickedImages } from "./import-image-uploads";
 
 const IMPORT_APP_STATE_KEY = "content-import";
 const FILE_ACCEPT = ".md,.markdown,.mdx,image/*";
@@ -124,11 +126,10 @@ async function readImportFiles(files: File[]) {
   const skipped: ImportSkippedFile[] = [];
   for (const file of files) {
     const kind = importFileKind(normalizeImportPath(file.name) ?? file.name);
-    if (kind !== "markdown") {
-      payload.push({ name: file.name });
-      continue;
-    }
-    if (file.size > MAX_IMPORT_MARKDOWN_BYTES) {
+    if (
+      (kind === "markdown" && file.size > MAX_IMPORT_MARKDOWN_BYTES) ||
+      (kind === "image" && file.size > MAX_IMPORT_IMAGE_BYTES)
+    ) {
       skipped.push({
         name: file.name,
         reason: "too-large",
@@ -136,7 +137,11 @@ async function readImportFiles(files: File[]) {
       });
       continue;
     }
-    payload.push({ name: file.name, text: await file.text() });
+    payload.push(
+      kind === "markdown"
+        ? { name: file.name, text: await file.text() }
+        : { name: file.name },
+    );
   }
   return { payload, skipped };
 }
@@ -177,7 +182,7 @@ export function ContentImportDialog({
   const idempotencyKey = useRef("");
   // A retry under the same key must send the same image urls, which the
   // key's fingerprint includes, so each picked image uploads once per key.
-  const uploadedUrls = useRef(new Map<File, string>());
+  const imageUploads = useRef(new Map<File, Promise<string>>());
   const [files, setFiles] = useState<File[]>([]);
   const [payload, setPayload] = useState<ImportContentFileInput[]>([]);
   const [localSkipped, setLocalSkipped] = useState<ImportSkippedFile[]>([]);
@@ -279,7 +284,7 @@ export function ContentImportDialog({
   const planFiles = useCallback(
     (picked: File[]) => {
       idempotencyKey.current = crypto.randomUUID();
-      uploadedUrls.current = new Map();
+      imageUploads.current = new Map();
       return previewFiles(picked);
     },
     [previewFiles],
@@ -329,18 +334,13 @@ export function ContentImportDialog({
     setError(null);
     publishState("importing", { files, plan });
     try {
-      const urls = new Map<string, string>();
-      await Promise.all(
-        plan.uploads.map(async (name) => {
+      const urls = await uploadPickedImages(
+        plan.uploads.flatMap((name) => {
           const file = files.find((candidate) => candidate.name === name);
-          if (!file) return;
-          let url = uploadedUrls.current.get(file);
-          if (!url) {
-            url = await uploadImageFile(file);
-            uploadedUrls.current.set(file, url);
-          }
-          urls.set(name, url);
+          return file ? [file] : [];
         }),
+        imageUploads.current,
+        uploadImageFile,
       );
       const result = await importContent.mutateAsync({
         files: payload.map((file) =>

@@ -30,7 +30,9 @@ describe("Import planning", () => {
   });
 
   it("previews picked images as available and asks for each upload once", () => {
-    const [page] = planMarkdownPages({
+    const {
+      pages: [page],
+    } = planMarkdownPages({
       markdown: [
         {
           path: "guide.md",
@@ -68,7 +70,9 @@ describe("Import planning", () => {
   });
 
   it("stores uploaded URLs and links between imported pages", () => {
-    const [page] = planMarkdownPages({
+    const {
+      pages: [page],
+    } = planMarkdownPages({
       markdown: [
         {
           path: "guide.md",
@@ -100,7 +104,9 @@ describe("Import planning", () => {
     expect(matchImportImagePath("a/logo.png", picked)).toBe("a/logo.png");
     expect(matchImportImagePath("images/logo.png", picked)).toBeNull();
 
-    const [page] = planMarkdownPages({
+    const {
+      pages: [page],
+    } = planMarkdownPages({
       markdown: [{ path: "guide.md", text: "![D](images/diagram.png)\n" }],
       imagePaths: new Set(["diagram.png"]),
     });
@@ -124,10 +130,13 @@ describe("Import planning", () => {
     expect(dataUrlByteLength("data:image/svg+xml,%3Csvg%3E")).toBe(5);
     expect(dataUrlByteLength("data:image/svg+xml,100%")).toBeNull();
     expect(dataUrlByteLength("data:image/svg+xml,%FF")).toBeNull();
+    expect(dataUrlByteLength("data:image/png")).toBeNull();
   });
 
   it("previews an embedded image that won't decode as missing", () => {
-    const [page] = planMarkdownPages({
+    const {
+      pages: [page],
+    } = planMarkdownPages({
       markdown: [
         {
           path: "guide.md",
@@ -141,5 +150,27 @@ describe("Import planning", () => {
     expect(page.preview.assets.map((asset) => asset.status)).toEqual([
       "missing",
     ]);
+  });
+
+  it("leaves out a page too long to save, and reports links to it as not imported", () => {
+    const { pages, tooLarge } = planMarkdownPages({
+      markdown: [
+        { path: "guide.md", text: "# Guide\n\nSee [the log](log.md)." },
+        { path: "log.md", text: `# Log\n\n${"entry ".repeat(90_000)}` },
+        { path: "faq.md", text: "# FAQ\n\nAnswers." },
+      ],
+      imagePaths: new Set(),
+    });
+
+    expect(tooLarge).toEqual(["log.md"]);
+    expect(pages.map((page) => page.path)).toEqual(["guide.md", "faq.md"]);
+    expect(pages[0].preview.report.notes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "link-target-not-imported",
+          samples: ["log.md"],
+        }),
+      ]),
+    );
   });
 });

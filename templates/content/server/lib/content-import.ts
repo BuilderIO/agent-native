@@ -42,7 +42,7 @@ import {
   MAX_IMPORT_PAGE_CHARACTERS,
   normalizeImportPath,
   planMarkdownPages,
-  type PlannedImportPage,
+  splitDataUrl,
 } from "../../shared/import/plan.js";
 import {
   IMPORT_CONTENT_OPERATION,
@@ -77,20 +77,16 @@ export async function runContentImport(
   const destination = await resolveImportDestination(db, actor, args);
   const { markdown, images, skipped } = intakeFiles(args.files);
 
-  const planned: PlannedImportPage[] = [];
-  for (const page of planMarkdownPages({
+  const { pages: planned, tooLarge } = planMarkdownPages({
     markdown,
     imagePaths: new Set(images.keys()),
-  })) {
-    if (page.preview.content.length > MAX_IMPORT_PAGE_CHARACTERS) {
-      skipped.push({
-        name: markdown.find((file) => file.path === page.path)!.name,
-        reason: "too-large",
-        format: importFileFormat(page.path),
-      });
-      continue;
-    }
-    planned.push(page);
+  });
+  for (const path of tooLarge) {
+    skipped.push({
+      name: sourceFile(markdown, path).name,
+      reason: "too-large",
+      format: importFileFormat(path),
+    });
   }
 
   const usedImagePaths = new Set(
@@ -173,6 +169,38 @@ export async function runContentImport(
   const usedUploads = new Set<string>();
   const pages: ImportContentPageResult[] = [];
   try {
+    // Every new page is filled in and measured before any is created: image
+    // urls and page links only exist now, and can make a page longer than its
+    // preview, so a page that no longer fits stops the import before it starts.
+    const stored = new Map<string, ImportedPage>();
+    for (const page of planned) {
+      if (previousById.has(pageIds.get(page.path)!)) continue;
+      for (const request of page.uploads) {
+        if (request.kind !== "data-url") continue;
+        const key = assetKey(request);
+        if (!dataUrlUploads.has(key)) {
+          dataUrlUploads.set(key, await uploadDataUrl(request, actor));
+        }
+      }
+      const filled = finalizePlannedPage(page, {
+        assetUrl: (request) =>
+          request.kind === "file"
+            ? (images.get(request.path)?.url ?? null)
+            : (dataUrlUploads.get(assetKey(request))?.url ?? null),
+        pageHref: (path) => {
+          const target = pageIds.get(path);
+          return target ? `/page/${target}` : null;
+        },
+      });
+      if (filled.content.length > MAX_IMPORT_PAGE_CHARACTERS) {
+        fail(
+          `${sourceFile(markdown, page.path).name} is ${filled.content.length.toLocaleString("en-US")} characters once its images and links are filled in, more than the ${MAX_IMPORT_PAGE_CHARACTERS.toLocaleString("en-US")} a page can hold. Split it into smaller files, then import again.`,
+          { errorCode: "IMPORT_PAGE_TOO_LARGE", statusCode: 413 },
+        );
+      }
+      stored.set(page.path, filled);
+    }
+
     for (const page of planned) {
       const id = pageIds.get(page.path)!;
       const earlier = previousById.get(id);
@@ -190,25 +218,7 @@ export async function runContentImport(
         continue;
       }
 
-      const embedded = page.uploads.flatMap((request) =>
-        request.kind === "data-url" ? [request] : [],
-      );
-      for (const request of embedded) {
-        const key = assetKey(request);
-        if (!dataUrlUploads.has(key)) {
-          dataUrlUploads.set(key, await uploadDataUrl(request, actor));
-        }
-      }
-      const stored = finalizePlannedPage(page, {
-        assetUrl: (request) =>
-          request.kind === "file"
-            ? (images.get(request.path)?.url ?? null)
-            : (dataUrlUploads.get(assetKey(request))?.url ?? null),
-        pageHref: (path) => {
-          const target = pageIds.get(path);
-          return target ? `/page/${target}` : null;
-        },
-      });
+      const filled = stored.get(page.path)!;
       const { report, created } = await createImportedPage({
         db,
         ctx,
@@ -217,13 +227,15 @@ export async function runContentImport(
         importId,
         requestSha256,
         destination,
-        source: markdown.find((file) => file.path === page.path)!,
-        page: stored,
+        source: sourceFile(markdown, page.path),
+        page: filled,
       });
       if (created) {
-        for (const request of embedded) usedUploads.add(assetKey(request));
+        for (const request of page.uploads) {
+          if (request.kind === "data-url") usedUploads.add(assetKey(request));
+        }
       }
-      pages.push(pageResult(page.path, { ...stored, report }, id));
+      pages.push(pageResult(page.path, { ...filled, report }, id));
     }
   } catch (error) {
     throw await incompleteImportError(error, {
@@ -421,6 +433,10 @@ function intakeFiles(files: ImportContentFileInput[]) {
   return { markdown, images, skipped };
 }
 
+function sourceFile(markdown: IntakeMarkdown[], path: string): IntakeMarkdown {
+  return markdown.find((file) => file.path === path)!;
+}
+
 function importImageUrl(file: ImportContentFileInput): string {
   const url = file.url!.trim();
   if (url.startsWith("/") && !url.startsWith("//")) return url;
@@ -438,12 +454,15 @@ async function uploadDataUrl(
   request: Extract<ImportAssetRequest, { kind: "data-url" }>,
   ownerEmail: string,
 ): Promise<FileUploadResult> {
-  const comma = request.dataUrl.indexOf(",");
-  const header = request.dataUrl.slice(0, comma);
-  const payload = request.dataUrl.slice(comma + 1);
-  const data = /;base64$/i.test(header)
-    ? Buffer.from(payload, "base64")
-    : Buffer.from(decodeURIComponent(payload), "utf8");
+  const parts = splitDataUrl(request.dataUrl);
+  // The preview reports an embedded image with no payload as missing, so
+  // only a planning bug sends one here.
+  if (!parts) {
+    throw new Error(`An embedded ${request.mediaType} image has no payload`);
+  }
+  const data = parts.base64
+    ? Buffer.from(parts.payload, "base64")
+    : Buffer.from(decodeURIComponent(parts.payload), "utf8");
   const extension = request.mediaType.split("/")[1]?.split("+")[0] ?? "img";
   const uploaded = await uploadFile({
     data,

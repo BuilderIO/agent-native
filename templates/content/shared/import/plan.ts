@@ -77,16 +77,29 @@ export function importImageMediaType(path: string): string | null {
   return format ? (IMAGE_MEDIA_TYPES[format] ?? null) : null;
 }
 
+/** A `data:` URL's payload, or null when it has no comma to start one. */
+export function splitDataUrl(
+  dataUrl: string,
+): { base64: boolean; payload: string } | null {
+  const comma = dataUrl.indexOf(",");
+  if (comma === -1) return null;
+  return {
+    base64: /;base64$/i.test(dataUrl.slice(0, comma)),
+    payload: dataUrl.slice(comma + 1),
+  };
+}
+
 /**
- * Decoded size of a `data:` URL, measured without decoding base64. A
- * percent-encoded payload that can't be decoded, such as a stray `%`, has no
- * size, so the preview reports the image missing instead of apply failing.
+ * Decoded size of a `data:` URL, measured without decoding base64. One with
+ * no payload, or a percent-encoded payload that can't be decoded, such as a
+ * stray `%`, has no size, so the preview reports the image missing instead of
+ * apply failing.
  */
 export function dataUrlByteLength(dataUrl: string): number | null {
-  const comma = dataUrl.indexOf(",");
-  const header = dataUrl.slice(0, comma);
-  const payload = dataUrl.slice(comma + 1);
-  if (!/;base64$/i.test(header)) {
+  const parts = splitDataUrl(dataUrl);
+  if (!parts) return null;
+  const { base64, payload } = parts;
+  if (!base64) {
     try {
       return new TextEncoder().encode(decodeURIComponent(payload)).length;
     } catch (error) {
@@ -131,51 +144,99 @@ export function matchImportImagePath(
 
 /**
  * Parses each Markdown file and reports what it would become. Images picked
- * alongside count as available; nothing is uploaded or stored.
+ * alongside count as available; nothing is uploaded or stored. A page longer
+ * than the editor can save is left out, and the pages that link to it report
+ * those links as not imported.
  */
 export function planMarkdownPages(input: {
   markdown: Array<{ path: string; text: string }>;
   imagePaths: ReadonlySet<string>;
-}): PlannedImportPage[] {
-  const markdownPaths = new Set(input.markdown.map((file) => file.path));
-  return input.markdown.map(({ path, text }) => {
-    const draft = parseMarkdownImport({ sourcePath: path, text });
-    const uploads = new Map<string, ImportAssetRequest>();
-    const imageMatches = new Map<string, string>();
-    const preview = finalizeMarkdownImport(
-      draft,
-      {
-        asset: (request): ImportAssetResolution => {
-          let upload: ImportAssetRequest | null = null;
-          if (request.kind === "file") {
-            const match = matchImportImagePath(request.path, input.imagePaths);
-            if (match) {
-              imageMatches.set(request.path, match);
-              upload = { ...request, path: match };
-            }
-          } else if (isImportImageMediaType(request.mediaType)) {
-            const bytes = dataUrlByteLength(request.dataUrl);
-            if (bytes !== null && bytes <= MAX_IMPORT_IMAGE_BYTES) {
-              upload = request;
-            }
-          }
-          if (!upload) return { status: "missing" };
-          const key = assetKey(upload);
-          if (!uploads.has(key)) uploads.set(key, upload);
-          return { status: "available" };
-        },
-        link: (target) => (markdownPaths.has(target) ? target : null),
-      },
-      "preview",
+}): { pages: PlannedImportPage[]; tooLarge: string[] } {
+  const drafts = new Map(
+    input.markdown.map(({ path, text }) => [
+      path,
+      parseMarkdownImport({ sourcePath: path, text }),
+    ]),
+  );
+  const importing = new Set(drafts.keys());
+  const planned = new Map<string, ReturnType<typeof planPage>>();
+  const tooLarge: string[] = [];
+  let stale = [...drafts.keys()];
+  while (stale.length > 0) {
+    for (const path of stale) {
+      planned.set(
+        path,
+        planPage(path, drafts.get(path)!, importing, input.imagePaths),
+      );
+    }
+    const dropped = stale.filter(
+      (path) =>
+        planned.get(path)!.page.preview.content.length >
+        MAX_IMPORT_PAGE_CHARACTERS,
     );
-    return {
+    for (const path of dropped) {
+      importing.delete(path);
+      planned.delete(path);
+      tooLarge.push(path);
+    }
+    // A link to a page left out reads differently, which changes the length
+    // of the page holding it, so those pages are measured again.
+    stale = [...planned].flatMap(([path, { linked }]) =>
+      dropped.some((target) => linked.has(target)) ? [path] : [],
+    );
+  }
+  return { pages: [...planned.values()].map(({ page }) => page), tooLarge };
+}
+
+function planPage(
+  path: string,
+  draft: MarkdownImportDraft,
+  importing: ReadonlySet<string>,
+  imagePaths: ReadonlySet<string>,
+): { page: PlannedImportPage; linked: Set<string> } {
+  const uploads = new Map<string, ImportAssetRequest>();
+  const imageMatches = new Map<string, string>();
+  const linked = new Set<string>();
+  const preview = finalizeMarkdownImport(
+    draft,
+    {
+      asset: (request): ImportAssetResolution => {
+        let upload: ImportAssetRequest | null = null;
+        if (request.kind === "file") {
+          const match = matchImportImagePath(request.path, imagePaths);
+          if (match) {
+            imageMatches.set(request.path, match);
+            upload = { ...request, path: match };
+          }
+        } else if (isImportImageMediaType(request.mediaType)) {
+          const bytes = dataUrlByteLength(request.dataUrl);
+          if (bytes !== null && bytes <= MAX_IMPORT_IMAGE_BYTES) {
+            upload = request;
+          }
+        }
+        if (!upload) return { status: "missing" };
+        const key = assetKey(upload);
+        if (!uploads.has(key)) uploads.set(key, upload);
+        return { status: "available" };
+      },
+      link: (target) => {
+        if (!importing.has(target)) return null;
+        linked.add(target);
+        return target;
+      },
+    },
+    "preview",
+  );
+  return {
+    page: {
       path,
       draft,
       preview,
       uploads: [...uploads.values()],
       imageMatches,
-    };
-  });
+    },
+    linked,
+  };
 }
 
 /**
