@@ -614,6 +614,9 @@ export function SqlChartCard({
               className="max-w-32 shrink-0 truncate px-1.5 py-0 text-[10px] font-normal"
               title={timeRangeOverrideLabel}
             >
+              <span className="sr-only">
+                {t("sqlDashboard.chartTimeRangeOverride")}:{" "}
+              </span>
               {timeRangeOverrideLabel}
             </Badge>
           ) : null}
