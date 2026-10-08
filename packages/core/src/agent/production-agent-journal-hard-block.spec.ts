@@ -51,6 +51,11 @@ const {
 } = await import("./production-agent.js");
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
 import type { ActionEntry } from "./production-agent.js";
+import {
+  buildAssistantMessage,
+  threadDataToEngineMessages,
+  upsertAssistantMessage,
+} from "./thread-data-builder.js";
 
 function makeWriteAction(): ActionEntry {
   return {
@@ -142,6 +147,60 @@ beforeEach(() => {
 });
 
 describe("tool-call journal hard-block", () => {
+  it.each([true, false])(
+    "preserves an interrupted history outcome for readOnly=%s",
+    async (readOnly) => {
+      const action = { ...makeWriteAction(), readOnly };
+      const prior = buildAssistantMessage(
+        [
+          {
+            seq: 0,
+            event: {
+              type: "tool_start",
+              id: "prior-call",
+              tool: "test-action",
+              input: { id: "1" },
+            },
+          },
+        ],
+        "interrupted-run",
+      );
+      const replay = threadDataToEngineMessages(
+        upsertAssistantMessage({}, prior!),
+        { includeToolCalls: true },
+      );
+      const events: any[] = [];
+      await runAgentLoop({
+        engine: singleToolEngine("test-action", { id: "1" }),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Run the action." }],
+          },
+          ...replay,
+          {
+            role: "user",
+            content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+          },
+        ],
+        actions: { "test-action": action },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+      expect(action.run).toHaveBeenCalledTimes(readOnly ? 1 : 0);
+      if (!readOnly)
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "error",
+            errorCode: "write_tool_outcome_unknown",
+          }),
+        );
+    },
+  );
+
   it("carries loaded skill pages into internal continuation prompts", async () => {
     const skillPage =
       "# Skill: slide-editing\nCheck the layout only after all edits.";

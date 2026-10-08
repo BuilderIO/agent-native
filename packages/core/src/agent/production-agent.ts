@@ -3442,7 +3442,7 @@ function seedDuplicateReadOnlyToolCallsFromHistory(
 }
 
 function isReusableReadOnlyToolResult(part: EngineToolResultPart): boolean {
-  if (part.isError) return false;
+  if (part.isError || part.outcome === "unknown") return false;
   const lower = part.content.trim().toLowerCase();
   if (!lower) return false;
   if (
@@ -3601,7 +3601,8 @@ function seedWriteToolInterruptionsFromHistory(
       if (!call) continue;
       if (
         typeof part.content === "string" &&
-        (part.content === INTERRUPTED_TOOL_RESULT_MARKER ||
+        (part.outcome === "unknown" ||
+          part.content === INTERRUPTED_TOOL_RESULT_MARKER ||
           (part.isError === true && isToolCallTimeoutResult(part.content)))
       ) {
         const key = toolCallCacheKey(call.name, call.input);

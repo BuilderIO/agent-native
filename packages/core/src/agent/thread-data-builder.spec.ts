@@ -195,6 +195,79 @@ describe("extractThreadMeta", () => {
 });
 
 describe("buildAssistantMessage", () => {
+  it.each([
+    { input: ["first", "second"] },
+    { input: null },
+    { input: true },
+    { input: 17 },
+    { input: "truncated input" },
+  ])(
+    "preserves recorded non-object input $input in unknown-outcome replay",
+    ({ input }) => {
+      const message = buildAssistantMessage(
+        [
+          {
+            seq: 0,
+            event: {
+              type: "tool_start",
+              id: "unknown-input",
+              tool: "send-email",
+              input,
+            },
+          },
+        ],
+        "raw-input-run",
+      );
+      const replay = threadDataToEngineMessages(
+        JSON.stringify(upsertAssistantMessage({}, message!)),
+        { includeToolCalls: true },
+      );
+      expect(replay.flatMap(({ content }) => content)).toContainEqual({
+        type: "tool-call",
+        id: "unknown-input",
+        name: "send-email",
+        input: { rawInput: input },
+      });
+    },
+  );
+
+  it("keeps an explicitly unknown write outcome when the user stops", () => {
+    const result = "Interrupted before this tool returned a result.";
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "email",
+            tool: "send-email",
+            input: {},
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "tool_done",
+            id: "email",
+            tool: "send-email",
+            result,
+            isError: true,
+            outcomeUnknown: true,
+          },
+        },
+        { seq: 2, event: { type: "done", reason: "user" } },
+      ],
+      "stopped-write",
+    );
+    expect(message?.content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        result,
+        outcome: "unknown",
+      }),
+    );
+  });
+
   it("keeps an unknown side-effect outcome through persistence and model replay", () => {
     const message = buildAssistantMessage(
       [
