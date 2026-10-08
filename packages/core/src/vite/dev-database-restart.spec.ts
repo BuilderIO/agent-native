@@ -19,55 +19,6 @@ type NitroHot = {
   send?: (payload: any) => void;
 };
 
-const suppressedNitroEvents = new WeakMap<object, Set<string>>();
-
-function suppressNextNitroAcknowledgement(
-  hot: NitroHot,
-  event: string,
-  onSuppressed: () => void = () => {},
-): void {
-  if (!hot.on || !hot.off) {
-    throw new Error("Nitro dev environment cannot observe lifecycle events");
-  }
-
-  let suppressedEvents = suppressedNitroEvents.get(hot);
-  if (!suppressedEvents) {
-    suppressedEvents = new Set();
-    suppressedNitroEvents.set(hot, suppressedEvents);
-  }
-  if (suppressedEvents.has(event)) return;
-  suppressedEvents.add(event);
-
-  const hotOn = hot.on.bind(hot);
-  const hotOff = hot.off.bind(hot);
-  const wrappedListeners = new Map<
-    (payload: any) => void,
-    (payload: any) => void
-  >();
-  let suppress = true;
-  hot.on = (registeredEvent, listener) => {
-    if (registeredEvent !== event || !suppress) {
-      hotOn(registeredEvent, listener);
-      return;
-    }
-    const wrapped = (payload: any) => {
-      if (suppress && typeof payload?.requestId === "string") {
-        suppress = false;
-        onSuppressed();
-        return;
-      }
-      listener(payload);
-    };
-    wrappedListeners.set(listener, wrapped);
-    hotOn(registeredEvent, wrapped);
-  };
-  hot.off = (registeredEvent, listener) => {
-    const wrapped = wrappedListeners.get(listener) ?? listener;
-    wrappedListeners.delete(listener);
-    hotOff(registeredEvent, wrapped);
-  };
-}
-
 function suppressNitroAcknowledgements(
   hot: NitroHot,
   event: string,
@@ -254,6 +205,7 @@ describe("Nitro PGlite dev lifecycle", () => {
     let releaseDeferredResumeRequest: (() => void) | undefined;
     let restoreCloseAcknowledgements: (() => void) | undefined;
     let restoreNitroSend: (() => void) | undefined;
+    let restoreShutdownRaceListener: (() => void) | undefined;
 
     fs.mkdirSync(path.join(testRoot, "server", "plugins"), {
       recursive: true,
@@ -549,17 +501,55 @@ export default async () => {
 
       const restartsBeforeShutdown = serverRestarts;
       const listensBeforeShutdown = serverListens;
+      const configurationsBeforeShutdown = serverConfigurations;
       const shutdownNitroHot = server.environments.nitro?.hot as NitroHot;
-      restoreCloseAcknowledgements = suppressNitroAcknowledgements(
-        shutdownNitroHot,
+      if (!shutdownNitroHot.on || !shutdownNitroHot.off) {
+        throw new Error("Nitro dev environment cannot observe shutdown events");
+      }
+      let shutdownClosePromise: Promise<void> | undefined;
+      const onShutdownRaceCloseAcknowledged = (payload: any) => {
+        if (shutdownClosePromise || typeof payload?.requestId !== "string") {
+          return;
+        }
+        restoreCloseAcknowledgements = suppressNitroAcknowledgements(
+          shutdownNitroHot,
+          "agent-native:dev-database-closed",
+        );
+        shutdownClosePromise = server?.close();
+      };
+      shutdownNitroHot.on(
         "agent-native:dev-database-closed",
+        onShutdownRaceCloseAcknowledged,
       );
+      restoreShutdownRaceListener = () => {
+        shutdownNitroHot.off?.(
+          "agent-native:dev-database-closed",
+          onShutdownRaceCloseAcknowledged,
+        );
+      };
       const shutdownStartedAt = Date.now();
-      await server.close();
+      fs.writeFileSync(envFile, "VITE_RESTART_TOKEN=shutdown-during-restart\n");
+      const shutdownDeadline = Date.now() + 20_000;
+      while (!shutdownClosePromise && Date.now() < shutdownDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      if (!shutdownClosePromise) {
+        throw new Error(
+          "Explicit Vite shutdown did not race the restart cleanup acknowledgement",
+        );
+      }
+      await shutdownClosePromise;
+      await new Promise((resolve) => setTimeout(resolve, 250));
       expect(Date.now() - shutdownStartedAt).toBeLessThan(20_000);
       expect(serverRestarts).toBe(restartsBeforeShutdown + 1);
       expect(serverListens).toBe(listensBeforeShutdown);
+      expect(serverConfigurations).toBe(configurationsBeforeShutdown);
       expect(server.httpServer?.listening).toBe(false);
+      expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
+        false,
+      );
+      restoreShutdownRaceListener();
+      restoreShutdownRaceListener = undefined;
       restoreCloseAcknowledgements();
       restoreCloseAcknowledgements = undefined;
       server = undefined;
@@ -567,6 +557,7 @@ export default async () => {
       const releaseResumeRequest = releaseDeferredResumeRequest;
       releaseDeferredResumeRequest = undefined;
       releaseResumeRequest?.();
+      restoreShutdownRaceListener?.();
       restoreCloseAcknowledgements?.();
       restoreNitroSend?.();
       try {

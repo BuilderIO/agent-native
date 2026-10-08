@@ -3883,6 +3883,7 @@ function nitroDevEnvironmentClosePlugin(): Plugin {
                   { timestamp: true },
                 );
               });
+              if (shutdownRequested) return;
               restartCloseInProgress = false;
               restartClosePrepared = true;
               restartRetryDelayMs = 1_000;
