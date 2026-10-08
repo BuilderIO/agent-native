@@ -2,6 +2,8 @@ import fs from "fs";
 import { createRequire } from "module";
 import path from "path";
 
+import { AGENT_NATIVE_TYPEGEN_ENV } from "../shared/runtime-config.js";
+
 export function findBinUpwards(
   binName: string,
   cwd = process.cwd(),
@@ -59,5 +61,15 @@ export function findReactRouterInvocation(
     command: process.execPath,
     args: [entry, ...args],
     shell: false,
+  };
+}
+
+export function reactRouterTypegenEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  return {
+    ...env,
+    NODE_ENV: "development",
+    [AGENT_NATIVE_TYPEGEN_ENV]: "1",
   };
 }

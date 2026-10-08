@@ -1,32 +1,165 @@
 ---
 title: "Cloudflare"
-description: "cloudflare_module Nitro プリセットを使って、agent-native アプリを Cloudflare Workers にデプロイします。"
+description: "Wrangler を使って、スタンドアロンの Agent-Native アプリを Cloudflare Workers にデプロイします。"
 ---
 
 # Cloudflare
 
-## Cloudflare Workers {#cloudflare-workers}
+<a id="cloudflare-workers"></a>
 
-Cloudflare Worker には Nitro のネイティブなモジュール出力を使用します。これにより SSR
-が有効なまま、Worker のエントリポイントと静的アセットが `.output/server` と
-`.output/public` 配下に出力されます:
+Cloudflare Workers は Cloudflare のネットワーク上でアプリを実行するため、サーバーを用意したり動かし続けたりする必要はありません。ビルドによって、アプリはアプリのページと API を処理する Worker と、Cloudflare が直接配信する静的ファイルに変換されます。また、Cloudflare はアプリに HTTPS 対応の公開アドレスを割り当てます。
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
-});
-```
+このガイドでは、スタンドアロン アプリを 1 つ、ゼロからデプロイする手順を説明します。アプリを作成し、本番用のデータベースと認証シークレットを用意し、データベースを準備し、Worker をビルドし、シークレットを Cloudflare に保存してから、デプロイします。
 
-生成された Worker を Wrangler でビルド・デプロイします。
+<Callout tone="info">
+
+Node.js `22.22+` が必要です。
+
+</Callout>
+
+Cloudflare アカウントも必要です。このガイドのコマンドは自分のコンピューター上で実行してください。Cloudflare のコマンドライン ツールである Wrangler が、完成した Worker を Cloudflare にアップロードします。
+
+## ステップ 1: アプリを作成する {#step-1-create-the-app}
+
+新しいスタンドアロン アプリを作成します。以下の例では Chat テンプレートからアプリを作成していますが、どのテンプレートから始めてもかまいません。アプリのフォルダーに移動し、依存関係をインストールします。`corepack enable` はアプリが想定する `pnpm` のバージョンを有効にするため、`pnpm` を自分でインストールする必要はありません。
 
 ```bash
-pnpm build
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+必要に応じて、`my-app` を自分のアプリ名に置き換えてください。このガイドの以降の手順は、アプリのフォルダー内にいることを前提としています。
+
+<Callout tone="info">
+
+これらのコマンドがピア依存関係のエラーで失敗する場合は、npx キャッシュ内の古いパッケージが原因の可能性があります。`npx clear-npx-cache` を実行してキャッシュを消去してから、もう一度コマンドを実行してください。
+
+</Callout>
+
+## ステップ 2: 環境シークレットを設定する {#step-2-configure-environment-secrets}
+
+アプリは本番用の設定を環境変数から読み取ります。
+
+| 変数                 | 必須   | 用途                                                 |
+| -------------------- | ------ | ---------------------------------------------------- |
+| `DATABASE_URL`       | はい   | アプリを PostgreSQL データベースに接続する           |
+| `BETTER_AUTH_SECRET` | はい   | ユーザー セッションに署名する                        |
+| `BETTER_AUTH_URL`    | いいえ | ユーザーがアプリにアクセスする公開アドレスを設定する |
+
+以下の export により、このシェルで後続のコマンドが動作するようになります。デプロイする前に、同じ変数をホストのプロジェクトまたはサービスの環境設定にも保存してください。Cloudflare に保存する方法はステップ 5 で説明します。
+
+### データベース URL {#database-url}
+
+ローカル開発中、`DATABASE_URL` が設定されていない場合、アプリはデータをローカル データベースに保存します。デプロイしたアプリには、デプロイ後もデータを保持する本物の PostgreSQL データベースが必要です。Worker はリクエスト間でファイルを保持できないため、データベースは Cloudflare Workers の外に置く必要があります。プロバイダーから接続文字列をコピーし、export します。
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+各プロバイダーで接続文字列を確認する場所は、[データベース プロバイダー ガイド](/docs/neon)で説明しています。
+
+<Callout tone="warning">
+
+Neon、Supabase、Amazon RDS などの永続的な PostgreSQL プロバイダーを選択してください。
+
+</Callout>
+
+### 認証シークレット {#auth-secret}
+
+この値は一度だけ生成し、デプロイ間で変更しないでください。
+
+アプリは `BETTER_AUTH_SECRET` を使ってユーザー セッションに署名します。この値が変わると、サインイン中のすべてのユーザーがサインアウトされます。以下のコマンドでランダムな値を生成します。
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+生成した値は、パスワード マネージャーなど、安全な場所に保存してください。デプロイのたびに同じ値を使用します。
+
+### 公開 URL {#public-url}
+
+省略可能です。カスタム ドメイン、リバース プロキシ、または固定の公開オリジンを必要とする認証や OAuth のフローを使う場合に設定します。
+
+`BETTER_AUTH_URL` は、ユーザーがアプリにアクセスする公開アドレスです。設定しない場合、アプリは受信したリクエストごとに自身のアドレスを判断します。Cloudflare が割り当てるアドレスでは通常それで問題ありませんが、カスタム ドメインを接続する場合は、サインイン リンクや OAuth のリダイレクトがそのドメインを使うように設定してください。
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## ステップ 3: マイグレーション {#step-3-migrate}
+
+マイグレーションは、アプリに必要なテーブルをデータベースに作成し、更新します。最初のデプロイの前にこれを実行してください。
+
+```bash
+pnpm migrate:production
+```
+
+このコマンドは自分のコンピューター上で実行され、ステップ 2 で export した `DATABASE_URL` を使って本番データベースに接続します。アプリをアップグレードした後は、新しいバージョンをデプロイする前にもう一度実行してください。
+
+## ステップ 4: ビルド {#step-4-build}
+
+アプリを Cloudflare Worker としてビルドします。
+
+```bash
+NITRO_PRESET=cloudflare_module pnpm build
+```
+
+`NITRO_PRESET=cloudflare_module` は、Cloudflare Workers が想定する形式でアプリをビルドします。ビルドは Worker を `.output/server` フォルダーに、静的ファイルを `.output/public` フォルダーに書き出します。
+
+ビルドは Wrangler の設定ファイルも `.output/server/wrangler.json` に書き出します。このファイルは Wrangler に何をデプロイするかを伝え、Worker に名前を付けます。名前はアプリの `package.json` から決まるため、`my-app` として作成したアプリは `my-app` という名前の Worker になります。フォルダーがリモートを持つ Git リポジトリの場合は、代わりにリポジトリから名前が決まります。ビルドは選んだ名前を表示します。
+
+## ステップ 5: ログインしてシークレットを保存する {#step-5-log-in-and-save-the-secrets}
+
+コマンドラインから Cloudflare にサインインします。
+
+```bash
+npx wrangler login
+```
+
+必須の 2 つの変数を、Worker のシークレットとして保存します。
+
+```bash
+printf '%s' "$DATABASE_URL" | npx wrangler secret put DATABASE_URL --config .output/server/wrangler.json
+```
+
+```bash
+printf '%s' "$BETTER_AUTH_SECRET" | npx wrangler secret put BETTER_AUTH_SECRET --config .output/server/wrangler.json
+```
+
+各コマンドはステップ 2 で export した値を読み取って Cloudflare に保存するため、シークレットを手で貼り付ける必要はありません。`--config` は Wrangler にステップ 4 の設定ファイルを指定するため、シークレットはビルドが選んだ名前の Worker に保存されます。初回は Worker がまだ存在しません。値をパイプで渡しているため、Wrangler は確認せずに Worker を自動で作成します。
+
+`BETTER_AUTH_URL` を設定した場合は、同じ方法で保存してください。これらの値は、後から Cloudflare ダッシュボードの Worker の設定で確認したり変更したりすることもできます。
+
+## ステップ 6: デプロイ {#step-6-deploy}
+
+Worker をアップロードして公開します。
+
+```bash
 npx wrangler deploy --config .output/server/wrangler.json
 ```
 
-`NITRO_PRESET=cloudflare_module` でプリセットを明示的に選択することもできます。
-デプロイ前に、耐久性のある外部 PostgreSQL データベースを構成してください。Worker
-のファイルシステムは永続的なアプリケーションストアではありません。
+`--config` は Wrangler にステップ 4 の設定ファイルを指定します。このファイルが、Worker と静的ファイルの場所を Wrangler に伝えます。
+
+コマンドが完了すると、`workers.dev` で終わるアプリのアドレスが表示されます。そのアドレスを開き、最初のアカウントを作成します。
+
+## 更新をデプロイする {#deploy-updates}
+
+新しいバージョンをリリースするには、アプリのフォルダーからマイグレーション、ビルド、デプロイのコマンドをもう一度実行します。
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=cloudflare_module pnpm build
+
+npx wrangler deploy --config .output/server/wrangler.json
+```
+
+シークレットはデプロイ間も Worker に保存されたまま残るため、ステップ 5 を繰り返す必要はありません。
 
 ## スケジュールされた作業 {#cloudflare-scheduled-work}
 
@@ -42,8 +175,8 @@ npx wrangler secret put A2A_SECRET --config .output/server/wrangler.json
 
 他のホストについては、[スケジューラの実行方法](/docs/recurring-jobs#how-scheduler-runs) を参照してください。
 
-## 次は何ですか
+## 次のステップ {#whats-next}
 
-- [**デプロイ**](/docs/deployment) — 初回の本番デプロイの前に、永続的なデータベースとプリセットを選ぶ
-- [**ワークスペースのデプロイ**](/docs/workspace-deployment) — Netlify または Vercel でワークスペースの各アプリを 1 つのオリジンにデプロイする
-- [**Node.js**](/docs/node-js)、[**Docker**](/docs/docker)、[**Vercel**](/docs/vercel)、[**Netlify**](/docs/netlify)、[**AWS Lambda**](/docs/aws-lambda)、[**Deno Deploy**](/docs/deno-deploy) — その他の Nitro プリセット
+- [**デプロイ環境変数**](/docs/deployment-environment-variables) - 本番設定の完全な一覧
+- [**SSR キャッシュ**](/docs/ssr-caching) - ホスティング ターゲットでのページ キャッシュの仕組み
+- [**デプロイ**](/docs/deployment) - ホスティング ターゲットと前提条件を比較する

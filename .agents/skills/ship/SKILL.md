@@ -31,6 +31,13 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   active GitHub login with `gh api user --jq .login`, include `author` in the
   live PR query, and compare `author.login` with that login. Verify the head
   repository, branch, head OID, and base; recheck the head.
+- Review replies follow PR ownership. Compare the live `author.login` with
+  `gh api user --jq .login`. Concise replies needed to document fixes, declines,
+  or terminal dispositions on the active user's own PR need no separate
+  authorization. For another person's PR, post a reply only when the current
+  request explicitly authorizes that communication on that exact PR; review,
+  monitor, fix, push, or merge authorization alone does not authorize comments.
+  Do not post proactive PR comments.
 - Preserve unrelated or incomplete concurrent work. Never reset, clean, stash,
   overwrite, rebase, or force-push it.
 - `/ship` starts in `ship_mode=merge-authorized` for a new PR or a PR authored
@@ -70,10 +77,11 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   asking for branch or worktree permission.
 - In Codex, inspect the task goal with `get_goal` at the start. If none exists,
   create one with `create_goal` whose objective, under normal `/ship`
-  authorization, says to continue until the PR is merged, `origin/main` ancestry
-  is verified, and the task-owned worktree is rotated to a fresh branch when
-  the safety checks pass. Retain the source branch and report any unpushed
-  commits or dirty publishable paths. In a shared checkout, keep the source
+  authorization, says to continue until every explicitly scoped PR reaches its
+  authorized endpoint, each merge is verified in `origin/main`, and the
+  task-owned worktree is rotated to a fresh branch when the safety checks
+  pass. Retain the source branch and report any unpushed commits or dirty
+  publishable paths. In a shared checkout, keep the source
   branch; if it cannot safely source the PR, follow `new-branch` to isolate
   this shipment with the correct base without asking. Preserve
   platform-assigned branches while checking and fixing CI/review feedback and
@@ -84,8 +92,30 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   checks, addressed review feedback with no new actionable item at final
   revalidation, `MERGEABLE`, a clean worktree, and no unpushed commits.
   Complete the ship goal only after its stated endpoint is reached.
-  The goal records the objective; `/babysit-pr` owns the checks. `/ship` stays
-  foreground-only and creates no watcher or lease.
+  A goal records the endpoint but does not wake an idle thread. In Codex, use
+  one same-thread heartbeat for each in-flight `/ship` goal. Before the first
+  pending CI or soak wait, create or reuse an active `heartbeat` with
+  `mcp__codex_app__automation_update` with `destination: "thread"`, the
+  current `targetThreadId`, `status: "ACTIVE"`, and a five-minute cadence.
+  Inspect the configured Codex automation store first; reuse only a heartbeat
+  for this same shipment, and leave unrelated automations untouched. Never
+  create a project cron or separate task for routine ship follow-through. Its
+  prompt resumes this goal, refreshes every in-scope PR's live head, checks,
+  reviews, and mergeability, and takes the next authorized fix or guarded
+  merge through ancestry proof and branch disposition. Keep the prompt silent
+  when nothing changed; leave the normal success notification policy enabled
+  for meaningful progress, completion, failure, or a user action that is
+  actually required. It inherits the existing push/merge boundary and cannot
+  expand the PR cohort.
+  Keep it active while checks or the unchanged-head soak are pending. It must
+  stay silent when nothing changed, and surface meaningful progress,
+  completion, failure, or a user action that is actually required. Pause and
+  verify it after the authorized endpoint, or when progress requires a
+  human-only change; leave the goal incomplete on a blocker. If create or
+  verification fails, continue in the foreground and report that automatic
+  resume is unavailable. `/babysit-pr` reuses this heartbeat and never creates
+  a second one. A user request not to create scheduled tasks overrides this
+  default; keep the work in the foreground.
 - In Claude Code, use its native session goal for the same endpoint. `/goal` is
   a session command, not an agent tool, so the user must submit it as a separate
   message before invoking `/ship`; loading the skill cannot set it. Submit this
@@ -133,8 +163,10 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
 1. Preflight the worktree and ownership.
 2. Run focused validation and publish the first coherent snapshot.
 3. Open or update the ready PR immediately.
-4. Run `/babysit-pr <number>` in this foreground task with the inherited
-   `ship_mode`. The standalone 30-minute stop never ends a `/ship` lifecycle.
+4. In Codex, register or resume the task heartbeat as soon as the PR exists,
+   before waiting on remote CI. Then run `/babysit-pr <number>` with the
+   inherited `ship_mode`. Under `/ship`, it shares the task goal and heartbeat;
+   the standalone 30-minute stop never ends a `/ship` lifecycle.
 5. In `merge-authorized` mode, merge only after the live gates hold for 10
    minutes. In `ready-only` mode, stop at the verified ready-PR gate and leave
    the PR open.
@@ -149,9 +181,10 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
 
 ## Existing PR backlog
 
-When the user asks to ship a backlog, inspect every relevant open PR directly
-with fresh `gh pr view` and `gh pr checks` state. Do not create a second
-reminder or leave a scheduler repeating an unchanged status. For each PR:
+When the user asks to ship a backlog, freeze the authorized PR cohort in one
+goal and one task heartbeat. Refresh every relevant open PR directly with
+`gh pr view` and `gh pr checks`; do not create a second reminder or let an
+unchanged scan produce status-only messages. For each PR:
 
 - If required CI is failing, open the failing run logs, fix only an actionable
   repo-owned failure, publish one coherent update, and recheck the same head.
@@ -163,22 +196,26 @@ reminder or leave a scheduler repeating an unchanged status. For each PR:
   If the command rejects because the head changed, restart the soak.
 - In `ready-only` mode, keep fixing CI and review feedback until the ready-PR
   gate in `/babysit-pr` holds; then leave the PR open without merging or rotating.
-- If an external dependency is unchanged, record the exact blocker once and
-  keep the foreground task quiet until a meaningful state change. Do not send
-  repeated "continue" prompts that restate CI status.
+- While remote checks or the soak are pending, keep the task heartbeat active
+  and produce no status-only messages. A pending check or transient provider
+  outage that may resolve without the user is not a reason to pause it; after
+  three unchanged wakes, back off to a 30-minute cadence and keep checking.
+  Pause only when fresh evidence identifies a specific human-only action, then
+  report that action once. Do not send repeated "continue" prompts that
+  restate CI status.
 
-The scheduler is a trigger, not the work. The original task that received the
-ship request owns its endpoint; it must not stop at a progress report while an
-actionable PR state is available. In `merge-authorized` mode, that endpoint is
-merge, `origin/main` proof, and branch disposition; once the gates hold, the
-owning task captures the final live `headRefOid` and performs the guarded admin
-merge without waiting for the user or a separate watcher. In `ready-only` mode,
-the endpoint is the verified ready-PR gate with the PR intentionally left open.
+The heartbeat is a wake-up trigger, not the work. Every wake resumes the
+original task's goal and ledger, refreshes live evidence, and takes the next
+safe action. In `merge-authorized` mode, the endpoint is merge, `origin/main`
+proof, and branch disposition; once the gates hold, the task captures the
+final live `headRefOid` and performs the guarded admin merge without waiting
+for the user or a separate watchdog invocation. In `ready-only` mode, the
+endpoint is the verified ready-PR gate with the PR intentionally left open.
 Under `merge-authorized`, `reviewDecision: REVIEW_REQUIRED` is not a user
 handoff: once required checks are green, the live PR is `MERGEABLE`, and every
-review item has a verified fix, reply, or terminal disposition, the owning task
-must perform the guarded admin merge after the unchanged soak. Never ask the
-user to click Merge for that routine authorized step.
+review item has a verified fix, reply, or terminal disposition, the task must
+perform the guarded admin merge after the unchanged soak. Never ask the user
+to click Merge for that routine authorized step.
 
 ## 1. Preflight
 
@@ -270,10 +307,10 @@ timer never creates a publish commit.
 
 Open or update one ready PR for the current branch immediately after the first
 push. Use a factual title and body. Do not create a second PR from a worktree.
-Do not tag, assign, mention, or leave proactive comments on the PR unless the
-user explicitly requested that communication. A factual reply needed to
-document a review fix or terminal disposition is allowed when the babysit
-gate requires it.
+Do not post proactive comments, tags, assignments, or mentions unless the user
+explicitly requested that communication. Required review replies follow the
+ownership rule in Contract; no extra authorization is needed for the active
+user's own PR.
 
 Keep these claims separate in the PR and final report:
 

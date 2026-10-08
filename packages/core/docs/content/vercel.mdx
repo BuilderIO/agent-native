@@ -1,40 +1,203 @@
 ---
 title: "Vercel"
-description: "Deploy an agent-native app to Vercel with the Vercel Nitro preset, standalone or as a workspace."
+description: "Deploy a standalone Agent-Native app to Vercel with the Vercel CLI."
+search: "Vercel deployment standalone app Nitro vercel preset CLI prebuilt production migrate build deploy"
 ---
 
 # Vercel
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "vercel" } })],
-});
-```
+Vercel hosts your app for you, so there is no server to set up or keep running.
+The build turns the app into files Vercel serves directly and functions Vercel
+runs on demand, and Vercel gives the app a public address with HTTPS.
 
-Deploy via the Vercel CLI or git push:
+This guide walks through deploying one standalone app from scratch. You will
+create the app, give it a production database and an auth secret, link it to a
+Vercel project, prepare the database, and then build and deploy it.
+
+<Callout tone="info">
+
+Node.js `22.22+` is required.
+
+</Callout>
+
+You also need a Vercel account. Run the commands in this guide on your own
+computer. The Vercel CLI uploads the finished build to Vercel for you.
+
+## Step 1: Create the app
+
+Create your new standalone app. The example below creates an app from the Chat
+template, but you can start from any template. Move into the app's folder and
+install its dependencies. `corepack enable` turns on the `pnpm` version the app
+expects, so you do not need to install `pnpm` yourself.
 
 ```bash
-npx vercel deploy
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
 ```
 
-For a disposable preview without signing in to Vercel, run
-`npx vercel deploy --temporary`. Temporary deployments do not retain project
-environment variables, so pass any database and secret values with the CLI's
-`--env` and `--build-env` options when you need more than a UI preview.
+Replace `my-app` with your own app name if you like. The rest of this guide
+assumes you are inside the app's folder.
 
-For a workspace, build every app into one Vercel Build Output API bundle:
+<Callout tone="info">
+
+If these commands fail with peer dependency errors, an outdated copy of a
+package in your npx cache may be the cause. Run `npx clear-npx-cache` to clear
+the cache, then run the commands again.
+
+</Callout>
+
+## Step 2: Configure environment secrets
+
+The app reads its production settings from environment variables:
+
+| Variable             | Required | Purpose                                              |
+| -------------------- | -------- | ---------------------------------------------------- |
+| `DATABASE_URL`       | Yes      | Connects the app to its PostgreSQL database          |
+| `BETTER_AUTH_SECRET` | Yes      | Signs user sessions                                  |
+| `BETTER_AUTH_URL`    | No       | Sets the public address people use to reach your app |
+
+The exports below make the following commands work in this shell. Before
+deploying, save these same variables in your host's project or service
+environment settings. The next step shows how to save them in Vercel.
+
+### Database URL
+
+During local development the app stores data in a local database when
+`DATABASE_URL` is unset. A deployed app needs a real PostgreSQL database that
+keeps its data between deploys. Vercel does not keep files between requests, so
+the database must live outside Vercel's functions. Copy the connection string
+from your provider and export it:
 
 ```bash
-npx @agent-native/core@latest deploy --preset vercel
+export DATABASE_URL='your-postgres-url-string'
 ```
 
-For Vercel Git deployments, set the build command to:
+The [database provider guides](/docs/neon) show where to find the connection
+string for each provider.
+
+<Callout tone="warning">
+
+Select a persistent PostgreSQL provider: Neon, Supabase, Amazon RDS, etc.
+
+</Callout>
+
+### Auth secret
+
+Generate this once and keep it stable across deploys.
+
+The app uses `BETTER_AUTH_SECRET` to sign user sessions. If it changes, every
+signed-in user is signed out. The command below generates a random value:
 
 ```bash
-npx @agent-native/core@latest deploy --preset vercel --build-only
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
 ```
 
-The workspace build copies each app's Nitro `vercel` output into the root `.vercel/output`, gives each function its own mount-path environment, and writes the route config that serves apps at `/<app-id>`.
+Save the generated value somewhere safe, such as a password manager. Use the
+same value every time you deploy.
+
+### Public URL
+
+Optional. Set it when using a custom domain, reverse proxy, or an auth/OAuth flow
+that needs a fixed public origin.
+
+`BETTER_AUTH_URL` is the public address people use to reach your app. Without
+it, the app works out its address from each incoming request. That is usually
+fine on the address Vercel gives you, but set it when you connect a custom
+domain so sign-in links and OAuth redirects use that domain.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Step 3: Link the project and save the secrets
+
+Sign in to Vercel from the command line:
+
+```bash
+npx vercel login
+```
+
+Link the app's folder to a Vercel project. Create a new project, and there is no
+need to customize its settings.
+
+```bash
+npx vercel link
+```
+
+The CLI suggests a project name based on the folder name. Accepting the
+suggested settings is fine, because you build the app yourself in Step 5 and
+Vercel does not need its own build settings.
+
+Save the two required variables in the project's production environment:
+
+```bash
+printf '%s' "$DATABASE_URL" | npx vercel env add DATABASE_URL production
+
+printf '%s' "$BETTER_AUTH_SECRET" | npx vercel env add BETTER_AUTH_SECRET production
+```
+
+Each command reads the value you exported in Step 2 and saves it in Vercel, so
+you do not have to paste secrets by hand. If you set `BETTER_AUTH_URL`, save it
+the same way. You can also see and change these values later in the project's
+settings on the Vercel dashboard.
+
+## Step 4: Migrate
+
+Migrations create and update the tables the app needs in your database. Run
+this before the first deploy:
+
+```bash
+pnpm migrate:production
+```
+
+The command runs on your computer and connects to the production database with
+the `DATABASE_URL` you exported in Step 2. Run it again after you upgrade the
+app, before you deploy the new version.
+
+## Step 5: Deploy
+
+Build the app for Vercel:
+
+```bash
+NITRO_PRESET=vercel pnpm build
+```
+
+`NITRO_PRESET=vercel` builds the app in the format Vercel expects and writes it
+to the `.vercel/output` folder.
+
+Upload the build and publish it:
+
+```bash
+npx vercel deploy --prebuilt --prod
+```
+
+`--prebuilt` uploads the build you just made instead of building the app again
+on Vercel. `--prod` publishes it to your production address, which uses the
+variables you saved for the production environment.
+
+When the command finishes, it prints the app's production address. Open it and
+create the first account.
+
+## Deploy updates
+
+To ship a new version, run the migrate, build, and deploy commands again from
+the app's folder:
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=vercel pnpm build
+
+npx vercel deploy --prebuilt --prod
+```
+
+The project link and the saved variables stay in place, so you do not need to
+repeat Step 3.
 
 ## Scheduled work {#vercel-scheduled-work}
 
@@ -68,6 +231,6 @@ other hosts.
 
 ## What's next
 
-- [**Deployment**](/docs/deployment) — pick a persistent database and a preset before your first production deploy
-- [**Workspace Deployment**](/docs/workspace-deployment) — the `deploy --preset vercel` workspace build in full
-- [**Node.js**](/docs/node-js), [**Docker**](/docs/docker), [**Netlify**](/docs/netlify), [**Cloudflare**](/docs/cloudflare), [**AWS Lambda**](/docs/aws-lambda), and [**Deno Deploy**](/docs/deno-deploy) — the other Nitro presets
+- [**Deployment Environment Variables**](/docs/deployment-environment-variables) - the full list of production settings
+- [**SSR Caching**](/docs/ssr-caching) - how page caching works on hosted targets
+- [**Deployment**](/docs/deployment) - compare hosting targets and prerequisites

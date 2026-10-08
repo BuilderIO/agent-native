@@ -7,7 +7,10 @@ import {
   formatComposerContext,
   hasComposerSystemContext,
 } from "@/lib/composer-context";
-import { patchPendingGeneration } from "@/lib/pending-generation";
+import {
+  failPendingGenerationForMissingImagePayload,
+  patchPendingGeneration,
+} from "@/lib/pending-generation";
 import type { RetryablePrompt } from "@/pages/design-editor/command-types";
 import { MAX_GENERATION_ATTEMPTS } from "@/pages/design-editor/editor-constants";
 import {
@@ -34,6 +37,7 @@ export interface StartRetryGenerationArgs {
     engine?: string;
     effort?: PromptComposerSubmitOptions["effort"];
   } | null>;
+  imageAttachmentUnavailableMessage: string;
   id: string | undefined;
   setGenerationChatTabId: Dispatch<SetStateAction<string | null>>;
   setGenerationIssue: Dispatch<SetStateAction<string | null>>;
@@ -63,6 +67,7 @@ export async function runStartRetryGeneration(
     clearGenerationCompleteTimer,
     design,
     generationModelRef,
+    imageAttachmentUnavailableMessage,
     id,
     setGenerationChatTabId,
     setGenerationIssue,
@@ -76,7 +81,24 @@ export async function runStartRetryGeneration(
   if (!id || !design || !canEditDesign) return;
   clearAutoRetryTimer();
   const fileContext = formatUploadedFileContext(promptState.files);
-  const images = imageAttachmentsFromUploadedFiles(promptState.files);
+  let images: string[];
+  try {
+    images = imageAttachmentsFromUploadedFiles(promptState.files);
+  } catch (error) {
+    if (
+      !failPendingGenerationForMissingImagePayload(
+        id,
+        error,
+        imageAttachmentUnavailableMessage,
+        setGenerationIssue,
+        setHasPendingGeneration,
+      )
+    ) {
+      throw error;
+    }
+    setRetryablePrompt(null);
+    return;
+  }
   const designSystemContext = hasComposerSystemContext(promptState.contextItems)
     ? ""
     : await loadDesignSystemGenerationContext(promptState.designSystemId);
@@ -102,8 +124,13 @@ export async function runStartRetryGeneration(
           id,
           promptState.templateId,
           promptState.designSystemId,
+          images.length,
         )
-      : designGenerationDirectives(id, promptState.designSystemId)),
+      : designGenerationDirectives(
+          id,
+          promptState.designSystemId,
+          images.length,
+        )),
   ].join("\n");
   clearGenerationCompleteTimer();
   setGenerationIssue(null);

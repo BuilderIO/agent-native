@@ -923,7 +923,7 @@ describe("buildBuilderWaitlistFormPayload", () => {
     });
   });
 
-  it("preserves the design make-real waitlist use case", () => {
+  it("maps the design make-real waitlist to a supported Design category", () => {
     const event = createMockEvent(
       "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
     );
@@ -938,11 +938,59 @@ describe("buildBuilderWaitlistFormPayload", () => {
       data: {
         email: "reader@example.com",
         source: "design_make_real_dialog",
-        useCase: "design_make_real_waitlist",
+        useCase: "design_publish_app",
       },
       _meta: {
         source: "design_make_real_dialog",
-        useCase: "design_make_real_waitlist",
+        useCase: "design_publish_app",
+      },
+    });
+  });
+
+  it("maps the Design Systems page waitlist to a supported Design category", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        pageUrl: "https://design.agent-native.com/design-systems",
+        source: "design_systems_page",
+        useCase: "design_system_workflows_waitlist",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "reader@example.com",
+        source: "design_systems_page",
+        useCase: "design_publish_app",
+      },
+      _meta: {
+        source: "design_systems_page",
+        useCase: "design_publish_app",
+      },
+    });
+  });
+
+  it("maps the Design Systems empty-state waitlist to a supported category", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        pageUrl: "https://design.agent-native.com/design-systems",
+        source: "design_systems_empty_state",
+        useCase: "design_system_waitlist",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "reader@example.com",
+        source: "design_systems_empty_state",
+        useCase: "design_publish_app",
+      },
+      _meta: {
+        source: "design_systems_empty_state",
+        useCase: "design_publish_app",
       },
     });
   });

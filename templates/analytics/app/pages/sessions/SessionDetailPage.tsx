@@ -25,6 +25,7 @@ import {
   IconCheck,
   IconChevronRight,
   IconCopy,
+  IconDownload,
   IconExclamationCircle,
   IconKeyboard,
   IconMessageCircle,
@@ -52,6 +53,7 @@ import {
   type FormEvent,
 } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -93,6 +95,13 @@ import {
 } from "../../../shared/slow-request";
 import { extractReplayDiagnostics } from "./session-replay-devtools";
 import type { ReplayDevToolsDiagnostics } from "./session-replay-devtools";
+import {
+  captureReplayScreenshot,
+  completeReplayScreenshotCapture,
+  downloadReplayScreenshotBlob,
+  ReplayScreenshotAssetError,
+  writeReplayScreenshotToClipboard,
+} from "./session-replay-screenshot";
 import {
   type SessionIssueMatch,
   SessionDevToolsPanel,
@@ -470,6 +479,7 @@ function ReplayWorkbench({
   const events = useReplayEvents(response);
   const appEvents = useLab(ANALYTICS_SESSIONS_TRIAGE_LAB);
   const [pageChangesCollapsed, setPageChangesCollapsed] = useState(false);
+  const [savingScreenshot, setSavingScreenshot] = useState(false);
   const pageVitalsLabel = t("sessions.markerPageVitals");
   const slowRequestLabel = t("sessions.markerSlowRequest");
   const allMarkers = useMemo(
@@ -518,11 +528,14 @@ function ReplayWorkbench({
         onTimeUpdate={setCurrentTime}
         registerSeek={registerSeek}
         frictionLab={appEvents}
+        savingScreenshot={savingScreenshot}
+        setSavingScreenshot={setSavingScreenshot}
       />
       <ReplayTimeline
         markers={markers}
         isLoading={!response.isComplete}
         activeMarkerId={activeMarkerId}
+        disabled={savingScreenshot}
         onSeek={(ms) => seekRef.current(ms, true)}
         pageChanges={
           appEvents
@@ -545,6 +558,8 @@ function ReplayPlayer({
   onTimeUpdate,
   registerSeek,
   frictionLab,
+  savingScreenshot,
+  setSavingScreenshot,
 }: {
   events: AnyReplayEvent[];
   markers: ReplayMarker[];
@@ -553,11 +568,14 @@ function ReplayPlayer({
   onTimeUpdate: (ms: number) => void;
   registerSeek: (seek: (ms: number, autoplay?: boolean) => void) => void;
   frictionLab: boolean;
+  savingScreenshot: boolean;
+  setSavingScreenshot: (saving: boolean) => void;
 }) {
   const t = useT();
   const stageAreaRef = useRef<HTMLDivElement>(null);
   const stageRootRef = useRef<HTMLDivElement>(null);
   const replayerRef = useRef<any>(null);
+  const screenshotCaptureRef = useRef<AbortController | null>(null);
   const rafRef = useRef<number | null>(null);
   const lastClockUpdateAtRef = useRef<number | null>(null);
   const [status, setStatus] = useState<ReplayPlayerStatus>("idle");
@@ -566,6 +584,9 @@ function ReplayPlayer({
   const [currentTime, setCurrentTime] = useState(0);
   const [totalTime, setTotalTime] = useState(0);
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
+  const [screenshotAction, setScreenshotAction] = useState<
+    "copy" | "save" | null
+  >(null);
   const [skipInactive, setSkipInactive] = useState(true);
   const [devToolsOpen, setDevToolsOpen] = useState(false);
   const [devToolsHeight, setDevToolsHeight] = useState(DEFAULT_DEVTOOLS_HEIGHT);
@@ -608,6 +629,7 @@ function ReplayPlayer({
   const currentTimeRef = useLiveRef(currentTime);
   const playingRef = useLiveRef(playing);
   const speedRef = useLiveRef(speed);
+  const savingScreenshotRef = useLiveRef(savingScreenshot);
 
   const currentUrl = useMemo(
     () => currentUrlAt(events, currentTime),
@@ -712,7 +734,9 @@ function ReplayPlayer({
   const seek = useCallback(
     (ms: number, autoplay = playingRef.current) => {
       const replayer = replayerRef.current;
-      if (!replayer || status !== "ready") return;
+      if (!replayer || status !== "ready" || savingScreenshotRef.current) {
+        return;
+      }
       const clamped = clamp(ms, 0, Math.max(totalTime, 0));
       try {
         if (autoplay) {
@@ -744,6 +768,7 @@ function ReplayPlayer({
     },
     [
       playingRef,
+      savingScreenshotRef,
       status,
       streamedDimsRef,
       totalTime,
@@ -754,23 +779,25 @@ function ReplayPlayer({
 
   const beginScrub = useCallback(
     (ms: number) => {
+      if (savingScreenshotRef.current) return;
       if (!scrubbingRef.current) {
         scrubResumePlayingRef.current = playingRef.current;
       }
       scrubbingRef.current = true;
       seek(ms, false);
     },
-    [playingRef, seek],
+    [playingRef, savingScreenshotRef, seek],
   );
 
   const endScrub = useCallback(
     (ms: number) => {
+      if (savingScreenshotRef.current) return;
       const resume = scrubResumePlayingRef.current;
       scrubbingRef.current = false;
       scrubResumePlayingRef.current = false;
       seek(ms, resume);
     },
-    [seek],
+    [savingScreenshotRef, seek],
   );
 
   useEffect(() => {
@@ -883,6 +910,10 @@ function ReplayPlayer({
 
     return () => {
       cancelled = true;
+      screenshotCaptureRef.current?.abort();
+      screenshotCaptureRef.current = null;
+      savingScreenshotRef.current = false;
+      setSavingScreenshot(false);
       stopCursorVisibilityObserver();
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
@@ -970,6 +1001,7 @@ function ReplayPlayer({
   ]);
 
   function togglePlay() {
+    if (savingScreenshotRef.current) return;
     if (status !== "ready") return;
     const replayer = replayerRef.current;
     if (!replayer) return;
@@ -1005,7 +1037,136 @@ function ReplayPlayer({
     }
   }
 
-  const disabled = status !== "ready";
+  function runScreenshotAction(
+    action: "copy" | "save",
+    operation: (
+      screenshot: Promise<Blob>,
+      filename: string,
+      onClipboardWriteFailure: () => void,
+    ) => Promise<void>,
+    onSuccess: () => void,
+    onFailure: (error: unknown) => void,
+  ) {
+    const replayer = replayerRef.current;
+    const iframe = replayer?.iframe as HTMLIFrameElement | undefined;
+    const stage = stageAreaRef.current;
+    const stageRoot = stageRootRef.current;
+    if (savingScreenshotRef.current) return;
+    if (!replayer || !iframe || !stage || !stageRoot) {
+      onFailure(new Error("Replay screenshot is unavailable"));
+      return;
+    }
+
+    const wasPlaying = playingRef.current;
+    const captureAt = Number(
+      replayer.getCurrentTime?.() ?? currentTimeRef.current,
+    );
+    const capture = new AbortController();
+    let clipboardWriteFailed = false;
+    const onClipboardWriteFailure = () => {
+      if (screenshotCaptureRef.current !== capture) return;
+      clipboardWriteFailed = true;
+      capture.abort();
+    };
+    screenshotCaptureRef.current = capture;
+    savingScreenshotRef.current = true;
+    setSavingScreenshot(true);
+    setScreenshotAction(action);
+
+    const filename = `session-replay-${Math.floor(captureAt / 1000)
+      .toString()
+      .padStart(4, "0")}.png`;
+    let actionPromise: Promise<void>;
+    try {
+      replayer.pause(captureAt);
+      setPlaying(false);
+      updateTime(captureAt);
+      const screenshot = captureReplayScreenshot(
+        stage,
+        stageRoot,
+        iframe,
+        capture.signal,
+      );
+      // Clipboard writes need this click's activation, so start the operation before awaiting capture.
+      actionPromise = operation(screenshot, filename, onClipboardWriteFailure);
+    } catch (error) {
+      actionPromise = Promise.reject(error);
+    }
+
+    void actionPromise
+      .then(onSuccess, (error: unknown) => {
+        if (
+          !capture.signal.aborted ||
+          (clipboardWriteFailed && screenshotCaptureRef.current === capture)
+        ) {
+          capture.abort();
+          onFailure(error);
+        }
+      })
+      .finally(() => {
+        const captureStillCurrent = completeReplayScreenshotCapture(
+          screenshotCaptureRef,
+          capture,
+          () => {
+            savingScreenshotRef.current = false;
+            setSavingScreenshot(false);
+          },
+        );
+        if (captureStillCurrent) setScreenshotAction(null);
+        if (
+          captureStillCurrent &&
+          wasPlaying &&
+          replayerRef.current === replayer
+        ) {
+          try {
+            replayer.play(captureAt);
+            setPlaying(true);
+          } catch {
+            setPlaying(false);
+          }
+        }
+      });
+  }
+
+  function saveScreenshot() {
+    runScreenshotAction(
+      "save",
+      (screenshot, filename) =>
+        screenshot.then((blob) => downloadReplayScreenshotBlob(blob, filename)),
+      () => toast.success(t("sessions.screenshotDownloaded")),
+      (error) =>
+        toast.error(
+          t(
+            error instanceof ReplayScreenshotAssetError
+              ? "sessions.screenshotUnsupportedAssets"
+              : "sessions.screenshotSaveFailed",
+          ),
+        ),
+    );
+  }
+
+  function copyScreenshotToDesign() {
+    runScreenshotAction(
+      "copy",
+      (screenshot, _filename, onClipboardWriteFailure) =>
+        writeReplayScreenshotToClipboard(
+          screenshot,
+          undefined,
+          onClipboardWriteFailure,
+        ),
+      () => toast.success(t("sessions.screenshotCopiedForDesign")),
+      (error) =>
+        toast.error(
+          t(
+            error instanceof ReplayScreenshotAssetError
+              ? "sessions.screenshotCopyUnsupportedAssets"
+              : "sessions.screenshotCopyFailed",
+          ),
+        ),
+    );
+  }
+
+  const disabled = status !== "ready" || savingScreenshot;
 
   return (
     <TooltipProvider>
@@ -1116,6 +1277,34 @@ function ReplayPlayer({
               >
                 <IconPlayerSkipForward className="h-4 w-4" />
               </ReplayIconButton>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={disabled}
+                onClick={() => void saveScreenshot()}
+              >
+                <IconDownload className="me-1.5 h-4 w-4" />
+                {t(
+                  savingScreenshot && screenshotAction === "save"
+                    ? "sessions.savingScreenshot"
+                    : "sessions.saveScreenshot",
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={disabled}
+                onClick={copyScreenshotToDesign}
+              >
+                <IconCopy className="me-1.5 h-4 w-4" />
+                {t(
+                  savingScreenshot && screenshotAction === "copy"
+                    ? "sessions.copyingScreenshot"
+                    : "sessions.copyScreenshot",
+                )}
+              </Button>
 
               <span className="w-12 text-center font-mono text-xs text-muted-foreground">
                 {formatClock(currentTime)}
@@ -1155,6 +1344,7 @@ function ReplayPlayer({
                       <DropdownMenuRadioItem
                         key={option}
                         value={String(option)}
+                        disabled={disabled}
                         className="tabular-nums"
                       >
                         {option}x
@@ -1173,6 +1363,7 @@ function ReplayPlayer({
                       skipInactive &&
                         "border-primary/40 bg-primary/10 text-primary",
                     )}
+                    disabled={disabled}
                     onClick={() => setSkipInactive((value) => !value)}
                     aria-pressed={skipInactive}
                   >
@@ -1196,7 +1387,7 @@ function ReplayPlayer({
                   !response.isComplete && "cursor-not-allowed opacity-50",
                 )}
                 onClick={() => setDevToolsOpen((value) => !value)}
-                disabled={!response.isComplete}
+                disabled={!response.isComplete || savingScreenshot}
                 aria-pressed={devToolsOpen}
                 aria-expanded={devToolsOpen}
               >
@@ -1231,7 +1422,10 @@ function ReplayPlayer({
                 height={Math.min(devToolsHeight, maxDevToolsHeight)}
                 maxHeight={maxDevToolsHeight}
                 onHeightChange={setDevToolsHeight}
-                onSeek={(ms) => seek(ms, true)}
+                jumpDisabled={savingScreenshot}
+                onSeek={(ms) => {
+                  if (!savingScreenshot) seek(ms, true);
+                }}
                 issueMatches={issueMatches}
                 issueMatching={issueMatchQuery.isFetching}
                 friction={
@@ -1421,12 +1615,14 @@ function ReplayTimeline({
   markers,
   isLoading,
   activeMarkerId,
+  disabled,
   onSeek,
   pageChanges,
 }: {
   markers: ReplayMarker[];
   isLoading: boolean;
   activeMarkerId: string | null;
+  disabled: boolean;
   onSeek: (ms: number) => void;
   pageChanges?: {
     collapsed: boolean;
@@ -1482,6 +1678,7 @@ function ReplayTimeline({
                     type="button"
                     variant={pageChanges.collapsed ? "secondary" : "ghost"}
                     size="icon-sm"
+                    disabled={disabled}
                     aria-pressed={pageChanges.collapsed}
                     aria-label={t("sessions.collapsePageChanges")}
                     onClick={() =>
@@ -1541,6 +1738,7 @@ function ReplayTimeline({
                     <button
                       type="button"
                       className="flex w-full min-w-0 gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/50"
+                      disabled={disabled}
                       aria-expanded={expanded}
                       aria-current={active ? "true" : undefined}
                       onClick={() => {

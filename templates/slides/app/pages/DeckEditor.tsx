@@ -7,7 +7,7 @@ import {
   getAnalyticsSessionId,
   trackEvent,
 } from "@agent-native/core/client/analytics";
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
   emailToColor,
@@ -118,6 +118,7 @@ import {
   useDeckAccessStatus,
   useRequestDeckAccess,
 } from "@/hooks/use-deck-access";
+import { useDeckAccessReload } from "@/hooks/use-deck-access-reload";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useDeckRole } from "@/hooks/use-deck-role";
@@ -198,11 +199,20 @@ import {
   type SlideImageUploadProvenance,
   type SlideImageDropPosition,
 } from "@/lib/slide-image-replacement";
+import {
+  insertDroppedVideoIntoSlideHtml,
+  videoFileLooksLikeVideo,
+  videoFileLooksSupported,
+} from "@/lib/slide-video";
 import { TAB_ID } from "@/lib/tab-id";
 import {
   shouldActivateRectangleTool,
   shouldActivateTextTool,
 } from "@/lib/text-tool-shortcut";
+import { uploadSlideVideo } from "@/lib/video-upload";
+
+import { generationTimingFields } from "../../shared/generation-timing.js";
+import { refreshDeckForGenerationOutcome } from "../lib/generation-lifecycle.js";
 
 type EditorSidePanel = "comments" | null;
 
@@ -391,11 +401,6 @@ export function syncSlideContentSnapshots(
   }
 }
 
-export type GenerationDeckRefreshResult =
-  | { status: "ready"; deck: Deck }
-  | { status: "not_ready" }
-  | { status: "failed" };
-
 type EmptyGenerationRecovery =
   | {
       kind: "retry_rollback";
@@ -487,24 +492,6 @@ function clearEmptyGenerationRecovery(
   } catch (error) {
     console.error("Failed to clear Slides generation recovery data.", error);
     return false;
-  }
-}
-
-export async function refreshDeckForGenerationOutcome(
-  refreshOpenDeck: (deckId: string) => Promise<Deck | null>,
-  deckId: string,
-): Promise<GenerationDeckRefreshResult> {
-  try {
-    let refreshedDeck = await refreshOpenDeck(deckId);
-    if (refreshedDeck === null) {
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      refreshedDeck = await refreshOpenDeck(deckId);
-    }
-    return refreshedDeck
-      ? { status: "ready", deck: refreshedDeck }
-      : { status: "not_ready" };
-  } catch {
-    return { status: "failed" };
   }
 }
 
@@ -711,9 +698,6 @@ export default function DeckEditor() {
   >(null);
   const [accessRequestRefreshPending, setAccessRequestRefreshPending] =
     useState(false);
-  const [checkedDeckAccessKey, setCheckedDeckAccessKey] = useState<
-    string | null
-  >(null);
   const {
     data: org,
     isLoading: orgLoading,
@@ -1305,13 +1289,20 @@ export default function DeckEditor() {
     )
       return;
     if (!generationRunStartedRef.current) return;
+    const persistedGenerationStartedAt = generationContext?.generationStartedAt;
+    const generationStartedAt =
+      typeof persistedGenerationStartedAt === "number" &&
+      Number.isFinite(persistedGenerationStartedAt) &&
+      persistedGenerationStartedAt >= 0
+        ? persistedGenerationStartedAt
+        : Date.now();
     if (attemptObservedRun) {
       generationSawActiveRef.current = true;
-      generationStartedAtRef.current ??= Date.now();
+      generationStartedAtRef.current ??= generationStartedAt;
     }
     if (newDeckGenerationSignal) {
       generationSawActiveRef.current = true;
-      generationStartedAtRef.current ??= Date.now();
+      generationStartedAtRef.current ??= generationStartedAt;
       return;
     }
     if (
@@ -1328,6 +1319,7 @@ export default function DeckEditor() {
           refreshOpenDeck,
           id,
         );
+        const generationEndedAt = refreshResult.endedAt;
         if (
           generationSettlingAttemptRef.current !== generationAttemptId ||
           generationTerminalAttemptRef.current === generationAttemptId
@@ -1337,9 +1329,7 @@ export default function DeckEditor() {
         generationTerminalAttemptRef.current = generationAttemptId;
         const refreshedDeck =
           refreshResult.status === "ready" ? refreshResult.deck : null;
-        const durationMs = generationStartedAtRef.current
-          ? Math.max(0, Date.now() - generationStartedAtRef.current)
-          : undefined;
+        const startedAt = generationStartedAtRef.current;
         const properties = {
           app_name: "slides",
           template_name: "slides",
@@ -1352,7 +1342,7 @@ export default function DeckEditor() {
           ...(targetSlideCount !== null
             ? { target_slide_count: targetSlideCount }
             : {}),
-          ...(durationMs !== undefined ? { duration_ms: durationMs } : {}),
+          ...generationTimingFields(startedAt ?? undefined, generationEndedAt),
           source: "new_deck_prompt",
         };
         if (refreshResult.status !== "ready") {
@@ -1484,6 +1474,7 @@ export default function DeckEditor() {
     }
     retryEmptyGenerationInFlightRef.current = true;
     setRetryEmptyGenerationPending(true);
+    const retryStartedAt = Date.now();
     const originalSearchParams = new URLSearchParams(searchParams);
     const retryAttemptId = nanoid();
     const submitMessageId = nanoid();
@@ -1497,6 +1488,7 @@ export default function DeckEditor() {
     const retryContext = {
       ...generationContext,
       generationAttemptId: retryAttemptId,
+      generationStartedAt: retryStartedAt,
       generationFailureAttemptId:
         generationContext.generationFailureAttemptId ?? generationAttemptId,
     };
@@ -1672,6 +1664,7 @@ export default function DeckEditor() {
         generation_attempt_id: retryAttemptId,
         output_id: id,
         output_type: "deck",
+        started_at_ms: retryStartedAt,
         source: "empty_output_retry",
       });
       updateDeck(id, {
@@ -1729,6 +1722,15 @@ export default function DeckEditor() {
     ) => {
       if (generationTerminalAttemptRef.current === generationAttemptId) return;
       generationTerminalAttemptRef.current = generationAttemptId;
+      const persistedStartedAt = generationContext?.generationStartedAt;
+      const startedAt =
+        generationStartedAtRef.current ??
+        (typeof persistedStartedAt === "number" &&
+        Number.isFinite(persistedStartedAt) &&
+        persistedStartedAt >= 0
+          ? persistedStartedAt
+          : null);
+      const endedAt = Date.now();
       const properties = {
         app_name: "slides",
         template_name: "slides",
@@ -1737,6 +1739,7 @@ export default function DeckEditor() {
         output_type: "deck",
         slide_count: slideCount,
         source: "new_deck_prompt",
+        ...generationTimingFields(startedAt ?? undefined, endedAt),
       };
       try {
         if (!state.submitStarted || !state.sawActive || state.settling) {
@@ -1788,7 +1791,13 @@ export default function DeckEditor() {
         recordExit("route_exit", state);
       });
     };
-  }, [generationAttemptId, generationLifecycleOwnedByEditor, id, slideCount]);
+  }, [
+    generationAttemptId,
+    generationContext,
+    generationLifecycleOwnedByEditor,
+    id,
+    slideCount,
+  ]);
   const fallbackCommentSlideId = deck?.slides[0]?.id ?? null;
   const openCommentComposer = useCallback(
     (
@@ -2001,45 +2010,14 @@ export default function DeckEditor() {
     setGeneratingSlideSelected(false);
   }, [deck, generatingSlideSelected]);
 
-  useEffect(() => {
-    if (
-      loading ||
-      deck ||
-      !id ||
-      !currentDeckAccessKey ||
-      orgLoading ||
-      checkedDeckAccessKey === currentDeckAccessKey
-    ) {
-      return;
-    }
-
-    if (!org?.orgId) {
-      setCheckedDeckAccessKey(currentDeckAccessKey);
-      return;
-    }
-
-    let cancelled = false;
-    void (async () => {
-      let status = await reloadDecksWithStatus();
-      while (!cancelled && status === "stale") {
-        status = await reloadDecksWithStatus();
-      }
-      if (!cancelled) setCheckedDeckAccessKey(currentDeckAccessKey);
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    checkedDeckAccessKey,
-    currentDeckAccessKey,
-    deck,
-    id,
+  const checkedDeckAccessKey = useDeckAccessReload({
+    accessKey: currentDeckAccessKey,
+    deckFound: Boolean(deck),
     loading,
-    org?.orgId,
+    orgId: org?.orgId,
     orgLoading,
-    reloadDecksWithStatus,
-  ]);
+    reload: reloadDecksWithStatus,
+  });
 
   const retryOpenDeck = useCallback(async () => {
     setRetryingMissingDeck(true);
@@ -2056,7 +2034,7 @@ export default function DeckEditor() {
 
   const openSignIn = useCallback(() => {
     window.location.href = buildSignInReturnHref({
-      returnTo: id ? `/deck/${encodeURIComponent(id)}` : "/home",
+      returnTo: appPath(id ? `/deck/${encodeURIComponent(id)}` : "/home"),
     });
   }, [id]);
 
@@ -2611,6 +2589,74 @@ export default function DeckEditor() {
       updateSlideContent,
       uploadImageAsset,
     ],
+  );
+
+  const uploadAndApplyVideo = useCallback(
+    async (file: File, position?: SlideImageDropPosition) => {
+      if (!videoFileLooksSupported(file)) {
+        toast.error(t("editorToolbar.videoUploadFailed"), {
+          description: t("editorToolbar.videoFormatUnsupported"),
+        });
+        return;
+      }
+      if (file.size > 50 * 1024 * 1024) {
+        toast.error(t("editorToolbar.videoUploadFailed"), {
+          description: t("editorToolbar.videoTooLarge"),
+        });
+        return;
+      }
+      if (!fileStorageConfigured) {
+        setShowUploadStorageSetup(true);
+        return;
+      }
+      if (!id || !currentSlideRef.current) return;
+      const targetSlide = currentSlideRef.current;
+      const targetSlideId = targetSlide.id;
+
+      const toastId = toast.loading(t("editorToolbar.videoUploading"));
+      try {
+        const src = await uploadSlideVideo(file);
+        const currentTarget =
+          currentSlideRef.current?.id === targetSlideId
+            ? currentSlideRef.current
+            : getDeck(id)?.slides.find((slide) => slide.id === targetSlideId);
+        if (!currentTarget) {
+          toast.dismiss(toastId);
+          return;
+        }
+        const currentContent =
+          latestSlideContentRef.current.get(targetSlideId) ??
+          currentTarget.content;
+        const updatedContent = insertDroppedVideoIntoSlideHtml(
+          currentContent,
+          src,
+          { position, label: file.name },
+        );
+        latestSlideContentRef.current.set(targetSlideId, updatedContent);
+        updateSlideContent(targetSlideId, updatedContent);
+        trackEvent("media_added", {
+          output_id: id,
+          output_type: "deck",
+          media_source: "upload",
+          slide_id: targetSlideId,
+          media_type: "video",
+        });
+        toast.success(t("editorToolbar.videoAdded"), { id: toastId });
+      } catch (error) {
+        const status = (error as { status?: number })?.status;
+        const message = error instanceof Error ? error.message : "";
+        const description = isMissingUploadProviderError(status ?? 0, message)
+          ? t("editorToolbar.videoUploadNeedsBuilder")
+          : message.includes("Only valid MP4 and WebM")
+            ? t("editorToolbar.videoFormatUnsupported")
+            : t("editorToolbar.videoUploadError");
+        toast.error(t("editorToolbar.videoUploadFailed"), {
+          id: toastId,
+          description,
+        });
+      }
+    },
+    [fileStorageConfigured, getDeck, id, t, updateSlideContent],
   );
 
   const dropImageUrlOnSlide = useCallback(
@@ -3633,7 +3679,7 @@ export default function DeckEditor() {
         requestAccessDialogError={requestAccessDialogError}
         signedIn={Boolean(session) && !sessionLoading}
         signInHref={buildSignInReturnHref({
-          returnTo: id ? `/deck/${encodeURIComponent(id)}` : "/home",
+          returnTo: appPath(id ? `/deck/${encodeURIComponent(id)}` : "/home"),
         })}
         viewerEmail={session?.email ?? deckAccessStatus?.viewerEmail ?? null}
         refreshing={retryingMissingDeck}
@@ -3792,6 +3838,13 @@ export default function DeckEditor() {
   };
   const editorDrop = (e: React.DragEvent) => {
     const files = Array.from(e.dataTransfer?.files ?? []);
+    const video = files.find(videoFileLooksLikeVideo);
+    if (video) {
+      e.preventDefault();
+      e.stopPropagation();
+      void uploadAndApplyVideo(video);
+      return;
+    }
     const file = files.find(imageFileLooksSupported);
     if (!file) return;
     e.preventDefault();
@@ -4278,6 +4331,7 @@ export default function DeckEditor() {
               }
             }}
             onDropImage={uploadAndApplyImage}
+            onDropVideo={uploadAndApplyVideo}
             onDropImageUrl={dropImageUrlOnSlide}
             onToggleObjectFit={toggleObjectFit}
             onChangeObjectPosition={updateObjectPosition}

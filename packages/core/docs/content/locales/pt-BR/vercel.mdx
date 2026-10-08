@@ -1,40 +1,200 @@
 ---
 title: "Vercel"
-description: "Implante um app nativo do agente na Vercel com o preset Vercel do Nitro, de forma independente ou como um espaço de trabalho."
+description: "Implante um app independente do Agent-Native na Vercel com a Vercel CLI."
 ---
 
 # Vercel
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "vercel" } })],
-});
-```
+A Vercel hospeda o seu app para você, então não há nenhum servidor para configurar ou manter em execução.
+O build transforma o app em arquivos que a Vercel serve diretamente e em funções que a Vercel
+executa sob demanda. Além disso, a Vercel dá ao app um endereço público com HTTPS.
 
-Implante via Vercel CLI ou git push:
+Este guia mostra como implantar um app independente do zero. Você vai
+criar o app, dar a ele um banco de dados de produção e um segredo de autenticação, vinculá-lo a um
+projeto da Vercel, preparar o banco de dados e, depois, fazer o build e implantá-lo.
+
+<Callout tone="info">
+
+É necessário o Node.js `22.22+`.
+
+</Callout>
+
+Você também precisa de uma conta da Vercel. Execute os comandos deste guia no seu próprio
+computador. A Vercel CLI envia o build finalizado para a Vercel para você.
+
+## Passo 1: Crie o app {#step-1-create-the-app}
+
+Crie o seu novo app independente. O exemplo abaixo cria um app a partir do template Chat,
+mas você pode começar de qualquer template. Entre na pasta do app e
+instale as dependências. `corepack enable` ativa a versão do `pnpm` que o app
+espera, então você não precisa instalar o `pnpm` por conta própria.
 
 ```bash
-npx vercel deploy
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
 ```
 
-Para criar uma prévia descartável sem entrar no Vercel, execute
-`npx vercel deploy --temporary`. Implantações temporárias não preservam as
-variáveis de ambiente do projeto. Passe o banco de dados e os segredos com
-`--env` e `--build-env` quando precisar de mais que uma prévia da interface.
+Se quiser, substitua `my-app` pelo nome do seu app. O restante deste guia
+considera que você está dentro da pasta do app.
 
-Para um espaço de trabalho, compile todos os apps em um único pacote da Vercel Build Output API:
+<Callout tone="info">
+
+Se esses comandos falharem com erros de dependências peer, a causa pode ser uma cópia desatualizada de um pacote no seu cache do npx. Execute `npx clear-npx-cache` para limpar o cache e depois execute os comandos novamente.
+
+</Callout>
+
+## Passo 2: Configure os segredos do ambiente {#step-2-configure-environment-secrets}
+
+O app lê as configurações de produção a partir de variáveis de ambiente:
+
+| Variável             | Obrigatória | Finalidade                                                           |
+| -------------------- | ----------- | -------------------------------------------------------------------- |
+| `DATABASE_URL`       | Sim         | Conecta o app ao seu banco de dados PostgreSQL                       |
+| `BETTER_AUTH_SECRET` | Sim         | Assina as sessões dos usuários                                       |
+| `BETTER_AUTH_URL`    | Não         | Define o endereço público que as pessoas usam para acessar o seu app |
+
+Os exports abaixo fazem os comandos seguintes funcionarem neste shell. Antes de
+implantar, salve essas mesmas variáveis nas configurações de ambiente do projeto ou serviço do seu host.
+O próximo passo mostra como salvá-las na Vercel.
+
+### URL do banco de dados {#database-url}
+
+Durante o desenvolvimento local, o app armazena os dados em um banco de dados local quando
+`DATABASE_URL` não está definida. Um app implantado precisa de um banco de dados PostgreSQL real que
+mantenha os dados entre implantações. A Vercel não mantém arquivos entre requisições, então
+o banco de dados precisa ficar fora das funções da Vercel. Copie a string de conexão
+do seu provedor e exporte-a:
 
 ```bash
-npx @agent-native/core@latest deploy --preset vercel
+export DATABASE_URL='your-postgres-url-string'
 ```
 
-Para implantações via Vercel Git, defina o comando de build como:
+Os [guias de provedores de banco de dados](/docs/neon) mostram onde encontrar a string de conexão
+de cada provedor.
+
+<Callout tone="warning">
+
+Escolha um provedor de PostgreSQL persistente, como Neon, Supabase ou Amazon RDS.
+
+</Callout>
+
+### Segredo de autenticação {#auth-secret}
+
+Gere este valor uma única vez e mantenha-o igual em todas as implantações.
+
+O app usa `BETTER_AUTH_SECRET` para assinar as sessões dos usuários. Se ele mudar, todos os
+usuários conectados são desconectados. O comando abaixo gera um valor aleatório:
 
 ```bash
-npx @agent-native/core@latest deploy --preset vercel --build-only
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
 ```
 
-O build do espaço de trabalho copia a saída `vercel` do Nitro de cada app para o `.vercel/output` raiz, dá a cada função seu próprio ambiente de caminho de montagem, e grava a configuração de rota que serve os apps em `/<app-id>`.
+Salve o valor gerado em um lugar seguro, como um gerenciador de senhas. Use o
+mesmo valor sempre que implantar.
+
+### URL pública {#public-url}
+
+É opcional. Defina-a ao usar um domínio personalizado, um proxy reverso ou um fluxo de autenticação ou OAuth
+que precise de uma origem pública fixa.
+
+`BETTER_AUTH_URL` é o endereço público que as pessoas usam para acessar o seu app. Sem
+ela, o app descobre o próprio endereço a partir de cada requisição recebida. Isso normalmente
+funciona bem no endereço que a Vercel fornece, mas defina-a quando conectar um domínio
+personalizado, para que os links de login e os redirecionamentos de OAuth usem esse domínio.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Passo 3: Vincule o projeto e salve os segredos {#step-3-link-the-project-and-save-the-secrets}
+
+Faça login na Vercel pela linha de comando:
+
+```bash
+npx vercel login
+```
+
+Vincule a pasta do app a um projeto da Vercel. Crie um projeto novo. Não é
+necessário personalizar as configurações dele.
+
+```bash
+npx vercel link
+```
+
+A CLI sugere um nome de projeto com base no nome da pasta. Você pode aceitar as
+configurações sugeridas, porque você mesmo faz o build do app no Passo 5 e
+a Vercel não precisa das próprias configurações de build.
+
+Salve as duas variáveis obrigatórias no ambiente de produção do projeto:
+
+```bash
+printf '%s' "$DATABASE_URL" | npx vercel env add DATABASE_URL production
+
+printf '%s' "$BETTER_AUTH_SECRET" | npx vercel env add BETTER_AUTH_SECRET production
+```
+
+Cada comando lê o valor que você exportou no Passo 2 e o salva na Vercel, então
+você não precisa colar os segredos manualmente. Se você definir `BETTER_AUTH_URL`, salve-a
+da mesma forma. Você também pode ver e alterar esses valores depois nas configurações
+do projeto no painel da Vercel.
+
+## Passo 4: Execute as migrações {#step-4-migrate}
+
+As migrações criam e atualizam as tabelas de que o app precisa no seu banco de dados. Execute
+isto antes da primeira implantação:
+
+```bash
+pnpm migrate:production
+```
+
+O comando é executado no seu computador e se conecta ao banco de dados de produção com
+a `DATABASE_URL` que você exportou no Passo 2. Execute-o novamente depois de atualizar o
+app e antes de implantar a nova versão.
+
+## Passo 5: Implante {#step-5-deploy}
+
+Faça o build do app para a Vercel:
+
+```bash
+NITRO_PRESET=vercel pnpm build
+```
+
+`NITRO_PRESET=vercel` faz o build do app no formato que a Vercel espera e o grava
+na pasta `.vercel/output`.
+
+Envie o build e publique-o:
+
+```bash
+npx vercel deploy --prebuilt --prod
+```
+
+`--prebuilt` envia o build que você acabou de fazer em vez de fazer o build do app novamente
+na Vercel. `--prod` o publica no seu endereço de produção, que usa as
+variáveis que você salvou para o ambiente de produção.
+
+Quando o comando termina, ele mostra o endereço de produção do app. Abra-o e
+crie a primeira conta.
+
+## Implante atualizações {#deploy-updates}
+
+Para publicar uma nova versão, execute novamente os comandos de migração, build e implantação a partir
+da pasta do app:
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=vercel pnpm build
+
+npx vercel deploy --prebuilt --prod
+```
+
+O vínculo do projeto e as variáveis salvas continuam no lugar, então você não precisa
+repetir o Passo 3.
 
 ## Trabalho agendado {#vercel-scheduled-work}
 
@@ -68,8 +228,8 @@ rejeita toda requisição sem ele. Gere um valor com `openssl rand -hex 32`.
 Veja [Como o agendador é executado](/docs/recurring-jobs#how-scheduler-runs)
 para os outros hosts.
 
-## O que vem a seguir
+## O que vem a seguir {#whats-next}
 
-- [**Implantação**](/docs/deployment) — escolha um banco de dados persistente e um preset antes da sua primeira implantação em produção
-- [**Implantação de Espaço de Trabalho**](/docs/workspace-deployment) — o build de espaço de trabalho `deploy --preset vercel` em detalhes
-- [Node.js](/docs/node-js), [Docker](/docs/docker), [**Netlify**](/docs/netlify), [**Cloudflare**](/docs/cloudflare) e [**Outras Plataformas**](/docs/other-platforms) — os outros presets do Nitro
+- [**Implantação: Variáveis de Ambiente**](/docs/deployment-environment-variables) - a lista completa de configurações de produção
+- [**Cache SSR**](/docs/ssr-caching) - como o cache de páginas funciona em destinos hospedados
+- [**Implantação**](/docs/deployment) - compare destinos de hospedagem e pré-requisitos

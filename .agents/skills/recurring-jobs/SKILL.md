@@ -48,9 +48,24 @@ and pass normalized action items to an app's idempotent `import` action.
 
 | Tool          | Action     | Purpose                                                    |
 | ------------- | ---------- | ---------------------------------------------------------- |
-| `manage-jobs` | `create`   | Create a recurring job (name, cron schedule, instructions) |
+| `manage-jobs` | `create`   | Create a recurring job (name, cron schedule, instructions); fails if the name exists |
 | `manage-jobs` | `list`     | List all jobs and their status                             |
 | `manage-jobs` | `update`   | Update schedule, instructions, or toggle enabled           |
+
+## Job files an app owns
+
+`create` never replaces an existing job file, so a name that collides with an
+app's file (Factory's `factories/<id>/<name>`) is refused instead of reset.
+An app that stores its own settings in a job's frontmatter marks the file with
+`triggerType`, which makes `list`, `update`, and `delete` skip it and sends the
+caller to `manage-automations`. Edit those files only through the owning app's
+actions, and patch fields in place; rebuilding a file from the fields the writer
+knows drops the rest while the job keeps running.
+
+Any write to a `jobs/` file that removes a frontmatter field other than run
+bookkeeping is recorded as a `job-fields-dropped` audit event (org admins read
+it with `list-audit-events` and `action: "job-fields-dropped"`). Its input names
+the writer, the dropped fields, and the agent thread and run that made it.
 
 ## UI Surface
 

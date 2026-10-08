@@ -52,6 +52,7 @@ function membership(orgId: string, orgName: string) {
 const tokenRows: any[] = [];
 const deviceRows: any[] = [];
 let issuanceFailure: "not-member" | "unavailable" | null = null;
+let issuanceRole = "member";
 const issuanceTransaction = {
   execute: vi.fn(async ({ sql }: { sql: string }) => {
     if (issuanceFailure === "unavailable")
@@ -63,7 +64,7 @@ const issuanceTransaction = {
       rows:
         issuanceFailure === "not-member" && sql.includes("org_members")
           ? []
-          : [{ id: "member-1", role: "member" }],
+          : [{ id: "member-1", role: issuanceRole }],
       rowsAffected: 0,
     };
   }),
@@ -103,6 +104,10 @@ vi.mock("./connect-store.js", () => ({
   DEFAULT_TOKEN_TTL_DAYS: 365,
   MIN_TOKEN_TTL_DAYS: 1,
   MAX_TOKEN_TTL_DAYS: 365,
+  MAX_SERVICE_TOKEN_TTL_DAYS: 3650,
+  normalizeServiceName: (name: string) => name.trim().toLowerCase(),
+  serviceIdentityEmail: (name: string, orgId: string) =>
+    `svc-${name}@service.${orgId}`,
   DEVICE_CODE_TTL_MS: 600_000,
   recordMintedToken: vi.fn(async (p: any) => {
     const id = "id-" + tokenRows.length;
@@ -197,7 +202,8 @@ vi.mock("./connect-store.js", () => ({
 
 const { withMcpCredentialIssuance } = await import("./credential-issuance.js");
 const withMcpCredentialIssuanceMock = vi.mocked(withMcpCredentialIssuance);
-const { handleMcpConnect } = await import("./connect-route.js");
+const { handleMcpConnect, mintOrgServiceToken } =
+  await import("./connect-route.js");
 const { defineAppConfig, resetAppConfigForTests } =
   await import("../app-config/index.js");
 
@@ -229,6 +235,7 @@ describe("handleMcpConnect", () => {
   beforeEach(() => {
     issuanceTransaction.execute.mockClear();
     issuanceFailure = null;
+    issuanceRole = "member";
     withMcpCredentialIssuanceMock.mockClear();
     tokenRows.length = 0;
     deviceRows.length = 0;
@@ -354,6 +361,64 @@ describe("handleMcpConnect", () => {
       expect(body).not.toContain(
         '<details id="assistantSetup" class="hosts" open>',
       );
+    });
+
+    it("emits inline scripts that parse", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({}), "/");
+      const body = await res.text();
+      const scripts = [...body.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+      expect(scripts.length).toBeGreaterThan(0);
+      for (const [, code] of scripts) {
+        expect(() => new Function(code)).not.toThrow();
+      }
+    });
+
+    it("renders the service-principal governance view, hidden until the org has principals", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({}), "/");
+      const body = await res.text();
+      expect(body).toContain(
+        '<details id="principals" class="connections hidden">',
+      );
+      expect(body).toContain("Service principals");
+      expect(body).toContain('"/_agent-native/actions"');
+      expect(body).toContain('ACTIONS + "/list-org-service-tokens"');
+      expect(body).toContain('"set-service-principal-lifecycle"');
+      expect(body).toContain("data.canManage");
+      expect(body).toContain("No owner or action grant is set.");
+      // Only missing-org/auth responses hide the view; a route 404 is shown.
+      expect(body).toContain(
+        "res.status === 400 || res.status === 401 || res.status === 403",
+      );
+      expect(body).not.toContain("res.status === 404");
+      expect(body).toContain("if (!USER_CODE) loadPrincipals();");
+
+      const localized = await (
+        await handleMcpConnect(ev({ acceptLanguage: "es-ES" }), "/")
+      ).text();
+      expect(localized).toContain("Principales de servicio");
+    });
+
+    it("uses the configured public framework prefix for service-principal actions", async () => {
+      const previousPrefix =
+        process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+      process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+        "/_platform";
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      try {
+        const res = await handleMcpConnect(ev({}), "/");
+        const body = await res.text();
+        expect(body).toContain('var ACTIONS = "/_platform/actions";');
+        expect(body).not.toContain('var ACTIONS = "/_agent-native/actions";');
+      } finally {
+        if (previousPrefix === undefined) {
+          delete process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+        } else {
+          process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+            previousPrefix;
+        }
+      }
     });
 
     it("localizes the shared guide copy from the request language", async () => {
@@ -583,6 +648,32 @@ describe("handleMcpConnect", () => {
       const lifetimeDays =
         ((payload.exp as number) - (payload.iat as number)) / 86400;
       expect(Math.round(lifetimeDays)).toBe(365);
+    });
+
+    it("mints revocable org service tokens with a 10-year lifetime", async () => {
+      issuanceRole = "admin";
+      const minted = await mintOrgServiceToken({
+        serviceName: "pr-recap",
+        orgId: "org-1",
+        createdBy: "admin@example.com",
+        ttlDays: 3650,
+        appUrl: "https://plan.example.com",
+      });
+      const { payload } = await jose.jwtVerify(
+        minted.token,
+        new TextEncoder().encode(SECRET),
+      );
+
+      expect(minted.ttlDays).toBe(3650);
+      expect(payload.jti).toBe(minted.jti);
+      expect((payload.exp as number) - (payload.iat as number)).toBe(
+        3650 * 86_400,
+      );
+      expect(tokenRows[0]).toMatchObject({
+        jti: minted.jti,
+        kind: "service",
+        ownerEmail: "svc-pr-recap@service.org-1",
+      });
     });
 
     it("mints a standard MCP OAuth token when no A2A_SECRET is configured", async () => {

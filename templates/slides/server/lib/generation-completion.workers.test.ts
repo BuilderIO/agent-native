@@ -46,6 +46,7 @@ const output = {
   deckId: "deck-1",
   generationAttemptId: "attempt-1",
   targetSlideCount: 5,
+  generationStartedAt: 100,
 };
 const finalRun = {
   runId: "run-2",
@@ -91,6 +92,11 @@ describe("finishing a turn on several workers", () => {
     ]);
 
     expect(reports()).toHaveLength(1);
+    expect(reports()[0]?.[1]).toMatchObject({
+      started_at_ms: 100,
+      ended_at_ms: expect.any(Number),
+      duration_ms: expect.any(Number),
+    });
     expect(store.size).toBe(0);
   });
 

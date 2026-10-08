@@ -5,6 +5,7 @@ import {
   type AgentChatAttachment,
   type MentionItemMedia,
 } from "../agent/types.js";
+import { parseBase64DataUrl } from "../shared/data-url.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
@@ -890,13 +891,11 @@ function imageContentFromBase64(
   };
 }
 
-function imageContentFromDataUrl(
+export function imageContentFromDataUrl(
   dataUrl: string,
 ): McpAppModelContextContentPart | null {
-  const match = /^data:(image\/(?:png|jpeg|jpg|gif|webp));base64,(.*)$/i.exec(
-    dataUrl,
-  );
-  return match ? imageContentFromBase64(match[1], match[2]) : null;
+  const parsed = parseBase64DataUrl(dataUrl);
+  return parsed ? imageContentFromBase64(parsed.mediaType, parsed.data) : null;
 }
 
 function mcpAppHostContent(

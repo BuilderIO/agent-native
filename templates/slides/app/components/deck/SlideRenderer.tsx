@@ -45,6 +45,7 @@ interface SlideRendererProps {
   slide: Slide;
   className?: string;
   thumbnail?: boolean;
+  disableVideoAutoplay?: boolean;
   designSystem?: DesignSystemData;
   aspectRatio?: AspectRatio;
   onOverflowChange?: (info: SlideOverflowInfo) => void;
@@ -838,7 +839,11 @@ const LOGO_IMAGE_TAG =
 
 export function renderRawSlideHtml(
   content: string,
-  options: { scopeSelector: string; stampNonce?: string },
+  options: {
+    scopeSelector: string;
+    stampNonce?: string;
+    disableVideoAutoplay?: boolean;
+  },
 ): {
   html: string;
   mermaidBlocks: string[];
@@ -871,6 +876,8 @@ export function renderRawSlideHtml(
     {
       scopeSelector: options.scopeSelector,
       allowBlobImages: typeof window !== "undefined",
+      allowBlobVideos: typeof window !== "undefined",
+      disableVideoAutoplay: options.disableVideoAutoplay,
     },
   );
   const { html, hrefs } = prepareImportedFonts(sanitized);
@@ -1002,10 +1009,12 @@ function BlankSlideContent({
   content,
   slideId,
   stampNonce,
+  disableVideoAutoplay,
 }: {
   content: string;
   slideId: string;
   stampNonce?: string;
+  disableVideoAutoplay?: boolean;
 }) {
   const scopeId = `slide-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const scopeSelector = `[data-slide-content-scope="${scopeId}"]`;
@@ -1016,6 +1025,7 @@ function BlankSlideContent({
       const rendered = renderRawSlideHtml(content, {
         scopeSelector,
         stampNonce: nonce,
+        disableVideoAutoplay,
       });
       return {
         mermaidBlocks: rendered.mermaidBlocks,
@@ -1025,7 +1035,7 @@ function BlankSlideContent({
           ? { ...rendered.source, base: rendered.html }
           : null,
       };
-    }, [content, scopeSelector, nonce]);
+    }, [content, scopeSelector, nonce, disableVideoAutoplay]);
 
   useEffect(() => {
     loadImportedFonts(fontHrefs);
@@ -1060,6 +1070,7 @@ export function SlideInner({
   slide,
   designSystem,
   aspectRatio,
+  disableVideoAutoplay,
   onOverflowChange,
   onAutofitSettled,
   stampSource,
@@ -1067,6 +1078,7 @@ export function SlideInner({
   slide: Slide;
   designSystem?: DesignSystemData;
   aspectRatio?: AspectRatio;
+  disableVideoAutoplay?: boolean;
   onOverflowChange?: (info: SlideOverflowInfo) => void;
   onAutofitSettled?: () => void;
   stampSource?: boolean;
@@ -1294,6 +1306,7 @@ export function SlideInner({
             content={content}
             slideId={slide.id}
             stampNonce={stampSource ? slide.id : undefined}
+            disableVideoAutoplay={disableVideoAutoplay}
           />
         </AutoFitContent>
       </div>
@@ -1338,6 +1351,7 @@ export default function SlideRenderer({
   slide,
   className = "",
   thumbnail = true,
+  disableVideoAutoplay,
   designSystem,
   aspectRatio,
   onOverflowChange,
@@ -1363,6 +1377,7 @@ export default function SlideRenderer({
             slide={slide}
             designSystem={designSystem}
             aspectRatio={aspectRatio}
+            disableVideoAutoplay={disableVideoAutoplay ?? thumbnail}
             onOverflowChange={onOverflowChange}
             onAutofitSettled={onAutofitSettled}
             stampSource={stampSource}
@@ -1394,6 +1409,7 @@ export default function SlideRenderer({
           slide={slide}
           designSystem={designSystem}
           aspectRatio={aspectRatio}
+          disableVideoAutoplay={disableVideoAutoplay ?? thumbnail}
           onOverflowChange={onOverflowChange}
           onAutofitSettled={onAutofitSettled}
           stampSource={stampSource}

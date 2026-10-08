@@ -51,6 +51,76 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.203.1
+
+### Patch Changes
+
+- 005805a: Label a model swapped in because the engine default was unchecked as `provider-selection-fallback` instead of `default`, so logs and traces can tell it from the engine's own default.
+- 005805a: Give lean hosted agent runs the `docs-search` tool their compact prompt tells the model to read skills with, and drop the skills summary from any prompt whose registry has no skill-read tool.
+- 005805a: Make the agent's end-of-turn follow-up call cheap, keep the tools array stable and let tool-search load several tools in one step, and report honest tool error signatures.
+- 005805a: Let a write action return a `_receipt` saying whether it changed anything and whether the change was verified, so the agent loop retries once or annotates the answer when the reply would claim more than the write proved.
+- df89804: Style the email authentication link confirmation page to match the shared auth flow.
+- ecfbb00: Preserve all app overrides when changing organization or personal model defaults, report the requested scope and effective app model separately, and keep reset-to-inherit explicit. App default changes preserve explicit chat and automation selections.
+- 044bbd7: Stop `manage-jobs` create from replacing an existing job file, and record a `job-fields-dropped` audit event when a write to a `jobs/` file removes its frontmatter fields.
+- Release all public npm packages with a patch version bump.
+- dc2b350: Expose verified directory widget read scope to frontend actions for safe read-only embeds.
+- d0fab3d: Add Design parity evidence and CI failure triage guidance to shipped feedback skills.
+- Updated dependencies
+  - @agent-native/agentkit@0.203.1
+  - @agent-native/recap-cli@0.5.65
+
+## 0.203.0
+
+### Minor Changes
+
+- 6b0f888: Show per-run provider or Builder credit costs in chat, and keep historical usage without billing metadata unclassified across usage dashboards.
+
+### Patch Changes
+
+- 3d573d7: Prevent duplicate chat output and bound custom transport snapshot persistence.
+- 8ec67cc: Pass HTTP client disconnect signals to action run contexts so long-running actions can cancel upstream work.
+- a3bda2e: Inline image data URLs now reach the agent as vision attachments instead of being mistaken for hosted file links.
+- 5fbfe23: Register private widget reads from the MCP directory profile.
+- 190fd73: Keep linked design-system guidance advisory when it is loaded from a style reference.
+- 839bbf0: Use action-specific labels in embedded app headers.
+- f00fe04: Fix event-triggered automation conditions failing with "No API key is available to evaluate this automation's condition" for owners whose only usable LLM credential is Builder Gateway or a non-Anthropic provider key. The condition evaluator now resolves its model through the same engine registry (`resolveEngine`) used by interactive chat and the automation's own run, instead of hardcoding a direct call to Anthropic's API with a raw provider key.
+- d317d31: Keep model choices current and show the Builder.io included-services count immediately.
+- a3bda2e: Deliver attached images with parameterized data URLs to agent vision paths.
+- Release all public npm packages with a patch version bump.
+- a676340: Keep MCP OAuth refresh grants valid until revoked instead of expiring them after inactivity.
+- 61543b2: Keep optional service packages out of new scaffolds unless the project's own environment enables them. Show the supported docs-search syntax when no search argument is provided. Keep the app-creation guide out of generic starter skill bundles while retaining Dispatch and Factory workflows, and document the domain-app generation path in the Chat starter. Give each first-party scaffold its appropriate app-building skill set, add a build-an-app guide where it fits, and stop scaffold updates from restoring skills that were intentionally removed.
+
+  Keep `agent-native typecheck` output focused on type errors instead of production deployment setup diagnostics emitted during React Router type generation.
+
+  Remove the shadowed `doctor` script alias from fresh scaffolds and keep the explicit `agent-native:doctor` command.
+
+- 53d886e: Treat malformed Builder credit usage responses as unavailable upstream data.
+- b236a46: Keep Design Systems waitlist submissions in their own Builder Forms routing bucket.
+- c9efc96: Keep email-change confirmation links scanner-safe and preserve configured app paths.
+- a845ec7: Keep email sign-in and verification links usable when mail security scanners prefetch them.
+- 03a0fbf: Stop offering Grok Code Fast and DeepSeek V4 Pro through Builder. Their upstream models were retired, so every request failed with a gateway internal error. Saved selections fall back to the default model.
+- bf9d6f8: New apps scaffolded from first-party templates keep the `@agent-native/otel` startup plugin and install the published package. It stays a no-op until `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+- 44bb794: Include authenticated read-only actions in scoped directory widget tickets when their profile explicitly permits them.
+- 31e4e13: Serialize event-subscription refreshes so a snapshot taken before a concurrent define or delete can no longer unsubscribe the newer automation. An interleaved refresh could leave an event automation without a bus subscription, silently dropping every event it should have received until the next refresh or process restart.
+- 87b11c5: Move the signup wave higher so it stays clear of marketing copy.
+- de755c7: Keep signup wave backgrounds empty until the ocean is ready and position them clear of the marketing copy.
+- 2aacdca: Include deployment and release failure checks in the factory feedback review skill.
+- 3d573d7: Persist AgentKit thread snapshots as bounded deltas so long conversations do not exceed hosting request limits.
+- 3d573d7: Persist sequence-advanced follow-up suggestions for completed runs and keep chat message counts aligned with the client when root replies mirror AgentKit messages, including folded continuations.
+- 4738d38: Include completed tool calls and results in the next AgentKit turn so the agent can answer questions about its prior tool activity.
+- 37b6513: Scope trigger condition cache entries to the classifier identity and reuse the background runner's resolved engine and model.
+- a5a7182: Allow Design Systems waitlist signups to use the shared Builder waitlist route.
+- f37033c: Persist opt-in prompt and response content on local LLM trace spans.
+- 5360c60: Keep ChatGPT directory widgets reloadable with verified-user-only publication, app-only renewal, and resource-scoped reads.
+- ed2afce: Rework the `turn-into-app` skill so generated apps open on a populated, domain-shaped surface instead of a stepper form: an archetype and named visual direction chosen before building, sample data shaped like the source, agent moments attached to the objects they act on, and a screenshot review loop before handoff. The skill body is leaner, with design guidance, source-brief recipes, and run/deploy detail moved into references.
+- d06e6bc: Restore the full shared MCP App widget for directory profiles.
+- Updated dependencies [3d573d7]
+- Updated dependencies
+- Updated dependencies [3d573d7]
+- Updated dependencies [4738d38]
+  - @agent-native/agentkit@0.203.0
+  - @agent-native/recap-cli@0.5.64
+
 ## 0.202.0
 
 ### Minor Changes
@@ -3792,20 +3862,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - 841f072: Expand changelog history windows to 100 releases while preserving folder-backed history.
-
-## 0.165.3
-
-### Patch Changes
-
-- b6ca1a7: Warn when `GOOGLE_SIGN_IN_CLIENT_ID` and `GOOGLE_CLIENT_ID` name different Google clients. Sign-in silently preferred the sign-in pair, so repairing `GOOGLE_CLIENT_SECRET` on a deploy that also set `GOOGLE_SIGN_IN_CLIENT_SECRET` changed nothing while appearing correct.
-- b6ca1a7: Harden MCP OAuth reconnects for mounted apps, legacy settings, and concurrent updates.
-- b6ca1a7: Ensure prebuilt Netlify workspace deployments include the hosted feedback URL.
-
-## 0.165.2
-
-### Patch Changes
-
-- b130f4e: Keep app changelogs compact while preserving folder-backed history in the in-app What's new surface.
-- ac3acfa: Improve provider failure recovery and remove the retired Videos template from Dispatch app creation.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

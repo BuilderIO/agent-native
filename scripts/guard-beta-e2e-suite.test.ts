@@ -82,6 +82,63 @@ describe("guard:beta-e2e-suite", () => {
     assert.match(output, /guard:beta-e2e-suite passed/);
   });
 
+  it("guards the configured low-cost model constants", () => {
+    for (const name of ["LUNA_OPENAI_MODEL", "LUNA_BUILDER_MODEL"] as const) {
+      rejects(
+        (files) =>
+          edit(
+            files,
+            "e2e/beta/lib/chat.ts",
+            `export const ${name} = "gpt-6-luna";`,
+            `export const ${name} = "claude-opus-4-6";`,
+          ),
+        new RegExp(`${name} must be set to gpt-6-luna`),
+      );
+    }
+  });
+
+  it("checks the exported model initializers instead of matching source text", () => {
+    for (const name of ["LUNA_OPENAI_MODEL", "LUNA_BUILDER_MODEL"] as const) {
+      rejects(
+        (files) =>
+          edit(
+            files,
+            "e2e/beta/lib/chat.ts",
+            `export const ${name} = "gpt-6-luna";`,
+            `export const ${name} = selectModel("claude-opus-4-6");\nconst staleExpected = 'export const ${name} = "gpt-6-luna";';`,
+          ),
+        new RegExp(`${name} must be set to gpt-6-luna`),
+      );
+    }
+  });
+
+  it("guards the model acceptance pattern", () => {
+    rejects(
+      (files) =>
+        edit(
+          files,
+          "e2e/beta/lib/chat.ts",
+          "export const LUNA_MODEL_PATTERN = /^(?:openai\\/)?gpt-(?:5[.-]6|6)-luna$/i;",
+          "export const LUNA_MODEL_PATTERN = /^.*$/i;",
+        ),
+      /LUNA_MODEL_PATTERN must accept only the current low-cost model aliases/,
+    );
+  });
+
+  it("checks the exported pattern initializer instead of matching source text", () => {
+    const expectedDeclaration = String.raw`export const LUNA_MODEL_PATTERN = /^(?:openai\/)?gpt-(?:5[.-]6|6)-luna$/i;`;
+    rejects(
+      (files) =>
+        edit(
+          files,
+          "e2e/beta/lib/chat.ts",
+          expectedDeclaration,
+          `export const LUNA_MODEL_PATTERN = /^.*$/i;\nconst staleExpected = "${expectedDeclaration}";`,
+        ),
+      /LUNA_MODEL_PATTERN must accept only the current low-cost model aliases/,
+    );
+  });
+
   it("caps the public matrix and the authenticated matrix", () => {
     rejects(
       (files) =>

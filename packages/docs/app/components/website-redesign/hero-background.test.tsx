@@ -28,7 +28,7 @@ afterEach(() => {
 });
 
 describe("HeroBackground", () => {
-  it("stays outside the clipped homepage hero section", () => {
+  it("keeps the background inside the clipped homepage hero section", () => {
     const route = readFileSync(
       resolve(process.cwd(), "app/routes/_index.tsx"),
       "utf8",
@@ -38,11 +38,11 @@ describe("HeroBackground", () => {
       "utf8",
     );
 
-    expect(route.match(/<HeroBackground \/>/g)).toHaveLength(1);
-    expect(route.indexOf("<HeroBackground />")).toBeLessThan(
-      route.indexOf("<Hero />"),
+    expect(route).not.toContain("HeroBackground");
+    expect(hero.match(/<HeroBackground \/>/g)).toHaveLength(1);
+    expect(hero.indexOf("<HeroBackground />")).toBeLessThan(
+      hero.indexOf("<GridInner"),
     );
-    expect(hero).not.toContain("HeroBackground");
   });
 
   it("renders the shared Toolkit wave on the homepage", () => {
@@ -55,10 +55,10 @@ describe("HeroBackground", () => {
     render(<HeroBackground />);
 
     const wave = screen.getByTestId("shared-wave");
-    expect(wave.className).toContain("h-full");
-    expect(wave.parentElement?.className).toContain("fixed");
-    expect(wave.parentElement?.className).toContain("inset-0");
-    expect(wave.parentElement?.className).toContain("z-0");
+    expect(wave.className).toContain("absolute");
+    expect(wave.className).toContain("inset-0");
+    expect(wave.className).toContain("z-[-1]");
+    expect(wave.className).not.toContain("fixed");
     expect(requestAdapter).not.toHaveBeenCalled();
     expect(waveMount).toHaveBeenCalledOnce();
   });

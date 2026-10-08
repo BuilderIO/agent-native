@@ -1,33 +1,221 @@
 ---
 title: "Cloudflare"
-description: "Déployez une application agent-native sur Cloudflare Workers avec le préréglage Nitro cloudflare_module."
+description: "Déployez une application Agent-Native autonome sur Cloudflare Workers avec Wrangler."
 ---
 
 # Cloudflare
 
-## Cloudflare Workers {#cloudflare-workers}
+<a id="cloudflare-workers"></a>
 
-Utilisez la sortie native en module de Nitro pour un Cloudflare Worker. Cela garde
-le SSR activé et émet le point d'entrée du Worker plus les assets statiques sous
-`.output/server` et `.output/public` :
+Cloudflare Workers exécute votre application sur le réseau de Cloudflare. Vous
+n'avez donc aucun serveur à configurer ni à maintenir en marche. Le build
+transforme l'application en un Worker, qui gère les pages et l'API de
+l'application, ainsi qu'en fichiers statiques que Cloudflare sert directement.
+Cloudflare fournit à l'application une adresse publique en HTTPS.
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
-});
-```
+Ce guide présente le déploiement d'une application autonome depuis le début.
+Vous allez créer l'application, lui fournir une base de données de production et
+un secret d'authentification, préparer la base de données, construire le Worker,
+enregistrer les secrets dans Cloudflare, puis le déployer.
 
-Construisez et déployez le Worker généré avec Wrangler :
+<Callout tone="info">
+
+Node.js `22.22+` est requis.
+
+</Callout>
+
+Vous avez aussi besoin d'un compte Cloudflare. Exécutez les commandes de ce
+guide sur votre propre ordinateur. Wrangler, l'outil en ligne de commande de
+Cloudflare, envoie le Worker final vers Cloudflare à votre place.
+
+## Étape 1 : Créer l'application {#step-1-create-the-app}
+
+Créez votre nouvelle application autonome. L'exemple ci-dessous crée une
+application à partir du template Chat, mais vous pouvez partir de n'importe quel
+template. Placez-vous dans le dossier de l'application et installez ses
+dépendances. `corepack enable` active la version de `pnpm` attendue par
+l'application. Vous n'avez donc pas besoin d'installer `pnpm` vous-même.
 
 ```bash
-pnpm build
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+Remplacez `my-app` par le nom de votre application si vous le souhaitez. La
+suite de ce guide suppose que vous vous trouvez dans le dossier de
+l'application.
+
+<Callout tone="info">
+
+Si ces commandes échouent avec des erreurs de dépendances pairs, une copie obsolète d'un paquet dans votre cache npx peut en être la cause. Exécutez `npx clear-npx-cache` pour vider le cache, puis relancez les commandes.
+
+</Callout>
+
+## Étape 2 : Configurer les secrets d'environnement {#step-2-configure-environment-secrets}
+
+L'application lit ses paramètres de production depuis des variables
+d'environnement :
+
+| Variable             | Requise | Rôle                                                                 |
+| -------------------- | ------- | -------------------------------------------------------------------- |
+| `DATABASE_URL`       | Oui     | Connecte l'application à sa base de données PostgreSQL               |
+| `BETTER_AUTH_SECRET` | Oui     | Signe les sessions utilisateur                                       |
+| `BETTER_AUTH_URL`    | Non     | Définit l'adresse publique utilisée pour accéder à votre application |
+
+Les exports ci-dessous permettent aux commandes suivantes de fonctionner dans ce
+shell. Avant de déployer, enregistrez ces mêmes variables dans les paramètres
+d'environnement du projet ou du service chez votre hébergeur. L'étape 5 montre
+comment les enregistrer dans Cloudflare.
+
+### URL de la base de données {#database-url}
+
+En développement local, l'application stocke ses données dans une base de
+données locale lorsque `DATABASE_URL` n'est pas défini. Une application déployée
+a besoin d'une vraie base de données PostgreSQL qui conserve ses données d'un
+déploiement à l'autre. Un Worker ne peut pas conserver de fichiers entre les
+requêtes. La base de données doit donc se trouver en dehors de Cloudflare
+Workers. Copiez la chaîne de connexion fournie par votre fournisseur et
+exportez-la :
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+Les [guides des fournisseurs de bases de données](/docs/neon) indiquent où
+trouver la chaîne de connexion pour chaque fournisseur.
+
+<Callout tone="warning">
+
+Choisissez un fournisseur PostgreSQL persistant, par exemple Neon, Supabase ou Amazon RDS.
+
+</Callout>
+
+### Secret d'authentification {#auth-secret}
+
+Générez-le une seule fois et gardez-le identique d'un déploiement à l'autre.
+
+L'application utilise `BETTER_AUTH_SECRET` pour signer les sessions utilisateur.
+S'il change, tous les utilisateurs connectés sont déconnectés. La commande
+ci-dessous génère une valeur aléatoire :
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Conservez la valeur générée en lieu sûr, par exemple dans un gestionnaire de
+mots de passe. Utilisez la même valeur à chaque déploiement.
+
+### URL publique {#public-url}
+
+Facultatif. Définissez-la si vous utilisez un domaine personnalisé, un reverse
+proxy ou un flux d'authentification ou OAuth qui exige une origine publique
+fixe.
+
+`BETTER_AUTH_URL` est l'adresse publique utilisée pour accéder à votre
+application. Sans elle, l'application déduit son adresse de chaque requête
+entrante. Cela convient généralement avec l'adresse que Cloudflare vous fournit,
+mais définissez-la lorsque vous connectez un domaine personnalisé, afin que les
+liens de connexion et les redirections OAuth utilisent ce domaine.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Étape 3 : Migrer {#step-3-migrate}
+
+Les migrations créent et mettent à jour les tables dont l'application a besoin
+dans votre base de données. Exécutez cette commande avant le premier
+déploiement :
+
+```bash
+pnpm migrate:production
+```
+
+La commande s'exécute sur votre ordinateur et se connecte à la base de données
+de production avec la `DATABASE_URL` que vous avez exportée à l'étape 2.
+Exécutez-la de nouveau après une mise à niveau de l'application, avant de
+déployer la nouvelle version.
+
+## Étape 4 : Construire {#step-4-build}
+
+Construisez l'application en tant que Worker Cloudflare :
+
+```bash
+NITRO_PRESET=cloudflare_module pnpm build
+```
+
+`NITRO_PRESET=cloudflare_module` construit l'application au format attendu par
+Cloudflare Workers. Le build écrit le Worker dans le dossier `.output/server` et
+les fichiers statiques dans le dossier `.output/public`.
+
+Le build écrit aussi un fichier de configuration Wrangler dans
+`.output/server/wrangler.json`. Ce fichier indique à Wrangler ce qu'il faut
+déployer et donne son nom au Worker. Le nom provient du `package.json` de
+l'application. Une application créée sous le nom `my-app` devient donc un Worker
+nommé `my-app`. Si le dossier est un dépôt Git avec un remote, le nom provient
+plutôt du dépôt. Le build affiche le nom qu'il a choisi.
+
+## Étape 5 : Se connecter et enregistrer les secrets {#step-5-log-in-and-save-the-secrets}
+
+Connectez-vous à Cloudflare depuis la ligne de commande :
+
+```bash
+npx wrangler login
+```
+
+Enregistrez les deux variables requises comme secrets du Worker :
+
+```bash
+printf '%s' "$DATABASE_URL" | npx wrangler secret put DATABASE_URL --config .output/server/wrangler.json
+```
+
+```bash
+printf '%s' "$BETTER_AUTH_SECRET" | npx wrangler secret put BETTER_AUTH_SECRET --config .output/server/wrangler.json
+```
+
+Chaque commande lit la valeur que vous avez exportée à l'étape 2 et l'enregistre
+dans Cloudflare. Vous n'avez donc pas à coller les secrets à la main. `--config`
+indique à Wrangler le fichier de configuration de l'étape 4, afin que les
+secrets aillent au Worker portant le nom choisi par le build. La première fois, le Worker n'existe pas encore. Comme la valeur est transmise par un pipe, Wrangler crée le Worker automatiquement, sans poser de question.
+
+Si vous avez défini `BETTER_AUTH_URL`, enregistrez-la de la même façon. Vous
+pouvez aussi consulter et modifier ces valeurs plus tard dans les paramètres du
+Worker sur le tableau de bord Cloudflare.
+
+## Étape 6 : Déployer {#step-6-deploy}
+
+Envoyez le Worker et publiez-le :
+
+```bash
 npx wrangler deploy --config .output/server/wrangler.json
 ```
 
-Vous pouvez aussi sélectionner le préréglage explicitement avec
-`NITRO_PRESET=cloudflare_module`. Configurez une base de données PostgreSQL externe
-durable avant de déployer. Un système de fichiers de Worker n'est pas un magasin
-d'application persistant.
+`--config` indique à Wrangler le fichier de configuration de l'étape 4, qui lui
+dit où trouver le Worker et les fichiers statiques.
+
+Lorsque la commande se termine, elle affiche l'adresse de l'application, qui se
+termine par `workers.dev`. Ouvrez-la et créez le premier compte.
+
+## Déployer les mises à jour {#deploy-updates}
+
+Pour publier une nouvelle version, exécutez de nouveau les commandes de
+migration, de build et de déploiement depuis le dossier de l'application :
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=cloudflare_module pnpm build
+
+npx wrangler deploy --config .output/server/wrangler.json
+```
+
+Les secrets restent enregistrés dans le Worker d'un déploiement à l'autre. Vous
+n'avez donc pas besoin de répéter l'étape 5.
 
 ## Travail planifié {#cloudflare-scheduled-work}
 
@@ -59,8 +247,8 @@ npx wrangler secret put A2A_SECRET --config .output/server/wrangler.json
 Voir [Fonctionnement du planificateur](/docs/recurring-jobs#how-scheduler-runs)
 pour les autres hébergeurs.
 
-## Et ensuite
+## Et ensuite {#whats-next}
 
-- [**Déploiement**](/docs/deployment) — choisissez une base de données persistante et un préréglage avant votre premier déploiement en production
-- [**Déploiement de workspace**](/docs/workspace-deployment) — déployez chaque application du workspace sur une seule origine avec Netlify ou Vercel
-- [**Node.js**](/docs/node-js), [**Docker**](/docs/docker), [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), [**AWS Lambda**](/docs/aws-lambda) et [**Deno Deploy**](/docs/deno-deploy) — les autres préréglages Nitro
+- [**Variables d'environnement de déploiement**](/docs/deployment-environment-variables) - la liste complète des paramètres de production
+- [**Mise en cache SSR**](/docs/ssr-caching) - le fonctionnement de la mise en cache des pages sur les cibles hébergées
+- [**Déploiement**](/docs/deployment) - comparer les cibles d'hébergement et les prérequis

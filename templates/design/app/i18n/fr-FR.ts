@@ -1030,6 +1030,10 @@ export default {
     keyboardShortcuts: {
       title: "Raccourcis clavier",
       close: "Fermer: Raccourcis clavier",
+      search: "Rechercher",
+      searchLabel: "Rechercher des raccourcis clavier",
+      categoriesLabel: "Catégories de raccourcis",
+      empty: "Aucun raccourci ne correspond à « {{query}} »",
       codeContext: "Code",
       screenContext: "Écrans",
       nudgeAmount: {
@@ -1062,12 +1066,6 @@ export default {
         leftBracket: "Crochet gauche",
         rightBracket: "Crochet droit",
       },
-      descriptions: {
-        toggleUi:
-          "Appuyez maintenant pour masquer les panneaux et vous concentrer sur votre travail",
-        undo: "Revenez sur votre dernière modification de design",
-        redo: "Restaurez la modification de design que vous venez d’annuler",
-      },
       categories: {
         essential: "Essentiels",
         tools: "Outils",
@@ -1099,6 +1097,7 @@ export default {
         showLayers: "Calques",
         showAssets: "Ressources",
         toggleUi: "View",
+        toggleMinimalUi: "Interface minimale",
         toggleComments: "Épingler un commentaire",
         zoomIn: "Zoom avant",
         zoomOut: "Zoom arrière",
@@ -1609,6 +1608,8 @@ export default {
     assetAdded: "Actif ajouté",
     assetsNoImageUrl: "Assets n'a pas renvoyé d'URL d'image.",
     failedToUploadFile: "Échec du téléchargement du fichier",
+    imageAttachmentUnavailable:
+      "Impossible de préparer cette image comme référence visuelle. Joignez un fichier PNG, JPG, GIF ou WebP plus petit.",
     attachmentsTooLarge:
       "Ces pièces jointes sont trop volumineuses. Les téléversements sont limités à {{max}} Mo au total : joignez moins de fichiers ou des fichiers plus petits.",
     failedToSubmitPrompt: "Impossible d’envoyer le prompt",
@@ -2051,6 +2052,15 @@ export default {
       "L'indexation du code et des dépôts nécessite le forfait Builder Enterprise",
   },
   designSystems: {
+    comingSoonTitle: "Les systèmes de conception arrivent bientôt",
+    waitlist: {
+      join: "Rejoindre la liste d’attente",
+      joining: "Inscription…",
+      joined: "Vous êtes sur la liste d’attente",
+      error: "Impossible de rejoindre la liste d’attente. Réessayez.",
+      unavailable:
+        "Les inscriptions à la liste d’attente sont indisponibles pour le moment. Réessayez plus tard.",
+    },
     deleteError: "Impossible de supprimer le système de conception",
     updateSuccess: "Système de conception mis à jour",
     updateError: "Impossible de mettre à jour le système de conception",
