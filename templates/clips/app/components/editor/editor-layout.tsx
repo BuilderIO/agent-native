@@ -60,8 +60,12 @@ async function writeAppStateClient(key: string, value: unknown): Promise<void> {
 import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import {
   beginEditorSave,
+  createEditorSaveQueue,
   createEditorSaveLedger,
+  enqueueEditorSave,
   finishEditorSave,
+  isLatestEditorSave,
+  removeEditorHistoryEntry,
   type EditSaveKind,
   type EditorSaveStatus,
 } from "@/lib/editor-save-status";
@@ -362,6 +366,8 @@ export function EditorLayout({
   const [burning, setBurning] = useState(false);
   const [saveStatus, setSaveStatus] = useState<EditorSaveStatus>("ready");
   const editSaveLedgerRef = useRef(createEditorSaveLedger());
+  const trimSaveQueueRef = useRef(createEditorSaveQueue());
+  const overlaySaveQueueRef = useRef(createEditorSaveQueue());
   const burnStorageCheckInFlightRef = useRef(false);
   const burnToastRef = useRef<string | number | null>(null);
   const undoStackRef = useRef<EditSnapshot[]>([]);
@@ -850,8 +856,10 @@ export function EditorLayout({
     setHistory({ undo: undoStackRef.current.length, redo: 0 });
   }, []);
 
-  const dropNewestHistory = useCallback(() => {
-    undoStackRef.current = undoStackRef.current.slice(0, -1);
+  const discardHistory = useCallback((snapshot: EditSnapshot) => {
+    const remaining = removeEditorHistoryEntry(undoStackRef.current, snapshot);
+    if (remaining === undoStackRef.current) return;
+    undoStackRef.current = remaining;
     setHistory({
       undo: undoStackRef.current.length,
       redo: redoStackRef.current.length,
@@ -861,27 +869,34 @@ export function EditorLayout({
   const commitEdits = useCallback(
     async (next: EditsJson, options?: { record?: boolean }) => {
       const record = options?.record ?? true;
-      if (record) pushHistory(snapshotOf(savedEdits));
+      const historyEntry = record ? snapshotOf(savedEdits) : null;
+      if (historyEntry) pushHistory(historyEntry);
       setPendingTrims(next.trims);
       const saveGeneration = beginEditSave("trims");
       let succeeded = false;
       try {
-        await setTrims.mutateAsync({ recordingId, trims: next.trims });
-        await playerDataQuery.refetch();
+        await enqueueEditorSave(trimSaveQueueRef.current, async () => {
+          await setTrims.mutateAsync({ recordingId, trims: next.trims });
+          await playerDataQuery.refetch();
+        });
         succeeded = true;
         return true;
       } catch (err: any) {
-        if (record) dropNewestHistory();
+        if (historyEntry) discardHistory(historyEntry);
         toast.error(err?.message ?? t("editorLayout.editFailed"));
         return false;
       } finally {
         finishEditSave("trims", saveGeneration, succeeded);
-        setPendingTrims(null);
+        if (
+          isLatestEditorSave(editSaveLedgerRef.current, "trims", saveGeneration)
+        ) {
+          setPendingTrims(null);
+        }
       }
     },
     [
       beginEditSave,
-      dropNewestHistory,
+      discardHistory,
       finishEditSave,
       playerDataQuery,
       pushHistory,
@@ -1003,30 +1018,41 @@ export function EditorLayout({
 
   const writeOverlays = useCallback(
     async (overlays: unknown[], record: boolean) => {
-      if (record) pushHistory(snapshotOf(savedEdits));
+      const historyEntry = record ? snapshotOf(savedEdits) : null;
+      if (historyEntry) pushHistory(historyEntry);
       setPendingOverlays(overlays);
       const saveGeneration = beginEditSave("overlays");
       let succeeded = false;
       try {
-        await setOverlays.mutateAsync({
-          recordingId,
-          overlays: overlays as Record<string, unknown>[],
+        await enqueueEditorSave(overlaySaveQueueRef.current, async () => {
+          await setOverlays.mutateAsync({
+            recordingId,
+            overlays: overlays as Record<string, unknown>[],
+          });
+          await playerDataQuery.refetch();
         });
-        await playerDataQuery.refetch();
         succeeded = true;
         return true;
       } catch (err: any) {
-        if (record) dropNewestHistory();
+        if (historyEntry) discardHistory(historyEntry);
         toast.error(err?.message ?? t("editorLayout.editFailed"));
         return false;
       } finally {
         finishEditSave("overlays", saveGeneration, succeeded);
-        setPendingOverlays(null);
+        if (
+          isLatestEditorSave(
+            editSaveLedgerRef.current,
+            "overlays",
+            saveGeneration,
+          )
+        ) {
+          setPendingOverlays(null);
+        }
       }
     },
     [
       beginEditSave,
-      dropNewestHistory,
+      discardHistory,
       finishEditSave,
       playerDataQuery,
       pushHistory,

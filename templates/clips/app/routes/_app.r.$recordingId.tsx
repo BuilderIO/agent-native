@@ -75,6 +75,7 @@ import { toast } from "sonner";
 import { ClipsAvatar } from "@/components/clips-avatar";
 import { EditableRecordingTitle } from "@/components/editable-recording-title";
 import { EditorLayout } from "@/components/editor/editor-layout";
+import { RecordingEditorBoundary } from "@/components/editor/recording-editor-boundary";
 import {
   PageBreadcrumb,
   PageHeader,
@@ -2793,11 +2794,13 @@ export default function RecordingPage() {
             )}
           >
             {editing && canUseNativeEditor ? (
-              <EditorLayout
-                recordingId={recording.id}
-                onBack={() => setEditing(false)}
-                className="flex-1"
-              />
+              <RecordingEditorBoundary recordingId={recording.id}>
+                <EditorLayout
+                  recordingId={recording.id}
+                  onBack={() => setEditing(false)}
+                  className="flex-1"
+                />
+              </RecordingEditorBoundary>
             ) : (
               <div className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-0 sm:gap-4 lg:max-w-[min(100%,1600px,calc(177.778dvh-35.556rem))]">
                 <div className="flex w-full shrink-0 justify-center">
