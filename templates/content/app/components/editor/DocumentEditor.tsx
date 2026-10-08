@@ -222,6 +222,7 @@ import {
   type ToolbarBreadcrumbItem,
   type ToolbarBreadcrumbOpen,
 } from "./DocumentToolbar";
+import { isEditorContentClean } from "./editor-clean";
 import type { EditorDraftSaveResult } from "./editor-draft-save";
 import { EmojiPicker } from "./EmojiPicker";
 import { LinkedLocalDocumentAgentBridge } from "./LinkedLocalDocumentAgentBridge";
@@ -232,7 +233,6 @@ import {
   localSourceRevisionForSave,
   type PendingLocalSourceWrite,
 } from "./local-source-write-state";
-import { isEditorContentClean } from "./editor-clean";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
   clearPageDraftJournal,

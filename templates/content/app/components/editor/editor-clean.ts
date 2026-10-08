@@ -33,5 +33,7 @@ export function isEditorContentClean(input: EditorCleanInput): boolean {
   )
     return false;
   const live = input.normalize(input.liveMarkdown);
-  return input.journalContents.every((draft) => input.normalize(draft) === live);
+  return input.journalContents.every(
+    (draft) => input.normalize(draft) === live,
+  );
 }
