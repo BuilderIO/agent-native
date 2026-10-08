@@ -3,6 +3,7 @@
 // sections are left as TODO markers that jira-upsert refuses to ship.
 import { existsSync } from "node:fs";
 import path from "node:path";
+
 import type { Analysis } from "./analyze.ts";
 import {
   argString,
@@ -29,11 +30,17 @@ main((args) => {
     if (!args.help) process.exitCode = 1;
     return;
   }
-  if (!/^[a-z0-9-]+$/.test(slug)) throw new ScriptError("--slug must be kebab-case");
+  if (!/^[a-z0-9-]+$/.test(slug))
+    throw new ScriptError("--slug must be kebab-case");
   const config = loadConfig();
   const id = runId(args);
-  const analysis = readJson<Analysis>(path.join(runDir(config, id), "analysis.json"));
-  const systems = systemsArg.split(",").map((s) => s.trim()).filter(Boolean);
+  const analysis = readJson<Analysis>(
+    path.join(runDir(config, id), "analysis.json"),
+  );
+  const systems = systemsArg
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   const reports = systems.map((system) => {
     const report = analysis.hotSystems.find((r) => r.system === system);
     if (!report) {
@@ -45,10 +52,13 @@ main((args) => {
   });
 
   const file = path.join(plansDir(config, id), `${slug}.md`);
-  if (existsSync(file) && !args.force) throw new ScriptError(`${rel(file)} exists; pass --force to overwrite`);
+  if (existsSync(file) && !args.force)
+    throw new ScriptError(`${rel(file)} exists; pass --force to overwrite`);
 
   const lead = [...reports].sort((a, b) => b.score - a.score)[0];
-  const paths = [...new Set(reports.flatMap((r) => r.topFiles.map((f) => f.path)))];
+  const paths = [
+    ...new Set(reports.flatMap((r) => r.topFiles.map((f) => f.path))),
+  ];
   const evidence = reports.flatMap((r) => [
     `### \`${r.system}\` — ${r.verdict} (score ${r.score})`,
     "",
@@ -57,7 +67,10 @@ main((args) => {
     ...r.reasons.map((reason) => `- ${reason}`),
     "",
     "Top files (commits / fixes / re-fixes / weeks with a fix):",
-    ...r.topFiles.map((f) => `- \`${f.path}\` ${f.commits}/${f.fixes}/${f.reFixes}/${f.fixWeeks}`),
+    ...r.topFiles.map(
+      (f) =>
+        `- \`${f.path}\` ${f.commits}/${f.fixes}/${f.reFixes}/${f.fixWeeks}`,
+    ),
     "",
     "Recent fixes:",
     ...r.recentFixes.map((f) => `- ${f.date} ${f.subject}`),

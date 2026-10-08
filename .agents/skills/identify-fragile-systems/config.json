@@ -43,6 +43,6 @@
     "email": "sami@builder.io",
     "emailEnv": "JIRA_REFACTORY_EMAIL",
     "tokenEnv": "JIRA_SAMI_REFACTORY_TOKEN",
-    "maxNewTicketsPerRun": 3
+    "maxNewTicketsPerRun": 6
   }
 }

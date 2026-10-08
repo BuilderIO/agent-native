@@ -38,9 +38,9 @@ never a pass: report it.
 - Check Jira for an existing ticket before investigating a system.
 - A plan needs a named repeated mechanism, taken from diffs you read. A
   high fix count alone is not a finding. See `references/rubric.md`.
-- At most `jira.maxNewTicketsPerRun` (3) new tickets per run. Keep the
-  strongest plans. Leave any extras as plan files and list them in the
-  summary.
+- File a ticket only for `high` or `medium` confidence plans. A `low`
+  confidence finding goes in decisions.json, so the next night can confirm
+  it. `jira.maxNewTicketsPerRun` (6) is a runaway guard, not a quota.
 
 ## Steps
 

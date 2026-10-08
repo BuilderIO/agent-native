@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs";
+
 import { ScriptError } from "./lib.ts";
 
 export interface PlanMeta {
@@ -39,8 +40,10 @@ export function readPlan(file: string): { meta: PlanMeta; body: string } {
     listKey = LIST_KEYS.has(pair[1]) ? pair[1] : null;
     raw[pair[1]] = listKey ? [] : unquote(pair[2]);
   }
-  const str = (k: string) => (typeof raw[k] === "string" ? (raw[k] as string) : "");
-  const num = (k: string) => (str(k) === "" || str(k) === "null" ? null : Number(str(k)));
+  const str = (k: string) =>
+    typeof raw[k] === "string" ? (raw[k] as string) : "";
+  const num = (k: string) =>
+    str(k) === "" || str(k) === "null" ? null : Number(str(k));
   const meta: PlanMeta = {
     fingerprint: str("fingerprint"),
     title: str("title"),
@@ -57,7 +60,8 @@ export function readPlan(file: string): { meta: PlanMeta; body: string } {
     summary: str("summary"),
   };
   for (const key of ["fingerprint", "title", "runId", "summary"] as const) {
-    if (!meta[key]) throw new ScriptError(`${file}: frontmatter is missing ${key}`);
+    if (!meta[key])
+      throw new ScriptError(`${file}: frontmatter is missing ${key}`);
   }
   return { meta, body: match[2] };
 }
@@ -84,7 +88,9 @@ function unquote(value: string): string {
     try {
       return JSON.parse(trimmed) as string;
     } catch {
-      throw new ScriptError(`frontmatter value is not valid JSON-quoted text: ${trimmed}`);
+      throw new ScriptError(
+        `frontmatter value is not valid JSON-quoted text: ${trimmed}`,
+      );
     }
   }
   return trimmed;

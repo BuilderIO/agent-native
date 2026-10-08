@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+
 import { type Config, deriveRunUrl, ScriptError } from "./lib.ts";
 
 export interface Finding {
@@ -36,7 +37,8 @@ export interface FindingProperty {
   sightings: Sighting[];
 }
 
-const DECLINED = /won'?t (do|fix)|not planned|duplicate|cannot reproduce|declined|obsolete/i;
+const DECLINED =
+  /won'?t (do|fix)|not planned|duplicate|cannot reproduce|declined|obsolete/i;
 
 export class Jira {
   private readonly auth: string;
@@ -45,7 +47,8 @@ export class Jira {
   constructor(readonly config: Config) {
     const { emailEnv, tokenEnv, email, baseUrl } = config.jira;
     const token = process.env[tokenEnv];
-    if (!token) throw new ScriptError(`${tokenEnv} is not set; Jira steps cannot run`, 2);
+    if (!token)
+      throw new ScriptError(`${tokenEnv} is not set; Jira steps cannot run`, 2);
     const user = process.env[emailEnv] || email;
     this.auth = `Basic ${Buffer.from(`${user}:${token}`).toString("base64")}`;
     this.base = baseUrl.replace(/\/$/, "");
@@ -61,7 +64,10 @@ export class Jira {
     body?: unknown,
     extra: { form?: FormData; allow404?: boolean } = {},
   ): Promise<T | null> {
-    const headers: Record<string, string> = { Authorization: this.auth, Accept: "application/json" };
+    const headers: Record<string, string> = {
+      Authorization: this.auth,
+      Accept: "application/json",
+    };
     let payload: BodyInit | undefined;
     if (extra.form) {
       headers["X-Atlassian-Token"] = "no-check";
@@ -81,20 +87,31 @@ export class Jira {
         });
       } catch (error) {
         if (attempt < 2) continue;
-        throw new ScriptError(`Jira ${method} ${route} unreachable: ${(error as Error).message}`, 2);
+        throw new ScriptError(
+          `Jira ${method} ${route} unreachable: ${(error as Error).message}`,
+          2,
+        );
       }
       if ((response.status === 429 || response.status >= 500) && attempt < 3) {
-        const wait = Number(response.headers.get("retry-after") ?? 2 ** attempt) * 1000;
-        await new Promise((resolve) => setTimeout(resolve, Math.min(wait, 30_000)));
+        const wait =
+          Number(response.headers.get("retry-after") ?? 2 ** attempt) * 1000;
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.min(wait, 30_000)),
+        );
         continue;
       }
       if (response.status === 404 && extra.allow404) return null;
       const text = await response.text();
       if (response.status === 401 || response.status === 403) {
-        throw new ScriptError(`Jira ${method} ${route} → ${response.status}: credentials rejected or missing permission`, 2);
+        throw new ScriptError(
+          `Jira ${method} ${route} → ${response.status}: credentials rejected or missing permission`,
+          2,
+        );
       }
       if (!response.ok) {
-        throw new ScriptError(`Jira ${method} ${route} → ${response.status}: ${text.slice(0, 600)}`);
+        throw new ScriptError(
+          `Jira ${method} ${route} → ${response.status}: ${text.slice(0, 600)}`,
+        );
       }
       return text ? (JSON.parse(text) as T) : ({} as T);
     }
@@ -113,7 +130,15 @@ export class Jira {
         jql,
         maxResults: 100,
         nextPageToken,
-        fields: ["summary", "status", "resolution", "created", "updated", "description", "attachment"],
+        fields: [
+          "summary",
+          "status",
+          "resolution",
+          "created",
+          "updated",
+          "description",
+          "attachment",
+        ],
         properties: [propertyKey],
       });
       if (!page) throw new ScriptError("Jira search returned nothing");
@@ -124,9 +149,14 @@ export class Jira {
   }
 
   private toFinding(issue: RawIssue): Finding {
-    const property = issue.properties?.[this.config.jira.propertyKey] as FindingProperty | undefined;
+    const property = issue.properties?.[this.config.jira.propertyKey] as
+      | FindingProperty
+      | undefined;
     const description = adfText(issue.fields.description);
-    const fingerprint = property?.fingerprint ?? /Fingerprint:\s*`?(fsys:[^\s`]+)/.exec(description)?.[1] ?? null;
+    const fingerprint =
+      property?.fingerprint ??
+      /Fingerprint:\s*`?(fsys:[^\s`]+)/.exec(description)?.[1] ??
+      null;
     return {
       key: issue.key,
       url: this.browseUrl(issue.key),
@@ -145,22 +175,43 @@ export class Jira {
   }
 
   async setProperty(key: string, value: FindingProperty): Promise<void> {
-    await this.request("PUT", `/rest/api/3/issue/${key}/properties/${this.config.jira.propertyKey}`, value);
+    await this.request(
+      "PUT",
+      `/rest/api/3/issue/${key}/properties/${this.config.jira.propertyKey}`,
+      value,
+    );
   }
 
-  async attach(key: string, file: string, filename = path.basename(file)): Promise<void> {
+  async attach(
+    key: string,
+    file: string,
+    filename = path.basename(file),
+  ): Promise<void> {
     const form = new FormData();
-    form.append("file", new Blob([readFileSync(file)], { type: "text/markdown" }), filename);
-    await this.request("POST", `/rest/api/3/issue/${key}/attachments`, undefined, { form });
+    form.append(
+      "file",
+      new Blob([readFileSync(file)], { type: "text/markdown" }),
+      filename,
+    );
+    await this.request(
+      "POST",
+      `/rest/api/3/issue/${key}/attachments`,
+      undefined,
+      { form },
+    );
   }
 
   async comment(key: string, doc: AdfNode): Promise<void> {
-    await this.request("POST", `/rest/api/3/issue/${key}/comment`, { body: doc });
+    await this.request("POST", `/rest/api/3/issue/${key}/comment`, {
+      body: doc,
+    });
   }
 }
 
 export function isDeclined(finding: Finding): boolean {
-  return DECLINED.test(finding.resolution ?? "") || DECLINED.test(finding.status);
+  return (
+    DECLINED.test(finding.resolution ?? "") || DECLINED.test(finding.status)
+  );
 }
 
 export function isOpen(finding: Finding): boolean {
@@ -169,7 +220,14 @@ export function isOpen(finding: Finding): boolean {
 
 export function runLink(): { url: string | null; source: string } {
   const url = deriveRunUrl();
-  return { url, source: process.env.FRAGILITY_RUN_URL ? "FRAGILITY_RUN_URL" : url ? "FUSION_ENV_ORIGIN" : "none" };
+  return {
+    url,
+    source: process.env.FRAGILITY_RUN_URL
+      ? "FRAGILITY_RUN_URL"
+      : url
+        ? "FUSION_ENV_ORIGIN"
+        : "none",
+  };
 }
 
 export function mergeSighting(
@@ -177,11 +235,17 @@ export function mergeSighting(
   base: Omit<FindingProperty, "firstSeen" | "lastSeen" | "sightings">,
   sighting: Sighting,
 ): FindingProperty {
-  const sightings = [...(existing?.sightings ?? []).filter((s) => s.runId !== sighting.runId), sighting].slice(-60);
+  const sightings = [
+    ...(existing?.sightings ?? []).filter((s) => s.runId !== sighting.runId),
+    sighting,
+  ].slice(-60);
   return {
     fingerprint: existing?.fingerprint ?? base.fingerprint,
     systems: [...new Set([...(existing?.systems ?? []), ...base.systems])],
-    paths: [...new Set([...(existing?.paths ?? []), ...base.paths])].slice(0, 80),
+    paths: [...new Set([...(existing?.paths ?? []), ...base.paths])].slice(
+      0,
+      80,
+    ),
     firstSeen: existing?.firstSeen ?? sighting.date,
     lastSeen: sighting.date,
     sightings,
@@ -191,14 +255,27 @@ export function mergeSighting(
 export type AdfNode = { type: string; [key: string]: unknown };
 
 export const adf = {
-  doc: (...content: AdfNode[]): AdfNode => ({ type: "doc", version: 1, content }),
+  doc: (...content: AdfNode[]): AdfNode => ({
+    type: "doc",
+    version: 1,
+    content,
+  }),
   p: (...content: AdfNode[]): AdfNode => ({ type: "paragraph", content }),
   text: (text: string, href?: string): AdfNode =>
-    href ? { type: "text", text, marks: [{ type: "link", attrs: { href } }] } : { type: "text", text },
-  code: (text: string): AdfNode => ({ type: "text", text, marks: [{ type: "code" }] }),
+    href
+      ? { type: "text", text, marks: [{ type: "link", attrs: { href } }] }
+      : { type: "text", text },
+  code: (text: string): AdfNode => ({
+    type: "text",
+    text,
+    marks: [{ type: "code" }],
+  }),
   bullets: (...items: AdfNode[][]): AdfNode => ({
     type: "bulletList",
-    content: items.map((content) => ({ type: "listItem", content: [{ type: "paragraph", content }] })),
+    content: items.map((content) => ({
+      type: "listItem",
+      content: [{ type: "paragraph", content }],
+    })),
   }),
 };
 

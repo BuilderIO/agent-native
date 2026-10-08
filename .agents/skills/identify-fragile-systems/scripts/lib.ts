@@ -58,7 +58,9 @@ export function main(fn: (args: Args) => Promise<void> | void): void {
     .catch((error: unknown) => {
       const code = error instanceof ScriptError ? error.exitCode : 1;
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`${path.basename(process.argv[1] ?? "script")}: ${message}`);
+      console.error(
+        `${path.basename(process.argv[1] ?? "script")}: ${message}`,
+      );
       process.exit(code);
     });
 }
@@ -92,7 +94,8 @@ export function argNumber(args: Args, key: string, fallback: number): number {
   const raw = argString(args, key);
   if (raw === undefined) return fallback;
   const value = Number(raw);
-  if (!Number.isFinite(value)) throw new ScriptError(`--${key} must be a number`);
+  if (!Number.isFinite(value))
+    throw new ScriptError(`--${key} must be a number`);
   return value;
 }
 
@@ -115,7 +118,11 @@ export interface RunOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-export function run(cmd: string, args: string[], opts: RunOptions = {}): string {
+export function run(
+  cmd: string,
+  args: string[],
+  opts: RunOptions = {},
+): string {
   const timeoutMs = opts.timeoutMs ?? 60_000;
   const result = spawnSync(cmd, args, {
     cwd: opts.cwd ?? repoRoot(),
@@ -127,7 +134,8 @@ export function run(cmd: string, args: string[], opts: RunOptions = {}): string 
   });
   const label = `${cmd} ${args.slice(0, 4).join(" ")}`;
   if (result.error) {
-    const timedOut = (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT";
+    const timedOut =
+      (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT";
     throw new ScriptError(
       timedOut
         ? `${label} timed out after ${timeoutMs}ms`
@@ -161,7 +169,9 @@ export function plansDir(config: Config, id: string): string {
 
 export function readJson<T>(file: string): T {
   if (!existsSync(file)) {
-    throw new ScriptError(`${file} does not exist — run the earlier step first`);
+    throw new ScriptError(
+      `${file} does not exist — run the earlier step first`,
+    );
   }
   return JSON.parse(readFileSync(file, "utf8")) as T;
 }
@@ -203,12 +213,18 @@ export function classifySubject(subject: string): CommitKind {
   const type = CONVENTIONAL.exec(subject)?.[1]?.toLowerCase();
   if (type === "fix" || type === "hotfix") return "fix";
   if (type === "feat") return FIX_WORDS.test(subject) ? "fix" : "feat";
-  if (type && ["refactor", "perf", "test", "docs", "ci", "chore"].includes(type)) {
+  if (
+    type &&
+    ["refactor", "perf", "test", "docs", "ci", "chore"].includes(type)
+  ) {
     return type as CommitKind;
   }
   const sentence = subject.replace(/^[A-Za-z][\w /-]{0,24}:\s+/, "");
   if (FIX_VERBS.test(sentence)) return "fix";
-  if (/^make\b/i.test(sentence) && /\b(reliabl[ey]|work|stable|safe|consistent|correct)/i.test(sentence)) {
+  if (
+    /^make\b/i.test(sentence) &&
+    /\b(reliabl[ey]|work|stable|safe|consistent|correct)/i.test(sentence)
+  ) {
     return "fix";
   }
   if (FIX_WORDS.test(sentence)) return "fix";
@@ -240,13 +256,19 @@ export function compile(patterns: string[]): (value: string) => boolean {
 
 export function fingerprintFor(systems: string[], slug: string): string {
   const anchor = [...systems].sort()[0] ?? "unscoped";
-  return `fsys:${anchor}:${slug}`.toLowerCase().replace(/[^a-z0-9:/._-]+/g, "-");
+  return `fsys:${anchor}:${slug}`
+    .toLowerCase()
+    .replace(/[^a-z0-9:/._-]+/g, "-");
 }
 
 export function deriveRunUrl(): string | null {
   const explicit = process.env.FRAGILITY_RUN_URL;
   if (explicit) return explicit;
   const origin = process.env.FUSION_ENV_ORIGIN;
-  const match = origin && /^https:\/\/([0-9a-f]{20,32})-([a-z0-9-]+)\.builderio\.xyz/.exec(origin);
-  return match ? `https://builder.io/app/projects/${match[1]}/${match[2]}` : null;
+  const match =
+    origin &&
+    /^https:\/\/([0-9a-f]{20,32})-([a-z0-9-]+)\.builderio\.xyz/.exec(origin);
+  return match
+    ? `https://builder.io/app/projects/${match[1]}/${match[2]}`
+    : null;
 }

@@ -3,13 +3,24 @@
 // listed as UNDECIDED so an incomplete run cannot look finished.
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+
 import type { Analysis } from "./analyze.ts";
-import { loadConfig, main, plansDir, readJson, rel, runDir, runId } from "./lib.ts";
+import {
+  loadConfig,
+  main,
+  plansDir,
+  readJson,
+  rel,
+  runDir,
+  runId,
+} from "./lib.ts";
 import { readPlan } from "./plan.ts";
 
 main((args) => {
   if (args.help) {
-    console.log("summarize --run <id>   (reads analysis, plans, jira-results.json, decisions.json)");
+    console.log(
+      "summarize --run <id>   (reads analysis, plans, jira-results.json, decisions.json)",
+    );
     return;
   }
   const config = loadConfig();
@@ -17,11 +28,19 @@ main((args) => {
   const data = runDir(config, id);
   const out = plansDir(config, id);
   const analysis = readJson<Analysis>(path.join(data, "analysis.json"));
-  const results = optional<{ action: string; key: string; url: string; plan?: string; system?: string }[]>(
-    path.join(data, "jira-results.json"),
-    [],
+  const results = optional<
+    {
+      action: string;
+      key: string;
+      url: string;
+      plan?: string;
+      system?: string;
+    }[]
+  >(path.join(data, "jira-results.json"), []);
+  const decisions = optional<Record<string, string>>(
+    path.join(data, "decisions.json"),
+    {},
   );
-  const decisions = optional<Record<string, string>>(path.join(data, "decisions.json"), {});
   const plans = readdirSync(out)
     .filter((f) => f.endsWith(".md") && f !== "README.md")
     .map((f) => ({ file: f, ...readPlan(path.join(out, f)) }));
@@ -31,7 +50,9 @@ main((args) => {
     const decision = decisions[r.system];
     let disposition: string;
     if (plan) {
-      const ticket = plan.meta.jira ? `[${plan.meta.jira}](${config.jira.baseUrl}/browse/${plan.meta.jira})` : "no ticket yet";
+      const ticket = plan.meta.jira
+        ? `[${plan.meta.jira}](${config.jira.baseUrl}/browse/${plan.meta.jira})`
+        : "no ticket yet";
       disposition = `plan [${plan.file}](./${plan.file}), ${ticket}`;
     } else if (results.some((x) => x.system === r.system)) {
       const hit = results.find((x) => x.system === r.system)!;
@@ -44,7 +65,9 @@ main((args) => {
     return `| \`${r.system}\` | ${r.verdict} | ${r.score} | ${r.window.commits}/${r.lookback.fixes} | ${disposition} |`;
   });
   const undecided = rows.filter((r) => r.includes("UNDECIDED")).length;
-  const created = results.filter((r) => r.action === "create" || r.action === "recurrence");
+  const created = results.filter(
+    (r) => r.action === "create" || r.action === "recurrence",
+  );
 
   const md = [
     `# Fragile systems run ${id}`,
@@ -58,7 +81,10 @@ main((args) => {
     "## Jira actions",
     "",
     ...(results.length
-      ? results.map((r) => `- ${r.action}: [${r.key}](${r.url})${r.plan ? ` from \`${path.basename(r.plan)}\`` : ""}`)
+      ? results.map(
+          (r) =>
+            `- ${r.action}: [${r.key}](${r.url})${r.plan ? ` from \`${path.basename(r.plan)}\`` : ""}`,
+        )
       : ["- none"]),
     "",
     `Raw data: \`${rel(data)}\` (commits.json, analysis.md, jira-matches.json).`,
@@ -66,10 +92,14 @@ main((args) => {
   ].join("\n");
   const file = path.join(out, "README.md");
   writeFileSync(file, md);
-  console.log(`${rel(file)}: ${plans.length} plans, ${created.length} new tickets, ${undecided} undecided`);
+  console.log(
+    `${rel(file)}: ${plans.length} plans, ${created.length} new tickets, ${undecided} undecided`,
+  );
   if (undecided) process.exitCode = 1;
 });
 
 function optional<T>(file: string, fallback: T): T {
-  return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as T) : fallback;
+  return existsSync(file)
+    ? (JSON.parse(readFileSync(file, "utf8")) as T)
+    : fallback;
 }

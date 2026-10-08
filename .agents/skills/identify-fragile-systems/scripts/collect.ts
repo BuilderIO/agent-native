@@ -3,6 +3,7 @@
 // Uses only tree-level git data: this checkout may be a blobless partial clone,
 // where --numstat/--stat/-p fetch every blob over the network and time out.
 import path from "node:path";
+
 import {
   argNumber,
   argString,
@@ -83,8 +84,11 @@ main(async (args) => {
     fetched = true;
   }
 
-  const until = argString(args, "until") ? new Date(argString(args, "until")!) : new Date();
-  if (Number.isNaN(until.getTime())) throw new ScriptError("--until is not a valid date");
+  const until = argString(args, "until")
+    ? new Date(argString(args, "until")!)
+    : new Date();
+  if (Number.isNaN(until.getTime()))
+    throw new ScriptError("--until is not a valid date");
   const windowHours = argNumber(args, "window-hours", config.windowHours);
   const lookbackDays = argNumber(args, "lookback-days", config.lookbackDays);
   const windowStart = new Date(until.getTime() - windowHours * 3_600_000);
@@ -131,7 +135,9 @@ main(async (args) => {
     });
   }
   if (commits.length === 0) {
-    throw new ScriptError(`no commits on ${ref} since ${lookbackStart.toISOString()}`);
+    throw new ScriptError(
+      `no commits on ${ref} since ${lookbackStart.toISOString()}`,
+    );
   }
 
   const windowPrs = [
@@ -144,7 +150,7 @@ main(async (args) => {
   const out: Collected = {
     runId: id,
     repo: config.repo,
-    head: run("git", ["rev-parse", ref]).trim(),
+    head: commits[0].sha,
     windowStart: windowStart.toISOString(),
     windowEnd: until.toISOString(),
     lookbackStart: lookbackStart.toISOString(),
@@ -175,7 +181,9 @@ function fetchPrs(repo: string, numbers: number[]): Collected["prs"] {
         .join("\n");
       const query = `query { repository(owner: "${owner}", name: "${name}") { ${fields} } }`;
       const response = withRetry(() =>
-        run("gh", ["api", "graphql", "-f", `query=${query}`], { timeoutMs: 60_000 }),
+        run("gh", ["api", "graphql", "-f", `query=${query}`], {
+          timeoutMs: 60_000,
+        }),
       );
       const parsed = JSON.parse(response) as {
         data?: { repository?: Record<string, RawPr | null> };
@@ -183,7 +191,9 @@ function fetchPrs(repo: string, numbers: number[]): Collected["prs"] {
       };
       const repoData = parsed.data?.repository;
       if (!repoData) {
-        throw new Error(parsed.errors?.map((e) => e.message).join("; ") ?? "empty response");
+        throw new Error(
+          parsed.errors?.map((e) => e.message).join("; ") ?? "empty response",
+        );
       }
       for (const pr of Object.values(repoData)) {
         if (!pr) continue;
@@ -201,7 +211,10 @@ function fetchPrs(repo: string, numbers: number[]): Collected["prs"] {
       }
     }
   } catch (error) {
-    return { status: "unavailable", error: error instanceof Error ? error.message : String(error) };
+    return {
+      status: "unavailable",
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
   return { status: "ok", items };
 }
