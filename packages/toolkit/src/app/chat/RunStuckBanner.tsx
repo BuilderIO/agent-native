@@ -33,6 +33,9 @@ export type RunReconcileOutcome = "settled" | "still_running";
 
 const RECONCILE_RETRY_MS = 30_000;
 const AUTO_RETRY_CLAIM_TTL_MS = 5 * 60 * 1000;
+// A user's Cancel or Retry outlives the short retry lease: a stuck run stays
+// stuck for as long as it takes someone to reload the page.
+const USER_ACTION_CLAIM_TTL_MS = 6 * 60 * 60 * 1000;
 const BACKGROUND_WORKER_FRESH_HEARTBEAT_MS = 30_000;
 
 /**
@@ -123,11 +126,14 @@ function markUserActedOnRun(
       autoRetryClaimKey(threadId, runId),
       JSON.stringify({
         ownerId: "user-action",
-        expiresAt: Date.now() + AUTO_RETRY_CLAIM_TTL_MS,
+        expiresAt: Date.now() + USER_ACTION_CLAIM_TTL_MS,
       }),
     );
-  } catch {
-    // The in-memory marker still covers this mount.
+  } catch (error) {
+    console.warn(
+      "[agent-chat] could not persist the stuck-run user action; it only holds until reload:",
+      error instanceof Error ? error.message : String(error),
+    );
   }
 }
 

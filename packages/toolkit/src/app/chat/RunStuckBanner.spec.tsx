@@ -367,11 +367,16 @@ describe("RunStuckBanner", () => {
   });
 
   it.each([
-    { remount: false, where: "in the same mount" },
-    { remount: true, where: "after the chat remounts or reloads" },
+    { remount: false, laterMs: 0, where: "in the same mount" },
+    { remount: true, laterMs: 0, where: "after the chat remounts or reloads" },
+    {
+      remount: true,
+      laterMs: 30 * 60_000,
+      where: "after a reload past the five-minute retry lease",
+    },
   ])(
     "never auto-retries a run the user cancelled, even when the abort failed, $where",
-    async ({ remount }) => {
+    async ({ remount, laterMs }) => {
       const onRetry = vi.fn();
       const props = {
         threadId: "thread-cancelled",
@@ -399,6 +404,7 @@ describe("RunStuckBanner", () => {
         await act(async () => root.unmount());
         root = createRoot(container);
       }
+      if (laterMs) vi.setSystemTime(Date.now() + laterMs);
 
       // The run is still stuck and no longer a continued dispatch: auto-retry is
       // eligible again, but the user already acted on it.
