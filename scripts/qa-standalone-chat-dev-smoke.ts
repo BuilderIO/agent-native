@@ -2361,11 +2361,14 @@ async function readCurrentActivityTrace(page: Page): Promise<string[]> {
   });
 }
 
-async function assertActionWidgetOutsideActivity(
+async function assertAssistantContentOutsideActivity(
   page: Page,
   text: string,
 ): Promise<Locator> {
-  const target = page.getByText(text, { exact: true }).first();
+  const target = page
+    .getByText(text, { exact: true })
+    .filter({ visible: true })
+    .first();
   await target.waitFor({ state: "visible" });
   assert.equal(
     await target.evaluate((element) =>
@@ -2404,7 +2407,10 @@ async function assertActivitiesCollapsed(
 }
 
 async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
-  await assertActionWidgetOutsideActivity(page, "AgentKit acceptance draft");
+  await assertAssistantContentOutsideActivity(
+    page,
+    "AgentKit acceptance draft",
+  );
   const draftCard = page
     .locator("[data-action-card]")
     .filter({ hasText: "AgentKit acceptance draft" });
@@ -2426,7 +2432,10 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
     state: "visible",
   });
 
-  await assertActionWidgetOutsideActivity(page, "From: digest@example.test");
+  await assertAssistantContentOutsideActivity(
+    page,
+    "From: digest@example.test",
+  );
   const filterCard = page
     .locator("[data-action-card]")
     .filter({ hasText: "From: digest@example.test" });
@@ -2438,7 +2447,7 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
   const filtersUrl = new URL((await filtersLink.getAttribute("href")) ?? "");
   assert.equal(filtersUrl.hash, "#settings/filters");
 
-  await assertActionWidgetOutsideActivity(
+  await assertAssistantContentOutsideActivity(
     page,
     "AgentKit sample form insights",
   );
@@ -2446,12 +2455,15 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
     .getByRole("cell", { name: "AgentKit acceptance", exact: true })
     .waitFor({ state: "visible" });
 
-  await assertActionWidgetOutsideActivity(page, "Sample analytics table");
+  await assertAssistantContentOutsideActivity(page, "Sample analytics table");
   await page
     .getByRole("cell", { name: "/agentkit-acceptance", exact: true })
     .waitFor({ state: "visible" });
 
-  await assertActionWidgetOutsideActivity(page, "AgentKit acceptance event");
+  await assertAssistantContentOutsideActivity(
+    page,
+    "AgentKit acceptance event",
+  );
   const eventCard = page
     .locator("[data-action-card]")
     .filter({ hasText: "AgentKit acceptance event" });
@@ -2462,7 +2474,7 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
     state: "visible",
   });
 
-  await assertActionWidgetOutsideActivity(page, "Best shared time");
+  await assertAssistantContentOutsideActivity(page, "Best shared time");
   const timeChoiceCard = page
     .locator("[data-action-card]")
     .filter({ hasText: "Best shared time" });
@@ -2481,7 +2493,7 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
     "the time-choice widget must open its Calendar draft link",
   );
 
-  await assertActionWidgetOutsideActivity(page, "Booking link");
+  await assertAssistantContentOutsideActivity(page, "Booking link");
   const bookingLinkCard = page
     .locator("[data-action-card]")
     .filter({ hasText: "Booking link" });
@@ -3351,6 +3363,10 @@ async function assertAgentKitChatAcceptance(
     .filter({ visible: true })
     .first()
     .waitFor({ state: "visible" });
+  await assertAssistantContentOutsideActivity(
+    page,
+    "All seven local sample widgets are ready.",
+  );
   await assertAgentKitWidgetSamples(page);
   await assertActivitiesCollapsed(page);
 

@@ -599,11 +599,25 @@ test.describe("two tabs editing one page at beta cadence", () => {
           },
           { documentId: s.id, writerId: retained.editorSessionId },
         );
-        expect(journal?.entry.snapshot).toMatchObject({
-          title: peerTitle,
-          baseTitle: peerTitle,
-          content: expect.stringContaining(aMarker),
-        });
+        if (!journal) throw new Error("The recovery draft journal is missing.");
+        await expect
+          .poll(
+            () =>
+              a.evaluate((key) => {
+                const raw = localStorage.getItem(key);
+                return raw ? JSON.parse(raw).snapshot : null;
+              }, journal.key),
+            {
+              message:
+                "the local journal should adopt the latest server draft after its save response",
+              timeout: 30_000,
+            },
+          )
+          .toMatchObject({
+            title: peerTitle,
+            baseTitle: peerTitle,
+            content: expect.stringContaining(aMarker),
+          });
 
         const trash = a.getByRole("link", { name: "Trash", exact: true });
         await trash.click();

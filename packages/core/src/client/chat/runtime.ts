@@ -3953,6 +3953,11 @@ export function createAgentNativeChatRuntime(
       if (continuationMessageState) {
         messageStates.set(turnId, continuationMessageState);
       }
+      const turnEngine = turn.metadata?.engine;
+      const engine =
+        typeof turnEngine === "string" && turnEngine.trim()
+          ? turnEngine
+          : options.engine;
       const history = nativeHistoryFromMessages(turn.messages, prompt);
       const pendingApprovalHistory =
         approvedToolCalls && continuationMessageState
@@ -3995,7 +4000,7 @@ export function createAgentNativeChatRuntime(
         ...((turn.model ?? options.model)
           ? { model: turn.model ?? options.model }
           : {}),
-        ...(options.engine ? { engine: options.engine } : {}),
+        ...(engine ? { engine } : {}),
         ...((turn.reasoningEffort ?? options.effort)
           ? { effort: turn.reasoningEffort ?? options.effort }
           : {}),
