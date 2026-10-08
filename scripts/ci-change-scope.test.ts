@@ -174,6 +174,18 @@ test("selects Slides caret and authoring E2E for their dependency closure", () =
   assert.equal(full.checks.slides_authoring_fuzz_soak, true);
 });
 
+test("wires the Slides authoring soak to its dedicated change-scope output", () => {
+  const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+  assert.match(
+    workflow,
+    /slides_authoring_fuzz_soak:\s*\$\{\{\s*steps\.scope\.outputs\.slides_authoring_fuzz_soak\s*\}\}/u,
+  );
+  assert.match(
+    workflow,
+    /if:\s*needs\.change-scope\.outputs\.slides_authoring_fuzz_soak\s*==\s*'true'/u,
+  );
+});
+
 test("fails closed for empty and unknown root change sets", () => {
   const empty = classifyChangedPaths([]);
   assert.equal(empty.docsOnly, false);
