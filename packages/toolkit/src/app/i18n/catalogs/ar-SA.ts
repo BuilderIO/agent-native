@@ -1145,6 +1145,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "جارٍ إعداد Builder.io",
   "recovery.copyDebug": "نسخ معلومات التصحيح",
   "recovery.copyFailed": "فشل النسخ",
+  "recovery.continueUnavailable":
+    "لم يعد بالإمكان متابعة هذا التشغيل. أرسل رسالة للمتابعة.",
   "recovery.retryAttachmentUnavailable":
     "تضمّن هذا الطلب ملفًا لا يمكن إعادة المحاولة به. أرفقه مجددًا في مربع الرسالة، ثم حاول مرة أخرى.",
   "recovery.deferredSubmissionFailed":
@@ -1913,6 +1915,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.adminOnly":
     "يمكن لمالكي المؤسسة ومسؤوليها فقط تغيير تخزين الملفات.",
   "settings.audit.action": "الإجراء",
+  "settings.audit.agentVia": "وكيل عبر {{protocol}}",
   "settings.audit.allApps": "كل التطبيقات",
   "settings.audit.app": "التطبيق",
   "settings.audit.changedBy": "تم التغيير بواسطة",

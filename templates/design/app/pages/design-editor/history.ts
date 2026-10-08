@@ -83,6 +83,7 @@ export function forwardYjsUndoStackItemMeta(
 
 export interface GeometryHistorySelection {
   overviewSelectedScreenIds: string[];
+  explicitOverviewScreenIds?: string[];
   selectedLayerIds: string[];
   sourceContentByFileId?: Record<string, string>;
   sourceFileIdByFileId?: Record<string, string>;
@@ -355,6 +356,12 @@ export function remapSelectionHistoryStackIds(
     return {
       overviewSelectedScreenIds:
         selection.overviewSelectedScreenIds.map(remapId),
+      ...(selection.explicitOverviewScreenIds !== undefined
+        ? {
+            explicitOverviewScreenIds:
+              selection.explicitOverviewScreenIds.map(remapId),
+          }
+        : {}),
       selectedLayerIds: selection.selectedLayerIds.map(remapId),
       activeFileId: selection.activeFileId
         ? remapId(selection.activeFileId)
@@ -381,6 +388,14 @@ export function pruneSelectionHistoryStackIds(
       overviewSelectedScreenIds: selection.overviewSelectedScreenIds.filter(
         (fileId) => !deletedIds.has(fileId),
       ),
+      ...(selection.explicitOverviewScreenIds !== undefined
+        ? {
+            explicitOverviewScreenIds:
+              selection.explicitOverviewScreenIds.filter(
+                (fileId) => !deletedIds.has(fileId),
+              ),
+          }
+        : {}),
       selectedLayerIds: activeFileDeleted
         ? []
         : selection.selectedLayerIds.filter((id) => !deletedIds.has(id)),
@@ -442,14 +457,23 @@ export function pruneGeometryHistoryEntryForDeletedFiles(
       selection.overviewSelectedScreenIds.filter(
         (fileId) => !deletedFileIds.has(fileId),
       );
+    const explicitOverviewScreenIds =
+      selection.explicitOverviewScreenIds?.filter(
+        (fileId) => !deletedFileIds.has(fileId),
+      );
     const unchanged =
       selectedLayerIds.length === selection.selectedLayerIds.length &&
       overviewSelectedScreenIds.length ===
         selection.overviewSelectedScreenIds.length &&
+      (explicitOverviewScreenIds?.length ?? 0) ===
+        (selection.explicitOverviewScreenIds?.length ?? 0) &&
       activeFileDeleted === false;
     if (unchanged) return selection;
     return {
       overviewSelectedScreenIds,
+      ...(explicitOverviewScreenIds !== undefined
+        ? { explicitOverviewScreenIds }
+        : {}),
       selectedLayerIds,
       activeFileId: activeFileDeleted ? null : selection.activeFileId,
     };

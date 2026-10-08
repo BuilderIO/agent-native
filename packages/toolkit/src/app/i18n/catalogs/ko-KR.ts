@@ -1132,6 +1132,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Builder.io 설정 중",
   "recovery.copyDebug": "디버그 정보 복사",
   "recovery.copyFailed": "복사 실패",
+  "recovery.continueUnavailable":
+    "이 실행은 더 이상 계속할 수 없습니다. 계속하려면 메시지를 보내세요.",
   "recovery.retryAttachmentUnavailable":
     "이 요청에는 다시 시도할 수 없는 파일이 포함되어 있습니다. 메시지 입력란에 파일을 다시 첨부한 다음 다시 시도하세요.",
   "recovery.deferredSubmissionFailed":
@@ -1757,6 +1759,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.adminOnly":
     "조직 소유자와 관리자만 파일 스토리지를 변경할 수 있습니다.",
   "settings.audit.action": "작업",
+  "settings.audit.agentVia": "{{protocol}}를 통한 에이전트",
   "settings.audit.allApps": "모든 앱",
   "settings.audit.app": "앱",
   "settings.audit.changedBy": "변경한 사람",

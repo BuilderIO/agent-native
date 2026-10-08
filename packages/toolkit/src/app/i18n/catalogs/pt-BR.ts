@@ -810,6 +810,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Configurando o Builder.io",
   "recovery.copyDebug": "Copiar informações de depuração",
   "recovery.copyFailed": "Falha ao copiar",
+  "recovery.continueUnavailable":
+    "Esta execução não pode mais ser continuada. Envie uma mensagem para seguir.",
   "recovery.retryAttachmentUnavailable":
     "Esta solicitação incluía um arquivo que não pode ser reenviado. Anexe-o novamente no campo de mensagem e tente outra vez.",
   "recovery.deferredSubmissionFailed":
@@ -1896,6 +1898,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.adminOnly":
     "Somente proprietários e administradores da organização podem alterar o armazenamento de arquivos.",
   "settings.audit.action": "Ação",
+  "settings.audit.agentVia": "Agente via {{protocol}}",
   "settings.audit.allApps": "Todos os apps",
   "settings.audit.app": "App",
   "settings.audit.changedBy": "Alterado por",

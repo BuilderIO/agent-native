@@ -20,6 +20,10 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  useIsMcpAppWidgetEmbed,
+  useIsMcpDirectoryWidgetReadOnlyEmbed,
+} from "@agent-native/core/client/mcp-app-host";
 import { useOrg } from "@agent-native/core/client/org";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
@@ -672,9 +676,16 @@ export default function DeckEditor() {
   if (isNewDeckGenerationRoute) {
     wasNewDeckCreation.current = true;
   }
+  const widgetEmbed = useIsMcpAppWidgetEmbed();
+  const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
+  // In an MCP App widget the pane is narrower than 768px but still wants the
+  // slide rail, as a compact strip beside the slide rather than an overlay.
+  useEffect(() => {
+    if (widgetEmbed) setSidebarOpen(true);
+  }, [widgetEmbed]);
   const [describeSlideId, setDescribeSlideId] = useState<string | null>(null);
   useEffect(() => {
     setDescribeSlideId(null);
@@ -936,7 +947,9 @@ export default function DeckEditor() {
     ((org?.pendingInvitations?.length ?? 0) > 0 ||
       (org?.domainMatches?.length ?? 0) > 0);
   const slideCount = deck?.slides.length ?? 0;
-  const { canEdit, canComment } = useDeckRole(id, deck?.createdByMe === true);
+  const deckRole = useDeckRole(id, deck?.createdByMe === true);
+  const canEdit = deckRole.canEdit && !readOnlyWidget;
+  const canComment = deckRole.canComment && !readOnlyWidget;
   const generationContext =
     deck?.generationContext &&
     typeof deck.generationContext === "object" &&
@@ -1985,10 +1998,11 @@ export default function DeckEditor() {
   }, [generating, addSlideGenerating, endAddSlideGeneration]);
 
   useEffect(() => {
-    const onResize = () => setSidebarOpen(window.innerWidth >= 768);
+    const onResize = () =>
+      setSidebarOpen(widgetEmbed || window.innerWidth >= 768);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, []);
+  }, [widgetEmbed]);
 
   const previousSlideIdsRef = useRef<string[]>([]);
   useEffect(() => {
@@ -2385,9 +2399,9 @@ export default function DeckEditor() {
       setSelectedSlideIds(result.selectedSlideIds);
       setGeneratingSlideSelected(false);
       setActiveSlideId(slideId);
-      if (window.innerWidth < 768) setSidebarOpen(false);
+      if (!widgetEmbed && window.innerWidth < 768) setSidebarOpen(false);
     },
-    [deck, selectedSlideIds],
+    [deck, selectedSlideIds, widgetEmbed],
   );
 
   const uploadImageAsset = useCallback(
@@ -3868,168 +3882,193 @@ export default function DeckEditor() {
       className="deck-editor-shell flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-background"
       data-slides-editor-root="true"
       data-slides-editor-editable={canEdit ? "true" : "false"}
+      data-slides-widget={widgetEmbed ? "true" : undefined}
       onDragOver={editorDragOver}
       onDrop={editorDrop}
     >
-      <EditorToolbar
-        deck={deck}
-        deckId={id}
-        deckTitle={deck.title}
-        canEdit={canEdit}
-        canComment={canComment}
-        onTitleChange={(title) => updateDeck(id, { title })}
-        currentSlideIndex={currentIndex >= 0 ? currentIndex : 0}
-        sidebarOpen={sidebarOpen}
-        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-        onGenerateImage={() => setImageGenOpen(!imageGenOpen)}
-        onOpenAssetLibrary={() => {
-          if (!assetLibraryOpen) {
-            trackEvent("slide_panel_opened", {
-              app_name: "slides",
-              template_name: "slides",
-              panel: "asset_library",
-            });
-          }
-          setReplaceImageSrc(null);
-          setAssetLibraryOpen(true);
-        }}
-        onShowHistory={() => {
-          if (!historyOpen) {
-            trackEvent("slide_panel_opened", {
-              app_name: "slides",
-              template_name: "slides",
-              panel: "history",
-            });
-          }
-          setHistoryOpen((open) => !open);
-        }}
-        historyButtonRef={historyButtonRef}
-        onPresent={handlePresent}
-        currentSlide={currentSlide}
-        layersOpen={layersOpen}
-        onToggleLayers={canEdit ? toggleLayers : undefined}
-        onAddEmptySlide={canEdit ? handleNewSlideClick : undefined}
-        addSlideGenerating={addSlideGenerating}
-        canUndo={canUndo}
-        canRedo={canRedo}
-        onUndo={canEdit ? () => undo(id) : undefined}
-        onRedo={canEdit ? () => redo(id) : undefined}
-        onWideContextToolbarSlotChange={setWideContextToolbarSlot}
-        onDownloadBackup={handleDownloadDeckBackup}
-        onImportDeckBackup={handleImportDeckBackup}
-        activeUsers={slideActiveUsers.filter((u) => u.email !== session?.email)}
-        agentPresent={agentPresent}
-        agentActive={agentActive}
-        commentsOpen={commentsOpen}
-        onToggleComments={toggleComments}
-        unresolvedCommentCount={unresolvedCommentCount}
-        currentUserEmail={session?.email}
-        animationsOpen={animationsOpen}
-        onToggleAnimations={toggleAnimations}
-        tweaksOpen={tweaksOpen}
-        onToggleTweaks={() => {
-          if (!tweaksOpen) {
-            trackEvent("slide_panel_opened", {
-              app_name: "slides",
-              template_name: "slides",
-              panel: "tweaks",
-            });
-          }
-          setTweaksOpen((open) => !open);
-        }}
-        drawMode={drawMode}
-        onToggleDrawMode={toggleDrawMode}
-        pinMode={pinMode}
-        onTogglePinMode={togglePinMode}
-        textBoxMode={textBoxMode}
-        onToggleTextBoxMode={toggleTextBoxMode}
-        shapeType={shapeType}
-        onSelectShape={selectShape}
-        onChangeSlideTransition={
-          canEdit && currentSlide
-            ? (transition) => updateSlide(id, currentSlide.id, { transition })
-            : undefined
-        }
-        onDuplicateDeck={async () => {
-          const newId = `deck-${nanoid()}`;
-          const optimistic = await duplicateDeck(id, newId, undefined, () => {
-            if (deckIdFromPathname(window.location.pathname) === newId) {
-              void navigate("/home");
+      {/* The MCP App host pane owns the chrome, so the widget gets the slide
+       * rail and the slide with no title, share, present, or tool rows. */}
+      {!widgetEmbed && (
+        <EditorToolbar
+          deck={deck}
+          deckId={id}
+          deckTitle={deck.title}
+          canEdit={canEdit}
+          canComment={canComment}
+          onTitleChange={(title) => updateDeck(id, { title })}
+          currentSlideIndex={currentIndex >= 0 ? currentIndex : 0}
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+          onGenerateImage={() => setImageGenOpen(!imageGenOpen)}
+          onOpenAssetLibrary={() => {
+            if (!assetLibraryOpen) {
+              trackEvent("slide_panel_opened", {
+                app_name: "slides",
+                template_name: "slides",
+                panel: "asset_library",
+              });
             }
-            toast.error(t("home.duplicateFailed"));
-          });
-          if (optimistic) void navigate(`/deck/${optimistic.id}`);
-        }}
-        onExportPdf={async () => {
-          trackEvent("slide_export_started", {
-            app_name: "slides",
-            template_name: "slides",
-            format: "pdf",
-          });
-          const exportSlides = deck.slides;
-          if (exportSlides.length === 0) {
-            throw new Error(t("deckEditor.deckHasNoSlides"));
+            setReplaceImageSrc(null);
+            setAssetLibraryOpen(true);
+          }}
+          onShowHistory={() => {
+            if (!historyOpen) {
+              trackEvent("slide_panel_opened", {
+                app_name: "slides",
+                template_name: "slides",
+                panel: "history",
+              });
+            }
+            setHistoryOpen((open) => !open);
+          }}
+          historyButtonRef={historyButtonRef}
+          onPresent={handlePresent}
+          currentSlide={currentSlide}
+          layersOpen={layersOpen}
+          onToggleLayers={canEdit ? toggleLayers : undefined}
+          onAddEmptySlide={canEdit ? handleNewSlideClick : undefined}
+          addSlideGenerating={addSlideGenerating}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onUndo={canEdit ? () => undo(id) : undefined}
+          onRedo={canEdit ? () => redo(id) : undefined}
+          onWideContextToolbarSlotChange={setWideContextToolbarSlot}
+          onDownloadBackup={handleDownloadDeckBackup}
+          onImportDeckBackup={handleImportDeckBackup}
+          activeUsers={slideActiveUsers.filter(
+            (u) => u.email !== session?.email,
+          )}
+          agentPresent={agentPresent}
+          agentActive={agentActive}
+          commentsOpen={commentsOpen}
+          onToggleComments={toggleComments}
+          unresolvedCommentCount={unresolvedCommentCount}
+          currentUserEmail={session?.email}
+          animationsOpen={animationsOpen}
+          onToggleAnimations={toggleAnimations}
+          tweaksOpen={tweaksOpen}
+          onToggleTweaks={() => {
+            if (!tweaksOpen) {
+              trackEvent("slide_panel_opened", {
+                app_name: "slides",
+                template_name: "slides",
+                panel: "tweaks",
+              });
+            }
+            setTweaksOpen((open) => !open);
+          }}
+          drawMode={drawMode}
+          onToggleDrawMode={toggleDrawMode}
+          pinMode={pinMode}
+          onTogglePinMode={togglePinMode}
+          textBoxMode={textBoxMode}
+          onToggleTextBoxMode={toggleTextBoxMode}
+          shapeType={shapeType}
+          onSelectShape={selectShape}
+          onChangeSlideTransition={
+            canEdit && currentSlide
+              ? (transition) => updateSlide(id, currentSlide.id, { transition })
+              : undefined
           }
-          await exportDeckAsPdf(deck.title, exportSlides, deck.aspectRatio);
-        }}
-        onExportPptx={async () => {
-          trackEvent("slide_export_started", {
-            app_name: "slides",
-            template_name: "slides",
-            format: "pptx",
-          });
-          const slides = deck.slides.map((s) => ({
-            id: s.id,
-            notes: s.notes,
-          }));
-          if (slides.length === 0) {
-            throw new Error(t("deckEditor.deckHasNoSlides"));
-          }
-          await exportDeckAsPptx(deck.title, slides, deck.aspectRatio);
-        }}
-        onExportGoogleSlides={async () => {
-          trackEvent("slide_export_started", {
-            app_name: "slides",
-            template_name: "slides",
-            format: "google_slides",
-          });
-          const slides = deck.slides.map((s) => ({
-            id: s.id,
-            notes: s.notes,
-          }));
-          if (slides.length === 0) {
-            throw new Error(t("deckEditor.deckHasNoSlides"));
-          }
-          if (canExportPptxFromServer(deck)) {
-            await flushDeckSave(id);
+          onDuplicateDeck={async () => {
+            const newId = `deck-${nanoid()}`;
+            const optimistic = await duplicateDeck(id, newId, undefined, () => {
+              if (deckIdFromPathname(window.location.pathname) === newId) {
+                void navigate("/home");
+              }
+              toast.error(t("home.duplicateFailed"));
+            });
+            if (optimistic) void navigate(`/deck/${optimistic.id}`);
+          }}
+          onExportPdf={async () => {
+            trackEvent("slide_export_started", {
+              app_name: "slides",
+              template_name: "slides",
+              format: "pdf",
+            });
+            const exportSlides = deck.slides;
+            if (exportSlides.length === 0) {
+              throw new Error(t("deckEditor.deckHasNoSlides"));
+            }
+            await exportDeckAsPdf(deck.title, exportSlides, deck.aspectRatio);
+          }}
+          onExportPptx={async () => {
+            trackEvent("slide_export_started", {
+              app_name: "slides",
+              template_name: "slides",
+              format: "pptx",
+            });
+            const slides = deck.slides.map((s) => ({
+              id: s.id,
+              notes: s.notes,
+            }));
+            if (slides.length === 0) {
+              throw new Error(t("deckEditor.deckHasNoSlides"));
+            }
+            await exportDeckAsPptx(deck.title, slides, deck.aspectRatio);
+          }}
+          onExportGoogleSlides={async () => {
+            trackEvent("slide_export_started", {
+              app_name: "slides",
+              template_name: "slides",
+              format: "google_slides",
+            });
+            const slides = deck.slides.map((s) => ({
+              id: s.id,
+              notes: s.notes,
+            }));
+            if (slides.length === 0) {
+              throw new Error(t("deckEditor.deckHasNoSlides"));
+            }
+            if (canExportPptxFromServer(deck)) {
+              await flushDeckSave(id);
+              return exportDeckToGoogleSlides(
+                deck.title,
+                slides,
+                deck.aspectRatio,
+                () =>
+                  fetchDeckPptxFromServer(
+                    id,
+                    t("editorExport.exportPptxError"),
+                  ),
+              );
+            }
             return exportDeckToGoogleSlides(
               deck.title,
               slides,
               deck.aspectRatio,
-              () =>
-                fetchDeckPptxFromServer(id, t("editorExport.exportPptxError")),
             );
-          }
-          return exportDeckToGoogleSlides(deck.title, slides, deck.aspectRatio);
-        }}
-      />
+          }}
+        />
+      )}
 
       {/* Full-width host for the slide's contextual style toolbar: it spans the
        * slide rail as well as the canvas, matching the deck toolbar above it. */}
-      <div
-        ref={setContextToolbarSlot}
-        data-context-toolbar-host="narrow"
-        className="deck-editor-context-toolbar-host deck-editor-context-toolbar-host--narrow shrink-0"
-      />
+      {!widgetEmbed && (
+        <div
+          ref={setContextToolbarSlot}
+          data-context-toolbar-host="narrow"
+          className="deck-editor-context-toolbar-host deck-editor-context-toolbar-host--narrow shrink-0"
+        />
+      )}
 
       <div className="deck-editor-workspace relative flex min-h-0 flex-1 overflow-hidden rounded-l-lg bg-background">
         {sidebarOpen && (
           <>
+            {!widgetEmbed && (
+              <div
+                // guard:allow-raw-color — existing scrim behind the mobile rail, unchanged
+                className="md:hidden fixed inset-0 bg-black/50 z-30"
+                onClick={() => setSidebarOpen(false)}
+              />
+            )}
             <div
-              className="md:hidden fixed inset-0 bg-black/50 z-30"
-              onClick={() => setSidebarOpen(false)}
-            />
-            <div className="absolute z-[70] h-full min-h-0 md:relative">
+              className={
+                widgetEmbed
+                  ? "relative z-[70] h-full min-h-0"
+                  : "absolute z-[70] h-full min-h-0 md:relative"
+              }
+            >
               <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
@@ -4039,6 +4078,7 @@ export default function DeckEditor() {
                 onDragCancel={handleDragCancel}
               >
                 <EditorSidebar
+                  compact={widgetEmbed}
                   slides={deck.slides}
                   activeSlideId={currentSlide?.id || ""}
                   selectedSlideIds={selectedSlideIds}
@@ -4075,7 +4115,9 @@ export default function DeckEditor() {
                   generatingSlideSelected={generatingSlideSelected}
                   onSelectGeneratingSlide={() => {
                     setGeneratingSlideSelected(true);
-                    if (window.innerWidth < 768) setSidebarOpen(false);
+                    if (!widgetEmbed && window.innerWidth < 768) {
+                      setSidebarOpen(false);
+                    }
                   }}
                   hasSlideClipboard={hasSlideClipboard}
                   onCutSlide={cutSlides}
@@ -4202,6 +4244,8 @@ export default function DeckEditor() {
         {showCurrentSlideEditor && currentSlide && (
           <SlideEditor
             slide={editorSlide ?? currentSlide}
+            deckSlides={widgetEmbed ? deck.slides : undefined}
+            onSelectFollowingSlide={handleSlideSelection}
             deckId={id}
             onFlushInlineEdit={() => {
               flushPendingSaves();

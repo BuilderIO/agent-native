@@ -100,7 +100,6 @@ import {
   completeReplayScreenshotCapture,
   downloadReplayScreenshotBlob,
   ReplayScreenshotAssetError,
-  writeReplayScreenshotToClipboard,
 } from "./session-replay-screenshot";
 import {
   type SessionIssueMatch,
@@ -1145,27 +1144,6 @@ function ReplayPlayer({
     );
   }
 
-  function copyScreenshotToDesign() {
-    runScreenshotAction(
-      "copy",
-      (screenshot, _filename, onClipboardWriteFailure) =>
-        writeReplayScreenshotToClipboard(
-          screenshot,
-          undefined,
-          onClipboardWriteFailure,
-        ),
-      () => toast.success(t("sessions.screenshotCopiedForDesign")),
-      (error) =>
-        toast.error(
-          t(
-            error instanceof ReplayScreenshotAssetError
-              ? "sessions.screenshotCopyUnsupportedAssets"
-              : "sessions.screenshotCopyFailed",
-          ),
-        ),
-    );
-  }
-
   const disabled = status !== "ready" || savingScreenshot;
 
   return (
@@ -1291,21 +1269,6 @@ function ReplayPlayer({
                     : "sessions.saveScreenshot",
                 )}
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={disabled}
-                onClick={copyScreenshotToDesign}
-              >
-                <IconCopy className="me-1.5 h-4 w-4" />
-                {t(
-                  savingScreenshot && screenshotAction === "copy"
-                    ? "sessions.copyingScreenshot"
-                    : "sessions.copyScreenshot",
-                )}
-              </Button>
-
               <span className="w-12 text-center font-mono text-xs text-muted-foreground">
                 {formatClock(currentTime)}
               </span>
@@ -2811,6 +2774,31 @@ export function replayInitialViewportDimensions(
     if (dims) return dims;
   }
   return null;
+}
+
+export function replayRouteAtOffset(
+  events: AnyReplayEvent[],
+  offsetMs: number,
+): string {
+  const target = replayStartedAt(events) + Math.max(0, offsetMs);
+  let href = "";
+  for (const event of events) {
+    if (
+      event.type !== RRWEB_EVENT_TYPE.Meta ||
+      typeof event.data?.href !== "string"
+    ) {
+      continue;
+    }
+    if (Number(event.timestamp ?? 0) > target) break;
+    href = event.data.href;
+  }
+  if (!href) return "";
+  try {
+    const url = new URL(href);
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return href.startsWith("/") ? href : "";
+  }
 }
 
 export function buildReplayViewportTimeline(

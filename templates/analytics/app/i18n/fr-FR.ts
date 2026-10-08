@@ -1628,6 +1628,57 @@ export default {
       "Aucun message de console ne correspond aux filtres actuels.",
     devtoolsNoNetworkMatches:
       "Aucune requête ne correspond aux filtres actuels.",
+    storyboardSelectionCoverage:
+      "{{selected}} sessions de relecture sélectionnées sur {{total}} ({{percent}}).",
+    storyboardSelectHint:
+      "Sélectionnez jusqu’à 3 sessions pour créer un storyboard.",
+    clearStoryboardSelection: "Effacer la sélection",
+    createStoryboard: "Créer un storyboard",
+    selectReplayForStoryboard:
+      "Sélectionner la relecture {{id}} pour le storyboard",
+    storyboardDesignId: "ID Design (facultatif)",
+    storyboardTitle: "Titre du storyboard",
+    storyboardDefaultTitle: "Storyboard de relecture de session",
+    storyboardTimestamps: "Horodatages (3 maximum, séparés par des virgules)",
+    storyboardReplayPreview: "Aperçu de la relecture",
+    storyboardStartingCapture:
+      "Sélectionnez cet onglet Analytics dans le sélecteur de capture du navigateur.",
+    storyboardLoadingReplay: "Chargement de la relecture {{replayId}}…",
+    storyboardCapturingFrame:
+      "Capture de {{current}} sur {{total}} · {{replayId}} · {{timestamp}}",
+    storyboardSendingToDesign: "Envoi des captures à Design…",
+    storyboardComplete: "{{screenshots}} captures ont été ajoutées à Design.",
+    storyboardTimestampError: "Utilisez mm:ss, hh:mm:ss ou mm:ss.mmm.",
+    storyboardTimestampRequired:
+      "Saisissez au moins un horodatage pour chaque relecture sélectionnée.",
+    storyboardTimestampLimit:
+      "Choisissez au maximum 3 horodatages par relecture.",
+    storyboardDuplicateTimestamp: "Supprimez les horodatages en double.",
+    storyboardScreenshotLimit: "Choisissez au maximum 9 captures.",
+    storyboardReplayLimit: "Sélectionnez jusqu’à 3 sessions de relecture.",
+    storyboardCaptureFailed: "La capture d’écran a échoué.",
+    storyboardCanceled: "La capture a été annulée.",
+    storyboardReplayIncomplete:
+      "La relecture {{replayId}} contient des événements indisponibles ; l’export a été arrêté.",
+    storyboardViewportUnavailable:
+      "Les dimensions de fenêtre enregistrées sont indisponibles.",
+    storyboardTimestampOutOfRange:
+      "L’horodatage dépasse la durée de la relecture {{replayId}}.",
+    storyboardScreenshotTooLarge: "Une capture dépasse la limite de 5 Mo.",
+    storyboardBatchTooLarge: "Le lot de captures dépasse la limite de 20 Mo.",
+    storyboardRouteUnavailable:
+      "La route à {{timestamp}} est indisponible pour la relecture {{replayId}}.",
+    storyboardNoDesignResponse:
+      "Design n’a renvoyé aucun résultat de storyboard.",
+    storyboardTemporaryCleanupPending:
+      "Le storyboard a été enregistré, mais les captures temporaires n’ont pas pu être supprimées.",
+    storyboardUnexpectedResponse:
+      "L’export des captures a renvoyé une réponse illisible. Réessayez.",
+    openStoryboard: "Ouvrir le storyboard dans Design",
+    cancelStoryboardCapture: "Annuler la capture",
+    captureToDesign: "Capturer et ajouter à Design",
+    storyboardSelectAnalyticsTab:
+      "Sélectionnez cet onglet Analytics dans le sélecteur de capture du navigateur.",
   },
   catalog: {
     description:

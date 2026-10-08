@@ -1154,6 +1154,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Builder.io を設定中",
   "recovery.copyDebug": "デバッグ情報をコピー",
   "recovery.copyFailed": "コピーに失敗しました",
+  "recovery.continueUnavailable":
+    "この実行はもう続行できません。続けるにはメッセージを送信してください。",
   "recovery.retryAttachmentUnavailable":
     "このリクエストには再試行できないファイルが含まれています。メッセージ入力欄でファイルを添付し直してから、もう一度お試しください。",
   "recovery.deferredSubmissionFailed":
@@ -1788,6 +1790,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.adminOnly":
     "ファイルストレージを変更できるのは組織のオーナーと管理者だけです。",
   "settings.audit.action": "アクション",
+  "settings.audit.agentVia": "{{protocol}} 経由のエージェント",
   "settings.audit.allApps": "すべてのアプリ",
   "settings.audit.app": "アプリ",
   "settings.audit.changedBy": "変更者",

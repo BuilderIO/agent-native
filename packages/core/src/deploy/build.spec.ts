@@ -17,6 +17,14 @@ import {
 } from "../app-config/index.js";
 import { loadDrizzleMigrations } from "../db/drizzle-migrations.js";
 import {
+  extractBearerToken,
+  verifyInternalToken,
+} from "../integrations/internal-token.js";
+import {
+  RECURRING_JOBS_SWEEP_PATH,
+  RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
+} from "../jobs/scheduler-dispatch.js";
+import {
   DEFAULT_SSR_CACHE_HEADERS,
   DISABLED_SSR_CACHE_HEADERS,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -37,10 +45,12 @@ import {
 } from "../shared/social-meta.js";
 import {
   addImmutableAssetRouteRulesForClientBuild,
+  addVercelSweepCron,
   assertEmittedBackgroundFunctionOnDisk,
   assertNoCloudflareWorkerStubDynamicImports,
   assertSingleTemplateNetlifyBuildOutput,
   bundleYjsRuntimeForServerlessOutput,
+  CLOUDFLARE_SWEEP_CRON,
   CLOUDFLARE_WORKER_ESBUILD_EXTERNALS,
   CLOUDFLARE_MODULE_STUB_MODULES,
   CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES,
@@ -79,13 +89,16 @@ import {
   isKeepWarmBackgroundDeployEnabled,
   isKeepWarmDeployEnabled,
   resolveKeepWarmSchedule,
+  resolveVercelSweepCronSchedule,
   NETLIFY_RECURRING_JOBS_FUNCTION_NAME,
   NITRO_RUNTIME_IGNORE_PATTERNS,
   nitroNoExternalsForPreset,
   nitroServerCodeSplittingConfigForPreset,
   nitroServerCodeSplittingGroupsForPreset,
   patchCloudflareModuleNitroEntry,
+  publicRecurringJobsSweepPath,
   pruneServerlessFunctionDeadWeight,
+  readVercelSweepCron,
   removeNetlifyStaticRootShell,
   resolveNitroBundledYjsEntry,
   resolveNitroBuildReplacements,
@@ -96,6 +109,7 @@ import {
   writeSingleTemplateNetlifyRedirects,
   shouldRemoveNetlifyStaticRootShell,
   shouldPreserveNetlifyStaticRootShell,
+  vercelSweepCrons,
 } from "./build.js";
 import {
   pruneBrowserRuntimeFromNonAgentClone,
@@ -852,12 +866,287 @@ export default {
       assets: { binding: "ASSETS" },
     });
     expect(outputConfig.compatibility_flags).toContain("nodejs_als");
+    expect(outputConfig.triggers).toEqual({ crons: [CLOUDFLARE_SWEEP_CRON] });
     expect(
       fs.readFileSync(path.join(serverDir, "worker.mjs"), "utf8"),
     ).toContain('await import("./index.mjs")');
     expect(
       fs.readFileSync(path.join(serverDir, "index.mjs"), "utf8"),
     ).toContain("t??=Ei();");
+  });
+
+  it("adds the sweep cron once and keeps the app's own Cron Triggers", () => {
+    const serverDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(serverDir, "wrangler.json"),
+      JSON.stringify({
+        main: "index.mjs",
+        triggers: { crons: ["0 0 * * *", CLOUDFLARE_SWEEP_CRON] },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "index.mjs"),
+      'function ki(e){let t=Ei(),n=Di();return{async fetch(n,r,i){globalThis.__env__=r,g(n,{env:r,context:i});return await t.fetch(n)},scheduled(e,t,r){r.waitUntil(n.callHook("scheduled",e))}}',
+    );
+
+    configureCloudflareModuleWorkerOutput(serverDir);
+    const outputConfig = JSON.parse(
+      fs.readFileSync(path.join(serverDir, "wrangler.json"), "utf8"),
+    );
+
+    expect(outputConfig.triggers).toEqual({
+      crons: ["0 0 * * *", CLOUDFLARE_SWEEP_CRON],
+    });
+  });
+
+  it("sweeps on the sweep cron with a token the sweep route accepts", async () => {
+    const dir = makeTempDir();
+    fs.writeFileSync(
+      path.join(dir, "index.mjs"),
+      `
+export default {
+  async fetch(request) {
+    globalThis.__test_sweep_requests__.push({
+      url: request.url,
+      method: request.method,
+      authorization: request.headers.get("authorization"),
+    });
+    return new Response("{}", { status: globalThis.__test_sweep_status__ });
+  },
+  scheduled(controller) {
+    globalThis.__test_scheduled_crons__.push(controller.cron);
+  },
+};
+`,
+    );
+    const entryPath = path.join(dir, "worker.mjs");
+    fs.writeFileSync(entryPath, generateCloudflareModuleWorkerEntry());
+
+    const testGlobals = globalThis as Record<string, unknown>;
+    const requests: Array<{
+      url: string;
+      method: string;
+      authorization: string | null;
+    }> = [];
+    const scheduledCrons: string[] = [];
+    testGlobals.__test_sweep_requests__ = requests;
+    testGlobals.__test_scheduled_crons__ = scheduledCrons;
+    testGlobals.__test_sweep_status__ = 200;
+    const secret = "test-secret-do-not-use-in-prod";
+    // The worker entry copies its bindings into process.env, as on Cloudflare.
+    vi.stubEnv("A2A_SECRET", secret);
+    vi.stubEnv("APP_URL", "https://app.example.com");
+    const ctx = { waitUntil: () => {} };
+    try {
+      const worker = (
+        await import(`${pathToFileURL(entryPath).href}?t=${Date.now()}`)
+      ).default;
+      const env = { A2A_SECRET: secret, APP_URL: "https://app.example.com" };
+
+      await worker.scheduled({ cron: "0 0 * * *" }, env, ctx);
+      expect(scheduledCrons).toEqual(["0 0 * * *"]);
+      expect(requests).toHaveLength(0);
+
+      await worker.scheduled({ cron: CLOUDFLARE_SWEEP_CRON }, env, ctx);
+      expect(scheduledCrons).toEqual(["0 0 * * *", CLOUDFLARE_SWEEP_CRON]);
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toMatchObject({
+        url: `https://app.example.com${RECURRING_JOBS_SWEEP_PATH}`,
+        method: "POST",
+      });
+      const token = extractBearerToken(requests[0].authorization ?? undefined);
+      expect(token).toBeTruthy();
+      expect(
+        verifyInternalToken(RECURRING_JOBS_SWEEP_TOKEN_SUBJECT, token!),
+      ).toBe(true);
+
+      testGlobals.__test_sweep_status__ = 401;
+      await expect(
+        worker.scheduled({ cron: CLOUDFLARE_SWEEP_CRON }, env, ctx),
+      ).rejects.toThrow("Scheduled sweep failed (401)");
+
+      await expect(
+        worker.scheduled(
+          { cron: CLOUDFLARE_SWEEP_CRON },
+          { APP_URL: "https://app.example.com" },
+          ctx,
+        ),
+      ).rejects.toThrow("A2A_SECRET is required");
+    } finally {
+      vi.unstubAllEnvs();
+      for (const key of [
+        "__test_sweep_requests__",
+        "__test_scheduled_crons__",
+        "__test_sweep_status__",
+        "__env__",
+        "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__",
+      ]) {
+        Reflect.deleteProperty(testGlobals, key);
+      }
+    }
+  });
+});
+
+describe("Vercel sweep cron", () => {
+  it("adds the sweep cron to Nitro's Build Output config without duplicating it", () => {
+    const outputDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(outputDir, "config.json"),
+      JSON.stringify({
+        version: 3,
+        routes: [{ handle: "filesystem" }],
+        crons: [
+          { path: "/api/report", schedule: "0 0 * * *" },
+          { path: RECURRING_JOBS_SWEEP_PATH, schedule: "0 9 * * *" },
+        ],
+      }),
+    );
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      addVercelSweepCron(outputDir, {});
+    } finally {
+      log.mockRestore();
+    }
+    const config = JSON.parse(
+      fs.readFileSync(path.join(outputDir, "config.json"), "utf8"),
+    );
+
+    expect(config.routes).toEqual([{ handle: "filesystem" }]);
+    expect(config.crons).toEqual([
+      { path: "/api/report", schedule: "0 0 * * *" },
+      { path: RECURRING_JOBS_SWEEP_PATH, schedule: "* * * * *" },
+    ]);
+  });
+
+  it("fails the build when Nitro produced no Build Output config", () => {
+    expect(() => addVercelSweepCron(makeTempDir(), {})).toThrow(
+      "Nitro did not generate",
+    );
+  });
+
+  // Hobby rejects any cron that runs more than once a day, and the build
+  // cannot see the plan, so the operator's schedule wins.
+  it("uses the operator's schedule so a Hobby project can deploy", () => {
+    expect(
+      vercelSweepCrons(["/alpha/_agent-native/jobs/_process-sweep"], {
+        AGENT_NATIVE_VERCEL_CRON_SCHEDULE: " 0 9 * * * ",
+      }),
+    ).toEqual([
+      {
+        path: "/alpha/_agent-native/jobs/_process-sweep",
+        schedule: "0 9 * * *",
+      },
+    ]);
+  });
+
+  it("rejects a schedule that is not a five-field cron expression", () => {
+    for (const schedule of ["every minute", "*/5 * * * * *", "61 * * * *"]) {
+      expect(() =>
+        resolveVercelSweepCronSchedule({
+          AGENT_NATIVE_VERCEL_CRON_SCHEDULE: schedule,
+        }),
+      ).toThrow("AGENT_NATIVE_VERCEL_CRON_SCHEDULE");
+    }
+  });
+
+  // cron-parser accepts all of these, but Vercel rejects the deployment.
+  it("rejects schedules outside Vercel's cron grammar", () => {
+    for (const [schedule, reason] of [
+      ["0 9 * * MON", "not names"],
+      ["0 9 * JAN *", "not names"],
+      ["0 9 1 * 1", "day of the month and a day of the week"],
+      ["0 9 * * 7", "weekdays 0-6"],
+      ["0 9 * * 1-7", "weekdays 0-6"],
+    ]) {
+      expect(() =>
+        resolveVercelSweepCronSchedule({
+          AGENT_NATIVE_VERCEL_CRON_SCHEDULE: schedule,
+        }),
+      ).toThrow(reason);
+    }
+    expect(
+      resolveVercelSweepCronSchedule({
+        AGENT_NATIVE_VERCEL_CRON_SCHEDULE: "*/15 9-17 * * 1-5",
+      }),
+    ).toBe("*/15 9-17 * * 1-5");
+  });
+
+  // A custom prefix 404s `/_agent-native/*` before any route runs, and the
+  // server is mounted under the base path.
+  it("points the cron at the public sweep path", () => {
+    const outputDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(outputDir, "config.json"),
+      JSON.stringify({ version: 3 }),
+    );
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      addVercelSweepCron(outputDir, {
+        AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: "/_framework",
+        VITE_APP_BASE_PATH: "/mail/",
+      });
+    } finally {
+      log.mockRestore();
+    }
+    const config = JSON.parse(
+      fs.readFileSync(path.join(outputDir, "config.json"), "utf8"),
+    );
+
+    expect(config.crons).toEqual([
+      { path: "/mail/_framework/jobs/_process-sweep", schedule: "* * * * *" },
+    ]);
+  });
+
+  it("reads back the app's sweep cron among its other crons", () => {
+    const outputDir = makeTempDir();
+    const sweep = {
+      path: "/mail/_framework/jobs/_process-sweep",
+      schedule: "0 9 * * *",
+    };
+    fs.writeFileSync(
+      path.join(outputDir, "config.json"),
+      JSON.stringify({
+        version: 3,
+        crons: [
+          { path: "/mail/api/report", schedule: "0 0 * * *" },
+          { path: "/mail/a/b/jobs/_process-sweep", schedule: "0 0 * * *" },
+          sweep,
+        ],
+      }),
+    );
+
+    expect(readVercelSweepCron(outputDir, "/mail")).toEqual(sweep);
+    expect(() => readVercelSweepCron(outputDir, "/tasks")).toThrow("found 0");
+  });
+});
+
+describe("publicRecurringJobsSweepPath", () => {
+  it("keeps the internal path when nothing is configured", () => {
+    expect(publicRecurringJobsSweepPath({})).toBe(RECURRING_JOBS_SWEEP_PATH);
+  });
+
+  it("maps the sweep onto the public prefix and base path", () => {
+    expect(
+      publicRecurringJobsSweepPath({
+        AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: " /_framework ",
+      }),
+    ).toBe("/_framework/jobs/_process-sweep");
+    expect(publicRecurringJobsSweepPath({ APP_BASE_PATH: "/mail" })).toBe(
+      `/mail${RECURRING_JOBS_SWEEP_PATH}`,
+    );
+  });
+
+  it("bakes the public path into the Cloudflare sweep trigger", () => {
+    const entry = generateCloudflareModuleWorkerEntry({
+      AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: "/_framework",
+      VITE_APP_BASE_PATH: "/mail",
+    });
+
+    expect(entry).toContain(
+      'const SWEEP_PATH = "/mail/_framework/jobs/_process-sweep";',
+    );
   });
 });
 

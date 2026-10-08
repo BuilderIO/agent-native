@@ -1597,6 +1597,61 @@ export default {
       "現在のフィルターに一致するコンソールメッセージはありません。",
     devtoolsNoNetworkMatches:
       "現在のフィルターに一致するリクエストはありません。",
+    storyboardSelectionCoverage:
+      "{{total}} 件のセッションリプレイから {{selected}} 件を選択（{{percent}}）。",
+    storyboardSelectHint:
+      "最大 3 件のセッションを選択してストーリーボードを作成します。",
+    clearStoryboardSelection: "選択をクリア",
+    createStoryboard: "ストーリーボードを作成",
+    selectReplayForStoryboard: "ストーリーボード用にリプレイ {{id}} を選択",
+    storyboardDesignId: "Design ID（任意）",
+    storyboardTitle: "ストーリーボード名",
+    storyboardDefaultTitle: "セッションリプレイのストーリーボード",
+    storyboardTimestamps: "タイムスタンプ（最大 3 件、カンマ区切り）",
+    storyboardReplayPreview: "リプレイのプレビュー",
+    storyboardStartingCapture:
+      "ブラウザーのキャプチャ選択画面でこの Analytics タブを選択してください。",
+    storyboardLoadingReplay: "リプレイ {{replayId}} を読み込み中…",
+    storyboardCapturingFrame:
+      "{{current}} / {{total}} をキャプチャ中 · {{replayId}} · {{timestamp}}",
+    storyboardSendingToDesign: "スクリーンショットを Design に送信中…",
+    storyboardComplete:
+      "{{screenshots}} 枚のスクリーンショットを Design に追加しました。",
+    storyboardTimestampError:
+      "mm:ss、hh:mm:ss、または mm:ss.mmm 形式で入力してください。",
+    storyboardTimestampRequired:
+      "選択した各リプレイに 1 つ以上のタイムスタンプを入力してください。",
+    storyboardTimestampLimit:
+      "各リプレイで選択できるタイムスタンプは最大 3 件です。",
+    storyboardDuplicateTimestamp: "重複するタイムスタンプを削除してください。",
+    storyboardScreenshotLimit:
+      "スクリーンショットは最大 9 枚まで選択できます。",
+    storyboardReplayLimit: "セッションリプレイは最大 3 件まで選択できます。",
+    storyboardCaptureFailed: "スクリーンショットをキャプチャできませんでした。",
+    storyboardCanceled: "キャプチャをキャンセルしました。",
+    storyboardReplayIncomplete:
+      "リプレイ {{replayId}} に利用できないイベントがあるため、エクスポートを停止しました。",
+    storyboardViewportUnavailable:
+      "記録されたビューポートのサイズを取得できません。",
+    storyboardTimestampOutOfRange:
+      "タイムスタンプがリプレイ {{replayId}} の範囲外です。",
+    storyboardScreenshotTooLarge:
+      "スクリーンショットが 5 MB の上限を超えています。",
+    storyboardBatchTooLarge:
+      "スクリーンショットの合計が 20 MB の上限を超えています。",
+    storyboardRouteUnavailable:
+      "{{timestamp}} 時点のリプレイ {{replayId}} のルートを取得できません。",
+    storyboardNoDesignResponse:
+      "Design からストーリーボードの結果が返されませんでした。",
+    storyboardTemporaryCleanupPending:
+      "ストーリーボードは保存されましたが、一時スクリーンショットを削除できませんでした。",
+    storyboardUnexpectedResponse:
+      "スクリーンショットのエクスポートから読み取れない応答が返されました。もう一度お試しください。",
+    openStoryboard: "Design でストーリーボードを開く",
+    cancelStoryboardCapture: "キャプチャをキャンセル",
+    captureToDesign: "キャプチャして Design に追加",
+    storyboardSelectAnalyticsTab:
+      "ブラウザーのキャプチャ選択画面でこの Analytics タブを選択してください。",
   },
   catalog: {
     description:

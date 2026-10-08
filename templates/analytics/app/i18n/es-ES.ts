@@ -1609,6 +1609,57 @@ export default {
       "Ningún mensaje de consola coincide con los filtros actuales.",
     devtoolsNoNetworkMatches:
       "Ninguna solicitud coincide con los filtros actuales.",
+    storyboardSelectionCoverage:
+      "Seleccionaste {{selected}} de {{total}} sesiones de reproducción ({{percent}}).",
+    storyboardSelectHint:
+      "Selecciona hasta 3 sesiones para crear un guion gráfico.",
+    clearStoryboardSelection: "Borrar selección",
+    createStoryboard: "Crear guion gráfico",
+    selectReplayForStoryboard:
+      "Seleccionar la reproducción {{id}} para el guion gráfico",
+    storyboardDesignId: "ID de Design (opcional)",
+    storyboardTitle: "Título del guion gráfico",
+    storyboardDefaultTitle: "Guion gráfico de reproducciones de sesión",
+    storyboardTimestamps: "Marcas de tiempo (hasta 3, separadas por comas)",
+    storyboardReplayPreview: "Vista previa de la reproducción",
+    storyboardStartingCapture:
+      "Elige esta pestaña de Analytics en el selector de captura del navegador.",
+    storyboardLoadingReplay: "Cargando reproducción {{replayId}}…",
+    storyboardCapturingFrame:
+      "Capturando {{current}} de {{total}} · {{replayId}} · {{timestamp}}",
+    storyboardSendingToDesign: "Enviando capturas a Design…",
+    storyboardComplete: "Se añadieron {{screenshots}} capturas a Design.",
+    storyboardTimestampError: "Usa mm:ss, hh:mm:ss o mm:ss.mmm.",
+    storyboardTimestampRequired:
+      "Introduce al menos una marca de tiempo para cada reproducción seleccionada.",
+    storyboardTimestampLimit:
+      "Elige como máximo 3 marcas de tiempo por reproducción.",
+    storyboardDuplicateTimestamp: "Elimina las marcas de tiempo duplicadas.",
+    storyboardScreenshotLimit: "Elige como máximo 9 capturas.",
+    storyboardReplayLimit: "Selecciona hasta 3 sesiones de reproducción.",
+    storyboardCaptureFailed: "No se pudo capturar la imagen.",
+    storyboardCanceled: "Se canceló la captura.",
+    storyboardReplayIncomplete:
+      "La reproducción {{replayId}} contiene eventos no disponibles; se detuvo la exportación.",
+    storyboardViewportUnavailable:
+      "No están disponibles las dimensiones grabadas de la ventana.",
+    storyboardTimestampOutOfRange:
+      "La marca de tiempo queda fuera de la reproducción {{replayId}}.",
+    storyboardScreenshotTooLarge: "Una captura supera el límite de 5 MB.",
+    storyboardBatchTooLarge: "El lote de capturas supera el límite de 20 MB.",
+    storyboardRouteUnavailable:
+      "La ruta de {{timestamp}} no está disponible para la reproducción {{replayId}}.",
+    storyboardNoDesignResponse:
+      "Design no devolvió un resultado del guion gráfico.",
+    storyboardTemporaryCleanupPending:
+      "El guion gráfico se guardó, pero no se pudieron eliminar los archivos temporales de captura.",
+    storyboardUnexpectedResponse:
+      "La exportación de capturas devolvió una respuesta ilegible. Vuelve a intentarlo.",
+    openStoryboard: "Abrir guion gráfico en Design",
+    cancelStoryboardCapture: "Cancelar captura",
+    captureToDesign: "Capturar y añadir a Design",
+    storyboardSelectAnalyticsTab:
+      "Selecciona esta pestaña de Analytics en el selector de captura del navegador.",
   },
   catalog: {
     description:

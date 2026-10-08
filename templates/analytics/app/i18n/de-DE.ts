@@ -1622,6 +1622,58 @@ export default {
       "Keine Konsolenmeldungen entsprechen den aktuellen Filtern.",
     devtoolsNoNetworkMatches:
       "Keine Anfragen entsprechen den aktuellen Filtern.",
+    storyboardSelectionCoverage:
+      "{{selected}} von {{total}} Sitzungswiedergaben ausgewählt ({{percent}}).",
+    storyboardSelectHint: "Wähle bis zu 3 Sitzungen für ein Storyboard aus.",
+    clearStoryboardSelection: "Auswahl aufheben",
+    createStoryboard: "Storyboard erstellen",
+    selectReplayForStoryboard: "Wiedergabe {{id}} für das Storyboard auswählen",
+    storyboardDesignId: "Design-ID (optional)",
+    storyboardTitle: "Storyboard-Titel",
+    storyboardDefaultTitle: "Sitzungswiedergabe-Storyboard",
+    storyboardTimestamps: "Zeitpunkte (bis zu 3, durch Kommas getrennt)",
+    storyboardReplayPreview: "Wiedergabevorschau",
+    storyboardStartingCapture:
+      "Wähle diese Analytics-Registerkarte im Browser-Aufnahmefenster aus.",
+    storyboardLoadingReplay: "Wiedergabe {{replayId}} wird geladen…",
+    storyboardCapturingFrame:
+      "Aufnahme {{current}} von {{total}} · {{replayId}} · {{timestamp}}",
+    storyboardSendingToDesign: "Screenshots werden an Design gesendet…",
+    storyboardComplete:
+      "{{screenshots}} Screenshots wurden zu Design hinzugefügt.",
+    storyboardTimestampError: "Verwende mm:ss, hh:mm:ss oder mm:ss.mmm.",
+    storyboardTimestampRequired:
+      "Gib für jede ausgewählte Wiedergabe mindestens einen Zeitpunkt ein.",
+    storyboardTimestampLimit:
+      "Wähle höchstens 3 Zeitpunkte pro Wiedergabe aus.",
+    storyboardDuplicateTimestamp: "Entferne doppelte Zeitpunkte.",
+    storyboardScreenshotLimit: "Wähle höchstens 9 Screenshots aus.",
+    storyboardReplayLimit: "Wähle bis zu 3 Sitzungswiedergaben aus.",
+    storyboardCaptureFailed: "Screenshot-Aufnahme fehlgeschlagen.",
+    storyboardCanceled: "Aufnahme abgebrochen.",
+    storyboardReplayIncomplete:
+      "Wiedergabe {{replayId}} enthält nicht verfügbare Ereignisse; der Export wurde gestoppt.",
+    storyboardViewportUnavailable:
+      "Die aufgezeichneten Ansichtsfensterabmessungen sind nicht verfügbar.",
+    storyboardTimestampOutOfRange:
+      "Der Zeitpunkt liegt außerhalb der Wiedergabe {{replayId}}.",
+    storyboardScreenshotTooLarge:
+      "Ein Screenshot überschreitet das Limit von 5 MB.",
+    storyboardBatchTooLarge:
+      "Der Screenshot-Stapel überschreitet das Limit von 20 MB.",
+    storyboardRouteUnavailable:
+      "Die Route bei {{timestamp}} ist für Wiedergabe {{replayId}} nicht verfügbar.",
+    storyboardNoDesignResponse:
+      "Design hat kein Storyboard-Ergebnis zurückgegeben.",
+    storyboardTemporaryCleanupPending:
+      "Das Storyboard wurde gespeichert, aber temporäre Screenshots konnten nicht entfernt werden.",
+    storyboardUnexpectedResponse:
+      "Der Screenshot-Export hat eine unlesbare Antwort zurückgegeben. Bitte erneut versuchen.",
+    openStoryboard: "Storyboard in Design öffnen",
+    cancelStoryboardCapture: "Aufnahme abbrechen",
+    captureToDesign: "Aufnehmen und zu Design hinzufügen",
+    storyboardSelectAnalyticsTab:
+      "Wähle diese Analytics-Registerkarte im Browser-Aufnahmefenster aus.",
   },
   catalog: {
     description:

@@ -28,7 +28,7 @@ When any **mutating** action runs (anything that isn't a read-only `GET`), the f
 - **Action** — the action name (e.g. `delete-recording`).
 - **Actor** — `agent`, `human`, or `system`, plus the actor's email — populated **even for agent calls**, so you get "the agent, acting for alice@, …".
 - **Run linkage** — the agent `threadId` / `turnId` that triggered the call (a tool call), so a mutation traces back to the exact agent turn.
-- **Surface** — `tool` (agent), `frontend`, `http`, `cli`, `mcp`, or `a2a`.
+- **Surface** — `tool` (agent), `frontend`, `http`, `cli`, `mcp`, `webmcp`, or `a2a`. These are agent protocols, so a call over `mcp`, `webmcp`, or `a2a` records as `agent` acting for you, not as you.
 - **Outcome** — `success`, `error` (with an error code), or `denied` (blocked by a human-approval gate).
 - **Inputs** — the call arguments, with credential-shaped values [redacted](#privacy).
 - **Target & owner** — the resource the action changed, used to [scope reads](#reading).
@@ -57,13 +57,13 @@ No wiring needed — the capture hooks into `defineAction` transparently. Read-o
           name: "caller",
           type: "enum",
           nullable: false,
-          note: "tool | frontend | http | cli | mcp | a2a — the surface that invoked the action.",
+          note: "tool | frontend | http | cli | mcp | webmcp | a2a — the surface that invoked the action.",
         },
         {
           name: "actor_kind",
           type: "enum",
           nullable: false,
-          note: "agent | human | system",
+          note: "agent | human | service | system — service for the organization's own service principals, agent for other tool, mcp, webmcp, and a2a calls.",
         },
         { name: "actor_email", type: "text", nullable: true },
         { name: "org_id", type: "text", nullable: true },

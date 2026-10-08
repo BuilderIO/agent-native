@@ -3350,6 +3350,7 @@ async function assertAgentKitChatAcceptance(
   await page
     .locator('.agentkit-message[data-role="assistant"]')
     .filter({ hasText: widgetCompletionText })
+    .filter({ visible: true })
     .last()
     .waitFor({ state: "visible" });
   await assertAgentKitWidgetSamples(page);

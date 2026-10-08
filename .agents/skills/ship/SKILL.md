@@ -31,13 +31,17 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   active GitHub login with `gh api user --jq .login`, include `author` in the
   live PR query, and compare `author.login` with that login. Verify the head
   repository, branch, head OID, and base; recheck the head.
-- Review replies follow PR ownership. Compare the live `author.login` with
-  `gh api user --jq .login`. Concise replies needed to document fixes, declines,
-  or terminal dispositions on the active user's own PR need no separate
-  authorization. For another person's PR, post a reply only when the current
-  request explicitly authorizes that communication on that exact PR; review,
-  monitor, fix, push, or merge authorization alone does not authorize comments.
-  Do not post proactive PR comments.
+- PR feedback comments follow live PR ownership. Compare `author.login` with
+  `gh api user --jq .login`. On a PR authored by the active user, concise
+  replies in existing review threads and a concise top-level recap when feedback
+  appears only in a review body are routine dispositions and need no extra
+  authorization. This covers only comments needed to fix, decline, or otherwise
+  disposition review feedback; do not add proactive or unrelated comments,
+  tags, assignments, or mentions without an explicit request. On another
+  person's PR, do not post any comment, including an inline reply or review-body
+  recap, unless the current request explicitly authorizes commenting on that
+  exact PR. Review, monitor, fix, push, or merge authorization alone does not
+  authorize comments.
 - Preserve unrelated or incomplete concurrent work. Never reset, clean, stash,
   overwrite, rebase, or force-push it.
 - `/ship` starts in `ship_mode=merge-authorized` for a new PR or a PR authored
@@ -213,9 +217,13 @@ for the user or a separate watchdog invocation. In `ready-only` mode, the
 endpoint is the verified ready-PR gate with the PR intentionally left open.
 Under `merge-authorized`, `reviewDecision: REVIEW_REQUIRED` is not a user
 handoff: once required checks are green, the live PR is `MERGEABLE`, and every
-review item has a verified fix, reply, or terminal disposition, the task must
-perform the guarded admin merge after the unchanged soak. Never ask the user
-to click Merge for that routine authorized step.
+review item has a verified fix, a reply permitted by the comment-authorization
+rule, or a terminal disposition, the task must perform the guarded admin merge
+after the unchanged soak. Replies on the active user's own PR need no extra
+authorization; replies on another person's PR require authorization for that
+exact PR. If a needed reply is not authorized, leave the item unresolved and
+do not merge. Never ask the user to click Merge for that routine authorized
+step.
 
 ## 1. Preflight
 
@@ -307,10 +315,10 @@ timer never creates a publish commit.
 
 Open or update one ready PR for the current branch immediately after the first
 push. Use a factual title and body. Do not create a second PR from a worktree.
-Do not post proactive comments, tags, assignments, or mentions unless the user
-explicitly requested that communication. Required review replies follow the
-ownership rule in Contract; no extra authorization is needed for the active
-user's own PR.
+Do not post unrelated top-level comments, tags, assignments, or mentions unless
+the user explicitly requested that communication. This does not block required
+replies to existing review feedback on the active user's own PR; follow the
+ownership rule in Contract.
 
 Keep these claims separate in the PR and final report:
 
@@ -381,8 +389,9 @@ continuous minutes on the unchanged live PR head:
 
 - working tree is clean and there are no unpushed commits;
 - required GitHub Actions checks are green;
-- every human or bot review item has a verified fix/reply or a valid terminal
-  disposition;
+- every human or bot review item has a verified fix, a reply permitted by the
+  comment-authorization rule, or a valid terminal disposition. Feedback that
+  cannot be replied to under that rule remains unresolved and blocks merging;
 - GitHub reports the PR mergeable;
 - no new actionable feedback arrived during the soak.
 

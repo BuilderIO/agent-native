@@ -7,6 +7,7 @@ import {
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import {
   CreativeContextComposerChip,
   useCreativeContextLab,
@@ -128,6 +129,7 @@ export function Layout({ children }: LayoutProps) {
   const t = useT();
   const { flushDeckSave } = useDecks();
   const creativeContextEnabled = useCreativeContextLab();
+  const mcpAppWidgetEmbed = useIsMcpAppWidgetEmbed();
   const isChatRoute =
     location.pathname === "/chat" || location.pathname.startsWith("/chat/");
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
@@ -353,6 +355,21 @@ export function Layout({ children }: LayoutProps) {
 
   const showMobileNavigation =
     isChatRoute || (!ownToolbar && !isSlidesHomeRoute(location.pathname));
+  // The MCP App host (ChatGPT, Codex, Claude) owns navigation and chat, so the
+  // widget gets no app chrome for any route.
+  if (mcpAppWidgetEmbed) {
+    return (
+      <HeaderActionsProvider>
+        <MobileSidebarContext.Provider value={null}>
+          <div className="agent-layout-shell flex h-dvh w-full overflow-hidden bg-background text-foreground">
+            <main className="agent-native-app-main flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              {children}
+            </main>
+          </div>
+        </MobileSidebarContext.Provider>
+      </HeaderActionsProvider>
+    );
+  }
   const shell = (
     <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
       {showAppSidebar && (
