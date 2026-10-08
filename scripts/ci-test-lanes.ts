@@ -220,6 +220,33 @@ export function requiresFullCoreFastTests(paths: readonly string[]): boolean {
   });
 }
 
+// These specs build every template's MCP catalog by running its real agent-chat
+// plugin, which loads action modules, plugin options, and whatever they import
+// (server/lib, shared, app) through dynamic imports that `vitest --changed`
+// cannot follow. A template-only change, a new core action, or a change to the
+// plugin's catalog assembly would otherwise never reach them.
+const TEMPLATE_REGISTRY_CORE_SPECS = [
+  "src/mcp/advertised-tool-annotations.spec.ts",
+  "src/mcp/instructions-name-advertised-tools.spec.ts",
+] as const;
+const TEMPLATE_REGISTRY_SOURCE_RE =
+  /^(?:templates\/[^/]+\/(?:actions|server|shared|app)\/.+\.[cm]?[jt]sx?|packages\/core\/src\/(?:server\/(?:agent-chat-plugin|agent-chat\/.+)|(?:.+\/)?actions\/.+)\.[cm]?[jt]sx?)$/u;
+
+export function templateRegistryCoreSpecs(
+  paths: readonly string[],
+): readonly string[] {
+  return paths.some((path) => {
+    const normalized = normalizeChangedPath(path);
+    return (
+      TEMPLATE_REGISTRY_SOURCE_RE.test(normalized) &&
+      !/\.d\.[cm]?ts$/u.test(normalized) &&
+      !TEST_FILE_RE.test(normalized)
+    );
+  })
+    ? TEMPLATE_REGISTRY_CORE_SPECS
+    : [];
+}
+
 function readCoreFastTestFiles(since?: string): string[] {
   const args = ["--filter", CORE, "exec", "vitest", "list", "--dir", "src"];
   if (since) args.push("--changed", since);
@@ -598,9 +625,15 @@ function main(): void {
         "CI_BASE_SHA is required when targeted tests are planned",
       );
     }
-    const fullCore = requiresFullCoreFastTests(readChangedPaths(baseSha));
+    const changedPaths = readChangedPaths(baseSha);
+    const fullCore = requiresFullCoreFastTests(changedPaths);
     coreMode = fullCore ? "full" : "changed";
-    coreTestFiles = readCoreFastTestFiles(fullCore ? undefined : baseSha);
+    coreTestFiles = [
+      ...new Set([
+        ...readCoreFastTestFiles(fullCore ? undefined : baseSha),
+        ...(fullCore ? [] : templateRegistryCoreSpecs(changedPaths)),
+      ]),
+    ];
     coreFiles = coreTestFiles.length;
     lanes = partitionTargetedWeighted(
       weighPackages(rest),
