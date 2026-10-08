@@ -1501,7 +1501,7 @@ const messages = {
     builderConnectErrorAskAdmin:
       "Die Einrichtung von Builder.io wurde nicht abgeschlossen. Versuche es erneut oder bitte einen Inhaber oder Admin, den Speicher einzurichten.",
     builderStatusReadError:
-      "Die Verbindung zu Builder.io konnte nicht geprüft werden.",
+      "Der Verbindungsstatus ist nicht verfügbar. Versuche es erneut, um ihn zu prüfen.",
     builderUploadGrantMissing:
       "Builder.io ist für KI verbunden, aber diese Verbindung kann keine Clips hochladen. Verbinde Builder.io erneut mit Upload-Berechtigung oder bitte einen Inhaber oder Admin um Hilfe.",
     builderGrantAskAdmin:

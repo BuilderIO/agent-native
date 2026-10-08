@@ -1499,7 +1499,8 @@ const messages = {
       "La configuration de Builder.io n’a pas abouti. Réessayez ou choisissez un stockage compatible avec S3.",
     builderConnectErrorAskAdmin:
       "La configuration de Builder.io n’a pas abouti. Réessayez ou demandez à un propriétaire ou à un administrateur de configurer le stockage.",
-    builderStatusReadError: "Impossible de vérifier la connexion à Builder.io.",
+    builderStatusReadError:
+      "L’état de la connexion est indisponible. Réessayez pour le vérifier.",
     builderUploadGrantMissing:
       "Builder.io est connecté pour l’IA, mais cette connexion ne peut pas envoyer de clips. Reconnectez Builder.io avec l’autorisation d’envoi, ou demandez de l’aide à un propriétaire ou à un administrateur.",
     builderGrantAskAdmin:

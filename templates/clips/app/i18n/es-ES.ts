@@ -1498,7 +1498,8 @@ const messages = {
       "No se pudo completar la configuración de Builder.io. Inténtalo de nuevo o elige almacenamiento compatible con S3.",
     builderConnectErrorAskAdmin:
       "No se pudo completar la configuración de Builder.io. Inténtalo de nuevo o pide a un propietario o administrador que configure el almacenamiento.",
-    builderStatusReadError: "No se pudo comprobar la conexión con Builder.io.",
+    builderStatusReadError:
+      "El estado de la conexión no está disponible. Vuelve a intentarlo para comprobarlo.",
     builderUploadGrantMissing:
       "Builder.io está conectado para IA, pero esta conexión no puede subir clips. Vuelve a conectar Builder.io con permiso para subir archivos o pide ayuda a un propietario o administrador.",
     builderGrantAskAdmin:

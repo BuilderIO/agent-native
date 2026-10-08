@@ -1489,7 +1489,7 @@ const messages = {
     builderConnectErrorAskAdmin:
       "Não foi possível concluir a configuração do Builder.io. Tente novamente ou peça a um proprietário ou administrador para configurar o armazenamento.",
     builderStatusReadError:
-      "Não foi possível verificar a conexão do Builder.io.",
+      "O status da conexão está indisponível. Tente novamente para verificar.",
     builderUploadGrantMissing:
       "O Builder.io está conectado para IA, mas esta conexão não pode enviar clipes. Reconecte o Builder.io com permissão de envio ou peça ajuda a um proprietário ou administrador.",
     builderGrantAskAdmin:

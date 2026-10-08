@@ -1101,24 +1101,37 @@ export function shouldRedirectToStorageSetupHome({
 
 export function shouldShowFirstRunStorageSetup({
   storageConfigured,
+  storageStatusUnavailable,
   dismissal,
   hasPendingUpload,
   isClipIntake,
   connectStorageRequested,
 }: {
   storageConfigured: boolean | null;
+  storageStatusUnavailable: boolean;
   dismissal: FirstRunStorageSetupDismissal;
   hasPendingUpload: boolean;
   isClipIntake: boolean;
   connectStorageRequested: boolean;
 }): boolean {
   return (
-    storageConfigured === false &&
+    (storageConfigured === false ||
+      (storageConfigured === null && storageStatusUnavailable)) &&
     dismissal !== "dismissed" &&
     !hasPendingUpload &&
     !isClipIntake &&
     !connectStorageRequested
   );
+}
+
+export function isStorageStatusUnavailable({
+  storageConfigured,
+  readFailed,
+}: {
+  storageConfigured: boolean | null;
+  readFailed: boolean;
+}): boolean {
+  return storageConfigured === null && readFailed;
 }
 
 export function shouldPreserveFirstRunStorageSetupIntent({
@@ -1285,11 +1298,14 @@ export default function RecordRoute() {
   }, [clipIntake]);
   const storageConfigured: boolean | null = clipIntake
     ? true
-    : storageQuery.isLoading || storageQuery.isError
-      ? null
-      : (storageQuery.data?.configured ?? null);
+    : (storageQuery.data?.configured ?? null);
+  const storageStatusUnavailable = isStorageStatusUnavailable({
+    storageConfigured,
+    readFailed: storageQuery.isError,
+  });
   const firstRunStorageSetup = shouldShowFirstRunStorageSetup({
     storageConfigured,
+    storageStatusUnavailable,
     dismissal: firstRunStorageSetupDismissal,
     hasPendingUpload: pendingUploadFile,
     isClipIntake: !!clipIntake,
@@ -3810,7 +3826,8 @@ export default function RecordRoute() {
     uiState === "idle" || uiState === "error" || uiState === "pendingUpload";
   // Recording can start locally after the first storage choice is skipped.
   const showStorageSetupFirst =
-    storageConfigured === false && storageSetupRequested;
+    storageSetupRequested &&
+    (storageConfigured === false || storageStatusUnavailable);
   const canSkipStorageSetup = shouldAllowSkippingStorageSetup({
     firstRunStorageSetup,
     firstRunStorageSetupIntent,
@@ -3819,7 +3836,7 @@ export default function RecordRoute() {
     isClipIntake: !!clipIntake,
   });
   const showStorageStatusUnavailable =
-    storageQuery.isError && storageSetupRequested;
+    storageStatusUnavailable && storageSetupRequested;
   const skipStorageSetup = () => {
     setFirstRunStorageSetupIntent(false);
     if (
@@ -3887,16 +3904,23 @@ export default function RecordRoute() {
           <div className="mx-auto grid w-full max-w-[420px] gap-2">
             <div className="min-w-0">
               {showStorageSetupFirst ? (
-                <StorageSetupCard
-                  onConfigured={
-                    firstRunStorageSetup
-                      ? configureFirstRunStorage
-                      : markStorageConfigured
-                  }
-                  onSkip={canSkipStorageSetup ? skipStorageSetup : undefined}
-                  connectSource="clips_record_storage_setup_card"
-                  connectFlow="record"
-                />
+                <div className="flex flex-col gap-2">
+                  {showStorageStatusUnavailable ? (
+                    <StorageStatusRetry
+                      onRetry={() => void storageQuery.refetch()}
+                    />
+                  ) : null}
+                  <StorageSetupCard
+                    onConfigured={
+                      firstRunStorageSetup
+                        ? configureFirstRunStorage
+                        : markStorageConfigured
+                    }
+                    onSkip={canSkipStorageSetup ? skipStorageSetup : undefined}
+                    connectSource="clips_record_storage_setup_card"
+                    connectFlow="record"
+                  />
+                </div>
               ) : showStorageStatusUnavailable ? (
                 <div className="flex flex-col gap-2">
                   <StorageStatusRetry
