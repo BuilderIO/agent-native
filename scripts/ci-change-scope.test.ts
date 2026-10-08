@@ -836,17 +836,21 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   assert.deepEqual(fixedLocations(positionOneAStart, positionOneBStart), [
     "e2e/pasted-svg-image-inspector.spec.ts:656",
     "e2e/pasted-svg-image-inspector.spec.ts:693",
+    "e2e/pasted-svg-image-inspector.spec.ts:1135",
     "e2e/position-alignment.spec.ts:361",
   ]);
   assert.deepEqual(fixedLocations(positionOneBStart, positionTwoAStart), [
+    "e2e/pasted-svg-image-inspector.spec.ts:760",
     "e2e/position-alignment.spec.ts:431",
     "e2e/position-alignment.spec.ts:509",
   ]);
   assert.deepEqual(fixedLocations(positionTwoAStart, positionTwoBStart), [
+    "e2e/pasted-svg-image-inspector.spec.ts:891",
     "e2e/position-alignment.spec.ts:292",
     "e2e/position-alignment.spec.ts:570",
   ]);
   assert.deepEqual(fixedLocations(positionTwoBStart, positionThreeStart), [
+    "e2e/pasted-svg-image-inspector.spec.ts:1186",
     "e2e/position-alignment.spec.ts:615",
     "e2e/position-alignment.spec.ts:661",
   ]);
@@ -1097,6 +1101,26 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       "e2e/pasted-svg-image-inspector.spec.ts",
       693,
       "rejected SVG HTML is consumed instead of inserted as native markup",
+    ],
+    [
+      "e2e/pasted-svg-image-inspector.spec.ts",
+      760,
+      "Figma frame paste uses the live Design scene and updates the selected frame inspector",
+    ],
+    [
+      "e2e/pasted-svg-image-inspector.spec.ts",
+      891,
+      "Figma paste plans can insert a frame into the Design board and persist it",
+    ],
+    [
+      "e2e/pasted-svg-image-inspector.spec.ts",
+      1135,
+      "clipboard SVG File paste relayed from a Screen iframe stays in that Screen",
+    ],
+    [
+      "e2e/pasted-svg-image-inspector.spec.ts",
+      1186,
+      "clipboard SVG File paste from the board iframe targets the selected Screen",
     ],
     [
       "e2e/position-alignment.spec.ts",
