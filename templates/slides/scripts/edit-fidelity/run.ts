@@ -25,8 +25,8 @@ import {
   authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
   formatAuthoringFuzzUnavailable,
-  findAuthoringFuzzScratchDeckId,
   lineNavigationKeys,
+  resolveAuthoringFuzzScratchDeck,
   runAuthoringFuzz,
   type AuthoringFuzzPersistence,
 } from "./authoring-fuzz.ts";
@@ -5213,13 +5213,22 @@ async function runAuthoringFuzzQa(
               },
               "GET",
             );
-            deckId = findAuthoringFuzzScratchDeckId(
-              result.decks ?? [],
+            const recovery = resolveAuthoringFuzzScratchDeck(
+              result,
               scratchTitle,
             );
+            if (recovery.status === "found") {
+              deckId = recovery.deckId;
+            } else {
+              cleanupErrors.push(
+                recovery.status === "missing-decks"
+                  ? "list-decks response omitted its decks array after ambiguous creation"
+                  : "list-decks found no exact scratch deck after ambiguous creation",
+              );
+            }
           } catch (error) {
             recordCleanupFailure(
-              "could not find scratch deck after ambiguous creation",
+              "could not look up scratch deck after ambiguous creation",
               error,
             );
           }

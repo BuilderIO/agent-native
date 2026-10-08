@@ -217,6 +217,17 @@ export function findAuthoringFuzzScratchDeckId(
   );
 }
 
+export function resolveAuthoringFuzzScratchDeck(
+  result: { decks?: Array<{ id?: string; title?: string }> },
+  title: string,
+) {
+  if (!Array.isArray(result.decks)) return { status: "missing-decks" as const };
+  const deckId = findAuthoringFuzzScratchDeckId(result.decks, title);
+  return deckId
+    ? { status: "found" as const, deckId }
+    : { status: "not-found" as const };
+}
+
 export function outsideAuthoringChangesFor(
   before: OutsideSnapshot,
   after: OutsideSnapshot,

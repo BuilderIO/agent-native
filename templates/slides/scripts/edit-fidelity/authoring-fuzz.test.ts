@@ -12,6 +12,7 @@ import {
   createAuthoringFuzzPlan,
   formatAuthoringFuzzUnavailable,
   findAuthoringFuzzScratchDeckId,
+  resolveAuthoringFuzzScratchDeck,
   formatAuthoringFuzzFailure,
   isConflictResourceConsoleError,
   isBrowserSessionPath,
@@ -255,6 +256,25 @@ it("recovers only the exact authoring fuzz scratch deck", () => {
       title,
     ),
   ).toBeNull();
+});
+
+it("distinguishes an absent deck list from a missing scratch deck", () => {
+  const title = "[edit-fidelity] authoring fuzz 1 unique-run-id";
+  expect(
+    resolveAuthoringFuzzScratchDeck(
+      { decks: [{ id: "scratch", title }] },
+      title,
+    ),
+  ).toEqual({
+    status: "found",
+    deckId: "scratch",
+  });
+  expect(resolveAuthoringFuzzScratchDeck({ decks: [] }, title)).toEqual({
+    status: "not-found",
+  });
+  expect(resolveAuthoringFuzzScratchDeck({}, title)).toEqual({
+    status: "missing-decks",
+  });
 });
 
 it("recognizes resource conflicts with or without browser status text", () => {
