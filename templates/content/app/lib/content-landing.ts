@@ -61,10 +61,15 @@ export function startLoadReads(
     startEarlyContentLanding(queryClient, location.key);
   }
   const search = new URLSearchParams(location.search);
-  startPageOpenDocumentReads(queryClient, documentId, {
-    databaseId: search.get("databaseId"),
-    databaseDocumentId: search.get("databaseDocumentId"),
-  });
+  startPageOpenDocumentReads(
+    queryClient,
+    documentId,
+    {
+      databaseId: search.get("databaseId"),
+      databaseDocumentId: search.get("databaseDocumentId"),
+    },
+    { beforeSession: true },
+  );
 }
 
 export type EarlyContentLanding =

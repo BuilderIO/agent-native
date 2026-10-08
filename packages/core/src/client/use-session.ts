@@ -98,6 +98,11 @@ let sessionRequest: Promise<SessionRead> | undefined;
 let trackedSessionIdentity: string | null | undefined;
 let trackedSessionAuthUserId: string | undefined;
 let sessionGeneration = 0;
+// The page load's own session read is the only one sent with the cookies a
+// request made before the session was known also carried. A retry or a reset
+// replaces it for the life of the document.
+let firstSessionReadUnsent = true;
+let cachedSessionFromFirstRead = false;
 let sessionInvalidationListenersInstalled = false;
 let staleSessionRecheck: ReturnType<typeof setTimeout> | undefined;
 let signingOut = false;
@@ -220,6 +225,8 @@ function notifyParentAuthState(
 
 function resetSessionCache(): void {
   sessionGeneration += 1;
+  firstSessionReadUnsent = false;
+  cachedSessionFromFirstRead = false;
   cachedSession = undefined;
   cachedSessionAt = 0;
   cachedEvidence = undefined;
@@ -325,6 +332,16 @@ export function isSigningOut(): boolean {
   return signingOut;
 }
 
+/**
+ * Whether the session this tab holds is the answer to the page load's first
+ * session read. A request the load sent before the session was known belongs
+ * to the account this session names only while this holds: once a retry or an
+ * invalidation answers instead, another tab may have changed the cookies.
+ */
+export function isSessionFromFirstRead(): boolean {
+  return cachedSession !== undefined && cachedSessionFromFirstRead;
+}
+
 const UNAUTHORIZED_RECHECK_MIN_INTERVAL_MS = 5_000;
 let lastUnauthorizedRecheckAt = 0;
 
@@ -384,6 +401,8 @@ function fetchSharedSession(): Promise<SessionRead> {
   if (sessionRequest) return sessionRequest;
 
   const requestGeneration = sessionGeneration;
+  const firstRead = firstSessionReadUnsent;
+  firstSessionReadUnsent = false;
   let request: Promise<SessionRead>;
   const requestResult = (async (): Promise<SessionRead> => {
     try {
@@ -410,6 +429,7 @@ function fetchSharedSession(): Promise<SessionRead> {
           : (data as AuthSessionResponse);
       cachedSession = session;
       cachedSessionAt = Date.now();
+      cachedSessionFromFirstRead = firstRead;
       cachedEvidence = session
         ? "signed_in"
         : result.state === "unavailable"
