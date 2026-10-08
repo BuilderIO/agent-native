@@ -3464,6 +3464,55 @@ export function createAgentChatPlugin(
       }
       const { mountActionRoutes, mountWebMcpActionRoutes } =
         await import("./action-routes.js");
+      const directoryProfile = mcpOptions.enabled
+        ? mcpOptions.directoryProfile
+        : undefined;
+      const mcpDirectoryWidgetReadOptions = directoryProfile
+        ? {
+            mcpDirectoryWidgetReadActionArguments: Object.fromEntries(
+              Object.entries(directoryProfile.widgetReadActionArguments ?? {})
+                .filter(
+                  ([name]) =>
+                    (directoryProfile.connectorCatalog.includes(name) ||
+                      directoryProfile.widgetReadPublicActions?.includes(
+                        name,
+                      ) ||
+                      directoryProfile.widgetReadAuthenticatedActions?.includes(
+                        name,
+                      ) ||
+                      directoryProfile.widgetReadPrivateActions?.includes(
+                        name,
+                      )) &&
+                    httpActions[name] &&
+                    (httpActions[name]?.readOnly === true ||
+                      directoryProfile.widgetReadOnlyActions?.includes(name)),
+                )
+                .map(([name, args]) => [name, Object.keys(args)]),
+            ),
+            mcpDirectoryWidgetReadActionSchemaArguments: Object.fromEntries(
+              Object.entries(directoryProfile.widgetReadActionArguments ?? {})
+                .map(([name, args]) => [
+                  name,
+                  Object.entries(args)
+                    .filter(
+                      ([, argument]) =>
+                        typeof argument !== "string" &&
+                        argument.type === "actionSchema",
+                    )
+                    .map(([argumentName]) => argumentName),
+                ])
+                .filter(([, argumentNames]) => argumentNames.length > 0),
+            ),
+            mcpDirectoryWidgetReadOnlyActions:
+              directoryProfile.widgetReadOnlyActions,
+            mcpDirectoryWidgetReadPublicActions:
+              directoryProfile.widgetReadPublicActions,
+            mcpDirectoryWidgetAppId: options?.appId ?? mcpServerName,
+            mcpDirectoryWidgetResourceUri: getMcpDirectoryWidgetResourceUri(
+              options?.appId ?? mcpServerName,
+            ),
+          }
+        : {};
       if (Object.keys(httpActions).length > 0) {
         if (options?.actionRoutePublicPaths?.length) {
           registerAuthPublicPaths(
@@ -3481,72 +3530,7 @@ export function createAgentChatPlugin(
           clientCompatibilityVersion: options?.clientCompatibilityVersion,
           resolveOrgId: options?.resolveOrgId,
           actionRouteAuth: options?.actionRouteAuth,
-          mcpDirectoryWidgetReadActionArguments:
-            mcpOptions.enabled && mcpOptions.directoryProfile
-              ? Object.fromEntries(
-                  Object.entries(
-                    mcpOptions.directoryProfile.widgetReadActionArguments ?? {},
-                  )
-                    .filter(
-                      ([name]) =>
-                        (mcpOptions.directoryProfile?.connectorCatalog.includes(
-                          name,
-                        ) ||
-                          mcpOptions.directoryProfile?.widgetReadPublicActions?.includes(
-                            name,
-                          ) ||
-                          mcpOptions.directoryProfile?.widgetReadAuthenticatedActions?.includes(
-                            name,
-                          ) ||
-                          mcpOptions.directoryProfile?.widgetReadPrivateActions?.includes(
-                            name,
-                          )) &&
-                        httpActions[name] &&
-                        (httpActions[name]?.readOnly === true ||
-                          mcpOptions.directoryProfile?.widgetReadOnlyActions?.includes(
-                            name,
-                          )),
-                    )
-                    .map(([name, args]) => [name, Object.keys(args)]),
-                )
-              : undefined,
-          mcpDirectoryWidgetReadActionSchemaArguments:
-            mcpOptions.enabled && mcpOptions.directoryProfile
-              ? Object.fromEntries(
-                  Object.entries(
-                    mcpOptions.directoryProfile.widgetReadActionArguments ?? {},
-                  )
-                    .map(([name, args]) => [
-                      name,
-                      Object.entries(args)
-                        .filter(
-                          ([, argument]) =>
-                            typeof argument !== "string" &&
-                            argument.type === "actionSchema",
-                        )
-                        .map(([argumentName]) => argumentName),
-                    ])
-                    .filter(([, argumentNames]) => argumentNames.length > 0),
-                )
-              : undefined,
-          mcpDirectoryWidgetReadOnlyActions:
-            mcpOptions.enabled && mcpOptions.directoryProfile
-              ? mcpOptions.directoryProfile.widgetReadOnlyActions
-              : undefined,
-          mcpDirectoryWidgetReadPublicActions:
-            mcpOptions.enabled && mcpOptions.directoryProfile
-              ? mcpOptions.directoryProfile.widgetReadPublicActions
-              : undefined,
-          mcpDirectoryWidgetAppId:
-            mcpOptions.enabled && mcpOptions.directoryProfile
-              ? (options?.appId ?? mcpServerName)
-              : undefined,
-          mcpDirectoryWidgetResourceUri:
-            mcpOptions.enabled && mcpOptions.directoryProfile
-              ? getMcpDirectoryWidgetResourceUri(
-                  options?.appId ?? mcpServerName,
-                )
-              : undefined,
+          ...mcpDirectoryWidgetReadOptions,
         });
       }
       // Dev-only loopback endpoint `pnpm action` forwards to so it doesn't
@@ -3569,6 +3553,7 @@ export function createAgentChatPlugin(
         appId: options?.appId,
         resolveOrgId: options?.resolveOrgId,
         actionRouteAuth: options?.actionRouteAuth,
+        ...mcpDirectoryWidgetReadOptions,
         manifest: {
           name: options?.appId
             ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)

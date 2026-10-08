@@ -515,6 +515,32 @@ function allowsWebMcpCapability(
   );
 }
 
+function allowsMcpDirectoryWidgetReadManifestAction(
+  name: string,
+  entry: ActionEntry,
+  authCapability: string | undefined,
+  options: MountWebMcpActionRoutesOptions | undefined,
+): boolean {
+  const allowedArgumentNames =
+    options?.mcpDirectoryWidgetReadActionArguments?.[name];
+  return (
+    entry.http !== false &&
+    entry.http?.method === "GET" &&
+    (entry.readOnly === true ||
+      options?.mcpDirectoryWidgetReadOnlyActions?.includes(name) === true) &&
+    (entry.requiresAuth !== false ||
+      options?.mcpDirectoryWidgetReadPublicActions?.includes(name) === true) &&
+    allowedArgumentNames !== undefined &&
+    allowsMcpDirectoryWidgetReadAction(authCapability, {
+      actionName: name,
+      appId: options?.mcpDirectoryWidgetAppId ?? options?.appId,
+      resourceUri: options?.mcpDirectoryWidgetResourceUri,
+      allowedArgumentNames,
+      requireArgumentMatch: false,
+    })
+  );
+}
+
 function allowsWebMcpCapabilityResource(
   authCapability: string | undefined,
   params: Record<string, unknown>,
@@ -1489,6 +1515,8 @@ export function mountWebMcpActionRoutes(
         }
       }
       const authCapability = await resolveRequestAuthCapability(event);
+      const directoryWidgetReadCapability =
+        isMcpDirectoryWidgetReadCapabilityScope(authCapability);
       const visibleCapabilityActions = authCapability
         ? Object.fromEntries(
             Object.entries(capabilityEligible).filter(([, entry]) =>
@@ -1496,17 +1524,32 @@ export function mountWebMcpActionRoutes(
             ),
           )
         : {};
+      const visibleDirectoryWidgetReadActions = directoryWidgetReadCapability
+        ? Object.fromEntries(
+            Object.entries(eligible).filter(([name, entry]) =>
+              allowsMcpDirectoryWidgetReadManifestAction(
+                name,
+                entry,
+                authCapability,
+                options,
+              ),
+            ),
+          )
+        : {};
       if (
         !authenticated &&
         Object.keys(publicEligible).length === 0 &&
-        Object.keys(visibleCapabilityActions).length === 0
+        Object.keys(visibleCapabilityActions).length === 0 &&
+        Object.keys(visibleDirectoryWidgetReadActions).length === 0
       ) {
         throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
       }
       setResponseHeader(event, "Cache-Control", "no-store");
-      const visible = authenticated
-        ? eligible
-        : { ...publicEligible, ...visibleCapabilityActions };
+      const visible = directoryWidgetReadCapability
+        ? { ...publicEligible, ...visibleDirectoryWidgetReadActions }
+        : authenticated
+          ? eligible
+          : { ...publicEligible, ...visibleCapabilityActions };
       return Object.entries(visible).map(([name, entry]) => ({
         name,
         title: agentNativeToolTitle(name, entry.tool.title),
