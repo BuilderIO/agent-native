@@ -66,32 +66,20 @@ describe("templates index", () => {
     loadCommunityAppCatalog.mockReturnValue(new Promise(() => {}));
   });
 
-  it("prerenders the seed catalog before refreshing it through the public action", async () => {
+  it("hides the community catalog and disables its fetch", async () => {
     await expect(loader()).resolves.toEqual({ apps: expect.any(Array) });
     expect(loadCommunityAppCatalog).not.toHaveBeenCalled();
 
-    const view = render(<TemplatesPage />);
-    expect(screen.getByText("Seed app")).toBeTruthy();
+    render(<TemplatesPage />);
+    expect(screen.queryByText("Seed app")).toBeNull();
+    expect(screen.queryByText("templatesPage.communityTitle")).toBeNull();
+    expect(
+      screen.queryByText("templatesPage.communitySubmissionTitle"),
+    ).toBeNull();
     expect(useActionQuery).toHaveBeenCalledWith(
       "list-community-apps",
       {},
-      expect.objectContaining({ enabled: true }),
+      expect.objectContaining({ enabled: false }),
     );
-
-    useActionQuery.mockReturnValue({
-      data: {
-        apps: [
-          {
-            slug: "published",
-            name: "Published app",
-            description: "Refreshed from the public catalog.",
-          },
-        ],
-      },
-    });
-    view.rerender(<TemplatesPage />);
-
-    expect(screen.getByText("Published app")).toBeTruthy();
-    expect(screen.queryByText("Seed app")).toBeNull();
   });
 });
