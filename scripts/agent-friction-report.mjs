@@ -2238,14 +2238,15 @@ const E2E_ISSUE_FANOUT_RE = new RegExp(
     String.raw`\b${E2E_PLATFORM}\b[^.!?;,\n]{0,40}\b${E2E_TEST_KIND}\b[^.!?;,\n]{0,60}\b(?:create|open|file|generate|produce|get|have)\b[^.!?;,\n]{0,60}\b(?:separate|duplicate|individual)\s+(?:issues?|tickets?)\b`,
     String.raw`\b(?:too many|flood\w*|overload\w*)\b[^.!?;,\n]{0,60}\b(?:issues?|tickets?)\b[^.!?;,\n]{0,60}\b(?:for|from|in)\b[^.!?;,\n]{0,20}\b${E2E_PLATFORM}\b[^.!?;,\n]{0,40}\b${E2E_TEST_KIND}\b`,
     String.raw`\b${E2E_PLATFORM}\b[^.!?;,\n]{0,40}\b${E2E_TEST_KIND}\b[^.!?;,\n]{0,60}\b(?:create|open|file|generate|produce)\b[^.!?;,\n]{0,40}\b(?:too many|flood\w*|overload\w*)\b[^.!?;,\n]{0,40}\b(?:issues?|tickets?)\b`,
-    String.raw`\b${E2E_PLATFORM}\b[^.!?;,\n]{0,40}\b(?:tests?|specs?|runs?)\b[^.!?;,\n]{0,20}\b(?:fail|fails|failed|failing|failure|failures)\b[ \t]*,?[ \t]*(?:please[ \t]+)?(?:don't|do not|stop|shouldn't|should not)\b[^.!?;,\n]{0,80}\b100\b[^.!?;,\n]{0,40}\b(?:issues?|tickets?)\b[.!?]?[ \t]*(?:just|only|exactly)\s+(?:one|a single)\b`,
-    String.raw`\b${E2E_PLATFORM}\b[^.!?;,\n]{0,40}\b(?:tests?|specs?|runs?)\b[^.!?;,\n]{0,20}\b(?:fail|fails|failed|failing|failure|failures)\b\s*\n\s*(?:please\s+)?(?:don't|do not|stop|shouldn't|should not)\b[^.!?;,\n]{0,80}\b100\b[^.!?;,\n]{0,40}\b(?:issues?|tickets?)\b[.!?]?[ \t]*(?:\n[ \t]*)?(?:just|only|exactly)\s+(?:one|a single)\b`,
-    String.raw`\b(?:don't|do not|stop|shouldn't|should not)\b[^.!?;,\n]{0,80}\b100\b[^.!?;,\n]{0,40}\b(?:issues?|tickets?)\b[^.!?;,\n]{0,20}\b(?:for|during|from)\b[^.!?;,\n]{0,10}\b(?:failed|failing|flaky|red)\s+${E2E_PLATFORM}\b[^.!?;,\n]{0,20}\b(?:tests?|specs?|runs?)\b|\b(?:don't|do not|stop|shouldn't|should not)\b[^.!?;,\n]{0,80}\b100\b[^.!?;,\n]{0,40}\b(?:issues?|tickets?)\b[^.!?;,\n]{0,20}\b(?:for|during|from)\b[^.!?;,\n]{0,10}\b${E2E_PLATFORM}\b[^.!?;,\n]{0,20}\b(?:tests?|specs?|runs?)\b[^.!?;,\n]{0,20}\b(?:fail|fails|failed|failing|failure|failures)\b`,
+    String.raw`\b${E2E_PLATFORM}\b[^.!?;,\n]{0,40}\b(?:tests?|specs?|runs?)\b[^.!?;,\n]{0,20}\b(?:fail|fails|failed|failing|failure|failures)\b[ \t]*,?[ \t]*(?:please[ \t]+)?(?:don['’]t|do not|stop|shouldn't|should not)\b[^.!?;,\n]{0,80}\b100\b[^.!?;,\n]{0,40}\b(?:issues?|tickets?)\b[.!?]?[ \t]*(?:just|only|exactly)\s+(?:one|a single)\b`,
+    String.raw`\b${E2E_PLATFORM}\b[^.!?;,\n]{0,40}\b(?:tests?|specs?|runs?)\b[^.!?;,\n]{0,20}\b(?:fail|fails|failed|failing|failure|failures)\b\s*\n\s*(?:please\s+)?(?:don['’]t|do not|stop|shouldn't|should not)\b[^.!?;,\n]{0,80}\b100\b[^.!?;,\n]{0,40}\b(?:issues?|tickets?)\b[.!?]?[ \t]*(?:\n[ \t]*)?(?:just|only|exactly)\s+(?:one|a single)\b`,
+    String.raw`\b(?:don['’]t|do not|stop|shouldn't|should not)\b[^.!?;,\n]{0,80}\b100\b[^.!?;,\n]{0,40}\b(?:issues?|tickets?)\b[^.!?;,\n]{0,20}\b(?:for|during|from)\b[^.!?;,\n]{0,10}\b(?:failed|failing|flaky|red)\s+${E2E_PLATFORM}\b[^.!?;,\n]{0,20}\b(?:tests?|specs?|runs?)\b|\b(?:don['’]t|do not|stop|shouldn't|should not)\b[^.!?;,\n]{0,80}\b100\b[^.!?;,\n]{0,40}\b(?:issues?|tickets?)\b[^.!?;,\n]{0,20}\b(?:for|during|from)\b[^.!?;,\n]{0,10}\b${E2E_PLATFORM}\b[^.!?;,\n]{0,20}\b(?:tests?|specs?|runs?)\b[^.!?;,\n]{0,20}\b(?:fail|fails|failed|failing|failure|failures)\b`,
   ].join("|"),
   "i",
 );
 const E2E_ISSUE_FANOUT_REGEX_CASES = [
   [true, "When an E2E test fails, don't open up 100 issues. Just one."],
+  [true, "When an E2E test fails, don’t open up 100 issues. Just one."],
   [true, "Stop opening 100 issues for failed Playwright runs."],
   [true, "Stop creating a separate issue for every Design E2E spec."],
   [true, "Please don't open an issue for every failing E2E test."],
@@ -2284,6 +2285,7 @@ const E2E_ISSUE_FANOUT_NORMALIZATION_CASES = [
   [true, "When an E2E test fails,\ndon't open 100 issues. Just one."],
   [true, "When an E2E test fails\ndon't open 100 issues. Just one."],
   [true, "When an E2E test fails\nplease don't open 100 issues. Just one."],
+  [true, "When an E2E test fails\nplease don’t open 100 issues. Just one."],
   [true, "For every E2E failure,\na new issue was filed."],
   [true, "For every E2E failure\na new issue was filed."],
 ];
