@@ -3922,7 +3922,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return el.parentElement;
     }
-    function positionReferenceRectForElement(el) {
+    function positionReferenceRectForElement(el, fixedWithoutContainingBlock) {
+      if (fixedWithoutContainingBlock) {
+        var fixedRoot = el.ownerDocument.documentElement;
+        return {
+          x: window.scrollX || window.pageXOffset || 0,
+          y: window.scrollY || window.pageYOffset || 0,
+          width: fixedRoot.clientWidth,
+          height: fixedRoot.clientHeight
+        };
+      }
       var ancestor = el.parentElement;
       while (ancestor) {
         if (ancestor.getAttribute("data-an-primitive") === "frame") {
@@ -4022,8 +4031,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (!containingBlock) {
         return {
-          origin: { x: 0, y: 0 },
-          transform
+          origin: fixed ? {
+            x: window.scrollX || window.pageXOffset || 0,
+            y: window.scrollY || window.pageYOffset || 0
+          } : { x: 0, y: 0 },
+          transform,
+          hasContainingBlock: false
         };
       }
       var htmlContainingBlock = containingBlock;
@@ -4039,7 +4052,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             x: paddingQuad.p1.x + window.scrollX - transform.a * scrollX - transform.c * scrollY,
             y: paddingQuad.p1.y + window.scrollY - transform.b * scrollX - transform.d * scrollY
           },
-          transform
+          transform,
+          hasContainingBlock: true
         };
       }
       var rect = rectInfoForElement(containingBlock);
@@ -4048,7 +4062,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           x: rect.x + transform.a * (htmlContainingBlock.clientLeft - scrollX) + transform.c * (htmlContainingBlock.clientTop - scrollY),
           y: rect.y + transform.b * (htmlContainingBlock.clientLeft - scrollX) + transform.d * (htmlContainingBlock.clientTop - scrollY)
         },
-        transform
+        transform,
+        hasContainingBlock: true
       };
     }
     function autoLayoutParentInfo(el) {
@@ -5581,10 +5596,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (designParent && parentStyles) {
         positionComputedStylesCache.set(designParent, parentStyles);
       }
-      var positionReferenceRect = positionReferenceRectForElement(el);
       var positionCoordinateContext = positionContainingBlockForElement(
         el,
         positionComputedStylesCache
+      );
+      var positionReferenceRect = positionReferenceRectForElement(
+        el,
+        cs.position === "fixed" && !positionCoordinateContext.hasContainingBlock
       );
       var authoredSizeStyles = collectAuthoredSizeStyles(el);
       var parentDisplay = parentStyles ? parentStyles.display : void 0;

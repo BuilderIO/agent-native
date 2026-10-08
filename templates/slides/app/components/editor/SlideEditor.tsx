@@ -9653,7 +9653,7 @@ export default function SlideEditor({
         >
           {t("styleInspector.order")}
         </ContextMenuSubTrigger>
-        <ContextMenuSubContent>
+        <ContextMenuSubContent className="z-[2147483647]">
           <ContextMenuItem
             disabled={!selectedElementSelector && !objectOperationSelection}
             onSelect={() => handleArrangeSelected("front")}
@@ -9988,7 +9988,9 @@ export default function SlideEditor({
                             )}
                         </div>
                       </ContextMenuTrigger>
+                      {/* Imported slide objects can carry authored z-indexes; keep this menu above the canvas. */}
                       <ContextMenuContent
+                        className="z-[2147483647]"
                         onCloseAutoFocus={clearContextMenuState}
                       >
                         {contextMenuTableInfo && (

@@ -80,6 +80,30 @@ function ascii(data: Uint8Array, start: number, end: number): string {
   return Buffer.from(data.subarray(start, end)).toString("ascii");
 }
 
+const W3C_SVG_11_DOCTYPE =
+  /^<!DOCTYPE\s+svg\s+PUBLIC\s+(["'])-\/\/W3C\/\/DTD SVG 1\.1\/\/EN\1\s+(["'])https?:\/\/www\.w3\.org\/Graphics\/SVG\/1\.1\/DTD\/svg11\.dtd\2\s*>$/i;
+
+export function stripSafeSvgDoctype(data: Uint8Array): Uint8Array | null {
+  let source: string;
+  try {
+    source = new TextDecoder("utf-8", { fatal: true }).decode(data);
+  } catch {
+    // coercion-ok: malformed UTF-8 must reject SVG validation.
+    return null;
+  }
+
+  const declarations = [...source.matchAll(/<!DOCTYPE\b[^>]*>/gi)];
+  if (declarations.length === 0) return data;
+  if (
+    declarations.length !== 1 ||
+    !W3C_SVG_11_DOCTYPE.test(declarations[0][0])
+  ) {
+    return null;
+  }
+
+  return new TextEncoder().encode(source.replace(declarations[0][0], ""));
+}
+
 interface IsoBox {
   type: string;
   start: number;
@@ -1279,8 +1303,10 @@ function hasValidWebmVideo(data: Uint8Array): boolean {
 }
 
 export function hasExpectedSvgSignature(data: Uint8Array): boolean {
+  const normalizedData = stripSafeSvgDoctype(data);
+  if (!normalizedData) return false;
   const head = Buffer.from(
-    data.subarray(0, Math.min(data.length, 8192)),
+    normalizedData.subarray(0, Math.min(normalizedData.length, 8192)),
   ).toString("utf8");
   const normalized = head.replace(/^\uFEFF/, "").trimStart();
   return /^(?:(?:\s|<!--[\s\S]*?-->|<\?xml\b[\s\S]*?\?>))*<svg(?:\s|\/?>)/i.test(
@@ -1377,9 +1403,11 @@ function decodeCssEscapes(source: string): string {
 }
 
 export function isSafeSvg(data: Uint8Array): boolean {
+  const normalizedData = stripSafeSvgDoctype(data);
+  if (!normalizedData) return false;
   let source: string;
   try {
-    source = new TextDecoder("utf-8", { fatal: true }).decode(data);
+    source = new TextDecoder("utf-8", { fatal: true }).decode(normalizedData);
   } catch {
     // coercion-ok: malformed UTF-8 must reject SVG validation.
     return false;
@@ -1465,8 +1493,13 @@ export async function uploadImageAsset(args: {
     throw new Error("Uploaded image bytes do not match file extension");
   }
 
-  if (ext === ".svg" && !isSafeSvg(args.data)) {
-    throw new Error("SVG contains active content or external references");
+  let data = args.data;
+  if (ext === ".svg") {
+    const normalizedSvg = stripSafeSvgDoctype(data);
+    if (!normalizedSvg || !isSafeSvg(normalizedSvg)) {
+      throw new Error("SVG contains active content or external references");
+    }
+    data = normalizedSvg;
   }
 
   const mimeType = ext === ".svg" ? "image/svg+xml" : args.type;
@@ -1477,7 +1510,7 @@ export async function uploadImageAsset(args: {
     { userEmail: args.email, ...(orgId === undefined ? {} : { orgId }) },
     () =>
       uploadFile({
-        data: args.data,
+        data,
         filename: args.originalName,
         mimeType,
         ownerEmail: args.email,
@@ -1496,7 +1529,7 @@ export async function uploadImageAsset(args: {
     url: result.url,
     filename: args.originalName,
     type: mimeType || "application/octet-stream",
-    size: args.data.length,
+    size: data.length,
     provider: result.provider,
   };
 
