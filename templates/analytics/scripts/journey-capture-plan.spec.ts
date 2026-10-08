@@ -12,6 +12,7 @@ import {
   reasonFromError,
   stripBearer,
   TreeFormatError,
+  unattemptedFailures,
   unauthenticatedMessage,
   type TreeNode,
 } from "./journey-capture-plan";
@@ -343,5 +344,52 @@ describe("reasonFromError", () => {
         'Timeout navigating to "https://a.test/s/1?agent_access=SECRET&frame=1", waiting',
       ),
     ).not.toContain("SECRET");
+  });
+});
+
+describe("unattemptedFailures", () => {
+  const item = (nodeKey: string, exampleIndex: number, recordingId = "r") => ({
+    nodeKey,
+    exampleIndex,
+    recordingId,
+    offsetMs: 100,
+    viewport: null,
+  });
+
+  it("lists every planned frame that has neither a frame nor a failure", () => {
+    const items = [item("a", 0), item("a", 1), item("b", 0, "r2")];
+    const frames = [
+      {
+        nodeKey: "a",
+        exampleIndex: 0,
+        recordingId: "r",
+        offsetMs: 100,
+        width: 1,
+        height: 1,
+        localPath: "p",
+        capturedAt: "t",
+      },
+    ];
+    const failures = [
+      {
+        nodeKey: "a",
+        exampleIndex: 1,
+        recordingId: "r",
+        offsetMs: 100,
+        reason: "upload_failed: x",
+      },
+    ];
+    expect(
+      unattemptedFailures(items, frames, failures, "run_stopped: auth"),
+    ).toEqual([
+      {
+        nodeKey: "b",
+        exampleIndex: 0,
+        recordingId: "r2",
+        offsetMs: 100,
+        reason: "run_stopped: auth",
+      },
+    ]);
+    expect(unattemptedFailures([], [], [], "x")).toEqual([]);
   });
 });

@@ -6,8 +6,20 @@ import {
   blobToBase64,
   isReplayFrameRequest,
   replayFrameFailureReason,
+  replayFramePath,
 } from "./session-replay-frame";
 import { ReplayScreenshotAssetError } from "./session-replay-screenshot";
+
+describe("replayFramePath", () => {
+  it("keeps the path and drops a recorded query and hash", () => {
+    expect(
+      replayFramePath("/onboarding/role?code=abc&email=a@b.co#token=x"),
+    ).toBe("/onboarding/role");
+    expect(replayFramePath("/home#section")).toBe("/home");
+    expect(replayFramePath("/plain")).toBe("/plain");
+    expect(replayFramePath("")).toBe("");
+  });
+});
 
 describe("isReplayFrameRequest", () => {
   it("needs a recording path, frame=1, and an agent link token", () => {

@@ -28,12 +28,21 @@ export type ReplayFrameCapture = {
   offsetMs: number;
   width: number;
   height: number;
-  /** Route the recording was on at this offset; empty when it cannot be told. */
+  /** Path the recording was on at this offset; empty when it cannot be told. */
   route: string;
   capturedAt: string;
   /** PNG bytes, base64 encoded. */
   png: string;
 };
+
+/**
+ * A recorded route reduced to its path. The query and hash of a recorded URL
+ * can carry codes or personal data, and a capture manifest is meant to be
+ * shared.
+ */
+export function replayFramePath(route: string): string {
+  return route.split(/[?#]/, 1)[0] ?? "";
+}
 
 /** What a driver reads from `window.__anReplayFrame`. */
 export type ReplayFrameApi =

@@ -29,6 +29,7 @@ import {
   reasonFromError,
   stripBearer,
   TreeFormatError,
+  unattemptedFailures,
   unauthenticatedMessage,
   isLoopbackHost,
   type ManifestFailure,
@@ -573,7 +574,17 @@ async function main(argv: string[]): Promise<number> {
   }
 
   // Whatever stopped the run, the frames and uploads it already produced get a
-  // manifest.
+  // manifest, and every planned frame it never reached is listed as a failure.
+  const stoppedReason = stopped
+    ? stopped.error instanceof AuthError
+      ? "run_stopped: authentication failed"
+      : `run_stopped: ${reasonFromError(stopped.error)}`
+    : undefined;
+  if (stoppedReason) {
+    ctx.failures.push(
+      ...unattemptedFailures(items, ctx.frames, ctx.failures, stoppedReason),
+    );
+  }
   let manifest;
   try {
     manifest = await writeManifest(ctx.frames, ctx.failures);
@@ -583,7 +594,7 @@ async function main(argv: string[]): Promise<number> {
   if (stopped) {
     const { error } = stopped;
     console.error(
-      `${error instanceof AuthError ? error.message : `journey:capture stopped on an unexpected error: ${reasonFromError(error)}`}\nThe run stopped early; ${manifest.frames.length} frames captured before it are in ${manifestPath}.`,
+      `${error instanceof AuthError ? error.message : `journey:capture stopped on an unexpected error: ${reasonFromError(error)}`}\nThe run stopped early; ${manifest.frames.length} frames captured before it are in ${manifestPath}, and the frames it never reached are listed under "failures".`,
     );
     return error instanceof AuthError ? 2 : 1;
   }

@@ -228,6 +228,30 @@ export interface CaptureManifest {
   skipped: SkippedExample[];
 }
 
+/**
+ * The planned frames a stopped run never got to, as failures, so a manifest
+ * from a run that stopped early cannot pass for a smaller complete one.
+ */
+export function unattemptedFailures(
+  items: readonly PlanItem[],
+  frames: readonly ManifestFrame[],
+  failures: readonly ManifestFailure[],
+  reason: string,
+): ManifestFailure[] {
+  const key = (item: { nodeKey: string; exampleIndex: number }) =>
+    `${item.nodeKey}\u0000${item.exampleIndex}`;
+  const accounted = new Set([...frames, ...failures].map(key));
+  return items
+    .filter((item) => !accounted.has(key(item)))
+    .map((item) => ({
+      nodeKey: item.nodeKey,
+      exampleIndex: item.exampleIndex,
+      recordingId: item.recordingId,
+      offsetMs: item.offsetMs,
+      reason,
+    }));
+}
+
 export function buildManifest(input: {
   generatedAt: string;
   appUrl: string;

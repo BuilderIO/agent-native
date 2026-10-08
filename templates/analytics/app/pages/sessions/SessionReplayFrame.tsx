@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   blobToBase64,
   replayFrameFailureReason,
+  replayFramePath,
   type ReplayFrameCapture,
 } from "./session-replay-frame";
 import { captureReplayScreenshot } from "./session-replay-screenshot";
@@ -139,7 +140,7 @@ export default function SessionReplayFrame({
           offsetMs,
           width: dimensions.width,
           height: dimensions.height,
-          route: replayRouteAtOffset(events, offsetMs),
+          route: replayFramePath(replayRouteAtOffset(events, offsetMs)),
           capturedAt: new Date().toISOString(),
           png: await blobToBase64(blob),
         };
