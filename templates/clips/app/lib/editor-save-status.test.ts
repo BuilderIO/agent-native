@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import {
   beginEditorSave,
+  beginRecordingEditorOperation,
   createEditorSaveLedger,
   createEditorSaveQueue,
   enqueueEditorSave,
   enqueueRecordingEditorSave,
   finishEditorSave,
+  hasPendingRecordingEditorSaves,
   isLatestEditorSave,
+  refreshAfterRecordingEditorSaves,
   removeEditorHistoryEntry,
 } from "./editor-save-status";
 
@@ -210,5 +213,109 @@ describe("editor save queue", () => {
       "older editor",
       "reopened editor",
     ]);
+  });
+
+  it("waits for prior recording saves before refreshing resumed editor data", async () => {
+    const recordingId = "recording-resume-test";
+    const trimStarted = deferred();
+    const overlayStarted = deferred();
+    const finishTrim = deferred();
+    const finishOverlay = deferred();
+    const persisted = { trims: [] as string[], overlays: [] as string[] };
+    let refreshedTrims: string[] | null = null;
+    let refreshedOverlays: string[] | null = null;
+
+    const priorTrimSave = enqueueRecordingEditorSave(
+      recordingId,
+      "trims",
+      async () => {
+        trimStarted.resolve();
+        await finishTrim.promise;
+        persisted.trims = ["prior trim"];
+      },
+    );
+    const priorOverlaySave = enqueueRecordingEditorSave(
+      recordingId,
+      "overlays",
+      async () => {
+        overlayStarted.resolve();
+        await finishOverlay.promise;
+        persisted.overlays = ["prior overlay"];
+      },
+    );
+    await Promise.all([trimStarted.promise, overlayStarted.promise]);
+    expect(hasPendingRecordingEditorSaves(recordingId)).toBe(true);
+
+    const resume = refreshAfterRecordingEditorSaves(recordingId, async () => {
+      refreshedTrims = [...persisted.trims];
+      refreshedOverlays = [...persisted.overlays];
+    });
+    await Promise.resolve();
+    expect(refreshedTrims).toBeNull();
+    expect(refreshedOverlays).toBeNull();
+
+    finishTrim.resolve();
+    finishOverlay.resolve();
+    await Promise.all([priorTrimSave, priorOverlaySave, resume]);
+    expect(refreshedTrims).toEqual(["prior trim"]);
+    expect(refreshedOverlays).toEqual(["prior overlay"]);
+    expect(hasPendingRecordingEditorSaves(recordingId)).toBe(false);
+
+    await enqueueRecordingEditorSave(recordingId, "trims", async () => {
+      persisted.trims = [...(refreshedTrims ?? []), "reopened trim"];
+    });
+    expect(persisted.trims).toEqual(["prior trim", "reopened trim"]);
+
+    const refreshError = new Error("refresh failed");
+    await expect(
+      refreshAfterRecordingEditorSaves(recordingId, async () => {
+        throw refreshError;
+      }),
+    ).rejects.toBe(refreshError);
+  });
+
+  it("waits for a composite history operation to enqueue its later save", async () => {
+    const recordingId = "recording-history-resume-test";
+    const finishTrim = deferred();
+    const persisted = { trims: [] as string[], overlays: [] as string[] };
+    let refreshed: typeof persisted | null = null;
+    const finishOperation = beginRecordingEditorOperation(recordingId);
+    const priorTrimSave = enqueueRecordingEditorSave(
+      recordingId,
+      "trims",
+      async () => {
+        await finishTrim.promise;
+        persisted.trims = ["undo trim"];
+      },
+    );
+
+    const resume = refreshAfterRecordingEditorSaves(recordingId, async () => {
+      refreshed = {
+        trims: [...persisted.trims],
+        overlays: [...persisted.overlays],
+      };
+    });
+
+    finishTrim.resolve();
+    await priorTrimSave;
+    expect(hasPendingRecordingEditorSaves(recordingId)).toBe(true);
+    expect(refreshed).toBeNull();
+
+    const priorOverlaySave = enqueueRecordingEditorSave(
+      recordingId,
+      "overlays",
+      async () => {
+        persisted.overlays = ["undo overlay"];
+      },
+    );
+    await priorOverlaySave;
+    finishOperation();
+    await resume;
+
+    expect(refreshed).toEqual({
+      trims: ["undo trim"],
+      overlays: ["undo overlay"],
+    });
+    expect(hasPendingRecordingEditorSaves(recordingId)).toBe(false);
   });
 });

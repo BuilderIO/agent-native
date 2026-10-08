@@ -1376,6 +1376,8 @@ const messages = {
     burningRedactionsPercent:
       "Die Schwärzungen werden in das Video gerendert … {{percent}} %",
     editFailed: "Diese Änderung konnte nicht gespeichert werden",
+    refreshFailed:
+      "Die neuesten Änderungen konnten nicht geladen werden. Bitte versuche es erneut, bevor du weiterbearbeitest.",
     autoSaveHint: "Änderungen werden automatisch in diesem Clip gespeichert",
     savingChanges: "Änderungen werden gespeichert…",
     changesSaved: "Änderungen in diesem Clip gespeichert",

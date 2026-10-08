@@ -22,6 +22,13 @@ const recordingSaveQueues = new Map<
   string,
   Partial<Record<EditSaveKind, EditorSaveQueue>>
 >();
+interface RecordingEditorOperation {
+  count: number;
+  idle: Promise<void>;
+  resolveIdle: () => void;
+}
+
+const recordingEditorOperations = new Map<string, RecordingEditorOperation>();
 
 export function createEditorSaveQueue(): EditorSaveQueue {
   return { tail: Promise.resolve(), pending: 0, failure: null };
@@ -80,6 +87,62 @@ export function enqueueRecordingEditorSave<T>(
   };
   void result.then(removeIfIdle, removeIfIdle);
   return result;
+}
+
+export function hasPendingRecordingEditorSaves(recordingId: string): boolean {
+  return (
+    Boolean(recordingEditorOperations.get(recordingId)?.count) ||
+    Object.values(recordingSaveQueues.get(recordingId) ?? {}).some(
+      (queue) => queue?.pending,
+    )
+  );
+}
+
+export function beginRecordingEditorOperation(recordingId: string): () => void {
+  let operation = recordingEditorOperations.get(recordingId);
+  if (!operation) {
+    let resolveIdle!: () => void;
+    const idle = new Promise<void>((resolve) => {
+      resolveIdle = resolve;
+    });
+    operation = { count: 0, idle, resolveIdle };
+    recordingEditorOperations.set(recordingId, operation);
+  }
+  operation.count += 1;
+
+  let finished = false;
+  return () => {
+    if (finished) return;
+    finished = true;
+    operation!.count -= 1;
+    if (operation!.count > 0) return;
+    recordingEditorOperations.delete(recordingId);
+    operation!.resolveIdle();
+  };
+}
+
+export async function waitForRecordingEditorSaves(
+  recordingId: string,
+): Promise<void> {
+  while (true) {
+    const queues = Object.values(recordingSaveQueues.get(recordingId) ?? {});
+    const pending = queues.filter((queue): queue is EditorSaveQueue =>
+      Boolean(queue?.pending),
+    );
+    const operationWaiter = recordingEditorOperations.get(recordingId)?.idle;
+    const waits = pending.map((queue) => queue.tail);
+    if (operationWaiter) waits.push(operationWaiter);
+    if (waits.length === 0) return;
+    await Promise.all(waits);
+  }
+}
+
+export async function refreshAfterRecordingEditorSaves(
+  recordingId: string,
+  refresh: () => Promise<unknown>,
+): Promise<void> {
+  await waitForRecordingEditorSaves(recordingId);
+  await refresh();
 }
 
 export function createEditorSaveLedger(): EditorSaveLedger {
