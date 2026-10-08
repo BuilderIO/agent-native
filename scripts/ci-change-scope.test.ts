@@ -594,8 +594,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designJob,
-    /^\s+run: pnpm exec playwright install --only-shell chromium$/m,
-    "Design shards must reuse the runner's browser libraries instead of reinstalling OS dependencies",
+    /^\s+run: pnpm exec playwright install --only-shell --with-deps chromium$/m,
+    "Design shards must install the Chromium runtime dependencies",
   );
   const jobTimeout = Number(
     designJob.match(/^    timeout-minutes: (\d+)$/m)?.[1],
