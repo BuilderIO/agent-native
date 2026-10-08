@@ -18,7 +18,6 @@ const configurations = [
       "@modelcontextprotocol/core",
       "@modelcontextprotocol/node",
       "@modelcontextprotocol/server",
-      "@modelcontextprotocol/sdk",
       "@sentry/electron",
       "electron-updater",
       "zod",
