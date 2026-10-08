@@ -42,6 +42,7 @@ import type {
   EngineStreamOptions,
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
+import { BUILDER_MODEL_CONFIG } from "./model-config.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
   AGENT_INTERNAL_GUARD_PROMPT,
@@ -14158,6 +14159,43 @@ describe("runAgentLoop", () => {
 });
 
 describe("runAgentLoop model fallback", () => {
+  it("normalizes a saved model before streaming it to its engine", async () => {
+    const modelsUsed: string[] = [];
+    const engine: AgentEngine = {
+      name: "builder",
+      label: "Builder.io",
+      ...BUILDER_MODEL_CONFIG,
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        modelsUsed.push(opts.model);
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "claude-fable-5",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(modelsUsed).toEqual([BUILDER_MODEL_CONFIG.defaultModel]);
+  });
+
   it("switches to the fallback model once retries are exhausted, with an activity event", async () => {
     vi.useFakeTimers({ now: 1_000_000 });
     let streamCalls = 0;

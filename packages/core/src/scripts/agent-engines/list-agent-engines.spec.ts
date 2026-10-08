@@ -206,6 +206,7 @@ describe("list-agent-engines", () => {
 
     expect(byName("anthropic")).toMatchObject({
       supportedModels: ["claude-opus-5-5"],
+      runtimeSupportedModels: getAgentEngineEntry("anthropic")?.supportedModels,
       recommendedModels: getAgentEngineEntry("anthropic")?.supportedModels,
       modelSelection: { state: "selected", scope: "user" },
     });

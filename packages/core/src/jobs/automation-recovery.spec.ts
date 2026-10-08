@@ -126,6 +126,37 @@ describe("automation worker recovery", () => {
     expect(mocks.reap).toHaveBeenCalledWith("job-1");
   });
 
+  it.each([resource.owner, "__organization__:stored-org"])(
+    "recovers history in resource scope %s despite a different execution organization",
+    async (owner) => {
+      mocks.history.mockResolvedValue({ ...history, owner });
+      expect(
+        await inspectAutomationRecovery(
+          { ...resource, owner },
+          { ...meta, orgId: "execution-org", createdBy: resource.owner },
+          now,
+        ),
+      ).toMatchObject({ state: "resume", resume: { historyId: history.id } });
+    },
+  );
+
+  it("finds legacy personal history without borrowing its execution organization", async () => {
+    expect(
+      await inspectAutomationRecovery(
+        resource,
+        { ...meta, lastHistoryId: undefined, orgId: "execution-org" },
+        now,
+      ),
+    ).toMatchObject({
+      state: "settle",
+      status: "error",
+      history: { id: history.id, owner: resource.owner },
+    });
+    expect(mocks.list).toHaveBeenCalledWith(
+      expect.objectContaining({ owners: [resource.owner] }),
+    );
+  });
+
   it("reports completed response delivery as unknown without replaying the turn", async () => {
     mocks.get.mockResolvedValue({ id: "job-1", status: "completed" });
     const result = await inspectAutomationRecovery(

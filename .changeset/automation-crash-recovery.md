@@ -32,3 +32,5 @@ Apply shared work-confirmation rules during recovery, settle missing worker evid
 Settle permanently unreadable journals with an unknown-delivery error while retrying database failures, preserve firing identity fences when timestamps are absent, and honor action metadata that excludes progress-only work from success.
 
 Durably settle malformed no-op evidence as an explicit unknown-delivery error, restore no-op declarations from their original journal result, and prevent replayed no-op acknowledgements from counting as completed work.
+
+Use the resource-scoped automation history ownership helper for atomic admission and recovery, preserving personal history when execution carries an organization context.

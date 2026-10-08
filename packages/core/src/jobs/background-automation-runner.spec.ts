@@ -127,6 +127,83 @@ const testEngine = {
   supportedModels: ["test-model"],
 } as any;
 
+describe("automation history ownership", () => {
+  it.each([
+    { owner: "alice@agent-native.test", scope: "personal", orgId: null },
+    { owner: "__organization__:acme", scope: "organization", orgId: "acme" },
+  ] as const)(
+    "keeps scheduled and manual runs in $scope history",
+    async ({ owner, scope, orgId }) => {
+      const { startAutomationRun } = await import("./run-history.js");
+      const { default: listRuns } =
+        await import("./actions/list-automation-runs.js");
+      const name = `ownership-${scope}`;
+      const options = {
+        automation: {
+          name,
+          meta: {
+            schedule: "* * * * *",
+            enabled: true,
+            model: "test-model",
+            orgId: "acme",
+          },
+          body: "Summarize the inbox.",
+          resource: { owner, path: `jobs/${name}.md` } as any,
+        },
+        ownerEmail: "alice@agent-native.test",
+        orgId: "acme",
+        prompt: "Summarize the inbox.",
+        threadTitle: `Job: ${name}`,
+        runIdPrefix: name,
+        usageLabel: `recurring-job:${name}`,
+      };
+      const deps = {
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+        engine: testEngine,
+        appId: "calendar",
+      };
+      await runBackgroundAutomation(options, deps);
+      const historyId = await startAutomationRun({
+        owner,
+        automation: name,
+        path: options.automation.resource.path,
+        scope,
+        orgId,
+        appId: "calendar",
+      });
+      await runBackgroundAutomation(
+        { ...options, historyId, manual: true },
+        deps,
+      );
+
+      const ctx = {
+        userEmail: options.ownerEmail,
+        orgId: "acme",
+        appId: "calendar",
+      };
+      const runs = await listRuns.run({ name, scope }, ctx);
+      expect(runs).toHaveLength(2);
+      for (const run of runs) {
+        expect(run).toMatchObject({ owner, scope, orgId, status: "success" });
+      }
+      expect(runs.some((run) => run.id === historyId)).toBe(true);
+      expect(
+        await listRuns.run(
+          { name, scope: scope === "personal" ? "organization" : "personal" },
+          ctx,
+        ),
+      ).toEqual([]);
+      expect(
+        await listRuns.run(
+          { name, scope },
+          { ...ctx, userEmail: "bob@agent-native.test", orgId: "other" },
+        ),
+      ).toEqual([]);
+    },
+  );
+});
+
 describe("runBackgroundAutomation — confirmed work", () => {
   const usage = {
     inputTokens: 0,

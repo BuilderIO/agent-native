@@ -13,10 +13,7 @@ import type { AgentChatEvent } from "../agent/types.js";
 import { automationOutcomeMessagesForLocale } from "../localization/automation-outcome-messages.js";
 import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import type { LocaleCode } from "../localization/shared.js";
-import {
-  organizationResourceOwner,
-  type Resource,
-} from "../resources/store.js";
+import type { Resource } from "../resources/store.js";
 import { AutomationNoOpEvidenceUnreadableError } from "./actions/automation-no-op.js";
 import { withDeliveryNote } from "./automation-outcome.js";
 import { inspectAutomationWork } from "./automation-work-evidence.js";
@@ -24,6 +21,7 @@ import {
   recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
 } from "./frontmatter.js";
+import { automationRunOwnership } from "./run-history-ownership.js";
 import {
   automationRunClaimLeaseMs,
   getAutomationRun,
@@ -37,18 +35,6 @@ export interface AutomationResume {
   turnId: string;
   previousRunId: string;
   hardDeadlineAt: number;
-}
-
-export function automationHistoryOwner(
-  resource: Resource,
-  ownerEmail: string,
-  orgId?: string,
-): string {
-  return orgId
-    ? organizationResourceOwner(orgId)
-    : resource.owner === "__shared__"
-      ? ownerEmail
-      : resource.owner;
 }
 
 export type AutomationRecovery =
@@ -126,8 +112,8 @@ export async function inspectAutomationRecovery(
       deliveryNote,
     };
   }
-  const owner = automationHistoryOwner(
-    resource,
+  const { owner } = automationRunOwnership(
+    resource.owner,
     meta.runAs === "shared" ? resource.owner : meta.createdBy || resource.owner,
     recoveredFactoryOwnerOrgId(meta, resource.path, resource.owner) ??
       meta.orgId ??

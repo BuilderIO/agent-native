@@ -10,6 +10,10 @@ import {
 import { getAppConfig } from "../app-config/store.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import { isLoopbackRequest } from "../server/auth.js";
+import {
+  describeBearerCredentialRefusal,
+  type BearerCredentialRefusal,
+} from "../server/bearer-credential-refusal.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { getOrigin } from "../server/google-oauth.js";
@@ -163,8 +167,10 @@ function buildWebRequest(
 function buildUnauthorizedBody(
   event: H3Event,
   routePath = MCP_PUBLIC_ROUTE_PREFIX,
+  refusal?: BearerCredentialRefusal,
 ): {
   error: string;
+  reason?: BearerCredentialRefusal;
   message: string;
   authenticate: {
     command?: string;
@@ -189,7 +195,7 @@ function buildUnauthorizedBody(
   const authorizeUrl = issuer
     ? `${issuer}${MCP_PUBLIC_ROUTE_PREFIX}/oauth/authorize`
     : undefined;
-  const message = command
+  const instructions = command
     ? `Authentication required. Run \`${command}\` to re-authenticate this ` +
       `MCP connector without reinstalling it (or, in a Claude Code host, ` +
       `run /mcp and choose Authenticate), then retry. For first-time ` +
@@ -198,7 +204,10 @@ function buildUnauthorizedBody(
       "then retry.";
   return {
     error: "Unauthorized",
-    message,
+    ...(refusal ? { reason: refusal } : {}),
+    message: refusal
+      ? `${describeBearerCredentialRefusal(refusal)} ${instructions}`
+      : instructions,
     authenticate: {
       ...(command ? { command } : {}),
       ...(firstTimeCommand ? { firstTimeCommand } : {}),
@@ -381,9 +390,9 @@ async function handleMcpRequestInternal(
     setResponseHeader(
       event,
       "WWW-Authenticate",
-      buildMcpOAuthChallenge(event, routePath),
+      buildMcpOAuthChallenge(event, routePath, authResult.refusal),
     );
-    return buildUnauthorizedBody(event, routePath);
+    return buildUnauthorizedBody(event, routePath, authResult.refusal);
   }
 
   const body = method === "POST" ? await readBody(event) : undefined;

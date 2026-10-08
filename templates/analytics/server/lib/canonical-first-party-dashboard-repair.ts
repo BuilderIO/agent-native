@@ -635,6 +635,16 @@ function repairFingerprintedPanelQueries(
 const CANONICAL_CUSTOM_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplacement[] =
   [
     {
+      id: "onboarding-setup-choice",
+      legacySql: [
+        buildPanel("onboarding-setup-choice")!.sql.replace(
+          "'Use Builder.io' AS method_label",
+          "'Create Builder.io account' AS method_label",
+        ),
+      ],
+      sql: buildPanel("onboarding-setup-choice")!.sql,
+    },
+    {
       id: "signups-over-time",
       legacySql: [
         LEGACY_SEED_SIGNUPS_OVER_TIME_SQL,

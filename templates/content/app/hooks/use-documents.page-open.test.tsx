@@ -286,6 +286,24 @@ describe("page open document reads", () => {
     );
   });
 
+  it("leaves comments and suggestions to the page when the session is not known yet", async () => {
+    startPageOpenDocumentReads(
+      queryClient,
+      "doc-1",
+      {},
+      { beforeSession: true },
+    );
+
+    await vi.waitFor(() => expect(server.calls).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(server.calls).toEqual([
+      {
+        name: "get-document",
+        params: { id: "doc-1", includePreviewDraft: true },
+      },
+    ]);
+  });
+
   it("joins a read that is still in flight when the page mounts", async () => {
     const response = deferred<unknown>();
     server.respond = (name, params) =>

@@ -15,7 +15,7 @@
     "analytics-rollup-backfill-cron": 1044,
     "dashboard-report-cron": 1065,
     "dashboard-report-sweep-background": 32913330,
-    "server": 46871348,
+    "server": 53110373,
     "server-agent-background": 37591450,
     "session-replay-retention-cron": 1197,
     "session-replay-retention-sweep-background": 32912511,
@@ -31,12 +31,12 @@
     "agent-native-recurring-jobs": 1758,
     "brain-queue-cron": 800,
     "brain-queue-sweep-background": 35808871,
-    "server": 32550805,
+    "server": 38744882,
     "server-agent-background": 24903680
   },
   "calendar": {
     "agent-native-recurring-jobs": 1758,
-    "server": 32610714,
+    "server": 38220594,
     "server-agent-background": 24903680
   },
   "chat": {
@@ -67,7 +67,7 @@
   },
   "forms": {
     "agent-native-recurring-jobs": 1758,
-    "server": 31037850,
+    "server": 36857445,
     "server-agent-background": 24484250
   },
   "mail": {

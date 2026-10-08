@@ -102,7 +102,6 @@ import {
 } from "./automation-outcome.js";
 import {
   deliveryNoteForEvents,
-  automationHistoryOwner,
   type AutomationResume,
 } from "./automation-recovery.js";
 import { inspectAutomationWork } from "./automation-work-evidence.js";
@@ -111,6 +110,7 @@ import {
   recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
 } from "./frontmatter.js";
+import { automationRunOwnership } from "./run-history-ownership.js";
 import {
   attachAutomationRunThread,
   finishAutomationRun,
@@ -549,11 +549,9 @@ export async function startBackgroundAutomationHistory(
 ): Promise<string> {
   return startAutomationRun(
     {
-      owner: automationHistoryOwner(automation.resource, ownerEmail, orgId),
+      ...automationRunOwnership(automation.resource.owner, ownerEmail, orgId),
       automation: automation.name,
       path: automation.resource.path,
-      scope: orgId ? "organization" : "personal",
-      orgId: orgId ?? null,
       appId,
       notificationEmail: await notificationEmailFor(
         automation.name,

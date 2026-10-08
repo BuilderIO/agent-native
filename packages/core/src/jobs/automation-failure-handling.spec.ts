@@ -50,6 +50,7 @@ vi.mock("../resources/store.js", () => {
   const copy = (row: StoredResource | undefined) => (row ? { ...row } : null);
   const store = {
     ensureTable: vi.fn(async () => {}),
+    SHARED_OWNER: "__shared__",
     organizationIdFromResourceOwner: (owner: string) =>
       owner.startsWith("__organization__:")
         ? decodeURIComponent(owner.slice("__organization__:".length))

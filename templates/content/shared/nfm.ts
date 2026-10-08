@@ -333,11 +333,14 @@ function addMark(nodes: PMNode[], mark: PMMark): void {
   }
 }
 
-function mergeSpanMark(nodes: PMNode[], attrs: Record<string, string>): void {
+/** The `notionSpan` mark attrs read from an NFM `<span>` tag's attributes. */
+export function notionSpanAttrs(
+  attrs: Record<string, string>,
+): Record<string, any> {
   const color = attrs.color;
   const isBg = color ? color.endsWith("_bg") : false;
   const explicitBackground = attrs.bg_color;
-  const spanAttrs: Record<string, any> = {
+  return {
     color: isColor(color) && !isBg ? color : null,
     bgColor:
       isColor(explicitBackground) && explicitBackground.endsWith("_bg")
@@ -349,6 +352,10 @@ function mergeSpanMark(nodes: PMNode[], attrs: Record<string, string>): void {
     href: attrs.href || null,
     attrsJson: "{}",
   };
+}
+
+function mergeSpanMark(nodes: PMNode[], attrs: Record<string, string>): void {
+  const spanAttrs = notionSpanAttrs(attrs);
   for (const n of nodes) {
     if (n.type === "text") {
       n.marks = n.marks || [];

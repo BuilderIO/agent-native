@@ -187,28 +187,6 @@ export async function recordMintedToken(
   return id;
 }
 
-/**
- * Returns true when the given `jti` corresponds to a token that has been
- * revoked. Fails OPEN on a store/DB error: a transient Neon WS drop must not
- * lock every connected agent out. Signature verification is unaffected — this
- * is only the post-verify revoke check (see `verifyAuth` in build-server.ts).
- */
-/**
- * Throws when the revocation state can't be read. Answering "not revoked"
- * instead would let a transient read failure admit a revoked token.
- */
-export async function isJtiRevoked(jti: string): Promise<boolean> {
-  await ensureTable();
-  const client = getDbExec();
-  const { rows } = await client.execute({
-    sql: `SELECT revoked_at FROM mcp_connect_tokens WHERE jti = ?`,
-    args: [jti],
-  });
-  if (rows.length === 0) return false;
-  const revokedAt = rows[0].revoked_at ?? rows[0].revokedAt;
-  return revokedAt != null;
-}
-
 export type StoredConnectTokenIdentity = Pick<
   MintedTokenRow,
   "kind" | "ownerEmail" | "orgId"
@@ -216,9 +194,15 @@ export type StoredConnectTokenIdentity = Pick<
 
 export type ConnectTokenOrgLookup =
   | ({ status: "found" } & StoredConnectTokenIdentity)
+  | { status: "revoked" }
   | { status: "missing" }
   | { status: "unavailable" };
 
+/**
+ * A connect token's standing, read in one query. `unavailable` covers a read
+ * failure and a malformed row: answering `missing` or `found` instead would
+ * admit a revoked token, or refuse a live one, on a transient error.
+ */
 export async function lookupConnectTokenOrg(
   jti: string,
 ): Promise<ConnectTokenOrgLookup> {
@@ -226,10 +210,13 @@ export async function lookupConnectTokenOrg(
     await ensureTable();
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: `SELECT org_id, owner_email, kind FROM mcp_connect_tokens WHERE jti = ?`,
+      sql: `SELECT org_id, owner_email, kind, revoked_at FROM mcp_connect_tokens WHERE jti = ?`,
       args: [jti],
     });
     if (rows.length === 0) return { status: "missing" };
+    if ((rows[0].revoked_at ?? rows[0].revokedAt) != null) {
+      return { status: "revoked" };
+    }
     const rawOrgId = rows[0].org_id ?? rows[0].orgId;
     const ownerEmail = rows[0].owner_email ?? rows[0].ownerEmail;
     const kind = rows[0].kind;
@@ -250,7 +237,8 @@ export async function lookupConnectTokenOrg(
           ? rawOrgId.trim()
           : null,
     };
-  } catch {
+  } catch (error) {
+    console.error("[mcp] Connect-token lookup failed:", error);
     return { status: "unavailable" };
   }
 }
@@ -303,8 +291,8 @@ export async function listOrgServiceTokens(
 /**
  * Revoke an org service token by id, scoped to `orgId` AND `kind = 'service'`
  * so a caller can never revoke another org's token (or someone's personal
- * token) through this path. Uses the same `revoked_at` gate `isJtiRevoked`
- * checks, so revocation takes effect on the next request like personal
+ * token) through this path. Uses the same `revoked_at` gate
+ * `lookupConnectTokenOrg` checks, so revocation takes effect on the next request like personal
  * tokens. Idempotent; returns true when a row actually transitioned.
  */
 export async function revokeOrgServiceToken(

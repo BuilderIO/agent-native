@@ -4511,6 +4511,29 @@ describe("AgentKitAssistantChat host behavior", () => {
     window.removeEventListener("agent-chat:missing-api-key", onBlocked);
   });
 
+  it("masks a connection failure message without masking recovery controls", async () => {
+    chatMocks.connectionError = {
+      code: "runtime_error",
+      message: "Example Person's example document is locked.",
+      retryable: true,
+    };
+    await mount(baseProps());
+    const message = Array.from(container.querySelectorAll("span")).find(
+      (element) =>
+        element.textContent === `Error: ${chatMocks.connectionError.message}`,
+    );
+    expect(message?.hasAttribute("data-an-mask")).toBe(true);
+    expect(
+      message?.closest('[role="alert"]')?.hasAttribute("data-an-mask"),
+    ).toBe(false);
+    expect(
+      message
+        ?.closest('[role="alert"]')
+        ?.querySelector("button")
+        ?.closest("[data-an-mask]"),
+    ).toBeNull();
+  });
+
   it("does not repeat the composer setup card in a missing-key run failure", async () => {
     chatMocks.readiness = {
       canChat: false,
@@ -5078,8 +5101,15 @@ describe("AgentKitAssistantChat host behavior", () => {
         chatMocks.composerProps.stopButton.props.onClick();
         await Promise.resolve();
       });
-      expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-        "Stop unavailable",
+      const alert = container.querySelector('[role="alert"]');
+      expect(alert?.textContent).toContain("Stop unavailable");
+      const message = Array.from(alert?.querySelectorAll("span") ?? []).find(
+        (element) => element.textContent === "Stop unavailable",
+      );
+      expect(message?.hasAttribute("data-an-mask")).toBe(true);
+      expect(alert?.hasAttribute("data-an-mask")).toBe(false);
+      expect(alert?.querySelector("button")?.closest("[data-an-mask]")).toBe(
+        null,
       );
       await act(async () => {
         chatMocks.composerProps.stopButton.props.onClick();

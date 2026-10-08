@@ -1,3 +1,10 @@
+## 0.2.662
+
+### Patch Changes
+
+- Updated dependencies [8d56ed2]
+  - @agent-native/core@0.165.5
+
 ## 0.2.661
 
 ### Patch Changes

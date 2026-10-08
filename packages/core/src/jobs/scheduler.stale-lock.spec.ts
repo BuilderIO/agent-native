@@ -31,6 +31,7 @@ vi.mock("../agent/run-loop-with-resume.js", () => ({
 
 vi.mock("../resources/store.js", () => ({
   ensureTable: vi.fn(async () => {}),
+  SHARED_OWNER: "__shared__",
   resourcePutIfCurrentInTransaction: async (input: unknown) => {
     const resource = await resourcePutIfCurrentMock(input);
     return resource ? { resource, notify: vi.fn() } : null;
