@@ -1782,9 +1782,15 @@ export function ReviewCanvasPins({
       if (!start || !canvas) return;
       placementDragRef.current = null;
       suppressPlacementClickRef.current = true;
-      const plane = event.currentTarget.getBoundingClientRect();
-      const endX = Math.min(Math.max(event.clientX, plane.left), plane.right);
-      const endY = Math.min(Math.max(event.clientY, plane.top), plane.bottom);
+      const area = workingAreaRect(canvas.getBoundingClientRect());
+      const endX = Math.min(
+        Math.max(event.clientX, area.left),
+        area.left + area.width,
+      );
+      const endY = Math.min(
+        Math.max(event.clientY, area.top),
+        area.top + area.height,
+      );
       const isRegion =
         Math.abs(endX - start.startX) > 6 || Math.abs(endY - start.startY) > 6;
       const region = isRegion
