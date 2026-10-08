@@ -303,6 +303,7 @@ export function FirstRunOnboarding({
     extensionIndex: number;
   } | null>(null);
   const completionInFlightRef = useRef(false);
+  const setupSkipStartedRef = useRef(false);
   const onboardingTerminalRef = useRef(false);
   const abandonmentTrackedRef = useRef(false);
   const setupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
@@ -824,6 +825,27 @@ export function FirstRunOnboarding({
                 </button>
               </section>
             </div>
+            {profile.appId === "clips" && (
+              <div className="flex justify-center">
+                <button
+                  type="button"
+                  data-testid="first-run-setup-skip"
+                  className="inline-flex min-h-9 items-center justify-center rounded-lg px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => {
+                    if (
+                      setupSkipStartedRef.current ||
+                      completionInFlightRef.current
+                    )
+                      return;
+                    setupSkipStartedRef.current = true;
+                    trackFirstRunStepSkipped("choice");
+                    handleFinish(null);
+                  }}
+                >
+                  {t("agentChat.onboarding.skipForNow")}
+                </button>
+              </div>
+            )}
           </div>
           <p className="text-center text-xs leading-5 text-muted-foreground">
             {t("agentChat.onboarding.builderConsentPrefix")}{" "}
