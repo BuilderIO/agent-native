@@ -3574,10 +3574,12 @@ describe("createProductionAgentHandler", () => {
       }
     };
 
+    await startRun("visitor-1", undefined, "session-anonymous", true);
+    expect(assertAiSetupReady).not.toHaveBeenCalled();
+
     await Promise.all([
       startRun("alice@example.com", "auth-user-1", "session-1"),
       startRun("bob@example.com", "auth-user-2", "session-2"),
-      startRun("visitor-1", undefined, "session-anonymous", true),
       startRun(
         "synthetic@example.com",
         "auth-synthetic",

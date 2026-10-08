@@ -4539,7 +4539,7 @@ export function TiptapComposer({
 
       const attachmentScopeGeneration = draftScopeGenerationRef.current;
       submitInFlightRef.current = true;
-      onSubmissionPendingChange?.(true);
+      if (!onBeforeSubmit) onSubmissionPendingChange?.(true);
       const attachmentSubmissionBarrier = createAttachmentSubmissionBarrier();
       let attachmentSnapshot: typeof composerAttachments;
       try {
@@ -4561,7 +4561,7 @@ export function TiptapComposer({
         return false;
       } finally {
         submitInFlightRef.current = false;
-        onSubmissionPendingChange?.(false);
+        if (!onBeforeSubmit) onSubmissionPendingChange?.(false);
       }
       if (
         !isComposerEditorUsable(ed) ||
@@ -4855,7 +4855,6 @@ export function TiptapComposer({
 
       if (onBeforeSubmit) {
         submitInFlightRef.current = true;
-        onSubmissionPendingChange?.(true);
         try {
           const shouldSubmit = await onBeforeSubmit(
             composerDraftSnapshot(text, references, attachments),
@@ -4879,7 +4878,6 @@ export function TiptapComposer({
           return false;
         } finally {
           submitInFlightRef.current = false;
-          onSubmissionPendingChange?.(false);
         }
       }
       if (

@@ -159,15 +159,18 @@ describe("Agent-Native chat AI setup gate", () => {
     expect(credentialMocks.resolveSecret).not.toHaveBeenCalled();
   });
 
-  it("reuses the status route snapshot for the server dispatch gate", async () => {
+  it("rechecks credentials instead of trusting the status route memo for dispatch", async () => {
     await memoizeAgentEngineStatus(
       { userEmail: "steve@example.com", orgId: "test-org" },
       async () => ({ chatEligible: true }),
     );
 
-    await expect(requireAgentChatAiSetup()).resolves.toBeUndefined();
-    expect(credentialMocks.builderReady).not.toHaveBeenCalled();
-    expect(credentialMocks.resolveSecret).not.toHaveBeenCalled();
+    await expect(requireAgentChatAiSetup()).rejects.toMatchObject({
+      statusCode: 403,
+      data: { code: AGENT_CHAT_AI_SETUP_REQUIRED_CODE },
+    });
+    expect(credentialMocks.builderReady).toHaveBeenCalledOnce();
+    expect(credentialMocks.resolveSecret).toHaveBeenCalled();
   });
 
   it.each([

@@ -6,6 +6,11 @@ import ts from "typescript";
 
 import { requireAddedLines } from "./lib/changed-lines.mjs";
 
+// Reviewed escape hatch for a legitimate non-chat host or a migration boundary:
+//   // guard:allow-chat-send-gate - short reason
+// Put it on the violation or the line immediately above it.
+const CHAT_SEND_GATE_OPT_OUT = /\/\/\s*guard:allow-chat-send-gate\s*-\s*\S/u;
+
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -74,6 +79,13 @@ function lineRange(node: ts.Node, sourceFile: ts.SourceFile) {
     start: lineAt(sourceFile, node.getStart(sourceFile)),
     end: lineAt(sourceFile, Math.max(node.getStart(sourceFile), node.end - 1)),
   };
+}
+
+function hasChatSendGateOptOut(source: string, startLine: number): boolean {
+  const lines = source.split(/\r?\n/u);
+  return [startLine - 1, startLine - 2].some((lineIndex) =>
+    CHAT_SEND_GATE_OPT_OUT.test(lines[lineIndex] ?? ""),
+  );
 }
 
 function isFalse(node: ts.Expression | undefined): boolean {
@@ -1092,12 +1104,15 @@ export function findChatSendGateViolations(
   };
   inspect(sourceFile);
   violations.push(...structuralDispatchViolations(relativeFile, sourceFile));
-  return violations;
+  return violations.filter(
+    (violation) => !hasChatSendGateOptOut(source, violation.startLine),
+  );
 }
 
 function main(): void {
   const added = requireAddedLines(REPO_ROOT, "guard-chat-send-gate");
   const violations: ChatSendGateViolation[] = [];
+  const inspectedFiles = new Set<string>();
 
   for (const [absolutePath, addedLineNumbers] of added) {
     const relativeFile = normalizePath(path.relative(REPO_ROOT, absolutePath));
@@ -1118,6 +1133,7 @@ function main(): void {
       );
       process.exit(2);
     }
+    inspectedFiles.add(relativeFile);
     const addedViolations = findChatSendGateViolations(
       relativeFile,
       source,
@@ -1151,6 +1167,7 @@ function main(): void {
       );
       process.exit(2);
     }
+    inspectedFiles.add(relativeFile);
     const structural = structuralDispatchViolations(
       relativeFile,
       ts.createSourceFile(
@@ -1161,7 +1178,11 @@ function main(): void {
         ts.ScriptKind.TS,
       ),
     );
-    violations.push(...structural);
+    violations.push(
+      ...structural.filter(
+        (violation) => !hasChatSendGateOptOut(source, violation.startLine),
+      ),
+    );
   }
 
   const uniqueViolations = violations.filter(
@@ -1175,12 +1196,14 @@ function main(): void {
   );
 
   if (uniqueViolations.length === 0) {
-    console.log("guard-chat-send-gate: OK");
+    console.log(
+      `guard-chat-send-gate: OK (${inspectedFiles.size} files inspected)`,
+    );
     return;
   }
 
   console.error(
-    `\nguard-chat-send-gate: ${uniqueViolations.length} prompt dispatch bypass(es) found.\n`,
+    `\nguard-chat-send-gate: ${uniqueViolations.length} prompt dispatch bypass(es) found (${inspectedFiles.size} files inspected).\n`,
   );
   console.error(
     "Prompt sends must pass through the shared AgentKit/runtime dispatch gate.\n" +

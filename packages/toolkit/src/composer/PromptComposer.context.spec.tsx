@@ -1486,7 +1486,7 @@ describe("controlled composer context", () => {
   });
 
   it.each(["configured", "missing", "unavailable"] as const)(
-    "waits for fresh provider readiness before submitting (%s)",
+    "waits for shared provider readiness before submitting (%s)",
     async (resultingState) => {
       let resolveReadiness!: (
         state: "configured" | "missing" | "unavailable",

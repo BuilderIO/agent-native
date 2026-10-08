@@ -9,7 +9,6 @@ import {
 } from "../agent/engine/provider-env-vars.js";
 import { getAgentEngineEntry } from "../agent/engine/registry.js";
 import type { AgentEngineEntry } from "../agent/engine/registry.js";
-import { getMemoizedAgentEngineStatus } from "./agent-engine-status-cache.js";
 import { hasUsableBuilderOAuthSessionForReadiness } from "./builder-oauth.js";
 import {
   assertCredentialStoreReadable,
@@ -142,18 +141,7 @@ export function isAgentChatAiSetupRequiredError(
 }
 
 export async function requireAgentChatAiSetup(): Promise<void> {
-  const ownerEmail = getRequestUserEmail();
-  const cachedStatus = ownerEmail
-    ? await getMemoizedAgentEngineStatus<{
-        chatEligible?: unknown;
-      }>({ userEmail: ownerEmail, orgId: getRequestOrgId() })
-    : undefined;
-  const cachedChatEligibility = cachedStatus?.chatEligible;
-  const isReady =
-    typeof cachedChatEligibility === "boolean"
-      ? cachedChatEligibility
-      : await isAgentChatAiSetupReady();
-  if (isReady) return;
+  if (await isAgentChatAiSetupReady()) return;
 
   throw createError({
     statusCode: 403,

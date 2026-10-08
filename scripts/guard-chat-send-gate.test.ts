@@ -22,6 +22,27 @@ test("flags raw prompt POSTs outside the shared dispatch boundary", () => {
   );
 });
 
+test("allows a reviewed opt-out only when the pragma includes a reason", () => {
+  assert.deepEqual(
+    violations(
+      "templates/example/Chat.tsx",
+      `// guard:allow-chat-send-gate - this host submits to a non-agent endpoint
+fetch("/_agent-native/agent-chat", { method: "POST", body: "{}" });`,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    violations(
+      "templates/example/Chat.tsx",
+      `// guard:allow-chat-send-gate
+fetch("/_agent-native/agent-chat", { method: "POST", body: "{}" });`,
+    ),
+    [
+      "prompt POST must use an approved shared dispatch boundary instead of raw fetch",
+    ],
+  );
+});
+
 test("recognizes route and request options stored in constants", () => {
   const [reason] = violations(
     "templates/example/send.ts",
