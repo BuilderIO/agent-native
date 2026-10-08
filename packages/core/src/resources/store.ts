@@ -2622,6 +2622,30 @@ export async function resourceEffectiveContext(
   };
 }
 
+/**
+ * A cheap change detector for everything `resourceListAllOwners(pathPrefix)`
+ * reads: any insert, update, delete or snapshot restore changes it. The SUMs
+ * cover a restore that writes back an older `updated_at` (which MAX misses)
+ * and an edit landing in the same millisecond as the previous write.
+ */
+export async function resourceFingerprintAllOwners(
+  pathPrefix: string,
+): Promise<string> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT COUNT(*) AS row_count, MAX(updated_at) AS max_updated_at, SUM(updated_at) AS sum_updated_at, SUM(size) AS sum_size FROM resources WHERE path LIKE ? ESCAPE '!'`,
+    args: [prefixLike(pathPrefix)],
+  });
+  const row = rows[0];
+  if (!row) throw new Error("Resource fingerprint query returned no row.");
+  const local = (await localWorkspaceResourceMetas(pathPrefix))
+    .map((resource) => `${resource.path}@${resource.updatedAt}`)
+    .sort()
+    .join("|");
+  const localHash = crypto.createHash("sha1").update(local).digest("hex");
+  return `${row.row_count}:${row.max_updated_at ?? ""}:${row.sum_updated_at ?? ""}:${row.sum_size ?? ""}:${localHash}`;
+}
+
 export async function resourceListAllOwners(
   pathPrefix: string,
   options: { includeShadowedWorkspaceRows?: boolean } = {},
