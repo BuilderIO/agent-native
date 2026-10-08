@@ -217,6 +217,36 @@ npx wrangler deploy --config .output/server/wrangler.json
 Les secrets restent enregistrés dans le Worker d'un déploiement à l'autre. Vous
 n'avez donc pas besoin de répéter l'étape 5.
 
+## Travail planifié {#cloudflare-scheduled-work}
+
+Les automatisations planifiées, les automatisations par événement en file
+d'attente et le nettoyage des exécutions interrompues passent tous par un
+balayage exécuté une fois par minute. Le build ajoute un
+[Cron Trigger](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
+`* * * * *` au `wrangler.json` généré et conserve les Cron Triggers que vous
+avez déjà déclarés. Lorsqu'il se déclenche, le gestionnaire `scheduled` du
+Worker appelle directement le balayage avec un jeton de courte durée signé avec
+`A2A_SECRET` ; définissez donc ce secret avant de déployer :
+
+```bash
+npx wrangler secret put A2A_SECRET --config .output/server/wrangler.json
+```
+
+- **Temps CPU.** Avec le forfait Workers Free, chaque invocation de Cron Trigger
+  dispose de 10 ms de temps CPU, et un balayage qui exécute des tâches d'agent
+  en demande davantage. Utilisez le forfait Workers Paid pour le travail
+  planifié.
+- **Horaires.** Les Cron Triggers fonctionnent en UTC, et un déclencheur nouveau
+  ou modifié peut mettre jusqu'à 15 minutes à commencer à se déclencher après
+  un déploiement.
+- **Tests en local.** Lancez le Worker construit avec
+  `npx wrangler dev --test-scheduled --config .output/server/wrangler.json`,
+  puis requêtez `/cdn-cgi/handler/scheduled?cron=*+*+*+*+*` pour déclencher le
+  balayage une fois.
+
+Voir [Fonctionnement du planificateur](/docs/recurring-jobs#how-scheduler-runs)
+pour les autres hébergeurs.
+
 ## Et ensuite {#whats-next}
 
 - [**Variables d'environnement de déploiement**](/docs/deployment-environment-variables) - la liste complète des paramètres de production

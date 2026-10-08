@@ -53,6 +53,7 @@ vi.mock("../db/ddl-guard.js", () => ({
 }));
 
 const {
+  adoptTraceOrgForThread,
   getTraceSummaries,
   getTraceSummary,
   getLatestTraceSummaryForThread,
@@ -93,6 +94,38 @@ function lastSelect(): ExecCall {
   const selects = execCalls.filter((c) => /^\s*SELECT\b/i.test(c.sql));
   if (selects.length === 0) throw new Error("no SELECT was executed");
   return selects[selects.length - 1];
+}
+
+// Runs `run` against PGlite tables shaped like the ones the thread-org adoption
+// SQL reads, with the store's `execute` pointed at them.
+async function withThreadOrgDb(
+  seed: string,
+  run: (pg: Awaited<ReturnType<typeof createTestPglite>>) => Promise<void>,
+): Promise<void> {
+  const pg = await createTestPglite();
+  const capturingExecute = vi.mocked(mockDb.execute).getMockImplementation()!;
+  try {
+    await pg.exec(`
+      CREATE TABLE chat_threads (
+        id TEXT, org_id TEXT, owner_email TEXT, title TEXT, thread_data TEXT,
+        visibility TEXT NOT NULL DEFAULT 'private'
+      );
+      CREATE TABLE agent_trace_summaries (
+        run_id TEXT PRIMARY KEY, thread_id TEXT, user_id TEXT, org_id TEXT
+      );
+      ${seed}
+    `);
+    vi.mocked(mockDb.execute).mockImplementation(async (input) => {
+      const { sql, args } =
+        typeof input === "string" ? { sql: input, args: [] } : input;
+      const result = await pg.query(sql, args ?? []);
+      return { rows: result.rows, rowsAffected: 0 };
+    });
+    await run(pg);
+  } finally {
+    vi.mocked(mockDb.execute).mockImplementation(capturingExecute);
+    await pg.close();
+  }
 }
 
 describe("observability store: per-user isolation", () => {
@@ -437,6 +470,327 @@ describe("observability store: per-user isolation", () => {
       expect(call.sql).toMatch(/AND id IN \(\?, \?\)/);
       expect(call.sql).toMatch(/^SELECT id, thread_data FROM chat_threads/);
       expect(call.args).toEqual(["org-a", "alice@example.com", "a", "b"]);
+    });
+
+    it("makes a NULL-org thread reviewable by its trace org only, and only for its owner", async () => {
+      const pg = await createTestPglite();
+      const capturingExecute = vi
+        .mocked(mockDb.execute)
+        .getMockImplementation()!;
+      try {
+        await pg.exec(`
+          CREATE TABLE chat_threads (
+            id TEXT, org_id TEXT, owner_email TEXT, title TEXT, thread_data TEXT,
+            visibility TEXT NOT NULL DEFAULT 'private'
+          );
+          CREATE TABLE agent_trace_summaries (
+            run_id TEXT PRIMARY KEY, thread_id TEXT, user_id TEXT, org_id TEXT
+          );
+          INSERT INTO chat_threads (id, org_id, owner_email, title, thread_data)
+            VALUES ('thread-null', NULL, 'Alice@example.com', 't', '{"a":1}'),
+                   ('thread-bobs', NULL, 'bob@example.com', 't', '{"b":1}'),
+                   ('thread-assigned', 'org-existing', 'alice@example.com', 't', '{"c":1}');
+        `);
+        vi.mocked(mockDb.execute).mockImplementation(async (input) => {
+          const { sql, args } =
+            typeof input === "string" ? { sql: input, args: [] } : input;
+          const result = await pg.query(sql, args ?? []);
+          return { rows: result.rows, rowsAffected: 0 };
+        });
+        const readAs = (orgId: string, threadId: string) =>
+          getOrgScopedThreadData(orgId, "alice@example.com", [threadId]);
+
+        // Before the run's org is adopted, no org's admin can read the thread.
+        expect((await readAs("org-a", "thread-null")).size).toBe(0);
+
+        await adoptTraceOrgForThread({
+          threadId: "thread-null",
+          userId: "alice@example.com",
+          orgId: "org-a",
+        });
+        // Another user's thread, and a thread whose org is already recorded,
+        // are never repointed by a run that merely names them.
+        await adoptTraceOrgForThread({
+          threadId: "thread-bobs",
+          userId: "alice@example.com",
+          orgId: "org-a",
+        });
+        await adoptTraceOrgForThread({
+          threadId: "thread-assigned",
+          userId: "alice@example.com",
+          orgId: "org-a",
+        });
+        await adoptTraceOrgForThread({
+          threadId: "thread-null",
+          userId: "alice@example.com",
+          orgId: "org-b",
+        });
+
+        expect((await readAs("org-a", "thread-null")).get("thread-null")).toBe(
+          '{"a":1}',
+        );
+        expect((await readAs("org-b", "thread-null")).size).toBe(0);
+        const rows = await pg.query(
+          "SELECT id, org_id FROM chat_threads ORDER BY id",
+        );
+        expect(rows.rows).toEqual([
+          { id: "thread-assigned", org_id: "org-existing" },
+          { id: "thread-bobs", org_id: null },
+          { id: "thread-null", org_id: "org-a" },
+        ]);
+      } finally {
+        vi.mocked(mockDb.execute).mockImplementation(capturingExecute);
+        await pg.close();
+      }
+    });
+
+    it("adopts a NULL-org thread only when the owner's runs on it name a single org", async () => {
+      const pg = await createTestPglite();
+      const capturingExecute = vi
+        .mocked(mockDb.execute)
+        .getMockImplementation()!;
+      try {
+        await pg.exec(`
+          CREATE TABLE chat_threads (
+            id TEXT, org_id TEXT, owner_email TEXT, title TEXT, thread_data TEXT,
+            visibility TEXT NOT NULL DEFAULT 'private'
+          );
+          CREATE TABLE agent_trace_summaries (
+            run_id TEXT PRIMARY KEY, thread_id TEXT, user_id TEXT, org_id TEXT
+          );
+          INSERT INTO chat_threads (id, org_id, owner_email, title, thread_data)
+            VALUES ('thread-first', NULL, 'alice@example.com', 't', '{"first":1}'),
+                   ('thread-split', NULL, 'Alice@example.com', 't', '{"split":1}'),
+                   ('thread-same-org', NULL, 'alice@example.com', 't', '{"same":1}'),
+                   ('thread-unscoped-run', NULL, 'alice@example.com', 't', '{"unscoped":1}'),
+                   ('thread-viewer-run', NULL, 'alice@example.com', 't', '{"viewer":1}');
+          INSERT INTO agent_trace_summaries (run_id, thread_id, user_id, org_id)
+            VALUES ('run-first', 'thread-first', 'alice@example.com', 'org-a'),
+                   ('run-split-b', 'thread-split', 'alice@example.com', 'org-b'),
+                   ('run-split-a', 'thread-split', 'alice@example.com', 'org-a'),
+                   ('run-same-1', 'thread-same-org', 'alice@example.com', 'org-a'),
+                   ('run-same-2', 'thread-same-org', 'ALICE@example.com', 'org-a'),
+                   ('run-unscoped', 'thread-unscoped-run', 'alice@example.com', NULL),
+                   ('run-unscoped-a', 'thread-unscoped-run', 'alice@example.com', 'org-a'),
+                   ('run-viewer-b', 'thread-viewer-run', 'bob@example.com', 'org-b'),
+                   ('run-viewer-a', 'thread-viewer-run', 'alice@example.com', 'org-a');
+        `);
+        vi.mocked(mockDb.execute).mockImplementation(async (input) => {
+          const { sql, args } =
+            typeof input === "string" ? { sql: input, args: [] } : input;
+          const result = await pg.query(sql, args ?? []);
+          return { rows: result.rows, rowsAffected: 0 };
+        });
+        const adoptAs = (threadId: string, orgId: string) =>
+          adoptTraceOrgForThread({
+            threadId,
+            userId: "alice@example.com",
+            orgId,
+          });
+
+        await adoptAs("thread-first", "org-a");
+        // The thread already ran under org-b, so neither org can claim it.
+        await adoptAs("thread-split", "org-a");
+        await adoptAs("thread-split", "org-b");
+        await adoptAs("thread-same-org", "org-a");
+        await adoptAs("thread-unscoped-run", "org-a");
+        // Only the owner's own runs count toward ambiguity.
+        await adoptAs("thread-viewer-run", "org-a");
+
+        const rows = await pg.query(
+          "SELECT id, org_id FROM chat_threads ORDER BY id",
+        );
+        expect(rows.rows).toEqual([
+          { id: "thread-first", org_id: "org-a" },
+          { id: "thread-same-org", org_id: "org-a" },
+          { id: "thread-split", org_id: null },
+          { id: "thread-unscoped-run", org_id: "org-a" },
+          { id: "thread-viewer-run", org_id: "org-a" },
+        ]);
+        // A thread left unassigned is review-visible to no org at all.
+        for (const orgId of ["org-a", "org-b"]) {
+          expect(
+            (
+              await getOrgScopedThreadData(orgId, "alice@example.com", [
+                "thread-split",
+              ])
+            ).size,
+          ).toBe(0);
+        }
+      } finally {
+        vi.mocked(mockDb.execute).mockImplementation(capturingExecute);
+        await pg.close();
+      }
+    });
+
+    describe("a private thread whose owner's runs span orgs", () => {
+      const record = (
+        pg: Awaited<ReturnType<typeof createTestPglite>>,
+        runId: string,
+        threadId: string,
+        orgId: string,
+        userId = "alice@example.com",
+      ) =>
+        pg.query(
+          "INSERT INTO agent_trace_summaries (run_id, thread_id, user_id, org_id) VALUES ($1, $2, $3, $4)",
+          [runId, threadId, userId, orgId],
+        );
+      const finish = (
+        pg: Awaited<ReturnType<typeof createTestPglite>>,
+        runId: string,
+        threadId: string,
+        orgId: string,
+        userId = "alice@example.com",
+      ) =>
+        record(pg, runId, threadId, orgId, userId).then(() =>
+          adoptTraceOrgForThread({ threadId, userId, orgId }),
+        );
+      const orgOf = async (
+        pg: Awaited<ReturnType<typeof createTestPglite>>,
+        threadId: string,
+      ) =>
+        (
+          await pg.query("SELECT org_id FROM chat_threads WHERE id = $1", [
+            threadId,
+          ])
+        ).rows[0]?.org_id;
+      const reviewable = async (orgId: string, threadId: string) =>
+        (await getOrgScopedThreadData(orgId, "alice@example.com", [threadId]))
+          .size === 1;
+
+      it("unassigns a thread that one org's run adopted once another org's run finishes on it", async () => {
+        await withThreadOrgDb(
+          `INSERT INTO chat_threads (id, org_id, owner_email, thread_data)
+            VALUES ('thread-split', NULL, 'Alice@example.com', '{"a":1,"b":1}')`,
+          async (pg) => {
+            await finish(pg, "run-a", "thread-split", "org-a");
+            expect(await orgOf(pg, "thread-split")).toBe("org-a");
+            expect(await reviewable("org-a", "thread-split")).toBe(true);
+
+            await finish(pg, "run-b", "thread-split", "org-b");
+            expect(await orgOf(pg, "thread-split")).toBeNull();
+            expect(await reviewable("org-a", "thread-split")).toBe(false);
+            expect(await reviewable("org-b", "thread-split")).toBe(false);
+
+            // The thread stays unassigned for later runs of either org.
+            await finish(pg, "run-a2", "thread-split", "org-a");
+            await finish(pg, "run-b2", "thread-split", "org-b");
+            expect(await orgOf(pg, "thread-split")).toBeNull();
+          },
+        );
+      });
+
+      it("unassigns a thread created under one org once the owner runs it under another", async () => {
+        await withThreadOrgDb(
+          `INSERT INTO chat_threads (id, org_id, owner_email, thread_data)
+            VALUES ('thread-created', 'org-a', 'alice@example.com', '{"a":1}');
+           INSERT INTO agent_trace_summaries (run_id, thread_id, user_id, org_id)
+            VALUES ('run-a', 'thread-created', 'alice@example.com', 'org-a')`,
+          async (pg) => {
+            await finish(pg, "run-a2", "thread-created", "org-a");
+            expect(await orgOf(pg, "thread-created")).toBe("org-a");
+
+            await finish(pg, "run-b", "thread-created", "org-b");
+            expect(await orgOf(pg, "thread-created")).toBeNull();
+          },
+        );
+      });
+
+      it("ends unassigned however two concurrent runs interleave their summary commits and adoptions", async () => {
+        await withThreadOrgDb(
+          `INSERT INTO chat_threads (id, org_id, owner_email, thread_data)
+            VALUES ('thread-ab', NULL, 'alice@example.com', '{}'),
+                   ('thread-ba', NULL, 'alice@example.com', '{}'),
+                   ('thread-raced-a', NULL, 'alice@example.com', '{}'),
+                   ('thread-raced-b', NULL, 'alice@example.com', '{}')`,
+          async (pg) => {
+            const adoptAs = (threadId: string, orgId: string) =>
+              adoptTraceOrgForThread({
+                threadId,
+                userId: "alice@example.com",
+                orgId,
+              });
+            // Both summaries are committed before either adoption runs.
+            for (const threadId of ["thread-ab", "thread-ba"]) {
+              await record(pg, `${threadId}-a`, threadId, "org-a");
+              await record(pg, `${threadId}-b`, threadId, "org-b");
+            }
+            await adoptAs("thread-ab", "org-a");
+            await adoptAs("thread-ab", "org-b");
+            await adoptAs("thread-ba", "org-b");
+            await adoptAs("thread-ba", "org-a");
+
+            // org-a's adoption passed its check before org-b's summary was
+            // committed, so the thread is bound to org-a while both summaries
+            // exist. Whichever run's statements execute next undoes it.
+            for (const threadId of ["thread-raced-a", "thread-raced-b"]) {
+              await record(pg, `${threadId}-a`, threadId, "org-a");
+              await record(pg, `${threadId}-b`, threadId, "org-b");
+              await pg.query(
+                "UPDATE chat_threads SET org_id = 'org-a' WHERE id = $1",
+                [threadId],
+              );
+            }
+            await adoptAs("thread-raced-a", "org-a");
+            await adoptAs("thread-raced-b", "org-b");
+
+            for (const threadId of [
+              "thread-ab",
+              "thread-ba",
+              "thread-raced-a",
+              "thread-raced-b",
+            ]) {
+              expect(await orgOf(pg, threadId)).toBeNull();
+              expect(await reviewable("org-a", threadId)).toBe(false);
+              expect(await reviewable("org-b", threadId)).toBe(false);
+            }
+          },
+        );
+      });
+
+      it("keeps a thread adopted while every run of the owner names the same org", async () => {
+        await withThreadOrgDb(
+          `INSERT INTO chat_threads (id, org_id, owner_email, thread_data)
+            VALUES ('thread-one-org', NULL, 'alice@example.com', '{"a":1}')`,
+          async (pg) => {
+            await finish(pg, "run-1", "thread-one-org", "org-a");
+            await finish(pg, "run-2", "thread-one-org", "org-a");
+            expect(await orgOf(pg, "thread-one-org")).toBe("org-a");
+            expect(await reviewable("org-a", "thread-one-org")).toBe(true);
+          },
+        );
+      });
+
+      it("ignores other users' runs on the thread and another owner's thread", async () => {
+        await withThreadOrgDb(
+          `INSERT INTO chat_threads (id, org_id, owner_email, thread_data)
+            VALUES ('thread-viewed', NULL, 'alice@example.com', '{}'),
+                   ('thread-bobs', 'org-a', 'bob@example.com', '{}');
+           INSERT INTO agent_trace_summaries (run_id, thread_id, user_id, org_id)
+            VALUES ('run-viewer', 'thread-viewed', 'bob@example.com', 'org-b'),
+                   ('run-bob-b', 'thread-bobs', 'bob@example.com', 'org-b')`,
+          async (pg) => {
+            await finish(pg, "run-alice", "thread-viewed", "org-a");
+            expect(await orgOf(pg, "thread-viewed")).toBe("org-a");
+
+            // Alice's run names Bob's thread; only its owner's runs move it.
+            await finish(pg, "run-alice-b", "thread-bobs", "org-c");
+            expect(await orgOf(pg, "thread-bobs")).toBe("org-a");
+          },
+        );
+      });
+
+      it("never unassigns an org-visible thread", async () => {
+        await withThreadOrgDb(
+          `INSERT INTO chat_threads (id, org_id, owner_email, thread_data, visibility)
+            VALUES ('thread-shared', 'org-a', 'alice@example.com', '{}', 'org')`,
+          async (pg) => {
+            await finish(pg, "run-a", "thread-shared", "org-a");
+            await finish(pg, "run-b", "thread-shared", "org-b");
+            expect(await orgOf(pg, "thread-shared")).toBe("org-a");
+          },
+        );
+      });
     });
 
     it("reads thread titles only from explicitly org-owned rows", async () => {

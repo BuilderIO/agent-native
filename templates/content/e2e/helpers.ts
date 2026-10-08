@@ -125,12 +125,21 @@ export async function createPage(
 /** Unique words a scenario types, so each can be counted on every surface. */
 export class Markers {
   readonly all: string[] = [];
+  /** Words a tab deleted after typing them, which must not come back. */
+  readonly removed: string[] = [];
   private readonly run = randomUUID().slice(0, 4);
 
   next(author: string): string {
-    const marker = `zq${this.run}${author}${this.all.length + 1}x`;
+    const marker = `zq${this.run}${author}${this.all.length + this.removed.length + 1}x`;
     this.all.push(marker);
     return marker;
+  }
+
+  remove(marker: string): void {
+    const at = this.all.indexOf(marker);
+    if (at < 0) throw new Error(`${marker} is not a marker`);
+    this.all.splice(at, 1);
+    this.removed.push(marker);
   }
 }
 
@@ -691,6 +700,36 @@ export async function typeAtParagraphEnd(
   await page.keyboard.type(text, { delay: delayMs });
 }
 
+/** Select `text` in the editor and delete it with the keyboard, as a person would. */
+export async function deleteEditorText(
+  page: Page,
+  text: string,
+): Promise<void> {
+  await page.evaluate(
+    ({ needle, editor }) => {
+      const root = document.querySelector(editor);
+      if (!root) throw new Error("No editor");
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode as Text;
+        const at = node.data.indexOf(needle);
+        if (at < 0) continue;
+        const range = document.createRange();
+        range.setStart(node, at);
+        range.setEnd(node, at + needle.length);
+        const selection = window.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return;
+      }
+      throw new Error(`The editor has no text node containing ${needle}`);
+    },
+    { needle: text, editor: EDITOR },
+  );
+  await page.keyboard.press("Backspace");
+  await expect(page.locator(EDITOR)).not.toContainText(text);
+}
+
 export function countMarkers(
   text: string,
   markers: readonly string[],
@@ -879,18 +918,27 @@ export interface IntegrityObservation {
   surface: string;
   lost: string[];
   duplicated: string[];
+  /** Words a tab deleted that came back. */
+  resurrected: string[];
 }
 
 function judge(
   at: IntegrityObservation["at"],
   surface: string,
-  counts: Record<string, number>,
+  text: string,
+  markers: readonly string[],
+  removed: readonly string[],
 ): IntegrityObservation {
+  const counts = countMarkers(text, markers);
+  const removedCounts = countMarkers(text, removed);
   return {
     at,
     surface,
     lost: Object.keys(counts).filter((marker) => counts[marker] === 0),
     duplicated: Object.keys(counts).filter((marker) => counts[marker] > 1),
+    resurrected: Object.keys(removedCounts).filter(
+      (marker) => removedCounts[marker] > 0,
+    ),
   };
 }
 
@@ -902,15 +950,16 @@ const CONVERGENCE_DEADLINE_MS = 45_000;
 
 /**
  * The integrity gate: every marker appears exactly once in the saved page
- * and in each open tab's editor, after the tabs have had time to converge,
- * again after a refresh, and again in a tab opened alone, where no live copy
- * can stand in for a lost save. History and recovery views do not count.
+ * and in each open tab's editor, and no deleted marker appears at all, after
+ * the tabs have had time to converge, again after a refresh, and again in a
+ * tab opened alone, where no live copy can stand in for a lost save. History
+ * and recovery views do not count.
  */
 export async function observeIntegrity(
   tabs: TabSet,
   reader: Page,
   id: string,
-  markers: readonly string[],
+  markers: Markers,
 ): Promise<IntegrityObservation[]> {
   const observations: IntegrityObservation[] = [];
   const open = [...tabs.tabs.keys()].filter((page) => !page.isClosed());
@@ -923,7 +972,9 @@ export async function observeIntegrity(
         judge(
           at,
           "sql",
-          countMarkers((await getDocument(reader, id)).content ?? "", markers),
+          (await getDocument(reader, id)).content ?? "",
+          markers.all,
+          markers.removed,
         ),
       ];
       for (const page of pages)
@@ -931,13 +982,12 @@ export async function observeIntegrity(
           judge(
             at,
             tabs.record(page).label,
-            countMarkers(await editorText(page), markers),
+            await editorText(page),
+            markers.all,
+            markers.removed,
           ),
         );
-      if (
-        round.every((entry) => !entry.lost.length && !entry.duplicated.length)
-      )
-        break;
+      if (round.every((entry) => !integrityProblem(entry))) break;
       await delay(1_000);
     } while (Date.now() < deadline);
     observations.push(...round);
@@ -989,12 +1039,18 @@ export function writeScenarioRecord(
   appendFileSync(file, `${JSON.stringify(record)}\n`);
 }
 
+export function integrityProblem(entry: IntegrityObservation): boolean {
+  return Boolean(
+    entry.lost.length || entry.duplicated.length || entry.resurrected.length,
+  );
+}
+
 export function integrityFailures(record: ScenarioRecord): string[] {
   return record.integrity
-    .filter((entry) => entry.lost.length || entry.duplicated.length)
+    .filter(integrityProblem)
     .map(
       (entry) =>
-        `${entry.at} ${entry.surface}: lost ${JSON.stringify(entry.lost)}, duplicated ${JSON.stringify(entry.duplicated)}`,
+        `${entry.at} ${entry.surface}: lost ${JSON.stringify(entry.lost)}, duplicated ${JSON.stringify(entry.duplicated)}, deleted but back ${JSON.stringify(entry.resurrected)}`,
     );
 }
 

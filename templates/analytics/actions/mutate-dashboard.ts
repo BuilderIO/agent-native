@@ -202,8 +202,12 @@ function nonEmptyOperations(
 }
 
 const apiHelp =
-  "Compact script form of `operations`: JSON-literal calls on `dashboard` only (quote object keys; no variables, loops, or imports). Use it for short layout or config edits; the dashboard-management skill lists the methods. " +
-  `Examples: ${DASHBOARD_MUTATION_EXAMPLES[0]} ${DASHBOARD_MUTATION_EXAMPLES[2]}`;
+  "Compact script form of `operations`: JSON-literal calls on `dashboard` only (quote object keys; no variables, loops, or imports). Use it for short layout or config edits; call with only `returnTypes: true` to list every method. " +
+  `Examples: ${[0, 2, 3, 4, 7].map((index) => DASHBOARD_MUTATION_EXAMPLES[index]).join(" ")}`;
+
+const operationsHelp =
+  "Edits applied atomically in one save, by panel id. " +
+  'Examples: {"op":"updatePanel","panelId":"top-referrers","patch":{"title":"Top Referrers by Domain","width":2,"config":{"yFormatter":"percent"}}} {"op":"movePanels","panelIds":["dau","wau"],"position":"top"} {"op":"setFilterDefault","filterId":"emailFilter","value":"exclude_builder"}';
 
 const dryRunHelp = "Validate and verify without saving.";
 const allowEmptyResultHelp =
@@ -215,7 +219,7 @@ const agentInputSchema = z.object({
     .array(mutationOperationSchema)
     .max(MAX_DASHBOARD_MUTATION_OPERATIONS)
     .optional()
-    .describe("Edits applied atomically in one save, by panel id."),
+    .describe(operationsHelp),
   code: z
     .string()
     .max(MAX_DASHBOARD_MUTATION_CODE_LENGTH)
@@ -434,7 +438,7 @@ function helpResult() {
 export default defineAction({
   description:
     "Edit a SQL dashboard in ONE atomic save: move, insert, duplicate, remove, and edit panels by id (title, SQL, width, config), patch dashboard fields, or set filter defaults. Pass typed `operations`; `code` is a compact script form of the same edits. " +
-    "Place a panel in a visible row with nextToPanelId or rowNumber. First-party panel SQL must bind to a dashboard time filter (config.timeScope). Use `compose-dashboard` for catalog metrics and keep large SQL out of `code`. Read the existing panels with `get-sql-dashboard` first and match their chart types, widths, and config. The dashboard-management skill owns placement, time-scope, and config rules. " +
+    "Place a panel in a visible row with nextToPanelId or rowNumber. First-party panel SQL must bind to a dashboard time filter (config.timeScope). For catalog metrics load `compose-dashboard` with `tool-search`, and keep large SQL out of `code`. Read the existing panels with `get-sql-dashboard` first and match their chart types, widths, and config. Small edits of existing panels need no skill; the dashboard-management skill owns new-panel placement, time-scope, and config rules. " +
     "Before saving, agent calls run every changed panel the way the dashboard page does; a panel that would show 'No data', drop configured columns, or fail is refused with the reason and nothing is written. " +
     "The result's `verified` flag and per-panel `verification` (or `unverified` reasons) are the proof the edit renders: report only what they show, and on `verified:false`, an error, or a user report that nothing changed, call `inspect-dashboard-panel` before saying anything about the chart.",
   schema: z.object({
@@ -449,7 +453,7 @@ export default defineAction({
       .optional()
       .describe(apiHelp),
     operations: operationsInputSchema.describe(
-      "Edits applied atomically in one save, by panel id. Native callers pass an array; shell/legacy callers may pass a JSON string.",
+      `${operationsHelp} Native callers pass an array; shell/legacy callers may pass a JSON string.`,
     ),
     dryRun: z.boolean().optional().describe(dryRunHelp),
     allowEmptyResult: z.boolean().optional().describe(allowEmptyResultHelp),

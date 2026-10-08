@@ -1,17 +1,16 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { getBigQueryProjectId } from "../server/lib/bigquery";
-import { getAccessToken } from "../server/lib/gcloud";
+import {
+  bigQueryGet,
+  flattenBigQueryFields,
+  getBigQueryProjectId,
+  getBigQueryTableMetadata,
+  listBigQueryTables,
+  type BigQueryTableMetadata,
+  type BigQueryTableSummary,
+} from "../server/lib/bigquery";
 import { cliBoolean } from "./schema-helpers";
-
-interface BigQueryField {
-  name: string;
-  type?: string;
-  mode?: string;
-  description?: string;
-  fields?: BigQueryField[];
-}
 
 interface DatasetListResponse {
   datasets?: Array<{
@@ -20,45 +19,6 @@ interface DatasetListResponse {
     labels?: Record<string, string>;
     location?: string;
   }>;
-}
-
-interface TableListResponse {
-  tables?: Array<{
-    tableReference?: {
-      projectId?: string;
-      datasetId?: string;
-      tableId?: string;
-    };
-    type?: string;
-    friendlyName?: string;
-    labels?: Record<string, string>;
-  }>;
-}
-
-interface BigQueryTableSummary {
-  projectId?: string;
-  datasetId?: string;
-  tableId?: string;
-  type?: string;
-  friendlyName?: string;
-  labels?: Record<string, string>;
-}
-
-interface TableMetadata {
-  tableReference?: {
-    projectId?: string;
-    datasetId?: string;
-    tableId?: string;
-  };
-  friendlyName?: string;
-  description?: string;
-  type?: string;
-  location?: string;
-  numRows?: string;
-  numBytes?: string;
-  timePartitioning?: unknown;
-  clustering?: unknown;
-  schema?: { fields?: BigQueryField[] };
 }
 
 const PROJECT_RE = /^[A-Za-z][A-Za-z0-9-]{4,61}[A-Za-z0-9]$/;
@@ -116,67 +76,7 @@ function parseTableRef(
   );
 }
 
-async function bigQueryGet<T>(url: string): Promise<T> {
-  const token = await getAccessToken();
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    let detail = "";
-    try {
-      const parsed = JSON.parse(text) as { error?: { message?: string } };
-      detail = parsed.error?.message ?? "";
-    } catch {
-      // Fall through to include the raw response body below.
-    }
-    if (detail) {
-      throw new Error(detail);
-    }
-    throw new Error(
-      `BigQuery metadata request failed (${res.status}): ${text}`,
-    );
-  }
-
-  return (await res.json()) as T;
-}
-
-function flattenFields(
-  fields: BigQueryField[] | undefined,
-  prefix = "",
-): Array<{
-  name: string;
-  type?: string;
-  mode?: string;
-  description?: string;
-}> {
-  if (!fields?.length) return [];
-  const columns: Array<{
-    name: string;
-    type?: string;
-    mode?: string;
-    description?: string;
-  }> = [];
-
-  for (const field of fields) {
-    const name = prefix ? `${prefix}.${field.name}` : field.name;
-    columns.push({
-      name,
-      type: field.type,
-      mode: field.mode,
-      description: field.description,
-    });
-    columns.push(...flattenFields(field.fields, name));
-  }
-
-  return columns;
-}
-
-function compactTable(meta: TableMetadata, includeColumns: boolean) {
+function compactTable(meta: BigQueryTableMetadata, includeColumns: boolean) {
   const ref = meta.tableReference ?? {};
   return {
     projectId: ref.projectId,
@@ -190,11 +90,13 @@ function compactTable(meta: TableMetadata, includeColumns: boolean) {
     numBytes: meta.numBytes ? Number(meta.numBytes) : undefined,
     timePartitioning: meta.timePartitioning,
     clustering: meta.clustering,
-    columns: includeColumns ? flattenFields(meta.schema?.fields) : undefined,
+    columns: includeColumns
+      ? flattenBigQueryFields(meta.schema?.fields)
+      : undefined,
   };
 }
 
-function matchesSearch(meta: TableMetadata, search: string): boolean {
+function matchesSearch(meta: BigQueryTableMetadata, search: string): boolean {
   const terms = search
     .toLowerCase()
     .replace(/[._-]+/g, " ")
@@ -208,7 +110,7 @@ function matchesSearch(meta: TableMetadata, search: string): boolean {
     ref.tableId,
     meta.friendlyName,
     meta.description,
-    ...flattenFields(meta.schema?.fields).flatMap((column) => [
+    ...flattenBigQueryFields(meta.schema?.fields).flatMap((column) => [
       column.name,
       column.type,
       column.description,
@@ -247,22 +149,6 @@ async function listDatasets(projectId: string, limit: number, search: string) {
     .slice(0, limit);
 }
 
-async function listTables(projectId: string, datasetId: string, limit: number) {
-  const url = new URL(
-    `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets/${datasetId}/tables`,
-  );
-  url.searchParams.set("maxResults", String(Math.min(limit, 1000)));
-  const result = await bigQueryGet<TableListResponse>(url.toString());
-  return (result.tables ?? []).map((table) => ({
-    projectId: table.tableReference?.projectId,
-    datasetId: table.tableReference?.datasetId,
-    tableId: table.tableReference?.tableId,
-    type: table.type,
-    friendlyName: table.friendlyName,
-    labels: table.labels,
-  }));
-}
-
 async function searchAcrossDatasets(
   projectId: string,
   search: string,
@@ -291,7 +177,7 @@ async function searchAcrossDatasets(
 
     datasetsScanned += 1;
     const remaining = GLOBAL_SEARCH_TABLE_LIMIT - tables.length;
-    const listed = await listTables(
+    const listed = await listBigQueryTables(
       projectId,
       datasetId,
       Math.min(remaining, GLOBAL_SEARCH_TABLE_LIMIT),
@@ -321,11 +207,11 @@ async function searchAcrossDatasets(
     const settled = await Promise.allSettled(
       batch.map(async (table) => {
         if (!table.datasetId || !table.tableId) return null;
-        const metadata = await getTableMetadata(
+        const metadata = await getBigQueryTableMetadata({
           projectId,
-          table.datasetId,
-          table.tableId,
-        );
+          datasetId: table.datasetId,
+          tableId: table.tableId,
+        });
         return matchesSearch(metadata, search)
           ? compactTable(metadata, true)
           : null;
@@ -364,15 +250,6 @@ async function searchAcrossDatasets(
     nextStep:
       "Use table=dataset.table for full metadata. Global search is bounded; pass a returned dataset/table reference for a complete inspection.",
   };
-}
-
-async function getTableMetadata(
-  projectId: string,
-  datasetId: string,
-  tableId: string,
-) {
-  const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets/${datasetId}/tables/${tableId}`;
-  return await bigQueryGet<TableMetadata>(url);
 }
 
 export default defineAction({
@@ -417,11 +294,7 @@ export default defineAction({
 
     if (args.table) {
       const ref = parseTableRef(configuredProjectId, args.dataset, args.table);
-      const meta = await getTableMetadata(
-        ref.projectId,
-        ref.datasetId,
-        ref.tableId,
-      );
+      const meta = await getBigQueryTableMetadata(ref);
       return {
         mode: "table",
         table: compactTable(meta, true),
@@ -442,7 +315,11 @@ export default defineAction({
     }
 
     const datasetId = assertIdentifier("dataset", args.dataset);
-    const tables = await listTables(configuredProjectId, datasetId, limit);
+    const tables = await listBigQueryTables(
+      configuredProjectId,
+      datasetId,
+      limit,
+    );
     const includeColumns = args.includeColumns === true || !!search;
 
     if (!includeColumns) {
@@ -469,7 +346,11 @@ export default defineAction({
     const metadata = await Promise.all(
       tables.slice(0, Math.min(tables.length, limit)).map((table) => {
         const tableId = table.tableId ?? "";
-        return getTableMetadata(configuredProjectId, datasetId, tableId);
+        return getBigQueryTableMetadata({
+          projectId: configuredProjectId,
+          datasetId,
+          tableId,
+        });
       }),
     );
 

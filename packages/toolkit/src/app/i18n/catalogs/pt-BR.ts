@@ -810,6 +810,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Configurando o Builder.io",
   "recovery.copyDebug": "Copiar informações de depuração",
   "recovery.copyFailed": "Falha ao copiar",
+  "recovery.continueUnavailable":
+    "Esta execução não pode mais ser continuada. Envie uma mensagem para seguir.",
   "recovery.retryAttachmentUnavailable":
     "Esta solicitação incluía um arquivo que não pode ser reenviado. Anexe-o novamente no campo de mensagem e tente outra vez.",
   "recovery.deferredSubmissionFailed":
@@ -836,6 +838,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.stuckWithDuration":
     "Sem progresso há {{seconds}} s. O agente pode ter atingido o tempo limite do servidor ou perdido a conexão.",
   "recovery.stuckRetrying": "Tentando novamente automaticamente agora.",
+  "recovery.statusUnreadable":
+    "Não foi possível alcançar o servidor para verificar este chat. Ele pode ter terminado. Vamos continuar tentando.",
+  "recovery.statusMismatch":
+    "O servidor diz que este chat não está mais em execução. Recarregue para ver o resultado.",
+  "recovery.reload": "Recarregar",
   "recovery.statusCheckFailed":
     "Não foi possível acessar o servidor para verificar se o agente ainda está trabalhando. Envie a mensagem novamente para tentar de novo.",
   "recovery.streamEnded":
@@ -1314,6 +1321,10 @@ const messages: ToolkitAgentChatTranslation = {
   "feedback.thumbsDown": "Não gostei",
   "feedback.thumbsUp": "Gostei",
   "feedback.tooSlow": "Muito lento",
+  "feedback.reasonMisread": "Entendeu mal meu pedido",
+  "feedback.reasonNotDone": "Disse que terminou, mas não terminou",
+  "feedback.reasonWrongNumbers": "Números errados",
+  "feedback.copyDetails": "Copiar detalhes",
   "feedback.whatWentWrong": "O que deu errado?",
   "feedback.wrongTool": "Ferramenta errada",
   "contextMeter.ariaLabel":
@@ -1887,6 +1898,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.adminOnly":
     "Somente proprietários e administradores da organização podem alterar o armazenamento de arquivos.",
   "settings.audit.action": "Ação",
+  "settings.audit.agentVia": "Agente via {{protocol}}",
   "settings.audit.allApps": "Todos os apps",
   "settings.audit.app": "App",
   "settings.audit.changedBy": "Alterado por",
