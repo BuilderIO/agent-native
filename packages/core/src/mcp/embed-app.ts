@@ -240,12 +240,12 @@ export function embedApp(
     function paneFillHeight(context) {
       const screenHeight = finiteNumber(window.screen && window.screen.availHeight) || 0;
       const hostMaxHeight = contextMaxHeight(context) || 0;
-      return Math.floor(
-        Math.min(
-          paneFillMaxHeight,
-          Math.max(defaultIntrinsicHeight, hostMaxHeight, screenHeight)
-        )
-      );
+      // The configured height is only a fallback: as a floor it would push the
+      // frame past a pane shorter than it.
+      const height = screenHeight
+        ? Math.max(screenHeight, hostMaxHeight)
+        : Math.max(defaultIntrinsicHeight, hostMaxHeight);
+      return Math.floor(Math.min(paneFillMaxHeight, height));
     }
 
     // The app document lifts its inline-card height clamp when the host owns

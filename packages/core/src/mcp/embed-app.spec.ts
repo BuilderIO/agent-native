@@ -630,6 +630,17 @@ return paneFillHeight;`,
         ).toBe(MCP_APP_PANE_FILL_MAX_HEIGHT);
       });
 
+      it("does not push the frame past a pane shorter than the configured height", () => {
+        expect(
+          paneFillHeightFor(
+            htmlFor("directory"),
+            codexInline,
+            { availHeight: 860 },
+            900,
+          ),
+        ).toBe(860);
+      });
+
       it("uses a host maxHeight larger than the screen", () => {
         expect(
           paneFillHeightFor(
