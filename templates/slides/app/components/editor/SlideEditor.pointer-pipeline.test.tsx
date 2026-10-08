@@ -777,6 +777,49 @@ describe("SlideEditor pointer pipeline selection and press fixes", () => {
     editor.click("card", { x: 85, y: 300 });
     expect(editor.lastSelected()).toBe(editor.el("card"));
   });
+
+  describe("when the release after Escape never arrives", () => {
+    const cancelDrag = async (beforeEscape?: () => void) => {
+      const editor = await mountEditor(CLIP_SLIDE);
+      beforeEscape?.();
+      editor.press("card", { x: 85, y: 300 });
+      fireEvent.pointerMove(window, {
+        clientX: 125,
+        clientY: 330,
+        pointerId: 1,
+      });
+      fireEvent.keyDown(window, { key: "Escape" });
+      vi.mocked(enterSelectionMode).mockClear();
+      return editor;
+    };
+
+    it("lets the next press click-select", async () => {
+      const editor = await cancelDrag();
+
+      editor.click("card", { x: 85, y: 300 });
+      expect(editor.lastSelected()).toBe(editor.el("card"));
+    });
+
+    it("lets a click through once the window lost focus", async () => {
+      const editor = await cancelDrag();
+
+      fireEvent.blur(window);
+      fireEvent.click(editor.el("card"), { clientX: 85, clientY: 300 });
+      expect(editor.lastSelected()).toBe(editor.el("card"));
+    });
+
+    it("stops swallowing clicks after a timeout", async () => {
+      // Fake timers go in after mounting, which waits on real ones.
+      const editor = await cancelDrag(() => vi.useFakeTimers());
+      try {
+        act(() => vi.advanceTimersByTime(5000));
+      } finally {
+        vi.useRealTimers();
+      }
+      fireEvent.click(editor.el("card"), { clientX: 85, clientY: 300 });
+      expect(editor.lastSelected()).toBe(editor.el("card"));
+    });
+  });
 });
 
 describe("SlideEditor pointer pipeline on groups", () => {

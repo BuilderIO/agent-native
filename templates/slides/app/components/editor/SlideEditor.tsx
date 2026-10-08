@@ -386,6 +386,9 @@ function isPersistedFreeformObject(element: HTMLElement): boolean {
   );
 }
 
+/** Longest a cancelled gesture's release may take before its click is real. */
+const CANCEL_CLICK_SUPPRESSION_TIMEOUT_MS = 2000;
+
 function resolveSlidePositioningLayer(
   element: HTMLElement,
 ): HTMLElement | null {
@@ -2228,6 +2231,9 @@ export default function SlideEditor({
    *  placing pointerdown doesn't fall through to click-to-select/deselect
    *  logic and steal focus back off the freshly created box. */
   const suppressNextClickRef = useRef(false);
+  /** Ends the click suppression an Escape-cancelled gesture armed. */
+  const cancelClickSuppressionRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => cancelClickSuppressionRef.current?.(), []);
   // The click that ends a press finishes what the press resolved. It cannot
   // re-resolve: a press selects, which changes what the pointer resolves to,
   // and a drag across text leaves clicks on their common ancestor.
@@ -4205,15 +4211,35 @@ export default function SlideEditor({
         // object the cancelled gesture started on.
         pointerPressRef.current = null;
         suppressNextClickRef.current = true;
-        const releaseClickSuppression = () => {
-          window.removeEventListener("pointerup", releaseClickSuppression);
-          window.removeEventListener("pointercancel", releaseClickSuppression);
-          window.setTimeout(function clearCancelClickSuppression() {
+        cancelClickSuppressionRef.current?.();
+        // The release can be lost (mouseup outside the window, alt-tab), and
+        // the flag would then swallow a later real click.
+        const settle = (afterClick: boolean) => {
+          window.removeEventListener("pointerup", onRelease);
+          window.removeEventListener("pointercancel", onRelease);
+          window.removeEventListener("pointerdown", onLost, true);
+          window.removeEventListener("blur", onLost);
+          window.clearTimeout(timer);
+          cancelClickSuppressionRef.current = null;
+          if (afterClick) {
+            window.setTimeout(function clearCancelClickSuppression() {
+              suppressNextClickRef.current = false;
+            }, 0);
+          } else {
             suppressNextClickRef.current = false;
-          }, 0);
+          }
         };
-        window.addEventListener("pointerup", releaseClickSuppression);
-        window.addEventListener("pointercancel", releaseClickSuppression);
+        const onRelease = () => settle(true);
+        const onLost = () => settle(false);
+        const timer = window.setTimeout(
+          onLost,
+          CANCEL_CLICK_SUPPRESSION_TIMEOUT_MS,
+        );
+        cancelClickSuppressionRef.current = onLost;
+        window.addEventListener("pointerup", onRelease);
+        window.addEventListener("pointercancel", onRelease);
+        window.addEventListener("pointerdown", onLost, true);
+        window.addEventListener("blur", onLost);
       } else if (action === "mode") {
         if (drawMode) onExitDrawMode?.();
         else if (pinMode) onExitPinMode?.();
