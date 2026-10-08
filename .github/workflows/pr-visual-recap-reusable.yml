@@ -967,34 +967,37 @@ jobs:
               actionUrl.searchParams.set("includeHtml", "false");
               actionUrl.searchParams.set("includeMdx", "false");
               let response;
+              let payload;
               for (requestAttempts = 1; requestAttempts <= 3; requestAttempts++) {
                 try {
                   response = await fetch(actionUrl, {
                     headers: { authorization: `Bearer ${process.env.PLAN_RECAP_TOKEN || ""}` },
                     signal: AbortSignal.timeout(15000),
                   });
+                  const retryableStatus = response.status === 408 || response.status === 429 || response.status >= 500;
+                  if (retryableStatus && requestAttempts < 3) {
+                    await new Promise((resolve) => setTimeout(resolve, requestAttempts * 250));
+                    continue;
+                  }
+                  if (!response.ok) break;
+                  payload = await response.json();
+                  break;
                 } catch (error) {
                   const retryable = error?.name === "TimeoutError" || error instanceof TypeError;
                   if (!retryable || requestAttempts === 3) throw error;
                   await new Promise((resolve) => setTimeout(resolve, requestAttempts * 250));
-                  continue;
                 }
-                const retryableStatus = response.status === 408 || response.status === 429 || response.status >= 500;
-                if (!retryableStatus || requestAttempts === 3) break;
-                await new Promise((resolve) => setTimeout(resolve, requestAttempts * 250));
               }
               if (!response.ok) {
-                const retryableStatus = response.status === 408 || response.status === 429 || response.status >= 500;
                 const hint = response.status === 401 || response.status === 403
                   ? "the configured token cannot read this published recap"
                   : response.status === 404
                     ? "the Plan read action or published recap is not available"
                     : "the Plan read action returned an error";
-                const attempts = retryableStatus ? ` after ${requestAttempts} attempts` : "";
+                const attempts = requestAttempts > 1 ? ` after ${requestAttempts} attempts` : "";
                 emit({ ok: false, reason: `get-visual-plan returned HTTP ${response.status}${attempts}; ${hint}` });
                 return;
               }
-              const payload = await response.json();
               const returnedId = payload?.plan?.id ?? payload?.planId ?? payload?.data?.plan?.id;
               if (returnedId !== match[1]) {
                 emit({ ok: false, reason: "get-visual-plan returned a response without the published Plan ID" });
@@ -1175,6 +1178,8 @@ jobs:
           RECAP_URL_REASON: ${{ steps.route_health.outputs.reason || steps.source_status.outputs.reason || steps.url.outputs.reason }}
         run: |
           set -uo pipefail
+          CLI_SHOT_REASON="$SHOT_REASON"
+          CLI_FAILURE_SUMMARY="$RECAP_AGENT_SUMMARY"
           if [ "$URL_OK" = "true" ] && [ "$SHOT_OK" != "true" ]; then
             SHOT_DIAGNOSTIC=$(SHOT_REASON="$SHOT_REASON" node <<'NODE'
           const patterns = [
@@ -1192,8 +1197,8 @@ jobs:
             /-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----/,
           ];
           const redact = (line) => line
-            .replace(/Authorization:\s*Bearer\s+[A-Za-z0-9._~+\/=-]{8,}/gi, "Authorization: Bearer [redacted]")
-            .replace(/Bearer\s+[A-Za-z0-9._~+\/=-]{8,}/gi, "Bearer [redacted]")
+            .replace(/Authorization:\s*Bearer\s+\S+/gi, "Authorization: Bearer [redacted]")
+            .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
             .replace(/Authorization:\s*(?!Bearer\s+\[redacted\])[^\s]+/gi, "Authorization: [redacted]")
             .replace(/\b[A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|API_KEY|PRIVATE_KEY|ACCESS_KEY)[A-Z0-9_]*\s*=\s*[^\s]+/gi, "[redacted credential]");
           const text = (process.env.SHOT_REASON || "")
@@ -1209,6 +1214,7 @@ jobs:
           NODE
             )
             SHOT_DIAGNOSTIC=${SHOT_DIAGNOSTIC:-screenshot capture or upload failed}
+            CLI_SHOT_REASON="$SHOT_DIAGNOSTIC"
             if gh api --method PATCH \
               "repos/$GITHUB_REPOSITORY/check-runs/$CHECK_RUN_ID" \
               -f status=completed \
@@ -1222,17 +1228,24 @@ jobs:
               exit 0
             fi
             echo "::warning::Could not set screenshot failure on the Visual Recap check; using CLI compatibility fallback."
+            RECAP_CLI_HELP=$($RECAP_CLI recap check complete --help 2>/dev/null || true)
+            if ! printf '%s' "$RECAP_CLI_HELP" | grep -q -- '--shot-ok'; then
+              CLI_FAILURE_SUMMARY="Published recap screenshot failed: $SHOT_DIAGNOSTIC"
+              if [ -n "$RECAP_AGENT_SUMMARY" ]; then
+                CLI_FAILURE_SUMMARY="$CLI_FAILURE_SUMMARY. Agent output: $RECAP_AGENT_SUMMARY"
+              fi
+            fi
           fi
           $RECAP_CLI recap check complete \
             --check-run-id "$CHECK_RUN_ID" \
             --plan-ok "$PLAN_OK" \
             --plan-url "$PLAN_URL" \
             --shot-ok "$SHOT_OK" \
-            --shot-reason "$SHOT_REASON" \
+            --shot-reason "$CLI_SHOT_REASON" \
             --suppressed "$SUPPRESSED" \
             --suppressed-json "$SUPPRESSED_JSON" \
             --huge "$DIFF_HUGE" \
             --tiny "$DIFF_TINY" \
-            --failure-summary "$RECAP_AGENT_SUMMARY" \
+            --failure-summary "$CLI_FAILURE_SUMMARY" \
             --url-reason "$RECAP_URL_REASON" \
             --workflow-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

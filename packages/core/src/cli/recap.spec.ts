@@ -277,6 +277,13 @@ describe("recap agent failure summaries", () => {
     expect(summary).toContain("[redacted");
     expect(summary).not.toContain("Bearer a");
     expect(summary).not.toContain("sk-b");
+
+    const base64Token = "abcdefghijklmnopqrstuvwxyz+123456/==tail";
+    const base64Summary = sanitizeAgentFailureSummary(
+      `Authorization: Bearer ${base64Token}`,
+    );
+    expect(base64Summary).toContain("Authorization: Bearer [redacted]");
+    expect(base64Summary).not.toContain(base64Token);
   });
 });
 
@@ -2417,6 +2424,15 @@ describe("published recap readback workflow", () => {
       expect(workflow).toContain(
         "output[summary]=The recap was published, but its screenshot failed: $SHOT_DIAGNOSTIC.",
       );
+      expect(workflow).toContain(
+        "RECAP_CLI_HELP=$($RECAP_CLI recap check complete --help 2>/dev/null || true)",
+      );
+      expect(workflow).toContain(
+        'CLI_FAILURE_SUMMARY="Published recap screenshot failed: $SHOT_DIAGNOSTIC"',
+      );
+      expect(workflow).toContain('CLI_SHOT_REASON="$SHOT_DIAGNOSTIC"');
+      expect(workflow).toContain('--shot-reason "$CLI_SHOT_REASON"');
+      expect(workflow).toContain('--failure-summary "$CLI_FAILURE_SUMMARY"');
     }
 
     const token = "abcdefghijklmnopqrstuvwxyz+123456/==tail";
@@ -2478,6 +2494,25 @@ describe("published recap readback workflow", () => {
         "get-visual-plan returned HTTP 503 after 3 attempts; the Plan read action returned an error",
     });
     expect(exhausted.fetchFn).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries transient response-body failures before skipping screenshot capture", async () => {
+    const script = readbackScript(workflowFiles[0]!);
+    const input = {
+      planUrl: "https://plan.agent-native.com/recaps/recap_123",
+      appUrl: "https://plan.agent-native.com",
+    };
+    const bodyTimeout = textResponse("", 200);
+    vi.spyOn(bodyTimeout, "json").mockRejectedValueOnce(
+      new TypeError("body stream timed out"),
+    );
+    const { result, fetchFn } = await executeReadback(script, input, [
+      bodyTimeout,
+      textResponse(JSON.stringify({ planId: "recap_123" })),
+    ]);
+
+    expect(result).toEqual({ ok: true, reason: "" });
+    expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 
   it("reports a rejected read without logging response details or the token", async () => {
@@ -3262,6 +3297,45 @@ describe("recap check — outcome mapper", () => {
     }
   });
 
+  it("does not infer stale workflow failures for an unreadable published recap", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(textResponse("", 204));
+
+    try {
+      await runRecap([
+        "check",
+        "complete",
+        "--repo",
+        "BuilderIO/example",
+        "--token",
+        "fake-github-token",
+        "--check-run-id",
+        "123",
+        "--plan-ok",
+        "false",
+        "--plan-url",
+        `${app}/recaps/abc123`,
+        "--app-url",
+        app,
+        "--shot-ok",
+        "false",
+        "--shot-reason",
+        "get-visual-plan returned HTTP 403",
+        "--workflow-url",
+        workflowUrl,
+      ]);
+
+      const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
+      expect(body.conclusion).toBe("failure");
+      expect(body.output.title).toBe("Visual recap screenshot failed");
+      expect(body.output.text).toContain("get-visual-plan returned HTTP 403");
+      expect(body.output.text).not.toContain("older PR Visual Recap workflow");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it("success: a huge diff gets the summarized summary", () => {
     const out = recapCheckOutcome({
       ...base,
@@ -3380,7 +3454,7 @@ describe("bundled PR visual recap workflow", () => {
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain('--shot-ok "$SHOT_OK"');
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      '--shot-reason "$SHOT_REASON"',
+      '--shot-reason "$CLI_SHOT_REASON"',
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "Fetch plan block reference",
@@ -4164,7 +4238,7 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain("RECAP_SHOT_REASON:");
     expect(content).toContain("SHOT_OK: ${{ steps.shot.outputs.shot_ok }}");
     expect(content).toContain('--shot-ok "$SHOT_OK"');
-    expect(content).toContain('--shot-reason "$SHOT_REASON"');
+    expect(content).toContain('--shot-reason "$CLI_SHOT_REASON"');
     expect(content).toContain("[recap shot] ${label}");
     expect(content).toContain("const hasAllImages = shots.every");
     expect(content).toContain(
@@ -4496,7 +4570,7 @@ describe("reusable vs copy workflow step-sequence parity", () => {
     expect(content).toContain("RECAP_SHOT_REASON:");
     expect(content).toContain("SHOT_OK: ${{ steps.shot.outputs.shot_ok }}");
     expect(content).toContain('--shot-ok "$SHOT_OK"');
-    expect(content).toContain('--shot-reason "$SHOT_REASON"');
+    expect(content).toContain('--shot-reason "$CLI_SHOT_REASON"');
     expect(content).toContain("[recap shot] ${label}");
     expect(content).toContain("const hasAllImages = shots.every");
     expect(content).toContain(

@@ -1275,10 +1275,10 @@ export function sanitizeAgentFailureSummary(
   const redactSecretValues = (line: string) =>
     line
       .replace(
-        /Authorization:\s*Bearer\s+[A-Za-z0-9._-]{8,}/gi,
+        /Authorization:\s*Bearer\s+\S+/gi,
         "Authorization: Bearer [redacted]",
       )
-      .replace(/Bearer\s+[A-Za-z0-9._-]{8,}/gi, "Bearer [redacted]")
+      .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
       .replace(
         /Authorization:\s*(?!Bearer\s+\[redacted\])[^\s]+/gi,
         "Authorization: [redacted]",
@@ -4298,7 +4298,15 @@ async function runCheckComplete(
   let urlReason = optionalArg(args, "url-reason") ?? "";
   const shotReason = optionalArg(args, "shot-reason") ?? "";
 
-  if (!planOk && !tiny && !suppressed) {
+  const planUrl = optionalArg(args, "plan-url") ?? "";
+  const publishedRecap = canonicalRecapUrl(planUrl, appUrl);
+
+  if (
+    !planOk &&
+    !tiny &&
+    !suppressed &&
+    !(publishedRecap && screenshotOk === false)
+  ) {
     if (!failureSummary) {
       failureSummary = summarizeLocalAgentFailure({
         agent:
@@ -4318,7 +4326,7 @@ async function runCheckComplete(
 
   const outcome = recapCheckOutcome({
     planOk,
-    planUrl: optionalArg(args, "plan-url") ?? "",
+    planUrl,
     appUrl,
     huge,
     tiny,
