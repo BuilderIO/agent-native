@@ -731,6 +731,7 @@ pub async fn show_monitor_picker(app: AppHandle) -> Result<bool, String> {
             return Ok(false);
         }
         let total = monitors.len();
+        crate::shortcuts::set_monitor_picker_escape(&app, true);
         let mut last_window: Option<WebviewWindow> = None;
         for (index, monitor) in monitors.iter().enumerate() {
             let pos = monitor.position();
@@ -793,7 +794,6 @@ pub async fn show_monitor_picker(app: AppHandle) -> Result<bool, String> {
         if let Some(win) = last_window {
             present_interactive_window(&win);
         }
-        crate::shortcuts::set_monitor_picker_escape(&app, true);
         Ok(true)
     }
 }
