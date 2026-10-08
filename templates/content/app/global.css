@@ -150,17 +150,9 @@
 }
 
 /* An MCP App host (ChatGPT, Codex, Claude) owns the chrome around its widget,
-   so the document fills the pane from the first pixel. That drops the page
-   toolbar and the identical row its loading skeleton draws above the page,
-   widens the page column (max-w-3xl) so a wide pane is not left with a narrow
-   strip of text, and shortens the lead-in above the title. */
-html[data-agent-native-mcp-widget] [data-editor-selection-continuation],
-html[data-agent-native-mcp-widget]
-  .agent-native-app-main
-  .h-12.border-b:first-child:has(+ .\@container) {
-  display: none;
-}
-
+   so the document fills the pane from the first pixel: the page column
+   (max-w-3xl) widens so a wide pane is not left with a narrow strip of text,
+   and the lead-in above the title shortens. */
 html[data-agent-native-mcp-widget] .agent-native-app-main {
   --container-3xl: 64rem;
 }

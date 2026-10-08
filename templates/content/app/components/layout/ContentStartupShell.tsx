@@ -1,7 +1,10 @@
 import { AgentNativeIcon } from "@agent-native/toolkit/app/shared";
 import { IconMenu2, IconSearch } from "@tabler/icons-react";
 
-import { DocumentEditorSkeleton } from "@/components/editor/DocumentEditorSkeleton";
+import {
+  DocumentEditorSkeleton,
+  HIDDEN_IN_WIDGET_CLASS_NAME,
+} from "@/components/editor/DocumentEditorSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
@@ -15,9 +18,6 @@ import { SidebarTriggerContext } from "./sidebar-trigger";
 // The startup script marks <html> when the saved sidebar is collapsed.
 const EXPANDED_ONLY = "[html[data-content-sidebar-collapsed]_&]:hidden";
 const COLLAPSED_ONLY = "hidden [html[data-content-sidebar-collapsed]_&]:flex";
-// The widget script marks <html> inside an MCP App widget, where the host owns
-// navigation and the app draws no sidebar.
-const NOT_IN_WIDGET = "[html[data-agent-native-mcp-widget]_&]:hidden";
 const SIDEBAR_SKELETON_CLASS_NAME =
   "rounded bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10";
 
@@ -55,7 +55,7 @@ export function ContentStartupShell({
         aria-hidden="true"
         className={cn(
           "agent-layout-left-drawer flex shrink-0 max-[1100px]:hidden",
-          NOT_IN_WIDGET,
+          HIDDEN_IN_WIDGET_CLASS_NAME,
         )}
       >
         <div

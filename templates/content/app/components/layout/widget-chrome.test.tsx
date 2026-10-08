@@ -21,16 +21,30 @@ import {
   documentEditorBodyClassName,
   documentEditorTitleRegionClassName,
 } from "@/components/editor/document-editor-layout";
-import { DocumentEditorSkeleton } from "@/components/editor/DocumentEditorSkeleton";
+import {
+  DocumentEditorSkeleton,
+  HIDDEN_IN_WIDGET_CLASS_NAME,
+} from "@/components/editor/DocumentEditorSkeleton";
 import { DocumentToolbar } from "@/components/editor/DocumentToolbar";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { byLabel, renderUi } from "@/test-utils/render-ui";
+import { queryByLabel, renderUi } from "@/test-utils/render-ui";
 
 import { ContentStartupShell } from "./ContentStartupShell";
+import { Header } from "./Header";
+
+const widgetHost = vi.hoisted(() => ({ embedded: false }));
 
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => key,
+}));
+// The real hook latches for the life of the document, so one test file could
+// not show both the widget and the app.
+vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/mcp-app-host")
+  >()),
+  useIsMcpAppWidgetEmbed: () => widgetHost.embedded,
 }));
 
 const WIDGET_ATTRIBUTE = "data-agent-native-mcp-widget";
@@ -51,6 +65,7 @@ function openPage({
   const style = document.createElement("style");
   style.textContent = appStyles + extraStyles;
   document.head.append(style);
+  widgetHost.embedded = inWidget;
   if (inWidget) document.documentElement.setAttribute(WIDGET_ATTRIBUTE, "1");
 }
 
@@ -86,6 +101,7 @@ afterAll(() => {
 });
 
 afterEach(() => {
+  widgetHost.embedded = false;
   document.head.replaceChildren();
   document.documentElement.removeAttribute(WIDGET_ATTRIBUTE);
 });
@@ -114,18 +130,33 @@ describe.each([
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
 
-      expect(isShown(byLabel("editor.toolbar.morePageActions"))).toBe(
+      expect(queryByLabel("editor.toolbar.morePageActions") !== null).toBe(
         !inWidget,
       );
     },
   );
 
+  it(inWidget ? "shows no app header" : "keeps the app header", () => {
+    openPage({ inWidget });
+
+    const { container } = renderUi(
+      <MemoryRouter initialEntries={["/home"]}>
+        <Header />
+      </MemoryRouter>,
+    );
+
+    expect(container.querySelector("header") !== null).toBe(!inWidget);
+  });
+
   it(
     inWidget
       ? "drops the loading skeleton's toolbar row and keeps its page"
       : "draws the loading skeleton's toolbar row",
-    () => {
-      openPage({ inWidget });
+    async () => {
+      openPage({
+        inWidget,
+        extraStyles: await utilityStyles("flex", HIDDEN_IN_WIDGET_CLASS_NAME),
+      });
 
       const { container } = renderUi(
         <main className="agent-native-app-main">
@@ -151,10 +182,7 @@ describe.each([
     async () => {
       openPage({
         inWidget,
-        extraStyles: await utilityStyles(
-          "flex",
-          "[html[data-agent-native-mcp-widget]_&]:hidden",
-        ),
+        extraStyles: await utilityStyles("flex", HIDDEN_IN_WIDGET_CLASS_NAME),
       });
 
       const { container } = renderUi(
