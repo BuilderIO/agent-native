@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js";
 import { LLM_MISSING_CREDENTIALS_MESSAGE } from "./engine/credential-errors.js";
 import {
   buildAssistantMessage,
@@ -179,9 +180,22 @@ describe("extractThreadMeta", () => {
       "Plan next week",
     ],
     [
+      '<context source="legacy">Private instructions</context>\nPlan next week',
+      "Plan next week",
+    ],
+    [
+      "<context>hidden </context>\nsecret tail\n</context>\nVisible prompt",
+      "Visible prompt",
+    ],
+    [
+      "Before\n<context>First private block</context>\nBetween\n<context>Second private block</context>\nAfter",
+      "Before Between After",
+    ],
+    [
       "Plan next week\n<context>Private trailing instructions",
       "Plan next week",
     ],
+    ["<context>Only private instructions", ""],
     ["Ask @[Steve|private-id]   next week", "Ask @Steve next week"],
     ["<context>Only private instructions</context>", ""],
   ])(
@@ -192,6 +206,34 @@ describe("extractThreadMeta", () => {
       ).toEqual({ title: visible, preview: visible });
     },
   );
+
+  it("uses the encoded producer boundary and restores authored markup", () => {
+    const prompt = "Please retain my literal <context> mention.";
+    const content = appendAgentChatContextToMessage(
+      prompt,
+      "private prefix </context> private suffix",
+    );
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content }] }),
+    ).toEqual({ title: prompt, preview: prompt });
+  });
+
+  it("preserves an ordinary inline unclosed context mention", () => {
+    const prompt = "How do I write a literal <context> tag without closing it?";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: prompt, preview: prompt });
+  });
+
+  it("preserves a literal closing tag when there is no hidden context block", () => {
+    const prompt = "How should I write the literal </context> tag?";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: prompt, preview: prompt });
+  });
 
   it("prefers a manual title override while keeping the message preview", () => {
     const meta = extractThreadMeta({

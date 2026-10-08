@@ -19,6 +19,7 @@ import {
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import { splitAgentChatContextFromMessage } from "../shared/agent-chat-context.js";
 import {
   RUN_NOT_STARTED_METADATA_KEY,
   type RefusedTurnRetryContext,
@@ -3851,6 +3852,49 @@ export function normalizeThreadTitle(value: unknown): string {
   return value.replace(/\s+/g, " ").trim().slice(0, 160);
 }
 
+const ENCODED_AGENT_CHAT_CONTEXT_BLOCK =
+  /(?:^|\n)[ \t]*<context\b(?=[^>]*\bdata-agentkit-context-encoding=(?:"entities-v1"|'entities-v1'))[^>]*>/i;
+const LEGACY_CONTEXT_OPEN_PATTERN = /^[ \t]*<context\b[^>]*>/gim;
+
+function visibleThreadPrompt(text: string): string {
+  if (ENCODED_AGENT_CHAT_CONTEXT_BLOCK.test(text))
+    return splitAgentChatContextFromMessage(text).message;
+
+  let visibleText = "";
+  let cursor = 0;
+  LEGACY_CONTEXT_OPEN_PATTERN.lastIndex = 0;
+  let opening = LEGACY_CONTEXT_OPEN_PATTERN.exec(text);
+
+  while (opening) {
+    const openingIndex = opening.index;
+    const contentStart = openingIndex + opening[0].length;
+    LEGACY_CONTEXT_OPEN_PATTERN.lastIndex = contentStart;
+    const nextOpening = LEGACY_CONTEXT_OPEN_PATTERN.exec(text);
+    const blockEnd = nextOpening?.index ?? text.length;
+
+    const closingPattern = /<\/context>/gi;
+    closingPattern.lastIndex = contentStart;
+    let lastClosing: RegExpExecArray | null = null;
+    let closing = closingPattern.exec(text);
+    while (closing && closing.index < blockEnd) {
+      lastClosing = closing;
+      closing = closingPattern.exec(text);
+    }
+
+    visibleText += text.slice(cursor, openingIndex);
+    if (!lastClosing) return visibleText;
+
+    visibleText += text.slice(
+      lastClosing.index + lastClosing[0].length,
+      blockEnd,
+    );
+    cursor = blockEnd;
+    opening = nextOpening;
+  }
+
+  return visibleText + text.slice(cursor);
+}
+
 export function extractThreadMeta(repo: any): {
   title: string;
   preview: string;
@@ -3873,10 +3917,7 @@ export function extractThreadMeta(repo: any): {
       : typeof msg.content === "string"
         ? msg.content
         : "";
-    const visiblePrompt = textParts
-      .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
-      .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
-      .replace(/<\/context>/gi, "")
+    const visiblePrompt = visibleThreadPrompt(textParts)
       .replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1")
       .replace(/\s+/g, " ")
       .trim();

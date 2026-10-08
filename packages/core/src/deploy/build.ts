@@ -2,7 +2,7 @@
 
 import { execFileSync } from "child_process";
 import fs from "fs";
-import { createRequire } from "module";
+import { createRequire, isBuiltin } from "module";
 import path from "path";
 import { fileURLToPath } from "url";
 import { runInNewContext } from "vm";
@@ -4997,6 +4997,11 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
         typeof request === "string" ? parentPackageDir : request.fromPackageDir;
       const segments = packageSegments(name);
       if (!segments) return;
+      if (
+        scanPackageReferences &&
+        SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name)
+      )
+        return;
       collected.add(name);
       const packageDir = resolvePackageDirectory(
         segments,
@@ -5051,9 +5056,9 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
     ),
   );
   const findCandidateReferences = (filePath: string): PackageReference[] => {
-    const source = fs.readFileSync(filePath, "utf8");
     const fromPackageDir = path.dirname(fs.realpathSync(filePath));
     if (!isWithinFunction(fromPackageDir)) return [];
+    const source = fs.readFileSync(filePath, "utf8");
     const references = new Map<string, PackageReference>();
     const addReference = (reference: PackageReference) => {
       const identity = `${reference.name}\0${reference.fromPackageDir}\0${reference.resolvedPackageDir ?? ""}`;
@@ -5100,12 +5105,42 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
         }
       );
     };
+    const findResolvedPackage = (
+      specifier: string,
+    ): { name: string; resolvedPackageDir: string } | undefined => {
+      const relativeCandidate = findResolvedCandidate(specifier);
+      if (relativeCandidate) return relativeCandidate;
+      if (
+        path.isAbsolute(specifier) ||
+        specifier.startsWith(".") ||
+        specifier.startsWith("#") ||
+        /^[A-Za-z][A-Za-z\d+.-]*:/.test(specifier)
+      )
+        return;
+      const specifierSegments = specifier.split("/");
+      const name = specifierSegments[0]?.startsWith("@")
+        ? specifierSegments.slice(0, 2).join("/")
+        : specifierSegments[0];
+      const segments = name && packageSegments(name);
+      if (
+        !name ||
+        !segments ||
+        isBuiltin(name) ||
+        SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name)
+      )
+        return;
+      const resolvedPackageDir = resolvePackageDirectory(
+        segments,
+        fromPackageDir,
+      );
+      return resolvedPackageDir ? { name, resolvedPackageDir } : undefined;
+    };
     const literalSpecifier =
-      /\b(?:import|export)\s+(?:[^;'"`]*?\s+from\s*)?(['"`])([^'"`]+)\1|\b(?:import|require)\s*\(\s*(['"`])([^'"`]+)\3/g;
+      /\b(?:import|export)\s*(?:[^;'"`]*?\s*from\s*)?(['"`])([^'"`]+)\1|\b(?:import|require(?:\s*\.\s*resolve)?)\s*\(\s*(['"`])([^'"`]+)\3/g;
     for (const match of source.matchAll(literalSpecifier)) {
       const specifier = match[2] ?? match[4];
       if (!specifier) continue;
-      const resolved = findResolvedCandidate(specifier);
+      const resolved = findResolvedPackage(specifier);
       if (resolved) addReference({ ...resolved, fromPackageDir });
     }
     for (const name of candidates) {
@@ -5127,8 +5162,25 @@ function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
     const inspect = (filePath: string) => {
       emittedReferences.push(...findCandidateReferences(filePath));
     };
-    if (fs.statSync(file).isDirectory())
-      walkServerJavaScriptFiles(file, inspect);
+    let stats = fs.lstatSync(file);
+    if (stats.isSymbolicLink()) {
+      try {
+        stats = fs.statSync(file);
+      } catch (error) {
+        if (
+          error !== null &&
+          typeof error === "object" &&
+          "code" in error &&
+          error.code === "ENOENT"
+        ) {
+          // A dangling emitted symlink has no runtime code to inspect.
+          continue;
+        }
+        throw error;
+      }
+    }
+    if (!isWithinFunction(fs.realpathSync(file))) continue;
+    if (stats.isDirectory()) walkServerJavaScriptFiles(file, inspect);
     else if (/\.(?:[cm]?js)$/.test(entry)) inspect(file);
   }
   const needed = collect([...retained, ...emittedReferences], (packageDir) => {
