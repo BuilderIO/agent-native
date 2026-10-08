@@ -754,6 +754,7 @@ const messages = {
     exportFailed: "导出失败",
     agentRunFailed:
       "代理在创建任何幻灯片之前运行失败。请查看聊天中的详情，然后重试。",
+    generationFailed: "未能创建幻灯片。请查看聊天中的详情，然后重试。",
     deckHasNoSlides: "幻灯片没有页面。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",

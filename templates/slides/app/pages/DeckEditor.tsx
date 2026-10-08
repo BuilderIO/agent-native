@@ -4162,7 +4162,7 @@ export default function DeckEditor() {
                 <p>
                   {generationContext?.generationFailureCode === "agent_error"
                     ? t("deckEditor.agentRunFailed")
-                    : t("deckEditor.deckHasNoSlides")}
+                    : t("deckEditor.generationFailed")}
                 </p>
                 <Button
                   disabled={!canEdit || generationRetryPending}

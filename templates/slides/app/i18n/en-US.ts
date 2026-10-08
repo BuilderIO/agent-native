@@ -778,6 +778,8 @@ const messages = {
     exportFailed: "Export failed",
     agentRunFailed:
       "The agent run failed before creating any slides. Check the chat for details, then try again.",
+    generationFailed:
+      "Slides weren't created. Check the chat for details, then try again.",
     deckHasNoSlides: "Deck has no slides.",
     pdfRenderFailed: "Could not render PDF.",
     buildingDeck: "Building deck",

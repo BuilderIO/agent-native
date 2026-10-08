@@ -779,6 +779,8 @@ const messages = {
     exportFailed: "导出失败",
     agentRunFailed:
       "スライドを作成する前にエージェントの実行が失敗しました。チャットで詳細を確認して、もう一度お試しください。",
+    generationFailed:
+      "スライドを作成できませんでした。チャットで詳細を確認して、もう一度お試しください。",
     deckHasNoSlides: "このデッキにはスライドがありません。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",

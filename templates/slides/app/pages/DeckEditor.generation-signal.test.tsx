@@ -1371,6 +1371,21 @@ describe("DeckEditor generation signal wiring", () => {
     expect(screen.queryByText("deckEditor.deckHasNoSlides")).toBeNull();
   });
 
+  it("explains when generation ends without creating slides", () => {
+    Object.assign(mocks.deck.generationContext, {
+      generationFailureCode: "no_output",
+    });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    expect(screen.getByText("deckEditor.generationFailed")).toBeTruthy();
+    expect(screen.queryByText("deckEditor.deckHasNoSlides")).toBeNull();
+  });
+
   it("recovers an empty-deck failure after its terminal save fails and reloads", async () => {
     mocks.flushDeckSave.mockRejectedValueOnce(new Error("failure save failed"));
     router = createMemoryRouter(
