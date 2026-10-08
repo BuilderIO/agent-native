@@ -119,6 +119,24 @@ it("returns 413 when an image multipart request exceeds the real body limit", as
   expect(mocks.insertAsset).not.toHaveBeenCalled();
 });
 
+it("returns 400 for malformed image multipart data without writing an asset", async () => {
+  const event = mockEvent(
+    new Request("https://slides.example.test/api/assets/upload", {
+      method: "POST",
+      headers: { "content-type": "multipart/form-data; boundary=upload" },
+      body: "not multipart data",
+    }),
+  );
+
+  await expect(uploadAsset(event as never)).resolves.toEqual({
+    error: "Image upload failed",
+  });
+
+  expect(getResponseStatus(event as never)).toBe(400);
+  expect(mocks.uploadFile).not.toHaveBeenCalled();
+  expect(mocks.insertAsset).not.toHaveBeenCalled();
+});
+
 it("returns 413 when a video multipart request exceeds the real body limit", async () => {
   let remaining = MAX_VIDEO_ASSET_REQUEST_SIZE + 1;
   const body = new ReadableStream<Uint8Array>({

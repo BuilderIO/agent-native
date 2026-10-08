@@ -67,7 +67,14 @@ async function readBoundedMultipartFormData(
     },
   ) as typeof h3Event;
 
-  return readMultipartFormData(multipartEvent);
+  try {
+    return await readMultipartFormData(multipartEvent);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw Object.assign(error, { statusCode: 400 });
+    }
+    throw error;
+  }
 }
 
 function multipartUploadError(
