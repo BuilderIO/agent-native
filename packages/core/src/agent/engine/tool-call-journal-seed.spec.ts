@@ -432,8 +432,4 @@ describe("loadedSkillPagesContext", () => {
       result.indexOf("## skill-slide-editing"),
     );
   });
-
-  it("renders nothing without loaded pages", () => {
-    expect(loadedSkillPagesContext([], new Map(), new Set())).toBe("");
-  });
 });

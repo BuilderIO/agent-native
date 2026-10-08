@@ -4972,7 +4972,6 @@ export async function runAgentLoop(opts: {
   finalResponseGuardRequestText?: string;
   threadId?: string;
   turnId?: string;
-  /** Skill doc slugs read in earlier turns of this thread, oldest first. */
   loadedSkillSlugs?: readonly string[];
   runSoftTimeoutMs?: number;
   toolLimits?: {

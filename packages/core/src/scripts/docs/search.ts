@@ -192,8 +192,7 @@ function formatDocPage(doc: DocFull): string {
   return `# ${doc.title}\n\n${doc.description ? `${doc.description}\n\n` : ""}${doc.body}`;
 }
 
-/** Skill pages exactly as `docs-search --slug` returns them, in `slugs` order.
- *  Slugs the user cannot read are absent. */
+// Slugs come from the client, so only skills visible to this user resolve.
 export async function loadSkillDocPages(
   slugs: readonly string[],
   userEmail: string | null | undefined,

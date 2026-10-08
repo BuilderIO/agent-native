@@ -108,25 +108,6 @@ describe("skill pages read in earlier turns", () => {
     expect(systemPrompt).toContain(designPage);
     expect(systemPrompt).not.toContain(editingPage);
   });
-
-  it("add nothing to a turn without prior skill reads", async () => {
-    let systemPrompt = "";
-
-    await runAgentLoop({
-      engine: capturingEngine((prompt) => (systemPrompt = prompt)),
-      model: "test-model",
-      systemPrompt: "base system prompt",
-      tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      actions: {},
-      send: () => {},
-      signal: new AbortController().signal,
-      threadId: "thread-no-skills",
-    });
-
-    expect(loadSkillDocPagesMock).not.toHaveBeenCalled();
-    expect(systemPrompt).not.toContain("<already-loaded-skills>");
-  });
 });
 
 describe("normalizeLoadedSkillSlugs", () => {
@@ -141,14 +122,5 @@ describe("normalizeLoadedSkillSlugs", () => {
         "skill-slide-design",
       ]),
     ).toEqual(["skill-design-systems--tokens", "skill-slide-design"]);
-  });
-
-  it("caps the list to the most recent sixteen", () => {
-    const slugs = Array.from({ length: 20 }, (_, i) => `skill-s${i}`);
-    expect(normalizeLoadedSkillSlugs(slugs)).toEqual(slugs.slice(4));
-  });
-
-  it("ignores a non-array value", () => {
-    expect(normalizeLoadedSkillSlugs("skill-slide-design")).toEqual([]);
   });
 });

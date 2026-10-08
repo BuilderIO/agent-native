@@ -1724,9 +1724,8 @@ function runtimeToolResultText(part: AgentChatRuntimeToolResultPart): string {
   return typeof part.result === "string" ? part.result : "";
 }
 
-/** Skill doc slugs read successfully anywhere in the thread, oldest first. The
- *  server rebuilds the pages, so skills still survive once tool history is
- *  bounded away from the structured history sent with the turn. */
+// Scans the whole thread because structured history is capped and drops older
+// skill reads; the server rebuilds those pages from these slugs.
 export function loadedSkillSlugsFromMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
 ): string[] {

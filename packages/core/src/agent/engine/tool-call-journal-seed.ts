@@ -147,7 +147,6 @@ export const RECOVERED_TOOL_REPLAY_PREFIX =
   "(Recovered from prior interrupted chunk — action already completed.)\n\n";
 const LOADED_SKILL_CONTEXT_MAX_CHARS = 40_000;
 
-/** `threadPages` holds pages read in earlier turns, oldest read first. */
 export function loadedSkillPagesContext(
   results: readonly PriorTurnToolResultSummary[],
   threadPages: ReadonlyMap<string, string>,
@@ -181,7 +180,7 @@ export function loadedSkillPagesContext(
   return renderLoadedSkillPages(merged);
 }
 
-/** `pages` is ordered oldest read first; the newest reads win the budget. */
+// Newest reads win the budget: they are likeliest to apply to the current task.
 function renderLoadedSkillPages(pages: ReadonlyMap<string, string>): string {
   if (pages.size === 0) return "";
 
