@@ -159,7 +159,9 @@ describe("generate-home-suggestions", () => {
 
   it("uses generic suggestions and tracks the optional model timeout", async () => {
     mocks.completeText.mockRejectedValue(
-      new Error("completeText timed out after 10000ms"),
+      Object.assign(new Error("timed out"), {
+        errorCode: "complete_text_timeout",
+      }),
     );
 
     await expect(

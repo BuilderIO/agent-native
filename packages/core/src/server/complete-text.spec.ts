@@ -143,6 +143,31 @@ describe("completeText", () => {
     });
   });
 
+  it("labels its own timeout with a stable error code", async () => {
+    const engine = createFakeEngine(async function* (opts) {
+      await new Promise<never>((_resolve, reject) => {
+        opts.abortSignal.addEventListener(
+          "abort",
+          () => reject(opts.abortSignal.reason),
+          { once: true },
+        );
+      });
+    });
+
+    await expect(
+      completeText({
+        engine,
+        input: "Try.",
+        apiKey: "test-key",
+        timeoutMs: 1,
+      }),
+    ).rejects.toMatchObject({
+      name: "EngineError",
+      message: "completeText timed out after 1ms",
+      errorCode: "complete_text_timeout",
+    });
+  });
+
   it("requires input or messages", async () => {
     const engine = createFakeEngine(async function* () {
       yield { type: "stop", reason: "end_turn" };

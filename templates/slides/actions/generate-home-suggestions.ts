@@ -63,10 +63,7 @@ function unavailableReason(
   if ("errorCode" in error && error.errorCode === "builder_gateway_timeout") {
     return "timeout";
   }
-  if (
-    error.message ===
-    `completeText timed out after ${HOME_SUGGESTIONS_TIMEOUT_MS}ms`
-  ) {
+  if ("errorCode" in error && error.errorCode === "complete_text_timeout") {
     return "timeout";
   }
 }
