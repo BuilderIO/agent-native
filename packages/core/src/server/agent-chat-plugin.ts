@@ -184,10 +184,7 @@ import {
   verifyInternalToken,
   extractBearerToken,
 } from "../integrations/internal-token.js";
-import {
-  RECURRING_JOBS_SWEEP_PATH,
-  RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
-} from "../jobs/scheduler-dispatch.js";
+import { RECURRING_JOBS_SWEEP_PATH } from "../jobs/scheduler-dispatch.js";
 import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
 import { RECURRING_SWEEP_BUDGET_MS } from "../jobs/sweep-hooks.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
@@ -513,6 +510,7 @@ import {
   isRuntimeVisibleScope,
   parseSkillFrontmatter,
 } from "./agent-chat/skill-frontmatter.js";
+import { authorizeSweepTrigger } from "./agent-chat/sweep-trigger-auth.js";
 import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 
 export { loadResourcesForPrompt };
@@ -3432,6 +3430,55 @@ export function createAgentChatPlugin(
       }
       const { mountActionRoutes, mountWebMcpActionRoutes } =
         await import("./action-routes.js");
+      const directoryProfile = mcpOptions.enabled
+        ? mcpOptions.directoryProfile
+        : undefined;
+      const mcpDirectoryWidgetReadOptions = directoryProfile
+        ? {
+            mcpDirectoryWidgetReadActionArguments: Object.fromEntries(
+              Object.entries(directoryProfile.widgetReadActionArguments ?? {})
+                .filter(
+                  ([name]) =>
+                    (directoryProfile.connectorCatalog.includes(name) ||
+                      directoryProfile.widgetReadPublicActions?.includes(
+                        name,
+                      ) ||
+                      directoryProfile.widgetReadAuthenticatedActions?.includes(
+                        name,
+                      ) ||
+                      directoryProfile.widgetReadPrivateActions?.includes(
+                        name,
+                      )) &&
+                    httpActions[name] &&
+                    (httpActions[name]?.readOnly === true ||
+                      directoryProfile.widgetReadOnlyActions?.includes(name)),
+                )
+                .map(([name, args]) => [name, Object.keys(args)]),
+            ),
+            mcpDirectoryWidgetReadActionSchemaArguments: Object.fromEntries(
+              Object.entries(directoryProfile.widgetReadActionArguments ?? {})
+                .map(([name, args]) => [
+                  name,
+                  Object.entries(args)
+                    .filter(
+                      ([, argument]) =>
+                        typeof argument !== "string" &&
+                        argument.type === "actionSchema",
+                    )
+                    .map(([argumentName]) => argumentName),
+                ])
+                .filter(([, argumentNames]) => argumentNames.length > 0),
+            ),
+            mcpDirectoryWidgetReadOnlyActions:
+              directoryProfile.widgetReadOnlyActions,
+            mcpDirectoryWidgetReadPublicActions:
+              directoryProfile.widgetReadPublicActions,
+            mcpDirectoryWidgetAppId: options?.appId ?? mcpServerName,
+            mcpDirectoryWidgetResourceUri: getMcpDirectoryWidgetResourceUri(
+              options?.appId ?? mcpServerName,
+            ),
+          }
+        : {};
       if (Object.keys(httpActions).length > 0) {
         if (options?.actionRoutePublicPaths?.length) {
           registerAuthPublicPaths(
@@ -3449,72 +3496,7 @@ export function createAgentChatPlugin(
           clientCompatibilityVersion: options?.clientCompatibilityVersion,
           resolveOrgId: options?.resolveOrgId,
           actionRouteAuth: options?.actionRouteAuth,
-          mcpDirectoryWidgetReadActionArguments:
-            mcpOptions.enabled && mcpOptions.directoryProfile
-              ? Object.fromEntries(
-                  Object.entries(
-                    mcpOptions.directoryProfile.widgetReadActionArguments ?? {},
-                  )
-                    .filter(
-                      ([name]) =>
-                        (mcpOptions.directoryProfile?.connectorCatalog.includes(
-                          name,
-                        ) ||
-                          mcpOptions.directoryProfile?.widgetReadPublicActions?.includes(
-                            name,
-                          ) ||
-                          mcpOptions.directoryProfile?.widgetReadAuthenticatedActions?.includes(
-                            name,
-                          ) ||
-                          mcpOptions.directoryProfile?.widgetReadPrivateActions?.includes(
-                            name,
-                          )) &&
-                        httpActions[name] &&
-                        (httpActions[name]?.readOnly === true ||
-                          mcpOptions.directoryProfile?.widgetReadOnlyActions?.includes(
-                            name,
-                          )),
-                    )
-                    .map(([name, args]) => [name, Object.keys(args)]),
-                )
-              : undefined,
-          mcpDirectoryWidgetReadActionSchemaArguments:
-            mcpOptions.enabled && mcpOptions.directoryProfile
-              ? Object.fromEntries(
-                  Object.entries(
-                    mcpOptions.directoryProfile.widgetReadActionArguments ?? {},
-                  )
-                    .map(([name, args]) => [
-                      name,
-                      Object.entries(args)
-                        .filter(
-                          ([, argument]) =>
-                            typeof argument !== "string" &&
-                            argument.type === "actionSchema",
-                        )
-                        .map(([argumentName]) => argumentName),
-                    ])
-                    .filter(([, argumentNames]) => argumentNames.length > 0),
-                )
-              : undefined,
-          mcpDirectoryWidgetReadOnlyActions:
-            mcpOptions.enabled && mcpOptions.directoryProfile
-              ? mcpOptions.directoryProfile.widgetReadOnlyActions
-              : undefined,
-          mcpDirectoryWidgetReadPublicActions:
-            mcpOptions.enabled && mcpOptions.directoryProfile
-              ? mcpOptions.directoryProfile.widgetReadPublicActions
-              : undefined,
-          mcpDirectoryWidgetAppId:
-            mcpOptions.enabled && mcpOptions.directoryProfile
-              ? (options?.appId ?? mcpServerName)
-              : undefined,
-          mcpDirectoryWidgetResourceUri:
-            mcpOptions.enabled && mcpOptions.directoryProfile
-              ? getMcpDirectoryWidgetResourceUri(
-                  options?.appId ?? mcpServerName,
-                )
-              : undefined,
+          ...mcpDirectoryWidgetReadOptions,
         });
       }
       // Dev-only loopback endpoint `pnpm action` forwards to so it doesn't
@@ -3537,6 +3519,7 @@ export function createAgentChatPlugin(
         appId: options?.appId,
         resolveOrgId: options?.resolveOrgId,
         actionRouteAuth: options?.actionRouteAuth,
+        ...mcpDirectoryWidgetReadOptions,
         manifest: {
           name: options?.appId
             ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
@@ -8199,23 +8182,23 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           return processPendingAutomationFailureAlerts();
         };
 
-        // Platform schedulers use the existing durable background function as
-        // the long-lived worker. Keeping the sweep behind a signed, fixed
-        // route prevents a public request from choosing an owner or job.
+        // Every platform trigger lands here: Netlify's scheduled function (via
+        // the durable background function), Vercel Cron, and the Cloudflare
+        // worker's Cron Trigger. Keeping the sweep behind an authenticated,
+        // fixed route prevents a public request from choosing an owner or job.
         getH3App(nitroApp).use(
           RECURRING_JOBS_SWEEP_PATH,
           defineEventHandler(async (event) => {
-            if (getMethod(event) !== "POST") {
-              setResponseStatus(event, 405);
-              return { error: "Method not allowed" };
-            }
-            const token = extractBearerToken(getHeader(event, "authorization"));
-            if (
-              !token ||
-              !verifyInternalToken(RECURRING_JOBS_SWEEP_TOKEN_SUBJECT, token)
-            ) {
-              setResponseStatus(event, 401);
-              return { error: "Invalid or expired internal token" };
+            const { readDeployCredentialEnv } =
+              await import("./credential-provider.js");
+            const authorization = authorizeSweepTrigger({
+              method: getMethod(event),
+              authorization: getHeader(event, "authorization"),
+              cronSecret: readDeployCredentialEnv("CRON_SECRET"),
+            });
+            if (!authorization.ok) {
+              setResponseStatus(event, authorization.status);
+              return { error: authorization.error };
             }
             if (
               isNetlifyRecurringJobsRuntime() &&
@@ -8704,6 +8687,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         "/mcp",
         "/.well-known/agent-card.json",
         "/_agent-native/a2a",
+        // A platform scheduler usually lands on a cold instance. Without the
+        // gate the first sweep 404s, or runs before the trigger dispatcher
+        // registers its sweep handler and silently skips queued events.
+        RECURRING_JOBS_SWEEP_PATH,
       ],
     });
     nitroApp.hooks?.hook?.("close", async () => {

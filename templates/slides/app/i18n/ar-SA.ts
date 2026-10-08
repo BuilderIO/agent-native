@@ -124,7 +124,7 @@ const messages = {
     googleOAuthNotConfigured:
       "Google OAuth não está configurado para esta implantação.",
     googlePickerNeedsKeys:
-      "Google Picker precisa de GOOGLE_PICKER_API_KEY e GOOGLE_PICKER_APP_ID.",
+      "لم يتم إعداد تصفح ملفات Google Drive. لا يزال بإمكانك استيراد المستند بلصق رابطه.",
     imageUploadFailed: "Falha ao enviar imagem",
     imageUploadNeedsBuilder:
       "اربط تخزين الكائنات لتحميل الصور: اربط Builder.io (مجانًا) أو أضف مفاتيح التخزين المتوافقة مع S3 ضمن الإعدادات ← تحميل الملفات.",

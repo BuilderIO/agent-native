@@ -54,6 +54,7 @@ import {
 import {
   assertEmittedBackgroundFunctionOnDisk,
   isRecurringJobsDeployEnabled,
+  readVercelSweepCron,
 } from "./build.js";
 import {
   cloneServerBundleForFunction,
@@ -333,6 +334,7 @@ export async function runWorkspaceDeploy(
   );
 
   const execFile = opts.execFile ?? execFileSync;
+  const sweepCrons: Array<{ path: string; schedule: string }> = [];
   for (const app of apps) {
     buildOneApp(
       workspaceRoot,
@@ -353,6 +355,14 @@ export async function runWorkspaceDeploy(
       workspaceApps,
       workspaceAuthMode,
     );
+    if (preset === "vercel") {
+      sweepCrons.push(
+        readVercelSweepCron(
+          path.join(appsDir, app, VERCEL_OUTPUT_DIR),
+          `/${app}`,
+        ),
+      );
+    }
   }
   writeWorkspaceAppManifests(workspaceRoot, apps, workspaceApps, preset);
   if (workspaceRootPage === "directory") {
@@ -371,6 +381,7 @@ export async function runWorkspaceDeploy(
       apps,
       workspaceApps,
       workspaceRootPage,
+      sweepCrons,
     );
   }
 
@@ -699,6 +710,7 @@ function writeVercelBuildConfig(
   apps: string[],
   workspaceApps: WorkspaceAppManifestEntry[],
   rootPage: AgentNativeWorkspaceRootPage,
+  sweepCrons: Array<{ path: string; schedule: string }>,
 ): void {
   const routes: Array<Record<string, any>> = [
     ...vercelImmutableAssetHeaderRoutes(outputDir, apps),
@@ -772,6 +784,7 @@ function writeVercelBuildConfig(
   const config = {
     version: 3,
     routes,
+    crons: sweepCrons,
   };
   fs.writeFileSync(
     path.join(outputDir, "config.json"),

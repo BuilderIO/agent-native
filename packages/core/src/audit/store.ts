@@ -4,7 +4,9 @@ import {
   ensureTableExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
+import { AGENT_AUDIT_CALLERS } from "./config.js";
 import type {
+  AuditActorKind,
   AuditEvent,
   AuditQueryFilters,
   AuditVisibility,
@@ -155,13 +157,50 @@ export async function insertAuditEvent(event: AuditEvent): Promise<void> {
   });
 }
 
+// Rows recorded before outside agents (MCP, WebMCP, A2A) counted as agents
+// stored `human` or `system` for them. Reads classify those by caller here and
+// in `actorKindClause`, so an old row and a filter on it agree without
+// rewriting the append-only log. A `service` row keeps its kind: org service
+// principals mostly call over MCP.
+const LEGACY_AGENT_KINDS: readonly AuditActorKind[] = ["human", "system"];
+
+function readActorKind(
+  storedKind: AuditActorKind,
+  caller: string,
+): AuditActorKind {
+  return LEGACY_AGENT_KINDS.includes(storedKind) &&
+    AGENT_AUDIT_CALLERS.has(caller)
+    ? "agent"
+    : storedKind;
+}
+
+function actorKindClause(kind: AuditActorKind): { sql: string; args: any[] } {
+  const callers = [...AGENT_AUDIT_CALLERS];
+  const agentCaller = `caller IN (${callers.map(() => "?").join(", ")})`;
+  if (kind === "agent") {
+    const legacy = LEGACY_AGENT_KINDS.map(() => "?").join(", ");
+    return {
+      sql: `(actor_kind = ? OR (actor_kind IN (${legacy}) AND ${agentCaller}))`,
+      args: [kind, ...LEGACY_AGENT_KINDS, ...callers],
+    };
+  }
+  if (LEGACY_AGENT_KINDS.includes(kind)) {
+    return {
+      sql: `(actor_kind = ? AND NOT ${agentCaller})`,
+      args: [kind, ...callers],
+    };
+  }
+  return { sql: "actor_kind = ?", args: [kind] };
+}
+
 function mapRow(row: any): AuditEvent {
+  const caller = String(row.caller);
   return {
     id: String(row.id),
     createdAt: Number(row.created_at),
     action: String(row.action),
-    caller: String(row.caller),
-    actorKind: row.actor_kind,
+    caller,
+    actorKind: readActorKind(row.actor_kind, caller),
     actorEmail: row.actor_email ?? null,
     orgId: row.org_id ?? null,
     threadId: row.thread_id ?? null,
@@ -312,7 +351,11 @@ async function selectAuditRows(
   };
   if (filters.targetType) push("target_type = ?", filters.targetType);
   if (filters.targetId) push("target_id = ?", filters.targetId);
-  if (filters.actorKind) push("actor_kind = ?", filters.actorKind);
+  if (filters.actorKind) {
+    const clause = actorKindClause(filters.actorKind);
+    where.push(clause.sql);
+    args.push(...clause.args);
+  }
   if (filters.actorEmail) push("actor_email = ?", filters.actorEmail);
   if (filters.status) push("status = ?", filters.status);
   if (filters.threadId) push("thread_id = ?", filters.threadId);

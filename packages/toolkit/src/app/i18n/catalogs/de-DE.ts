@@ -819,6 +819,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Builder.io wird eingerichtet",
   "recovery.copyDebug": "Debug-Informationen kopieren",
   "recovery.copyFailed": "Kopieren fehlgeschlagen",
+  "recovery.continueUnavailable":
+    "Dieser Lauf kann nicht mehr fortgesetzt werden. Sende eine Nachricht, um weiterzumachen.",
   "recovery.retryAttachmentUnavailable":
     "Diese Anfrage enthielt eine Datei, die sich nicht erneut senden lässt. Füge sie im Nachrichtenfeld erneut hinzu und versuche es noch einmal.",
   "recovery.deferredSubmissionFailed":
@@ -1885,6 +1887,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.adminOnly":
     "Nur Inhaber und Admins der Organisation können den Dateispeicher ändern.",
   "settings.audit.action": "Aktion",
+  "settings.audit.agentVia": "Agent über {{protocol}}",
   "settings.audit.allApps": "Alle Apps",
   "settings.audit.app": "App",
   "settings.audit.changedBy": "Geändert von",

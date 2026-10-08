@@ -265,8 +265,13 @@ iteration independent.
 
 ## After Completing an Analysis — Record Discoveries
 
-After completing a significant analysis, update `LEARNINGS.md` (via the
-`resources` tool) or `save-memory` with newly confirmed:
+After completing a significant analysis, record newly confirmed findings when
+they will help future work. First check whether a finding applies to the user's
+setup or to the whole organization. Keep setup-specific findings in personal
+memory or the current analysis. Ask the user and get approval before writing
+anything to shared `LEARNINGS.md` or organization memory.
+
+Record approved findings such as:
 
 - Metric definitions (how a metric is actually calculated in this dataset)
 - Provider gotchas discovered during the analysis

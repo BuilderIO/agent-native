@@ -1121,6 +1121,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Builder.io सेट अप हो रहा है",
   "recovery.copyDebug": "डीबग जानकारी कॉपी करें",
   "recovery.copyFailed": "कॉपी नहीं हो सका",
+  "recovery.continueUnavailable":
+    "यह रन अब जारी नहीं रखा जा सकता। आगे बढ़ने के लिए एक संदेश भेजें।",
   "recovery.retryAttachmentUnavailable":
     "इस अनुरोध में ऐसी फ़ाइल थी जिसे दोबारा नहीं भेजा जा सकता। उसे संदेश बॉक्स में फिर से जोड़ें, फिर कोशिश करें।",
   "recovery.deferredSubmissionFailed":
@@ -1761,6 +1763,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.adminOnly":
     "सिर्फ़ संगठन के मालिक और एडमिन फ़ाइल स्टोरेज बदल सकते हैं।",
   "settings.audit.action": "कार्रवाई",
+  "settings.audit.agentVia": "{{protocol}} के ज़रिए एजेंट",
   "settings.audit.allApps": "सभी ऐप",
   "settings.audit.app": "ऐप",
   "settings.audit.changedBy": "बदलने वाला",

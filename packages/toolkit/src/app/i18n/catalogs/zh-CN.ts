@@ -1070,6 +1070,7 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "正在设置 Builder.io",
   "recovery.copyDebug": "复制调试信息",
   "recovery.copyFailed": "复制失败",
+  "recovery.continueUnavailable": "此运行已无法继续。发送消息以继续。",
   "recovery.retryAttachmentUnavailable":
     "此请求包含一个无法重试的文件。请在消息输入框中重新附加该文件，然后重试。",
   "recovery.deferredSubmissionFailed":
@@ -1663,6 +1664,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.retry": "重试",
   "settings.storage.adminOnly": "只有组织所有者和管理员可以更改文件存储。",
   "settings.audit.action": "操作",
+  "settings.audit.agentVia": "通过 {{protocol}} 的智能体",
   "settings.audit.allApps": "所有应用",
   "settings.audit.app": "应用",
   "settings.audit.changedBy": "更改者",

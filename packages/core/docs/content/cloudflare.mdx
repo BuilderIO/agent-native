@@ -206,6 +206,33 @@ npx wrangler deploy --config .output/server/wrangler.json
 Secrets stay saved on the Worker between deploys, so you do not need to repeat
 Step 5.
 
+## Scheduled work {#cloudflare-scheduled-work}
+
+Scheduled automations, queued event automations, and cleanup of interrupted
+runs all happen on a once-a-minute sweep. The build adds a `* * * * *`
+[Cron Trigger](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
+to the generated `wrangler.json` and keeps any Cron Triggers you already
+declared. When it fires, the Worker's `scheduled` handler calls the sweep
+directly with a short-lived token signed with `A2A_SECRET`, so set that secret
+before you deploy:
+
+```bash
+npx wrangler secret put A2A_SECRET --config .output/server/wrangler.json
+```
+
+- **CPU time.** On the Workers Free plan, each Cron Trigger invocation gets 10
+  ms of CPU time, and a sweep that runs agent jobs needs more. Use the Workers
+  Paid plan for scheduled work.
+- **Timing.** Cron Triggers run on UTC, and a new or changed trigger can take
+  up to 15 minutes to start firing after a deploy.
+- **Local testing.** Run the built Worker with
+  `npx wrangler dev --test-scheduled --config .output/server/wrangler.json`,
+  then request `/cdn-cgi/handler/scheduled?cron=*+*+*+*+*` to fire the sweep
+  once.
+
+See [How the scheduler runs](/docs/recurring-jobs#how-scheduler-runs) for the
+other hosts.
+
 ## What's next
 
 - [**Deployment Environment Variables**](/docs/deployment-environment-variables) - the full list of production settings

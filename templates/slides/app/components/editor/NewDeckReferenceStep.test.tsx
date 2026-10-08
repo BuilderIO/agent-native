@@ -145,7 +145,6 @@ async function renderStep(
     decks: [] as Deck[],
     referenceOptionsLoaded: true,
     defaultDesignSystemId: "ds-1",
-    defaultReferenceDeckId: null,
     onSelect,
     onImport,
     onImportSource,
@@ -672,30 +671,41 @@ describe("<NewDeckReferenceStep>", () => {
     ]);
   });
 
-  it("shows the last selected reference deck when the step opens", async () => {
+  it("requires an explicit reference deck choice", async () => {
     const { onSelect } = await renderStep({
+      designSystems: [],
+      defaultDesignSystemId: null,
       decks: [
         {
-          id: "deck-last-used",
-          title: "Last used deck",
+          id: "deck-recent",
+          title: "Recent deck",
           createdAt: "2026-08-01T00:00:00.000Z",
           updatedAt: "2026-08-10T00:00:00.000Z",
           slides: [],
         },
       ],
-      defaultReferenceDeckId: "deck-last-used",
     });
 
     expect(
       screen.getByRole("combobox", { name: "Reference deck" }).textContent,
-    ).toContain("Last used deck");
+    ).toContain("Match the style of an existing deck");
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Reference deck" }));
+    fireEvent.click(screen.getByRole("option", { name: "None" }));
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     });
 
     expect(onSelect).toHaveBeenCalledWith(
-      expect.objectContaining({ referenceDeckIdSource: "automatic" }),
+      expect.objectContaining({
+        referenceDeckId: null,
+        referenceDeckIdSource: "selection",
+      }),
     );
   });
 
