@@ -2937,50 +2937,74 @@ export async function stopAgentTeamBackgroundRun(
   const ownerScope = resolveOwnerScope(scope);
   const dispatch = await getAgentTeamRunDispatchState(taskId);
   if (
-    !dispatch ||
-    (dispatch.status !== "queued" && dispatch.status !== "running")
+    dispatch &&
+    dispatch.status !== "queued" &&
+    dispatch.status !== "running"
   ) {
     return { ok: false, error: "Task is not running" };
   }
 
-  const result = await withCurrentAgentTeamRunAttempt(
-    taskId,
-    dispatch.attempts,
-    async () => {
-      const currentTask = await loadTask(taskId);
-      if (
-        !currentTask ||
-        !taskMatchesOwnerScope(currentTask, ownerScope) ||
-        currentTask.status !== "running"
-      ) {
-        return null;
-      }
+  const markStopped = (currentTask: AgentTask) => {
+    currentTask.status = "errored";
+    currentTask.summary =
+      reason === "user" ? "Task stopped." : `Task stopped: ${reason}`;
+    currentTask.error = currentTask.summary;
+    currentTask.currentStep = "";
+    currentTask.completedAt = Date.now();
+    currentTask.terminalEffectsVersion = 1;
+    currentTask.terminalEffectsReconciled = false;
+    currentTask.terminalProgressStatus = "cancelled";
+    currentTask.parentCompletionEnqueued = !currentTask.parentThreadId;
+  };
 
-      currentTask.status = "errored";
-      currentTask.summary =
-        reason === "user" ? "Task stopped." : `Task stopped: ${reason}`;
-      currentTask.error = currentTask.summary;
-      currentTask.currentStep = "";
-      currentTask.completedAt = Date.now();
-      currentTask.terminalEffectsVersion = 1;
-      currentTask.terminalEffectsReconciled = false;
-      currentTask.terminalProgressStatus = "cancelled";
-      currentTask.parentCompletionEnqueued = !currentTask.parentThreadId;
+  let stoppedTask: AgentTask | null = null;
+  if (dispatch) {
+    const result = await withCurrentAgentTeamRunAttempt(
+      taskId,
+      dispatch.attempts,
+      async () => {
+        const currentTask = await loadTask(taskId);
+        if (
+          !currentTask ||
+          !taskMatchesOwnerScope(currentTask, ownerScope) ||
+          currentTask.status !== "running"
+        ) {
+          return null;
+        }
+
+        markStopped(currentTask);
+        await saveTask(currentTask);
+        if (
+          !(await completeAgentTeamRun(taskId, "failed", dispatch.attempts))
+        ) {
+          throw new Error("The agent task run changed before it could stop.");
+        }
+        return currentTask;
+      },
+      { statuses: ["queued", "running"] },
+    );
+    if (result.current) stoppedTask = result.value;
+  } else {
+    const currentTask = await loadTask(taskId);
+    if (
+      currentTask &&
+      taskMatchesOwnerScope(currentTask, ownerScope) &&
+      currentTask.status === "running"
+    ) {
+      markStopped(currentTask);
       await saveTask(currentTask);
-      if (!(await completeAgentTeamRun(taskId, "failed", dispatch.attempts))) {
-        throw new Error("The agent task run changed before it could stop.");
-      }
-      return currentTask;
-    },
-    { statuses: ["queued", "running"] },
-  );
-  if (!result.current || !result.value) {
+      stoppedTask = currentTask;
+    }
+  }
+
+  if (!stoppedTask) {
     return { ok: false, error: "Task is not running" };
   }
 
-  const stoppedTask = result.value;
   abortRun(
-    taskRunChunkId(taskId, dispatch.continuationCount, dispatch.attempts),
+    dispatch
+      ? taskRunChunkId(taskId, dispatch.continuationCount, dispatch.attempts)
+      : runningInMemoryTaskRunId(taskId),
     reason,
   );
   const ownerEmail = getRequestUserEmail();
