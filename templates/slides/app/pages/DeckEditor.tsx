@@ -936,6 +936,8 @@ export default function DeckEditor() {
     ((org?.pendingInvitations?.length ?? 0) > 0 ||
       (org?.domainMatches?.length ?? 0) > 0);
   const slideCount = deck?.slides.length ?? 0;
+  const slideCountRef = useRef(slideCount);
+  slideCountRef.current = slideCount;
   const { canEdit, canComment } = useDeckRole(id, deck?.createdByMe === true);
   const generationContext =
     deck?.generationContext &&
@@ -1343,7 +1345,7 @@ export default function DeckEditor() {
                 ? "deck_refresh_failed"
                 : "deck_not_visible_after_refresh",
           });
-          if (slideCount === 0 && generationContext) {
+          if (slideCountRef.current === 0 && generationContext) {
             const failureCode = "outcome_unresolved";
             updateDeck(id, {
               generationContext: {
