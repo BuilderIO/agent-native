@@ -303,6 +303,31 @@ function pngCrc32(data: Buffer): number {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
+function pngPaethPredictor(left: number, above: number, upperLeft: number) {
+  const estimate = left + above - upperLeft;
+  const leftDistance = Math.abs(estimate - left);
+  const aboveDistance = Math.abs(estimate - above);
+  const upperLeftDistance = Math.abs(estimate - upperLeft);
+  if (leftDistance <= aboveDistance && leftDistance <= upperLeftDistance) {
+    return left;
+  }
+  return aboveDistance <= upperLeftDistance ? above : upperLeft;
+}
+
+function isInvalidPngDeflateError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    [
+      "ERR_BUFFER_TOO_LARGE",
+      "Z_BUF_ERROR",
+      "Z_DATA_ERROR",
+      "Z_NEED_DICT",
+    ].includes(error.code)
+  );
+}
+
 function pngDimensions(data: Buffer): { width: number; height: number } | null {
   if (
     data.length < PNG_SIGNATURE.length ||
@@ -315,6 +340,7 @@ function pngDimensions(data: Buffer): { width: number; height: number } | null {
   let width = 0;
   let height = 0;
   let colorType = -1;
+  let paletteEntryCount = 0;
   let seenHeader = false;
   let seenPalette = false;
   let seenData = false;
@@ -372,6 +398,7 @@ function pngDimensions(data: Buffer): { width: number; height: number } | null {
         return null;
       }
       seenPalette = true;
+      paletteEntryCount = chunkLength / 3;
     } else if (chunkType === "IDAT") {
       if (dataEnded || (colorType === 3 && !seenPalette)) {
         return null;
@@ -416,12 +443,39 @@ function pngDimensions(data: Buffer): { width: number; height: number } | null {
     decoded = inflateSync(Buffer.concat(compressedChunks), {
       maxOutputLength: expectedDecodedBytes,
     });
-  } catch {
+  } catch (error) {
+    if (!isInvalidPngDeflateError(error)) throw error;
     return null;
   }
   if (decoded.byteLength !== expectedDecodedBytes) return null;
+  const rowStride = rowBytes + 1;
   for (let row = 0; row < height; row += 1) {
-    if (decoded[row * (rowBytes + 1)]! > 4) return null;
+    const rowOffset = row * rowStride;
+    const filter = decoded[rowOffset]!;
+    if (filter > 4) return null;
+    if (colorType !== 3) continue;
+
+    const pixels = decoded.subarray(rowOffset + 1, rowOffset + rowStride);
+    const previousPixels =
+      row === 0 ? null : decoded.subarray(rowOffset - rowStride + 1, rowOffset);
+    for (let column = 0; column < pixels.byteLength; column += 1) {
+      const left = column === 0 ? 0 : pixels[column - 1]!;
+      const above = previousPixels?.[column] ?? 0;
+      const upperLeft = column === 0 ? 0 : (previousPixels?.[column - 1] ?? 0);
+      const predictor =
+        filter === 0
+          ? 0
+          : filter === 1
+            ? left
+            : filter === 2
+              ? above
+              : filter === 3
+                ? Math.floor((left + above) / 2)
+                : pngPaethPredictor(left, above, upperLeft);
+      const paletteIndex = (pixels[column]! + predictor) & 0xff;
+      if (paletteIndex >= paletteEntryCount) return null;
+      pixels[column] = paletteIndex;
+    }
   }
 
   return { width, height };
@@ -988,10 +1042,14 @@ export default defineEventHandler(async (event) =>
             error,
           );
         }
-        badRequest(
-          "Design returned an unexpected screenshot upload response",
-          502,
-        );
+        throw createError({
+          statusCode: uploadResponse.status,
+          statusMessage: `Design returned HTTP ${uploadResponse.status} with an invalid screenshot upload response.`,
+          ...(uploadResponse.status >= 500
+            ? { data: { saveOutcomeUnknown: true } }
+            : {}),
+          cause: error,
+        });
       }
       cleanupPending =
         uploadResult.cleanupPending === true ||

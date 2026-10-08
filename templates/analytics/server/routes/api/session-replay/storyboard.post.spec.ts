@@ -126,6 +126,21 @@ function corruptPngData(): Buffer {
   return bytes;
 }
 
+function pngWithInvalidPaletteIndex(): Buffer {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(2, 0);
+  header.writeUInt32BE(1, 4);
+  header[8] = 8;
+  header[9] = 3;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", header),
+    pngChunk("PLTE", Buffer.from([0, 0, 0])),
+    pngChunk("IDAT", deflateSync(Buffer.from([0, 0, 1]))),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
 function makeFormData({
   screenshots = [screenshot],
   pixelWidthOverride,
@@ -402,6 +417,7 @@ describe("POST /api/session-replay/storyboard", () => {
   it.each([
     ["a header-only PNG", pngBytes().subarray(0, 33)],
     ["corrupt compressed pixels", corruptPngData()],
+    ["an out-of-range indexed palette pixel", pngWithInvalidPaletteIndex()],
   ])("rejects %s before handing it to Design", async (_label, pngOverride) => {
     await expect(
       (handler as any)(makeEvent(makeFormData({ pngOverride }))),
@@ -628,6 +644,25 @@ describe("POST /api/session-replay/storyboard", () => {
       data: { saveOutcomeUnknown: true },
     });
   });
+
+  it.each(["", "not-json"])(
+    "marks an unknown save outcome when the 503 response body is %j",
+    async (body) => {
+      mocks.ssrfSafeFetch.mockResolvedValueOnce(
+        new Response(body, { status: 503 }),
+      );
+
+      const error = await (handler as any)(makeEvent(makeFormData())).catch(
+        (caught: unknown) => caught,
+      );
+
+      expect(error).toMatchObject({
+        statusCode: 503,
+        statusMessage: expect.stringContaining("invalid screenshot upload"),
+        data: { saveOutcomeUnknown: true },
+      });
+    },
+  );
 
   it("does not retry a 401 with an organization-principal fallback token", async () => {
     mocks.resolveA2ACallerAuth.mockResolvedValueOnce({

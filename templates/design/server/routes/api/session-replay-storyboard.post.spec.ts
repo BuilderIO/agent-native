@@ -1,3 +1,5 @@
+import { deflateSync } from "node:zlib";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -68,24 +70,86 @@ const screenshot = {
   eventCount: 3,
 };
 
+function crc32(data: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of data) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const chunk = Buffer.alloc(12 + data.byteLength);
+  chunk.writeUInt32BE(data.byteLength, 0);
+  chunk.write(type, 4, "ascii");
+  data.copy(chunk, 8);
+  chunk.writeUInt32BE(
+    crc32(chunk.subarray(4, 8 + data.byteLength)),
+    8 + data.byteLength,
+  );
+  return chunk;
+}
+
 function pngBytes(
-  width = screenshot.viewportWidth,
-  height = screenshot.viewportHeight,
+  requestedWidth = screenshot.viewportWidth,
+  requestedHeight = screenshot.viewportHeight,
 ): Buffer {
-  const bytes = Buffer.alloc(24);
-  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  bytes.write("IHDR", 12, "ascii");
-  bytes.writeUInt32BE(width, 16);
-  bytes.writeUInt32BE(height, 20);
+  const width = requestedWidth * requestedHeight > 10_000 ? 1 : requestedWidth;
+  const height =
+    requestedWidth * requestedHeight > 10_000 ? 1 : requestedHeight;
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  const rows = Buffer.alloc((width * 4 + 1) * height);
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", header),
+    pngChunk("IDAT", deflateSync(rows)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+function corruptPngData(): Buffer {
+  const bytes = pngBytes();
+  const idatOffset = 8 + 25;
+  const dataLength = bytes.readUInt32BE(idatOffset);
+  const dataOffset = idatOffset + 8;
+  bytes[dataOffset + dataLength - 1] ^= 0xff;
+  bytes.writeUInt32BE(
+    crc32(bytes.subarray(idatOffset + 4, dataOffset + dataLength)),
+    dataOffset + dataLength,
+  );
   return bytes;
+}
+
+function pngWithInvalidPaletteIndex(): Buffer {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(2, 0);
+  header.writeUInt32BE(1, 4);
+  header[8] = 8;
+  header[9] = 3;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", header),
+    pngChunk("PLTE", Buffer.from([0, 0, 0])),
+    pngChunk("IDAT", deflateSync(Buffer.from([0, 0, 1]))),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
 }
 
 function makeFormData({
   screenshots = [screenshot],
   pixelWidthOverride,
+  pngOverride,
 }: {
   screenshots?: Array<typeof screenshot>;
   pixelWidthOverride?: number;
+  pngOverride?: Buffer;
 } = {}) {
   const form = new FormData();
   const replayCount = new Set(screenshots.map(({ replayId }) => replayId)).size;
@@ -104,10 +168,11 @@ function makeFormData({
       new Blob(
         [
           new Uint8Array(
-            pngBytes(
-              pixelWidthOverride ?? shot.viewportWidth,
-              shot.viewportHeight,
-            ),
+            pngOverride ??
+              pngBytes(
+                pixelWidthOverride ?? shot.viewportWidth,
+                shot.viewportHeight,
+              ),
           ).buffer as ArrayBuffer,
         ],
         {
@@ -259,6 +324,21 @@ describe("POST /api/session-replay-storyboard", () => {
     });
     expect(mocks.assertAccess).not.toHaveBeenCalled();
     expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a header-only PNG", pngBytes().subarray(0, 33)],
+    ["corrupt compressed pixels", corruptPngData()],
+    ["an out-of-range indexed palette pixel", pngWithInvalidPaletteIndex()],
+  ])("rejects %s before persisting it", async (_label, pngOverride) => {
+    await expect(
+      (handler as any)(makeEvent(makeFormData({ pngOverride }))),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      statusMessage: "Screenshot pixels do not match the replay viewport",
+    });
+    expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
+    expect(mocks.runAction).not.toHaveBeenCalled();
   });
 
   it("rejects a screenshot batch above the decoded pixel limit before writing", async () => {
