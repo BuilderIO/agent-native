@@ -1,3 +1,5 @@
+import { inflateSync } from "node:zlib";
+
 import {
   assertCredentialedA2AUrl,
   canonicalA2AAudience,
@@ -22,9 +24,22 @@ const MAX_DESIGN_UPLOAD_RESPONSE_BYTES = 64_000;
 const MAX_MULTIPART_OVERHEAD_BYTES = 64_000;
 const MAX_REQUEST_BYTES =
   MAX_BATCH_BYTES + MAX_MANIFEST_BYTES + MAX_MULTIPART_OVERHEAD_BYTES;
+const MAX_SCREENSHOT_PIXELS = 16_000_000;
+const MAX_SCREENSHOT_DIMENSION = 8_192;
 // Leave headroom under Analytics' 75-second Netlify function limit.
 const DESIGN_REQUEST_DEADLINE_MS = 60_000;
 const DESIGN_ACTION_TIMEOUT_MS = 30_000;
+const PNG_SIGNATURE = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]);
+const PNG_CRC_TABLE = new Uint32Array(256);
+for (let index = 0; index < PNG_CRC_TABLE.length; index += 1) {
+  let value = index;
+  for (let bit = 0; bit < 8; bit += 1) {
+    value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+  }
+  PNG_CRC_TABLE[index] = value >>> 0;
+}
 
 type ScreenshotInput = {
   recordingId: string;
@@ -75,15 +90,52 @@ function unknownSaveOutcomeError(message: string, cause?: unknown) {
   });
 }
 
-function remainingDesignRequestTimeout(deadlineAt: number): number {
+function requestDeadlineError(statusMessage: string) {
+  return createError({ statusCode: 504, statusMessage });
+}
+
+function remainingRequestDeadlineMs(
+  deadlineAt: number,
+  statusMessage: string,
+): number {
   const remaining = Math.ceil(deadlineAt - Date.now());
-  if (remaining <= 0) {
-    throw createError({
-      statusCode: 504,
-      statusMessage: "Design screenshot export exceeded its request deadline",
-    });
+  if (remaining <= 0) throw requestDeadlineError(statusMessage);
+  return remaining;
+}
+
+async function beforeRequestDeadline<T>(
+  operation: () => Promise<T>,
+  deadlineAt: number,
+  statusMessage: string,
+  onTimeout?: (error: Error) => void,
+): Promise<T> {
+  const timeoutMs = remainingRequestDeadlineMs(deadlineAt, statusMessage);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutFailure = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      const error = requestDeadlineError(statusMessage);
+      onTimeout?.(error);
+      reject(error);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([
+      Promise.resolve().then(operation),
+      timeoutFailure,
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
-  return Math.min(DESIGN_ACTION_TIMEOUT_MS, remaining);
+}
+
+function remainingDesignRequestTimeout(deadlineAt: number): number {
+  return Math.min(
+    DESIGN_ACTION_TIMEOUT_MS,
+    remainingRequestDeadlineMs(
+      deadlineAt,
+      "Design screenshot export exceeded its request deadline",
+    ),
+  );
 }
 
 function isDesignUploadResult(value: unknown): value is DesignUploadResult {
@@ -183,9 +235,10 @@ function parseManifest(value: unknown): ManifestInput {
       !Number.isSafeInteger(item.viewportHeight) ||
       Number(item.viewportWidth) <= 0 ||
       Number(item.viewportHeight) <= 0 ||
-      Number(item.viewportWidth) > 8_192 ||
-      Number(item.viewportHeight) > 8_192 ||
-      Number(item.viewportWidth) * Number(item.viewportHeight) > 16_000_000 ||
+      Number(item.viewportWidth) > MAX_SCREENSHOT_DIMENSION ||
+      Number(item.viewportHeight) > MAX_SCREENSHOT_DIMENSION ||
+      Number(item.viewportWidth) * Number(item.viewportHeight) >
+        MAX_SCREENSHOT_PIXELS ||
       !Number.isSafeInteger(item.eventCount) ||
       Number(item.eventCount) < 1
     ) {
@@ -242,25 +295,136 @@ function parseManifest(value: unknown): ManifestInput {
   };
 }
 
+function pngCrc32(data: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of data) {
+    crc = PNG_CRC_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
 function pngDimensions(data: Buffer): { width: number; height: number } | null {
   if (
-    data.length < 24 ||
-    data[0] !== 0x89 ||
-    data[1] !== 0x50 ||
-    data[2] !== 0x4e ||
-    data[3] !== 0x47 ||
-    data[4] !== 0x0d ||
-    data[5] !== 0x0a ||
-    data[6] !== 0x1a ||
-    data[7] !== 0x0a ||
-    data.toString("ascii", 12, 16) !== "IHDR"
+    data.length < PNG_SIGNATURE.length ||
+    !data.subarray(0, 8).equals(PNG_SIGNATURE)
   ) {
     return null;
   }
-  return {
-    width: data.readUInt32BE(16),
-    height: data.readUInt32BE(20),
-  };
+
+  let offset = PNG_SIGNATURE.length;
+  let width = 0;
+  let height = 0;
+  let colorType = -1;
+  let seenHeader = false;
+  let seenPalette = false;
+  let seenData = false;
+  let dataEnded = false;
+  let seenEnd = false;
+  const compressedChunks: Buffer[] = [];
+
+  while (offset < data.length) {
+    if (offset + 12 > data.length) return null;
+    const chunkLength = data.readUInt32BE(offset);
+    const chunkEnd = offset + 12 + chunkLength;
+    if (chunkEnd > data.length) return null;
+    const chunkType = data.toString("ascii", offset + 4, offset + 8);
+    if (!/^[A-Za-z]{4}$/.test(chunkType)) return null;
+    const checksumOffset = offset + 8 + chunkLength;
+    if (
+      pngCrc32(data.subarray(offset + 4, checksumOffset)) !==
+      data.readUInt32BE(checksumOffset)
+    ) {
+      return null;
+    }
+    const chunk = data.subarray(offset + 8, checksumOffset);
+
+    if (!seenHeader && (chunkType !== "IHDR" || offset !== 8)) return null;
+    if (chunkType === "IHDR") {
+      if (seenHeader || chunkLength !== 13) return null;
+      width = chunk.readUInt32BE(0);
+      height = chunk.readUInt32BE(4);
+      const bitDepth = chunk[8];
+      colorType = chunk[9]!;
+      if (
+        width < 1 ||
+        height < 1 ||
+        width > MAX_SCREENSHOT_DIMENSION ||
+        height > MAX_SCREENSHOT_DIMENSION ||
+        width * height > MAX_SCREENSHOT_PIXELS ||
+        bitDepth !== 8 ||
+        ![0, 2, 3, 4, 6].includes(colorType) ||
+        chunk[10] !== 0 ||
+        chunk[11] !== 0 ||
+        chunk[12] !== 0
+      ) {
+        return null;
+      }
+      seenHeader = true;
+    } else if (chunkType === "PLTE") {
+      if (
+        seenPalette ||
+        seenData ||
+        (colorType !== 2 && colorType !== 3 && colorType !== 6) ||
+        chunkLength < 3 ||
+        chunkLength > 768 ||
+        chunkLength % 3 !== 0
+      ) {
+        return null;
+      }
+      seenPalette = true;
+    } else if (chunkType === "IDAT") {
+      if (dataEnded || (colorType === 3 && !seenPalette)) {
+        return null;
+      }
+      seenData = true;
+      compressedChunks.push(chunk);
+    } else if (chunkType === "IEND") {
+      if (chunkLength !== 0 || !seenData || chunkEnd !== data.length)
+        return null;
+      seenEnd = true;
+      break;
+    } else {
+      if (seenData) dataEnded = true;
+      if (chunkType[0] === chunkType[0]?.toUpperCase()) return null;
+      if (chunkType[2] !== chunkType[2]?.toUpperCase()) return null;
+    }
+
+    if (seenData && chunkType !== "IDAT") dataEnded = true;
+    offset = chunkEnd;
+  }
+
+  if (!seenEnd || !seenData) return null;
+  const channels =
+    colorType === 0 || colorType === 3
+      ? 1
+      : colorType === 2
+        ? 3
+        : colorType === 4
+          ? 2
+          : 4;
+  const rowBytes = width * channels;
+  const expectedDecodedBytes = (rowBytes + 1) * height;
+  if (
+    expectedDecodedBytes >
+    MAX_SCREENSHOT_PIXELS * 4 + MAX_SCREENSHOT_DIMENSION
+  ) {
+    return null;
+  }
+
+  let decoded: Buffer;
+  try {
+    decoded = inflateSync(Buffer.concat(compressedChunks), {
+      maxOutputLength: expectedDecodedBytes,
+    });
+  } catch {
+    return null;
+  }
+  if (decoded.byteLength !== expectedDecodedBytes) return null;
+  for (let row = 0; row < height; row += 1) {
+    if (decoded[row * (rowBytes + 1)]! > 4) return null;
+  }
+
+  return { width, height };
 }
 
 function multipartFile(
@@ -276,6 +440,7 @@ function multipartFile(
 
 async function readBoundedMultipartBody(
   event: Parameters<typeof readMultipartFormData>[0],
+  deadlineAt: number,
 ) {
   const declaredLength = event.req.headers.get("content-length");
   if (declaredLength !== null) {
@@ -298,7 +463,14 @@ async function readBoundedMultipartBody(
   let totalBytes = 0;
   try {
     for (;;) {
-      const { done, value } = await reader.read();
+      const { done, value } = await beforeRequestDeadline(
+        () => reader.read(),
+        deadlineAt,
+        "Screenshot export request exceeded its request deadline",
+        (error) => {
+          void reader.cancel(error).catch(() => {});
+        },
+      );
       if (done) break;
       totalBytes += value.byteLength;
       if (totalBytes > MAX_REQUEST_BYTES) {
@@ -306,15 +478,7 @@ async function readBoundedMultipartBody(
           statusCode: 413,
           statusMessage: "Screenshot export request is too large",
         });
-        try {
-          await reader.cancel(error);
-        } catch (cancelError) {
-          // The request is already over limit; cancellation is best effort.
-          console.warn(
-            "[session-replay/storyboard] Could not cancel oversized request body",
-            cancelError,
-          );
-        }
+        void reader.cancel(error).catch(() => {});
         throw error;
       }
       chunks.push(value);
@@ -324,7 +488,7 @@ async function readBoundedMultipartBody(
       error &&
       typeof error === "object" &&
       "statusCode" in error &&
-      error.statusCode === 413
+      (error.statusCode === 413 || error.statusCode === 504)
     ) {
       throw error;
     }
@@ -348,8 +512,9 @@ async function readBoundedMultipartBody(
 
 async function readBoundedMultipartFormData(
   event: Parameters<typeof readMultipartFormData>[0],
+  deadlineAt: number,
 ) {
-  const body = await readBoundedMultipartBody(event);
+  const body = await readBoundedMultipartBody(event, deadlineAt);
   const headers = new Headers(event.req.headers);
   headers.delete("content-length");
   headers.delete("transfer-encoding");
@@ -360,7 +525,11 @@ async function readBoundedMultipartFormData(
   });
   const boundedEvent = Object.create(event) as typeof event;
   Object.defineProperty(boundedEvent, "req", { value: request });
-  return readMultipartFormData(boundedEvent);
+  return beforeRequestDeadline(
+    () => readMultipartFormData(boundedEvent),
+    deadlineAt,
+    "Screenshot export request exceeded its request deadline",
+  );
 }
 
 function escapeHtml(value: string): string {
@@ -565,7 +734,10 @@ export default defineEventHandler(async (event) =>
     let cleanupFailed = false;
     let cleanupUnknown = false;
     try {
-      const parts = await readBoundedMultipartFormData(event);
+      const parts = await readBoundedMultipartFormData(
+        event,
+        designRequestDeadlineAt,
+      );
       if (!parts) {
         badRequest("Screenshot export payload is missing");
       }
@@ -606,10 +778,15 @@ export default defineEventHandler(async (event) =>
       )) {
         recordings.set(
           recordingId,
-          await getSessionReplaySummary(recordingId, {
-            userEmail: ctx.userEmail,
-            orgId: ctx.orgId ?? null,
-          }),
+          await beforeRequestDeadline(
+            () =>
+              getSessionReplaySummary(recordingId, {
+                userEmail: ctx.userEmail,
+                orgId: ctx.orgId ?? null,
+              }),
+            designRequestDeadlineAt,
+            "Screenshot export request exceeded its request deadline",
+          ),
         );
       }
 
@@ -774,6 +951,9 @@ export default defineEventHandler(async (event) =>
           throw createError({
             statusCode: uploadResponse.status,
             statusMessage: `Design returned HTTP ${uploadResponse.status}, but Analytics could not read its response.`,
+            ...(uploadResponse.status >= 500
+              ? { data: { saveOutcomeUnknown: true } }
+              : {}),
             cause: error,
           });
         }

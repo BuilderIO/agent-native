@@ -423,6 +423,12 @@ export default defineEventHandler(async (event) => {
               ...(cleanupPending || actionState.cleanupPending === true
                 ? { cleanupPending: true }
                 : {}),
+              ...(actionState.cleanupFailed === true
+                ? { cleanupFailed: true }
+                : {}),
+              ...(actionState.cleanupUnknown === true
+                ? { cleanupUnknown: true }
+                : {}),
               ...(actionState.saveOutcomeUnknown === true
                 ? { saveOutcomeUnknown: true }
                 : {}),

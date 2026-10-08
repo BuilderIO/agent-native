@@ -1,3 +1,5 @@
+import { deflateSync } from "node:zlib";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -66,24 +68,72 @@ const screenshot = {
   capturedAt: "2026-10-07T12:00:00.000Z",
 };
 
+function crc32(data: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of data) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const chunk = Buffer.alloc(12 + data.byteLength);
+  chunk.writeUInt32BE(data.byteLength, 0);
+  chunk.write(type, 4, "ascii");
+  data.copy(chunk, 8);
+  chunk.writeUInt32BE(
+    crc32(chunk.subarray(4, 8 + data.byteLength)),
+    8 + data.byteLength,
+  );
+  return chunk;
+}
+
 function pngBytes(
-  width = screenshot.viewportWidth,
-  height = screenshot.viewportHeight,
+  requestedWidth = screenshot.viewportWidth,
+  requestedHeight = screenshot.viewportHeight,
 ): Buffer {
-  const bytes = Buffer.alloc(24);
-  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  bytes.write("IHDR", 12, "ascii");
-  bytes.writeUInt32BE(width, 16);
-  bytes.writeUInt32BE(height, 20);
+  // The oversized manifest test fails before inspecting image dimensions.
+  const width = requestedWidth * requestedHeight > 10_000 ? 1 : requestedWidth;
+  const height =
+    requestedWidth * requestedHeight > 10_000 ? 1 : requestedHeight;
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  const rows = Buffer.alloc((width * 4 + 1) * height);
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", header),
+    pngChunk("IDAT", deflateSync(rows)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+function corruptPngData(): Buffer {
+  const bytes = pngBytes();
+  const idatOffset = 8 + 25;
+  const dataLength = bytes.readUInt32BE(idatOffset);
+  const dataOffset = idatOffset + 8;
+  bytes[dataOffset + dataLength - 1] ^= 0xff;
+  bytes.writeUInt32BE(
+    crc32(bytes.subarray(idatOffset + 4, dataOffset + dataLength)),
+    dataOffset + dataLength,
+  );
   return bytes;
 }
 
 function makeFormData({
   screenshots = [screenshot],
   pixelWidthOverride,
+  pngOverride,
 }: {
   screenshots?: Array<typeof screenshot>;
   pixelWidthOverride?: number;
+  pngOverride?: Buffer;
 } = {}) {
   const form = new FormData();
   const replayCount = new Set(screenshots.map(({ recordingId }) => recordingId))
@@ -103,10 +153,11 @@ function makeFormData({
       new Blob(
         [
           new Uint8Array(
-            pngBytes(
-              pixelWidthOverride ?? shot.viewportWidth,
-              shot.viewportHeight,
-            ),
+            pngOverride ??
+              pngBytes(
+                pixelWidthOverride ?? shot.viewportWidth,
+                shot.viewportHeight,
+              ),
           ).buffer as ArrayBuffer,
         ],
         {
@@ -348,6 +399,19 @@ describe("POST /api/session-replay/storyboard", () => {
     expect(mocks.resolveAgentInvocationTarget).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["a header-only PNG", pngBytes().subarray(0, 33)],
+    ["corrupt compressed pixels", corruptPngData()],
+  ])("rejects %s before handing it to Design", async (_label, pngOverride) => {
+    await expect(
+      (handler as any)(makeEvent(makeFormData({ pngOverride }))),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      statusMessage: "Screenshot pixels do not match the replay viewport",
+    });
+    expect(mocks.ssrfSafeFetch).not.toHaveBeenCalled();
+  });
+
   it("shows the Design storage error instead of masking it with a boolean", async () => {
     mocks.ssrfSafeFetch.mockResolvedValueOnce(
       Response.json(
@@ -403,6 +467,72 @@ describe("POST /api/session-replay/storyboard", () => {
     });
     expect(mocks.readMultipartFormData).not.toHaveBeenCalled();
     expect(mocks.ssrfSafeFetch).not.toHaveBeenCalled();
+  });
+
+  it("times out and cancels a stalled multipart request stream", async () => {
+    let markRead!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      markRead = resolve;
+    });
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      pull() {
+        markRead();
+        return new Promise(() => {});
+      },
+      cancel,
+    });
+    const event = {
+      req: new Request(
+        "http://analytics.example.test/api/session-replay/storyboard",
+        { method: "POST", body, duplex: "half" } as RequestInit & {
+          duplex: "half";
+        },
+      ),
+    };
+    vi.useFakeTimers();
+    try {
+      const pending = (handler as any)(event);
+      const rejected = expect(pending).rejects.toMatchObject({
+        statusCode: 504,
+        statusMessage:
+          "Screenshot export request exceeded its request deadline",
+      });
+      await readStarted;
+      await vi.advanceTimersByTimeAsync(60_000);
+      await rejected;
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(mocks.readMultipartFormData).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds sequential replay-summary preflight by the shared deadline", async () => {
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    mocks.getSessionReplaySummary.mockImplementationOnce(() => {
+      markStarted();
+      return new Promise(() => {});
+    });
+    vi.useFakeTimers();
+    try {
+      const pending = (handler as any)(makeEvent(makeFormData()));
+      const rejected = expect(pending).rejects.toMatchObject({
+        statusCode: 504,
+        statusMessage:
+          "Screenshot export request exceeded its request deadline",
+      });
+      await started;
+      await vi.advanceTimersByTimeAsync(60_000);
+      await rejected;
+      expect(mocks.resolveAgentInvocationTarget).not.toHaveBeenCalled();
+      expect(mocks.ssrfSafeFetch).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns a gateway timeout when the Design upload exceeds its deadline", async () => {
@@ -495,8 +625,8 @@ describe("POST /api/session-replay/storyboard", () => {
       statusMessage: expect.stringContaining(
         "Analytics could not read its response",
       ),
+      data: { saveOutcomeUnknown: true },
     });
-    expect(error).not.toHaveProperty("data.saveOutcomeUnknown");
   });
 
   it("does not retry a 401 with an organization-principal fallback token", async () => {

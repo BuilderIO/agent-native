@@ -376,6 +376,8 @@ describe("POST /api/session-replay-storyboard", () => {
         statusCode: 502,
         details: {
           cleanupPending: true,
+          cleanupFailed: true,
+          cleanupUnknown: true,
           saveOutcomeUnknown: true,
         },
       }),
@@ -391,9 +393,13 @@ describe("POST /api/session-replay-storyboard", () => {
       statusMessage: "The storyboard rollback is uncertain",
       data: {
         cleanupPending: true,
+        cleanupFailed: true,
+        cleanupUnknown: true,
         saveOutcomeUnknown: true,
         details: {
           cleanupPending: true,
+          cleanupFailed: true,
+          cleanupUnknown: true,
           saveOutcomeUnknown: true,
         },
       },
