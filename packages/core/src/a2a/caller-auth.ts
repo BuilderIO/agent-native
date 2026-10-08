@@ -24,6 +24,7 @@ export async function resolveA2ACallerAuth(options?: {
   expiresIn?: string | number;
   includeGoogleToken?: boolean;
   audience?: string | string[];
+  userIdentityOnly?: boolean;
 }): Promise<A2ACallerAuth> {
   const userEmail = getRequestUserEmail();
   const globalSecret = getGlobalA2ASecret();
@@ -49,17 +50,30 @@ export async function resolveA2ACallerAuth(options?: {
     userEmail &&
     options?.audience &&
     globalSecret &&
-    (!orgId || orgDomain?.trim())
+    (options?.userIdentityOnly || !orgId || orgDomain?.trim())
   ) {
     addApiKeyAttempt(
-      await signA2AToken(userEmail, orgDomain, undefined, {
-        expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,
-        preferGlobalSecret: true,
-        audience: options?.audience,
-      }),
+      await signA2AToken(
+        userEmail,
+        options?.userIdentityOnly ? undefined : orgDomain,
+        undefined,
+        {
+          expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,
+          preferGlobalSecret: true,
+          audience: options?.audience,
+          ...(options?.userIdentityOnly && orgId
+            ? { extraClaims: { org_id: orgId } }
+            : {}),
+        },
+      ),
     );
   }
-  if (orgDomain && options?.audience && (orgSecret || globalSecret)) {
+  if (
+    !options?.userIdentityOnly &&
+    orgDomain &&
+    options?.audience &&
+    (orgSecret || globalSecret)
+  ) {
     addApiKeyAttempt(
       await signA2AOrganizationToken(orgDomain, orgSecret, undefined, {
         expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,

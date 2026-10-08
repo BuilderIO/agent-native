@@ -1590,8 +1590,11 @@ export default {
     storyboardNoDesignResponse: "Design ने स्टोरीबोर्ड का परिणाम नहीं लौटाया।",
     storyboardTemporaryCleanupPending:
       "स्टोरीबोर्ड सहेजा गया, लेकिन अस्थायी स्क्रीनशॉट फ़ाइलें हटाई नहीं जा सकीं।",
+    storyboardTemporaryCleanupFailed: "अस्थायी स्क्रीनशॉट की सफ़ाई अभी भी लंबित है।",
     storyboardUnexpectedResponse:
       "स्क्रीनशॉट निर्यात से अपठनीय प्रतिक्रिया मिली। फिर से प्रयास करें।",
+    storyboardSaveOutcomeUnknown:
+      "Design ने स्टोरीबोर्ड सहेजा हो सकता है। दोबारा कोशिश करने से पहले Design देखें।",
     openStoryboard: "Design में स्टोरीबोर्ड खोलें",
     cancelStoryboardCapture: "कैप्चर रद्द करें",
     captureToDesign: "कैप्चर करके Design में जोड़ें",

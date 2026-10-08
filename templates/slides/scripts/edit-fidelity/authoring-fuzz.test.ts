@@ -43,6 +43,11 @@ it("recognizes resource conflicts with or without browser status text", () => {
       "Failed to load resource: the server responded with a status of 404 ()",
     ),
   ).toBe(false);
+  expect(
+    isConflictResourceConsoleError(
+      "Failed to load resource: the server responded with a status of 503 ()",
+    ),
+  ).toBe(false);
 });
 
 const authoringSnapshot = (
