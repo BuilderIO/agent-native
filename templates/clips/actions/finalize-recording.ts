@@ -9,6 +9,7 @@ import {
 import { emit } from "@agent-native/core/event-bus";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { captureRouteError } from "@agent-native/core/server";
+import { getRequestContext } from "@agent-native/core/server/request-context";
 import { track } from "@agent-native/core/tracking";
 import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
@@ -508,6 +509,20 @@ async function persistPendingMediaVerification(params: {
   const nextAttemptAt = new Date(
     Date.now() + mediaVerificationRetryDelayMs(nextRetryAttempt),
   ).toISOString();
+  const existingVerificationMarker = parseMediaVerificationMarker(
+    expectedVerificationState,
+  );
+  const storedBrowserSessionId =
+    existingVerificationMarker?.recordingId === id &&
+    mediaVerificationMarkerMatchesUpload(
+      existingVerificationMarker,
+      uploadAttemptId,
+      uploadGenerationId,
+    )
+      ? stateString(expectedVerificationState, "browserSessionId")
+      : undefined;
+  const browserSessionId =
+    storedBrowserSessionId ?? getRequestContext()?.browserSessionId;
   const db = getDb();
   const persisted = await db
     .update(schema.recordings)
@@ -586,6 +601,7 @@ async function persistPendingMediaVerification(params: {
         leaseUntil: null,
         uploadAttemptId,
         uploadGenerationId,
+        ...(browserSessionId ? { browserSessionId } : {}),
         updatedAt: now,
       },
     },
@@ -793,6 +809,7 @@ async function markRecordingReady(params: {
   recordingGenerationId: string | null;
   existingTitle: string;
   seekableApplied: boolean;
+  browserSessionId?: string;
 }) {
   const {
     id,
@@ -810,6 +827,7 @@ async function markRecordingReady(params: {
     recordingGenerationId,
     existingTitle,
     seekableApplied,
+    browserSessionId,
   } = params;
   const db = getDb();
   const now = new Date().toISOString();
@@ -932,7 +950,7 @@ async function markRecordingReady(params: {
       width: finalWidth,
       height: finalHeight,
     },
-    recordingTrackingSource(ownerEmail),
+    recordingTrackingSource(ownerEmail, browserSessionId),
   );
 
   await queueReadyRecordingThumbnail(id);
@@ -1052,6 +1070,7 @@ async function retryPendingMediaVerification(params: {
   uploadGenerationId: string | null;
   expectedUploadState: Record<string, unknown> | null;
   expectedVerificationState: Record<string, unknown>;
+  browserSessionId?: string;
 }) {
   const {
     id,
@@ -1063,6 +1082,7 @@ async function retryPendingMediaVerification(params: {
     uploadGenerationId,
     expectedUploadState,
     expectedVerificationState,
+    browserSessionId,
   } = params;
   const db = getDb();
   const [recording] = await db
@@ -1132,6 +1152,7 @@ async function retryPendingMediaVerification(params: {
       recordingAttemptId: uploadAttemptId,
       recordingGenerationId: uploadGenerationId,
       seekableApplied: candidate.seekableApplied,
+      browserSessionId,
     });
     if (result.status === "ready" && result.transitionedToReady) {
       queueBackgroundBuilderCompression({
@@ -1437,6 +1458,7 @@ export default defineAction({
             : (existing.uploadAttemptId ?? null),
         recordingGenerationId: generationId,
         existingTitle: existing.title,
+        browserSessionId: getRequestContext()?.browserSessionId,
       };
 
       const pendingMedia = pendingMediaVerificationFromState(uploadState);
@@ -1476,6 +1498,9 @@ export default defineAction({
           uploadGenerationId: generationId,
           expectedUploadState: uploadState,
           expectedVerificationState: claimed,
+          browserSessionId:
+            stateString(claimed, "browserSessionId") ??
+            getRequestContext()?.browserSessionId,
         });
       }
 

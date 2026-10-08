@@ -5,13 +5,16 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const trackEventMock = vi.hoisted(() => vi.fn());
+const analyticsSession = vi.hoisted(() => ({ id: "session-1" }));
 
 vi.mock("../analytics.js", () => ({
   getAnalyticsIdentityKey: () => null,
+  getAnalyticsSessionId: () => analyticsSession.id,
   trackEvent: trackEventMock,
 }));
 
 import {
+  __resetOnboardingEventDedupeForTests,
   __resetOnboardingSummaryReadsForTests,
   trackOnboardingEvent,
   useOnboarding,
@@ -22,6 +25,8 @@ import {
 // test's settled or stalled read must not answer the next test.
 beforeEach(() => {
   __resetOnboardingSummaryReadsForTests();
+  __resetOnboardingEventDedupeForTests();
+  analyticsSession.id = "session-1";
 });
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
@@ -288,6 +293,58 @@ describe("useOnboarding — summary timeout", () => {
 
 describe("trackOnboardingEvent", () => {
   beforeEach(() => trackEventMock.mockReset());
+
+  it("deduplicates StrictMode effect replay but allows a later step revisit", async () => {
+    const properties = { flow: "first_run", step_id: "role" };
+    function ViewOnMount() {
+      React.useEffect(() => {
+        trackOnboardingEvent("onboarding_step_viewed", properties);
+      }, [properties]);
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(
+          <React.StrictMode>
+            <ViewOnMount />
+          </React.StrictMode>,
+        );
+      });
+      expect(trackEventMock).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      trackOnboardingEvent("onboarding_step_viewed", properties);
+      expect(trackEventMock).toHaveBeenCalledTimes(2);
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("does not deduplicate step views across analytics sessions", () => {
+    const properties = { flow: "first_run", step_id: "role" };
+    trackOnboardingEvent("onboarding_step_viewed", properties);
+    analyticsSession.id = "session-2";
+    trackOnboardingEvent("onboarding_step_viewed", properties);
+
+    expect(trackEventMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps one-time events deduped within each analytics session", () => {
+    const properties = { flow: "first_run" };
+    trackOnboardingEvent("onboarding_started", properties);
+    trackOnboardingEvent("onboarding_started", properties);
+    analyticsSession.id = "session-2";
+    trackOnboardingEvent("onboarding_started", properties);
+
+    expect(trackEventMock).toHaveBeenCalledTimes(2);
+  });
 
   it("keeps distinct integration and role intents distinct", () => {
     trackOnboardingEvent("integration_cta_clicked", {

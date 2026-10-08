@@ -29,7 +29,7 @@ export interface JourneyStep {
 
 /** Display names match the `onboarding-setup-choice` metric's method list. */
 const METHOD_LABELS: Record<string, string> = {
-  builder_create_account: "Create Builder.io account",
+  builder_create_account: "Use Builder.io",
   builder_sign_in: "Sign in with Builder.io account",
   custom_keys: "Configure custom keys",
 };
@@ -46,6 +46,8 @@ export const JOURNEY_COHORT_EVENT_NAMES: readonly string[] = [
   ...SIGNUP_CLICKED,
   "onboarding_started",
   "onboarding_step_viewed",
+  "onboarding_step_skipped",
+  "onboarding_abandoned",
   "onboarding_method_clicked",
 ];
 
@@ -56,8 +58,10 @@ export const JOURNEY_STEP_EVENT_NAMES: readonly string[] = [
   ...SIGNUP_VIEWED,
   ...SIGNUP_CLICKED,
   "onboarding_step_viewed",
+  "onboarding_step_skipped",
   "onboarding_method_clicked",
   "onboarding_method_outcome",
+  "onboarding_abandoned",
   "onboarding_completed",
   "onboarding_app_entered",
   "app_entered",
@@ -78,16 +82,18 @@ const TIE_RANK: Record<string, number> = {
   auth_signup_clicked: 2,
   signup: 3,
   onboarding_step_viewed: 4,
-  onboarding_method_clicked: 5,
-  onboarding_method_outcome: 6,
-  onboarding_completed: 7,
-  onboarding_app_entered: 8,
-  app_entered: 8,
-  "app.first_action": 9,
-  generation_started: 10,
-  recording_started: 10,
-  generation_completed: 11,
-  recording_ready: 11,
+  onboarding_step_skipped: 5,
+  onboarding_method_clicked: 6,
+  onboarding_method_outcome: 7,
+  onboarding_abandoned: 8,
+  onboarding_completed: 9,
+  onboarding_app_entered: 10,
+  app_entered: 10,
+  "app.first_action": 11,
+  generation_started: 12,
+  recording_started: 12,
+  generation_completed: 13,
+  recording_ready: 13,
 };
 
 function clean(value: string | null): string {
@@ -110,6 +116,11 @@ export function deriveJourneyStep(
       const id = clean(row.stepId);
       return { key: `step:${id}`, label: `Onboarding step: ${id}` };
     }
+    case "onboarding_step_skipped":
+      return {
+        key: "onboarding:step_skipped",
+        label: "Onboarding step skipped",
+      };
     case "onboarding_method_clicked": {
       const id = clean(row.methodId);
       return { key: `method:${id}`, label: `Chose: ${methodLabel(id)}` };
@@ -132,6 +143,8 @@ export function deriveJourneyStep(
       return { key: "auth:signup_clicked", label: "Signup CTA clicked" };
     case "onboarding_completed":
       return { key: "onboarding:completed", label: "Onboarding completed" };
+    case "onboarding_abandoned":
+      return { key: "onboarding:abandoned", label: "Onboarding abandoned" };
     case "onboarding_app_entered":
     case "app_entered":
       return { key: "app:entered", label: "Entered app" };

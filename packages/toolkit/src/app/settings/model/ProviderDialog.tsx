@@ -8,8 +8,10 @@ import {
   getAgentProviderOption,
   type AgentProviderId,
 } from "@agent-native/core/client/agent-provider-catalog";
+import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { trackOnboardingEvent } from "@agent-native/core/client/onboarding/use-onboarding";
 import { useOrg } from "@agent-native/core/client/org";
 import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import { Button } from "@agent-native/toolkit/ui/button";
@@ -43,6 +45,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { BrandLogo } from "../infra/logos.js";
+import { currentTemplateId } from "../shell/app-identity.js";
 import { WhoField } from "../WhoField.js";
 import {
   addDialogChoices,
@@ -61,6 +64,63 @@ const K = "agentChat.settingsModel.";
 const CHECK_DEBOUNCE_MS = 400;
 const OLLAMA_PLACEHOLDER = "http://localhost:11434";
 const GATEWAY_PLACEHOLDER = "https://gateway.example/v1";
+
+type ProviderSetupEventName =
+  | "integration_key_entry_started"
+  | "integration_key_validation_outcome"
+  | "integration_key_save_outcome";
+type ProviderSetupOutcome =
+  | "started"
+  | "accepted"
+  | "rejected"
+  | "invalid_endpoint"
+  | "unreachable"
+  | "provider_error"
+  | "error"
+  | "saved"
+  | "failed";
+
+function setupTelemetryAppName(): string {
+  const appId = injectedAgentNativeAppId() ?? currentTemplateId();
+  return appId && /^[a-z0-9][a-z0-9-]{0,63}$/.test(appId)
+    ? appId.replace(/^agent-native-/, "") || "framework"
+    : "framework";
+}
+
+function trackProviderSetupEvent(
+  eventName: ProviderSetupEventName,
+  action: "enter" | "validate" | "save",
+  outcome: ProviderSetupOutcome,
+): void {
+  trackOnboardingEvent(eventName, {
+    flow: "chat_setup",
+    app_name: setupTelemetryAppName(),
+    step_id: "connect_ai",
+    method_id: "custom_keys",
+    action,
+    outcome,
+  });
+}
+
+function providerCheckOutcome(
+  result: ProviderModelsCheck,
+): ProviderSetupOutcome {
+  if (result.ok) return "accepted";
+  switch (result.code) {
+    case "rejected":
+    case "wrong-provider":
+    case "missing-key":
+      return "rejected";
+    case "invalid-endpoint":
+      return "invalid_endpoint";
+    case "unreachable":
+      return "unreachable";
+    case "provider-error":
+      return "provider_error";
+    default:
+      return "error";
+  }
+}
 
 /** Each provider's mark in the integration logo set; Ollama has none. */
 const PROVIDER_LOGO_IDS: Record<AgentProviderId, string | null> = {
@@ -286,6 +346,7 @@ function ProviderDialogForm({
   );
   const [keyValue, setKeyValue] = useState("");
   const [keyError, setKeyError] = useState(false);
+  const keyEntryTrackedRef = useRef(false);
   const savedEndpoint = isOpenAi ? (existing?.endpoint ?? "") : "";
   const [endpointOpen, setEndpointOpen] = useState(!!savedEndpoint);
   const [endpoint, setEndpoint] = useState(savedEndpoint);
@@ -316,6 +377,14 @@ function ProviderDialogForm({
   // A pasted key (or Ollama endpoint) is checked as it's entered, by asking
   // the provider which models it reaches.
   useEffect(() => {
+    if (keyValue.trim() && !keyEntryTrackedRef.current) {
+      keyEntryTrackedRef.current = true;
+      trackProviderSetupEvent(
+        "integration_key_entry_started",
+        "enter",
+        "started",
+      );
+    }
     if (!replacing) return;
     const value = keyValue.trim();
     const request = ++requestRef.current;
@@ -336,6 +405,11 @@ function ProviderDialogForm({
         .then((result) => {
           if (request !== requestRef.current) return;
           setCheck(toCheckState(result));
+          trackProviderSetupEvent(
+            "integration_key_validation_outcome",
+            "validate",
+            providerCheckOutcome(result),
+          );
           if (!result.ok) return;
           setChecked((previous) => {
             const kept = previous.filter((model) =>
@@ -351,6 +425,11 @@ function ProviderDialogForm({
             state: "error",
             message: err instanceof Error ? err.message : String(err),
           });
+          trackProviderSetupEvent(
+            "integration_key_validation_outcome",
+            "validate",
+            "error",
+          );
         });
     }, CHECK_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
@@ -411,10 +490,20 @@ function ProviderDialogForm({
         if (result.ok) {
           setCheck(toCheckState(result));
           setRecheck({ checkedAt: result.checkedAt });
+          trackProviderSetupEvent(
+            "integration_key_validation_outcome",
+            "validate",
+            providerCheckOutcome(result),
+          );
           return;
         }
         setRecheck("idle");
         setCheck(toCheckState(result));
+        trackProviderSetupEvent(
+          "integration_key_validation_outcome",
+          "validate",
+          providerCheckOutcome(result),
+        );
         if (result.code === "rejected" || result.code === "wrong-provider") {
           setSavedRejected(true);
           setReplacing(true);
@@ -425,6 +514,11 @@ function ProviderDialogForm({
       .catch((err: unknown) => {
         setRecheck("idle");
         setError(err instanceof Error ? err.message : String(err));
+        trackProviderSetupEvent(
+          "integration_key_validation_outcome",
+          "validate",
+          "error",
+        );
       });
   };
 
@@ -443,6 +537,7 @@ function ProviderDialogForm({
     }
     const gateway = isOpenAi && endpointOpen ? endpoint.trim() : "";
     const endpointChanged = isOpenAi && gateway !== (existing?.endpoint ?? "");
+    const keySettingsChanged = replacing || endpointChanged;
     const modelsChanged =
       mode !== "manage" || !sameModels(checked, initialSelection ?? []);
 
@@ -460,6 +555,11 @@ function ProviderDialogForm({
           scope,
         });
         keySaved = true;
+        trackProviderSetupEvent(
+          "integration_key_save_outcome",
+          "save",
+          "saved",
+        );
       } else if (endpointChanged) {
         await saveAgentEngineProviderSettings({
           provider,
@@ -467,6 +567,11 @@ function ProviderDialogForm({
           scope,
         });
         keySaved = true;
+        trackProviderSetupEvent(
+          "integration_key_save_outcome",
+          "save",
+          "saved",
+        );
       }
       if (modelsChanged) {
         await callAction(
@@ -484,6 +589,13 @@ function ProviderDialogForm({
       onOpenChange(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      if (keySettingsChanged && !keySaved) {
+        trackProviderSetupEvent(
+          "integration_key_save_outcome",
+          "save",
+          "failed",
+        );
+      }
       setError(keySaved ? t(`${K}modelsSaveFailed`, { message }) : message);
       if (keySaved) {
         void queryClient.invalidateQueries({ queryKey: ["action"] });

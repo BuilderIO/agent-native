@@ -704,6 +704,29 @@ describe("create-deck — generation lifecycle tracking", () => {
     });
   });
 
+  it("does not count an empty existing-deck replacement as a completed output", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({ title: "T", slides: [{ id: "s1" }] }),
+    };
+
+    const result = await action.run({
+      title: "T",
+      slides: [],
+      deckId: "deck-1",
+    });
+
+    expect(result.slideCount).toBe(0);
+    expect(
+      trackedEvents().some((event) => event.name === "generation_completed"),
+    ).toBe(false);
+    expect(
+      trackedEvents().find((event) => event.name === "generation_started")
+        ?.properties,
+    ).toMatchObject({ slide_count: 0, output_id: "deck-1" });
+  });
+
   it.each([
     [
       "client notification",

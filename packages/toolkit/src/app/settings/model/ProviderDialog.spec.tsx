@@ -23,6 +23,11 @@ const keyMock = vi.hoisted(() => ({
   deleteAgentEngineProviderSettings: vi.fn(),
 }));
 const callActionMock = vi.hoisted(() => vi.fn());
+const setupTelemetryMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  trackOnboardingEvent: setupTelemetryMock,
+}));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (name: string) => ({
@@ -187,6 +192,7 @@ describe("ProviderDialog", () => {
       .mockReset()
       .mockResolvedValue(undefined);
     callActionMock.mockReset().mockResolvedValue({});
+    setupTelemetryMock.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -273,6 +279,49 @@ describe("ProviderDialog", () => {
       scope: "org",
     });
     expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(setupTelemetryMock).toHaveBeenCalledWith(
+      "integration_key_entry_started",
+      expect.objectContaining({
+        flow: "chat_setup",
+        app_name: expect.any(String),
+        step_id: "connect_ai",
+        method_id: "custom_keys",
+        action: "enter",
+        outcome: "started",
+      }),
+    );
+    expect(setupTelemetryMock).toHaveBeenCalledWith(
+      "integration_key_validation_outcome",
+      expect.objectContaining({
+        flow: "chat_setup",
+        app_name: expect.any(String),
+        step_id: "connect_ai",
+        method_id: "custom_keys",
+        action: "validate",
+        outcome: "accepted",
+      }),
+    );
+    expect(setupTelemetryMock).toHaveBeenCalledWith(
+      "integration_key_save_outcome",
+      expect.objectContaining({
+        method_id: "custom_keys",
+        action: "save",
+        outcome: "saved",
+      }),
+    );
+    expect(
+      setupTelemetryMock.mock.calls.filter(
+        ([name]) => name === "integration_key_entry_started",
+      ),
+    ).toHaveLength(1);
+    expect(
+      setupTelemetryMock.mock.calls.filter(
+        ([name]) => name === "integration_key_validation_outcome",
+      ),
+    ).toHaveLength(1);
+    expect(JSON.stringify(setupTelemetryMock.mock.calls)).not.toContain(
+      "sk-ant-test-0000",
+    );
   });
 
   it("keeps Add disabled until the key checks out and keeps a failed save open", async () => {
@@ -304,6 +353,17 @@ describe("ProviderDialog", () => {
       ).toContain("Vault is unavailable.");
     });
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(setupTelemetryMock).toHaveBeenCalledWith(
+      "integration_key_save_outcome",
+      expect.objectContaining({
+        method_id: "custom_keys",
+        action: "save",
+        outcome: "failed",
+      }),
+    );
+    expect(JSON.stringify(setupTelemetryMock.mock.calls)).not.toContain(
+      "Vault is unavailable.",
+    );
   });
 
   it("locks members to a personal key", async () => {
@@ -352,6 +412,13 @@ describe("ProviderDialog", () => {
         "Anthropic rejected this key",
       );
     });
+    expect(setupTelemetryMock).toHaveBeenCalledWith(
+      "integration_key_validation_outcome",
+      expect.objectContaining({
+        action: "validate",
+        outcome: "rejected",
+      }),
+    );
     expect(document.body.textContent).toContain(
       "Anthropic keys start with sk-ant-.",
     );

@@ -4,10 +4,12 @@ import {
   localizeKnownChatErrorText,
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
 import { BuilderBMark } from "@agent-native/core/client/builder-mark";
 import { formatClientFailureReport } from "@agent-native/core/client/failure-report";
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { trackOnboardingEvent } from "@agent-native/core/client/onboarding/use-onboarding";
 import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { buildSettingsRoute } from "@agent-native/core/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
@@ -35,6 +37,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router";
 
 import { DeferredBuilderConnectPopover } from "../../settings/deferred-builder-connect-popover.js";
+import { currentTemplateId } from "../../settings/shell/app-identity.js";
 import { useBuilderConnectFlow } from "../../settings/useBuilderStatus.js";
 import { BuilderReferralInviteRow } from "../BuilderReferralInviteRow.js";
 
@@ -42,6 +45,47 @@ const builderSubscriptionUrl = withBuilderUtmTrackingParams(
   "https://builder.io/account/subscription?signupSource=agent-native",
   { content: "chat_credit_limit" },
 );
+
+function setupTelemetryAppName(): string {
+  const appId = injectedAgentNativeAppId() ?? currentTemplateId();
+  return appId && /^[a-z0-9][a-z0-9-]{0,63}$/.test(appId)
+    ? appId.replace(/^agent-native-/, "") || "framework"
+    : "framework";
+}
+
+type SetupTelemetryEventName =
+  | "integration_setup_exposed"
+  | "integration_method_clicked"
+  | "integration_method_outcome";
+type SetupTelemetryMethodId = "setup_card" | "builder" | "custom_keys";
+type SetupTelemetryAction = "view" | "click" | "connect";
+type SetupTelemetryOutcome =
+  | "exposed"
+  | "started"
+  | "connected"
+  | "status_read_failed"
+  | "connection_failed";
+
+function trackSetupFunnelEvent(
+  eventName: SetupTelemetryEventName,
+  methodId: SetupTelemetryMethodId,
+  action: SetupTelemetryAction,
+  outcome: SetupTelemetryOutcome,
+): void {
+  trackOnboardingEvent(eventName, {
+    flow: "chat_setup",
+    app_name: setupTelemetryAppName(),
+    step_id: "connect_ai",
+    method_id: methodId,
+    action,
+    outcome,
+  });
+}
+
+type BuilderConnectTelemetryAttempt = {
+  statusAvailableAfterStart: boolean;
+  terminalErrorCleared: boolean;
+};
 
 export type LoopLimitInfo = { maxIterations?: number };
 
@@ -233,12 +277,61 @@ export function BuilderConnectCta({
   reconnect?: boolean;
 }) {
   const t = useT();
+  const connectAttemptRef = useRef<BuilderConnectTelemetryAttempt | null>(null);
+  const handleConnected = useCallback(async () => {
+    try {
+      await onConnected?.();
+    } finally {
+      if (!connectAttemptRef.current) return;
+      connectAttemptRef.current = null;
+      trackSetupFunnelEvent(
+        "integration_method_outcome",
+        "builder",
+        "connect",
+        "connected",
+      );
+    }
+  }, [onConnected]);
   const flow = useBuilderConnectFlow({
     provisionAccount: true,
     trackingSource: "assistant_chat_builder_cta",
-    onConnected,
+    onConnected: handleConnected,
   });
   const { configured, orgName, connecting, error } = flow;
+  useEffect(() => {
+    const attempt = connectAttemptRef.current;
+    if (!attempt) return;
+    if (!flow.statusUnavailable) attempt.statusAvailableAfterStart = true;
+    if (!flow.terminalError) attempt.terminalErrorCleared = true;
+
+    const outcome =
+      flow.statusUnavailable &&
+      flow.errorKind === "status-read" &&
+      attempt.statusAvailableAfterStart
+        ? "status_read_failed"
+        : flow.terminalError && attempt.terminalErrorCleared
+          ? "connection_failed"
+          : null;
+    if (!outcome) return;
+    connectAttemptRef.current = null;
+    trackSetupFunnelEvent(
+      "integration_method_outcome",
+      "builder",
+      "connect",
+      outcome,
+    );
+  }, [flow.errorKind, flow.statusUnavailable, flow.terminalError]);
+
+  const startBuilderConnect = useCallback(
+    (provisionAccount: boolean) => {
+      connectAttemptRef.current = {
+        statusAvailableAfterStart: !flow.statusUnavailable,
+        terminalErrorCleared: !flow.terminalError,
+      };
+      flow.start({ provisionAccount });
+    },
+    [flow.start, flow.statusUnavailable, flow.terminalError],
+  );
 
   if (variant === "compact") {
     if (configured && !reconnect) {
@@ -254,10 +347,21 @@ export function BuilderConnectCta({
 
     return (
       <div className="agent-builder-setup-card__builder-cta flex min-w-0 flex-col items-start gap-1 sm:items-end">
-        <DeferredBuilderConnectPopover flow={flow}>
+        <DeferredBuilderConnectPopover
+          flow={flow}
+          onConnect={startBuilderConnect}
+        >
           <button
             type="button"
             disabled={connecting}
+            onClick={() =>
+              trackSetupFunnelEvent(
+                "integration_method_clicked",
+                "builder",
+                "click",
+                "started",
+              )
+            }
             className="agent-builder-setup-card__builder-button inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-foreground px-3 text-[11px] font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
             aria-busy={connecting}
           >
@@ -320,10 +424,21 @@ export function BuilderConnectCta({
         </p>
         {error && <p className="mt-1 text-[10px] text-destructive">{error}</p>}
       </div>
-      <DeferredBuilderConnectPopover flow={flow}>
+      <DeferredBuilderConnectPopover
+        flow={flow}
+        onConnect={startBuilderConnect}
+      >
         <button
           type="button"
           disabled={connecting}
+          onClick={() =>
+            trackSetupFunnelEvent(
+              "integration_method_clicked",
+              "builder",
+              "click",
+              "started",
+            )
+          }
           className="ms-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium no-underline text-background hover:opacity-90 disabled:opacity-60 disabled:cursor-wait"
           aria-busy={connecting}
         >
@@ -407,6 +522,14 @@ export function BuilderSetupContent({
           <BuilderConnectCta variant="compact" onConnected={onConnected} />
           <Link
             to={buildSettingsRoute(redesign.enabled ? "model" : "keys")}
+            onClick={() =>
+              trackSetupFunnelEvent(
+                "integration_method_clicked",
+                "custom_keys",
+                "click",
+                "started",
+              )
+            }
             className={cn(
               "agent-builder-setup-card__key-button inline-flex shrink-0 items-center whitespace-nowrap rounded-md text-[11px] font-medium",
               sidebarLayout
@@ -445,6 +568,18 @@ export function BuilderSetupCard({
   const t = useT();
   const retryRequestedRef = useRef(false);
   const [retryRequested, setRetryRequested] = useState(false);
+  const exposureTrackedRef = useRef(false);
+
+  useEffect(() => {
+    if (exposureTrackedRef.current) return;
+    exposureTrackedRef.current = true;
+    trackSetupFunnelEvent(
+      "integration_setup_exposed",
+      "setup_card",
+      "view",
+      "exposed",
+    );
+  }, []);
 
   const handleRetry = useCallback(() => {
     if (!onRetry || retryRequestedRef.current) return;

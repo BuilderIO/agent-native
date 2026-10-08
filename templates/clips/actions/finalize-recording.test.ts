@@ -42,7 +42,12 @@ const mockCompareAndSetAppState = vi.hoisted(() => vi.fn());
 const mockCompareAndSetManyAppState = vi.hoisted(() => vi.fn());
 const mockTrack = vi.hoisted(() => vi.fn());
 const mockGetRequestContext = vi.hoisted(() =>
-  vi.fn(() => undefined as { authUserId?: string } | undefined),
+  vi.fn(
+    () =>
+      undefined as
+        | { authUserId?: string; browserSessionId?: string }
+        | undefined,
+  ),
 );
 const mockDbExecute = vi.hoisted(() => vi.fn());
 const mockUpdateReturning = vi.hoisted(() =>
@@ -861,6 +866,9 @@ describe("finalize-recording media serve verification", () => {
 
   it("keeps the recording processing and schedules durable verification when uploaded media stays unservable", async () => {
     const chunkKeys = seedBufferedRecording();
+    mockGetRequestContext.mockReturnValue({
+      browserSessionId: "browser-session-1",
+    });
     vi.mocked(fetch).mockResolvedValue(new Response("", { status: 500 }));
 
     const result = await finalizeRecording.run({
@@ -919,6 +927,7 @@ describe("finalize-recording media serve verification", () => {
           leaseUntil: null,
           uploadAttemptId: null,
           uploadGenerationId: null,
+          browserSessionId: "browser-session-1",
         }),
       }),
     ]);
@@ -1408,6 +1417,7 @@ describe("finalize-recording media serve verification", () => {
       completedAttempts: 0,
       nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
       leaseUntil: null,
+      browserSessionId: "browser-session-1",
       updatedAt: new Date(Date.now() - 2_000).toISOString(),
     };
     mockState.uploadState = {
@@ -1468,6 +1478,11 @@ describe("finalize-recording media serve verification", () => {
     );
     expect(mockDeleteAppState).toHaveBeenCalledWith(
       "recording-media-verification-rec_1",
+    );
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_ready",
+      expect.any(Object),
+      { userId: "owner@example.com", sessionId: "browser-session-1" },
     );
   });
 

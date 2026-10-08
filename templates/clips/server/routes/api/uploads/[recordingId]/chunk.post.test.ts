@@ -576,6 +576,9 @@ describe("/api/uploads/:recordingId/chunk route", () => {
   });
 
   it("finalizes on the empty final sentinel and reports the finalize result", async () => {
+    mockGetHeader.mockImplementation((_, name) =>
+      name === "x-agent-native-session-id" ? "browser-session-1" : undefined,
+    );
     mockAppState.set(`${CHUNK_PREFIX}000000`, { bytes: 5 });
     mockAppState.set(`${CHUNK_PREFIX}000001`, { bytes: 5 });
     mockAppState.set(UPLOAD_KEY, {
@@ -608,6 +611,15 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       status: "ready",
       videoUrl: "/api/video/rec-1",
     });
+
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userEmail: "owner@example.com",
+        orgId: "org-1",
+        browserSessionId: "browser-session-1",
+      }),
+      expect.any(Function),
+    );
 
     expect(mockFinalizeRun).toHaveBeenCalledWith({
       id: "rec-1",

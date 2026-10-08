@@ -538,7 +538,11 @@ export default defineAction({
             },
             ctx,
           );
-        } else if (!postProcessErrorType && actionOwnsGenerationLifecycle) {
+        } else if (
+          !postProcessErrorType &&
+          actionOwnsGenerationLifecycle &&
+          slides.length > 0
+        ) {
           const generationEndedAt = Date.now();
           trackGenerationEvent(
             "generation_completed",

@@ -58,6 +58,11 @@ const RECORDING_TOO_LARGE_REASON = `Recording exceeds the ${Math.round(MAX_RECOR
 const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 const RETRY_OWNERSHIP_HEARTBEAT_MS = 10 * 1000;
 
+function browserSessionIdFromRequest(event: H3Event): string | undefined {
+  const value = getHeader(event, "x-agent-native-session-id")?.trim();
+  return value && /^[!-~]{1,127}$/.test(value) ? value : undefined;
+}
+
 async function relayWithRetryOwnershipHeartbeat<T>(
   recordingId: string,
   attemptId: string | null,
@@ -286,6 +291,7 @@ export async function handleRecordingChunk(
   let ownerEmail: string;
   let orgId: string | undefined;
   let authUserId: string | undefined;
+  const browserSessionId = browserSessionIdFromRequest(event);
   if (override?.ownerEmail) {
     ownerEmail = override.ownerEmail;
     orgId = override.orgId;
@@ -302,7 +308,12 @@ export async function handleRecordingChunk(
   }
   debugLog("[chunk] resolved owner:", ownerEmail);
 
-  const requestContext = { userEmail: ownerEmail, orgId, authUserId };
+  const requestContext = {
+    userEmail: ownerEmail,
+    orgId,
+    authUserId,
+    ...(browserSessionId ? { browserSessionId } : {}),
+  };
   return runWithRequestContext(requestContext, async () => {
     const db = getDb();
 

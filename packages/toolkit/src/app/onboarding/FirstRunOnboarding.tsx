@@ -37,7 +37,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useLocation } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import {
@@ -166,6 +166,7 @@ export function FirstRunOnboarding({
 }: FirstRunOnboardingProps = {}) {
   const t = useT();
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const previewMode = useOnboardingPreviewMode();
   const previewStep = useOnboardingPreviewStep();
   const {
@@ -303,6 +304,7 @@ export function FirstRunOnboarding({
     extensionIndex: number;
   } | null>(null);
   const completionInFlightRef = useRef(false);
+  const completionRedirectRef = useRef<string | null>(null);
   const setupSkipStartedRef = useRef(false);
   const onboardingTerminalRef = useRef(false);
   const abandonmentTrackedRef = useRef(false);
@@ -346,6 +348,16 @@ export function FirstRunOnboarding({
         }
         onboardingTerminalRef.current = true;
         completionAttemptRef.current = null;
+        const redirect = completionRedirectRef.current;
+        if (redirect) {
+          completionRedirectRef.current = null;
+          navigate(
+            appMountedPath(redirect, pathname || STANDARD_APP_ROUTES.home),
+            {
+              replace: true,
+            },
+          );
+        }
         return true;
       } catch {
         // coercion-ok: completeFirstRun exposes this failure as the inline retry state.
@@ -354,7 +366,13 @@ export function FirstRunOnboarding({
         completionInFlightRef.current = false;
       }
     },
-    [completeFirstRun, extensionIndex, trackFirstRunStepCompleted],
+    [
+      completeFirstRun,
+      extensionIndex,
+      navigate,
+      pathname,
+      trackFirstRunStepCompleted,
+    ],
   );
   useEffect(() => {
     if (!previewMode && firstRun && !loading && profile) {
@@ -756,7 +774,7 @@ export function FirstRunOnboarding({
                       onClick={() => handleBuilder(true)}
                       disabled={connectFlow.connecting}
                     >
-                      {t("agentChat.onboarding.builderCreateAndActivate")}
+                      {t("agentChat.onboarding.builderCreateAccount")}
                     </button>
                   )}
                   <button
@@ -839,6 +857,7 @@ export function FirstRunOnboarding({
                       return;
                     setupSkipStartedRef.current = true;
                     trackFirstRunStepSkipped("choice");
+                    completionRedirectRef.current = "/record";
                     handleFinish(null);
                   }}
                 >

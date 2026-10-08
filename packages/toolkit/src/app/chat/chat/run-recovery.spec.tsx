@@ -8,6 +8,30 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const clipboardMock = vi.hoisted(() => ({
   writeClipboardText: vi.fn(),
 }));
+const setupTelemetryMock = vi.hoisted(() => vi.fn());
+const builderConnectMock = vi.hoisted(() => ({
+  onConnect: undefined as ((provisionAccount: boolean) => void) | undefined,
+}));
+const builderFlowMock = vi.hoisted(() => ({
+  onConnected: undefined as
+    | ((state: { orgName: string | null }) => void | Promise<void>)
+    | undefined,
+  state: {
+    configured: false,
+    connecting: false,
+    error: null as string | null,
+    errorKind: null as "status-read" | "connection" | "launch" | null,
+    terminalError: null as string | null,
+    statusUnavailable: false,
+    statusReadSettledCount: 0,
+    hasFetchedStatus: true,
+  },
+  start: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  trackOnboardingEvent: setupTelemetryMock,
+}));
 
 const referralInfoQueryMock = vi.hoisted(() => ({ data: null as unknown }));
 
@@ -155,19 +179,26 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("../../settings/BuilderConnectPopover.js", () => {
   deferredUiModuleLoads.builderConnectPopover = true;
   return {
-    BuilderConnectPopover: ({ children }: { children: React.ReactNode }) =>
+    BuilderConnectPopover: ({
       children,
+      onConnect,
+    }: {
+      children: React.ReactNode;
+      onConnect?: (provisionAccount: boolean) => void;
+    }) => {
+      builderConnectMock.onConnect = onConnect;
+      return children;
+    },
   };
 });
 
 vi.mock("../../settings/useBuilderStatus.js", () => ({
-  useBuilderConnectFlow: () => ({
-    configured: false,
-    connecting: false,
-    error: null,
-    hasFetchedStatus: true,
-    start: vi.fn(),
-  }),
+  useBuilderConnectFlow: (options?: {
+    onConnected?: (state: { orgName: string | null }) => void | Promise<void>;
+  }) => {
+    builderFlowMock.onConnected = options?.onConnected;
+    return { ...builderFlowMock.state, start: builderFlowMock.start };
+  },
 }));
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
@@ -189,6 +220,20 @@ describe("run recovery surfaces", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     clipboardMock.writeClipboardText.mockReset();
+    setupTelemetryMock.mockReset();
+    builderConnectMock.onConnect = undefined;
+    builderFlowMock.onConnected = undefined;
+    builderFlowMock.start.mockReset();
+    Object.assign(builderFlowMock.state, {
+      configured: false,
+      connecting: false,
+      error: null,
+      errorKind: null,
+      terminalError: null,
+      statusUnavailable: false,
+      statusReadSettledCount: 0,
+      hasFetchedStatus: true,
+    });
     referralInfoQueryMock.data = null;
   });
 
@@ -628,6 +673,215 @@ describe("run recovery surfaces", () => {
     expect(customKeysLink?.textContent).toBe("Custom keys");
     expect(container.querySelector('input[type="password"]')).toBeNull();
     expect(container.textContent).not.toContain("Choose a provider");
+  });
+
+  it("tracks setup card exposure once and the Builder and custom key choices", async () => {
+    const renderCard = () => (
+      <AgentNativeI18nProvider
+        initialLocale="en-US"
+        initialPreference="en-US"
+        persistPreference={false}
+      >
+        <BuilderSetupCard />
+      </AgentNativeI18nProvider>
+    );
+
+    await act(async () => {
+      root.render(renderCard());
+    });
+    await act(async () => {
+      root.render(renderCard());
+    });
+
+    expect(setupTelemetryMock).toHaveBeenCalledTimes(1);
+    expect(setupTelemetryMock).toHaveBeenCalledWith(
+      "integration_setup_exposed",
+      expect.objectContaining({
+        flow: "chat_setup",
+        app_name: expect.any(String),
+        step_id: "connect_ai",
+        method_id: "setup_card",
+        action: "view",
+        outcome: "exposed",
+      }),
+    );
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          ".agent-builder-setup-card__builder-button",
+        )
+        ?.click();
+      container
+        .querySelector<HTMLAnchorElement>('a[href="/settings/keys"]')
+        ?.click();
+    });
+
+    expect(setupTelemetryMock).toHaveBeenCalledWith(
+      "integration_method_clicked",
+      expect.objectContaining({
+        method_id: "builder",
+        action: "click",
+        outcome: "started",
+      }),
+    );
+    expect(setupTelemetryMock).toHaveBeenCalledWith(
+      "integration_method_clicked",
+      expect.objectContaining({
+        method_id: "custom_keys",
+        action: "click",
+        outcome: "started",
+      }),
+    );
+  });
+
+  it("tracks Builder success only after a selected setup attempt is confirmed", async () => {
+    const card = (
+      <AgentNativeI18nProvider
+        initialLocale="en-US"
+        initialPreference="en-US"
+        persistPreference={false}
+      >
+        <BuilderSetupCard />
+      </AgentNativeI18nProvider>
+    );
+    await act(async () => {
+      root.render(card);
+    });
+    expect(
+      setupTelemetryMock.mock.calls.some(
+        ([name]) => name === "integration_method_outcome",
+      ),
+    ).toBe(false);
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          ".agent-builder-setup-card__builder-button",
+        )
+        ?.click();
+    });
+    await vi.waitFor(() =>
+      expect(builderConnectMock.onConnect).toBeTypeOf("function"),
+    );
+    await act(async () => builderConnectMock.onConnect?.(true));
+    expect(builderFlowMock.start).toHaveBeenCalledWith({
+      provisionAccount: true,
+    });
+
+    await act(async () => {
+      await builderFlowMock.onConnected?.({ orgName: null });
+    });
+    expect(setupTelemetryMock).toHaveBeenCalledWith(
+      "integration_method_outcome",
+      expect.objectContaining({
+        method_id: "builder",
+        action: "connect",
+        outcome: "connected",
+      }),
+    );
+  });
+
+  it("records bounded Builder failure outcomes after a setup attempt", async () => {
+    const renderCard = () => (
+      <AgentNativeI18nProvider
+        initialLocale="en-US"
+        initialPreference="en-US"
+        persistPreference={false}
+      >
+        <BuilderSetupCard />
+      </AgentNativeI18nProvider>
+    );
+    await act(async () => {
+      root.render(renderCard());
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          ".agent-builder-setup-card__builder-button",
+        )
+        ?.click();
+    });
+    await vi.waitFor(() =>
+      expect(builderConnectMock.onConnect).toBeTypeOf("function"),
+    );
+    await act(async () => builderConnectMock.onConnect?.(true));
+
+    builderFlowMock.state.statusUnavailable = true;
+    builderFlowMock.state.errorKind = "status-read";
+    builderFlowMock.state.error = "Builder status unavailable: private text";
+    await act(async () => {
+      root.render(renderCard());
+    });
+    expect(setupTelemetryMock).toHaveBeenCalledWith(
+      "integration_method_outcome",
+      expect.objectContaining({
+        method_id: "builder",
+        action: "connect",
+        outcome: "status_read_failed",
+      }),
+    );
+
+    setupTelemetryMock.mockClear();
+    builderFlowMock.state.statusUnavailable = false;
+    builderFlowMock.state.errorKind = null;
+    builderFlowMock.state.error = null;
+    builderFlowMock.state.terminalError = null;
+    await act(async () => {
+      root.render(renderCard());
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          ".agent-builder-setup-card__builder-button",
+        )
+        ?.click();
+    });
+    await vi.waitFor(() =>
+      expect(builderConnectMock.onConnect).toBeTypeOf("function"),
+    );
+    await act(async () => builderConnectMock.onConnect?.(true));
+    builderFlowMock.state.terminalError = "Private connection error text";
+    builderFlowMock.state.errorKind = "connection";
+    builderFlowMock.state.error = "Private connection error text";
+    await act(async () => {
+      root.render(renderCard());
+    });
+    expect(setupTelemetryMock).toHaveBeenCalledWith(
+      "integration_method_outcome",
+      expect.objectContaining({
+        method_id: "builder",
+        action: "connect",
+        outcome: "connection_failed",
+      }),
+    );
+    expect(JSON.stringify(setupTelemetryMock.mock.calls)).not.toContain(
+      "Private connection error text",
+    );
+  });
+
+  it("does not report a configured or preexisting Builder error as an outcome", async () => {
+    builderFlowMock.state.configured = true;
+    builderFlowMock.state.terminalError = "Preexisting connection error";
+    builderFlowMock.state.errorKind = "connection";
+    const card = (
+      <AgentNativeI18nProvider
+        initialLocale="en-US"
+        initialPreference="en-US"
+        persistPreference={false}
+      >
+        <BuilderSetupCard />
+      </AgentNativeI18nProvider>
+    );
+    await act(async () => {
+      root.render(card);
+    });
+
+    expect(
+      setupTelemetryMock.mock.calls.some(
+        ([name]) => name === "integration_method_outcome",
+      ),
+    ).toBe(false);
   });
 
   it("keeps the Custom keys link within a mounted workspace app", async () => {

@@ -6,7 +6,11 @@ import type {
   OnboardingStepStatus,
   OnboardingSummary,
 } from "../../onboarding/types.js";
-import { getAnalyticsIdentityKey, trackEvent } from "../analytics.js";
+import {
+  getAnalyticsIdentityKey,
+  getAnalyticsSessionId,
+  trackEvent,
+} from "../analytics.js";
 import { agentNativePath } from "../api-path.js";
 import {
   scheduleAfterPaint,
@@ -18,6 +22,10 @@ import {
   readFirstRunOnboardingCookieState,
 } from "./first-run-status.js";
 
+const pendingOnboardingEvents = new Map<
+  string,
+  ReturnType<typeof setTimeout>
+>();
 const seenOnboardingEvents = new Set<string>();
 const ONBOARDING_SUMMARY_TIMEOUT_MS = 15_000;
 const ONBOARDING_SUMMARY_REUSE_MS = 5_000;
@@ -90,13 +98,21 @@ export function __resetOnboardingSummaryReadsForTests(): void {
   sharedSummaryReads.clear();
 }
 
+export function __resetOnboardingEventDedupeForTests(): void {
+  for (const timeout of pendingOnboardingEvents.values()) clearTimeout(timeout);
+  pendingOnboardingEvents.clear();
+  seenOnboardingEvents.clear();
+}
+
 export function trackOnboardingEvent(
   name: string,
   properties: Record<string, unknown>,
 ): void {
   if (typeof window === "undefined") return;
   const identityKey = getAnalyticsIdentityKey() ?? "anonymous";
+  const sessionId = getAnalyticsSessionId() ?? "unknown-session";
   const key = [
+    sessionId,
     identityKey,
     name,
     properties.flow,
@@ -116,8 +132,20 @@ export function trackOnboardingEvent(
     name === "onboarding_dismissed" ||
     name === "onboarding_reopened" ||
     name === "onboarding_abandoned";
-  if (!isRepeatableInteraction && seenOnboardingEvents.has(key)) return;
-  if (!isRepeatableInteraction) seenOnboardingEvents.add(key);
+  if (name === "onboarding_step_viewed") {
+    if (pendingOnboardingEvents.has(key)) return;
+    // StrictMode replays effects in the same turn. Expire the key immediately
+    // afterward so later views and analytics sessions remain observable.
+    const timeout = setTimeout(() => {
+      if (pendingOnboardingEvents.get(key) === timeout) {
+        pendingOnboardingEvents.delete(key);
+      }
+    }, 0);
+    pendingOnboardingEvents.set(key, timeout);
+  } else if (!isRepeatableInteraction) {
+    if (seenOnboardingEvents.has(key)) return;
+    seenOnboardingEvents.add(key);
+  }
   trackEvent(name, properties);
 }
 

@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   completeFirstRun: vi.fn(),
   useBuilderConnectFlow: vi.fn(),
   routePathname: "/",
+  navigate: vi.fn(),
   trackOnboardingEvent: vi.fn(),
   useOnboarding: vi.fn(),
   useOnboardingPreviewMode: vi.fn(),
@@ -42,6 +43,7 @@ vi.mock("react-router", async (importOriginal) => {
   return {
     ...actual,
     useLocation: () => ({ pathname: mocks.routePathname }),
+    useNavigate: () => mocks.navigate,
   };
 });
 
@@ -77,6 +79,7 @@ describe("FirstRunOnboarding", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.completeFirstRun.mockReset();
     mocks.routePathname = "/";
+    mocks.navigate.mockReset();
     mocks.completeFirstRun.mockResolvedValue(undefined);
     mocks.useBuilderConnectFlow.mockReset();
     mocks.trackOnboardingEvent.mockReset();
@@ -768,6 +771,11 @@ describe("FirstRunOnboarding", () => {
         .querySelector("[data-testid='first-run-role-skip']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
+    expect(
+      document.body.querySelector(
+        '[data-testid="first-run-builder-create-account"]',
+      )?.textContent,
+    ).toBe("Use Builder.io");
     act(() => {
       document.body
         .querySelector('[data-testid="first-run-builder-create-account"]')
@@ -1356,6 +1364,7 @@ describe("FirstRunOnboarding", () => {
       completeFirstRun: mocks.completeFirstRun,
       completeFirstRunError: null,
     });
+    mocks.routePathname = "/library";
 
     await act(async () => {
       root.render(
@@ -1399,7 +1408,8 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
-    expect(window.location.pathname).toBe("/");
+    expect(mocks.navigate).toHaveBeenCalledOnce();
+    expect(mocks.navigate).toHaveBeenCalledWith("/record", { replace: true });
     expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
       "onboarding_step_skipped",
       expect.objectContaining({

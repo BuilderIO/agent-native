@@ -69,9 +69,16 @@ export function normalizeRecordingPlatform(value: unknown): RecordingPlatform {
     : "unknown";
 }
 
-export function recordingTrackingSource(userId: string) {
+export function recordingTrackingSource(
+  userId: string,
+  browserSessionId?: string,
+) {
   const authUserId = getRequestContext()?.authUserId;
-  return { userId, ...(authUserId ? { authUserId } : {}) };
+  return {
+    userId,
+    ...(authUserId ? { authUserId } : {}),
+    ...(browserSessionId ? { sessionId: browserSessionId } : {}),
+  };
 }
 
 export function trackRecordingFailure(params: {

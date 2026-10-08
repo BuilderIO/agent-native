@@ -77,7 +77,17 @@ describe("deriveJourneyStep", () => {
           methodId: "builder_create_account",
         }),
         "method:builder_create_account",
-        "Chose: Create Builder.io account",
+        "Chose: Use Builder.io",
+      ],
+      [
+        row("onboarding_step_skipped", 1, { stepId: "private-step-name" }),
+        "onboarding:step_skipped",
+        "Onboarding step skipped",
+      ],
+      [
+        row("onboarding_abandoned", 1, { stepId: "private-step-name" }),
+        "onboarding:abandoned",
+        "Onboarding abandoned",
       ],
       [
         row("onboarding_method_outcome", 1, {
@@ -144,6 +154,25 @@ describe("deriveJourneyStep", () => {
       expect(JOURNEY_STEP_EVENT_NAMES, name).toContain(name);
     }
   });
+
+  it("uses bounded labels for skipped and abandoned events", () => {
+    expect(
+      deriveJourneyStep(
+        row("onboarding_step_skipped", 1, { stepId: "a-user-defined-step" }),
+      ),
+    ).toEqual({
+      key: "onboarding:step_skipped",
+      label: "Onboarding step skipped",
+    });
+    expect(
+      deriveJourneyStep(
+        row("onboarding_abandoned", 1, { stepId: "a-user-defined-step" }),
+      ),
+    ).toEqual({
+      key: "onboarding:abandoned",
+      label: "Onboarding abandoned",
+    });
+  });
 });
 
 describe("buildSessionSteps", () => {
@@ -157,6 +186,21 @@ describe("buildSessionSteps", () => {
       "page:/sign-in",
       "signup",
       "step:role",
+    ]);
+  });
+
+  it("keeps skip and abandonment in the observed sequence", () => {
+    const steps = buildSessionSteps([
+      row("onboarding_step_viewed", 100, { stepId: "role" }),
+      row("onboarding_step_skipped", 110, { stepId: "role" }),
+      row("onboarding_step_viewed", 120, { stepId: "choice" }),
+      row("onboarding_abandoned", 130, { stepId: "choice" }),
+    ]);
+    expect(steps.map((step) => step.key)).toEqual([
+      "step:role",
+      "onboarding:step_skipped",
+      "step:choice",
+      "onboarding:abandoned",
     ]);
   });
 
