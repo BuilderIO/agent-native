@@ -78,6 +78,7 @@ import {
   getWorkingLocationTitle,
 } from "@/lib/working-location";
 
+import { handleAllDayResizeKeyDown } from "./all-day-resize";
 import { EventDetailPopover } from "./EventDetailPopover";
 import { OutOfOfficeEvent } from "./OutOfOfficeEvent";
 import { shouldRenderWeekDragSegment } from "./week-drag-segment";
@@ -802,21 +803,11 @@ export const WeekView = memo(function WeekView({
   const resizeAllDayWithKeyboard = (
     event: React.KeyboardEvent<HTMLDivElement>,
   ) => {
-    const step = event.shiftKey ? 48 : 16;
-    const currentHeight = allDayResizeDraft ?? prefs.allDayMaxHeight;
-    const nextHeight =
-      event.key === "ArrowUp"
-        ? normalizeAllDayMaxHeight(currentHeight + step)
-        : event.key === "ArrowDown"
-          ? normalizeAllDayMaxHeight(currentHeight - step)
-          : event.key === "Home"
-            ? MIN_ALL_DAY_MAX_HEIGHT
-            : event.key === "End"
-              ? MAX_ALL_DAY_MAX_HEIGHT
-              : null;
-    if (nextHeight === null) return;
-    event.preventDefault();
-    updateViewPreferences({ allDayMaxHeight: nextHeight });
+    handleAllDayResizeKeyDown(
+      event,
+      allDayResizeDraft ?? prefs.allDayMaxHeight,
+      (allDayMaxHeight) => updateViewPreferences({ allDayMaxHeight }),
+    );
   };
 
   useEffect(() => {
