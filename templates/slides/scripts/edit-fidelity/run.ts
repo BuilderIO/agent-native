@@ -770,7 +770,7 @@ async function ensureSignedIn(page: Page) {
 }
 
 async function settle(page: Page) {
-  const settled = await page.evaluate(async (css: string) => {
+  const settleState = await page.evaluate(async (css: string) => {
     if (!document.querySelector("style[data-edit-fidelity-mask]")) {
       const style = document.createElement("style");
       style.setAttribute("data-edit-fidelity-mask", "");
@@ -783,6 +783,10 @@ async function settle(page: Page) {
     // paints the fallback). A failed font request can also leave it pending.
     const frame = () =>
       new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const pendingStylesheetCount = () =>
+      Array.from(
+        document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'),
+      ).filter((link) => !link.sheet).length;
     // Imported-font stylesheets are appended by a passive effect after render.
     await frame();
     let ready = false;
@@ -792,16 +796,22 @@ async function settle(page: Page) {
         new Promise((resolve) => setTimeout(resolve, 500)),
       ]);
       await frame();
-      const sheetPending = Array.from(
-        document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'),
-      ).some((link) => !link.sheet);
-      if (!sheetPending && document.fonts.status === "loaded") {
+      if (
+        pendingStylesheetCount() === 0 &&
+        document.fonts.status === "loaded"
+      ) {
         ready = true;
         break;
       }
       await new Promise((r) => setTimeout(r, 100));
     }
-    if (!ready) return false;
+    if (!ready) {
+      return {
+        settled: false,
+        fonts: document.fonts.status,
+        pendingStylesheets: pendingStylesheetCount(),
+      };
+    }
     // Only the main canvas: sidebar thumbnails are lazy and may never load.
     // A broken image fires "error", never "load"; both views see the same one.
     const pending = Array.from(
@@ -824,10 +834,16 @@ async function settle(page: Page) {
     await new Promise((r) =>
       requestAnimationFrame(() => requestAnimationFrame(r)),
     );
-    return true;
+    return {
+      settled: true,
+      fonts: document.fonts.status,
+      pendingStylesheets: pendingStylesheetCount(),
+    };
   }, MASK_CSS);
-  if (!settled) {
-    throw new CouldNotRun("slide fonts or stylesheets did not settle");
+  if (!settleState.settled) {
+    throw new CouldNotRun(
+      `slide fonts or stylesheets did not settle (font status: ${settleState.fonts}; pending stylesheets: ${settleState.pendingStylesheets})`,
+    );
   }
   // Autofit measures after paint; give it one more beat.
   await sleep(300);
@@ -4530,8 +4546,10 @@ async function runAuthoringCorpusQa(
           handlerDuration: number;
           presentationDelay: number;
         }>,
+        operationSamples: [] as Array<{ type: string; duration: number }>,
         frameSamples: [] as number[],
         observer: null as PerformanceObserver | null,
+        cleanup: null as (() => void) | null,
       };
       const supportsEventTiming =
         PerformanceObserver.supportedEntryTypes?.includes("event") ?? false;
@@ -4576,6 +4594,33 @@ async function runAuthoringCorpusQa(
         }
       }
       (window as any).__slideKeyPaintMetrics = metrics;
+      const operationStarts = new WeakMap<Event, number>();
+      const operationTypes = ["beforeinput", "input"];
+      const eventRoot: HTMLElement | Document =
+        element.parentElement ?? document;
+      const startOperation = (event: Event) => {
+        if (event.target === element) {
+          operationStarts.set(event, performance.now());
+        }
+      };
+      const endOperation = (event: Event) => {
+        const started = operationStarts.get(event);
+        if (started === undefined) return;
+        metrics.operationSamples.push({
+          type: event.type,
+          duration: performance.now() - started,
+        });
+      };
+      for (const type of operationTypes) {
+        eventRoot.addEventListener(type, startOperation, true);
+        eventRoot.addEventListener(type, endOperation);
+      }
+      metrics.cleanup = () => {
+        for (const type of operationTypes) {
+          eventRoot.removeEventListener(type, startOperation, true);
+          eventRoot.removeEventListener(type, endOperation);
+        }
+      };
       element.addEventListener(
         "keydown",
         (event) => {
@@ -4583,7 +4628,9 @@ async function runAuthoringCorpusQa(
           metrics.keydowns += 1;
           const started = performance.now();
           requestAnimationFrame(() => {
-            element.getBoundingClientRect();
+            if (metrics.mode !== "event-timing") {
+              element.getBoundingClientRect();
+            }
             metrics.frameSamples.push(performance.now() - started);
           });
         },
@@ -4614,6 +4661,7 @@ async function runAuthoringCorpusQa(
     const metrics = (await page.evaluate(() => {
       const value = (window as any).__slideKeyPaintMetrics;
       value?.observer?.disconnect();
+      value?.cleanup?.();
       return value
         ? {
             mode: value.mode as string,
@@ -4623,6 +4671,10 @@ async function runAuthoringCorpusQa(
               inputDelay: number;
               handlerDuration: number;
               presentationDelay: number;
+            }>,
+            operationSamples: value.operationSamples as Array<{
+              type: string;
+              duration: number;
             }>,
             frameSamples: value.frameSamples as number[],
           }
@@ -4636,6 +4688,7 @@ async function runAuthoringCorpusQa(
         handlerDuration: number;
         presentationDelay: number;
       }>;
+      operationSamples: Array<{ type: string; duration: number }>;
       frameSamples: number[];
     } | null;
     if (!metrics || metrics.keydowns < 32) {
@@ -4644,6 +4697,20 @@ async function runAuthoringCorpusQa(
       );
     }
     if (metrics.mode === "event-timing") {
+      const operationP95 = (type: string) => {
+        const values = metrics.operationSamples
+          .filter((sample) => sample.type === type)
+          .map((sample) => sample.duration)
+          .sort((a, b) => a - b);
+        return values.length
+          ? values[Math.ceil(values.length * 0.95) - 1]
+          : null;
+      };
+      const beforeInputP95 = operationP95("beforeinput");
+      const inputP95 = operationP95("input");
+      console.log(
+        `[edit-fidelity] largest corpus slide editor event handler p95 (beforeinput=${beforeInputP95?.toFixed(2) ?? "n/a"}ms input=${inputP95?.toFixed(2) ?? "n/a"}ms)`,
+      );
       const sortedFrames = [...metrics.frameSamples].sort((a, b) => a - b);
       if (sortedFrames.length < 32) {
         throw new Error(
@@ -4677,7 +4744,7 @@ async function runAuthoringCorpusQa(
         }
       }
       console.log(
-        `[edit-fidelity] largest corpus slide keydown-to-first-rAF-plus-layout p95=${frameP95.toFixed(2)}ms (proxy, not paint; n=${sortedFrames.length}, threshold=16ms)`,
+        `[edit-fidelity] largest corpus slide keydown-to-first-rAF p95=${frameP95.toFixed(2)}ms (proxy, not paint; n=${sortedFrames.length}, threshold=16ms)`,
       );
     } else {
       const sorted = [...metrics.frameSamples].sort((a, b) => a - b);

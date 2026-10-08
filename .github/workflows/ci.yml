@@ -1011,6 +1011,42 @@ jobs:
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seed 2 --steps 80
 
+  slides-authoring-fuzz-soak:
+    name: Slides authoring soak (${{ matrix.browser }}, batch from seed ${{ matrix.seed_start }})
+    needs: change-scope
+    if: needs.change-scope.outputs.slides_authoring_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        browser: [chromium, webkit, firefox]
+        seed_start: [1, 6, 11, 16]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Run 500-step authoring seeds
+        working-directory: templates/slides
+        run: >-
+          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+          --seed ${{ matrix.seed_start }} --seeds 5 --steps 500
+          --browser ${{ matrix.browser }}
+
   brain-evals:
     name: Brain evals
     needs: change-scope
