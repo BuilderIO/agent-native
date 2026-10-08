@@ -2819,11 +2819,7 @@ async function getCurrentTurnRunEvents(
         (typeof event.tool !== "string" ||
           !event.tool ||
           (event.id !== undefined && typeof event.id !== "string"))) ||
-      (event.type === "tool_start" &&
-        (event.input == null ||
-          (typeof event.input !== "object" &&
-            typeof event.input !== "string") ||
-          Array.isArray(event.input))) ||
+      (event.type === "tool_start" && !Object.hasOwn(event, "input")) ||
       (event.type === "tool_done" &&
         (typeof event.result !== "string" ||
           [event.isError, event.completedSideEffect, event.replayed].some(

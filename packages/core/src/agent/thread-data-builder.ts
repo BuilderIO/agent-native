@@ -263,6 +263,7 @@ export function buildAssistantMessage(
       if (part?.type === "tool-call") {
         part.result = event.result ?? "";
         if (event.isError !== undefined) part.isError = event.isError;
+        if (event.outcomeUnknown === true) part.outcome = "unknown";
         if (event.completedSideEffect !== undefined) {
           part.completedSideEffect = event.completedSideEffect;
         }
@@ -950,7 +951,9 @@ function assistantReplayContent(
       toolCallId: id,
       toolName: name,
       toolInput: stringifyToolUseInputForGateway(input),
-      content: replayedToolResultContent(result),
+      content: replayedToolResultContent(
+        part.outcome === "unknown" ? { outcome: part.outcome, result } : result,
+      ),
       ...(part.isError === true ? { isError: true } : {}),
     });
   }
