@@ -443,13 +443,12 @@ function isAgentNativeRuntimePath(pathname: string): boolean {
 }
 
 // What a read-only widget session is refused whatever it asks for: the agent
-// state it can never write, and the browser-tool manifest it can never run.
+// state it can never write.
 function isReadOnlyWidgetRefusedPath(pathname: string): boolean {
   return [FRAMEWORK_INTERNAL_ROUTE_PREFIX, frameworkRoutePrefix()].some(
     (prefix) =>
       pathname.endsWith(`${prefix}/application-state`) ||
-      pathname.includes(`${prefix}/application-state/`) ||
-      pathname.endsWith(`${prefix}/webmcp/manifest`),
+      pathname.includes(`${prefix}/application-state/`),
   );
 }
 
