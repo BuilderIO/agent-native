@@ -199,7 +199,6 @@ import {
   canDropSlideLayerAdjacent,
   canDropSlideLayerInside,
   clampSlideObjectPlacementPosition,
-  clearSlideObjectRotateProperty,
   clientPointToSlideCoordinates,
   clientRectToContainingBlockBox,
   cloneSlideObject,
@@ -271,6 +270,8 @@ import {
   snapSlideObjectMove,
   stripTransientSlideLayoutSpacers,
   unionSlideObjectGeometries,
+  wrapImageInCropFrame,
+  wrapSlideObjectRotation,
   writeSlideObjectClipboard,
   type CopiedSlideObjects,
   type SlideAlignmentGuide,
@@ -329,7 +330,6 @@ import {
   copiedElementStyleFromSnapshot,
   getCopiedElementStyle,
   setCopiedElementStyle,
-  type CopiedElementStyle,
 } from "./style-clipboard";
 
 function ExcalidrawExitButton(props: { onExit: () => void; label: string }) {
@@ -821,8 +821,9 @@ function buildStyleSnapshot(
   const isAbsolute = computed.position === "absolute";
   const slideWidth = fmdSlide?.offsetWidth ?? 0;
   const slideHeight = fmdSlide?.offsetHeight ?? 0;
-  // The inspector has no state for a rotation it cannot read, so that shows as 0.
-  const rotation = Math.round(readSlideObjectRotation(element) ?? 0);
+  const angle = readSlideObjectRotation(element);
+  const rotation =
+    angle === null ? null : wrapSlideObjectRotation(Math.round(angle));
   const textPreview = (element.textContent ?? "").trim().slice(0, 80);
   const blockFontSize = cssPx(computed.fontSize);
   const rawLineHeight = cssPx(computed.lineHeight);
@@ -5092,7 +5093,7 @@ export default function SlideEditor({
   const applyStylePatchToElement = useCallback(
     (
       element: HTMLElement,
-      patch: CopiedElementStyle,
+      { rotation, ...patch }: SlideStylePatch,
       range: Range | null = null,
     ): Range | null => {
       const inlinePatch = inlineInspectorStylePatch(patch);
@@ -5124,6 +5125,7 @@ export default function SlideEditor({
           applyDescendantTextStyle(element, inlinePatch);
         }
 
+        if (rotation !== undefined) setSlideObjectRotation(element, rotation);
         for (const [property, value] of Object.entries(patch)) {
           if (value === undefined) continue;
           if (
@@ -5138,9 +5140,6 @@ export default function SlideEditor({
             setSlideObjectDimension(element, property, value);
           } else {
             element.style.setProperty(stylePropertyName(property), value);
-            if (property === "transform") {
-              clearSlideObjectRotateProperty(element);
-            }
           }
         }
 
@@ -8709,81 +8708,11 @@ export default function SlideEditor({
         });
       } else {
         image = target;
-        const parent = image.parentElement;
-        if (!parent) return;
-        const imageWidth = image.offsetWidth;
-        const imageHeight = image.offsetHeight;
-        const imageLeft = image.offsetLeft;
-        const imageTop = image.offsetTop;
-        const imageStyle = image.style;
-        const inlineParent = Boolean(parent.closest("p"));
-        const cropFrame = frame.ownerDocument.createElement(
-          inlineParent ? "span" : "div",
-        );
-        cropFrame.className = "fmd-pptx-image";
-        cropFrame.setAttribute("data-pptx-element-kind", "image");
-        for (const property of [
-          "position",
-          "left",
-          "top",
-          "right",
-          "bottom",
-          "width",
-          "height",
-          "transform",
-          "transform-origin",
-          "translate",
-          "rotate",
-          "scale",
-          "z-index",
-        ]) {
-          const value = imageStyle.getPropertyValue(property);
-          if (value) cropFrame.style.setProperty(property, value);
-        }
-        cropFrame.style.position ||= "absolute";
-        cropFrame.style.display = "block";
-        cropFrame.style.left ||= `${imageLeft}px`;
-        cropFrame.style.top ||= `${imageTop}px`;
-        cropFrame.style.width ||= `${imageWidth}px`;
-        cropFrame.style.height ||= `${imageHeight}px`;
-        const objectId =
-          image.getAttribute("data-slide-object-id") ??
-          ensureSlideObjectId(image);
-        cropFrame.setAttribute("data-slide-object-id", objectId);
-        image.removeAttribute("data-slide-object-id");
-        cropFrame.setAttribute("data-builder-id", ensureBuilderId(cropFrame));
-
-        viewport = frame.ownerDocument.createElement(
-          inlineParent ? "span" : "div",
-        );
-        viewport.className = "fmd-image-crop-viewport";
-        Object.assign(viewport.style, {
-          position: "absolute",
-          inset: "0",
-          width: "100%",
-          height: "100%",
-          overflow: "hidden",
-          display: "block",
-        });
-        parent.insertBefore(cropFrame, image);
-        cropFrame.appendChild(viewport);
-        viewport.appendChild(image);
-        frame = cropFrame;
-        Object.assign(image.style, {
-          position: "absolute",
-          left: "0px",
-          top: "0px",
-          width: `${imageWidth}px`,
-          height: `${imageHeight}px`,
-          transform: "none",
-          transformOrigin: "0 0",
-          maxWidth: "none",
-          maxHeight: "none",
-          margin: "0",
-        });
-        for (const property of ["translate", "rotate", "scale"]) {
-          image.style.setProperty(property, "none");
-        }
+        const wrapped = wrapImageInCropFrame(image);
+        if (!wrapped) return;
+        frame = wrapped.frame;
+        viewport = wrapped.viewport;
+        frame.setAttribute("data-builder-id", ensureBuilderId(frame));
       }
 
       frame.classList.add("fmd-pptx-image");

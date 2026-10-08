@@ -250,7 +250,7 @@ Fixture modes: click-created = "Resize the shape to fit text" (fit), drag-create
 ## Gaps / unmeasurable
 
 - Hover cursors for image, shape text, unfilled-shape interior and group (tab hidden froze the cursor class); hover outline colour and timing only partly confirmed (1.10).
-- Shift-snap of rotation.
+- Shift-snap of rotation, and the Size & rotation panel (angle range, wrap of a negative or full-turn entry, behaviour for a rotated group).
 - Escape-in-drag used a real key with synthetic mouse; a pure real-mouse hold is not possible with the tool. Plain click on a multi-selection member (6.4) is synthetic only.
 - Fractional pointer positions are impossible: every threshold carries +-0.5 px. Pt conversions derive from slide width, not Google's UI.
 - Text fitting: very narrow widths (H.11), Shift/Alt on a fit box (H.9, H.10) and the second Cmd+A (P.6) are few-sample synthetic. Empty-box persistence (E.1) was not checked across a reload.

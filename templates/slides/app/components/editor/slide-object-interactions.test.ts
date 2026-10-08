@@ -82,6 +82,8 @@ import {
   parseSlideObjectTransformOrigin,
   probeScreenBasis,
   screenDeltaToLocal,
+  wrapImageInCropFrame,
+  wrapSlideObjectRotation,
   type SlideObjectGeometry,
   type SlideObjectGeometryApplier,
   type SlideObjectGeometryPlan,
@@ -4577,6 +4579,180 @@ describe("the effective transform of a slide object", () => {
     expect(readSlideObjectRotation(mount(declarations))).toBeNull();
   });
 
+  describe("the one range a rotation is read in", () => {
+    // Chromium reports every computed transform as a matrix of six significant
+    // digits, whatever function or property authored it.
+    const serialised = (degrees: number) => {
+      const angle = radians(degrees);
+      const [a, b, c, d] = [
+        Math.cos(angle),
+        Math.sin(angle),
+        -Math.sin(angle),
+        Math.cos(angle),
+      ].map((value) => Number(value.toPrecision(6)));
+      return `matrix(${a}, ${b}, ${c}, ${d}, 0, 0)`;
+    };
+    const paintedAs = (element: HTMLElement, transform: string) => {
+      const getComputedStyle = window.getComputedStyle;
+      vi.spyOn(window, "getComputedStyle").mockImplementation(
+        (target, pseudoElement) =>
+          target === element
+            ? ({
+                transform,
+                transformOrigin: "50px 10px",
+                getPropertyValue: () => "",
+              } as unknown as CSSStyleDeclaration)
+            : getComputedStyle.call(window, target, pseudoElement),
+      );
+    };
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it.each([
+      [200, 200],
+      [-30, 330],
+      [370, 10],
+      [360, 0],
+      [-360, 0],
+      [-0.5, 359.5],
+      [180, 180],
+      [90, 90],
+      [0, 0],
+    ])(
+      "reads a painted %sdeg as %s clockwise degrees in [0, 360)",
+      (authored, expected) => {
+        const element = mount({ position: "absolute" });
+        paintedAs(element, serialised(authored));
+
+        const rotation = readSlideObjectRotation(element);
+
+        expect(rotation).toBeCloseTo(expected, 3);
+        expect(rotation).toBeGreaterThanOrEqual(0);
+        expect(rotation).toBeLessThan(360);
+      },
+    );
+
+    it.each([
+      ["a horizontal mirror", "matrix(-1, 0, 0, 1, 0, 0)", 0],
+      ["a vertical mirror", "matrix(1, 0, 0, -1, 0, 0)", 180],
+      ["a turned mirror", `matrix(-0.866025, -0.5, -0.5, 0.866025, 0, 0)`, 30],
+    ])(
+      "reads %s as its rotation about the mirrored x axis",
+      (_name, transform, expected) => {
+        const element = mount({ position: "absolute" });
+        paintedAs(element, transform);
+
+        expect(readSlideObjectRotation(element)).toBeCloseTo(expected, 3);
+      },
+    );
+
+    it.each([
+      ["a point", "matrix(0, 0, 0, 0, 0, 0)"],
+      ["a line", "matrix(0.866025, 0.5, 0, 0, 0, 0)"],
+    ])(
+      "has no rotation to read for an object collapsed to %s",
+      (_name, transform) => {
+        const element = mount({ position: "absolute" });
+        paintedAs(element, transform);
+
+        expect(readSlideObjectRotation(element)).toBeNull();
+        expect(setSlideObjectRotation(element, 30)).toBe(false);
+        expect(element.style.transform).toBe("");
+      },
+    );
+
+    it.each([
+      ["a transform function", { transform: "rotate(200deg)" }, 200],
+      ["a negative transform function", { transform: "rotate(-30deg)" }, 330],
+      ["more than a turn", { transform: "rotate(370deg)" }, 10],
+      ["the rotate property", { rotate: "200deg" }, 200],
+      ["a negative rotate property", { rotate: "-30deg" }, 330],
+      [
+        "a rotate property added to a transform",
+        { rotate: "-40deg", transform: "matrix(2, 0, 0, 2, 10, 5)" },
+        320,
+      ],
+    ])(
+      "reads %s as authored, folded into the same range",
+      (_name, declarations, expected) => {
+        expect(readSlideObjectRotation(mount(declarations))).toBeCloseTo(
+          expected,
+          6,
+        );
+      },
+    );
+  });
+
+  describe("setting the rotation", () => {
+    const withStylesheet = (rule: string, run: () => void) => {
+      const sheet = document.createElement("style");
+      sheet.textContent = rule;
+      document.head.append(sheet);
+      try {
+        run();
+      } finally {
+        sheet.remove();
+      }
+    };
+    const matrixValues = (element: HTMLElement) =>
+      matrixOf(readSlideObjectTransformSnapshot(element).transform) ?? [];
+
+    it("keeps the scale and translation a stylesheet gives the object", () => {
+      withStylesheet(
+        ".scaled-by-rule { transform: matrix(2, 0, 0, 2, 10, 20); }",
+        () => {
+          const element = mount({ position: "absolute" });
+          element.className = "scaled-by-rule";
+          document.body.append(element);
+          try {
+            expect(setSlideObjectRotation(element, 30)).toBe(true);
+
+            const [a = 0, b = 0, , , tx, ty] = matrixValues(element);
+            expect(Math.hypot(a, b)).toBeCloseTo(2, 6);
+            expect([tx, ty]).toEqual([10, 20]);
+            expect(readSlideObjectRotation(element)).toBeCloseTo(30, 6);
+          } finally {
+            element.remove();
+          }
+        },
+      );
+    });
+
+    it("sets the whole rotation of an object that rotates through a stylesheet property", () => {
+      withStylesheet(".rotated-by-rule { rotate: 20deg; }", () => {
+        const element = mount({ position: "absolute" });
+        element.className = "rotated-by-rule";
+        document.body.append(element);
+        try {
+          expect(setSlideObjectRotation(element, 45)).toBe(true);
+
+          expect(readSlideObjectRotation(element)).toBeCloseTo(45, 6);
+        } finally {
+          element.remove();
+        }
+      });
+    });
+
+    it("writes a pure rotation back as a rotate() the author can read", () => {
+      const element = mount({ transform: "rotate(15deg)" });
+
+      expect(setSlideObjectRotation(element, 30)).toBe(true);
+
+      expect(element.style.transform).toBe("rotate(30deg)");
+    });
+
+    it("writes nothing to an object whose transform cannot be read", () => {
+      const element = mount({ rotate: "x 20deg" });
+
+      expect(setSlideObjectRotation(element, 30)).toBe(false);
+
+      expect(element.style.transform).toBe("");
+      expect(element.style.getPropertyValue("rotate")).toBe("x 20deg");
+    });
+  });
+
   it("plans no rotation for a member whose rotation could not be read", () => {
     const element = mount({ position: "absolute" });
 
@@ -5522,5 +5698,114 @@ describe("rotated containing block basis", () => {
     expect(hasRotatedAncestor(member, root)).toBe(true);
     expect(hasRotatedAncestor(member, group)).toBe(true);
     root.remove();
+  });
+});
+
+describe("wrapping an image in its crop frame", () => {
+  const withRule = (rule: string, run: () => void) => {
+    const sheet = document.createElement("style");
+    sheet.textContent = rule;
+    document.head.append(sheet);
+    try {
+      run();
+    } finally {
+      sheet.remove();
+    }
+  };
+  const mountImage = (className: string, style = "") => {
+    const parent = document.createElement("div");
+    parent.innerHTML = `<img class="${className}" src="x.png" style="position:absolute;left:20px;top:10px;${style}">`;
+    document.body.append(parent);
+    const image = parent.querySelector("img")!;
+    for (const [property, value] of [
+      ["offsetWidth", 160],
+      ["offsetHeight", 90],
+      ["offsetLeft", 20],
+      ["offsetTop", 10],
+    ] as const) {
+      Object.defineProperty(image, property, { value, configurable: true });
+    }
+    return { parent, image };
+  };
+
+  it("gives the frame the stacking order a stylesheet rule gives the image", () => {
+    withRule(".stacked { z-index: 7; }", () => {
+      const { parent, image } = mountImage("stacked");
+      try {
+        expect(wrapImageInCropFrame(image)?.frame.style.zIndex).toBe("7");
+      } finally {
+        parent.remove();
+      }
+    });
+  });
+
+  it("prefers the stacking order the image declares inline", () => {
+    withRule(".stacked { z-index: 7; }", () => {
+      const { parent, image } = mountImage("stacked", "z-index:3");
+      try {
+        expect(wrapImageInCropFrame(image)?.frame.style.zIndex).toBe("3");
+      } finally {
+        parent.remove();
+      }
+    });
+  });
+
+  it("leaves a frame no stacking order for an image that has none", () => {
+    const { parent, image } = mountImage("plain");
+    try {
+      expect(wrapImageInCropFrame(image)?.frame.style.zIndex).toBe("");
+    } finally {
+      parent.remove();
+    }
+  });
+
+  it("moves an inline transform to the frame as authored and switches it off on the image", () => {
+    const { parent, image } = mountImage(
+      "plain",
+      "transform:rotate(20deg);transform-origin:top left;scale:1.3",
+    );
+    try {
+      const wrapped = wrapImageInCropFrame(image)!;
+
+      expect(wrapped.frame.style.transform).toBe("rotate(20deg)");
+      expect(wrapped.frame.style.getPropertyValue("scale")).toBe("1.3");
+      expect(wrapped.frame.style.transformOrigin).toBe("top left");
+      expect(image.style.transform).toBe("none");
+      expect(image.style.getPropertyValue("scale")).toBe("none");
+      expect(image.parentElement).toBe(wrapped.viewport);
+    } finally {
+      parent.remove();
+    }
+  });
+
+  it("does not write a default transform origin for an image with no transform", () => {
+    const { parent, image } = mountImage("plain");
+    try {
+      const { frame } = wrapImageInCropFrame(image)!;
+
+      expect(frame.style.transform).toBe("");
+      expect(frame.style.transformOrigin).toBe("");
+    } finally {
+      parent.remove();
+    }
+  });
+});
+
+describe("wrapping a rotation into [0, 360)", () => {
+  it.each([
+    [0, 0],
+    [200, 200],
+    [-30, 330],
+    [370, 10],
+    [360, 0],
+    [-360, 0],
+    [720.5, 0.5],
+    [360 - 2 ** -44, 0],
+    [-1.4e-14, 0],
+    [359.9999999, 359.9999999],
+  ])("wraps %s to %s", (degrees, expected) => {
+    expect(wrapSlideObjectRotation(degrees)).toBeCloseTo(expected, 9);
+    expect(wrapSlideObjectRotation(degrees)).toBeLessThan(360);
+    expect(wrapSlideObjectRotation(degrees)).toBeGreaterThanOrEqual(0);
   });
 });

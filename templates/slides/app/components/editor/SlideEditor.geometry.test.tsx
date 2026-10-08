@@ -971,6 +971,112 @@ describe("the rotation field of the style inspector", () => {
     expect(readSlideObjectRotation(editor.el("box"))).toBeCloseTo(45, 6);
   });
 
+  it.each([
+    ["a rotate property with an axis", "rotate:x 20deg"],
+    [
+      "a transform that is not planar",
+      "transform:matrix3d(1,0,0,0,0,1,0,0,0,0,1,0.001,0,0,0,1)",
+    ],
+  ])(
+    "shows the rotation of an object with %s as unavailable and writes nothing",
+    async (_name, declaration) => {
+      const editor = await mountEditor(
+        ROTATED_BY_PROPERTY.replace("rotate:20deg", declaration),
+      );
+      const field = await openRotationField(editor);
+      const style = editor.el("box").getAttribute("style");
+      const updates = editor.onUpdateSlide.mock.calls.length;
+
+      expect(field.value).toBe("styleInspector.mixed");
+      expect(field.disabled).toBe(true);
+      field.focus();
+      fireEvent.focus(field);
+      fireEvent.blur(field);
+      await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+
+      expect(editor.el("box").getAttribute("style")).toBe(style);
+      expect(editor.onUpdateSlide.mock.calls).toHaveLength(updates);
+    },
+  );
+
+  it.each([
+    ["transform:rotate(200deg)", "200°"],
+    ["transform:rotate(-30deg)", "330°"],
+    ["transform:rotate(370deg)", "10°"],
+    ["rotate:-90deg", "270°"],
+  ])(
+    "shows `%s` as %s, the one range the field reads in",
+    async (declaration, shown) => {
+      const editor = await mountEditor(
+        ROTATED_BY_PROPERTY.replace("rotate:20deg", declaration),
+      );
+
+      expect((await openRotationField(editor)).value).toBe(shown);
+    },
+  );
+
+  it.each([
+    ["370", 10],
+    ["450", 90],
+    ["-400", 320],
+    ["360", 0],
+  ])(
+    "wraps %s typed into the field into the range it reads in",
+    async (typed, expected) => {
+      const editor = await mountEditor(ROTATED_BY_PROPERTY);
+      const field = await openRotationField(editor);
+
+      field.focus();
+      fireEvent.change(field, { target: { value: typed } });
+      fireEvent.keyDown(field, { key: "Enter" });
+      fireEvent.blur(field);
+      await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+
+      expect(readSlideObjectRotation(editor.el("box"))).toBeCloseTo(
+        expected,
+        6,
+      );
+    },
+  );
+
+  it("steps by the whole step across the turn", async () => {
+    const editor = await mountEditor(
+      ROTATED_BY_PROPERTY.replace("rotate:20deg", "rotate:355deg"),
+    );
+    const field = await openRotationField(editor);
+
+    field.focus();
+    fireEvent.keyDown(field, { key: "ArrowUp", shiftKey: true });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+
+    expect(readSlideObjectRotation(editor.el("box"))).toBeCloseTo(5, 6);
+  });
+
+  it("sets the rotation of a scaled and translated object without dropping either", async () => {
+    const editor = await mountEditor(
+      ROTATED_BY_PROPERTY.replace(
+        "rotate:20deg",
+        "transform:matrix(2,0,0,2,10,20)",
+      ),
+    );
+    const field = await openRotationField(editor);
+
+    field.focus();
+    fireEvent.change(field, { target: { value: "45" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    fireEvent.blur(field);
+    await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+
+    const [a = 0, b = 0, , , tx, ty] = (editor
+      .el("box")
+      .style.transform.match(/^matrix\((.+)\)$/)?.[1]
+      ?.split(",")
+      .map(Number) ?? []) as number[];
+    expect(Math.hypot(a, b)).toBeCloseTo(2, 6);
+    expect([tx, ty]).toEqual([10, 20]);
+    expect(readSlideObjectRotation(editor.el("box"))).toBeCloseTo(45, 6);
+  });
+
   it("sets the rotation of an object whose rotate property comes from a stylesheet", async () => {
     const style = document.createElement("style");
     style.textContent = ".inspector-rotated { rotate: 20deg; }";
@@ -1035,6 +1141,108 @@ describe("starting to crop an image", () => {
       expect(image.style.getPropertyValue("scale")).not.toMatch(/\d/);
     },
   );
+
+  describe("an image painted through a stylesheet rule", () => {
+    const IMAGE_STYLE =
+      "position:absolute;left:200px;top:100px;width:160px;height:90px";
+    const startCrop = async (
+      editor: Awaited<ReturnType<typeof mountEditor>>,
+    ) => {
+      const image = editor.el("pic");
+      stack = [
+        image,
+        ...Array.from(editor.container.querySelectorAll(".fmd-slide")),
+      ];
+      fireEvent.doubleClick(image, { clientX: 220, clientY: 120, detail: 2 });
+      await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+      return image.closest<HTMLElement>(".fmd-pptx-image");
+    };
+    const withRule = async (rule: string, run: () => Promise<void>) => {
+      const sheet = document.createElement("style");
+      sheet.textContent = rule;
+      document.head.append(sheet);
+      try {
+        await run();
+      } finally {
+        sheet.remove();
+      }
+    };
+
+    it.each([
+      [
+        "transform",
+        ".ruled { transform: rotate(20deg); transform-origin: top left; }",
+      ],
+      ["rotate", ".ruled { rotate: 20deg; }"],
+      ["scale", ".ruled { scale: 1.3; }"],
+      ["translate", ".ruled { translate: 40px 10px; }"],
+    ])(
+      "moves the %s the rule gives the image onto the crop frame",
+      async (property, rule) => {
+        await withRule(rule, async () => {
+          const editor = await mountEditor(`
+            <div class="fmd-slide" style="position:relative">
+              <img id="pic" class="ruled" data-slide-object-id="pic-1" src="x.png" style="${IMAGE_STYLE}">
+            </div>`);
+          const image = editor.el("pic");
+          const effective = window
+            .getComputedStyle(image)
+            .getPropertyValue(property);
+          expect(effective).not.toBe("");
+
+          const frame = await startCrop(editor);
+
+          expect(frame).not.toBeNull();
+          expect(frame!.style.getPropertyValue(property)).toBe(effective);
+          expect(
+            window.getComputedStyle(image).getPropertyValue(property),
+          ).toBe("none");
+          expect(image.style.getPropertyPriority(property)).toBe("important");
+          expect(frame!.style.transformOrigin).toBe(
+            property === "transform" ? "0% 0%" : "",
+          );
+        });
+      },
+    );
+
+    it("puts the image back exactly as it was when the crop ends unchanged", async () => {
+      await withRule(
+        ".ruled { transform: rotate(20deg); rotate: 5deg; }",
+        async () => {
+          const editor = await mountEditor(`
+            <div class="fmd-slide" style="position:relative">
+              <img id="pic" class="ruled" data-slide-object-id="pic-1" src="x.png" style="${IMAGE_STYLE}">
+            </div>`);
+          const original = editor.el("pic").outerHTML;
+
+          expect(await startCrop(editor)).not.toBeNull();
+          fireEvent.keyDown(window, { key: "Escape" });
+          await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+
+          expect(editor.el("pic").outerHTML).toBe(original);
+          expect(editor.container.querySelector(".fmd-pptx-image")).toBeNull();
+        },
+      );
+    });
+
+    it("leaves a transform on the image's wrapper with the wrapper", async () => {
+      await withRule(".ruled { transform: rotate(20deg); }", async () => {
+        const editor = await mountEditor(`
+          <div class="fmd-slide" style="position:relative">
+            <div id="wrap" class="ruled" style="position:absolute;left:100px;top:50px;width:300px;height:200px">
+              <img id="pic" data-slide-object-id="pic-1" src="x.png" style="position:absolute;left:20px;top:10px;width:160px;height:90px">
+            </div>
+          </div>`);
+
+        const frame = await startCrop(editor);
+
+        expect(frame?.parentElement).toBe(editor.el("wrap"));
+        expect(frame!.style.transform).toBe("");
+        expect(frame!.style.transformOrigin).toBe("");
+        expect(editor.el("wrap").style.transform).toBe("");
+      });
+    });
+  });
 });
 
 describe("releasing the press of a gesture Escape cancelled", () => {

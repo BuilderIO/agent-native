@@ -1289,6 +1289,120 @@ export function findPersistedImageObject(
   return null;
 }
 
+const TRANSFORM_PROPERTIES = ["transform", "translate", "rotate", "scale"];
+
+// A value that reads the element's own cascade (a custom property its class
+// defines, a length against its font size) means something else on a frame.
+const READS_OWN_CASCADE = /var\(|\d(?:em|ex|ch|lh|cap|ic)\b/i;
+
+/**
+ * Hands the transform that paints `source` to `frame`, which takes its place at
+ * the same box, and switches it off on `source` so it applies once. The cascade
+ * decides what paints: an inline value moves as authored unless it reads the
+ * element's own cascade, and one a stylesheet rule gives `source` moves as the
+ * browser resolved it.
+ */
+function moveSlideObjectTransform(
+  source: HTMLElement,
+  frame: HTMLElement,
+): void {
+  const computed = window.getComputedStyle(source);
+  const { transformOrigin } = readSlideObjectTransformSnapshot(source);
+  let moved = false;
+  for (const property of TRANSFORM_PROPERTIES) {
+    const authored = source.style.getPropertyValue(property);
+    const value = READS_OWN_CASCADE.test(authored)
+      ? computed.getPropertyValue(property)
+      : authored || computed.getPropertyValue(property);
+    if (value && value !== "none") {
+      frame.style.setProperty(property, value);
+      moved = true;
+    }
+    // Off even when nothing moved, so a rule that matches later cannot paint
+    // the image a second time inside the frame. Important, because a stylesheet
+    // !important declaration and a running animation both beat a plain one.
+    source.style.setProperty(property, "none", "important");
+  }
+  if (moved && transformOrigin !== "50% 50%") {
+    frame.style.transformOrigin = transformOrigin;
+  }
+}
+
+/**
+ * Wraps a bare image in the frame that crops it. The frame takes the image's
+ * place, box and transform inside its parent, and the image moves into the
+ * frame's clipping viewport. Null when the image has no parent to wrap it in.
+ */
+export function wrapImageInCropFrame(
+  image: HTMLImageElement,
+): { frame: HTMLElement; viewport: HTMLElement } | null {
+  const parent = image.parentElement;
+  if (!parent) return null;
+  const imageWidth = image.offsetWidth;
+  const imageHeight = image.offsetHeight;
+  const imageLeft = image.offsetLeft;
+  const imageTop = image.offsetTop;
+  const imageStyle = image.style;
+  const inlineParent = Boolean(parent.closest("p"));
+  const frame = image.ownerDocument.createElement(
+    inlineParent ? "span" : "div",
+  );
+  frame.className = "fmd-pptx-image";
+  frame.setAttribute("data-pptx-element-kind", "image");
+  for (const property of [
+    "position",
+    "left",
+    "top",
+    "right",
+    "bottom",
+    "width",
+    "height",
+  ]) {
+    const value = imageStyle.getPropertyValue(property);
+    if (value) frame.style.setProperty(property, value);
+  }
+  const zIndex = imageStyle.zIndex || window.getComputedStyle(image).zIndex;
+  if (zIndex && zIndex !== "auto") frame.style.zIndex = zIndex;
+  moveSlideObjectTransform(image, frame);
+  frame.style.position ||= "absolute";
+  frame.style.display = "block";
+  frame.style.left ||= `${imageLeft}px`;
+  frame.style.top ||= `${imageTop}px`;
+  frame.style.width ||= `${imageWidth}px`;
+  frame.style.height ||= `${imageHeight}px`;
+  const objectId =
+    image.getAttribute("data-slide-object-id") ?? ensureSlideObjectId(image);
+  frame.setAttribute("data-slide-object-id", objectId);
+  image.removeAttribute("data-slide-object-id");
+
+  const viewport = image.ownerDocument.createElement(
+    inlineParent ? "span" : "div",
+  );
+  viewport.className = "fmd-image-crop-viewport";
+  Object.assign(viewport.style, {
+    position: "absolute",
+    inset: "0",
+    width: "100%",
+    height: "100%",
+    overflow: "hidden",
+    display: "block",
+  });
+  parent.insertBefore(frame, image);
+  frame.appendChild(viewport);
+  viewport.appendChild(image);
+  Object.assign(image.style, {
+    position: "absolute",
+    left: "0px",
+    top: "0px",
+    width: `${imageWidth}px`,
+    height: `${imageHeight}px`,
+    maxWidth: "none",
+    maxHeight: "none",
+    margin: "0",
+  });
+  return { frame, viewport };
+}
+
 export function resolveSlideClipboardElement(
   selectedElement: HTMLElement | null,
   selectedImg: HTMLImageElement | null,
@@ -2179,18 +2293,6 @@ function composeSlideObjectTransform(
 }
 
 /**
- * The inspector writes an object's whole rotation to `transform`, so a
- * `rotate` property set beside it would add to that rotation.
- */
-export function clearSlideObjectRotateProperty(element: HTMLElement): void {
-  if (
-    readTransformLonghands(element, window.getComputedStyle(element))?.rotate
-  ) {
-    element.style.setProperty("rotate", "none");
-  }
-}
-
-/**
  * What to write to `transform` for an object that paints `effective` (as a
  * snapshot reads it) while its longhands stay in place and still apply first.
  * Null when they cannot be undone. Writing `effective` itself would apply them
@@ -2669,11 +2771,9 @@ export function ungroupSlideObject(
         currentMatrix,
       );
       if (!currentCenterOffset) return null;
-      const currentRotation =
-        (Math.atan2(currentMatrix[1], currentMatrix[0]) * 180) / Math.PI;
       const nextTransform = rotatedSlideObjectMatrix(
         slideObjectMatrix2dString(currentMatrix),
-        currentRotation + groupRotation,
+        slideObjectMatrixRotation(currentMatrix) + groupRotation,
       );
       if (!nextTransform) return null;
       const nextParsed = parseSlideObjectMatrix2d(nextTransform);
@@ -3129,7 +3229,7 @@ function rotatedSlideObjectMatrix(
   const b = parsed.values[bIndex] ?? 0;
   const c = parsed.values[cIndex] ?? 0;
   const d = parsed.values[dIndex] ?? 1;
-  const currentAngle = Math.atan2(b, a);
+  const currentAngle = slideObjectMatrixAngle(a, b, c, d);
   const currentCos = Math.cos(currentAngle);
   const currentSin = Math.sin(currentAngle);
   const residualA = currentCos * a + currentSin * b;
@@ -3247,19 +3347,57 @@ export function screenDeltaToLocal(
   };
 }
 
-/** The rotation the object paints, or null when its transform is not readable. */
-export function readSlideObjectRotation(element: HTMLElement): number | null {
-  const { transform } = readSlideObjectTransformSnapshot(element);
-  const rotate = transform.match(
-    /rotate(?:z)?\(\s*(-?(?:\d+\.?\d*|\.\d+))deg\s*\)/i,
-  );
-  if (rotate) return Number(rotate[1]);
+/**
+ * A rotation in the one range the editor reads and shows: clockwise degrees in
+ * [0, 360). A browser reports every painted transform as a matrix, so the
+ * authored 200deg and -160deg are the same rotation by the time they are read.
+ */
+export function wrapSlideObjectRotation(degrees: number): number {
+  const wrapped = Number((((degrees % 360) + 360) % 360).toFixed(10));
+  return wrapped >= 360 ? 0 : wrapped;
+}
 
+/**
+ * A matrix that mirrors reads as its rotation after the x axis is mirrored, so
+ * setting a rotation turns the object and never swaps the axis it is mirrored
+ * on.
+ */
+function slideObjectMatrixAngle(a: number, b: number, c: number, d: number) {
+  const mirrored = a * d - b * c < 0;
+  return Math.atan2(mirrored ? -b : b, mirrored ? -a : a);
+}
+
+function slideObjectMatrixRotation([a, b, c, d]: SlideObjectTransformMatrix2d) {
+  return wrapSlideObjectRotation(
+    (slideObjectMatrixAngle(a, b, c, d) * 180) / Math.PI,
+  );
+}
+
+/**
+ * What an object paints: its transform and that as a matrix. Null when it is
+ * not readable, or collapses the object, which has no rotation either.
+ */
+function readPaintedSlideObject(
+  element: HTMLElement,
+): { transform: string; matrix: SlideObjectTransformMatrix2d } | null {
+  const { transform } = readSlideObjectTransformSnapshot(element);
   const matrix = readSlideObjectTransformMatrix(
     { x: 0, y: 0, width: element.offsetWidth, height: element.offsetHeight },
     transform,
   );
-  return matrix ? (Math.atan2(matrix[1], matrix[0]) * 180) / Math.PI : null;
+  return matrix && invertSlideObjectMatrix(matrix)
+    ? { transform, matrix }
+    : null;
+}
+
+/**
+ * The rotation the object paints, in [0, 360), or null when its transform is
+ * not readable. It is the angle of the effective matrix, so a stylesheet rule,
+ * the rotate property and an inline transform all read the same way.
+ */
+export function readSlideObjectRotation(element: HTMLElement): number | null {
+  const painted = readPaintedSlideObject(element);
+  return painted ? slideObjectMatrixRotation(painted.matrix) : null;
 }
 
 export function resolveSlideObjectRotationDelta(
@@ -3276,14 +3414,72 @@ export function resolveSlideObjectRotationDelta(
   return snapToFifteenDegrees ? Math.round(delta / 15) * 15 : delta;
 }
 
+// A computed matrix carries six significant digits.
+function isPureSlideObjectRotation([
+  a,
+  b,
+  c,
+  d,
+  e,
+  f,
+]: SlideObjectTransformMatrix2d) {
+  return (
+    Math.abs(a - d) < 1e-4 &&
+    Math.abs(b + c) < 1e-4 &&
+    Math.abs(Math.hypot(a, b) - 1) < 1e-4 &&
+    Math.abs(e) < 1e-3 &&
+    Math.abs(f) < 1e-3
+  );
+}
+
+/**
+ * Sets the whole rotation an object paints to `rotation` degrees, wrapped into
+ * [0, 360), keeping the scale, skew and translation it paints with. It edits
+ * the effective transform, so one that a stylesheet or the rotate property
+ * supplies is kept rather than overwritten. False, with nothing written, when
+ * that transform has no rotation to set.
+ */
 export function setSlideObjectRotation(
   element: HTMLElement,
   rotation: number,
-): void {
-  element.style.transform = slideObjectRotationTransform(
-    element.style.transform.trim(),
-    rotation,
+): boolean {
+  const painted = readPaintedSlideObject(element);
+  if (!painted) return false;
+  const target = wrapSlideObjectRotation(rotation);
+
+  // A transform list the author wrote keeps its own units, so a centring
+  // translate(-50%, -50%) goes on following the object's size. Only its
+  // rotation is replaced, and only if that paints the rotation asked for: a
+  // list with two rotate()s or a skew does not.
+  const authored = element.style.transform.trim();
+  if (
+    authored &&
+    authored !== "none" &&
+    !/^matrix/i.test(authored) &&
+    !readTransformLonghands(element, window.getComputedStyle(element))
+  ) {
+    element.style.transform = slideObjectRotationTransform(authored, target);
+    const painting = readSlideObjectRotation(element);
+    if (
+      painting !== null &&
+      Math.abs(((painting - target + 540) % 360) - 180) < 0.01
+    ) {
+      return true;
+    }
+    element.style.transform = authored;
+  }
+
+  const writable = toTransformProperty(
+    element,
+    element.offsetWidth,
+    element.offsetHeight,
+    isPureSlideObjectRotation(painted.matrix)
+      ? `rotate(${formatSlideObjectRotation(target)})`
+      : slideObjectRotationTransform(painted.transform.trim(), target),
   );
+  if (writable === null) return false;
+  element.style.transform = writable;
+  return true;
 }
 
 function slideObjectRotationTransform(
@@ -3320,7 +3516,7 @@ export function rotateSlideObjectMembers(
       member.transform,
       member.transformOrigin,
     );
-    const rotation = member.rotation + deltaDegrees;
+    const rotation = wrapSlideObjectRotation(member.rotation + deltaDegrees);
     const nextTransform = slideObjectRotationTransform(
       member.transform.trim(),
       rotation,
