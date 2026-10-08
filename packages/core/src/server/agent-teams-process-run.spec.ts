@@ -414,6 +414,7 @@ const subscribeToRunMock = vi.fn();
 const persistedRunEventIds: string[] = [];
 const persistedTerminalRunEventIds: string[] = [];
 const startRunWork: Promise<void>[] = [];
+const activeRunMocks = new Map<string, any>();
 vi.mock("../agent/run-manager.js", () => ({
   startRun: (
     runId: string,
@@ -450,10 +451,11 @@ vi.mock("../agent/run-manager.js", () => ({
         addEventListener() {},
         removeEventListener() {},
       };
+      let status: "completed" | "errored" = "completed";
       try {
         await runFn(send, signal);
       } catch {
-        /* ignore */
+        status = "errored";
       }
       await Promise.allSettled(pendingEventWrites);
       const run = {
@@ -461,16 +463,21 @@ vi.mock("../agent/run-manager.js", () => ({
         threadId,
         turnId: options?.turnId ?? runId,
         events,
-        status: "completed",
+        status,
         subscribers: new Set(),
         abort: new AbortController(),
         startedAt: Date.now(),
       };
-      if (onComplete) await onComplete(run);
-      if (options?.persistEvent) {
-        await options.persistEvent(async () => {}, { terminal: true });
-        persistedRunEventIds.push(runId);
-        persistedTerminalRunEventIds.push(runId);
+      activeRunMocks.set(runId, run);
+      try {
+        if (onComplete) await onComplete(run);
+        if (options?.persistEvent) {
+          await options.persistEvent(async () => {}, { terminal: true });
+          persistedRunEventIds.push(runId);
+          persistedTerminalRunEventIds.push(runId);
+        }
+      } finally {
+        activeRunMocks.delete(runId);
       }
     })();
     startRunWork.push(work);
@@ -693,6 +700,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     dispatches.length = 0;
     requestContexts.length = 0;
     activeRequestContext = undefined;
+    activeRunMocks.clear();
     queue._agentTeamRunQueueForTests.resetInit();
     runAgentLoopMock.mockReset();
     instrumentAgentLoopMock.mockReset();
@@ -702,6 +710,9 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     getObservabilityConfigMock.mockReset();
     getObservabilityConfigMock.mockResolvedValue({ enabled: true });
     getRunMock.mockReset();
+    getRunMock.mockImplementation(
+      (runId: string) => activeRunMocks.get(runId) ?? null,
+    );
     abortRunMock.mockReset();
     persistedRunEventIds.length = 0;
     persistedTerminalRunEventIds.length = 0;
@@ -753,11 +764,17 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
 
   it("keeps completed actions terminal when the task projection fails", async () => {
     let completedActionCount = 0;
+    const completedResponse = `authoritative completed response ${"full result ".repeat(100)}`;
     runAgentLoopMock.mockImplementation(async (opts: any) => {
       completedActionCount += 1;
-      opts.send({ type: "text", text: "the action completed" });
+      opts.send({ type: "text", text: completedResponse });
     });
     await seedTask("terminal-projection-failure");
+    const seededTask = appState.get("agent-task:terminal-projection-failure");
+    seededTask.summary = "stale summary from a prior attempt";
+    seededTask.preview = "stale preview";
+    seededTask.parentThreadId = "parent-thread";
+    appState.set("agent-task:terminal-projection-failure", seededTask);
     failTaskProjectionFor = {
       taskId: "terminal-projection-failure",
       status: "completed",
@@ -798,7 +815,15 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       getTask("terminal-projection-failure"),
     );
     expect(repaired?.status).toBe("completed");
+    expect(repaired?.summary).toBe(completedResponse);
     expect(completedActionCount).toBe(1);
+    const injection = [...appState.entries()].find(([key]) =>
+      key.startsWith("parent-completion:parent-thread:"),
+    )?.[1];
+    expect(injection).toMatchObject({ summaryExcerpt: completedResponse });
+    expect(insertNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({ body: completedResponse.slice(0, 300) }),
+    );
   });
 
   it("does not replay completed actions when terminal transcript persistence fails", async () => {
@@ -1669,6 +1694,55 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     );
   });
 
+  it("includes the claimed attempt when reading a stopped task transcript", async () => {
+    const taskId = "stopped-transcript";
+    await seedTask(taskId);
+    const task = appState.get(`agent-task:${taskId}`);
+    task.transcriptRunIds = [`run-task-${taskId}-a2-c1`];
+    appState.set(`agent-task:${taskId}`, task);
+    const row = queueRows.find((candidate) => candidate.task_id === taskId);
+    if (!row) throw new Error("missing queued task row");
+    row.status = "running";
+    row.attempts = 3;
+    row.continuation_count = 2;
+    row.updated_at = Date.now();
+    getRunEventsSinceMock.mockImplementation(async (runId: string) => {
+      const message =
+        runId === `run-task-${taskId}-a2-c1`
+          ? "earlier attempt output"
+          : runId === `run-task-${taskId}-a3-c2`
+            ? "output from the stopped attempt"
+            : null;
+      return message
+        ? [
+            {
+              seq: 0,
+              eventData: JSON.stringify({ type: "text", text: message }),
+            },
+          ]
+        : [];
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      stopAgentTeamBackgroundRun(`run-task-${taskId}`),
+    );
+    expect((await queue.getAgentTeamRunDispatchState(taskId))?.status).toBe(
+      "failed",
+    );
+
+    const events = await runWithRequestContext({ userEmail: OWNER }, () =>
+      listAgentTeamBackgroundTranscriptEvents(`run-task-${taskId}`),
+    );
+    expect(events.map((event) => event.message)).toEqual([
+      "earlier attempt output",
+      "output from the stopped attempt",
+    ]);
+    expect(events.map((event) => event.metadata?.sourceRunId)).toEqual([
+      `run-task-${taskId}-a2-c1`,
+      `run-task-${taskId}-a3-c2`,
+    ]);
+  });
+
   it("fails a live transcript read when active queue state is unreadable", async () => {
     await seedTask("active-transcript-read-failure");
     const task = appState.get("agent-task:active-transcript-read-failure");
@@ -1934,7 +2008,6 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     const tasks = await runWithRequestContext({ userEmail: OWNER }, () =>
       listTasks({ ownerEmail: OWNER }),
     );
-
     expect(tasks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -2342,7 +2415,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     }
   });
 
-  it("does not abort a local run that is already in terminal finalization", async () => {
+  it("does not abort a failed worker run during terminal finalization", async () => {
     let heartbeatTick: (() => void) | undefined;
     const timer = vi.spyOn(globalThis, "setInterval").mockImplementation(((
       callback: () => void,
@@ -2364,11 +2437,9 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       return { status: "succeeded" };
     });
     getProgressRunMock.mockResolvedValue({ status: "running" });
+    runAgentLoopMock.mockRejectedValue(new Error("agent loop failed"));
     await seedTask("terminal-heartbeat-lease");
     const runId = "run-task-terminal-heartbeat-lease-a1-c0";
-    getRunMock.mockImplementation((candidate: string) =>
-      candidate === runId ? { runId, status: "completed" } : null,
-    );
 
     const processing = processAgentTeamRun({
       taskId: "terminal-heartbeat-lease",
@@ -2384,7 +2455,8 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       );
       if (!row) throw new Error("missing terminal task row");
       expect(row.attempts).toBe(1);
-      row.status = "failed";
+      expect(row.status).toBe("failed");
+      expect(getRunMock(runId)).toMatchObject({ status: "errored" });
 
       heartbeatTick?.();
       await vi.waitFor(() =>

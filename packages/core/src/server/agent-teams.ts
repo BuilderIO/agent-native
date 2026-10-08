@@ -580,6 +580,49 @@ function applyDispatchMetadataToTask(
   return task;
 }
 
+function parseThreadData(threadData: string | null | undefined): any {
+  let repo: any;
+  try {
+    repo = JSON.parse(threadData || "{}");
+  } catch (error) {
+    throw new Error("Sub-agent thread data is unreadable.", { cause: error });
+  }
+  if (!repo || typeof repo !== "object" || Array.isArray(repo)) {
+    throw new Error("Sub-agent thread data is unreadable.");
+  }
+  return repo;
+}
+
+function assistantTextFromThreadRepo(repo: any): string {
+  if (!Array.isArray(repo.messages)) return "";
+  const headEntry = repo.messages.find(
+    (message: any) => (message?.message ?? message)?.id === repo.headId,
+  );
+  const headMessage = headEntry?.message ?? headEntry;
+  if (
+    headMessage?.role !== "assistant" ||
+    !Array.isArray(headMessage.content)
+  ) {
+    return "";
+  }
+  return headMessage.content
+    .filter(
+      (content: any) =>
+        content?.type === "text" && typeof content.text === "string",
+    )
+    .map((content: any) => content.text)
+    .join("\n");
+}
+
+async function readPersistedTaskAssistantText(
+  task: AgentTask,
+): Promise<string> {
+  const { getThread } = await import("../chat-threads/store.js");
+  const thread = await getThread(task.threadId);
+  if (!thread) return "";
+  return assistantTextFromThreadRepo(parseThreadData(thread.threadData));
+}
+
 async function completeReconciledTask(
   task: AgentTask,
   ownerEmail: string | null,
@@ -588,9 +631,14 @@ async function completeReconciledTask(
   >,
 ): Promise<AgentTask> {
   let progressReconciled = true;
+  const persistedSummary = await readPersistedTaskAssistantText(task);
   const complete = async () => {
     task.status = "completed";
-    task.summary = task.summary || task.preview || "Task completed.";
+    task.summary =
+      (persistedSummary.trim() ? persistedSummary : "") ||
+      task.summary ||
+      task.preview ||
+      "Task completed.";
     task.currentStep = "";
     task.completedAt = Date.now();
     task.terminalEffectsVersion = 1;
@@ -1765,12 +1813,7 @@ async function persistTaskThreadData(
     await import("../chat-threads/store.js");
   const thread = await getThread(task.threadId);
   if (!thread) throw new Error("Sub-agent thread disappeared before save.");
-  let repo: any;
-  try {
-    repo = JSON.parse(thread.threadData || "{}");
-  } catch (error) {
-    throw new Error("Sub-agent thread data is unreadable.", { cause: error });
-  }
+  let repo = parseThreadData(thread.threadData);
   if (!Array.isArray(repo.messages)) repo.messages = [];
 
   const userMsgId = `msg-${task.taskId}-user`;
@@ -1798,17 +1841,7 @@ async function persistTaskThreadData(
     repo = foldAssistantTurn(repo, assistantMsg, { runId, turnId });
   }
 
-  let assistantText = "";
-  const headEntry = Array.isArray(repo.messages)
-    ? repo.messages.find((m: any) => (m?.message ?? m)?.id === repo.headId)
-    : undefined;
-  const headMsg = headEntry?.message ?? headEntry;
-  if (headMsg?.role === "assistant" && Array.isArray(headMsg.content)) {
-    assistantText = headMsg.content
-      .filter((c: any) => c?.type === "text" && typeof c.text === "string")
-      .map((c: any) => c.text)
-      .join("\n");
-  }
+  const assistantText = assistantTextFromThreadRepo(repo);
 
   const updated = await updateThreadData(
     task.threadId,
@@ -2727,16 +2760,26 @@ async function transcriptRunIdsForTask(
   taskId: string,
   task?: AgentTask,
 ): Promise<string[]> {
-  let ids: string[];
-  if (
+  const hasTranscriptRunIds =
     Array.isArray(task?.transcriptRunIds) &&
-    task.transcriptRunIds.every((id) => typeof id === "string")
+    task.transcriptRunIds.every((id) => typeof id === "string");
+  let dispatch: Awaited<
+    ReturnType<typeof getAgentTeamRunDispatchState>
+  > | null = null;
+  if (
+    !hasTranscriptRunIds ||
+    task?.status === "running" ||
+    task?.terminalProgressStatus === "cancelled"
   ) {
-    ids = [...task.transcriptRunIds];
+    dispatch = await getAgentTeamRunDispatchState(taskId);
+  }
+
+  let ids: string[];
+  if (hasTranscriptRunIds) {
+    ids = [...(task?.transcriptRunIds ?? [])];
   } else {
     const baseRunId = taskRunId(taskId);
-    const continuationCount =
-      (await getAgentTeamRunDispatchState(taskId))?.continuationCount ?? 0;
+    const continuationCount = dispatch?.continuationCount ?? 0;
 
     ids = [baseRunId];
     for (let i = 0; i <= continuationCount; i += 1) {
@@ -2744,13 +2787,16 @@ async function transcriptRunIdsForTask(
     }
   }
 
-  if (task?.status === "running") {
-    const dispatch = await getAgentTeamRunDispatchState(taskId);
-    if (dispatch?.status === "queued" || dispatch?.status === "running") {
-      ids.push(
-        taskRunChunkId(taskId, dispatch.continuationCount, dispatch.attempts),
-      );
-    }
+  const includesCurrentAttempt =
+    dispatch?.attempts &&
+    ((task?.status === "running" &&
+      (dispatch.status === "queued" || dispatch.status === "running")) ||
+      (task?.terminalProgressStatus === "cancelled" &&
+        dispatch.status === "failed"));
+  if (includesCurrentAttempt && dispatch) {
+    ids.push(
+      taskRunChunkId(taskId, dispatch.continuationCount, dispatch.attempts),
+    );
   }
   return [...new Set(ids)];
 }
