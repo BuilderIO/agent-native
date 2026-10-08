@@ -12,10 +12,12 @@ import {
 
 function deferred() {
   let resolve!: () => void;
-  const promise = new Promise<void>((done) => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<void>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 describe("editor save status", () => {
@@ -123,16 +125,38 @@ describe("editor save queue", () => {
     expect(writes[writes.length - 1]).toBe("newer");
   });
 
-  it("continues after a failed save while preserving its rejection", async () => {
+  it("rejects dependent saves after a failure and recovers for a new batch", async () => {
     const queue = createEditorSaveQueue();
     const failure = new Error("save failed");
+    const firstStarted = deferred();
+    const finishFirst = deferred();
+    let persisted: string[] = [];
 
     const failed = enqueueEditorSave(queue, async () => {
+      firstStarted.resolve();
+      await finishFirst.promise;
       throw failure;
     });
-    const next = enqueueEditorSave(queue, async () => "saved");
+    const dependent = enqueueEditorSave(queue, async () => {
+      persisted = ["failed edit", "newer edit"];
+    });
+    const secondDependent = enqueueEditorSave(queue, async () => {
+      persisted = ["failed edit", "newer edit", "latest edit"];
+    });
 
+    await firstStarted.promise;
+    finishFirst.reject(failure);
     await expect(failed).rejects.toBe(failure);
-    await expect(next).resolves.toBe("saved");
+    await expect(dependent).rejects.toBe(failure);
+    await expect(secondDependent).rejects.toBe(failure);
+    expect(persisted).toEqual([]);
+
+    const nextBatch = enqueueEditorSave(queue, async () => {
+      persisted = ["new edit"];
+      return "saved";
+    });
+
+    await expect(nextBatch).resolves.toBe("saved");
+    expect(persisted).toEqual(["new edit"]);
   });
 });

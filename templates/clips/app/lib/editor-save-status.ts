@@ -14,22 +14,35 @@ export interface EditorSaveLedger {
 
 export interface EditorSaveQueue {
   tail: Promise<void>;
+  pending: number;
+  failure: { reason: unknown } | null;
 }
 
 export function createEditorSaveQueue(): EditorSaveQueue {
-  return { tail: Promise.resolve() };
+  return { tail: Promise.resolve(), pending: 0, failure: null };
 }
 
 export function enqueueEditorSave<T>(
   queue: EditorSaveQueue,
   save: () => Promise<T>,
 ): Promise<T> {
-  const result = queue.tail.then(save);
-  // Keep later writes runnable without changing this save's returned rejection.
-  queue.tail = result.then(
-    () => undefined,
-    () => undefined,
-  );
+  queue.pending += 1;
+  const result = queue.tail.then(async () => {
+    if (queue.failure) throw queue.failure.reason;
+    try {
+      return await save();
+    } catch (reason) {
+      // Later payloads may include this edit, so cancel the rest of this batch.
+      queue.failure = { reason };
+      throw reason;
+    }
+  });
+  // Drain the failed batch before letting a fresh user edit start.
+  const settle = () => {
+    queue.pending -= 1;
+    if (queue.pending === 0) queue.failure = null;
+  };
+  queue.tail = result.then(settle, settle);
   return result;
 }
 
