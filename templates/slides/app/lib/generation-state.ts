@@ -63,7 +63,7 @@ export function isNewDeckGenerationFailed({
   if (generating || waitingOnQuestions) return false;
   if (typeof failureCode === "string") return true;
   if (isNewDeckCreation && phase === "abandoned") return true;
-  return phase === "started";
+  return isNewDeckCreation && phase === "started";
 }
 
 export function shouldShowNewDeckGeneratingProgress({

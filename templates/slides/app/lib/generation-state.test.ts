@@ -15,7 +15,7 @@ describe("new deck generation state", () => {
     slideCount: 0,
     hasGenerationContext: true,
     failureCode: undefined,
-    isNewDeckCreation: false,
+    isNewDeckCreation: true,
     phase: "started" as const,
     generating: false,
     waitingOnQuestions: false,
@@ -23,6 +23,12 @@ describe("new deck generation state", () => {
 
   it("fails a generation whose run ended without a slide", () => {
     expect(isNewDeckGenerationFailed(base)).toBe(true);
+  });
+
+  it("does not call a completed deck intentionally emptied later a failure", () => {
+    expect(
+      isNewDeckGenerationFailed({ ...base, isNewDeckCreation: false }),
+    ).toBe(false);
   });
 
   it("fails a generation that never started", () => {
