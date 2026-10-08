@@ -770,13 +770,6 @@ test("promotes and edits a URL-backed React component through the live iframe", 
     .getByRole("tree", { name: "Layers" })
     .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`)
     .click();
-  await page.evaluate((id) => {
-    document
-      .querySelector<HTMLIFrameElement>(
-        `iframe[data-design-preview-iframe][data-screen-iframe-id="${id}"]`,
-      )
-      ?.contentWindow?.postMessage({ type: "clear-selection" }, "*");
-  }, screenId);
   await expect(
     page
       .locator(
@@ -793,22 +786,10 @@ test("promotes and edits a URL-backed React component through the live iframe", 
     .contentFrame()
     .locator('[data-agent-native-node-id="react-button-1"]');
   await expect(reloadedButton).toHaveText("primary");
-  await page.evaluate((id) => {
-    document
-      .querySelector<HTMLIFrameElement>(
-        `iframe[data-design-preview-iframe][data-screen-iframe-id="${id}"]`,
-      )
-      ?.contentWindow?.postMessage({ type: "clear-selection" }, "*");
-  }, screenId);
-  await expect(
-    page
-      .locator(
-        `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
-      )
-      .contentFrame()
-      .locator('[data-agent-native-edit-overlay="selection"]'),
-  ).toHaveCSS("display", "none");
-  await selectByText(page, "primary", { screenId });
+  await selectByText(page, "primary", {
+    screenId,
+    clearPreviousSelection: true,
+  });
   const componentSection = page.getByTestId("component-section");
   await expect(componentSection).toContainText("PrimaryButton");
   await expect(componentSection).toContainText("src/Component.jsx");
