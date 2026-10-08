@@ -330,8 +330,27 @@ test("screen overview adds and targets frames from the unified breakpoint contro
     await route.fulfill({ response });
   });
 
-  const breakpointControl = page.locator("[data-breakpoint-device-control]");
   try {
+    const fixtureDesignId = await createFixtureDesign(
+      page,
+      "E2E Unified Breakpoint Control",
+    );
+    await page.setViewportSize({ width: 1800, height: 1000 });
+    await page.goto(
+      appPath(`/design/${fixtureDesignId}?view=overview&zoom=24`),
+      { waitUntil: "domcontentloaded" },
+    );
+    await expect(page.locator("[data-screen-shell]").first()).toBeVisible();
+    await page
+      .locator("aside")
+      .first()
+      .getByRole("button", { name: "All screens", exact: true })
+      .click();
+    await expect(page.locator("[data-screen-card]").first()).toBeVisible();
+
+    const breakpointControl = page.locator(
+      "[data-breakpoint-device-control]",
+    );
     await expect(
       breakpointControl.getByRole("button", { name: "Base" }),
     ).toHaveAttribute("aria-pressed", "true");
