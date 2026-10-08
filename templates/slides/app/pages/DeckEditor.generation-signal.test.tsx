@@ -891,15 +891,46 @@ describe("DeckEditor generation signal wiring", () => {
         }),
       ),
     );
+    await waitFor(() =>
+      expect(mocks.deck.generationContext).toMatchObject({
+        generationFailureCode: "outcome_unresolved",
+        generationFailureAttemptId: "attempt-1",
+      }),
+    );
+    await waitFor(() =>
+      expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1"),
+    );
     expect(
       screen.getByText("deckEditor.generationOutcomeUnresolved"),
     ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "deckEditor.tryAgain" }),
     ).toBeTruthy();
-    expect(mocks.deck.generationContext).not.toHaveProperty(
-      "generationFailureCode",
+    const recoveryKey = "slides:empty-generation-retry-recovery:deck-1";
+    await waitFor(() =>
+      expect(window.localStorage.getItem(recoveryKey)).toBeNull(),
     );
+
+    cleanup();
+    router?.dispose();
+    router = undefined;
+    mocks.broadGenerating = false;
+    mocks.deck.generationContext = structuredClone(
+      mocks.deck.generationContext,
+    );
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    expect(
+      screen.getByText("deckEditor.generationOutcomeUnresolved"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }),
+    ).toBeTruthy();
   });
 
   it("restores a pending guided question and opens its owning chat on a plain deck route", async () => {

@@ -1354,6 +1354,49 @@ export default function DeckEditor() {
                 ? "deck_refresh_failed"
                 : "deck_not_visible_after_refresh",
           });
+          if (slideCount === 0 && generationContext) {
+            const failureCode = "outcome_unresolved";
+            updateDeck(id, {
+              generationContext: {
+                ...generationContext,
+                generationFailureCode: failureCode,
+                generationFailureAttemptId: generationAttemptId,
+              },
+            });
+            const recovery: EmptyGenerationRecovery = {
+              kind: "generation_failure",
+              attemptId: generationAttemptId,
+              failureCode,
+            };
+            const serializedRecovery = JSON.stringify(recovery);
+            if (retryRecoveryStorageKey) {
+              try {
+                window.localStorage.setItem(
+                  retryRecoveryStorageKey,
+                  serializedRecovery,
+                );
+                emptyGenerationRecoveryRef.current = serializedRecovery;
+              } catch (error) {
+                console.error(
+                  "Failed to store Slides generation recovery data.",
+                  error,
+                );
+              }
+            }
+            try {
+              await flushDeckSave(id);
+              if (
+                clearEmptyGenerationRecovery(
+                  retryRecoveryStorageKey,
+                  serializedRecovery,
+                )
+              ) {
+                emptyGenerationRecoveryRef.current = null;
+              }
+            } catch {
+              toast.error(t("editorSidebar.newSlideSaveFailed"));
+            }
+          }
           return;
         }
         const settledSlideCount = refreshResult.deck.slides.length;

@@ -29,6 +29,12 @@ describe("new deck generation state", () => {
     expect(
       getNewDeckGenerationRecoveryState({
         ...base,
+        failureCode: "outcome_unresolved",
+      }),
+    ).toBe("outcome_unresolved");
+    expect(
+      getNewDeckGenerationRecoveryState({
+        ...base,
         failureCode: "no_output",
       }),
     ).toBe("failed");

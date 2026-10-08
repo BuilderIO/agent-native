@@ -68,6 +68,7 @@ export function getNewDeckGenerationRecoveryState({
   ) {
     return null;
   }
+  if (failureCode === "outcome_unresolved") return "outcome_unresolved";
   if (typeof failureCode === "string") return "failed";
   if (!isNewDeckCreation) return null;
   if (phase === "abandoned") return "failed";
