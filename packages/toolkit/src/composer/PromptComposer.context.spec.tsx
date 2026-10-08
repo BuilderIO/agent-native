@@ -551,6 +551,7 @@ describe("controlled composer context", () => {
     ).find((button) => button.textContent?.includes("Upload File"));
     expect(uploadFile).toBeDefined();
     await act(async () => uploadFile!.click());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
     expect(onAttachmentRequest).toHaveBeenCalledOnce();
   });
