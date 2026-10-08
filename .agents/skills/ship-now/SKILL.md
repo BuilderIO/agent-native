@@ -64,13 +64,18 @@ Merging another person's PR requires separate authorization to merge that exact
 PR. Repeat the live checks immediately before each push and merge, and push only
 to the verified head repository and branch with a normal fast-forward.
 
-Determine reply authorization from the live PR author. On the active user's own
-PR, post concise replies in existing review threads when you fix, decline, or
-otherwise disposition feedback; this is routine work on the user's own PR and
-needs no extra authorization. On another person's PR, post a reply only when
-the current request explicitly authorizes that communication on that exact PR;
-permission to review, monitor, fix, push, or merge is not enough. Without that
-authorization, draft the reply, leave the feedback unresolved, and do not merge.
+Determine comment authorization from the live PR author before drafting or
+posting any PR communication. On the active user's own PR, concise replies in
+existing review threads and a concise top-level recap when feedback appears
+only in a review body are routine dispositions and need no extra authorization.
+This covers only comments needed to fix, decline, or otherwise disposition
+review feedback; do not add proactive or unrelated comments, tags, assignments,
+or mentions without an explicit request. On another person's PR, do not post any
+comment, including an inline reply or review-body recap, unless the current
+request explicitly authorizes commenting on that exact PR. Permission to review,
+monitor, fix, push, or merge does not authorize comments. Without that
+authorization, draft the response, leave the feedback unresolved, and do not
+merge.
 
 ## Fast-path contract
 

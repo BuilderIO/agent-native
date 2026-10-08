@@ -30,15 +30,18 @@ include `author` in the live PR query, and compare `author.login` with that
 login. If they differ, require the current-request authorization for that exact
 PR.
 
-Determine reply authorization from the live PR author before drafting a reply.
-On a PR authored by the active user, post concise replies in existing review
-threads when you fix, decline, or otherwise disposition feedback. This is
-routine work on the user's own PR and needs no extra authorization. On another
-person's PR, post a reply only when the current request explicitly authorizes
-that communication on that exact PR; permission to review, monitor, fix, push,
-or merge does not authorize a reply. Without that authorization, draft the
-reply, leave the feedback unresolved, and do not claim the PR is ready or merge
-it.
+Determine comment authorization from the live PR author before drafting or
+posting any PR communication. On a PR authored by the active user, concise
+replies in existing review threads and a concise top-level recap when feedback
+appears only in a review body are routine dispositions and need no extra
+authorization. This covers only comments needed to fix, decline, or otherwise
+disposition review feedback; do not add proactive or unrelated comments, tags,
+assignments, or mentions without an explicit request. On another person's PR,
+do not post any comment, including an inline reply or review-body recap, unless
+the current request explicitly authorizes commenting on that exact PR. Review,
+monitor, fix, push, or merge authorization alone does not authorize comments.
+Without that authorization, draft the response, leave the feedback unresolved,
+and do not claim the PR is ready or merge it.
 
 A worktree is a valid PR checkout. When monitoring from one, keep Git and
 GitHub commands in that worktree's cwd and current branch; do not copy changes
@@ -328,7 +331,11 @@ record it as unavailable in the recap rather than treating it as no findings.
    - Fix the issues
    - Run `pnpm run prep` to verify locally
    - Publish the complete fix snapshot to the verified PR head using the target path above
-   - Reply inline to each addressed inline comment, or post a PR comment summarizing addressed items when the feedback was in a review body
+   - Respond according to the ownership gate above: on the active user's own
+     PR, reply inline to addressed comments or post a concise top-level recap
+     when feedback appeared only in a review body. On another person's PR,
+     either comment requires explicit authorization for that exact PR; without
+     it, draft the response and leave the feedback unresolved.
    - Reset the applicable clock described above
 
 4. **If GitHub Actions CI is failing** (lint, test, typecheck, build):
@@ -361,11 +368,12 @@ record it as unavailable in the recap rather than treating it as no findings.
 
 ## Responding to feedback
 
-On the active user's own PR, reply to every human or bot review comment that
-you fix or skip; a feedback item already closed by a disposition-specific
-terminal outcome does not need a manufactured reply. No extra authorization is
-needed for these own-PR replies. On another person's PR, post them only under
-the exact-PR authorization rule above.
+On the active user's own PR, reply to every human or bot review comment that you
+fix or skip; a feedback item already closed by a disposition-specific terminal
+outcome does not need a manufactured reply. Use a concise top-level recap when
+the feedback appeared only in a review body. No extra authorization is needed
+for these own-PR dispositions. On another person's PR, post any inline reply or
+review-body recap only under the exact-PR authorization rule above.
 
 ## Feedback precedence
 

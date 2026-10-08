@@ -31,16 +31,17 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   active GitHub login with `gh api user --jq .login`, include `author` in the
   live PR query, and compare `author.login` with that login. Verify the head
   repository, branch, head OID, and base; recheck the head.
-- Review replies follow PR ownership. Compare the live `author.login` with
-  `gh api user --jq .login`. On a PR authored by the active user, post concise
-  replies in existing review threads when you fix, decline, or otherwise
-  disposition feedback; this is routine PR work and never needs another
-  authorization. Those required replies are not proactive comments. On another
-  person's PR, post a reply only when the current request explicitly authorizes
-  that communication on that exact PR; review, monitor, fix, push, or merge
-  authorization alone does not authorize replies. Do not post unrelated
-  top-level comments, tags, assignments, or mentions without an explicit
-  request.
+- PR feedback comments follow live PR ownership. Compare `author.login` with
+  `gh api user --jq .login`. On a PR authored by the active user, concise
+  replies in existing review threads and a concise top-level recap when feedback
+  appears only in a review body are routine dispositions and need no extra
+  authorization. This covers only comments needed to fix, decline, or otherwise
+  disposition review feedback; do not add proactive or unrelated comments,
+  tags, assignments, or mentions without an explicit request. On another
+  person's PR, do not post any comment, including an inline reply or review-body
+  recap, unless the current request explicitly authorizes commenting on that
+  exact PR. Review, monitor, fix, push, or merge authorization alone does not
+  authorize comments.
 - Preserve unrelated or incomplete concurrent work. Never reset, clean, stash,
   overwrite, rebase, or force-push it.
 - `/ship` starts in `ship_mode=merge-authorized` for a new PR or a PR authored
