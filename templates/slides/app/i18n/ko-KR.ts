@@ -126,7 +126,7 @@ const messages = {
     googleOAuthNotConfigured:
       "이 배포에는 Google OAuth가 구성되어 있지 않습니다.",
     googlePickerNeedsKeys:
-      "Google Picker를 사용하려면 GOOGLE_PICKER_API_KEY와 GOOGLE_PICKER_APP_ID가 필요합니다.",
+      "Google Drive 파일 선택 기능이 설정되지 않았습니다. 문서 링크를 붙여넣어 계속 가져올 수 있습니다.",
     imageUploadFailed: "이미지 업로드 실패",
     imageUploadNeedsBuilder:
       "이미지를 업로드하려면 개체 스토리지를 연결하세요. Builder.io(무료)를 연결하거나 설정 → 파일 업로드에서 자체 S3 호환 스토리지 키를 추가하세요.",

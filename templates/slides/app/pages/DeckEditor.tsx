@@ -204,16 +204,25 @@ import {
   type SlideImageDropPosition,
 } from "@/lib/slide-image-replacement";
 import {
+  capturePendingSlideVideoGeometry,
+  hasPendingSlideVideoPlaceholder,
+  initialSlideVideoGeometry,
+  insertPendingSlideVideoPlaceholder,
   insertDroppedVideoIntoSlideHtml,
+  stripPendingSlideVideoPlaceholders,
   videoFileLooksLikeVideo,
   videoFileLooksSupported,
+  type PendingSlideVideoPreview,
 } from "@/lib/slide-video";
 import { TAB_ID } from "@/lib/tab-id";
 import {
   shouldActivateRectangleTool,
   shouldActivateTextTool,
 } from "@/lib/text-tool-shortcut";
-import { uploadSlideVideo } from "@/lib/video-upload";
+import {
+  discardUploadedSlideVideo,
+  uploadSlideVideo,
+} from "@/lib/video-upload";
 
 import { generationTimingFields } from "../../shared/generation-timing.js";
 import { refreshDeckForGenerationOutcome } from "../lib/generation-lifecycle.js";
@@ -227,6 +236,10 @@ type PendingImagePreview = OptimisticImagePreview & {
 type PendingImagePreviewUpdate =
   | PendingImagePreview[]
   | ((current: PendingImagePreview[]) => PendingImagePreview[]);
+
+type PendingVideoPreview = PendingSlideVideoPreview & {
+  slideId: string;
+};
 
 function captureImageUploadEdit(
   slideId: string,
@@ -875,6 +888,10 @@ export default function DeckEditor() {
     PendingImagePreview[]
   >([]);
   const pendingImagePreviewsRef = useRef<PendingImagePreview[]>([]);
+  const [pendingVideoPreviews, setPendingVideoPreviews] = useState<
+    PendingVideoPreview[]
+  >([]);
+  const pendingVideoPreviewsRef = useRef<PendingVideoPreview[]>([]);
   const latestSlideContentRef = useRef(new Map<string, string>());
   const renderedSlideContentRef = useRef(new Map<string, string>());
 
@@ -903,12 +920,27 @@ export default function DeckEditor() {
     [],
   );
 
+  const updatePendingVideoPreviews = useCallback(
+    (
+      update:
+        | PendingVideoPreview[]
+        | ((current: PendingVideoPreview[]) => PendingVideoPreview[]),
+    ) => {
+      const current = pendingVideoPreviewsRef.current;
+      const next = typeof update === "function" ? update(current) : update;
+      pendingVideoPreviewsRef.current = next;
+      setPendingVideoPreviews(next);
+    },
+    [],
+  );
+
   useEffect(() => {
     return () => {
       for (const preview of pendingImagePreviewsRef.current) {
         URL.revokeObjectURL(preview.previewSrc);
       }
       pendingImagePreviewsRef.current = [];
+      pendingVideoPreviewsRef.current = [];
     };
   }, []);
 
@@ -2626,28 +2658,71 @@ export default function DeckEditor() {
       if (!id || !currentSlideRef.current) return;
       const targetSlide = currentSlideRef.current;
       const targetSlideId = targetSlide.id;
-
+      const pendingPreview: PendingVideoPreview = {
+        slideId: targetSlideId,
+        objectId: nanoid(8),
+        label: file.name,
+        statusLabel: t("editorToolbar.videoUploading"),
+        geometry: initialSlideVideoGeometry(position),
+      };
+      updatePendingVideoPreviews((current) => [...current, pendingPreview]);
       const toastId = toast.loading(t("editorToolbar.videoUploading"));
+      const clearPreview = () => {
+        updatePendingVideoPreviews((current) =>
+          current.filter(
+            (preview) => preview.objectId !== pendingPreview.objectId,
+          ),
+        );
+      };
       try {
-        const src = await uploadSlideVideo(file);
+        const uploadedVideo = await uploadSlideVideo(file);
+        const discardUploadedVideo = async () => {
+          try {
+            await discardUploadedSlideVideo(uploadedVideo.id);
+            toast.dismiss(toastId);
+          } catch (error) {
+            toast.error(t("editorToolbar.videoUploadFailed"), {
+              id: toastId,
+              description:
+                error instanceof Error
+                  ? error.message
+                  : t("editorToolbar.videoUploadError"),
+            });
+          }
+        };
+        const activePreview = pendingVideoPreviewsRef.current.find(
+          (preview) => preview.objectId === pendingPreview.objectId,
+        );
+        if (!activePreview) {
+          await discardUploadedVideo();
+          return;
+        }
         const currentTarget =
           currentSlideRef.current?.id === targetSlideId
             ? currentSlideRef.current
             : getDeck(id)?.slides.find((slide) => slide.id === targetSlideId);
         if (!currentTarget) {
-          toast.dismiss(toastId);
+          clearPreview();
+          await discardUploadedVideo();
           return;
         }
-        const currentContent =
+        const currentContent = stripPendingSlideVideoPlaceholders(
           latestSlideContentRef.current.get(targetSlideId) ??
-          currentTarget.content;
+            currentTarget.content,
+          [pendingPreview.objectId],
+        );
         const updatedContent = insertDroppedVideoIntoSlideHtml(
           currentContent,
-          src,
-          { position, label: file.name },
+          uploadedVideo.url,
+          {
+            label: file.name,
+            objectId: pendingPreview.objectId,
+            geometry: activePreview.geometry,
+          },
         );
         latestSlideContentRef.current.set(targetSlideId, updatedContent);
         updateSlideContent(targetSlideId, updatedContent);
+        clearPreview();
         trackEvent("media_added", {
           output_id: id,
           output_type: "deck",
@@ -2661,16 +2736,32 @@ export default function DeckEditor() {
         const message = error instanceof Error ? error.message : "";
         const description = isMissingUploadProviderError(status ?? 0, message)
           ? t("editorToolbar.videoUploadNeedsBuilder")
-          : message.includes("Only valid MP4 and WebM")
+          : message.includes("MP4 and WebM")
             ? t("editorToolbar.videoFormatUnsupported")
             : t("editorToolbar.videoUploadError");
-        toast.error(t("editorToolbar.videoUploadFailed"), {
-          id: toastId,
-          description,
-        });
+        if (
+          pendingVideoPreviewsRef.current.some(
+            (preview) => preview.objectId === pendingPreview.objectId,
+          )
+        ) {
+          toast.error(t("editorToolbar.videoUploadFailed"), {
+            id: toastId,
+            description,
+          });
+        } else {
+          toast.dismiss(toastId);
+        }
+        clearPreview();
       }
     },
-    [fileStorageConfigured, getDeck, id, t, updateSlideContent],
+    [
+      fileStorageConfigured,
+      getDeck,
+      id,
+      t,
+      updatePendingVideoPreviews,
+      updateSlideContent,
+    ],
   );
 
   const dropImageUrlOnSlide = useCallback(
@@ -3777,9 +3868,18 @@ export default function DeckEditor() {
     (content, preview) => applyOptimisticImagePreview(content, preview),
     currentSlide?.content ?? "",
   );
+  const pendingVideosForCurrentSlide = currentSlide
+    ? pendingVideoPreviews.filter(
+        (preview) => preview.slideId === currentSlide.id,
+      )
+    : [];
+  const videoPreviewContent = pendingVideosForCurrentSlide.reduce(
+    insertPendingSlideVideoPlaceholder,
+    previewContent,
+  );
   const editorSlide =
-    currentSlide && previewContent !== currentSlide.content
-      ? { ...currentSlide, content: previewContent }
+    currentSlide && videoPreviewContent !== currentSlide.content
+      ? { ...currentSlide, content: videoPreviewContent }
       : currentSlide;
 
   const finishPresent = async (
@@ -4274,6 +4374,38 @@ export default function DeckEditor() {
             }
             onUpdateSlide={(updates, slideIdOverride, options) => {
               const targetSlideId = slideIdOverride ?? currentSlide.id;
+              const pendingVideosForSlide =
+                pendingVideoPreviewsRef.current.filter(
+                  (preview) => preview.slideId === targetSlideId,
+                );
+              const capturedVideoPreviews =
+                updates.content === undefined
+                  ? pendingVideosForSlide
+                  : pendingVideosForSlide
+                      .filter((preview) =>
+                        hasPendingSlideVideoPlaceholder(
+                          updates.content as string,
+                          preview.objectId,
+                        ),
+                      )
+                      .map((preview) => ({
+                        ...capturePendingSlideVideoGeometry(
+                          updates.content as string,
+                          preview,
+                        ),
+                        slideId: preview.slideId,
+                      }));
+              if (
+                updates.content !== undefined &&
+                pendingVideosForSlide.length > 0
+              ) {
+                updatePendingVideoPreviews((current) => [
+                  ...current.filter(
+                    (preview) => preview.slideId !== targetSlideId,
+                  ),
+                  ...capturedVideoPreviews,
+                ]);
+              }
               const pendingForSlide = pendingImagePreviewsRef.current.filter(
                 (preview) => preview.slideId === targetSlideId,
               );
@@ -4320,7 +4452,7 @@ export default function DeckEditor() {
                   }),
                 );
               }
-              const safeUpdates =
+              const safeImageUpdates =
                 updates.content !== undefined && previewsToStrip.length > 0
                   ? {
                       ...updates,
@@ -4330,6 +4462,19 @@ export default function DeckEditor() {
                       ),
                     }
                   : updates;
+              const safeUpdates =
+                typeof safeImageUpdates.content === "string" &&
+                pendingVideosForSlide.length > 0
+                  ? {
+                      ...safeImageUpdates,
+                      content: stripPendingSlideVideoPlaceholders(
+                        safeImageUpdates.content,
+                        pendingVideosForSlide.map(
+                          (preview) => preview.objectId,
+                        ),
+                      ),
+                    }
+                  : safeImageUpdates;
               if (typeof safeUpdates.content === "string") {
                 latestSlideContentRef.current.set(
                   targetSlideId,

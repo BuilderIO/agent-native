@@ -120,7 +120,7 @@ const messages = {
     firstSlidesDescription: "每張幻燈片送達後，簡報會開始顯示在這裡。",
     googleOAuthNotConfigured: "此部署尚未設定 Google OAuth。",
     googlePickerNeedsKeys:
-      "Google Picker 需要 GOOGLE_PICKER_API_KEY 和 GOOGLE_PICKER_APP_ID。",
+      "Google Drive 檔案選擇器尚未設定。您仍可貼上文件連結來匯入。",
     imageUploadFailed: "圖片上傳失敗",
     imageUploadNeedsBuilder:
       "連接物件儲存以上傳圖片：連接 Builder.io（免費），或在「設定 → 檔案上傳」中新增自己的 S3 相容儲存金鑰。",

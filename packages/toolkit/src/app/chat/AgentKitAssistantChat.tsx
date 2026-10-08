@@ -83,9 +83,12 @@ import {
   realtimeVoiceTranscriptRegistry,
   type RealtimeVoiceTranscriptMessage,
 } from "@agent-native/toolkit/composer/realtime-voice-transcript";
+import { IconButton } from "@agent-native/toolkit/design-system";
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconAlertTriangle,
+  IconCircleCheck,
+  IconCopy,
   IconLoader2,
   IconMessage,
   IconPlayerStopFilled,
@@ -169,6 +172,7 @@ import {
 } from "./chat/tool-call-display.js";
 import { resolveAgentKitToolSource } from "./chat/tool-integration.js";
 import { ExternalAgentNudge } from "./external-agent-host.js";
+import { fallbackChatTitle } from "./fallback-chat-title.js";
 import { formatFeedbackReport } from "./feedback-report.js";
 import { FileStorageSetupPopover } from "./FileStorageSetupPopover.js";
 import { reconcileSettledRun } from "./reconcile-settled-run.js";
@@ -202,9 +206,12 @@ const DEFERRED_PROVIDER_SUBMISSION_CLAIM_TTL_MS = 15 * 60 * 1000;
 const DEFERRED_PROVIDER_SUBMISSION_MAX_RETRIES = 3;
 const DEFERRED_PROVIDER_SUBMISSIONS_KEY_PREFIX =
   "agentkit-deferred-provider-submissions:";
+type AgentKitHandoffThreadSnapshot = AgentThreadSnapshot & {
+  titleSource?: "fallback";
+};
 const threadHandoffSnapshots = new Map<
   string,
-  { snapshot: AgentThreadSnapshot; expiresAt: number }
+  { snapshot: AgentKitHandoffThreadSnapshot; expiresAt: number }
 >();
 const deferredProviderSubmissionOperations = new Map<
   string,
@@ -3389,6 +3396,32 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
   const threadMessageIds = new Set(
     thread.messages.map((message) => message.id),
   );
+  const activeRunId = thread.activeRunIds.at(-1);
+  const [requestIdCopyFeedback, setRequestIdCopyFeedback] = useState<{
+    runId: string;
+    status: "copied" | "failed";
+  } | null>(null);
+  const activeRunRequestIdCopyStatus =
+    requestIdCopyFeedback && requestIdCopyFeedback.runId === activeRunId
+      ? requestIdCopyFeedback.status
+      : null;
+  useEffect(() => {
+    if (!requestIdCopyFeedback) return;
+    const timeout = setTimeout(() => setRequestIdCopyFeedback(null), 1_400);
+    return () => clearTimeout(timeout);
+  }, [requestIdCopyFeedback]);
+  const copyActiveRunRequestId = async () => {
+    if (!activeRunId) return;
+    try {
+      const copied = await writeClipboardText(activeRunId);
+      setRequestIdCopyFeedback({
+        runId: activeRunId,
+        status: copied ? "copied" : "failed",
+      });
+    } catch {
+      setRequestIdCopyFeedback({ runId: activeRunId, status: "failed" });
+    }
+  };
   const lastMessage = thread.messages.at(-1);
   const showThinking =
     surface.isSubmissionInFlight &&
@@ -3558,6 +3591,46 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
         surface.props.tabId,
       )}
       {children}
+      {activeRunId ? (
+        <div
+          className="agentkit-activities-static"
+          data-agentkit-active-run-id-copy="true"
+        >
+          <IconButton
+            label={
+              activeRunRequestIdCopyStatus === "copied"
+                ? t("agentChat.common.copied")
+                : activeRunRequestIdCopyStatus === "failed"
+                  ? t("agentChat.recovery.copyFailed")
+                  : t("agentChat.message.copyRequestId")
+            }
+            title={t("agentChat.message.copyRequestId")}
+            icon={
+              activeRunRequestIdCopyStatus === "copied" ? (
+                <IconCircleCheck aria-hidden="true" />
+              ) : activeRunRequestIdCopyStatus === "failed" ? (
+                <IconAlertTriangle aria-hidden="true" />
+              ) : (
+                <IconCopy aria-hidden="true" />
+              )
+            }
+            size="compact"
+            onPress={() => void copyActiveRunRequestId()}
+          />
+          {activeRunRequestIdCopyStatus ? (
+            <span
+              className="sr-only"
+              role={
+                activeRunRequestIdCopyStatus === "failed" ? "alert" : "status"
+              }
+            >
+              {activeRunRequestIdCopyStatus === "copied"
+                ? t("agentChat.common.copied")
+                : t("agentChat.recovery.copyFailed")}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       {handoffMessages.map((message) => (
         <AgentMessageView
           key={message.id}
@@ -5367,7 +5440,13 @@ function createAgentKitThreadSnapshot(thread: AgentThreadState) {
     agentMessageText(
       [...messages].reverse().find((message) => message.role === "user")!,
     );
-  const title = thread.thread?.title ?? firstUserText?.slice(0, 80) ?? "";
+  const handoffThread = thread.thread as AgentKitHandoffThreadSnapshot | null;
+  const savedTitle = handoffThread?.title?.trim();
+  const titleSource: "fallback" | undefined =
+    !savedTitle || handoffThread?.titleSource === "fallback"
+      ? "fallback"
+      : undefined;
+  const title = savedTitle || fallbackChatTitle(firstUserText ?? "");
   const runs = Object.entries(thread.runs).map(([id, run]) => ({
     ...run,
     id,
@@ -5389,6 +5468,7 @@ function createAgentKitThreadSnapshot(thread: AgentThreadState) {
       agentKit,
     }),
     title,
+    ...(titleSource ? { titleSource } : {}),
     preview: (latestUserText ?? "").slice(0, 280),
     messageCount: messages.length,
   };
@@ -5422,7 +5502,7 @@ function createAgentKitThreadHandoffKey(
 function readAgentKitThreadHandoffSnapshot(
   key: string,
   consume = false,
-): AgentThreadSnapshot | null {
+): AgentKitHandoffThreadSnapshot | null {
   const entry = threadHandoffSnapshots.get(key);
   if (!entry) return null;
   if (entry.expiresAt <= Date.now()) {
@@ -5446,10 +5526,13 @@ function storeAgentKitThreadHandoffSnapshot(
   if (!messages.length) return;
 
   const now = new Date().toISOString();
-  const handoff: AgentThreadSnapshot = {
+  const handoff: AgentKitHandoffThreadSnapshot = {
     ...(thread.thread ?? {}),
     id: thread.id,
     title: snapshot.title || thread.thread?.title,
+    ...(snapshot.titleSource === "fallback"
+      ? { titleSource: "fallback" as const }
+      : {}),
     createdAt: thread.thread?.createdAt ?? messages[0]?.createdAt ?? now,
     updatedAt: thread.thread?.updatedAt ?? messages.at(-1)?.createdAt ?? now,
     messages,
@@ -5650,7 +5733,7 @@ function appendVoiceTranscriptsToThreadSnapshot(
     }),
     title:
       snapshot.title ||
-      (firstUser ? agentMessageText(firstUser).slice(0, 80) : ""),
+      (firstUser ? fallbackChatTitle(agentMessageText(firstUser)) : ""),
     preview: latestUser ? agentMessageText(latestUser).slice(0, 280) : "",
     messageCount: messages.length,
   };
