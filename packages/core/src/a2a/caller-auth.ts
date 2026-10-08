@@ -58,11 +58,19 @@ export async function resolveA2ACallerAuth(options?: {
     (!orgId || orgDomain?.trim())
   ) {
     addApiKeyAttempt(
-      await signA2AToken(userEmail, orgDomain, undefined, {
-        expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,
-        preferGlobalSecret: true,
-        audience: options?.audience,
-      }),
+      await signA2AToken(
+        userEmail,
+        options?.userIdentityOnly ? undefined : orgDomain,
+        undefined,
+        {
+          expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,
+          preferGlobalSecret: true,
+          audience: options?.audience,
+          ...(options?.userIdentityOnly && orgId
+            ? { extraClaims: { org_id: orgId } }
+            : {}),
+        },
+      ),
     );
   }
   if (

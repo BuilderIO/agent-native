@@ -139,9 +139,15 @@ describe("resolveA2ACallerAuth", () => {
         ).resolves.toMatchObject({
           payload: {
             sub: "alice+qa@agent-native.test",
+            org_id: "org-qa",
             aud: "https://peer.example.test",
           },
         });
+        const { payload } = await jose.jwtVerify(
+          auth.apiKey!,
+          new TextEncoder().encode("global-a2a-secret"),
+        );
+        expect(payload).not.toHaveProperty("org_domain");
 
         delete process.env.A2A_SECRET;
         const orgSecretOnly = await resolveA2ACallerAuth({
