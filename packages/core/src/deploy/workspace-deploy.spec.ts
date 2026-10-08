@@ -13,6 +13,10 @@ import {
   runWorkspaceDeploy,
 } from "./workspace-deploy.js";
 
+const INVALID_DIRECTORY_BASE_LOG = Symbol.for(
+  "agent-native.workspace.invalid-directory-base",
+);
+
 let tmpDir: string;
 let previousAppBasePath: string | undefined;
 let previousAppUrl: string | undefined;
@@ -29,6 +33,9 @@ let previousIntegrationDurableDispatch: string | undefined;
 let previousDisableRecurringJobs: string | undefined;
 let previousNitroPreset: string | undefined;
 let previousVercel: string | undefined;
+let previousVercelUrl: string | undefined;
+let previousVercelBranchUrl: string | undefined;
+let previousVercelProjectProductionUrl: string | undefined;
 let previousViteWorkspaceAppsJson: string | undefined;
 let previousViteAgentNativeFeedbackUrl: string | undefined;
 let previousViteAppBasePath: string | undefined;
@@ -49,6 +56,9 @@ let previousDurableBackground: string | undefined;
 let execFile: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  delete (globalThis as Record<PropertyKey, unknown>)[
+    INVALID_DIRECTORY_BASE_LOG
+  ];
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-workspace-deploy-"));
   execFile = vi.fn(((_cmd, args, options) => {
     if (Array.isArray(args) && args[0] === "--filter") {
@@ -79,6 +89,10 @@ beforeEach(() => {
     process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
   previousNitroPreset = process.env.NITRO_PRESET;
   previousVercel = process.env.VERCEL;
+  previousVercelUrl = process.env.VERCEL_URL;
+  previousVercelBranchUrl = process.env.VERCEL_BRANCH_URL;
+  previousVercelProjectProductionUrl =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL;
   previousViteWorkspaceAppsJson =
     process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
   previousViteAgentNativeFeedbackUrl =
@@ -120,6 +134,9 @@ beforeEach(() => {
   delete process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
   delete process.env.NITRO_PRESET;
   delete process.env.VERCEL;
+  delete process.env.VERCEL_URL;
+  delete process.env.VERCEL_BRANCH_URL;
+  delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
   delete process.env.VITE_AGENT_NATIVE_FEEDBACK_URL;
   delete process.env.VITE_APP_BASE_PATH;
@@ -140,6 +157,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  delete (globalThis as Record<PropertyKey, unknown>)[
+    INVALID_DIRECTORY_BASE_LOG
+  ];
   restoreEnv("APP_BASE_PATH", previousAppBasePath);
   restoreEnv("APP_URL", previousAppUrl);
   restoreEnv("A2A_SECRET", previousA2ASecret);
@@ -161,6 +181,12 @@ afterEach(() => {
   );
   restoreEnv("NITRO_PRESET", previousNitroPreset);
   restoreEnv("VERCEL", previousVercel);
+  restoreEnv("VERCEL_URL", previousVercelUrl);
+  restoreEnv("VERCEL_BRANCH_URL", previousVercelBranchUrl);
+  restoreEnv(
+    "VERCEL_PROJECT_PRODUCTION_URL",
+    previousVercelProjectProductionUrl,
+  );
   restoreEnv(
     "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
     previousViteWorkspaceAppsJson,
@@ -1567,7 +1593,7 @@ describe("workspace deploy", () => {
   });
 
   it("uses the deployed URL when a build used a loopback URL", async () => {
-    process.env.APP_URL = "http://localhost:8888";
+    process.env.APP_URL = "http://127.0.0.2:8888";
     makeWorkspaceApp(tmpDir, "dispatch");
 
     await runWorkspaceDeploy({
@@ -1597,7 +1623,7 @@ describe("workspace deploy", () => {
     );
   });
 
-  it("skips an invalid runtime URL and uses the next valid base", async () => {
+  it("skips an invalid runtime URL and uses the gateway alias", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
 
     await runWorkspaceDeploy({
@@ -1608,7 +1634,7 @@ describe("workspace deploy", () => {
     });
 
     process.env.APP_URL = "not-a-url";
-    process.env.URL = "https://beta.example.test";
+    process.env.VITE_WORKSPACE_GATEWAY_URL = "https://beta.example.test";
     const dispatchEntry = path.join(
       tmpDir,
       ".netlify",
@@ -1623,6 +1649,72 @@ describe("workspace deploy", () => {
     expect(process.env.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
       "https://beta.example.test/dispatch",
     );
+  });
+
+  it("uses the Vercel deployment URL when no public base is configured", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "vercel",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    process.env.VERCEL = "1";
+    process.env.VERCEL_URL = "workspace-abc.vercel.app";
+    const dispatchEntry = path.join(
+      tmpDir,
+      ".vercel",
+      "output",
+      "functions",
+      "dispatch-server.func",
+      "index.mjs",
+    );
+    await import(
+      `${pathToFileURL(dispatchEntry).href}?vercel-url=${Date.now()}`
+    );
+
+    expect(process.env.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
+      "https://workspace-abc.vercel.app/dispatch",
+    );
+  });
+
+  it("logs invalid runtime URLs once while serving requests", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    process.env.APP_URL = "not-a-url";
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const dispatchEntry = path.join(
+      tmpDir,
+      ".netlify",
+      "functions-internal",
+      "dispatch-server",
+      "dispatch-server.mjs",
+    );
+    const module = await import(
+      `${pathToFileURL(dispatchEntry).href}?invalid-runtime=${Date.now()}`
+    );
+    try {
+      await module.default(
+        new Request("https://workspace.example.test/dispatch"),
+      );
+      await module.default(
+        new Request("https://workspace.example.test/dispatch"),
+      );
+
+      expect(log).toHaveBeenCalledTimes(1);
+    } finally {
+      log.mockRestore();
+    }
+    expect(process.env).not.toHaveProperty("AGENT_NATIVE_ORG_DIRECTORY_URL");
   });
 
   it("does not synthesize a Dispatch directory for a workspace without Dispatch", async () => {

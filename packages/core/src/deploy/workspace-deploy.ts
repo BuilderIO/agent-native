@@ -148,7 +148,27 @@ function workspaceDirectoryEnvSnippet(
   }
   const runtimeDirectoryResolver = dispatchApp
     ? `
+  function logInvalidDirectoryBase() {
+    const logKey = Symbol.for("agent-native.workspace.invalid-directory-base");
+    if (globalThis[logKey]) return;
+    globalThis[logKey] = true;
+    console.error("[workspace] Invalid organization directory base URL");
+  }
+
   function resolveRuntimeDirectoryUrl() {
+    const vercelCandidates = processRef.env.VERCEL
+      ? [
+          processRef.env.VERCEL_URL,
+          processRef.env.VERCEL_BRANCH_URL,
+          processRef.env.VERCEL_PROJECT_PRODUCTION_URL,
+        ]
+          .filter(Boolean)
+          .map((candidate) =>
+            /^https?:\\/\\//i.test(candidate)
+              ? candidate
+              : "https://" + candidate,
+          )
+      : [];
     const candidates = [
       processRef.env.APP_URL,
       processRef.env.WORKSPACE_OAUTH_ORIGIN,
@@ -157,6 +177,8 @@ function workspaceDirectoryEnvSnippet(
       processRef.env.DEPLOY_URL,
       processRef.env.BETTER_AUTH_URL,
       processRef.env.WORKSPACE_GATEWAY_URL,
+      processRef.env.VITE_WORKSPACE_GATEWAY_URL,
+      ...vercelCandidates,
     ].filter(Boolean);
     let loopbackUrl;
     for (const candidate of candidates) {
@@ -164,19 +186,21 @@ function workspaceDirectoryEnvSnippet(
       try {
         baseUrl = new URL(candidate);
       } catch {
-        console.error("[workspace] Invalid organization directory base URL");
+        logInvalidDirectoryBase();
         continue;
       }
       if (baseUrl.protocol !== "http:" && baseUrl.protocol !== "https:") {
+        logInvalidDirectoryBase();
         continue;
       }
       const directoryUrl = new URL(${JSON.stringify(dispatchApp.path)}, baseUrl)
-        .toString()
-        .replace(/\\/$/, "");
+      .toString()
+      .replace(/\\/$/, "");
       const hostname = baseUrl.hostname.toLowerCase();
       if (
         hostname === "localhost" ||
-        hostname === "127.0.0.1" ||
+        hostname.endsWith(".localhost") ||
+        hostname.startsWith("127.") ||
         hostname === "[::1]" ||
         hostname === "::1"
       ) {
