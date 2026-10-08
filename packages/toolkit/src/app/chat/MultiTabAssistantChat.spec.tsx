@@ -100,6 +100,7 @@ const assistantChatMockState = vi.hoisted(() => ({
           title: string;
           preview: string;
           messageCount: number;
+          titleSource?: "fallback";
         },
       ) => void)
     | undefined,
@@ -532,6 +533,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       title: "Saved chat",
       preview: "Latest request",
       messageCount: 1,
+      titleSource: "fallback" as const,
     };
     window.history.replaceState(null, "", "/");
 

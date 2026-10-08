@@ -4108,7 +4108,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     chatMocks.thread = {
       thread: {
         id: threadId,
-        title: "Handoff thread",
+        title: "",
         createdAt: message.createdAt,
         updatedAt: message.createdAt,
       },
@@ -4145,6 +4145,13 @@ describe("AgentKitAssistantChat host behavior", () => {
 
     await act(async () => root.render(null));
     expect(savedSnapshots).toHaveBeenCalledOnce();
+    expect(savedSnapshots).toHaveBeenCalledWith(
+      threadId,
+      expect.objectContaining({
+        title: "Keep this transcript visible",
+        titleSource: "fallback",
+      }),
+    );
 
     const fetch = vi.fn(async () => new Response(null, { status: 404 }));
     const runtime = {

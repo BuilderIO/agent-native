@@ -2747,6 +2747,7 @@ export function MultiTabAssistantChat({
         title: string;
         preview: string;
         messageCount: number;
+        titleSource?: "fallback";
       },
     ) => {
       void saveThreadData(threadId, {

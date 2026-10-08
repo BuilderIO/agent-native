@@ -5437,8 +5437,8 @@ function createAgentKitThreadSnapshot(thread: AgentThreadState) {
     agentMessageText(
       [...messages].reverse().find((message) => message.role === "user")!,
     );
-  const title =
-    thread.thread?.title?.trim() || fallbackChatTitle(firstUserText ?? "");
+  const savedTitle = thread.thread?.title?.trim();
+  const title = savedTitle || fallbackChatTitle(firstUserText ?? "");
   const runs = Object.entries(thread.runs).map(([id, run]) => ({
     ...run,
     id,
@@ -5460,6 +5460,7 @@ function createAgentKitThreadSnapshot(thread: AgentThreadState) {
       agentKit,
     }),
     title,
+    ...(!savedTitle ? { titleSource: "fallback" as const } : {}),
     preview: (latestUserText ?? "").slice(0, 280),
     messageCount: messages.length,
   };
@@ -5721,7 +5722,7 @@ function appendVoiceTranscriptsToThreadSnapshot(
     }),
     title:
       snapshot.title ||
-      (firstUser ? agentMessageText(firstUser).slice(0, 80) : ""),
+      (firstUser ? fallbackChatTitle(agentMessageText(firstUser)) : ""),
     preview: latestUser ? agentMessageText(latestUser).slice(0, 280) : "",
     messageCount: messages.length,
   };
