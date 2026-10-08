@@ -450,6 +450,27 @@ describe("import-content", () => {
     expect(page.content).not.toContain(deleted.url);
   });
 
+  it("keeps a created page and its embedded image when a step after the page saves fails", async () => {
+    writeAppStateMock.mockRejectedValueOnce(new Error("refresh failed"));
+    const applied = await asOwner(() =>
+      importContent.run({
+        files: [
+          {
+            name: "chart.md",
+            text: "# Chart\n\n![Chart](data:image/png;base64,AAAA)",
+          },
+        ],
+        parentId: PARENT_ID,
+        dryRun: false,
+      }),
+    );
+    const [page] = await importedChildren();
+    expect(applied.pages.map((entry) => entry.id)).toEqual([page.id]);
+    expect(page.content).toMatch(/\/uploads\/embedded-\d+\.png/);
+    expect(uploads.upload).toHaveBeenCalledTimes(1);
+    expect(uploads.delete).not.toHaveBeenCalled();
+  });
+
   it("binds a key to one set of files when two applies with different files race", async () => {
     const apply = (name: string) =>
       asOwner(() =>

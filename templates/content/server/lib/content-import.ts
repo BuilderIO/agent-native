@@ -628,14 +628,21 @@ async function createImportedPage(input: {
         });
         throw error;
       });
-    if (recorded?.originalBlob !== originalBlob) {
-      await deletePrivateBlob(original).catch((cleanupError: unknown) => {
-        console.error(
-          `[content] Original import file ${original.id} for unsaved page ${id} was not deleted:`,
-          cleanupError,
-        );
+    // This attempt's page committed and only a step after it failed. The page
+    // is live and points at this attempt's uploads, so it counts as created.
+    if (recorded?.originalBlob === originalBlob) {
+      captureError(error, {
+        tags: { source: "content-import" },
+        extra: { importId: input.importId, documentId: id },
       });
+      return { report: page.report, created: true };
     }
+    await deletePrivateBlob(original).catch((cleanupError: unknown) => {
+      console.error(
+        `[content] Original import file ${original.id} for unsaved page ${id} was not deleted:`,
+        cleanupError,
+      );
+    });
     // Another attempt with this key created the page first.
     if (!recorded || !isUniqueConstraintError(error)) throw error;
     if (recorded.requestSha256 !== input.requestSha256) idempotencyKeyReused();
