@@ -10513,7 +10513,7 @@ describe("server/auth", () => {
       const event = createMockEvent({
         headers: {
           "x-forwarded-proto": "https",
-          cookie: `an_ft=${firstTouch}; an_aid=anon_google_1`,
+          cookie: `an_ft=${firstTouch}; an_aid=anon_google_1; an_sid=session_google_1`,
         },
       });
 
@@ -10545,6 +10545,7 @@ describe("server/auth", () => {
           landing_referrer: "t.co",
         },
         anonymousId: "anon_google_1",
+        sessionId: "session_google_1",
       });
     });
 
