@@ -188,7 +188,7 @@ type HomeSuggestionsResult =
   | { status: "ready"; suggestions: HomeSuggestion[] }
   | {
       status: "unavailable";
-      reason: "missing_credentials";
+      reason: "missing_credentials" | "timeout";
       suggestions: [];
     };
 
