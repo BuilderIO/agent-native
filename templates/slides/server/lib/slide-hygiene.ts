@@ -3,6 +3,7 @@ import { parseFragment, type DefaultTreeAdapterTypes as P5 } from "parse5";
 import {
   ALLOWED_TAGS,
   DROP_WITH_CHILDREN,
+  isKeptCssProperty,
   sanitizeCssValue,
   sanitizeSlideUrl,
 } from "../../app/lib/sanitize-slide-html.js";
@@ -89,7 +90,7 @@ const MESSAGE: Record<SlideHygieneCode, (details: string[]) => string> = {
   "stripped-url": (d) =>
     `The sanitizer removes ${list(d)} because the URL is javascript:, file:, protocol-relative (//host) or a non-image data: URL such as image/svg+xml; use an https:// URL or a PNG/JPEG/WebP data: image.`,
   "stripped-style": (d) =>
-    `The sanitizer removes style declarations that use url(), expression(), @import or javascript: (${list(d)}), so they have no effect; use an <img> for pictures and CSS colors or gradients for backgrounds.`,
+    `The sanitizer removes vendor-prefixed properties (-webkit-text-fill-color, -webkit-background-clip, -webkit-line-clamp) and declarations that use url(), expression(), @import or javascript: (${list(d)}), so they have no effect; use a solid color instead of gradient text, an <img> for pictures and CSS colors or gradients for backgrounds.`,
   "unwrapped-element": (d) =>
     `The sanitizer unwraps ${list(d)}, keeping its text but dropping the tag with its class and style; use div, span, section, p or another supported tag for styled content.`,
   "typed-page-number": () =>
@@ -264,25 +265,50 @@ function containsTag(el: P5.Element, tag: string): boolean {
   );
 }
 
+/** Axis labels over a chart: the card holds an image, a table or absolutely placed shapes with no text of their own. */
+function isChartLike(el: P5.Element): boolean {
+  return el.childNodes.some((child) => {
+    if (!isElement(child)) return false;
+    if (child.tagName === "img" || child.tagName === "table") return true;
+    const drawn =
+      splitDeclarations(attr(child, "style") ?? "").get("position") ===
+        "absolute" && !textOf(child).trim();
+    return drawn || isChartLike(child);
+  });
+}
+
+/** Cards this tall are plot areas or panels, not a stat tile with a caption. */
+const MAX_STACKED_CARD_HEIGHT = 160;
+
 const PAGE_NUMBER_TEXT =
   /^(?:(?:page|slide)\s+)?\d{1,3}(?:\s*(?:\/|of)\s*\d{1,3})?$|^\d{1,3}\s*(?:\/|of)$|^(?:\/|of)\s*\d{1,3}$/i;
-/** Zero-padded `04 / 12` is a page number wherever it sits (running heads included). */
-const PADDED_PAGE_NUMBER = /^0\d\s*\/\s*\d{2}$/;
-const FOOTER_NAME = /foot|page-?n(?:um|o)|slide-?n(?:um|o)|pagination|pager/i;
+/** Spaced, zero-padded `04 / 12` is a page number wherever it sits (running heads included); unspaced `03/15` is a date. */
+const PADDED_PAGE_NUMBER = /^0(\d)\s+\/\s+(\d{2})$/;
+const isPaddedPageNumber = (text: string) => {
+  const match = PADDED_PAGE_NUMBER.exec(text);
+  return match !== null && Number(match[1]) <= Number(match[2]);
+};
+const FOOTER_NAME =
+  /\bfooter\b|page-?n(?:um|o)|slide-?n(?:um|o)|pagination|pager/i;
 
 function isFooterLooking(el: P5.Element, decl: Map<string, string>): boolean {
   if (el.tagName === "footer") return true;
   if (FOOTER_NAME.test(`${attr(el, "class") ?? ""} ${attr(el, "id") ?? ""}`)) {
     return true;
   }
+  // A bottom-edge block is a footer only when it is nothing but the number.
   const position = decl.get("position");
   const bottom = lengthPx(decl.get("bottom"));
   return (
     (position === "absolute" || position === "fixed") &&
     bottom !== null &&
-    bottom <= 48
+    bottom <= 48 &&
+    PAGE_NUMBER_TEXT.test(textOf(el).trim())
   );
 }
+
+/** A list marker or footnote reference is content, not a page number. */
+const NUMBER_CONTENT_TAGS = new Set(["sup", "li"]);
 
 const isToken = (el: P5.Element) =>
   attr(el, "data-slide-number") !== undefined ||
@@ -333,8 +359,11 @@ function collect(html: string): Finding[] {
         const text = el.value.trim();
         if (
           !walk.inToken &&
+          isElement(parent) &&
+          !NUMBER_CONTENT_TAGS.has(parent.tagName) &&
+          textOf(parent).trim() === text &&
           ((walk.footer && PAGE_NUMBER_TEXT.test(text)) ||
-            PADDED_PAGE_NUMBER.test(text))
+            isPaddedPageNumber(text))
         ) {
           add(
             "typed-page-number",
@@ -396,7 +425,7 @@ function collect(html: string): Finding[] {
         }
       }
       for (const [property, value] of decl) {
-        if (sanitizeCssValue(value) === null) {
+        if (!isKeptCssProperty(property) || sanitizeCssValue(value) === null) {
           add(
             "stripped-style",
             keyOf("stripped-style", el, property),
@@ -435,7 +464,10 @@ function collect(html: string): Finding[] {
         for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
           if (rule[1].trim().startsWith("@")) continue;
           for (const [property, value] of splitDeclarations(rule[2])) {
-            if (sanitizeCssValue(value) === null) {
+            if (
+              !isKeptCssProperty(property) ||
+              sanitizeCssValue(value) === null
+            ) {
               add(
                 "stripped-style",
                 `stripped-style|style-block|${rule[1].trim()}|${property}`,
@@ -524,7 +556,7 @@ function collect(html: string): Finding[] {
             attr(el, "aria-hidden") === "true" ||
             /fmd-img-placeholder|fmd-pptx|fmd-layout-spacer/.test(cls) ||
             attr(el, "data-pptx-element-kind") !== undefined ||
-            /line-clamp/.test(attr(el, "style") ?? "") ||
+            decl.has("line-clamp") ||
             absoluteChild ||
             (decl.get("position") === "absolute" &&
               lengthPx(decl.get("width")) !== null) ||
@@ -571,7 +603,14 @@ function collect(html: string): Finding[] {
 
   if (!importedSource) {
     for (const [card, count] of absoluteText) {
-      if (count >= 2) {
+      const height = lengthPx(
+        splitDeclarations(attr(card, "style") ?? "").get("height"),
+      );
+      if (
+        count >= 2 &&
+        !isChartLike(card) &&
+        (height === null || height <= MAX_STACKED_CARD_HEIGHT)
+      ) {
         add(
           "stacked-absolute-text",
           keyOf("stacked-absolute-text", card),

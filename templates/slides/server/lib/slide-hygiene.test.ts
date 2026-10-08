@@ -92,6 +92,28 @@ const positive: Array<[SlideHygieneCode, string, string]> = [
     ),
   ],
   [
+    "stripped-style",
+    "gradient text fill",
+    slide(
+      '<h1 style="background:linear-gradient(90deg,#f00,#00f);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent">Hello</h1>',
+    ),
+  ],
+  [
+    "stripped-style",
+    "prefixed property in a style block",
+    slide(
+      '<style>.t { -webkit-text-fill-color: transparent; }</style><p class="t">Hi</p>',
+    ),
+  ],
+  [
+    "fixed-height-text",
+    "prefixed line-clamp does not survive sanitizing",
+    slide(
+      '<p style="height:60px;-webkit-line-clamp:3;display:-webkit-box">A long enough sentence that would be clamped to three lines in a card.</p>',
+    ),
+  ],
+  ["typed-page-number", "spaced padded pair", slide("<div>03 / 15</div>")],
+  [
     "contain-property",
     "contain",
     slide('<div style="contain: layout paint;">Some text</div>'),
@@ -260,6 +282,41 @@ const negative: Array<[string, string]> = [
   [
     "inline chain depth",
     slide(`<p>${"<span>".repeat(14)}x${"</span>".repeat(14)}</p>`),
+  ],
+  [
+    "footnote marker",
+    slide('<p class="footnote"><sup>1</sup> Source: Gartner 2025</p>'),
+  ],
+  [
+    "footnote box stat",
+    slide('<div class="footnote-box"><span>7</span> of 10 teams</div>'),
+  ],
+  [
+    "bottom-edge stat with a label",
+    slide(
+      '<div style="position:absolute;left:0;bottom:24px"><b>3</b><span>teams shipped</span></div>',
+    ),
+  ],
+  ["table date", slide("<table><tr><td>03/15</td></tr></table>")],
+  ["timeline date", slide("<div>09/30</div>")],
+  [
+    "bottom-edge list",
+    slide(
+      '<ol style="position:absolute;left:0;bottom:10px"><li>1</li><li>2</li></ol>',
+    ),
+  ],
+  ["footer list item", slide("<footer><ul><li>2</li></ul></footer>")],
+  [
+    "labelled chart panel",
+    slide(
+      '<div style="position:relative;background:#123;width:400px;height:200px"><span style="position:absolute;left:4px;top:4px">Revenue</span><span style="position:absolute;left:4px;top:100px">Cost</span></div>',
+    ),
+  ],
+  [
+    "chart panel with drawn bars",
+    slide(
+      '<div style="position:relative;background:#123"><div style="position:absolute;left:10px;top:40px;width:20px;height:60px;background:#0f0"></div><span style="position:absolute;left:4px;top:4px">Revenue</span><span style="position:absolute;left:4px;top:100px">Cost</span></div>',
+    ),
   ],
   [
     "imported pptx skips layout lint",
