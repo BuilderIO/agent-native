@@ -586,8 +586,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     screenSelectionRegressions,
-    /^        timeout-minutes: 6$/m,
-    "Screen-selection tests need a six-minute cap inside the nine-minute job",
+    /^        timeout-minutes: 4$/m,
+    "Screen-selection shards need a four-minute cap inside the nine-minute job",
   );
   assert.ok(
     screenSelectionRegressions.includes(
@@ -595,7 +595,18 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ),
     "each Screen-history shard needs isolated application state",
   );
+  const screenHistoryShardSelectors = [
+    ...screenSelectionRegressions.matchAll(
+      /\s+(screen-history-\d)\)\s+grep='([^']+)'/g,
+    ),
+  ].map(([, shard, selectors]) => ({ shard, selectors: selectors.split("|") }));
+  assert.deepEqual(
+    screenHistoryShardSelectors.map(({ shard }) => shard),
+    ["screen-history-1", "screen-history-2", "screen-history-3"],
+    "Screen-history regressions must stay split across three shards",
+  );
   const screenHistoryCases = [
+    "undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id",
     "deleting a selected child layer keeps its owning Screen",
     "undo restores a child layer with its additive Screen selection",
     "marquee-selecting child elements after a Screen pick deletes only the elements",
@@ -611,13 +622,14 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete",
     "Shift-marquee reselecting an owner Screen makes Delete target the Screen",
   ];
-  for (const title of screenHistoryCases) {
-    assert.equal(
-      screenSelectionRegressions.split(title).length - 1,
-      1,
-      `Screen-history case must be selected exactly once: ${title}`,
-    );
-  }
+  const selectedScreenHistoryCases = screenHistoryShardSelectors.flatMap(
+    ({ selectors }) => selectors,
+  );
+  assert.deepEqual(
+    [...selectedScreenHistoryCases].sort(),
+    [...screenHistoryCases].sort(),
+    "Screen-history test selectors must cover every intended case once",
+  );
   assert.deepEqual(
     [...regressionCases.matchAll(/--workers=(\d+)/g)].map(([, count]) =>
       Number(count),
@@ -650,6 +662,9 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const stepTimeout = Number(
     regressionCases.match(/^        timeout-minutes: (\d+)$/m)?.[1],
   );
+  const screenHistoryStepTimeout = Number(
+    screenSelectionRegressions.match(/^        timeout-minutes: (\d+)$/m)?.[1],
+  );
   assert.ok(
     Number.isInteger(jobTimeout) && jobTimeout > 0 && jobTimeout < 10,
     `Design acceptance job must stop before ten minutes (got ${jobTimeout})`,
@@ -659,6 +674,12 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       stepTimeout <= 4 &&
       jobTimeout >= stepTimeout + 5,
     `focused Design tests need a four-minute cap and five minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
+  );
+  assert.ok(
+    Number.isInteger(screenHistoryStepTimeout) &&
+      screenHistoryStepTimeout <= 4 &&
+      jobTimeout >= screenHistoryStepTimeout + 5,
+    `Screen-history tests need a four-minute cap and five minutes for setup (job ${jobTimeout}, step ${screenHistoryStepTimeout})`,
   );
   assert.match(
     designJob,
