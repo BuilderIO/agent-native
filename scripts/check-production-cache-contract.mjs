@@ -511,7 +511,9 @@ async function main() {
     console.log(
       `\n${skipped.length} probe(s) not asserted (unreachable or throttled): ${skipped
         .map((r) => `${r.host}${r.label ? ` ${r.label}` : ""}`)
-        .join(", ")}. Availability is Grafana Synthetics' job (ai-services packages/terraform/grafana-agent-native).`,
+        .join(
+          ", ",
+        )}. Availability is Grafana Synthetics' job (ai-services packages/terraform/grafana-agent-native).`,
     );
   }
 
