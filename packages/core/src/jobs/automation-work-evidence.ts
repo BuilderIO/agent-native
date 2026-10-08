@@ -1,5 +1,8 @@
 import type { AgentChatEvent } from "../agent/types.js";
-import { automationNoOpReasonFromEvents } from "./actions/automation-no-op.js";
+import {
+  AUTOMATION_NO_OP_TOOL,
+  automationNoOpReasonFromEvents,
+} from "./actions/automation-no-op.js";
 
 export function inspectAutomationWork(
   events: readonly AgentChatEvent[],
@@ -18,6 +21,7 @@ export function inspectAutomationWork(
   const hasConfirmedAction = events.some(
     (event) =>
       event.type === "tool_done" &&
+      event.tool !== AUTOMATION_NO_OP_TOOL &&
       !event.isError &&
       event.completedSideEffect === true &&
       options.confirmsWork?.(event.tool) !== false,

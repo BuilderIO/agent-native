@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  JOURNALED_TOOL_REPLAY_PREFIX,
+  RECOVERED_TOOL_REPLAY_PREFIX,
+} from "../agent/engine/tool-call-journal-seed.js";
 import { AgentRunJournalUnreadableError } from "../agent/run-store.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import type { Resource } from "../resources/store.js";
@@ -472,15 +476,93 @@ describe("automation worker recovery", () => {
     },
   );
 
-  it("does not settle a malformed persisted no-op result", async () => {
+  it.each(["{", JSON.stringify({ status: "skipped", reason: "" })])(
+    "settles malformed persisted no-op evidence %s as unknown delivery",
+    async (result) => {
+      mocks.get.mockResolvedValue({ id: "job-1", status: "completed" });
+      mocks.events.mockResolvedValue([
+        { type: "tool_done", tool: "automation-no-op", result },
+      ]);
+      const recovery = await inspectAutomationRecovery(resource, meta, now);
+      expect(recovery).toMatchObject({
+        state: "settle",
+        status: "error",
+        history,
+        errorCode: "automation_no_op_evidence_unreadable",
+      });
+      expect(recovery?.state === "settle" && recovery.error).toContain(
+        "Delivery outcome is unknown",
+      );
+    },
+  );
+
+  it("reads the original no-op declaration before a replay-prefixed result", async () => {
+    mocks.get.mockResolvedValue({ id: "job-1", status: "completed" });
+    const result = JSON.stringify({
+      status: "skipped",
+      reason: "Nothing is due.",
+    });
+    mocks.events.mockResolvedValue([
+      { type: "tool_done", tool: "automation-no-op", result },
+      {
+        type: "tool_done",
+        tool: "automation-no-op",
+        result: "Reused recorded result: " + result,
+        replayed: true,
+        completedSideEffect: true,
+      },
+    ]);
+    expect(await inspectAutomationRecovery(resource, meta, now)).toMatchObject({
+      state: "settle",
+      status: "skipped",
+      error: "Nothing is due.",
+    });
+  });
+
+  it("preserves confirmed delivery when no-op evidence alone is malformed", async () => {
     mocks.get.mockResolvedValue({ id: "job-1", status: "completed" });
     mocks.events.mockResolvedValue([
+      ...sent,
       { type: "tool_done", tool: "automation-no-op", result: "{" },
     ]);
-    await expect(
-      inspectAutomationRecovery(resource, meta, now),
-    ).rejects.toThrow();
+    const recovery = await inspectAutomationRecovery(resource, meta, now);
+    expect(recovery).toMatchObject({
+      state: "settle",
+      status: "error",
+      errorCode: "automation_no_op_evidence_unreadable",
+    });
+    expect(recovery?.state === "settle" && recovery.error).toContain(
+      "send-test-email",
+    );
+    expect(recovery?.state === "settle" && recovery.error).not.toContain(
+      "No delivery was confirmed",
+    );
   });
+
+  it.each([JOURNALED_TOOL_REPLAY_PREFIX, RECOVERED_TOOL_REPLAY_PREFIX])(
+    "recovers validated no-op replay %s without counting it as completed work",
+    async (prefix) => {
+      mocks.get.mockResolvedValue({ id: "job-1", status: "completed" });
+      mocks.events.mockResolvedValue([
+        {
+          type: "tool_done",
+          tool: "automation-no-op",
+          result:
+            prefix +
+            JSON.stringify({ status: "skipped", reason: "Nothing is due." }),
+          replayed: true,
+          completedSideEffect: true,
+        },
+      ]);
+      expect(
+        await inspectAutomationRecovery(resource, meta, now),
+      ).toMatchObject({
+        state: "settle",
+        status: "skipped",
+        error: "Nothing is due.",
+      });
+    },
+  );
 
   it.each([
     ["missing", null],

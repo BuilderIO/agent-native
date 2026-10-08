@@ -17,6 +17,7 @@ import {
   organizationResourceOwner,
   type Resource,
 } from "../resources/store.js";
+import { AutomationNoOpEvidenceUnreadableError } from "./actions/automation-no-op.js";
 import { withDeliveryNote } from "./automation-outcome.js";
 import { inspectAutomationWork } from "./automation-work-evidence.js";
 import {
@@ -209,16 +210,19 @@ export async function inspectAutomationRecovery(
   }
   await reapIfStale(history.runId);
   const run = await getRunById(history.runId);
-  const unavailable = (): AutomationRecovery => ({
+  const unavailable = (
+    errorCode = "automation_recovery_worker_unavailable",
+    events: readonly AgentChatEvent[] | null = null,
+  ): AutomationRecovery => ({
     state: "settle",
     status: "error",
     history,
     error: withDeliveryNote(
       automationRecoveryMessagesForLocale().stopped,
-      deliveryNoteForEvents(null),
+      deliveryNoteForEvents(events),
     ),
-    errorCode: "automation_recovery_worker_unavailable",
-    deliveryNote: deliveryNoteForEvents(null),
+    errorCode,
+    deliveryNote: deliveryNoteForEvents(events),
   });
   if (!run) return unavailable();
   if (run.status === "running") return { state: "active" };
@@ -229,24 +233,21 @@ export async function inspectAutomationRecovery(
     events = await getCurrentTurnEventsForThread(ref.threadId, ref.turnId);
   } catch (error) {
     if (!(error instanceof AgentRunJournalUnreadableError)) throw error;
-    const deliveryNote = deliveryNoteForEvents(null);
-    return {
-      state: "settle",
-      status: "error",
-      history,
-      error: withDeliveryNote(
-        automationRecoveryMessagesForLocale().stopped,
-        deliveryNote,
-      ),
-      errorCode: error.errorCode,
-      deliveryNote,
-    };
+    return unavailable(error.errorCode);
   }
   if (run.status === "completed") {
     const actions = await getActions?.();
-    const evidence = inspectAutomationWork(events, {
-      confirmsWork: (tool) => actions?.[tool]?.confirmsAutomationWork !== false,
-    });
+    let evidence: ReturnType<typeof inspectAutomationWork>;
+    try {
+      evidence = inspectAutomationWork(events, {
+        confirmsWork: (tool) =>
+          actions?.[tool]?.confirmsAutomationWork !== false,
+      });
+    } catch (error) {
+      if (!(error instanceof AutomationNoOpEvidenceUnreadableError))
+        throw error;
+      return unavailable(error.errorCode, events);
+    }
     if (evidence.status === "skipped")
       return {
         state: "settle",

@@ -30,3 +30,5 @@ Retain unfinished firing history during pruning and recover journal-confirmed no
 Apply shared work-confirmation rules during recovery, settle missing worker evidence without replaying it, preserve unfinished scheduled firing references across trigger dispatch, and stop disabled scheduled firings while retaining intentional manual recovery and delivery evidence.
 
 Settle permanently unreadable journals with an unknown-delivery error while retrying database failures, preserve firing identity fences when timestamps are absent, and honor action metadata that excludes progress-only work from success.
+
+Durably settle malformed no-op evidence as an explicit unknown-delivery error, restore no-op declarations from their original journal result, and prevent replayed no-op acknowledgements from counting as completed work.

@@ -595,6 +595,40 @@ describe("stale automation run-lock recovery across trigger types", () => {
     }
   });
 
+  it("durably settles malformed no-op evidence instead of retaining its running marker", async () => {
+    const fixture = interruptedScheduledJob();
+    vi.mocked(runStore.getRunById).mockResolvedValue({
+      id: "killed-worker",
+      status: "completed",
+    } as any);
+    vi.mocked(runStore.getCurrentTurnEventsForThread).mockResolvedValue([
+      { type: "tool_done", tool: "automation-no-op", result: "{" },
+    ]);
+    const finish = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockResolvedValue();
+    try {
+      await processRecurringJobs(recoveryDeps);
+      expect(finish).toHaveBeenCalledWith(
+        fixture.history.id,
+        "error",
+        expect.stringContaining("Delivery outcome is unknown"),
+        "automation_no_op_evidence_unreadable",
+        { requirePersisted: true },
+      );
+      expect(
+        parseJobResource(resourcePutMock.mock.calls.at(-1)?.[2]).meta,
+      ).toMatchObject({
+        lastStatus: "error",
+        lastErrorCode: "automation_no_op_evidence_unreadable",
+      });
+      expect(startRunMock).not.toHaveBeenCalled();
+    } finally {
+      finish.mockRestore();
+      fixture.restore();
+    }
+  });
+
   it("projects a finished skipped firing without advancing its failure streak", async () => {
     const fixture = interruptedScheduledJob();
     fixture.resource.content = fixture.resource.content.replace(
