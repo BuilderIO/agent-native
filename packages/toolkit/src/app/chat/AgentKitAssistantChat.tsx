@@ -870,6 +870,8 @@ export const AgentKitAssistantChat = forwardRef<
       error: t("agentChat.error.failed"),
       renderError: t("agentChat.error.render"),
       runFailed: t("agentChat.error.failed"),
+      continueRun: t("agentChat.common.continue"),
+      continueRunUnavailable: t("agentChat.recovery.continueUnavailable"),
       reconnect: t("agentChat.agentPanel.chatgptSubscriptionReconnect"),
       reasoning: t("agentChat.status.thinking"),
       expandActivity: t("agentChat.common.expand"),
@@ -4625,6 +4627,7 @@ function AgentKitRunFailure({
   const surface = useAgentKitSurface();
   const t = useT();
   const [dismissed, setDismissed] = useState<string | null>(null);
+  const [continueFailed, setContinueFailed] = useState(false);
   const authErrorReason =
     error.code === "unauthorized" || error.code === "http_401"
       ? "session-expired"
@@ -4708,6 +4711,17 @@ function AgentKitRunFailure({
     );
   }
   if (wasRetried(thread.messages, runId)) return null;
+  // Continuing resumes the stopped run's own turn, so finished steps are not
+  // run again; that needs it to still be the turn's newest run.
+  const continueStoppedRun = control.canContinueRun
+    ? superseded
+      ? undefined
+      : () => {
+          setContinueFailed(false);
+          control.continueRun(runId).catch(() => setContinueFailed(true));
+        }
+    : () =>
+        void surface.sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue");
   const info: RunErrorInfo = {
     message: formatAgentKitErrorText(error, t),
     errorCode: error.code,
@@ -4718,8 +4732,9 @@ function AgentKitRunFailure({
   return (
     <RunErrorRecoveryCard
       info={info}
-      onContinue={() =>
-        void surface.sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue")
+      onContinue={continueStoppedRun}
+      continueError={
+        continueFailed ? t("agentChat.recovery.continueUnavailable") : null
       }
       onRetry={() => void retryFailedTurn()}
       retryHasUnavailableAttachment={retryRequest.hasUnavailableAttachment}

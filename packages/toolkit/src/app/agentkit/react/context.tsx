@@ -285,6 +285,8 @@ export interface AgentKitLabels {
   error: string;
   renderError: string;
   runFailed: string;
+  continueRun: string;
+  continueRunUnavailable: string;
   reconnect: string;
   reasoning: string;
   expandActivity: string;
@@ -400,6 +402,9 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   error: "Something went wrong",
   renderError: "This content couldn’t be displayed.",
   runFailed: "Run failed",
+  continueRun: "Continue",
+  continueRunUnavailable:
+    "This run can't be continued anymore. Send a message to keep going.",
   reconnect: "Reconnect",
   reasoning: "Thinking",
   expandActivity: "Show activity details",
@@ -949,6 +954,11 @@ export function useAgentKitControl(requestedThreadId?: ThreadId) {
       queueMessage: (input: Omit<SendMessageInput, "threadId">) =>
         controller.queueMessage({ ...input, threadId }),
       cancel: (runId: string) => controller.cancelRun(threadId, runId),
+      canContinueRun: controller.supportsRunContinuation?.() === true,
+      continueRun: (runId: string) =>
+        controller.continueRun
+          ? controller.continueRun(threadId, runId)
+          : Promise.reject(new Error(labels.error)),
       approve: (
         runId: string,
         approvalId: string,
