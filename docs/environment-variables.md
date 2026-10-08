@@ -403,18 +403,21 @@ application configuration. The secrets and vars used by those workflows are
 listed in the workflow files under `.github/workflows`; values must be supplied
 through GitHub Actions secrets/variables, never committed to this repository.
 
-The following variables are set by the CI workflow for test runners and
-integration-test service containers only — they are not used in application
+The following variables are set by the CI workflow for job gates, test runners,
+and integration-test service containers only — they are not used in application
 runtime code:
 
 | Variable                      | Purpose                                                                                                                                                                               |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BUILD_REQUIRED`              | Whether change-scope selected the artifact build; the required Build gate checks the corresponding job result.                                                                        |
 | `CORE_SHARD`                  | One-based Vitest shard and total shard count (`index/count`) for Core fast tests in GitHub Actions.                                                                                   |
 | `CORE_TEST_MODE`              | Selects the `full` Core fast-test suite or only `changed` Core tests in a targeted test lane.                                                                                         |
 | `CORE_TEST_FILES`             | JSON array of Core test paths selected by the targeted-lane planner when `CORE_TEST_MODE` is `changed`; the list is shared across lanes, and `CORE_SHARD` selects each lane's subset. |
+| `GUARDS_REQUIRED`             | Whether change-scope selected the Security guards job; the required Build gate checks the corresponding job result.                                                                   |
 | `POSTGRES_DB`                 | Database name for the PostgreSQL service container used in CI integration tests.                                                                                                      |
 | `POSTGRES_HOST_AUTH_METHOD`   | PostgreSQL host-based authentication method for the CI service container (e.g. `trust`).                                                                                              |
 | `S2573_PGLITE_INSTALL_PREFIX` | Override for the PGlite native binary install prefix used by the content-database lock CI test.                                                                                       |
+| `TYPECHECK_REQUIRED`          | Whether change-scope selected Typecheck; the required Build gate checks the corresponding job result.                                                                                 |
 
 ## Dynamic environment keys
 
