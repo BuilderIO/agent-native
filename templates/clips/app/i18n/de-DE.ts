@@ -1412,6 +1412,14 @@ const messages = {
       "Erstelle ein kostenloses Clips-Konto, um der Unterhaltung beizutreten",
     genericTitle: "Erstelle ein kostenloses Clips-Konto, um fortzufahren",
     description: "Danach kehrst du direkt zu diesem Clip zurück.",
+    verificationPendingTitle: "Bestätige deine E-Mail-Adresse",
+    verificationPendingCopy:
+      "Wir haben eine Bestätigungs-E-Mail an {{email}} gesendet. Öffne sie, um die Kontoerstellung abzuschließen und zu diesem Clip zurückzukehren.",
+    resendVerification: "Bestätigungs-E-Mail erneut senden",
+    resendingVerification: "Bestätigungs-E-Mail wird gesendet...",
+    verificationEmailResent: "Eine neue Bestätigungs-E-Mail ist unterwegs.",
+    verificationEmailFailed:
+      "Die Bestätigungs-E-Mail konnte nicht erneut gesendet werden. Versuche es noch einmal oder melde dich mit einem E-Mail-Link an.",
     passwordsMismatch: "Die Passwörter stimmen nicht überein.",
     commentIntent: "kommentieren",
     reactIntent: "eine Reaktion hinzuzufügen",
@@ -1496,7 +1504,7 @@ const messages = {
     waitingForBuilder: "Warten auf Builder...",
     description:
       "Speichere aufgenommene Videos mit Builder.io oder S3-kompatiblem Speicher. Builder.io enthält kostenloses Hosting und KI-Guthaben.",
-    createBuilderAccount: "Builder.io-Konto erstellen",
+    createBuilderAccount: "Builder.io verwenden",
     signInWithBuilderAccount: "Mit Builder.io-Konto anmelden",
     free: "Kostenlos",
     whyPrompt: "Warum sehe ich das?",

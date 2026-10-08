@@ -10,6 +10,11 @@ import type { DbExec } from "../db/client.js";
 import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import {
+  lockAndAssertServicePrincipalMayStartRun,
+  prepareServicePrincipalRunStart,
+  recordServicePrincipalDenial,
+} from "../org/service-principal-guard.js";
 import { captureError } from "../server/capture-error.js";
 import { isRequestedStopAbortReason } from "./abort-reasons.js";
 import {
@@ -578,14 +583,36 @@ export async function insertRun(
     );
     return;
   }
-  await client.transaction(async (tx) => {
+  if (options?.turnInitiator) {
+    await prepareServicePrincipalRunStart(options.turnInitiator);
+  }
+  const refusal = await client.transaction(async (tx) => {
+    if (options?.turnInitiator) {
+      const denied = await lockAndAssertServicePrincipalMayStartRun(tx, {
+        email: options.turnInitiator.email,
+        orgId: options.turnInitiator.orgId,
+      });
+      if (denied) return denied;
+    }
     await lockContinuationOrder(tx, threadId, logicalTurnId);
     await insert(
       tx,
       explicitContinuationOrder ??
         (await nextContinuationOrder(tx, threadId, logicalTurnId)),
     );
+    return undefined;
   });
+  if (refusal) {
+    if (options?.turnInitiator) {
+      await recordServicePrincipalDenial({
+        ...options.turnInitiator,
+        actionName: "agent-run:start",
+        caller: "agent-run",
+        error: refusal,
+      });
+    }
+    throw refusal;
+  }
 }
 
 function normalizeContinuationOrder(
@@ -1096,7 +1123,17 @@ export async function tryClaimRunSlot(
   if (!client.transaction) {
     throw new Error("Atomic run-slot claims require transaction support");
   }
-  return client.transaction(async (tx) => {
+  if (options?.turnInitiator) {
+    await prepareServicePrincipalRunStart(options.turnInitiator);
+  }
+  const transactionResult = await client.transaction(async (tx) => {
+    if (options?.turnInitiator) {
+      const denied = await lockAndAssertServicePrincipalMayStartRun(tx, {
+        email: options.turnInitiator.email,
+        orgId: options.turnInitiator.orgId,
+      });
+      if (denied) return { refused: denied } as const;
+    }
     await tx.execute({
       sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
       args: [`agent-native:run-slot:${threadId}`],
@@ -1107,7 +1144,9 @@ export async function tryClaimRunSlot(
       args: [threadId, turnId],
     });
     if (abortMarker.rows.length > 0) {
-      return { claimed: false, activeRunId: null, turnAborted: true };
+      return {
+        result: { claimed: false, activeRunId: null, turnAborted: true },
+      } as const;
     }
     if (options?.turnInitiator) {
       await bindTurnInitiator(
@@ -1124,7 +1163,9 @@ export async function tryClaimRunSlot(
       now,
       maxStaleMs,
     );
-    if (activeRunId) return { claimed: false, activeRunId };
+    if (activeRunId) {
+      return { result: { claimed: false, activeRunId } } as const;
+    }
 
     if (replayCompletedTurn) {
       const latest = await tx.execute({
@@ -1156,10 +1197,12 @@ export async function tryClaimRunSlot(
         | undefined;
       if (latestRun?.id && latestRun.has_terminal_event === true) {
         return {
-          claimed: false,
-          activeRunId: null,
-          completedRunId: latestRun.id,
-        };
+          result: {
+            claimed: false,
+            activeRunId: null,
+            completedRunId: latestRun.id,
+          },
+        } as const;
       }
     }
 
@@ -1205,10 +1248,12 @@ export async function tryClaimRunSlot(
       });
       if (!admission.admit) {
         return {
-          claimed: false,
-          activeRunId: null,
-          autoContinueRefused: admission.code,
-        };
+          result: {
+            claimed: false,
+            activeRunId: null,
+            autoContinueRefused: admission.code,
+          },
+        } as const;
       }
     }
 
@@ -1233,8 +1278,20 @@ export async function tryClaimRunSlot(
     if ((inserted.rowsAffected ?? 0) !== 1) {
       throw new Error(`Failed to insert claimed run ${runId}`);
     }
-    return { claimed: true, activeRunId: null };
+    return { result: { claimed: true, activeRunId: null } } as const;
   });
+  if ("refused" in transactionResult && transactionResult.refused) {
+    if (options?.turnInitiator) {
+      await recordServicePrincipalDenial({
+        ...options.turnInitiator,
+        actionName: "agent-run:start",
+        caller: "agent-run",
+        error: transactionResult.refused,
+      });
+    }
+    throw transactionResult.refused;
+  }
+  return transactionResult.result;
 }
 
 export async function setRunError(

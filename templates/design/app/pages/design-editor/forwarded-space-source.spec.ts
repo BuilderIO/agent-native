@@ -110,6 +110,7 @@ describe("DesignEditor Space source handler", () => {
         const broadcastSpaceHeldToIframes = (held: boolean) =>
           broadcasts.push(held);
         const isDesignHotkeyEditableTarget = () => false;
+        const isKeyboardShortcutsDialogTarget = () => false;
         const rowButton = document.createElement("button");
         rowButton.setAttribute("data-layer-row-button", "");
         document.body.append(rowButton);
@@ -134,6 +135,7 @@ describe("DesignEditor Space source handler", () => {
           "broadcastSpaceHeldToIframes",
           "isDesignHotkeyEditableTarget",
           "isNativeKeyboardActivationTarget",
+          "isKeyboardShortcutsDialogTarget",
           `${handlerSource}\nreturn { handleWindowKeyDown, handleWindowKeyUp, handleWindowBlur };`,
         )(
           window,
@@ -148,6 +150,7 @@ describe("DesignEditor Space source handler", () => {
           broadcastSpaceHeldToIframes,
           isDesignHotkeyEditableTarget,
           isNativeKeyboardActivationTarget,
+          isKeyboardShortcutsDialogTarget,
         );
         window.addEventListener("keydown", handlers.handleWindowKeyDown, {
           capture: true,

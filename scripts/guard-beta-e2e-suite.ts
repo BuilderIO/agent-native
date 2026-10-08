@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 
+import ts from "typescript";
 import { parse } from "yaml";
 
 const workflowPath = ".github/workflows/beta-e2e.yml";
@@ -21,6 +22,28 @@ function read(path: string): string {
     );
     return "";
   }
+}
+
+function findExportedConstDeclaration(
+  source: ts.SourceFile,
+  name: string,
+): ts.VariableDeclaration | undefined {
+  const declarations = source.statements
+    .filter(
+      (statement): statement is ts.VariableStatement =>
+        ts.isVariableStatement(statement) &&
+        (statement.declarationList.flags & ts.NodeFlags.Const) !== 0 &&
+        statement.modifiers?.some(
+          (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+        ) === true,
+    )
+    .flatMap((statement) => statement.declarationList.declarations)
+    .filter(
+      (declaration) =>
+        ts.isIdentifier(declaration.name) && declaration.name.text === name,
+    );
+
+  return declarations.length === 1 ? declarations[0] : undefined;
 }
 
 const workflow = read(workflowPath);
@@ -60,10 +83,43 @@ if (sitesRaw) {
 }
 
 if (chat) {
-  const lunaIds = [...chat.matchAll(/gpt-5[.-]6-luna/g)];
-  if (lunaIds.length === 0) {
+  const chatSource = ts.createSourceFile(
+    chatPath,
+    chat,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  for (const name of ["LUNA_OPENAI_MODEL", "LUNA_BUILDER_MODEL"] as const) {
+    const initializer = findExportedConstDeclaration(
+      chatSource,
+      name,
+    )?.initializer;
+    const configured =
+      initializer &&
+      (ts.isStringLiteral(initializer) ||
+        ts.isNoSubstitutionTemplateLiteral(initializer))
+        ? initializer.text
+        : undefined;
+    if (configured !== "gpt-6-luna") {
+      issues.push(
+        `${chatPath} ${name} must be set to gpt-6-luna; found ${JSON.stringify(configured ?? (initializer ? "non-string initializer" : "missing"))}. This suite is budgeted for the current low-cost model.`,
+      );
+    }
+  }
+  const modelPatternDeclaration = findExportedConstDeclaration(
+    chatSource,
+    "LUNA_MODEL_PATTERN",
+  );
+  const modelPatternInitializer = modelPatternDeclaration?.initializer;
+  if (
+    !modelPatternInitializer ||
+    !ts.isRegularExpressionLiteral(modelPatternInitializer) ||
+    modelPatternInitializer.getText(chatSource) !==
+      String.raw`/^(?:openai\/)?gpt-(?:5[.-]6|6)-luna$/i`
+  ) {
     issues.push(
-      `${chatPath} no longer names a luna model id. This suite is budgeted for luna; changing the model changes what every run costs.`,
+      `${chatPath} LUNA_MODEL_PATTERN must accept only the current low-cost model aliases. Loosening the pattern can make the budget guard accept a more expensive model.`,
     );
   }
   if (!chat.includes("assertOnlyLuna")) {

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
+const mockTrack = vi.fn();
 const mockGetCurrentRequestBrowserTabId = vi.fn(() => null);
 const mockReadAppStateForCurrentTab = vi.fn(async () => null);
 
@@ -85,6 +86,10 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
 }));
 
 vi.mock("@agent-native/creative-context/server", () => ({
@@ -254,6 +259,18 @@ describe("update-slide", () => {
       slideId: "slide-1",
       actor: "agent",
     });
+    expect(mockTrack).toHaveBeenCalledWith(
+      "deck_edited",
+      expect.objectContaining({
+        output_id: "deck-1",
+        slide_id: "slide-1",
+        edit_mode: "update_slide",
+        started_at_ms: expect.any(Number),
+        ended_at_ms: expect.any(Number),
+        duration_ms: expect.any(Number),
+      }),
+      { caller: "tool" },
+    );
     // A deterministic focused edit without an existing or explicit Creative
     // Context scope must not enter the generation-context gate.
     expect(mockValidateGenerationCreativeContext).not.toHaveBeenCalled();

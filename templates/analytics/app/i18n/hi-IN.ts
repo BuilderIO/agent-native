@@ -85,7 +85,7 @@ export default {
     visibilityPrivateOnly: "मेरे",
     visibilitySharedOnly: "साझा",
     visibilityAllDescription: "सभी आइटम दिखाएं",
-    visibilityPrivateOnlyDescription: "केवल आपको दिखाई देने वाले आइटम दिखाएं",
+    visibilityPrivateOnlyDescription: "आपके बनाए आइटम दिखाएं",
     visibilitySharedOnlyDescription: "संगठन से साझा और सार्वजनिक आइटम दिखाएं",
     hiddenAnalyses: "छिपे हुए विश्लेषण",
     shareWithOrg: "संगठन से साझा करें",
@@ -1470,6 +1470,19 @@ export default {
       "इस रीप्ले को फिर से बनाने के लिए उपयोग किए गए स्कोप्ड चंक। प्रदाता URL निजी रहते हैं।",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "स्क्रीनशॉट डाउनलोड करें",
+    savingScreenshot: "स्क्रीनशॉट सहेजा जा रहा है…",
+    screenshotDownloaded: "स्क्रीनशॉट डाउनलोड हो गया",
+    screenshotSaveFailed: "स्क्रीनशॉट सहेजा नहीं जा सका",
+    copyScreenshot: "Design में कॉपी करें",
+    copyingScreenshot: "स्क्रीनशॉट कॉपी हो रहा है…",
+    screenshotCopiedForDesign: "स्क्रीनशॉट कॉपी हो गया। इसे Design में पेस्ट करें।",
+    screenshotCopyFailed:
+      "स्क्रीनशॉट कॉपी नहीं हो सका। इसे डाउनलोड करके PNG को Design में अपलोड करें।",
+    screenshotCopyUnsupportedAssets:
+      "स्क्रीनशॉट कॉपी नहीं हुआ: इस क्षण में ऐसा मीडिया या छवियाँ हैं जिन्हें सुरक्षित रूप से कैप्चर नहीं किया जा सकता। रीप्ले में कोई दूसरा क्षण आज़माएँ।",
+    screenshotUnsupportedAssets:
+      "स्क्रीनशॉट सहेजा नहीं गया: कुछ एम्बेड किए गए मीडिया या छवियों को सुरक्षित रूप से कैप्चर नहीं किया जा सका।",
     timeline: "इवेंट टाइमलाइन",
     replayTimeline: "रीप्ले टाइमलाइन",
     timelineDescription: "{{total}} में से {{count}} उपयोगी इवेंट दिखाए जा रहे हैं।",

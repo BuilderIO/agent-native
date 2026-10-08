@@ -280,5 +280,12 @@ Options:
     return;
   }
 
-  console.log("Provide --query, --slug, or --list. Use --help for details.");
+  console.log(
+    [
+      "Usage:",
+      '  pnpm action docs-search --query "<feature>"',
+      "  pnpm action docs-search --slug <slug>",
+      "  pnpm action docs-search --list",
+    ].join("\n"),
+  );
 }

@@ -375,6 +375,10 @@ same best-effort fan-out as other tracking events.
 - Each event is stamped with when it happened, not when the run flushed. The
   whole tree is emitted in one burst at run end, so `track()` takes an
   `occurredAt` and the trace tree keeps a real timeline.
+- Model-call spans preserve `createdAt` and `endedAt` as epoch milliseconds,
+  alongside `durationMs`. Their `$ai_generation` events carry the matching
+  `created_at_ms`, `ended_at_ms`, and `duration_ms` properties so latency can
+  be compared over time without reconstructing request boundaries.
 - Agent-Native Analytics shape: the same event lands in `analytics_events` with
   mirrored query-friendly properties such as `run_id`, `thread_id`,
   `cost_cents_x100`, `duration_ms`, `tool_calls`, `successful_tools`,

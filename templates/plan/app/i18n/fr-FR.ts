@@ -499,7 +499,12 @@ const messages = {
       signedInAs: "Connecté en tant que",
       switchAccount: "Changer de compte",
       verifyEmail:
-        "Vérifiez votre courrier électronique pour vérifier le compte, puis rouvrez ce lien.",
+        "Consultez votre boîte mail et ouvrez le lien de vérification. Vous reviendrez à ce plan ; si vous devez vous connecter, utilisez ci-dessous la même adresse e-mail.",
+      resendVerification: "Renvoyer l’e-mail de vérification",
+      resendingVerification: "Envoi de l’e-mail de vérification…",
+      verificationEmailResent: "E-mail de vérification envoyé.",
+      verificationEmailFailed:
+        "Impossible de renvoyer l’e-mail de vérification. Réessayez.",
     },
     localMode: {
       badge: "Mode local",

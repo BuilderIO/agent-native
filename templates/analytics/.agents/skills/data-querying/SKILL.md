@@ -74,6 +74,19 @@ Convert the user's requested local date/timezone to UTC before querying. For
 example, May 1, 2026 in America/New_York is `2026-05-01T04:00:00Z`
 through `2026-05-02T04:00:00Z`.
 
+### LLM observability events
+
+Agent runs are `analytics_events` rows with `event_name = '$ai_generation'`.
+Useful `properties`:
+
+- Identity: `$ai_trace_id`/`run_id`, `$ai_session_id`/`thread_id`, `$ai_model`/`model`, `$ai_provider`/`provider`.
+- Usage: `$ai_input_tokens`/`input_tokens`, `$ai_output_tokens`/`output_tokens`, `cache_read_tokens`, `cache_write_tokens`.
+- Cost: `$ai_total_cost_usd`/`cost_usd`, `cost_cents_x100`.
+- Time: `duration_ms` is the full run in milliseconds; `$ai_latency` is model time in seconds (run minus tool time).
+- Tools: `tool_calls`, `successful_tools`, `failed_tools`, `tools`, `tools_truncated`. The bounded `tools` array holds names, relative start times, durations, statuses, and coarse error classes, never args or results; failed runs and interrupted tools stay queryable.
+- Delegation: `delegated`, `delegation_protocol`, `caller_app`, `delegation_task_id`, `a2a_task_id`, `parent_run_id`, `parent_turn_id`. Agent Teams child runs use `delegation_protocol = 'agent-team'`, keep their own `run_id`, and link to the launching run through `parent_run_id`.
+- Errors: `status`, `$ai_error` (terminal code, cause, retryable, and a fixed code-derived message), `$ai_error_type`. Run failure messages are omitted from telemetry.
+
 ## Inline Charts In Chat
 
 For an in-chat answer, **emit a live `/chart` embed** — never `generate-chart`. The embed mounts a live `SqlChart` that re-queries when its source changes, and it doesn't choke on rigid JSON params the way the PNG action does. Reach for `generate-chart` only when you're building a dashboard artifact that needs a persisted report image.

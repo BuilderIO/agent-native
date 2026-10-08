@@ -1186,6 +1186,10 @@ const enUS = {
     genericError: "Something went wrong",
   },
   editor: {
+    widgetLoadStalled: "Still waiting for {{stage}}. Request: {{action}}.",
+    widgetDocumentLoadStage: "the saved page body",
+    widgetDraftCheckStage: "page draft recovery",
+    widgetEditorInitStage: "the rich-text editor to initialize",
     suggestionFormattingUnsupported:
       "This formatting cannot be suggested safely. Your draft is kept. Undo the last edit to continue.",
     suggestionFormattingBaselineUnsupported:
@@ -2012,6 +2016,10 @@ const esESRawLiteralOverrides: PartialMessages = {
     documentNotFound: "Documento no encontrado",
   },
   editor: {
+    widgetLoadStalled: "Aún se espera {{stage}}. Solicitud: {{action}}.",
+    widgetDocumentLoadStage: "el cuerpo de la página guardada",
+    widgetDraftCheckStage: "la recuperación del borrador de la página",
+    widgetEditorInitStage: "la inicialización del editor de texto enriquecido",
     suggestionCreateFailed: "No se pudo crear la sugerencia",
     suggestionsCount: "{{count}} sugerencias",
     acceptSuggestion: "Aceptar",

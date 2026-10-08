@@ -157,7 +157,7 @@ export function useDashboardChatContext(
         panel.configId ? `Explorer config id: ${panel.configId}` : "",
         panel.extensionId ? `Extension id: ${panel.extensionId}` : "",
         kind === "sql"
-          ? "Inspect this panel with get-sql-dashboard (includeConfig: true) before changing it, then use mutate-dashboard for edits."
+          ? `Inspect this panel with get-sql-dashboard (panelIds: [${JSON.stringify(panel.panelId)}]) before changing it, then use mutate-dashboard for edits.`
           : "Inspect the linked Explorer config before changing this chart.",
       ].filter(Boolean);
       const selection: SelectedDashboardObject = {
