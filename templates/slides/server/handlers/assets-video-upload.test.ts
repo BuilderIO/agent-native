@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAssertBodySize = vi.hoisted(() => vi.fn());
 const mockReadMultipartFormData = vi.hoisted(() => vi.fn());
+const mockReadRawBody = vi.hoisted(() => vi.fn());
 const mockResolveSlidesRequestAuth = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 
@@ -29,6 +30,7 @@ vi.mock("h3", () => ({
   getRouterParam: vi.fn(),
   readMultipartFormData: (...args: unknown[]) =>
     mockReadMultipartFormData(...args),
+  readRawBody: (...args: unknown[]) => mockReadRawBody(...args),
   setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
 }));
 
@@ -50,6 +52,8 @@ describe("asset upload request size limit", () => {
     mockAssertBodySize.mockResolvedValue(undefined);
     mockReadMultipartFormData.mockReset();
     mockReadMultipartFormData.mockResolvedValue([]);
+    mockReadRawBody.mockReset();
+    mockReadRawBody.mockResolvedValue(new Uint8Array([1]));
     mockResolveSlidesRequestAuth.mockReset();
     mockResolveSlidesRequestAuth.mockResolvedValue({
       ok: true,
@@ -64,7 +68,13 @@ describe("asset upload request size limit", () => {
   ] as const)(
     "limits the %s request before parsing multipart data",
     async (_kind, handler, limit) => {
-      const event = {};
+      const event = {
+        req: new Request("https://slides.example.test/api/assets/upload", {
+          method: "POST",
+          headers: { "content-type": "multipart/form-data; boundary=test" },
+          body: "--test--\r\n",
+        }),
+      };
 
       await handler(event as never);
 
@@ -80,14 +90,20 @@ describe("asset upload request size limit", () => {
     mockAssertBodySize.mockRejectedValueOnce(
       Object.assign(new Error("too large"), { statusCode: 413 }),
     );
-    const event = {};
+    const event = {
+      req: new Request("https://slides.example.test/api/assets/upload", {
+        method: "POST",
+        headers: { "content-type": "multipart/form-data; boundary=test" },
+        body: "--test--\r\n",
+      }),
+    };
 
-    await expect(uploadVideoAssetHandler(event as never)).rejects.toMatchObject(
-      {
-        statusCode: 413,
-      },
-    );
+    await expect(uploadVideoAssetHandler(event as never)).resolves.toEqual({
+      error: "too large",
+    });
 
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 413);
+    expect(mockReadRawBody).not.toHaveBeenCalled();
     expect(mockReadMultipartFormData).not.toHaveBeenCalled();
   });
 
