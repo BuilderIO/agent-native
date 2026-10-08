@@ -472,4 +472,55 @@ describe("workspacifyApp core pinning", () => {
       fs.readFileSync(path.join(appSkillsDir, "actions", "SKILL.md"), "utf8"),
     ).toBe("workspace actions\n");
   });
+
+  it("gives a Builder Code starter app its own agent-chat appId", () => {
+    const { root, appDir } = makeWorkspace("0.131.4");
+    const pluginPath = path.join(appDir, "server", "plugins", "agent-chat.ts");
+    fs.mkdirSync(path.dirname(pluginPath), { recursive: true });
+    fs.writeFileSync(
+      pluginPath,
+      'export default createAgentChatPlugin({\n  appId: "chat",\n  finalResponseGuard: guard,\n});\n',
+    );
+
+    workspacifyApp({
+      appDir,
+      appName: "mail",
+      templateName: "builder-code-starter",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+    });
+
+    expect(fs.readFileSync(pluginPath, "utf8")).toBe(
+      'export default createAgentChatPlugin({\n  appId: "mail",\n  finalResponseGuard: guard,\n});\n',
+    );
+  });
+
+  it("keeps the Builder Code starter's own skills when workspacifying", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    fs.mkdirSync(path.join(root, ".agents", "skills", "actions"), {
+      recursive: true,
+    });
+    const appSkillsDir = path.join(appDir, ".agents", "skills");
+    for (const skill of ["internationalization", "authentication"]) {
+      fs.mkdirSync(path.join(appSkillsDir, skill), { recursive: true });
+      fs.writeFileSync(
+        path.join(appSkillsDir, skill, "SKILL.md"),
+        `starter ${skill}\n`,
+      );
+    }
+
+    workspacifyApp({
+      appDir,
+      appName: "mail",
+      templateName: "builder-code-starter",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+    });
+
+    for (const skill of ["internationalization", "authentication"]) {
+      expect(
+        fs.readFileSync(path.join(appSkillsDir, skill, "SKILL.md"), "utf8"),
+      ).toBe(`starter ${skill}\n`);
+    }
+  });
 });
