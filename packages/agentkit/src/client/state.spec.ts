@@ -224,6 +224,39 @@ describe("AgentKit lifecycle projections", () => {
     expect(reduced.tasks["task-1"]?.status).toBe("completed");
   });
 
+  it("keeps the assistant message id after the run completes", () => {
+    const withUser = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.created",
+        message: {
+          id: "user-1",
+          role: "user",
+          parts: [{ type: "text", text: "Question" }],
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+    expect(withUser.runs["run-1"]?.activeMessageId).toBeUndefined();
+
+    const completed = [
+      event(3, {
+        type: "message.created",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "streaming",
+          parts: [],
+        },
+      }),
+      event(4, { type: "run.completed" }),
+    ].reduce(reduceAgentEvent, withUser);
+
+    expect(completed.runs["run-1"]).toMatchObject({
+      status: "completed",
+      activeMessageId: "assistant-1",
+    });
+  });
+
   it("ignores late work after a terminal lifecycle event", () => {
     const terminal = [
       event(1, { type: "run.started" }),

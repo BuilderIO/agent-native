@@ -243,8 +243,10 @@ function contentMatches(
   const toolCallMatch = Boolean(
     typeof candidate.id === "string" && toolMessageIds?.has(candidate.id),
   );
+  // Saved tool calls can be missing or trimmed. Text still identifies the
+  // reply; empty text does not, and the caller keeps a second assistant.
   if (rootToolCalls(root).length > 0 && toolMessageIds === undefined) {
-    return false;
+    return sameText;
   }
   return (
     (sameText && (rootText.length > 0 || candidateText.length > 0)) ||

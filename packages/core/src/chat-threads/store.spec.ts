@@ -1188,6 +1188,61 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(2);
   });
 
+  it("counts a mirrored tool-call reply once when tool calls were not saved", async () => {
+    const repository = {
+      messages: [
+        {
+          message: {
+            ...userMessage,
+            metadata: {
+              custom: {
+                submittedRunId: "run-1",
+                agentKitMessageId: "client-user",
+              },
+            },
+          },
+        },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-1",
+                toolName: "lookup",
+              },
+              { type: "text", text: "Done." },
+            ],
+            metadata: { runId: "run-1" },
+          },
+        },
+      ],
+      agentKit: {
+        messages: [
+          { id: "client-user", role: "user", parts: [] },
+          {
+            id: "client-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done." }],
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Done.",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
   it("counts many root assistant mirrors once each", async () => {
     const messageCount = 256;
     const rootMessages = Array.from({ length: messageCount }, (_, index) => {
