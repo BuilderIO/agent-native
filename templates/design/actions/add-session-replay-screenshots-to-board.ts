@@ -24,6 +24,7 @@ import {
   attachmentFailureMessage,
   detectImageMimeType,
 } from "../server/lib/replay-screenshot-blobs.js";
+import { isValidReplayScreenshotBlobHandle } from "../server/lib/replay-screenshot-private-blob.js";
 import {
   deleteVisualEditSnapshotBlobs,
   queueVisualEditSnapshotBlobCleanup,
@@ -512,18 +513,7 @@ export default defineAction({
           );
         }
         uploaded.push({ id, screenshot, blobHandle, mimeType, sizeBytes });
-        const usesPublicUploadFallback =
-          blobHandle.id.startsWith("public-upload:v1:") ||
-          blobHandle.provider.startsWith("public-upload:");
-        const validHandle =
-          blobHandle.opaque === true &&
-          (usesPublicUploadFallback
-            ? blobHandle.id.startsWith("public-upload:v1:") &&
-              blobHandle.provider.startsWith("public-upload:") &&
-              blobHandle.encrypted === true
-            : !blobHandle.id.startsWith("public-upload:v1:") &&
-              !blobHandle.provider.startsWith("public-upload:"));
-        if (!validHandle) {
+        if (!isValidReplayScreenshotBlobHandle(blobHandle)) {
           fail(
             "Replay screenshots must use an opaque private storage handle.",
             {

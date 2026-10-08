@@ -4,7 +4,10 @@ import {
   hasCollabState,
   seedFromText,
 } from "@agent-native/core/collab";
-import { getActivePrivateBlobProviderForRequest } from "@agent-native/core/private-blob";
+import {
+  getActivePrivateBlobProviderForRequest,
+  isPrivateBlobConfiguredForRequest,
+} from "@agent-native/core/private-blob";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -81,8 +84,9 @@ function designDeepLink(designId: string): string {
 
 export default defineAction({
   description:
-    "Create or refresh an onboarding-journey storyboard on a Design canvas in one call: a left-to-right tree of step cards with real session screenshots, arrows between them, a percent label on every fork, and a stub for each drop-off. " +
-    "Pass the journey tree from Analytics `get-onboarding-journey` as `tree` and one captured frame per example as `frames` ({ nodeKey, exampleIndex, width, height, capturedAt } plus exactly one of `imageUrl` (https only; data: URLs are rejected) or `attachmentRef` (a personal private attachment, copied into Design's private blob storage and served only to people who can view the design)). " +
+    "Create or refresh an onboarding-journey storyboard on a Design canvas in one call: a left-to-right tree of step cards with real session screenshots, arrows between them, a percent label on every fork, and a 'No later step observed' stub for sessions whose last observed step was a node. These counts do not prove that a session exited. " +
+    "Pass the journey tree from Analytics `get-onboarding-journey` as `tree` and one captured frame per example as `frames` ({ nodeKey, exampleIndex, width, height, capturedAt } plus exactly one of `imageUrl` (https only; data: URLs are rejected) or `attachmentRef` (a personal private attachment, copied into encrypted private blob storage and served only to people who can view the design)). Private providers and the configured encrypted public-upload fallback are supported. " +
+    "Each card shows the journey example's event date, recording id, and replay offset separately from the screenshot capture date. " +
     "Cards are sized from each frame's real aspect ratio; extra examples (up to `maxExamplesPerNode`, default 3) stack behind the front card. A step with no frame is left off and listed in `skippedNodes` unless `includeScreenshotless` is true. " +
     "Omit `designId` to create a new design; pass one to replace the storyboard this action drew earlier in that design (only its own screens and board objects are replaced, everything else on the canvas is left alone). " +
     "Returns { designId, url, nodeCount, frameCount, skippedNodes, collabSyncPending }; `collabSyncPending` lists file ids that are saved but whose open editors could not be updated live (empty when all synced). When it is not empty, call again with the same `designId` to retry the live sync; until then an open editor can still show the previous version.",
@@ -122,15 +126,18 @@ export default defineAction({
     const attachmentScreens = plan.screens.filter(
       (screen) => screen.attachment,
     );
-    const provider = attachmentScreens.length
-      ? await getActivePrivateBlobProviderForRequest()
-      : null;
-    if (attachmentScreens.length && !provider) {
+    const storageConfigured = attachmentScreens.length
+      ? await isPrivateBlobConfiguredForRequest()
+      : false;
+    if (attachmentScreens.length && !storageConfigured) {
       fail(
-        "Design requires a configured private blob provider to store attachmentRef screenshots. Pass https imageUrl frames instead, or configure private storage.",
+        "Design requires configured private blob storage or the encrypted upload fallback to store attachmentRef screenshots. Pass https imageUrl frames instead, or configure private storage.",
         { errorCode: "private_blob_provider_required", statusCode: 503 },
       );
     }
+    const provider = storageConfigured
+      ? await getActivePrivateBlobProviderForRequest()
+      : null;
 
     const stored = new Map<string, StoredReplayScreenshotBlob>();
     let createdDesignId: string | undefined;
@@ -145,7 +152,7 @@ export default defineAction({
               attachmentRef: attachment!.ref,
               requesterEmail,
               blobOwnerEmail,
-              providerId: provider!.id,
+              providerId: provider?.id,
               rowId: attachment!.rowId,
               designId,
               replayId: attachment!.replayId,
@@ -263,6 +270,9 @@ export default defineAction({
                 breakpointWidths: [],
                 heightPinned: true,
                 heightMode: "fixed",
+                ...(screen.provenance
+                  ? { journeyExample: screen.provenance }
+                  : {}),
               },
             ]),
           );

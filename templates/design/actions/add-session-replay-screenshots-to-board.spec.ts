@@ -451,7 +451,7 @@ describe("add-session-replay-screenshots-to-board cleanup", () => {
     });
   });
 
-  it("accepts encrypted private upload fallback handles", async () => {
+  it("accepts encrypted private upload fallback handles without a registered provider", async () => {
     const fallbackHandle = {
       id: "public-upload:v1:encrypted-descriptor",
       provider: "public-upload:builder-storage",
@@ -484,6 +484,10 @@ describe("add-session-replay-screenshots-to-board cleanup", () => {
       ),
     ).rejects.toThrow("board setup failed");
 
+    expect(mocks.isPrivateBlobConfiguredForRequest).toHaveBeenCalledOnce();
+    expect(mocks.putPrivateBlob).toHaveBeenCalledWith(
+      expect.objectContaining({ ownerEmail: "designer@example.test" }),
+    );
     expect(mocks.createDesign).toHaveBeenCalledOnce();
     expect(mocks.deletePrivateBlob).toHaveBeenCalledWith(fallbackHandle);
   });
