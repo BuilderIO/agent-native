@@ -581,7 +581,7 @@ async function saveTaskIfCurrent(
   return true;
 }
 
-async function saveLegacyTaskCompletionIfCurrent(
+async function saveLegacyTaskTerminalIfCurrent(
   task: AgentTask,
   expectedTask: AgentTask,
   terminal: {
@@ -590,7 +590,7 @@ async function saveLegacyTaskCompletionIfCurrent(
     hitContinuationLimit?: boolean;
   },
 ): Promise<boolean> {
-  if (!task.parentThreadId) {
+  if (!task.parentThreadId || task.terminalProgressStatus === "cancelled") {
     task.parentCompletionEnqueued = true;
     if (await saveTaskIfCurrent(task, expectedTask)) return true;
     const currentTask = await loadTask(task.taskId);
@@ -757,7 +757,7 @@ async function completeReconciledTask(
     if (expectedDispatch) {
       await saveTask(task);
     } else if (
-      !(await saveLegacyTaskCompletionIfCurrent(
+      !(await saveLegacyTaskTerminalIfCurrent(
         task,
         expectedLegacyTask!,
         terminal,
@@ -814,9 +814,17 @@ async function failReconciledTask(
   let progressReconciled = true;
   let cancelled = progressStatus === "cancelled";
   let terminalProgressStatus = progressStatus;
-  const markFailed = async () => {
+  const markFailed = async (): Promise<boolean> => {
     const currentTask = await loadTask(task.taskId);
-    if (currentTask) Object.assign(task, currentTask);
+    if (!currentTask) return false;
+    if (!expectedDispatch && currentTask.status !== "running") {
+      Object.assign(task, currentTask);
+      return false;
+    }
+    const expectedLegacyTask = expectedDispatch
+      ? undefined
+      : structuredClone(currentTask);
+    Object.assign(task, currentTask);
     cancelled ||= isCancelledAgentTask(task);
     terminalProgressStatus = cancelled ? "cancelled" : progressStatus;
     task.status = "errored";
@@ -828,14 +836,29 @@ async function failReconciledTask(
     task.terminalEffectsReconciled = false;
     task.terminalProgressStatus = terminalProgressStatus;
     task.parentCompletionEnqueued = !task.parentThreadId || cancelled;
-    if (task.parentThreadId && !cancelled) {
-      await appendParentCompletionInjection(task.parentThreadId, task, {
-        taskStatus: "errored",
-        summary: task.summary,
-      });
-      task.parentCompletionEnqueued = true;
+    const terminal = {
+      taskStatus: "errored" as const,
+      summary: task.summary,
+    };
+    if (expectedDispatch) {
+      if (task.parentThreadId && !cancelled) {
+        await appendParentCompletionInjection(
+          task.parentThreadId,
+          task,
+          terminal,
+        );
+        task.parentCompletionEnqueued = true;
+      }
+      await saveTask(task);
+    } else if (
+      !(await saveLegacyTaskTerminalIfCurrent(
+        task,
+        expectedLegacyTask!,
+        terminal,
+      ))
+    ) {
+      return false;
     }
-    await saveTask(task);
     if (ownerEmail) {
       progressReconciled = await completeTaskProgressRun(
         task,
@@ -844,6 +867,7 @@ async function failReconciledTask(
         message,
       );
     }
+    return true;
   };
 
   if (expectedDispatch) {
@@ -851,7 +875,7 @@ async function failReconciledTask(
       task.taskId,
       expectedDispatch.attempts,
       async () => {
-        await markFailed();
+        if (!(await markFailed())) return false;
         if (
           !(await completeAgentTeamRun(
             task.taskId,
@@ -861,6 +885,7 @@ async function failReconciledTask(
         ) {
           throw new Error("The agent task run changed before it could fail.");
         }
+        return true;
       },
       {
         statuses: [expectedDispatch.status],
@@ -869,7 +894,7 @@ async function failReconciledTask(
           : {}),
       },
     );
-    if (!result.current) return task;
+    if (!result.current || !result.value) return task;
     const notificationReconciled =
       ownerEmail && !cancelled
         ? await ensureTaskCompletionNotification(task, ownerEmail)
@@ -880,8 +905,7 @@ async function failReconciledTask(
     return task;
   }
 
-  await markFailed();
-  await completeAgentTeamRun(task.taskId, "failed");
+  if (!(await markFailed())) return task;
   const notificationReconciled =
     ownerEmail && !cancelled
       ? await ensureTaskCompletionNotification(task, ownerEmail)
@@ -2000,6 +2024,7 @@ async function failAgentTeamRunAfterActionPersistenceError(
   task.hitContinuationLimit = hitContinuationLimit;
   task.terminalEffectsVersion = 1;
   task.terminalEffectsReconciled = false;
+  task.terminalProgressStatus = "failed";
   task.parentCompletionEnqueued = !task.parentThreadId;
 
   try {
@@ -3063,22 +3088,7 @@ export async function stopAgentTeamBackgroundRun(
   scope?: AgentTeamOwnerScope,
 ): Promise<ControlAgentTeamBackgroundRunResult> {
   const taskId = await resolveTaskIdFromBackgroundRunId(runId);
-  const task = await loadTask(taskId);
-  if (!task || !taskMatchesOwnerScope(task, resolveOwnerScope(scope))) {
-    return { ok: false, error: "Task not found" };
-  }
-  if (task.status !== "running") {
-    return { ok: false, error: "Task is not running" };
-  }
   const ownerScope = resolveOwnerScope(scope);
-  const dispatch = await getAgentTeamRunDispatchState(taskId);
-  if (
-    dispatch &&
-    dispatch.status !== "queued" &&
-    dispatch.status !== "running"
-  ) {
-    return { ok: false, error: "Task is not running" };
-  }
 
   const markStopped = (currentTask: AgentTask) => {
     currentTask.status = "errored";
@@ -3094,44 +3104,62 @@ export async function stopAgentTeamBackgroundRun(
   };
 
   let stoppedTask: AgentTask | null = null;
-  if (dispatch) {
-    const result = await withCurrentAgentTeamRunAttempt(
-      taskId,
-      dispatch.attempts,
-      async () => {
-        const currentTask = await loadTask(taskId);
-        if (
-          !currentTask ||
-          !taskMatchesOwnerScope(currentTask, ownerScope) ||
-          currentTask.status !== "running"
-        ) {
-          return null;
-        }
-
-        markStopped(currentTask);
-        await saveTask(currentTask);
-        if (
-          !(await completeAgentTeamRun(taskId, "failed", dispatch.attempts))
-        ) {
-          throw new Error("The agent task run changed before it could stop.");
-        }
-        return currentTask;
-      },
-      { statuses: ["queued", "running"] },
-    );
-    if (result.current) stoppedTask = result.value;
-  } else {
-    const currentTask = await loadTask(taskId);
+  let stoppedDispatch: Awaited<
+    ReturnType<typeof getAgentTeamRunDispatchState>
+  > = null;
+  for (let retry = 0; retry < 3 && !stoppedTask; retry += 1) {
+    const task = await loadTask(taskId);
+    if (!task || !taskMatchesOwnerScope(task, ownerScope)) {
+      return { ok: false, error: "Task not found" };
+    }
+    if (task.status !== "running") {
+      return { ok: false, error: "Task is not running" };
+    }
+    const dispatch = await getAgentTeamRunDispatchState(taskId);
     if (
-      currentTask &&
-      taskMatchesOwnerScope(currentTask, ownerScope) &&
-      currentTask.status === "running"
+      dispatch &&
+      dispatch.status !== "queued" &&
+      dispatch.status !== "running"
     ) {
-      const expectedTask = structuredClone(currentTask);
-      markStopped(currentTask);
-      if (await saveTaskIfCurrent(currentTask, expectedTask)) {
-        stoppedTask = currentTask;
+      return { ok: false, error: "Task is not running" };
+    }
+
+    if (dispatch) {
+      const result = await withCurrentAgentTeamRunAttempt(
+        taskId,
+        dispatch.attempts,
+        async () => {
+          const currentTask = await loadTask(taskId);
+          if (
+            !currentTask ||
+            !taskMatchesOwnerScope(currentTask, ownerScope) ||
+            currentTask.status !== "running"
+          ) {
+            return null;
+          }
+
+          markStopped(currentTask);
+          await saveTask(currentTask);
+          if (
+            !(await completeAgentTeamRun(taskId, "failed", dispatch.attempts))
+          ) {
+            throw new Error("The agent task run changed before it could stop.");
+          }
+          return currentTask;
+        },
+        { statuses: ["queued", "running"] },
+      );
+      if (result.current && result.value) {
+        stoppedTask = result.value;
+        stoppedDispatch = dispatch;
       }
+      continue;
+    }
+
+    const expectedTask = structuredClone(task);
+    markStopped(task);
+    if (await saveTaskIfCurrent(task, expectedTask)) {
+      stoppedTask = task;
     }
   }
 
@@ -3140,8 +3168,12 @@ export async function stopAgentTeamBackgroundRun(
   }
 
   abortRun(
-    dispatch
-      ? taskRunChunkId(taskId, dispatch.continuationCount, dispatch.attempts)
+    stoppedDispatch
+      ? taskRunChunkId(
+          taskId,
+          stoppedDispatch.continuationCount,
+          stoppedDispatch.attempts,
+        )
       : runningInMemoryTaskRunId(taskId),
     reason,
   );

@@ -1101,6 +1101,50 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect(insertNotificationMock).not.toHaveBeenCalled();
   });
 
+  it("does not let legacy failure reconciliation overwrite a concurrent stop", async () => {
+    const taskId = "legacy-failure-after-stop";
+    appState.set(`agent-task:${taskId}`, {
+      taskId,
+      threadId: "thread-1",
+      runId: `run-task-${taskId}`,
+      parentThreadId: "parent-thread",
+      ownerEmail: OWNER,
+      description: "legacy task",
+      status: "running",
+      preview: "",
+      summary: "",
+      currentStep: "Working",
+      createdAt: Date.now(),
+    });
+    getActiveRunForThreadAsyncMock.mockResolvedValue({ status: "errored" });
+    beforeNextAppStateCas = () => {
+      const currentTask = appState.get(`agent-task:${taskId}`);
+      appState.set(`agent-task:${taskId}`, {
+        ...currentTask,
+        status: "errored",
+        summary: "Task stopped.",
+        error: "Task stopped.",
+        currentStep: "",
+        terminalProgressStatus: "cancelled",
+      });
+    };
+
+    const task = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getTask(taskId),
+    );
+
+    expect(task).toMatchObject({
+      status: "errored",
+      summary: "Task stopped.",
+      terminalProgressStatus: "cancelled",
+    });
+    expect(appState.has(`parent-completion:parent-thread:inj-${taskId}`)).toBe(
+      false,
+    );
+    expect(completeProgressRunMock).not.toHaveBeenCalled();
+    expect(insertNotificationMock).not.toHaveBeenCalled();
+  });
+
   it("records legacy completion with its parent injection atomically", async () => {
     const taskId = "legacy-completion-with-parent";
     appState.set(`agent-task:${taskId}`, {
@@ -1140,10 +1184,18 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     let completedActionCount = 0;
     runAgentLoopMock.mockImplementation(async (opts: any) => {
       completedActionCount += 1;
-      opts.send({ type: "text", text: "the action completed" });
+      opts.send({
+        type: "text",
+        text: "Task stopped: the action completed before its transcript save failed.",
+      });
     });
     rejectNextThreadDataUpdate = true;
     await seedTask("terminal-transcript-save-failure");
+    const seededTask = appState.get(
+      "agent-task:terminal-transcript-save-failure",
+    );
+    seededTask.parentThreadId = "parent-thread";
+    appState.set("agent-task:terminal-transcript-save-failure", seededTask);
 
     await processAgentTeamRun({
       taskId: "terminal-transcript-save-failure",
@@ -1163,9 +1215,22 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       appState.get("agent-task:terminal-transcript-save-failure"),
     ).toMatchObject({
       status: "errored",
-      summary: "the action completed",
+      summary:
+        "Task stopped: the action completed before its transcript save failed.",
       error: expect.stringContaining("Automatic retry was stopped"),
+      terminalProgressStatus: "failed",
+      parentCompletionEnqueued: true,
     });
+    expect(
+      appState.get(
+        "parent-completion:parent-thread:inj-terminal-transcript-save-failure",
+      ),
+    ).toMatchObject({
+      status: "errored",
+      summaryExcerpt:
+        "Task stopped: the action completed before its transcript save failed.",
+    });
+    expect(insertNotificationMock).toHaveBeenCalled();
     const failedTerminalRow = queueRows.find(
       (row) => row.task_id === "terminal-transcript-save-failure",
     );
@@ -2457,6 +2522,38 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect(abortRunMock).toHaveBeenCalledWith("run-task-t7-a0-c3", "user");
     expect((await queue.getAgentTeamRunDispatchState("t7"))?.status).toBe(
       "failed",
+    );
+  });
+
+  it("retries Stop when a concurrent worker reclaims the queue attempt", async () => {
+    await seedTask("stop-after-reclaim");
+    const row = queueRows.find(
+      (candidate) => candidate.task_id === "stop-after-reclaim",
+    );
+    if (!row) throw new Error("missing queued task row");
+    row.status = "running";
+    row.updated_at = Date.now() - queue.RUN_PROCESSING_STUCK_AFTER_MS - 1;
+    reclaimAfterNextDispatchStateRead = true;
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun("run-task-stop-after-reclaim"),
+      ),
+    ).resolves.toEqual({ ok: true });
+
+    expect(appState.get("agent-task:stop-after-reclaim")).toMatchObject({
+      status: "errored",
+      terminalProgressStatus: "cancelled",
+    });
+    expect(
+      await queue.getAgentTeamRunDispatchState("stop-after-reclaim"),
+    ).toMatchObject({
+      status: "failed",
+      attempts: 1,
+    });
+    expect(abortRunMock).toHaveBeenCalledWith(
+      "run-task-stop-after-reclaim-a1-c0",
+      "user",
     );
   });
 

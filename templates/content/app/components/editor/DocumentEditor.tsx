@@ -3151,6 +3151,7 @@ function PageEditorSessionBody({
       try {
         writePageDraftJournal({
           scope,
+          currentTitle: localTitleRef.current,
           snapshot: {
             title,
             content,

@@ -139,6 +139,30 @@ describe("Page draft journal", () => {
     );
   });
 
+  it("does not let a delayed save replace a peer-title recovery snapshot", () => {
+    const current = {
+      ...snapshot,
+      title: "Peer title final",
+      baseTitle: "Peer title final",
+      content: "Local body with recovery marker",
+    };
+    writePageDraftJournal({ scope, snapshot: current });
+
+    expect(
+      writePageDraftJournal({
+        scope,
+        currentTitle: current.title,
+        snapshot: {
+          ...snapshot,
+          title: "Peer title first",
+          baseTitle: "Peer title first",
+          content: "Older local body",
+        },
+      }),
+    ).toBeNull();
+    expect(readPageDraftJournal(scope)?.snapshot).toEqual(current);
+  });
+
   it("does not clear a newer generation after an older save acknowledges", () => {
     writePageDraftJournal({ scope, snapshot });
     writePageDraftJournal({
