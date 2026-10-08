@@ -4297,12 +4297,20 @@ describe("AgentKitClient", () => {
 
   it("keeps terminal status when catch-up ends before its terminal event", async () => {
     const reports: AgentStreamIntegrityReport[] = [];
+    let subscriptions = 0;
     const transport = createTransport([]);
     transport.getThreadSnapshot = async () => ({
       id: "thread-1",
       createdAt: "2026-08-29T00:00:00.000Z",
       updatedAt: "2026-08-29T00:00:02.000Z",
-      messages: [],
+      messages: [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          status: "streaming",
+          parts: [{ type: "text", text: "Partial response" }],
+        },
+      ],
       events: [
         {
           ...protocolEvent(1, { type: "run.started" }),
@@ -4330,8 +4338,10 @@ describe("AgentKitClient", () => {
       threadId: "thread-1",
       status: "completed",
       lastSequence: 7,
+      activeMessageId: "assistant-1",
     });
     transport.subscribeToRun = async function* ({ afterSequence }) {
+      subscriptions += 1;
       expect(afterSequence).toBe(2);
       yield {
         ...protocolEvent(3, {
@@ -4359,8 +4369,18 @@ describe("AgentKitClient", () => {
       });
       expect(client.getThread("thread-1").activeRunIds).toEqual([]);
       expect(hasActiveAgentRuns(client.getThread("thread-1"))).toBe(false);
+      expect(client.getThread("thread-1").messages).toContainEqual(
+        expect.objectContaining({ id: "assistant-1", status: "error" }),
+      );
       expect(reports).toContainEqual(
         expect.objectContaining({ code: "run_missing_terminal" }),
+      );
+
+      await client.loadThread("thread-1");
+      await Promise.resolve();
+      expect(subscriptions).toBe(1);
+      expect(client.getThread("thread-1").messages).toContainEqual(
+        expect.objectContaining({ id: "assistant-1", status: "error" }),
       );
     } finally {
       await client.dispose();

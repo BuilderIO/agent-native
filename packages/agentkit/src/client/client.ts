@@ -72,6 +72,7 @@ type TerminalRunSnapshot = AgentRunSnapshot & {
 interface TerminalRunCatchUp {
   threadId: ThreadId;
   runId: RunId;
+  state: "pending" | "unconfirmable";
   run: TerminalRunSnapshot;
   snapshotHasNoActiveRuns: boolean;
   snapshotMessages: AgentMessage[];
@@ -2513,10 +2514,20 @@ export class AgentKitClient implements AgentKitController {
           activeRunIds,
         };
       }
+      for (const catchUp of this.terminalRunCatchUps.values()) {
+        if (
+          catchUp.threadId === threadId &&
+          catchUp.state === "unconfirmable" &&
+          this.findConfirmedTerminalEvent(thread, catchUp)
+        ) {
+          this.terminalRunCatchUps.delete(this.runKey(threadId, catchUp.runId));
+        }
+      }
       thread = this.settleTerminalThread(
         thread,
         snapshot,
         this.terminalRunCatchUpIds(threadId),
+        this.terminalRunCatchUpFailureIds(threadId),
       );
       if (threadMissing) this.missingThreadStates.add(thread);
       this.setThread(threadId, thread);
@@ -2529,6 +2540,7 @@ export class AgentKitClient implements AgentKitController {
       }
       for (const catchUp of this.terminalRunCatchUps.values()) {
         if (catchUp.threadId !== threadId) continue;
+        if (catchUp.state === "unconfirmable") continue;
         const terminalEvent = this.findConfirmedTerminalEvent(thread, catchUp);
         if (terminalEvent) {
           thread = this.completeTerminalRunCatchUp(
@@ -2805,9 +2817,9 @@ export class AgentKitClient implements AgentKitController {
     this.assertActive();
     const thread = this.getThread(threadId);
     const status = thread.runs[runId]?.status;
-    const isCatchingUp = this.terminalRunCatchUps.has(
-      this.runKey(threadId, runId),
-    );
+    const catchUp = this.terminalRunCatchUps.get(this.runKey(threadId, runId));
+    if (catchUp?.state === "unconfirmable") catchUp.state = "pending";
+    const isCatchingUp = this.hasTerminalRunCatchUp(threadId, runId);
     // A failed stream can be explicitly reattached to recover from a
     // transient disconnect. Terminal runs resume only to replay a confirmed
     // terminal snapshot's missing event tail.
@@ -3843,6 +3855,7 @@ export class AgentKitClient implements AgentKitController {
       "awaiting_approval",
       "awaiting_input",
     ].includes(this.getThread(threadId).runs[runId]?.status ?? "");
+    let terminalCatchUpFailed = false;
     try {
       while (true) {
         const afterSequence =
@@ -3908,6 +3921,8 @@ export class AgentKitClient implements AgentKitController {
                     threadId,
                     runId,
                   });
+                  this.markTerminalRunCatchUpUnconfirmable(threadId, runId);
+                  terminalCatchUpFailed = true;
                   throw new AgentProtocolValidationError(
                     "run.events",
                     `replay did not confirm terminal snapshot for run ${runId}`,
@@ -3924,6 +3939,8 @@ export class AgentKitClient implements AgentKitController {
                     threadId,
                     runId,
                   });
+                  this.markTerminalRunCatchUpUnconfirmable(threadId, runId);
+                  terminalCatchUpFailed = true;
                   throw new AgentProtocolValidationError(
                     "run.events",
                     `replay did not reach terminal snapshot cursor for run ${runId}`,
@@ -3952,6 +3969,8 @@ export class AgentKitClient implements AgentKitController {
                   threadId,
                   runId,
                 });
+                this.markTerminalRunCatchUpUnconfirmable(threadId, runId);
+                terminalCatchUpFailed = true;
                 throw new AgentProtocolValidationError(
                   "run.events",
                   `replay reached terminal snapshot cursor without a terminal event for run ${runId}`,
@@ -3966,6 +3985,8 @@ export class AgentKitClient implements AgentKitController {
                 threadId,
                 runId,
               });
+              this.markTerminalRunCatchUpUnconfirmable(threadId, runId);
+              terminalCatchUpFailed = true;
               throw new AgentProtocolValidationError(
                 "run.events",
                 `replay ended without confirming terminal snapshot for run ${runId}`,
@@ -3994,6 +4015,10 @@ export class AgentKitClient implements AgentKitController {
             abortController.signal.reason instanceof
             AgentKitConsumerStoppedError
           ) {
+            return;
+          }
+          if (terminalCatchUpFailed) {
+            this.fail(error, "run_stream_failed");
             return;
           }
           if (terminalEvent && !this.hasTerminalRunCatchUp(threadId, runId)) {
@@ -4183,6 +4208,7 @@ export class AgentKitClient implements AgentKitController {
     thread: AgentThreadState,
     snapshot?: Pick<AgentThreadSnapshot, "activeRunIds" | "runs"> | null,
     pendingCatchUpRunIds: ReadonlySet<RunId> = new Set(),
+    unconfirmableCatchUpRunIds: ReadonlySet<RunId> = new Set(),
   ): AgentThreadState {
     const runs = Object.values(thread.runs);
     const terminalRuns = runs.filter(
@@ -4194,7 +4220,7 @@ export class AgentKitClient implements AgentKitController {
         settleRunProjection(
           currentThread,
           run.id,
-          run.status,
+          unconfirmableCatchUpRunIds.has(run.id) ? "failed" : run.status,
           run.completedAt ?? this.now(),
           run.activeMessageId,
         ),
@@ -4220,10 +4246,12 @@ export class AgentKitClient implements AgentKitController {
     // If any known run failed or was cancelled, settle an unassociated message
     // as an error rather than presenting a partial response as successful.
     const settledMessageStatus =
-      terminalRuns.length > 0 &&
-      terminalRuns.every((run) => run.status === "completed")
-        ? "complete"
-        : "error";
+      unconfirmableCatchUpRunIds.size > 0
+        ? "error"
+        : terminalRuns.length > 0 &&
+            terminalRuns.every((run) => run.status === "completed")
+          ? "complete"
+          : "error";
     // Lifecycle events can age out independently of the message projection.
     // Once the snapshot proves that no run remains active, any assistant
     // message still marked streaming is stale rather than in-flight work.
@@ -4239,16 +4267,32 @@ export class AgentKitClient implements AgentKitController {
 
   private hasTerminalRunCatchUp(threadId: ThreadId, runId?: RunId): boolean {
     return runId
-      ? this.terminalRunCatchUps.has(this.runKey(threadId, runId))
+      ? this.terminalRunCatchUps.get(this.runKey(threadId, runId))?.state ===
+          "pending"
       : [...this.terminalRunCatchUps.values()].some(
-          (catchUp) => catchUp.threadId === threadId,
+          (catchUp) =>
+            catchUp.threadId === threadId && catchUp.state === "pending",
         );
   }
 
   private terminalRunCatchUpIds(threadId: ThreadId): Set<RunId> {
     return new Set(
       [...this.terminalRunCatchUps.values()]
-        .filter((catchUp) => catchUp.threadId === threadId)
+        .filter(
+          (catchUp) =>
+            catchUp.threadId === threadId && catchUp.state === "pending",
+        )
+        .map((catchUp) => catchUp.runId),
+    );
+  }
+
+  private terminalRunCatchUpFailureIds(threadId: ThreadId): Set<RunId> {
+    return new Set(
+      [...this.terminalRunCatchUps.values()]
+        .filter(
+          (catchUp) =>
+            catchUp.threadId === threadId && catchUp.state === "unconfirmable",
+        )
         .map((catchUp) => catchUp.runId),
     );
   }
@@ -4263,16 +4307,31 @@ export class AgentKitClient implements AgentKitController {
     const key = this.runKey(threadId, runId);
     const current = this.terminalRunCatchUps.get(key);
     if (current) {
+      if (
+        current.state === "unconfirmable" &&
+        current.run.status === run.status &&
+        current.run.lastSequence === run.lastSequence
+      ) {
+        current.snapshotHasNoActiveRuns = snapshotHasNoActiveRuns;
+        current.snapshotMessages = snapshotMessages;
+        return current;
+      }
       if (run.lastSequence >= current.run.lastSequence) {
+        const changedSnapshot =
+          run.status !== current.run.status ||
+          run.lastSequence !== current.run.lastSequence;
+        current.state = "pending";
         current.run = { ...run };
         current.snapshotHasNoActiveRuns = snapshotHasNoActiveRuns;
         current.snapshotMessages = snapshotMessages;
+        if (changedSnapshot) current.messageIdRemap.clear();
       }
       return current;
     }
     const catchUp: TerminalRunCatchUp = {
       threadId,
       runId,
+      state: "pending",
       run: { ...run },
       snapshotHasNoActiveRuns,
       snapshotMessages,
@@ -4371,6 +4430,7 @@ export class AgentKitClient implements AgentKitController {
     const key = this.runKey(catchUp.threadId, catchUp.runId);
     if (
       this.terminalRunCatchUps.get(key) !== catchUp ||
+      catchUp.state !== "pending" ||
       terminalRunEventStatus(terminalEvent) !== catchUp.run.status ||
       terminalEvent.sequence !== catchUp.run.lastSequence ||
       (thread.runs[catchUp.runId]?.lastSequence ?? 0) < catchUp.run.lastSequence
@@ -4386,6 +4446,29 @@ export class AgentKitClient implements AgentKitController {
       terminalThread,
       catchUp.snapshotHasNoActiveRuns ? { activeRunIds: [] } : undefined,
       this.terminalRunCatchUpIds(catchUp.threadId),
+      this.terminalRunCatchUpFailureIds(catchUp.threadId),
+    );
+  }
+
+  private markTerminalRunCatchUpUnconfirmable(
+    threadId: ThreadId,
+    runId: RunId,
+  ): void {
+    const catchUp = this.terminalRunCatchUps.get(this.runKey(threadId, runId));
+    if (!catchUp || catchUp.state !== "pending") return;
+    catchUp.state = "unconfirmable";
+    const thread = this.preserveTerminalRunDuringCatchUp(
+      this.getThread(threadId),
+      catchUp,
+    );
+    this.setThread(
+      threadId,
+      this.settleTerminalThread(
+        thread,
+        catchUp.snapshotHasNoActiveRuns ? { activeRunIds: [] } : undefined,
+        this.terminalRunCatchUpIds(threadId),
+        this.terminalRunCatchUpFailureIds(threadId),
+      ),
     );
   }
 
@@ -4667,6 +4750,7 @@ export class AgentKitClient implements AgentKitController {
       projected,
       snapshot,
       this.terminalRunCatchUpIds(snapshot.id),
+      this.terminalRunCatchUpFailureIds(snapshot.id),
     );
   }
 

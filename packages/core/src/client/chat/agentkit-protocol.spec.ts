@@ -2713,6 +2713,91 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
+  it("restores a runtime run after its queued promotion fails", async () => {
+    let rejectTurn!: (error: Error) => void;
+    const turnPromise = new Promise<AgentChatRuntimeTurn>(
+      (_resolve, reject) => {
+        rejectTurn = reject;
+      },
+    );
+    let reportStartTurnCalled!: () => void;
+    const startTurnCalled = new Promise<void>((resolve) => {
+      reportStartTurnCalled = resolve;
+    });
+    const startTurn = vi.fn(() => {
+      reportStartTurnCalled();
+      return turnPromise;
+    });
+    async function* waitForAbort(
+      signal?: AbortSignal,
+    ): AsyncIterable<AgentChatRuntimeEvent> {
+      if (!signal) return;
+      await new Promise<void>((resolve) => {
+        signal.addEventListener("abort", resolve, { once: true });
+      });
+    }
+    const runtime = createRuntime(
+      async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+        yield { type: "done", reason: "complete" };
+      },
+      {
+        capabilities: {
+          messages: { streaming: true },
+          resumableRuns: true,
+        },
+        async readRunState() {
+          return {
+            status: "running",
+            runId: "runtime-restored-failed-queue",
+            turnId: "turn-queued-message",
+            terminalReason: null,
+          };
+        },
+        async subscribe(input) {
+          return waitForAbort(input.abortSignal);
+        },
+        async createSession() {
+          return {
+            id: "thread-1",
+            runtimeId: "runtime-test",
+            startTurn,
+          };
+        },
+      },
+    );
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const promotion = transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Promote the queued turn")],
+      queuePromotion: {
+        messageId: "queued-message",
+        claimId: "claim-1",
+        turnId: "turn-queued-message",
+      },
+    });
+    await startTurnCalled;
+    const restoredIterator = transport
+      .subscribeToRun({
+        threadId: "thread-1",
+        runId: "runtime-restored-failed-queue",
+      })
+      [Symbol.asyncIterator]();
+    const restoredStart = restoredIterator.next();
+    rejectTurn(new Error("queued promotion failed"));
+
+    await expect(promotion).rejects.toThrow("queued promotion failed");
+    await expect(restoredStart).resolves.toMatchObject({
+      done: false,
+      value: {
+        runId: "runtime-restored-failed-queue",
+        type: "run.started",
+      },
+    });
+
+    await restoredIterator.return?.();
+    await transport.dispose();
+  });
+
   it("omits a missing runtime turn id from restored run metadata", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield { type: "done", reason: "complete" };

@@ -1368,17 +1368,21 @@ export function createAgentKitProtocolAdapter(
       JSON.stringify([threadId, state.turnId]),
     );
     if (pendingQueuePromotion) {
-      const runId = await pendingQueuePromotion;
-      const owner = findRun(threadId, runId);
-      if (owner?.turn.id === state.turnId) {
-        const currentOwner = findRun(threadId, runtimeRunId);
-        if (currentOwner) {
-          return currentOwner.turn.id === state.turnId
-            ? { owner: currentOwner, read }
-            : { read };
+      try {
+        const runId = await pendingQueuePromotion;
+        const owner = findRun(threadId, runId);
+        if (owner?.turn.id === state.turnId) {
+          const currentOwner = findRun(threadId, runtimeRunId);
+          if (currentOwner) {
+            return currentOwner.turn.id === state.turnId
+              ? { owner: currentOwner, read }
+              : { read };
+          }
+          indexRun(owner, runtimeRunId);
+          return { owner, read };
         }
-        indexRun(owner, runtimeRunId);
-        return { owner, read };
+      } catch {
+        // coercion-ok: startRun surfaces this rejection; restore from the separate authoritative read.
       }
     }
 
