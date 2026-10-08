@@ -1461,27 +1461,31 @@ export async function updateThreadData(
       // Completion persistence can race the separate generated-title save.
       // Keep a title already committed by that save when this caller only has
       // its stale empty snapshot.
+      const preserveCurrentMetadata = options.preserveCurrentMetadata;
       const preserveCurrentTitleAndPreview =
-        options.preserveCurrentMetadata ||
         options.preserveCurrentTitleAndPreview;
-      const snapshotTitleForBlankField =
+      const snapshotMetaForBlankFields =
         !options.preserveCurrentMetadata &&
         options.preserveCurrentTitleAndPreview &&
-        !current.title.trim()
-          ? extractThreadMeta(merged).title
+        (!current.title.trim() || !current.preview.trim())
+          ? extractThreadMeta(merged)
           : undefined;
-      const nextTitle = options.preserveCurrentMetadata
+      const nextTitle = preserveCurrentMetadata
         ? current.title
-        : options.preserveCurrentTitleAndPreview
+        : preserveCurrentTitleAndPreview
           ? current.title.trim()
             ? current.title
-            : snapshotTitleForBlankField || current.title
+            : snapshotMetaForBlankFields?.title || current.title
           : title || current.title || extractThreadMeta(merged).title;
-      const nextPreview = preserveCurrentTitleAndPreview
+      const nextPreview = preserveCurrentMetadata
         ? current.preview
-        : typeof transformed === "object" && transformed.preview !== undefined
-          ? transformed.preview
-          : preview;
+        : preserveCurrentTitleAndPreview
+          ? current.preview.trim()
+            ? current.preview
+            : snapshotMetaForBlankFields?.preview || current.preview
+          : typeof transformed === "object" && transformed.preview !== undefined
+            ? transformed.preview
+            : preview;
       const result = await client.execute({
         sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = COALESCE(?, message_count), updated_at = ? WHERE id = ? AND updated_at = ? AND LOWER(owner_email) = LOWER(?)`,
         args: [

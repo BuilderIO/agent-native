@@ -477,6 +477,113 @@ describe("chat thread store", () => {
     expect(row!.preview).toBe("  Saved   preview  ");
   });
 
+  it.each([
+    { title: "", preview: "", expectedTitle: "Find flights to Tokyo" },
+    { title: "", preview: "   ", expectedTitle: "Find flights to Tokyo" },
+    {
+      title: "  Manual   title  ",
+      preview: "",
+      expectedTitle: "  Manual   title  ",
+    },
+  ])(
+    "fills only blank snapshot metadata from merged visible prompts: %j",
+    async ({ title, preview, expectedTitle }) => {
+      row!.title = title;
+      row!.preview = preview;
+      const contextOnlyMessage = {
+        message: {
+          id: "context-only-prompt",
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "<context>Private instructions only</context>",
+            },
+          ],
+        },
+        parentId: null,
+      };
+      const firstVisiblePrompt = {
+        message: {
+          id: "first-visible-prompt",
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Find flights to <context>private note</context>Tokyo",
+            },
+          ],
+        },
+        parentId: "context-only-prompt",
+      };
+      const latestVisiblePrompt = {
+        message: {
+          id: "latest-visible-prompt",
+          role: "user",
+          content: [{ type: "text", text: "Book a return flight" }],
+        },
+        parentId: "first-visible-prompt",
+      };
+      row!.thread_data = JSON.stringify({
+        messages: [contextOnlyMessage],
+        agentKit: { messages: [] },
+      });
+
+      await updateThreadData(
+        "thread-1",
+        JSON.stringify({
+          messages: [firstVisiblePrompt, latestVisiblePrompt],
+          agentKit: { _snapshotDelta: true, messages: [] },
+        }),
+        "Stale title",
+        "Stale preview",
+        3,
+        { preserveCurrentTitleAndPreview: true },
+      );
+
+      expect(row!.title).toBe(expectedTitle);
+      expect(row!.preview).toBe("Book a return flight");
+    },
+  );
+
+  it("keeps blank snapshot metadata blank when merged history has no visible prompt", async () => {
+    row!.title = "";
+    row!.preview = "";
+    row!.thread_data = JSON.stringify({
+      messages: [
+        {
+          message: {
+            id: "context-only-prompt",
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "<context>Private instructions only</context>",
+              },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+      agentKit: { messages: [] },
+    });
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: { _snapshotDelta: true, messages: [] },
+      }),
+      "Stale title",
+      "Stale preview",
+      1,
+      { preserveCurrentTitleAndPreview: true },
+    );
+
+    expect(row!.title).toBe("");
+    expect(row!.preview).toBe("");
+  });
+
   it("lets explicit metadata preservation win over snapshot title seeding", async () => {
     row!.title = "";
     row!.preview = "";
