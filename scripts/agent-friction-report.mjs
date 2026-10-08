@@ -2229,7 +2229,9 @@ const E2E_TEST_KIND = String.raw`(?:tests?|specs?|failures?|runs?|bugs?)`;
 const E2E_ISSUE_FANOUT_RE = new RegExp(
   [
     String.raw`\bissues?\b[^.!?;\n]{0,80}\b(?:for|per)\s+(?:each|every)\b[^.!?;\n]{0,80}\b${E2E_PLATFORM}\b[^.!?;\n]{0,40}\b${E2E_TEST_KIND}\b`,
-    String.raw`\b(?:each|every)\b[^.!?;\n]{0,80}\b${E2E_PLATFORM}\b[^.!?;\n]{0,40}\b${E2E_TEST_KIND}\b[^.!?;\n]{0,80}\b(?:own|separate|individual)\s+(?:issues?|tickets?)\b`,
+    String.raw`\b(?:for|with)\s+(?:each|every)\b[^.!?;\n]{0,80}\b${E2E_PLATFORM}\b[^.!?;\n]{0,40}\b${E2E_TEST_KIND}\b[^.!?;\n]{0,80}\b(?:new|separate|individual|own)\s+(?:issues?|tickets?)\b`,
+    String.raw`\b(?:for|with)\s+(?:each|every)\b[^.!?;\n]{0,80}\b${E2E_PLATFORM}\b[^.!?;\n]{0,40}\b${E2E_TEST_KIND}\b[ \t]*,?[ \t]*\n[ \t]*\b(?:(?:a|an?|one)\s+)?(?:new|separate|individual|own)\s+(?:issues?|tickets?)\b`,
+    String.raw`\b(?:each|every)\b[^.!?;\n]{0,80}\b${E2E_PLATFORM}\b[^.!?;\n]{0,40}\b${E2E_TEST_KIND}\b[^.!?;\n]{0,40}\b(?:gets?|got|has|had|receives?|received|creates?|created|opens?|opened|files?|filed|generates?|generated|produces?|produced|triggers?|triggered)\b[^.!?;\n]{0,40}\b(?:(?:its|their|a|an?|one)\s+)?(?:own|separate|individual|new|single|one)\s+(?:issues?|tickets?)\b`,
     String.raw`\b(?:one|an?)\s+(?:issues?|tickets?)\b[^.!?;\n]{0,40}\bper\s+${E2E_PLATFORM}\b[^.!?;\n]{0,40}\b${E2E_TEST_KIND}\b`,
     String.raw`\b(?:one|an?)\s+(?:issues?|tickets?)\b[^.!?;\n]{0,40}\bper\s+${E2E_TEST_KIND}\b[^.!?;\n]{0,80}\b${E2E_PLATFORM}\b`,
     String.raw`\bduplicate\s+(?:issues?|tickets?)\b[^.!?;\n]{0,60}\b(?:for|about|from|on)\b[^.!?;\n]{0,40}\b${E2E_PLATFORM}\b[^.!?;\n]{0,40}\b${E2E_TEST_KIND}\b`,
@@ -2237,6 +2239,7 @@ const E2E_ISSUE_FANOUT_RE = new RegExp(
     String.raw`\b(?:too many|flood\w*|overload\w*)\b[^.!?;\n]{0,60}\b(?:issues?|tickets?)\b[^.!?;\n]{0,60}\b(?:for|from|in)\b[^.!?;\n]{0,20}\b${E2E_PLATFORM}\b[^.!?;\n]{0,40}\b${E2E_TEST_KIND}\b`,
     String.raw`\b${E2E_PLATFORM}\b[^.!?;\n]{0,40}\b${E2E_TEST_KIND}\b[^.!?;\n]{0,60}\b(?:create|open|file|generate|produce)\b[^.!?;\n]{0,40}\b(?:too many|flood\w*|overload\w*)\b[^.!?;\n]{0,40}\b(?:issues?|tickets?)\b`,
     String.raw`\b${E2E_PLATFORM}\b[^.!?;\n]{0,120}\b(?:don't|do not|stop|shouldn't|should not|why)\b[^.!?;\n]{0,80}\b100\b[^.!?;\n]{0,40}\b(?:issues?|tickets?)\b`,
+    String.raw`\b${E2E_PLATFORM}\b[^.!?;\n]{0,40}\b(?:tests?|specs?|runs?)\b[^.!?;\n]{0,20}\b(?:fail|fails|failed|failing|failure|failures)\b\s*\n\s*(?:please\s+)?(?:don't|do not|stop|shouldn't|should not)\b[^.!?;\n]{0,80}\b100\b[^.!?;\n]{0,40}\b(?:issues?|tickets?)\b[.!?]?[ \t]*(?:\n[ \t]*)?(?:just|only|exactly)\s+(?:one|a single)\b`,
     String.raw`\b(?:don't|do not|stop|shouldn't|should not|why)\b[^.!?;\n]{0,80}\b100\b[^.!?;\n]{0,40}\b(?:issues?|tickets?)\b[^.!?;\n]{0,80}\b(?:for|during|from)\b[^.!?;\n]{0,40}\b${E2E_PLATFORM}\b[^.!?;\n]{0,40}\b${E2E_TEST_KIND}\b`,
   ].join("|"),
   "i",
@@ -2250,10 +2253,12 @@ const E2E_ISSUE_FANOUT_REGEX_CASES = [
   [true, "Stop filing one issue per E2E test."],
   [true, "There are multiple duplicate tickets for Playwright failures."],
   [true, "E2E tests open separate issues for each failure."],
+  [true, "For every E2E failure, a new issue was filed."],
   [false, "The E2E suite had 100 failing tests."],
   [false, "There are 100 issues in this unrelated database test."],
   [false, "The E2E run reported multiple issues across different defects."],
   [false, "The E2E suite is green, but a separate issue tracks billing."],
+  [false, "Every E2E test passed, and a separate issue tracks billing."],
   [false, "Closed 100 issues this sprint and the E2E suite is green now."],
   [false, "The Design E2E failure is tracked in one issue."],
 ];
@@ -2261,6 +2266,21 @@ const E2E_ISSUE_FANOUT_NORMALIZATION_CASES = [
   [false, "The E2E suite is green.\nA separate issue tracks billing."],
   [false, "The E2E suite is green.\nDuplicate ticket opened for billing."],
   [false, "The E2E tests are green\nThey create separate issues for billing."],
+  [false, "The E2E run was green\nWhy are there 100 issues for billing?"],
+  [
+    false,
+    "With every E2E failure resolved, the suite is green\nA new issue tracks billing.",
+  ],
+  [false, "The E2E test failed\nDon't open 100 issues for billing."],
+  [false, "The E2E test failed\nDon't open 100 issues for billing. Just one."],
+  [true, "When an E2E test fails,\ndon't open 100 issues. Just one."],
+  [true, "When an E2E test fails\ndon't open 100 issues. Just one."],
+  [true, "When an E2E test fails\nplease don't open 100 issues. Just one."],
+  [true, "For every E2E failure,\na new issue was filed."],
+  [true, "For every E2E failure\na new issue was filed."],
+];
+const LEGACY_LINE_NORMALIZATION_CASES = [
+  [true, "Signup pages should always show\nthe WebGL wave, not this graphic."],
 ];
 
 if (process.argv.includes("--self-test")) {
@@ -2321,7 +2341,17 @@ if (process.argv.includes("--self-test")) {
   failures.push(
     ...E2E_ISSUE_FANOUT_NORMALIZATION_CASES.filter(
       ([expected, message]) =>
-        E2E_ISSUE_FANOUT_RE.test(normalizeHumanText(message)) !== expected,
+        E2E_ISSUE_FANOUT_RE.test(
+          textForPattern(normalizeHumanText(message), true),
+        ) !== expected,
+    ),
+  );
+  failures.push(
+    ...LEGACY_LINE_NORMALIZATION_CASES.filter(
+      ([expected, message]) =>
+        AUTH_PAGE_BACKGROUND_REGRESSION_RE.test(
+          textForPattern(normalizeHumanText(message)),
+        ) !== expected,
     ),
   );
   failures.push(
@@ -2418,7 +2448,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FIGMA_PARITY_UNMEASURED_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FIGMA_PARITY_UNMEASURED_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -2706,6 +2736,7 @@ const PATTERNS = [
     fixedBy:
       ".agents/skills/review-latest-feedback/references/ci-red-report.md (2026-10-08)",
     re: E2E_ISSUE_FANOUT_RE,
+    lineSensitive: true,
   },
   {
     key: "feedback-channel-coverage",
@@ -2856,7 +2887,8 @@ async function scan(file, read) {
     if (!at || at < cutoff) continue;
     messages += 1;
     for (const pattern of selected) {
-      if (!pattern.re.test(text)) continue;
+      if (!pattern.re.test(textForPattern(text, pattern.lineSensitive)))
+        continue;
       const week = weekOf(at);
       const bucket = counts.get(pattern.key);
       bucket.set(week, (bucket.get(week) ?? 0) + 1);
@@ -2873,6 +2905,12 @@ function normalizeHumanText(raw) {
     .replace(/[^\S\n]+/g, " ")
     .replace(/\n{2,}/g, "\n")
     .trim();
+}
+
+function textForPattern(text, lineSensitive = false) {
+  return lineSensitive
+    ? text.replace(/, *\n */g, ", ")
+    : text.replace(/\s+/g, " ");
 }
 
 function humanText(raw) {
