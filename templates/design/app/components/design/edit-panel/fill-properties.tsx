@@ -457,10 +457,12 @@ export function FillProperties({
       backgroundPositionLayers,
     });
     if (addFillPatch.backgroundImage !== undefined) {
+      const addedLayerKey = nextLayerKey();
       layerKeysRef.current.keys = [
-        nextLayerKey(),
+        addedLayerKey,
         ...layerKeysRef.current.keys,
       ];
+      setOpenFillPickerKey(`${fillStashKey}:${addedLayerKey}`);
     }
     commitStylePatch(addFillPatch, onStyleChange, onStylesChange);
   };

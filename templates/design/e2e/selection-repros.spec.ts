@@ -68,6 +68,34 @@ async function newDesign(page: Page): Promise<string> {
   return id;
 }
 
+async function getDesignFiles(
+  page: Page,
+  designId: string,
+): Promise<Array<{ filename: string; content: string }>> {
+  const response = await page.request.get(
+    `${baseURL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+  );
+  if (!response.ok()) {
+    throw new Error(`get-design: ${response.status()} ${await response.text()}`);
+  }
+  const design = await response.json();
+  return (design.files ?? []) as Array<{ filename: string; content: string }>;
+}
+
+function fileOwners(
+  files: Array<{ filename: string; content: string }>,
+  nodeId: string,
+): string[] {
+  const escapedNodeId = nodeId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(
+    `data-agent-native-node-id=[\"']${escapedNodeId}[\"']`,
+  );
+  return files
+    .filter((file) => pattern.test(file.content))
+    .map((file) => file.filename)
+    .sort();
+}
+
 function toolbar(page: Page): Locator {
   return page.locator("[data-design-bottom-toolbar]");
 }
@@ -107,6 +135,41 @@ async function screenCard(page: Page) {
   const box = await page.locator("[data-screen-card]").first().boundingBox();
   if (!box) throw new Error("no screen card");
   return box;
+}
+
+async function canvasDropPointOutsideCard(
+  page: Page,
+  card: { x: number; y: number; width: number; height: number },
+): Promise<{ x: number; y: number }> {
+  const surface = await page
+    .locator("[data-multi-screen-canvas-surface]")
+    .boundingBox();
+  if (!surface) throw new Error("no visible canvas surface");
+  const candidates = [
+    { x: card.x + card.width + 80, y: card.y + card.height / 2 },
+    { x: card.x - 80, y: card.y + card.height / 2 },
+    { x: card.x + card.width / 2, y: card.y + card.height + 80 },
+    { x: card.x + card.width / 2, y: card.y - 80 },
+  ];
+  const isInsideSurface = (point: { x: number; y: number }) =>
+    point.x >= surface.x + 16 &&
+    point.y >= surface.y + 16 &&
+    point.x <= surface.x + surface.width - 16 &&
+    point.y <= surface.y + surface.height - 16;
+  const isInsideCard = (point: { x: number; y: number }) =>
+    point.x >= card.x &&
+    point.y >= card.y &&
+    point.x <= card.x + card.width &&
+    point.y <= card.y + card.height;
+  const point = candidates.find(
+    (candidate) => isInsideSurface(candidate) && !isInsideCard(candidate),
+  );
+  if (!point) {
+    throw new Error(
+      `no in-canvas drop point outside screen: ${JSON.stringify({ surface, card })}`,
+    );
+  }
+  return point;
 }
 
 function insideScreenX(card: { x: number }, preferred: number): number {
@@ -343,12 +406,17 @@ test.describe("dragging an element out of a screen", () => {
     expect(beforeDrag, "box-a must be painted before the drag").not.toBeNull();
 
     const card = await screenCard(page);
+    const dropPoint = await canvasDropPointOutsideCard(page, card);
     await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
     await page.mouse.down();
-    await page.mouse.move(card.x - 120, card.y - 60, { steps: 24 });
+    await page.mouse.move(dropPoint.x, dropPoint.y, { steps: 24 });
     await page.waitForTimeout(500);
     await page.mouse.up();
-    await page.waitForTimeout(4000);
+    await expect
+      .poll(async () => fileOwners(await getDesignFiles(page, id), "box-a"), {
+        message: `an in-canvas screen exit at ${JSON.stringify(dropPoint)} must transfer the layer to the board`,
+      })
+      .toEqual(["__board__.html"]);
 
     const painted = await paintedBoxA(page);
 
@@ -427,6 +495,7 @@ test.describe("dragging back into a screen", () => {
 
     const start = (await node(page, "box-a").boundingBox())!;
     const card = await screenCard(page);
+    const boardDropPoint = await canvasDropPointOutsideCard(page, card);
     await page.mouse.click(
       start.x + start.width / 2,
       start.y + start.height / 2,
@@ -437,39 +506,40 @@ test.describe("dragging back into a screen", () => {
       start.y + start.height / 2,
     );
     await page.mouse.down();
-    await page.mouse.move(card.x - 160, card.y + 120, { steps: 20 });
+    await page.mouse.move(boardDropPoint.x, boardDropPoint.y, { steps: 20 });
     await page.waitForTimeout(500);
     await page.mouse.up();
-    await page.waitForTimeout(4000);
+    await expect
+      .poll(async () => fileOwners(await getDesignFiles(page, id), "box-a"), {
+        message: "the first leg of screen-entry must move the layer to the board",
+      })
+      .toEqual(["__board__.html"]);
 
-    const onCanvas = await page.evaluate(() => {
-      for (const frame of Array.from(document.querySelectorAll("iframe"))) {
-        const el = frame.contentDocument?.querySelector(
-          '[data-agent-native-node-id="box-a"]',
-        );
-        if (!el) continue;
-        const rect = el.getBoundingClientRect();
-        const frameBox = frame.getBoundingClientRect();
-        const scaleX = frameBox.width / (frame.clientWidth || 1);
-        const scaleY = frameBox.height / (frame.clientHeight || 1);
-        return {
-          x: frameBox.x + rect.x * scaleX,
-          y: frameBox.y + rect.y * scaleY,
-        };
-      }
-      return null;
-    });
-    if (!onCanvas) throw new Error("dragged layer is not on any surface");
-    await page.mouse.click(onCanvas.x + 8, onCanvas.y + 8);
+    const boardNode = page
+      .locator("[data-board-surface-layer] iframe[data-design-preview-iframe]")
+      .contentFrame()
+      .locator('[data-agent-native-node-id="box-a"]')
+      .first();
+    const boardBox = await boardNode.boundingBox();
+    if (!boardBox) throw new Error("dragged layer is missing from the board");
+    const boardPoint = {
+      x: boardBox.x + boardBox.width / 2,
+      y: boardBox.y + boardBox.height / 2,
+    };
+    await page.mouse.click(boardPoint.x, boardPoint.y);
     await page.waitForTimeout(1700);
     const dropX = card.x + card.width * 0.6;
     const dropY = card.y + card.height * 0.55;
-    await page.mouse.move(onCanvas.x + 8, onCanvas.y + 8);
+    await page.mouse.move(boardPoint.x, boardPoint.y);
     await page.mouse.down();
     await page.mouse.move(dropX, dropY, { steps: 22 });
     await page.waitForTimeout(600);
     await page.mouse.up();
-    await page.waitForTimeout(4500);
+    await expect
+      .poll(async () => fileOwners(await getDesignFiles(page, id), "box-a"), {
+        message: `the board layer must transfer into the screen at ${JSON.stringify({ dropX, dropY })}`,
+      })
+      .toEqual(["index.html"]);
 
     const html = await page.request
       .get(`${baseURL}/_agent-native/actions/get-design?id=${id}`)

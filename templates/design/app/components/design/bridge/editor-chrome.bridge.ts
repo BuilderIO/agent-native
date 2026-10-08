@@ -6760,13 +6760,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // same scope containerFirstSelectionTarget resolves clicks against — never
   // reaching into a candidate's nested descendants unless Cmd/Ctrl is held
   // (`deep`), matching Cmd/Ctrl+click's own deep-select.
-  function collectSelectableElements(deep?: boolean): Element[] {
+  function collectSelectableElements(
+    deep?: boolean,
+    gestureScope?: Element | null,
+  ): Element[] {
     var nodes = Array.prototype.slice.call(
       document.body ? document.body.querySelectorAll("*") : [],
     ) as Element[];
     var scope: Element | null = null;
     if (!deep) {
-      scope = selectionContainerScope;
+      scope = gestureScope || selectionContainerScope;
       if (!scope || !document.documentElement.contains(scope)) {
         scope = document.body;
       }
@@ -7396,6 +7399,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     startY: number;
     additive: boolean;
     deep: boolean;
+    scope?: Element | null;
     moved: boolean;
     pointerId?: number;
     candidates?: Element[];
@@ -13536,7 +13540,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     marqueeSelectionOverlay.style.height = rect.height + "px";
 
     if (!activeMarqueeSelection.candidates) {
-      var collected = collectSelectableElements(activeMarqueeSelection.deep);
+      var collected = collectSelectableElements(
+        activeMarqueeSelection.deep,
+        activeMarqueeSelection.scope,
+      );
       activeMarqueeSelection.candidates = collected;
       activeMarqueeSelection.candidateBounds = collected.map(selectableBounds);
     }
@@ -13586,7 +13593,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function beginMarqueeSelection(e): void {
+  function beginMarqueeSelection(e, scope?: Element | null): void {
     if (e.button !== 0) return;
     if (activeTextEditEl && !exitStaleTextEditSession()) return;
     clearActiveMarqueeSelection();
@@ -13654,6 +13661,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       startY: e.clientY,
       additive: additive,
       deep: Boolean(e && (e.metaKey || e.ctrlKey)),
+      scope: scope || null,
       moved: false,
       infoCache: new Map<Element, unknown>(),
       lightInfoCache: new Map<Element, unknown>(),
@@ -25631,14 +25639,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var events = dragEventNames(e);
     var hit = elementFromEditorPoint(e.clientX, e.clientY);
     var hitTarget = selectionTargetForHit(hit);
+    var startsOnContainerBackground = isContainerBackgroundHit(hitTarget, hit);
     if (
       !hit ||
       hit === document.body ||
       hit === document.documentElement ||
       isBoardRootMarqueeSurface(hitTarget) ||
-      isContainerBackgroundHit(hitTarget, hit)
+      startsOnContainerBackground
     ) {
-      beginMarqueeSelection(e);
+      beginMarqueeSelection(e, startsOnContainerBackground ? hitTarget : null);
       return;
     }
     var selectedAlive =
