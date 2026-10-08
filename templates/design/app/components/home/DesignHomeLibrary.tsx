@@ -13,7 +13,6 @@ interface DesignHomeLibraryProps {
   recentActions?: ReactNode;
   templates: ReactNode;
   recent?: ReactNode;
-  recentVisible: boolean;
 }
 
 export function DesignHomeLibrary({
@@ -25,9 +24,8 @@ export function DesignHomeLibrary({
   recentActions,
   templates,
   recent,
-  recentVisible,
 }: DesignHomeLibraryProps) {
-  const activeValue = recentVisible ? value : "templates";
+  const activeValue = value;
 
   return (
     <section
@@ -45,11 +43,9 @@ export function DesignHomeLibrary({
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <TabsList variant="line">
-            {recentVisible ? (
-              <TabsTrigger value="recent" className="flex-none">
-                {labels.recent}
-              </TabsTrigger>
-            ) : null}
+            <TabsTrigger value="recent" className="flex-none">
+              {labels.recent}
+            </TabsTrigger>
             <TabsTrigger
               value="templates"
               className="flex-none"
@@ -70,9 +66,7 @@ export function DesignHomeLibrary({
           )}
         </div>
         <TabsContent value="templates">{templates}</TabsContent>
-        {recentVisible ? (
-          <TabsContent value="recent">{recent}</TabsContent>
-        ) : null}
+        <TabsContent value="recent">{recent}</TabsContent>
       </Tabs>
     </section>
   );

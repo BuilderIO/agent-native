@@ -3,6 +3,23 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-06
+
+### Fixed
+
+- Reopening a ChatGPT Slides widget restores the saved deck editor without a second sign-in.
+- Fixed attached images missing from visual analysis.
+- Fixed returning to shared decks after completing an account prompt
+- Generated decks from ChatGPT open in the full Slides editor.
+- Google Slides exports open the created copy directly.
+- Keep one close control in Slides export error dialogs
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+- Slides applies linked design systems to deck style references
+- Slides stop cleanly when generation reaches the requested slide count.
+- Slides uses a reference deck's linked system only when available and won't guess when the reference cannot be read.
+- The Recent tab restores immediately from the last known library state and stays visible while decks load.
+- Fixed home prompts silently doing nothing instead of starting a new deck.
+
 ## 2026-10-05
 
 ### Improved
@@ -11,6 +28,12 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Keyboard navigation and drag edits keep styled bullet rows in place.
+- Agent links copied from a deck are shorter, so Claude can fetch them without hitting its URL length limit.
+- AI setup checks use a fresh status before sending, even when an older check is already running.
+- Image generation reaches Assets when Slides and Assets use different local organization IDs.
+- Sign-in and signup pages now share the animated Agent-Native wave.
+- Slides keeps generation progress visible, restores pending questions when you return, and checks AI setup before sending prompts.
 - File uploads explain the free Builder.io option and how to connect S3-compatible storage.
 - Slides keeps a pending generation question and its chat available when you leave and reopen a deck.
 - Prompt-generated Slides decks remain when Cmd+Z reaches deck creation.
@@ -20,6 +43,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- List edits keep slide layouts anchored, and long editing sessions retain undo history within a fixed memory budget.
 - Slide text edits preserve layout with inline-size containment.
 
 ## 2026-10-02

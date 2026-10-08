@@ -1056,6 +1056,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "ما زلنا بانتظار {{stage}}. الطلب: {{action}}.",
+    widgetDocumentLoadStage: "محتوى الصفحة المحفوظة",
+    widgetDraftCheckStage: "استعادة مسودة الصفحة",
+    widgetEditorInitStage: "تهيئة محرر النص المنسق",
     iconPickerIcons: "الأيقونات",
     iconPickerEmoji: "الرموز التعبيرية",
     iconPickerRecent: "الأخيرة",
@@ -1065,6 +1069,10 @@ const exactEnglish = {
     iconPickerUploading: "جارٍ الرفع…",
     suggestionAmendmentEmpty:
       "هذا التعديل مطابق للصفحة الحالية. ارفض الاقتراح لإزالته.",
+    suggestionUnplaceable:
+      "تغيّر النص المحيط بهذا الاقتراح، لذا لا يمكن تطبيقه. لا يزال معلّقًا: ارفضه أو اقترح التعديل مرة أخرى.",
+    proposalUnplaceable:
+      "تغيّر النص المحيط بأحد هذه الاقتراحات فلا يمكن تطبيقه، لذا لم يُطبَّق أي منها. لا تزال جميعها معلّقة: اقبلها أو ارفضها واحدًا تلو الآخر.",
     suggestionAmendmentFailed: "تعذر حفظ الاقتراح",
     suggestionAmendmentResolved:
       "تم تغيير هذا الاقتراح في مكان آخر. لا تزال مسودتك غير المحفوظة هنا.",
@@ -1336,9 +1344,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "لم يتم تحديد صفحة",
-    signedInAs: "تم تسجيل الدخول باسم {{email}}",
+    pageNoAccess: "ليست لديك صلاحية الوصول إلى هذه الصفحة",
+    pageMissing: "هذه الصفحة غير موجودة",
+    pageInTrash: "هذه الصفحة في المهملات",
+    pageInTrashAskOwner: "اطلب من المالك استعادتها.",
+    openTrash: "فتح المهملات",
     goToMyPages: "الانتقال إلى صفحاتي",
-    switchAccount: "تبديل الحساب",
     noPageDescription: "اختر صفحة من الشريط الجانبي أو أنشئ واحدة جديدة.",
     newPage: "صفحة جديدة",
     createFailed: "فشل إنشاء الصفحة",

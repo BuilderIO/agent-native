@@ -2,6 +2,7 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   "core-philosophy": "key-concepts",
   frames: "agent-surfaces",
   "database-adapters": "deployment",
+  "other-platforms": "deployment",
   database: "server-database",
   "human-approval": "actions-access-control",
   "local-file-mode": "template-content-local-files",
@@ -38,6 +39,20 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
 };
 
 export const DOCS_FRAGMENT_REDIRECTS: Record<string, Record<string, string>> = {
+  // /docs/other-platforms redirects here and the browser keeps its fragment.
+  // Never map an id the deployment page itself renders.
+  deployment: {
+    "aws-lambda": "#supported-deployment-targets",
+    "deno-deploy": "#supported-deployment-targets",
+  },
+  "aws-amplify": {
+    "build-with-nitro": "#step-4-add-amplifys-build-settings",
+    "runtime-variables-and-cli": "#step-2-configure-environment-secrets",
+    "configure-the-app": "#step-2-configure-environment-secrets",
+    "cloudfront-caching": "#caching",
+    "streaming-requests": "#stream-agent-responses",
+    "verify-the-deployment": "#step-6-open-the-app",
+  },
   "template-clips-features": {
     "browser-logs-with-the-chrome-extension": "#chrome-extension-browser-logs",
     "desktop-recorder-and-the-desktop-tray-app": "#desktop-tray-app",

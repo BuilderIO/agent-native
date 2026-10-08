@@ -7,7 +7,10 @@ import {
 import { z } from "zod";
 
 import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
-import { upsertDashboardWithRetry } from "../server/lib/dashboards-store";
+import {
+  getDashboard,
+  upsertDashboardWithRetry,
+} from "../server/lib/dashboards-store";
 import {
   compactDashboardResult,
   movePanelsById,
@@ -146,7 +149,12 @@ export default defineAction({
       },
     );
     const root = saved.config as Record<string, unknown>;
-    queueDashboardCollabSync(dashboardId, root, "agent");
+    void queueDashboardCollabSync(
+      dashboardId,
+      saved.updatedAt,
+      () => getDashboard(dashboardId, ctx),
+      "agent",
+    );
 
     const compact = compactDashboardResult(root, orderResult.movedPanelIds);
     return {

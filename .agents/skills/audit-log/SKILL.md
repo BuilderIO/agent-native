@@ -143,6 +143,16 @@ in SQL to the caller — they never leak another tenant's rows:
   and `offset`, plus `format` and `maxRows`) for offline/compliance pulls;
   itself audited via `onRead`.
 
+- `export-audit-ocsf` — the org trail as OCSF 1.9.0 API Activity events (class
+  6003) for a SIEM. Owners and admins only, through
+  `resolveAuditReadScope(ctx, "organization")`, so it never reads past
+  `list-audit-events`. Oldest first; pass the previous `nextCursor` as `cursor`
+  and store every returned `nextCursor`, including on empty pages (they advance
+  the ready watermark). `since`/`until` take ISO or epoch ms.
+  The mapper is `auditEventToOcsf` in `audit/ocsf.ts`; framework ids (run, task,
+  thread, turn, app) go under `unmapped`, never an invented OCSF field, and
+  `input` is never exported.
+
 Call them from the UI with `useActionQuery` to build an activity feed or a
 "who changed this" line — never hand-write a fetch to the audit table.
 

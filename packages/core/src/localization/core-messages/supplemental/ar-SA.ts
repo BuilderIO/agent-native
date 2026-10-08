@@ -67,6 +67,22 @@ export const mcpConnectMessages: McpConnectMessages = {
   couldNotCreate: "تعذر إنشاء الرمز.",
   networkError: "حدث خطأ في الشبكة. حاول مرة أخرى.",
   urlTitle: "عنوان MCP الخاص بك",
+  servicePrincipals: "كيانات الخدمة",
+  principalUngoverned: "غير خاضع للحوكمة",
+  principalActive: "نشط",
+  principalSuspended: "معلّق",
+  principalRetired: "متقاعد",
+  principalUngovernedHint: "لم يتم تعيين مالك أو إذن للإجراءات.",
+  principalOwner: "المالك",
+  principalRisk: "المخاطر",
+  riskLow: "منخفضة",
+  riskMedium: "متوسطة",
+  riskHigh: "عالية",
+  suspend: "تعليق",
+  resume: "استئناف",
+  couldNotUpdatePrincipal: "تعذّر تحديث كيان الخدمة.",
+  containmentIncomplete:
+    "تم التحديث، لكن تعذّر إيقاف بعض عمليات التشغيل أو الرموز. حاول مرة أخرى.",
 };
 
 export const mcpSettingsMessages: McpSettingsMessages = {

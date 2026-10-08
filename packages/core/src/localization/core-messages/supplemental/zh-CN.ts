@@ -62,6 +62,21 @@ export const mcpConnectMessages: McpConnectMessages = {
   couldNotCreate: "无法创建令牌。",
   networkError: "网络错误。请重试。",
   urlTitle: "你的 MCP URL",
+  servicePrincipals: "服务主体",
+  principalUngoverned: "未治理",
+  principalActive: "活动",
+  principalSuspended: "已暂停",
+  principalRetired: "已停用",
+  principalUngovernedHint: "未设置所有者或操作授权。",
+  principalOwner: "所有者",
+  principalRisk: "风险",
+  riskLow: "低",
+  riskMedium: "中",
+  riskHigh: "高",
+  suspend: "暂停",
+  resume: "恢复",
+  couldNotUpdatePrincipal: "无法更新服务主体。",
+  containmentIncomplete: "已更新，但部分运行或令牌无法停止。请重试。",
 };
 
 export const mcpSettingsMessages: McpSettingsMessages = {

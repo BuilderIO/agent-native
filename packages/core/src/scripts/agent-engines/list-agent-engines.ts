@@ -199,12 +199,15 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
       detectedFromUser ??
       detectedFromEnv ??
       getAgentEngineEntry("anthropic"));
+  const configuredModel = getAppConfig().agent.model;
   const currentModelCandidate =
-    appDefaultUsable && currentEntry?.name === appDefault?.engine
-      ? appDefault?.model
-      : storedUsable && currentEntry?.name === current?.engine
-        ? current?.model
-        : undefined;
+    configuredModel && configuredModel !== "auto"
+      ? configuredModel
+      : appDefaultUsable && currentEntry?.name === appDefault?.engine
+        ? appDefault?.model
+        : storedUsable && currentEntry?.name === current?.engine
+          ? current?.model
+          : undefined;
   const acceptsCustomModels = currentEntry
     ? await resolveEngineAcceptsCustomModels(currentEntry)
     : false;

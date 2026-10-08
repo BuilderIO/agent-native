@@ -813,8 +813,12 @@ import {
   writeBrainSettings,
   writeKnowledgeRecord,
 } from "./brain.js";
-import { buildSanitizerSystemPrompt } from "./capture-sanitization.js";
 import {
+  BrainClassifierUnavailableError,
+  buildSanitizerSystemPrompt,
+} from "./capture-sanitization.js";
+import {
+  connectorErrorMessage,
   isSlackDirectConversation,
   normalizeSlackThreadCapture,
   normalizeGranolaNote,
@@ -2846,6 +2850,27 @@ describe("Brain knowledge quality gates", () => {
   });
 });
 
+describe("connectorErrorMessage", () => {
+  it("reads a message from a non-Error event instead of printing [object ErrorEvent]", () => {
+    class ErrorEvent {
+      constructor(
+        readonly message: string,
+        readonly error?: unknown,
+      ) {}
+    }
+
+    expect(connectorErrorMessage(new ErrorEvent("socket hang up"))).toBe(
+      "socket hang up",
+    );
+    expect(
+      connectorErrorMessage(new ErrorEvent("", new Error("connection reset"))),
+    ).toBe("connection reset");
+    const fallback = connectorErrorMessage(new ErrorEvent(""));
+    expect(fallback).toContain("unexpected ErrorEvent");
+    expect(fallback).not.toContain("[object");
+  });
+});
+
 describe("Brain connector smoke coverage", () => {
   it("tests Slack credentials and channel metadata without reading history", async () => {
     const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
@@ -4173,6 +4198,416 @@ describe("Brain connector smoke coverage", () => {
     expect(slackMemberLookupCalls(fetchSpy)).toHaveLength(0);
     expect(vi.mocked(ensureCaptureAudience)).toHaveBeenCalledWith(
       expect.objectContaining({ kind: "org", upstreamRefHash: "G123" }),
+    );
+  });
+
+  it("schedules a short retry and keeps the cursor when Jev times out mid-sync", async () => {
+    vi.stubGlobal("fetch", privateSlackChannelFetch());
+    mocks.audienceHook.value = async () => {
+      throw new BrainClassifierUnavailableError("jev-timeout");
+    };
+    const source = seedSource({
+      id: "slack-jev-timeout-source",
+      provider: "slack",
+      configJson: JSON.stringify({ channelIds: ["G123"] }),
+    });
+    const before = Date.now();
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result.status).toBe("error");
+    expect(source.status).toBe("error");
+    expect(source.lastError).toContain("nothing was skipped");
+    const cursor = JSON.parse(String(source.cursorJson));
+    expect(cursor.channels?.G123?.latestTs).toBeUndefined();
+    const retryAt = Date.parse(cursor.transientRetryAt);
+    expect(retryAt - before).toBeGreaterThan(9 * 60 * 1000);
+    expect(retryAt - before).toBeLessThan(11 * 60 * 1000);
+  });
+
+  it("imports Zoom transcripts from the account-wide recording list", async () => {
+    const requestedPaths: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        requestedPaths.push(url.pathname);
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({
+            meetings: [
+              {
+                uuid: "meeting-uuid-1",
+                id: 123,
+                topic: "Atlas planning",
+                start_time: "2026-05-14T15:00:00Z",
+                share_url: "https://zoom.us/rec/share/abc",
+                recording_files: [
+                  {
+                    id: "file-1",
+                    file_type: "TRANSCRIPT",
+                    status: "completed",
+                    download_url: "https://zoom.us/rec/download/file-1",
+                  },
+                ],
+              },
+            ],
+          });
+        }
+        if (url.pathname === "/rec/download/file-1") {
+          return new Response(
+            [
+              "WEBVTT",
+              "",
+              "1",
+              "00:00:01.000 --> 00:00:04.000",
+              "Ada: Atlas moves to Thursday.",
+            ].join(String.fromCharCode(10)),
+          );
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-account-source",
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: { lookbackDays: 7 } }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({ status: "success", capturesCreated: 1 });
+    expect(requestedPaths).toContain("/v2/accounts/me/recordings");
+    expect(requestedPaths.some((path) => path.startsWith("/v2/users"))).toBe(
+      false,
+    );
+  });
+
+  it("looks up a meeting when the account list omits transcript download URLs", async () => {
+    const requestedPaths: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        requestedPaths.push(url.pathname);
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        const files = (withUrl: boolean) => [
+          { id: "mp4", file_type: "MP4", status: "completed" },
+          {
+            id: "transcript",
+            file_type: "TRANSCRIPT",
+            status: "completed",
+            ...(withUrl
+              ? { download_url: "https://zoom.us/rec/download/transcript" }
+              : {}),
+          },
+        ];
+        const meeting = {
+          uuid: "abc//def==",
+          id: 83124551552,
+          topic: "Marketing Standup",
+          start_time: "2026-10-06T15:29:38Z",
+        };
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({
+            meetings: [{ ...meeting, recording_files: files(false) }],
+          });
+        }
+        if (
+          url.pathname === "/v2/meetings/abc%252F%252Fdef%253D%253D/recordings"
+        ) {
+          return Response.json({ ...meeting, recording_files: files(true) });
+        }
+        if (url.pathname === "/rec/download/transcript") {
+          return new Response(
+            [
+              "WEBVTT",
+              "",
+              "00:00:01.000 --> 00:00:04.000",
+              "Ada: Launch moves to Friday.",
+            ].join(String.fromCharCode(10)),
+          );
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-detail-lookup-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: { meetingTopics: ["Marketing Standup"] },
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "success",
+      capturesCreated: 1,
+      stats: { transcriptsDownloaded: 1, transcriptsWithoutDownloadUrl: 0 },
+    });
+    expect(requestedPaths).toContain(
+      "/v2/meetings/abc%252F%252Fdef%253D%253D/recordings",
+    );
+  });
+
+  it("caps the file summaries recorded for each matched Zoom meeting", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({
+            meetings: [
+              {
+                uuid: "many-files",
+                id: 83124551552,
+                topic: "Marketing Standup",
+                start_time: "2026-10-06T15:29:38Z",
+                recording_files: Array.from({ length: 12 }, (_, i) => ({
+                  id: "mp4-" + i,
+                  file_type: "MP4",
+                  status: "completed",
+                })),
+              },
+            ],
+          });
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-file-cap-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: { meetingTopics: ["Marketing Standup"] },
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+    const [matched] = (
+      result.stats as { matchedMeetings: Array<Record<string, unknown>> }
+    ).matchedMeetings;
+
+    expect(matched.files).toHaveLength(10);
+    expect(matched.filesOmitted).toBe(2);
+  });
+
+  it("imports only Zoom meetings matching the source meeting filter", async () => {
+    const downloads: string[] = [];
+    const recording = (uuid: string, id: number, topic: string) => ({
+      uuid,
+      id,
+      topic,
+      start_time: "2026-05-14T15:00:00Z",
+      recording_files: [
+        {
+          id: uuid,
+          file_type: "TRANSCRIPT",
+          status: "completed",
+          download_url: "https://zoom.us/rec/download/" + uuid,
+        },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({
+            meetings: [
+              recording("by-id", 12345678901, "Pod 2 Monday Sync"),
+              recording("by-topic", 222, "marketing standup"),
+              recording("other", 333, "Unrelated 1:1"),
+            ],
+          });
+        }
+        if (url.pathname.startsWith("/rec/download/")) {
+          downloads.push(url.pathname);
+          return new Response(
+            [
+              "WEBVTT",
+              "",
+              "00:00:01.000 --> 00:00:04.000",
+              "Ada: Atlas moves to Thursday.",
+            ].join(String.fromCharCode(10)),
+          );
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-filtered-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: {
+          meetingIds: ["123 4567 8901"],
+          meetingTopics: ["Marketing Standup"],
+        },
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "success",
+      capturesCreated: 2,
+      stats: { meetingsSeen: 3, meetingsSkippedByFilter: 1 },
+    });
+    expect(downloads.sort()).toEqual([
+      "/rec/download/by-id",
+      "/rec/download/by-topic",
+    ]);
+  });
+
+  it("rewinds the Zoom window when the meeting filter changes", async () => {
+    const listFromDates: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          listFromDates.push(url.searchParams.get("from") ?? "");
+          return Response.json({ meetings: [] });
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const dayMs = 24 * 60 * 60 * 1000;
+    const yesterday = new Date(Date.now() - dayMs).toISOString().slice(0, 10);
+    const lookbackStart = new Date(Date.now() - 10 * dayMs)
+      .toISOString()
+      .slice(0, 10);
+    const source = seedSource({
+      id: "zoom-filter-change-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: { lookbackDays: 10, meetingTopics: ["Marketing Standup"] },
+      }),
+      cursorJson: JSON.stringify({ from: yesterday }),
+    });
+
+    const first = await runConnectorSync(source as never);
+    const savedCursor = JSON.parse(String(source.cursorJson));
+    source.cursorJson = JSON.stringify({ ...savedCursor, from: yesterday });
+    const second = await runConnectorSync(source as never);
+
+    expect(first).toMatchObject({ stats: { filterChanged: true } });
+    expect(second).toMatchObject({ stats: { filterChanged: false } });
+    expect(savedCursor.filterKey).toContain("marketing standup");
+    expect(listFromDates).toEqual([lookbackStart, yesterday]);
+  });
+
+  it("rewinds the Zoom window when lookback days increase", async () => {
+    const listFromDates: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          listFromDates.push(url.searchParams.get("from") ?? "");
+          return Response.json({ meetings: [] });
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const dayMs = 24 * 60 * 60 * 1000;
+    const yesterday = new Date(Date.now() - dayMs).toISOString().slice(0, 10);
+    const lookbackStart = new Date(Date.now() - 20 * dayMs)
+      .toISOString()
+      .slice(0, 10);
+    const source = seedSource({
+      id: "zoom-lookback-change-source",
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: { lookbackDays: 20 } }),
+      cursorJson: JSON.stringify({
+        from: yesterday,
+        filterKey: null,
+        lookbackDays: 7,
+      }),
+    });
+
+    await runConnectorSync(source as never);
+    const savedCursor = JSON.parse(String(source.cursorJson));
+    source.cursorJson = JSON.stringify({ ...savedCursor, from: yesterday });
+    await runConnectorSync(source as never);
+
+    expect(savedCursor.lookbackDays).toBe(20);
+    expect(listFromDates).toEqual([lookbackStart, yesterday]);
+  });
+
+  it("dedupes account-wide Zoom recordings across query chunks", async () => {
+    const meetings = Array.from({ length: 1_001 }, (_, index) => ({
+      uuid: `meeting-${index}`,
+      id: index,
+      topic: `Meeting ${index}`,
+      start_time: "2026-05-14T15:00:00Z",
+      recording_files: [],
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({ meetings });
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-chunked-source",
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: { lookbackDays: 7 } }),
+    });
+    seedCapture({
+      id: "zoom-already-imported",
+      sourceId: source.id,
+      externalId: "zoom:meeting-1000",
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "success",
+      stats: { meetingsSeen: 1_001, alreadyImported: 1 },
+    });
+  });
+
+  it("explains when a Slack source has no channels selected", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ ok: false, error: "unexpected" })),
+    );
+    const source = seedSource({
+      id: "slack-no-channels",
+      provider: "slack",
+      configJson: "{}",
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result.status).toBe("error");
+    expect(source.lastError).toBe(
+      "No Slack channels are selected. Add channel IDs to this source or turn on public channels.",
     );
   });
 

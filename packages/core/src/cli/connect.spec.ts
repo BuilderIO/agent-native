@@ -2315,6 +2315,25 @@ describe("runConnect --service-token", () => {
     await runConnect(["--service-token", "ci"]);
     expect(process.exitCode).toBe(1);
   });
+
+  it("rejects --ttl-days for personal CLI tokens instead of silently ignoring it", async () => {
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+
+    await runConnect(
+      ["https://plan.example.com", "--client", "codex", "--ttl-days", "90"],
+      { fetchImpl },
+    );
+
+    expect(process.exitCode).toBe(1);
+    expect(err.mock.calls.flat().join("")).toContain(
+      "--ttl-days is only supported with --service-token",
+    );
+    expect(err.mock.calls.flat().join("")).toContain("Connect page");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
 });
 
 describe("reconnect — URL-based discovery", () => {

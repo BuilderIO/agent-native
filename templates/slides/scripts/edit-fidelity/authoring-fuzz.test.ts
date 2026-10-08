@@ -6,10 +6,12 @@ import {
   assertShortcutMarkupAdded,
   assertSlideIsScaled,
   AUTHORING_FUZZ_STYLE_PROPERTIES,
+  authoringFuzzLineNavigationKeys,
   authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
   createAuthoringFuzzPlan,
   formatAuthoringFuzzFailure,
+  isBrowserSessionPath,
   isCaretScrollOnlyChange,
   lineNavigationKeys,
   outsideAuthoringChangesFor,
@@ -41,7 +43,30 @@ const authoringSnapshot = (
   inventory: { elements: 1, visible: 1, hidden: 0, svg: 0, img: 0, style: 0 },
   text: "",
   editedRect: null,
+  editedBoxRect: null,
   editedText: null,
+});
+
+const protectedMarkerSnapshot = (
+  className: string,
+  inlineStyle: string,
+  props: Record<string, string>,
+  protectedStructure = false,
+): Snapshot => ({
+  ...authoringSnapshot(64, "rgb(0, 0, 0)"),
+  records: [
+    {
+      key: "box:span#0",
+      kind: "box",
+      inside: true,
+      protectedStyle: true,
+      ...(protectedStructure ? { protectedStructure: true } : {}),
+      className,
+      inlineStyle,
+      props,
+      rect: { x: 0, y: 0, width: 12, height: 12 },
+    },
+  ],
 });
 
 it("gates outside style changes and unmodeled geometry changes", () => {
@@ -71,6 +96,76 @@ it("tracks computed style properties beyond typography and box paint", () => {
       "vertical-align",
     ]),
   );
+});
+
+it("gates styled bullet marker restyles inside the edited row", () => {
+  const changes = outsideAuthoringChangesFor(
+    protectedMarkerSnapshot("marker", "color: red", {
+      color: "rgb(255, 0, 0)",
+    }),
+    protectedMarkerSnapshot("marker-changed", "color: blue", {
+      color: "rgb(0, 0, 255)",
+    }),
+  );
+
+  expect(
+    changes.flatMap((change) =>
+      "prop" in change ? [{ prop: change.prop, inside: change.inside }] : [],
+    ),
+  ).toEqual(
+    expect.arrayContaining([
+      { prop: "class", inside: false },
+      { prop: "style", inside: false },
+      { prop: "color", inside: false },
+    ]),
+  );
+});
+
+it("gates removal or replacement of a marker the edit must preserve", () => {
+  const marker = protectedMarkerSnapshot(
+    "marker",
+    "color: red",
+    { color: "rgb(255, 0, 0)" },
+    true,
+  );
+  const empty = { ...protectedMarkerSnapshot("", "", {}), records: [] };
+
+  expect(outsideAuthoringChangesFor(marker, empty)).toHaveLength(1);
+  expect(outsideAuthoringChangesFor(empty, marker)).toHaveLength(1);
+});
+
+it("allows a block conversion to remove a marker when the row may change", () => {
+  const marker = protectedMarkerSnapshot("marker", "color: red", {
+    color: "rgb(255, 0, 0)",
+  });
+  const empty = { ...protectedMarkerSnapshot("", "", {}), records: [] };
+
+  expect(outsideAuthoringChangesFor(marker, empty)).toHaveLength(0);
+});
+
+it("ignores one CSS pixel-quantization step in anchored position styles", () => {
+  const before = authoringSnapshot(64, "rgb(0, 0, 0)", {
+    top: "386.938px",
+    "transform-origin": "135px 74.875px",
+    transform: "matrix(1, 0, 0, 1, 0, -74.875)",
+  });
+  const after = authoringSnapshot(64, "rgb(0, 0, 0)", {
+    top: "386.922px",
+    "transform-origin": "135px 74.883px",
+    transform: "matrix(1, 0, 0, 1, 0, -74.883)",
+  });
+
+  expect(outsideAuthoringChangesFor(before, after)).toHaveLength(0);
+  expect(
+    outsideAuthoringChangesFor(
+      before,
+      authoringSnapshot(64, "rgb(0, 0, 0)", {
+        top: "386.8125px",
+        "transform-origin": "135px 74.875px",
+        transform: "matrix(1, 0, 0, 1, 0, -74.875)",
+      }),
+    ),
+  ).toHaveLength(1);
 });
 
 it.each(["transform", "filter", "position", "--fmd-fit-scale"])(
@@ -278,6 +373,8 @@ it("creates reproducible authoring plans with full command coverage", () => {
   ]);
   expect(first.slice(26, 61).map((step) => step.kind)).toContain("paste-rich");
   expect(first.map((step) => step.kind)).toContain("quote-exit");
+  expect(first.map((step) => step.kind)).toContain("backspace-block-edge");
+  expect(first.map((step) => step.kind)).toContain("delete-block-edge");
   expect(first.map((step) => step.kind)).toContain("copy-inline");
   expect(() =>
     createAuthoringFuzzPlan(Number.MAX_SAFE_INTEGER + 1, 500),
@@ -307,6 +404,25 @@ it.each([
   ["win32", "Home", "End"],
 ])("uses platform line navigation keys on %s", (platform, start, end) => {
   expect(lineNavigationKeys(platform)).toEqual({ start, end });
+});
+
+it("uses the caller's line navigation keys for fuzz operations", () => {
+  const macKeys = lineNavigationKeys("darwin");
+  expect(authoringFuzzLineNavigationKeys("linux", macKeys)).toEqual(macKeys);
+  expect(authoringFuzzLineNavigationKeys("linux")).toEqual(
+    lineNavigationKeys("linux"),
+  );
+});
+
+it("captures failed browser-session registration and subroute requests", () => {
+  expect(isBrowserSessionPath("/_agent-native/browser-sessions")).toBe(true);
+  expect(
+    isBrowserSessionPath("/_agent-native/browser-sessions/abc/claim"),
+  ).toBe(true);
+  expect(isBrowserSessionPath("/_agent-native/browser-sessions-extra")).toBe(
+    false,
+  );
+  expect(isBrowserSessionPath("/_agent-native/actions/patch-deck")).toBe(false);
 });
 
 it("maps absolute seeds to stable synthetic and committed layout profiles", () => {
@@ -340,6 +456,7 @@ it("checks the rendered slide scale when the scaled profile is requested", async
   const page = {
     on: () => {},
     off: () => {},
+    evaluate: async () => {},
     locator: (selector: string) =>
       selector === "#editor"
         ? { waitFor: async () => {} }

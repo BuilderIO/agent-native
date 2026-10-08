@@ -70,10 +70,11 @@ vi.mock("./task-store.js", () => {
       ownerScope?: string | null,
       idempotencyKey?: string,
     ) {
-      if (ownerEmail && idempotencyKey) {
+      if (ownerScope && idempotencyKey) {
         const existing = Object.values(tasks).find(
           (task) =>
-            task.ownerEmail?.toLowerCase() === ownerEmail.toLowerCase() &&
+            (task.ownerEmail?.toLowerCase() ?? null) ===
+              (ownerEmail?.toLowerCase() ?? null) &&
             task.ownerScope === ownerScope &&
             task.idempotencyKey === idempotencyKey,
         );
@@ -194,7 +195,15 @@ vi.mock("./task-store.js", () => {
       task.updatedAt = Date.now();
       return true;
     },
-    async resetStuckA2ATaskForRetry() {
+    async resetStuckA2ATaskForRetry(id: string) {
+      const task = tasks[id];
+      if (!task || task.status.state !== "processing") return false;
+      task.status = {
+        state: "working",
+        message: task.status.message,
+        timestamp: new Date().toISOString(),
+      };
+      task.updatedAt = Date.now();
       return true;
     },
     async failStuckA2ATask(id: string, _cutoff: number, reason: string) {
@@ -264,6 +273,19 @@ vi.mock("../server/agent-discovery.js", () => ({
   findWorkspaceDispatchAgent: findWorkspaceDispatchAgentMock,
 }));
 
+const evaluateServicePrincipalMock = vi.hoisted(() => vi.fn());
+vi.mock("../org/service-principal-policy.js", async (importActual) => ({
+  ...(await importActual<
+    typeof import("../org/service-principal-policy.js")
+  >()),
+  evaluateServicePrincipal: evaluateServicePrincipalMock,
+}));
+const recordServicePrincipalDenialMock = vi.hoisted(() => vi.fn());
+vi.mock("../org/service-principal-guard.js", async (importActual) => ({
+  ...(await importActual<typeof import("../org/service-principal-guard.js")>()),
+  recordServicePrincipalDenial: recordServicePrincipalDenialMock,
+}));
+
 function mockEvent(): any {
   return {
     _status: 200,
@@ -285,6 +307,9 @@ function mockEvent(): any {
 
 describe("handleJsonRpc", () => {
   beforeEach(() => {
+    evaluateServicePrincipalMock.mockReset();
+    evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
+    recordServicePrincipalDenialMock.mockReset();
     resolveOrgByDomainMock.mockReset();
     resolveA2AOrganizationCredentialsByDomainMock.mockReset();
     resolveOrgIdForEmailMock.mockReset();
@@ -649,6 +674,38 @@ describe("handleJsonRpc", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it("reuses an organization principal's task without a user email", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const config = { ...customHandler, handler };
+    const event = mockEvent();
+    event.context = {
+      __a2aIdentityAssurance: "organization",
+      __a2aVerifiedOrgId: "org-acme",
+    };
+    const request = {
+      jsonrpc: "2.0",
+      id: 25,
+      method: "message/send",
+      params: {
+        async: true,
+        idempotencyKey: "v1:org-stable-message",
+        message: {
+          role: "user",
+          parts: [{ type: "text", text: "do this once for the organization" }],
+        },
+      },
+    };
+
+    const first = await handleJsonRpc(request, event, config);
+    const duplicate = await handleJsonRpc(request, event, config);
+
+    expect(duplicate.result.id).toBe(first.result.id);
+    expect(duplicate.result.status.state).toBe("working");
+    expect(duplicate.result.ownerEmail).toBeUndefined();
+    expect(duplicate.result.ownerScope).toBeUndefined();
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it("does not reuse an unfinished synchronous submission", async () => {
     const handler = vi.fn(customHandler.handler!);
     const config = { ...customHandler, handler };
@@ -677,6 +734,152 @@ describe("handleJsonRpc", () => {
 
     expect(second.result.id).not.toBe(first.result.id);
     expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails a queued task whose service principal was suspended after submission", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const config = { ...customHandler, handler };
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "svc-ci@service.org-acme",
+      __a2aAudienceVerified: true,
+      __a2aVerifiedOrgId: "org-acme",
+    };
+    const created = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 28,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "run later" }],
+          },
+        },
+      },
+      event,
+      config,
+    );
+    const taskId = created.result.id;
+    evaluateServicePrincipalMock.mockResolvedValue({
+      status: "suspended",
+      policy: { lifecycle: "suspended" },
+    });
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await processA2ATaskFromQueue(taskId, config);
+
+    const failed = await handleJsonRpc(
+      { jsonrpc: "2.0", id: 29, method: "tasks/get", params: { id: taskId } },
+      event,
+      config,
+    );
+    expect(failed.result.status.state).toBe("failed");
+    expect(failed.result.status.message.parts[0].text).toContain(
+      "suspended or retired",
+    );
+    expect(handler).not.toHaveBeenCalled();
+    expect(recordServicePrincipalDenialMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: "a2a:process-task",
+        caller: "a2a",
+        orgId: "org-acme",
+        error: expect.objectContaining({ statusCode: 403 }),
+      }),
+    );
+  });
+
+  it("does not audit a queued denial under the service email's unverified org", async () => {
+    const config = { ...customHandler, handler: vi.fn(customHandler.handler!) };
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "svc-ci@service.org-acme",
+      __a2aAudienceVerified: true,
+    };
+    const created = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 33,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "run with no verified org" }],
+          },
+        },
+      },
+      event,
+      config,
+    );
+    evaluateServicePrincipalMock.mockResolvedValue({ status: "org-mismatch" });
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await processA2ATaskFromQueue(created.result.id, config);
+
+    expect(recordServicePrincipalDenialMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "svc-ci@service.org-acme",
+        orgId: undefined,
+        actionName: "a2a:process-task",
+      }),
+    );
+  });
+
+  it("requeues a task when service-principal policy is temporarily unavailable", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const config = { ...customHandler, handler };
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "svc-ci@service.org-acme",
+      __a2aAudienceVerified: true,
+      __a2aVerifiedOrgId: "org-acme",
+    };
+    const created = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 30,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "run after policy recovers" }],
+          },
+        },
+      },
+      event,
+      config,
+    );
+    const taskId = created.result.id;
+    evaluateServicePrincipalMock.mockResolvedValue({ status: "unavailable" });
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await expect(processA2ATaskFromQueue(taskId, config)).rejects.toMatchObject(
+      { statusCode: 503 },
+    );
+    const requeued = await handleJsonRpc(
+      { jsonrpc: "2.0", id: 31, method: "tasks/get", params: { id: taskId } },
+      event,
+      config,
+    );
+    expect(requeued.result.status.state).toBe("working");
+    expect(recordServicePrincipalDenialMock).not.toHaveBeenCalled();
+
+    evaluateServicePrincipalMock.mockResolvedValue({
+      status: "active",
+      policy: { lifecycle: "active", allowedActions: null },
+    });
+    await processA2ATaskFromQueue(taskId, config);
+
+    const completed = await handleJsonRpc(
+      { jsonrpc: "2.0", id: 32, method: "tasks/get", params: { id: taskId } },
+      event,
+      config,
+    );
+    expect(completed.result.status.state).toBe("completed");
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 
   it("persists a structured error code on a failed async task message", async () => {
@@ -853,6 +1056,56 @@ describe("handleJsonRpc", () => {
         params: { id: created.result.id },
       },
       reassignedOrgEvent,
+      customHandler,
+    );
+
+    expect(get.error).toMatchObject({
+      code: -32001,
+      message: "Task not found",
+    });
+    expect(cancel.error).toMatchObject({ code: -32001 });
+  });
+
+  it("denies org-only callers access to legacy unscoped tasks", async () => {
+    const created = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 32,
+        method: "message/send",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "legacy unscoped task" }],
+          },
+        },
+      },
+      mockEvent(),
+      customHandler,
+    );
+    const orgOnlyCaller = mockEvent();
+    orgOnlyCaller.context = {
+      __a2aIdentityAssurance: "organization",
+      __a2aVerifiedOrgId: "org-acme",
+    };
+
+    const get = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 33,
+        method: "tasks/get",
+        params: { id: created.result.id },
+      },
+      orgOnlyCaller,
+      customHandler,
+    );
+    const cancel = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 34,
+        method: "tasks/cancel",
+        params: { id: created.result.id },
+      },
+      orgOnlyCaller,
       customHandler,
     );
 
@@ -2420,7 +2673,7 @@ describe("handleJsonRpc", () => {
     );
   });
 
-  it("preserves exact action grants across an authenticated async processor hop", async () => {
+  it("drops request-supplied approvals across an authenticated async processor hop", async () => {
     const contextConfig: A2AConfig = {
       ...customHandler,
       handler: async (_message, context) => ({
@@ -2429,7 +2682,9 @@ describe("handleJsonRpc", () => {
           parts: [
             {
               type: "text",
-              text: JSON.stringify(context.approvedActions ?? []),
+              text: JSON.stringify(
+                "approvedActions" in context ? "present" : [],
+              ),
             },
           ],
         },
@@ -2469,7 +2724,7 @@ describe("handleJsonRpc", () => {
       contextConfig,
     );
     expect(JSON.parse(followup.result.status.message.parts[0].text)).toEqual(
-      approvedActions,
+      [],
     );
     expect(followup.result.metadata?.__a2a_processor).toBeUndefined();
   });
@@ -2541,7 +2796,7 @@ describe("handleJsonRpc", () => {
     expect(followup.result.metadata?.__a2a_processor).toBeUndefined();
   });
 
-  it("drops action grants when the A2A caller has no verified user identity", async () => {
+  it("drops raw approval payloads before the synchronous handler", async () => {
     const contextConfig: A2AConfig = {
       ...customHandler,
       handler: async (_message, context) => ({
@@ -2550,7 +2805,9 @@ describe("handleJsonRpc", () => {
           parts: [
             {
               type: "text",
-              text: JSON.stringify(context.approvedActions ?? []),
+              text: JSON.stringify(
+                "approvedActions" in context ? "present" : [],
+              ),
             },
           ],
         },
@@ -2866,6 +3123,83 @@ describe("default handler (no custom handler)", () => {
     expect(task.artifacts).toHaveLength(1);
     expect(task.artifacts[0].name).toBe("files-changed");
     expect(task.artifacts[0].parts[0].data.files).toEqual(["events.json"]);
+  });
+
+  it("refuses the default chat handoff for a service principal", async () => {
+    const { agentChat } = await import("../shared/agent-chat.js");
+    vi.mocked(agentChat.call).mockClear();
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "svc-ci@service.org-acme",
+      __a2aVerifiedOrgId: "org-acme",
+      __a2aServicePrincipalAllowedActions: ["read-*"],
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "message/send",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "read records" }],
+          },
+        },
+      },
+      event,
+      defaultConfig,
+    );
+
+    expect(agentChat.call).not.toHaveBeenCalled();
+    expect(result.error.message).toContain(
+      "cannot preserve service-principal authorization",
+    );
+    expect(recordServicePrincipalDenialMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: "a2a:agent-chat-handoff",
+        caller: "a2a",
+        orgId: "org-acme",
+        error: expect.objectContaining({
+          statusCode: 403,
+          errorCode: "service_principal_handoff_unsupported",
+        }),
+      }),
+    );
+  });
+
+  it("does not audit a default handoff under an unverified service org", async () => {
+    const { agentChat } = await import("../shared/agent-chat.js");
+    vi.mocked(agentChat.call).mockClear();
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "svc-ci@service.org-acme",
+      __a2aServicePrincipalAllowedActions: ["read-*"],
+    };
+
+    await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 34,
+        method: "message/send",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "read records" }],
+          },
+        },
+      },
+      event,
+      defaultConfig,
+    );
+
+    expect(agentChat.call).not.toHaveBeenCalled();
+    expect(recordServicePrincipalDenialMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: "a2a:agent-chat-handoff",
+        orgId: undefined,
+      }),
+    );
   });
 
   it("provides verified Slack source metadata as hidden agent context", async () => {

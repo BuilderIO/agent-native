@@ -172,6 +172,30 @@ describe("get-deck", () => {
     expect(action.mcpAnnotations?.readOnlyHint).toBe(false);
   });
 
+  it("does not persist duplicate-ID repair in a directory widget read", async () => {
+    currentResource!.designSystemId = "ds-1";
+    currentResource!.data = JSON.stringify({
+      title: "Quarterly Review",
+      slides: [
+        { id: "duplicate", content: "<h1>First</h1>" },
+        { id: "duplicate", content: "<h1>Second</h1>" },
+      ],
+    });
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "mcp-widget" },
+    )) as any;
+
+    expect(result.slides[0].id).not.toBe(result.slides[1].id);
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+    expect(mockGetDesignSystemRun).toHaveBeenCalledWith(
+      { id: "ds-1", compact: "true" },
+      expect.objectContaining({ caller: "mcp-widget" }),
+    );
+  });
+
   it("accepts the deck id under either `id` or `deckId`", () => {
     expect(action.schema.safeParse({ id: "deck-1" }).success).toBe(true);
     expect(action.schema.safeParse({ deckId: "deck-1" }).success).toBe(true);

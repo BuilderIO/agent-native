@@ -123,6 +123,8 @@ export default function ObservabilityPage() {
 
 टूल आर्ग्युमेंट, परिणाम और पूरे त्रुटि बॉडी डिफ़ॉल्ट रूप से कैप्चर नहीं होते। `observability` कॉन्फ़िगरेशन में आर्ग्युमेंट स्टोर करने के लिए `captureToolArgs` और परिणाम तथा पूरे त्रुटि बॉडी स्टोर करने के लिए `captureToolResults` सक्षम करें। संवेदनशील फ़ील्ड स्टोर करने से पहले छिपाए जाते हैं। विफल हुआ टूल अपनी त्रुटि की सीमित लंबाई वाली पहली पंक्ति हमेशा रखता है, जिसमें क्रेडेंशियल, ईमेल पते और लंबे अपारदर्शी आईडी छिपाए जाते हैं, ताकि `captureToolResults` बंद होने पर भी विफलताओं का निदान किया जा सके।
 
+प्रॉम्प्ट कैप्चर डिफ़ॉल्ट रूप से बंद रहता है। `observability` कॉन्फ़िगरेशन में `capturePrompts: true` सेट करें, या `AGENT_NATIVE_OBSERVABILITY_CAPTURE_PROMPTS=true` सेट करें, ताकि इस विवरण में हर `llm_call` स्पैन का इनपुट और आउटपुट स्टोर हो। सिस्टम प्रॉम्प्ट शामिल नहीं होता, संरचित संवेदनशील फ़ील्ड छिपाए जाते हैं और हर ओर का कंटेंट 128 KiB तक सीमित रहता है। पुराने स्पैन बाद में अपडेट नहीं होते।
+
 ### मानव समीक्षा {#review}
 
 मानव समीक्षा टैब हर रन का अनुरोध और उत्तर दिखाता है, फ़ीडबैक दर्ज करने देता है और निर्देश अपडेट का मसौदा तैयार करने देता है, जिसकी समीक्षा कोई व्यक्ति कर सकता है। मसौदा सहेजने से निर्देश अपने-आप नहीं बदलते।
@@ -336,13 +338,164 @@ export default defineAppConfig({
 
 एजेंट लूप तीन प्रकार के स्पैन उत्सर्जित करता है:
 
-| विस्तार     | कब                         | गुण                                                               |
-| ----------- | -------------------------- | ----------------------------------------------------------------- |
-| `agent.run` | प्रति एजेंट एक बार चलाएं   | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | प्रति क्रिया एक बार आह्वान | `tool.name`, प्लस सफलता/त्रुटि स्थिति                             |
-| `llm.call`  | प्रति मॉडल कॉल             | समय + ठीक/त्रुटि स्थिति                                           |
+| विस्तार               | कब                         | गुण                                                                                                       |
+| --------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `invoke_agent`        | प्रति एजेंट एक बार चलाएं   | `gen_ai.provider.name`, `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
+| `execute_tool {tool}` | प्रति क्रिया एक बार आह्वान | `gen_ai.tool.name`, प्लस सफलता/त्रुटि स्थिति                                                              |
+| `chat {model}`        | प्रति मॉडल कॉल             | `gen_ai.provider.name`, समय + ठीक/त्रुटि स्थिति                                                           |
 
 ओके/ERROR स्थिति के साथ स्पैन समाप्त हो जाते हैं और विफलता पर त्रुटि संदेश रिकॉर्ड करते हैं। शून्य/प्रहरी विशेषता मानों को काट दिया जाता है ताकि स्पैन शोर से अव्यवस्थित न हों। यह ओटेल परत पूरी तरह से इन-हाउस `agent_trace_spans` / `agent_trace_summaries` तालिकाओं से जुड़ी हुई है जो ऊपर डैशबोर्ड को शक्ति प्रदान करती हैं - दोनों एक ही रन इवेंट से निर्मित होते हैं।
+
+### मेट्रिक्स {#otel-metrics}
+
+जब होस्ट `@agent-native/core/server` से `registerObservabilityProvider()` के साथ एक मीटर प्रोवाइडर रजिस्टर करता है, तो Core मेट्रिक्स भी रिकॉर्ड करता है। मेट्रिक्स हर अनुरोध और हर रन के लिए, बिना सैंपलिंग के, रिकॉर्ड किए जाते हैं:
+
+| इंस्ट्रूमेंट                            | एट्रिब्यूट्स                                                                                 |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+
+मेट्रिक्स में, `gen_ai.tool.name` किसी फ़्रेमवर्क एक्शन का नाम या `other` होता है, और `gen_ai.request.model` मॉडल ID तभी होता है जब इंजन उसे समर्थित के रूप में सूचीबद्ध करता है, अन्यथा `_OTHER`। इसलिए ऐप-परिभाषित टूल और कॉलर द्वारा दिए गए मॉडल ID असीमित सीरीज़ नहीं बना सकते; स्पैन सटीक मान रखते हैं।
+
+## OpenTelemetry बैकएंड से जोड़ना {#otel-provider}
+
+Core कोई OpenTelemetry SDK या एक्सपोर्टर साथ नहीं देता। ऐप अपने SDK प्रोवाइडर खुद बनाता है और उन्हें `@agent-native/core/server` से `registerObservabilityProvider()` के ज़रिए Core को सौंपता है। इसके बाद Core ऊपर बताए गए [स्पैन](#otel) और [मेट्रिक्स](#otel-metrics) इन्हीं के ज़रिए भेजता है, और ऐप का एक्सपोर्टर उन्हें किसी भी OTLP बैकएंड तक पहुँचाता है।
+
+### `registerObservabilityProvider()` {#register-observability-provider}
+
+`registerObservabilityProvider()` दो वैकल्पिक फ़ील्ड वाला एक ऑब्जेक्ट लेता है:
+
+- **tracerProvider**: `getTracer(name, version?)` वाला ऑब्जेक्ट। Core अपना ट्रेसर यहीं से लेता है। इसके बिना स्पैन वैश्विक `@opentelemetry/api` ट्रेसर का उपयोग करते हैं।
+- **meterProvider**: `getMeter(name, version?)` वाला ऑब्जेक्ट। मेट्रिक्स केवल तभी रिकॉर्ड होते हैं जब कोई मीटर प्रोवाइडर रजिस्टर हो। इनका कोई वैश्विक विकल्प नहीं है, इसलिए इसके बिना हर मेट्रिक नो-ऑप रहता है।
+
+दोनों में से कोई भी प्रोवाइडर `forceFlush()` भी लागू कर सकता है, जिसे Core हर रिस्पॉन्स के बाद कॉल करता है ([सर्वरलेस पर फ़्लश करना](#otel-flush) देखें)। SDK के `BasicTracerProvider` और `MeterProvider` पहले से इन आकारों से मेल खाते हैं।
+
+```ts
+function registerObservabilityProvider(
+  provider: ObservabilityProvider,
+): () => void;
+
+interface ObservabilityProvider {
+  tracerProvider?: ObservabilityTracerProvider;
+  meterProvider?: ObservabilityMeterProvider;
+}
+
+interface ObservabilityTracerProvider {
+  getTracer(name: string, version?: string): unknown;
+  forceFlush?(): Promise<void>;
+}
+
+interface ObservabilityMeterProvider {
+  getMeter(name: string, version?: string): unknown;
+  forceFlush?(): Promise<void>;
+}
+```
+
+बाद की कॉल पहले वाले प्रोवाइडर को बदल देती है। लौटाया गया फ़ंक्शन प्रोवाइडर का रजिस्ट्रेशन हटा देता है, अगर वही अब भी रजिस्टर हो। स्पैन के लिए ऐप में `@opentelemetry/api` इंस्टॉल होना भी ज़रूरी है। इसके बिना Core ट्रेसिंग बंद कर देता है और एक चेतावनी लॉग करता है।
+
+### सर्वरलेस पर फ़्लश करना {#otel-flush}
+
+सर्वरलेस फ़ंक्शन दो कॉल के बीच फ़्रीज़ हो जाते हैं, इसलिए SDK का एक्सपोर्ट टाइमर शायद कभी न चले। जब कोई रजिस्टर्ड प्रोवाइडर `forceFlush()` लागू करता है, तो Core हर अनुरोध के बाद रिस्पॉन्स हुक से उसे कॉल करता है और उसके पूरा होने की प्रतीक्षा करता है। हर फ़्लश एक साझा 2-सेकंड टाइमआउट से होड़ करता है, इसलिए टेलीमेट्री किसी रिस्पॉन्स को इससे ज़्यादा नहीं रोकती।
+
+जब कोई फ़्लश विफल होता है या टाइमआउट हो जाता है, तो Core उसका इंतज़ार करना बंद कर देता है और `agent_native.telemetry.flush_failures` में 1 जोड़ता है, जिसे अगला फ़्लश एक्सपोर्ट करता है। टाइमआउट हुआ एक्सपोर्ट चलता रहता है और फिर भी पहुँच सकता है, जब तक कि रनटाइम उससे पहले प्रोसेस को फ़्रीज़ न कर दे। विफलता का `error.type` `timeout` होता है, जब रनटाइम ने फ़्लश के बीच प्रोसेस को फ़्रीज़ किया हो तब `suspended`, वरना त्रुटि का नाम।
+
+लंबे समय तक चलने वाले सर्वर पर हर रिस्पॉन्स के बाद फ़्लश का मतलब है हर अनुरोध पर एक एक्सपोर्ट। वहाँ प्रोवाइडर को `forceFlush()` के बिना रजिस्टर करें और एक्सपोर्ट SDK के अपने टाइमर पर छोड़ दें। `@agent-native/core/server` से `isServerlessRuntime()` दोनों स्थितियों में अंतर करता है। यह Netlify, Vercel, AWS Lambda और Cloudflare पर true होता है।
+
+### उदाहरण: HTTP पर OTLP {#otel-example}
+
+यह सर्वर प्लगइन OpenTelemetry JS SDK को Core से जोड़ता है। पहले SDK पैकेज इंस्टॉल करें:
+
+```bash
+pnpm add @opentelemetry/api @opentelemetry/context-async-hooks @opentelemetry/exporter-metrics-otlp-proto @opentelemetry/exporter-trace-otlp-proto @opentelemetry/resources @opentelemetry/sdk-metrics @opentelemetry/sdk-trace-base
+```
+
+```ts filename="server/plugins/otel.ts"
+import { randomUUID } from "node:crypto";
+
+import {
+  defineNitroPlugin,
+  isServerlessRuntime,
+  registerObservabilityProvider,
+} from "@agent-native/core/server";
+import { context } from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-proto";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
+import {
+  defaultResource,
+  detectResources,
+  envDetector,
+  resourceFromAttributes,
+} from "@opentelemetry/resources";
+import {
+  MeterProvider,
+  PeriodicExportingMetricReader,
+} from "@opentelemetry/sdk-metrics";
+import {
+  BasicTracerProvider,
+  BatchSpanProcessor,
+} from "@opentelemetry/sdk-trace-base";
+
+export default defineNitroPlugin(() => {
+  if (!process.env.OTEL_EXPORTER_OTLP_ENDPOINT) return;
+
+  // Metric counters are cumulative and restart with each process, so each
+  // process needs its own series.
+  const resource = defaultResource()
+    .merge(resourceFromAttributes({ "service.instance.id": randomUUID() }))
+    .merge(detectResources({ detectors: [envDetector] }));
+
+  const meterProvider = new MeterProvider({
+    resource,
+    readers: [
+      new PeriodicExportingMetricReader({
+        exporter: new OTLPMetricExporter(),
+        exportIntervalMillis: 60_000,
+      }),
+    ],
+  });
+
+  context.setGlobalContextManager(
+    new AsyncLocalStorageContextManager().enable(),
+  );
+  const tracerProvider = new BasicTracerProvider({
+    resource,
+    spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter())],
+  });
+
+  if (isServerlessRuntime()) {
+    registerObservabilityProvider({ meterProvider, tracerProvider });
+    return;
+  }
+  // Without forceFlush(), core leaves exporting to the SDK's own timers.
+  registerObservabilityProvider({
+    meterProvider: {
+      getMeter: (name, version) => meterProvider.getMeter(name, version),
+    },
+    tracerProvider: {
+      getTracer: (name, version) => tracerProvider.getTracer(name, version),
+    },
+  });
+});
+```
+
+जब तक `OTEL_EXPORTER_OTLP_ENDPOINT` सेट नहीं होता, प्लगइन कुछ नहीं करता। बाकी कॉन्फ़िगरेशन SDK मानक OpenTelemetry एनवायरनमेंट वेरिएबल से पढ़ता है:
+
+| वेरिएबल                                           | प्रभाव                                                                                         |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`                     | OTLP रिसीवर का बेस URL। एक्सपोर्टर `/v1/traces` और `/v1/metrics` जोड़ते हैं।                   |
+| `OTEL_EXPORTER_OTLP_HEADERS`                      | हर एक्सपोर्ट के साथ भेजे जाने वाले हेडर, जैसे `Authorization=Bearer%20<token>`                 |
+| `OTEL_SERVICE_NAME`                               | हर स्पैन और मेट्रिक पर `service.name`                                                          |
+| `OTEL_RESOURCE_ATTRIBUTES`                        | अतिरिक्त रिसोर्स एट्रिब्यूट, जैसे `deployment.environment.name=production`                     |
+| `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | ट्रेस सैंपलिंग, जैसे `parentbased_traceidratio` और `0.1`। मेट्रिक्स की कभी सैंपलिंग नहीं होती। |
+
+`-proto` एक्सपोर्टर OTLP को HTTP पर protobuf के रूप में भेजते हैं, इसलिए एंडपॉइंट को रिसीवर के gRPC पोर्ट के बजाय उसके HTTP पोर्ट (डिफ़ॉल्ट 4318) पर रखें। स्पैन में प्रॉम्प्ट या जवाब का कोई टेक्स्ट नहीं होता। [कॉन्फ़िगरेशन](#config) में दी गई `capture*` सेटिंग्स SQL ट्रेस और PostHog पर लागू होती हैं, OTLP पर नहीं।
+
+रिपॉज़िटरी के [`packages/otel`](https://github.com/BuilderIO/agent-native/tree/main/packages/otel) में इस प्लगइन का अधिक पूर्ण संस्करण है, जिसमें हर सिग्नल के लिए अलग एंडपॉइंट और एक्सपोर्टर सत्यापन है। यह npm पर प्रकाशित नहीं है, इसलिए इसे इंस्टॉल करने के बजाय ऊपर दिए प्लगइन से शुरू करें।
 
 ## त्रुटि रिपोर्टिंग (Sentry) {#sentry}
 

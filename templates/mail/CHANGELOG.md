@@ -3,11 +3,27 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-06
+
+### Fixed
+
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
+## 2026-10-05
+
+### Fixed
+
+- Sign-in and signup pages now share the animated Agent-Native wave.
+
 ## 2026-10-02
 
 ### Improved
 
 - Builder.io setup copy now clarifies the account action and available credits.
+
+### Fixed
+
+- Pressing R on a message in the list opens the reply window even right after Mail updates, and the error screen now offers Reload.
 
 ## 2026-10-01
 

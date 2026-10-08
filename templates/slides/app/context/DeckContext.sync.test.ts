@@ -25,6 +25,8 @@ vi.mock("@agent-native/core/client/org", () => ({
 import {
   DeckProvider,
   fallbackPollIntervalMs,
+  getDeckSaveError,
+  hasFailedDeckSave,
   useDecks,
   type Deck,
 } from "./DeckContext";
@@ -393,7 +395,7 @@ async function renderOpenDeck(
     wrapper: routedWrapper(options.route),
   });
   await waitFor(() => expect(rendered.result.current.loading).toBe(false));
-  return { api, rerender: rendered.rerender };
+  return { api, rerender: rendered.rerender, result: rendered.result };
 }
 
 describe("fallbackPollIntervalMs", () => {
@@ -428,6 +430,8 @@ describe("fallbackPollIntervalMs", () => {
 describe("DeckContext fallback polling", () => {
   beforeEach(() => {
     _resetSyncTransportRegistryForTests();
+    orgQueryState.data = undefined;
+    orgQueryState.isLoading = false;
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.stubGlobal("EventSource", MockEventSource);
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -436,6 +440,8 @@ describe("DeckContext fallback polling", () => {
 
   afterEach(() => {
     cleanup();
+    orgQueryState.data = undefined;
+    orgQueryState.isLoading = false;
     restoreVisibility?.();
     restoreVisibility = null;
     _resetSyncTransportRegistryForTests();
@@ -796,6 +802,219 @@ describe("DeckContext fallback polling", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(deckCallCount(api.fetchMock)).toBe(deckAfterStop + 1);
+  });
+
+  it.each([403, 404])(
+    "flags the open deck as access lost on a %i read, keeps the local copy, and recovers on focus",
+    async (status) => {
+      const { api } = await renderOpenDeck();
+      expect(hasFailedDeckSave("open-deck")).toBe(false);
+
+      api.failDeckReads(status);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6_000);
+      });
+      expect(getDeckSaveError("open-deck")).toMatchObject({
+        status,
+        retryable: true,
+      });
+      const deckAfterLoss = deckCallCount(api.fetchMock);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300_000);
+      });
+      expect(deckCallCount(api.fetchMock)).toBe(deckAfterLoss);
+
+      api.failDeckReads(null);
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(hasFailedDeckSave("open-deck")).toBe(false);
+    },
+  );
+
+  it("keeps the local copy of the open deck when a list refresh omits it", async () => {
+    const { api, result } = await renderOpenDeck();
+    // Once this session has created a deck, a list that omits a deck removes it.
+    act(() => {
+      result.current.createDeck(undefined, { noDefaultSlides: true });
+    });
+    // The first tick that is due for a list read reads the list before the deck.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+
+    api.setServerDecks([]);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+
+    expect(result.current.getDeck("open-deck")).toBeDefined();
+    expect(getDeckSaveError("open-deck")).toMatchObject({ status: 404 });
+  });
+
+  it("drops the access-lost flag with the deck when it is deleted", async () => {
+    const { api, result } = await renderOpenDeck();
+    api.failDeckReads(403);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(hasFailedDeckSave("open-deck")).toBe(true);
+
+    await act(async () => {
+      await result.current.deleteDeck("open-deck");
+    });
+
+    expect(hasFailedDeckSave("open-deck")).toBe(false);
+  });
+
+  it("clears the flag when a reload finds the deck again", async () => {
+    const { api, result } = await renderOpenDeck();
+    api.failDeckReads(403);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(hasFailedDeckSave("open-deck")).toBe(true);
+
+    api.failDeckReads(null);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    expect(hasFailedDeckSave("open-deck")).toBe(false);
+  });
+
+  it("clears access-loss flags when the organization scope changes", async () => {
+    orgQueryState.data = { orgId: "org-a" };
+    const { api, result, rerender } = await renderOpenDeck();
+    api.failDeckReads(403);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(hasFailedDeckSave("open-deck")).toBe(true);
+
+    act(() => {
+      orgQueryState.data = { orgId: "org-b" };
+      rerender();
+    });
+
+    expect(hasFailedDeckSave("open-deck")).toBe(false);
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(hasFailedDeckSave("open-deck")).toBe(false);
+  });
+
+  it("does not flag a deferred deck create as access lost while it saves", async () => {
+    const route = { deckId: "open-deck" as string | null };
+    const { api, result, rerender } = await renderOpenDeck({ route });
+    const localDeck = result.current.createDeck("Deferred Deck", {
+      deferPersistence: true,
+    });
+    let persistence: Promise<unknown> = Promise.resolve();
+    act(() => {
+      window.history.pushState({}, "", `/deck/${localDeck.id}`);
+      route.deckId = localDeck.id;
+      rerender();
+      persistence = result.current.ensureDeckPersisted(localDeck.id);
+    });
+
+    api.failDeckReads(404);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(deckCallIds(api.fetchMock)).toContain(localDeck.id);
+    expect(hasFailedDeckSave(localDeck.id)).toBe(false);
+
+    api.setServerDecks([openDeck(), localDeck]);
+    await act(async () => {
+      api.resolveCreate(new Response("", { status: 200 }));
+      await persistence;
+    });
+  });
+
+  it("clears a read-side access-loss flag after a successful save", async () => {
+    const deckId = "save-after-access-loss";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const api = setupFetch();
+    api.setServerDecks([{ ...openDeck(), id: deckId }]);
+    const { result } = renderHook(() => useDecks(), {
+      wrapper: routedWrapper({ deckId }),
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    api.failDeckReads(403);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(hasFailedDeckSave(deckId)).toBe(true);
+
+    await act(async () => {
+      result.current.updateDeck(deckId, { title: "Restored access" });
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    expect(result.current.getDeck(deckId)?.title).toBe("Restored access");
+    expect(hasFailedDeckSave(deckId)).toBe(false);
+  });
+
+  it("does not let a superseded successful read clear a newer denial", async () => {
+    const { api, result } = await renderOpenDeck();
+    api.failDeckReads(403);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(hasFailedDeckSave("open-deck")).toBe(true);
+
+    const real = api.fetchMock.getMockImplementation()!;
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let held = false;
+    api.fetchMock.mockImplementation((url) => {
+      const response = real(url);
+      if (held || !requestString(url).includes("actions/get-deck")) {
+        return response;
+      }
+      held = true;
+      return response.then((r) => gate.then(() => r));
+    });
+
+    api.failDeckReads(null);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    api.failDeckReads(403);
+    await act(async () => {
+      await result.current.retryDeckSave("open-deck");
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      release();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(hasFailedDeckSave("open-deck")).toBe(true);
+  });
+
+  it("re-reads a deck flagged as access lost when the save status retry runs", async () => {
+    const { api, result } = await renderOpenDeck();
+    api.failDeckReads(403);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(hasFailedDeckSave("open-deck")).toBe(true);
+    const deckAfterLoss = deckCallCount(api.fetchMock);
+
+    api.failDeckReads(null);
+    await act(async () => {
+      await result.current.retryDeckSave("open-deck");
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(deckCallCount(api.fetchMock)).toBe(deckAfterLoss + 1);
+    expect(hasFailedDeckSave("open-deck")).toBe(false);
   });
 
   it("resumes a stopped deck poll when the route moves to another deck", async () => {

@@ -33,7 +33,7 @@ export interface EnterHotkeyArgs {
   activeFileId: string | null;
   boardFileId: string | undefined;
   codeLayerOwnerByNodeIdRef: RefObject<
-    Map<
+    ReadonlyMap<
       string,
       {
         fileId: string;
