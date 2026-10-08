@@ -706,9 +706,9 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     Number.isInteger(changedSpecStepTimeout) &&
-      changedSpecStepTimeout === 6 &&
-      jobTimeout >= changedSpecStepTimeout + 3,
-    `changed-spec tests need the exact six-minute cap and three minutes for setup (job ${jobTimeout}, step ${changedSpecStepTimeout})`,
+      changedSpecStepTimeout === 5 &&
+      jobTimeout >= changedSpecStepTimeout + 4,
+    `changed-spec tests need the exact five-minute cap and four minutes for setup (job ${jobTimeout}, step ${changedSpecStepTimeout})`,
   );
   assert.match(
     designJob,
@@ -822,6 +822,28 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     changedSpecRegressions.includes(
       "DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}",
     ),
+  );
+  assert.ok(
+    changedSpecRegressions.includes(
+      'const paths = JSON.parse(process.env.DESIGN_CANVAS_E2E_SPECS || "[]");',
+    ),
+    "changed-spec step must parse the selector output as JSON",
+  );
+  assert.ok(
+    changedSpecRegressions.includes(
+      'throw new Error("Invalid changed Design E2E spec list");',
+    ),
+    "changed-spec step must reject invalid selector output",
+  );
+  assert.ok(
+    changedSpecRegressions.includes(
+      "mapfile -d '' -t changed_specs < \"$changed_specs_file\"",
+    ),
+    "changed-spec step must preserve paths through NUL-delimited parsing",
+  );
+  assert.ok(
+    changedSpecRegressions.includes('if [[ -f "$spec" ]]; then'),
+    "changed-spec step must ignore deleted specs",
   );
   assert.ok(
     regressionCases.includes(
