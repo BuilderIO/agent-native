@@ -13,6 +13,8 @@
   border-radius: 13px;
   background: var(--content-bg);
   color: var(--content-text);
+  container-name: content-preview;
+  container-type: inline-size;
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
   font-size: 11px;
   line-height: 1.45;
@@ -1069,6 +1071,12 @@
     width: 188px;
     min-width: 175px;
   }
+  .content-database {
+    padding-inline: 11px;
+  }
+}
+
+@container content-preview (max-width: 950px) {
   .content-doc-content {
     padding-inline: 18px;
   }
@@ -1078,7 +1086,10 @@
   .content-doc-toc {
     display: none;
   }
-  .content-database {
+}
+
+@container content-preview (max-width: 680px) {
+  .content-doc-content {
     padding-inline: 11px;
   }
 }
@@ -1104,9 +1115,6 @@
   .content-doc-toolbar {
     gap: 6px;
     padding-inline: 7px;
-  }
-  .content-doc-content {
-    padding-inline: 11px;
   }
   .content-doc-cover {
     height: 52px;
