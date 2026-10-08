@@ -594,8 +594,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designJob,
-    /^\s+run: pnpm exec playwright install --only-shell --with-deps chromium$/m,
-    "Design shards must install the Chromium runtime dependencies",
+    /^\s+run: pnpm exec playwright install --only-shell chromium$/m,
+    "Design shards must reuse the runner's browser libraries instead of reinstalling OS dependencies",
   );
   const jobTimeout = Number(
     designJob.match(/^    timeout-minutes: (\d+)$/m)?.[1],
@@ -604,12 +604,14 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     regressionCases.match(/^        timeout-minutes: (\d+)$/m)?.[1],
   );
   assert.ok(
-    Number.isInteger(stepTimeout) && stepTimeout >= 10,
-    `focused Design cases need ten minutes for the slow position shard (got ${stepTimeout})`,
+    Number.isInteger(jobTimeout) && jobTimeout > 0 && jobTimeout < 10,
+    `Design acceptance job must stop before ten minutes (got ${jobTimeout})`,
   );
   assert.ok(
-    Number.isInteger(jobTimeout) && jobTimeout >= stepTimeout + 10,
-    `job timeout must leave ten minutes for setup around the focused test step (job ${jobTimeout}, step ${stepTimeout})`,
+    Number.isInteger(stepTimeout) &&
+      stepTimeout <= 4 &&
+      jobTimeout >= stepTimeout + 5,
+    `focused Design tests need a four-minute cap and five minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
   );
   assert.match(
     designJob,
