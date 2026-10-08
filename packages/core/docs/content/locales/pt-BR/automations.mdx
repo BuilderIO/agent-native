@@ -210,7 +210,7 @@ As condições são strings de linguagem natural que um modelo verifica em rela�
 
 <Callout tone="info">
 
-Uma condição que não pode ser avaliada nunca conta como correspondência nem como não correspondência, e a automação não é executada. Um erro do provedor registra `lastStatus: error` com o motivo em `lastError`, e o evento é tentado novamente. Se nenhuma chave de API estiver disponível para avaliar a condição, uma automação de evento registra um erro para cada evento correspondente e se pausa sozinha após três seguidos. Ative-a novamente em **Settings › Automations** quando uma chave estiver disponível. Uma automação de webhook no mesmo estado não se pausa. Sua entrega falha e é tentada novamente.
+Uma condição que não pode ser avaliada nunca conta como correspondência nem como não correspondência, e a automação não é executada. Um erro do provedor registra `lastStatus: error` com o motivo em `lastError`, e o evento é tentado novamente. Se nenhuma chave de API estiver disponível para avaliar a condição, uma automação de evento registra um erro para cada evento correspondente e se pausa sozinha após três seguidos. Assim que uma chave estiver disponível, um agendador em execução a ativa novamente sozinho em cerca de 15 minutos. Em um host onde nenhum agendador é executado, ative-a novamente em **Settings › Automations**. Uma automação de webhook no mesmo estado não se pausa. Sua entrega falha e é tentada novamente.
 
 </Callout>
 

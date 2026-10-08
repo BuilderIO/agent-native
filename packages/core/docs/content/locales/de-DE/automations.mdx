@@ -203,7 +203,7 @@ Bedingungen sind Zeichenfolgen in natürlicher Sprache, die ein Modell anhand de
 
 <Callout tone="info">
 
-Eine Bedingung, die nicht ausgewertet werden kann, zählt weder als Treffer noch als Nicht-Treffer, und die Automatisierung läuft nicht. Ein Anbieterfehler protokolliert `lastStatus: error` mit dem Grund in `lastError`, und das Ereignis wird wiederholt. Ist kein API-Schlüssel zur Auswertung der Bedingung verfügbar, protokolliert eine Ereignis-Automatisierung für jedes passende Ereignis einen Fehler und pausiert sich nach drei Fehlern in Folge selbst. Schalten Sie sie in **Settings › Automations** wieder ein, sobald ein Schlüssel verfügbar ist. Eine Webhook-Automatisierung pausiert in diesem Zustand nicht. Ihre Zustellung schlägt fehl und wird wiederholt.
+Eine Bedingung, die nicht ausgewertet werden kann, zählt weder als Treffer noch als Nicht-Treffer, und die Automatisierung läuft nicht. Ein Anbieterfehler protokolliert `lastStatus: error` mit dem Grund in `lastError`, und das Ereignis wird wiederholt. Ist kein API-Schlüssel zur Auswertung der Bedingung verfügbar, protokolliert eine Ereignis-Automatisierung für jedes passende Ereignis einen Fehler und pausiert sich nach drei Fehlern in Folge selbst. Sobald ein Schlüssel verfügbar ist, schaltet ein laufender Scheduler sie innerhalb von etwa 15 Minuten von selbst wieder ein. Auf einem Host, auf dem kein Scheduler läuft, schalten Sie sie in **Settings › Automations** wieder ein. Eine Webhook-Automatisierung pausiert in diesem Zustand nicht. Ihre Zustellung schlägt fehl und wird wiederholt.
 
 </Callout>
 

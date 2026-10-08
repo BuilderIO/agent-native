@@ -258,7 +258,7 @@ Conditions are natural-language strings a model checks against the event or webh
 
 <Callout tone="info">
 
-A condition that can't be evaluated never counts as a match or as a non-match, and the automation doesn't run. A provider error records `lastStatus: error` with the reason in `lastError`, and the event is retried. If no API key is available to evaluate the condition, an event automation records an error for each matching event and pauses itself after three in a row. Turn it back on in **Settings › Automations** once a key is available. A webhook automation in the same state doesn't pause. Its delivery fails and is retried.
+A condition that can't be evaluated never counts as a match or as a non-match, and the automation doesn't run. A provider error records `lastStatus: error` with the reason in `lastError`, and the event is retried. If no API key is available to evaluate the condition, an event automation records an error for each matching event and pauses itself after three in a row. Once a key is available, a running scheduler turns it back on by itself within about 15 minutes. On a host where no scheduler runs, turn it back on in **Settings › Automations**. A webhook automation in the same state doesn't pause. Its delivery fails and is retried.
 
 </Callout>
 

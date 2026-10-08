@@ -211,7 +211,7 @@ Las condiciones son cadenas de lenguaje natural que un modelo comprueba con resp
 
 <Callout tone="info">
 
-Una condición que no se puede evaluar nunca cuenta como coincidencia ni como no coincidencia, y la automatización no se ejecuta. Un error del proveedor registra `lastStatus: error` con el motivo en `lastError`, y el evento se reintenta. Si no hay ninguna clave de API disponible para evaluar la condición, una automatización de evento registra un error por cada evento coincidente y se pausa sola tras tres seguidos. Vuelva a activarla en **Settings › Automations** cuando haya una clave disponible. Una automatización de webhook en el mismo estado no se pausa. Su entrega falla y se reintenta.
+Una condición que no se puede evaluar nunca cuenta como coincidencia ni como no coincidencia, y la automatización no se ejecuta. Un error del proveedor registra `lastStatus: error` con el motivo en `lastError`, y el evento se reintenta. Si no hay ninguna clave de API disponible para evaluar la condición, una automatización de evento registra un error por cada evento coincidente y se pausa sola tras tres seguidos. En cuanto haya una clave disponible, un programador en ejecución la vuelve a activar por sí solo en unos 15 minutos. En un entorno donde no se ejecuta ningún programador, vuelva a activarla en **Settings › Automations**. Una automatización de webhook en el mismo estado no se pausa. Su entrega falla y se reintenta.
 
 </Callout>
 
