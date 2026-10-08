@@ -3092,8 +3092,7 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
           );
         });
         await act(async () => vi.advanceTimersByTimeAsync(3000));
-        const merged = harness.markdown();
-        expect(merged.split("Peer typing").length - 1).toBe(1);
+        expect(harness.markdown()).toBe("agent edited Peer typing body");
       } finally {
         peerEditor.destroy();
         peerDoc.destroy();
