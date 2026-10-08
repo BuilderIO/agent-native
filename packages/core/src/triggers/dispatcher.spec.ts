@@ -594,6 +594,67 @@ Respond to the concurrent event.`,
     expect(triggerQueueMocks.enqueue).not.toHaveBeenCalled();
   });
 
+  it("shares one jobs read across a burst of events on a cold cache", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const meta = (eventId: string) => ({
+      owner: "alice+triggers@agent-native.test",
+      eventId,
+      emittedAt: new Date().toISOString(),
+    });
+
+    await Promise.all(
+      ["burst-1", "burst-2", "burst-3"].map((eventId) =>
+        busEventHandler("test.event.fired")({}, meta(eventId)),
+      ),
+    );
+
+    expect(resourceListAllOwnersMock).toHaveBeenCalledOnce();
+    expect(triggerQueueMocks.enqueue).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not let a scan from before a refresh overwrite the refreshed snapshot", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    let resolveStale!: (value: unknown[]) => void;
+    resourceListAllOwnersMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStale = resolve;
+        }),
+    );
+    const staleEvent = busEventHandler("test.event.fired")(
+      {},
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "stale-scan-event",
+        emittedAt: new Date().toISOString(),
+      },
+    );
+
+    await expect(refreshEventSubscriptions()).resolves.toBe(true);
+    resolveStale([]);
+    await staleEvent;
+
+    await busEventHandler("test.event.fired")(
+      {},
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "after-refresh-event",
+        emittedAt: new Date().toISOString(),
+      },
+    );
+    expect(triggerQueueMocks.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: "after-refresh-event" }),
+    );
+  });
+
   it("re-reads before reporting no automation so a stale cached negative is never trusted", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
     await initTriggerDispatcher({

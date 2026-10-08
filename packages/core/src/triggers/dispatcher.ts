@@ -130,6 +130,10 @@ let _eventAutomationNames: { names: Set<string>; loadedAt: number } | null =
 // Bumped by each refresh so a read that started earlier cannot overwrite the
 // newer snapshot when it finishes later.
 let _eventAutomationGeneration = 0;
+let _inflightEventAutomationScan: {
+  generation: number;
+  scan: Promise<Resource[]>;
+} | null = null;
 let _triggerQueueWorkerStarted = false;
 // ponytail: warm-process backoff resets on cold start; persist only if cold churn warrants it.
 let _triggerQueueIdleBackoffMs = 0;
@@ -667,18 +671,31 @@ async function drainReadyTriggerQueue(
 
 /**
  * Every jobs scan also refreshes the cached event names, unless a refresh
- * started after it did.
+ * started after it did. One scan per generation is in flight at a time, so a
+ * burst of events shares it and same-generation scans cannot land out of order.
  */
-async function listEventAutomationResources(): Promise<Resource[]> {
+function listEventAutomationResources(): Promise<Resource[]> {
   const generation = _eventAutomationGeneration;
-  const jobResources = await resourceListAllOwners("jobs/");
-  if (generation === _eventAutomationGeneration) {
-    _eventAutomationNames = {
-      names: eventAutomationNames(jobResources),
-      loadedAt: Date.now(),
-    };
-  }
-  return jobResources;
+  const inflight = _inflightEventAutomationScan;
+  if (inflight?.generation === generation) return inflight.scan;
+  const scan = resourceListAllOwners("jobs/").then((jobResources) => {
+    if (generation === _eventAutomationGeneration) {
+      _eventAutomationNames = {
+        names: eventAutomationNames(jobResources),
+        loadedAt: Date.now(),
+      };
+    }
+    return jobResources;
+  });
+  _inflightEventAutomationScan = { generation, scan };
+  void scan
+    .finally(() => {
+      if (_inflightEventAutomationScan?.scan === scan) {
+        _inflightEventAutomationScan = null;
+      }
+    })
+    .catch(() => undefined);
+  return scan;
 }
 
 function eventAutomationNames(jobResources: Resource[]): Set<string> {
