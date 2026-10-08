@@ -131,28 +131,11 @@ export function trackCustomKeyOnboardingOutcome(
   const stored = readCustomKeyOnboardingAttempt();
   if (stored.kind === "unavailable") return "unavailable";
   if (stored.kind === "stale") {
-    const belongsToCurrentSession =
-      stored.attempt.sessionId === getAnalyticsSessionId();
-    const outcomeKey = `${stored.attempt.id}:credential_abandoned`;
-    if (
-      belongsToCurrentSession &&
-      !locallyTrackedCustomKeyOutcomes.has(outcomeKey)
-    ) {
-      trackOnboardingEvent("onboarding_method_outcome", {
-        flow: "first_run",
-        step_id: "choice",
-        method_id: "custom_keys",
-        onboarding_attempt_id: stored.attempt.id,
-        outcome: "credential_abandoned",
-      });
-      locallyTrackedCustomKeyOutcomes.add(outcomeKey);
-    }
+    // A duplicated tab can copy sessionStorage while the original attempt is live.
     try {
       window.sessionStorage.removeItem(CUSTOM_KEY_ATTEMPT_STORAGE_KEY);
     } catch {
-      return belongsToCurrentSession
-        ? "tracked_storage_unavailable"
-        : "unavailable";
+      return "unavailable";
     }
     return "stale";
   }

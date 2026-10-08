@@ -457,7 +457,7 @@ describe("trackOnboardingEvent", () => {
     expect(trackEventMock).not.toHaveBeenCalled();
   });
 
-  it("records abandonment for a custom-key attempt carried into another document", () => {
+  it("discards a custom-key attempt carried into another document without abandonment", () => {
     setCustomKeyOnboardingAttempt("attempt-old-document");
     const key = "agent-native.onboarding.custom_keys_attempt";
     const stored = window.sessionStorage.getItem(key);
@@ -471,14 +471,7 @@ describe("trackOnboardingEvent", () => {
 
     expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe("stale");
     expect(window.sessionStorage.getItem(key)).toBeNull();
-    expect(trackEventMock).toHaveBeenCalledTimes(1);
-    expect(trackEventMock).toHaveBeenCalledWith(
-      "onboarding_method_outcome",
-      expect.objectContaining({
-        onboarding_attempt_id: "attempt-old-document",
-        outcome: "credential_abandoned",
-      }),
-    );
+    expect(trackEventMock).not.toHaveBeenCalled();
   });
 });
 
@@ -519,7 +512,7 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
     expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe("tracked");
   });
 
-  it("records abandonment for a stale attempt when a new document enters settings", async () => {
+  it("discards a stale attempt when a new document enters settings", async () => {
     setCustomKeyOnboardingAttempt("attempt-new-document");
     const key = "agent-native.onboarding.custom_keys_attempt";
     const stored = window.sessionStorage.getItem(key);
@@ -533,13 +526,7 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
 
     await act(async () => root?.render(<Harness />));
 
-    expect(trackEventMock).toHaveBeenCalledWith(
-      "onboarding_method_outcome",
-      expect.objectContaining({
-        onboarding_attempt_id: "attempt-new-document",
-        outcome: "credential_abandoned",
-      }),
-    );
+    expect(trackEventMock).not.toHaveBeenCalled();
     expect(window.sessionStorage.getItem(key)).toBeNull();
   });
 
