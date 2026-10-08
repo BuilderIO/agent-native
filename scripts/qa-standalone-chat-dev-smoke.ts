@@ -31,6 +31,7 @@ import {
   MISSING_BROWSER_HINT,
   MISSING_HEADED_BROWSER_HINT,
 } from "./playwright-browser-hint";
+import { originalUserPrompt } from "./qa-standalone-chat-dev-smoke-prompt";
 import {
   isRetryableSessionReadErrorMessage,
   isTransientCommittedNavigationResponse,
@@ -1567,22 +1568,6 @@ async function streamToolCallResponse(
   response.end("data: [DONE]\n\n");
 }
 
-function originalUserPrompt(value: string): string {
-  if (value.trim() === approvedContinuationPrompt) return approvalPrompt;
-  const frameworkSuffixes = [
-    "\n\n<current-time>",
-    "\n\n<current-screen>",
-    "\n\nContinue from where you left off",
-    approvedContinuationPrompt,
-  ];
-  const suffixIndexes = frameworkSuffixes
-    .map((suffix) => value.indexOf(suffix))
-    .filter((index) => index >= 0);
-  const end =
-    suffixIndexes.length > 0 ? Math.min(...suffixIndexes) : value.length;
-  return value.slice(0, end).trim();
-}
-
 async function handleLoopbackCompletion(
   request: IncomingMessage,
   response: ServerResponse,
@@ -1596,7 +1581,11 @@ async function handleLoopbackCompletion(
     ? body.tools.map((item) => jsonRecord(item))
     : [];
   const userMessages = messages.filter((item) => item.role === "user");
-  const prompt = originalUserPrompt(contentText(userMessages.at(-1)?.content));
+  const prompt = originalUserPrompt(
+    contentText(userMessages.at(-1)?.content),
+    approvalPrompt,
+    approvedContinuationPrompt,
+  );
   const toolNames = tools.flatMap((item) => {
     const fn = item.function;
     if (!fn || typeof fn !== "object") return [];
@@ -2319,7 +2308,7 @@ async function readCurrentActivityTrace(page: Page): Promise<string[]> {
   });
 }
 
-async function assertActionWidgetOutsideActivity(
+async function assertAssistantContentOutsideActivity(
   page: Page,
   text: string,
 ): Promise<Locator> {
@@ -2362,7 +2351,10 @@ async function assertActivitiesCollapsed(
 }
 
 async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
-  await assertActionWidgetOutsideActivity(page, "AgentKit acceptance draft");
+  await assertAssistantContentOutsideActivity(
+    page,
+    "AgentKit acceptance draft",
+  );
   const draftCard = page
     .locator("[data-action-card]")
     .filter({ hasText: "AgentKit acceptance draft" });
@@ -2384,7 +2376,10 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
     state: "visible",
   });
 
-  await assertActionWidgetOutsideActivity(page, "From: digest@example.test");
+  await assertAssistantContentOutsideActivity(
+    page,
+    "From: digest@example.test",
+  );
   const filterCard = page
     .locator("[data-action-card]")
     .filter({ hasText: "From: digest@example.test" });
@@ -2396,7 +2391,7 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
   const filtersUrl = new URL((await filtersLink.getAttribute("href")) ?? "");
   assert.equal(filtersUrl.hash, "#settings/filters");
 
-  await assertActionWidgetOutsideActivity(
+  await assertAssistantContentOutsideActivity(
     page,
     "AgentKit sample form insights",
   );
@@ -2404,12 +2399,15 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
     .getByRole("cell", { name: "AgentKit acceptance", exact: true })
     .waitFor({ state: "visible" });
 
-  await assertActionWidgetOutsideActivity(page, "Sample analytics table");
+  await assertAssistantContentOutsideActivity(page, "Sample analytics table");
   await page
     .getByRole("cell", { name: "/agentkit-acceptance", exact: true })
     .waitFor({ state: "visible" });
 
-  await assertActionWidgetOutsideActivity(page, "AgentKit acceptance event");
+  await assertAssistantContentOutsideActivity(
+    page,
+    "AgentKit acceptance event",
+  );
   const eventCard = page
     .locator("[data-action-card]")
     .filter({ hasText: "AgentKit acceptance event" });
@@ -2420,7 +2418,7 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
     state: "visible",
   });
 
-  await assertActionWidgetOutsideActivity(page, "Best shared time");
+  await assertAssistantContentOutsideActivity(page, "Best shared time");
   const timeChoiceCard = page
     .locator("[data-action-card]")
     .filter({ hasText: "Best shared time" });
@@ -2439,7 +2437,7 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
     "the time-choice widget must open its Calendar draft link",
   );
 
-  await assertActionWidgetOutsideActivity(page, "Booking link");
+  await assertAssistantContentOutsideActivity(page, "Booking link");
   const bookingLinkCard = page
     .locator("[data-action-card]")
     .filter({ hasText: "Booking link" });
@@ -3292,9 +3290,10 @@ async function assertAgentKitChatAcceptance(
     "the AgentKit thread must call each sample action sequentially",
   );
   assert.equal(provider.widgetActionResults.length, widgetToolCalls.length);
-  await page
-    .getByText("All seven local sample widgets are ready.", { exact: true })
-    .waitFor({ state: "visible" });
+  await assertAssistantContentOutsideActivity(
+    page,
+    "All seven local sample widgets are ready.",
+  );
   await assertAgentKitWidgetSamples(page);
   await assertActivitiesCollapsed(page);
 
