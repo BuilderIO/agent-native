@@ -9267,15 +9267,14 @@ describe("server/auth", () => {
         if (/FROM organizations/.test(sql)) {
           return { rows: [{ identity_authority: null, identity_id: null }] };
         }
-        if (
-          /SELECT org_id, owner_email, kind FROM mcp_connect_tokens/.test(sql)
-        ) {
+        if (/FROM mcp_connect_tokens/.test(sql)) {
           return {
             rows: [
               {
                 org_id: "org-123",
                 owner_email: "owner@plans.test",
                 kind: "personal",
+                revoked_at: null,
               },
             ],
           };
@@ -9401,6 +9400,81 @@ describe("server/auth", () => {
       expect(event.res.status).toBe(503);
       expect(event.res.headers.get("retry-after")).toBe("5");
       consoleError.mockRestore();
+    });
+
+    it("answers an action route with a 401 naming why a connect token was refused", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-for-mcp-oauth-bearer");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.A2A_SECRET;
+
+      const mockExecute = vi.fn(
+        async ({ sql, args }: { sql: string; args?: unknown[] }) => {
+          if (
+            /FROM mcp_connect_tokens/.test(sql) &&
+            args?.[0] === "jti-connect-revoked-test"
+          ) {
+            return {
+              rows: [
+                {
+                  org_id: "org-123",
+                  owner_email: "owner@plans.test",
+                  kind: "personal",
+                  revoked_at: "2026-10-06T00:00:00.000Z",
+                },
+              ],
+            };
+          }
+          return { rows: [] };
+        },
+      );
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth: async () => undefined,
+        getBetterAuthSync: () => null,
+      }));
+
+      const { signMcpOAuthAccessToken, MCP_OAUTH_DEFAULT_SCOPE } =
+        await import("../mcp/oauth-token.js");
+      const { MCP_CONNECT_OAUTH_CLIENT_ID } =
+        await import("../mcp/connect-store.js");
+      const token = await signMcpOAuthAccessToken({
+        ownerEmail: "owner@plans.test",
+        orgId: "org-123",
+        orgDomain: "plans.test",
+        clientId: MCP_CONNECT_OAUTH_CLIENT_ID,
+        scope: MCP_OAUTH_DEFAULT_SCOPE,
+        resource: "http://localhost/_agent-native/mcp",
+        issuer: "http://localhost",
+        jti: "jti-connect-revoked-test",
+        expiresIn: "30d",
+      });
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      const event = createMockEvent({
+        path: "/_agent-native/actions/import-visual-plan-source",
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      await expect(guard(event)).resolves.toEqual({
+        error: "Unauthorized",
+        reason: "revoked",
+        message: expect.stringMatching(
+          /^This token was revoked\. Reconnect at http:\/\/localhost\S*\/mcp\/connect\.$/,
+        ),
+      });
+      expect(event.res.status).toBe(401);
     });
 
     it("does not resolve connect-minted MCP OAuth bearer tokens outside action routes", async () => {

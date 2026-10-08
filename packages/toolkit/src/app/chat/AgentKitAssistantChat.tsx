@@ -177,6 +177,7 @@ import { formatFeedbackReport } from "./feedback-report.js";
 import { FileStorageSetupPopover } from "./FileStorageSetupPopover.js";
 import { reconcileSettledRun } from "./reconcile-settled-run.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
+import { SESSION_REPLAY_MASK_PROPS } from "./session-replay-privacy.js";
 import { ThinkingDisplayProvider } from "./thinking-display.js";
 
 export interface AgentKitAssistantChatProps extends AssistantChatProps {
@@ -4333,7 +4334,10 @@ function AgentKitComposerSurface({
             className="mx-3 mb-1.5 flex shrink-0 items-start gap-2 rounded-md border border-border bg-muted/70 px-3 py-2 text-xs text-foreground shadow-sm"
           >
             <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 break-words leading-snug">
+            <span
+              {...SESSION_REPLAY_MASK_PROPS}
+              className="min-w-0 flex-1 break-words leading-snug"
+            >
               {composerError}
             </span>
             <button
@@ -5044,7 +5048,9 @@ function AgentKitConnectionError({
           </a>
         </>
       ) : (
-        <span>{formatAgentKitErrorText(error, t)}</span>
+        <span {...SESSION_REPLAY_MASK_PROPS}>
+          {formatAgentKitErrorText(error, t)}
+        </span>
       )}
       {error.retryable ? (
         <button
@@ -5059,7 +5065,11 @@ function AgentKitConnectionError({
         </button>
       ) : null}
       {recoveryError ? (
-        <span className="mt-2 block" role="alert">
+        <span
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="mt-2 block"
+          role="alert"
+        >
           {formatAgentKitErrorText(
             { code: "runtime_error", message: recoveryError.message },
             t,

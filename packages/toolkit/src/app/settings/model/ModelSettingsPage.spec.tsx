@@ -709,6 +709,30 @@ describe("ModelSettingsPage", () => {
     expect(row("llm").textContent).not.toContain("Add a model provider");
   });
 
+  it("shows the current Builder model for a retired stored default", async () => {
+    state.listing = listing({
+      canManageOrg: true,
+      canUpdateDefault: true,
+      defaultModel: { engine: "builder", model: "claude-sonnet-5" },
+    });
+    state.models = {
+      providers: models().providers.map((provider) =>
+        provider.provider === "builder"
+          ? { ...provider, recommendedModels: ["claude-sonnet-5-5"] }
+          : provider,
+      ),
+    };
+    state.builder = builderFlow();
+    await render();
+
+    const defaultRow = row("default-model");
+    await vi.waitFor(() => {
+      expect(defaultRow.textContent).toContain(
+        "claude-sonnet-5-5 · Builder.io",
+      );
+    });
+  });
+
   it("offers a deployment-configured provider when there is no saved key or default", async () => {
     state.listing = listing(
       { canManageOrg: true, canUpdateDefault: true, defaultModel: null },

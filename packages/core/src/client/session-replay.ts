@@ -18,6 +18,10 @@ import {
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
 import {
+  SESSION_REPLAY_BLOCK_ATTRIBUTE,
+  SESSION_REPLAY_MASK_ATTRIBUTE,
+} from "./session-replay-privacy.js";
+import {
   decideReplayQuotaResponse,
   parseRetryAfterSeconds,
 } from "./session-replay-quota.js";
@@ -192,6 +196,7 @@ export interface SessionReplayOptions {
   blockSelector?: string;
   ignoreSelector?: string;
   maskTextClass?: string | RegExp;
+  /** App selectors extend the framework's `data-an-mask` privacy marker. */
   maskTextSelector?: string;
   maskAllInputs?: boolean;
   recordCanvas?: boolean;
@@ -298,7 +303,7 @@ const SESSION_REPLAY_IFRAME_BLOCK_SELECTOR = `iframe[${SESSION_REPLAY_IFRAME_ATT
 const DEFAULT_BLOCK_SELECTOR = [
   SESSION_REPLAY_IFRAME_BLOCK_SELECTOR,
   "[data-sensitive]",
-  "[data-an-block]",
+  `[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`,
   "[data-an-private]",
   "[data-private]",
   ".an-block",
@@ -313,9 +318,18 @@ const DEFAULT_BLOCK_SELECTOR = [
   "[name*='card' i]",
   "[name*='ssn' i]",
 ].join(", ");
+/**
+ * App block selectors extend these framework markers instead of replacing them.
+ * Append them whole: a custom selector can mention one, as in
+ * `[data-an-block] .secret`, without matching the bare marker.
+ */
+const REQUIRED_BLOCK_SELECTORS = [
+  SESSION_REPLAY_IFRAME_BLOCK_SELECTOR,
+  `[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`,
+];
 const DEFAULT_IGNORE_SELECTOR = ".an-ignore, [data-an-ignore]";
 const DEFAULT_MASK_TEXT_CLASS = "an-mask";
-const DEFAULT_MASK_TEXT_SELECTOR = "[data-an-mask]";
+const DEFAULT_MASK_TEXT_SELECTOR = `[${SESSION_REPLAY_MASK_ATTRIBUTE}]`;
 const DEFAULT_MASK_INPUT_OPTIONS: Record<string, boolean> = {
   color: true,
   date: true,
@@ -953,12 +967,14 @@ function normalizeOptions(
     checkoutEveryNth: options.checkoutEveryNth,
     checkoutEveryNms: options.checkoutEveryNms,
     inlineStylesheet: options.inlineStylesheet ?? true,
-    blockSelector: mergeReplayBlockSelector(
-      options.blockSelector || DEFAULT_BLOCK_SELECTOR,
-    ),
+    blockSelector: options.blockSelector
+      ? [options.blockSelector, ...REQUIRED_BLOCK_SELECTORS].join(", ")
+      : DEFAULT_BLOCK_SELECTOR,
     ignoreSelector: options.ignoreSelector || DEFAULT_IGNORE_SELECTOR,
     maskTextClass: options.maskTextClass || DEFAULT_MASK_TEXT_CLASS,
-    maskTextSelector: options.maskTextSelector || DEFAULT_MASK_TEXT_SELECTOR,
+    maskTextSelector: options.maskTextSelector
+      ? `${DEFAULT_MASK_TEXT_SELECTOR}, ${options.maskTextSelector}`
+      : DEFAULT_MASK_TEXT_SELECTOR,
     maskAllInputs: options.maskAllInputs ?? true,
     recordCanvas: options.recordCanvas ?? false,
     recordCrossOriginIframes:
@@ -980,12 +996,6 @@ function normalizeOptions(
     extraProperties: options.extraProperties,
     shouldStart: options.shouldStart,
   };
-}
-
-function mergeReplayBlockSelector(blockSelector: string): string {
-  return blockSelector.includes(SESSION_REPLAY_IFRAME_BLOCK_SELECTOR)
-    ? blockSelector
-    : `${blockSelector}, ${SESSION_REPLAY_IFRAME_BLOCK_SELECTOR}`;
 }
 
 function normalizeCaptureToggle(
