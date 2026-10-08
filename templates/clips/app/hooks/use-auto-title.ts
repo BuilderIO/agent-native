@@ -33,8 +33,6 @@ const WORKFLOW_ACTION_RETRY_DELAY_MS = 1000;
 const AI_REQUEST_REFRESH_SOURCE = "app-state:refresh-signal";
 const AI_REQUEST_DELIVERY_TIMEOUT_MS = 10_000;
 const BACKGROUND_SESSION_POLL_INTERVAL_MS = 2_000;
-const BACKGROUND_SESSION_MAX_QUEUE_MS = 3 * 60 * 1000;
-const BACKGROUND_SESSION_MAX_CONFIRMATION_MS = 3 * 60 * 1000;
 
 function bumpAiRequestRefresh(): void {
   bumpChangeVersion(
@@ -119,6 +117,14 @@ export function useAutoTitleBridge(): void {
   const dispatched = useRef<Set<string>>(new Set());
   const monitoredSessions = useRef<Set<string>>(new Set());
   const inflight = useRef<boolean>(false);
+  const mounted = useRef(false);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const handleChatRunning = (event: Event) => {
@@ -360,18 +366,16 @@ export function useAutoTitleBridge(): void {
   }, [data, refetch]);
 
   useEffect(() => {
-    let cancelled = false;
     for (const session of data?.activeSessions ?? []) {
       const operationKey = session.operationId;
       if (monitoredSessions.current.has(operationKey)) continue;
       monitoredSessions.current.add(operationKey);
-      void monitorFillerWordsSession(session, () => cancelled).finally(() => {
-        monitoredSessions.current.delete(operationKey);
-      });
+      void monitorFillerWordsSession(session, () => !mounted.current).finally(
+        () => {
+          monitoredSessions.current.delete(operationKey);
+        },
+      );
     }
-    return () => {
-      cancelled = true;
-    };
   }, [data?.activeSessions]);
 }
 
@@ -711,7 +715,7 @@ async function dispatchFillerWordsRequest(
       return { handled: saved, accepted: false };
     }
     if (
-      snapshot?.runId &&
+      snapshot &&
       (snapshot.status === "queued" || snapshot.status === "running")
     ) {
       const saved = await persistFillerWordsStatus(
@@ -722,9 +726,16 @@ async function dispatchFillerWordsRequest(
       if (saved) await consumeFillerWordsRequest(session);
       return { handled: saved, accepted: saved };
     }
-    const saved = await persistFillerWordsStatus(session, "failed");
-    if (saved) await consumeFillerWordsRequest(session);
-    return { handled: saved, accepted: false };
+    if (!handle || isConfirmedBackgroundSessionRejection(error)) {
+      const saved = await persistFillerWordsStatus(session, "failed");
+      if (saved) await consumeFillerWordsRequest(session);
+      return { handled: saved, accepted: false };
+    }
+
+    // Keep the durable request queued when acceptance cannot be confirmed.
+    // A later dispatch uses the same operation id, so it reattaches instead of
+    // creating a second edit run.
+    return { handled: false, accepted: false };
   }
 
   const saved = await persistFillerWordsStatus(
@@ -736,42 +747,42 @@ async function dispatchFillerWordsRequest(
   return { handled: true, accepted: true };
 }
 
+function isConfirmedBackgroundSessionRejection(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const status = (error as Error & { status?: unknown }).status;
+  return (
+    /^Background agent session was rejected \(HTTP \d+\)/.test(error.message) &&
+    typeof status === "number" &&
+    status >= 400 &&
+    status < 500 &&
+    ![408, 409, 425, 429].includes(status)
+  );
+}
+
 async function monitorFillerWordsSession(
   session: ActiveAiRequestSession,
-  isCancelled: () => boolean,
+  shouldStop: () => boolean,
 ): Promise<void> {
-  const timestamp = new Date(
-    session.updatedAt ?? session.requestedAt,
-  ).getTime();
-  const startedAt = Number.isFinite(timestamp) ? timestamp : Date.now();
   let retryDelay = BACKGROUND_SESSION_POLL_INTERVAL_MS;
 
-  while (!isCancelled()) {
+  while (!shouldStop()) {
     let snapshot: BackgroundAgentSessionSnapshot | undefined;
     try {
       snapshot = await getBackgroundAgentSessionStatus(session);
       retryDelay = BACKGROUND_SESSION_POLL_INTERVAL_MS;
     } catch {
-      if (Date.now() - startedAt >= BACKGROUND_SESSION_MAX_CONFIRMATION_MS) {
-        if (await persistFillerWordsStatus(session, "failed")) return;
-      }
+      if (shouldStop()) return;
       await new Promise((resolve) => setTimeout(resolve, retryDelay));
       retryDelay = Math.min(retryDelay * 2, 10_000);
       continue;
     }
+    if (shouldStop()) return;
 
     const terminalStatus = backgroundAiRequestStatus(snapshot);
     if (terminalStatus) {
       if (await persistFillerWordsStatus(session, terminalStatus, snapshot)) {
         return;
       }
-    } else if (
-      (snapshot.status === "unavailable" ||
-        snapshot.status === "queued" ||
-        !snapshot.runId) &&
-      Date.now() - startedAt >= BACKGROUND_SESSION_MAX_QUEUE_MS
-    ) {
-      if (await persistFillerWordsStatus(session, "failed")) return;
     }
 
     await new Promise((resolve) =>
@@ -809,8 +820,33 @@ export function parseFillerTranscriptSegments(raw: string | undefined):
   if (!Array.isArray(parsed)) {
     return { ok: false, reason: "not-an-array" };
   }
-  const segments = parseTranscriptSegments(JSON.stringify(parsed));
-  if (segments.length !== parsed.length) {
+  const nonBlankSegments: unknown[] = [];
+  for (const segment of parsed) {
+    if (!segment || typeof segment !== "object" || Array.isArray(segment)) {
+      return { ok: false, reason: "invalid-segment" };
+    }
+    const candidate = segment as {
+      startMs?: unknown;
+      endMs?: unknown;
+      text?: unknown;
+    };
+    if (
+      typeof candidate.startMs !== "number" ||
+      !Number.isFinite(candidate.startMs) ||
+      typeof candidate.endMs !== "number" ||
+      !Number.isFinite(candidate.endMs) ||
+      candidate.endMs <= candidate.startMs ||
+      typeof candidate.text !== "string"
+    ) {
+      return { ok: false, reason: "invalid-segment" };
+    }
+    if (candidate.text.trim()) nonBlankSegments.push(segment);
+  }
+  if (parsed.length > 0 && nonBlankSegments.length === 0) {
+    return { ok: false, reason: "invalid-segment" };
+  }
+  const segments = parseTranscriptSegments(JSON.stringify(nonBlankSegments));
+  if (segments.length !== nonBlankSegments.length) {
     return { ok: false, reason: "invalid-segment" };
   }
   return { ok: true, segments };

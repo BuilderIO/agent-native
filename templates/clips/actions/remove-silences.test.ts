@@ -79,6 +79,38 @@ const segments = [
   { startMs: 6_000, endMs: 6_500, text: "Third." },
 ];
 
+const invalidTimestampCases: Array<[string, string]> = [
+  [
+    "null start",
+    JSON.stringify([
+      segments[0],
+      { startMs: null, endMs: 2_000, text: "Middle." },
+    ]),
+  ],
+  [
+    "empty end",
+    JSON.stringify([
+      segments[0],
+      { startMs: 2_000, endMs: "", text: "Middle." },
+    ]),
+  ],
+  [
+    "string timestamp",
+    JSON.stringify([
+      segments[0],
+      { startMs: "2_000", endMs: 3_000, text: "Middle." },
+    ]),
+  ],
+  [
+    "missing timestamp",
+    JSON.stringify([segments[0], { startMs: 2_000, text: "Middle." }]),
+  ],
+  [
+    "non-finite timestamp",
+    `[${JSON.stringify(segments[0])},{"startMs":2000,"endMs":1e999,"text":"Middle."}]`,
+  ],
+];
+
 beforeEach(() => {
   state.recording = {
     id: "rec_1",
@@ -122,6 +154,26 @@ describe("remove-silences", () => {
     );
     expect(() => findSilenceTrimRanges("[]", 1_200)).toThrow(
       "Timestamped transcript segments are required",
+    );
+  });
+
+  it.each(invalidTimestampCases)(
+    "rejects %s timestamps before normalization",
+    (_description, rawSegments) => {
+      expect(() => findSilenceTrimRanges(rawSegments, 1_200)).toThrow(
+        "Timestamped transcript segments are required",
+      );
+    },
+  );
+
+  it("uses valid timestamps even when transcript text is blank", () => {
+    const timedSegments = [
+      { startMs: 0, endMs: 1_000, text: "" },
+      { startMs: 3_000, endMs: 4_000, text: "   " },
+    ];
+
+    expect(findSilenceTrimRanges(JSON.stringify(timedSegments), 1_200)).toEqual(
+      [{ startMs: 1_200, endMs: 2_800 }],
     );
   });
 

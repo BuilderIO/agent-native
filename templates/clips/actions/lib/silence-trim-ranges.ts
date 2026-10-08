@@ -1,7 +1,5 @@
 import { fail } from "@agent-native/core/action";
 
-import { parseTranscriptSegments } from "../../shared/transcript-segments.js";
-
 export interface SilenceTrimRange {
   startMs: number;
   endMs: number;
@@ -30,8 +28,31 @@ export function findSilenceTrimRanges(
     );
   }
 
-  const segments = parseTranscriptSegments(JSON.stringify(parsed));
-  if (segments.length !== parsed.length || segments.length === 0) {
+  const segments = parsed.map((segment) => {
+    if (!segment || typeof segment !== "object" || Array.isArray(segment)) {
+      fail("Timestamped transcript segments are required to remove silences.", {
+        errorCode: "timestamped_transcript_required",
+        statusCode: 422,
+      });
+    }
+
+    const { startMs, endMs } = segment as Record<string, unknown>;
+    if (
+      typeof startMs !== "number" ||
+      !Number.isFinite(startMs) ||
+      typeof endMs !== "number" ||
+      !Number.isFinite(endMs) ||
+      endMs <= startMs
+    ) {
+      fail("Timestamped transcript segments are required to remove silences.", {
+        errorCode: "timestamped_transcript_required",
+        statusCode: 422,
+      });
+    }
+
+    return { startMs, endMs };
+  });
+  if (segments.length === 0) {
     fail("Timestamped transcript segments are required to remove silences.", {
       errorCode: "timestamped_transcript_required",
       statusCode: 422,

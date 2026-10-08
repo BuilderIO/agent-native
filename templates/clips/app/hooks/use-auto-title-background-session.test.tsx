@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   callAction: vi.fn(),
   getBackgroundAgentSessionStatus: vi.fn(),
   getChangeVersion: vi.fn(() => 0),
+  refetch: vi.fn(),
   sendToAgentChatAndConfirm: vi.fn(),
   startBackgroundAgentSession: vi.fn(),
 }));
@@ -33,9 +34,27 @@ vi.mock("@agent-native/core/client/hooks", async () => {
       const [data, setData] = React.useState<unknown>();
       const refetch = React.useCallback(async () => {
         const next = await mocks.callAction(name, args, { method: "GET" });
-        setData(next);
-        return { data: next };
+        const snapshot =
+          next && typeof next === "object"
+            ? {
+                ...(next as Record<string, unknown>),
+                requests: [
+                  ...((next as { requests?: unknown[] }).requests ?? []),
+                ],
+                activeSessions: [
+                  ...((next as { activeSessions?: unknown[] }).activeSessions ??
+                    []),
+                ],
+                titleCandidates: [
+                  ...((next as { titleCandidates?: unknown[] })
+                    .titleCandidates ?? []),
+                ],
+              }
+            : next;
+        setData(snapshot);
+        return { data: snapshot };
       }, []);
+      mocks.refetch.mockImplementation(refetch);
       React.useEffect(() => {
         void refetch();
       }, [refetch]);
@@ -116,6 +135,39 @@ describe("Clips filler-word background sessions", () => {
       ok: false,
       reason: "invalid-segment",
     });
+  });
+
+  it("skips blank text segments when their timestamps are valid", () => {
+    expect(
+      parseFillerTranscriptSegments(
+        JSON.stringify([
+          { startMs: 0, endMs: 250, text: "  " },
+          { startMs: 250, endMs: 500, text: "Um, let's begin." },
+        ]),
+      ),
+    ).toMatchObject({
+      ok: true,
+      segments: [{ startMs: 250, endMs: 500, text: "Um, let's begin." }],
+    });
+  });
+
+  it.each([null, "", "0"])(
+    "rejects non-numeric transcript timestamps such as %j",
+    (startMs) => {
+      expect(
+        parseFillerTranscriptSegments(
+          JSON.stringify([{ startMs, endMs: 500, text: "Um, let's begin." }]),
+        ),
+      ).toEqual({ ok: false, reason: "invalid-segment" });
+    },
+  );
+
+  it("does not treat an all-blank transcript as usable input", () => {
+    expect(
+      parseFillerTranscriptSegments(
+        JSON.stringify([{ startMs: 0, endMs: 250, text: "  " }]),
+      ),
+    ).toEqual({ ok: false, reason: "invalid-segment" });
   });
 
   it("starts directly through the run manager and consumes only the accepted request", async () => {
@@ -268,5 +320,241 @@ describe("Clips filler-word background sessions", () => {
     );
     expect(mocks.getBackgroundAgentSessionStatus).toHaveBeenCalledWith(session);
     expect(mocks.sendToAgentChatAndConfirm).not.toHaveBeenCalled();
+  });
+
+  it("keeps an uncertain acceptance queued when status lookup is unavailable", async () => {
+    const stableId = aiRequestTabId(
+      request.recordingId,
+      "remove-filler-words",
+      requestedAt,
+    );
+    const receipt = {
+      operationId: stableId,
+      threadId: stableId,
+      turnId: "turn-uncertain",
+    };
+    const uncertainAcceptance = Promise.reject(
+      new Error("acknowledgement timed out"),
+    );
+    void uncertainAcceptance.catch(() => {});
+    const uncertainHandle = {
+      ...receipt,
+      accepted: uncertainAcceptance,
+      completion: Promise.resolve(),
+      status: vi.fn().mockResolvedValue({ ...receipt, status: "unavailable" }),
+      cancel: vi.fn(),
+      open: vi.fn(),
+    } satisfies BackgroundAgentSessionHandle;
+    const nextUncertainAcceptance = Promise.reject(
+      new Error("acknowledgement timed out"),
+    );
+    void nextUncertainAcceptance.catch(() => {});
+    const nextUncertainHandle = {
+      ...receipt,
+      accepted: nextUncertainAcceptance,
+      completion: Promise.resolve(),
+      status: vi.fn().mockResolvedValue({ ...receipt, status: "unavailable" }),
+      cancel: vi.fn(),
+      open: vi.fn(),
+    } satisfies BackgroundAgentSessionHandle;
+    mocks.startBackgroundAgentSession
+      .mockReturnValueOnce(uncertainHandle)
+      .mockReturnValueOnce(nextUncertainHandle);
+
+    await renderBridge({
+      requests: [request],
+      activeSessions: [],
+      titleCandidates: [],
+    });
+
+    await vi.waitFor(() =>
+      expect(mocks.startBackgroundAgentSession).toHaveBeenCalledOnce(),
+    );
+    expect(uncertainHandle.status).toHaveBeenCalledOnce();
+    expect(mocks.callAction).not.toHaveBeenCalledWith(
+      "update-ai-request-status",
+      expect.objectContaining({ status: "failed" }),
+    );
+    expect(mocks.callAction).not.toHaveBeenCalledWith(
+      "consume-ai-request",
+      expect.anything(),
+    );
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "update-ai-request-status",
+      expect.objectContaining({
+        operationId: stableId,
+        status: "working",
+      }),
+    );
+    expect(
+      mocks.callAction.mock.calls.some(
+        ([name, payload]) =>
+          name === "update-ai-request-status" &&
+          payload?.operationId === stableId &&
+          typeof payload?.turnId === "string",
+      ),
+    ).toBe(false);
+
+    await act(async () => {
+      await mocks.refetch();
+    });
+
+    await vi.waitFor(() =>
+      expect(mocks.startBackgroundAgentSession).toHaveBeenCalledTimes(2),
+    );
+    expect(
+      mocks.startBackgroundAgentSession.mock.calls.map(
+        ([options]) => (options as { operationId: string }).operationId,
+      ),
+    ).toEqual([stableId, stableId]);
+    expect(nextUncertainHandle.status).toHaveBeenCalledOnce();
+    expect(mocks.callAction).not.toHaveBeenCalledWith(
+      "consume-ai-request",
+      expect.anything(),
+    );
+    expect(mocks.callAction).not.toHaveBeenCalledWith(
+      "update-ai-request-status",
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
+  it("marks a request failed only after the session route explicitly rejects it", async () => {
+    const stableId = aiRequestTabId(
+      request.recordingId,
+      "remove-filler-words",
+      requestedAt,
+    );
+    const receipt = {
+      operationId: stableId,
+      threadId: stableId,
+      turnId: "turn-rejected",
+    };
+    const rejection = Object.assign(
+      new Error("Background agent session was rejected (HTTP 422)"),
+      { status: 422 },
+    );
+    const accepted = Promise.reject(rejection);
+    void accepted.catch(() => {});
+    mocks.startBackgroundAgentSession.mockReturnValue({
+      ...receipt,
+      accepted,
+      completion: Promise.resolve(),
+      status: vi.fn().mockResolvedValue({
+        ...receipt,
+        status: "unavailable",
+      }),
+      cancel: vi.fn(),
+      open: vi.fn(),
+    } satisfies BackgroundAgentSessionHandle);
+
+    await renderBridge({
+      requests: [request],
+      activeSessions: [],
+      titleCandidates: [],
+    });
+
+    await vi.waitFor(() =>
+      expect(mocks.callAction).toHaveBeenCalledWith(
+        "update-ai-request-status",
+        expect.objectContaining({ status: "failed" }),
+      ),
+    );
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "consume-ai-request",
+      expect.objectContaining({ requestedAt }),
+    );
+  });
+
+  it("does not fail a queued run just because it has not started yet", async () => {
+    const session = {
+      recordingId: request.recordingId,
+      kind: "remove-filler-words",
+      requestedAt,
+      operationId: "queued-operation",
+      threadId: "queued-thread",
+      turnId: "queued-turn",
+      updatedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+    };
+    mocks.getBackgroundAgentSessionStatus.mockResolvedValue({
+      ...session,
+      status: "queued",
+    });
+
+    await renderBridge({
+      requests: [],
+      activeSessions: [session],
+      titleCandidates: [],
+    });
+
+    await vi.waitFor(() =>
+      expect(mocks.getBackgroundAgentSessionStatus).toHaveBeenCalledOnce(),
+    );
+    expect(mocks.callAction).not.toHaveBeenCalledWith(
+      "update-ai-request-status",
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
+  it("keeps polling after status endpoint errors beyond the confirmation window", async () => {
+    const session = {
+      recordingId: request.recordingId,
+      kind: "remove-filler-words",
+      requestedAt,
+      operationId: "unavailable-operation",
+      threadId: "unavailable-thread",
+      turnId: "unavailable-turn",
+      updatedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+    };
+    mocks.getBackgroundAgentSessionStatus.mockRejectedValue(
+      new Error("status endpoint unavailable"),
+    );
+
+    await renderBridge({
+      requests: [],
+      activeSessions: [session],
+      titleCandidates: [],
+    });
+
+    await vi.waitFor(() =>
+      expect(mocks.getBackgroundAgentSessionStatus).toHaveBeenCalledOnce(),
+    );
+    expect(mocks.callAction).not.toHaveBeenCalledWith(
+      "update-ai-request-status",
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
+  it("keeps monitor ownership when the active-session query refreshes", async () => {
+    const session = {
+      recordingId: request.recordingId,
+      kind: "remove-filler-words",
+      requestedAt,
+      operationId: "stable-monitor-operation",
+      threadId: "stable-monitor-thread",
+      turnId: "stable-monitor-turn",
+      updatedAt: requestedAt,
+    };
+    mocks.getBackgroundAgentSessionStatus.mockResolvedValue({
+      ...session,
+      status: "queued",
+    });
+
+    await renderBridge({
+      requests: [],
+      activeSessions: [{ ...session }],
+      titleCandidates: [],
+    });
+    await vi.waitFor(() =>
+      expect(mocks.getBackgroundAgentSessionStatus).toHaveBeenCalledOnce(),
+    );
+
+    await act(async () => {
+      await mocks.refetch();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 2_100));
+
+    expect(
+      mocks.getBackgroundAgentSessionStatus.mock.calls.length,
+    ).toBeGreaterThanOrEqual(2);
   });
 });
