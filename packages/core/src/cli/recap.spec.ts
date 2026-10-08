@@ -4796,6 +4796,21 @@ describe("reusable vs copy workflow step-sequence parity", () => {
     ".github/workflows/pr-visual-recap-fork.yml",
   );
 
+  it("runs readback and screenshot when post-publish setup steps fail", () => {
+    for (const workflowPath of [
+      path.join(repoRoot, ".github/workflows/pr-visual-recap.yml"),
+      reusableFile,
+      forkFile,
+    ]) {
+      const content = fs.readFileSync(workflowPath, "utf8");
+      expect(
+        content.match(
+          /if: always\(\) && !cancelled\(\) && steps\.url\.outputs\.ok == 'true'/g,
+        ),
+      ).toHaveLength(2);
+    }
+  });
+
   function recapStepNames(content: string): string[] {
     const recapStart = content.indexOf("\n  recap:");
     if (recapStart < 0) return [];

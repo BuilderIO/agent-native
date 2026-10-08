@@ -964,7 +964,7 @@ jobs:
 
       - name: Verify published recap readback
         id: readback
-        if: steps.url.outputs.ok == 'true'
+        if: always() && !cancelled() && steps.url.outputs.ok == 'true'
         env:
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
         run: |
@@ -1063,7 +1063,7 @@ jobs:
 
       - name: Screenshot + upload
         id: shot
-        if: steps.url.outputs.ok == 'true'
+        if: always() && !cancelled() && steps.url.outputs.ok == 'true'
         continue-on-error: true
         env:
           PLAN_URL: ${{ steps.url.outputs.plan_url }}

@@ -655,6 +655,12 @@ describe("shareable resource access helpers", () => {
 
   it("grants read-only org visibility to a service identity scoped to the same request org", async () => {
     const serviceEmail = `svc-pr-recap@service.${orgId}`;
+    await pglite
+      .prepare(
+        `INSERT INTO organizations (id, name, created_by, created_at)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(orgId, "QA", ownerEmail, Date.now());
     await insertDoc({
       id: "doc-org-service-member",
       ownerEmail: outsiderEmail,
@@ -674,6 +680,42 @@ describe("shareable resource access helpers", () => {
         await expect(
           assertAccess(resourceType, "doc-org-service-member", "editor"),
         ).rejects.toBeInstanceOf(ForbiddenError);
+      },
+    );
+  });
+
+  it("denies service identity access to a federated org without validated membership", async () => {
+    const serviceEmail = `svc-pr-recap@service.${orgId}`;
+    await pglite
+      .prepare(
+        `INSERT INTO organizations (
+           id, name, created_by, created_at, identity_authority, identity_id
+         ) VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        orgId,
+        "QA",
+        ownerEmail,
+        Date.now(),
+        "https://identity.example.test",
+        "org-upstream-qa",
+      );
+    await insertDoc({
+      id: "doc-org-federated-service",
+      ownerEmail: outsiderEmail,
+      visibility: "org",
+    });
+
+    await runWithRequestContext(
+      {
+        userEmail: serviceEmail,
+        orgId,
+        verifiedServiceIdentity: { userEmail: serviceEmail, orgId },
+      },
+      async () => {
+        await expect(
+          resolveAccess(resourceType, "doc-org-federated-service"),
+        ).resolves.toBe(null);
       },
     );
   });

@@ -5,8 +5,7 @@ import { getScopedDbExec, withDbExec, type DbExec } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "../org/feature-flags.js";
 import { isMissingOrganizationTableError } from "../org/membership.js";
-import { orgMembers } from "../org/schema.js";
-import { organizations } from "../org/schema.js";
+import { orgMembers, organizations } from "../org/schema.js";
 import { implicitServiceOrgRole } from "../org/service-identity.js";
 import {
   getRequestAuthCapability,
@@ -104,6 +103,7 @@ async function isOrgMember(
 ): Promise<boolean> {
   const requestContext = getRequestContext();
   const verifiedServiceIdentity = requestContext?.verifiedServiceIdentity;
+  const db = reg.getDb() as any;
   if (
     normalizeEmailForAccess(requestContext?.userEmail) === email &&
     normalizeEmailForAccess(verifiedServiceIdentity?.userEmail) === email &&
@@ -114,10 +114,27 @@ async function isOrgMember(
     }) &&
     verifiedServiceIdentity?.orgId === memberOrgId
   ) {
-    return true;
+    try {
+      const [organization] = await db
+        .select({
+          identityAuthority: organizations.identityAuthority,
+          identityId: organizations.identityId,
+        })
+        .from(organizations)
+        .where(eq(organizations.id, memberOrgId))
+        .limit(1);
+      if (
+        organization &&
+        !String(organization.identityAuthority ?? "").trim() &&
+        !String(organization.identityId ?? "").trim()
+      ) {
+        return true;
+      }
+    } catch (error) {
+      if (!isMissingOrganizationTableError(error)) throw error;
+    }
   }
 
-  const db = reg.getDb() as any;
   let rows: Array<{ id: string }>;
   try {
     rows = await db
