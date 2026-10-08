@@ -28,9 +28,11 @@ the same open E2E issue on later reports and update its full failure list.
 Never create a separate issue per test, fingerprint, shard, or run. Search
 open PRs and tracking issues for every run id, workflow, or fingerprint; a
 matching aggregate E2E issue owns every listed E2E row, not only one run-ID
-occurrence. If matching per-fingerprint issues already exist, link them as
-evidence and do not open more issues. Close the aggregate after all listed E2E
-failures recover or are fixed.
+occurrence. If only per-fingerprint issues are open, reuse one as the aggregate
+and link the other issue URLs as evidence; do not create another E2E issue or
+close duplicates unless the current sweep explicitly authorizes issue closure.
+Record the aggregate as recovered after all listed failures recover or are
+fixed; close it only when issue closure is explicitly authorized.
 
 Keep non-E2E workflow incidents separately tracked. For those rows, a run-ID-
 only match owns only that occurrence; keep other unowned run IDs actionable.
