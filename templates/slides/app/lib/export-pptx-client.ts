@@ -1,4 +1,7 @@
-import { materializeSlideNumberTokens } from "@shared/slide-number";
+import {
+  materializeSlideNumberTokens,
+  slideNumberRootAttrs,
+} from "@shared/slide-number";
 
 import { type AspectRatio, getAspectRatioDims } from "./aspect-ratios";
 import { importExportModule } from "./dynamic-import";
@@ -1239,6 +1242,18 @@ function splitTopLevel(list: string): string[] | undefined {
 const round3 = (value: number) => `${Math.round(value * 1000) / 1000}`;
 
 function stopPaint(color: string): { color: string; opacity?: string } {
+  const rgba = color.match(
+    /^rgba\(\s*(\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\s*\)$/i,
+  );
+  if (rgba) {
+    return {
+      color: `#${rgba
+        .slice(1, 4)
+        .map((channel) => Number(channel).toString(16).padStart(2, "0"))
+        .join("")}`,
+      opacity: round3(Number(rgba[4])),
+    };
+  }
   const hex8 = color.match(/^#([\da-f]{6})([\da-f]{2})$/i);
   if (!hex8) return { color };
   return {
@@ -1287,8 +1302,12 @@ export function gradientPaint(
     const focus = head.match(
       /^(?:circle|ellipse)?\s*at\s+(-?[\d.]+)%\s+(-?[\d.]+)%$/,
     );
-    if (!focus && head !== "circle" && head !== "ellipse") return undefined;
-    const stopParts = parts.slice(1);
+    // A bare colour list is CSS's default: an ellipse at the centre.
+    const headless = /^(?:#|[a-z]+\(|transparent\b)/.test(head);
+    if (!focus && !headless && head !== "circle" && head !== "ellipse") {
+      return undefined;
+    }
+    const stopParts = headless ? parts : parts.slice(1);
     if (stopParts.length < 2) return undefined;
     const cx = focus ? (Number.parseFloat(focus[1]) / 100) * width : width / 2;
     const cy = focus
@@ -1297,19 +1316,30 @@ export function gradientPaint(
     const gradient = document.createElementNS(SVG_NAMESPACE, "radialGradient");
     gradient.setAttribute("id", id);
     gradient.setAttribute("gradientUnits", "userSpaceOnUse");
-    gradient.setAttribute("cx", round3(cx));
-    gradient.setAttribute("cy", round3(cy));
-    gradient.setAttribute(
-      "r",
-      round3(
-        Math.max(
-          Math.hypot(cx, cy),
-          Math.hypot(width - cx, cy),
-          Math.hypot(cx, height - cy),
-          Math.hypot(width - cx, height - cy),
+    if (head.startsWith("circle")) {
+      gradient.setAttribute("cx", round3(cx));
+      gradient.setAttribute("cy", round3(cy));
+      gradient.setAttribute(
+        "r",
+        round3(
+          Math.max(
+            Math.hypot(cx, cy),
+            Math.hypot(width - cx, cy),
+            Math.hypot(cx, height - cy),
+            Math.hypot(width - cx, height - cy),
+          ),
         ),
-      ),
-    );
+      );
+    } else {
+      // Farthest-corner ellipse: the farthest-side ratio, scaled to reach the corner.
+      gradient.setAttribute("cx", "0");
+      gradient.setAttribute("cy", "0");
+      gradient.setAttribute("r", "1");
+      gradient.setAttribute(
+        "gradientTransform",
+        `translate(${round3(cx)} ${round3(cy)}) scale(${round3(Math.SQRT2 * Math.max(cx, width - cx))} ${round3(Math.SQRT2 * Math.max(cy, height - cy))})`,
+      );
+    }
     return appendGradientStops(gradient, stopParts);
   }
 
@@ -1404,6 +1434,88 @@ export function materializeClipPathShapes(root: HTMLElement) {
       svg.append(...Array.from(overlay.childNodes));
     }
     element.replaceWith(svg);
+  }
+}
+
+const allElements = (root: HTMLElement) => [
+  root,
+  ...Array.from(root.querySelectorAll<HTMLElement>("*")),
+];
+
+// dom-to-pptx only paints linear gradients and drops a radial one without a
+// trace, which leaves a radial slide background white under light text.
+export function materializeRadialGradients(root: HTMLElement) {
+  for (const element of allElements(root)) {
+    const style = window.getComputedStyle(element);
+    if (!/^radial-gradient\(/i.test(style.backgroundImage)) continue;
+    const width = element.offsetWidth || computedLength(style.width, 0);
+    const height = element.offsetHeight || computedLength(style.height, 0);
+    const gradient =
+      width > 0 && height > 0
+        ? gradientPaint(
+            style.backgroundImage,
+            width,
+            height,
+            `fmd-grad-${gradientId++}`,
+          )
+        : undefined;
+    if (!gradient) {
+      console.warn(
+        `[export-pptx] radial-gradient background is not exported: ${style.backgroundImage}`,
+      );
+      continue;
+    }
+    const svg = document.createElementNS(SVG_NAMESPACE, "svg");
+    svg.setAttribute("width", `${width}`);
+    svg.setAttribute("height", `${height}`);
+    const defs = document.createElementNS(SVG_NAMESPACE, "defs");
+    defs.appendChild(gradient);
+    const rect = document.createElementNS(SVG_NAMESPACE, "rect");
+    rect.setAttribute("width", `${width}`);
+    rect.setAttribute("height", `${height}`);
+    rect.setAttribute("fill", `url(#${gradient.id})`);
+    svg.append(defs, rect);
+    // dom-to-pptx cuts the url() at its first ")", so none may survive inside.
+    const url = svgDataUrl(svg).replace(/\(/g, "%28").replace(/\)/g, "%29");
+    element.style.backgroundImage = `url("${url}")`;
+    element.style.backgroundSize = "cover";
+  }
+}
+
+const GRADIENT_STOP_COLOR = /#[\da-f]{3,8}\b|rgba?\([^)]*\)/gi;
+
+// dom-to-pptx reads the first stop of a background-clip:text gradient but
+// keeps the text colour's alpha, so `color: transparent` exports invisible.
+export function solidifyGradientText(root: HTMLElement) {
+  for (const element of allElements(root)) {
+    const style = window.getComputedStyle(element);
+    if ((style.webkitBackgroundClip || style.backgroundClip) !== "text") {
+      continue;
+    }
+    if (!TRANSPARENT_COLOR.test(style.color)) continue;
+    const stops = style.backgroundImage.match(GRADIENT_STOP_COLOR) ?? [];
+    const visible = stops.find((stop) => !TRANSPARENT_COLOR.test(stop));
+    if (visible) element.style.color = visible;
+  }
+}
+
+function isDropShadow(layer: string) {
+  const tokens: string[] = layer.match(/rgba?\([^)]*\)|\S+/g) ?? [];
+  if (tokens.includes("inset")) return false;
+  const [x = 0, y = 0, blur = 0] = tokens
+    .filter((token) => /^-?[\d.]+(?:px)?$/.test(token))
+    .map(Number.parseFloat);
+  return x !== 0 || y !== 0 || blur !== 0;
+}
+
+// dom-to-pptx draws only the first layer and as an outer shadow: an inset
+// layer becomes a glow outside the box and a spread-only ring a blurred halo.
+export function simplifyBoxShadows(root: HTMLElement) {
+  for (const element of allElements(root)) {
+    const shadow = window.getComputedStyle(element).boxShadow;
+    if (!shadow || shadow === "none") continue;
+    const drop = splitTopLevel(shadow)?.find(isDropShadow);
+    if (drop !== shadow) element.style.boxShadow = drop ?? "none";
   }
 }
 
@@ -2023,6 +2135,13 @@ export async function buildDeckPptxBlob(
       exportClones.push(clone);
       // dom-to-pptx reads DOM text, not the ::before counters the tokens use.
       materializeSlideNumberTokens(clone.element);
+      // With the attributes gone the ::before counter rule stops matching;
+      // dom-to-pptx would otherwise append its unresolved `counter(...)` text.
+      for (const name of Object.keys(
+        slideNumberRootAttrs({ number: 1, count: 1 }),
+      )) {
+        clone.element.removeAttribute(name);
+      }
       await preloadImagesWithCors(clone.element);
       resetAutofitTransforms(clone.element);
       slideBulletIndents.push(normalizeListsForPptx(clone.element, dims));
@@ -2042,6 +2161,9 @@ export async function buildDeckPptxBlob(
       normalizeSingleLineText(clone.element, clone.textGeometry);
       widenNoWrapTextElements(clone.element);
       materializeClipPathShapes(clone.element);
+      materializeRadialGradients(clone.element);
+      solidifyGradientText(clone.element);
+      simplifyBoxShadows(clone.element);
       blankShapes += await replaceInlineSvgsWithImages(clone.element, i + 1);
       await preloadImagesWithCors(clone.element);
       restoreImageGeometry(
