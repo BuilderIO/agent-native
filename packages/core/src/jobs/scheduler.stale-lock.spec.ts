@@ -526,6 +526,75 @@ describe("stale automation run-lock recovery across trigger types", () => {
     }
   });
 
+  it.each(["history", "status"])(
+    "fences recovery without a timestamp when the latest %s changed",
+    async (changed) => {
+      const fixture = interruptedScheduledJob();
+      fixture.resource.content = fixture.resource.content.replace(
+        /lastRun: [^\n]+\n/,
+        "",
+      );
+      const latest = {
+        ...fixture.resource,
+        content: fixture.resource.content.replace(
+          changed === "history"
+            ? "lastHistoryId: recoverable-history"
+            : "lastStatus: running",
+          changed === "history"
+            ? "lastHistoryId: successor-history"
+            : "lastStatus: success",
+        ),
+      };
+      resourceGetByPathMock.mockResolvedValue(latest);
+      try {
+        await processRecurringJobs(recoveryDeps);
+        expect(resourcePutMock).not.toHaveBeenCalled();
+        expect(startRunMock).not.toHaveBeenCalled();
+      } finally {
+        fixture.restore();
+      }
+    },
+  );
+
+  it("durably settles corrupt journal evidence instead of retaining its running marker", async () => {
+    const fixture = interruptedScheduledJob();
+    vi.mocked(runStore.getRunById).mockResolvedValue({
+      id: "killed-worker",
+      status: "completed",
+    } as any);
+    vi.mocked(runStore.getCurrentTurnEventsForThread).mockRejectedValue(
+      new runStore.AgentRunJournalUnreadableError(
+        "thread-1",
+        "killed-worker",
+        0,
+        "invalid_event_json",
+      ),
+    );
+    const finish = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockResolvedValue();
+    try {
+      await processRecurringJobs(recoveryDeps);
+      expect(finish).toHaveBeenCalledWith(
+        fixture.history.id,
+        "error",
+        expect.stringContaining("Delivery outcome is unknown"),
+        "tool_call_journal_unreadable",
+        { requirePersisted: true },
+      );
+      expect(
+        parseJobResource(resourcePutMock.mock.calls.at(-1)?.[2]).meta,
+      ).toMatchObject({
+        lastStatus: "error",
+        lastErrorCode: "tool_call_journal_unreadable",
+      });
+      expect(startRunMock).not.toHaveBeenCalled();
+    } finally {
+      finish.mockRestore();
+      fixture.restore();
+    }
+  });
+
   it("projects a finished skipped firing without advancing its failure streak", async () => {
     const fixture = interruptedScheduledJob();
     fixture.resource.content = fixture.resource.content.replace(
@@ -1437,6 +1506,9 @@ describe("stale automation run-lock recovery across trigger types", () => {
         .spyOn(runStore, "getRunTurnRef")
         .mockResolvedValue({ threadId: "thread-1", turnId: "job-killed" }),
       vi.spyOn(runStore, "countRunsForTurn").mockResolvedValue(1),
+      vi
+        .spyOn(runStore, "getCurrentTurnEventsForThread")
+        .mockResolvedValue(emailEvents),
       vi.spyOn(runStore, "getCurrentTurnRunEventsForThread").mockResolvedValue(
         emailEvents.map((event, seq) => ({
           runId: "job-killed",

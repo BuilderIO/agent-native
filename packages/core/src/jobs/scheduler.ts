@@ -345,7 +345,19 @@ async function processRecurringJobsWithLease(
         try {
           const recovery =
             meta.lastHistoryId || meta.schedule
-              ? await inspectAutomationRecovery(resource, meta, now, deps.appId)
+              ? await inspectAutomationRecovery(
+                  resource,
+                  meta,
+                  now,
+                  deps.appId,
+                  () =>
+                    deps.getActions({
+                      name: jobNameOf(resource),
+                      meta,
+                      body,
+                      resource,
+                    }),
+                )
               : null;
           if (recovery?.state === "active") continue;
           if (recovery?.state === "resume") {
@@ -1544,11 +1556,12 @@ async function recordExecutionOutcome(
   const { advanceSchedule, expectedLastRun, expectedHistoryId, ...execution } =
     outcome;
   if (
-    expectedLastRun !== undefined &&
-    (current.meta.lastRun !== expectedLastRun ||
-      current.meta.lastStatus !== "running" ||
-      (expectedHistoryId !== undefined &&
-        current.meta.lastHistoryId !== expectedHistoryId))
+    (expectedLastRun !== undefined &&
+      current.meta.lastRun !== expectedLastRun) ||
+    (expectedHistoryId !== undefined &&
+      current.meta.lastHistoryId !== expectedHistoryId) ||
+    ((expectedLastRun !== undefined || expectedHistoryId !== undefined) &&
+      current.meta.lastStatus !== "running")
   )
     return;
   const meta: JobFrontmatter = { ...current.meta, ...execution };

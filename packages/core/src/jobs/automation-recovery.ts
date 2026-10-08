@@ -1,5 +1,7 @@
+import type { ActionEntry } from "../agent/production-agent.js";
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
 import {
+  AgentRunJournalUnreadableError,
   countRunsForTurn,
   getCurrentTurnEventsForThread,
   getRunById,
@@ -104,6 +106,9 @@ export async function inspectAutomationRecovery(
   meta: JobFrontmatter,
   now: Date,
   appId?: string,
+  getActions?: () =>
+    | Record<string, ActionEntry>
+    | Promise<Record<string, ActionEntry>>,
 ): Promise<AutomationRecovery | null> {
   const lastRun = meta.lastRun ? Date.parse(meta.lastRun) : Number.NaN;
   if (!Number.isFinite(lastRun)) {
@@ -219,12 +224,29 @@ export async function inspectAutomationRecovery(
   if (run.status === "running") return { state: "active" };
   const ref = await getRunTurnRef(run.id);
   if (!ref || ref.threadId !== history.threadId) return unavailable();
+  let events: AgentChatEvent[];
+  try {
+    events = await getCurrentTurnEventsForThread(ref.threadId, ref.turnId);
+  } catch (error) {
+    if (!(error instanceof AgentRunJournalUnreadableError)) throw error;
+    const deliveryNote = deliveryNoteForEvents(null);
+    return {
+      state: "settle",
+      status: "error",
+      history,
+      error: withDeliveryNote(
+        automationRecoveryMessagesForLocale().stopped,
+        deliveryNote,
+      ),
+      errorCode: error.errorCode,
+      deliveryNote,
+    };
+  }
   if (run.status === "completed") {
-    const events = await getCurrentTurnEventsForThread(
-      ref.threadId,
-      ref.turnId,
-    );
-    const evidence = inspectAutomationWork(events);
+    const actions = await getActions?.();
+    const evidence = inspectAutomationWork(events, {
+      confirmsWork: (tool) => actions?.[tool]?.confirmsAutomationWork !== false,
+    });
     if (evidence.status === "skipped")
       return {
         state: "settle",
@@ -279,10 +301,6 @@ export async function inspectAutomationRecovery(
       STALE_RUN_RECOVERY_MAX_SUCCESSORS_PER_TURN
   ) {
     if (!meta.enabled && !meta.lastRunManual) {
-      const events = await getCurrentTurnEventsForThread(
-        ref.threadId,
-        ref.turnId,
-      );
       return {
         state: "settle",
         status: "skipped",
@@ -304,7 +322,6 @@ export async function inspectAutomationRecovery(
       },
     };
   }
-  const events = await getCurrentTurnEventsForThread(ref.threadId, ref.turnId);
   return {
     state: "settle",
     status: "error",

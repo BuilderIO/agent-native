@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AgentRunJournalUnreadableError } from "../agent/run-store.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import type { Resource } from "../resources/store.js";
 import {
@@ -22,7 +23,10 @@ vi.mock("./run-history.js", () => ({
   getAutomationRun: mocks.history,
   automationRunClaimLeaseMs: () => 900_000,
 }));
-vi.mock("../agent/run-store.js", () => ({
+vi.mock("../agent/run-store.js", async (importOriginal) => ({
+  AgentRunJournalUnreadableError: (
+    await importOriginal<typeof import("../agent/run-store.js")>()
+  ).AgentRunJournalUnreadableError,
   reapIfStale: mocks.reap,
   getRunById: mocks.get,
   getRunTurnRef: mocks.ref,
@@ -590,6 +594,57 @@ describe("automation worker recovery", () => {
     await expect(
       inspectAutomationRecovery(resource, meta, now),
     ).rejects.toThrow("database unavailable");
+  });
+
+  it.each(["completed", "errored"])(
+    "settles a %s worker with permanently corrupt journal evidence",
+    async (status) => {
+      mocks.get.mockResolvedValue({
+        id: "job-1",
+        status,
+        errorCode: "stale_run",
+      });
+      mocks.events.mockRejectedValue(
+        new AgentRunJournalUnreadableError(
+          "thread-1",
+          "job-1",
+          0,
+          "invalid_event_json",
+        ),
+      );
+      const result = await inspectAutomationRecovery(resource, meta, now);
+      expect(result).toMatchObject({
+        state: "settle",
+        status: "error",
+        history,
+        errorCode: "tool_call_journal_unreadable",
+      });
+      expect(result?.state === "settle" && result.error).toContain(
+        "Delivery outcome is unknown",
+      );
+      expect(mocks.count).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not count a progress-only action as completed automation work", async () => {
+    mocks.get.mockResolvedValue({ id: "job-1", status: "completed" });
+    mocks.events.mockResolvedValue([
+      {
+        type: "tool_done",
+        tool: "manage-progress",
+        result: "Updated",
+        completedSideEffect: true,
+      },
+    ]);
+    expect(
+      await inspectAutomationRecovery(resource, meta, now, undefined, () => ({
+        "manage-progress": { confirmsAutomationWork: false } as any,
+      })),
+    ).toMatchObject({
+      state: "settle",
+      status: "error",
+      errorCode: "automation_no_confirmed_work",
+    });
   });
 
   it("distinguishes confirmed writes, unknown outcomes, failed calls and unreadable evidence", () => {
