@@ -449,11 +449,19 @@ export function AgentJobsTab({
             </div>
           ) : null}
           {resource.lastError || failed ? (
-            <div className="mt-2 flex flex-wrap items-center gap-x-1 text-xs text-destructive">
-              <IconAlertTriangle
-                className="size-3 shrink-0"
-                aria-hidden="true"
-              />
+            <div
+              className={
+                resource.lastStatus === "skipped"
+                  ? "mt-2 flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground"
+                  : "mt-2 flex flex-wrap items-center gap-x-1 text-xs text-destructive"
+              }
+            >
+              {resource.lastStatus !== "skipped" ? (
+                <IconAlertTriangle
+                  className="size-3 shrink-0"
+                  aria-hidden="true"
+                />
+              ) : null}
               {resource.lastError ? (
                 <span className="min-w-0 break-words">
                   {resource.lastError}
@@ -938,6 +946,7 @@ export function AgentJobsTab({
           }
           mcpTools={detailsTarget.resource.mcpTools ?? []}
           lastError={detailsTarget.resource.lastError}
+          lastStatus={detailsTarget.resource.lastStatus}
           formatTimestamp={(value) =>
             formatDateTime(new Date(value).toISOString()) ?? String(value)
           }

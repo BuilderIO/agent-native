@@ -171,6 +171,149 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
   });
 
+  it("preserves a same-secret connect subject after its stored JTI identity matches", async () => {
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+      secret: SECRET,
+    });
+    lookupConnectTokenOrgMock.mockResolvedValue({
+      status: "found",
+      kind: "personal",
+      ownerEmail: "alice@builder.io",
+      orgId: "org-builder",
+    });
+    const token = await sign({
+      sub: "alice@builder.io",
+      scope: "mcp-connect",
+      jti: "jti-same-secret",
+      org_domain: "builder.io",
+    });
+
+    const res = await verifyAuth(`Bearer ${token}`);
+
+    expect(res.authed).toBe(true);
+    expect(res.identity).toEqual({
+      userEmail: "alice@builder.io",
+      identityAssurance: "user",
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+    });
+    expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith("jti-same-secret");
+    expect(touchTokenUsedMock).toHaveBeenCalledWith("jti-same-secret");
+  });
+
+  it.each([
+    {
+      label: "unknown JTI",
+      claims: {
+        sub: "alice@builder.io",
+        jti: "jti-unknown-same-secret",
+      },
+      stored: { status: "missing" as const },
+      refusal: "unknown-connect-token",
+    },
+    {
+      label: "different stored owner",
+      claims: { sub: "alice@builder.io", jti: "jti-other-owner" },
+      stored: {
+        status: "found" as const,
+        kind: "personal" as const,
+        ownerEmail: "bob@builder.io",
+        orgId: "org-builder",
+      },
+      refusal: "identity-mismatch",
+    },
+    {
+      label: "different claimed organization",
+      claims: {
+        sub: "alice@builder.io",
+        jti: "jti-other-org",
+        org_id: "org-other",
+      },
+      stored: {
+        status: "found" as const,
+        kind: "personal" as const,
+        ownerEmail: "alice@builder.io",
+        orgId: "org-builder",
+      },
+      refusal: "identity-mismatch",
+    },
+  ])(
+    "rejects a same-secret connect token with $label",
+    async ({ claims, stored, refusal }) => {
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+        orgId: "org-builder",
+        orgDomain: "builder.io",
+        secret: SECRET,
+      });
+      lookupConnectTokenOrgMock.mockResolvedValue(stored);
+      const token = await sign({
+        ...claims,
+        scope: "mcp-connect",
+        org_domain: "builder.io",
+      });
+
+      const res = await verifyAuth(`Bearer ${token}`);
+
+      expect(res).toEqual({ authed: false, refusal });
+      expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
+      expect(touchTokenUsedMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a revoked same-secret connect token before checking membership", async () => {
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+      secret: SECRET,
+    });
+    lookupConnectTokenOrgMock.mockResolvedValue({ status: "revoked" });
+    const token = await sign({
+      sub: "alice@builder.io",
+      scope: "mcp-connect",
+      jti: "jti-revoked-same-secret",
+      org_domain: "builder.io",
+    });
+
+    const res = await verifyAuth(`Bearer ${token}`);
+
+    expect(res).toEqual({ authed: false, refusal: "revoked" });
+    expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith(
+      "jti-revoked-same-secret",
+    );
+    expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
+    expect(touchTokenUsedMock).not.toHaveBeenCalled();
+  });
+
+  it("still ignores the subject of an ordinary org token when secrets match", async () => {
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+      secret: SECRET,
+    });
+    const token = await sign({
+      sub: "alice@builder.io",
+      org_domain: "builder.io",
+    });
+
+    const res = await verifyAuth(`Bearer ${token}`);
+
+    expect(res).toEqual({
+      authed: true,
+      identity: {
+        userEmail: undefined,
+        identityAssurance: "organization",
+        orgId: "org-builder",
+        orgDomain: "builder.io",
+      },
+      fullSurface: true,
+      fullCatalog: false,
+    });
+    expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
   it("ignores a forged subject on an org-secret token", async () => {
     delete process.env.A2A_SECRET;
     resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({

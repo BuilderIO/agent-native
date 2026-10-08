@@ -9,6 +9,7 @@ export {
   getEmbedAuthToken,
   isEmbedAuthActive,
   isEmbedMcpChatBridgeActive,
+  isMcpDirectoryWidgetReadOnlyEmbed,
 } from "../embed-auth.js";
 export {
   sendToFrame,

@@ -124,7 +124,7 @@ const messages = {
     googleOAuthNotConfigured:
       "Google OAuth não está configurado para esta implantação.",
     googlePickerNeedsKeys:
-      "Google Picker precisa de GOOGLE_PICKER_API_KEY e GOOGLE_PICKER_APP_ID.",
+      "Google Drive की फ़ाइल ब्राउज़िंग कॉन्फ़िगर नहीं है। आप लिंक चिपकाकर दस्तावेज़ इंपोर्ट कर सकते हैं।",
     imageUploadFailed: "Falha ao enviar imagem",
     imageUploadNeedsBuilder:
       "चित्र अपलोड करने के लिए ऑब्जेक्ट स्टोरेज कनेक्ट करें: Builder.io (मुफ़्त) कनेक्ट करें या Settings → File uploads में अपनी S3-संगत स्टोरेज कुंजियाँ जोड़ें।",
@@ -772,6 +772,9 @@ const messages = {
     exportFailed: "निर्यात विफल",
     agentRunFailed:
       "स्लाइड बनाने से पहले एजेंट रन विफल हो गया। चैट में विवरण देखें और फिर कोशिश करें।",
+    generationFailed: "स्लाइड नहीं बन पाईं। चैट में विवरण देखें और फिर से कोशिश करें।",
+    generationOutcomeUnresolved:
+      "हम पुष्टि नहीं कर पाए कि स्लाइड बनी हैं या नहीं। डेक या चैट देखें, फिर दोबारा कोशिश करें।",
     deckHasNoSlides: "डेक में कोई स्लाइड नहीं है।",
     pdfRenderFailed: "PDF रेंडर नहीं हो सका।",
     buildingDeck: "डेक बनाया जा रहा है",

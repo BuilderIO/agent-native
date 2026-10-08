@@ -32,6 +32,164 @@ export async function getBigQueryProjectId(): Promise<string> {
   return projectId;
 }
 
+export interface BigQueryTableField {
+  name: string;
+  type?: string;
+  mode?: string;
+  description?: string;
+  fields?: BigQueryTableField[];
+}
+
+export interface BigQueryTableMetadata {
+  tableReference?: {
+    projectId?: string;
+    datasetId?: string;
+    tableId?: string;
+  };
+  friendlyName?: string;
+  description?: string;
+  type?: string;
+  location?: string;
+  numRows?: string;
+  numBytes?: string;
+  timePartitioning?: unknown;
+  clustering?: unknown;
+  schema?: { fields?: BigQueryTableField[] };
+}
+
+export interface BigQueryTableSummary {
+  projectId?: string;
+  datasetId?: string;
+  tableId?: string;
+  type?: string;
+  friendlyName?: string;
+  labels?: Record<string, string>;
+}
+
+export async function bigQueryGet<T>(
+  url: string,
+  signal?: AbortSignal,
+): Promise<T> {
+  const token = await getAccessToken();
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    signal,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    let detail = "";
+    try {
+      const parsed = JSON.parse(text) as { error?: { message?: string } };
+      detail = parsed.error?.message ?? "";
+    } catch {
+      // coercion-ok: a non-JSON error body is reported verbatim in the error thrown below.
+    }
+    if (detail) {
+      throw new Error(detail);
+    }
+    throw new Error(
+      `BigQuery metadata request failed (${res.status}): ${text}`,
+    );
+  }
+
+  return (await res.json()) as T;
+}
+
+export function flattenBigQueryFields(
+  fields: BigQueryTableField[] | undefined,
+  prefix = "",
+): Array<{
+  name: string;
+  type?: string;
+  mode?: string;
+  description?: string;
+}> {
+  if (!fields?.length) return [];
+  return fields.flatMap((field) => {
+    const name = prefix ? `${prefix}.${field.name}` : field.name;
+    return [
+      {
+        name,
+        type: field.type,
+        mode: field.mode,
+        description: field.description,
+      },
+      ...flattenBigQueryFields(field.fields, name),
+    ];
+  });
+}
+
+export async function listBigQueryTables(
+  projectId: string,
+  datasetId: string,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<BigQueryTableSummary[]> {
+  const url = new URL(
+    `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(projectId)}/datasets/${encodeURIComponent(datasetId)}/tables`,
+  );
+  url.searchParams.set("maxResults", String(Math.min(limit, 1000)));
+  const result = await bigQueryGet<{
+    tables?: Array<{
+      tableReference?: {
+        projectId?: string;
+        datasetId?: string;
+        tableId?: string;
+      };
+      type?: string;
+      friendlyName?: string;
+      labels?: Record<string, string>;
+    }>;
+  }>(url.toString(), signal);
+  return (result.tables ?? []).map((table) => ({
+    projectId: table.tableReference?.projectId,
+    datasetId: table.tableReference?.datasetId,
+    tableId: table.tableReference?.tableId,
+    type: table.type,
+    friendlyName: table.friendlyName,
+    labels: table.labels,
+  }));
+}
+
+const TABLE_METADATA_TTL_MS = 10 * 60_000;
+const MAX_TABLE_METADATA_ENTRIES = 300;
+const tableMetadataCache = new Map<
+  string,
+  { metadata: BigQueryTableMetadata; expiresAt: number }
+>();
+
+/** Table metadata for schema search and failed-query recovery. Cached
+ *  in-process for ten minutes per credential scope and table; only a
+ *  successful fetch is cached. `fresh` skips the cached copy but still
+ *  replaces it. */
+export async function getBigQueryTableMetadata(
+  ref: { projectId: string; datasetId: string; tableId: string },
+  signal?: AbortSignal,
+  { fresh = false }: { fresh?: boolean } = {},
+): Promise<BigQueryTableMetadata> {
+  const key = `${credentialCacheScope("BIGQUERY_PROJECT_ID")}\n${ref.projectId}.${ref.datasetId}.${ref.tableId}`;
+  const hit = tableMetadataCache.get(key);
+  if (!fresh && hit && hit.expiresAt > Date.now()) return hit.metadata;
+  const metadata = await bigQueryGet<BigQueryTableMetadata>(
+    `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(ref.projectId)}/datasets/${encodeURIComponent(ref.datasetId)}/tables/${encodeURIComponent(ref.tableId)}`,
+    signal,
+  );
+  tableMetadataCache.delete(key);
+  if (tableMetadataCache.size >= MAX_TABLE_METADATA_ENTRIES) {
+    const oldest = tableMetadataCache.keys().next().value;
+    if (oldest !== undefined) tableMetadataCache.delete(oldest);
+  }
+  tableMetadataCache.set(key, {
+    metadata,
+    expiresAt: Date.now() + TABLE_METADATA_TTL_MS,
+  });
+  return metadata;
+}
+
 async function getProjectInfo(): Promise<{
   projectId: string;
   cacheScope: string;

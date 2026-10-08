@@ -13,7 +13,10 @@ import {
   runSkills,
   VISUAL_RECAP_SKILL_MD,
 } from "./skills.js";
-import { CHAT_STARTER_SKILLS } from "./workspace-skill-policy.js";
+import {
+  CHAT_STARTER_SKILLS,
+  BUILDER_CODE_STARTER_SKILLS,
+} from "./workspace-skill-policy.js";
 import { WORKSPACE_SKILLS } from "./workspace-skill-policy.js";
 
 const tmpRoots: string[] = [];
@@ -186,7 +189,8 @@ describe("agent-native skills", () => {
         "utf-8",
       );
       expect(config).toContain("clips-screen-memory");
-      expect(config).toContain(path.resolve(store));
+      // A TOML basic string escapes Windows backslashes the way JSON does.
+      expect(config).toContain(JSON.stringify(path.resolve(store)));
       expect(result.commands).toContain(
         "npx @agent-native/core@latest mcp install-screen-memory --client codex --scope user",
       );
@@ -3331,6 +3335,13 @@ describe("agent-native skills", () => {
       refreshedSkill: "review-prs",
       omittedSkill: "build-an-app",
     },
+    {
+      template: "builder-code-starter",
+      frameworkSkills: "default",
+      sourceTemplates: ["builder-code-starter", "chat"],
+      refreshedSkill: "authentication",
+      omittedSkill: "turn-into-app",
+    },
   ])(
     "refreshes only installed skills in the $template scaffold",
     async ({
@@ -3437,6 +3448,81 @@ describe("agent-native skills", () => {
       });
     },
   );
+
+  it("prefers builder-code-starter skill overrides and inherits the rest from Chat", async () => {
+    const root = tmpDir();
+    const targetSkills = path.join(root, ".agents", "skills");
+    const bundled = path.join(workspaceRoot(), "packages/core/src/templates");
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify(
+        {
+          name: "app",
+          dependencies: { "@agent-native/core": "latest" },
+          "agent-native": {
+            scaffold: {
+              template: "builder-code-starter",
+              frameworkSkills: "default",
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    for (const skill of [
+      "storing-data",
+      "security",
+      "multi-app-workspace",
+      "turn-into-app",
+      "self-modifying-code",
+    ]) {
+      fs.mkdirSync(path.join(targetSkills, skill), { recursive: true });
+      fs.writeFileSync(
+        path.join(targetSkills, skill, "SKILL.md"),
+        `old ${skill}\n`,
+      );
+    }
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(["update", "scaffold", "--scope", "project", "--json"], {
+      baseDir: root,
+      runCommand: async () => 0,
+    });
+
+    const read = (dir: string, skill: string) =>
+      fs.readFileSync(path.join(dir, skill, "SKILL.md"), "utf8");
+    const builderCodeSkills = path.join(
+      bundled,
+      "builder-code-starter/.agents/skills",
+    );
+    const chatSkills = path.join(bundled, "chat/.agents/skills");
+    // The layer stores storing-data as a patch over Chat's copy.
+    expect(read(targetSkills, "storing-data")).toContain(
+      "managed Drizzle scaffold is the only app migration path",
+    );
+    expect(read(chatSkills, "storing-data")).not.toContain(
+      "managed Drizzle scaffold is the only app migration path",
+    );
+    expect(read(targetSkills, "security")).toBe(read(chatSkills, "security"));
+    expect(read(targetSkills, "multi-app-workspace")).toBe(
+      read(builderCodeSkills, "multi-app-workspace"),
+    );
+    // Skills outside the policy stay app-owned and untouched.
+    expect(read(targetSkills, "turn-into-app")).toBe("old turn-into-app\n");
+    expect(read(targetSkills, "self-modifying-code")).toBe(
+      "old self-modifying-code\n",
+    );
+    expect(fs.existsSync(path.join(targetSkills, "performance"))).toBe(false);
+    for (const excluded of [
+      "turn-into-app",
+      "turn-into-skill",
+      "workspace-conventions",
+      "self-modifying-code",
+    ]) {
+      expect(BUILDER_CODE_STARTER_SKILLS).not.toContain(excluded);
+    }
+  });
 
   it("refreshes existing Chat scaffold skills without adding omitted skills", async () => {
     const root = tmpDir();

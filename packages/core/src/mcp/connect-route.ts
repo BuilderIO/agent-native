@@ -728,9 +728,9 @@ function renderConnectPage(params: {
   .advanced { margin: 0 0 1rem; }
   .advanced > summary {
     list-style: none; cursor: pointer; user-select: none;
-    display: flex; align-items: center; justify-content: center; gap: 0.35rem;
+    display: flex; align-items: center; justify-content: space-between; gap: 0.35rem;
     color: var(--subtle); font-size: 0.8rem; font-weight: 500;
-    padding: 0.5rem 0; text-align: center;
+    padding: 0.65rem 0; text-align: left;
   }
   .advanced > summary::-webkit-details-marker { display: none; }
   .advanced > summary:hover { color: var(--muted); }
@@ -739,7 +739,8 @@ function renderConnectPage(params: {
   .advanced > summary .chev {
     width: 7px; height: 7px; border-right: 1.5px solid currentColor;
     border-bottom: 1.5px solid currentColor; transform: rotate(45deg);
-    transition: transform 0.15s ease; margin-top: -3px;
+    transition: transform 0.15s ease; margin: -3px 0.25rem 0 auto;
+    flex: 0 0 auto;
   }
   .advanced[open] > summary .chev { transform: rotate(225deg); margin-top: 2px; }
   .advanced-body {
@@ -772,13 +773,13 @@ function renderConnectPage(params: {
     box-shadow: 0 0 0 3px rgba(250,250,250,0.12);
   }
   .connections {
-    margin-top: 1.1rem; border-top: 1px solid var(--border);
-    padding-top: 0.35rem;
+    margin-top: 0; border-top: 1px solid var(--border);
   }
   .connections > summary {
     list-style: none; cursor: pointer; user-select: none;
     display: flex; align-items: center; gap: 0.55rem;
-    min-height: 2.2rem; color: var(--muted); font-size: 0.82rem;
+    min-height: 2.75rem; padding: 0.65rem 0;
+    color: var(--muted); font-size: 0.82rem;
   }
   .connections > summary::-webkit-details-marker { display: none; }
   .connections > summary:focus-visible {
@@ -792,8 +793,12 @@ function renderConnectPage(params: {
   .connections .chev {
     width: 7px; height: 7px; border-right: 1.5px solid currentColor;
     border-bottom: 1.5px solid currentColor; transform: rotate(45deg);
-    transition: transform 0.15s ease; margin: -3px 0 0 0.15rem;
+    transition: transform 0.15s ease; margin: -3px 0 0 auto;
   }
+  .connections > summary > .connections-state:not(.hidden) + .chev {
+    margin-left: 0.15rem;
+  }
+  .connections > summary > .chev { margin-right: 0.25rem; }
   .connections[open] .chev { transform: rotate(225deg); margin-top: 2px; }
   .token-list { padding-top: 0.4rem; }
   .tok { display: flex; align-items: center; justify-content: space-between;
@@ -858,13 +863,13 @@ function renderConnectPage(params: {
   }
   .url-row .ghost { flex: 0 0 auto; }
   .hosts {
-    margin: 0 0 1rem; border-top: 1px solid var(--border);
-    border-bottom: 1px solid var(--border); padding: 0.35rem 0;
+    margin: 0; border-top: 1px solid var(--border);
   }
   .hosts > summary {
     list-style: none; cursor: pointer; user-select: none;
     display: flex; align-items: center; gap: 0.55rem;
-    min-height: 2.2rem; color: var(--muted); font-size: 0.82rem;
+    min-height: 2.75rem; padding: 0.65rem 0;
+    color: var(--muted); font-size: 0.82rem;
   }
   .hosts > summary::-webkit-details-marker { display: none; }
   .hosts > summary:focus-visible {
@@ -873,7 +878,7 @@ function renderConnectPage(params: {
   .hosts > summary .chev {
     width: 7px; height: 7px; border-right: 1.5px solid currentColor;
     border-bottom: 1.5px solid currentColor; transform: rotate(45deg);
-    transition: transform 0.15s ease; margin: -3px 0 0 0.15rem;
+    transition: transform 0.15s ease; margin: -3px 0.25rem 0 0.15rem;
   }
   .hosts[open] > summary .chev { transform: rotate(225deg); margin-top: 2px; }
   .hosts-body { padding: 0.15rem 0 0.25rem; }

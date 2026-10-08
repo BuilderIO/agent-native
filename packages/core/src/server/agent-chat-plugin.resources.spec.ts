@@ -1060,6 +1060,19 @@ describe("promptResourceManifestSections", () => {
 });
 
 describe("loadResourcesForPrompt", () => {
+  it("requires approval before shared memory writes in the compact prompt", async () => {
+    const prompt = await loadResourcesForPrompt("user@example.test", true);
+
+    expect(prompt).toContain("Keep setup findings personal");
+    expect(prompt).toContain(
+      "shared LEARNINGS.md or organization-memory writes require approval",
+    );
+    expect(prompt).toContain('"Remember this" alone is not approval');
+    expect(prompt).not.toContain(
+      "Save durable team facts and routing conventions to shared LEARNINGS.md",
+    );
+  });
+
   it("fails the prompt build when Lab-gated skill state cannot be read", async () => {
     const failure = new Error("Labs settings unavailable");
     mocks.getRuntimeSkillsForUser.mockRejectedValueOnce(failure);
@@ -1198,21 +1211,23 @@ describe("loadResourcesForPrompt", () => {
   });
 
   it("assembles the same inherited workspace context for every app without sync writes", async () => {
-    const analyticsPrompt = await loadResourcesForPrompt(
-      "user@example.test",
-      false,
-      "analytics",
+    const analyticsPrompt = await runWithRequestContext(
+      { userEmail: "user@example.test" },
+      () => loadResourcesForPrompt("user@example.test", false, "analytics"),
     );
-    const mailPrompt = await loadResourcesForPrompt(
-      "user@example.test",
-      false,
-      "mail",
+    const mailPrompt = await runWithRequestContext(
+      { userEmail: "user@example.test" },
+      () => loadResourcesForPrompt("user@example.test", false, "mail"),
     );
 
     expect(analyticsPrompt).toBe(mailPrompt);
     expect(mocks.resourcePut).not.toHaveBeenCalled();
-    expect(mocks.discoverAgents).toHaveBeenCalledWith("analytics");
-    expect(mocks.discoverAgents).toHaveBeenCalledWith("mail");
+    expect(mocks.discoverAgents).toHaveBeenCalledWith("analytics", {
+      includePersonalAgents: true,
+    });
+    expect(mocks.discoverAgents).toHaveBeenCalledWith("mail", {
+      includePersonalAgents: true,
+    });
 
     expect(mocks.resourceGetByPath).toHaveBeenCalledWith(
       "__workspace__",

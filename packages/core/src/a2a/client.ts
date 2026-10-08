@@ -1209,7 +1209,10 @@ function hasA2ACredentials(
   );
 }
 
-function assertCredentialedA2AUrl(url: string, credentialed: boolean): void {
+export function assertCredentialedA2AUrl(
+  url: string,
+  credentialed: boolean,
+): void {
   if (!credentialed) return;
   let parsed: URL;
   try {

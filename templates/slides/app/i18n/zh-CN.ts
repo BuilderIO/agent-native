@@ -120,7 +120,7 @@ const messages = {
     firstSlidesDescription: "每张幻灯片生成后，演示文稿将开始显示在这里。",
     googleOAuthNotConfigured: "此部署未配置 Google OAuth。",
     googlePickerNeedsKeys:
-      "Google Picker 需要 GOOGLE_PICKER_API_KEY 和 GOOGLE_PICKER_APP_ID。",
+      "Google Drive 文件选择器尚未配置。你仍可粘贴文档链接进行导入。",
     imageUploadFailed: "图片上传失败",
     imageUploadNeedsBuilder:
       "连接对象存储以上传图片：连接 Builder.io（免费），或在“设置 → 文件上传”中添加你自己的 S3 兼容存储密钥。",
@@ -754,6 +754,9 @@ const messages = {
     exportFailed: "导出失败",
     agentRunFailed:
       "代理在创建任何幻灯片之前运行失败。请查看聊天中的详情，然后重试。",
+    generationFailed: "未能创建幻灯片。请查看聊天中的详情，然后重试。",
+    generationOutcomeUnresolved:
+      "无法确认幻灯片是否已创建。请检查演示文稿或聊天，然后重试。",
     deckHasNoSlides: "幻灯片没有页面。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",

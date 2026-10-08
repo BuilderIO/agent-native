@@ -7,6 +7,7 @@ import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { chunks } from "./_batch-utils.js";
 import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import {
@@ -1271,6 +1272,11 @@ async function trashDocumentWithReceipt(
 }
 
 export default defineAction({
+  changeResource: (input, result) =>
+    // Taking a page out of Favorites leaves the page itself unchanged.
+    typeof result === "object" && result !== null && "removed" in result
+      ? null
+      : documentChangeResource(input.id),
   description:
     "Move one page and all its sub-pages to recoverable Trash, guarded by the page's exact updatedAt and an idempotency key. Returns a receipt with the affected page ids and the Trash root to restore. Collections use delete-content-database.",
   mcpTool: true,

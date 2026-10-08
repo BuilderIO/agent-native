@@ -6,7 +6,11 @@ import { fileURLToPath, pathToFileURL } from "url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { isAgentChatDurableBackgroundEnabled } from "../agent/durable-background.js";
+import {
+  AGENT_TEAM_PROCESS_RUN_PATH,
+  isAgentChatDurableBackgroundEnabled,
+} from "../agent/durable-background.js";
+import { addVercelSweepCron } from "./build.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 import {
   isDurableBackgroundWorkspaceDeployEnabled,
@@ -66,7 +70,11 @@ beforeEach(() => {
       const preset = (options as { env?: NodeJS.ProcessEnv } | undefined)?.env
         ?.NITRO_PRESET;
       if (preset === "vercel") {
-        writeVercelAppBuildOutput(tmpDir, String(args[1]));
+        writeVercelAppBuildOutput(
+          tmpDir,
+          String(args[1]),
+          (options as { env?: NodeJS.ProcessEnv }).env ?? {},
+        );
       } else {
         writeAppBuildOutput(tmpDir, String(args[1]));
       }
@@ -366,7 +374,77 @@ describe("workspace deploy", () => {
         ),
         expectedPrefix,
       );
+      // A custom prefix 404s `/_agent-native/*`, so the cron must name the
+      // public path or the sweep never runs.
+      const vercelConfig = JSON.parse(
+        fs.readFileSync(
+          path.join(tmpDir, ".vercel", "output", "config.json"),
+          "utf-8",
+        ),
+      );
+      expect(vercelConfig.crons).toEqual([
+        {
+          path: `/dispatch${expectedPrefix ?? "/_agent-native"}/jobs/_process-sweep`,
+          schedule: "* * * * *",
+        },
+      ]);
     }
+  });
+
+  // An app build can resolve the prefix from config files the workspace build
+  // never reads, so each cron must come from the app's own build.
+  it("schedules the sweep path each Vercel app build resolved", async () => {
+    makeWorkspaceApp(tmpDir, "alpha");
+    delete process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+    execFile.mockImplementation(((_cmd, args, options) => {
+      writeVercelAppBuildOutput(tmpDir, String(args[1]), {
+        ...(options as { env?: NodeJS.ProcessEnv }).env,
+        AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: "/_framework",
+      });
+      return Buffer.from("");
+    }) as typeof execFileSync);
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "vercel",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const config = JSON.parse(
+      fs.readFileSync(
+        path.join(tmpDir, ".vercel", "output", "config.json"),
+        "utf-8",
+      ),
+    );
+    expect(config.crons).toEqual([
+      { path: "/alpha/_framework/jobs/_process-sweep", schedule: "* * * * *" },
+    ]);
+  });
+
+  it("fails the build when a Vercel app build scheduled no sweep", async () => {
+    makeWorkspaceApp(tmpDir, "alpha");
+    execFile.mockImplementation(((_cmd, args, options) => {
+      writeVercelAppBuildOutput(
+        tmpDir,
+        String(args[1]),
+        (options as { env?: NodeJS.ProcessEnv }).env ?? {},
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, "apps", "alpha", ".vercel", "output", "config.json"),
+        JSON.stringify({ version: 3 }),
+      );
+      return Buffer.from("");
+    }) as typeof execFileSync);
+
+    await expect(
+      runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset: "vercel",
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      }),
+    ).rejects.toThrow("Expected one recurring-jobs sweep cron under /alpha");
   });
 
   it("builds direct-child apps with isolated workspace auth", async () => {
@@ -991,6 +1069,12 @@ describe("workspace deploy", () => {
       src: "/_agent-native/google/callback",
       dest: "/beta-server",
     });
+    expect(config.crons).toEqual(
+      ["alpha", "beta"].map((app) => ({
+        path: `/${app}/_agent-native/jobs/_process-sweep`,
+        schedule: "* * * * *",
+      })),
+    );
   });
 
   it("propagates workspace app route access into manifests and app env", async () => {
@@ -2153,6 +2237,14 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
         )}`,
       );
       expect(entry).toContain(
+        `const AGENT_TEAM_PROCESS_RUN_PATH = ${JSON.stringify(
+          `/${app}${AGENT_TEAM_PROCESS_RUN_PATH}`,
+        )}`,
+      );
+      expect(entry).toContain(
+        'const BACKGROUND_PROCESSOR_AGENT_TEAM = "agent-team"',
+      );
+      expect(entry).toContain(
         'const BACKGROUND_PROCESSOR_FIELD = "__agentNativeProcessor"',
       );
       expect(entry).toContain('const BACKGROUND_PROCESSOR_ROUTE = "route"');
@@ -2340,7 +2432,11 @@ function writeAppBuildOutput(workspaceRoot: string, app: string): void {
   );
 }
 
-function writeVercelAppBuildOutput(workspaceRoot: string, app: string): void {
+function writeVercelAppBuildOutput(
+  workspaceRoot: string,
+  app: string,
+  env: NodeJS.ProcessEnv,
+): void {
   const appDir = fs.existsSync(path.join(workspaceRoot, app, "package.json"))
     ? path.join(workspaceRoot, app)
     : path.join(workspaceRoot, "apps", app);
@@ -2375,6 +2471,17 @@ function writeVercelAppBuildOutput(workspaceRoot: string, app: string): void {
     path.join(functionDir, ".vc-config.json"),
     JSON.stringify({ handler: "index.mjs", runtime: "nodejs24.x" }),
   );
+  const outputDir = path.join(appDir, ".vercel", "output");
+  fs.writeFileSync(
+    path.join(outputDir, "config.json"),
+    JSON.stringify({ version: 3 }),
+  );
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  try {
+    addVercelSweepCron(outputDir, env);
+  } finally {
+    log.mockRestore();
+  }
 }
 
 function buildCallForApp(app: string): { env?: NodeJS.ProcessEnv } | undefined {

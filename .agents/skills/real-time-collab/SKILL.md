@@ -109,6 +109,16 @@ The agent's awareness entry (`AGENT_CLIENT_ID`, max int) can never be the
 lead. A sole client is always the lead. The election is deterministic with no
 coordination round-trip.
 
+A lead that sees another visible human waits `PEER_SETTLE_MS` (2.5 s) before
+adopting a newer snapshot, so that peer's in-flight typing lands first. The wait
+is skipped only when the host passes `isEditorClean(liveMarkdown)` to
+`useCollabReconcile`, it returns true, and the live doc still equals the last
+authoritative snapshot the hook adopted. Do not substitute
+`lastAppliedSerialized`: local emits update it, so it cannot say whether the
+doc holds unsaved text. Content's `isEditorClean` also requires no queued or
+in-flight save, no reconcile recovery draft, and no journaled draft that
+differs from the live doc.
+
 ### v1 limitation
 
 Full-content reconcile is **last-writer-wins** for the rare case where a human

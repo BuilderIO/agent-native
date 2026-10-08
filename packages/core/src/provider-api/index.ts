@@ -5420,10 +5420,36 @@ function providerQuotaExhaustedResponse(
   };
 }
 
-function applyBodyEnvelopeOutcome(
-  response: ProviderApiHttpResponse,
-  config: ProviderApiConfig,
-): ProviderApiHttpResponse {
+export function providerApiResponseOutcomeForUrl(
+  url: string,
+  response: Pick<ProviderApiHttpResponse, "ok" | "statusText">,
+  body: string,
+): Pick<ProviderApiHttpResponse, "ok" | "statusText"> {
+  const target = new URL(url);
+  const config = Object.values(PROVIDER_CONFIGS).find((candidate) => {
+    if (!candidate.bodyOkField) return false;
+    const base = new URL(candidate.defaultBaseUrl);
+    const path = base.pathname.replace(/\/$/, "");
+    return (
+      target.origin === base.origin &&
+      (target.pathname === path || target.pathname.startsWith(`${path}/`))
+    );
+  });
+  return config
+    ? applyBodyEnvelopeOutcome(
+        {
+          ok: response.ok,
+          statusText: response.statusText,
+          json: tryParseJson(body),
+        },
+        config,
+      )
+    : response;
+}
+
+function applyBodyEnvelopeOutcome<
+  T extends Pick<ProviderApiHttpResponse, "ok" | "statusText" | "json">,
+>(response: T, config: ProviderApiConfig): T {
   const field = config.bodyOkField;
   if (!field || !response.ok) return response;
   const body = response.json;

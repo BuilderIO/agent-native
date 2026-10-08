@@ -130,6 +130,23 @@ describe("recordActionAudit attribution", () => {
     expect(lastEvent().actorKind).toBe("system");
   });
 
+  it.each(["mcp", "webmcp", "a2a"])(
+    "marks %s calls as the agent acting for the signed-in user",
+    async (caller) => {
+      await recordActionAudit({
+        config: undefined,
+        args: {},
+        ctx: { actionName: "update-form", caller, userEmail: "bob@x.com" },
+        status: "success",
+      });
+      expect(lastEvent()).toMatchObject({
+        caller,
+        actorKind: "agent",
+        actorEmail: "bob@x.com",
+      });
+    },
+  );
+
   it("classifies service identities separately and checks their organization", async () => {
     await recordActionAudit({
       config: undefined,
@@ -160,7 +177,7 @@ describe("recordActionAudit attribution", () => {
       },
       status: "success",
     });
-    expect(lastEvent().actorKind).toBe("human");
+    expect(lastEvent().actorKind).toBe("agent");
   });
 
   it("uses the declared target + owner for scoping", async () => {

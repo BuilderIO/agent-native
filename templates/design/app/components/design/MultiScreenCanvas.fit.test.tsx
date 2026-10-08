@@ -18,6 +18,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 const SURFACE_WIDTH = 800;
 const SURFACE_HEIGHT = 600;
 
+// The widget pane sizes ChatGPT and Codex hand the app, narrow and wide.
+const NARROW_PANE = { width: 620, height: 860 };
+const WIDE_PANE = { width: 1100, height: 900 };
+
 function readView(container: HTMLElement) {
   const world = container.querySelector<HTMLElement>(
     "[data-multi-screen-canvas-world]",
@@ -39,23 +43,25 @@ describe("MultiScreenCanvas auto-fit framing", () => {
   let container: HTMLDivElement;
   let root: Root;
   let rectSpy: ReturnType<typeof vi.spyOn>;
+  let pane = { width: SURFACE_WIDTH, height: SURFACE_HEIGHT };
 
   beforeEach(() => {
     container = document.createElement("div");
     document.body.append(container);
+    pane = { width: SURFACE_WIDTH, height: SURFACE_HEIGHT };
     rectSpy = vi
       .spyOn(HTMLElement.prototype, "getBoundingClientRect")
-      .mockReturnValue({
+      .mockImplementation(() => ({
         x: 0,
         y: 0,
         top: 0,
-        right: SURFACE_WIDTH,
-        bottom: SURFACE_HEIGHT,
+        right: pane.width,
+        bottom: pane.height,
         left: 0,
-        width: SURFACE_WIDTH,
-        height: SURFACE_HEIGHT,
+        width: pane.width,
+        height: pane.height,
         toJSON: () => ({}),
-      });
+      }));
     root = createRoot(container);
   });
 
@@ -72,13 +78,22 @@ describe("MultiScreenCanvas auto-fit framing", () => {
       zoom = 100,
       chromeInsetLeft = 0,
       chromeInsetRight = 0,
+      initialFitScreenId,
+      fillFocusedViewport,
+      selectedScreenIds,
+      paneSize,
     }: {
       height?: number;
       zoom?: number;
       chromeInsetLeft?: number;
       chromeInsetRight?: number;
+      initialFitScreenId?: string | null;
+      fillFocusedViewport?: boolean;
+      selectedScreenIds?: string[];
+      paneSize?: { width: number; height: number };
     } = {},
   ) {
+    if (paneSize) pane = paneSize;
     const screens = widths.map((width, index) => ({
       id: `screen-${index}`,
       filename: `screen-${index}.html`,
@@ -97,15 +112,37 @@ describe("MultiScreenCanvas auto-fit framing", () => {
         <MultiScreenCanvas
           screens={screens}
           zoom={zoom}
-          activeTool="move"
-          geometryById={geometryById}
+          creation={{ activeTool: "move" }}
+          geometry={{ geometryById }}
           onPick={() => {}}
-          chromeInsetLeft={chromeInsetLeft}
-          chromeInsetRight={chromeInsetRight}
+          camera={{
+            chromeInsetLeft,
+            chromeInsetRight,
+            initialFitScreenId,
+            fillFocusedViewport,
+          }}
+          selection={{ selectedScreenIds }}
         />,
       );
     });
     return readView(container);
+  }
+
+  function frameScreenRect(
+    view: ReturnType<typeof readView>,
+    index: number,
+    width: number,
+    height: number,
+  ) {
+    const left =
+      view.x + (SURFACE_PADDING + index * (width + 120)) * view.scale;
+    const top = view.y + SURFACE_PADDING * view.scale;
+    return {
+      left,
+      top,
+      right: left + width * view.scale,
+      height: height * view.scale,
+    };
   }
 
   it("centres an overflowing lineup instead of pinning it against one edge", async () => {
@@ -149,16 +186,18 @@ describe("MultiScreenCanvas auto-fit framing", () => {
         <MultiScreenCanvas
           screens={[]}
           zoom={100}
-          activeTool="move"
-          geometryById={{}}
+          creation={{ activeTool: "move" }}
+          geometry={{ geometryById: {} }}
           onPick={() => {}}
-          boardFileId="__board__"
-          boardFileContent={`<!doctype html><html><body><div data-agent-native-node-id="board-rect" style="position:absolute;left:${boardObjectLeft}px;top:${boardObjectTop}px;width:200px;height:120px"></div></body></html>`}
-          boardFrameGeometry={{
-            x: -65536,
-            y: -65536,
-            width: 131072,
-            height: 131072,
+          board={{
+            boardFileId: "__board__",
+            boardFileContent: `<!doctype html><html><body><div data-agent-native-node-id="board-rect" style="position:absolute;left:${boardObjectLeft}px;top:${boardObjectTop}px;width:200px;height:120px"></div></body></html>`,
+            boardFrameGeometry: {
+              x: -65536,
+              y: -65536,
+              width: 131072,
+              height: 131072,
+            },
           }}
         />,
       );
@@ -201,5 +240,159 @@ describe("MultiScreenCanvas auto-fit framing", () => {
     expect(afterLateScreen.scale).toBeCloseTo(afterPan.scale, 6);
     expect(afterLateScreen.x).toBeCloseTo(afterPan.x, 6);
     expect(afterLateScreen.y).toBeCloseTo(afterPan.y, 6);
+  });
+  describe("initialFitScreenId", () => {
+    it("fits every screen when it is omitted", async () => {
+      const view = await renderScreens([1280, 1280, 1280], { height: 2560 });
+      expect(view.scale).toBeLessThan(0.25);
+    });
+
+    it("fits the first screen edge to edge across the pane, flush with the top, when null", async () => {
+      const view = await renderScreens([1280, 1280, 1280], {
+        height: 2560,
+        initialFitScreenId: null,
+      });
+      const frame = frameScreenRect(view, 0, 1280, 2560);
+      expect(view.scale).toBeCloseTo(SURFACE_WIDTH / 1280, 6);
+      expect(frame.left).toBeCloseTo(0, 4);
+      expect(frame.right).toBeCloseTo(SURFACE_WIDTH, 4);
+      expect(frame.top).toBeCloseTo(0, 4);
+    });
+
+    it.each([
+      ["narrow", NARROW_PANE],
+      ["wide", WIDE_PANE],
+    ])(
+      "fills a %s pane width with a 1440px desktop screen and starts at its top edge",
+      async (_label, paneSize) => {
+        const view = await renderScreens([1440, 1440], {
+          height: 900,
+          initialFitScreenId: null,
+          paneSize,
+        });
+        const frame = frameScreenRect(view, 0, 1440, 900);
+        expect(view.scale).toBeCloseTo(paneSize.width / 1440, 6);
+        expect(frame.left).toBeCloseTo(0, 4);
+        expect(frame.right).toBeCloseTo(paneSize.width, 4);
+        expect(frame.top).toBeCloseTo(0, 4);
+        // Not centered: a screen shorter than the pane leaves the space below
+        // it, never a band above it.
+        expect(frame.top + frame.height).toBeLessThan(paneSize.height);
+      },
+    );
+
+    it("starts a screen taller than the pane at the top edge and lets it run past the bottom", async () => {
+      const view = await renderScreens([1440], {
+        height: 4000,
+        initialFitScreenId: null,
+        paneSize: NARROW_PANE,
+      });
+      const frame = frameScreenRect(view, 0, 1440, 4000);
+      expect(frame.top).toBeCloseTo(0, 4);
+      expect(frame.top + frame.height).toBeGreaterThan(NARROW_PANE.height);
+    });
+
+    it("lands on the selected screen over the requested one", async () => {
+      const view = await renderScreens([1280, 1280, 1280], {
+        height: 2560,
+        initialFitScreenId: "screen-1",
+        selectedScreenIds: ["screen-2"],
+      });
+      const frame = frameScreenRect(view, 2, 1280, 2560);
+      expect(frame.left).toBeCloseTo(0, 4);
+      expect(frame.right).toBeCloseTo(SURFACE_WIDTH, 4);
+    });
+
+    it("lands on the requested screen when nothing is selected", async () => {
+      const view = await renderScreens([1280, 1280, 1280], {
+        height: 2560,
+        initialFitScreenId: "screen-1",
+      });
+      expect(frameScreenRect(view, 1, 1280, 2560).left).toBeCloseTo(0, 4);
+    });
+
+    it("zooms a narrow screen in but stops at 100%, centered across and flush with the top", async () => {
+      const view = await renderScreens([390], {
+        height: 600,
+        zoom: 50,
+        initialFitScreenId: null,
+      });
+      const frame = frameScreenRect(view, 0, 390, 600);
+      expect(view.scale).toBeCloseTo(1, 6);
+      expect(frame.left).toBeCloseTo((SURFACE_WIDTH - 390) / 2, 4);
+      expect(frame.top).toBeCloseTo(0, 4);
+    });
+  });
+
+  describe("fillFocusedViewport", () => {
+    // Height the frame's card renders at, in canvas pixels.
+    function renderedFrameHeight(index: number) {
+      const card = container.querySelector<HTMLElement>(
+        `[data-frame-id="screen-${index}"] [data-screen-card]`,
+      );
+      if (!card) throw new Error(`frame ${index} not rendered`);
+      return Number.parseFloat(card.style.height);
+    }
+
+    it.each([
+      ["narrow", NARROW_PANE],
+      ["wide", WIDE_PANE],
+    ])(
+      "grows a short screen to the %s pane's viewport so no band is left below it",
+      async (_label, paneSize) => {
+        const view = await renderScreens([1440, 1440], {
+          height: 900,
+          initialFitScreenId: null,
+          fillFocusedViewport: true,
+          paneSize,
+        });
+        const frame = frameScreenRect(view, 0, 1440, renderedFrameHeight(0));
+        expect(frame.top).toBeCloseTo(0, 4);
+        expect(frame.top + frame.height).toBeGreaterThanOrEqual(
+          paneSize.height - 1,
+        );
+        expect(frame.top + frame.height).toBeLessThan(paneSize.height + 2);
+      },
+    );
+
+    it("leaves a screen taller than the pane at its own height so it still scrolls", async () => {
+      await renderScreens([1440], {
+        height: 4000,
+        initialFitScreenId: null,
+        fillFocusedViewport: true,
+        paneSize: NARROW_PANE,
+      });
+      expect(renderedFrameHeight(0)).toBe(4000);
+    });
+
+    it("grows only the focused screen", async () => {
+      await renderScreens([1440, 1440], {
+        height: 900,
+        initialFitScreenId: "screen-1",
+        fillFocusedViewport: true,
+        paneSize: NARROW_PANE,
+      });
+      expect(renderedFrameHeight(1)).toBeGreaterThan(900);
+      expect(renderedFrameHeight(0)).toBe(900);
+    });
+
+    it("keeps frames at their own height unless the pane asks to be filled", async () => {
+      await renderScreens([1440, 1440], {
+        height: 900,
+        initialFitScreenId: null,
+        paneSize: NARROW_PANE,
+      });
+      expect(renderedFrameHeight(0)).toBe(900);
+    });
+
+    it("keeps every frame at its own height when the first layout fits all screens", async () => {
+      await renderScreens([1440, 1440], {
+        height: 900,
+        fillFocusedViewport: true,
+        paneSize: NARROW_PANE,
+      });
+      expect(renderedFrameHeight(0)).toBe(900);
+      expect(renderedFrameHeight(1)).toBe(900);
+    });
   });
 });

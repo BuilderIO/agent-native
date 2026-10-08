@@ -12,10 +12,15 @@ const mockResolveDevUserEmail = vi.hoisted(() =>
 );
 
 vi.mock("h3", () => ({
+  createError: (input: { statusMessage?: string }) =>
+    Object.assign(new Error(input.statusMessage), input),
   defineEventHandler: (handler: any) => handler,
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
   getRequestHeader: (event: any, name: string) =>
     event._headers?.[name.toLowerCase()],
+  getRequestIP: () => "127.0.0.1",
+  getRequestURL: (event: any) =>
+    new URL(`http://${event._headers?.host ?? "localhost"}/`),
   readBody: async (event: any) => event._body,
   setResponseStatus: (event: any, status: number) => {
     event._status = status;

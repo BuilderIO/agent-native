@@ -37,7 +37,8 @@ import {
   looksLikeCoverageSensitiveAnalyticsRequest,
   looksLikeDashboardConstructionRequest,
   looksLikeStrongCoverageClaim,
-  looksLikeAnalyticsDataRequest,
+  isNonDataTurn,
+  isTrivialTurn,
   needsCorpusWorkflowForCoverageSensitiveRequest,
   needsSourceRecordBodyWorkflowForCoverageSensitiveRequest,
   registerGroundingActions,
@@ -282,7 +283,11 @@ export const ANALYTICS_PROMPT_RULES: readonly AnalyticsPromptRule[] = [
   },
   {
     id: "failed-calls",
-    text: "FAILED CALLS — Correct invalid arguments once; never repeat an identical failed call. For credential, permission, quota, network, or repeated schema failures, stop using that source for the turn and surface the actual error rather than trying unrelated providers. Never ask the user for internal dataset, table, column, or SQL identifiers: `search-bigquery-schema` searches the configured project without a dataset, and `list-data-dictionary` defines the metrics.",
+    text: "FAILED CALLS — Correct invalid arguments once; never repeat an identical failed call. For credential, permission, quota, network, or repeated schema failures, stop using that source for the turn and surface the actual error rather than trying unrelated providers. `search-bigquery-schema` searches the configured project without a dataset, and `list-data-dictionary` defines the metrics.",
+  },
+  {
+    id: "understand-the-ask",
+    text: 'UNDERSTAND THE ASK — The open dashboard and selected panel (`<current-screen>`, `selected-object`) are what "this", "that", and "it" mean. When a preloaded or catalog reference fits, keep its source and business logic and change only filters and window; prefer certified over favorite over unmarked. If an ambiguity would change the numbers, ask exactly one `ask-question` with a recommended default; otherwise pick the default and label it. Open a data answer with one line, "Reading this as: <metric definition>, <window>, <filters>, <source>"; open an edit with "Changing <panel title> on <dashboard>". A source the user names wins. Never ask the user for dataset, table, column, or SQL identifiers; look them up.',
   },
   {
     id: "sources",
@@ -301,7 +306,11 @@ export const ANALYTICS_PROMPT_RULES: readonly AnalyticsPromptRule[] = [
   },
   {
     id: "skills",
-    text: 'SKILLS — Read the owning skill with `docs-search --slug "skill-<name>"` before the work: `dashboard-management` for any dashboard or panel edit, layout, or folder; `custom-blocks` for extension panels, which are a one-off exception to native panels; `account-health` for a named customer, QBR, or renewal; `incident-investigation` for a named user\'s sessions, errors, stuck runs, or replay evidence; `analysis-workspace` for CSV, XLSX, or file delivery.',
+    text: 'SKILLS — Read the owning skill with `docs-search --slug "skill-<name>"` before the work: `dashboard-management` to create a dashboard or to move, reorder, lay out, or file panels (a small edit of one existing panel needs no skill: `get-sql-dashboard` with `panelIds`, then `mutate-dashboard`); `custom-blocks` for extension panels, which are a one-off exception to native panels; `account-health` for a named customer, QBR, or renewal; `incident-investigation` for a named user\'s sessions, errors, stuck runs, or replay evidence; `analysis-workspace` for CSV, XLSX, or file delivery. Deliver a CSV or file in chat with Download CSV on compact tables; for a durable export load `show-workspace-file`; never finish with only a path. Deferred tools load with one `tool-search` call: `update-dashboard`, `compose-dashboard`, `generate-chart`, `show-workspace-file`, `provider-api-request`.',
+  },
+  {
+    id: "acknowledgments",
+    text: "ACKNOWLEDGMENTS: Give at most one brief acknowledgment. Avoid stacked compliments; address the feedback directly.",
   },
 ];
 
@@ -859,8 +868,11 @@ export function realDataFinalGuard(
   const userText = stableRequestText ?? latestUserText(context.messages ?? []);
   const dashboardConstructionRequest =
     looksLikeDashboardConstructionRequest(userText);
+  // A turn that already ran catalog discovery is a data turn whatever the
+  // wording, so a draft that follows it without a query is still judged.
   if (
-    !looksLikeAnalyticsDataRequest(userText) &&
+    isNonDataTurn(userText) &&
+    !hasCatalogSearchAttempt(context.toolResults) &&
     !dashboardConstructionRequest
   ) {
     if (isGenericNoDataFallback(context.text)) {
@@ -1192,6 +1204,9 @@ export default createAgentChatPlugin({
       preloadedReferenceCount:
         getRequestRunContext()?.analyticsJevPrefetch?.preloadedReferenceCount ??
         0,
+      // Core merges this app's status with its own preload stages.
+      prefetchStatus:
+        getRequestRunContext()?.contextStatus?.prefetch ?? "unrecorded",
     });
     properties.memory_capture_queued = memoryCaptureQueued;
     const { track } = await import("@agent-native/core/tracking");
@@ -1199,6 +1214,7 @@ export default createAgentChatPlugin({
   },
   prepareRequest: async ({
     ownerEmail,
+    message,
     requestContext,
     contextPrefetchDeadlineAt,
     dispatchToBackground,
@@ -1206,16 +1222,19 @@ export default createAgentChatPlugin({
     if (
       !ownerEmail ||
       dispatchToBackground ||
-      !looksLikeAnalyticsDataRequest(requestContext)
+      isTrivialTurn(message ?? requestContext)
     ) {
       return;
     }
-    return retrieveAnalyticsPromptReferences({
-      request: requestContext,
-      email: ownerEmail,
-      orgId: getRequestOrgId() || null,
-      deadlineAt: contextPrefetchDeadlineAt,
-    });
+    const { prefetchStatus, ...references } =
+      await retrieveAnalyticsPromptReferences({
+        request: requestContext,
+        email: ownerEmail,
+        orgId: getRequestOrgId() || null,
+        deadlineAt: contextPrefetchDeadlineAt,
+      });
+    // Core turns `timed_out` and `failed` into the model's context note.
+    return { ...references, status: prefetchStatus };
   },
   leanPrompt: isProductionServerlessRuntime(),
   actions: loadActionsFromStaticRegistry(actionsRegistry),

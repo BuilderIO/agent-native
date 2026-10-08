@@ -9,6 +9,7 @@ import {
 } from "../a2a/anthropic-managed-agents.js";
 import {
   A2ATaskTimeoutError,
+  getGlobalA2ASecret,
   MAX_A2A_CALLER_RESPONSE_CHARS,
   callAgent,
 } from "../a2a/client.js";
@@ -353,9 +354,19 @@ function remoteAgentAuthFailure(
   agentName: string,
   value: unknown,
   hostedAuthConfigured = false,
+  callerWorkspace?: { orgId?: string; orgDomain?: string },
 ): { message: string; errorCode: string } | null {
   if (value instanceof RemoteAgentCredentialRejectedError) {
     if (!hostedAuthConfigured) {
+      if (callerWorkspace?.orgId && !callerWorkspace.orgDomain?.trim()) {
+        return {
+          message:
+            `Error: The ${agentName} agent rejected the A2A request (HTTP ${value.statusCode}). ` +
+            "This workspace has no domain configured, so the caller could not send a workspace-scoped identity. " +
+            "Set the workspace domain or configure explicit credentials for this agent, then retry.",
+          errorCode: "a2a_caller_org_domain_missing",
+        };
+      }
       return ordinaryPeerAuthFailure(agentName, value.status);
     }
     return {
@@ -693,11 +704,46 @@ export async function run(
     );
   }
 
-  const agent = await findAgent(agentIdOrName, selfAppId);
+  const resolutionStartedAt = Date.now();
+  const resolutionMode: A2AInvocationMode = action
+    ? "direct_action"
+    : taskId
+      ? "task_poll"
+      : "message";
+  let agent: DiscoveredAgent | undefined;
+  try {
+    agent = await findAgent(agentIdOrName, selfAppId, {
+      includePersonalAgents: true,
+      requireReadableAgentSources: true,
+    });
+  } catch (error) {
+    const terminalCode = "agent_discovery_failed";
+    const targetApp = normalizeAppHandle(agentIdOrName) || "unknown";
+    const correlation = buildDelegationCorrelation(context, selfAppId);
+    console.error(
+      `[call-agent] Could not read connected agents while resolving "${agentIdOrName}":`,
+      error,
+    );
+    trackA2AInvocation({
+      invocationId: randomUUID(),
+      callerApp: selfAppId,
+      targetApp,
+      mode: resolutionMode,
+      status: "error",
+      startedAt: resolutionStartedAt,
+      terminalCode,
+      correlation,
+    });
+    throw new A2AInvocationError(
+      `Could not read the connected-agent registry while resolving "${agentIdOrName}". ` +
+        "No request was sent to another agent. Retry after the workspace agent list is available.",
+      { errorCode: terminalCode },
+    );
+  }
   if (!agent) {
     throw unresolvableAgentTargetError(
       agentIdOrName,
-      await discoverAgents(selfAppId),
+      await discoverAgents(selfAppId, { includePersonalAgents: true }),
       selfAppId,
       buildDelegationCorrelation(context, selfAppId),
       action ? "direct_action" : taskId ? "task_poll" : "message",
@@ -856,6 +902,8 @@ export async function run(
   let invocationStatus: A2AInvocationStatus = "error";
   let invocationTaskId = taskId || undefined;
   let invocationTerminalCode: string | undefined;
+  let callerOrgId: string | undefined;
+  let callerOrgDomain: string | undefined;
 
   try {
     if (agent.kind?.provider === "anthropic-managed-agents") {
@@ -881,21 +929,13 @@ export async function run(
       const a2aMetadata: Record<string, unknown> = {};
       if (callerEmail) a2aMetadata.userEmail = callerEmail;
 
-      let callerOrgDomain: string | undefined;
       let callerOrgSecret: string | undefined;
       const orgId = getRequestOrgId();
-      if (orgId) {
-        try {
-          const domain = await getOrgDomain(orgId);
-          if (domain) {
-            callerOrgDomain = domain;
-            a2aMetadata.orgDomain = domain;
-          }
-        } catch {}
-        try {
-          const secret = await getOrgA2ASecret(orgId);
-          if (secret) callerOrgSecret = secret;
-        } catch {}
+      callerOrgId = orgId;
+      if (orgId && !agent.auth) {
+        callerOrgDomain = (await getOrgDomain(orgId)) ?? undefined;
+        if (callerOrgDomain) a2aMetadata.orgDomain = callerOrgDomain;
+        callerOrgSecret = (await getOrgA2ASecret(orgId)) ?? undefined;
       }
 
       if (!agent.auth && process.env.NODE_ENV === "production" && callerEmail) {
@@ -1108,6 +1148,7 @@ export async function run(
             agent.name,
             pollErr,
             Boolean(agent.auth),
+            { orgId: callerOrgId, orgDomain: callerOrgDomain },
           );
           invocationTerminalCode = authFailure?.errorCode ?? "call_failed";
           const reason = pollErr?.message ?? "unknown error";
@@ -1167,13 +1208,11 @@ export async function run(
     let domain: string | undefined;
     let orgSecret: string | undefined;
     const currentOrgId = getRequestOrgId();
-    if (currentOrgId) {
-      try {
-        domain = (await getOrgDomain(currentOrgId)) ?? undefined;
-      } catch {}
-      try {
-        orgSecret = (await getOrgA2ASecret(currentOrgId)) ?? undefined;
-      } catch {}
+    callerOrgId = currentOrgId;
+    if (currentOrgId && !agent.auth) {
+      domain = (await getOrgDomain(currentOrgId)) ?? undefined;
+      callerOrgDomain = domain;
+      orgSecret = (await getOrgA2ASecret(currentOrgId)) ?? undefined;
     }
     const hostedAgentToken = agent.auth
       ? await resolveRemoteAgentToken(agent.auth, {
@@ -1225,6 +1264,7 @@ export async function run(
       agent.name,
       err,
       Boolean(agent.auth || agent.kind),
+      { orgId: callerOrgId, orgDomain: callerOrgDomain },
     );
     if (authFailure) {
       invocationStatus = "error";
@@ -1336,16 +1376,25 @@ async function invokeReadOnlyAppAction(
   let callerOrgDomain: string | undefined;
   let callerOrgSecret: string | undefined;
   const orgId = getRequestOrgId();
-  if (orgId) {
-    try {
-      callerOrgDomain = (await getOrgDomain(orgId)) ?? undefined;
-    } catch {}
-    try {
-      callerOrgSecret = (await getOrgA2ASecret(orgId)) ?? undefined;
-    } catch {}
+  if (orgId && !hostedAuthConfigured) {
+    callerOrgDomain = (await getOrgDomain(orgId)) ?? undefined;
+    callerOrgSecret = (await getOrgA2ASecret(orgId)) ?? undefined;
   }
 
-  if (!hostedAgentToken && !callerOrgSecret && !process.env.A2A_SECRET) {
+  if (
+    !hostedAgentToken &&
+    !hostedAuthConfigured &&
+    orgId &&
+    !callerOrgDomain &&
+    !getGlobalA2ASecret()
+  ) {
+    return (
+      `Error calling ${agent.name} action ${action}: this workspace has no domain configured, ` +
+      "so the request cannot include workspace-scoped A2A identity. Set the workspace domain or configure explicit credentials for this agent."
+    );
+  }
+
+  if (!hostedAgentToken && !callerOrgSecret && !getGlobalA2ASecret()) {
     return `Error calling ${agent.name} action ${action}: direct cross-app reads require A2A identity verification`;
   }
 
@@ -1372,6 +1421,7 @@ async function invokeReadOnlyAppAction(
       agent.name,
       error,
       hostedAuthConfigured,
+      { orgId, orgDomain: callerOrgDomain },
     );
     if (authFailure) {
       throw new A2AInvocationError(authFailure.message, {

@@ -1874,7 +1874,6 @@ const enUS = {
       heroDescription:
         "Plans is a free and open-source visual planning tool for reviewing your coding agent's approach, giving feedback, and understanding code changes through diagrams, wireframes, and annotated code.",
       heroCta: "Plan visually",
-      heroSecondaryCta: "Open Plans",
       useCasesHeading: "What can you do with Plans?",
       useCasesBody:
         "Review an implementation approach, work through an interface, or understand a completed change with your AI coding agent.",
