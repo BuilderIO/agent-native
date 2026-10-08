@@ -1604,7 +1604,7 @@ export default {
     storyboardTemporaryCleanupPending:
       "حُفظت لوحة القصص، لكن تعذّر حذف ملفات لقطات الشاشة المؤقتة.",
     storyboardTemporaryCleanupFailed:
-      "فشل تصدير لوحة القصص، وتعذّر حذف ملفات لقطات الشاشة المؤقتة.",
+      "لا يزال تنظيف لقطات الشاشة المؤقتة قيد الانتظار.",
     storyboardUnexpectedResponse:
       "أعاد تصدير لقطات الشاشة استجابة يتعذّر قراءتها. أعد المحاولة.",
     storyboardSaveOutcomeUnknown:

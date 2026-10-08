@@ -1668,7 +1668,7 @@ export default {
     storyboardTemporaryCleanupPending:
       "Das Storyboard wurde gespeichert, aber temporäre Screenshots konnten nicht entfernt werden.",
     storyboardTemporaryCleanupFailed:
-      "Der Storyboard-Export ist fehlgeschlagen, und temporäre Screenshots konnten nicht entfernt werden.",
+      "Die Bereinigung der temporären Screenshots steht noch aus.",
     storyboardUnexpectedResponse:
       "Der Screenshot-Export hat eine unlesbare Antwort zurückgegeben. Bitte erneut versuchen.",
     storyboardSaveOutcomeUnknown:

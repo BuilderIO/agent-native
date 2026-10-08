@@ -1673,7 +1673,7 @@ export default {
     storyboardTemporaryCleanupPending:
       "Le storyboard a été enregistré, mais les captures temporaires n’ont pas pu être supprimées.",
     storyboardTemporaryCleanupFailed:
-      "L’exportation du storyboard a échoué et les captures temporaires n’ont pas pu être supprimées.",
+      "Le nettoyage des captures temporaires est toujours en attente.",
     storyboardUnexpectedResponse:
       "L’export des captures a renvoyé une réponse illisible. Réessayez.",
     storyboardSaveOutcomeUnknown:

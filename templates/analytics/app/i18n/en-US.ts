@@ -1699,7 +1699,7 @@ export default {
     storyboardTemporaryCleanupPending:
       "The storyboard was saved, but temporary screenshot files could not be removed.",
     storyboardTemporaryCleanupFailed:
-      "The storyboard export failed, and temporary screenshot files could not be removed.",
+      "Temporary screenshot cleanup is still pending.",
     storyboardUnexpectedResponse:
       "The screenshot export returned an unreadable response. Retry the export.",
     storyboardSaveOutcomeUnknown:

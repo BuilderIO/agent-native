@@ -735,7 +735,10 @@ export default defineEventHandler(async (event) =>
             data: { saveOutcomeUnknown: true },
           });
         }
-        throw error;
+        throw unknownSaveOutcomeError(
+          "Design may have received the screenshot upload, but Analytics lost the connection. Check Design before retrying.",
+          error,
+        );
       } finally {
         if (timeout) clearTimeout(timeout);
       }

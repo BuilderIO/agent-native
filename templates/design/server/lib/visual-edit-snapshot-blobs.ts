@@ -2,7 +2,7 @@ import {
   deletePrivateBlob,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import type { DesignDataMutationTransaction } from "./design-data-mutation.js";
@@ -39,7 +39,7 @@ export function parseVisualEditSnapshotBlobHandle(
 
 export async function deleteVisualEditSnapshotBlobs(
   values: readonly (string | null | undefined)[],
-): Promise<void> {
+): Promise<boolean> {
   const db = getDb();
   const table = schema.designVisualEditSnapshotBlobCleanup;
   const handles = [...new Set(values.filter((value) => value != null))];
@@ -73,6 +73,16 @@ export async function deleteVisualEditSnapshotBlobs(
       );
     }
   }
+
+  const remainingQuery = db
+    .select({ blobHandle: table.blobHandle })
+    .from(table);
+  const remaining = handles.length
+    ? await remainingQuery
+        .where(inArray(table.blobHandle, handles))
+        .limit(handles.length)
+    : await remainingQuery.limit(CLEANUP_BATCH_SIZE);
+  return remaining.length > 0;
 }
 
 export async function queueVisualEditSnapshotBlobCleanupInTransaction(

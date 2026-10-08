@@ -406,6 +406,11 @@ export default defineEventHandler(async (event) => {
       }
       if (actionFailed) {
         if (isActionContractError(actionFailure)) {
+          const actionDetails = actionFailure.details ?? {};
+          const actionState =
+            typeof actionDetails === "object" && actionDetails !== null
+              ? (actionDetails as Record<string, unknown>)
+              : {};
           throw createError({
             statusCode: actionFailure.statusCode,
             statusMessage: actionFailure.message,
@@ -415,12 +420,16 @@ export default defineEventHandler(async (event) => {
               ...(actionFailure.details === undefined
                 ? {}
                 : { details: actionFailure.details }),
-              ...(cleanupPending ? { cleanupPending: true } : {}),
+              ...(cleanupPending || actionState.cleanupPending === true
+                ? { cleanupPending: true }
+                : {}),
+              ...(actionState.saveOutcomeUnknown === true
+                ? { saveOutcomeUnknown: true }
+                : {}),
             },
             cause: actionFailure,
           });
         }
-        if (!cleanupPending) throw actionFailure;
         const failure =
           actionFailure && typeof actionFailure === "object"
             ? (actionFailure as {
@@ -432,6 +441,14 @@ export default defineEventHandler(async (event) => {
             : {};
         const existingData =
           failure.data && typeof failure.data === "object" ? failure.data : {};
+        const failureData = existingData as Record<string, unknown>;
+        if (
+          !cleanupPending &&
+          failureData.cleanupPending !== true &&
+          failureData.saveOutcomeUnknown !== true
+        ) {
+          throw actionFailure;
+        }
         throw createError({
           statusCode:
             typeof failure.statusCode === "number" ? failure.statusCode : 500,
@@ -441,7 +458,15 @@ export default defineEventHandler(async (event) => {
               : typeof failure.message === "string"
                 ? failure.message
                 : "Design screenshot action failed",
-          data: { ...existingData, cleanupPending: true },
+          data: {
+            ...failureData,
+            ...(cleanupPending || failureData.cleanupPending === true
+              ? { cleanupPending: true }
+              : {}),
+            ...(failureData.saveOutcomeUnknown === true
+              ? { saveOutcomeUnknown: true }
+              : {}),
+          },
           cause: actionFailure,
         });
       }

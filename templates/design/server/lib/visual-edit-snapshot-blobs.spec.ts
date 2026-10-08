@@ -5,8 +5,23 @@ const cleanupQueue = vi.hoisted(() => {
   const rows = new Map<string, { blobHandle: string }>();
   const table = { blobHandle: "cleanup.blobHandle" };
   const selectQuery = {
-    from: vi.fn(() => selectQuery),
-    limit: vi.fn(async () => [...rows.values()]),
+    filter: null as string[] | null,
+    from: vi.fn(() => {
+      selectQuery.filter = null;
+      return selectQuery;
+    }),
+    where: vi.fn((condition: { values: string[] }) => {
+      selectQuery.filter = condition.values;
+      return selectQuery;
+    }),
+    limit: vi.fn(async (limit = 50) =>
+      [...rows.values()]
+        .filter(
+          ({ blobHandle }) =>
+            !selectQuery.filter || selectQuery.filter.includes(blobHandle),
+        )
+        .slice(0, limit),
+    ),
   };
   const insertQuery = {
     values: vi.fn((values: { blobHandle: string }[]) => ({
@@ -33,6 +48,7 @@ vi.mock("@agent-native/core/private-blob", () => ({
 }));
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((_column, value) => ({ value })),
+  inArray: vi.fn((_column, values) => ({ values })),
 }));
 vi.mock("../db/index.js", () => ({
   getDb: () => cleanupQueue.db,
@@ -82,18 +98,20 @@ describe("visual-edit snapshot blob cleanup", () => {
       reason: "unsupported",
     });
 
-    await deleteVisualEditSnapshotBlobs([
-      JSON.stringify(handle),
-      JSON.stringify(handle),
-      null,
-    ]);
+    await expect(
+      deleteVisualEditSnapshotBlobs([
+        JSON.stringify(handle),
+        JSON.stringify(handle),
+        null,
+      ]),
+    ).resolves.toBe(true);
 
     expect(deletePrivateBlob).toHaveBeenCalledTimes(1);
     expect(deletePrivateBlob).toHaveBeenCalledWith(handle);
     expect(cleanupQueue.rows.has(JSON.stringify(handle))).toBe(true);
     expect(warn).toHaveBeenCalledOnce();
 
-    await deleteVisualEditSnapshotBlobs([]);
+    await expect(deleteVisualEditSnapshotBlobs([])).resolves.toBe(false);
 
     expect(deletePrivateBlob).toHaveBeenCalledTimes(2);
     expect(cleanupQueue.rows.has(JSON.stringify(handle))).toBe(false);

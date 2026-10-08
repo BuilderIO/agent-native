@@ -383,6 +383,20 @@ describe("POST /api/session-replay/storyboard", () => {
     }
   });
 
+  it("marks a transport error as an unknown save outcome after upload dispatch", async () => {
+    mocks.ssrfSafeFetch.mockRejectedValueOnce(
+      new TypeError("connection reset"),
+    );
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData())),
+    ).rejects.toMatchObject({
+      statusCode: 502,
+      statusMessage: expect.stringContaining("Check Design before retrying"),
+      data: { saveOutcomeUnknown: true },
+    });
+  });
+
   it("does not retry a 401 with an organization-principal fallback token", async () => {
     mocks.resolveA2ACallerAuth.mockResolvedValueOnce({
       apiKey: "test-a2a-token",

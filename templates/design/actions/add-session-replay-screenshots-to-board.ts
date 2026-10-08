@@ -1,4 +1,9 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  ActionContractError,
+  defineAction,
+  fail,
+  isActionContractError,
+} from "@agent-native/core/action";
 import {
   ATTACHMENT_REF_MAX_CHARS,
   deletePrivateBlob,
@@ -237,8 +242,8 @@ function appendToBoard(html: string, markup: string): string {
 
 async function cleanupUploadedScreenshots(
   handles: readonly PrivateBlobHandle[],
-): Promise<void> {
-  if (handles.length === 0) return;
+): Promise<boolean> {
+  if (handles.length === 0) return false;
   const pendingHandles = (
     await Promise.all(
       handles.map(async (handle) => {
@@ -251,9 +256,9 @@ async function cleanupUploadedScreenshots(
       }),
     )
   ).filter((handle): handle is PrivateBlobHandle => handle !== null);
-  if (pendingHandles.length === 0) return;
+  if (pendingHandles.length === 0) return false;
   try {
-    await deleteVisualEditSnapshotBlobs(
+    return await deleteVisualEditSnapshotBlobs(
       pendingHandles.map((handle) => JSON.stringify(handle)),
     );
   } catch (error) {
@@ -264,6 +269,7 @@ async function cleanupUploadedScreenshots(
     await Promise.allSettled(
       pendingHandles.map((handle) => deletePrivateBlob(handle)),
     );
+    return true;
   }
 }
 
@@ -333,6 +339,53 @@ function attachmentFailureMessage(status: string): string {
     return "The screenshot attachment storage is unavailable. Retry with the same attachment reference.";
   }
   return "A screenshot attachment is missing, expired, or invalid. Reattach it and retry.";
+}
+
+function actionFailureWithRollbackState(
+  error: unknown,
+  state: { cleanupPending?: true; saveOutcomeUnknown?: true },
+): ActionContractError {
+  const failure =
+    error && typeof error === "object"
+      ? (error as {
+          data?: unknown;
+          details?: unknown;
+          errorCode?: unknown;
+          message?: unknown;
+          statusCode?: unknown;
+          statusMessage?: unknown;
+        })
+      : {};
+  const existingDetails = isActionContractError(error)
+    ? (error.details ?? {})
+    : failure.data && typeof failure.data === "object"
+      ? (failure.data as Record<string, unknown>)
+      : failure.details && typeof failure.details === "object"
+        ? (failure.details as Record<string, unknown>)
+        : {};
+  const wrapped = new ActionContractError(
+    typeof failure.statusMessage === "string"
+      ? failure.statusMessage
+      : typeof failure.message === "string"
+        ? failure.message
+        : "Design screenshot action failed",
+    {
+      errorCode: isActionContractError(error)
+        ? error.errorCode
+        : typeof failure.errorCode === "string"
+          ? failure.errorCode
+          : "action_failed",
+      statusCode:
+        typeof failure.statusCode === "number"
+          ? failure.statusCode
+          : isActionContractError(error)
+            ? error.statusCode
+            : 500,
+      details: { ...existingDetails, ...state },
+    },
+  );
+  Object.defineProperty(wrapped, "cause", { value: error, configurable: true });
+  return wrapped;
 }
 
 export default defineAction({
@@ -591,6 +644,8 @@ export default defineAction({
       let screenshotMetadataRollbackCommitted =
         !screenshotMetadataInsertAttempted;
       let rollbackQueuedBlobHandles: string[] = [];
+      let cleanupPending = false;
+      let saveOutcomeUnknown = false;
 
       if (uploaded.length && screenshotMetadataInsertAttempted) {
         try {
@@ -617,6 +672,8 @@ export default defineAction({
               "[design-replay-screenshots] Screenshot metadata rollback retry failed:",
               retryError,
             );
+            cleanupPending = true;
+            saveOutcomeUnknown = true;
           }
         }
         if (
@@ -625,8 +682,12 @@ export default defineAction({
           rollbackQueuedBlobHandles.length > 0
         ) {
           try {
-            await deleteVisualEditSnapshotBlobs(rollbackQueuedBlobHandles);
+            cleanupPending =
+              (await deleteVisualEditSnapshotBlobs(
+                rollbackQueuedBlobHandles,
+              )) || cleanupPending;
           } catch (cleanupError) {
+            cleanupPending = true;
             console.warn(
               "[design-replay-screenshots] Queued screenshot cleanup remains pending:",
               cleanupError,
@@ -656,10 +717,16 @@ export default defineAction({
               .where(eq(schema.designs.id, createdDesignId))
               .limit(1);
             createdDesignDeleted = !remainingDesign;
+            if (remainingDesign) saveOutcomeUnknown = true;
             if (remainingDesign && rollbackQueuedBlobHandles.length > 0) {
-              await deleteVisualEditSnapshotBlobs(rollbackQueuedBlobHandles);
+              cleanupPending =
+                (await deleteVisualEditSnapshotBlobs(
+                  rollbackQueuedBlobHandles,
+                )) || cleanupPending;
             }
           } catch (cleanupError) {
+            saveOutcomeUnknown = true;
+            if (rollbackQueuedBlobHandles.length > 0) cleanupPending = true;
             console.warn(
               "[design-replay-screenshots] Could not verify newly created Design cleanup:",
               cleanupError,
@@ -667,10 +734,15 @@ export default defineAction({
           }
         }
       }
+      if (createdDesignId && !screenshotMetadataRollbackCommitted) {
+        cleanupPending = true;
+        saveOutcomeUnknown = true;
+      }
       if (boardWrite && !createdDesignDeleted) {
         try {
           await rollbackBoardWrite(boardWrite);
         } catch (rollbackError) {
+          saveOutcomeUnknown = true;
           console.warn(
             "[design-replay-screenshots] Board rollback failed after screenshot persistence failed:",
             rollbackError,
@@ -678,9 +750,24 @@ export default defineAction({
         }
       }
       if (uploaded.length && !screenshotMetadataInsertAttempted) {
-        await cleanupUploadedScreenshots(
-          uploaded.map(({ blobHandle }) => blobHandle),
-        );
+        try {
+          cleanupPending =
+            (await cleanupUploadedScreenshots(
+              uploaded.map(({ blobHandle }) => blobHandle),
+            )) || cleanupPending;
+        } catch (cleanupError) {
+          cleanupPending = true;
+          console.warn(
+            "[design-replay-screenshots] Uploaded screenshot cleanup could not be confirmed:",
+            cleanupError,
+          );
+        }
+      }
+      if (cleanupPending || saveOutcomeUnknown) {
+        throw actionFailureWithRollbackState(error, {
+          ...(cleanupPending ? { cleanupPending: true as const } : {}),
+          ...(saveOutcomeUnknown ? { saveOutcomeUnknown: true as const } : {}),
+        });
       }
       throw error;
     }

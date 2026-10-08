@@ -367,4 +367,36 @@ describe("POST /api/session-replay-storyboard", () => {
       expect(cause?.cause).toBe(contractError);
     },
   );
+
+  it("forwards action rollback and cleanup state in the upload error data", async () => {
+    mocks.runAction.mockRejectedValueOnce(
+      Object.assign(new Error("The storyboard rollback is uncertain"), {
+        actionContractError: true,
+        errorCode: "action_failed",
+        statusCode: 502,
+        details: {
+          cleanupPending: true,
+          saveOutcomeUnknown: true,
+        },
+      }),
+    );
+
+    const thrown = await (handler as any)(makeEvent(makeFormData())).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    expect(thrown).toMatchObject({
+      statusCode: 502,
+      statusMessage: "The storyboard rollback is uncertain",
+      data: {
+        cleanupPending: true,
+        saveOutcomeUnknown: true,
+        details: {
+          cleanupPending: true,
+          saveOutcomeUnknown: true,
+        },
+      },
+    });
+  });
 });

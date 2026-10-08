@@ -1646,7 +1646,7 @@ export default {
     storyboardTemporaryCleanupPending:
       "ストーリーボードは保存されましたが、一時スクリーンショットを削除できませんでした。",
     storyboardTemporaryCleanupFailed:
-      "ストーリーボードのエクスポートに失敗し、一時スクリーンショットを削除できませんでした。",
+      "一時スクリーンショットのクリーンアップはまだ保留中です。",
     storyboardUnexpectedResponse:
       "スクリーンショットのエクスポートから読み取れない応答が返されました。もう一度お試しください。",
     storyboardSaveOutcomeUnknown:

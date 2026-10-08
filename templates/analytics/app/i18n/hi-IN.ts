@@ -1590,8 +1590,7 @@ export default {
     storyboardNoDesignResponse: "Design ने स्टोरीबोर्ड का परिणाम नहीं लौटाया।",
     storyboardTemporaryCleanupPending:
       "स्टोरीबोर्ड सहेजा गया, लेकिन अस्थायी स्क्रीनशॉट फ़ाइलें हटाई नहीं जा सकीं।",
-    storyboardTemporaryCleanupFailed:
-      "स्टोरीबोर्ड निर्यात विफल हुआ और अस्थायी स्क्रीनशॉट फ़ाइलें हटाई नहीं जा सकीं।",
+    storyboardTemporaryCleanupFailed: "अस्थायी स्क्रीनशॉट की सफ़ाई अभी भी लंबित है।",
     storyboardUnexpectedResponse:
       "स्क्रीनशॉट निर्यात से अपठनीय प्रतिक्रिया मिली। फिर से प्रयास करें।",
     storyboardSaveOutcomeUnknown:

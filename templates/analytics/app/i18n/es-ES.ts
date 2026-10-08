@@ -1654,7 +1654,7 @@ export default {
     storyboardTemporaryCleanupPending:
       "El guion gráfico se guardó, pero no se pudieron eliminar los archivos temporales de captura.",
     storyboardTemporaryCleanupFailed:
-      "La exportación del guion gráfico falló y no se pudieron eliminar los archivos temporales de captura.",
+      "La limpieza de las capturas temporales sigue pendiente.",
     storyboardUnexpectedResponse:
       "La exportación de capturas devolvió una respuesta ilegible. Vuelve a intentarlo.",
     storyboardSaveOutcomeUnknown:

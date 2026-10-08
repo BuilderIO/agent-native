@@ -1647,7 +1647,7 @@ export default {
     storyboardTemporaryCleanupPending:
       "O storyboard foi salvo, mas não foi possível remover os arquivos temporários de captura.",
     storyboardTemporaryCleanupFailed:
-      "A exportação do storyboard falhou e não foi possível remover os arquivos temporários de captura.",
+      "A limpeza das capturas temporárias ainda está pendente.",
     storyboardUnexpectedResponse:
       "A exportação das capturas retornou uma resposta ilegível. Tente novamente.",
     storyboardSaveOutcomeUnknown:
