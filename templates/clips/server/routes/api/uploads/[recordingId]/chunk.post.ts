@@ -392,6 +392,16 @@ function finalizeUploadRepairFailureResponse(
   }
 }
 
+function terminalFinalizeFailureResponse(event: H3Event, error: string) {
+  setResponseStatus(event, 500);
+  return {
+    ok: false,
+    finalized: false,
+    status: "failed" as const,
+    error,
+  };
+}
+
 function pendingMediaVerificationState(
   value: unknown,
 ): Record<string, unknown> | null {
@@ -1266,13 +1276,14 @@ export async function handleRecordingChunk(
             return acceptedProcessingResponse(event, recordingId, pendingState);
           }
         }
+        const failureReason =
+          err instanceof Error ? err.message : "Finalize failed";
         const failed = await db
           .update(schema.recordings)
           .set({
             status: "failed",
             failureCode: "finalize_failed",
-            failureReason:
-              err instanceof Error ? err.message : "Finalize failed",
+            failureReason,
             updatedAt: new Date().toISOString(),
           })
           .where(
@@ -1339,6 +1350,13 @@ export async function handleRecordingChunk(
             updatedAt: new Date().toISOString(),
           },
         });
+        if (
+          repairResult.outcome === "unreadable" ||
+          repairResult.outcome === "contention" ||
+          repairResult.outcome === "write_failed"
+        ) {
+          return terminalFinalizeFailureResponse(event, failureReason);
+        }
         const repairFailure = finalizeUploadRepairFailureResponse(
           event,
           repairResult,
@@ -1980,6 +1998,13 @@ async function handleResumableChunk(
         updatedAt: failedAt,
       },
     });
+    if (
+      repairResult.outcome === "unreadable" ||
+      repairResult.outcome === "contention" ||
+      repairResult.outcome === "write_failed"
+    ) {
+      return terminalFinalizeFailureResponse(event, failureReason);
+    }
     const repairFailure = finalizeUploadRepairFailureResponse(
       event,
       repairResult,

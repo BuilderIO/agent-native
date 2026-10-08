@@ -1512,7 +1512,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     );
   });
 
-  it("returns a retryable response when failed-state repair stays contended", async () => {
+  it("returns terminal failure when failed-state repair stays contended", async () => {
     mockAppState.set(UPLOAD_KEY, {
       recordingId: "rec-1",
       status: "uploading",
@@ -1568,14 +1568,25 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       .mockImplementation(() => undefined);
 
     try {
-      await expect(handler({} as any)).resolves.toBeUndefined();
+      await expect(handler({} as any)).resolves.toEqual({
+        ok: false,
+        finalized: false,
+        status: "failed",
+        error: "finalize exploded",
+      });
     } finally {
       consoleError.mockRestore();
       consoleWarn.mockRestore();
     }
 
     expect(mockCompareAndSetAppState).toHaveBeenCalledTimes(3);
-    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 503);
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 500);
+    expect(mockUpdateSets).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        failureCode: "finalize_failed",
+      }),
+    );
     expect(mockTrack).toHaveBeenCalledTimes(2);
   });
 
@@ -1631,7 +1642,12 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     let warningCalls: unknown[][] = [];
 
     try {
-      await expect(handler({} as any)).resolves.toBeUndefined();
+      await expect(handler({} as any)).resolves.toEqual({
+        ok: false,
+        finalized: false,
+        status: "failed",
+        error: "finalize exploded",
+      });
       warningCalls = consoleWarn.mock.calls;
     } finally {
       consoleError.mockRestore();
@@ -1639,7 +1655,13 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     }
 
     expect(mockTrack).toHaveBeenCalledTimes(2);
-    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 503);
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 500);
+    expect(mockUpdateSets).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        failureCode: "finalize_failed",
+      }),
+    );
     expect(mockTrack).toHaveBeenCalledWith(
       "clips_upload_blocking_failure",
       expect.any(Object),
@@ -1867,7 +1889,12 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     let warningCalls: unknown[][] = [];
 
     try {
-      await expect(handler({} as any)).resolves.toBeUndefined();
+      await expect(handler({} as any)).resolves.toEqual({
+        ok: false,
+        finalized: false,
+        status: "failed",
+        error: "finalize exploded",
+      });
       warningCalls = consoleWarn.mock.calls;
     } finally {
       consoleError.mockRestore();
@@ -1875,7 +1902,13 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     }
 
     expect(mockTrack).toHaveBeenCalledTimes(2);
-    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 503);
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 500);
+    expect(mockUpdateSets).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        failureCode: "finalize_failed",
+      }),
+    );
     expect(mockTrack).toHaveBeenCalledWith(
       "clips_upload_blocking_failure",
       expect.any(Object),
