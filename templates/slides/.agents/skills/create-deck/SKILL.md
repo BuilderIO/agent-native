@@ -14,6 +14,9 @@ Context, reference deck, or source material that the app already provides.
 
 ## Read before
 
+Read a reference with `docs-search --slug "skill-create-deck--references-<file>"`,
+for example `skill-create-deck--references-reference-inputs`.
+
 | Situation | Read |
 | --- | --- |
 | A reference deck, attached PDF/PPTX/DOCX, or workspace default applies | `references/reference-inputs.md` |

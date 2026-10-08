@@ -16,6 +16,9 @@ registry; do not assume a fixed 1920x1080 canvas.
 
 ## Read before
 
+Read a reference with `docs-search --slug "skill-slide-editing--references-<file>"`,
+for example `skill-slide-editing--references-animations`.
+
 | Situation | Read |
 | --- | --- |
 | Changing only colors, borders, shadows, or backgrounds, or matching every slide to one slide's look | `references/style-only-edits.md` |
