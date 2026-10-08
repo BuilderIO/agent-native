@@ -66,6 +66,7 @@ export function renderLeftSidebar({
   projectMenu,
   projectTitleControl,
   minimalUiToggle,
+  topBarVisible,
   leftContentWidth,
   leftSidebarVisible,
 }: {
@@ -91,6 +92,7 @@ export function renderLeftSidebar({
   projectMenu: ReactElement;
   projectTitleControl: ReactElement;
   minimalUiToggle: ReactElement;
+  topBarVisible: boolean;
   leftContentWidth: number;
   leftSidebarVisible: boolean;
 }) {
@@ -210,7 +212,10 @@ export function renderLeftSidebar({
             >
               <div
                 data-design-chrome-region="left-header"
-                className="flex h-[var(--design-section-height)] shrink-0 items-center gap-[var(--design-baseline-half)] border-b border-border px-[var(--design-baseline-unit)]"
+                className={cn(
+                  "flex shrink-0 items-center gap-[var(--design-baseline-half)] border-b border-border px-[var(--design-baseline-unit)]",
+                  topBarVisible ? "h-12" : "h-[var(--design-section-height)]",
+                )}
               >
                 {projectTitleControl}
                 {minimalUiToggle}

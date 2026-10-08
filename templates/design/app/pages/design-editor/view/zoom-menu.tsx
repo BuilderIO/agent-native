@@ -15,6 +15,7 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 import type { EditorActiveScreenAndGeometry } from "../domains/use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "../domains/use-editor-canvas-and-screens";
@@ -35,7 +36,7 @@ export function renderZoomMenu({
   editorCanvasAndScreens: EditorCanvasAndScreens;
   editorModes: EditorModes;
   editorScreenRendering: EditorScreenRendering;
-  controlId: "toolbar" | "inspector";
+  controlId: "toolbar" | "inspector" | "topbar";
 }) {
   const { t, shortcut } = editorCore;
   const { handleZoomIn, handleZoomOut, setZoom } =
@@ -71,10 +72,20 @@ export function renderZoomMenu({
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 gap-0.5 px-1 text-[10px] tabular-nums text-muted-foreground cursor-pointer hover:text-foreground"
+              className={cn(
+                "h-6 cursor-pointer tabular-nums text-muted-foreground hover:text-foreground",
+                controlId === "topbar"
+                  ? "gap-1 rounded-md border border-border px-2 text-xs font-normal text-foreground"
+                  : "gap-0.5 px-1 text-[10px]",
+              )}
             >
               {zoomLabel}
-              <IconChevronDown className="size-2.5 opacity-60" />
+              <IconChevronDown
+                className={cn(
+                  "opacity-60",
+                  controlId === "topbar" ? "size-3" : "size-2.5",
+                )}
+              />
             </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>

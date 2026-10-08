@@ -1,4 +1,3 @@
-
 use tauri::AppHandle;
 
 #[tauri::command]
@@ -56,10 +55,7 @@ pub async fn native_speech_request_permission() -> Result<bool, String> {
 pub async fn native_speech_stop(app: AppHandle, owner: Option<String>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        macos::native_speech_stop_impl(
-            app,
-            owner.map(|o| macos::SessionOwner::from_param(Some(o))),
-        )
+        macos::native_speech_stop_impl(app, owner.map(|o| macos::SessionOwner::from_param(Some(o))))
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -93,23 +89,35 @@ pub(crate) mod macos {
     use std::sync::{Arc, Mutex, OnceLock};
 
     use block2::{RcBlock, StackBlock};
+    use dispatch2::{DispatchQueue, DispatchRetained};
     use objc2::rc::Retained;
-    use objc2::{AnyThread, ClassType};
+    use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
+    use objc2::{define_class, msg_send, AllocAnyThread, ClassType, DefinedClass};
     use objc2_audio_toolbox::{
         kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, AudioUnitSetProperty,
+    };
+    use objc2_av_foundation::{
+        AVCaptureAudioDataOutput, AVCaptureAudioDataOutputSampleBufferDelegate,
+        AVCaptureConnection, AVCaptureDevice, AVCaptureDeviceInput, AVCaptureOutput,
+        AVCaptureSession, AVMediaTypeAudio,
     };
     use objc2_avf_audio::{
         AVAudioEngine, AVAudioInputNode, AVAudioPCMBuffer, AVAudioSession,
         AVAudioSessionCategoryOptions, AVAudioSessionCategoryPlayAndRecord, AVAudioTime,
         AVAudioVoiceProcessingOtherAudioDuckingConfiguration,
-        AVAudioVoiceProcessingOtherAudioDuckingLevel,
+        AVAudioVoiceProcessingOtherAudioDuckingLevel, AVFormatIDKey, AVLinearPCMBitDepthKey,
+        AVLinearPCMIsFloatKey, AVLinearPCMIsNonInterleaved, AVNumberOfChannelsKey,
     };
     use objc2_core_audio::{
         kAudioHardwareNoError, kAudioHardwarePropertyTranslateUIDToDevice,
         kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
         AudioObjectGetPropertyData, AudioObjectID, AudioObjectPropertyAddress,
     };
-    use objc2_foundation::{NSArray, NSBundle, NSError, NSLocale, NSString};
+    use objc2_core_audio_types::kAudioFormatLinearPCM;
+    use objc2_core_media::CMSampleBuffer;
+    use objc2_foundation::{
+        NSArray, NSBundle, NSDictionary, NSError, NSLocale, NSNumber, NSString,
+    };
     use objc2_speech::{
         SFSpeechAudioBufferRecognitionRequest, SFSpeechRecognitionResult, SFSpeechRecognitionTask,
         SFSpeechRecognizer, SFSpeechRecognizerAuthorizationStatus,
@@ -219,13 +227,20 @@ pub(crate) mod macos {
     /// — we only move ownership through the `Mutex` — so `Send` is the only
     /// impl we need, and we mark it manually below.
     struct SpeechSession {
-        engine: Retained<AVAudioEngine>,
+        audio: SpeechAudio,
         request: Retained<SFSpeechAudioBufferRecognitionRequest>,
         task: Retained<SFSpeechRecognitionTask>,
         cancelled: Arc<AtomicBool>,
         stopped: Arc<AtomicBool>,
-        tap_installed: AtomicBool,
         owner: SessionOwner,
+    }
+
+    enum SpeechAudio {
+        Engine {
+            engine: Retained<AVAudioEngine>,
+            tap_installed: AtomicBool,
+        },
+        Capture(DictationCapture),
     }
 
     // SAFETY: see the doc comment on `SpeechSession`. We never alias the
@@ -809,24 +824,241 @@ pub(crate) mod macos {
     }
 
     fn stop_engine_and_remove_tap(session: &SpeechSession) {
-        // SAFETY: `AVAudioEngine` and `AVAudioInputNode` are
-        // message-thread-safe per Apple's docs. `inputNode` returns a
-        // singleton already retained by the engine; both calls are
-        // fire-and-forget and have no return value.
-        //
-        // Guard against double-removal: `removeTapOnBus` throws NSException
-        // (which Rust cannot catch, aborting the process) when called on a
-        // node that has no tap installed. The swap ensures only the first
-        // caller executes the remove.
-        unsafe {
-            if session.tap_installed.swap(false, Ordering::SeqCst) {
-                let input = session.engine.inputNode();
-                input.removeTapOnBus(0);
+        let (engine, tap_installed) = match &session.audio {
+            SpeechAudio::Engine {
+                engine,
+                tap_installed,
+            } => (engine, tap_installed),
+            SpeechAudio::Capture(capture) => {
+                capture.stop();
+                return;
             }
-            if session.engine.isRunning() {
-                session.engine.stop();
+        };
+        // `removeTapOnBus` throws an NSException that aborts the process when
+        // the node has no tap, so only the first caller may remove it.
+        unsafe {
+            if tap_installed.swap(false, Ordering::SeqCst) {
+                engine.inputNode().removeTapOnBus(0);
+            }
+            if engine.isRunning() {
+                engine.stop();
             }
         }
+    }
+
+    struct DictationSampleIvars {
+        request: Retained<SFSpeechAudioBufferRecognitionRequest>,
+        app: AppHandle,
+        buffers: AtomicU64,
+        peak_bits: AtomicU32,
+    }
+
+    define_class!(
+        // SAFETY: NSObject has no subclassing requirements and the type has no
+        // Drop impl. AVFoundation calls the delegate on our serial queue.
+        #[unsafe(super(NSObject))]
+        #[name = "ClipsDictationSampleDelegate"]
+        #[ivars = DictationSampleIvars]
+        struct DictationSampleDelegate;
+
+        unsafe impl NSObjectProtocol for DictationSampleDelegate {}
+
+        unsafe impl AVCaptureAudioDataOutputSampleBufferDelegate for DictationSampleDelegate {
+            #[unsafe(method(captureOutput:didOutputSampleBuffer:fromConnection:))]
+            fn did_output_sample_buffer(
+                &self,
+                _output: &AVCaptureOutput,
+                sample_buffer: &CMSampleBuffer,
+                _connection: &AVCaptureConnection,
+            ) {
+                let ivars = self.ivars();
+                unsafe { ivars.request.appendAudioSampleBuffer(sample_buffer) };
+                let n = ivars.buffers.fetch_add(1, Ordering::Relaxed);
+                let level = peak_level_for_sample_buffer(sample_buffer);
+                ivars
+                    .peak_bits
+                    .fetch_max(level.to_bits(), Ordering::Relaxed);
+                if n % 2 == 0 {
+                    let _ = ivars.app.emit(
+                        "voice:audio-level",
+                        AudioLevelPayload {
+                            level,
+                            source: "mic",
+                        },
+                    );
+                }
+            }
+        }
+    );
+
+    impl DictationSampleDelegate {
+        fn new(
+            request: Retained<SFSpeechAudioBufferRecognitionRequest>,
+            app: AppHandle,
+        ) -> Retained<Self> {
+            let this = Self::alloc().set_ivars(DictationSampleIvars {
+                request,
+                app,
+                buffers: AtomicU64::new(0),
+                peak_bits: AtomicU32::new(0),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    /// Mono float32 is requested in `capture_audio_settings`, so the block
+    /// buffer is a flat `f32` array. Non-negative floats order the same as
+    /// their bit patterns, which is what lets `peak_bits` use `fetch_max`.
+    fn peak_level_for_sample_buffer(sample_buffer: &CMSampleBuffer) -> f32 {
+        unsafe {
+            let Some(block) = sample_buffer.data_buffer() else {
+                return 0.0;
+            };
+            let mut length_at_offset = 0usize;
+            let mut data: *mut std::ffi::c_char = std::ptr::null_mut();
+            let status =
+                block.data_pointer(0, &mut length_at_offset, std::ptr::null_mut(), &mut data);
+            if status != 0 || data.is_null() {
+                return 0.0;
+            }
+            let samples =
+                std::slice::from_raw_parts(data as *const f32, length_at_offset / size_of::<f32>());
+            let step = (samples.len() / 64).max(1);
+            samples
+                .iter()
+                .step_by(step)
+                .fold(0.0_f32, |peak, v| peak.max(v.abs()))
+                .min(1.0)
+        }
+    }
+
+    fn capture_audio_settings() -> Option<Retained<NSDictionary<NSString, AnyObject>>> {
+        let keys = unsafe {
+            [
+                AVFormatIDKey?,
+                AVLinearPCMIsFloatKey?,
+                AVLinearPCMBitDepthKey?,
+                AVLinearPCMIsNonInterleaved?,
+                AVNumberOfChannelsKey?,
+            ]
+        };
+        let values = [
+            NSNumber::numberWithUnsignedInt(kAudioFormatLinearPCM),
+            NSNumber::numberWithBool(true),
+            NSNumber::numberWithUnsignedInt(32),
+            NSNumber::numberWithBool(false),
+            NSNumber::numberWithUnsignedInt(1),
+        ];
+        let objects: Vec<&AnyObject> = values.iter().map(|v| v.as_ref()).collect();
+        Some(NSDictionary::from_slices(&keys, &objects))
+    }
+
+    /// Dictation reads the mic through AVCaptureSession instead of
+    /// AVAudioEngine. Pinning AVAudioEngine's input to a device that differs
+    /// from its default output device (e.g. AirPods while the engine renders
+    /// to the system aggregate) delivers no buffers after the first
+    /// configuration change, so the recognizer reports "No speech detected".
+    struct DictationCapture {
+        session: Retained<AVCaptureSession>,
+        output: Retained<AVCaptureAudioDataOutput>,
+        delegate: Retained<DictationSampleDelegate>,
+        _queue: DispatchRetained<DispatchQueue>,
+        device_name: String,
+        stopped: AtomicBool,
+    }
+
+    impl DictationCapture {
+        fn start(
+            app: AppHandle,
+            request: Retained<SFSpeechAudioBufferRecognitionRequest>,
+            mic_device_id: Option<&str>,
+            mic_device_label: Option<&str>,
+        ) -> Result<Self, String> {
+            let device = resolve_capture_device(mic_device_id, mic_device_label)?;
+            let device_name = unsafe { device.localizedName() }.to_string();
+            let device_uid = unsafe { device.uniqueID() }.to_string();
+
+            let input = unsafe { AVCaptureDeviceInput::deviceInputWithDevice_error(&device) }
+                .map_err(|err| {
+                    format!(
+                        "Could not open microphone {device_name}: {}",
+                        ns_error_message(&err)
+                    )
+                })?;
+            let session = unsafe { AVCaptureSession::new() };
+            let output = unsafe { AVCaptureAudioDataOutput::new() };
+            unsafe {
+                if !session.canAddInput(&input) {
+                    return Err(format!("Microphone {device_name} cannot be captured."));
+                }
+                session.addInput(&input);
+                output.setAudioSettings(capture_audio_settings().as_deref());
+                if !session.canAddOutput(&output) {
+                    return Err("Audio capture output is unavailable.".into());
+                }
+                session.addOutput(&output);
+            }
+
+            let delegate = DictationSampleDelegate::new(request, app);
+            let queue = DispatchQueue::new("com.clips.dictation.capture", None);
+            unsafe {
+                output.setSampleBufferDelegate_queue(
+                    Some(ProtocolObject::from_ref(&*delegate)),
+                    Some(&queue),
+                );
+            }
+            objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe {
+                session.startRunning()
+            }))
+            .map_err(|e| format!("AVCaptureSession start threw: {e:?}"))?;
+            if !unsafe { session.isRunning() } {
+                return Err(format!("Could not start capture from {device_name}."));
+            }
+            eprintln!(
+                "[voice-dictation] native speech capturing from {device_name} ({device_uid}) via AVCaptureSession"
+            );
+            Ok(Self {
+                session,
+                output,
+                delegate,
+                _queue: queue,
+                device_name,
+                stopped: AtomicBool::new(false),
+            })
+        }
+
+        fn stop(&self) {
+            if self.stopped.swap(true, Ordering::SeqCst) {
+                return;
+            }
+            unsafe {
+                self.session.stopRunning();
+                self.output.setSampleBufferDelegate_queue(None, None);
+            }
+            let ivars = self.delegate.ivars();
+            eprintln!(
+                "[voice-dictation] native capture from {} delivered {} buffers (peak {:.4})",
+                self.device_name,
+                ivars.buffers.load(Ordering::Relaxed),
+                f32::from_bits(ivars.peak_bits.load(Ordering::Relaxed)),
+            );
+        }
+    }
+
+    fn resolve_capture_device(
+        device_id: Option<&str>,
+        device_label: Option<&str>,
+    ) -> Result<Retained<AVCaptureDevice>, String> {
+        if let Some((device, _)) = resolve_input_device(device_id, device_label)? {
+            let uid = NSString::from_str(&device.id);
+            return unsafe { AVCaptureDevice::deviceWithUniqueID(&uid) }.ok_or_else(|| {
+                format!("Microphone {} is not available for capture.", device.name)
+            });
+        }
+        let media_type = unsafe { AVMediaTypeAudio }
+            .ok_or_else(|| "AVMediaTypeAudio is unavailable.".to_string())?;
+        unsafe { AVCaptureDevice::defaultDeviceWithMediaType(media_type) }
+            .ok_or_else(|| "No microphone is available.".into())
     }
 
     fn clear_session_slot() {
@@ -872,90 +1104,19 @@ pub(crate) mod macos {
             .unwrap_or_default()
     }
 
-    pub fn native_speech_start_impl(
-        app: AppHandle,
-        locale: Option<String>,
-        mic_device_id: Option<String>,
-        mic_device_label: Option<String>,
+    fn start_engine_audio(
+        app: &AppHandle,
+        request: &Retained<SFSpeechAudioBufferRecognitionRequest>,
         owner: SessionOwner,
-    ) -> Result<(), String> {
-        native_speech_start_impl_inner(app, locale, mic_device_id, mic_device_label, owner, 0)
-    }
-
-    fn native_speech_start_impl_inner(
-        app: AppHandle,
-        locale: Option<String>,
-        mic_device_id: Option<String>,
-        mic_device_label: Option<String>,
-        owner: SessionOwner,
-        restart_attempt: u32,
-    ) -> Result<(), String> {
-        {
-            let slot = session_slot().lock().map_err(|e| e.to_string())?;
-            if let Some(prev) = slot.as_ref() {
-                if prev.owner == SessionOwner::Meeting && owner == SessionOwner::Dictation {
-                    return Err("speech-engine-busy-meeting".into());
-                }
-            }
-        }
-
-        ensure_authorized()?;
-
-        let my_gen = session_generation().fetch_add(1, Ordering::SeqCst) + 1;
-
-        let contextual_strings = {
-            let v = take_pending_vocabulary();
-            (!v.is_empty()).then_some(v)
-        };
-        {
-            let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
-            if let Some(prev) = slot.take() {
-                prev.cancelled.store(true, Ordering::SeqCst);
-                // SAFETY: `cancel()` is a fire-and-forget ObjC call.
-                unsafe { prev.task.cancel() };
-                stop_engine_and_remove_tap(&prev);
-            }
-        }
-
-        let recognizer = build_recognizer(locale.as_deref())?;
-
-        // Build the audio buffer request and flip on partial reporting.
-        // SAFETY: `new()` returns a freshly retained instance; the setters
-        // are plain BOOL property writes.
-        let request: Retained<SFSpeechAudioBufferRecognitionRequest> =
-            unsafe { SFSpeechAudioBufferRecognitionRequest::new() };
-        unsafe {
-            request.setShouldReportPartialResults(true);
-            request.setAddsPunctuation(true);
-            // Personal-vocabulary bias: if the renderer passed any learned
-            // terms (from `clips_vocabulary` via list-vocabulary), feed
-            // them into SFSpeechRecognizer's `contextualStrings` so the
-            // recognizer prefers the user's spelling. SAFETY:
-            // `NSMutableArray::new()` returns a freshly retained empty
-            // array; we add NSString instances cloned from owned Rust
-            // strings, then pass the resulting array to the setter which
-            // retains it for the lifetime of the request.
-            if let Some(strings) = contextual_strings.as_ref() {
-                if !strings.is_empty() {
-                    let ns_strings: Vec<Retained<NSString>> =
-                        strings.iter().map(|s| NSString::from_str(s)).collect();
-                    let refs: Vec<&NSString> = ns_strings.iter().map(|s| &**s).collect();
-                    let arr: Retained<NSArray<NSString>> = NSArray::from_slice(&refs);
-                    request.setContextualStrings(&arr);
-                }
-            }
-        }
-
+        mic_device_id: Option<&str>,
+        mic_device_label: Option<&str>,
+    ) -> Result<SpeechAudio, String> {
         // Spin up the engine and grab its input node + native format.
         // SAFETY: `AVAudioEngine::new()` returns a retained engine.
         // `inputNode` is the engine's singleton input — also retained.
         configure_shared_mic_audio_session();
         let engine: Retained<AVAudioEngine> = unsafe { AVAudioEngine::new() };
-        configure_engine_input_device(
-            &engine,
-            mic_device_id.as_deref(),
-            mic_device_label.as_deref(),
-        )?;
+        configure_engine_input_device(&engine, mic_device_id, mic_device_label)?;
         let input_node = unsafe { engine.inputNode() };
         let native_voice_processing = native_speech_voice_processing_mode(owner);
         let voice_processing_enabled = match native_voice_processing {
@@ -1038,6 +1199,102 @@ pub(crate) mod macos {
         if voice_processing_enabled {
             disable_voice_processing_ducking(&input_node);
         }
+
+        Ok(SpeechAudio::Engine {
+            engine,
+            tap_installed: AtomicBool::new(true),
+        })
+    }
+
+    pub fn native_speech_start_impl(
+        app: AppHandle,
+        locale: Option<String>,
+        mic_device_id: Option<String>,
+        mic_device_label: Option<String>,
+        owner: SessionOwner,
+    ) -> Result<(), String> {
+        native_speech_start_impl_inner(app, locale, mic_device_id, mic_device_label, owner, 0)
+    }
+
+    fn native_speech_start_impl_inner(
+        app: AppHandle,
+        locale: Option<String>,
+        mic_device_id: Option<String>,
+        mic_device_label: Option<String>,
+        owner: SessionOwner,
+        restart_attempt: u32,
+    ) -> Result<(), String> {
+        {
+            let slot = session_slot().lock().map_err(|e| e.to_string())?;
+            if let Some(prev) = slot.as_ref() {
+                if prev.owner == SessionOwner::Meeting && owner == SessionOwner::Dictation {
+                    return Err("speech-engine-busy-meeting".into());
+                }
+            }
+        }
+
+        ensure_authorized()?;
+
+        let my_gen = session_generation().fetch_add(1, Ordering::SeqCst) + 1;
+
+        let contextual_strings = {
+            let v = take_pending_vocabulary();
+            (!v.is_empty()).then_some(v)
+        };
+        {
+            let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
+            if let Some(prev) = slot.take() {
+                prev.cancelled.store(true, Ordering::SeqCst);
+                // SAFETY: `cancel()` is a fire-and-forget ObjC call.
+                unsafe { prev.task.cancel() };
+                stop_engine_and_remove_tap(&prev);
+            }
+        }
+
+        let recognizer = build_recognizer(locale.as_deref())?;
+
+        // Build the audio buffer request and flip on partial reporting.
+        // SAFETY: `new()` returns a freshly retained instance; the setters
+        // are plain BOOL property writes.
+        let request: Retained<SFSpeechAudioBufferRecognitionRequest> =
+            unsafe { SFSpeechAudioBufferRecognitionRequest::new() };
+        unsafe {
+            request.setShouldReportPartialResults(true);
+            request.setAddsPunctuation(true);
+            // Personal-vocabulary bias: if the renderer passed any learned
+            // terms (from `clips_vocabulary` via list-vocabulary), feed
+            // them into SFSpeechRecognizer's `contextualStrings` so the
+            // recognizer prefers the user's spelling. SAFETY:
+            // `NSMutableArray::new()` returns a freshly retained empty
+            // array; we add NSString instances cloned from owned Rust
+            // strings, then pass the resulting array to the setter which
+            // retains it for the lifetime of the request.
+            if let Some(strings) = contextual_strings.as_ref() {
+                if !strings.is_empty() {
+                    let ns_strings: Vec<Retained<NSString>> =
+                        strings.iter().map(|s| NSString::from_str(s)).collect();
+                    let refs: Vec<&NSString> = ns_strings.iter().map(|s| &**s).collect();
+                    let arr: Retained<NSArray<NSString>> = NSArray::from_slice(&refs);
+                    request.setContextualStrings(&arr);
+                }
+            }
+        }
+
+        let audio = match owner {
+            SessionOwner::Dictation => SpeechAudio::Capture(DictationCapture::start(
+                app.clone(),
+                request.clone(),
+                mic_device_id.as_deref(),
+                mic_device_label.as_deref(),
+            )?),
+            SessionOwner::Meeting => start_engine_audio(
+                &app,
+                &request,
+                owner,
+                mic_device_id.as_deref(),
+                mic_device_label.as_deref(),
+            )?,
+        };
 
         let cancelled = Arc::new(AtomicBool::new(false));
         let stopped = Arc::new(AtomicBool::new(false));
@@ -1163,12 +1420,11 @@ pub(crate) mod macos {
         {
             let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
             *slot = Some(SpeechSession {
-                engine,
+                audio,
                 request,
                 task,
                 cancelled,
                 stopped,
-                tap_installed: AtomicBool::new(true),
                 owner,
             });
         }

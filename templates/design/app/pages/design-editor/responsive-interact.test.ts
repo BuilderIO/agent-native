@@ -133,7 +133,7 @@ describe("responsive Interact wiring", () => {
       "responsiveInteractActive && !minimalUi ? (",
     );
     expect(pinnedExitIndex).toBeGreaterThan(-1);
-    const pinnedExit = source.slice(pinnedExitIndex, pinnedExitIndex + 400);
+    const pinnedExit = source.slice(pinnedExitIndex, pinnedExitIndex + 600);
     expect(pinnedExit).toContain("<ResponsiveInteractExitButton");
     expect(pinnedExit).toContain("onClose={handleExitResponsiveInteract}");
     expect(pinnedExit).toContain(

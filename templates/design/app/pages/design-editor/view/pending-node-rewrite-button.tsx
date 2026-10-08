@@ -18,36 +18,34 @@ import { cn } from "@/lib/utils";
 
 import type { EditorCore } from "../domains/use-editor-core";
 import type { EditorFilesAndSaving } from "../domains/use-editor-files-and-saving";
-import type { EditorHistory } from "../domains/use-editor-history";
 import type { EditorModes } from "../domains/use-editor-modes";
 
-export function renderPendingNodeRewriteControl({
+export function renderPendingNodeRewriteButton({
   editorCore,
-  editorHistory,
   editorFilesAndSaving,
   editorModes,
+  compact,
 }: {
   editorCore: EditorCore;
-  editorHistory: EditorHistory;
   editorFilesAndSaving: EditorFilesAndSaving;
   editorModes: EditorModes;
+  compact: boolean;
 }) {
   const { t } = editorCore;
-  const { rightSidebarWidth } = editorHistory;
   const { pendingNodeRewriteProposals } = editorFilesAndSaving;
   const { handleReviewNodeRewrite } = editorModes;
 
-  const rightToolbarCompact = rightSidebarWidth < 320;
   const pendingNodeRewriteLabel = t("designEditor.nodeRewrite.pendingReview", {
     count: pendingNodeRewriteProposals.length,
   });
+
   const pendingNodeRewriteButtonContent = (
     <>
-      {!rightToolbarCompact ? (
+      {!compact ? (
         <span className="size-1.5 shrink-0 rounded-full bg-primary" />
       ) : null}
       <IconFileStack className="size-3.5 shrink-0" />
-      {rightToolbarCompact ? (
+      {compact ? (
         <span className="min-w-4 rounded bg-primary/10 px-1 text-center text-[10px] font-semibold tabular-nums text-primary">
           {pendingNodeRewriteProposals.length}
         </span>
@@ -58,9 +56,8 @@ export function renderPendingNodeRewriteControl({
   );
   const pendingNodeRewriteButtonClassName = cn(
     "h-8 rounded-md border-primary/30 bg-primary/5 text-xs hover:bg-primary/10",
-    rightToolbarCompact ? "min-w-10 gap-1 px-1.5" : "max-w-44 gap-1.5 px-2",
+    compact ? "min-w-10 gap-1 px-1.5" : "max-w-44 gap-1.5 px-2",
   );
-
   return pendingNodeRewriteProposals.length ===
     0 ? null : pendingNodeRewriteProposals.length === 1 ? (
     <Tooltip>
@@ -78,7 +75,7 @@ export function renderPendingNodeRewriteControl({
           {pendingNodeRewriteButtonContent}
         </Button>
       </TooltipTrigger>
-      {rightToolbarCompact ? (
+      {compact ? (
         <TooltipContent>{pendingNodeRewriteLabel}</TooltipContent>
       ) : null}
     </Tooltip>
@@ -95,13 +92,13 @@ export function renderPendingNodeRewriteControl({
               aria-label={pendingNodeRewriteLabel}
             >
               {pendingNodeRewriteButtonContent}
-              {!rightToolbarCompact ? (
+              {!compact ? (
                 <IconChevronDown className="size-3 shrink-0 opacity-70" />
               ) : null}
             </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
-        {rightToolbarCompact ? (
+        {compact ? (
           <TooltipContent>{pendingNodeRewriteLabel}</TooltipContent>
         ) : null}
       </Tooltip>

@@ -1010,6 +1010,10 @@ export default {
       interact: "Interact",
       screens: "Écrans",
     },
+    topBar: {
+      modeDesign: "Conception",
+      modeSwitch: "Mode de l'éditeur",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",

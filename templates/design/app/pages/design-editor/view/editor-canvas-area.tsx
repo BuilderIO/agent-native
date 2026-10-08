@@ -46,17 +46,6 @@ import { renderOverviewCanvas } from "./overview-canvas";
 import { renderSingleScreenCanvas } from "./single-screen-canvas";
 import { renderVisualEditApplyToolbar } from "./visual-edit-apply-toolbar";
 
-/* i18n-ignore */
-/* i18n-ignore */
-/* i18n-ignore */
-/* i18n-ignore */
-
-// Mirrors `--design-chrome-rail-width` in app/global.css (8 baseline units ×
-// 8px). The rail is always-on chrome (not measured via a ref) so the very
-// first overview camera render — before any layout effect could measure the
-// DOM — already accounts for it; see chromeInsetLeft below.
-const DESIGN_CHROME_RAIL_WIDTH_PX = 64;
-
 export function renderEditorCanvasArea({
   editorCore,
   editorHistory,
@@ -83,10 +72,9 @@ export function renderEditorCanvasArea({
   design,
   canApplyPendingVisualEditsWithAgent,
   renderResponsiveInteractBar,
-  leftContentWidth,
-  leftSidebarVisible,
   leftChromeOverlayInset,
   rightSidebarVisible,
+  chromeInsetLeft,
 }: {
   editorCore: EditorCore;
   editorHistory: EditorHistory;
@@ -113,10 +101,9 @@ export function renderEditorCanvasArea({
   design: DesignData;
   canApplyPendingVisualEditsWithAgent: boolean;
   renderResponsiveInteractBar: (floating: boolean) => ReactElement;
-  leftContentWidth: number;
-  leftSidebarVisible: boolean;
   leftChromeOverlayInset: string | undefined;
   rightSidebarVisible: boolean;
+  chromeInsetLeft: number;
 }) {
   const {
     activeFileId,
@@ -136,7 +123,6 @@ export function renderEditorCanvasArea({
   } = editorCore;
   const {
     selectedLayerIdsState,
-    activeLeftPanel,
     rightSidebarWidth,
     menuClipboardReadIdRef,
     setHasSystemClipboardImages,
@@ -339,9 +325,6 @@ export function renderEditorCanvasArea({
     runtimeStructureDeleteRequest?.requestId ?? "",
     runtimeStructureRollbackRequest?.requestId ?? "",
   ].join("|");
-  const chromeInsetLeft = leftSidebarVisible
-    ? DESIGN_CHROME_RAIL_WIDTH_PX + (activeLeftPanel ? leftContentWidth : 0)
-    : 0;
   const chromeInsetRight = rightInspectorCanvasInset({
     visible: rightSidebarVisible,
     width: rightSidebarWidth,

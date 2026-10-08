@@ -8,6 +8,7 @@ import type { EditorCore } from "../domains/use-editor-core";
 import type { EditorHistory } from "../domains/use-editor-history";
 import type { EditorModes } from "../domains/use-editor-modes";
 import { rightInspectorPanelClassName } from "../minimal-inspector";
+import { TOP_BAR_HEIGHT_PX } from "../top-bar";
 
 export function renderRightRail({
   editorCore,
@@ -17,7 +18,9 @@ export function renderRightRail({
   projectTitleControl,
   minimalUiToggle,
   renderZoomControl,
+  localPreviewRow,
   rightSidebarActions,
+  topBarVisible,
   renderResponsiveInteractBar,
   rightSidebarVisible,
   editPanelProps,
@@ -28,8 +31,12 @@ export function renderRightRail({
   editorModes: EditorModes;
   projectTitleControl: ReactElement;
   minimalUiToggle: ReactElement;
-  renderZoomControl: (controlId: "toolbar" | "inspector") => ReactElement;
+  renderZoomControl: (
+    controlId: "toolbar" | "inspector" | "topbar",
+  ) => ReactElement;
+  localPreviewRow: ReactElement | null;
   rightSidebarActions: ReactElement;
+  topBarVisible: boolean;
   renderResponsiveInteractBar: (floating: boolean) => ReactElement;
   rightSidebarVisible: boolean;
   editPanelProps: Omit<
@@ -54,7 +61,16 @@ export function renderRightRail({
           ref={rightSidebarContentRef}
           data-design-chrome-region="right-panel"
           className={rightInspectorPanelClassName(minimalUi)}
-          style={{ width: rightSidebarWidth }}
+          style={
+            topBarVisible && !minimalUi
+              ? {
+                  width: rightSidebarWidth,
+                  top: TOP_BAR_HEIGHT_PX,
+                  bottom: 0,
+                  height: "auto",
+                }
+              : { width: rightSidebarWidth }
+          }
         >
           <div
             role="separator"
@@ -63,7 +79,16 @@ export function renderRightRail({
             className="absolute left-[-2px] top-0 z-[80] h-full w-1 cursor-col-resize bg-transparent transition-colors hover:bg-[var(--design-editor-selection-color)]"
             onPointerDown={(event) => startSidebarResize("right", event)}
           />
-          {rightSidebarActions}
+          {!topBarVisible ? (
+            rightSidebarActions
+          ) : localPreviewRow ? (
+            <div
+              data-design-chrome-region="right-toolbar"
+              className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-[var(--design-baseline-unit)] py-[var(--design-baseline-half)]"
+            >
+              {localPreviewRow}
+            </div>
+          ) : null}
           {mode === "edit" ? (
             <div className="min-h-0 flex-1">
               <EditPanel {...editPanelProps} width={rightSidebarWidth} />
