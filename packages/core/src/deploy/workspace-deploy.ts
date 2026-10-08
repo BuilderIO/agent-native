@@ -137,17 +137,6 @@ function builtinAgentsEnvSnippet(): string {
 `;
 }
 
-function workspaceDirectoryUrl(
-  dispatchPath: string | undefined,
-  gatewayUrl: string | null,
-): string | undefined {
-  if (!dispatchPath || !gatewayUrl) return undefined;
-  const url = new URL(dispatchPath, gatewayUrl);
-  url.search = "";
-  url.hash = "";
-  return url.toString().replace(/\/$/, "");
-}
-
 function workspaceDirectoryEnvSnippet(
   workspaceApps: WorkspaceAppManifestEntry[],
 ): string {
@@ -157,25 +146,55 @@ function workspaceDirectoryEnvSnippet(
   if (!configuredOrgDirectoryUrl && !dispatchApp) {
     return builtinAgentsEnvSnippet();
   }
-  const defaultDirectoryUrl = workspaceDirectoryUrl(
-    dispatchApp?.path,
-    process.env.VITE_WORKSPACE_GATEWAY_URL || workspaceBaseUrl(),
-  );
+  const runtimeDirectoryResolver = dispatchApp
+    ? `
+  function resolveRuntimeDirectoryUrl() {
+    const candidates = [
+      processRef.env.APP_URL,
+      processRef.env.WORKSPACE_OAUTH_ORIGIN,
+      processRef.env.VITE_WORKSPACE_OAUTH_ORIGIN,
+      processRef.env.URL,
+      processRef.env.DEPLOY_URL,
+      processRef.env.BETTER_AUTH_URL,
+      processRef.env.WORKSPACE_GATEWAY_URL,
+    ].filter(Boolean);
+    let loopbackUrl;
+    for (const candidate of candidates) {
+      let baseUrl;
+      try {
+        baseUrl = new URL(candidate);
+      } catch {
+        console.error("[workspace] Invalid organization directory base URL");
+        continue;
+      }
+      if (baseUrl.protocol !== "http:" && baseUrl.protocol !== "https:") {
+        continue;
+      }
+      const directoryUrl = new URL(${JSON.stringify(dispatchApp.path)}, baseUrl)
+        .toString()
+        .replace(/\\/$/, "");
+      const hostname = baseUrl.hostname.toLowerCase();
+      if (
+        hostname === "localhost" ||
+        hostname === "127.0.0.1" ||
+        hostname === "[::1]" ||
+        hostname === "::1"
+      ) {
+        loopbackUrl ??= directoryUrl;
+        continue;
+      }
+      return directoryUrl;
+    }
+    return loopbackUrl ?? null;
+  }
+`
+    : "";
   return `${builtinAgentsEnvSnippet()}
-  const directoryBaseUrl =
-    processRef.env.WORKSPACE_GATEWAY_URL ||
-    processRef.env.APP_URL ||
-    processRef.env.URL ||
-    processRef.env.DEPLOY_URL ||
-    processRef.env.BETTER_AUTH_URL;
-  const runtimeDirectoryUrl = directoryBaseUrl
-    ? ${dispatchApp ? `new URL(${JSON.stringify(dispatchApp.path)}, directoryBaseUrl).toString().replace(/\\/$/, "")` : "directoryBaseUrl"}
-    : null;
+${runtimeDirectoryResolver}
   const directoryOrigin =
     processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL ||
     ${JSON.stringify(configuredOrgDirectoryUrl ?? null)} ||
-    ${JSON.stringify(defaultDirectoryUrl ?? null)} ||
-    runtimeDirectoryUrl;
+    ${dispatchApp ? "resolveRuntimeDirectoryUrl()" : "null"};
   if (directoryOrigin) {
     processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL = directoryOrigin;
   }
@@ -355,12 +374,8 @@ function buildOneApp(
     workspaceApps,
     app,
   );
-  const workspaceGatewayUrl =
-    process.env.VITE_WORKSPACE_GATEWAY_URL || workspaceBaseUrl();
-  const dispatchApp = workspaceApps.find((entry) => entry.isDispatch);
-  const orgDirectoryUrl =
-    getAppConfig().workspace.orgDirectoryUrl?.trim() ||
-    workspaceDirectoryUrl(dispatchApp?.path, workspaceGatewayUrl);
+  const workspaceGatewayUrl = workspaceBaseUrl();
+  const orgDirectoryUrl = getAppConfig().workspace.orgDirectoryUrl?.trim();
   const workspaceOAuthUrl = workspaceOAuthOrigin(workspaceGatewayUrl);
   const frameworkRoutePrefix = workspaceFrameworkRoutePrefixEnv();
   const env: NodeJS.ProcessEnv = {

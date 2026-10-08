@@ -18,6 +18,8 @@ let previousAppBasePath: string | undefined;
 let previousAppUrl: string | undefined;
 let previousA2ASecret: string | undefined;
 let previousBetterAuthUrl: string | undefined;
+let previousDeployUrl: string | undefined;
+let previousUrl: string | undefined;
 let previousCfPages: string | undefined;
 let previousDatabaseUrl: string | undefined;
 let previousUnpooledDatabaseUrl: string | undefined;
@@ -64,6 +66,8 @@ beforeEach(() => {
   previousAppUrl = process.env.APP_URL;
   previousA2ASecret = process.env.A2A_SECRET;
   previousBetterAuthUrl = process.env.BETTER_AUTH_URL;
+  previousDeployUrl = process.env.DEPLOY_URL;
+  previousUrl = process.env.URL;
   previousCfPages = process.env.CF_PAGES;
   previousDatabaseUrl = process.env.DATABASE_URL;
   previousUnpooledDatabaseUrl = process.env.NETLIFY_DATABASE_URL_UNPOOLED;
@@ -105,6 +109,8 @@ beforeEach(() => {
   delete process.env.APP_URL;
   delete process.env.A2A_SECRET;
   delete process.env.BETTER_AUTH_URL;
+  delete process.env.DEPLOY_URL;
+  delete process.env.URL;
   delete process.env.CF_PAGES;
   delete process.env.DATABASE_URL;
   delete process.env.NETLIFY_DATABASE_URL_UNPOOLED;
@@ -138,6 +144,8 @@ afterEach(() => {
   restoreEnv("APP_URL", previousAppUrl);
   restoreEnv("A2A_SECRET", previousA2ASecret);
   restoreEnv("BETTER_AUTH_URL", previousBetterAuthUrl);
+  restoreEnv("DEPLOY_URL", previousDeployUrl);
+  restoreEnv("URL", previousUrl);
   restoreEnv("CF_PAGES", previousCfPages);
   restoreEnv("DATABASE_URL", previousDatabaseUrl);
   restoreEnv("NETLIFY_DATABASE_URL_UNPOOLED", previousUnpooledDatabaseUrl);
@@ -1495,6 +1503,7 @@ describe("workspace deploy", () => {
   it("uses public workspace URLs before loopback gateways when building apps", async () => {
     process.env.APP_URL = "https://workspace.example.test";
     process.env.WORKSPACE_GATEWAY_URL = "http://127.0.0.1:8080";
+    process.env.VITE_WORKSPACE_GATEWAY_URL = "http://127.0.0.1:8080";
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "mail");
 
@@ -1515,9 +1524,7 @@ describe("workspace deploy", () => {
     expect(dispatchCall?.env?.VITE_WORKSPACE_OAUTH_ORIGIN).toBe(
       "https://workspace.example.test",
     );
-    expect(dispatchCall?.env?.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
-      "https://workspace.example.test/dispatch",
-    );
+    expect(dispatchCall?.env?.AGENT_NATIVE_ORG_DIRECTORY_URL).toBeUndefined();
     const dispatchServer = fs.readFileSync(
       path.join(
         tmpDir,
@@ -1528,8 +1535,7 @@ describe("workspace deploy", () => {
       ),
       "utf8",
     );
-    expect(dispatchServer).toContain("https://workspace.example.test/dispatch");
-    expect(dispatchServer).toContain('new URL("/dispatch", directoryBaseUrl)');
+    expect(dispatchServer).toContain('new URL("/dispatch", baseUrl)');
     expect(
       JSON.parse(dispatchCall?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]"),
     ).toEqual([
@@ -1558,6 +1564,65 @@ describe("workspace deploy", () => {
         protectedPaths: [],
       },
     ]);
+  });
+
+  it("uses the deployed URL when a build used a loopback URL", async () => {
+    process.env.APP_URL = "http://localhost:8888";
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    expect(
+      buildCallForApp("dispatch")?.env?.AGENT_NATIVE_ORG_DIRECTORY_URL,
+    ).toBeUndefined();
+    process.env.URL = "https://beta.example.test";
+    const dispatchEntry = path.join(
+      tmpDir,
+      ".netlify",
+      "functions-internal",
+      "dispatch-server",
+      "dispatch-server.mjs",
+    );
+    await import(
+      `${pathToFileURL(dispatchEntry).href}?runtime-url=${Date.now()}`
+    );
+
+    expect(process.env.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
+      "https://beta.example.test/dispatch",
+    );
+  });
+
+  it("skips an invalid runtime URL and uses the next valid base", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    process.env.APP_URL = "not-a-url";
+    process.env.URL = "https://beta.example.test";
+    const dispatchEntry = path.join(
+      tmpDir,
+      ".netlify",
+      "functions-internal",
+      "dispatch-server",
+      "dispatch-server.mjs",
+    );
+    await expect(
+      import(`${pathToFileURL(dispatchEntry).href}?invalid-url=${Date.now()}`),
+    ).resolves.toBeDefined();
+
+    expect(process.env.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
+      "https://beta.example.test/dispatch",
+    );
   });
 
   it("does not synthesize a Dispatch directory for a workspace without Dispatch", async () => {
