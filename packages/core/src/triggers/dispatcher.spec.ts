@@ -655,6 +655,41 @@ Respond to the concurrent event.`,
     );
   });
 
+  it("re-reads before dispatching when a refresh invalidates the event's scan mid-flight", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    let resolveStale!: (value: unknown[]) => void;
+    resourceListAllOwnersMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStale = resolve;
+        }),
+    );
+    const dispatch = busEventHandler("test.event.fired")(
+      {},
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-during-refresh",
+        emittedAt: new Date().toISOString(),
+      },
+    );
+    await vi.waitFor(() =>
+      expect(resourceListAllOwnersMock).toHaveBeenCalledOnce(),
+    );
+
+    // The automation is defined while the event's scan is still pending.
+    await expect(refreshEventSubscriptions()).resolves.toBe(true);
+    resolveStale([]);
+    await dispatch;
+
+    expect(triggerQueueMocks.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: "event-during-refresh" }),
+    );
+  });
+
   it("re-reads instead of answering from a scan a refresh invalidated mid-flight", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
     await initTriggerDispatcher({

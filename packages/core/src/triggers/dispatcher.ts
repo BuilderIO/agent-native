@@ -742,12 +742,20 @@ export async function refreshEventSubscriptions(): Promise<boolean> {
  */
 export async function hasEventAutomation(eventName: string): Promise<boolean> {
   if (cachedEventAutomationNames()?.has(eventName)) return true;
-  // A refresh that lands mid-scan means the scan may predate a new
-  // automation; only an answer from a scan that is still current counts.
+  return eventAutomationNames(await currentEventAutomationResources()).has(
+    eventName,
+  );
+}
+
+/**
+ * A refresh that lands mid-scan means the scan may predate a new automation;
+ * only a scan that is still current when it finishes counts.
+ */
+async function currentEventAutomationResources(): Promise<Resource[]> {
   for (;;) {
     const generation = _eventAutomationGeneration;
-    const names = eventAutomationNames(await listEventAutomationResources());
-    if (generation === _eventAutomationGeneration) return names.has(eventName);
+    const jobResources = await listEventAutomationResources();
+    if (generation === _eventAutomationGeneration) return jobResources;
   }
 }
 
@@ -771,7 +779,7 @@ async function handleEvent(
   if (!deps) return;
 
   try {
-    const jobResources = await listEventAutomationResources();
+    const jobResources = await currentEventAutomationResources();
     const matchingTriggers = jobResources.filter((resource) => {
       if (!resource.path.endsWith(".md")) return false;
       const { meta, body } = parseTriggerFrontmatter(resource.content);
