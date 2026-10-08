@@ -563,6 +563,53 @@ describe("SlideEditor pointer pipeline selection and press fixes", () => {
     expect(editor.outlineBox()).toBeNull();
   });
 
+  it("keeps the browser from selecting text while a multi-selection member is dragged", async () => {
+    const editor = await mountEditor(CLIP_SLIDE);
+    const outer = { x: 200, y: 260 };
+    const nativeRanges = () => window.getSelection()?.rangeCount ?? 0;
+
+    editor.click("callout", { x: 85, y: 262 });
+    editor.click("card", { x: 85, y: 300 }, { shiftKey: true });
+    expect(editor.outlineBox()).toEqual({ top: 235, height: 135 });
+
+    // The press on a text member of the group must not start a native
+    // selection that competes with the move.
+    stack = editor.chainOf("callout");
+    const notPrevented = fireEvent.pointerDown(
+      editor.el("callout"),
+      editor.init(outer),
+    );
+    expect(notPrevented).toBe(false);
+
+    window.getSelection()?.selectAllChildren(editor.el("callout"));
+    expect(nativeRanges()).toBe(1);
+    fireEvent.pointerMove(window, {
+      clientX: outer.x + 40,
+      clientY: outer.y + 30,
+      pointerId: 1,
+    });
+    expect(nativeRanges()).toBe(0);
+    fireEvent.pointerUp(window, {
+      clientX: outer.x + 40,
+      clientY: outer.y + 30,
+      pointerId: 1,
+    });
+
+    // A click without travel keeps the multi-selection.
+    editor.click("callout", outer);
+    expect(editor.outlineBox()).toEqual({ top: 235, height: 135 });
+
+    // An additive press stays free to toggle on click.
+    expect(
+      fireEvent.pointerDown(
+        editor.el("callout"),
+        editor.init(outer, { shiftKey: true }),
+      ),
+    ).toBe(true);
+    editor.release("callout", outer, { shiftKey: true });
+    expect(editor.outlineBox()).toEqual({ top: 290, height: 80 });
+  });
+
   it("gives a selected group edge bands but no full-body mover", async () => {
     const editor = await mountEditor(GROUP_IMAGE_SLIDE);
 
@@ -608,6 +655,27 @@ describe("SlideEditor pointer pipeline selection and press fixes", () => {
     // A click on cell padding still selects the cell for styling.
     editor.click("emptyCell", { x: 310, y: 110 });
     expect(editor.lastSelected()).toBe(editor.el("emptyCell"));
+  });
+
+  it("offers no resize or rotate handles on a selected table cell", async () => {
+    const editor = await mountEditor(TABLE_SLIDE);
+    const html = () => editor.el("table").outerHTML;
+    const before = html();
+
+    editor.click("emptyCell", { x: 310, y: 110 });
+    expect(editor.lastSelected()).toBe(editor.el("emptyCell"));
+    expect(editor.outlineBox()).not.toBeNull();
+    expect(document.querySelector("[data-slide-resize-handle]")).toBeNull();
+    expect(document.querySelector("[data-slide-rotate-handle]")).toBeNull();
+    expect(html()).toBe(before);
+    expect(document.querySelector("[data-slide-layout-spacer-for]")).toBeNull();
+
+    // The table itself is a normal object and keeps its handles.
+    editor.click("table", { x: 105, y: 195 });
+    expect(editor.lastSelected()).toBe(editor.el("table"));
+    expect(document.querySelectorAll("[data-slide-resize-handle]").length).toBe(
+      8,
+    );
   });
 
   it.each([
