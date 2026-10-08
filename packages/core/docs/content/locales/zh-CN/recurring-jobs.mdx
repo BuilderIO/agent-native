@@ -135,15 +135,24 @@ Summarize overnight emails.`,
 
 ## 调度程序如何运行 {#how-scheduler-runs}
 
-调度程序是一个在进程中运行的框架插件（内部 `processRecurringJobs()` 例程）：无论服务器在何处运行，代理聊天插件内的 `setInterval` 每 60 秒触发一次（有 10 秒的启动延迟）。
+在每个调度周期中，调度程序（内部 `processRecurringJobs()` 例程）会找出到期的作业并运行它们。由什么触发调度周期取决于应用运行在哪里：
 
-<Diagram id="doc-block-1u2v87h" title={"一个调度程序勾选"} summary={"每 60 秒，调度程序就会找到到期的作业，将每个作业作为新的代理线程运行，并将结果写回作业文件。"}>
+| 托管环境                                                         | 触发调度周期的机制                                     | 要求与限制                                                                          |
+| ---------------------------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| 长时间运行的服务器（Node.js、Docker、Fly、Render、VPS）          | 进程内定时器，每 60 秒一次，启动 10 秒后开始           | 只要进程在运行就会执行。                                                            |
+| [Netlify](/docs/netlify)                                         | 构建生成的计划函数，每分钟一次                         | 仅限已发布的部署，Deploy Previews 和分支部署中永远不会运行。构建需要 `A2A_SECRET`。 |
+| [Vercel](/docs/vercel#vercel-scheduled-work)                     | 构建添加的 Vercel cron 任务，默认每分钟一次            | 仅限生产部署。需要 `CRON_SECRET`。Hobby 项目最多每天运行一次。                      |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-scheduled-work) | 构建添加到 `wrangler.json` 的 Cron Trigger，每分钟一次 | 需要将 `A2A_SECRET` 设置为 Worker 密钥。                                            |
+| AWS Lambda                                                       | 无                                                     | 计划自动化不会触发。                                                                |
+| 本地开发                                                         | 无，除非你主动启用                                     | 请参阅下方的提示框。                                                                |
+
+在 Netlify、Vercel 和 Cloudflare 上，同一个调度周期还会处理排队中的事件触发自动化、清理函数被中途切断的运行，并执行应用自身的清扫任务，例如 Mail 的稍后提醒和定时发送。没有触发器的无服务器部署则完全没有这些处理：事件触发自动化会一直在队列中等待，被中断的运行也会一直卡住。Webhook 触发的自动化和 **Run now** 会自行分派，因此仍然可以正常工作。当某个部署无法触发计划时，**Automations** 页面会明确提示并说明原因。
+
+<Diagram id="doc-block-1u2v87h" title={"一个调度程序勾选"} summary={"在每个调度周期中，调度程序会找出到期的作业，然后让它们经过与事件自动化相同的后台执行生命周期。"}>
 
 ```html
 <div class="sched">
-  <div class="diagram-box accent">
-    <code>setInterval</code> &bull; 60s &#8635;
-  </div>
+  <div class="diagram-box accent">调度周期 &bull; 每分钟 &#8635;</div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-card">
     <span class="diagram-pill">1 &middot; scan</span
@@ -200,14 +209,26 @@ Summarize overnight emails.`,
 
 <Callout id="doc-block-j6yn07" tone="risk">
 
-**Scale-to-zero caveat.** The scheduler is in-process, so on serverless hosts jobs only fire while an instance is warm. If reliable scheduling matters, keep an instance warm with keep-alive pings or use an always-on host (Fly, Render, a VPS).
+**温实例不会运行计划。** 无服务器托管环境从不启动进程内定时器，因此 keep-alive ping 无法让作业触发，只有上表中的平台触发器才能做到。AWS Lambda 目前没有任何机制触发它们，因此请改为在长时间运行的托管环境（Fly、Render、VPS）上运行计划自动化。
+
+</Callout>
+
+<Callout id="doc-block-rj2" tone="warning">
+
+**本地开发中默认禁用。** 当 `NODE_ENV` 为 `development` 或 `test`，或者应用 URL 指向 `localhost` / `127.0.0.1` / `*.localhost` 时，调度程序的 `setInterval` 循环永远不会启动——这涵盖了大多数本地开发环境。设置 `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=1` 即可照样在本地运行调度程序。要在任何托管环境中关闭计划作业，请使用下文介绍的 `AGENT_NATIVE_DISABLE_RECURRING_JOBS=1`。
+
+</Callout>
+
+<Callout id="doc-block-rj3" tone="warning">
+
+**`AGENT_NATIVE_DISABLE_RECURRING_JOBS` 会在两个作用域中读取。** 在 Netlify、Vercel 和 Cloudflare 上，由**构建**环境决定：平台触发器会继续触发，以处理排队中的事件自动化并清理运行，但开启此开关的构建会跳过计划作业，无论已部署环境如何设置。在长时间运行的服务器上，由**运行时**环境控制进程内定时器。请在你的托管环境读取它的地方设置它。构建会记录这一决定，因此 **Automations** 页面可以明确说明计划永远不会运行，而不是显示一个不会被执行的下次运行时间。
 
 </Callout>
 
 ## 调试作业 {#debugging}
 
 - 在代理资源中打开 `jobs/<name>.md` — frontmatter 显示 `lastRun`、`lastStatus`、`lastError`、`nextRun`。
-- **无需等待即可测试：**没有强制发射工具。要按需执行相同的工作，可以将作业的提示粘贴到代理聊天中并让它在那里运行，或者暂时将计划设置为下一分钟，以便调度程序在下一个时间点上选择它（然后恢复真正的 cron）。
+- **无需等待即可测试：** 在 **Automations** 中打开该自动化并选择 **Run now**。它会立即运行该自动化（包括其真实的副作用），而不必等待调度周期，因此在本地以及没有触发器的托管环境中同样可用。
 - **暂停：**翻转`enabled: false`。文件保持不变，只是停止运行。
 
 ## 代理工具 {#agent-tool}
@@ -227,7 +248,7 @@ Summarize overnight emails.`,
 
 不要将重复性作业与 `@agent-native/scheduling` 混淆：
 
-- **重复作业（本页）** — cron 计划*提示*代理在后台运行。框架级别。住在代理资源。在任何代理本机应用程序上运行。
+- **重复作业（本页）** — cron 计划*提示*代理在后台运行。框架级别。住在代理资源。在任何具备调度程序的托管环境中触发（参见 [调度程序如何运行](#how-scheduler-runs)）。
 - **`@agent-native/scheduling`** — 用于构建日历/预订功能（事件类型、可用窗口、预订）的可重用域包。为 `calendar` 模板和自定义调度界面提供支持。
 
 重复性工作是“如何让代理自行行动？”日程安排包是“如何构建日历应用程序？”不同的关注点。

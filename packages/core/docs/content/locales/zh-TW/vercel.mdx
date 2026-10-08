@@ -179,6 +179,19 @@ npx vercel deploy --prebuilt --prod
 
 專案連結和已儲存的變數會保持不變，因此你不需要重複步驟 3。
 
+## 排程工作 {#vercel-scheduled-work}
+
+排程自動化、佇列中的事件自動化，以及被中斷執行的清理，都會在每分鐘一次的掃描中完成。建置會新增一個 [Vercel cron 工作](https://vercel.com/docs/cron-jobs)，透過 `/_agent-native/jobs/_process-sweep` 呼叫掃描。工作區建置會為每個應用程式各新增一個 cron 工作，路徑為 `/<app-id>/_agent-native/jobs/_process-sweep`。
+
+部署之前，請在專案的環境變數中設定 `CRON_SECRET`。Vercel 會在每個 cron 請求中將它作為 bearer token 傳送，而掃描會拒絕所有不帶它的請求。可以用 `openssl rand -hex 32` 產生一個值。
+
+- **僅限正式環境。** Vercel 只在正式環境部署上執行 cron 工作，從不在預覽部署上執行，因此排程不會在預覽中觸發。**Automations** 頁面會說明這一點。
+- **Hobby 每天只執行一次。** Vercel 會拒絕 cron 工作每天執行超過一次的 Hobby 部署。請在建置環境中將 `AGENT_NATIVE_VERCEL_CRON_SCHEDULE` 設定為每天一次的表達式，例如 `0 9 * * *`。Hobby 也可能在該小時內的任何時間執行它。每天只掃描一次時，排程自動化和事件觸發自動化最多要等待一天，因此在時效很重要時，請使用 Pro 或其他託管平台。
+- **Function 執行時間。** 掃描會在 cron 工作的 function 呼叫中執行到期的作業，因此作業會在達到 function 的最長執行時間（預設 300 秒）時被中斷。
+- **不會重試。** Vercel 不會重試失敗的 cron 呼叫。掃描會在下一個排程時間再次執行。
+
+請參閱 [調度程式如何執行](/docs/recurring-jobs#how-scheduler-runs) 了解其他託管平台。
+
 ## 接下來呢 {#whats-next}
 
 - [**部署環境變數**](/docs/deployment-environment-variables) - 正式環境設定的完整清單
