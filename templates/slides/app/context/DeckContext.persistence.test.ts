@@ -4359,6 +4359,45 @@ describe("DeckContext deck creation persistence", () => {
         clearSlideEditingActive(initial.id, "slide-1");
       });
 
+      it("retries at once when the write settled while the read was in flight", async () => {
+        const applier = vi.fn<InlineEditRemoteApplier>(() => "applied");
+        const { api, result, unregister } = await openEdit(applier);
+        act(() => {
+          result.current.updateSlide(
+            initial.id,
+            "slide-1",
+            { content: slideHtml("Title typed", "Body") },
+            { preserveLocalState: true },
+          );
+        });
+        api.setAccessibleDeck(remoteDeck("Body by remote"));
+        const real = api.fetchMock.getMockImplementation()!;
+        let release = () => {};
+        const gate = new Promise<void>((resolve) => (release = resolve));
+        api.fetchMock.mockImplementationOnce((url, init) => {
+          const response = real(url, init);
+          return requestString(url).includes("/_agent-native/actions/get-deck")
+            ? response.then((r) => gate.then(() => r))
+            : response;
+        });
+
+        let read: Promise<unknown> = Promise.resolve();
+        act(() => {
+          read = result.current.refreshOpenDeck(initial.id);
+        });
+        await act(async () => {
+          await result.current.flushDeckSave(initial.id);
+        });
+        await act(async () => {
+          release();
+          await read;
+        });
+
+        await waitFor(() => expect(applier).toHaveBeenCalled());
+        unregister();
+        clearSlideEditingActive(initial.id, "slide-1");
+      });
+
       it("retries when the editor asks for a later attempt", async () => {
         let result_: "later" | "applied" = "later";
         const applier = vi.fn<InlineEditRemoteApplier>(() => result_);

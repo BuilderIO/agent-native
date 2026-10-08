@@ -991,6 +991,32 @@ describe("DeckContext fallback polling", () => {
       expect(getDeckSaveError(created.id)?.status).toBeUndefined();
     });
 
+    it("clears the failure later writes reported once a read finds the deck", async () => {
+      const { api, result, created } = await openFailedCreate();
+      const real = api.fetchMock.getMockImplementation()!;
+      api.fetchMock.mockImplementation((url) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck")
+          ? Promise.resolve(new Response("", { status: 404 }))
+          : real(url),
+      );
+      await act(async () => {
+        result.current.updateDeck(created.id, { title: "Renamed" });
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(getDeckSaveError(created.id)).toMatchObject({
+        errorCode: "deck_create_failed",
+      });
+
+      api.setServerDecks([openDeck(), created]);
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(hasFailedDeckSave(created.id)).toBe(false);
+      expect(getDeckSaveError(created.id)).toBeUndefined();
+    });
+
     it("clears when the deck turns out to exist on the server", async () => {
       const { api, created } = await openFailedCreate();
       expect(hasFailedDeckSave(created.id)).toBe(true);

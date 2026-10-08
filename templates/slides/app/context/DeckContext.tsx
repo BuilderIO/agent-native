@@ -849,7 +849,11 @@ function markDeckCreateFailed(deckId: string, cause: unknown): void {
 }
 
 function clearDeckAccessLost(deckId: string): void {
-  if (!deckUnavailableErrors.delete(deckId)) return;
+  const error = deckUnavailableErrors.get(deckId);
+  if (!error) return;
+  deckUnavailableErrors.delete(deckId);
+  // A failed create is also what later writes to the deck report.
+  if (deckSaveErrors.get(deckId) === error) clearDeckSaveFailure(deckId);
   notifySaveListeners();
 }
 
@@ -3768,7 +3772,10 @@ function adoptRemoteSlideUnderInlineEdit(
     pendingAtReadStart?.has(slide.id) ||
     hasPendingWriteForSlide(deckId, slide.id, { ignoreInlineEdit: true })
   ) {
+    // The write may have settled while the read was in flight, after the
+    // save-state flush already ran; flushing here resyncs at once if so.
     inlineEditRemoteRetryDecks.add(deckId);
+    flushDeferredRemoteSyncs();
     return false;
   }
   const result = applyRemoteSlideUnderInlineEdit(
