@@ -462,7 +462,7 @@ jobs:
           restore-keys: playwright-${{ runner.os }}-
 
       - name: Install Playwright Chromium
-        run: pnpm exec playwright install --only-shell --with-deps chromium
+        run: pnpm exec playwright install --only-shell chromium
 
       - name: Run focused Design regression cases
         working-directory: templates/design

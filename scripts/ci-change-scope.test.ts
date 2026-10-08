@@ -592,6 +592,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       "if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'",
     ),
   );
+  assert.match(
+    designJob,
+    /^\s+run: pnpm exec playwright install --only-shell chromium$/m,
+    "Design shards must reuse the runner's browser libraries instead of reinstalling OS dependencies",
+  );
   const jobTimeout = Number(
     designJob.match(/^    timeout-minutes: (\d+)$/m)?.[1],
   );
