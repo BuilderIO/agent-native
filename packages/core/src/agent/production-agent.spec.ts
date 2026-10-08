@@ -15302,9 +15302,14 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     return makeRun([
       {
         type: "error",
-        error: "429 status code (no body)",
+        error:
+          errorCode === "overloaded_error"
+            ? "Gateway error (no detail)"
+            : "429 status code (no body)",
         errorCode,
-        recoverable: true,
+        ...(errorCode === "overloaded_error"
+          ? { providerRetryable: true }
+          : { recoverable: true }),
       },
     ]);
   }
@@ -15321,6 +15326,11 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         makeRateLimitedRun("provider_transient_rejection"),
       ),
     ).toBe("rate_limited");
+    expect(
+      backgroundContinuationReasonForRun(
+        makeRateLimitedRun("overloaded_error"),
+      ),
+    ).toBe("rate_limited");
   });
 
   it("CHAINS the first rate-limited chunk of a turn (no prior rate-limited chunk)", () => {
@@ -15335,6 +15345,25 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
       rateLimitChainCapTripped({
         run: makeRateLimitedRun(),
         priorContinuationReason: undefined,
+      }),
+    ).toBe(false);
+  });
+
+  it("chains a no-detail overloaded_error once, then hits the rate-limit cap", () => {
+    const run = makeRateLimitedRun("overloaded_error");
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 0,
+      }),
+    ).toBe(true);
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 1,
+        priorContinuationReason: "rate_limited",
       }),
     ).toBe(false);
   });
