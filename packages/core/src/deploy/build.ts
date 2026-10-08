@@ -86,6 +86,7 @@ import {
   resolveFirstRunOnboardingBuildReplacement,
   resolveHarnessBuildReplacement,
 } from "../vite/agent-native-config-loader.js";
+import { createSentryServerSourceMapUploadPlugins } from "../vite/sentry-source-maps.js";
 import {
   cloneServerBundleForFunction,
   copyDir,
@@ -5475,6 +5476,8 @@ export default bundle;
   );
   const nitroServerCodeSplittingConfig =
     nitroServerCodeSplittingConfigForPreset(preset);
+  const sentryServerSourceMapPlugins =
+    await createSentryServerSourceMapUploadPlugins(nitroEnvironment);
   const nitroVirtual: Record<string, string | (() => string)> = {
     "virtual:agents-bundle": agentsBundleModuleSource,
   };
@@ -5504,6 +5507,14 @@ export default bundle;
     ...(isAwsLambdaPreset(preset) ? { awsLambda: { streaming: false } } : {}),
     baseURL: appBasePath || "/",
     minify: true,
+    ...(sentryServerSourceMapPlugins.length > 0
+      ? {
+          sourcemap: "hidden",
+          // Nitro strips sourcesContent by default; the maps never ship, so
+          // keep it for Sentry to show source context.
+          experimental: { sourcemapMinify: false },
+        }
+      : {}),
     serverDir: "./server",
     ignore: NITRO_RUNTIME_IGNORE_PATTERNS,
     alias: {
@@ -5539,6 +5550,7 @@ export default bundle;
           ? [createCloudflareModuleStubPlugin()]
           : []),
         createBrowserOnlyServerStubPlugin(),
+        ...sentryServerSourceMapPlugins,
         ...(enterpriseAuthAdaptersEnabled
           ? []
           : [createEnterpriseAuthAdapterStubPlugin(false)]),
