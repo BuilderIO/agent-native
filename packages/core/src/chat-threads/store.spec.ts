@@ -940,6 +940,91 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(3);
   });
 
+  it("counts a raw tool-call mirror once when its stored result is model-facing text and the AgentKit output is structured", async () => {
+    const output = {
+      ok: true,
+      message: "Hello, AgentKit Browser!",
+      ui: { kind: "greeting", name: "AgentKit Browser" },
+    };
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-hello",
+                toolName: "hello",
+                args: { details: { name: "AgentKit Browser" } },
+                result: JSON.stringify(
+                  { ok: true, message: "Hello, AgentKit Browser!" },
+                  null,
+                  2,
+                ),
+              },
+              { type: "text", text: "The task is complete." },
+            ],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "assistant-tool-step",
+            role: "assistant",
+            parts: [{ type: "text", text: "Calling the tool." }],
+          },
+          {
+            id: "assistant-final-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: "The task is complete." }],
+          },
+        ],
+        events: [
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "assistant-tool-step", role: "assistant" },
+          },
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "assistant-final-answer", role: "assistant" },
+          },
+        ],
+        toolCalls: [
+          {
+            id: "call-hello",
+            name: "hello",
+            input: { details: { name: "AgentKit Browser" } },
+            output,
+            messageId: "assistant-final-answer",
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Say hello",
+      3,
+    );
+
+    expect(row!.message_count).toBe(3);
+  });
+
   it("counts a mirrored reply once when only the durable copy has reasoning", async () => {
     const repository = {
       messages: [
@@ -1012,6 +1097,79 @@ describe("chat thread store", () => {
             role: "assistant",
             parts: [{ type: "text", text: "Done." }],
             metadata: { runId: "run-1" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "make this slide better",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts a mirrored reply when the completed run no longer has message events", async () => {
+    const runId = "run-without-message-events";
+    const input = { lookup: "account-1" };
+    const output = { answer: "Done." };
+    const repository = {
+      messages: [
+        {
+          message: {
+            ...userMessage,
+            metadata: {
+              custom: {
+                submittedRunId: runId,
+                agentKitMessageId: "client-user",
+              },
+            },
+          },
+        },
+        {
+          message: {
+            id: "server-answer",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-lookup",
+                toolName: "lookup",
+                args: input,
+                result: output,
+              },
+              { type: "text", text: output.answer },
+            ],
+            metadata: { runId },
+          },
+        },
+      ],
+      agentKit: {
+        messages: [
+          { id: "client-user", role: "user", parts: [] },
+          {
+            id: "client-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: output.answer }],
+          },
+        ],
+        events: [],
+        runs: [{ id: runId, status: "completed" }],
+        toolCalls: [
+          {
+            id: "call-lookup",
+            name: "lookup",
+            input,
+            output,
+            status: "completed",
+            runId,
+            messageId: "client-answer",
           },
         ],
       },

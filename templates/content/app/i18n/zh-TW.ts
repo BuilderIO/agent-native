@@ -130,6 +130,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "仍在等待{{stage}}。請求：{{action}}。",
+    widgetDocumentLoadStage: "已儲存的頁面內文",
+    widgetDraftCheckStage: "頁面草稿復原",
+    widgetEditorInitStage: "富文字編輯器初始化",
     iconPickerIcons: "圖示",
     iconPickerEmoji: "表情符號",
     iconPickerRecent: "最近使用",

@@ -1037,6 +1037,10 @@ export default {
     keyboardShortcuts: {
       title: "Raccourcis clavier",
       close: "Fermer: Raccourcis clavier",
+      search: "Rechercher",
+      searchLabel: "Rechercher des raccourcis clavier",
+      categoriesLabel: "Catégories de raccourcis",
+      empty: "Aucun raccourci ne correspond à « {{query}} »",
       codeContext: "Code",
       screenContext: "Écrans",
       nudgeAmount: {
@@ -1069,12 +1073,6 @@ export default {
         leftBracket: "Crochet gauche",
         rightBracket: "Crochet droit",
       },
-      descriptions: {
-        toggleUi:
-          "Appuyez maintenant pour masquer les panneaux et vous concentrer sur votre travail",
-        undo: "Revenez sur votre dernière modification de design",
-        redo: "Restaurez la modification de design que vous venez d’annuler",
-      },
       categories: {
         essential: "Essentiels",
         tools: "Outils",
@@ -1106,6 +1104,7 @@ export default {
         showLayers: "Calques",
         showAssets: "Ressources",
         toggleUi: "View",
+        toggleMinimalUi: "Interface minimale",
         toggleComments: "Épingler un commentaire",
         zoomIn: "Zoom avant",
         zoomOut: "Zoom arrière",

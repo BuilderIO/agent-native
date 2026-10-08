@@ -186,7 +186,8 @@ describe("agent-native skills", () => {
         "utf-8",
       );
       expect(config).toContain("clips-screen-memory");
-      expect(config).toContain(path.resolve(store));
+      // A TOML basic string escapes Windows backslashes the way JSON does.
+      expect(config).toContain(JSON.stringify(path.resolve(store)));
       expect(result.commands).toContain(
         "npx @agent-native/core@latest mcp install-screen-memory --client codex --scope user",
       );

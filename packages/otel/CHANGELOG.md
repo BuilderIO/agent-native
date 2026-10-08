@@ -1,5 +1,17 @@
 # @agent-native/otel
 
+## 0.1.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.1.0
 
 ### Minor Changes

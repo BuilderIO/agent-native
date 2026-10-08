@@ -1027,6 +1027,10 @@ export default {
     keyboardShortcuts: {
       title: "Atalhos de teclado",
       close: "Fechar: Atalhos de teclado",
+      search: "Pesquisar",
+      searchLabel: "Pesquisar atalhos de teclado",
+      categoriesLabel: "Categorias de atalhos",
+      empty: "Nenhum atalho corresponde a “{{query}}”",
       codeContext: "Código",
       screenContext: "Telas",
       nudgeAmount: {
@@ -1059,12 +1063,6 @@ export default {
         leftBracket: "Colchete esquerdo",
         rightBracket: "Colchete direito",
       },
-      descriptions: {
-        toggleUi:
-          "Pressione agora para ocultar os painéis e focar no seu trabalho",
-        undo: "Desfaça a alteração de design mais recente",
-        redo: "Restaure a alteração de design que você acabou de desfazer",
-      },
       categories: {
         essential: "Essenciais",
         tools: "Ferramentas",
@@ -1096,6 +1094,7 @@ export default {
         showLayers: "Camadas",
         showAssets: "Recursos",
         toggleUi: "View",
+        toggleMinimalUi: "Interface mínima",
         toggleComments: "Fixar comentário",
         zoomIn: "Aumentar zoom",
         zoomOut: "Diminuir zoom",

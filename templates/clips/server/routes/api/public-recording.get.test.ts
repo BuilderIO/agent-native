@@ -39,6 +39,9 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  getForwardedRequestOrigin: (...args: unknown[]) =>
+    mockGetRequestURL(...args).origin,
+  getForwardedRequestURL: (...args: unknown[]) => mockGetRequestURL(...args),
   getSession: (...args: unknown[]) => mockGetSession(...args),
   signShortLivedToken: (...args: unknown[]) => mockSignShortLivedToken(...args),
   signScopedAgentAccessToken: (...args: unknown[]) =>

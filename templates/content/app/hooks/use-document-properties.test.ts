@@ -24,6 +24,7 @@ import {
   documentPropertiesPlaceholder,
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
+  useDocumentProperties,
   useSetDocumentProperty,
   useUpdateDatabaseItems,
 } from "./use-document-properties";
@@ -94,6 +95,41 @@ describe("documentPropertiesPlaceholder", () => {
     expect(
       documentPropertiesPlaceholder("row-1", null, [field(null)]),
     ).toBeUndefined();
+  });
+});
+
+describe("useDocumentProperties", () => {
+  beforeEach(() => {
+    useActionQuery.mockReset();
+    useActionQuery.mockReturnValue({ data: undefined, isError: false });
+  });
+
+  it("can use the page read as the property snapshot without a second request", () => {
+    const placeholder = {
+      documentId: "doc-1",
+      databaseId: "database-1",
+      canEditValues: false,
+      canManageSchema: false,
+      properties: [],
+    };
+
+    useDocumentProperties("doc-1", "database-1", {
+      enabled: false,
+      placeholder,
+    });
+
+    const [actionName, args, options] = useActionQuery.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+      {
+        enabled: boolean;
+        placeholderData: (previous: unknown) => unknown;
+      },
+    ];
+    expect(actionName).toBe("list-document-properties");
+    expect(args).toEqual({ documentId: "doc-1", databaseId: "database-1" });
+    expect(options.enabled).toBe(false);
+    expect(options.placeholderData({ documentId: "stale" })).toBe(placeholder);
   });
 });
 

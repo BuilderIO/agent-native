@@ -88,6 +88,7 @@ export const POLL_CHANGE_EVENT = "poll-change";
 const ACCESS_CACHE_TTL_MS = 30_000;
 const ACCESS_CACHE_DENY_TTL_MS = 5_000;
 const ACCESS_CACHE_MAX = 500;
+const ACCESS_CHECK_WAIT_MS = 1_000;
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
 const SCREEN_REFRESH_QUERY_LIMIT = 256;
 
@@ -359,6 +360,8 @@ export type ChangeReadResult = {
   events: ChangeEvent[];
   cursor?: string;
   cursorLimited?: boolean;
+  /** Set when the read stopped at an event whose access check is unresolved. */
+  accessPending?: boolean;
 };
 
 export type AccessResolver = (
@@ -426,7 +429,7 @@ export class AppSyncState {
     string,
     { allowed: boolean; checkedAt: number }
   >();
-  private readonly accessInFlight = new Set<string>();
+  private readonly accessInFlight = new Map<string, Promise<void>>();
   private readonly accessInvalidationEpoch = new Map<string, number>();
   private readonly accessAllowTtlMs: number;
 
@@ -462,6 +465,48 @@ export class AppSyncState {
 
   getVersion(): number {
     return this.version;
+  }
+
+  async getPollBaseline(
+    useDurableEvents: boolean,
+  ): Promise<{ version: number; cursor: string }> {
+    let cursor: SyncCursor = { version: this.version, id: "" };
+    if (compareSyncCursors(this.latestCursor, cursor) > 0) {
+      cursor = this.latestCursor;
+    }
+
+    if (useDurableEvents && !syncEventsDisabled()) {
+      try {
+        const result = await this.getDb().execute(
+          "SELECT version, id FROM sync_events WHERE version = (SELECT MAX(version) FROM sync_events) ORDER BY id DESC LIMIT 1",
+        );
+        const row = result.rows[0];
+        if (row) {
+          const version = Number(row.version);
+          if (
+            !Number.isSafeInteger(version) ||
+            version < 0 ||
+            typeof row.id !== "string"
+          ) {
+            throw new Error("Durable sync event cursor is invalid");
+          }
+          const durableCursor = { version, id: row.id };
+          if (compareSyncCursors(durableCursor, cursor) > 0) {
+            cursor = durableCursor;
+          }
+        }
+      } catch (error) {
+        if (isMissingRelationError(error)) {
+          throw new SyncEventsTableUnavailableError();
+        }
+        throw error;
+      }
+    }
+
+    return {
+      version: Math.max(this.version, cursor.version),
+      cursor: encodeSyncCursor(cursor),
+    };
   }
 
   getPollEmitter(): EventEmitter {
@@ -748,7 +793,7 @@ export class AppSyncState {
     for (const key of Array.from(this.accessCache.keys())) {
       if (key.endsWith(suffix)) this.accessCache.delete(key);
     }
-    for (const key of Array.from(this.accessInFlight)) {
+    for (const key of Array.from(this.accessInFlight.keys())) {
       if (key.endsWith(suffix)) this.accessInFlight.delete(key);
     }
   }
@@ -774,10 +819,10 @@ export class AppSyncState {
     orgId: string | undefined,
   ): void {
     if (this.accessInFlight.has(key)) return;
-    this.accessInFlight.add(key);
     const resourceKey = accessResourceKey(resourceType, resourceId);
     const epoch = this.accessInvalidationEpoch.get(resourceKey) ?? 0;
-    void (async () => {
+    let settled = false;
+    const check = (async () => {
       try {
         const access = await this.resolveAccessFn(resourceType, resourceId, {
           userEmail,
@@ -793,9 +838,11 @@ export class AppSyncState {
         }
         this.setAccessCache(key, false, Date.now());
       } finally {
+        settled = true;
         this.accessInFlight.delete(key);
       }
     })();
+    if (!settled) this.accessInFlight.set(key, check);
   }
 
   __resetAccessCacheForTests(): void {
@@ -1173,6 +1220,7 @@ export class AppSyncState {
           version,
           events,
           cursorLimited: true,
+          accessPending: true,
           ...(cursor && lastCursor !== readCursor
             ? { cursor: encodeSyncCursor(lastCursor) }
             : {}),
@@ -1200,7 +1248,7 @@ export class AppSyncState {
     }
 
     const readCursor = cursor ?? { version: since, id: "" };
-    if (readCursor.version <= 0 && readCursor.id === "") {
+    if (!cursor && readCursor.version <= 0 && readCursor.id === "") {
       try {
         const result = await this.getDb().execute(
           "SELECT MAX(version) as max_version FROM sync_events",
@@ -1312,6 +1360,7 @@ export class AppSyncState {
             version: Math.max(since, event.version - 1),
             events,
             cursorLimited: true,
+            accessPending: true,
             ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
               ? { cursor: encodeSyncCursor(lastCursor) }
               : {}),
@@ -1365,6 +1414,48 @@ export class AppSyncState {
     useDurableEvents: boolean,
     cursor?: SyncCursor,
   ): Promise<ChangeReadResult> {
+    const first = await this.readCombinedChangesSinceForUser(
+      since,
+      userEmail,
+      orgId,
+      useDurableEvents,
+      cursor,
+    );
+    // Only an unresolved access check is worth waiting for; a row-limit
+    // truncation (also `cursorLimited`) is not blocked on one.
+    if (!first.accessPending || this.accessInFlight.size === 0) {
+      const { accessPending: _pending, ...result } = first;
+      return result;
+    }
+    // A read stopped at an event whose access check had not finished. The
+    // check is already running, so waiting for it here (bounded) delivers the
+    // event now instead of one poll interval later.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      Promise.allSettled(this.accessInFlight.values()),
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, ACCESS_CHECK_WAIT_MS);
+      }),
+    ]);
+    clearTimeout(timer);
+    const { accessPending: _pending, ...result } =
+      await this.readCombinedChangesSinceForUser(
+        since,
+        userEmail,
+        orgId,
+        useDurableEvents,
+        cursor,
+      );
+    return result;
+  }
+
+  private async readCombinedChangesSinceForUser(
+    since: number,
+    userEmail: string,
+    orgId: string | undefined,
+    useDurableEvents: boolean,
+    cursor?: SyncCursor,
+  ): Promise<ChangeReadResult> {
     const memory = this.getChangesSinceForUser(since, userEmail, orgId, cursor);
     if (!useDurableEvents) return memory;
 
@@ -1397,16 +1488,26 @@ export class AppSyncState {
     if (cursor) {
       const limitedCursors = [memory, durable]
         .filter((result) => result.cursorLimited)
-        .map((result) => decodeSyncCursor(result.cursor))
-        .filter((value): value is SyncCursor => !!value);
+        .map((result) => decodeSyncCursor(result.cursor) ?? cursor);
       if (limitedCursors.length > 0) {
         const boundary = limitedCursors.reduce((minimum, value) =>
           compareSyncCursors(value, minimum) < 0 ? value : minimum,
+        );
+        // A check pending beyond the boundary the other read stopped at is
+        // filtered out of this response, so waiting on it delivers nothing.
+        const accessPending = [memory, durable].some(
+          (result) =>
+            result.accessPending &&
+            compareSyncCursors(
+              decodeSyncCursor(result.cursor) ?? cursor,
+              boundary,
+            ) <= 0,
         );
         return {
           version: boundary.version,
           cursor: encodeSyncCursor(boundary),
           cursorLimited: true,
+          ...(accessPending ? { accessPending } : {}),
           events: events.filter(
             (event) => compareSyncCursors(cursorForEvent(event), boundary) <= 0,
           ),
@@ -1435,6 +1536,10 @@ export class AppSyncState {
     const limitedVersions = [memory, durable]
       .filter((result) => result.cursorLimited)
       .map((result) => result.version);
+    const accessPending = [memory, durable].some(
+      (result) =>
+        result.accessPending && result.version <= Math.min(...limitedVersions),
+    );
     return {
       version:
         limitedVersions.length > 0
@@ -1446,6 +1551,8 @@ export class AppSyncState {
               (event) => event.version <= Math.min(...limitedVersions),
             )
           : events,
+      ...(limitedVersions.length > 0 ? { cursorLimited: true } : {}),
+      ...(accessPending ? { accessPending } : {}),
     };
   }
 
@@ -1775,6 +1882,32 @@ export function getDefaultAppSyncState(): AppSyncState {
 
 export function getVersion(): number {
   return getDefaultAppSyncState().getVersion();
+}
+
+export async function getCurrentPollBaseline(
+  state: AppSyncState = getDefaultAppSyncState(),
+): Promise<{ version: number; cursor: string }> {
+  if (syncEventsDisabled()) {
+    await state.seedVersionFromDb();
+    await state.checkExternalDbChanges({ durableEvents: false });
+    return state.getPollBaseline(false);
+  }
+
+  const releaseOwnedServerlessPoll =
+    isProductionServerlessFunctionRuntime() && appMigratesAtRelease();
+  try {
+    if (!releaseOwnedServerlessPoll) {
+      await state.seedVersionFromDb();
+      await state.checkExternalDbChanges({ durableEvents: true });
+    }
+    return await state.getPollBaseline(true);
+  } catch (error) {
+    if (!(error instanceof SyncEventsTableUnavailableError)) throw error;
+    if (releaseOwnedServerlessPoll) throw error;
+    await state.seedVersionFromDb();
+    await state.checkExternalDbChanges({ durableEvents: false });
+    return state.getPollBaseline(false);
+  }
 }
 
 export function getPollEmitter(): EventEmitter {

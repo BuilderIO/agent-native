@@ -1013,6 +1013,10 @@ export default {
     keyboardShortcuts: {
       title: "कीबोर्ड शॉर्टकट",
       close: "बंद करना: कीबोर्ड शॉर्टकट",
+      search: "खोजें",
+      searchLabel: "कीबोर्ड शॉर्टकट खोजें",
+      categoriesLabel: "शॉर्टकट श्रेणियाँ",
+      empty: "“{{query}}” से मेल खाने वाला कोई शॉर्टकट नहीं",
       codeContext: "कोड",
       screenContext: "स्क्रीन",
       nudgeAmount: {
@@ -1045,11 +1049,6 @@ export default {
         leftBracket: "बायाँ कोष्ठक",
         rightBracket: "दायाँ कोष्ठक",
       },
-      descriptions: {
-        toggleUi: "पैनल तुरंत छिपाकर अपने काम पर ध्यान देने के लिए इसे अभी दबाएँ",
-        undo: "सबसे हाल के डिज़ाइन बदलाव को वापस करें",
-        redo: "अभी वापस किए गए डिज़ाइन बदलाव को फिर से लागू करें",
-      },
       categories: {
         essential: "आवश्यक",
         tools: "उपकरण",
@@ -1081,6 +1080,7 @@ export default {
         showLayers: "परतें",
         showAssets: "एसेट",
         toggleUi: "View",
+        toggleMinimalUi: "न्यूनतम UI",
         toggleComments: "टिप्पणी पिन करें",
         zoomIn: "ज़ूम इन",
         zoomOut: "ज़ूम आउट",

@@ -245,6 +245,7 @@ function builderFlow(connected: boolean) {
     grants: connected ? { org: { connectedAt: 1, needsReconnect: false } } : {},
     canConnect: { org: true, personal: false },
     start: vi.fn(),
+    retry: vi.fn(() => true),
   };
 }
 
@@ -498,6 +499,27 @@ describe("InfrastructureSettingsPage", () => {
     expect(row("background").querySelector("button")).toBeNull();
     act(() => button(row("builder"), "Manage").click());
     expect(navigateMock).toHaveBeenCalledWith("integrations", "builder");
+  });
+
+  it("offers an inline retry when Builder connection status cannot be read", async () => {
+    const retry = vi.fn(() => true);
+    state.builder = {
+      ...builderFlow(false),
+      grants: null,
+      error: "Couldn't check your Builder.io connection.",
+      errorKind: "status-read",
+      retry,
+    };
+
+    await render();
+
+    const builderRow = row("builder");
+    expect(builderRow.textContent).toContain(
+      "Couldn't check the Builder.io connection.",
+    );
+    expect(builderRow.querySelector('[role="alert"]')).toBeNull();
+    act(() => button(builderRow, "Retry").click());
+    expect(retry).toHaveBeenCalledOnce();
   });
 
   it("updates a service row before the server answers, then keeps its answer", async () => {

@@ -1,11 +1,13 @@
 import { generateTabId } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
+  isReconcileLeadClient,
   useCollaborativeDoc,
   emailToColor,
   emailToName,
   type CollabUser,
 } from "@agent-native/core/client/collab";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   actionErrorMessage,
   callAction,
@@ -15,6 +17,7 @@ import {
   useDbSync,
   useSession,
 } from "@agent-native/core/client/hooks";
+import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   useCreateResourceSuggestionProposal,
@@ -35,6 +38,7 @@ import type {
   Document,
   DocumentSyncStatus,
 } from "@shared/api";
+import { LIVE_BODY_SHADOW_FLAG } from "@shared/feature-flags";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import { markdownSuggestionOperations } from "@shared/suggestion-diff";
 import {
@@ -72,6 +76,7 @@ import type {
 } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
+import type { Awareness } from "y-protocols/awareness";
 import type { Doc as YDoc } from "yjs";
 
 import {
@@ -231,7 +236,7 @@ import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
   clearPageDraftJournal,
   clearPageDraftJournalGeneration,
-  persistTitleBeforeSyncingPageDraftJournal,
+  syncPageDraftJournalBeforePersistingRecoveryDraft,
   writePageDraftJournal,
 } from "./page-draft-journal";
 import { PageDraftRecovery } from "./PageDraftRecovery";
@@ -301,6 +306,7 @@ import type {
   VisualEditorSelectionController,
   VisualEditorSelectionSnapshot,
 } from "./VisualEditor";
+import { WidgetVisualEditorBoundary } from "./WidgetLoadDiagnostic";
 
 const NO_COMMENT_THREADS: CommentThread[] = [];
 
@@ -1047,6 +1053,9 @@ export type OwnContentSaveLineage = Map<
 
 const OWN_CONTENT_SAVE_LINEAGE_LIMIT = 32;
 
+// How long collaborators typing stays quiet before one editor saves it.
+const REMOTE_SAVE_SETTLE_MS = 1500;
+
 export function recordOwnContentSave(
   lineage: OwnContentSaveLineage,
   revision: string,
@@ -1285,6 +1294,8 @@ export function PageEditorSurface({
   focusTitle = false,
   onTitleFocused,
 }: PageEditorSurfaceProps) {
+  const t = useT();
+  const widgetBridgeActive = isEmbedMcpChatBridgeActive();
   const {
     query: documentQuery,
     fetchedForThisOpen,
@@ -1376,6 +1387,7 @@ export function PageEditorSurface({
       host === "page" &&
       !viewId &&
       !!document &&
+      document.mcpDirectoryWidgetReadOnly !== true &&
       !document.database &&
       !isError &&
       fetchedForThisOpen &&
@@ -1449,6 +1461,14 @@ export function PageEditorSurface({
           document
             ? readDocumentShapeHint(document)
             : readPageShapeHint(documentId)
+        }
+        stalledLoad={
+          widgetBridgeActive
+            ? {
+                stage: t("editor.widgetDocumentLoadStage"),
+                action: "get-document",
+              }
+            : undefined
         }
       />
     );
@@ -2406,6 +2426,7 @@ function PageEditorSessionBody({
     t,
   ]);
   const updateDocument = useUpdateDocument();
+  const observeLiveBody = useFeatureFlag(LIVE_BODY_SHADOW_FLAG.key);
   const resolvePreviewDocumentDraft = useResolvePreviewDocumentDraft();
   const updatePreviewDocumentDraft = useUpdatePreviewDocumentDraft();
   const updatePreviewDocumentDraftRef = useRef(
@@ -2443,17 +2464,21 @@ function PageEditorSessionBody({
     document.mcpDirectoryWidgetReadOnly === true;
   const canEdit = document.canEdit === true && !mcpDirectoryWidgetReadOnly;
   const canEditRef = useRef(canEdit);
-  const contentSpacesQuery = useContentSpaces();
-  const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
-  const localWorkspaceMode =
-    contentSpacesQuery.data?.sourceMode === "local-files";
+  const contentSpacesQuery = useContentSpaces({
+    enabled: !mcpDirectoryWidgetReadOnly,
+  });
+  const contentSpacesData = mcpDirectoryWidgetReadOnly
+    ? undefined
+    : contentSpacesQuery.data;
+  const contentSpaces = contentSpacesData?.spaces ?? [];
+  const localWorkspaceMode = contentSpacesData?.sourceMode === "local-files";
   const localDocumentsQuery = useDocuments({ enabled: localWorkspaceMode });
   const localDocuments = useMemo<Document[]>(
     () => (localWorkspaceMode ? (localDocumentsQuery.data ?? []) : []),
     [localDocumentsQuery.data, localWorkspaceMode],
   );
   const navigationContextQuery = useContentNavigationContext(
-    host === "page" ? documentId : null,
+    host === "page" && !mcpDirectoryWidgetReadOnly ? documentId : null,
   );
   const navigationPath = useMemo(
     () =>
@@ -2483,7 +2508,7 @@ function PageEditorSessionBody({
   const decideSuggestionProposal = useDecideResourceSuggestionProposal();
   const suggestionsQuery = useResourceSuggestions(
     { resourceType: "document", resourceId: documentId },
-    { enabled: !isLocalFileDocument },
+    { enabled: !isLocalFileDocument && !mcpDirectoryWidgetReadOnly },
   );
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [isStartingSuggestion, setIsStartingSuggestion] = useState(false);
@@ -2851,6 +2876,11 @@ function PageEditorSessionBody({
   const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
   const documentSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const activeContentSavesRef = useRef(0);
+  const liveMarkdownRef = useRef<string | null>(null);
+  const remoteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const convergedSaveAttemptRef = useRef<string | null>(null);
+  const collabAwarenessRef = useRef<Awareness | null>(null);
+  const collabClientIdRef = useRef<number | null>(null);
   const recoveryDraftRetentionQueueRef = useRef<Promise<void>>(
     Promise.resolve(),
   );
@@ -3220,6 +3250,8 @@ function PageEditorSessionBody({
     requestSource: TAB_ID,
     user: currentUser,
   });
+  collabAwarenessRef.current = awareness;
+  collabClientIdRef.current = ydoc?.clientID ?? null;
   const bodyHydrationPending = documentBodyHydrationIsPending(document);
   const bodyHydrationError =
     document.bodyHydration?.hydration?.status === "error"
@@ -4321,7 +4353,7 @@ function PageEditorSessionBody({
             true,
           );
         if (scope) {
-          await persistTitleBeforeSyncingPageDraftJournal({
+          await syncPageDraftJournalBeforePersistingRecoveryDraft({
             persist,
             scope,
             title,
@@ -6549,11 +6581,8 @@ function PageEditorSessionBody({
     );
   reportReconcileRef.current = reportReconcile;
 
-  const handleContentChange = useCallback(
+  const queueEditorContentSave = useCallback(
     (newContent: string) => {
-      if (!editorCanEdit) return;
-      authoredContentBaseRef.current.edited(newContent);
-      if (newContent === localContentRef.current) return;
       contentEditVersionRef.current += 1;
       editorEditGenerationRef.current += 1;
       const authoredBase = authoredContentBase();
@@ -6582,15 +6611,75 @@ function PageEditorSessionBody({
     [
       authoredContentBase,
       debouncedSave,
-      editorCanEdit,
       journalCurrentDraft,
       retainActiveRecoveryDraft,
       updateReconcileDraft,
     ],
   );
 
+  const handleContentChange = useCallback(
+    (newContent: string) => {
+      if (!editorCanEdit) return;
+      liveMarkdownRef.current = newContent;
+      authoredContentBaseRef.current.edited(newContent);
+      if (newContent === localContentRef.current) return;
+      queueEditorContentSave(newContent);
+    },
+    [editorCanEdit, queueEditorContentSave],
+  );
+
+  // Each collaborator saves the text it held when its own save fired, and the
+  // server keeps only one of two overlapping saves. Once the editors have
+  // converged, one of them saves what the document holds now so SQL, and
+  // whoever reads it, matches what every open editor shows.
+  const saveConvergedRemoteContent = () => {
+    remoteSaveTimerRef.current = null;
+    const live = liveMarkdownRef.current;
+    if (
+      live === null ||
+      !canEditRef.current ||
+      reconcileRecoveryStateRef.current ||
+      !isReconcileLeadClient(
+        collabAwarenessRef.current,
+        collabClientIdRef.current,
+      )
+    ) {
+      return;
+    }
+    if (saveTimeoutRef.current || activeContentSavesRef.current > 0) {
+      remoteSaveTimerRef.current = setTimeout(
+        saveConvergedRemoteContent,
+        REMOTE_SAVE_SETTLE_MS,
+      );
+      return;
+    }
+    if (
+      live === lastSavedContentRef.current.content ||
+      live === convergedSaveAttemptRef.current
+    ) {
+      return;
+    }
+    convergedSaveAttemptRef.current = live;
+    authoredContentBaseRef.current.edited(live);
+    queueEditorContentSave(live);
+  };
+  const saveConvergedRemoteContentRef = useRef(saveConvergedRemoteContent);
+  saveConvergedRemoteContentRef.current = saveConvergedRemoteContent;
+  useEffect(
+    () => () => {
+      if (remoteSaveTimerRef.current) clearTimeout(remoteSaveTimerRef.current);
+    },
+    [],
+  );
+
   const handleRemoteSnapshotChange = useCallback(
     (content: string) => {
+      liveMarkdownRef.current = content;
+      if (remoteSaveTimerRef.current) clearTimeout(remoteSaveTimerRef.current);
+      remoteSaveTimerRef.current = setTimeout(
+        () => saveConvergedRemoteContentRef.current(),
+        REMOTE_SAVE_SETTLE_MS,
+      );
       authoredContentBaseRef.current.observed(
         content,
         lastSavedContentRef.current,
@@ -6872,7 +6961,9 @@ function PageEditorSessionBody({
     isLoading: commentsLoading,
     isFetching: commentsFetching,
     isError: commentsError,
-  } = useComments(!isLocalFileDocument ? documentId : null);
+  } = useComments(
+    !isLocalFileDocument && !mcpDirectoryWidgetReadOnly ? documentId : null,
+  );
   const commentAi = useCommentAiRequests(documentId, {
     enabled: !isLocalFileDocument && canComment,
   });
@@ -7573,14 +7664,14 @@ function PageEditorSessionBody({
           currentDocumentId: document.id,
           currentParentId: document.parentId,
           currentDatabaseSystemRole: document.database?.systemRole ?? null,
-          catalogDocumentId: contentSpacesQuery.data?.catalogDocumentId ?? null,
+          catalogDocumentId: contentSpacesData?.catalogDocumentId ?? null,
           workspacesTitle: t("sidebar.workspaces"),
         },
         navigationPath,
       ),
     [
       contentSpaces,
-      contentSpacesQuery.data?.catalogDocumentId,
+      contentSpacesData?.catalogDocumentId,
       document,
       localDocuments,
       localWorkspaceMode,
@@ -8700,56 +8791,7 @@ function PageEditorSessionBody({
                               {t("editor.suggestionFormattingUnsupported")}
                             </div>
                           ) : null}
-                          <VisualEditor
-                            onEscape={handleEditorEscape}
-                            acceptedDecisionReadback={
-                              !isSuggesting &&
-                              pendingSuggestionDecision?.decision ===
-                                "accepted" &&
-                              pendingSuggestionDecision.readbackContent !== null
-                                ? {
-                                    id: pendingSuggestionDecision.suggestion.id,
-                                    content:
-                                      pendingSuggestionDecision.readbackContent,
-                                  }
-                                : null
-                            }
-                            onAcceptedDecisionRendered={
-                              handleAcceptedDecisionRendered
-                            }
-                            onAcceptedDecisionReadbackOutdated={
-                              handleAcceptedDecisionReadbackOutdated
-                            }
-                            contentResetKey={
-                              pendingSuggestionDecision
-                                ? `${pendingSuggestionDecision.suggestion.id}:${pendingSuggestionDecision.decision}:${pendingSuggestionDecision.optimistic ? "optimistic" : "canonical"}`
-                                : pendingProposalDecision
-                                  ? `proposal:${pendingProposalDecision.generation}:${pendingProposalDecision.readbackContent === null ? "pending" : "readback"}`
-                                  : null
-                            }
-                            proposalDecisionReadback={
-                              (!isSuggesting ||
-                                !pendingProposalDecision?.accepted) &&
-                              pendingProposalDecision?.readbackContent !==
-                                null &&
-                              pendingProposalDecision?.readbackContent !==
-                                undefined
-                                ? {
-                                    generation:
-                                      pendingProposalDecision.generation,
-                                    content:
-                                      pendingProposalDecision.readbackContent,
-                                    beforeContent:
-                                      pendingProposalDecision.beforeContent,
-                                  }
-                                : null
-                            }
-                            onProposalDecisionRendered={
-                              handleProposalDecisionRendered
-                            }
-                            onProposalDecisionReadbackOutdated={
-                              handleProposalDecisionReadbackOutdated
-                            }
+                          <WidgetVisualEditorBoundary
                             key={`${visualEditorInstanceKey({
                               documentId,
                               documentUpdatedAt:
@@ -8760,120 +8802,184 @@ function PageEditorSessionBody({
                               hasYDoc: Boolean(ydoc),
                               localFileSyncRevision,
                             })}:${isSuggesting ? "suggesting" : "canonical"}`}
-                            documentId={documentId}
-                            contentSpaceId={document.spaceId ?? undefined}
-                            content={
-                              isLocalFileDocument
-                                ? localContent
-                                : (pendingSuggestionDecisionContent ??
-                                  (isSuggesting
-                                    ? suggestionDraft
-                                    : document.content))
-                            }
-                            contentUpdatedAt={
-                              isLocalFileDocument
-                                ? (localContentUpdatedAt ?? document.updatedAt)
-                                : suggestionEditorIsolation.contentUpdatedAt
-                            }
-                            contentRevision={
-                              isLocalFileDocument ||
-                              !suggestionEditorIsolation.reconcileCanonical
-                                ? null
-                                : (document.revision ?? null)
-                            }
-                            acknowledgedLocalSnapshot={
-                              acknowledgedLocalSnapshot
-                            }
-                            onBaseAwareReconcile={
-                              suggestionEditorIsolation.reconcileCanonical
-                                ? handleBaseAwareReconcile
-                                : undefined
-                            }
-                            onRemoteSnapshotChange={
-                              suggestionEditorIsolation.reconcileCanonical
-                                ? handleRemoteSnapshotChange
-                                : undefined
-                            }
-                            collabContentRevision={
-                              isLocalFileDocument || isSuggesting
-                                ? null
-                                : document.collabContentRevision
-                            }
-                            requestCollabSync={requestCollabSync}
-                            onChange={
-                              isSuggesting
-                                ? handleSuggestionDraftChange
-                                : handleContentChange
-                            }
-                            onSaveContent={
-                              suggestionEditorIsolation.persistCanonical
-                                ? handleImmediateContentChange
-                                : undefined
-                            }
-                            ydoc={
-                              suggestionEditorIsolation.bindCanonicalYDoc
-                                ? ydoc
-                                : null
-                            }
-                            collabSynced={
-                              collabEditorEnabled ? collabSynced : true
-                            }
-                            awareness={collabEditorEnabled ? awareness : null}
-                            user={currentUser}
-                            editable={
-                              suggestionEditorIsolation.editable &&
-                              !isStartingSuggestion &&
-                              !isSubmittingSuggestions &&
-                              !pendingSuggestionDecision &&
-                              !pendingProposalDecision
-                            }
-                            suggesting={isSuggesting}
-                            localFileMode={isLocalFileDocument}
-                            localFilePath={
-                              isLocalFileDocument ? document.source?.path : null
-                            }
-                            onComment={canComment ? handleComment : undefined}
-                            commentThreads={editorCommentThreads}
-                            activeThreadId={selectedThreadId}
-                            hoveredThreadId={hoveredThreadId}
-                            pendingHighlight={pendingComment?.range ?? null}
-                            onActivateThread={
-                              !isLocalFileDocument
-                                ? activateCommentThread
-                                : undefined
-                            }
-                            suggestions={visualSuggestions}
-                            activeSuggestionId={
-                              hoveredSuggestionId ??
-                              editingSuggestionId ??
-                              selectedSuggestionId
-                            }
-                            onActivateSuggestion={activateInlineSuggestion}
-                            onHoverSuggestion={setHoveredSuggestionId}
-                            onSuggestionReplacementIntent={
-                              isSuggesting
-                                ? handleSuggestionReplacementIntent
-                                : undefined
-                            }
-                            initialSelection={suggestionInitialSelection}
-                            onSuggestionAnchorsChange={
-                              handleSuggestionAnchorsChange
-                            }
-                            showCommentIndicators={showCommentIndicators}
-                            onJoinTitle={joinFirstBodyBlockToTitle}
-                            onOpenNotionPageLink={handleOpenNotionPageLink}
-                            notionPageId={document.notionPageId}
-                            onHistoryControllerChange={
-                              handleHistoryControllerChange
-                            }
-                            onHistoryStateChange={handleHistoryStateChange}
-                            onSelectionControllerChange={
-                              handleSelectionControllerChange
-                            }
-                            onPersistenceControllerChange={
-                              handlePersistenceControllerChange
-                            }
-                          />
+                            active={mcpDirectoryWidgetReadOnly}
+                            stage={t("editor.widgetEditorInitStage")}
+                            action="VisualEditor"
+                          >
+                            <VisualEditor
+                              onEscape={handleEditorEscape}
+                              acceptedDecisionReadback={
+                                !isSuggesting &&
+                                pendingSuggestionDecision?.decision ===
+                                  "accepted" &&
+                                pendingSuggestionDecision.readbackContent !==
+                                  null
+                                  ? {
+                                      id: pendingSuggestionDecision.suggestion
+                                        .id,
+                                      content:
+                                        pendingSuggestionDecision.readbackContent,
+                                    }
+                                  : null
+                              }
+                              onAcceptedDecisionRendered={
+                                handleAcceptedDecisionRendered
+                              }
+                              onAcceptedDecisionReadbackOutdated={
+                                handleAcceptedDecisionReadbackOutdated
+                              }
+                              contentResetKey={
+                                pendingSuggestionDecision
+                                  ? `${pendingSuggestionDecision.suggestion.id}:${pendingSuggestionDecision.decision}:${pendingSuggestionDecision.optimistic ? "optimistic" : "canonical"}`
+                                  : pendingProposalDecision
+                                    ? `proposal:${pendingProposalDecision.generation}:${pendingProposalDecision.readbackContent === null ? "pending" : "readback"}`
+                                    : null
+                              }
+                              proposalDecisionReadback={
+                                (!isSuggesting ||
+                                  !pendingProposalDecision?.accepted) &&
+                                pendingProposalDecision?.readbackContent !==
+                                  null &&
+                                pendingProposalDecision?.readbackContent !==
+                                  undefined
+                                  ? {
+                                      generation:
+                                        pendingProposalDecision.generation,
+                                      content:
+                                        pendingProposalDecision.readbackContent,
+                                      beforeContent:
+                                        pendingProposalDecision.beforeContent,
+                                    }
+                                  : null
+                              }
+                              onProposalDecisionRendered={
+                                handleProposalDecisionRendered
+                              }
+                              onProposalDecisionReadbackOutdated={
+                                handleProposalDecisionReadbackOutdated
+                              }
+                              documentId={documentId}
+                              contentSpaceId={document.spaceId ?? undefined}
+                              widgetLoadDiagnosticsActive={
+                                mcpDirectoryWidgetReadOnly
+                              }
+                              content={
+                                isLocalFileDocument
+                                  ? localContent
+                                  : (pendingSuggestionDecisionContent ??
+                                    (isSuggesting
+                                      ? suggestionDraft
+                                      : document.content))
+                              }
+                              contentUpdatedAt={
+                                isLocalFileDocument
+                                  ? (localContentUpdatedAt ??
+                                    document.updatedAt)
+                                  : suggestionEditorIsolation.contentUpdatedAt
+                              }
+                              contentRevision={
+                                isLocalFileDocument ||
+                                !suggestionEditorIsolation.reconcileCanonical
+                                  ? null
+                                  : (document.revision ?? null)
+                              }
+                              acknowledgedLocalSnapshot={
+                                acknowledgedLocalSnapshot
+                              }
+                              onBaseAwareReconcile={
+                                suggestionEditorIsolation.reconcileCanonical
+                                  ? handleBaseAwareReconcile
+                                  : undefined
+                              }
+                              onRemoteSnapshotChange={
+                                suggestionEditorIsolation.reconcileCanonical
+                                  ? handleRemoteSnapshotChange
+                                  : undefined
+                              }
+                              collabContentRevision={
+                                isLocalFileDocument || isSuggesting
+                                  ? null
+                                  : document.collabContentRevision
+                              }
+                              requestCollabSync={requestCollabSync}
+                              onChange={
+                                isSuggesting
+                                  ? handleSuggestionDraftChange
+                                  : handleContentChange
+                              }
+                              onSaveContent={
+                                suggestionEditorIsolation.persistCanonical
+                                  ? handleImmediateContentChange
+                                  : undefined
+                              }
+                              ydoc={
+                                suggestionEditorIsolation.bindCanonicalYDoc
+                                  ? ydoc
+                                  : null
+                              }
+                              observeLiveBody={observeLiveBody}
+                              collabSynced={
+                                collabEditorEnabled ? collabSynced : true
+                              }
+                              awareness={collabEditorEnabled ? awareness : null}
+                              user={currentUser}
+                              editable={
+                                suggestionEditorIsolation.editable &&
+                                !isStartingSuggestion &&
+                                !isSubmittingSuggestions &&
+                                !pendingSuggestionDecision &&
+                                !pendingProposalDecision
+                              }
+                              suggesting={isSuggesting}
+                              localFileMode={isLocalFileDocument}
+                              localFilePath={
+                                isLocalFileDocument
+                                  ? document.source?.path
+                                  : null
+                              }
+                              onComment={canComment ? handleComment : undefined}
+                              commentThreads={editorCommentThreads}
+                              activeThreadId={selectedThreadId}
+                              hoveredThreadId={hoveredThreadId}
+                              pendingHighlight={pendingComment?.range ?? null}
+                              onActivateThread={
+                                !isLocalFileDocument
+                                  ? activateCommentThread
+                                  : undefined
+                              }
+                              suggestions={visualSuggestions}
+                              activeSuggestionId={
+                                hoveredSuggestionId ??
+                                editingSuggestionId ??
+                                selectedSuggestionId
+                              }
+                              onActivateSuggestion={activateInlineSuggestion}
+                              onHoverSuggestion={setHoveredSuggestionId}
+                              onSuggestionReplacementIntent={
+                                isSuggesting
+                                  ? handleSuggestionReplacementIntent
+                                  : undefined
+                              }
+                              initialSelection={suggestionInitialSelection}
+                              onSuggestionAnchorsChange={
+                                handleSuggestionAnchorsChange
+                              }
+                              showCommentIndicators={showCommentIndicators}
+                              onJoinTitle={joinFirstBodyBlockToTitle}
+                              onOpenNotionPageLink={handleOpenNotionPageLink}
+                              notionPageId={document.notionPageId}
+                              onHistoryControllerChange={
+                                handleHistoryControllerChange
+                              }
+                              onHistoryStateChange={handleHistoryStateChange}
+                              onSelectionControllerChange={
+                                handleSelectionControllerChange
+                              }
+                              onPersistenceControllerChange={
+                                handlePersistenceControllerChange
+                              }
+                            />
+                          </WidgetVisualEditorBoundary>
                         </>
                       );
                       const primaryEditorWithStarter = (
@@ -8911,6 +9017,7 @@ function PageEditorSessionBody({
                               document.databaseMembership.databaseDocumentId
                             }
                             canEdit={editorCanEdit}
+                            usePagePropertiesOnly={mcpDirectoryWidgetReadOnly}
                             suggesting={isSuggesting || isStartingSuggestion}
                             enteringSuggestion={isStartingSuggestion}
                             onPrimaryFieldAvailabilityChange={

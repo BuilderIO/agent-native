@@ -161,7 +161,7 @@ export function TemplateCard({ template }: { template: Template }) {
     heroCopy?.description ?? t(`templates.${template.slug}.description`);
 
   return (
-    <article className="group flex min-w-0 flex-col overflow-hidden border-e border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]">
+    <article className="group flex min-w-0 flex-col overflow-hidden border border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]">
       <Link
         data-an-prefetch="viewport"
         to={templatePath}
@@ -177,6 +177,7 @@ export function TemplateCard({ template }: { template: Template }) {
         <div className="relative aspect-[8/5] overflow-hidden bg-[var(--b-bg-page)]">
           <TemplateScreenshot
             alt={t("templateCard.screenshotAlt", { name: template.name })}
+            frame={template.slug === "clips"}
             scaleX={getScreenshotTileScaleX(template.slug)}
             sizes="(max-width: 639px) 100vw, (max-width: 1023px) 50vw, 33vw"
             variants={TEMPLATE_SCREENSHOTS[template.slug]}
