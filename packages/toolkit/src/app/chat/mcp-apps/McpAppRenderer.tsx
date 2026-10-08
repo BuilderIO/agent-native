@@ -4,7 +4,6 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
-import { SESSION_REPLAY_MASK_PROPS } from "@agent-native/core/client/session-replay-privacy";
 import {
   AGENT_NATIVE_EMBED_MESSAGE_TYPES,
   AGENT_NATIVE_EMBED_PROTOCOL,
@@ -32,6 +31,11 @@ import {
   useRef,
   useState,
 } from "react";
+
+import {
+  SESSION_REPLAY_BLOCK_PROPS,
+  SESSION_REPLAY_MASK_PROPS,
+} from "../session-replay-privacy.js";
 
 type CallToolResult = Parameters<
   InstanceType<typeof AppBridge>["sendToolResult"]
@@ -416,6 +420,7 @@ export function McpAppRenderer({
         )}
         {srcDoc ? (
           <iframe
+            {...(error ? SESSION_REPLAY_BLOCK_PROPS : {})}
             ref={iframeRef}
             title={app.tool?.title ?? app.originalToolName}
             srcDoc={srcDoc}
@@ -470,7 +475,9 @@ export function McpAppRenderer({
           </div>
         </div>
       )}
+      {/* A failed app stays mounted, and the recorder keeps its frame attributes. */}
       <iframe
+        {...(error ? SESSION_REPLAY_BLOCK_PROPS : {})}
         ref={iframeRef}
         title={app.tool?.title ?? app.originalToolName}
         srcDoc={srcDoc}

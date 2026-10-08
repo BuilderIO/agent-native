@@ -1,8 +1,4 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  SESSION_REPLAY_BLOCK_PROPS,
-  SESSION_REPLAY_MASK_PROPS,
-} from "@agent-native/core/client/session-replay-privacy";
 import { toolLabel } from "@agent-native/core/client/tool-display";
 import { cn } from "@agent-native/toolkit/utils";
 import {
@@ -38,6 +34,10 @@ import {
 } from "../components/ui/message-scroller.js";
 import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
+import {
+  SESSION_REPLAY_BLOCK_PROPS,
+  SESSION_REPLAY_MASK_PROPS,
+} from "../session-replay-privacy.js";
 import type {
   AgentConversationAttachment,
   AgentConversationArtifact,

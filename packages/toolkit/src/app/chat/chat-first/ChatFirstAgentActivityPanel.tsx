@@ -2,7 +2,6 @@ import type {
   ChatFirstAgentActivity,
   ChatFirstAgentActivityStatus,
 } from "@agent-native/core/client/chat-first-state";
-import { SESSION_REPLAY_MASK_PROPS } from "@agent-native/core/client/session-replay-privacy";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { cn } from "@agent-native/toolkit/utils";
 import {
@@ -20,6 +19,7 @@ import {
 } from "@tabler/icons-react";
 import { useState } from "react";
 
+import { SESSION_REPLAY_MASK_PROPS } from "../session-replay-privacy.js";
 import { defaultChatFirstCopy } from "./copy.js";
 import type { ChatFirstCopy } from "./types.js";
 

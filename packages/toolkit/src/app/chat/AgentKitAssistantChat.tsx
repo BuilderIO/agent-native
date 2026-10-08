@@ -62,7 +62,6 @@ import { signOut } from "@agent-native/core/client/hooks";
 import { callAction } from "@agent-native/core/client/hooks";
 import { isInBuilderFrame } from "@agent-native/core/client/host";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { SESSION_REPLAY_MASK_PROPS } from "@agent-native/core/client/session-replay-privacy";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { useSession } from "@agent-native/core/client/use-session";
@@ -174,6 +173,7 @@ import { formatFeedbackReport } from "./feedback-report.js";
 import { FileStorageSetupPopover } from "./FileStorageSetupPopover.js";
 import { reconcileSettledRun } from "./reconcile-settled-run.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
+import { SESSION_REPLAY_MASK_PROPS } from "./session-replay-privacy.js";
 import { ThinkingDisplayProvider } from "./thinking-display.js";
 
 export interface AgentKitAssistantChatProps extends AssistantChatProps {

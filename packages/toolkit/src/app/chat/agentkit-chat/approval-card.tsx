@@ -1,6 +1,5 @@
 import type { AgentApprovalRequest } from "@agent-native/agentkit/protocol";
 import { useT } from "@agent-native/core/client/i18n";
-import { SESSION_REPLAY_MASK_PROPS } from "@agent-native/core/client/session-replay-privacy";
 import { IconShieldCheck } from "@tabler/icons-react";
 
 import { AgentApprovalPrompt } from "../../agentkit/react/components.js";
@@ -13,6 +12,7 @@ import {
 } from "../../agentkit/react/context.js";
 import { ActionCard } from "../chat/widgets/ActionCard.js";
 import { compactOutlineButtonClassName } from "../components/ui/button-classes.js";
+import { SESSION_REPLAY_MASK_PROPS } from "../session-replay-privacy.js";
 
 type ApprovalSlotProps = AgentKitRenderProps<AgentApprovalRequest> & {
   runId: string;

@@ -8,7 +8,6 @@ import { BuilderBMark } from "@agent-native/core/client/builder-mark";
 import { formatClientFailureReport } from "@agent-native/core/client/failure-report";
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { SESSION_REPLAY_MASK_PROPS } from "@agent-native/core/client/session-replay-privacy";
 import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { buildSettingsRoute } from "@agent-native/core/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
@@ -38,6 +37,7 @@ import { Link } from "react-router";
 import { DeferredBuilderConnectPopover } from "../../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../../settings/useBuilderStatus.js";
 import { BuilderReferralInviteRow } from "../BuilderReferralInviteRow.js";
+import { SESSION_REPLAY_MASK_PROPS } from "../session-replay-privacy.js";
 
 const builderSubscriptionUrl = withBuilderUtmTrackingParams(
   "https://builder.io/account/subscription?signupSource=agent-native",
@@ -917,7 +917,7 @@ export function RunErrorRecoveryCard({
       {shouldShowBuilderReconnect && builderReconnect.error && (
         <p
           {...SESSION_REPLAY_MASK_PROPS}
-          className="mt-2 text-xs leading-relaxed text-red-500"
+          className="mt-2 text-xs leading-relaxed text-destructive"
         >
           {builderReconnect.error}
         </p>
@@ -925,7 +925,7 @@ export function RunErrorRecoveryCard({
       {forkError && (
         <p
           {...SESSION_REPLAY_MASK_PROPS}
-          className="mt-2 text-xs leading-relaxed text-red-500"
+          className="mt-2 text-xs leading-relaxed text-destructive"
         >
           {forkError}
         </p>

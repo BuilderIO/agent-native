@@ -11,10 +11,6 @@ import type {
 import { useAgentChatContext } from "@agent-native/core/client/agent-chat";
 import { useOptionalLocale, useT } from "@agent-native/core/client/i18n";
 import {
-  SESSION_REPLAY_BLOCK_PROPS,
-  SESSION_REPLAY_MASK_PROPS,
-} from "@agent-native/core/client/session-replay-privacy";
-import {
   isCallAgentToolCallShadowed,
   isToolCallActive,
   resolveToolCallRowContext,
@@ -55,6 +51,10 @@ import { AgentTaskCard } from "../AgentTaskCard.js";
 import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
 import { FileStorageSetupPopover } from "../FileStorageSetupPopover.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
+import {
+  SESSION_REPLAY_BLOCK_PROPS,
+  SESSION_REPLAY_MASK_PROPS,
+} from "../session-replay-privacy.js";
 import { useThinkingDisplay } from "../thinking-display.js";
 import {
   BashCell,
