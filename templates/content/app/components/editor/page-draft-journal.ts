@@ -40,7 +40,8 @@ export class PageDraftJournalError extends Error {
       | "unavailable"
       | "write_failed"
       | "read_failed"
-      | "invalid_entry",
+      | "invalid_entry"
+      | "rollback_failed",
     readonly cause?: unknown,
   ) {
     super(`Page draft journal ${code.replace(/_/g, " ")}.`);
@@ -279,10 +280,10 @@ export async function syncPageDraftJournalBeforePersistingRecoveryDraft(input: {
         if (store.getItem(journalItemKey) === writtenRaw)
           store.setItem(journalItemKey, previousRaw);
       } catch (rollbackError) {
-        throw new AggregateError(
-          [persistError, rollbackError],
-          "The recovery draft and its journal could not be restored together.",
-        );
+        throw new PageDraftJournalError("rollback_failed", {
+          persistError,
+          rollbackError,
+        });
       }
     }
     throw persistError;

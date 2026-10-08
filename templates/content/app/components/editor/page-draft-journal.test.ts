@@ -121,6 +121,41 @@ describe("Page draft journal", () => {
     expect(readPageDraftJournal(scope)).toEqual(original);
   });
 
+  it("reports both save and rollback failures", async () => {
+    const clean = {
+      ...snapshot,
+      title: "Earlier title",
+      baseTitle: "Earlier title",
+    };
+    writePageDraftJournal({ scope, snapshot: clean });
+    const originalSetItem = store.setItem;
+    const persistError = new Error("SQL unavailable");
+    const rollbackError = new Error("Storage unavailable");
+    let writes = 0;
+    store.setItem = (key, value) => {
+      writes += 1;
+      if (writes === 2) throw rollbackError;
+      originalSetItem(key, value);
+    };
+
+    try {
+      await expect(
+        syncPageDraftJournalBeforePersistingRecoveryDraft({
+          persist: () => Promise.reject(persistError),
+          scope,
+          title: "Peer title",
+          editGeneration: clean.editGeneration,
+          content: clean.content,
+        }),
+      ).rejects.toMatchObject({
+        code: "rollback_failed",
+        cause: { persistError, rollbackError },
+      });
+    } finally {
+      store.setItem = originalSetItem;
+    }
+  });
+
   it("preserves a locally authored title when SQL retains a peer title", async () => {
     writePageDraftJournal({ scope, snapshot });
 
