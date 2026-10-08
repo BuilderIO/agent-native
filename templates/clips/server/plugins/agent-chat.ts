@@ -12,31 +12,7 @@ import {
 // why `autoDiscoverActions` on its own produces 404s for action routes in
 // production.
 import actionsRegistry from "../../.generated/actions-registry.js";
-
-const INITIAL_TOOL_NAMES = [
-  "view-screen",
-  "list-recordings",
-  "search-recordings",
-  "get-recording-player-data",
-  "prepare-crm-call-evidence",
-  "request-transcript",
-  "create-recording",
-  "import-loom-recording",
-  "update-recording",
-  "finalize-recording",
-  "cleanup-transcript",
-  "regenerate-summary",
-  "regenerate-title",
-  "regenerate-chapters",
-  "trim-recording",
-  "remove-silences",
-  "update-ai-request-status",
-  "remove-filler-words",
-  "export-to-brain",
-  "complete-workflow",
-  "navigate",
-  "refresh-list",
-];
+import { INITIAL_TOOL_NAMES } from "./initial-tool-names.js";
 
 export default createAgentChatPlugin({
   appId: "clips",
