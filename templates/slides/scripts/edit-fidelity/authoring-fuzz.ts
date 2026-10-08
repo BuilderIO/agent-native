@@ -1,5 +1,6 @@
 import type { OutsideSnapshot } from "./lib/in-page.ts";
 import { outsideChangesFor } from "./lib/metrics.ts";
+import { rethrowIfCouldNotRun } from "./run-outcomes.ts";
 
 export const AUTHORING_FUZZ_STYLE_PROPERTIES = [
   "font-family",
@@ -4256,6 +4257,7 @@ export async function runAuthoringFuzz(
       redoSteps: redoCount,
     };
   } catch (error) {
+    rethrowIfCouldNotRun(error);
     const prefix = replay();
     let diagnostics:
       | { status: "available"; value: Record<string, unknown> }
