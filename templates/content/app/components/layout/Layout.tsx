@@ -5,6 +5,7 @@ import {
 import { isAssistantChatHistoryVersion } from "@agent-native/core/client/assistant-chat-history-version";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
 import {
   HeaderActionsProvider,
@@ -102,6 +103,7 @@ interface LayoutProps {
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const openAiWidget = isOpenAiMcpAppHost();
+  const mcpAppWidgetEmbed = useIsMcpAppWidgetEmbed();
   const navigation = useNavigation();
   const pendingPathname = navigation.location?.pathname ?? null;
   const chromePathname = pendingPathname ?? location.pathname;
@@ -268,6 +270,33 @@ export function Layout({ children }: LayoutProps) {
     ) : null;
   const contentSidebarWidth =
     openAiWidget || isCompactLayout ? 0 : sidebarCollapsed ? 48 : sidebarWidth;
+
+  // The MCP App host (ChatGPT, Codex, Claude) owns navigation and chat, so the
+  // widget gets no app chrome for any route.
+  if (mcpAppWidgetEmbed) {
+    return (
+      <HeaderActionsProvider>
+        <div className="agent-layout-shell flex h-dvh overflow-hidden bg-background">
+          <main
+            className="agent-native-app-main relative flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden"
+            style={{ "--content-sidebar-width": "0px" } as CSSProperties}
+          >
+            <SidebarTriggerContext.Provider value={null}>
+              {showPendingDocumentSkeleton && pendingDocumentId ? (
+                <DocumentEditorSkeleton
+                  title={pendingDocumentTitle}
+                  iconRow={readPageIconRowHint(pendingDocumentId)}
+                  shape={readPageShapeHint(pendingDocumentId)}
+                />
+              ) : (
+                children
+              )}
+            </SidebarTriggerContext.Provider>
+          </main>
+        </div>
+      </HeaderActionsProvider>
+    );
+  }
 
   return (
     <HeaderActionsProvider>
