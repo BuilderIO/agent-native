@@ -192,6 +192,30 @@ describe("isProviderConnectionErrorMessage", () => {
     });
   });
 
+  it("reads an HTTP status a provider client keeps on the wrapped cause", () => {
+    // ai-sdk-ollama wraps ollama-js's ResponseError, which names it status_code.
+    const response = Object.assign(new Error("model failed"), {
+      name: "ResponseError",
+      status_code: 500,
+    });
+    const wrapped = new Error("model failed", { cause: response });
+    expect(classifyProviderError(wrapped)).toEqual({
+      errorCode: "http_500",
+      statusCode: 500,
+    });
+    expect(classifyProviderError(response)).toEqual({
+      errorCode: "http_500",
+      statusCode: 500,
+    });
+    expect(
+      classifyProviderError(
+        new Error("model failed", {
+          cause: Object.assign(new Error("not http"), { status_code: 7 }),
+        }),
+      ),
+    ).toEqual({});
+  });
+
   it("falls back to the message when the provider error carries no status", () => {
     expect(
       classifyProviderError(

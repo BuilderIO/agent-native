@@ -1959,6 +1959,10 @@
           type: "agent-native:hit-test-result",
           correlationId: correlationId,
           anchorNodeId: anchorNodeId,
+          anchorParentNodeId:
+            result && result.anchor.parentElement
+              ? getNodeId(result.anchor.parentElement) || undefined
+              : undefined,
           targetAnchorProvenance: targetAnchorProvenance,
           pendingNodeId: pendingNodeId || undefined,
           anchorSelector: anchorSelector || undefined,

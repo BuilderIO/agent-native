@@ -12,6 +12,7 @@ export default defineAction({
     "Read the current user's private preview draft for a document. A reader who cannot edit the document gets `editable: false` and no draft.",
   schema: z.object({ documentId: z.string().min(1) }),
   http: { method: "GET" },
+  readOnly: true,
   agentTool: false,
   toolCallable: false,
   run: async ({ documentId }) => {

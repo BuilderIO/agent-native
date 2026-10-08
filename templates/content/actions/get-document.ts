@@ -381,6 +381,9 @@ export default defineAction({
       canSuggest,
       canEdit: canEditRole(access.role),
       canManage: canManageRole(access.role),
+      ...(ctx?.mcpDirectoryWidgetReadOnly
+        ? { mcpDirectoryWidgetReadOnly: true as const }
+        : {}),
       database: database
         ? serializeDatabase(database, doc.description)
         : undefined,

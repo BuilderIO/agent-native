@@ -2554,6 +2554,29 @@ describe("createTiptapComposerExtensions", () => {
     });
   });
 
+  it("names a rejected image drop by the file the user dropped", async () => {
+    const file = new File(["<svg/>"], "logo.svg", { type: "image/svg+xml" });
+    const added: File[] = [];
+    const onError = vi.fn();
+    handleComposerFileDrop({
+      event: {
+        dataTransfer: { files: [file] },
+        preventDefault: () => {},
+        stopPropagation: () => {},
+      } as unknown as DragEvent,
+      addAttachment: async (attachment) => {
+        added.push(attachment);
+        throw new Error("File type image/svg+xml is not accepted.");
+      },
+      onError,
+    });
+
+    await vi.waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(expect.any(Error), "logo.svg");
+    });
+    expect(added[0]?.name).toMatch(/^\d+-[a-z0-9]+-logo\.svg$/);
+  });
+
   it("caps the model picker height without forcing empty vertical space", () => {
     expect(MODEL_SELECTOR_POPOVER_STYLE).toMatchObject({
       fontSize: 13,

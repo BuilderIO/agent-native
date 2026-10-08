@@ -6,16 +6,32 @@ import {
   QueryClientProvider,
   useMutation,
   useQuery,
+  useQueryClient,
 } from "@tanstack/react-query";
-import { act, createElement, useLayoutEffect } from "react";
+import { act, createElement, useEffect, useLayoutEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter, Route, Routes, useParams } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const openAiHost = vi.hoisted(() => ({
+  isOpenAiMcpAppHost: vi.fn(() => false),
+}));
+const embedHost = vi.hoisted(() => ({
+  isEmbedMcpChatBridgeActive: vi.fn(() => false),
+}));
 
 const server = vi.hoisted(() => ({
   calls: [] as Array<{ name: string; params: unknown }>,
   respond: (name: string, params: any): Promise<unknown> =>
     Promise.resolve(pageOrDraft(name, params)),
 }));
+
+vi.mock("@agent-native/core/client/agent-chat", () => openAiHost);
+vi.mock("@agent-native/core/client/host", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/client/host")>();
+  return { ...actual, ...embedHost };
+});
 
 // Mirrors the server: a page read asked for the draft carries its answer.
 function pageOrDraft(name: string, params: any) {
@@ -60,10 +76,14 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 import { markDocumentCreationPending } from "../lib/optimistic-document";
 import { PAGE_OPEN_READ_TTL_MS } from "../lib/page-open-reads";
+import { useContentSpaces } from "./use-content-spaces";
 import { contentSyncInvalidatePredicate } from "./use-db-sync";
 import {
+  documentQueryKey,
   ensurePreviewDocumentDraftRead,
+  startPageOpenCompanionReads,
   startPageOpenDocumentReads,
+  useContentNavigationContext,
   usePageOpenDocument,
   useUpdateDocument,
 } from "./use-documents";
@@ -126,6 +146,8 @@ describe("page open document reads", () => {
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
     server.calls = [];
+    openAiHost.isOpenAiMcpAppHost.mockReturnValue(false);
+    embedHost.isEmbedMcpChatBridgeActive.mockReturnValue(false);
     server.respond = (name, params) =>
       Promise.resolve(pageOrDraft(name, params));
     seen.length = 0;
@@ -154,6 +176,114 @@ describe("page open document reads", () => {
     expect(
       queryClient.getQueryData(["action", "get-document", { id: "doc-1" }]),
     ).not.toHaveProperty("previewDraft");
+  });
+
+  it("boots the /page/:id reads under a ChatGPT widget scope", async () => {
+    openAiHost.isOpenAiMcpAppHost.mockReturnValue(true);
+
+    function PageBoot() {
+      const { id } = useParams<{ id: string }>();
+      if (!id) throw new Error("Expected a page route id.");
+      const { readsStartedEarly } = usePageOpenDocument(id, {});
+      const currentQueryClient = useQueryClient();
+      useEffect(() => {
+        const cached = currentQueryClient.getQueryData<Document>(
+          documentQueryKey(id, {}),
+        );
+        startPageOpenCompanionReads(
+          currentQueryClient,
+          id,
+          cached,
+          readsStartedEarly,
+        );
+      }, [currentQueryClient, id, readsStartedEarly]);
+      useContentNavigationContext(id);
+      useContentSpaces();
+      return null;
+    }
+
+    await act(async () => {
+      root.render(
+        createElement(
+          MemoryRouter,
+          { initialEntries: ["/page/doc-1?__an_mcp_chat_bridge=1"] },
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(
+              Routes,
+              null,
+              createElement(Route, {
+                path: "/page/:id",
+                element: createElement(PageBoot),
+              }),
+            ),
+          ),
+        ),
+      );
+    });
+
+    await vi.waitFor(() =>
+      expect(new Set(server.calls.map(({ name }) => name)).size).toBe(4),
+    );
+    expect(new Set(server.calls.map(({ name }) => name))).toEqual(
+      new Set([
+        "get-document",
+        "list-comments",
+        "list-resource-suggestions",
+        "get-content-navigation-context",
+      ]),
+    );
+    expect(reads("list-content-spaces")).toBe(0);
+    expect(server.calls).toEqual(
+      expect.arrayContaining([
+        { name: "get-document", params: { id: "doc-1" } },
+        { name: "list-comments", params: { documentId: "doc-1" } },
+        {
+          name: "list-resource-suggestions",
+          params: { resourceType: "document", resourceId: "doc-1" },
+        },
+        {
+          name: "get-content-navigation-context",
+          params: { id: "doc-1" },
+        },
+      ]),
+    );
+  });
+
+  it("reads only the page under the chat widget bridge", async () => {
+    embedHost.isEmbedMcpChatBridgeActive.mockReturnValue(true);
+    startPageOpenDocumentReads(queryClient, "doc-1");
+
+    await vi.waitFor(() => expect(reads("get-document")).toBe(1));
+    expect(server.calls).toEqual([
+      { name: "get-document", params: { id: "doc-1" } },
+    ]);
+  });
+
+  it("starts all document editor page-open data reads", async () => {
+    startPageOpenDocumentReads(queryClient, "doc-1");
+
+    await vi.waitFor(() =>
+      expect(server.calls.map(({ name }) => name).sort()).toEqual([
+        "get-document",
+        "list-comments",
+        "list-resource-suggestions",
+      ]),
+    );
+    expect(server.calls).toEqual(
+      expect.arrayContaining([
+        {
+          name: "get-document",
+          params: { id: "doc-1", includePreviewDraft: true },
+        },
+        { name: "list-comments", params: { documentId: "doc-1" } },
+        {
+          name: "list-resource-suggestions",
+          params: { resourceType: "document", resourceId: "doc-1" },
+        },
+      ]),
+    );
   });
 
   it("joins a read that is still in flight when the page mounts", async () => {

@@ -73,7 +73,7 @@ export function buildGenerationBriefContext(
 }
 
 const RESPONSIVE_GENERATION_REQUIREMENTS =
-  'Responsive behavior is mandatory for every web design. Read the form-factor answer above: for Desktop or Both/responsive, call generate-design with `primaryViewport: "desktop"` and a 1440x1024 canvas frame; use `primaryViewport: "mobile"` only for an explicitly mobile-primary choice. Use mobile-first responsive CSS, then take desktop and mobile screenshots and fix any overflow before reporting the design complete.';
+  'Responsive behavior is mandatory for web designs without an exact pixel size. If the user specified exact dimensions, call generate-design with those exact `canvasFrames` dimensions and `devices: []`; do not add mobile or other device frames. Otherwise, read the form-factor answer above: for Desktop or Both/responsive, call generate-design with `primaryViewport: "desktop"` and a 1440x1024 canvas frame; use `primaryViewport: "mobile"` only for an explicitly mobile-primary choice. Use mobile-first responsive CSS, then take desktop and mobile screenshots and fix any overflow before reporting the design complete.';
 
 function existingDesignContinuationContext(
   designId: string | undefined,
@@ -142,10 +142,14 @@ export function useQuestionFlow(
 
   const sendContinuation = useCallback(
     async (message: string, context?: string) => {
-      flow.clear();
       const selection = getModelSelection?.() ?? {};
       const { model, engine, effort } = selection;
       const brief = getGenerationBrief?.() ?? null;
+      if (getGenerationBrief && !brief) {
+        flow.clear();
+        return;
+      }
+      flow.clear();
       const designSystemContext =
         brief?.designSystemId && !hasComposerSystemContext(brief.contextItems)
           ? await loadDesignSystemGenerationContext(brief.designSystemId)

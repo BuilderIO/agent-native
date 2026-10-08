@@ -30,6 +30,7 @@ function sandboxWriteAllowPaths(tmpDir: string): string[] {
 }
 
 let cachedPermissionFlag: string | null | undefined;
+let cachedNetPermissionSupport: boolean | undefined;
 function resolvePermissionFlag(): string | null {
   if (cachedPermissionFlag !== undefined) return cachedPermissionFlag;
   for (const flag of ["--permission", "--experimental-permission"]) {
@@ -54,6 +55,23 @@ function resolvePermissionFlag(): string | null {
   return null;
 }
 
+function supportsNetPermissionFlag(permissionFlag: string): boolean {
+  if (cachedNetPermissionSupport !== undefined) {
+    return cachedNetPermissionSupport;
+  }
+  try {
+    const probe = spawnSync(
+      process.execPath,
+      [permissionFlag, "--allow-net", "-e", "process.exit(0)"],
+      { timeout: 10_000, stdio: "ignore" },
+    );
+    cachedNetPermissionSupport = probe.status === 0;
+  } catch {
+    cachedNetPermissionSupport = false;
+  }
+  return cachedNetPermissionSupport;
+}
+
 export class LocalChildProcessAdapter implements SandboxAdapter {
   readonly id = "local-child-process";
 
@@ -75,6 +93,12 @@ export class LocalChildProcessAdapter implements SandboxAdapter {
       const nodeArgs = permissionFlag
         ? [
             permissionFlag,
+            // Node 25+ also denies network under --permission. The sandbox
+            // bridge uses loopback HTTP, and direct outbound requests are
+            // already part of its unauthenticated execution contract.
+            ...(supportsNetPermissionFlag(permissionFlag)
+              ? ["--allow-net"]
+              : []),
             ...sandboxReadAllowPaths(tmpDir).map(
               (allowedPath) => `--allow-fs-read=${allowedPath}`,
             ),

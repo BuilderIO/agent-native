@@ -1,8 +1,10 @@
+import { isOpenAiMcpAppHost } from "@agent-native/core/client/agent-chat";
 import {
   callAction,
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
+import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { serializeIconValue } from "@agent-native/core/icons";
 import type {
@@ -850,7 +852,8 @@ export function startPageOpenDocumentReads(
   const queryKey = documentQueryKey(documentId, context);
   const cached = queryClient.getQueryData<Document>(queryKey);
   if (cached && isDocumentCreationPending(cached)) return;
-  const readsDraft = previewDocumentDraftIsRead(cached);
+  const widgetBridgeActive = isEmbedMcpChatBridgeActive();
+  const readsDraft = !widgetBridgeActive && previewDocumentDraftIsRead(cached);
   // One request answers the page and its draft, so the draft read cannot hold
   // the page back on its own. Each read takes that answer once: a refetch
   // through either key sends its own request rather than replaying this one.
@@ -882,6 +885,7 @@ export function startPageOpenDocumentReads(
     },
     retry: false,
   });
+  if (widgetBridgeActive) return;
   if (readsDraft) {
     const draftRead = previewDocumentDraftReadOptions(
       documentId,
@@ -928,6 +932,20 @@ export function startPageOpenReviewReads(
         callAction(actionName, params, { method: "GET", signal }),
       retry: false,
     });
+  }
+}
+
+export function startPageOpenCompanionReads(
+  queryClient: QueryClient,
+  documentId: string,
+  knownDocument: Document | undefined,
+  readsStartedEarly: boolean,
+) {
+  if (readsStartedEarly) return;
+  if (isEmbedMcpChatBridgeActive()) return;
+  startPreviewDocumentDraftRead(queryClient, documentId, knownDocument);
+  if (knownDocument?.source?.mode !== "local-files") {
+    startPageOpenReviewReads(queryClient, documentId);
   }
 }
 
@@ -985,8 +1003,10 @@ export function usePreviewDocumentDraft(
   });
 }
 
-// A page that is known not to need recovery skips the draft read.
+// A page that is known not to need recovery skips the draft read, as does the
+// ChatGPT widget, which never recovers drafts.
 function previewDocumentDraftIsRead(known?: Document) {
+  if (isOpenAiMcpAppHost()) return false;
   return !(
     known &&
     (isDocumentCreationPending(known) ||
