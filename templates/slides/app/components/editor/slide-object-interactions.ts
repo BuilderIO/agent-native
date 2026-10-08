@@ -625,6 +625,54 @@ export function clientPointToContainingBlockOffset(
   };
 }
 
+/**
+ * The left/top/width/height that reproduce `rect` (an element's client
+ * bounding rect) once the element is absolute inside `containingBlock`. When
+ * the element or an ancestor rotates or skews, the rect is only the hull of the
+ * painted box, so its centre is mapped through the block's probed basis and
+ * the size comes from the layout box. Null when the block has no invertible
+ * mapping to the screen.
+ */
+export function clientRectToContainingBlockBox(
+  rect: DOMRect,
+  element: HTMLElement,
+  containingBlock: HTMLElement,
+  slideCanvas: HTMLElement,
+): { x: number; y: number; width: number; height: number } | null {
+  if (hasRotatedAncestor(element, slideCanvas)) {
+    const frame = probeScreenFrame(containingBlock);
+    if (!frame) return null;
+    const local = screenDeltaToLocal(frame.basis, {
+      x: rect.left + rect.width / 2 - frame.origin.x,
+      y: rect.top + rect.height / 2 - frame.origin.y,
+    });
+    const width = element.offsetWidth;
+    const height = element.offsetHeight;
+    return {
+      x: local.x - width / 2,
+      y: local.y - height / 2,
+      width,
+      height,
+    };
+  }
+  const layerRect = containingBlock.getBoundingClientRect();
+  const { x, y } = clientPointToContainingBlockOffset(
+    rect.left,
+    rect.top,
+    containingBlock,
+  );
+  return {
+    x,
+    y,
+    width: Math.round(
+      rect.width * (containingBlock.offsetWidth / layerRect.width),
+    ),
+    height: Math.round(
+      rect.height * (containingBlock.offsetHeight / layerRect.height),
+    ),
+  };
+}
+
 function findSlideObjectContainingBlock(
   ancestor: HTMLElement | null,
   fallback: HTMLElement,
@@ -2807,6 +2855,13 @@ export function hasRotatedAncestor(
  * invertible mapping.
  */
 export function probeScreenBasis(space: HTMLElement): ScreenBasis | null {
+  return probeScreenFrame(space)?.basis ?? null;
+}
+
+/** The basis plus the screen position of the block's `left: 0; top: 0`. */
+function probeScreenFrame(
+  space: HTMLElement,
+): { basis: ScreenBasis; origin: { x: number; y: number } } | null {
   const probe = space.ownerDocument.createElement("div");
   probe.setAttribute("aria-hidden", "true");
   probe.style.cssText =
@@ -2828,7 +2883,7 @@ export function probeScreenBasis(space: HTMLElement): ScreenBasis | null {
     const determinant = basis.a * basis.d - basis.b * basis.c;
     return Object.values(basis).every(Number.isFinite) &&
       Math.abs(determinant) > 1e-6
-      ? basis
+      ? { basis, origin: { x: origin.left, y: origin.top } }
       : null;
   } finally {
     probe.remove();

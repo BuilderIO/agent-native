@@ -76,6 +76,7 @@ import {
   resolveFreeformSizing,
   resolveSelectionIdentity,
   resolveSlideSelectionAnchor,
+  clientRectToContainingBlockBox,
   hasRotatedAncestor,
   probeScreenBasis,
   screenDeltaToLocal,
@@ -4356,6 +4357,114 @@ describe("rotated containing block basis", () => {
     expect(probeScreenBasis(space)).toBeNull();
     rectSpy.mockRestore();
     space.remove();
+  });
+
+  describe("promotion geometry", () => {
+    const mountPromotion = (transform: string) => {
+      const canvas = document.createElement("div");
+      canvas.innerHTML = `<div id="block" style="position: relative; transform: ${transform}"><p id="leaf"></p></div>`;
+      document.body.append(canvas);
+      return {
+        canvas,
+        block: canvas.querySelector<HTMLElement>("#block")!,
+        leaf: canvas.querySelector<HTMLElement>("#leaf")!,
+      };
+    };
+
+    it("recovers the local box of a leaf inside a rotated, scaled block from its bounding hull", () => {
+      const { canvas, block, leaf } = mountPromotion(
+        "rotate(25deg) scale(0.8)",
+      );
+      const radians = (25 * Math.PI) / 180;
+      const basis = {
+        a: Math.cos(radians) * 0.8,
+        b: Math.sin(radians) * 0.8,
+        c: -Math.sin(radians) * 0.8,
+        d: Math.cos(radians) * 0.8,
+      };
+      const origin = { x: 300, y: 120 };
+      const toScreen = (x: number, y: number) => ({
+        x: origin.x + basis.a * x + basis.c * y,
+        y: origin.y + basis.b * x + basis.d * y,
+      });
+      const local = { x: 40, y: 30, width: 100, height: 20 };
+      const corners = [
+        toScreen(local.x, local.y),
+        toScreen(local.x + local.width, local.y),
+        toScreen(local.x, local.y + local.height),
+        toScreen(local.x + local.width, local.y + local.height),
+      ];
+      const left = Math.min(...corners.map((c) => c.x));
+      const top = Math.min(...corners.map((c) => c.y));
+      const hull = DOMRect.fromRect({
+        x: left,
+        y: top,
+        width: Math.max(...corners.map((c) => c.x)) - left,
+        height: Math.max(...corners.map((c) => c.y)) - top,
+      });
+      Object.defineProperty(leaf, "offsetWidth", { value: local.width });
+      Object.defineProperty(leaf, "offsetHeight", { value: local.height });
+      const rectSpy = vi
+        .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+        .mockImplementation(function (this: HTMLElement) {
+          const x = Number.parseFloat(this.style.left || "0");
+          const y = Number.parseFloat(this.style.top || "0");
+          const point = toScreen(x, y);
+          return DOMRect.fromRect(point);
+        });
+
+      const box = clientRectToContainingBlockBox(hull, leaf, block, canvas);
+      rectSpy.mockRestore();
+
+      expect(box?.x).toBeCloseTo(local.x, 6);
+      expect(box?.y).toBeCloseTo(local.y, 6);
+      expect(box?.width).toBe(local.width);
+      expect(box?.height).toBe(local.height);
+      expect(block.children).toHaveLength(1);
+      canvas.remove();
+    });
+
+    it("keeps the bounding-rect conversion for unrotated blocks", () => {
+      const { canvas, block, leaf } = mountPromotion("scale(0.5)");
+      Object.defineProperty(block, "offsetWidth", { value: 208 });
+      Object.defineProperty(block, "offsetHeight", { value: 108 });
+      Object.defineProperty(block, "clientLeft", { value: 4 });
+      Object.defineProperty(block, "clientTop", { value: 4 });
+      const rectSpy = vi
+        .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+        .mockReturnValue(
+          DOMRect.fromRect({ x: 100, y: 50, width: 104, height: 54 }),
+        );
+
+      const box = clientRectToContainingBlockBox(
+        DOMRect.fromRect({ x: 110, y: 60, width: 52, height: 27 }),
+        leaf,
+        block,
+        canvas,
+      );
+      rectSpy.mockRestore();
+
+      expect(box).toEqual({ x: 16, y: 16, width: 104, height: 54 });
+      canvas.remove();
+    });
+
+    it("reports no box when a rotated block has no invertible mapping", () => {
+      const { canvas, block, leaf } = mountPromotion("rotate(25deg)");
+      const rectSpy = vi
+        .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+        .mockReturnValue(DOMRect.fromRect({ x: 5, y: 5 }));
+
+      const box = clientRectToContainingBlockBox(
+        DOMRect.fromRect({ x: 0, y: 0, width: 10, height: 10 }),
+        leaf,
+        block,
+        canvas,
+      );
+      rectSpy.mockRestore();
+
+      expect(box).toBeNull();
+      canvas.remove();
+    });
   });
 
   it("finds rotation on the block or an ancestor, but not a plain scale", () => {

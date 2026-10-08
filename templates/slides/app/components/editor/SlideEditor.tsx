@@ -199,8 +199,8 @@ import {
   canDropSlideLayerAdjacent,
   canDropSlideLayerInside,
   clampSlideObjectPlacementPosition,
-  clientPointToContainingBlockOffset,
   clientPointToSlideCoordinates,
+  clientRectToContainingBlockBox,
   cloneSlideObject,
   collectMovableSlideObjects,
   copySlideObjects,
@@ -2763,22 +2763,17 @@ export default function SlideEditor({
         return { element, restoreMarkdownTree };
       }
 
-      const { x, y } = clientPointToContainingBlockOffset(
-        elementRect.left,
-        elementRect.top,
+      const box = clientRectToContainingBlockBox(
+        elementRect,
+        element,
         containingBlock,
+        fmdSlide,
       );
-      const scaleX = containingBlock.offsetWidth / layerRect.width;
-      const scaleY = containingBlock.offsetHeight / layerRect.height;
+      if (!box) return { element, restoreMarkdownTree };
       const restoreDescendants = keepAbsoluteDescendantsInPlace(element, () =>
         freezeSlideElementForFreeform(
           element,
-          {
-            x,
-            y,
-            width: Math.round(elementRect.width * scaleX),
-            height: Math.round(elementRect.height * scaleY),
-          },
+          box,
           {
             display: originalComputed.display,
             flexGrow: originalComputed.flexGrow,
