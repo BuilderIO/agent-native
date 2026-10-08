@@ -16,6 +16,7 @@ const MAX_SCREENSHOTS = 9;
 const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024;
 const MAX_BATCH_BYTES = 20 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 32_000;
+const MAX_DESIGN_UPLOAD_RESPONSE_BYTES = 64_000;
 const MAX_MULTIPART_OVERHEAD_BYTES = 64_000;
 const MAX_REQUEST_BYTES =
   MAX_BATCH_BYTES + MAX_MANIFEST_BYTES + MAX_MULTIPART_OVERHEAD_BYTES;
@@ -46,6 +47,35 @@ type HandoffScreenshot = Omit<ScreenshotInput, "recordingId"> & {
 
 function badRequest(message: string, statusCode = 400): never {
   throw createError({ statusCode, statusMessage: message });
+}
+
+async function readDesignUploadResponseText(
+  response: Response,
+): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+  let bytesRead = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) return chunks.join("") + decoder.decode();
+      bytesRead += value.byteLength;
+      if (bytesRead > MAX_DESIGN_UPLOAD_RESPONSE_BYTES) {
+        const error = createError({
+          statusCode: 502,
+          statusMessage: "Design screenshot upload response was too large",
+        });
+        void reader.cancel(error).catch(() => {});
+        throw error;
+      }
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 function parseManifest(value: unknown): ManifestInput {
@@ -589,7 +619,7 @@ export default defineEventHandler(async (event) =>
       assertCredentialedA2AUrl(uploadUrl, true);
       let uploadResponse: Response | undefined;
       let uploadResponseBody: string | undefined;
-      for (const token of uploadTokens) {
+      for (const [tokenIndex, token] of uploadTokens.entries()) {
         const controller = new AbortController();
         let timeout: ReturnType<typeof setTimeout> | undefined;
         const timeoutFailure = new Promise<never>((_, reject) => {
@@ -624,7 +654,18 @@ export default defineEventHandler(async (event) =>
                   requireDispatcher: true,
                 },
               );
-              return { response, body: await response.text() };
+              if (
+                (response.status === 401 || response.status === 403) &&
+                tokenIndex < uploadTokens.length - 1
+              ) {
+                controller.abort();
+                void response.body?.cancel().catch(() => {});
+                return { response, body: "" };
+              }
+              return {
+                response,
+                body: await readDesignUploadResponseText(response),
+              };
             })(),
             timeoutFailure,
           ]);

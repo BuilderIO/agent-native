@@ -172,8 +172,8 @@ describe("POST /api/session-replay/storyboard", () => {
       async (url: string, init: RequestInit) => {
         const form = init.body as FormData;
         expect(url).toBe(`${designUrl}/api/session-replay-storyboard`);
-        expect(new Headers(init.headers).get("authorization")).toBe(
-          "Bearer test-a2a-token",
+        expect(new Headers(init.headers).get("authorization")).toMatch(
+          /^Bearer /,
         );
         expect(
           new Headers(init.headers).get("x-test-deployment-protection"),
@@ -206,6 +206,11 @@ describe("POST /api/session-replay/storyboard", () => {
     expect(mocks.resolveVercelDeploymentProtectionHeaders).toHaveBeenCalledWith(
       `${designUrl}/api/session-replay-storyboard`,
     );
+    expect(
+      new Headers(mocks.ssrfSafeFetch.mock.calls[0][1].headers).get(
+        "authorization",
+      ),
+    ).toBe("Bearer test-a2a-token");
     expect(mocks.ssrfSafeFetch).toHaveBeenCalledTimes(1);
     expect(mocks.ssrfSafeFetch).toHaveBeenCalledWith(
       `${designUrl}/api/session-replay-storyboard`,
@@ -294,16 +299,50 @@ describe("POST /api/session-replay/storyboard", () => {
     }
   });
 
+  it("tries the fallback token without reading a rejected response body", async () => {
+    mocks.resolveA2ACallerAuth.mockResolvedValueOnce({
+      apiKey: "test-a2a-token",
+      apiKeyFallbacks: ["fallback-a2a-token"],
+    });
+    mocks.ssrfSafeFetch.mockResolvedValueOnce(
+      new Response(new Uint8Array(64_001), { status: 401 }),
+    );
+
+    const result = await (handler as any)(makeEvent(makeFormData()));
+
+    expect(result.screenshotCount).toBe(1);
+    expect(mocks.ssrfSafeFetch).toHaveBeenCalledTimes(2);
+    expect(
+      new Headers(mocks.ssrfSafeFetch.mock.calls[0][1].headers).get(
+        "authorization",
+      ),
+    ).toBe("Bearer test-a2a-token");
+    expect(
+      new Headers(mocks.ssrfSafeFetch.mock.calls[1][1].headers).get(
+        "authorization",
+      ),
+    ).toBe("Bearer fallback-a2a-token");
+  });
+
   it("keeps the upload deadline active while reading the Design response body", async () => {
     let markBodyRead!: () => void;
     const bodyRead = new Promise<void>((resolve) => {
       markBodyRead = resolve;
     });
-    const response = new Response();
-    vi.spyOn(response, "text").mockImplementation(() => {
-      markBodyRead();
-      return new Promise(() => {});
-    });
+    const response = {
+      status: 200,
+      ok: true,
+      body: {
+        getReader: () => ({
+          read: () => {
+            markBodyRead();
+            return new Promise(() => {});
+          },
+          cancel: vi.fn().mockResolvedValue(undefined),
+          releaseLock: vi.fn(),
+        }),
+      },
+    } as unknown as Response;
     mocks.ssrfSafeFetch.mockResolvedValueOnce(response);
     vi.useFakeTimers();
     try {
@@ -318,6 +357,19 @@ describe("POST /api/session-replay/storyboard", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("rejects oversized Design upload responses before buffering the full body", async () => {
+    mocks.ssrfSafeFetch.mockResolvedValueOnce(
+      new Response(new Uint8Array(64_001)),
+    );
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData())),
+    ).rejects.toMatchObject({
+      statusCode: 502,
+      statusMessage: "Design screenshot upload response was too large",
+    });
   });
 
   it("propagates pending temporary-blob cleanup with the Design error", async () => {
