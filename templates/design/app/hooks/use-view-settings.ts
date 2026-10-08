@@ -57,6 +57,8 @@ export function useViewSettings({ enabled }: { enabled: boolean }) {
         setLocalSettings({ ...current, ...patch });
         return;
       }
+
+      void queryClient.cancelQueries({ queryKey: VIEW_SETTINGS_QUERY_KEY });
       queryClient.setQueryData<ViewSettings>(VIEW_SETTINGS_QUERY_KEY, {
         ...current,
         ...patch,
