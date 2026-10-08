@@ -135,6 +135,16 @@ describe("formatChatErrorText", () => {
     expect(normalized.message).toMatch(/new chat|retry|wait/i);
   });
 
+  it("uses malformed-request guidance for no-detail invalid_request errors", () => {
+    const normalized = normalizeChatError(
+      "Gateway error (no detail)",
+      "invalid_request",
+    );
+
+    expect(normalized.message).toMatch(/rejected this request as malformed/i);
+    expect(normalized.message).toMatch(/was not retried/i);
+  });
+
   it("normalizes provider rate limits without exposing raw status-only text", () => {
     const normalized = normalizeChatError(
       "429 status code (no body)",
