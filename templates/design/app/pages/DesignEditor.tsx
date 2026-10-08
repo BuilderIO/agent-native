@@ -550,6 +550,7 @@ import {
   journalDesignSaveOutboxEntry,
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
+import { isContentIndependentDesignQuery } from "@/lib/design-sync-invalidation";
 import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import {
   DESIGN_HISTORY_OPEN_EVENT,
@@ -4396,7 +4397,9 @@ function DesignEditor() {
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: ["action"],
-        predicate: (query) => query.queryKey[1] !== "get-design",
+        predicate: (query) =>
+          query.queryKey[1] !== "get-design" &&
+          !isContentIndependentDesignQuery(query.queryKey[1]),
       });
     },
   });
