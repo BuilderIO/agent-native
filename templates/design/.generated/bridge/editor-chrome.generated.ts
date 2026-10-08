@@ -2950,18 +2950,20 @@ export const editorChromeBridgeScript: string = `"use strict";
               importedFrom.concat(importedUrl.href),
               depth + 1
             );
-            var importedDataUrl = await new Promise(function(resolve, reject) {
-              var reader = new FileReader();
-              reader.onload = function() {
-                resolve(typeof reader.result === "string" ? reader.result : "");
-              };
-              reader.onerror = function() {
-                reject(reader.error || new Error("stylesheet encoding failed"));
-              };
-              reader.readAsDataURL(
-                new Blob([importedCss], { type: "text/css;charset=utf-8" })
-              );
-            });
+            var importedDataUrl = await new Promise(
+              function(resolve, reject) {
+                var reader = new FileReader();
+                reader.onload = function() {
+                  resolve(typeof reader.result === "string" ? reader.result : "");
+                };
+                reader.onerror = function() {
+                  reject(reader.error || new Error("stylesheet encoding failed"));
+                };
+                reader.readAsDataURL(
+                  new Blob([importedCss], { type: "text/css;charset=utf-8" })
+                );
+              }
+            );
             if (!importedDataUrl) throw new Error("stylesheet encoding failed");
             var importQualifier = String(importMatch[3] || "").trim();
             result += '@import url("' + importedDataUrl + '")' + (importQualifier ? " " + importQualifier : "") + ";";
