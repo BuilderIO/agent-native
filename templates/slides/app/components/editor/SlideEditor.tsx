@@ -144,6 +144,7 @@ import {
   SLIDE_SHAPE_LABEL_KEYS,
   type SlideShapeType,
 } from "./EditorActionCluster";
+import { hasInlineHeight } from "./fit-text-object";
 import { FollowingSlideStack } from "./FollowingSlideStack";
 import ImageCropOverlay, {
   writeImageCropPercentGeometry,
@@ -780,9 +781,7 @@ function applyDescendantTextStyle(
 function readEditedFrameOptions(
   element: HTMLElement,
 ): { contentHeight: "scroll" } | undefined {
-  const inlineHeight = element.style.getPropertyValue("height").trim();
-  const hasFixedHeight = inlineHeight !== "" && inlineHeight !== "auto";
-  return hasFixedHeight ? undefined : { contentHeight: "scroll" };
+  return hasInlineHeight(element) ? undefined : { contentHeight: "scroll" };
 }
 
 function buildStyleSnapshot(

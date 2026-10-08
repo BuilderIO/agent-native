@@ -1553,7 +1553,9 @@ async function persistDeckOps(
           { keepalive: true, method: "PUT", signal },
         ),
       );
-      const trailingOps = ops.slice(1) as PatchDeckOp[];
+      const trailingOps = collapseKeepaliveSlidePatches(
+        ops.slice(1),
+      ) as PatchDeckOp[];
       if (trailingOps.length > 0) {
         results.push(
           await callDeckWriteAction(
@@ -1569,7 +1571,7 @@ async function persistDeckOps(
         await callDeckWriteAction(
           "patch-deck",
           deckId,
-          { operations: ops as PatchDeckOp[] },
+          { operations: collapseKeepaliveSlidePatches(ops) as PatchDeckOp[] },
           { keepalive: true, signal },
         ),
       );
