@@ -86,6 +86,28 @@ describe("asset upload request size limit", () => {
     },
   );
 
+  it.each([
+    ["image", uploadAsset],
+    ["video", uploadVideoAssetHandler],
+  ] as const)(
+    "rejects non-multipart %s requests before reading the body",
+    async (_kind, handler) => {
+      const event = {
+        req: new Request("https://slides.example.test/api/assets/upload", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        }),
+      };
+
+      await handler(event as never);
+
+      expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 400);
+      expect(mockReadRawBody).not.toHaveBeenCalled();
+      expect(mockReadMultipartFormData).not.toHaveBeenCalled();
+    },
+  );
+
   it("does not parse multipart data when the request exceeds its limit", async () => {
     mockAssertBodySize.mockRejectedValueOnce(
       Object.assign(new Error("too large"), { statusCode: 413 }),

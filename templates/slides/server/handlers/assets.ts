@@ -49,6 +49,13 @@ async function readBoundedMultipartFormData(
   const contentType = originalRequest.headers.get("content-type");
 
   await assertBodySize(event, limit);
+  if (
+    contentType?.split(";")[0]?.trim().toLowerCase() !== "multipart/form-data"
+  ) {
+    throw Object.assign(new TypeError("Expected multipart/form-data"), {
+      statusCode: 400,
+    });
+  }
   const body = await readRawBody(h3Event, false);
   if (!body || body.byteLength === 0) return undefined;
 

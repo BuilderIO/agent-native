@@ -137,6 +137,24 @@ it("returns 400 for malformed image multipart data without writing an asset", as
   expect(mocks.insertAsset).not.toHaveBeenCalled();
 });
 
+it("returns 400 for non-multipart image uploads without writing an asset", async () => {
+  const event = mockEvent(
+    new Request("https://slides.example.test/api/assets/upload", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    }),
+  );
+
+  await expect(uploadAsset(event as never)).resolves.toEqual({
+    error: "Image upload failed",
+  });
+
+  expect(getResponseStatus(event as never)).toBe(400);
+  expect(mocks.uploadFile).not.toHaveBeenCalled();
+  expect(mocks.insertAsset).not.toHaveBeenCalled();
+});
+
 it("parses video multipart data before validating the video file", async () => {
   const form = new FormData();
   form.append(
