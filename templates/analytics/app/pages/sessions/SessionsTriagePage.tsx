@@ -6,6 +6,7 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconGauge,
+  IconPhoto,
   IconRefresh,
   IconX,
 } from "@tabler/icons-react";
@@ -85,6 +86,7 @@ import {
   SessionFrictionFilter,
   SessionFrictionStrip,
 } from "./SessionFriction";
+import { SessionReplayStoryboardExportDialog } from "./SessionReplayStoryboardExportDialog";
 import {
   EmptySessionsState,
   formatSessionDuration,
@@ -238,6 +240,17 @@ export function withSessionFrictionSignals(
 export function SessionsTriagePage() {
   const t = useT();
   const [params, setParams] = useSearchParams();
+  const cohortKey = useMemo(() => {
+    const current = new URLSearchParams(params);
+    current.delete("page");
+    return current.toString();
+  }, [params]);
+  const [selectedRecordings, setSelectedRecordings] = useState<
+    Record<string, Recording>
+  >({});
+  const [storyboardOpen, setStoryboardOpen] = useState(false);
+  const selected = Object.values(selectedRecordings).slice(0, 3);
+  useEffect(() => setSelectedRecordings({}), [cohortKey]);
   const eventsLab = useLabState(ANALYTICS_SESSIONS_TRIAGE_LAB);
   const eventsLabEnabled = eventsLab.enabled;
   const storageStatus = useReplayStorageStatus();
@@ -538,6 +551,20 @@ export function SessionsTriagePage() {
 
   function toggle(key: string, enabled: boolean) {
     setFilter(key, enabled ? "true" : "");
+  }
+
+  function toggleStoryboardSelection(recording: Recording, checked: boolean) {
+    setSelectedRecordings((current) => {
+      if (!checked) {
+        const next = { ...current };
+        delete next[recording.id];
+        return next;
+      }
+      if (current[recording.id] || Object.keys(current).length >= 3) {
+        return current;
+      }
+      return { ...current, [recording.id]: recording };
+    });
   }
 
   return (
@@ -1079,107 +1106,169 @@ export function SessionsTriagePage() {
                   ) : null}
                 </div>
               ) : (
-                <div className="divide-y">
-                  {recordings.map((recording) => (
-                    <SessionRow
-                      key={recording.id}
-                      friction={
-                        !eventsLabEnabled
-                          ? undefined
-                          : frictionApplied
-                            ? recording.friction
-                            : rowFriction?.friction[recording.id]
-                      }
-                      sortSignal={
-                        isSessionFrictionSignal(sort) ? sort : undefined
-                      }
-                      filterSignals={frictionSignals}
-                    >
-                      <Link
-                        to={`/sessions/${encodeURIComponent(recording.id)}`}
-                        className="grid gap-2 px-4 py-3 hover:bg-muted/35 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:grid-cols-4"
-                        aria-label={`${t("sessions.watchReplay")}: ${recording.userId || recording.userKey || recording.anonymousId || t("sessions.anonymous")}`}
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
+                    <span className="text-xs text-muted-foreground">
+                      {selected.length > 0
+                        ? t("sessions.storyboardSelectionCoverage", {
+                            selected: String(selected.length),
+                            total: total.toLocaleString(),
+                            percent: new Intl.NumberFormat(undefined, {
+                              style: "percent",
+                              maximumFractionDigits: 1,
+                            }).format(total > 0 ? selected.length / total : 0),
+                          })
+                        : t("sessions.storyboardSelectHint")}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {selected.length > 0 ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setSelectedRecordings({})}
+                        >
+                          {t("sessions.clearStoryboardSelection")}
+                        </Button>
+                      ) : null}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={selected.length === 0}
+                        onClick={() => setStoryboardOpen(true)}
                       >
-                        <span className="font-medium text-primary">
-                          {formatSessionDuration(recording.durationMs)}
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium">
-                            {recording.userId ||
-                              recording.userKey ||
-                              recording.anonymousId ||
-                              t("sessions.anonymous")}
-                          </span>
-                          <span className="block text-xs text-muted-foreground">
-                            {new Date(recording.startedAt).toLocaleString()}
-                          </span>
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm text-primary">
-                            {recording.path ||
-                              recording.hostname ||
-                              recording.sessionId}
-                          </span>
-                          <span className="block truncate text-xs text-muted-foreground">
-                            {recording.app ||
-                              recording.template ||
-                              t("sessions.unknownApp")}
-                          </span>
-                        </span>
-                        <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                          <span>
-                            {t("sessions.eventCountCompact", {
-                              count: recording.eventCount.toLocaleString(),
-                            })}
-                          </span>
-                          {recording.errorCount > 0 && (
-                            <span className="text-destructive">
-                              {t(
-                                recording.errorCount === 1
-                                  ? "sessions.errorCountSingular"
-                                  : "sessions.errorCount",
-                                {
-                                  count: recording.errorCount.toLocaleString(),
-                                },
+                        <IconPhoto />
+                        {t("sessions.createStoryboard")}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="divide-y">
+                    {recordings.map((recording) => (
+                      <SessionRow
+                        key={recording.id}
+                        friction={
+                          !eventsLabEnabled
+                            ? undefined
+                            : frictionApplied
+                              ? recording.friction
+                              : rowFriction?.friction[recording.id]
+                        }
+                        sortSignal={
+                          isSessionFrictionSignal(sort) ? sort : undefined
+                        }
+                        filterSignals={frictionSignals}
+                      >
+                        <div className="flex min-w-0 items-stretch">
+                          <div className="grid shrink-0 place-items-center px-3">
+                            <Checkbox
+                              checked={Boolean(
+                                selectedRecordings[recording.id],
                               )}
-                            </span>
-                          )}
-                          <span>
-                            {t(
-                              recording.networkErrorCount === 1
-                                ? "sessions.networkErrorCountSingular"
-                                : "sessions.networkErrorCount",
-                              {
-                                count:
-                                  recording.networkErrorCount.toLocaleString(),
-                              },
-                            )}
-                          </span>
-                          {recording.rageClickCount > 0 && (
-                            <span>
-                              {t(
-                                recording.rageClickCount === 1
-                                  ? "sessions.rageClickCountSingular"
-                                  : "sessions.rageClicks",
-                                {
-                                  count:
-                                    recording.rageClickCount.toLocaleString(),
-                                },
+                              disabled={
+                                !selectedRecordings[recording.id] &&
+                                selected.length >= 3
+                              }
+                              aria-label={t(
+                                "sessions.selectReplayForStoryboard",
+                                { id: recording.id },
                               )}
+                              onCheckedChange={(value) =>
+                                toggleStoryboardSelection(
+                                  recording,
+                                  value === true,
+                                )
+                              }
+                            />
+                          </div>
+                          <Link
+                            to={`/sessions/${encodeURIComponent(recording.id)}`}
+                            className="grid min-w-0 flex-1 gap-2 px-2 py-3 hover:bg-muted/35 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:grid-cols-4"
+                            aria-label={`${t("sessions.watchReplay")}: ${recording.userId || recording.userKey || recording.anonymousId || t("sessions.anonymous")}`}
+                          >
+                            <span className="font-medium text-primary">
+                              {formatSessionDuration(recording.durationMs)}
                             </span>
-                          )}
-                          <PerformanceHints
-                            performance={
-                              eventsLabEnabled
-                                ? speed?.performance[recording.id]
-                                : undefined
-                            }
-                          />
-                        </span>
-                      </Link>
-                    </SessionRow>
-                  ))}
-                </div>
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-medium">
+                                {recording.userId ||
+                                  recording.userKey ||
+                                  recording.anonymousId ||
+                                  t("sessions.anonymous")}
+                              </span>
+                              <span className="block text-xs text-muted-foreground">
+                                {new Date(recording.startedAt).toLocaleString()}
+                              </span>
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm text-primary">
+                                {recording.path ||
+                                  recording.hostname ||
+                                  recording.sessionId}
+                              </span>
+                              <span className="block truncate text-xs text-muted-foreground">
+                                {recording.app ||
+                                  recording.template ||
+                                  t("sessions.unknownApp")}
+                              </span>
+                            </span>
+                            <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                              <span>
+                                {t("sessions.eventCountCompact", {
+                                  count: recording.eventCount.toLocaleString(),
+                                })}
+                              </span>
+                              {recording.errorCount > 0 && (
+                                <span className="text-destructive">
+                                  {t(
+                                    recording.errorCount === 1
+                                      ? "sessions.errorCountSingular"
+                                      : "sessions.errorCount",
+                                    {
+                                      count:
+                                        recording.errorCount.toLocaleString(),
+                                    },
+                                  )}
+                                </span>
+                              )}
+                              <span>
+                                {t(
+                                  recording.networkErrorCount === 1
+                                    ? "sessions.networkErrorCountSingular"
+                                    : "sessions.networkErrorCount",
+                                  {
+                                    count:
+                                      recording.networkErrorCount.toLocaleString(),
+                                  },
+                                )}
+                              </span>
+                              {recording.rageClickCount > 0 && (
+                                <span>
+                                  {t(
+                                    recording.rageClickCount === 1
+                                      ? "sessions.rageClickCountSingular"
+                                      : "sessions.rageClicks",
+                                    {
+                                      count:
+                                        recording.rageClickCount.toLocaleString(),
+                                    },
+                                  )}
+                                </span>
+                              )}
+                              <PerformanceHints
+                                performance={
+                                  eventsLabEnabled
+                                    ? speed?.performance[recording.id]
+                                    : undefined
+                                }
+                              />
+                            </span>
+                          </Link>
+                        </div>
+                      </SessionRow>
+                    ))}
+                  </div>
+                </>
               )}
               {total > SESSION_PAGE_SIZE && (
                 <div className="flex items-center justify-between border-t px-4 py-3">
@@ -1213,6 +1302,12 @@ export function SessionsTriagePage() {
           )}
         </div>
       </Card>
+      <SessionReplayStoryboardExportDialog
+        open={storyboardOpen}
+        onOpenChange={setStoryboardOpen}
+        recordings={selected}
+        cohortTotal={total}
+      />
     </div>
   );
 }
