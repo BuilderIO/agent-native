@@ -137,6 +137,42 @@ function BuilderConnectPopoverProbeContent() {
   );
 }
 
+function BuilderConnectStatusRetryProbeContent() {
+  const flow = useBuilderConnectFlow();
+  return (
+    <div>
+      <BuilderConnectPopover flow={flow} openOnMount>
+        <button type="button">Connect</button>
+      </BuilderConnectPopover>
+      <button
+        type="button"
+        data-testid="start-failed-setup"
+        onClick={() => flow.start({ provisionAccount: true })}
+      >
+        Start setup
+      </button>
+      <output data-testid="error-kind">{flow.errorKind ?? ""}</output>
+      <output data-testid="status-unavailable">
+        {flow.statusUnavailable ? "unavailable" : "available"}
+      </output>
+      <output data-testid="terminal-error">
+        {flow.terminalError ?? "none"}
+      </output>
+    </div>
+  );
+}
+
+function BuilderConnectStatusRetryProbe() {
+  return (
+    <AgentNativeI18nProvider
+      catalog={toolkitI18nCatalog}
+      persistPreference={false}
+    >
+      <BuilderConnectStatusRetryProbeContent />
+    </AgentNativeI18nProvider>
+  );
+}
+
 function BuilderConnectPopoverProbe() {
   return (
     <AgentNativeI18nProvider
@@ -847,6 +883,91 @@ describe("useBuilderConnectFlow", () => {
         "Couldn't create your Builder account. Try again or connect an existing account.",
       );
       expect(openSpy).not.toHaveBeenCalled();
+    });
+
+    it("shows status retry when a failed setup is followed by an unreadable status", async () => {
+      let failStatusReads = false;
+      vi.mocked(fetch).mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/_agent-native/builder/provision") {
+          return activationResponse(503, {
+            ok: false,
+            code: "provision_failed",
+            message: "The previous connection failed.",
+          });
+        }
+        if (failStatusReads) {
+          return new Response("unavailable", { status: 503 });
+        }
+        return jsonResponse(activationStatus);
+      });
+
+      await act(async () => {
+        root.render(<BuilderConnectStatusRetryProbe />);
+      });
+      await flushAfterPaint();
+
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            "[data-testid='start-failed-setup']",
+          )
+          ?.click();
+      });
+      await flushAfterPaint();
+      expect(
+        container.querySelector('[data-testid="error-kind"]')?.textContent,
+      ).toBe("connection");
+      expect(container.textContent).toContain(
+        "The previous connection failed.",
+      );
+
+      failStatusReads = true;
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        await Promise.resolve();
+      });
+      await flushAfterPaint();
+
+      expect(
+        container.querySelector('[data-testid="error-kind"]')?.textContent,
+      ).toBe("status-read");
+      expect(
+        container.querySelector('[data-testid="status-unavailable"]')
+          ?.textContent,
+      ).toBe("unavailable");
+      expect(
+        container.querySelector('[data-testid="terminal-error"]')?.textContent,
+      ).toBe("The previous connection failed.");
+      const statusNotice = document.body.querySelector('[role="status"]');
+      expect(statusNotice?.textContent).toContain(
+        "Couldn't check your Builder.io connection.",
+      );
+      expect(
+        document.body.querySelector('[role="alert"]')?.textContent ?? "",
+      ).not.toContain("The previous connection failed.");
+      expect(
+        [...(statusNotice?.querySelectorAll("button") ?? [])].some(
+          (button) => button.textContent === "Retry",
+        ),
+      ).toBe(true);
+
+      failStatusReads = false;
+      const retry = [...(statusNotice?.querySelectorAll("button") ?? [])].find(
+        (button) => button.textContent === "Retry",
+      );
+      await act(async () => {
+        retry?.click();
+      });
+      await flushAfterPaint();
+
+      expect(
+        container.querySelector('[data-testid="status-unavailable"]')
+          ?.textContent,
+      ).toBe("available");
+      expect(
+        container.querySelector('[data-testid="error-kind"]')?.textContent,
+      ).toBe("connection");
     });
 
     it("reconciles status when the activation response is lost", async () => {

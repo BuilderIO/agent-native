@@ -17,6 +17,7 @@ import {
   RecorderRouteStatus,
   RecordingErrorCard,
   RecordingLeaveChoices,
+  shouldRedirectToStorageSetupHome,
 } from "./record";
 
 describe("record route lifecycle shell", () => {
@@ -34,6 +35,23 @@ describe("record route lifecycle shell", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+  });
+
+  it("does not redirect a queued upload when storage is already configured", () => {
+    expect(
+      shouldRedirectToStorageSetupHome({
+        storageSetupRequested: true,
+        storageConfigured: true,
+        hasPendingUpload: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRedirectToStorageSetupHome({
+        storageSetupRequested: true,
+        storageConfigured: true,
+        hasPendingUpload: false,
+      }),
+    ).toBe(true);
   });
 
   it("uses the shared classifier and sanitized body for dropped-file uploads", () => {

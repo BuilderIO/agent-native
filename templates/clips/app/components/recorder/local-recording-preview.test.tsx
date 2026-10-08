@@ -39,7 +39,7 @@ describe("LocalRecordingPreview", () => {
 
   it("plays the saved local copy and releases its object URL on unmount", async () => {
     const blob = new Blob(["video"], { type: "video/webm" });
-    mocks.readBackup.mockResolvedValue({ blob });
+    mocks.readBackup.mockResolvedValue({ blob, whole: true });
 
     await act(async () => {
       root.render(
@@ -79,5 +79,48 @@ describe("LocalRecordingPreview", () => {
       "blob:local-recording-preview",
     );
     consoleWarn.mockRestore();
+  });
+
+  it("keeps a complete in-memory preview when the backup is partial", async () => {
+    const memoryCopy = new Blob(["complete memory copy"], {
+      type: "video/webm",
+    });
+    const partialBackup = new Blob(["partial backup"], {
+      type: "video/webm",
+    });
+    mocks.readBackup.mockResolvedValue({ blob: partialBackup, whole: false });
+
+    await act(async () => {
+      root.render(
+        <LocalRecordingPreview
+          recordingId="local-partial-backup"
+          fallbackBlob={memoryCopy}
+        />,
+      );
+    });
+
+    expect(createObjectURL).toHaveBeenCalledWith(memoryCopy);
+    expect(createObjectURL).not.toHaveBeenCalledWith(partialBackup);
+    expect(container.querySelector("video")?.getAttribute("src")).toBe(
+      "blob:local-recording-preview",
+    );
+  });
+
+  it("uses a partial backup only when no in-memory copy exists", async () => {
+    const partialBackup = new Blob(["recoverable prefix"], {
+      type: "video/webm",
+    });
+    mocks.readBackup.mockResolvedValue({ blob: partialBackup, whole: false });
+
+    await act(async () => {
+      root.render(
+        <LocalRecordingPreview
+          recordingId="local-partial-only"
+          fallbackBlob={null}
+        />,
+      );
+    });
+
+    expect(createObjectURL).toHaveBeenCalledWith(partialBackup);
   });
 });

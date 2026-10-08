@@ -1075,6 +1075,20 @@ export function RecordingErrorCard({
   );
 }
 
+export function shouldRedirectToStorageSetupHome({
+  storageSetupRequested,
+  storageConfigured,
+  hasPendingUpload,
+}: {
+  storageSetupRequested: boolean;
+  storageConfigured: boolean | null;
+  hasPendingUpload: boolean;
+}): boolean {
+  return (
+    storageSetupRequested && !hasPendingUpload && storageConfigured === true
+  );
+}
+
 export default function RecordRoute() {
   const t = useT();
   const navigate = useNavigate();
@@ -3704,7 +3718,13 @@ export default function RecordRoute() {
     void navigate(`/record${search ? `?${search}` : ""}`, { replace: true });
   };
 
-  if (storageSetupRequested && storageConfigured === true) {
+  if (
+    shouldRedirectToStorageSetupHome({
+      storageSetupRequested,
+      storageConfigured,
+      hasPendingUpload: pendingUploadFile,
+    })
+  ) {
     return <Navigate to="/home" replace />;
   }
 

@@ -1,10 +1,38 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { formatSessionDuration, useDebouncedUrlFilter } from "./SessionsPage";
+import {
+  formatSessionDuration,
+  ReplayStorageHint,
+  useDebouncedUrlFilter,
+} from "./SessionsPage";
+
+const storageMocks = vi.hoisted(() => ({
+  useReplayStorageStatus: vi.fn(),
+  refetch: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => key,
+}));
+
+vi.mock("@agent-native/toolkit/app/settings", () => ({
+  BuilderConnectPopover: ({ children }: { children: ReactNode }) => children,
+  useBuilderConnectFlow: () => ({
+    configured: false,
+    connecting: false,
+    hasFetchedStatus: true,
+    start: vi.fn(),
+  }),
+  useBuilderStatus: () => ({ status: null, loading: false, refetch: vi.fn() }),
+}));
+
+vi.mock("@/hooks/use-replay-storage-status", () => ({
+  useReplayStorageStatus: () => storageMocks.useReplayStorageStatus(),
+}));
 
 let setFilterInput: ((value: string) => void) | null = null;
 
@@ -95,5 +123,65 @@ describe("formatSessionDuration", () => {
     expect(formatSessionDuration(42_000)).toBe("0m");
     expect(formatSessionDuration(59_499)).toBe("0m");
     expect(formatSessionDuration(59_500)).toBe("1m");
+  });
+});
+
+describe("ReplayStorageHint", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    storageMocks.refetch.mockReset();
+    storageMocks.useReplayStorageStatus.mockReturnValue({
+      data: undefined,
+      isError: true,
+      isFetching: false,
+      isLoading: false,
+      isSuccess: false,
+      refetch: storageMocks.refetch,
+    });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps Builder and S3 setup available when storage status fails", async () => {
+    await act(async () => {
+      root.render(<ReplayStorageHint />);
+    });
+
+    expect(container.textContent).toContain(
+      "sessions.storageStatusUnavailable",
+    );
+    const retry = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("sidebar.retry"),
+    );
+    expect(retry).toBeDefined();
+
+    const configureS3 = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("sessions.configureS3"),
+    );
+    expect(configureS3).toBeDefined();
+    expect(container.textContent).toContain("sessions.connectBuilder");
+
+    act(() => retry?.click());
+    expect(storageMocks.refetch).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      configureS3?.click();
+    });
+    expect(container.querySelector("#replay-S3_ENDPOINT")).not.toBeNull();
+    expect(
+      Array.from(container.querySelectorAll("button")).some((button) =>
+        button.textContent?.includes("settings.saveStorage"),
+      ),
+    ).toBe(true);
   });
 });

@@ -2070,12 +2070,10 @@ export function useBuilderConnectFlow(
     orgName,
     connecting,
     terminalError: error,
-    error:
-      error ??
-      (statusUnavailable
-        ? t("agentChat.settingsShell.integrations.builderStatusFailed")
-        : null),
-    errorKind: errorKind ?? (statusUnavailable ? "status-read" : null),
+    error: statusUnavailable
+      ? t("agentChat.settingsShell.integrations.builderStatusFailed")
+      : error,
+    errorKind: statusUnavailable ? "status-read" : errorKind,
     statusUnavailable,
     accountExists,
     hasFetchedStatus,

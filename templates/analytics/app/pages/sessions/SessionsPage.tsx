@@ -276,34 +276,31 @@ export function ReplayStorageHint({
     }
   }
 
-  if (storageStatus.isError) {
-    return (
-      <div
-        role="alert"
-        aria-busy={storageStatus.isFetching || undefined}
-        className={cn(
-          "flex items-center justify-between gap-3 rounded-md border border-border bg-card p-4 text-sm",
-          !embedded && "mb-6",
-        )}
-      >
-        <span className="text-muted-foreground">
-          {t("sessions.storageStatusUnavailable")}
-        </span>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => void storageStatus.refetch()}
-          disabled={storageStatus.isFetching}
-        >
-          {t("sidebar.retry")}
-        </Button>
-      </div>
-    );
-  }
-
   return (
     <Collapsible open={s3Expanded} onOpenChange={setS3Expanded}>
+      {storageStatus.isError ? (
+        <div
+          role="alert"
+          aria-busy={storageStatus.isFetching || undefined}
+          className={cn(
+            "flex items-center justify-between gap-3 rounded-md border border-border bg-card p-4 text-sm",
+            !embedded && "mb-6",
+          )}
+        >
+          <span className="text-muted-foreground">
+            {t("sessions.storageStatusUnavailable")}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void storageStatus.refetch()}
+            disabled={storageStatus.isFetching}
+          >
+            {t("sidebar.retry")}
+          </Button>
+        </div>
+      ) : null}
       <div
         className={cn(
           !embedded &&

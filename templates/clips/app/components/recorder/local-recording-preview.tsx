@@ -27,7 +27,11 @@ export function LocalRecordingPreview({
       let blob = fallbackBlob;
       try {
         const copy = await readRecoverableRecordingBackup(recordingId);
-        blob = copy?.blob ?? blob;
+        if (copy?.whole && copy.blob) {
+          blob = copy.blob;
+        } else if (!blob && copy?.blob) {
+          blob = copy.blob;
+        }
       } catch (error) {
         console.warn("[recorder] reading the local preview failed:", error);
       }
