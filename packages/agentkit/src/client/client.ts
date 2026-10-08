@@ -4120,6 +4120,9 @@ export class AgentKitClient implements AgentKitController {
     duration: number,
     signal: AbortSignal,
   ): Promise<void> {
+    if (signal.aborted) {
+      return Promise.reject(signal.reason ?? this.abortError());
+    }
     return new Promise((resolve, reject) => {
       const onAbort = () => {
         clearTimeout(timeout);

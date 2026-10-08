@@ -4432,6 +4432,52 @@ describe("AgentKitClient", () => {
     }
   });
 
+  it("does not resubscribe when a terminal catch-up consumer is already aborted", async () => {
+    const reports: AgentStreamIntegrityReport[] = [];
+    let subscriptions = 0;
+    const transport = createTerminalCatchUpTransport();
+    transport.subscribeToRun = async function* () {
+      subscriptions += 1;
+      if (subscriptions === 1) {
+        yield {
+          ...protocolEvent(3, {
+            type: "approval.resolved",
+            approvalId: "approval-1",
+            response: { decision: "approve", optionIds: ["approve"] },
+          }),
+          runId: "run-approval",
+        };
+      }
+    };
+    const client = new AgentKitClient({
+      transport,
+      reconnect: { attempts: 1, delayMs: () => 25 },
+      onIntegrityReport: (report) => reports.push(report),
+    });
+    let disposePromise: Promise<void> | undefined;
+    const unsubscribe = client.subscribe(() => {
+      if (client.getSnapshot().connection === "reconnecting") {
+        disposePromise = client.dispose();
+      }
+    });
+
+    try {
+      await client.loadThread("thread-1");
+      await vi.waitFor(() =>
+        expect(client.getSnapshot().connection).toBe("offline"),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(subscriptions).toBe(1);
+      expect(reports).not.toContainEqual(
+        expect.objectContaining({ code: "run_missing_terminal" }),
+      );
+    } finally {
+      unsubscribe();
+      await (disposePromise ?? client.dispose());
+    }
+  });
+
   it("keeps a terminal catch-up unconfirmable after repeated early EOF", async () => {
     const reports: AgentStreamIntegrityReport[] = [];
     let subscriptions = 0;
