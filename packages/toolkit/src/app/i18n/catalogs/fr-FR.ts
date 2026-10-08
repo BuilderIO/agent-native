@@ -2237,7 +2237,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Impossible de déconnecter Builder.io.",
   "settingsShell.builder.disconnectTitle": "Déconnecter Builder.io ?",
   "settingsShell.builder.grantsFailed":
-    "Impossible de vérifier la connexion à Builder.io.",
+    "L’état de la connexion est indisponible. Réessayez pour le vérifier.",
   "settingsShell.builder.setupStartFailed":
     "Impossible de démarrer la configuration de Builder.io. Actualisez cette page, puis réessayez.",
   "settingsShell.builder.setupHostFailed":
@@ -2692,7 +2692,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "Accès aux modèles, automatisation du navigateur, stockage de fichiers et identité de l’espace de travail. Offre gratuite disponible.",
   "settingsShell.integrations.builderStatusFailed":
-    "Impossible de vérifier la connexion Builder.io.",
+    "L’état de la connexion est indisponible. Réessayez pour le vérifier.",
   "settingsShell.integrations.category.analytics": "Analytique",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Ingénierie",
@@ -2852,6 +2852,11 @@ const messages: ToolkitAgentChatTranslation = {
     "Le repli du déploiement est disponible. Utilisez votre propre compte Builder.io pour le remplacer.",
   "settingsInfra.builderStorageHint":
     "Le stockage objet conserve les fichiers envoyés et permet de réutiliser leurs URL tout au long du fil. Utilisez Builder.io ou le compartiment compatible S3 ci-dessous.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io est connecté, mais ne peut pas encore stocker les fichiers importés. Reconnectez-le pour autoriser les imports, ou configurez un bucket ci-dessous.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Impossible de vérifier l'accès de Builder.io aux imports. Réessayez ou configurez un bucket ci-dessous.",
+  "settingsInfra.reconnectBuilderUploads": "Autoriser les imports",
   "settingsInfra.builderUnknown":
     "Impossible de vérifier la connexion Builder.io.",
   "settingsInfra.manage": "Gérer",
