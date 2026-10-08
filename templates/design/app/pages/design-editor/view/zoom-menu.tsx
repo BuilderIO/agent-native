@@ -152,7 +152,9 @@ export function renderZoomMenu({
               inputMode="numeric"
               value={zoomInputValue}
               onChange={(event) =>
-                setZoomInputValue(event.target.value.replace(/\D/g, ""))
+                setZoomInputValue(
+                  event.target.value.split(/[.,]/)[0].replace(/\D/g, ""),
+                )
               }
               onFocus={(event) => event.currentTarget.select()}
               onKeyDown={(event) => {
