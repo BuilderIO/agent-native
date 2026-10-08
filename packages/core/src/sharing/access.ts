@@ -323,8 +323,8 @@ export function accessFilter(
             select 1 from organizations as federation_org
             where federation_org.id = ${resourceTable.orgId}
               and (
-                federation_org.identity_authority is not null
-                or federation_org.identity_id is not null
+                coalesce(trim(federation_org.identity_authority), '') <> ''
+                or coalesce(trim(federation_org.identity_id), '') <> ''
               )
           )`;
     const groupMemberPredicate = sql`exists (

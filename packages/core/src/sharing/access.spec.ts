@@ -496,6 +496,13 @@ describe("shareable resource access helpers", () => {
     await insertDoc({ id: "shared-group", ownerEmail: outsiderEmail });
     await pglite
       .prepare(
+        `INSERT INTO organizations (
+           id, name, created_by, created_at, identity_authority, identity_id
+         ) VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(orgId, "QA", ownerEmail, Date.now(), "", "");
+    await pglite
+      .prepare(
         `INSERT INTO workspace_user_groups
          (id, org_id, name, member_emails_json)
          VALUES (?, ?, ?, ?)`,
