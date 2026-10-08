@@ -114,6 +114,19 @@ export function createExtensionsHandler(
           setResponseStatus(event, 403);
           return { error: "Extension creation is disabled for this app" };
         }
+        // The configured img-src / media-src for client-rendered srcDoc frames
+        // (EXTENSION_IFRAME_DISPLAY_SOURCES_PATH). It only reads validated app
+        // config, so it is answered before the extension tables are set up.
+        // Two segments, and no extension route uses `display-sources`, so this
+        // cannot shadow an extension id.
+        if (
+          method === "GET" &&
+          parts.length === 2 &&
+          parts[0] === "iframe" &&
+          parts[1] === "display-sources"
+        ) {
+          return getExtensionIframeDisplaySources();
+        }
         await ensureExtensionsTables();
         return dispatch(event, method, parts, userEmail);
       });
@@ -143,18 +156,6 @@ async function dispatch(
   parts: string[],
   userEmail: string,
 ): Promise<unknown> {
-  // The configured img-src / media-src for client-rendered srcDoc frames
-  // (EXTENSION_IFRAME_DISPLAY_SOURCES_PATH). Two segments, and no extension
-  // route uses `display-sources`, so this cannot shadow an extension id.
-  if (
-    method === "GET" &&
-    parts.length === 2 &&
-    parts[0] === "iframe" &&
-    parts[1] === "display-sources"
-  ) {
-    return getExtensionIframeDisplaySources();
-  }
-
   if (
     method === "POST" &&
     parts.length === 2 &&

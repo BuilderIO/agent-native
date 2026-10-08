@@ -268,13 +268,16 @@ that URL, and extension script can encode data into it. `connect-src` stays
 That bridge is not the only way data can leave once a remote image or media
 source is configured.
 
-The configured lists apply to every extension frame: the server render route
-sets them in the CSP header and meta tag, and the client-rendered `srcDoc`
-frames (`ExtensionViewer` inside MCP chat embeds, transient
+The configured lists apply to the app's extension frames: the server render
+route sets them in the CSP header and meta tag, and the client-rendered
+`srcDoc` frames (`ExtensionViewer` inside MCP chat embeds, transient
 `InlineExtensionFrame` previews) read them from the authenticated
 `/_agent-native/extensions/iframe/display-sources` endpoint. The lists are
 validated again wherever the policy is built; a client that cannot load valid
-lists falls back to the default `'self' data: blob:` policy.
+lists falls back to the default `'self' data: blob:` policy. The portable
+toolkit frame (`AgentNativeExtensionFrame`, built by
+`buildAgentNativeExtensionHtml()`) does not read these lists and always uses
+the default policy.
 
 ## Tailwind classes
 

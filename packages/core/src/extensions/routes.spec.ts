@@ -162,6 +162,16 @@ describe("createExtensionsHandler iframe display sources", () => {
     expect(event.status).toBe(200);
   });
 
+  it("answers display sources without setting up the extension tables", async () => {
+    const event = displaySourcesEvent();
+    await expect(createExtensionsHandler()(event as never)).resolves.toEqual({
+      imageSources: expect.any(Array),
+      mediaSources: expect.any(Array),
+    });
+    expect(event.status).toBe(200);
+    expect(mocks.ensureExtensionsTables).not.toHaveBeenCalled();
+  });
+
   it("requires a session like every other extension route", async () => {
     mocks.getSession.mockResolvedValue(null);
     const event = displaySourcesEvent();
