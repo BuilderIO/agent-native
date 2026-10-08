@@ -6786,6 +6786,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       if (
         !target ||
+        target === scope ||
         isDocumentRootElement(target) ||
         isBoardRootMarqueeSurface(target) ||
         isOverlayElement(target) ||

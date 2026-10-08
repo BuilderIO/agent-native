@@ -5842,7 +5842,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (target && scope && scope.contains(target)) {
           target = containerScopeAncestor(target, scope);
         }
-        if (!target || isDocumentRootElement(target) || isBoardRootMarqueeSurface(target) || isOverlayElement(target) || isLayerInteractionBlocked(target) || isTemplateCloneElement(target) || seen.has(target) || isPaddedAwayFromView(target)) {
+        if (!target || target === scope || isDocumentRootElement(target) || isBoardRootMarqueeSurface(target) || isOverlayElement(target) || isLayerInteractionBlocked(target) || isTemplateCloneElement(target) || seen.has(target) || isPaddedAwayFromView(target)) {
           return;
         }
         seen.add(target);

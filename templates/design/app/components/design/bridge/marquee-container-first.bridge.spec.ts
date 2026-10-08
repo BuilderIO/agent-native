@@ -99,7 +99,7 @@ describe("marquee selects at the current container level", () => {
     }
   });
 
-  it("uses the background container as the plain marquee scope", async () => {
+  it("excludes the background container when a marquee extends beyond it", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage();
@@ -109,7 +109,7 @@ describe("marquee selects at the current container level", () => {
       const selected = await marqueeSelectedIds(
         page,
         { x: 50, y: 50 },
-        { x: 350, y: 260 },
+        { x: 520, y: 260 },
       );
 
       expect(
