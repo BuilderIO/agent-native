@@ -223,6 +223,10 @@ export function sanitizeCssValue(value: string): string | null {
   return value.trim();
 }
 
+/** Vendor-prefixed names (`-webkit-text-fill-color`) fail this and are dropped. */
+export const isKeptCssProperty = (property: string) =>
+  /^(?:--)?[a-zA-Z][\w-]*$/.test(property);
+
 function sanitizeStyle(style: string): string {
   return style
     .split(";")
@@ -231,7 +235,7 @@ function sanitizeStyle(style: string): string {
       if (idx <= 0) return null;
       const property = declaration.slice(0, idx).trim();
       const value = declaration.slice(idx + 1).trim();
-      if (!/^(?:--)?[a-zA-Z][\w-]*$/.test(property) || !value) return null;
+      if (!isKeptCssProperty(property) || !value) return null;
       const safeValue = sanitizeCssValue(value);
       return safeValue ? `${property}: ${safeValue}` : null;
     })
