@@ -28,7 +28,7 @@ permissions:
 
 jobs:
   e2e:
-    name: ${{ matrix.shard == 'runtime-budget' && 'Runtime budget' || github.event_name == 'pull_request' && 'Export pixel fidelity' || format('Shard {0}/8', matrix.shard) }}
+    name: ${{ matrix.shard == 'runtime-budget' && 'Runtime budget' || github.event_name == 'pull_request' && 'Design PR E2E' || format('Shard {0}/8', matrix.shard) }}
     runs-on: ubuntu-latest
     # Reserve time after the shard timeout for setup and report upload.
     timeout-minutes: 55
@@ -112,6 +112,7 @@ jobs:
           mkdir -p .react-router/types
           if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
             pnpm exec playwright test e2e/url-export-font-fidelity.spec.ts e2e/single-screen-pdf-fidelity.spec.ts e2e/imported-html-export-fidelity.spec.ts
+            pnpm exec playwright test e2e/selection-repros.spec.ts --grep "modifier-held marquee"
           else
             pnpm exec playwright test --shard=${{ matrix.shard }}/8
           fi
