@@ -376,9 +376,8 @@ jobs:
         continue-on-error: true
         run: |
           set -uo pipefail
-          # Hit the plan app's action surface with the publish token. A 401 means
-          # the token is expired/revoked; surface it in the sticky comment so the
-          # repo owner knows to re-mint it instead of seeing a generic failure.
+          # A 401 means the app rejected the token; it may be expired, revoked,
+          # or minted for another app/audience. Surface that in the sticky comment.
           HTTP_STATUS=$(node -e '
             const https = require("https");
             const url = new URL("/_agent-native/actions/record-recap-usage", process.env.PLAN_RECAP_APP_URL || "https://plan.agent-native.com");

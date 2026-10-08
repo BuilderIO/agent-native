@@ -125,7 +125,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "Describe tu función",
   "onboarding.skipForNow": "Omitir por ahora",
   "onboarding.saveRoleError": "No se pudo guardar tu rol.",
-  "onboarding.builderCreateAccount": "Crear cuenta de Builder.io",
+  "onboarding.builderCreateAccount": "Usar Builder.io",
   "onboarding.builderSignInWithAccount":
     "Iniciar sesión con una cuenta de Builder.io",
   "onboarding.builderActivateDescription":
@@ -815,6 +815,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Configurando Builder.io",
   "recovery.copyDebug": "Copiar información de depuración",
   "recovery.copyFailed": "Error al copiar",
+  "recovery.continueUnavailable":
+    "Esta ejecución ya no se puede continuar. Envía un mensaje para seguir.",
   "recovery.retryAttachmentUnavailable":
     "Esta solicitud incluía un archivo que no se puede volver a enviar. Vuelve a adjuntarlo en el cuadro de mensaje y vuelve a intentarlo.",
   "recovery.deferredSubmissionFailed":
@@ -841,6 +843,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.stuckWithDuration":
     "No hay progreso desde hace {{seconds}} s. El agente puede haber alcanzado el tiempo de espera del servidor o perdido la conexión.",
   "recovery.stuckRetrying": "Reintentando automáticamente ahora.",
+  "recovery.statusUnreadable":
+    "No se puede conectar con el servidor para comprobar este chat. Puede que haya terminado. Seguiremos intentándolo.",
+  "recovery.statusMismatch":
+    "El servidor indica que este chat ya no se está ejecutando. Recarga para ver el resultado.",
+  "recovery.reload": "Recargar",
   "recovery.statusCheckFailed":
     "No se pudo contactar con el servidor para comprobar si el agente sigue trabajando. Vuelve a enviar el mensaje para reintentarlo.",
   "recovery.streamEnded":
@@ -1325,6 +1332,10 @@ const messages: ToolkitAgentChatTranslation = {
   "feedback.thumbsDown": "No me gusta",
   "feedback.thumbsUp": "Me gusta",
   "feedback.tooSlow": "Demasiado lento",
+  "feedback.reasonMisread": "Malinterpretó mi petición",
+  "feedback.reasonNotDone": "Dijo que había terminado, pero no",
+  "feedback.reasonWrongNumbers": "Cifras incorrectas",
+  "feedback.copyDetails": "Copiar detalles",
   "feedback.whatWentWrong": "¿Qué salió mal?",
   "feedback.wrongTool": "Herramienta incorrecta",
   "contextMeter.ariaLabel":
@@ -1897,6 +1908,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.adminOnly":
     "Solo los propietarios y administradores de la organización pueden cambiar el almacenamiento de archivos.",
   "settings.audit.action": "Acción",
+  "settings.audit.agentVia": "Agente vía {{protocol}}",
   "settings.audit.allApps": "Todas las apps",
   "settings.audit.app": "App",
   "settings.audit.changedBy": "Cambiado por",

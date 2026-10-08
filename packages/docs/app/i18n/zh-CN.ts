@@ -2624,6 +2624,7 @@ const zhCN = {
     planAutomations: "事件与自动化",
     planLocalAndDesktop: "本地文件与桌面端",
     planDevelopers: "开发者指南",
+    turnIntoApp: "转换为应用",
     prVisualRecap: "PR 可视化回顾",
     planPluginMarketplace: "Plan 插件与市场",
     slides: "幻灯片",

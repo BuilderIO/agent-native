@@ -1370,6 +1370,7 @@ function getAgentKitOptimizeDeps(cwd: string): string[] {
                 "@agent-native/toolkit/app/agentkit/react/components",
                 "@agent-native/toolkit/app/agentkit/react/context",
                 "@agent-native/toolkit/app/agentkit/react/root",
+                "@agent-native/toolkit/app/chat",
                 "@agent-native/toolkit/app/chat/agentkit-chat/index",
               ]
             : []),

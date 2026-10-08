@@ -75,6 +75,7 @@ interface ActiveRunStatus {
   runId?: unknown;
   awaitingRedispatch?: unknown;
   terminalReason?: unknown;
+  turnId?: unknown;
 }
 
 interface SnapshotAnnotationConflict {
@@ -512,6 +513,35 @@ function durableRunFailures(messages: AgentMessage[]): Map<string, AgentError> {
   );
 }
 
+/** The turn each durable prompt started, keyed by the run it was submitted to. */
+function durableSubmittedTurns(messages: AgentMessage[]): Map<string, string> {
+  return new Map(
+    messages.flatMap((message) => {
+      const custom = asRecord(asRecord(message.metadata)?.custom);
+      return message.role === "user" &&
+        typeof custom?.submittedRunId === "string" &&
+        typeof custom.submittedTurnId === "string"
+        ? [[custom.submittedRunId, custom.submittedTurnId] as const]
+        : [];
+    }),
+  );
+}
+
+/** The runs that left a durable reply on each turn. */
+function durableReplyRunsByTurn(
+  messages: AgentMessage[],
+): Map<string, Set<string>> {
+  const result = new Map<string, Set<string>>();
+  for (const message of messages) {
+    const turnId = asRecord(asRecord(message.metadata)?.custom)?.turnId;
+    if (message.role !== "assistant" || typeof turnId !== "string") continue;
+    const runIds = result.get(turnId) ?? new Set<string>();
+    for (const runId of durableRunIds(message)) runIds.add(runId);
+    result.set(turnId, runIds);
+  }
+  return result;
+}
+
 /** A durable reply's terminal run plus every continuation run folded into it. */
 function durableRunIds(message: AgentMessage): string[] {
   const metadata = asRecord(message.metadata);
@@ -573,6 +603,98 @@ function withRefusedTurnMetadata(
       },
     },
   };
+}
+
+function orderMessagesByDurableSequence(
+  snapshotMessages: AgentMessage[],
+  missingMessages: AgentMessage[],
+  durableMessages: AgentMessage[],
+  durableIndexById: Map<string, number>,
+  durableIdBySnapshotId: Map<string, string>,
+): AgentMessage[] {
+  const messageByDurableId = new Map(
+    missingMessages.map((message) => [message.id, message]),
+  );
+  const snapshotIdByDurableId = new Map<string, string>();
+  const durableIndexBySnapshotId = new Map<string, number>();
+  for (const message of snapshotMessages) {
+    const durableId =
+      durableIdBySnapshotId.get(message.id) ??
+      (durableIndexById.has(message.id) ? message.id : undefined);
+    const durableIndex = durableId
+      ? durableIndexById.get(durableId)
+      : undefined;
+    if (
+      !durableId ||
+      durableIndex === undefined ||
+      snapshotIdByDurableId.has(durableId)
+    ) {
+      continue;
+    }
+    snapshotIdByDurableId.set(durableId, message.id);
+    durableIndexBySnapshotId.set(message.id, durableIndex);
+    messageByDurableId.set(durableId, message);
+  }
+
+  if (snapshotIdByDurableId.size === 0) {
+    return [...snapshotMessages, ...missingMessages]
+      .map((message, index) => ({ message, index }))
+      .sort((left, right) => {
+        const leftCreatedAt = Date.parse(left.message.createdAt ?? "");
+        const rightCreatedAt = Date.parse(right.message.createdAt ?? "");
+        if (
+          Number.isFinite(leftCreatedAt) &&
+          Number.isFinite(rightCreatedAt) &&
+          leftCreatedAt !== rightCreatedAt
+        ) {
+          return leftCreatedAt - rightCreatedAt;
+        }
+        return left.index - right.index;
+      })
+      .map(({ message }) => message);
+  }
+
+  const insertions = new Map<number, AgentMessage[]>();
+  for (let index = 0; index < snapshotMessages.length; index += 1) {
+    const message = snapshotMessages[index]!;
+    if (durableIndexBySnapshotId.has(message.id)) continue;
+
+    let insertionIndex: number | undefined;
+    for (let next = index + 1; next < snapshotMessages.length; next += 1) {
+      const durableIndex = durableIndexBySnapshotId.get(
+        snapshotMessages[next]!.id,
+      );
+      if (durableIndex !== undefined) {
+        insertionIndex = durableIndex;
+        break;
+      }
+    }
+    if (insertionIndex === undefined) {
+      for (let previous = index - 1; previous >= 0; previous -= 1) {
+        const durableIndex = durableIndexBySnapshotId.get(
+          snapshotMessages[previous]!.id,
+        );
+        if (durableIndex !== undefined) {
+          insertionIndex = durableIndex + 1;
+          break;
+        }
+      }
+    }
+    if (insertionIndex === undefined) continue;
+    const messages = insertions.get(insertionIndex) ?? [];
+    messages.push(message);
+    insertions.set(insertionIndex, messages);
+  }
+
+  const ordered: AgentMessage[] = [];
+  for (let index = 0; index <= durableMessages.length; index += 1) {
+    ordered.push(...(insertions.get(index) ?? []));
+    const durableMessage = durableMessages[index];
+    if (!durableMessage) continue;
+    const projected = messageByDurableId.get(durableMessage.id);
+    if (projected) ordered.push(projected);
+  }
+  return ordered;
 }
 
 function reconcileDurableMessages(
@@ -679,6 +801,46 @@ function reconcileDurableMessages(
       );
     }
   }
+  const textOf = (parts: AgentMessage["parts"]) =>
+    parts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("");
+  // A run that recovered an interrupted turn records only itself on its reply,
+  // while an open page streamed it into the run the prompt was submitted to.
+  // The recovering run's events open their own message, so the reply is on
+  // screen only when one of that run's messages is exactly it; anything less
+  // keeps the saved reply, so the answer is never dropped.
+  const submittedRunByTurn = new Map<string, string | null>();
+  for (const stored of submittedUsers) {
+    const turnId = asRecord(asRecord(stored.metadata)?.custom)?.submittedTurnId;
+    if (typeof turnId !== "string") continue;
+    submittedRunByTurn.set(
+      turnId,
+      submittedRunByTurn.has(turnId) ? null : submittedRunId(stored)!,
+    );
+  }
+  const shownByInterruptedRun = (reply: AgentMessage) => {
+    const turnId = asRecord(asRecord(reply.metadata)?.custom)?.turnId;
+    const submitted =
+      typeof turnId === "string" ? submittedRunByTurn.get(turnId) : undefined;
+    if (
+      !submitted ||
+      durableRunIds(reply).includes(submitted) ||
+      durableByRun.has(submitted)
+    ) {
+      return false;
+    }
+    const ids = assistantIdsByRun.get(submitted);
+    const replyText = textOf(reply.parts);
+    if (!ids || !replyText) return false;
+    return messages.some(
+      (message) =>
+        message.role === "assistant" &&
+        ids.has(message.id) &&
+        textOf(message.parts) === replyText,
+    );
+  };
 
   const rootAssistantProjection = projectRootAssistantMessages({
     rootMessages: durable,
@@ -689,6 +851,8 @@ function reconcileDurableMessages(
   });
   const representedDurableAssistantIds =
     rootAssistantProjection.representedRootMessageIds;
+  const snapshotRunIdsByMessageId =
+    rootAssistantProjection.snapshotRunIdsByMessageId;
   const rootMessageIdsBySnapshotMessageId = new Map(
     [...rootAssistantProjection.snapshotMessageIdsByRootMessageId].map(
       ([rootId, snapshotId]) => [snapshotId, rootId],
@@ -734,7 +898,8 @@ function reconcileDurableMessages(
       const runId =
         typeof metadataRunId === "string"
           ? metadataRunId
-          : runByAssistantId.get(message.id);
+          : (snapshotRunIdsByMessageId.get(message.id) ??
+            runByAssistantId.get(message.id));
       if (runId) snapshotAssistantRunIds.add(runId);
     }
   }
@@ -781,6 +946,12 @@ function reconcileDurableMessages(
     for (const message of matchingSnapshots) {
       matchedSnapshotUserIds.add(message.id);
     }
+    for (let index = 0; index < matchingSnapshots.length; index += 1) {
+      storedUserBySnapshotId.set(
+        matchingSnapshots[index]!.id,
+        candidates[index]!,
+      );
+    }
   }
 
   const missingMessages: AgentMessage[] = submittedUsers.filter(
@@ -822,53 +993,48 @@ function reconcileDurableMessages(
     if (typeof runId !== "string" || !recoverableAssistantRunIds.has(runId)) {
       continue;
     }
+    if (shownByInterruptedRun(message)) continue;
     missingMessages.push(message);
     representedAssistantIds.add(message.id);
   }
 
-  const projectedMessages = [
-    ...deduplicatedMessages,
-    ...missingMessages.sort(
+  const durableIdBySnapshotId = new Map<string, string>();
+  for (const [snapshotId, stored] of storedUserBySnapshotId) {
+    durableIdBySnapshotId.set(snapshotId, stored.id);
+  }
+  for (const [snapshotId, rootId] of rootMessageIdsBySnapshotMessageId) {
+    durableIdBySnapshotId.set(snapshotId, rootId);
+  }
+  const projectedMessages = orderMessagesByDurableSequence(
+    deduplicatedMessages,
+    missingMessages.sort(
       (left, right) =>
         (durableIndexById.get(left.id) ?? 0) -
         (durableIndexById.get(right.id) ?? 0),
     ),
-  ]
-    .map((message, index) => ({
-      message,
-      index,
-    }))
-    .sort((left, right) => {
-      const leftCreatedAt = Date.parse(left.message.createdAt ?? "");
-      const rightCreatedAt = Date.parse(right.message.createdAt ?? "");
-      if (
-        Number.isFinite(leftCreatedAt) &&
-        Number.isFinite(rightCreatedAt) &&
-        leftCreatedAt !== rightCreatedAt
-      ) {
-        return leftCreatedAt - rightCreatedAt;
-      }
-      return left.index - right.index;
-    })
-    .map(({ message }) => message);
-
+    durable,
+    durableIndexById,
+    durableIdBySnapshotId,
+  );
   const snapshotRunId = (message: AgentMessage) => {
     const metadataRunId = asRecord(message.metadata)?.runId;
     return (
       runByAssistantId.get(message.id) ??
+      snapshotRunIdsByMessageId.get(message.id) ??
       (typeof metadataRunId === "string" ? metadataRunId : undefined)
     );
   };
-  const textOf = (parts: AgentMessage["parts"]) =>
-    parts
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("");
 
-  return projectedMessages.map((message) => {
+  const reconciledMessages = projectedMessages.map((message) => {
     if (message.role === "user") {
       const stored = storedUserBySnapshotId.get(message.id);
-      return stored ? withRefusedTurnMetadata(message, stored) : message;
+      if (!stored) return message;
+      const createdAt = message.createdAt ?? stored.createdAt;
+      const reconciled =
+        createdAt === message.createdAt
+          ? message
+          : { ...message, ...(createdAt ? { createdAt } : {}) };
+      return withRefusedTurnMetadata(reconciled, stored);
     }
     if (message.role !== "assistant") return message;
     const representedRootId = rootMessageIdsBySnapshotMessageId.get(message.id);
@@ -885,10 +1051,16 @@ function reconcileDurableMessages(
         representedRoot.status === "error"
           ? representedRoot.status
           : undefined;
-      if (parts !== message.parts || terminalStatus !== undefined) {
+      const createdAt = message.createdAt ?? representedRoot.createdAt;
+      if (
+        parts !== message.parts ||
+        terminalStatus !== undefined ||
+        createdAt !== message.createdAt
+      ) {
         message = {
           ...message,
           ...(parts !== message.parts ? { parts } : {}),
+          ...(createdAt ? { createdAt } : {}),
           ...(terminalStatus ? { status: terminalStatus } : {}),
         };
       }
@@ -1005,6 +1177,7 @@ function reconcileDurableMessages(
     }
     return { ...reconciled, parts };
   });
+  return reconciledMessages;
 }
 
 function messageStatus(value: unknown): AgentMessage["status"] | undefined {
@@ -2016,8 +2189,8 @@ export function createAgentNativeAgentKitTransport(
 
   async function activeRunSnapshot(
     threadId: string,
+    value: ActiveRunStatus,
   ): Promise<AgentRunSnapshot | null | undefined> {
-    const value = await activeRunStatus(threadId);
     const status = value.status;
     if (typeof value.active !== "boolean") return undefined;
     // An idle thread has no run; a run that just finished keeps its id and
@@ -2160,7 +2333,8 @@ export function createAgentNativeAgentKitTransport(
     const completedRunIds = completedDurableRunIds(durableMessages);
     const userStoppedRunIds = userStoppedDurableRunIds(durableMessages);
     const durableFailures = durableRunFailures(durableMessages);
-    const activeRun = await activeRunSnapshot(threadId);
+    const activeStatus = await activeRunStatus(threadId);
+    const activeRun = await activeRunSnapshot(threadId, activeStatus);
     if (activeRun === undefined) return thread;
     let discoveredRun = activeRun;
     if (discoveredRun && !discoveredRun.activeMessageId) {
@@ -2185,9 +2359,33 @@ export function createAgentNativeAgentKitTransport(
       !["completed", "failed", "cancelled"].includes(discoveredRun.status)
         ? discoveredRun.id
         : undefined;
+    const submittedTurns = durableSubmittedTurns(durableMessages);
+    const replyRunsByTurn = durableReplyRunsByTurn(durableMessages);
+    const discoveredTurnId =
+      typeof activeStatus.turnId === "string" ? activeStatus.turnId : undefined;
+    // The stale-run reaper hands an interrupted turn to a successor run, which
+    // then owns the turn's outcome: the server reports it, or it completed a
+    // reply. A successor that failed or was stopped leaves the failure showing.
+    const carriedOnByNewerRun = (runId: string) => {
+      const turnId = submittedTurns.get(runId);
+      if (!turnId) return false;
+      if (discoveredRun && discoveredTurnId === turnId) return true;
+      return [...(replyRunsByTurn.get(turnId) ?? [])].some(
+        (id) => id !== runId && completedRunIds.has(id),
+      );
+    };
     const runs = runsWithAssistantHistory
       .filter((entry) => entry.id !== discoveredRun?.id)
       .map((run) => {
+        if (
+          (["queued", "running"].includes(run.status) ||
+            (run.status === "failed" &&
+              runOutcomeForCode(run.error?.code) === "interrupted")) &&
+          carriedOnByNewerRun(run.id)
+        ) {
+          const { error: _error, ...attempt } = run;
+          return { ...attempt, status: "completed" as const };
+        }
         if (
           activeRun === null &&
           run.status === "running" &&

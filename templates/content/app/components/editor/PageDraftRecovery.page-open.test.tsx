@@ -16,6 +16,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const openAiHost = vi.hoisted(() => ({
   isOpenAiMcpAppHost: vi.fn(() => false),
 }));
+const embedHost = vi.hoisted(() => ({
+  isEmbedMcpChatBridgeActive: vi.fn(() => false),
+}));
 
 const server = vi.hoisted(() => ({
   calls: [] as Array<{ name: string; params: unknown }>,
@@ -39,6 +42,11 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
       typeof import("@agent-native/core/client/agent-chat")
     >();
   return { ...actual, isOpenAiMcpAppHost: openAiHost.isOpenAiMcpAppHost };
+});
+vi.mock("@agent-native/core/client/host", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/client/host")>();
+  return { ...actual, ...embedHost };
 });
 vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => {
   const actual =
@@ -157,7 +165,7 @@ describe("Page draft recovery on a page open", () => {
   let queryClient: QueryClient;
   let container: HTMLDivElement;
   let root: Root;
-  let originalWindowStorage: PropertyDescriptor | undefined;
+  let originalWindowStorage = new Map<string, PropertyDescriptor | undefined>();
 
   const render = async () => {
     await act(async () => {
@@ -197,9 +205,12 @@ describe("Page draft recovery on a page open", () => {
     server.mutate.mockReturnValue(new Promise(() => {}));
     server.session = { email: "writer@example.test", orgId: "org" };
     openAiHost.isOpenAiMcpAppHost.mockReturnValue(false);
-    originalWindowStorage = Object.getOwnPropertyDescriptor(
-      window,
-      "localStorage",
+    embedHost.isEmbedMcpChatBridgeActive.mockReturnValue(false);
+    originalWindowStorage = new Map(
+      ["localStorage", "sessionStorage", "indexedDB"].map((key) => [
+        key,
+        Object.getOwnPropertyDescriptor(window, key),
+      ]),
     );
     const storage = createMemoryStorage();
     Object.defineProperty(window, "localStorage", {
@@ -231,10 +242,9 @@ describe("Page draft recovery on a page open", () => {
     container.remove();
     queryClient.clear();
     vi.unstubAllGlobals();
-    if (originalWindowStorage) {
-      Object.defineProperty(window, "localStorage", originalWindowStorage);
-    } else {
-      Reflect.deleteProperty(window, "localStorage");
+    for (const [key, descriptor] of originalWindowStorage) {
+      if (descriptor) Object.defineProperty(window, key, descriptor);
+      else Reflect.deleteProperty(window, key);
     }
   });
 
@@ -311,8 +321,9 @@ describe("Page draft recovery on a page open", () => {
     expect(draftReads()).toBe(2);
   });
 
-  it("paints the scoped document body on /page/:id without a cookie session", async () => {
-    openAiHost.isOpenAiMcpAppHost.mockReturnValue(true);
+  it("paints in a nested ChatGPT frame without cookies or browser storage", async () => {
+    openAiHost.isOpenAiMcpAppHost.mockReturnValue(false);
+    embedHost.isEmbedMcpChatBridgeActive.mockReturnValue(true);
     server.session = null;
     server.documentResponse = {
       id: "page",
@@ -321,6 +332,14 @@ describe("Page draft recovery on a page open", () => {
       canEdit: true,
       mcpDirectoryWidgetReadOnly: true,
     };
+    for (const key of ["localStorage", "sessionStorage", "indexedDB"]) {
+      Object.defineProperty(window, key, {
+        configurable: true,
+        get: () => {
+          throw new DOMException("Storage access is blocked", "SecurityError");
+        },
+      });
+    }
     startPageOpenDocumentReads(queryClient, "page");
 
     await act(async () => {
@@ -365,5 +384,11 @@ describe("Page draft recovery on a page open", () => {
       params: { id: "page" },
     });
     expect(draftReads()).toBe(0);
+    expect(server.calls.map((call) => call.name)).not.toContain(
+      "list-comments",
+    );
+    expect(server.calls.map((call) => call.name)).not.toContain(
+      "list-resource-suggestions",
+    );
   });
 });

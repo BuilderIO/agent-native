@@ -813,16 +813,26 @@ function validateAllCitations(
   return { problems };
 }
 
-function precedingOracleComment(source: string, offset: number): string | null {
-  const lines = source.slice(0, offset).split("\n");
+function precedingOracleComment(
+  source: string,
+  offset: number,
+): { text: string; start: number } | null {
+  const prefix = source.slice(0, offset);
+  const lines = prefix.split("\n");
   const comments: string[] = [];
+  let cursor = offset;
+  let start: number | null = null;
   for (
     let index = lines.length - 1;
     index >= Math.max(0, lines.length - 7);
     index -= 1
   ) {
     const trimmed = lines[index].trim();
-    if (trimmed === "") continue;
+    const lineStart = prefix.lastIndexOf("\n", cursor - 1) + 1;
+    if (trimmed === "") {
+      cursor = lineStart - 1;
+      continue;
+    }
     if (
       !trimmed.startsWith("//") &&
       !trimmed.startsWith("*") &&
@@ -830,8 +840,10 @@ function precedingOracleComment(source: string, offset: number): string | null {
     )
       break;
     comments.unshift(trimmed);
+    start = lineStart;
+    cursor = lineStart - 1;
   }
-  return comments.join("\n") || null;
+  return start === null ? null : { text: comments.join("\n"), start };
 }
 
 function validateAddedTests(
@@ -892,7 +904,11 @@ function validateAddedTests(
     for (let index = 0; index < matches.length; index += 1) {
       const start = matches[index].index ?? 0;
       const nextStart = matches[index + 1]?.index;
-      const end = nextStart ?? source.length;
+      let end = nextStart ?? source.length;
+      if (nextStart !== undefined) {
+        const nextComment = precedingOracleComment(source, nextStart);
+        if (nextComment?.text.match(ORACLE_COMMENT)) end = nextComment.start;
+      }
       const startLine = lineNumber(source, start);
       const changedInBlock = [...changed].some((number) => {
         const lineStart = lineOffsets.get(number);
@@ -909,7 +925,7 @@ function validateAddedTests(
         /\b(?:Figma|figma|parity|matches\s+(?:the\s+)?native)\b/.test(body);
       if (!parityClaim) continue;
 
-      const citation = precedingOracleComment(source, start)?.match(
+      const citation = precedingOracleComment(source, start)?.text.match(
         ORACLE_COMMENT,
       );
       const call = body.match(ORACLE_CALL);

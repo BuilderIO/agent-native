@@ -46,6 +46,8 @@ import {
   AUTO_CONTINUE_OF_RUN_METADATA_KEY,
   AUTO_CONTINUE_PROMPT,
   AUTO_CONTINUE_REFUSAL_CODES,
+  CONTINUE_OF_RUN_METADATA_KEY,
+  CONTINUE_UNAVAILABLE_CODE,
   type AutoContinueRefusalCode,
 } from "../../agent/auto-continue.js";
 import {
@@ -171,6 +173,11 @@ interface ProtocolRun {
   pipeClosedBeforeTerminal?: boolean;
   /** Restored after a reload: its first "stream" is a placeholder, not a pipe. */
   restoredWithoutStream?: boolean;
+  /**
+   * The runtime run's own interruption, held until the server says whether a
+   * newer run already carries the turn (the stale-run reaper starts one).
+   */
+  heldInterruption?: AgentError;
   outcomeReported?: boolean;
   pendingWidgets: Map<string, AgentWidget>;
   actions: Map<string, AgentActionInvocation>;
@@ -1756,6 +1763,81 @@ export function createAgentKitProtocolAdapter(
     return run;
   }
 
+  /**
+   * Registers a run the runtime just started and begins reading it. A disposed
+   * adapter keeps no run it can no longer read.
+   */
+  async function openStartedRun(
+    threadId: string,
+    session: AgentChatRuntimeSession,
+    turn: AgentChatRuntimeTurn,
+    turnMetadata: Record<string, unknown> | undefined,
+    observability?: Record<string, unknown>,
+  ): Promise<string> {
+    const runId = turn.runId ?? turn.id ?? createId("run");
+    const runMetadata = mergeTrustedProtocolMetadata(
+      options.metadata,
+      turnMetadata,
+      turn.metadata,
+      {
+        [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
+          observability: {
+            protocolRunId: runId,
+            ...(turn.runId === undefined ? {} : { runtimeRunId: turn.runId }),
+            runtimeId: runtime.id,
+            sessionId: session.id,
+            turnId: turn.id,
+            threadId,
+            ...observability,
+          },
+        } satisfies AgentNativeProtocolMetadata,
+      },
+    );
+    setRuntimeRunIdMetadata(runMetadata, turn.runId);
+    const run: ProtocolRun = {
+      runId,
+      threadId,
+      session,
+      turn,
+      events: [],
+      firstRetainedSequence: 1,
+      sequence: 0,
+      status: "queued",
+      lastAccessedAtMs: timeMs(),
+      activeReaders: 0,
+      metadata: runMetadata,
+      activeMessageCompleted: false,
+      pendingWidgets: new Map(),
+      actions: new Map(),
+      activeTools: new Map(),
+      pendingToolMessageAssociations: new Map(),
+      activeActivities: new Map(),
+      terminalAppendDepth: 0,
+      pumpPromise: null,
+      continuationPromise: null,
+      streamClosed: false,
+      terminal: false,
+      waitingForContinuation: false,
+      listeners: new Set(),
+    };
+    if (disposed) {
+      await disposeSession(session).catch(() => undefined);
+      throw new Error(
+        "The AgentKit adapter was disposed during turn creation.",
+      );
+    }
+    pruneRetainedRuns(run.lastAccessedAtMs);
+    indexRun(run, turn.runId);
+    append(run, {
+      type: "run.started",
+      agentId: runtime.id,
+      metadata: runMetadata,
+    });
+    append(run, { type: "run.status", status: "running" });
+    ensurePump(run);
+    return runId;
+  }
+
   async function disposeSession(
     session: AgentChatRuntimeSession,
   ): Promise<void> {
@@ -2732,21 +2814,28 @@ export function createAgentKitProtocolAdapter(
             payload: run.usage,
           },
         ];
-      case "error":
+      case "error": {
+        const error: AgentError = {
+          code: event.code ?? "runtime_error",
+          message: event.error,
+          retryable: event.retryable ?? event.recoverable,
+          details: event.details ?? event.cause,
+        };
+        // An interruption ends this runtime run, not necessarily the turn.
+        if (
+          runAuthority &&
+          capabilities.resumableRuns === true &&
+          runOutcomeForCode(error.code) === "interrupted"
+        ) {
+          run.heldInterruption = error;
+          return [];
+        }
         run.terminal = true;
         return [
           { type: "run.status", ...base, status: "failed" },
-          {
-            type: "run.failed",
-            ...base,
-            error: {
-              code: event.code ?? "runtime_error",
-              message: event.error,
-              retryable: event.retryable ?? event.recoverable,
-              details: event.details ?? event.cause,
-            },
-          },
+          { type: "run.failed", ...base, error },
         ];
+      }
       case "done":
         if (!isTerminalReason(event.reason)) {
           run.waitingForContinuation = true;
@@ -2987,6 +3076,19 @@ export function createAgentKitProtocolAdapter(
         }));
       run.initialAuthorityRead = undefined;
       if (stopped()) return null;
+      // An unreachable server says nothing about a successor; keep holding
+      // through the usual backoff until it answers.
+      if (run.heldInterruption && read.kind !== "unreachable") {
+        const successor =
+          read.kind === "read" &&
+          read.state.status !== "missing" &&
+          read.state.runId !== runtimeRunId;
+        if (!successor) {
+          appendHeldInterruption(run);
+          return null;
+        }
+        run.heldInterruption = undefined;
+      }
       const decision = decideAfterStreamClosed(read, {
         runId: runtimeRunId,
         drain: run.terminalDrain,
@@ -3147,6 +3249,15 @@ export function createAgentKitProtocolAdapter(
     }
   }
 
+  /** The runtime run's own interruption, once no newer run carries the turn. */
+  function appendHeldInterruption(run: ProtocolRun): void {
+    const error = run.heldInterruption!;
+    run.heldInterruption = undefined;
+    run.terminal = true;
+    append(run, { type: "run.status", status: "failed" });
+    append(run, { type: "run.failed", error });
+  }
+
   function setResumedRuntimeTurn(
     run: ProtocolRun,
     resumed: AgentChatRuntimeTurn,
@@ -3189,7 +3300,13 @@ export function createAgentKitProtocolAdapter(
               )) {
                 append(run, protocolEvent);
               }
-              if (run.waitingForContinuation || run.terminal) break;
+              if (
+                run.waitingForContinuation ||
+                run.terminal ||
+                run.heldInterruption
+              ) {
+                break;
+              }
             }
           } catch (error) {
             stream.failed = true;
@@ -3199,7 +3316,7 @@ export function createAgentKitProtocolAdapter(
             break;
           }
           if (run.restoredWithoutStream) run.restoredWithoutStream = false;
-          else run.pipeClosedBeforeTerminal = true;
+          else if (!run.heldInterruption) run.pipeClosedBeforeTerminal = true;
           const resumed =
             runAuthority && capabilities.resumableRuns === true
               ? await followRunAuthority(run, runAuthority, stream)
@@ -3369,69 +3486,7 @@ export function createAgentKitProtocolAdapter(
           metadata: turnMetadata,
           abortSignal: readers.signal,
         });
-        const runId = turn.runId ?? turn.id ?? createId("run");
-        const runMetadata = mergeTrustedProtocolMetadata(
-          options.metadata,
-          turnMetadata,
-          turn.metadata,
-          {
-            [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
-              observability: {
-                protocolRunId: runId,
-                ...(turn.runId === undefined
-                  ? {}
-                  : { runtimeRunId: turn.runId }),
-                runtimeId: runtime.id,
-                sessionId: session.id,
-                turnId: turn.id,
-                threadId: input.threadId,
-              },
-            } satisfies AgentNativeProtocolMetadata,
-          },
-        );
-        setRuntimeRunIdMetadata(runMetadata, turn.runId);
-        const run: ProtocolRun = {
-          runId,
-          threadId: input.threadId,
-          session,
-          turn,
-          events: [],
-          firstRetainedSequence: 1,
-          sequence: 0,
-          status: "queued",
-          lastAccessedAtMs: timeMs(),
-          activeReaders: 0,
-          metadata: runMetadata,
-          activeMessageCompleted: false,
-          pendingWidgets: new Map(),
-          actions: new Map(),
-          activeTools: new Map(),
-          pendingToolMessageAssociations: new Map(),
-          activeActivities: new Map(),
-          terminalAppendDepth: 0,
-          pumpPromise: null,
-          continuationPromise: null,
-          streamClosed: false,
-          terminal: false,
-          waitingForContinuation: false,
-          listeners: new Set(),
-        };
-        if (disposed) {
-          await disposeSession(session).catch(() => undefined);
-          throw new Error(
-            "The AgentKit adapter was disposed during turn creation.",
-          );
-        }
-        pruneRetainedRuns(run.lastAccessedAtMs);
-        indexRun(run, turn.runId);
-        append(run, {
-          type: "run.started",
-          agentId: runtime.id,
-          metadata: runMetadata,
-        });
-        append(run, { type: "run.status", status: "running" });
-        ensurePump(run);
-        return runId;
+        return openStartedRun(input.threadId, session, turn, turnMetadata);
       };
       if (!queuePromotionKey) {
         return { runId: await createRun(), capabilities };
@@ -3842,6 +3897,51 @@ export function createAgentKitProtocolAdapter(
         runId: input.runId,
         resume: [resumeEntryFromApproval(input)],
       });
+    };
+  }
+
+  if (runAuthority) {
+    const authority = runAuthority;
+    // Continues the turn a stopped run belonged to rather than starting a new
+    // one, so the turn's journal still blocks repeating a finished write. The
+    // server reads which run ended the turn; this page may know only the one
+    // it watched, or none after a reload.
+    transport.continueRun = async (input) => {
+      if (disposed) throw new Error("The AgentKit adapter is disposed.");
+      pruneRetainedRuns();
+      const local = runs.get(input.runId);
+      if (local && local.threadId !== input.threadId) {
+        throw new Error(`Unknown AgentKit run: ${input.runId}`);
+      }
+      const session = local?.session ?? (await getSession(input.threadId));
+      if (!session.continueTurn) {
+        throw new Error("The Core runtime does not support run continuation.");
+      }
+      const state = await authority.readRunState({
+        sessionId: session.id,
+        runId: local?.turn.runId ?? input.runId,
+        abortSignal: readers.signal,
+      });
+      if (state.status === "missing" || !state.turnId) {
+        throw Object.assign(
+          new Error(`Agent run ${input.runId} cannot be continued.`),
+          { code: CONTINUE_UNAVAILABLE_CODE, retryable: false },
+        );
+      }
+      const turn = await session.continueTurn({
+        turnId: state.turnId,
+        prompt: AUTO_CONTINUE_PROMPT,
+        metadata: { [CONTINUE_OF_RUN_METADATA_KEY]: state.runId },
+        abortSignal: readers.signal,
+      });
+      const runId = await openStartedRun(
+        input.threadId,
+        session,
+        turn,
+        undefined,
+        { continuedRunId: input.runId },
+      );
+      return { runId, capabilities };
     };
   }
 

@@ -11,6 +11,7 @@ import {
   canonicalizeAuthoringFuzzPersistence,
   createAuthoringFuzzPlan,
   formatAuthoringFuzzFailure,
+  isBrowserSessionPath,
   isCaretScrollOnlyChange,
   lineNavigationKeys,
   outsideAuthoringChangesFor,
@@ -372,6 +373,8 @@ it("creates reproducible authoring plans with full command coverage", () => {
   ]);
   expect(first.slice(26, 61).map((step) => step.kind)).toContain("paste-rich");
   expect(first.map((step) => step.kind)).toContain("quote-exit");
+  expect(first.map((step) => step.kind)).toContain("backspace-block-edge");
+  expect(first.map((step) => step.kind)).toContain("delete-block-edge");
   expect(first.map((step) => step.kind)).toContain("copy-inline");
   expect(() =>
     createAuthoringFuzzPlan(Number.MAX_SAFE_INTEGER + 1, 500),
@@ -411,6 +414,17 @@ it("uses the caller's line navigation keys for fuzz operations", () => {
   );
 });
 
+it("captures failed browser-session registration and subroute requests", () => {
+  expect(isBrowserSessionPath("/_agent-native/browser-sessions")).toBe(true);
+  expect(
+    isBrowserSessionPath("/_agent-native/browser-sessions/abc/claim"),
+  ).toBe(true);
+  expect(isBrowserSessionPath("/_agent-native/browser-sessions-extra")).toBe(
+    false,
+  );
+  expect(isBrowserSessionPath("/_agent-native/actions/patch-deck")).toBe(false);
+});
+
 it("maps absolute seeds to stable synthetic and committed layout profiles", () => {
   expect([0, 1, 3, 5, 7, 9, 11, 13].map(authoringFuzzProfileIndex)).toEqual(
     Array(8).fill(null),
@@ -442,6 +456,7 @@ it("checks the rendered slide scale when the scaled profile is requested", async
   const page = {
     on: () => {},
     off: () => {},
+    evaluate: async () => {},
     locator: (selector: string) =>
       selector === "#editor"
         ? { waitFor: async () => {} }

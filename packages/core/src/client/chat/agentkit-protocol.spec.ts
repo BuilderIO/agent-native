@@ -11,6 +11,10 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  AUTO_CONTINUE_PROMPT,
+  CONTINUE_OF_RUN_METADATA_KEY,
+} from "../../agent/auto-continue.js";
+import {
   BACKGROUND_FUNCTION_WALL_HEADROOM_MS,
   BACKGROUND_FUNCTION_WALL_MS,
 } from "../../app-config/run-lifecycle-invariants.js";
@@ -29,6 +33,7 @@ import type {
   AgentChatRuntimeEvent,
   AgentChatRuntimeTurn,
   AgentChatRuntimeTurnInput,
+  ServerRunState,
 } from "./runtime.js";
 
 async function drain<T>(iterable: AsyncIterable<T>): Promise<T[]> {
@@ -3960,6 +3965,78 @@ describe("createAgentKitProtocolAdapter", () => {
     expect(remaining.some((event) => event.type === "run.completed")).toBe(
       true,
     );
+  });
+
+  describe("continuing a stopped run", () => {
+    function stoppedRunRuntime(state: ServerRunState) {
+      const continueTurn = vi.fn(async () => ({
+        id: "turn-1",
+        runId: "run-continued",
+        sessionId: "thread-1",
+        events: (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+          yield { type: "done", reason: "complete" };
+        })(),
+      }));
+      const readRunState = vi.fn(async () => state);
+      const runtime = createRuntime(async function* () {}, {
+        readRunState,
+        subscribe: async () => (async function* () {})(),
+      });
+      runtime.createSession = async () => ({
+        id: "thread-1",
+        runtimeId: runtime.id,
+        startTurn: async () => {
+          throw new Error("Continuing must not start a new turn.");
+        },
+        continueTurn,
+      });
+      return { runtime, continueTurn, readRunState };
+    }
+
+    it("continues the turn the server says the run ended, after a reload", async () => {
+      const { runtime, continueTurn, readRunState } = stoppedRunRuntime({
+        status: "errored",
+        runId: "run-crashed",
+        turnId: "turn-1",
+        terminalReason: "stale_run",
+      });
+      const transport = createAgentKitProtocolAdapter(runtime);
+
+      const { runId } = await transport.continueRun!({
+        threadId: "thread-1",
+        runId: "run-crashed",
+      });
+      const events = await drain(
+        transport.subscribeToRun({ threadId: "thread-1", runId }),
+      );
+
+      expect(readRunState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: "thread-1",
+          runId: "run-crashed",
+        }),
+      );
+      expect(continueTurn).toHaveBeenCalledWith({
+        turnId: "turn-1",
+        prompt: AUTO_CONTINUE_PROMPT,
+        metadata: { [CONTINUE_OF_RUN_METADATA_KEY]: "run-crashed" },
+        abortSignal: expect.any(AbortSignal),
+      });
+      expect(runId).toBe("run-continued");
+      expect(events.map((event) => event.type)).toContain("run.completed");
+    });
+
+    it("refuses with a typed error when the server has no such run", async () => {
+      const { runtime, continueTurn } = stoppedRunRuntime({
+        status: "missing",
+      });
+      const transport = createAgentKitProtocolAdapter(runtime);
+
+      await expect(
+        transport.continueRun!({ threadId: "thread-1", runId: "run-gone" }),
+      ).rejects.toMatchObject({ code: "continue_unavailable" });
+      expect(continueTurn).not.toHaveBeenCalled();
+    });
   });
 
   it("retries session creation after a failed attempt", async () => {

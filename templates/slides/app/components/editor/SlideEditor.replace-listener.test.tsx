@@ -1,6 +1,12 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -284,6 +290,49 @@ describe("SlideEditor with a newer version of the edited slide", () => {
         Object.hasOwn(updates, "content"),
       ),
     ).toHaveLength(0);
+  });
+
+  it("keeps the arrange context menu above positioned slide images", async () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    const noop = () => {};
+    const slide = {
+      id: "slide-image-context-menu",
+      content:
+        '<div class="fmd-slide"><div class="fmd-pptx-image" data-pptx-element-kind="image" data-slide-object-id="image-1" style="position:absolute;z-index:2147483000"><img src="https://example.test/image.svg" alt="Image"></div></div>',
+      layout: "blank",
+    } as Slide;
+    const { container, getByRole } = render(
+      <SlideEditor
+        slide={slide}
+        onUpdateSlide={() => undefined}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+      />,
+      { wrapper: Providers },
+    );
+
+    fireEvent.contextMenu(container.querySelector(".slide-content img")!, {
+      button: 2,
+    });
+
+    const menu = getByRole("menu");
+    const arrangeItem = getByRole("menuitem", {
+      name: "styleInspector.order",
+    });
+    expect(menu.className).toContain("z-[2147483647]");
+    expect(arrangeItem.getAttribute("aria-disabled")).not.toBe("true");
+
+    fireEvent.pointerMove(arrangeItem, { pointerType: "mouse" });
+
+    await waitFor(() => {
+      const submenu = getByRole("menuitem", {
+        name: "styleInspector.bringToFront",
+      }).closest('[role="menu"]');
+      expect(submenu?.className).toContain("z-[2147483647]");
+    });
   });
 
   it("keeps a comment-highlight click in the active text editor", () => {

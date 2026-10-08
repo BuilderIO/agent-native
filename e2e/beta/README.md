@@ -340,7 +340,7 @@ with the command's output, then rerun the authenticated lane. A targeted
 dispatch; it must not replace the fleet token map used by scheduled runs. Do
 not weaken the `+autoz` validation.
 
-**The model is read back off the wire.** Seeding `gpt-5.6-luna` into
+**The model is read back off the wire.** Seeding `gpt-6-luna` into
 localStorage is a wish until something checks it. Every agent-chat POST is
 inspected and the run fails if anything other than luna was billed, including
 a request that carried no model field at all and therefore fell back to the

@@ -184,10 +184,7 @@ import {
   verifyInternalToken,
   extractBearerToken,
 } from "../integrations/internal-token.js";
-import {
-  RECURRING_JOBS_SWEEP_PATH,
-  RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
-} from "../jobs/scheduler-dispatch.js";
+import { RECURRING_JOBS_SWEEP_PATH } from "../jobs/scheduler-dispatch.js";
 import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
 import { RECURRING_SWEEP_BUDGET_MS } from "../jobs/sweep-hooks.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
@@ -220,6 +217,7 @@ import {
   WORKSPACE_OWNER,
 } from "../resources/store.js";
 import { normalizeDatabaseToolsMode } from "../scripts/db/tool-mode.js";
+import { normalizeShellArgs, serializeCliArgs } from "../scripts/parse-args.js";
 import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import { getSetting, putSetting } from "../settings/store.js";
 import {
@@ -512,6 +510,7 @@ import {
   isRuntimeVisibleScope,
   parseSkillFrontmatter,
 } from "./agent-chat/skill-frontmatter.js";
+import { authorizeSweepTrigger } from "./agent-chat/sweep-trigger-auth.js";
 import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 
 export { loadResourcesForPrompt };
@@ -1604,53 +1603,20 @@ export function createAgentChatPlugin(
 
                   const tokens: string[] = [];
                   if (typeof input?.args === "string" && input.args.trim()) {
-                    let current = "";
-                    let inSingle = false;
-                    let inDouble = false;
-                    let escape = false;
-                    for (let i = 0; i < input.args.length; i++) {
-                      const char = input.args[i];
-                      if (escape) {
-                        current += char;
-                        escape = false;
-                        continue;
-                      }
-                      if (char === "\\") {
-                        if (inSingle) {
-                          current += char;
-                        } else {
-                          escape = true;
-                        }
-                        continue;
-                      }
-                      if (char === "'" && !inDouble) {
-                        inSingle = !inSingle;
-                        continue;
-                      }
-                      if (char === '"' && !inSingle) {
-                        inDouble = !inDouble;
-                        continue;
-                      }
-                      if (/\s/.test(char) && !inSingle && !inDouble) {
-                        if (current.length > 0) {
-                          tokens.push(current);
-                          current = "";
-                        }
-                        continue;
-                      }
-                      current += char;
-                    }
-                    if (current.length > 0) {
-                      tokens.push(current);
-                    }
+                    tokens.push(
+                      ...normalizeShellArgs(input.args, {
+                        backslashEscapes: true,
+                        splitAllWhitespace: true,
+                      }),
+                    );
                   } else if (input && typeof input === "object") {
+                    const actionArgs: Record<string, unknown> = {};
                     for (const [k, v] of Object.entries(input)) {
                       if (k === "args" || v === undefined || v === null)
                         continue;
-                      const strVal =
-                        typeof v === "object" ? JSON.stringify(v) : String(v);
-                      tokens.push(`--${k}`, strVal);
+                      actionArgs[k] = v;
                     }
+                    tokens.push(...serializeCliArgs(actionArgs));
                   }
 
                   const BLOCKED_OPERATORS = new Set([
@@ -7632,6 +7598,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 title: body?.title ?? "",
                 scope: bodyIncludesScope ? bodyScope : requestedScope,
                 source: options?.appId ? { appId: options.appId } : null,
+                orgId: await getOrgIdFromEvent(event),
               });
               return thread;
             } catch (err) {
@@ -8230,23 +8197,23 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           return processPendingAutomationFailureAlerts();
         };
 
-        // Platform schedulers use the existing durable background function as
-        // the long-lived worker. Keeping the sweep behind a signed, fixed
-        // route prevents a public request from choosing an owner or job.
+        // Every platform trigger lands here: Netlify's scheduled function (via
+        // the durable background function), Vercel Cron, and the Cloudflare
+        // worker's Cron Trigger. Keeping the sweep behind an authenticated,
+        // fixed route prevents a public request from choosing an owner or job.
         getH3App(nitroApp).use(
           RECURRING_JOBS_SWEEP_PATH,
           defineEventHandler(async (event) => {
-            if (getMethod(event) !== "POST") {
-              setResponseStatus(event, 405);
-              return { error: "Method not allowed" };
-            }
-            const token = extractBearerToken(getHeader(event, "authorization"));
-            if (
-              !token ||
-              !verifyInternalToken(RECURRING_JOBS_SWEEP_TOKEN_SUBJECT, token)
-            ) {
-              setResponseStatus(event, 401);
-              return { error: "Invalid or expired internal token" };
+            const { readDeployCredentialEnv } =
+              await import("./credential-provider.js");
+            const authorization = authorizeSweepTrigger({
+              method: getMethod(event),
+              authorization: getHeader(event, "authorization"),
+              cronSecret: readDeployCredentialEnv("CRON_SECRET"),
+            });
+            if (!authorization.ok) {
+              setResponseStatus(event, authorization.status);
+              return { error: authorization.error };
             }
             if (
               isNetlifyRecurringJobsRuntime() &&
@@ -8735,6 +8702,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         "/mcp",
         "/.well-known/agent-card.json",
         "/_agent-native/a2a",
+        // A platform scheduler usually lands on a cold instance. Without the
+        // gate the first sweep 404s, or runs before the trigger dispatcher
+        // registers its sweep handler and silently skips queued events.
+        RECURRING_JOBS_SWEEP_PATH,
       ],
     });
     nitroApp.hooks?.hook?.("close", async () => {
