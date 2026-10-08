@@ -1254,6 +1254,9 @@ function stopPaint(color: string): { color: string; opacity?: string } {
       opacity: round3(Number(rgba[4])),
     };
   }
+  if (color.toLowerCase() === "transparent") {
+    return { color: "#000000", opacity: "0" };
+  }
   const hex8 = color.match(/^#([\da-f]{6})([\da-f]{2})$/i);
   if (!hex8) return { color };
   return {
@@ -1262,20 +1265,45 @@ function stopPaint(color: string): { color: string; opacity?: string } {
   };
 }
 
+const STOP_POSITION = /^(.*\S)\s+(-?[\d.]+)([a-z%]*)$/i;
+const STOP_COLOR = /^(?:#[\da-f]{3,8}|rgba?\([\d\s.,%/-]+\)|[a-z]+)$/i;
+
+const isClearStop = (paint: { opacity?: string }) =>
+  paint.opacity !== undefined && Number(paint.opacity) === 0;
+
+/** Undefined when a stop has a length position or a colour SVG would paint black. */
 function appendGradientStops(
   gradient: SVGElement,
   stopParts: string[],
-): SVGElement {
-  stopParts.forEach((part, index) => {
-    const position = part.match(/\s(-?[\d.]+)%$/)?.[1];
-    const raw = position == null ? part : part.slice(0, -position.length - 1);
-    const paint = stopPaint(raw.trim());
+): SVGElement | undefined {
+  const stops: Array<{
+    position?: string;
+    paint: ReturnType<typeof stopPaint>;
+  }> = [];
+  for (const part of stopParts) {
+    const located = part.match(STOP_POSITION);
+    if (located && located[3] !== "%") return undefined;
+    const raw = (located ? located[1] : part).trim();
+    if (!STOP_COLOR.test(raw)) return undefined;
+    stops.push({ position: located?.[2], paint: stopPaint(raw) });
+  }
+  // SVG interpolates without premultiplying, so a clear stop keeps its
+  // neighbour's colour or the fade runs through black.
+  stops.forEach(({ paint }, index) => {
+    if (!isClearStop(paint)) return;
+    const neighbour = [
+      ...stops.slice(0, index).reverse(),
+      ...stops.slice(index + 1),
+    ].find((other) => !isClearStop(other.paint));
+    if (neighbour) paint.color = neighbour.paint.color;
+  });
+  stops.forEach(({ position, paint }, index) => {
     const stop = document.createElementNS(SVG_NAMESPACE, "stop");
     stop.setAttribute(
       "offset",
       position != null
         ? `${position}%`
-        : `${(index / (stopParts.length - 1)) * 100}%`,
+        : `${(index / (stops.length - 1)) * 100}%`,
     );
     stop.setAttribute("stop-color", paint.color);
     if (paint.opacity) stop.setAttribute("stop-opacity", paint.opacity);
@@ -1448,10 +1476,18 @@ export function materializeRadialGradients(root: HTMLElement) {
   for (const element of allElements(root)) {
     const style = window.getComputedStyle(element);
     if (!/^radial-gradient\(/i.test(style.backgroundImage)) continue;
+    // Clipped to text, solidifyGradientText takes the first stop instead.
+    if ((style.webkitBackgroundClip || style.backgroundClip) === "text") {
+      continue;
+    }
     const width = element.offsetWidth || computedLength(style.width, 0);
     const height = element.offsetHeight || computedLength(style.height, 0);
+    // One bitmap cannot tile a dot grid (`background-size: 24px 24px`).
+    const tiled = !["", "initial", "auto", "cover", "100% 100%"].includes(
+      style.backgroundSize,
+    );
     const gradient =
-      width > 0 && height > 0
+      width > 0 && height > 0 && !tiled
         ? gradientPaint(
             style.backgroundImage,
             width,

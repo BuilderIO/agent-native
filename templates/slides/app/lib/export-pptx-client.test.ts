@@ -1292,6 +1292,104 @@ describe("materializeRadialGradients", () => {
   });
 });
 
+describe("materializeRadialGradients inputs a bitmap cannot express", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+    vi.restoreAllMocks();
+  });
+
+  function boxWith(style: string) {
+    const root = document.createElement("div");
+    root.innerHTML = `<div style="width:360px;height:160px;${style}">Glow</div>`;
+    document.body.appendChild(root);
+    return { root, box: root.firstElementChild as HTMLElement };
+  }
+
+  it("keeps a tiled dot grid as it was instead of stretching it into one bitmap", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const { root, box } = boxWith(
+      "background-image: radial-gradient(circle, rgba(255, 255, 255, 0.1) 1px, rgba(0, 0, 0, 0) 1px); background-size: 24px 24px;",
+    );
+
+    materializeRadialGradients(root);
+
+    expect(box.style.backgroundImage).toMatch(/^radial-gradient/);
+    expect(box.style.backgroundSize).toBe("24px 24px");
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it("leaves a background-clip:text radial for solidifyGradientText to colour", () => {
+    const { root, box } = boxWith(
+      "background-image: radial-gradient(circle, rgba(232, 116, 59, 0.9), rgba(74, 144, 226, 0.9)); -webkit-background-clip: text; background-clip: text; color: transparent;",
+    );
+
+    materializeRadialGradients(root);
+    solidifyGradientText(root);
+
+    expect(box.style.backgroundImage).toMatch(/^radial-gradient/);
+    expect(box.style.color).toBe("rgba(232, 116, 59, 0.9)");
+  });
+});
+
+describe("gradientPaint stops", () => {
+  it("refuses length-positioned stops, which an SVG stop-color would paint black", () => {
+    expect(
+      gradientPaint(
+        "radial-gradient(circle, rgba(255, 255, 255, 0.1) 1px, rgba(0, 0, 0, 0) 1px)",
+        200,
+        100,
+        "g",
+      ),
+    ).toBeUndefined();
+    expect(
+      gradientPaint(
+        "linear-gradient(90deg, #E8743B 10px, #4A90E2)",
+        200,
+        100,
+        "g",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("refuses a colour function it cannot hand to SVG", () => {
+    expect(
+      gradientPaint(
+        "radial-gradient(circle, oklch(0.7 0.1 40), #000000)",
+        200,
+        100,
+        "g",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("fades to transparent through the neighbouring colour, not through black", () => {
+    const gradient = gradientPaint(
+      "radial-gradient(circle, rgba(232, 116, 59, 0.5), rgba(0, 0, 0, 0) 70%)",
+      200,
+      100,
+      "g",
+    );
+
+    const [first, last] = Array.from(gradient?.children ?? []);
+    expect(first?.getAttribute("stop-color")).toBe("#e8743b");
+    expect(last?.getAttribute("stop-color")).toBe("#e8743b");
+    expect(last?.getAttribute("stop-opacity")).toBe("0");
+  });
+
+  it("takes the colour of the following stop for a leading transparent stop", () => {
+    const gradient = gradientPaint(
+      "linear-gradient(90deg, transparent, #4A90E2)",
+      200,
+      100,
+      "g",
+    );
+
+    const [first] = Array.from(gradient?.children ?? []);
+    expect(first?.getAttribute("stop-color")).toBe("#4A90E2");
+    expect(first?.getAttribute("stop-opacity")).toBe("0");
+  });
+});
+
 describe("gradientPaint radials", () => {
   it("sizes the CSS default ellipse to the farthest corner, with the box's own aspect", () => {
     const gradient = gradientPaint(
