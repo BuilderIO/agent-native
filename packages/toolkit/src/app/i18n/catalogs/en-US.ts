@@ -1790,6 +1790,7 @@ const messages = {
   "settings.storage.adminOnly":
     "Only organization owners and admins can change file storage.",
   "settings.audit.action": "Action",
+  "settings.audit.agentVia": "Agent via {{protocol}}",
   "settings.audit.allApps": "All apps",
   "settings.audit.app": "App",
   "settings.audit.changedBy": "Changed by",

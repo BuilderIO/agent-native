@@ -1896,6 +1896,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.adminOnly":
     "Somente proprietários e administradores da organização podem alterar o armazenamento de arquivos.",
   "settings.audit.action": "Ação",
+  "settings.audit.agentVia": "Agente via {{protocol}}",
   "settings.audit.allApps": "Todos os apps",
   "settings.audit.app": "App",
   "settings.audit.changedBy": "Alterado por",
