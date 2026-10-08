@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
-  queueAiRequest,
+  queueBackgroundAiRequest,
   withAiRequestStatusInstructions,
 } from "./lib/ai-request-status.js";
 
@@ -52,7 +52,7 @@ export default defineAction({
       }),
     };
 
-    await queueAiRequest({
+    await queueBackgroundAiRequest({
       recordingId: args.recordingId,
       kind: "remove-filler-words",
       requestedAt,

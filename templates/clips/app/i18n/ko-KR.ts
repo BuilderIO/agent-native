@@ -307,6 +307,8 @@ const messages = {
     silenceWorking: "무음 구간을 제거하는 중…",
     silenceCompleted: "무음 구간 제거 완료",
     silenceFailed: "무음 구간 제거 실패",
+    silenceEditsUnreadable:
+      "저장된 편집 내용을 읽을 수 없어 무음 구간을 제거하지 않았습니다.",
     generatePrSummary: "PR 요약 생성",
     generateSop: "SOP 생성",
     generateSopTooltip:
