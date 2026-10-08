@@ -786,6 +786,53 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     expect(mockRelayChunk).toHaveBeenCalledOnce();
   });
 
+  it("does not rewrite an attempt's attribution for a later session", async () => {
+    mockAppState.set(UPLOAD_KEY, {
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+      browserSessionId: "original-session",
+    });
+    mockSelectRows.rows[0] = {
+      ...mockSelectRows.rows[0],
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    mockGetHeader.mockImplementation((_, name) =>
+      name === "x-agent-native-session-id" ? "later-session" : undefined,
+    );
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "s3",
+      sessionId: "sess-1",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 0,
+      lastCommittedIndex: -1,
+    });
+    setRequest({
+      query: {
+        index: "0",
+        mimeType: "video/webm",
+        attemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+      body: new Uint8Array([1]),
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      finalized: false,
+      index: 0,
+      bytes: 1,
+    });
+
+    expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
+    expect(mockAppState.get(UPLOAD_KEY)).toEqual(
+      expect.objectContaining({ browserSessionId: "original-session" }),
+    );
+    expect(mockRelayChunk).toHaveBeenCalledOnce();
+  });
+
   it("preserves a fenced retry when the retry flag switches off between chunks", async () => {
     mockGetResumableSession.mockResolvedValue({
       providerId: "s3",

@@ -99,10 +99,7 @@ async function persistRecordingUploadSession(params: {
   if (!initialState.readable) return { outcome: "unavailable" };
   let currentState = initialState.state;
   for (let retry = 0; retry < 3; retry += 1) {
-    if (
-      recordingUploadBrowserSessionId(currentState, params.attempt) ===
-      params.browserSessionId
-    ) {
+    if (recordingUploadBrowserSessionId(currentState, params.attempt)) {
       return { outcome: "persisted" };
     }
     const nextState = recordingUploadStateForAttemptIfCurrent({
@@ -139,8 +136,7 @@ async function persistRecordingUploadSession(params: {
     browserSessionId: params.browserSessionId,
   });
   if (!sameAttempt) return { outcome: "stale_attempt" };
-  return recordingUploadBrowserSessionId(currentState, params.attempt) ===
-    params.browserSessionId
+  return recordingUploadBrowserSessionId(currentState, params.attempt)
     ? { outcome: "persisted" }
     : { outcome: "contention" };
 }
