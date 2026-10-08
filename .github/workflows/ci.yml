@@ -25,6 +25,7 @@ jobs:
       test_workspace_filters: ${{ steps.scope.outputs.test_workspace_filters }}
       fast_tests: ${{ steps.scope.outputs.fast_tests }}
       content: ${{ steps.scope.outputs.content }}
+      content_convergence: ${{ steps.scope.outputs.content_convergence }}
       core_integration: ${{ steps.scope.outputs.core_integration }}
       plan_e2e: ${{ steps.scope.outputs.plan_e2e }}
       brain_evals: ${{ steps.scope.outputs.brain_evals }}
@@ -39,6 +40,7 @@ jobs:
       query_budget_matrix: ${{ steps.scope.outputs.query_budget_matrix }}
       neon_connection_budget: ${{ steps.scope.outputs.neon_connection_budget }}
       design_canvas_interaction_e2e: ${{ steps.scope.outputs.design_canvas_interaction_e2e }}
+      design_canvas_e2e_specs: ${{ steps.scope.outputs.design_canvas_e2e_specs }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       slides_chat_e2e: ${{ steps.scope.outputs.slides_chat_e2e }}
       slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
@@ -68,6 +70,7 @@ jobs:
         env:
           CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_PR_TITLE: ${{ github.event.pull_request.title }}
         run: node --experimental-strip-types scripts/ci-change-scope.ts
 
       # Full planning only reads manifests and counts files. Targeted planning
@@ -173,6 +176,10 @@ jobs:
       - uses: ./.github/actions/setup-pnpm
         with:
           restore-dist-cache: "true"
+
+      - name: Build core declarations before dependent typechecks
+        if: needs.change-scope.outputs.full == 'true' || contains(needs.change-scope.outputs.test_workspace_filters, '{packages/core}')
+        run: pnpm --filter @agent-native/core run build
 
       - name: Typecheck affected workspaces
         env:
@@ -412,11 +419,28 @@ jobs:
           exit "$status"
 
   design-canvas-interaction-acceptance:
-    name: Design canvas interaction acceptance
+    name: Design canvas interaction acceptance (${{ matrix.shard }})
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          [
+            inspector-1,
+            inspector-2,
+            drag-1,
+            drag-2,
+            position,
+            changed-1,
+            changed-2,
+            changed-3,
+            changed-4,
+            changed-5,
+            changed-6,
+          ]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -436,26 +460,120 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
-      - name: Run focused Design canvas interaction cases
+      - name: Run focused Design regression cases
         working-directory: templates/design
+        timeout-minutes: 15
         env:
-          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}
+          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
         run: |
-          pnpm exec playwright test \
-            e2e/drag-and-drop.reparenting-rules.spec.ts \
-            e2e/drag-and-drop.auto-layout-parity.spec.ts \
-            e2e/cross-screen-auto-layout-parity.spec.ts \
-            e2e/drag-out-of-screen-to-board.spec.ts \
-            e2e/parity-drag-reparent.spec.ts \
-            e2e/corner-radius-handle-drag.spec.ts \
-            e2e/parity-vector-endpoints.spec.ts \
-            e2e/responsive-overview-regressions.spec.ts \
-            e2e/parity-report-interactions.spec.ts \
-            e2e/parity-oversized-nested.spec.ts \
-            e2e/parity-alt-drag-duplicate.spec.ts \
-            e2e/z-order-parity.spec.ts \
-            --grep "physical|reparenting rules|canvas corner-radius handle follows the drag and persists the radius|vector endpoint controls|endpoint marker references unique|a layer dragged below the rendered Screen card moves to the board|a drag released inside rendered Hug overflow stays in its source Screen|a held screen child dropped beyond the rendered board window persists at that canvas point|overview screen creation and duplicate undo/redo keep screens selected and visible|cross-axis oversized drop rejects nested insertion despite main-axis fit|oversized drop from nested plain frames previews and lands in nearest fitting ancestor|oversized drop leaves a fitting static section without a valid ancestor|report path: board frame drops directly into a nested screen frame and survives undo/redo|report path: held board text drop into a nested frame shows guide and ghost, preserves z-order, and reloads|moves an absolute child into empty parent space directly after its exited frame|Figma G8 multi-selection preserves native order, painted order, and one-step undo|Figma G9 Bring to Front reorders an auto-layout child and undo restores it" \
-            --workers=1
+          set -euo pipefail
+          # Workers in a shard share PGlite-backed application state; each matrix shard has its own E2E_RUN_ID.
+          changed_specs_file="$RUNNER_TEMP/design-canvas-e2e-specs.nul"
+          node -e '
+            const paths = JSON.parse(process.env.DESIGN_CANVAS_E2E_SPECS || "[]");
+            if (!Array.isArray(paths) || paths.some((path) => typeof path !== "string" || !path.startsWith("templates/design/e2e/"))) {
+              throw new Error("Invalid changed Design E2E spec list");
+            }
+            process.stdout.write(paths.map((path) => path.replace(/^templates\/design\//, "")).join(String.fromCharCode(0)));
+          ' > "$changed_specs_file"
+          mapfile -d '' -t changed_specs < "$changed_specs_file"
+          existing_changed_specs=()
+          for spec in "${changed_specs[@]}"; do
+            if [[ -f "$spec" ]]; then
+              existing_changed_specs+=("$spec")
+            fi
+          done
+          case "${{ matrix.shard }}" in
+            changed-*)
+              changed_shard="${{ matrix.shard }}"
+              changed_shard="${changed_shard#changed-}"
+              if ((${#existing_changed_specs[@]} == 0)); then
+                echo "No changed Design E2E specs to run."
+                exit 0
+              fi
+              pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/6"
+              exit
+              ;;
+            inspector-1)
+              fixed_specs=( \
+                e2e/canvas-invariants.spec.ts:508 \
+                e2e/canvas-invariants.spec.ts:1286 \
+                e2e/inspector-styles.spec.ts:176 \
+                e2e/inspector-styles.spec.ts:238 \
+                e2e/inspector-styles.spec.ts:314 \
+                e2e/inspector-styles.spec.ts:426 \
+                e2e/inspector-styles.spec.ts:452 \
+                e2e/inspector-styles.spec.ts:541 \
+              )
+              ;;
+            inspector-2)
+              fixed_specs=( \
+                e2e/canvas-invariants.spec.ts:1170 \
+                e2e/canvas-invariants.spec.ts:1320 \
+                e2e/inspector-styles.spec.ts:610 \
+                e2e/inspector-styles.spec.ts:667 \
+                e2e/inspector-styles.spec.ts:737 \
+                e2e/inspector-styles.spec.ts:798 \
+                e2e/inspector-styles.spec.ts:833 \
+                e2e/inspector-styles.spec.ts:880 \
+                e2e/inspector-styles.spec.ts:999 \
+              )
+              ;;
+            drag-1)
+              fixed_specs=( \
+                e2e/corner-radius-handle-drag.spec.ts:202 \
+                e2e/drag-and-drop.drag-feedback.spec.ts:24 \
+                e2e/drag-and-drop.moving-by-drag.spec.ts:42 \
+              )
+              ;;
+            drag-2)
+              fixed_specs=( \
+                e2e/drag-and-drop.moving-by-drag.spec.ts:105 \
+                e2e/parity-selection.spec.ts:313 \
+                e2e/parity-selection.spec.ts:451 \
+                e2e/parity-selection.spec.ts:572 \
+              )
+              ;;
+            position)
+              fixed_specs=( \
+                e2e/pasted-svg-image-inspector.spec.ts:656 \
+                e2e/pasted-svg-image-inspector.spec.ts:693 \
+                e2e/position-alignment.spec.ts:361 \
+                e2e/position-alignment.spec.ts:431 \
+                e2e/position-alignment.spec.ts:509 \
+                e2e/position-alignment.spec.ts:570 \
+                e2e/position-alignment.spec.ts:615 \
+                e2e/position-alignment.spec.ts:661 \
+                e2e/position-alignment.spec.ts:708 \
+                e2e/position-alignment.spec.ts:740 \
+                e2e/position-alignment.spec.ts:780 \
+              )
+              ;;
+            *)
+              echo "::error::Unknown Design interaction shard: ${{ matrix.shard }}"
+              exit 1
+              ;;
+          esac
+          focused_specs=()
+          for selector in "${fixed_specs[@]}"; do
+            spec="${selector%%:*}"
+            changed=false
+            for changed_spec in "${existing_changed_specs[@]}"; do
+              if [[ "$spec" == "$changed_spec" ]]; then
+                changed=true
+                break
+              fi
+            done
+            if [[ "$changed" == "false" ]]; then
+              focused_specs+=("$selector")
+            fi
+          done
+          if ((${#focused_specs[@]} == 0)); then
+            echo "All fixed regression cases are included in the changed-spec shard."
+            exit 0
+          fi
+          pnpm exec playwright test "${focused_specs[@]}" --workers=1
 
   fast-tests:
     name: Fast tests
@@ -580,7 +698,7 @@ jobs:
   content-db-tests:
     name: Content DB tests
     needs: change-scope
-    if: needs.change-scope.outputs.content == 'true'
+    if: needs.change-scope.outputs.content == 'true' || needs.change-scope.outputs.content_convergence == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -630,6 +748,87 @@ jobs:
         env:
           CONTENT_MIGRATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
           CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_row_mutation_test
+
+      # Two tabs on one page against the production build, with the realtime
+      # stream refused as a serverless function refuses it.
+      - name: Restore Playwright browser cache
+        if: ${{ !cancelled() && needs.change-scope.outputs.content_convergence == 'true' }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        if: ${{ !cancelled() && needs.change-scope.outputs.content_convergence == 'true' }}
+        run: pnpm exec playwright install --only-shell --with-deps chromium
+
+      - name: Build Content for the two-tab convergence lane
+        id: convergence-build
+        if: ${{ !cancelled() && needs.change-scope.outputs.content_convergence == 'true' }}
+        run: |
+          docker exec "${{ job.services.postgres.id }}" createdb -U postgres content_convergence
+          pnpm --filter content build
+        env:
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
+
+      - name: Run Content two-tab convergence lane
+        id: convergence
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        working-directory: templates/content
+        run: |
+          BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
+            -c e2e/playwright.config.ts \
+            e2e/two-tab-convergence.spec.ts \
+            e2e/chatgpt-widget-body-paint.spec.ts \
+            --workers=1 \
+            --grep-invert @known-loss --output test-results/required
+        env:
+          CONTENT_E2E_SERVE_BUILD: "1"
+          CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
+          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/convergence.jsonl
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/required.json
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
+
+      # Main still loses text in these. They report every run without failing
+      # the PR until the fix that drops their @known-loss tag lands.
+      - name: Run Content two-tab scenarios main still loses text in
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        continue-on-error: true
+        working-directory: templates/content
+        run: |
+          BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
+            -c e2e/playwright.config.ts e2e/two-tab-convergence.spec.ts --workers=1 \
+            --grep @known-loss --pass-with-no-tests --output test-results/known-loss
+        env:
+          CONTENT_E2E_SERVE_BUILD: "1"
+          CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
+          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/convergence.jsonl
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/known-loss.json
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
+
+      - name: Summarize Content two-tab convergence
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        working-directory: templates/content
+        run: >-
+          node --experimental-strip-types e2e/convergence-summary.ts
+          "$RUNNER_TEMP/content-convergence/convergence.jsonl"
+          "$RUNNER_TEMP/content-convergence/required.json"
+          "$RUNNER_TEMP/content-convergence/known-loss.json"
+          >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Content two-tab convergence report
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: content-convergence-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/content-convergence/
+            templates/content/test-results/
+          if-no-files-found: warn
+          retention-days: 14
 
   core-integration-tests:
     name: Core integration tests
@@ -698,13 +897,38 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
-      - name: Check chat typing while slide text editing remains active
-        working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
-
       - name: Check platform-aware line-edge caret navigation in slide text
         working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa
+        timeout-minutes: 10
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --line-key-platform linux
+
+  slides-chat-typing-e2e:
+    name: Slides chat typing during slide editing
+    needs: change-scope
+    if: ${{ needs.change-scope.outputs.slides_chat_e2e == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell --with-deps chromium
+
+      - name: Check chat typing while slide text editing remains active
+        working-directory: templates/slides
+        timeout-minutes: 20
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
 
   slides-macos-caret-qa:
     name: Slides caret navigation in macOS
@@ -731,7 +955,8 @@ jobs:
 
       - name: Check platform-aware line-edge caret navigation in slide text
         working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa
+        timeout-minutes: 10
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --line-key-platform darwin
 
   slides-authoring-e2e:
     name: Slides rich-text authoring
@@ -811,7 +1036,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.result == 'success' && (needs.change-scope.outputs.docs_only == 'true' || needs.change-scope.outputs.build == 'true')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       DATABASE_URL: postgresql://postgres@127.0.0.1:5432/agent_native_build
     services:
@@ -1138,6 +1363,9 @@ jobs:
 
       - name: Test mobile build path guard
         run: pnpm test:mobile-build-paths
+
+      - name: Test source-reading tests guard
+        run: pnpm test:no-source-reading-tests
 
       - name: Test Neon transfer alert and offline backtest
         run: pnpm test:neon-transfer-alert

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createCoreCommands } from "./code-workbench/commands";
+import { buildShortcutSections } from "./keyboard-shortcut-sections";
 import {
   DESIGN_SHORTCUT_CATEGORIES,
   DESIGN_SHORTCUTS,
@@ -102,5 +103,54 @@ describe("keyboard shortcuts catalog", () => {
       DESIGN_SHORTCUTS.find((shortcut) => shortcut.id === "toggle-minimal-ui")
         ?.bindings,
     ).toEqual(["$mod+shift+\\"]);
+  });
+});
+
+describe("shortcut sections", () => {
+  const build = (query: string, codeCommands = createCoreCommands()) =>
+    buildShortcutSections({
+      query,
+      applePlatform: false,
+      categoryLabel: (category) => category,
+      rowLabel: (labelKey) => labelKey.split(".").pop() ?? labelKey,
+      codeCommands,
+    });
+
+  it("returns every category once, in catalog order, with no query", () => {
+    expect(build("").map((section) => section.category)).toEqual([
+      ...DESIGN_SHORTCUT_CATEGORIES,
+    ]);
+  });
+
+  it("lists each Design shortcut exactly once across sections", () => {
+    const ids = build("")
+      .flatMap((section) => section.rows)
+      .filter((row) => row.source === "design")
+      .map((row) => row.id);
+    expect(ids.sort()).toEqual(DESIGN_SHORTCUTS.map((item) => item.id).sort());
+  });
+
+  it("places workbench commands under their mapped categories", () => {
+    const edit = build("").find((section) => section.category === "edit");
+    expect(edit?.rows.find((row) => row.id === "workbench.save")?.badge).toBe(
+      "code",
+    );
+  });
+
+  it("drops categories with no matching row", () => {
+    const sections = build("undo");
+    expect(sections.map((section) => section.category)).toEqual(["essential"]);
+    expect(sections[0]?.rows.map((row) => row.id)).toEqual(["undo"]);
+  });
+
+  it("matches on the key as well as the label", () => {
+    const rows = build("alt+1".replace("+", " ")).flatMap(
+      (section) => section.rows,
+    );
+    expect(rows.map((row) => row.id)).toContain("show-layers");
+  });
+
+  it("returns nothing for a query that matches no row", () => {
+    expect(build("qqqqq")).toEqual([]);
   });
 });

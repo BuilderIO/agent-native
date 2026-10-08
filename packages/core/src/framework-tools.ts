@@ -206,6 +206,11 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "unshare-resource": "sharing",
   "list-resource-shares": "sharing",
   "get-resource-access-status": "sharing",
+  "request-resource-access": "sharing",
+  "get-resource-access-request": "sharing",
+  "list-resource-access-requests": "sharing",
+  "approve-resource-access-request": "sharing",
+  "decline-resource-access-request": "sharing",
   "set-resource-visibility": "sharing",
   "create-agent-resource-link": "sharing",
 
@@ -272,6 +277,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "list-audit-events": "audit",
   "get-audit-event": "audit",
   "export-audit-events": "audit",
+  "export-audit-ocsf": "audit",
   // Observability promotion reuses `labs` until a dedicated group exists.
   // A new FRAMEWORK_TOOL_GROUPS member is filtered at thirteen composition
   // sites; do not add `observability` in the same change as this action.
@@ -301,6 +307,8 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "create-org-service-token": "orgServiceTokens",
   "list-org-service-tokens": "orgServiceTokens",
   "revoke-org-service-token": "orgServiceTokens",
+  "set-service-principal-policy": "orgServiceTokens",
+  "set-service-principal-lifecycle": "orgServiceTokens",
 
   "list-review-comments": "review",
   "create-review-comment": "review",

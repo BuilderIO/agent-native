@@ -19,7 +19,10 @@ import {
   mapAcceptedSelectionNode,
   projectAcceptedSource,
 } from "@/pages/design-editor/commands/selection-publication";
-import { withMeasuredGeometry } from "@/pages/design-editor/editor-helpers";
+import {
+  samePlainData,
+  withMeasuredGeometry,
+} from "@/pages/design-editor/editor-helpers";
 import {
   dedupeStringIds,
   isScreenRootElementInfo,
@@ -57,6 +60,8 @@ export interface ScreenElementSelectArgs {
   pendingOverviewLayerSelectionRef: RefObject<string | null>;
   pendingOverviewScreenSelectionRef: RefObject<string | null>;
   renderedElementInfoByLayerKeyRef?: RefObject<Map<string, ElementInfo>>;
+  revealLayer: (layerId: string) => void;
+  selectedElementRef: RefObject<ElementInfo | null>;
   selectedLayerIdsState: string[];
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
   setActiveTool: Dispatch<SetStateAction<DesignTool>>;
@@ -91,6 +96,8 @@ export function runScreenElementSelect(
     pendingOverviewLayerSelectionRef,
     pendingOverviewScreenSelectionRef,
     renderedElementInfoByLayerKeyRef,
+    revealLayer,
+    selectedElementRef,
     selectedLayerIdsState,
     setActiveFileId,
     setActiveTool,
@@ -298,7 +305,12 @@ export function runScreenElementSelect(
     node && (intent?.additive || intent?.range || intent?.shiftKey),
   );
   setActiveFileId(screenId);
-  setSelectedElement(canonical);
+  const previousSelection = selectedElementRef.current;
+  setSelectedElement(
+    !intent && samePlainData(previousSelection, canonical)
+      ? previousSelection
+      : canonical,
+  );
   setHoveredElement(null);
   setHoveredElementScreenId(null);
   if (node && additiveSelection) {
@@ -328,17 +340,14 @@ export function runScreenElementSelect(
     );
   } else if (node) {
     setSelectedLayerIdsState((current) =>
-      !intent && current.length > 1 && current.includes(node.id)
-        ? current
-        : [node.id],
+      !intent && current.includes(node.id) ? current : [node.id],
     );
+    revealLayer(node.id);
   } else {
     setSelectedLayerIdsState([]);
   }
   if (viewModeRef.current === "overview") {
-    setOverviewSelectedScreenIds((current) =>
-      !intent && current.length > 0 ? current : [],
-    );
+    setOverviewSelectedScreenIds((current) => (!intent ? current : []));
   }
   setActiveTool(resolveToolAfterSelection);
   setMode("edit");

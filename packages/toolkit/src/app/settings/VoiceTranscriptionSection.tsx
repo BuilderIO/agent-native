@@ -360,8 +360,6 @@ export function VoiceTranscriptionSection({
       setShowAdvanced(true);
       if (!googleRealtimeConfigured) {
         focusKey("GOOGLE_APPLICATION_CREDENTIALS");
-      } else if (!builderRealtimeReady) {
-        builderConnect.start({ provisionAccount: false });
       }
       return;
     }

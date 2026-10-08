@@ -181,6 +181,7 @@ export type { AgentActionScope } from "../agent/types.js";
 export {
   actionsToEngineTools,
   executeAgentToolCall,
+  filterInitialEngineTools,
   getJevContextCredentials,
   getOwnerActiveApiKey,
   getOwnerApiKeyForEngine,
@@ -281,6 +282,7 @@ export type { GoogleAuthMode } from "./google-auth-mode.js";
 export {
   createAgentChatPlugin,
   defaultAgentChatPlugin,
+  loadResourcesForPrompt,
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
 export { refreshMcpManagerForPrincipal } from "./agent-chat/mcp-glue.js";
@@ -473,6 +475,7 @@ export {
   type ResolvedFrameworkTools,
 } from "../framework-tools.js";
 export {
+  buildCompactSkillsSummary,
   registerPromptContextProvider,
   type PromptContextProvider,
   type PromptContextProviderContext,
@@ -590,6 +593,7 @@ export {
   type OAuthOwnerResult,
   type OAuthSessionResult,
 } from "./google-oauth.js";
+export { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 
 export {
   buildWorkspaceProviderAuthorizationUrl,

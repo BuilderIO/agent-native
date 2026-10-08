@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
+import { upgradeModelToLatestSupportedVersion } from "../agent/model-version.js";
 
 export { DEFAULT_MODEL };
 import {
@@ -430,26 +431,89 @@ export function useChatModels({
           }
 
           const selectableGroups =
-            unavailableSelectionPolicy === "require-explicit"
+            unavailableSelectionPolicy === "require-explicit" ||
+            !selection.selectedEngine
               ? configuredGroups
               : groups;
-          const selectedGroup = selectableGroups.find(
+          const exactSelectedGroups = selectableGroups.filter(
             (group) =>
-              group.models.includes(selection.selectedModel) &&
+              (group.models.includes(selection.selectedModel) ||
+                (selection.selectedEngine === group.engine &&
+                  group.preserveCustomModels)) &&
               (!selection.selectedEngine ||
                 group.engine === selection.selectedEngine),
           );
+          const exactSelectedGroup = selection.selectedEngine
+            ? exactSelectedGroups[0]
+            : new Set(exactSelectedGroups.map((group) => group.engine)).size ===
+                1
+              ? exactSelectedGroups[0]
+              : undefined;
+          const upgradeCandidates = exactSelectedGroup
+            ? []
+            : selectableGroups.flatMap((group) => {
+                if (
+                  selection.selectedEngine &&
+                  group.engine !== selection.selectedEngine
+                ) {
+                  return [];
+                }
+                const model =
+                  group.preserveCustomModels &&
+                  selection.selectedEngine === group.engine
+                    ? selection.selectedModel
+                    : upgradeModelToLatestSupportedVersion(
+                        selection.selectedModel,
+                        group.models,
+                      );
+                return model ? [{ group, model }] : [];
+              });
+          const upgradeCandidateKeys = new Set(
+            upgradeCandidates.map(({ group, model }) =>
+              JSON.stringify([group.engine, model]),
+            ),
+          );
+          const upgradedSelection =
+            upgradeCandidateKeys.size === 1 ? upgradeCandidates[0] : undefined;
+          const selectedGroup = exactSelectedGroup ?? upgradedSelection?.group;
           if (selectedGroup) {
+            const selectedModel =
+              upgradeModelToLatestSupportedVersion(
+                selection.selectedModel,
+                selectedGroup.models,
+              ) ?? selection.selectedModel;
+            const nextSelection = {
+              ...selection,
+              selectedModel,
+              selectedEngine: selectedGroup.engine,
+            };
             unavailableSelectionRef.current = null;
             setUnavailableSelection(null);
-            if (selection.selectedEngine !== selectedGroup.engine) {
+            if (selectionRef.current.selectedEngine !== selectedGroup.engine) {
               setSelectedEngine(selectedGroup.engine);
             }
+            if (selectionRef.current.selectedModel !== selectedModel) {
+              setSelectedModel(selectedModel);
+              setSelectedEffort(
+                resolveReasoningEffortSelection(
+                  selectedModel,
+                  selection.selectedEffort,
+                ),
+              );
+            }
             if (
-              selectionRef.current.selectedModel !== selection.selectedModel
+              selection.selectedModel !== selectedModel ||
+              selection.selectedEngine !== selectedGroup.engine
             ) {
-              setSelectedModel(selection.selectedModel);
-              setSelectedEffort(selection.selectedEffort);
+              selectionRef.current = nextSelection;
+              writePersisted(storageKey, {
+                model: selectedModel,
+                engine: selectedGroup.engine,
+                effort: resolveReasoningEffortSelection(
+                  selectedModel,
+                  selection.selectedEffort,
+                ),
+              });
             }
             finish();
             return;

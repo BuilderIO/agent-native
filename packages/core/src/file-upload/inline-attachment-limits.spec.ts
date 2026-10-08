@@ -43,6 +43,16 @@ describe("inline attachment limits", () => {
 });
 
 describe("classifyInlineAttachment", () => {
+  it("classifies parameterized data URLs using their normalized media type", () => {
+    expect(
+      classifyInlineAttachment({
+        type: "image",
+        contentType: "image/jpeg",
+        data: "data:IMAGE/JPG;charset=binary;base64,AQID",
+      }),
+    ).toBeNull();
+  });
+
   it("treats a multi-megabyte photo as readable", () => {
     expect(classifyInlineAttachment(imageAtt(2_500_000))).toBeNull();
   });

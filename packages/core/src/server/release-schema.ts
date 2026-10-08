@@ -294,6 +294,11 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
       ),
   ],
   [
+    "ResourceAccessRequests",
+    () =>
+      import("../sharing/access-request-store.js").then((m) => m.ensureTable()),
+  ],
+  [
     "ResourceChanges",
     () =>
       import("../resource-changes/store.js").then((m) =>
@@ -340,6 +345,11 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
       import("../search/index-store.js").then((m) =>
         m.ensureSearchIndexTables(),
       ),
+  ],
+  [
+    "ServicePrincipalPolicies",
+    () =>
+      import("../org/service-principal-policy.js").then((m) => m.ensureTable()),
   ],
   [
     "Settings",

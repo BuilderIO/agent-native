@@ -37,6 +37,10 @@ const sessionEventIndexMocks = vi.hoisted(() => ({
   record: vi.fn(),
   catalog: vi.fn(),
 }));
+const performanceMocks = vi.hoisted(() => ({
+  session: vi.fn(),
+  route: vi.fn(),
+}));
 const deliveryMocks = vi.hoisted(() => ({
   queueMissing: vi.fn(),
   fallbackKey: (eventId: string) =>
@@ -114,6 +118,10 @@ vi.mock("./error-capture.js", () => ({
 vi.mock("./session-event-index.js", () => ({
   recordSessionEventIndex: sessionEventIndexMocks.record,
   recordEventCatalog: sessionEventIndexMocks.catalog,
+}));
+vi.mock("./session-performance.js", () => ({
+  recordSessionPerformance: performanceMocks.session,
+  recordRoutePerformance: performanceMocks.route,
 }));
 vi.mock("./first-party-analytics-health.js", () => ({
   classifyFirstPartyAnalyticsQuery: healthMocks.classify,
@@ -203,6 +211,10 @@ beforeEach(() => {
   sessionEventIndexMocks.record.mockResolvedValue(undefined);
   sessionEventIndexMocks.catalog.mockReset();
   sessionEventIndexMocks.catalog.mockResolvedValue(undefined);
+  performanceMocks.session.mockReset();
+  performanceMocks.session.mockResolvedValue(undefined);
+  performanceMocks.route.mockReset();
+  performanceMocks.route.mockResolvedValue(undefined);
   exceptionMocks.recordFailure.mockReset();
   deliveryMocks.queueMissing.mockReset();
   deliveryMocks.queueMissing.mockReturnValue(false);
@@ -520,6 +532,8 @@ describe("recordAnalyticsEvents", () => {
       });
       let openTransactions = 0;
       let catalogSawOpenTransaction = false;
+      let sessionPerformanceSawOpenTransaction = false;
+      let routePerformanceSawOpenTransaction = false;
       analyticsDbMocks.db.transaction.mockImplementationOnce(
         async (callback: (transaction: unknown) => unknown) => {
           openTransactions += 1;
@@ -532,6 +546,12 @@ describe("recordAnalyticsEvents", () => {
       );
       sessionEventIndexMocks.catalog.mockImplementationOnce(async () => {
         catalogSawOpenTransaction = openTransactions > 0;
+      });
+      performanceMocks.session.mockImplementationOnce(async () => {
+        sessionPerformanceSawOpenTransaction = openTransactions > 0;
+      });
+      performanceMocks.route.mockImplementationOnce(async () => {
+        routePerformanceSawOpenTransaction = openTransactions > 0;
       });
 
       await recordAnalyticsEvents("anpk_test", [
@@ -554,6 +574,11 @@ describe("recordAnalyticsEvents", () => {
       );
       expect(sessionEventIndexMocks.catalog).toHaveBeenCalledOnce();
       expect(catalogSawOpenTransaction).toBe(false);
+      // Session maxima commit with the events; hot route rows wait for it.
+      expect(performanceMocks.session).toHaveBeenCalledOnce();
+      expect(sessionPerformanceSawOpenTransaction).toBe(true);
+      expect(performanceMocks.route).toHaveBeenCalledOnce();
+      expect(routePerformanceSawOpenTransaction).toBe(false);
     },
   );
 
@@ -667,6 +692,8 @@ describe("recordAnalyticsEvents", () => {
 
     expect(sessionEventIndexMocks.record).not.toHaveBeenCalled();
     expect(sessionEventIndexMocks.catalog).not.toHaveBeenCalled();
+    expect(performanceMocks.session).not.toHaveBeenCalled();
+    expect(performanceMocks.route).not.toHaveBeenCalled();
   });
 
   it("fails the batch when its sessions cannot be indexed or marked incomplete", async () => {

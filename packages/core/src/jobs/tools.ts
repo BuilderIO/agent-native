@@ -4,6 +4,7 @@ import { getDbExec } from "../db/client.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
   resourcePut,
+  resourcePutIfAbsent,
   resourceGetByPath,
   resourceList,
   resourceDelete,
@@ -214,7 +215,21 @@ async function runCreate(
   };
 
   const content = buildJobContent(meta, instructions);
-  await resourcePut(owner, path, content);
+  const created = await resourcePutIfAbsent(owner, path, content);
+  if (!created) {
+    const existing = await resourceGetByPath(owner, path);
+    if (!existing) {
+      return JSON.stringify({
+        error: `Job "${name}" was not created: the write was not applied.`,
+      });
+    }
+    return JSON.stringify({
+      error:
+        classifyJobResource(existing.content).kind === "automation"
+          ? `"${name}" already exists and is an automation. Use manage-automations to change it.`
+          : `Job "${name}" already exists. Use manage-jobs with action 'update' to change it, or pick a different name.`,
+    });
+  }
 
   return JSON.stringify({
     created: true,
@@ -502,7 +517,7 @@ export function createJobTools(appId?: string): Record<string, ActionEntry> {
         description: `Manage recurring jobs that run on a cron schedule.
 
 Actions:
-- "create": Create a new recurring job. Requires name and instructions; an omitted schedule defaults to once per hour.
+- "create": Create a new recurring job. Requires name and instructions; an omitted schedule defaults to once per hour. Fails if a job with that name already exists; use "update" to change an existing job.
 - "list": List all recurring jobs and their status (schedule, enabled, last run, next run).
 - "update": Update a job's schedule, instructions, or enabled state. Requires name.
 - "delete": Delete a recurring job. Requires name. Always confirm with the user first.

@@ -352,7 +352,7 @@ This layer is optional and **no-op by default**:
 - `@opentelemetry/api` is an **optional dependency**. If it isn't installed, the span helpers degrade to silent no-ops — they never throw into the agent loop.
 - Even with the api package installed, it ships a default no-op tracer. Spans become real only once the **host registers a `TracerProvider`** (via `@opentelemetry/sdk-node` or similar). The framework deliberately does not depend on the heavy SDK/exporter packages and never registers a provider itself — instrumentation is opt-in by the embedding app.
 
-The loop emits `agent.run` (with `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model`), `tool.call` (`tool.name` + status), and `llm.call` spans, each finished with OK/ERROR status. This is purely additive to the in-house `agent_trace_spans` / `agent_trace_summaries` tables. Source: `packages/core/src/observability/tracing.ts` + `traces.ts`. See the Observability doc for the full table.
+The loop emits `invoke_agent` (with `gen_ai.provider.name` (the engine), `gen_ai.conversation.id`, `gen_ai.request.model`, `gen_ai.usage.*`, `agent.run_id`, `agent.user_id`), `execute_tool {tool}` (`gen_ai.tool.name`, `gen_ai.tool.call.id` + status), and `chat {model}` (`gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.response.finish_reasons`, `gen_ai.usage.*`) spans, each finished with OK/ERROR status. This is purely additive to the in-house `agent_trace_spans` / `agent_trace_summaries` tables. Source: `packages/core/src/observability/tracing.ts` + `traces.ts`. See the Observability doc for the full table.
 
 ## Tracking Bridge
 
@@ -374,6 +374,10 @@ same best-effort fan-out as other tracking events.
 - Each event is stamped with when it happened, not when the run flushed. The
   whole tree is emitted in one burst at run end, so `track()` takes an
   `occurredAt` and the trace tree keeps a real timeline.
+- Model-call spans preserve `createdAt` and `endedAt` as epoch milliseconds,
+  alongside `durationMs`. Their `$ai_generation` events carry the matching
+  `created_at_ms`, `ended_at_ms`, and `duration_ms` properties so latency can
+  be compared over time without reconstructing request boundaries.
 - Agent-Native Analytics shape: the same event lands in `analytics_events` with
   mirrored query-friendly properties such as `run_id`, `thread_id`,
   `cost_cents_x100`, `duration_ms`, `tool_calls`, `successful_tools`,

@@ -98,7 +98,8 @@ export function useRecordingsCount(
     "list-recordings",
     { ...normalizedArgs, countOnly: true } as any,
     {
-      select: (data: any) => (typeof data?.total === "number" ? data.total : 0),
+      select: (data: any) =>
+        typeof data?.total === "number" ? data.total : undefined,
       retry: false,
       throwOnError: false,
     },

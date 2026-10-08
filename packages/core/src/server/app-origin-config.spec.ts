@@ -21,6 +21,11 @@ const KEYS = [
   "VITE_WORKSPACE_OAUTH_ORIGIN",
   "AGENT_NATIVE_WORKSPACE",
   "VITE_AGENT_NATIVE_WORKSPACE",
+  "AGENT_NATIVE_APP_ID",
+  "APP_ID",
+  "AGENT_APP",
+  "AGENT_NATIVE_WORKSPACE_APP_ID",
+  "VITE_AGENT_NATIVE_WORKSPACE_APP_ID",
   "AGENT_NATIVE_WORKSPACE_APPS_JSON",
   "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
 ];
@@ -103,6 +108,21 @@ describe("app origin client config", () => {
     expect(resolvePublicAppOriginConfig()?.appHomePath).toBe("/inbox");
     expect(getAppOriginClientConfigScript()).toContain(
       '"appHomePath":"/inbox"',
+    );
+  });
+
+  it("projects only public configured app identity into the client shell", () => {
+    defineAppConfig({
+      app: { id: "calendar", workspaceId: "workspace-calendar" },
+    });
+
+    expect(resolvePublicAppOriginConfig()).toEqual({
+      appId: "calendar",
+      workspaceAppId: "workspace-calendar",
+      appHomePath: "/home",
+    });
+    expect(getAppOriginClientConfigScript()).toContain(
+      '"appId":"calendar","workspaceAppId":"workspace-calendar"',
     );
   });
 

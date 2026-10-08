@@ -185,6 +185,7 @@ describe("agent-access server helpers", () => {
         resourceKind: "clip-agent-context",
         resourceId: `${recordingId}:access:${"a".repeat(64)}`,
         viewerEmail: email,
+        agentLabel: "a".repeat(60),
       });
       const url = buildAgentAccessApiUrl({
         endpoint: "/api/agent-context.json",
@@ -194,6 +195,34 @@ describe("agent-access server helpers", () => {
       });
 
       expect(url.length).toBeLessThan(LIMIT);
+    });
+
+    it("keeps replay event and diagnostics URLs under the limit without viewer identity claims", () => {
+      const recordingId = "sr_" + "a".repeat(27);
+      const { token } = createScopedAgentAccessGrant({
+        resourceKind: "analytics-session-replay-agent-context",
+        resourceId: recordingId,
+      });
+      const eventsUrl = buildAgentAccessApiUrl({
+        endpoint: "/api/session-replay/agent-events.json",
+        resourceId: recordingId,
+        origin: "https://analytics.example.com",
+        token,
+        extraParams: [["limit", 10000]],
+      });
+      const diagnosticsUrl = buildAgentAccessApiUrl({
+        endpoint: "/api/session-replay/agent-diagnostics.json",
+        resourceId: recordingId,
+        origin: "https://analytics.example.com",
+        token,
+      });
+
+      expect(eventsUrl.length).toBeLessThan(LIMIT);
+      expect(diagnosticsUrl.length).toBeLessThan(LIMIT);
+      const payload = JSON.parse(
+        Buffer.from(token.split(".")[0], "base64url").toString(),
+      );
+      expect(payload).not.toHaveProperty("v");
     });
   });
 

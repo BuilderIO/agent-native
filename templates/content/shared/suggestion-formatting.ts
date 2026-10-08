@@ -16,6 +16,7 @@ type TextRun = {
   to: number;
   sourceFrom: number;
   sourceTo: number;
+  nonTextBefore: boolean;
   verbatim?: boolean;
   emptyCell?: boolean;
 };
@@ -62,6 +63,7 @@ function formattingRuns(
   anchorEmptyCells = false,
 ): {
   runs: TextRun[];
+  nonTextAfter: boolean;
   restored: string;
   spans: Array<Record<SourceSide, SourceSpan>>;
   emptyCells: Array<{ sourceOffset: number; textOffset: number }>;
@@ -72,12 +74,18 @@ function formattingRuns(
   const runs: TextRun[] = [];
   let offset = 0;
   let unmappable = false;
+  // Block syntax between two runs maps to their shared text boundary; an image,
+  // rule, or empty block there is a document position of its own and does not.
+  let nonTextPending = false;
   const withMarkers = (node: PMNode): PMNode => {
     if (node.type === "codeBlock") {
       const text = (node.content ?? [])
         .map((child) => child.text ?? "")
         .join("");
-      if (!text) return node;
+      if (!text) {
+        nonTextPending = true;
+        return node;
+      }
       const index = runs.length;
       runs.push({
         text,
@@ -89,8 +97,10 @@ function formattingRuns(
         to: offset + text.length,
         sourceFrom: -1,
         sourceTo: -1,
+        nonTextBefore: nonTextPending,
         verbatim: true,
       });
+      nonTextPending = false;
       offset += text.length;
       const fence = "`".repeat(longestBacktickRun(text));
       return {
@@ -119,8 +129,10 @@ function formattingRuns(
         to: offset,
         sourceFrom: -1,
         sourceTo: -1,
+        nonTextBefore: nonTextPending,
         emptyCell: true,
       });
+      nonTextPending = true;
       const marker = { type: "text", text: `${markerPrefix}${index}x` };
       return { ...node, content: [{ ...paragraph, content: [marker] }] };
     }
@@ -128,7 +140,10 @@ function formattingRuns(
       const index = runs.length;
       const marker = `${markerPrefix}${index}x`;
       const serialized = serializeInlineTextNodeWithOffsets(node);
-      if (!serialized) return node;
+      if (!serialized) {
+        nonTextPending = true;
+        return node;
+      }
       runs.push({
         text: node.text,
         marks: JSON.stringify(node.marks ?? []),
@@ -139,10 +154,18 @@ function formattingRuns(
         to: offset + node.text.length,
         sourceFrom: -1,
         sourceTo: -1,
+        nonTextBefore: nonTextPending,
       });
+      nonTextPending = false;
       offset += node.text.length;
       return { type: "text", text: marker };
     }
+    if (
+      node.type !== "text" &&
+      node.type !== "hardBreak" &&
+      !node.content?.length
+    )
+      nonTextPending = true;
     return {
       ...node,
       ...(node.content ? { content: node.content.map(withMarkers) } : {}),
@@ -181,6 +204,7 @@ function formattingRuns(
     return null;
   return {
     runs: runs.filter((run) => !run.emptyCell),
+    nonTextAfter: nonTextPending,
     emptyCells: runs
       .filter((run) => run.emptyCell)
       .map((run) => ({ sourceOffset: run.sourceFrom, textOffset: run.from })),
@@ -546,39 +570,6 @@ function structuralGapParts(
   return parts;
 }
 
-function headingStartTextOffset(
-  source: string,
-  sourceOffset: number,
-  runs: TextRun[],
-): number | null {
-  if (sourceOffset > 0 && source[sourceOffset - 1] !== "\n") return null;
-  const marker = /^(#{1,6}) /.exec(source.slice(sourceOffset));
-  if (!marker) return null;
-  const lineEnd = source.indexOf("\n", sourceOffset);
-  const line = source.slice(
-    sourceOffset,
-    lineEnd < 0 ? source.length : lineEnd,
-  );
-  const parsed = nfmToDoc(line);
-  if (
-    parsed.content.length !== 1 ||
-    parsed.content[0]?.type !== "heading" ||
-    Number(parsed.content[0].attrs?.level) !== marker[1]!.length ||
-    docToNfm(parsed) !== line
-  )
-    return null;
-  const firstLineRun = runs.find(
-    (run) =>
-      run.sourceFrom >= sourceOffset &&
-      run.sourceFrom < sourceOffset + line.length,
-  );
-  if (firstLineRun) return firstLineRun.from;
-  const previousRun = [...runs]
-    .reverse()
-    .find((run) => run.sourceTo <= sourceOffset);
-  return previousRun?.to ?? 0;
-}
-
 export function suggestionFormattingSourceSlice(
   source: string,
   from: number,
@@ -771,11 +762,12 @@ export function suggestionFormattingSourceRange(
     structural: boolean;
     afterText: boolean;
     beforeText: boolean;
+    beforeCode: boolean;
   }> = [];
   let previousSourceTo = 0;
   let previousTextTo = 0;
   for (const [index, run] of mapped.runs.entries()) {
-    if (run.sourceFrom > previousSourceTo) {
+    if (run.sourceFrom > previousSourceTo && !run.nonTextBefore) {
       gaps.push({
         sourceFrom: previousSourceTo,
         sourceTo: run.sourceFrom,
@@ -785,12 +777,13 @@ export function suggestionFormattingSourceRange(
         ),
         afterText: index > 0,
         beforeText: true,
+        beforeCode: Boolean(run.verbatim),
       });
     }
     previousSourceTo = run.sourceTo;
     previousTextTo = run.to;
   }
-  if (previousSourceTo < source.length)
+  if (previousSourceTo < source.length && !mapped.nonTextAfter)
     gaps.push({
       sourceFrom: previousSourceTo,
       sourceTo: source.length,
@@ -800,6 +793,7 @@ export function suggestionFormattingSourceRange(
       ),
       afterText: mapped.runs.length > 0,
       beforeText: false,
+      beforeCode: false,
     });
   if (from < to) {
     let coveredTo = from;
@@ -823,14 +817,6 @@ export function suggestionFormattingSourceRange(
       offset: number;
       affinity: "left" | "right";
     }> = [];
-    if (from === to) {
-      const headingOffset = headingStartTextOffset(source, offset, mapped.runs);
-      if (headingOffset !== null)
-        candidates.push({
-          offset: headingOffset,
-          affinity: preferredAffinity,
-        });
-    }
     for (const run of mapped.runs) {
       if (offset === run.sourceFrom)
         candidates.push({ offset: run.from, affinity: "right" });
@@ -861,7 +847,11 @@ export function suggestionFormattingSourceRange(
       }
       // A gap can also hold a frame's tags, as in "\n</callout>\n". An offset
       // inside it still belongs to the text beside it when only line breaks
-      // and indentation separate the two.
+      // and indentation separate the two, or when only the syntax opening the
+      // next text's block does: a heading, list, or quote marker on that
+      // text's line, or a code block's fence line. A fence before other text
+      // closes a code block instead.
+      const opening = source.slice(offset, gap.sourceTo);
       if (
         gap.afterText &&
         offset > gap.sourceFrom &&
@@ -871,7 +861,9 @@ export function suggestionFormattingSourceRange(
       if (
         gap.beforeText &&
         offset < gap.sourceTo &&
-        structuralGapParts(source, offset, gap.sourceTo)
+        (structuralGapParts(source, offset, gap.sourceTo) ||
+          !/[\r\n]/.test(opening) ||
+          (gap.beforeCode && /^[^\r\n]*\r?\n$/.test(opening)))
       )
         candidates.push({ offset: gap.offset, affinity: "right" });
     }

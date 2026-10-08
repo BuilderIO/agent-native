@@ -341,6 +341,7 @@ describe("server-authored follow-up snapshot", () => {
       },
     };
     const saved = complete(submitted, current);
+    expect(saved.agentKit.runs[0].lastSequence).toBe(3);
     const merged = mergeThreadDataForClientSave(saved, stale);
     const restored = await coldLoad(merged);
     expect(restored.suggestions.map((suggestion) => suggestion.runId)).toEqual([

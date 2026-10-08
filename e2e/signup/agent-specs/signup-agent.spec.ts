@@ -30,6 +30,7 @@ const FINDINGS_PATH = join(
 const REVIEW_SURFACE_TIMEOUT_MS = 15_000;
 const REVIEW_SURFACE_LOADING_SELECTOR =
   "[data-first-run-startup-loading]:visible, [aria-busy='true']:not(.sr-only):visible, .skeleton-shimmer:visible";
+const EMAIL_LINK_LANDING_PATH = "/_agent-native/auth/email-link/landing";
 const SECRETS_ENDPOINTS = new Set([
   "/_agent-native/secrets",
   "/_agent-native/secrets/adhoc",
@@ -66,6 +67,34 @@ async function waitForPostLinkState(
     await page.waitForTimeout(500);
   }
   return "unresolved";
+}
+
+async function continueFromEmailLinkLanding(page: Page): Promise<void> {
+  const pageUrl = new URL(page.url());
+  const landingPath = pageUrl.pathname;
+  expect(landingPath.endsWith(EMAIL_LINK_LANDING_PATH)).toBe(true);
+
+  const form = page.locator("form");
+  await expect(form).toHaveAttribute("method", "post");
+  const action = await form.getAttribute("action");
+  expect(action).toBeTruthy();
+  const actionUrl = new URL(action!, page.url());
+  expect(actionUrl.origin).toBe(pageUrl.origin);
+  expect(actionUrl.pathname).toBe(landingPath);
+
+  const continueButton = form.locator('button[type="submit"]');
+  await expect(continueButton).toBeVisible();
+  const continueResponse = page.waitForResponse((response) => {
+    const request = response.request();
+    return (
+      request.method() === "POST" &&
+      new URL(response.url()).pathname === landingPath
+    );
+  });
+  await continueButton.click();
+  expect((await continueResponse).status()).toBe(303);
+  await expect.poll(() => new URL(page.url()).pathname).not.toBe(landingPath);
+  expect(new URL(page.url()).pathname).not.toMatch(/sign-in|login/i);
 }
 
 async function completeFirstRunOnboarding(page: Page): Promise<boolean> {
@@ -156,6 +185,7 @@ function trackNetwork(page: Page, origin: string) {
         (parsed.pathname.startsWith("/_agent-native/onboarding/") ||
           parsed.pathname.startsWith("/_agent-native/actions/") ||
           SECRETS_ENDPOINTS.has(parsed.pathname) ||
+          parsed.pathname.endsWith(EMAIL_LINK_LANDING_PATH) ||
           parsed.pathname === "/_agent-native/auth/magic-link" ||
           parsed.pathname === "/_agent-native/auth/session" ||
           parsed.pathname === "/_agent-native/org/me" ||
@@ -180,7 +210,9 @@ function trackNetwork(page: Page, origin: string) {
     if (!SECRETS_ENDPOINTS.has(pathname)) pendingRequests.delete(request);
     const elapsed =
       startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
-    networkEvents.push(`${response.status()} ${pathname} ${elapsed}`);
+    networkEvents.push(
+      `${request.method()} ${response.status()} ${pathname} ${elapsed}`,
+    );
   });
   page.on("requestfinished", (request) => {
     const url = request.url();
@@ -191,7 +223,7 @@ function trackNetwork(page: Page, origin: string) {
     pendingRequests.delete(request);
     const elapsed =
       startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
-    networkEvents.push(`FINISHED ${pathname} ${elapsed}`);
+    networkEvents.push(`FINISHED ${request.method()} ${pathname} ${elapsed}`);
   });
   page.on("requestfailed", (request) => {
     if (!isDiagnosticRequest(request.url())) return;
@@ -203,12 +235,12 @@ function trackNetwork(page: Page, origin: string) {
       const elapsed =
         startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
       networkEvents.push(
-        `FAILED ${pathname} ${elapsed} ${request.failure()?.errorText ?? "unknown"}`,
+        `FAILED ${request.method()} ${pathname} ${elapsed} ${request.failure()?.errorText ?? "unknown"}`,
       );
       return;
     }
     networkEvents.push(
-      `FAILED ${pathname} ${request.failure()?.errorText ?? "unknown"}`,
+      `FAILED ${request.method()} ${pathname} ${request.failure()?.errorText ?? "unknown"}`,
     );
   });
   return { networkEvents, pendingRequests };
@@ -278,7 +310,7 @@ async function capture(
     .catch((error) => `<DOM diagnostics unreadable: ${String(error)}>`);
   const pending = [...pendingRequests.entries()].map(
     ([request, startedAt]) =>
-      `PENDING ${new URL(request.url()).pathname} ${Date.now() - startedAt}ms`,
+      `PENDING ${request.method()} ${new URL(request.url()).pathname} ${Date.now() - startedAt}ms`,
   );
   const requestDiagnostics = [...networkEvents.slice(-30), ...pending];
   const diagnosticText = `DOM diagnostics:\n${domDiagnostics}\n\nNetwork diagnostics:\n${requestDiagnostics.join(" | ") || "none"}`;
@@ -398,7 +430,28 @@ for (const target of targets) {
         verificationPage,
         target.origin,
       );
-      await verificationPage.goto(link, { waitUntil: "domcontentloaded" });
+      const verificationResponse = await verificationPage.goto(link, {
+        waitUntil: "domcontentloaded",
+      });
+      expect(verificationResponse).toBeTruthy();
+      expect(verificationResponse!.status()).toBeLessThan(400);
+      expect(new URL(verificationPage.url()).origin).toBe(target.origin);
+      expect(
+        new URL(verificationPage.url()).pathname.endsWith(
+          EMAIL_LINK_LANDING_PATH,
+        ),
+      ).toBe(true);
+      steps.push(
+        await capture(
+          verificationPage,
+          "scanner-safe email-link confirmation",
+          [...errors, ...verificationErrors],
+          verificationPageNetwork.networkEvents,
+          verificationPageNetwork.pendingRequests,
+          testInfo,
+        ),
+      );
+      await continueFromEmailLinkLanding(verificationPage);
       const postLinkState = await waitForPostLinkState(
         verificationPage,
         verificationPageNetwork.pendingRequests,
@@ -406,7 +459,7 @@ for (const target of targets) {
       steps.push(
         await capture(
           verificationPage,
-          "after following the emailed link",
+          `after Continue (${postLinkState})`,
           [...errors, ...verificationErrors],
           verificationPageNetwork.networkEvents,
           verificationPageNetwork.pendingRequests,
@@ -501,6 +554,7 @@ for (const target of targets) {
             verificationLinkFor(result.message, target.origin),
             { waitUntil: "domcontentloaded" },
           );
+          await continueFromEmailLinkLanding(returningPage);
           expect(
             await waitForPostLinkState(
               returningPage,

@@ -123,7 +123,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "역할을 입력해 주세요",
   "onboarding.skipForNow": "지금 건너뛰기",
   "onboarding.saveRoleError": "역할을 저장하지 못했습니다.",
-  "onboarding.builderCreateAccount": "Builder.io 계정 만들기",
+  "onboarding.builderCreateAccount": "Builder.io 사용",
   "onboarding.builderSignInWithAccount": "Builder.io 계정으로 로그인",
   "onboarding.builderActivateDescription":
     "한 번의 클릭으로 Builder.io 계정을 생성하거나 재사용하고 무료 크레딧을 활성화합니다.",
@@ -133,6 +133,11 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderMonthlyCredits": "매월 60 Agent Credits",
   "onboarding.builderIncludedFree": "무료 포함",
   "onboarding.builderMoreServices": "+ 서비스 {{count}}개 더",
+  "onboarding.builderLlmCredits": "LLM 크레딧",
+  "onboarding.builderLlmCreditsAndMoreServices":
+    "LLM 크레딧 + 서비스 {{count}}개 더",
+  "onboarding.builderAccountCreated":
+    "Builder.io 계정이 생성되어 연결되었습니다.",
   "onboarding.builderIncludedServices": "포함된 서비스",
   "onboarding.builderActivateTitle": "무료 크레딧 활성화",
   "onboarding.builderAccountExistsTitle": "이미 Builder.io 계정이 있습니다",
@@ -151,7 +156,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivating": "Builder.io 무료 크레딧 활성화 중",
   "onboarding.builderConnecting": "Builder.io 무료 크레딧 설정 중",
   "onboarding.builderProvisioningDescription":
-    "Builder.io 계정을 생성하거나 재사용하는 중입니다. 보통 몇 초 정도 걸립니다.",
+    "Builder.io 계정을 만들고 무료 크레딧을 활성화하고 있습니다.",
   "onboarding.builderConnectionDescription":
     "새 창에서 한 번의 클릭으로 연결을 완료하세요.",
   "onboarding.builderReadyWithCodeChanges":
@@ -399,6 +404,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.connectAbove": "계속하려면 위에서 AI를 연결하세요...",
   "composer.connectBuilder": "Builder.io 사용",
   "composer.connectKeys": "키 연결",
+  "composer.connectAgent": "에이전트 연결",
   "composer.connectingBuilder": "Builder.io 설정 중…",
   "composer.costHigher": "높은 비용",
   "composer.costLower": "낮은 비용",
@@ -1004,6 +1010,19 @@ const messages: ToolkitAgentChatTranslation = {
   "message.actions": "메시지 작업",
   "message.copyMessage": "메시지 복사",
   "message.copyRequestId": "요청 ID 복사",
+  "message.usage": "사용량",
+  "message.usageLoading": "사용량 불러오는 중…",
+  "message.usageUnavailable": "사용량을 사용할 수 없음",
+  "message.usageNotRecorded": "사용량이 기록되지 않음",
+  "message.usageIncomplete":
+    "일부 사용량을 분류할 수 없어 합계가 숨겨졌습니다.",
+  "message.usageReportedCost": "비용 {{amount}}",
+  "message.usageEstimatedCost": "예상 비용 {{amount}}",
+  "message.usageBuilderCredits": "사용한 Builder 크레딧 {{amount}}",
+  "message.usageEstimatedBuilderCredits": "예상 Builder 크레딧 {{amount}}",
+  "message.usageMixedCost": "보고된 비용과 예상 비용 {{amount}}",
+  "message.usageMixedBuilderCredits":
+    "보고된 Builder 크레딧과 예상 Builder 크레딧 {{amount}}",
   "message.requestIdUnavailable": "요청 ID를 사용할 수 없음",
   "message.unavailable":
     "이 대화에서 해당 메시지를 더 이상 사용할 수 없습니다.",
@@ -1211,6 +1230,41 @@ const messages: ToolkitAgentChatTranslation = {
   "accessGate.signIn": "로그인",
   "accessGate.signedInAs": "로그인한 계정: {{email}}",
   "accessGate.switchAccount": "계정 전환",
+  "accessGate.requestDescription":
+    "접근 권한을 요청하면 소유자에게 알림이 전송됩니다.",
+  "accessGate.requestSent":
+    "요청을 보냈습니다. 소유자에게 알림이 전송되었습니다.",
+  "accessGate.requestAccess": "접근 권한 요청",
+  "accessGate.requestNoteLabel": "메모(선택 사항)",
+  "accessGate.requestNotePlaceholder": "소유자에게 전달할 메모를 추가하세요",
+  "accessGate.sendRequest": "요청 보내기",
+  "accessGate.cancel": "취소",
+  "accessGate.requestRateLimited":
+    "현재 요청이 너무 많습니다. 나중에 다시 시도하세요.",
+  "accessGate.requestFailed": "요청을 보내지 못했습니다. 다시 시도하세요.",
+  "accessGate.signedOutRequestDescription":
+    "접근 권한을 요청하려면 로그인하세요.",
+  "accessRequest.title": "{{name}}님이 접근 권한을 요청했습니다",
+  "accessRequest.approvedTitle": "접근이 허용되었습니다",
+  "accessRequest.declinedTitle": "요청이 거부되었습니다",
+  "accessRequest.allow": "허용",
+  "accessRequest.decline": "거부",
+  "accessRequest.unavailableTitle": "이 요청을 검토할 수 없습니다",
+  "accessRequest.unavailableDescription":
+    "요청이 철회되었거나 이 계정에 접근 관리 권한이 없을 수 있습니다.",
+  "accessRequest.loadFailed": "이 요청을 불러올 수 없습니다.",
+  "accessRequest.retry": "다시 시도",
+  "accessRequest.decisionFailed":
+    "결정을 저장하지 못했습니다. 다시 시도하세요.",
+  "accessRequest.stale":
+    "다른 사람이 이미 이 요청을 처리했거나 요청이 변경되었습니다.",
+  "share.accessRequests": "접근 권한 요청",
+  "share.accessRequestsLoadFailed": "접근 권한 요청을 불러올 수 없습니다.",
+  "share.accessRequestsNewest": "최근 요청 {{count}}개를 표시합니다.",
+  "accessRequest.emailFailed":
+    "{{name}}님에게 접근 권한을 부여했지만 이메일을 보내지 못했습니다.",
+  "share.allowRequestFrom": "{{name}} 허용",
+  "share.declineRequestFrom": "{{name}} 거부",
   "share.add": "추가",
   "share.addPeopleEmail": "이메일로 사용자 추가",
   "share.addPeopleOrganization": "조직에서 사용자 추가",
@@ -1570,6 +1624,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.appFilterLabel": "앱",
   "settings.usage.allApps": "모든 앱",
   "settings.usage.unattributedApp": "미지정",
+  "settings.usage.unclassifiedUsage": "분류되지 않은 사용량",
   "settings.usage.peopleFilterLabel": "사용자",
   "settings.usage.everyone": "모든 사람",
   "settings.usage.justYou": "나만",

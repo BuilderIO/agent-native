@@ -227,6 +227,19 @@ describe("rich text selection", () => {
     );
   });
 
+  it("does not normalize inline style spans in nested list blocks", () => {
+    const block = editable(
+      '<ul><li><span data-slide-inline-style="true" style="color: red;">outer</span><ul><li><p><strong><span data-slide-inline-style="true">nested </span><span data-slide-inline-style="true">text</span></strong></p></li></ul></li></ul>',
+    );
+    const outer = block.querySelector("li > span")!.firstChild as Text;
+    const nested = block.querySelector("ul ul")!;
+    const beforeNested = nested.innerHTML;
+
+    normalizeInlineTextSpans(block, [outer]);
+
+    expect(nested.innerHTML).toBe(beforeNested);
+  });
+
   it("toggles bold from the computed weight, writing 400 over a class", () => {
     const style = document.createElement("style");
     style.textContent = ".heavy { font-weight: 700; }";

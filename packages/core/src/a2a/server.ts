@@ -13,6 +13,12 @@ import {
   extractBearerToken,
   verifyInternalToken,
 } from "../integrations/internal-token.js";
+import { parseServiceIdentityEmail } from "../org/service-identity.js";
+import {
+  assertServicePrincipalMayRun,
+  recordServicePrincipalDenial,
+  ServicePrincipalRefusedError,
+} from "../org/service-principal-guard.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { publicFrameworkPath } from "../server/framework-route-prefix.js";
@@ -25,7 +31,10 @@ import {
   isA2AProductionRuntime,
 } from "./auth-policy.js";
 import { handleJsonRpcH3, processA2ATaskFromQueue } from "./handlers.js";
-import { verifyA2AOrganizationIdentity } from "./organization-identity.js";
+import {
+  organizationPrincipalClaims,
+  verifyA2AOrganizationIdentity,
+} from "./organization-identity.js";
 import {
   claimA2AApproval,
   getA2AApprovalForOwner,
@@ -45,15 +54,16 @@ function warnA2AUnauthOnce(): void {
 }
 
 /**
- * Result of verifying an inbound A2A JWT. `email` is the caller identity from
- * the token's `sub` claim (null when verification fails), `orgDomain` mirrors
- * locally resolved organization metadata when present, and `orgId` is the
- * matching local organization bound to the token's organization claims.
+ * Result of verifying an inbound A2A JWT. `email` is present only when a
+ * deployment-secret user assertion verifies; org-secret tokens carry an
+ * organization principal and never supply a user identity. `orgDomain` and
+ * `orgId` are bound to local organization metadata when present.
  */
 export interface A2ATokenPayload {
   email: string | null;
   orgDomain: string | null;
   orgId?: string;
+  identityAssurance?: "user" | "organization";
   claims?: jose.JWTPayload;
 }
 
@@ -88,6 +98,10 @@ function identityPayload(
   audienceOptions?: { includeClaims?: boolean },
   verifiedOrganization?: { orgId: string; orgDomain: string | null },
 ): A2ATokenPayload {
+  const email =
+    typeof payload.sub === "string" && payload.sub.trim()
+      ? payload.sub.trim()
+      : null;
   const claims = verifiedOrganization
     ? {
         ...payload,
@@ -98,10 +112,13 @@ function identityPayload(
       }
     : payload;
   return {
-    email: (payload.sub as string) ?? null,
+    email,
     orgDomain:
       verifiedOrganization?.orgDomain ?? (payload.org_domain as string) ?? null,
     ...(verifiedOrganization ? { orgId: verifiedOrganization.orgId } : {}),
+    ...(!email && verifiedOrganization
+      ? { identityAssurance: "organization" as const }
+      : {}),
     ...(audienceOptions?.includeClaims ? { claims } : {}),
   };
 }
@@ -207,14 +224,15 @@ function isDirectReadSkill(skill: AgentSkill): boolean {
  * claim to locate an org credential after trying the global credential, then
  * verifies the JWT — checking
  * `aud`/`iss` when the token carries them and `exp` always. Returns the
- * caller's email (`sub`) and org domain on success, or `{ email: null,
- * orgDomain: null }` for an invalid token or absent credential. If the
- * organization credential or membership evidence cannot be read, throws
+ * caller's email (`sub`) and org domain on success, or an organization-only
+ * identity with no email when an org secret verifies. Invalid tokens return
+ * `{ email: null, orgDomain: null }`. If the organization credential cannot
+ * be read, throws
  * `A2AIdentityVerificationUnavailableError` so callers cannot treat an
  * unreadable authorization lookup as an unauthenticated fallback.
  *
  * Exported so workspaces can accept A2A callers on the HTTP action route with
- * the same routine — including org-level fallback secrets — instead of
+ * the same routine — including organization-only credentials — instead of
  * reimplementing a partial verifier. Pass the H3 `event` to enable org-domain →
  * org-secret lookup and audience derivation; it is optional. A custom mounted
  * JSON-RPC route also passes its prefix so endpoint-bound tokens verify against
@@ -319,6 +337,39 @@ async function verifyA2ATokenInternal(
       verifyOptions,
     );
     if (payload) {
+      if (typeof payload.org_domain === "string" && payload.org_domain.trim()) {
+        let organization: {
+          orgId: string;
+          orgDomain: string;
+          secret: string;
+        } | null;
+        try {
+          const { resolveA2AOrganizationCredentialsByDomain } =
+            await import("../org/context.js");
+          organization = await resolveA2AOrganizationCredentialsByDomain(
+            payload.org_domain.trim(),
+          );
+        } catch (cause) {
+          throw new A2AIdentityVerificationUnavailableError(cause);
+        }
+        if (organization?.secret.trim() === globalSecret) {
+          const claims = organizationPrincipalClaims(payload, organization);
+          if (!claims) {
+            return { payload: { email: null, orgDomain: null } };
+          }
+          return {
+            payload: {
+              email: null,
+              orgDomain: organization.orgDomain,
+              orgId: organization.orgId,
+              identityAssurance: "organization",
+              ...(audienceOptions?.includeClaims ? { claims } : {}),
+            },
+            verifiedOrgId: organization.orgId,
+          };
+        }
+      }
+
       let verifiedOrganization: Awaited<
         ReturnType<typeof verifyA2AOrganizationIdentity>
       >;
@@ -373,36 +424,17 @@ async function verifyA2ATokenInternal(
   );
   if (!payload) return { payload: { email: null, orgDomain: null } };
 
-  const verifiedDomain =
-    typeof payload.org_domain === "string"
-      ? payload.org_domain.trim().toLowerCase()
-      : "";
-  const email = typeof payload.sub === "string" ? payload.sub.trim() : "";
-  const claimedOrgId = payload.org_id;
-  if (
-    verifiedDomain !== organization.orgDomain ||
-    !email ||
-    (typeof claimedOrgId !== "undefined" &&
-      (typeof claimedOrgId !== "string" ||
-        claimedOrgId.trim() !== organization.orgId))
-  ) {
-    return { payload: { email: null, orgDomain: null } };
-  }
-
-  let member: boolean;
-  try {
-    const { isOrgMemberForA2A } = await import("../org/membership.js");
-    member = await isOrgMemberForA2A(organization.orgId, email);
-  } catch (cause) {
-    throw new A2AIdentityVerificationUnavailableError(cause);
-  }
-  if (!member) return { payload: { email: null, orgDomain: null } };
+  const claims = organizationPrincipalClaims(payload, organization);
+  if (!claims) return { payload: { email: null, orgDomain: null } };
 
   return {
-    payload: identityPayload(payload, audienceOptions, {
-      orgId: organization.orgId,
+    payload: {
+      email: null,
       orgDomain: organization.orgDomain,
-    }),
+      orgId: organization.orgId,
+      identityAssurance: "organization",
+      ...(audienceOptions?.includeClaims ? { claims } : {}),
+    },
     verifiedOrgId: organization.orgId,
   };
 }
@@ -642,7 +674,10 @@ export function mountA2A(
         return { ok: true };
       } catch (err: any) {
         console.error("[a2a] process-task failed:", err);
-        setResponseStatus(event, 500);
+        setResponseStatus(
+          event,
+          err instanceof ServicePrincipalRefusedError ? err.statusCode : 500,
+        );
         return { error: err?.message ?? "process-task failed" };
       }
     }),
@@ -664,8 +699,11 @@ export function mountA2A(
       let verifiedCallerEmail: string | null = null;
       let verifiedOrgDomain: string | null = null;
       let verifiedOrgId: string | undefined;
+      let verifiedIdentityAssurance: "user" | "organization" | undefined;
+      let servicePrincipalAllowedActions: string[] | null | undefined;
       let verifiedAudienceBound = false;
       let legacyApiKeyAuthenticated = false;
+      let bearerTokenVerified = false;
       let bearerTokenRejectedByJwt = false;
 
       // SECURITY: when neither A2A_SECRET nor an apiKeyEnv is configured,
@@ -700,15 +738,48 @@ export function mountA2A(
             },
           };
         }
+        try {
+          const admission = await assertServicePrincipalMayRun(
+            tokenPayload.email,
+            verifiedOrgId,
+          );
+          if (parseServiceIdentityEmail(tokenPayload.email)) {
+            servicePrincipalAllowedActions = admission.allowedActions;
+          }
+        } catch (error) {
+          if (!(error instanceof ServicePrincipalRefusedError)) throw error;
+          if (error.statusCode === 403) {
+            await recordServicePrincipalDenial({
+              email: tokenPayload.email,
+              orgId: verifiedOrgId,
+              actionName: "a2a:admission",
+              caller: "a2a",
+              error,
+            });
+          }
+          setResponseStatus(event, error.statusCode);
+          return {
+            jsonrpc: "2.0",
+            id: null,
+            error: {
+              code: error.statusCode === 503 ? -32003 : -32001,
+              message: error.message,
+              data: { errorCode: error.errorCode },
+            },
+          };
+        }
         verifiedCallerEmail = tokenPayload.email;
         verifiedOrgDomain = tokenPayload.orgDomain;
-        if (verifiedCallerEmail) {
-          verifiedAudienceBound = tokenHasAudienceClaim(bearerToken);
-        }
-        bearerTokenRejectedByJwt = !verifiedCallerEmail;
+        verifiedIdentityAssurance = tokenPayload.email
+          ? "user"
+          : tokenPayload.identityAssurance;
+        bearerTokenVerified = verifiedIdentityAssurance !== undefined;
+        verifiedAudienceBound =
+          bearerTokenVerified && tokenHasAudienceClaim(bearerToken);
+        bearerTokenRejectedByJwt = !bearerTokenVerified;
       }
 
-      if (!verifiedCallerEmail && config.apiKeyEnv) {
+      if (!bearerTokenVerified && config.apiKeyEnv) {
         const expectedKey = process.env[config.apiKeyEnv];
         if (expectedKey) {
           if (!bearerToken) {
@@ -731,7 +802,7 @@ export function mountA2A(
         }
       }
 
-      if (!verifiedCallerEmail && !legacyApiKeyAuthenticated) {
+      if (!bearerTokenVerified && !legacyApiKeyAuthenticated) {
         // Any supplied bearer token that failed JWT verification is an auth
         // failure after the legacy exact-match apiKeyEnv path has had a
         // chance to succeed. Do not let bad tokens fall through to tasks/get
@@ -778,6 +849,9 @@ export function mountA2A(
       if (verifiedCallerEmail) {
         event.context.__a2aVerifiedEmail = verifiedCallerEmail;
       }
+      if (verifiedIdentityAssurance) {
+        event.context.__a2aIdentityAssurance = verifiedIdentityAssurance;
+      }
       if (verifiedAudienceBound) {
         event.context.__a2aAudienceVerified = true;
       }
@@ -786,6 +860,10 @@ export function mountA2A(
       }
       if (verifiedOrgId) {
         event.context.__a2aVerifiedOrgId = verifiedOrgId;
+      }
+      if (servicePrincipalAllowedActions !== undefined) {
+        event.context.__a2aServicePrincipalAllowedActions =
+          servicePrincipalAllowedActions;
       }
 
       const body = await readBody(event);

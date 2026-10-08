@@ -1095,10 +1095,12 @@ function payloadBelongsToThread(
   payload: GuidedQuestionPayload,
   threadId: string | undefined,
 ): boolean {
+  const requestedThread = threadId?.trim();
   const asker =
     typeof payload.threadId === "string" ? payload.threadId.trim() : "";
   if (!asker) return true;
-  return asker === (threadId ?? "").trim();
+  if (!requestedThread) return false;
+  return asker === requestedThread;
 }
 
 export function useGuidedQuestionFlow({
@@ -1119,6 +1121,7 @@ export function useGuidedQuestionFlow({
 }: UseGuidedQuestionFlowOptions = {}) {
   const queryClient = useQueryClient();
   const [payload, setPayload] = useState<GuidedQuestionPayload | null>(null);
+  const queryGenerationRef = useRef(0);
   const normalizedBrowserTabId = useMemo(
     () => normalizeBrowserTabId(browserTabId),
     [browserTabId],
@@ -1154,6 +1157,7 @@ export function useGuidedQuestionFlow({
     queryKey: resolvedQueryKey,
     enabled,
     queryFn: async () => {
+      const queryGeneration = queryGenerationRef.current;
       const read = async (key: string) => {
         const parsed = await readClientAppState<GuidedQuestionPayload>(
           key,
@@ -1163,10 +1167,11 @@ export function useGuidedQuestionFlow({
         }
         return null;
       };
-      return (
-        (normalizedBrowserTabId ? await read(scopedKey) : null) ??
-        (await read(stateKey))
-      );
+      const scopedPayload = normalizedBrowserTabId
+        ? await read(scopedKey)
+        : null;
+      const result = scopedPayload ?? (await read(stateKey));
+      return queryGeneration === queryGenerationRef.current ? result : null;
     },
     refetchInterval: resolvedRefetchInterval,
     structuralSharing: false,
@@ -1221,6 +1226,8 @@ export function useGuidedQuestionFlow({
   const submissionInFlightRef = useRef(false);
 
   const clear = useCallback(() => {
+    // A read already in flight may return the submitted question after clear.
+    queryGenerationRef.current += 1;
     setPayload(null);
     queryClient.setQueryData(resolvedQueryKey, null);
     const del = (key: string) => deleteClientAppState(key).catch(() => {});

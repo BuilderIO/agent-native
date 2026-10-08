@@ -215,7 +215,7 @@ export default {
       tokenLabel: "Token de acceso de Figma",
       tokenPlaceholder: "Pega el token de acceso de Figma",
       connecting: "Conectando…",
-      connect: "Usar Builder.io",
+      connect: "Conectar Figma",
       getToken: "Obtener token",
       importFrame: "Importar marco",
       chooseFrame: "Elegir marco",
@@ -1022,6 +1022,10 @@ export default {
     keyboardShortcuts: {
       title: "Atajos de teclado",
       close: "Cerca: Atajos de teclado",
+      search: "Buscar",
+      searchLabel: "Buscar atajos de teclado",
+      categoriesLabel: "Categorías de atajos",
+      empty: "Ningún atajo coincide con «{{query}}»",
       codeContext: "Código",
       screenContext: "Pantallas",
       nudgeAmount: {
@@ -1054,12 +1058,6 @@ export default {
         leftBracket: "Corchete izquierdo",
         rightBracket: "Corchete derecho",
       },
-      descriptions: {
-        toggleUi:
-          "Púlsalo ahora para ocultar los paneles y concentrarte en tu trabajo",
-        undo: "Retrocede por el cambio de diseño más reciente",
-        redo: "Restaura el cambio de diseño que acabas de deshacer",
-      },
       categories: {
         essential: "Esenciales",
         tools: "Herramientas",
@@ -1091,6 +1089,7 @@ export default {
         showLayers: "Capas",
         showAssets: "Recursos",
         toggleUi: "View",
+        toggleMinimalUi: "Interfaz mínima",
         toggleComments: "Fijar comentario",
         zoomIn: "Acercar",
         zoomOut: "Alejar",
@@ -1595,6 +1594,8 @@ export default {
     assetAdded: "Activo agregado",
     assetsNoImageUrl: "Assets no devolvió una URL de imagen.",
     failedToUploadFile: "No se pudo cargar el archivo",
+    imageAttachmentUnavailable:
+      "No se pudo preparar esta imagen como referencia visual. Adjunta un archivo PNG, JPG, GIF o WebP más pequeño.",
     attachmentsTooLarge:
       "Esos adjuntos son demasiado grandes. Las subidas están limitadas a {{max}} MB en total: adjunta menos archivos o más pequeños.",
     failedToSubmitPrompt: "No se pudo enviar el prompt",
@@ -2036,6 +2037,15 @@ export default {
       "La indexación de código y repositorios requiere el plan Builder Enterprise",
   },
   designSystems: {
+    comingSoonTitle: "Los sistemas de diseño estarán disponibles pronto",
+    waitlist: {
+      join: "Unirme a la lista de espera",
+      joining: "Uniéndome…",
+      joined: "Estás en la lista de espera",
+      error: "No se pudo añadirte a la lista de espera. Inténtalo de nuevo.",
+      unavailable:
+        "La inscripción en la lista de espera no está disponible ahora. Inténtalo más tarde.",
+    },
     deleteError: "No se pudo eliminar el sistema de diseño",
     updateSuccess: "Sistema de diseño actualizado.",
     updateError: "No se pudo actualizar el sistema de diseño",
