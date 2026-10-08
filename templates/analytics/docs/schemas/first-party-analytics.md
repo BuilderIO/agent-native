@@ -152,8 +152,11 @@ A few fields need a value/absent distinction, not a guessed default:
 
 ## Server action response telemetry
 
-`event_name = 'http.response'` is the server-observed request outcome. Action
-routes include `route_kind = 'framework'`, an `action_name`, the HTTP
+`event_name = 'http.response'` is the server-observed request outcome. Every
+response carries a bounded `route_template` (a framework route template such
+as `/_agent-native/auth/session`, the app's file-route template, or a bucket:
+`/_agent-native/*`, `/api/*`, `static`, `page`, `other`). Action routes also
+include `route_kind = 'framework'`, an `action_name`, the HTTP
 `status_code`, `duration_ms`, and a server-generated `request_id`. Join that
 ID with `action.response` when you need to compare the browser attempt with
 what the server actually completed.

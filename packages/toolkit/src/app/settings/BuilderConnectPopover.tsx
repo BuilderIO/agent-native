@@ -15,7 +15,10 @@ import {
   getBuilderIncludedBenefitCapabilities,
 } from "./BuilderIncludedBenefitsDisclosure.js";
 import { currentTemplateId } from "./shell/app-identity.js";
-import type { BuilderConnectFlow } from "./useBuilderStatus.js";
+import type {
+  BuilderConnectErrorKind,
+  BuilderConnectFlow,
+} from "./useBuilderStatus.js";
 
 type BuilderConnectTrigger = React.ReactElement<{
   onClick?: React.MouseEventHandler<HTMLElement>;
@@ -27,6 +30,7 @@ type BuilderConnectChoiceFlow = Pick<BuilderConnectFlow, "connecting"> & {
   configured?: boolean;
   accountExists?: boolean;
   error?: string | null;
+  errorKind?: BuilderConnectErrorKind | null;
   retry?: () => boolean | void;
   statusReadSettledCount?: number;
   statusResolved?: boolean;
@@ -71,8 +75,7 @@ export function BuilderConnectChoicePanel({
   secondaryTestId,
 }: BuilderConnectChoicePanelProps) {
   const t = useT();
-  const statusReadFailed =
-    flow.statusResolved === false && (flow.statusReadSettledCount ?? 0) > 0;
+  const statusReadFailed = flow.errorKind === "status-read";
 
   return (
     <div
@@ -120,7 +123,7 @@ export function BuilderConnectChoicePanel({
           </p>
         </div>
       ) : null}
-      {flow.error ? (
+      {flow.error && !statusReadFailed ? (
         <p role="alert" className="text-xs leading-5 text-destructive">
           {flow.error}
         </p>

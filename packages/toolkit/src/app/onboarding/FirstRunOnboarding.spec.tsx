@@ -502,7 +502,7 @@ describe("FirstRunOnboarding", () => {
     expect(
       document.body.querySelector('[data-testid="first-run-builder-sign-in"]')
         ?.textContent,
-    ).toBe("Sign in with Builder.io account");
+    ).toBe("Use Builder.io");
   });
 
   it("keeps existing-account sign-in available when provisioning is unavailable", () => {
@@ -596,7 +596,7 @@ describe("FirstRunOnboarding", () => {
       connecting: false,
       statusUnavailable: true,
       terminalError: null,
-      error: "Couldn't check the Builder.io connection.",
+      error: "Connection status is unavailable. Retry to check again.",
       start: vi.fn(),
       cancel: vi.fn(),
       retry: vi.fn(),
@@ -625,7 +625,7 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(document.body.textContent).toContain(
-      "Couldn't check the Builder.io connection.",
+      "Connection status is unavailable. Retry to check again.",
     );
     expect(
       document.body.querySelector('[data-testid="first-run-cancel-builder"]'),
@@ -654,7 +654,7 @@ describe("FirstRunOnboarding", () => {
       failure: "transient status read failure",
       statusUnavailable: true,
       terminalError: null,
-      error: "Couldn't check the Builder.io connection.",
+      error: "Connection status is unavailable. Retry to check again.",
     },
     {
       mode: "existing",
@@ -663,7 +663,7 @@ describe("FirstRunOnboarding", () => {
       failure: "transient status read failure",
       statusUnavailable: true,
       terminalError: null,
-      error: "Couldn't check the Builder.io connection.",
+      error: "Connection status is unavailable. Retry to check again.",
     },
     {
       mode: "provision",
@@ -923,7 +923,7 @@ describe("FirstRunOnboarding", () => {
       connecting: false,
       statusUnavailable: true,
       terminalError: null,
-      error: "Couldn't check the Builder.io connection.",
+      error: "Connection status is unavailable. Retry to check again.",
     };
     let resolveCompletion: (() => void) | undefined;
     mocks.completeFirstRun.mockImplementation(
@@ -1680,7 +1680,7 @@ describe("FirstRunOnboarding", () => {
       accountExists: false,
       connecting: false,
       statusUnavailable: true,
-      error: "Couldn't check the Builder.io connection.",
+      error: "Connection status is unavailable. Retry to check again.",
       retry,
       start,
     });
@@ -1717,6 +1717,53 @@ describe("FirstRunOnboarding", () => {
     expect(start).toHaveBeenCalledWith(
       expect.objectContaining({ provisionAccount: true }),
     );
+  });
+
+  it("shows neutral Builder status copy with a retry action", () => {
+    const retry = vi.fn(() => true);
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: false,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      accountExists: false,
+      connecting: false,
+      statusUnavailable: true,
+      error: "Connection status is unavailable. Retry to check again.",
+      errorKind: "status-read",
+      statusReadSettledCount: 0,
+      retry,
+      start: vi.fn(),
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      document.body.querySelector(
+        '[data-testid="first-run-builder-status-error"]',
+      )?.textContent,
+    ).toContain("Connection status is unavailable. Retry to check again.");
+
+    act(() => {
+      document.body
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="first-run-builder-retry-status"]',
+        )
+        ?.click();
+    });
+
+    expect(retry).toHaveBeenCalledOnce();
   });
 
   it("opens Agent › Model without opening the agent sidebar", async () => {

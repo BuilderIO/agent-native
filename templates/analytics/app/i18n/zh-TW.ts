@@ -1558,8 +1558,12 @@ export default {
     time: "時間",
     storageSetupTitle: "連線回放儲存",
     storageSetupDescription:
-      "工作階段回放錄製需要先設定儲存才能儲存分塊。使用 Builder.io 以使用免費方案儲存，或設定您自己的 S3 相容儲存桶。",
+      "工作階段回放需要經授權的檔案上傳服務。授予上傳權限後，Builder.io 就能儲存回放；您也可以設定自己的 S3 相容儲存桶。",
     storageConnected: "已連線儲存",
+    storageStatusUnavailable:
+      "無法檢查回放儲存狀態。請重試以確認上傳是否就緒。",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io 已連線，可用於 AI 和點數，但回放上傳還需要另外授予儲存權限。",
     connectBuilder: "使用 Builder.io",
     configureS3: "設定 S3 儲存",
     devtools: "開發工具",

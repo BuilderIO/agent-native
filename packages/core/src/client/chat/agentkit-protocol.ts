@@ -3279,7 +3279,13 @@ export function createAgentKitProtocolAdapter(
   }
 
   function ensurePump(run: ProtocolRun): void {
-    if (run.pumpPromise || run.streamClosed || run.terminal || !run.turn)
+    if (
+      run.pumpPromise ||
+      run.streamClosed ||
+      run.terminal ||
+      !run.turn ||
+      readers.signal.aborted
+    )
       return;
     run.pumpPromise = (async () => {
       try {

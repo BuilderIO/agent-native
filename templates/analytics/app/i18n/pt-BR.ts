@@ -1566,8 +1566,12 @@ export default {
     time: "Hora",
     storageSetupTitle: "Conectar armazenamento de replay",
     storageSetupDescription:
-      "As gravações de replay de sessão precisam de armazenamento antes que os fragmentos possam ser salvos. Use o Builder.io para armazenamento no plano gratuito ou configure seu próprio bucket compatível com S3.",
+      "As gravações de replay precisam de um provedor autorizado para envio de arquivos. O Builder.io pode armazená-las quando a permissão de envio for concedida, ou configure seu próprio bucket compatível com S3.",
     storageConnected: "Armazenamento conectado",
+    storageStatusUnavailable:
+      "Não foi possível verificar o status do armazenamento de replay. Tente novamente para saber se os envios estão disponíveis.",
+    builderAiConnectedStorageNeedsGrant:
+      "O Builder.io está conectado para IA e créditos, mas os envios de replay precisam de uma permissão de armazenamento separada.",
     connectBuilder: "Usar Builder.io",
     configureS3: "Configurar armazenamento S3",
     devtools: "Ferramentas de dev",
