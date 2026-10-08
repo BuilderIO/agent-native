@@ -25,6 +25,7 @@ const bumpRunProgressMock = vi.hoisted(() => vi.fn(async () => {}));
 const integrationRequestContextMock = vi.hoisted(() => vi.fn());
 const getOrgDomainMock = vi.hoisted(() => vi.fn(async () => "builder.io"));
 const getOrgA2ASecretMock = vi.hoisted(() => vi.fn(async () => "org-secret"));
+const originalA2ASecret = process.env.A2A_SECRET;
 
 const slackIntegrationContext = {
   taskId: "integration-task-1",
@@ -69,6 +70,7 @@ vi.mock("../a2a/client.js", () => ({
   },
   callAction: invokeActionMock,
   callAgent: callAgentMock,
+  getGlobalA2ASecret: () => process.env.A2A_SECRET?.trim() || undefined,
   shouldPreferGlobalA2ASecret: (orgSecret?: string) =>
     !!process.env.A2A_SECRET?.trim() || !orgSecret,
   signA2AToken: vi.fn(async () => "signed-token"),
@@ -149,6 +151,7 @@ vi.mock("../agent/run-store.js", () => ({
 // would otherwise outlive this file, and the next spec in the same worker
 // would run as a Lambda invocation that refuses local PGlite.
 function clearHostedRuntimeEnv() {
+  delete process.env.A2A_SECRET;
   delete process.env.NETLIFY;
   delete process.env.NETLIFY_LOCAL;
   delete process.env.SITE_ID; // guard:allow-env-credential -- tests isolate Netlify's public runtime host marker.
@@ -158,7 +161,11 @@ function clearHostedRuntimeEnv() {
 }
 
 describe("call-agent action", () => {
-  afterEach(clearHostedRuntimeEnv);
+  afterEach(() => {
+    clearHostedRuntimeEnv();
+    if (originalA2ASecret === undefined) delete process.env.A2A_SECRET;
+    else process.env.A2A_SECRET = originalA2ASecret;
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -690,7 +697,7 @@ describe("call-agent action", () => {
     );
   });
 
-  it("explains missing workspace identity before invoking a direct action", async () => {
+  it("explains missing workspace identity when no deployment secret is configured", async () => {
     getOrgDomainMock.mockResolvedValueOnce(null);
     const { run } = await import("./call-agent.js");
 
@@ -702,6 +709,38 @@ describe("call-agent action", () => {
 
     expect(result).toContain("workspace has no domain configured");
     expect(invokeActionMock).not.toHaveBeenCalled();
+  });
+
+  it("allows user-authenticated direct actions without an org domain", async () => {
+    process.env.A2A_SECRET = "fixture-global-secret";
+    findAgentMock.mockResolvedValueOnce({
+      name: "Analytics",
+      url: "https://analytics.agent-native.test",
+    });
+    getOrgDomainMock.mockResolvedValueOnce(null);
+    invokeActionMock.mockResolvedValueOnce({
+      action: "gong-calls",
+      status: "completed",
+      output: '{"total":13}',
+    });
+    const { run } = await import("./call-agent.js");
+
+    await expect(
+      run({
+        agent: "analytics",
+        action: "gong-calls",
+        input: { company: "Edmunds", days: 90 },
+      }),
+    ).resolves.toBe('{"total":13}');
+    expect(invokeActionMock).toHaveBeenCalledWith(
+      "https://analytics.agent-native.test",
+      "gong-calls",
+      { company: "Edmunds", days: 90 },
+      expect.objectContaining({
+        userEmail: "alice+qa@agent-native.example.com",
+        orgDomain: undefined,
+      }),
+    );
   });
 
   it("does not require workspace identity when a direct action has hosted auth", async () => {

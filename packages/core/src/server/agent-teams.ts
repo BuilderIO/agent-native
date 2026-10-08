@@ -71,6 +71,7 @@ import {
   touchAgentTeamRun,
   bumpAgentTeamContinuation,
   completeAgentTeamRun,
+  completeAgentTeamRunIfCurrent,
   getAgentTeamRunDispatchState,
   claimAgentTeamRunReconciliationAttempt,
   listActiveAgentTeamTaskIdsForOwner,
@@ -577,7 +578,28 @@ async function failReconciledTask(
   ownerEmail: string | null,
   message: string,
   progressStatus: TerminalProgressStatus = "failed",
+  expectedDispatch?: Pick<
+    NonNullable<Awaited<ReturnType<typeof getAgentTeamRunDispatchState>>>,
+    "status" | "attempts" | "updatedAt"
+  >,
 ): Promise<AgentTask> {
+  if (expectedDispatch) {
+    let completed = false;
+    try {
+      completed = await completeAgentTeamRunIfCurrent(
+        task.taskId,
+        "failed",
+        expectedDispatch,
+      );
+    } catch (error) {
+      console.warn(
+        `[agent-teams] could not terminalize stale task ${task.taskId}:`,
+        describeDbError(error),
+      );
+    }
+    if (!completed) return task;
+  }
+
   task.status = "errored";
   task.summary = task.summary || task.preview || message;
   task.error = task.error || message;
@@ -587,7 +609,9 @@ async function failReconciledTask(
   if (ownerEmail) {
     await completeTaskProgressRun(task, ownerEmail, progressStatus, message);
   }
-  await completeAgentTeamRun(task.taskId, "failed").catch(() => {});
+  if (!expectedDispatch) {
+    await completeAgentTeamRun(task.taskId, "failed").catch(() => {});
+  }
   return task;
 }
 
@@ -632,7 +656,16 @@ async function reconcileTaskWithRun(
   task: AgentTask,
   event?: any,
 ): Promise<AgentTask> {
-  const dispatch = await getAgentTeamRunDispatchState(task.taskId);
+  let dispatch: Awaited<ReturnType<typeof getAgentTeamRunDispatchState>>;
+  try {
+    dispatch = await getAgentTeamRunDispatchState(task.taskId);
+  } catch (error) {
+    console.warn(
+      `[agent-teams] could not read dispatch state for task ${task.taskId}:`,
+      describeDbError(error),
+    );
+    return task;
+  }
   applyDispatchMetadataToTask(task, dispatch);
 
   if (task.status !== "running") {
@@ -657,6 +690,8 @@ async function reconcileTaskWithRun(
         task,
         ownerEmail,
         "Sub-agent run stalled and did not produce a result.",
+        "failed",
+        dispatch,
       );
     }
     if (dispatch.status === "failed") {
@@ -1446,6 +1481,13 @@ async function finalizeAgentTeamRun(
   const terminal = resolveTaskCompletion(run, fullText, {
     hitContinuationLimit: options?.hitContinuationLimit,
   });
+  const completed = await completeAgentTeamRun(
+    task.taskId,
+    terminal.taskStatus === "completed" ? "done" : "failed",
+    options?.claimedAttempts,
+  );
+  if (!completed) return;
+
   task.status = terminal.taskStatus;
   task.summary = terminal.summary;
   task.error = terminal.error;
@@ -1460,12 +1502,6 @@ async function finalizeAgentTeamRun(
       terminal.progressStep,
     );
   }
-  await completeAgentTeamRun(
-    task.taskId,
-    terminal.taskStatus === "completed" ? "done" : "failed",
-    options?.claimedAttempts,
-  );
-
   if (task.parentThreadId) {
     try {
       await appendParentCompletionInjection(task.parentThreadId, task, {
@@ -1558,13 +1594,14 @@ export async function processAgentTeamRun(
     async () => {
       const task = await loadTask(opts.taskId);
       if (!task) {
-        await completeAgentTeamRun(opts.taskId, "failed");
+        await completeAgentTeamRun(opts.taskId, "failed", claimed.attempts);
         return { ok: true, skipped: "task-missing" };
       }
       if (task.status !== "running") {
         await completeAgentTeamRun(
           opts.taskId,
           task.status === "completed" ? "done" : "failed",
+          claimed.attempts,
         );
         return { ok: true, skipped: "task-terminal" };
       }
@@ -1590,7 +1627,13 @@ export async function processAgentTeamRun(
           err instanceof Error
             ? `Failed to prepare sub-agent: ${err.message}`
             : "Failed to prepare sub-agent.";
-        await failReconciledTask(task, ownerEmail || null, message);
+        await failReconciledTask(
+          task,
+          ownerEmail || null,
+          message,
+          "failed",
+          claimed,
+        );
         return { ok: false, skipped: "config-failed" };
       }
 

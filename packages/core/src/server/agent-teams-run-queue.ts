@@ -233,13 +233,35 @@ export async function completeAgentTeamRun(
   const result =
     claimedAttempts !== undefined
       ? await client.execute({
-          sql: `UPDATE agent_team_run_queue SET status = ?, updated_at = ? WHERE task_id = ? AND attempts = ?`,
+          sql: `UPDATE agent_team_run_queue SET status = ?, updated_at = ? WHERE task_id = ? AND status IN ('queued', 'running') AND attempts = ?`,
           args: [status, Date.now(), taskId, claimedAttempts],
         })
       : await client.execute({
           sql: `UPDATE agent_team_run_queue SET status = ?, updated_at = ? WHERE task_id = ?`,
           args: [status, Date.now(), taskId],
         });
+  return getAffectedRowCount(result) > 0;
+}
+
+export async function completeAgentTeamRunIfCurrent(
+  taskId: string,
+  status: "done" | "failed",
+  expected: Pick<AgentTeamRunQueueRow, "status" | "attempts" | "updatedAt">,
+): Promise<boolean> {
+  await ensureTable();
+  const result = await getDbExec().execute({
+    sql: `UPDATE agent_team_run_queue
+            SET status = ?, updated_at = ?
+          WHERE task_id = ? AND status = ? AND attempts = ? AND updated_at = ?`,
+    args: [
+      status,
+      Date.now(),
+      taskId,
+      expected.status,
+      expected.attempts,
+      expected.updatedAt,
+    ],
+  });
   return getAffectedRowCount(result) > 0;
 }
 

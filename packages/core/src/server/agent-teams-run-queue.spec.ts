@@ -80,12 +80,33 @@ const mockDb = {
       }
       return affected(0);
     }
+    if (s.includes("AND status = ? AND attempts = ? AND updated_at = ?")) {
+      const [status, updatedAt, taskId, expectedStatus, attempts, expectedAt] =
+        args;
+      const row = rows.find((candidate) => candidate.task_id === taskId);
+      if (
+        row &&
+        row.status === expectedStatus &&
+        row.attempts === attempts &&
+        row.updated_at === expectedAt
+      ) {
+        row.status = status;
+        row.updated_at = updatedAt;
+        return affected(1);
+      }
+      return affected(0);
+    }
     if (s.includes("SET status = ?, updated_at = ?")) {
       const [status, updatedAt, taskId, claimedAttempts] = args;
       const r = rows.find(
         (x) =>
           x.task_id === taskId &&
-          (claimedAttempts === undefined || x.attempts === claimedAttempts),
+          (claimedAttempts === undefined || x.attempts === claimedAttempts) &&
+          (!s.includes(
+            "AND status IN ('queued', 'running') AND attempts = ?",
+          ) ||
+            x.status === "running" ||
+            x.status === "queued"),
       );
       if (r) {
         r.status = status;
@@ -232,6 +253,27 @@ describe("agent_team_run_queue", () => {
     expect(await queue.claimAgentTeamRun("t2")).toBeNull();
   });
 
+  it("lets the claimed worker finish after counting its final continuation", async () => {
+    await enqueue("final-continuation");
+    const claimed = await queue.claimAgentTeamRun("final-continuation");
+    if (!claimed) throw new Error("run was not claimed");
+    await queue.bumpAgentTeamContinuation(
+      "final-continuation",
+      claimed.attempts,
+    );
+
+    await expect(
+      queue.completeAgentTeamRun(
+        "final-continuation",
+        "done",
+        claimed.attempts,
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      queue.getAgentTeamRunDispatchState("final-continuation"),
+    ).resolves.toMatchObject({ status: "done", continuationCount: 1 });
+  });
+
   it("does not re-claim a fresh running row, but re-claims a stale one", async () => {
     await enqueue("t3");
     await queue.claimAgentTeamRun("t3");
@@ -256,6 +298,35 @@ describe("agent_team_run_queue", () => {
     const state = await queue.getAgentTeamRunDispatchState("t4");
     expect(state?.status).toBe("done");
     expect(await queue.claimAgentTeamRun("t4")).toBeNull();
+  });
+
+  it("fences stale reconciliation and late worker terminal writes", async () => {
+    await enqueue("fenced");
+    const claimed = await queue.claimAgentTeamRun("fenced");
+    if (!claimed) throw new Error("run was not claimed");
+    const row = rows.find((candidate) => candidate.task_id === "fenced")!;
+    const staleSnapshot = {
+      status: claimed.status,
+      attempts: claimed.attempts,
+      updatedAt: claimed.updatedAt,
+    };
+
+    row.updated_at += 1;
+    await expect(
+      queue.completeAgentTeamRunIfCurrent("fenced", "failed", staleSnapshot),
+    ).resolves.toBe(false);
+
+    const current = await queue.getAgentTeamRunDispatchState("fenced");
+    if (!current) throw new Error("run state disappeared");
+    await expect(
+      queue.completeAgentTeamRunIfCurrent("fenced", "failed", current),
+    ).resolves.toBe(true);
+    await expect(
+      queue.completeAgentTeamRun("fenced", "done", claimed.attempts),
+    ).resolves.toBe(false);
+    await expect(
+      queue.getAgentTeamRunDispatchState("fenced"),
+    ).resolves.toMatchObject({ status: "failed" });
   });
 
   it("lists an owner's in-flight task ids only", async () => {

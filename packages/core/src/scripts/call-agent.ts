@@ -9,6 +9,7 @@ import {
 } from "../a2a/anthropic-managed-agents.js";
 import {
   A2ATaskTimeoutError,
+  getGlobalA2ASecret,
   MAX_A2A_CALLER_RESPONSE_CHARS,
   callAgent,
 } from "../a2a/client.js";
@@ -1379,14 +1380,20 @@ async function invokeReadOnlyAppAction(
     callerOrgSecret = (await getOrgA2ASecret(orgId)) ?? undefined;
   }
 
-  if (!hostedAgentToken && !hostedAuthConfigured && orgId && !callerOrgDomain) {
+  if (
+    !hostedAgentToken &&
+    !hostedAuthConfigured &&
+    orgId &&
+    !callerOrgDomain &&
+    !getGlobalA2ASecret()
+  ) {
     return (
       `Error calling ${agent.name} action ${action}: this workspace has no domain configured, ` +
       "so the request cannot include workspace-scoped A2A identity. Set the workspace domain or configure explicit credentials for this agent."
     );
   }
 
-  if (!hostedAgentToken && !callerOrgSecret && !process.env.A2A_SECRET) {
+  if (!hostedAgentToken && !callerOrgSecret && !getGlobalA2ASecret()) {
     return `Error calling ${agent.name} action ${action}: direct cross-app reads require A2A identity verification`;
   }
 

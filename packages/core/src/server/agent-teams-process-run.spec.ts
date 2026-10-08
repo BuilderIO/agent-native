@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let queueRows: Record<string, any>[] = [];
 let failNextDispatchStateRead = false;
+let reclaimAfterNextDispatchStateRead = false;
 function affected(n: number) {
   return { rows: [], rowsAffected: n };
 }
@@ -76,12 +77,33 @@ const queueDb = {
       }
       return affected(0);
     }
+    if (s.includes("AND status = ? AND attempts = ? AND updated_at = ?")) {
+      const [status, updatedAt, taskId, expectedStatus, attempts, expectedAt] =
+        args;
+      const row = queueRows.find((candidate) => candidate.task_id === taskId);
+      if (
+        row &&
+        row.status === expectedStatus &&
+        row.attempts === attempts &&
+        row.updated_at === expectedAt
+      ) {
+        row.status = status;
+        row.updated_at = updatedAt;
+        return affected(1);
+      }
+      return affected(0);
+    }
     if (s.includes("SET status = ?, updated_at = ?")) {
       const [status, updatedAt, taskId, claimedAttempts] = args;
       const r = queueRows.find(
         (x) =>
           x.task_id === taskId &&
-          (claimedAttempts === undefined || x.attempts === claimedAttempts),
+          (claimedAttempts === undefined || x.attempts === claimedAttempts) &&
+          (!s.includes(
+            "AND status IN ('queued', 'running') AND attempts = ?",
+          ) ||
+            x.status === "running" ||
+            x.status === "queued"),
       );
       if (r) {
         r.status = status;
@@ -166,7 +188,12 @@ const queueDb = {
         throw new Error("dispatch state read unavailable");
       }
       const r = queueRows.find((x) => x.task_id === args[0]);
-      return { rows: r ? [{ ...r }] : [], rowsAffected: 0 };
+      const rows = r ? [{ ...r }] : [];
+      if (reclaimAfterNextDispatchStateRead) {
+        reclaimAfterNextDispatchStateRead = false;
+        await queue.claimAgentTeamRun(String(args[0]));
+      }
+      return { rows, rowsAffected: 0 };
     }
     return affected(0);
   }),
@@ -416,6 +443,8 @@ vi.mock("./self-dispatch.js", () => ({
 const queue = await import("./agent-teams-run-queue.js");
 const {
   listAgentTeamBackgroundTranscriptEvents,
+  getTask,
+  listTasks,
   processAgentTeamRun,
   reconcileStaleAgentTeamRuns,
   reconcileAgentTeamRunsForOwner,
@@ -471,6 +500,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
   beforeEach(() => {
     queueRows = [];
     failNextDispatchStateRead = false;
+    reclaimAfterNextDispatchStateRead = false;
     appState.clear();
     threadData.clear();
     dispatches.length = 0;
@@ -859,6 +889,58 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect(
       (await queue.getAgentTeamRunDispatchState("t5-queue-read-fail"))?.status,
     ).toBe("running");
+    nowSpy.mockRestore();
+  });
+
+  it("keeps direct task readers available when queue state cannot be read", async () => {
+    await seedTask("t5-reader-get");
+    failNextDispatchStateRead = true;
+    const getWarning = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const task = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getTask("t5-reader-get", { ownerEmail: OWNER }),
+    );
+    expect(task?.status).toBe("running");
+
+    await seedTask("t5-reader-list");
+    failNextDispatchStateRead = true;
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        listTasks({ ownerEmail: OWNER }),
+      ),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          taskId: "t5-reader-list",
+          status: "running",
+        }),
+        expect.objectContaining({ taskId: "t5-reader-get", status: "running" }),
+      ]),
+    );
+    getWarning.mockRestore();
+  });
+
+  it("does not fail a task from a stale queue snapshot after a worker reclaims it", async () => {
+    const now = Date.UTC(2026, 5, 2, 12, 0, 0);
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+    await seedTask("t5-reconcile-reclaim-race");
+    const row = queueRows.find(
+      (candidate) => candidate.task_id === "t5-reconcile-reclaim-race",
+    );
+    if (!row) throw new Error("missing queued task row");
+    row.status = "running";
+    row.updated_at = now - queue.RUN_PROCESSING_STUCK_AFTER_MS - 1;
+    reclaimAfterNextDispatchStateRead = true;
+
+    const task = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getTask("t5-reconcile-reclaim-race", { ownerEmail: OWNER }),
+    );
+    const dispatch = await queue.getAgentTeamRunDispatchState(
+      "t5-reconcile-reclaim-race",
+    );
+
+    expect(task?.status).toBe("running");
+    expect(dispatch).toMatchObject({ status: "running", attempts: 1 });
     nowSpy.mockRestore();
   });
 
