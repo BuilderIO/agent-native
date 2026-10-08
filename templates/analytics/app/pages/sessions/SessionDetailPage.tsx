@@ -96,9 +96,11 @@ import {
 import { extractReplayDiagnostics } from "./session-replay-devtools";
 import type { ReplayDevToolsDiagnostics } from "./session-replay-devtools";
 import {
+  captureReplayScreenshot,
   completeReplayScreenshotCapture,
-  downloadReplayScreenshot,
+  downloadReplayScreenshotBlob,
   ReplayScreenshotAssetError,
+  writeReplayScreenshotToClipboard,
 } from "./session-replay-screenshot";
 import {
   type SessionIssueMatch,
@@ -582,6 +584,9 @@ function ReplayPlayer({
   const [currentTime, setCurrentTime] = useState(0);
   const [totalTime, setTotalTime] = useState(0);
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
+  const [screenshotAction, setScreenshotAction] = useState<
+    "copy" | "save" | null
+  >(null);
   const [skipInactive, setSkipInactive] = useState(true);
   const [devToolsOpen, setDevToolsOpen] = useState(false);
   const [devToolsHeight, setDevToolsHeight] = useState(DEFAULT_DEVTOOLS_HEIGHT);
@@ -1032,18 +1037,23 @@ function ReplayPlayer({
     }
   }
 
-  async function saveScreenshot() {
+  function runScreenshotAction(
+    action: "copy" | "save",
+    operation: (
+      screenshot: Promise<Blob>,
+      filename: string,
+      onClipboardWriteFailure: () => void,
+    ) => Promise<void>,
+    onSuccess: () => void,
+    onFailure: (error: unknown) => void,
+  ) {
     const replayer = replayerRef.current;
     const iframe = replayer?.iframe as HTMLIFrameElement | undefined;
     const stage = stageAreaRef.current;
     const stageRoot = stageRootRef.current;
-    if (
-      !replayer ||
-      !iframe ||
-      !stage ||
-      !stageRoot ||
-      savingScreenshotRef.current
-    ) {
+    if (savingScreenshotRef.current) return;
+    if (!replayer || !iframe || !stage || !stageRoot) {
+      onFailure(new Error("Replay screenshot is unavailable"));
       return;
     }
 
@@ -1052,56 +1062,108 @@ function ReplayPlayer({
       replayer.getCurrentTime?.() ?? currentTimeRef.current,
     );
     const capture = new AbortController();
+    let clipboardWriteFailed = false;
+    const onClipboardWriteFailure = () => {
+      if (screenshotCaptureRef.current !== capture) return;
+      clipboardWriteFailed = true;
+      capture.abort();
+    };
     screenshotCaptureRef.current = capture;
     savingScreenshotRef.current = true;
     setSavingScreenshot(true);
+    setScreenshotAction(action);
 
+    const filename = `session-replay-${Math.floor(captureAt / 1000)
+      .toString()
+      .padStart(4, "0")}.png`;
+    let actionPromise: Promise<void>;
     try {
       replayer.pause(captureAt);
       setPlaying(false);
       updateTime(captureAt);
-      await downloadReplayScreenshot(
+      const screenshot = captureReplayScreenshot(
         stage,
         stageRoot,
         iframe,
-        `session-replay-${Math.floor(captureAt / 1000)
-          .toString()
-          .padStart(4, "0")}.png`,
         capture.signal,
       );
-      toast.success(t("sessions.screenshotDownloaded"));
+      // Clipboard writes need this click's activation, so start the operation before awaiting capture.
+      actionPromise = operation(screenshot, filename, onClipboardWriteFailure);
     } catch (error) {
-      if (!capture.signal.aborted) {
+      actionPromise = Promise.reject(error);
+    }
+
+    void actionPromise
+      .then(onSuccess, (error: unknown) => {
+        if (
+          !capture.signal.aborted ||
+          (clipboardWriteFailed && screenshotCaptureRef.current === capture)
+        ) {
+          capture.abort();
+          onFailure(error);
+        }
+      })
+      .finally(() => {
+        const captureStillCurrent = completeReplayScreenshotCapture(
+          screenshotCaptureRef,
+          capture,
+          () => {
+            savingScreenshotRef.current = false;
+            setSavingScreenshot(false);
+          },
+        );
+        if (captureStillCurrent) setScreenshotAction(null);
+        if (
+          captureStillCurrent &&
+          wasPlaying &&
+          replayerRef.current === replayer
+        ) {
+          try {
+            replayer.play(captureAt);
+            setPlaying(true);
+          } catch {
+            setPlaying(false);
+          }
+        }
+      });
+  }
+
+  function saveScreenshot() {
+    runScreenshotAction(
+      "save",
+      (screenshot, filename) =>
+        screenshot.then((blob) => downloadReplayScreenshotBlob(blob, filename)),
+      () => toast.success(t("sessions.screenshotDownloaded")),
+      (error) =>
         toast.error(
           t(
             error instanceof ReplayScreenshotAssetError
               ? "sessions.screenshotUnsupportedAssets"
               : "sessions.screenshotSaveFailed",
           ),
-        );
-      }
-    } finally {
-      const captureStillCurrent = completeReplayScreenshotCapture(
-        screenshotCaptureRef,
-        capture,
-        () => {
-          savingScreenshotRef.current = false;
-          setSavingScreenshot(false);
-        },
-      );
-      if (
-        captureStillCurrent &&
-        wasPlaying &&
-        replayerRef.current === replayer
-      ) {
-        try {
-          replayer.play(captureAt);
-          setPlaying(true);
-        } catch {
-          setPlaying(false);
-        }
-      }
-    }
+        ),
+    );
+  }
+
+  function copyScreenshotToDesign() {
+    runScreenshotAction(
+      "copy",
+      (screenshot, _filename, onClipboardWriteFailure) =>
+        writeReplayScreenshotToClipboard(
+          screenshot,
+          undefined,
+          onClipboardWriteFailure,
+        ),
+      () => toast.success(t("sessions.screenshotCopiedForDesign")),
+      (error) =>
+        toast.error(
+          t(
+            error instanceof ReplayScreenshotAssetError
+              ? "sessions.screenshotCopyUnsupportedAssets"
+              : "sessions.screenshotCopyFailed",
+          ),
+        ),
+    );
   }
 
   const disabled = status !== "ready" || savingScreenshot;
@@ -1224,9 +1286,23 @@ function ReplayPlayer({
               >
                 <IconDownload className="me-1.5 h-4 w-4" />
                 {t(
-                  savingScreenshot
+                  savingScreenshot && screenshotAction === "save"
                     ? "sessions.savingScreenshot"
                     : "sessions.saveScreenshot",
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={disabled}
+                onClick={copyScreenshotToDesign}
+              >
+                <IconCopy className="me-1.5 h-4 w-4" />
+                {t(
+                  savingScreenshot && screenshotAction === "copy"
+                    ? "sessions.copyingScreenshot"
+                    : "sessions.copyScreenshot",
                 )}
               </Button>
 

@@ -1474,6 +1474,13 @@ export default {
     savingScreenshot: "स्क्रीनशॉट सहेजा जा रहा है…",
     screenshotDownloaded: "स्क्रीनशॉट डाउनलोड हो गया",
     screenshotSaveFailed: "स्क्रीनशॉट सहेजा नहीं जा सका",
+    copyScreenshot: "Design में कॉपी करें",
+    copyingScreenshot: "स्क्रीनशॉट कॉपी हो रहा है…",
+    screenshotCopiedForDesign: "स्क्रीनशॉट कॉपी हो गया। इसे Design में पेस्ट करें।",
+    screenshotCopyFailed:
+      "स्क्रीनशॉट कॉपी नहीं हो सका। इसे डाउनलोड करके PNG को Design में अपलोड करें।",
+    screenshotCopyUnsupportedAssets:
+      "स्क्रीनशॉट कॉपी नहीं हुआ: इस क्षण में ऐसा मीडिया या छवियाँ हैं जिन्हें सुरक्षित रूप से कैप्चर नहीं किया जा सकता। रीप्ले में कोई दूसरा क्षण आज़माएँ।",
     screenshotUnsupportedAssets:
       "स्क्रीनशॉट सहेजा नहीं गया: कुछ एम्बेड किए गए मीडिया या छवियों को सुरक्षित रूप से कैप्चर नहीं किया जा सका।",
     timeline: "इवेंट टाइमलाइन",
