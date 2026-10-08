@@ -1,3 +1,4 @@
+import { ensureRunTables } from "../agent/run-store.js";
 import { getDbExec, withDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
@@ -284,6 +285,50 @@ export async function withCurrentAgentTeamRunAttempt<T>(
     const value = await withDbExec(tx, write);
     return { current: true, value };
   });
+}
+
+export async function persistAgentTeamRunEventIfCurrent(input: {
+  taskId: string;
+  claimedAttempts: number;
+  runId: string;
+  seq: number;
+  eventData: string;
+  terminal: boolean;
+}): Promise<boolean> {
+  await Promise.all([ensureTable(), ensureRunTables()]);
+  const statuses = input.terminal
+    ? "'queued', 'running', 'done', 'failed'"
+    : "'running'";
+  // Keep the queue lock and event write together so a reclaim cannot overtake a stale event.
+  const { rows } = await getDbExec().execute({
+    sql: `WITH current_attempt AS MATERIALIZED (
+            SELECT task_id
+            FROM agent_team_run_queue
+            WHERE task_id = ? AND attempts = ? AND status IN (${statuses})
+            FOR UPDATE
+          ), inserted_event AS (
+            INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+            SELECT ?, ?, ?, ?
+            FROM current_attempt
+            WHERE NOT EXISTS (
+              SELECT 1 FROM agent_runs
+              WHERE id = ? AND status <> 'running'
+            )
+            ON CONFLICT (run_id, seq) DO NOTHING
+            RETURNING 1
+          )
+          SELECT EXISTS (SELECT 1 FROM current_attempt) AS is_current`,
+    args: [
+      input.taskId,
+      input.claimedAttempts,
+      input.runId,
+      input.seq,
+      Date.now(),
+      input.eventData,
+      input.runId,
+    ],
+  });
+  return rows[0]?.is_current === true || rows[0]?.is_current === 1;
 }
 
 export async function completeAgentTeamRun(

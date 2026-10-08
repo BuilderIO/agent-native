@@ -314,7 +314,12 @@ export interface StartRunOptions {
   recoverChunkBoundaries?: boolean;
   persistEvent?: (
     write: () => Promise<void>,
-    metadata: { terminal: boolean },
+    metadata: {
+      terminal: boolean;
+      runId: string;
+      seq: number;
+      eventData: string;
+    },
   ) => Promise<void>;
 }
 
@@ -1370,11 +1375,14 @@ export function startRun(
   };
 
   const persistRunEvent = (runEvent: RunEvent): Promise<void> => {
-    const write = () =>
-      insertRunEvent(runId, runEvent.seq, JSON.stringify(runEvent.event));
+    const eventData = JSON.stringify(runEvent.event);
+    const write = () => insertRunEvent(runId, runEvent.seq, eventData);
     return options?.persistEvent
       ? options.persistEvent(write, {
           terminal: isTerminalRunEvent(runEvent.event),
+          runId,
+          seq: runEvent.seq,
+          eventData,
         })
       : write();
   };

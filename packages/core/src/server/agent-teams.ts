@@ -75,6 +75,7 @@ import {
   completeAgentTeamRun,
   completeAgentTeamRunIfCurrent,
   withCurrentAgentTeamRunAttempt,
+  persistAgentTeamRunEventIfCurrent,
   getAgentTeamRunDispatchState,
   claimAgentTeamRunReconciliationAttempt,
   listActiveAgentTeamTaskIdsForOwner,
@@ -2611,16 +2612,19 @@ export async function processAgentTeamRun(
             model: config.model,
             engineName: config.engine.name,
             attemptCount: claimedAttempts,
-            persistEvent: async (write, { terminal }) => {
-              const result = await withCurrentAgentTeamRunAttempt(
-                opts.taskId,
+            persistEvent: async (
+              _write,
+              { terminal, runId: eventRunId, seq, eventData },
+            ) => {
+              const isCurrent = await persistAgentTeamRunEventIfCurrent({
+                taskId: opts.taskId,
                 claimedAttempts,
-                write,
-                terminal
-                  ? { statuses: ["queued", "running", "done", "failed"] }
-                  : undefined,
-              );
-              if (!result.current) {
+                runId: eventRunId,
+                seq,
+                eventData,
+                terminal,
+              });
+              if (!isCurrent) {
                 markLeaseLost();
                 throw new Error("The agent task run attempt was superseded.");
               }

@@ -41,6 +41,21 @@ const queueDb = {
     }
     if (s.includes("CREATE TABLE") || s.includes("CREATE INDEX"))
       return affected(0);
+    if (s.includes("WITH current_attempt AS MATERIALIZED")) {
+      const [taskId, attempts] = args;
+      const row = queueRows.find((candidate) => candidate.task_id === taskId);
+      const statuses = s.includes(
+        "status IN ('queued', 'running', 'done', 'failed')",
+      )
+        ? ["queued", "running", "done", "failed"]
+        : ["running"];
+      const isCurrent =
+        row && row.attempts === attempts && statuses.includes(row.status);
+      return {
+        rows: [{ is_current: Boolean(isCurrent) }],
+        rowsAffected: isCurrent ? 1 : 0,
+      };
+    }
     if (s.includes("INSERT INTO agent_team_run_queue")) {
       queueRows.push({
         task_id: args[0],
@@ -509,6 +524,7 @@ vi.mock("../agent/run-manager.js", () => ({
 
 const getRunEventsSinceMock = vi.fn(async () => []);
 vi.mock("../agent/run-store.js", () => ({
+  ensureRunTables: vi.fn(async () => undefined),
   getRunEventsSince: getRunEventsSinceMock,
 }));
 

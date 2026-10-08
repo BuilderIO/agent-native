@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let rows: Record<string, any>[] = [];
+let persistedEvents: Record<string, unknown>[] = [];
 
 function affected(n: number) {
   return { rows: [], rowsAffected: n };
@@ -14,6 +15,29 @@ const mockDb = {
 
     if (s.includes("CREATE TABLE") || s.includes("CREATE INDEX")) {
       return affected(0);
+    }
+    if (s.includes("WITH current_attempt AS MATERIALIZED")) {
+      const [taskId, attempts, runId, seq, eventAt, eventData] = args;
+      const row = rows.find((candidate) => candidate.task_id === taskId);
+      const statuses = s.includes(
+        "status IN ('queued', 'running', 'done', 'failed')",
+      )
+        ? ["queued", "running", "done", "failed"]
+        : ["running"];
+      const isCurrent =
+        row && row.attempts === attempts && statuses.includes(row.status);
+      if (
+        isCurrent &&
+        !persistedEvents.some(
+          (event) => event.runId === runId && event.seq === seq,
+        )
+      ) {
+        persistedEvents.push({ runId, seq, eventAt, eventData });
+      }
+      return {
+        rows: [{ is_current: Boolean(isCurrent) }],
+        rowsAffected: isCurrent ? 1 : 0,
+      };
     }
     if (s.includes("INSERT INTO agent_team_run_queue")) {
       rows.push({
@@ -239,6 +263,10 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("../agent/run-store.js", () => ({
+  ensureRunTables: vi.fn().mockResolvedValue(undefined),
+}));
+
 const queue = await import("./agent-teams-run-queue.js");
 
 function enqueue(taskId: string, owner = "owner@example.com") {
@@ -255,6 +283,7 @@ function enqueue(taskId: string, owner = "owner@example.com") {
 describe("agent_team_run_queue", () => {
   beforeEach(() => {
     rows = [];
+    persistedEvents = [];
     queue._agentTeamRunQueueForTests.resetInit();
     vi.clearAllMocks();
   });
@@ -353,6 +382,48 @@ describe("agent_team_run_queue", () => {
       ),
     ).resolves.toEqual({ current: false });
     expect(writes).toBe(1);
+  });
+
+  it("persists run events with one current-attempt-fenced statement", async () => {
+    await enqueue("event-write");
+    const claimed = await queue.claimAgentTeamRun("event-write");
+    if (!claimed) throw new Error("run was not claimed");
+    mockDb.execute.mockClear();
+
+    await expect(
+      queue.persistAgentTeamRunEventIfCurrent({
+        taskId: "event-write",
+        claimedAttempts: claimed.attempts,
+        runId: "run-event-write",
+        seq: 0,
+        eventData: '{"type":"text","text":"hello"}',
+        terminal: false,
+      }),
+    ).resolves.toBe(true);
+
+    expect(mockDb.execute).toHaveBeenCalledTimes(1);
+    const [query] = mockDb.execute.mock.calls[0] ?? [];
+    expect(typeof query === "object" && query.sql).toContain("FOR UPDATE");
+    expect(persistedEvents).toMatchObject([
+      {
+        runId: "run-event-write",
+        seq: 0,
+        eventData: '{"type":"text","text":"hello"}',
+      },
+    ]);
+
+    rows.find((row) => row.task_id === "event-write")!.attempts += 1;
+    await expect(
+      queue.persistAgentTeamRunEventIfCurrent({
+        taskId: "event-write",
+        claimedAttempts: claimed.attempts,
+        runId: "run-event-write",
+        seq: 1,
+        eventData: '{"type":"text","text":"stale"}',
+        terminal: false,
+      }),
+    ).resolves.toBe(false);
+    expect(persistedEvents).toHaveLength(1);
   });
 
   it("requeues a continuation only for the current running attempt", async () => {
