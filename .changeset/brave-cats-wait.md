@@ -4,4 +4,4 @@
 "@agent-native/toolkit": patch
 ---
 
-Block chat submissions until an AI provider is confirmed ready.
+Enforce AI readiness at chat dispatch and provide a consistent connection flow.
