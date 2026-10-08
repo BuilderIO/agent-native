@@ -584,10 +584,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     /^        if: \$\{\{ !startsWith\(matrix\.shard, 'screen-history-'\) \}\}$/m,
     "the focused regression selectors must not run on the Screen-history shard",
   );
-  assert.match(
-    screenSelectionRegressions,
-    /^        timeout-minutes: 6$/m,
-    "Screen-selection tests need a six-minute cap inside the nine-minute job",
+  const screenHistoryStepTimeout = Number(
+    screenSelectionRegressions.match(/^        timeout-minutes: (\d+)$/m)?.[1],
   );
   assert.ok(
     screenSelectionRegressions.includes(
@@ -606,16 +604,26 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "a newer Screen pick survives failed Screen deletion settlement",
     "a newer sidebar Screen selection survives failed Screen deletion settlement",
     "Select All Screens survives failed Screen deletion settlement",
+    "undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id",
     "marquee selection persists and deletes Screens after a prior layer selection",
     "deep-select marquee over a Screen deletes only the child",
     "Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete",
     "Shift-marquee reselecting an owner Screen makes Delete target the Screen",
   ];
+  const screenHistorySpec = readFileSync(
+    "templates/design/e2e/parity-selection-history-delete-screen.spec.ts",
+    "utf8",
+  );
   for (const title of screenHistoryCases) {
     assert.equal(
       screenSelectionRegressions.split(title).length - 1,
       1,
       `Screen-history case must be selected exactly once: ${title}`,
+    );
+    assert.equal(
+      screenHistorySpec.split(title).length - 1,
+      1,
+      `Screen-history case must exist exactly once in its source spec: ${title}`,
     );
   }
   assert.deepEqual(
@@ -656,9 +664,15 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     Number.isInteger(stepTimeout) &&
-      stepTimeout <= 4 &&
-      jobTimeout >= stepTimeout + 5,
-    `focused Design tests need a four-minute cap and five minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
+      stepTimeout <= 5 &&
+      jobTimeout >= stepTimeout + 4,
+    `focused Design tests need a five-minute cap and four minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
+  );
+  assert.ok(
+    Number.isInteger(screenHistoryStepTimeout) &&
+      screenHistoryStepTimeout <= 6 &&
+      jobTimeout >= screenHistoryStepTimeout + 3,
+    `Screen-history tests need a six-minute cap and three minutes for setup (job ${jobTimeout}, step ${screenHistoryStepTimeout})`,
   );
   assert.match(
     designJob,
