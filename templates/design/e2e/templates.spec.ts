@@ -6,7 +6,7 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath } from "./helpers";
+import { appPath, enableFeatureFlag } from "./helpers";
 
 async function postAction(
   request: APIRequestContext,
@@ -71,6 +71,7 @@ function watchBrowserErrors(page: Page) {
   return { consoleErrors, pageErrors, failedResponses, failedRequests };
 }
 
+// oracle: none — verifies built-in template metadata and save behavior, not Figma parity.
 test("built-in template preserves its dimensions and locks and can be saved again", async ({
   page,
   request,
@@ -180,6 +181,7 @@ test("built-in template preserves its dimensions and locks and can be saved agai
   }
 });
 
+// oracle: none — verifies app navigation and template creation, not Figma parity.
 test("home Templates tab opens a built-in template design", async ({
   page,
   request,
@@ -234,20 +236,66 @@ test("home Templates tab opens a built-in template design", async ({
   }
 });
 
-test("template copy preserves an explicit no-system choice", async ({
+// oracle: none — verifies the create action's explicit no-system contract, not Figma parity.
+test("template copy clears a linked design system when explicitly requested", async ({
+  page,
   request,
 }) => {
+  let restoreDesignSystemWorkflows: (() => Promise<void>) | undefined;
+  let designSystemId: string | undefined;
+  let sourceDesignId: string | undefined;
+  let sourceTemplateId: string | undefined;
   let createdDesignId: string | undefined;
 
   try {
+    restoreDesignSystemWorkflows = await enableFeatureFlag(
+      page,
+      "design-system-workflows",
+    );
+    const designSystem = await postAction(request, "create-design-system", {
+      templateId: "material-3",
+      title: `E2E system for template override ${Date.now()}`,
+    });
+    designSystemId = designSystem.id;
+    expect(designSystemId).toBeTruthy();
+
+    const sourceDesign = await postAction(request, "create-design", {
+      title: `E2E linked template source ${Date.now()}`,
+      projectType: "prototype",
+      designSystemId,
+    });
+    sourceDesignId = sourceDesign.id;
+    expect(sourceDesign).toHaveProperty("designSystemId", designSystemId);
+    await postAction(request, "create-file", {
+      designId: sourceDesignId,
+      filename: "index.html",
+      content: "<html><body><main>Template source</main></body></html>",
+      fileType: "html",
+    });
+
+    const sourceTemplate = await postAction(
+      request,
+      "save-design-as-template",
+      {
+        designId: sourceDesignId,
+        title: `E2E linked template ${Date.now()}`,
+        category: "other",
+      },
+    );
+    sourceTemplateId = sourceTemplate.id;
+    expect(sourceTemplateId).toBeTruthy();
+
     const created = await postAction(request, "create-design-from-template", {
-      templateId: "preset-social-story",
+      templateId: sourceTemplateId,
       title: `E2E no-system copy ${Date.now()}`,
       designSystemId: null,
     });
     createdDesignId = created.id ?? created.data?.id;
     expect(createdDesignId).toBeTruthy();
-    expect(created).toHaveProperty("designSystemId", null);
+    expect(created).toMatchObject({
+      designSystemId: null,
+      designSystemOverridden: true,
+    });
 
     const persisted = await getAction(request, "get-design", {
       id: createdDesignId!,
@@ -259,5 +307,21 @@ test("template copy preserves an explicit no-system choice", async ({
         () => {},
       );
     }
+    if (sourceTemplateId) {
+      await postAction(request, "delete-design-template", {
+        id: sourceTemplateId,
+      }).catch(() => {});
+    }
+    if (sourceDesignId) {
+      await postAction(request, "delete-design", { id: sourceDesignId }).catch(
+        () => {},
+      );
+    }
+    if (designSystemId) {
+      await postAction(request, "delete-design-system", {
+        id: designSystemId,
+      }).catch(() => {});
+    }
+    await restoreDesignSystemWorkflows?.();
   }
 });

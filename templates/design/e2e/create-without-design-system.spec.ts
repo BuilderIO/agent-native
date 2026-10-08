@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import { appPath } from "./helpers";
 
+// oracle: none — verifies the create-design action contract, not Figma parity.
 test("create-design preserves an explicit no-system choice", async ({
   request,
 }) => {
@@ -20,13 +21,16 @@ test("create-design preserves an explicit no-system choice", async ({
     expect(response.ok()).toBe(true);
 
     const created = await response.json();
-    designId = created.id;
-    expect(typeof designId).toBe("string");
+    const createdId = created.id;
+    if (typeof createdId !== "string" || !createdId) {
+      throw new Error("create-design response did not include an id");
+    }
+    designId = createdId;
     expect(created).toHaveProperty("designSystemId", null);
 
     const saved = await request.get(
       appPath("/_agent-native/actions/get-design"),
-      { params: { id: designId } },
+      { params: { id: createdId } },
     );
     expect(saved.ok()).toBe(true);
     expect(await saved.json()).toHaveProperty("designSystemId", null);
