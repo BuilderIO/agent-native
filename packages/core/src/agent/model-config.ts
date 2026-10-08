@@ -17,8 +17,8 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "deepseek-flash": 1_048_576,
   "deepseek-v4-1-flash": 1_048_576,
   "deepseek/deepseek-v4.1-flash": 1_048_576,
-  "grok-code-fast": 256_000,
-  "x-ai/grok-code-fast-1": 256_000,
+  "grok-code-fast": 200_000,
+  "x-ai/grok-build-0.1": 256_000,
 
   "gpt-5-6-sol": 1_050_000,
   "gpt-5-6-terra": 1_050_000,
@@ -141,6 +141,8 @@ const MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {
   "deepseek/deepseek-v4.1-flash": 393_216,
   "deepseek-v3-1": 32_768,
   "deepseek/deepseek-chat-v3.1": 32_768,
+  "grok-code-fast": 10_000,
+  "x-ai/grok-build-0.1": 230_400,
 
   "gpt-5-6-sol": 40_000,
   "gpt-5-6-terra": 40_000,
@@ -370,7 +372,7 @@ export const AGENT_MODEL_CONFIG = {
         "google/gemini-3.1-flash-lite",
         "google/gemini-3.1-pro-preview",
         "x-ai/grok-4.7",
-        "x-ai/grok-code-fast-1",
+        "x-ai/grok-build-0.1",
         "qwen/qwen3-coder",
         "moonshotai/kimi-k2.5",
         "deepseek/deepseek-v4-pro",

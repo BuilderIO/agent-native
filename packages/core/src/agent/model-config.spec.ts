@@ -32,6 +32,15 @@ describe("agent model config catalog", () => {
     );
   });
 
+  it("offers the current Grok Build model through OpenRouter", () => {
+    expect(AI_SDK_MODEL_CONFIG.openrouter.supportedModels).toContain(
+      "x-ai/grok-build-0.1",
+    );
+    expect(AI_SDK_MODEL_CONFIG.openrouter.supportedModels).not.toContain(
+      "x-ai/grok-code-fast-1",
+    );
+  });
+
   it("uses current Builder, OpenAI, and Anthropic defaults", () => {
     expect(DEFAULT_MODEL).toBe(BUILDER_MODEL_CONFIG.defaultModel);
     expect(DEFAULT_MODEL).toBe("gpt-6-luna");
@@ -379,9 +388,9 @@ describe("getContextWindowForModel", () => {
     }
   });
 
-  it("uses the documented Grok Code Fast context window for Builder and OpenRouter IDs", () => {
-    expect(getContextWindowForModel("grok-code-fast")).toBe(256_000);
-    expect(getContextWindowForModel("x-ai/grok-code-fast-1")).toBe(256_000);
+  it("uses current Builder and OpenRouter Grok context windows", () => {
+    expect(getContextWindowForModel("grok-code-fast")).toBe(200_000);
+    expect(getContextWindowForModel("x-ai/grok-build-0.1")).toBe(256_000);
   });
 
   it("returns 1M for Claude Fable 5, Sonnet 5.5/4.6, and Opus 4.6+", () => {
@@ -473,6 +482,11 @@ describe("getContextWindowForModel", () => {
 });
 
 describe("getMaxOutputTokensForModel", () => {
+  it("uses current Grok completion limits for Builder and OpenRouter", () => {
+    expect(getMaxOutputTokensForModel("grok-code-fast")).toBe(10_000);
+    expect(getMaxOutputTokensForModel("x-ai/grok-build-0.1")).toBe(230_400);
+  });
+
   it("returns 128K for Claude flagship models (Fable 5, Opus 4.6+, Sonnet 5.5/4.6)", () => {
     expect(getMaxOutputTokensForModel("claude-fable-5")).toBe(128_000);
     expect(getMaxOutputTokensForModel("claude-fable-5-1")).toBe(128_000);

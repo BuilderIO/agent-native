@@ -146,7 +146,7 @@ describe("createTiptapComposerExtensions", () => {
       "Flash-Lite",
     );
     expect(compactComposerModelName("grok-code-fast")).toBe("Code Fast");
-    expect(compactComposerModelName("x-ai/grok-code-fast-1")).toBe("Code Fast");
+    expect(compactComposerModelName("x-ai/grok-build-0.1")).toBe("Build");
     expect(compactComposerModelName("deepseek-v3-1")).toBe("DeepSeek v3.1");
     expect(compactComposerModelName("deepseek-v4-1-flash")).toBe(
       "DeepSeek V4.1 Flash",

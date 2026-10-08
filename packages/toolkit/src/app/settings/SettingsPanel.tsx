@@ -588,7 +588,7 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "z-ai/glm-5.2": "GLM 5.2",
   "grok-code-fast": "Grok Code Fast",
   "x-ai/grok-4.7": "Grok 4.7",
-  "x-ai/grok-code-fast-1": "Grok Code Fast 1",
+  "x-ai/grok-build-0.1": "Grok Build 0.1",
   "qwen3-coder": "Qwen3 Coder",
   "qwen/qwen3-coder": "Qwen3 Coder",
   "kimi-k2-5": "Kimi K2.5",

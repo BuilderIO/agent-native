@@ -20,7 +20,7 @@ describe("OpenRouter builtin engine", () => {
     expect(entry?.supportedModels).toEqual(
       expect.arrayContaining([
         "openai/gpt-6-luna",
-        "x-ai/grok-code-fast-1",
+        "x-ai/grok-build-0.1",
         "z-ai/glm-5.2",
       ]),
     );
