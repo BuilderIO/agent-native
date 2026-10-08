@@ -792,7 +792,7 @@ function markDeckSaveFailed(
   message?: string,
 ): void {
   const createFailure = deckUnavailableErrors.get(deckId);
-  if (createFailure?.errorCode === DECK_CREATE_FAILED) {
+  if (createFailure && hasFailedDeckCreate(deckId)) {
     // Every write to a deck that never got created answers 404; that is the
     // failed create showing through, not access that was lost.
     failedSaveDecks.add(deckId);
@@ -850,6 +850,11 @@ function markDeckCreateFailed(deckId: string, cause: unknown): void {
   failedSaveDecks.add(deckId);
   deckSaveErrors.set(deckId, error);
   notifySaveListeners();
+}
+
+/** A deck that exists only locally because its create request failed. */
+function hasFailedDeckCreate(deckId: string): boolean {
+  return deckUnavailableErrors.get(deckId)?.errorCode === DECK_CREATE_FAILED;
 }
 
 function clearDeckAccessLost(deckId: string): void {
@@ -4762,6 +4767,7 @@ export function DeckProvider({
         !freshById.has(d.id) &&
         d.id !== openDeckId &&
         !staleFullReplaceDrafts.has(d.id) &&
+        !hasFailedDeckCreate(d.id) &&
         !isNewerThanSnapshot(d.id, createSeqAtRequest),
     );
     for (const id of freshById.keys()) localCreateSeqByIdRef.current.delete(id);
@@ -5046,7 +5052,9 @@ export function DeckProvider({
       setDecks((prev) => {
         const preserved = prev.filter(
           (d) =>
-            !nextIds.has(d.id) && isNewerThanSnapshot(d.id, createSeqAtRequest),
+            !nextIds.has(d.id) &&
+            (isNewerThanSnapshot(d.id, createSeqAtRequest) ||
+              hasFailedDeckCreate(d.id)),
         );
         return preserved.length === 0
           ? protectedDecks

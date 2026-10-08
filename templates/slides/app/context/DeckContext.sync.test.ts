@@ -952,7 +952,7 @@ describe("DeckContext fallback polling", () => {
         rendered.api.resolveCreate(new Response("", { status: 500 }));
         await vi.advanceTimersByTimeAsync(0);
       });
-      return { ...rendered, created };
+      return { ...rendered, created, route };
     }
 
     it("is reported as a failed create when its read then answers 404", async () => {
@@ -969,6 +969,50 @@ describe("DeckContext fallback polling", () => {
         errorCode: "deck_create_failed",
       });
       expect(getDeckSaveError(created.id)?.status).toBeUndefined();
+    });
+
+    it("survives a deck-list reload that does not list it", async () => {
+      const { api, result, created, route, rerender } =
+        await openFailedCreate();
+      act(() => {
+        window.history.pushState({}, "", "/deck/open-deck");
+        route.deckId = "open-deck";
+        rerender();
+      });
+      // A later create moves the snapshot boundary past the failed one.
+      act(() => {
+        result.current.createDeck("Later Deck");
+      });
+      api.setServerDecks([openDeck()]);
+
+      await act(async () => {
+        await result.current.reloadDecks();
+      });
+
+      expect(result.current.getDeck(created.id)).toBeDefined();
+      expect(hasFailedDeckSave(created.id)).toBe(true);
+    });
+
+    it("survives a deck-list refresh that does not list it", async () => {
+      const { api, result, created, route, rerender } =
+        await openFailedCreate();
+      // The open deck is never removed by a list refresh; leave it first.
+      act(() => {
+        window.history.pushState({}, "", "/deck/open-deck");
+        route.deckId = "open-deck";
+        rerender();
+      });
+      // A later create moves the snapshot boundary past the failed one.
+      act(() => {
+        result.current.createDeck("Later Deck");
+      });
+      api.setServerDecks([openDeck()]);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+
+      expect(listCallCount(api.fetchMock)).toBeGreaterThan(1);
+      expect(result.current.getDeck(created.id)).toBeDefined();
     });
 
     it("keeps the deck counted as unsaved so leaving the page cannot discard its only copy", async () => {
