@@ -18,7 +18,13 @@ import remarkParse from "remark-parse";
 import { unified } from "unified";
 import { parse as parseYaml } from "yaml";
 
-import { nfmToDoc, type PMDoc, type PMMark, type PMNode } from "../nfm";
+import {
+  nfmToDoc,
+  notionSpanAttrs,
+  type PMDoc,
+  type PMMark,
+  type PMNode,
+} from "../nfm";
 import { legacyMarkdownToNfm } from "../notion-markdown";
 import {
   HIDDEN_HTML_ELEMENTS,
@@ -67,7 +73,7 @@ export interface MarkdownImportDraft {
   /** What a reader of the source sees, for the text-coverage check. */
   coverage:
     | { kind: "markdown"; visible: string[]; accounted: string[] }
-    | { kind: "nfm"; source: string };
+    | { kind: "nfm"; source: string; accounted: string[] };
 }
 
 const FRONTMATTER_RE =
@@ -83,7 +89,6 @@ const NFM_SIGNALS = [
   /<mention-[a-z-]+\b/,
   /\{(?:color|toggle)="[^"]*"\}\s*$/m,
   /^\t*<table\s+header-(?:row|column)=/m,
-  /<span\s+(?:color|underline)=/,
 ];
 
 const GITHUB_ALERTS: Record<string, { icon: string; color: string }> = {
@@ -210,6 +215,13 @@ interface HtmlStackEntry {
   href?: string;
 }
 
+/** Inline HTML arrives one tag per node, so its state spans sibling nodes. */
+interface InlineHtmlState {
+  stack: HtmlStackEntry[];
+  /** A hidden element ends at its own closing tag; nodes inside it don't show. */
+  hidden: string | null;
+}
+
 export interface ParseMarkdownImportInput {
   /** Import-root-relative path of the file, used for relative references. */
   sourcePath: string;
@@ -242,7 +254,7 @@ export function parseMarkdownImport(
     );
     blocks = converted.blocks;
     slots = converted.slots;
-    coverage = { kind: "nfm", source: body };
+    coverage = { kind: "nfm", source: body, accounted: converted.dropped };
   } else {
     const converter = new MarkdownConverter(
       input.sourcePath,
@@ -544,18 +556,7 @@ class MarkdownConverter {
 
   /** Every string in the source a reader would see once it renders. */
   visibleText(): string[] {
-    const out: string[] = [];
-    if (!this.root) return out;
-    walk(this.root, (node) => {
-      if (node.type === "html") {
-        out.push(htmlVisibleText(node.value));
-      } else if (node.type === "image" || node.type === "imageReference") {
-        if (node.alt) out.push(node.alt);
-      } else if ("value" in node && typeof node.value === "string") {
-        out.push(node.value);
-      }
-    });
-    return out;
+    return this.root ? visibleTextOf(this.root) : [];
   }
 
   private numberFootnotes(root: Root) {
@@ -842,12 +843,21 @@ class MarkdownConverter {
     const opening = (nodes[start] as { value: string }).value;
     const openingTag = /^\s*<details\b[^>]*>/i.exec(opening)?.[0] ?? "";
     const open = /\bopen\b/i.test(openingTag);
-    // Found by index, not one lazy regex, so many unclosed `<summary>` tags
-    // cost one scan instead of one per tag.
-    let head = opening.slice(openingTag.length);
+    // Cut at the toggle's own closing tag first: many toggles on one line
+    // would otherwise each rescan the rest of the line.
+    const closedInHead = splitAtDetailsClose(
+      opening.slice(openingTag.length),
+      1,
+    );
+    let head =
+      "before" in closedInHead
+        ? closedInHead.before
+        : opening.slice(openingTag.length);
     let summary = "";
     const summaryOpen = /<summary\b[^<>]*>/i.exec(head);
     if (summaryOpen) {
+      // Found by index, not one lazy regex, so many unclosed `<summary>` tags
+      // cost one scan instead of one per tag.
       const textStart = summaryOpen.index + summaryOpen[0].length;
       const summaryClose = head.toLowerCase().indexOf("</summary>", textStart);
       if (summaryClose !== -1) {
@@ -863,9 +873,8 @@ class MarkdownConverter {
     const children: PMNode[] = [];
     let end = nodes.length - 1;
     let after = "";
-    const closedInHead = splitAtDetailsClose(head, 1);
     if ("before" in closedInHead) {
-      children.push(...this.paragraphs(this.htmlFragment(closedInHead.before)));
+      children.push(...this.paragraphs(this.htmlFragment(head)));
       end = start;
       after = closedInHead.after;
     } else {
@@ -914,13 +923,17 @@ class MarkdownConverter {
     marks: readonly PMMark[],
   ): InlinePiece[] {
     const out: InlinePiece[] = [];
-    const htmlStack: HtmlStackEntry[] = [];
+    const html: InlineHtmlState = { stack: [], hidden: null };
     const active = () => [
       ...marks,
-      ...htmlStack.flatMap((entry) => (entry.mark ? [entry.mark] : [])),
+      ...html.stack.flatMap((entry) => (entry.mark ? [entry.mark] : [])),
     ];
 
     for (const node of nodes) {
+      if (html.hidden && node.type !== "html") {
+        this.accounted.push(...visibleTextOf(node));
+        continue;
+      }
       switch (node.type) {
         case "text":
           out.push(textNode(joinSoftBreaks(node.value), active()));
@@ -1021,7 +1034,7 @@ class MarkdownConverter {
           break;
         }
         case "html":
-          out.push(...this.inlineHtml(node.value, htmlStack, active));
+          out.push(...this.inlineHtml(node.value, html, active));
           break;
         default: {
           const unknown = node as Nodes;
@@ -1034,14 +1047,22 @@ class MarkdownConverter {
     return out;
   }
 
-  /** Inline HTML arrives one tag per node, so marks span sibling nodes. */
   private inlineHtml(
     html: string,
-    stack: HtmlStackEntry[],
+    state: InlineHtmlState,
     active: () => PMMark[],
   ): InlinePiece[] {
     const out: InlinePiece[] = [];
+    const { stack } = state;
     for (const token of tokenizeHtml(html)) {
+      if (state.hidden) {
+        if (token.type === "close" && token.name === state.hidden) {
+          state.hidden = null;
+        } else if (token.type === "text") {
+          this.accounted.push(token.text);
+        }
+        continue;
+      }
       if (token.type === "text") {
         if (token.text) out.push(textNode(token.text, active()));
       } else if (token.type === "hidden") {
@@ -1058,6 +1079,11 @@ class MarkdownConverter {
         out.push(this.htmlImagePiece(token, stack));
       } else if (DROPPED_HTML_MEDIA.has(token.name)) {
         this.notes.add("unsupported-markdown", `<${token.name}>`);
+      } else if (HIDDEN_HTML_ELEMENTS.has(token.name)) {
+        if (!token.selfClosing) {
+          state.hidden = token.name;
+          this.notes.add("hidden-html-dropped", `<${token.name}>`);
+        }
       } else if (!token.selfClosing) {
         this.openHtmlElement(stack, token, "inline");
       }
@@ -1097,6 +1123,13 @@ class MarkdownConverter {
     }
     const mark = HTML_MARKS[token.name];
     if (mark) return mark;
+    if (token.name === "span") {
+      // Content's own color and underline spans, which other Markdown may hold.
+      const attrs = notionSpanAttrs(token.attrs);
+      if (attrs.color || attrs.bgColor || attrs.underline) {
+        return { type: "notionSpan", attrs };
+      }
+    }
     const converted = CONVERTED_HTML_MARKS[token.name];
     if (converted) {
       this.notes.add("html-formatting-converted", `<${token.name}>`);
@@ -1377,6 +1410,13 @@ function withCheckedUrls(
 }
 
 /**
+ * Comments, doctype-like markup, and script and style bodies, skipped the way
+ * `tokenizeHtml` skips them, then the `<details>` tags outside them.
+ */
+const DETAILS_TAG_RE =
+  /<!--[\s\S]*?(?:-->|$)|<![\s\S]*?(?:>|$)|<\?[\s\S]*?(?:\?>|$)|<(script|style)\b[^<>]*>[\s\S]*?(?:<\/\1|$)|<(\/?)details\b[^<>]*>/gi;
+
+/**
  * Splits HTML at the `</details>` that closes the toggle open before it,
  * skipping toggles opened and closed inside. With no such tag, returns how
  * many toggles are still open after the HTML.
@@ -1385,8 +1425,9 @@ function splitAtDetailsClose(
   html: string,
   depth: number,
 ): { before: string; after: string } | { depth: number } {
-  for (const match of html.matchAll(/<(\/?)details\b[^<>]*>/gi)) {
-    depth += match[1] ? -1 : 1;
+  for (const match of html.matchAll(DETAILS_TAG_RE)) {
+    if (match[2] === undefined) continue;
+    depth += match[2] ? -1 : 1;
     if (depth === 0) {
       return {
         before: html.slice(0, match.index),
@@ -1406,8 +1447,15 @@ function convertNfm(
   body: string,
   notes: ImportNoteBag,
   referencePrefix: string,
-): { blocks: PMNode[]; slots: ImportReferenceSlot[] } {
-  const doc = nfmToDoc(legacyMarkdownToNfm(indentContainerBodies(body, notes)));
+): { blocks: PMNode[]; slots: ImportReferenceSlot[]; dropped: string[] } {
+  const dropped: string[] = [];
+  const doc = nfmToDoc(
+    dropDeepNfmLines(
+      legacyMarkdownToNfm(indentContainerBodies(body, notes)),
+      notes,
+      dropped,
+    ),
+  );
   const slots: ImportReferenceSlot[] = [];
   const slot = (value: ImportReferenceSlot) => {
     slots.push(value);
@@ -1470,7 +1518,28 @@ function convertNfm(
     !doc.content[0].content?.length
       ? []
       : doc.content;
-  return { blocks, slots };
+  return { blocks, slots, dropped };
+}
+
+const TOO_DEEP_NFM_INDENT = "\t".repeat(MAX_BLOCK_NESTING + 1);
+
+/**
+ * Drops lines indented past `MAX_BLOCK_NESTING` tabs, which NFM nests one
+ * level per tab: the parser and every later pass over the page recurse per
+ * level, so deeper lines would overflow the stack.
+ */
+function dropDeepNfmLines(
+  nfm: string,
+  notes: ImportNoteBag,
+  dropped: string[],
+): string {
+  const lines = nfm.split("\n").map((line) => {
+    if (!line.startsWith(TOO_DEEP_NFM_INDENT)) return line;
+    notes.add("unsupported-markdown", line);
+    dropped.push(line);
+    return "";
+  });
+  return dropped.length ? lines.join("\n") : nfm;
 }
 
 const NFM_CONTAINER_OPEN_RE =
@@ -1540,6 +1609,21 @@ function indentContainerBodies(nfm: string, notes: ImportNoteBag): string {
     }
   }
   return out.join("\n");
+}
+
+/** The text a reader sees in a parsed node and its descendants. */
+function visibleTextOf(root: Nodes): string[] {
+  const out: string[] = [];
+  walk(root, (node) => {
+    if (node.type === "html") {
+      out.push(htmlVisibleText(node.value));
+    } else if (node.type === "image" || node.type === "imageReference") {
+      if (node.alt) out.push(node.alt);
+    } else if ("value" in node && typeof node.value === "string") {
+      out.push(node.value);
+    }
+  });
+  return out;
 }
 
 /** Visits nodes in document order, without recursion: nesting can be deep. */

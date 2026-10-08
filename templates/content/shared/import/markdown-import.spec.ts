@@ -801,6 +801,77 @@ ${"<span>".repeat(70)}deep
     expect(page.content).toContain("deep");
   });
 
+  it("reports Content Markdown nested past the limit instead of overflowing", () => {
+    const nested = Array.from(
+      { length: 700 },
+      (_, depth) => `${"\t".repeat(depth)}- level ${depth}`,
+    ).join("\n");
+    const page = importMarkdown(`<empty-block/>\nBefore\n${nested}\nAfter`);
+
+    expect(page.dialect).toBe("nfm");
+    expect(noteKinds(page)).toContain("unsupported-markdown");
+    expect(noteKinds(page)).not.toContain("text-not-landed");
+    expect(page.content).toContain("level 64");
+    expect(page.content).not.toContain("level 65");
+    expect(page.content).toContain("After");
+  });
+
+  it("drops the body of a hidden element written inside a paragraph", () => {
+    const page = importMarkdown(
+      "Visible <script>secret()</script> and <style>.x { color: red }</style>shown",
+    );
+
+    expect(textOf(page.doc)).toBe("Visible  and shown");
+    expect(noteKinds(page)).toContain("hidden-html-dropped");
+    expect(noteKinds(page)).not.toContain("text-not-landed");
+  });
+
+  it("reads Content's colored text without reading the file as Content Markdown", () => {
+    const page = importMarkdown(
+      [
+        'Some <span color="red">warm</span> text.',
+        "",
+        "| a | b |",
+        "| - | - |",
+        "| 1 | 2 |",
+      ].join("\n"),
+    );
+
+    expect(page.dialect).toBe("markdown");
+    expect(nodesOfType(page.doc, "table")).toHaveLength(1);
+    expect(
+      nodesOfType(page.doc, "text").find((node) => node.text === "warm")?.marks,
+    ).toEqual([
+      {
+        type: "notionSpan",
+        attrs: expect.objectContaining({ color: "red" }),
+      },
+    ]);
+    expect(page.report.notes).toEqual([]);
+  });
+
+  it("ignores a closing details tag inside a comment or script", () => {
+    const page = importMarkdown(
+      [
+        "<details><summary>One</summary>",
+        "<!-- </details> -->",
+        "<script>const tag = '</details>';</script>",
+        "Inside one",
+        "</details>",
+        "",
+        "After",
+      ].join("\n"),
+    );
+
+    expect(
+      page.doc.content.map((node) =>
+        node.type === "notionToggle"
+          ? `${node.attrs?.summary}: ${textOf(node).trim()}`
+          : textOf(node),
+      ),
+    ).toEqual(["One: Inside one", "After"]);
+  });
+
   it("keeps a __proto__ frontmatter key with the import record", () => {
     const page = importMarkdown('---\n"__proto__": kept\n---\nBody');
 

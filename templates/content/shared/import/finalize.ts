@@ -208,13 +208,14 @@ function measureCoverage(
 ): ImportTextCoverage {
   const landedParts = draft.titleHeading ? [draft.titleHeading] : [];
   let sourceParts: string[];
-  let accounted: string[] = [];
+  let accounted: string[];
   if (draft.coverage.kind === "markdown") {
     sourceParts = draft.coverage.visible;
     accounted = draft.coverage.accounted;
     landedParts.push(...visibleDocText(stored));
   } else {
     sourceParts = [nfmVisibleText(draft.coverage.source)];
+    accounted = draft.coverage.accounted.map(nfmVisibleText);
     landedParts.push(nfmVisibleText(docToNfm(stored)));
   }
 
