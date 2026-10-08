@@ -1140,6 +1140,8 @@ const exactEnglish = {
       openInClaude: "Ouvrir dans Claude",
       openInClaudeCode: "Ouvrir dans Claude Code",
       openInCodex: "Ouvrir dans Codex",
+      connectContent: "Connecter Content",
+      otherAgents: "Autres agents",
       agentCopyAccessNote:
         "Les agents peuvent utiliser Content MCP avec vos autorisations actuelles",
       temporaryAgentLink: "Lien temporaire pour agent",

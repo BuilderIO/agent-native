@@ -1106,6 +1106,8 @@ const exactEnglish = {
       openInClaude: "فتح في Claude",
       openInClaudeCode: "فتح في Claude Code",
       openInCodex: "فتح في Codex",
+      connectContent: "ربط Content",
+      otherAgents: "وكلاء آخرون",
       agentCopyAccessNote: "يمكن للوكلاء استخدام Content MCP بأذوناتك الحالية",
       temporaryAgentLink: "رابط مؤقت للوكيل",
       privateLinkCanView: "يمكن للأشخاص المصرح لهم فقط عرض هذا الرابط",
