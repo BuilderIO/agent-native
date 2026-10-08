@@ -3337,7 +3337,7 @@ function seedReadOnlyToolResultsFromHistory(
       const call = pendingToolCalls.get(part.toolCallId);
       if (!call) continue;
       if (!call.readOnly) {
-        if (part.isError !== true) cache.clear();
+        if (part.isError !== true || part.outcome === "unknown") cache.clear();
         continue;
       }
       if (!call.dedupe) continue;
@@ -3409,7 +3409,7 @@ function seedDuplicateReadOnlyToolCallsFromHistory(
       const call = pendingToolCalls.get(part.toolCallId);
       if (!call) continue;
       if (!call.readOnly) {
-        if (part.isError !== true) {
+        if (part.isError !== true || part.outcome === "unknown") {
           repeats.clear();
           reusableReadKeys.clear();
         }
