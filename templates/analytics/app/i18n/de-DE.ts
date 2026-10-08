@@ -1537,6 +1537,13 @@ export default {
     savingScreenshot: "Screenshot wird gespeichert…",
     screenshotDownloaded: "Screenshot heruntergeladen",
     screenshotSaveFailed: "Screenshot konnte nicht gespeichert werden",
+    copyScreenshot: "In Design kopieren",
+    copyingScreenshot: "Screenshot wird kopiert…",
+    screenshotCopiedForDesign: "Screenshot kopiert. Füge ihn in Design ein.",
+    screenshotCopyFailed:
+      "Screenshot konnte nicht kopiert werden. Lade ihn herunter und lade die PNG-Datei stattdessen in Design hoch.",
+    screenshotCopyUnsupportedAssets:
+      "Screenshot nicht kopiert: Eingebettete Medien oder Bilder in diesem Moment können nicht sicher erfasst werden. Versuche eine andere Stelle der Wiedergabe.",
     screenshotUnsupportedAssets:
       "Screenshot nicht gespeichert: Eingebettete Medien oder Bilder können teilweise nicht sicher erfasst werden.",
     timeline: "Ereignis-Timeline",

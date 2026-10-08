@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 // @vitest-environment happy-dom
 import {
@@ -1002,6 +1003,23 @@ describe("Slides prompt-led home", () => {
           contextItems,
         }),
       }),
+    );
+    const acceptedEvent = vi
+      .mocked(trackEvent)
+      .mock.calls.find(([name]) => name === "generation_request_accepted");
+    expect(acceptedEvent).toBeDefined();
+    const acceptedTiming = acceptedEvent?.[1];
+    expect(acceptedTiming).toMatchObject({
+      started_at_ms: expect.any(Number),
+      ended_at_ms: expect.any(Number),
+      duration_ms: expect.any(Number),
+    });
+    expect(acceptedTiming?.ended_at_ms).toBeGreaterThanOrEqual(
+      acceptedTiming?.started_at_ms as number,
+    );
+    expect(acceptedTiming?.duration_ms).toBe(
+      (acceptedTiming?.ended_at_ms as number) -
+        (acceptedTiming?.started_at_ms as number),
     );
     expect(commit).toHaveBeenCalledOnce();
   });

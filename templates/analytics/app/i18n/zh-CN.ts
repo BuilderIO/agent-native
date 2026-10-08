@@ -1432,6 +1432,12 @@ export default {
     savingScreenshot: "正在保存截图…",
     screenshotDownloaded: "截图已下载",
     screenshotSaveFailed: "无法保存截图",
+    copyScreenshot: "复制到 Design",
+    copyingScreenshot: "正在复制截图…",
+    screenshotCopiedForDesign: "截图已复制。请粘贴到 Design。",
+    screenshotCopyFailed: "无法复制截图。请下载截图，再将 PNG 上传到 Design。",
+    screenshotCopyUnsupportedAssets:
+      "截图未复制：此时包含无法安全捕获的媒体或图片。请尝试回放中的其他时刻。",
     screenshotUnsupportedAssets: "截图未保存：部分嵌入媒体或图片无法安全捕获。",
     timeline: "事件时间线",
     replayTimeline: "回放时间线",

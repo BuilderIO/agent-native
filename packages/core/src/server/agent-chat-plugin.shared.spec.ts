@@ -559,15 +559,87 @@ describe("scheduled trigger availability", () => {
     expect(
       scheduledTriggerAvailability({
         NODE_ENV: "production",
-        VERCEL: "1",
-      }),
-    ).toEqual({ available: false, reason: "no-platform-scheduler" });
-    expect(
-      scheduledTriggerAvailability({
-        NODE_ENV: "production",
         AWS_LAMBDA_FUNCTION_NAME: "analytics-handler",
       }),
     ).toEqual({ available: false, reason: "no-platform-scheduler" });
+  });
+
+  it("reports a production Vercel deploy as driven by Vercel Cron", () => {
+    expect(
+      scheduledTriggerAvailability({
+        NODE_ENV: "production",
+        VERCEL: "1",
+        VERCEL_ENV: "production",
+        CRON_SECRET: "cron-secret",
+      }),
+    ).toEqual({ available: true, driver: "vercel-cron" });
+  });
+
+  // Vercel Cron fires whether or not CRON_SECRET is set, and the sweep rejects
+  // every request it cannot verify, so a deploy without the secret has a
+  // trigger that never gets through.
+  it("names the missing CRON_SECRET instead of vouching for Vercel Cron", () => {
+    expect(
+      scheduledTriggerAvailability({
+        NODE_ENV: "production",
+        VERCEL: "1",
+        VERCEL_ENV: "production",
+      }),
+    ).toEqual({
+      available: false,
+      reason: "missing-trigger-secret",
+      driver: "vercel-cron",
+      secret: "CRON_SECRET",
+    });
+  });
+
+  it("reports Vercel preview deploys as unscheduled, because cron skips them", () => {
+    expect(
+      scheduledTriggerAvailability({
+        NODE_ENV: "production",
+        VERCEL: "1",
+        VERCEL_ENV: "preview",
+        CRON_SECRET: "cron-secret",
+      }),
+    ).toEqual({ available: false, reason: "no-platform-scheduler" });
+  });
+
+  it("reports a Cloudflare worker as driven by its Cron Trigger", () => {
+    const cloudflareWorker = { cloudflareWorker: true };
+
+    expect(
+      shouldDisableRecurringJobsRuntime(
+        { NODE_ENV: "production", APP_URL: "https://app.example.com" },
+        cloudflareWorker,
+      ),
+    ).toBe(true);
+    expect(
+      scheduledTriggerAvailability(
+        { NODE_ENV: "production", A2A_SECRET: "a2a-secret" },
+        cloudflareWorker,
+      ),
+    ).toEqual({ available: true, driver: "cloudflare-cron-trigger" });
+    expect(
+      scheduledTriggerAvailability(
+        { NODE_ENV: "production" },
+        cloudflareWorker,
+      ),
+    ).toEqual({
+      available: false,
+      reason: "missing-trigger-secret",
+      driver: "cloudflare-cron-trigger",
+      secret: "A2A_SECRET",
+    });
+  });
+
+  it("lets the build kill switch outrank a missing trigger secret", () => {
+    expect(
+      scheduledTriggerAvailability({
+        NODE_ENV: "production",
+        VERCEL: "1",
+        AGENT_NATIVE_BUILD_RECURRING_JOBS: "disabled",
+      }),
+    ).toEqual({ available: false, reason: "disabled-by-env" });
   });
 
   it("distinguishes a dev machine from a broken deploy", () => {
@@ -614,7 +686,7 @@ describe("scheduled trigger availability", () => {
     ).toEqual({ available: true, driver: "netlify-scheduled-function" });
   });
 
-  // The mirror image, and the reason the Netlify branch reads the build scope
+  // The mirror image, and the reason a platform trigger reads the build scope
   // ALONE: the emitted scheduled function fires on the platform's clock and
   // never consults the deployed env, so a runtime-only kill switch does not stop
   // it. Reporting "won't run" there would be a false alarm about work that runs.

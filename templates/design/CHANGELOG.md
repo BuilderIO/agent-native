@@ -5,8 +5,16 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-10-07
 
+### Improved
+
+- A collaborator's edits refresh only the design data they change, so the editor does far fewer background requests while others work.
+- Keyboard shortcuts now open in a dialog with search and a category list, replacing the bottom drawer.
+
 ### Fixed
 
+- Fixed Position controls for fixed elements after scrolling the canvas.
+- Fixed Position readouts inside transformed containers and kept selected vector layers aligned to their shape bounds
+- Waitlist signups work from the Make Real and Design Systems flows.
 - Design keeps frame-relative positions and selections stable when moving or pasting layers.
 - Position values stay aligned with selected layers in layouts with body margins.
 

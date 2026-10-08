@@ -267,6 +267,7 @@ import {
   getResetPasswordHtml,
   type OnboardingHtmlOptions,
 } from "./onboarding-html.js";
+import { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 import {
   getRequestContext,
   markRequestIdentityAuthenticatedAtMs,
@@ -3883,10 +3884,10 @@ function createAuthGuardFn(
       return;
     }
 
-    // Scheduled recurring-job sweeps are self-fired by the platform scheduler
-    // through the durable background function and authenticate with the same
-    // short-lived HMAC token as the other internal processors. They do not
-    // carry a browser session, so let the route perform its own token check.
+    // Scheduled recurring-job sweeps are fired by the platform scheduler
+    // (Netlify's scheduled function, a Cloudflare Cron Trigger, or Vercel Cron)
+    // and authenticate with a short-lived HMAC token or Vercel's CRON_SECRET.
+    // They do not carry a browser session, so let the route check them itself.
     if (p === "/_agent-native/jobs/_process-sweep") {
       return;
     }
@@ -6490,7 +6491,9 @@ async function mountBetterAuthRoutes(
         setFirstRunOnboardingCookie(event);
       }
 
-      return response;
+      return isResponse
+        ? queryEchoSafeRedirect(event, response as Response)
+        : response;
     }),
   );
 
@@ -6573,7 +6576,10 @@ async function mountBetterAuthRoutes(
         ? query.return[0]
         : query.return;
       setFirstRunOnboardingCookie(event);
-      return redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302);
+      return queryEchoSafeRedirect(
+        event,
+        redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302),
+      );
     }),
   );
 

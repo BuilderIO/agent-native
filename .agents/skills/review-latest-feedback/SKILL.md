@@ -21,8 +21,10 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply**, under a hard question budget, then recap.
 
-Output is fixes; reply only when informative. Two fixes and three messages
-beats thirty replies.
+Output is fixes. Reply in-thread for every workflow reaction added this run;
+continuing work gets a concrete progress reply, and resolved work gets a final
+reply after verification. Follow
+[`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
 ## Slack channels
 
@@ -46,9 +48,10 @@ work, post one status reply with task link and remaining scope.
 
 ## Phase 0: claim what you are taking
 
-For an eligible item you intend to take, add `👀` before investigation and
-never remove it. Do not resume items excluded by the Slack ownership gate. Post
-**In progress** only when work continues beyond this run.
+Resolve known duplicate clusters before claiming. For an eligible item, add
+`👀` before investigation and never remove it. Do not resume items excluded by
+the Slack ownership gate. Post **In progress** only when work continues beyond
+this run.
 
 **Defects are in scope: fix them or ask for the one detail needed to fix them.**
 Investigate first; ask what they saw or did in plain language. Gather request
@@ -62,17 +65,27 @@ doesn't close a separate defect. Tie each reaction to the scope it marks.
 
 ### Reaction gate
 
-`👀` is claim history; `✅` requires **Fixed** after all Phase 2 bars. `🎫`
-marks accepted work another owner must do; use it only with an existing ticket
-naming that owner and exact action, linked in the ledger and reply. No `🎫` for
-fixed scope, routine rollout, optional live checks, subjective/out-of-scope, or
-unapproved work. Pair `✅` + `🎫` only for distinct scopes; name the fixed
-behavior and ticket action. **Shipped**/**Live verified** alone don't earn
-`✅`. Never remove reactions.
+`👀` is claim history; `✅` requires **Fixed** after Phase 2 bars. Check each
+reported symptom separately. For partial fixes, pair `✅` for verified scope
+with `🎫` for any distinct unfinished scope that needs a human to take
+ownership or act, whether or not a ticket exists. Link a verified ticket and
+name its owner/action; without one, keep the handoff explicit in the reply and
+ledger and say that an owner or ticket still needs to be assigned. Do not
+create or promise a ticket without authorization. No `🎫` for fixed scope,
+routine rollout, optional checks, subjective/out-of-scope, or unapproved work.
+**Shipped**/**Live verified** alone don't earn `✅`. Never remove reactions.
+Follow the reply reference before marking an item replied.
 
-If no safe repo-owned fix is evident, record the evidence limit. Ask only a
-question that could unblock a fix; after four days without an answer, record
-**Abandoned - no answer in 4 days**.
+For every concrete objective defect, attempt to reproduce it before recording
+an evidence limit or asking the reporter for more information. A screenshot,
+error message, URL, or visible flow is enough to start tracing its owner; don't
+wait for details that would not change the reproduction attempt. Phase 2's
+local reproduction procedure applies to all defect reports, not only bashes.
+
+If no safe repo-owned fix is evident after that attempt, record the specific
+evidence limit. Ask only a question whose answer could change the reproduction
+or unblock a fix; after four days without an answer, record **Abandoned - no
+answer in 4 days**.
 
 Use **Skipped** only for non-defects, never breakage. **Open - no question**
 means you found neither a fix nor a useful question; state why in the thread.
@@ -82,7 +95,8 @@ means you found neither a fix nor a useful question; state why in the thread.
 For eligible items, use one disposition per row; record it in the recap and, if
 unstated, in the thread or linked work. Do not inspect gated items for status.
 For clusters, post one owner status with each source permalink and
-**Clustered**; reply in a non-owner only for a distinct question or update.
+**Clustered**; do not mark duplicate non-owners separately. Give a distinct
+question or update its own reaction and reply.
 
 - **Terminal (keep this workflow's eye):** **Fixed**, **Shipped**, **Live
   verified**, **Open - no question**, **Resolved elsewhere**, **Skipped**,
@@ -349,6 +363,26 @@ screenshot is usually the whole diagnosis. Track an artifact that is
 permission-gated or expired separately from one that was never provided —
 inaccessible is not absent.
 
+### Attempt local reproduction before evidence-limiting
+
+For each concrete objective defect, try the reported flow before deciding it
+cannot be reproduced or fixed. Trace the screenshot, URL, visible action, and
+error through the app to its route, action, provider, or form contract; use
+those clues to choose the closest runnable local seam. Exercise the flow with
+a local build and synthetic fixtures. If its external dependency is unavailable,
+mock that boundary or submit the same shape to a local validator. Do not use a
+reporter's real email or create a real external record merely to prove a
+failure.
+
+Record the route or action, build, fixture, steps, expected and actual result,
+and error. Code inspection alone is not a reproduction attempt, and
+**Not reproducible - attempted** requires an actual flow attempt. Ask the
+reporter only when a specific missing detail would change the attempt or fix;
+otherwise make the best local attempt with the evidence already available.
+If the attempt stops at a concrete access or environment limit, name what was
+tried and what exact behavior remains untested. Measure misses with
+`feedback-no-local-repro`.
+
 **Sweep siblings before you claim anything is fixed.** Derive the fingerprint
 from the symptom, not the file — the exact crashing token, call shape, or
 literal — then search the repo for it and enumerate every hit in your recap
@@ -393,47 +427,10 @@ Measure this gate with friction keys `false-done` and
 --pattern <key>` for each before changing it and again later. A climbing count
 requires a mechanical proof or release gate, not more prose.
 
-### Bug-bash reproduction contract
+### Reproduction and verification detail
 
-For Design, Slides, Core/framework, and template bashes, the reachable reported
-surface is the contract:
-
-1. **Reproduce before editing.** Use the exact URL/route, app/template,
-   account/workspace/role, build/package, browser/device, fixture, and inputs;
-   record expected/actual, errors, and attached artifacts.
-2. **Sweep siblings and boundaries.** Test a negative control plus empty, wrong,
-   whitespace, case, and permission variants; enumerate every shared fingerprint.
-3. **Repeat on the changed running artifact.** Rerun the flow, refresh/navigate,
-   read UI and persisted state, and cover failure/retry/cancel/async paths.
-   Destructive flows require wrong/partial/exact confirmation and recovery;
-   do not delete unless needed.
-4. **Test release/race layers when needed.** Use concurrency/10 runs, a clean
-   scaffold, and the exact package for package reports. Reproduce and verify
-   locally by default; use beta only if the full symptom cannot be reproduced
-   locally and hosted behavior is needed. Record why. These checks support
-   **Shipped**/**Live verified**, not a merged **Fixed** claim.
-5. Record untested layers. Before merge, use an evidence-limited status. After
-   verified source merge, mark **Fixed** even if release/live layers remain;
-   routine rollout and optional beta checks aren't ticketed follow-ups.
-   **Shipped**/**Live verified** need their own bars. Don't mark **Fixed**/`✅`
-   without merged-source proof. Reopen repeats only with a fresh failing
-   pre-change reproduction.
-
-### Reproduction ledger - required for every row
-
-For each row, record symptom/surface, reproduction steps and account, expected
-and pre/post behavior, tested commit/build, sibling results, untested layers,
-and runtime layer (`local`, `source-only`, `built`, `deployed`, `observed-live`).
-
-Without merged source proof, use an active or waiting disposition above. After
-merge, **Fixed** may coexist with release follow-up; **Live verified** requires
-all four bars. Status labels, reactions, and tests alone do not prove closure.
-Repeats require a new pre-change failure and link the earlier false claim.
-
-Regression claims require Red/Green proof: reverse-apply hunk with
-`git apply -R`, record failure, reapply, record pass. Repeat timing checks 10x.
-If output missing, build it and rerun on `origin/main` before calling them
-pre-existing.
+Use [`reproduction-and-verification.md`](references/reproduction-and-verification.md)
+for the bug-bash contract, reproduction ledger, and regression proof.
 
 ### Npx and package reports have a release follow-up
 
@@ -474,16 +471,8 @@ Share only new or useful information.
 
 ### After a PR merges
 
-After a Slack-fix PR merges, reply only in threads claimed this run.
-
-For beta app fixes, check the merge-triggered publisher run before giving the
-normal few-hours ETA. This checks release-job status, not beta behavior. If it
-succeeds, say what changed and that it'll be on beta in the next few hours.
-Keep test environment, verification, publisher results, and rollout details out
-of the reply; record evidence in the recap or PR. If the run is missing or
-failed, omit the ETA and state what's done, the exact remaining action and owner,
-and an existing ticket when available. Apply the Reaction gate before `🎫`.
-For packages, state availability without verification details.
+Follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md) for
+post-merge beta ETAs and package replies.
 
 For a fixed behavior with a ticketed handoff, state the done behavior and
 remaining action/owner/ticket separately; don't imply the fixed scope is open.
@@ -580,9 +569,9 @@ Questions asked: N/3 · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
 
-| Tracker/source or workflow run | Reporter/owner | Status | Repro or failed step | Pre/post/recovery | Run/SHA/target/version/artifact/runtime proof | Locales | Handoff (action/owner/ticket) | Replied | Reactions |
+| Tracker/source or workflow run | Reporter/owner | Status | Repro or failed step | Pre/post/recovery | Run/SHA/target/version/artifact/runtime proof | Locales | Handoff (action/owner/ticket) | Reply proof | Reactions |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | yes/no | 👀 claim; ✅ Fixed; 🎫 ticketed only |
+| 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | [reply](...) or blocker | 👀 claim; ✅ Fixed; 🎫 human handoff needed |
 <!-- framework-repo-only:start -->
 | CI fingerprint · N runs · [latest run](...) | N/A | class · disposition | failed job/step | pre/post | test fix/quarantine; deploy target proof | N/A | owner/[issue](...) | N/A | N/A |
 <!-- framework-repo-only:end -->

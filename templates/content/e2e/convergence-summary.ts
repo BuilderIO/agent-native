@@ -45,18 +45,20 @@ const tally = (
   );
 };
 
-const distinct = (record: ScenarioRecord, field: "lost" | "duplicated") =>
-  new Set(record.integrity.flatMap((entry) => entry[field])).size;
+const distinct = (
+  record: ScenarioRecord,
+  field: "lost" | "duplicated" | "resurrected",
+) => new Set(record.integrity.flatMap((entry) => entry[field])).size;
 
 const lines = [
   "## Content two-tab convergence",
   "",
   `Build \`${records[0]?.build ?? "unknown"}\`, retries off.`,
   "",
-  "Edits are typed markers. Lost and duplicated count distinct markers missing or repeated in any observation: the saved page and each tab at the deadline, after a refresh, and in a tab reopened alone.",
+  "Edits are typed markers. Lost and duplicated count distinct markers missing or repeated in any observation: the saved page and each tab at the deadline, after a refresh, and in a tab reopened alone. Deleted, back counts markers a tab deleted that reappeared in any observation.",
   "",
-  "| Scenario | Gate | Edits | Lost | Duplicated | Saves | Save answers | Codes | Recovery shown | Error toasts | Editor mounts | Seconds |",
-  "| --- | --- | --: | --: | --: | --: | --- | --- | --: | --: | --: | --: |",
+  "| Scenario | Gate | Edits | Lost | Duplicated | Deleted, back | Saves | Save answers | Codes | Recovery shown | Error toasts | Editor mounts | Seconds |",
+  "| --- | --- | --: | --: | --: | --: | --: | --- | --- | --: | --: | --: | --: |",
 ];
 for (const record of records) {
   const tabs = record.tabs;
@@ -64,20 +66,30 @@ for (const record of records) {
     ? "known loss"
     : "required";
   lines.push(
-    `| ${record.scenario} | ${gate} | ${record.authoredEdits} | ${distinct(record, "lost")} | ${distinct(record, "duplicated")} | ${sum(tabs, (tab) => tab.saveRequests)} | ${tally(tabs, (tab) => tab.saveOutcomes)} | ${tally(tabs, (tab) => tab.saveCodes)} | ${sum(tabs, (tab) => tab.recovery.length)} | ${sum(tabs, (tab) => tab.errorToasts.length)} | ${sum(tabs, (tab) => tab.editorMounts)} | ${Math.round(record.durationMs / 1000)} |`,
+    `| ${record.scenario} | ${gate} | ${record.authoredEdits} | ${distinct(record, "lost")} | ${distinct(record, "duplicated")} | ${distinct(record, "resurrected")} | ${sum(tabs, (tab) => tab.saveRequests)} | ${tally(tabs, (tab) => tab.saveOutcomes)} | ${tally(tabs, (tab) => tab.saveCodes)} | ${sum(tabs, (tab) => tab.recovery.length)} | ${sum(tabs, (tab) => tab.errorToasts.length)} | ${sum(tabs, (tab) => tab.editorMounts)} | ${Math.round(record.durationMs / 1000)} |`,
   );
 }
 
 const failures = records.flatMap((record) =>
   record.integrity
-    .filter((entry) => entry.lost.length || entry.duplicated.length)
+    .filter(
+      (entry) =>
+        entry.lost.length ||
+        entry.duplicated.length ||
+        entry.resurrected.length,
+    )
     .map(
       (entry) =>
-        `- ${record.scenario}, ${entry.at}, ${entry.surface}: lost ${entry.lost.join(" ") || "none"}; duplicated ${entry.duplicated.join(" ") || "none"}`,
+        `- ${record.scenario}, ${entry.at}, ${entry.surface}: lost ${entry.lost.join(" ") || "none"}; duplicated ${entry.duplicated.join(" ") || "none"}; deleted, back ${entry.resurrected.join(" ") || "none"}`,
     ),
 );
 if (failures.length)
-  lines.push("", "### Lost or duplicated text", "", ...failures);
+  lines.push(
+    "",
+    "### Lost, duplicated or deleted-then-back text",
+    "",
+    ...failures,
+  );
 
 const notes = records.filter((record) => Object.keys(record.notes).length);
 if (notes.length)

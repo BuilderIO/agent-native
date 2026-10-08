@@ -161,6 +161,32 @@ npx wrangler deploy --config .output/server/wrangler.json
 
 시크릿은 배포 사이에도 Worker에 저장된 상태로 유지되므로 5단계를 반복할 필요가 없습니다.
 
+## 예약 작업 {#cloudflare-scheduled-work}
+
+예약 자동화, 대기 중인 이벤트 자동화, 중단된 실행 정리는 모두 1분에 한 번
+실행되는 스윕에서 처리됩니다. 빌드는 생성된 `wrangler.json`에 `* * * * *`
+[Cron Trigger](https://developers.cloudflare.com/workers/configuration/cron-triggers/)를
+추가하며, 이미 선언한 Cron Trigger는 그대로 유지합니다. 트리거가 실행되면 Worker의
+`scheduled` 핸들러가 `A2A_SECRET`으로 서명된 단기 토큰을 사용해 스윕을 직접
+호출하므로, 배포하기 전에 이 시크릿을 설정하세요:
+
+```bash
+npx wrangler secret put A2A_SECRET --config .output/server/wrangler.json
+```
+
+- **CPU 시간.** Workers 무료 플랜에서는 각 Cron Trigger 호출에 10ms의 CPU 시간이
+  주어지지만, 에이전트 작업을 실행하는 스윕에는 그보다 더 필요합니다. 예약 작업에는
+  Workers 유료 플랜을 사용하세요.
+- **타이밍.** Cron Trigger는 UTC 기준으로 실행되며, 새로 추가하거나 변경한 트리거는
+  배포 후 실행되기 시작할 때까지 최대 15분이 걸릴 수 있습니다.
+- **로컬 테스트.** 빌드된 Worker를
+  `npx wrangler dev --test-scheduled --config .output/server/wrangler.json`으로
+  실행한 다음, `/cdn-cgi/handler/scheduled?cron=*+*+*+*+*`를 요청하면 스윕이 한 번
+  실행됩니다.
+
+다른 호스트는 [스케줄러 실행 방법](/docs/recurring-jobs#how-scheduler-runs)을
+참조하세요.
+
 ## 다음 단계 {#whats-next}
 
 - [**배포 환경 변수**](/docs/deployment-environment-variables) - 전체 프로덕션 설정 목록

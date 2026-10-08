@@ -259,6 +259,16 @@ const messages = {
     generateImage: "Bild generieren",
     assetLibrary: "Asset-Bibliothek",
     imageOptions: "Bildoptionen",
+    videoPlayback: "Videowiedergabe",
+    autoplayVideo: "Automatische Wiedergabe",
+    loopVideo: "Video wiederholen",
+    videoUploading: "Video wird hochgeladen…",
+    videoAdded: "Video hinzugefügt",
+    videoUploadFailed: "Video-Upload fehlgeschlagen",
+    videoUploadError: "Dieses Video konnte nicht hochgeladen werden.",
+    videoFormatUnsupported: "Es werden nur MP4- und WebM-Videos unterstützt.",
+    videoTooLarge: "Videos dürfen höchstens 50 MB groß sein.",
+    videoUploadNeedsBuilder: "Videospeicher ist nicht eingerichtet.",
     cropImage: "Bild zuschneiden",
     cropHandle: "Bild {{position}} zuschneiden",
     diagrams: "Diagramme",
@@ -312,6 +322,9 @@ const messages = {
     conflictStatus: "Textkonflikt",
     conflictStatusDescription:
       "Prüfe den Textkonflikt, bevor du weitere Änderungen speicherst.",
+    accessLost: "Zugriff verloren",
+    accessLostDescription:
+      "Dein Zugriff auf diese Präsentation hat sich geändert. Deine Änderungen bleiben auf dem Bildschirm; versuche es erneut, sobald der Zugriff wiederhergestellt ist, oder lade ein Backup herunter.",
     reviewConflict: "Konflikt prüfen",
     conflictTitle: "Textkonflikt auf Folie {{number}}",
     conflictDescription:

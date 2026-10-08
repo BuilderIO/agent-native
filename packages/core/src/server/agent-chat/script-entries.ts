@@ -9,6 +9,7 @@ import {
 import { assertCanManageSharedResource } from "../../resources/script-helpers.js";
 import type { DatabaseToolsMode } from "../../scripts/db/tool-mode.js";
 import { dbExecToolParameters } from "../../scripts/db/tool-schemas.js";
+import { serializeCliArgs } from "../../scripts/parse-args.js";
 import { captureCliOutput } from "../cli-capture.js";
 import {
   getAmbientUserEmail,
@@ -37,19 +38,12 @@ function wrapCliScript(
       ? { allowPersistentApproval: opts.allowPersistentApproval }
       : {}),
     run: async (args: Record<string, string>): Promise<string> => {
-      const cliArgs: string[] = [];
-      for (const [k, v] of Object.entries(args)) {
+      for (const k of Object.keys(args)) {
         if (opts?.allowedArgs && !opts.allowedArgs.includes(k)) {
           throw new Error(`Unknown argument: ${k}`);
         }
-        const raw = v as unknown;
-        const value =
-          raw != null && typeof raw === "object"
-            ? JSON.stringify(raw)
-            : String(raw);
-        cliArgs.push(`--${k}`, value);
       }
-      return captureCliOutput(() => cliDefault(cliArgs));
+      return captureCliOutput(() => cliDefault(serializeCliArgs(args)));
     },
   };
 }

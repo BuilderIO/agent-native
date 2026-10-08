@@ -5,6 +5,7 @@ import {
   BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS,
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -2089,6 +2090,43 @@ describe("run manager soft timeout", () => {
     } finally {
       unregister();
     }
+  });
+
+  it("does not execute a service-principal run after its durable start is refused", async () => {
+    const runFn = vi.fn(async () => {});
+    vi.mocked(insertRun).mockRejectedValueOnce(
+      new ServicePrincipalRefusedError(
+        "service_principal_inactive",
+        "This service principal is suspended or retired.",
+      ),
+    );
+
+    const run = startRun(
+      "run-refused-service-principal",
+      "thread-refused-service-principal",
+      runFn,
+      undefined,
+      {
+        softTimeoutMs: 0,
+        runRowAlreadyInserted: true,
+        turnInitiator: {
+          email: "svc-ci@service.org-1",
+          orgId: "org-1",
+          anonymous: false,
+        },
+      },
+    );
+
+    await run.finalized;
+
+    expect(insertRun).toHaveBeenCalledWith(
+      "run-refused-service-principal",
+      "thread-refused-service-principal",
+      undefined,
+      { turnInitiator: expect.any(Object) },
+    );
+    expect(runFn).not.toHaveBeenCalled();
+    expect(run.status).toBe("errored");
   });
 
   it("captures run-event persistence failures with the sequence and event type", async () => {

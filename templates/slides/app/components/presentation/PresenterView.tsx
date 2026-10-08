@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
+import { isMediaKeyboardEvent } from "@/lib/slide-video";
 
 import type { DesignSystemData } from "../../../shared/api";
 import {
@@ -117,6 +118,7 @@ export default function PresenterView({
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      if (isMediaKeyboardEvent(e)) return;
       switch (e.key) {
         case "ArrowRight":
         case "ArrowDown":
