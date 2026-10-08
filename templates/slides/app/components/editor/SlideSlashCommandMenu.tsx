@@ -394,6 +394,25 @@ export function SlideSlashCommandMenu({
       menuRef.current = next;
       setMenu(next);
     };
+    let pendingSlashFrame: number | null = null;
+    const publishPendingSlash = () => {
+      if (!pendingSlash.current) return false;
+      const next = findMenu(editingEl);
+      if (!next) return false;
+      pendingSlash.current = false;
+      menuRef.current = next;
+      setMenu(next);
+      return true;
+    };
+    const retryPendingSlashOnNextFrame = () => {
+      if (pendingSlashFrame !== null) return;
+      pendingSlashFrame = window.requestAnimationFrame(() => {
+        pendingSlashFrame = null;
+        if (!pendingSlash.current) return;
+        publishPendingSlash();
+        pendingSlash.current = false;
+      });
+    };
     const onBeforeInput = (event: Event) => {
       const input = event as InputEvent;
       const startsSlash =
@@ -404,12 +423,7 @@ export function SlideSlashCommandMenu({
       if (startsSlash) pendingSlash.current = true;
       if (startsSlash) {
         window.setTimeout(() => {
-          if (!pendingSlash.current) return;
-          const next = findMenu(editingEl);
-          pendingSlash.current = false;
-          if (!next) return;
-          menuRef.current = next;
-          setMenu(next);
+          if (!publishPendingSlash()) retryPendingSlashOnNextFrame();
         }, 0);
       }
     };
@@ -420,11 +434,8 @@ export function SlideSlashCommandMenu({
         input.inputType === "insertText" &&
         input.data === "/" &&
         !input.isComposing;
-      if (opensMenu) pendingSlash.current = false;
       if (opensMenu) {
-        const next = findMenu(editingEl);
-        menuRef.current = next;
-        setMenu(next);
+        if (!publishPendingSlash()) retryPendingSlashOnNextFrame();
       } else {
         refreshOpenMenu(true);
       }
@@ -438,6 +449,10 @@ export function SlideSlashCommandMenu({
     window.addEventListener("scroll", refreshGeometry, true);
     window.addEventListener("resize", refreshGeometry);
     return () => {
+      pendingSlash.current = false;
+      if (pendingSlashFrame !== null) {
+        window.cancelAnimationFrame(pendingSlashFrame);
+      }
       editingEl.removeEventListener("beforeinput", onBeforeInput, true);
       editingEl.removeEventListener("input", onInput);
       document.removeEventListener("selectionchange", refreshGeometry);

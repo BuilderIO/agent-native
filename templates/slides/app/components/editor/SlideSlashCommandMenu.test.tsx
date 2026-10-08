@@ -274,6 +274,8 @@ afterEach(() => {
   } else {
     delete (Range.prototype as Partial<Range>).getBoundingClientRect;
   }
+  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe("slide slash command menu", () => {
@@ -427,6 +429,49 @@ describe("slide slash command menu", () => {
     fireInput(editingEl, "insertText", "/");
 
     await waitFor(() => expect(screen.getByRole("listbox")).toBeTruthy());
+    expect(document.activeElement).toBe(editingEl);
+  });
+
+  it("retries slash discovery on the next frame when the caret snapshot is missing", () => {
+    vi.useFakeTimers();
+    const { editingEl, textNode } = renderMenu("", 0);
+    const getSelection = window.getSelection.bind(window);
+    let hideNextSelection = false;
+    let retryFrame: FrameRequestCallback | null = null;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      retryFrame = callback;
+      return 1;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    vi.spyOn(window, "getSelection").mockImplementation(() => {
+      if (hideNextSelection) {
+        hideNextSelection = false;
+        return null;
+      }
+      return getSelection();
+    });
+
+    editingEl.dispatchEvent(
+      new InputEvent("beforeinput", {
+        bubbles: true,
+        cancelable: true,
+        inputType: "insertText",
+        data: "/",
+      }),
+    );
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    expect(retryFrame).toBeTypeOf("function");
+
+    textNode.insertData(0, "/");
+    setCaret(textNode, 1);
+    hideNextSelection = true;
+    fireInput(editingEl, "insertText", "/");
+
+    expect(screen.queryByRole("listbox")).toBeNull();
+    act(() => retryFrame?.(performance.now()));
+    expect(screen.getByRole("listbox")).toBeTruthy();
     expect(document.activeElement).toBe(editingEl);
   });
 
