@@ -1601,6 +1601,54 @@ export default {
       "Nenhuma mensagem de console corresponde aos filtros atuais.",
     devtoolsNoNetworkMatches:
       "Nenhuma solicitação corresponde aos filtros atuais.",
+    storyboardSelectionCoverage:
+      "{{selected}} de {{total}} sessões de replay selecionadas ({{percent}}).",
+    storyboardSelectHint: "Selecione até 3 sessões para criar um storyboard.",
+    clearStoryboardSelection: "Limpar seleção",
+    createStoryboard: "Criar storyboard",
+    selectReplayForStoryboard: "Selecionar replay {{id}} para o storyboard",
+    storyboardDesignId: "ID do Design (opcional)",
+    storyboardTitle: "Título do storyboard",
+    storyboardDefaultTitle: "Storyboard de replay de sessão",
+    storyboardTimestamps: "Horários (até 3, separados por vírgula)",
+    storyboardReplayPreview: "Prévia do replay",
+    storyboardStartingCapture:
+      "Selecione esta aba do Analytics no seletor de captura do navegador.",
+    storyboardLoadingReplay: "Carregando replay {{replayId}}…",
+    storyboardCapturingFrame:
+      "Capturando {{current}} de {{total}} · {{replayId}} · {{timestamp}}",
+    storyboardSendingToDesign: "Enviando capturas para o Design…",
+    storyboardComplete: "{{screenshots}} capturas foram adicionadas ao Design.",
+    storyboardTimestampError: "Use mm:ss, hh:mm:ss ou mm:ss.mmm.",
+    storyboardTimestampRequired:
+      "Informe pelo menos um horário para cada replay selecionado.",
+    storyboardTimestampLimit: "Escolha até 3 horários por replay.",
+    storyboardDuplicateTimestamp: "Remova horários duplicados.",
+    storyboardScreenshotLimit: "Escolha até 9 capturas.",
+    storyboardReplayLimit: "Selecione até 3 sessões de replay.",
+    storyboardCaptureFailed: "Falha ao capturar a tela.",
+    storyboardCanceled: "A captura foi cancelada.",
+    storyboardReplayIncomplete:
+      "O replay {{replayId}} contém eventos indisponíveis; a exportação foi interrompida.",
+    storyboardViewportUnavailable:
+      "As dimensões gravadas da janela não estão disponíveis.",
+    storyboardTimestampOutOfRange:
+      "O horário está fora do replay {{replayId}}.",
+    storyboardScreenshotTooLarge: "Uma captura excede o limite de 5 MB.",
+    storyboardBatchTooLarge: "O lote de capturas excede o limite de 20 MB.",
+    storyboardRouteUnavailable:
+      "A rota em {{timestamp}} não está disponível para o replay {{replayId}}.",
+    storyboardNoDesignResponse:
+      "O Design não retornou um resultado do storyboard.",
+    storyboardTemporaryCleanupPending:
+      "O storyboard foi salvo, mas não foi possível remover os arquivos temporários de captura.",
+    storyboardUnexpectedResponse:
+      "A exportação das capturas retornou uma resposta ilegível. Tente novamente.",
+    openStoryboard: "Abrir storyboard no Design",
+    cancelStoryboardCapture: "Cancelar captura",
+    captureToDesign: "Capturar e adicionar ao Design",
+    storyboardSelectAnalyticsTab:
+      "Selecione esta aba do Analytics no seletor de captura do navegador.",
   },
   catalog: {
     description:

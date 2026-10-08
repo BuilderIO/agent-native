@@ -267,6 +267,10 @@ agent's credential system handles auth automatically.
 
 ## Learnings Flywheel
 
-After any significant batch analysis, record discoveries to `LEARNINGS.md`
-via the `resources` tool (`action: "write"`). Capture confirmed schema paths,
-cursor fields, identity join keys, and pagination patterns.
+After any significant batch analysis, check whether each discovery applies to
+the user's setup or to the whole organization. Keep setup-specific discoveries
+in personal memory or the current analysis. Ask the user and get approval
+before writing anything to shared `LEARNINGS.md` or organization memory. For
+approved shared discoveries, use the `resources` tool (`action: "write"`) and
+capture confirmed schema paths, cursor fields, identity join keys, and
+pagination patterns.

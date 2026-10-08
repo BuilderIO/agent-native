@@ -14,6 +14,23 @@ export function hasMinimalInspectorSelection({
   );
 }
 
+/**
+ * Canvas width the right inspector reserves. A widget's inspector floats over
+ * the canvas: reserving its width would refit the screen narrower the moment
+ * something is selected.
+ */
+export function rightInspectorCanvasInset({
+  visible,
+  width,
+  widgetEmbed,
+}: {
+  visible: boolean;
+  width: number;
+  widgetEmbed: boolean;
+}): number {
+  return visible && !widgetEmbed ? width : 0;
+}
+
 export const DOCKED_RIGHT_INSPECTOR_CLASSNAME =
   "absolute inset-y-0 right-0 z-[70] hidden h-full min-h-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] md:flex";
 

@@ -6,8 +6,41 @@ import {
   DOCKED_RIGHT_INSPECTOR_CLASSNAME,
   FLOATING_RIGHT_INSPECTOR_CLASSNAME,
   hasMinimalInspectorSelection,
+  rightInspectorCanvasInset,
   rightInspectorPanelClassName,
 } from "./minimal-inspector";
+
+describe("rightInspectorCanvasInset", () => {
+  it("reserves the panel width for a visible inspector", () => {
+    expect(
+      rightInspectorCanvasInset({
+        visible: true,
+        width: 240,
+        widgetEmbed: false,
+      }),
+    ).toBe(240);
+  });
+
+  it("reserves nothing when the inspector is hidden", () => {
+    expect(
+      rightInspectorCanvasInset({
+        visible: false,
+        width: 240,
+        widgetEmbed: false,
+      }),
+    ).toBe(0);
+  });
+
+  it("reserves nothing in a widget, so a wide pane keeps its full width when something is selected", () => {
+    expect(
+      rightInspectorCanvasInset({
+        visible: true,
+        width: 240,
+        widgetEmbed: true,
+      }),
+    ).toBe(0);
+  });
+});
 
 describe("hasMinimalInspectorSelection", () => {
   it("is false when nothing is selected", () => {
