@@ -4,7 +4,8 @@ import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
   MAX_CONCURRENT_SQL_QUERIES,
 } from "@shared/sql-query-limits";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 
 import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 
@@ -138,7 +139,7 @@ export async function executeSqlQuery(
   sql: string,
   source: DataSourceType,
   signal?: AbortSignal,
-  options?: { reportScreenshot?: boolean },
+  options?: { reportScreenshot?: boolean; forceRefresh?: boolean },
 ): Promise<SqlQueryResult> {
   const deadline = createDeadlineSignal(
     signal,
@@ -150,7 +151,13 @@ export async function executeSqlQuery(
     release = await acquireSqlQuerySlot(source, deadline.signal);
     data = await callAction<DashboardPanelQueryResponse>(
       "query-dashboard-panel",
-      { query: sql, source },
+      {
+        query: sql,
+        source,
+        ...(options?.forceRefresh && source === "bigquery"
+          ? { forceRefresh: true }
+          : {}),
+      },
       {
         signal: deadline.signal,
         timeoutMs: DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
@@ -191,16 +198,36 @@ export function useSqlQuery(
     refetchOnWindowFocus?: boolean | "always";
     retry?: boolean | number;
     reportScreenshot?: boolean;
+    refreshToken?: number;
     staleTime?: number;
   },
 ) {
-  return useQuery<SqlQueryResult>({
+  const successfulRefreshToken = useRef(0);
+  const refreshToken = options?.refreshToken ?? 0;
+  const enabled = options?.enabled ?? true;
+  const latestRefreshToken = useRef(refreshToken);
+  const latestStartedRefreshToken = useRef(refreshToken);
+  latestRefreshToken.current = refreshToken;
+  const previousRefreshToken = useRef(refreshToken);
+  const previousEnabled = useRef(enabled);
+  const queryClient = useQueryClient();
+  const query = useQuery<SqlQueryResult>({
     queryKey,
-    queryFn: ({ signal }) =>
-      executeSqlQuery(sql, source, signal, {
+    queryFn: async ({ signal }) => {
+      const currentRefreshToken = latestRefreshToken.current;
+      latestStartedRefreshToken.current = currentRefreshToken;
+      const forceRefresh = currentRefreshToken > successfulRefreshToken.current;
+      const result = await executeSqlQuery(sql, source, signal, {
         reportScreenshot: options?.reportScreenshot,
-      }),
-    enabled: options?.enabled ?? true,
+        forceRefresh,
+      });
+      successfulRefreshToken.current = Math.max(
+        successfulRefreshToken.current,
+        currentRefreshToken,
+      );
+      return result;
+    },
+    enabled,
     refetchInterval: options?.refetchInterval,
     refetchOnMount: options?.refetchOnMount ?? false,
     refetchOnReconnect: options?.refetchOnReconnect ?? false,
@@ -208,4 +235,29 @@ export function useSqlQuery(
     retry: options?.retry ?? false,
     staleTime: options?.staleTime ?? 5 * 60 * 1000,
   });
+  const refetch = query.refetch;
+
+  useEffect(() => {
+    const wasEnabled = previousEnabled.current;
+    previousEnabled.current = enabled;
+    const refreshTokenChanged = refreshToken > previousRefreshToken.current;
+    previousRefreshToken.current = refreshToken;
+    if (!enabled) return;
+    const enablingPendingRefresh =
+      !wasEnabled && refreshToken > successfulRefreshToken.current;
+    if (
+      (!refreshTokenChanged && !enablingPendingRefresh) ||
+      refreshToken <= successfulRefreshToken.current
+    ) {
+      return;
+    }
+    if (query.isFetching && latestStartedRefreshToken.current >= refreshToken) {
+      return;
+    }
+    void queryClient
+      .cancelQueries({ queryKey, exact: true })
+      .then(() => refetch());
+  }, [enabled, query.isFetching, queryClient, queryKey, refetch, refreshToken]);
+
+  return query;
 }

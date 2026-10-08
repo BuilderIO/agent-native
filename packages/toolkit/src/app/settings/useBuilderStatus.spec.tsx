@@ -3,6 +3,7 @@ import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { openMcpAppHostLink } from "@agent-native/core/client/mcp-app-host";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createToolkitI18nCatalog } from "../i18n.js";
@@ -101,6 +102,12 @@ function BuilderConnectProbeContent({
       </output>
       <output data-testid="credential-source">
         {flow.credentialSource ?? "none"}
+      </output>
+      <output data-testid="status-unavailable">
+        {flow.statusUnavailable ? "unavailable" : "available"}
+      </output>
+      <output data-testid="terminal-error">
+        {flow.terminalError ?? "none"}
       </output>
       <output>{flow.error ?? ""}</output>
     </div>
@@ -695,9 +702,19 @@ describe("useBuilderConnectFlow", () => {
           return respond(posts.length);
         }
         const activated = posts.length > 0 && respond(posts.length).ok;
+        const activatedScope =
+          posts[0]?.body.scope === "org" ? "org" : "personal";
         return jsonResponse(
           activated
-            ? connectedBuilderStatus
+            ? {
+                ...connectedBuilderStatus,
+                grants: {
+                  [activatedScope]: {
+                    connectedAt: Date.now(),
+                    needsReconnect: false,
+                  },
+                },
+              }
             : {
                 ...activationStatus,
                 agentNativeProvisioningToken: posts.length
@@ -764,6 +781,9 @@ describe("useBuilderConnectFlow", () => {
       const posts = mockActivation(() =>
         activationResponse(200, { ok: true, scope: "org" }),
       );
+      const successToast = vi
+        .spyOn(toast, "success")
+        .mockImplementation(() => "builder-account-created");
 
       await act(async () => {
         root.render(<BuilderConnectProbe provisionAccount startScope="org" />);
@@ -774,6 +794,10 @@ describe("useBuilderConnectFlow", () => {
       expect(openSpy).not.toHaveBeenCalled();
       expect(posts).toHaveLength(1);
       expect(posts[0]!.body).toMatchObject({ provisioningToken, scope: "org" });
+      expect(successToast).toHaveBeenCalledWith(
+        "Builder.io account created and connected.",
+      );
+      successToast.mockRestore();
     });
 
     it("offers Log in when the email already has a Builder account", async () => {
@@ -1626,8 +1650,15 @@ describe("useBuilderConnectFlow", () => {
     await flushAfterPaint();
 
     expect(container.textContent).toContain("not-configured idle unresolved");
+    expect(
+      container.querySelector('[data-testid="status-unavailable"]')
+        ?.textContent,
+    ).toBe("unavailable");
+    expect(
+      container.querySelector('[data-testid="terminal-error"]')?.textContent,
+    ).toBe("none");
     expect(container.textContent).toContain(
-      "Couldn't reach Builder to check your account.",
+      "Couldn't check the Builder.io connection.",
     );
 
     await act(async () => {
@@ -1637,7 +1668,16 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(container.textContent).toContain("not-configured idle resolved");
-    expect(container.textContent).not.toContain("Couldn't reach Builder");
+    expect(
+      container.querySelector('[data-testid="status-unavailable"]')
+        ?.textContent,
+    ).toBe("available");
+    expect(
+      container.querySelector('[data-testid="terminal-error"]')?.textContent,
+    ).toBe("none");
+    expect(container.textContent).not.toContain(
+      "Couldn't check the Builder.io connection.",
+    );
   });
 
   it("shows the chooser without navigating when status cannot be resolved", async () => {

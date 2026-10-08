@@ -89,7 +89,7 @@ export default {
     visibilityPrivateOnly: "لي",
     visibilitySharedOnly: "مشترك",
     visibilityAllDescription: "عرض كل العناصر",
-    visibilityPrivateOnlyDescription: "عرض العناصر الظاهرة لك فقط",
+    visibilityPrivateOnlyDescription: "عرض العناصر التي أنشأتها",
     visibilitySharedOnlyDescription: "عرض عناصر المؤسسة المشتركة والعامة",
     hiddenAnalyses: "التحليلات المخفية",
     shareWithOrg: "مشاركة مع المؤسسة",
@@ -1481,6 +1481,19 @@ export default {
       "مقاطع محددة النطاق تُستخدم لإعادة بناء هذا التسجيل. تبقى عناوين URL الخاصة بالمزوّد خاصة.",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "تنزيل لقطة الشاشة",
+    savingScreenshot: "جارٍ حفظ لقطة الشاشة…",
+    screenshotDownloaded: "تم تنزيل لقطة الشاشة",
+    screenshotSaveFailed: "تعذّر حفظ لقطة الشاشة",
+    copyScreenshot: "نسخ إلى Design",
+    copyingScreenshot: "جارٍ نسخ لقطة الشاشة…",
+    screenshotCopiedForDesign: "نُسخت لقطة الشاشة. الصقها في Design.",
+    screenshotCopyFailed:
+      "تعذّر نسخ لقطة الشاشة. نزّلها وارفع ملف PNG إلى Design بدلاً من ذلك.",
+    screenshotCopyUnsupportedAssets:
+      "لم تُنسخ لقطة الشاشة: يتضمن هذا الموضع وسائط أو صورًا لا يمكن التقاطها بأمان. جرّب موضعًا آخر في التسجيل.",
+    screenshotUnsupportedAssets:
+      "لم تُحفظ لقطة الشاشة: تعذّر التقاط بعض الوسائط المضمّنة أو الصور بأمان.",
     timeline: "الخط الزمني للأحداث",
     replayTimeline: "خط إعادة التشغيل الزمني",
     timelineDescription: "عرض {{count}} من {{total}} أحداث مفيدة.",

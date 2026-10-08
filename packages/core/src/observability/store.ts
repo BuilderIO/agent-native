@@ -181,7 +181,8 @@ export async function ensureObservabilityTables(): Promise<void> {
           status TEXT NOT NULL DEFAULT 'success',
           error_message TEXT,
           metadata TEXT,
-          created_at BIGINT NOT NULL
+          created_at BIGINT NOT NULL,
+          ended_at BIGINT
         )
       `;
 
@@ -366,6 +367,11 @@ export async function ensureObservabilityTables(): Promise<void> {
           "owner_email",
           `ALTER TABLE agent_experiments ADD COLUMN IF NOT EXISTS owner_email TEXT`,
         );
+        await ensureColumnExists(
+          "agent_trace_spans",
+          "ended_at",
+          `ALTER TABLE agent_trace_spans ADD COLUMN IF NOT EXISTS ended_at BIGINT`,
+        );
         for (const table of USER_SCOPED_TABLES) {
           await ensureColumnExists(
             table,
@@ -513,8 +519,8 @@ export async function insertTraceSpan(span: TraceSpan): Promise<void> {
     sql: `INSERT INTO agent_trace_spans
       (id, run_id, thread_id, user_id, org_id, parent_span_id, span_type, name,
        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-       cost_cents_x100, duration_ms, status, error_message, metadata, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       cost_cents_x100, duration_ms, status, error_message, metadata, created_at, ended_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       span.id,
       span.runId,
@@ -534,6 +540,7 @@ export async function insertTraceSpan(span: TraceSpan): Promise<void> {
       span.errorMessage,
       span.metadata ? JSON.stringify(span.metadata) : null,
       span.createdAt,
+      span.endedAt ?? span.createdAt + span.durationMs,
     ],
   });
 }
@@ -2194,6 +2201,8 @@ function rowToTraceSpan(row: Record<string, any>): TraceSpan {
     errorDetail === "full" ||
     errorDetail === "signature";
 
+  const createdAt = Number(row.created_at);
+  const durationMs = Number(row.duration_ms ?? 0);
   return {
     id: String(row.id),
     runId: String(row.run_id),
@@ -2208,7 +2217,7 @@ function rowToTraceSpan(row: Record<string, any>): TraceSpan {
     cacheReadTokens: Number(row.cache_read_tokens ?? 0),
     cacheWriteTokens: Number(row.cache_write_tokens ?? 0),
     costCentsX100: Number(row.cost_cents_x100 ?? 0),
-    durationMs: Number(row.duration_ms ?? 0),
+    durationMs,
     status: row.status as TraceSpan["status"],
     errorMessage:
       errorMessage && exposesErrorText
@@ -2216,7 +2225,9 @@ function rowToTraceSpan(row: Record<string, any>): TraceSpan {
         : null,
     ...(errorDetail ? { errorDetail } : {}),
     metadata,
-    createdAt: Number(row.created_at),
+    createdAt,
+    endedAt:
+      row.ended_at == null ? createdAt + durationMs : Number(row.ended_at),
   };
 }
 

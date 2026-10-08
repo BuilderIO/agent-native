@@ -1704,6 +1704,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
     )`,
       },
     },
+    {
+      version: 158,
+      name: "bigquery-cache-refresh-fence",
+      sql: `ALTER TABLE bigquery_cache ADD COLUMN IF NOT EXISTS generation INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE bigquery_cache ADD COLUMN IF NOT EXISTS refresh_in_progress BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE bigquery_cache ADD COLUMN IF NOT EXISTS refresh_started_at TEXT`,
+    },
+    {
+      version: 159,
+      name: "bigquery-cache-fence-token",
+      sql: `ALTER TABLE bigquery_cache ADD COLUMN IF NOT EXISTS fence_token TEXT`,
+    },
+    {
+      version: 160,
+      name: "bigquery-cache-forced-refresh-kind",
+      sql: `ALTER TABLE bigquery_cache ADD COLUMN IF NOT EXISTS refresh_forced BOOLEAN NOT NULL DEFAULT FALSE`,
+    },
   ],
   { table: "analytics_migrations" },
 );

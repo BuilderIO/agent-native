@@ -1,3 +1,4 @@
+import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import type {
   ActionAuditConfig,
   AuditActorKind,
@@ -57,7 +58,10 @@ export const AGENT_AUDIT_CALLERS: ReadonlySet<string> = new Set([
 export function deriveActorKind(
   caller: string | undefined,
   actorEmail: string | undefined | null,
+  orgId?: string | null,
 ): AuditActorKind {
+  const serviceIdentity = parseServiceIdentityEmail(actorEmail);
+  if (serviceIdentity && serviceIdentity.orgId === orgId) return "service";
   if (caller && AGENT_AUDIT_CALLERS.has(caller)) return "agent";
   return actorEmail ? "human" : "system";
 }

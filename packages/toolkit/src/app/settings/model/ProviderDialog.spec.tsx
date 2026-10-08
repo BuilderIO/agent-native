@@ -102,6 +102,7 @@ function listing(
     providers: PROVIDERS.map((provider) => ({
       provider,
       label: LABELS[provider],
+      deploymentConfigured: false,
       org: null,
       personal: null,
       ...entries[provider],

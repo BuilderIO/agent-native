@@ -176,6 +176,9 @@ describe("export-audit-events", () => {
         createdAt: 200,
       }),
     );
+    await insertAuditEvent(
+      makeEvent({ id: "service-evt", actorKind: "service", createdAt: 300 }),
+    );
 
     const result = await exportAuditEvents.run(
       { format: "ndjson", actorKind: "human" },
@@ -184,5 +187,13 @@ describe("export-audit-events", () => {
 
     expect(result.rowCount).toBe(1);
     expect(JSON.parse(result.content).id).toBe("human-evt");
+
+    const serviceResult = await exportAuditEvents.run(
+      { format: "ndjson", actorKind: "service" },
+      { userEmail: "alice@x.com" },
+    );
+
+    expect(serviceResult.rowCount).toBe(1);
+    expect(JSON.parse(serviceResult.content).id).toBe("service-evt");
   });
 });

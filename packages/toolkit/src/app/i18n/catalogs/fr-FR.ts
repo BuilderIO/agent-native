@@ -128,7 +128,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "Décrivez votre rôle",
   "onboarding.skipForNow": "Ignorer pour l’instant",
   "onboarding.saveRoleError": "Impossible d’enregistrer votre rôle.",
-  "onboarding.builderCreateAccount": "Créer un compte Builder.io",
+  "onboarding.builderCreateAccount": "Utiliser Builder.io",
   "onboarding.builderSignInWithAccount":
     "Se connecter avec un compte Builder.io",
   "onboarding.builderActivateDescription":
@@ -141,6 +141,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderMonthlyCredits": "60 Agent Credits par mois",
   "onboarding.builderIncludedFree": "Inclus gratuitement",
   "onboarding.builderMoreServices": "+ {{count}} services supplémentaires",
+  "onboarding.builderLlmCredits": "Crédits LLM",
+  "onboarding.builderLlmCreditsAndMoreServices":
+    "Crédits LLM + {{count}} services supplémentaires",
+  "onboarding.builderAccountCreated": "Compte Builder.io créé et connecté.",
   "onboarding.builderIncludedServices": "Services inclus",
   "onboarding.builderActivateTitle": "Activer les crédits gratuits",
   "onboarding.builderAccountExistsTitle": "Vous avez déjà un compte Builder.io",
@@ -161,7 +165,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConnecting":
     "Configuration des crédits gratuits de Builder.io",
   "onboarding.builderProvisioningDescription":
-    "Création ou réutilisation de votre compte Builder.io. Cela prend généralement quelques secondes.",
+    "Création de votre compte Builder.io et activation des crédits gratuits.",
   "onboarding.builderConnectionDescription":
     "Terminez la connexion en un clic dans la nouvelle fenêtre.",
   "onboarding.builderReadyWithCodeChanges":
@@ -755,6 +759,20 @@ const messages: ToolkitAgentChatTranslation = {
   "message.actions": "Actions du message",
   "message.copyMessage": "Copier le message",
   "message.copyRequestId": "Copier l’ID de requête",
+  "message.usage": "Utilisation",
+  "message.usageLoading": "Chargement de l’utilisation…",
+  "message.usageUnavailable": "Utilisation indisponible",
+  "message.usageNotRecorded": "Utilisation non enregistrée",
+  "message.usageIncomplete":
+    "Une partie de l’utilisation n’a pas pu être classée ; les totaux sont masqués.",
+  "message.usageReportedCost": "Coût {{amount}}",
+  "message.usageEstimatedCost": "Coût estimé {{amount}}",
+  "message.usageBuilderCredits": "Crédits Builder utilisés : {{amount}}",
+  "message.usageEstimatedBuilderCredits":
+    "Crédits Builder estimés : {{amount}}",
+  "message.usageMixedCost": "Coût déclaré et estimé {{amount}}",
+  "message.usageMixedBuilderCredits":
+    "Crédits Builder déclarés et estimés : {{amount}}",
   "message.requestIdUnavailable": "ID de requête indisponible",
   "message.unavailable":
     "Ce message n’est plus disponible dans cette conversation.",
@@ -1022,6 +1040,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Connectez un fournisseur d’IA ci-dessus pour continuer...",
   "composer.connectBuilder": "Utiliser Builder.io",
   "composer.connectKeys": "Connecter des clés",
+  "composer.connectAgent": "Connecter l’agent",
   "composer.connectingBuilder": "Configuration de Builder.io…",
   "composer.costHigher": "Coût plus élevé",
   "composer.costLower": "Coût inférieur",
@@ -1754,6 +1773,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.appFilterLabel": "App",
   "settings.usage.allApps": "Toutes les apps",
   "settings.usage.unattributedApp": "Non attribué",
+  "settings.usage.unclassifiedUsage": "Utilisation non classée",
   "settings.usage.peopleFilterLabel": "Personnes",
   "settings.usage.everyone": "Tout le monde",
   "settings.usage.justYou": "Vous uniquement",

@@ -795,6 +795,7 @@ interface DocumentToolbarProps {
   agentActive?: boolean;
   currentUserEmail?: string;
   canEdit?: boolean;
+  readOnly?: boolean;
   hideFromSearch?: boolean;
   source?: DocumentSourceInfo;
   canDelete?: boolean;
@@ -838,6 +839,7 @@ export function DocumentToolbar({
   agentActive,
   currentUserEmail,
   canEdit = true,
+  readOnly = false,
   hideFromSearch = false,
   source,
   canDelete = false,
@@ -872,6 +874,7 @@ export function DocumentToolbar({
   const queryClient = useQueryClient();
   const isLocalFileDocument = source?.mode === "local-files";
   const openShareOnLoad =
+    !readOnly &&
     !isLocalFileDocument &&
     new URLSearchParams(location.search).get("share") === "1";
   const [shareRequested, setShareRequested] = useState(false);
@@ -1375,7 +1378,7 @@ export function DocumentToolbar({
             currentUserEmail={currentUserEmail}
             className="mr-1"
           />
-          {isLocalFileDocument ? (
+          {!readOnly && isLocalFileDocument ? (
             <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
                 <ShareTrigger
@@ -1397,7 +1400,7 @@ export function DocumentToolbar({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          ) : (
+          ) : !readOnly ? (
             <Suspense fallback={unopenedShareControl}>
               {shareRequested || openShareOnLoad ? (
                 <ShareButton
@@ -1505,9 +1508,9 @@ export function DocumentToolbar({
                 restoreUnavailableReason={restoreUnavailableReason}
               />
             </Suspense>
-          )}
+          ) : null}
 
-          {suggesting ? (
+          {!readOnly && suggesting ? (
             <div className="flex h-8 items-center gap-1 rounded-md bg-primary/10 ps-2 text-sm text-primary">
               <IconPencil aria-hidden="true" className="size-3.5" />
               <span>{t("editor.toolbar.suggesting")}</span>
@@ -1637,7 +1640,7 @@ export function DocumentToolbar({
               data-database-preview-portal={compact ? "" : undefined}
               onCloseAutoFocus={(event) => event.preventDefault()}
             >
-              {canSuggest ? (
+              {!readOnly && canSuggest ? (
                 <>
                   <DropdownMenuItem
                     onSelect={() => {
@@ -1682,7 +1685,7 @@ export function DocumentToolbar({
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                {onToggleFavorite ? (
+                {!readOnly && onToggleFavorite ? (
                   <DropdownMenuItem
                     onSelect={() => onToggleFavorite(!isFavorite)}
                   >

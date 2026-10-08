@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "fig.inspector.populated-section-title",
+  "claim": "Clicking a non-empty Fill, Stroke, Layout, or Appearance section title does not collapse it or add content.",
+  "area": "inspector.sections",
+  "basis": "measured",
+  "status": "current",
+  "measuredBy": "figma-desktop-app-click",
+  "operator": "Claude (user-supplied evidence packet)",
+  "date": "2026-10-06",
+  "gesture": "Click each non-empty Fill, Stroke, Layout, and Appearance section title.",
+  "nativeObservation": "The sections remain expanded and their contents remain unchanged; no collapse chevron or new row appears.",
+  "trials": "Stroke and Fill twice each; Layout and Appearance once each.",
+  "values": {
+    "sections": ["Fill", "Stroke", "Layout", "Appearance"],
+    "collapseObserved": false,
+    "newContentObserved": false
+  },
+  "figma": {
+    "fileKeyWithheld": true,
+    "pageName": "not captured; private scratch page name withheld",
+    "appBuild": "not captured"
+  },
+  "source": "User-provided native Figma measurement packet dated 2026-10-06; this task did not operate Figma.",
+  "artifacts": [
+    {
+      "path": "templates/design/parity/oracle/fig.inspector.populated-section-title/fill-and-stroke.jpg",
+      "kind": "figma-screenshot",
+      "sha256": "5747434109d933be7a76e752bc45b4410888542da3a36fd25fad03b027723996",
+      "sourceName": "O04-fill-title-with-content-click-noop.jpg",
+      "sourceSha256": "5747434109d933be7a76e752bc45b4410888542da3a36fd25fad03b027723996"
+    },
+    {
+      "path": "templates/design/parity/oracle/fig.inspector.populated-section-title/layout-and-appearance.jpg",
+      "kind": "figma-screenshot",
+      "sha256": "bcd105620d273c59c601e55c1fdbf9ee647458076b8f0657502221d6c98f45a5",
+      "sourceName": "O04-appearance-and-layout-title-click-noop.jpg",
+      "sourceSha256": "bcd105620d273c59c601e55c1fdbf9ee647458076b8f0657502221d6c98f45a5"
+    }
+  ]
+}

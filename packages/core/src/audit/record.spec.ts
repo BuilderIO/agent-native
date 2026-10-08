@@ -147,6 +147,39 @@ describe("recordActionAudit attribution", () => {
     },
   );
 
+  it("classifies service identities separately and checks their organization", async () => {
+    await recordActionAudit({
+      config: undefined,
+      args: {},
+      ctx: {
+        actionName: "mcp:admission",
+        caller: "mcp",
+        userEmail: "svc-ci@service.org-1",
+        orgId: "org-1",
+      },
+      status: "error",
+      error: Object.assign(new Error("refused"), { statusCode: 403 }),
+    });
+    expect(lastEvent()).toMatchObject({
+      actorKind: "service",
+      status: "denied",
+      actorEmail: "svc-ci@service.org-1",
+    });
+
+    await recordActionAudit({
+      config: undefined,
+      args: {},
+      ctx: {
+        actionName: "mcp:read",
+        caller: "mcp",
+        userEmail: "svc-ci@service.org-1",
+        orgId: "org-2",
+      },
+      status: "success",
+    });
+    expect(lastEvent().actorKind).toBe("agent");
+  });
+
   it("uses the declared target + owner for scoping", async () => {
     await recordActionAudit({
       config: {

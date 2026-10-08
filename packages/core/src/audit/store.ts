@@ -158,29 +158,39 @@ export async function insertAuditEvent(event: AuditEvent): Promise<void> {
 }
 
 // Rows recorded before outside agents (MCP, WebMCP, A2A) counted as agents
-// stored `human` or `system` for them. Reads classify by caller here and in
-// `actorKindClause`, so an old row and a filter on it agree without rewriting
-// the append-only log.
+// stored `human` or `system` for them. Reads classify those by caller here and
+// in `actorKindClause`, so an old row and a filter on it agree without
+// rewriting the append-only log. A `service` row keeps its kind: org service
+// principals mostly call over MCP.
+const LEGACY_AGENT_KINDS: readonly AuditActorKind[] = ["human", "system"];
+
 function readActorKind(
   storedKind: AuditActorKind,
   caller: string,
 ): AuditActorKind {
-  return AGENT_AUDIT_CALLERS.has(caller) ? "agent" : storedKind;
+  return LEGACY_AGENT_KINDS.includes(storedKind) &&
+    AGENT_AUDIT_CALLERS.has(caller)
+    ? "agent"
+    : storedKind;
 }
 
 function actorKindClause(kind: AuditActorKind): { sql: string; args: any[] } {
   const callers = [...AGENT_AUDIT_CALLERS];
   const agentCaller = `caller IN (${callers.map(() => "?").join(", ")})`;
   if (kind === "agent") {
+    const legacy = LEGACY_AGENT_KINDS.map(() => "?").join(", ");
     return {
-      sql: `(actor_kind = ? OR ${agentCaller})`,
+      sql: `(actor_kind = ? OR (actor_kind IN (${legacy}) AND ${agentCaller}))`,
+      args: [kind, ...LEGACY_AGENT_KINDS, ...callers],
+    };
+  }
+  if (LEGACY_AGENT_KINDS.includes(kind)) {
+    return {
+      sql: `(actor_kind = ? AND NOT ${agentCaller})`,
       args: [kind, ...callers],
     };
   }
-  return {
-    sql: `(actor_kind = ? AND NOT ${agentCaller})`,
-    args: [kind, ...callers],
-  };
+  return { sql: "actor_kind = ?", args: [kind] };
 }
 
 function mapRow(row: any): AuditEvent {
@@ -281,7 +291,9 @@ const DEFAULT_LIMIT = 100;
 const LIST_COLUMNS =
   "id, created_at, action, caller, actor_kind, actor_email, org_id, " +
   "thread_id, turn_id, target_type, target_id, status, summary, " +
-  "error_code, owner_email, visibility, app";
+  "error_code, owner_email, visibility, app, run_id, task_id, " +
+  "parent_task_id, source_kind, source_platform, source_id, source_url, " +
+  "network_protocol, network_id, network_peer";
 
 function clampLimit(limit: number | undefined): number {
   return Math.min(Math.max(1, Math.floor(limit ?? DEFAULT_LIMIT)), MAX_LIMIT);
@@ -361,13 +373,23 @@ async function selectAuditRows(
     push("created_at < ?", Math.floor(filters.beforeMs));
   }
 
+  if (filters.after) {
+    where.push("(created_at > ? OR (created_at = ? AND id > ?))");
+    args.push(
+      Math.floor(filters.after.createdAt),
+      Math.floor(filters.after.createdAt),
+      filters.after.id,
+    );
+  }
+
   const offset = Math.max(0, Math.floor(filters.offset ?? 0));
+  const direction = filters.order === "asc" ? "ASC" : "DESC";
 
   // `id` breaks created_at ties so offset pages neither repeat nor skip rows.
   const result = await client.execute({
     sql: `SELECT ${LIST_COLUMNS} FROM agent_audit_log
           WHERE ${where.join(" AND ")}
-          ORDER BY created_at DESC, id DESC
+          ORDER BY created_at ${direction}, id ${direction}
           LIMIT ? OFFSET ?`,
     args: [...args, limit, offset],
   });

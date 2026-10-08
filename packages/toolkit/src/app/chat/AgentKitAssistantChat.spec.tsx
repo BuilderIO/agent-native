@@ -52,6 +52,7 @@ const chatMocks = vi.hoisted(() => ({
   reasoningProps: null as any,
   thinkingDisplay: null as any,
   requestComposerFocus: vi.fn(),
+  persistThreadSnapshot: vi.fn(async () => undefined),
   readiness: { canChat: true, missing: false, state: "configured" },
   fetchProviderState: vi.fn(async () => chatMocks.readiness.state),
   fileUploadStatus: {
@@ -239,7 +240,10 @@ vi.mock("../agentkit/react/index.js", async () => {
         : {
             threadId: chatMocks.threadId,
             requestComposerFocus: chatMocks.requestComposerFocus,
-            controller: { getThread: () => chatMocks.readThread() },
+            controller: {
+              getThread: () => chatMocks.readThread(),
+              persistThreadSnapshot: chatMocks.persistThreadSnapshot,
+            },
           },
     useAgentKitControl: () =>
       chatMocks.useRealChat ? useAgentKitControl() : chatMocks.control,
@@ -632,6 +636,7 @@ import {
   readClientAppState,
 } from "@agent-native/core/client/application-state";
 
+import { AgentKitActionWidget } from "./agentkit-chat/action-widget.js";
 import {
   AgentKitAssistantChat,
   type AgentKitAssistantChatProps,
@@ -755,6 +760,7 @@ beforeEach(() => {
   chatMocks.reasoningProps = null;
   chatMocks.thinkingDisplay = null;
   chatMocks.requestComposerFocus.mockReset();
+  chatMocks.persistThreadSnapshot.mockReset().mockResolvedValue(undefined);
   chatMocks.readiness = {
     canChat: true,
     missing: false,
@@ -810,6 +816,12 @@ afterEach(async () => {
 });
 
 describe("AgentKitAssistantChat host behavior", () => {
+  it("uses the action widget renderer for action chat UI output", async () => {
+    await mount(baseProps());
+
+    expect(chatMocks.rootProps.slots.widget).toBe(AgentKitActionWidget);
+  });
+
   it("asks for a title on the engine and model the first prompt was sent with", async () => {
     const onGenerateTitle = vi.fn();
     const props = baseProps({ onGenerateTitle });
@@ -4860,6 +4872,38 @@ describe("AgentKitAssistantChat host behavior", () => {
       ),
     ).toBe(true);
     window.removeEventListener("agentNative.chatRunning", onRunning);
+  });
+
+  it("persists changed custom-transport snapshots through the protocol save", async () => {
+    const createTransport = () => chatMocks.transport;
+    const onSaveThread = vi.fn();
+    const message = {
+      id: "custom-user-message",
+      role: "user",
+      status: "complete",
+      createdAt: "2026-10-07T12:00:00.000Z",
+      parts: [{ type: "text", text: "Save this message" }],
+    };
+    await mount(baseProps({ createTransport, onSaveThread }));
+
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      thread: null,
+      messages: [message],
+    };
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({ createTransport, onSaveThread })}
+        />,
+      );
+    });
+    await flush();
+
+    expect(chatMocks.persistThreadSnapshot).toHaveBeenCalledWith("thread-1", [
+      expect.objectContaining({ id: "custom-user-message" }),
+    ]);
+    expect(onSaveThread).toHaveBeenCalledOnce();
   });
 
   it("shows an expired-session card and emits the session-expired event", async () => {

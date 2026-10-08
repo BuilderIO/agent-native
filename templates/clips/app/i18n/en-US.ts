@@ -1305,6 +1305,14 @@ const messages = {
     agentTitle: "Create a free Clips account to join the conversation",
     genericTitle: "Create a free Clips account to continue",
     description: "You’ll return to this clip as soon as you’re done.",
+    verificationPendingTitle: "Verify your email",
+    verificationPendingCopy:
+      "We sent a verification email to {{email}}. Open it to finish creating your account and return to this clip.",
+    resendVerification: "Resend verification email",
+    resendingVerification: "Sending verification email...",
+    verificationEmailResent: "A new verification email is on its way.",
+    verificationEmailFailed:
+      "We couldn't resend the verification email. Try again or sign in with an email link.",
     passwordsMismatch: "Passwords do not match.",
     commentIntent: "comment",
     reactIntent: "add a reaction",
@@ -1387,7 +1395,7 @@ const messages = {
     waitingForBuilder: "Waiting for Builder...",
     description:
       "Store recorded videos with Builder.io or S3-compatible storage. Builder.io includes free hosting and AI credits.",
-    createBuilderAccount: "Create Builder.io account",
+    createBuilderAccount: "Use Builder.io",
     signInWithBuilderAccount: "Sign in with Builder.io account",
     free: "Free",
     whyPrompt: "Why am I seeing this?",

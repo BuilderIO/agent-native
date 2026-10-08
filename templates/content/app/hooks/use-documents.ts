@@ -1,8 +1,10 @@
+import { isOpenAiMcpAppHost } from "@agent-native/core/client/agent-chat";
 import {
   callAction,
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
+import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { serializeIconValue } from "@agent-native/core/icons";
 import type {
@@ -860,6 +862,7 @@ export function startPageOpenDocumentReads(
       ),
     retry: false,
   });
+  if (isEmbedMcpChatBridgeActive()) return;
   startPreviewDocumentDraftRead(queryClient, documentId, cached);
   if (cached?.source?.mode !== "local-files") {
     startPageOpenReviewReads(queryClient, documentId);
@@ -887,6 +890,20 @@ export function startPageOpenReviewReads(
         callAction(actionName, params, { method: "GET", signal }),
       retry: false,
     });
+  }
+}
+
+export function startPageOpenCompanionReads(
+  queryClient: QueryClient,
+  documentId: string,
+  knownDocument: Document | undefined,
+  readsStartedEarly: boolean,
+) {
+  if (readsStartedEarly) return;
+  if (isEmbedMcpChatBridgeActive()) return;
+  startPreviewDocumentDraftRead(queryClient, documentId, knownDocument);
+  if (knownDocument?.source?.mode !== "local-files") {
+    startPageOpenReviewReads(queryClient, documentId);
   }
 }
 
@@ -948,6 +965,7 @@ export function startPreviewDocumentDraftRead(
   documentId: string,
   known?: Document,
 ) {
+  if (isOpenAiMcpAppHost()) return;
   if (
     known &&
     (isDocumentCreationPending(known) ||
