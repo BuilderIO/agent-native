@@ -3211,6 +3211,11 @@ describe("bundled PR visual recap workflow", () => {
       "PLAN_OK: ${{ steps.url.outputs.ok == 'true' && steps.shot.outputs.shot_ok == 'true' }}",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      'if [ "$URL_OK" = "true" ] && [ "$SHOT_OK" != "true" ]; then',
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("gh api --method PATCH");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("-f conclusion=failure");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "SHOT_OK: ${{ steps.shot.outputs.shot_ok }}",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain('--shot-ok "$SHOT_OK"');
@@ -3990,6 +3995,11 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain(
       "PLAN_OK: ${{ steps.url.outputs.ok == 'true' && steps.shot.outputs.shot_ok == 'true' }}",
     );
+    expect(content).toContain(
+      'if [ "$URL_OK" = "true" ] && [ "$SHOT_OK" != "true" ]; then',
+    );
+    expect(content).toContain("gh api --method PATCH");
+    expect(content).toContain("-f conclusion=failure");
     expect(content).toContain("RECAP_SHOT_OK:");
     expect(content).toContain("RECAP_SHOT_REASON:");
     expect(content).toContain("SHOT_OK: ${{ steps.shot.outputs.shot_ok }}");
@@ -4317,6 +4327,11 @@ describe("reusable vs copy workflow step-sequence parity", () => {
     expect(content).toContain(
       "PLAN_OK: ${{ steps.url.outputs.ok == 'true' && steps.shot.outputs.shot_ok == 'true' }}",
     );
+    expect(content).toContain(
+      'if [ "$URL_OK" = "true" ] && [ "$SHOT_OK" != "true" ]; then',
+    );
+    expect(content).toContain("gh api --method PATCH");
+    expect(content).toContain("-f conclusion=failure");
     expect(content).toContain("RECAP_SHOT_OK:");
     expect(content).toContain("RECAP_SHOT_REASON:");
     expect(content).toContain("SHOT_OK: ${{ steps.shot.outputs.shot_ok }}");

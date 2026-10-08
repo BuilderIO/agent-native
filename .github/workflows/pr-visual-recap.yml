@@ -1143,6 +1143,7 @@ jobs:
         env:
           CHECK_RUN_ID: ${{ steps.recap_check.outputs.check_run_id }}
           PLAN_OK: ${{ steps.url.outputs.ok == 'true' && steps.shot.outputs.shot_ok == 'true' }}
+          URL_OK: ${{ steps.url.outputs.ok }}
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
           SHOT_OK: ${{ steps.shot.outputs.shot_ok }}
           SHOT_REASON: ${{ steps.shot.outputs.shot_reason }}
@@ -1154,6 +1155,21 @@ jobs:
           RECAP_URL_REASON: ${{ steps.route_health.outputs.reason || steps.source_status.outputs.reason || steps.url.outputs.reason }}
         run: |
           set -uo pipefail
+          if [ "$URL_OK" = "true" ] && [ "$SHOT_OK" != "true" ]; then
+            if gh api --method PATCH \
+              "repos/$GITHUB_REPOSITORY/check-runs/$CHECK_RUN_ID" \
+              -f status=completed \
+              -f conclusion=failure \
+              -f completed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              -f details_url="$PLAN_URL" \
+              -f 'output[title]=Visual recap screenshot failed' \
+              -f 'output[summary]=The recap was published, but its screenshot was not captured or uploaded successfully. This informational check does not block the PR.' \
+              -f "output[text]=[Open visual recap]($PLAN_URL) — screenshot capture or upload failed; see this workflow run for details." \
+              > /dev/null; then
+              exit 0
+            fi
+            echo "::warning::Could not set screenshot failure on the Visual Recap check; using CLI compatibility fallback."
+          fi
           $RECAP_CLI recap check complete \
             --check-run-id "$CHECK_RUN_ID" \
             --plan-ok "$PLAN_OK" \
