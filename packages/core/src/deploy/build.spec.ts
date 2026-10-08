@@ -3985,6 +3985,40 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
       }
     },
   );
+
+  it("retains a browser installer explicitly imported by server code", () => {
+    const functionDir = setupFunctionDir();
+    for (const [name, dependencies] of Object.entries({
+      "@puppeteer/browsers": { "installer-cli": "1" },
+      "installer-cli": {},
+    })) {
+      const directory = path.join(functionDir, "node_modules", name);
+      fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(
+        path.join(directory, "package.json"),
+        JSON.stringify({ name, dependencies }),
+      );
+    }
+    const dependencies = { "@puppeteer/browsers": "1", "installer-cli": "1" };
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({ dependencies }),
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "server.mjs"),
+      'import { install } from "@puppeteer/browsers"; console.log(install);',
+    );
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+      ).dependencies,
+    ).toEqual(dependencies);
+    for (const name of Object.keys(dependencies))
+      expect(fs.existsSync(path.join(functionDir, "node_modules", name))).toBe(
+        true,
+      );
+  });
 });
 
 describe("isServerlessNativePlatformPackage", () => {

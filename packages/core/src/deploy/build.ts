@@ -2982,7 +2982,6 @@ const SERVERLESS_FUNCTION_PACKAGE_DENYLIST = new Set([
   "playwright",
   "puppeteer",
   "puppeteer-core",
-  "@puppeteer/browsers",
   "chromium-bidi",
 ]);
 
