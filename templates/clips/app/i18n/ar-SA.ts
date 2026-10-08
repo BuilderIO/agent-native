@@ -212,6 +212,7 @@ const messages = {
   recordingPage: {
     back: "خلف",
     done: "تم",
+    backToClip: "العودة إلى المقطع",
     untitledClip: "مقطع بدون عنوان",
     recordingNotFound: "لم يتم العثور على التسجيل",
     noAccess: "قد لا يكون لديك حق الوصول إلى هذا المقطع.",
@@ -1344,6 +1345,9 @@ const messages = {
     burningRedactions: "جارٍ تثبيت مناطق الإخفاء في الفيديو…",
     burningRedactionsPercent: "جارٍ تثبيت مناطق الإخفاء في الفيديو… {{percent}}%",
     editFailed: "تعذّر حفظ هذا التعديل",
+    autoSaveHint: "تُحفَظ التعديلات في هذا المقطع تلقائيًا",
+    savingChanges: "جارٍ حفظ التغييرات…",
+    changesSaved: "تم حفظ التغييرات في هذا المقطع",
     nothingToRedo: "لا يوجد ما يمكن إعادته",
   },
   transcriptEditor: {

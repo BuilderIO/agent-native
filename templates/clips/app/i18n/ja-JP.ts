@@ -216,6 +216,7 @@ const messages = {
   recordingPage: {
     back: "戻る",
     done: "完了",
+    backToClip: "クリップに戻る",
     untitledClip: "無題のクリップ",
     recordingNotFound: "録画が見つかりません",
     noAccess: "このクリップにアクセスできない可能性があります。",
@@ -1351,6 +1352,9 @@ const messages = {
     burningRedactions: "マスクを動画に焼き込んでいます…",
     burningRedactionsPercent: "マスクを動画に焼き込んでいます… {{percent}}%",
     editFailed: "その編集を保存できませんでした",
+    autoSaveHint: "編集内容はこのクリップに自動保存されます",
+    savingChanges: "変更を保存中…",
+    changesSaved: "このクリップに変更を保存しました",
     nothingToRedo: "やり直す操作がありません",
   },
   transcriptEditor: {
