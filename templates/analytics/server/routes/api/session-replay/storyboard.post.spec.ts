@@ -1,12 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  fetch: vi.fn(),
+  assertCredentialedA2AUrl: vi.fn(),
   getSessionReplaySummary: vi.fn(),
   invokeAgentAction: vi.fn(),
   readMultipartFormData: vi.fn(),
   resolveA2ACallerAuth: vi.fn(),
   resolveAgentInvocationTarget: vi.fn(),
+  resolveVercelDeploymentProtectionHeaders: vi.fn(),
+  ssrfSafeFetch: vi.fn(),
+  workspacePrivateOrigins: vi.fn(),
 }));
 
 vi.mock("h3", async (importOriginal) => {
@@ -20,9 +23,20 @@ vi.mock("h3", async (importOriginal) => {
 });
 
 vi.mock("@agent-native/core/a2a", () => ({
+  assertCredentialedA2AUrl: mocks.assertCredentialedA2AUrl,
   invokeAgentAction: mocks.invokeAgentAction,
   resolveA2ACallerAuth: mocks.resolveA2ACallerAuth,
   resolveAgentInvocationTarget: mocks.resolveAgentInvocationTarget,
+  workspacePrivateOrigins: mocks.workspacePrivateOrigins,
+}));
+
+vi.mock("@agent-native/core/extensions/url-safety", () => ({
+  ssrfSafeFetch: mocks.ssrfSafeFetch,
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  resolveVercelDeploymentProtectionHeaders:
+    mocks.resolveVercelDeploymentProtectionHeaders,
 }));
 
 vi.mock("../../../lib/credentials", () => ({
@@ -110,7 +124,10 @@ function matchingBoardContent(): string {
 describe("POST /api/session-replay/storyboard", () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) mock.mockReset();
-    vi.stubGlobal("fetch", mocks.fetch);
+    mocks.workspacePrivateOrigins.mockReturnValue(["http://127.0.0.1:3000"]);
+    mocks.resolveVercelDeploymentProtectionHeaders.mockReturnValue({
+      "x-test-deployment-protection": "enabled",
+    });
     mocks.getSessionReplaySummary.mockResolvedValue({
       id: screenshot.recordingId,
       app: "clips",
@@ -151,28 +168,29 @@ describe("POST /api/session-replay/storyboard", () => {
         ),
       );
     });
-    mocks.fetch.mockImplementation(async (url: string, init: RequestInit) => {
-      const form = init.body as FormData;
-      expect(url).toBe(`${designUrl}/api/session-replay-storyboard`);
-      expect(new Headers(init.headers).get("authorization")).toBe(
-        "Bearer test-a2a-token",
-      );
-      expect(form.get("manifest")).toContain('"replayId":"sr_123"');
-      expect(form.get("screenshot-0")).toBeInstanceOf(Blob);
-      return Response.json({
-        response: "Added one screenshot.",
-        boardUrl: "https://design.example.test/design/design-123",
-        designId,
-        screenshotCount: 1,
-      });
-    });
+    mocks.ssrfSafeFetch.mockImplementation(
+      async (url: string, init: RequestInit) => {
+        const form = init.body as FormData;
+        expect(url).toBe(`${designUrl}/api/session-replay-storyboard`);
+        expect(new Headers(init.headers).get("authorization")).toBe(
+          "Bearer test-a2a-token",
+        );
+        expect(
+          new Headers(init.headers).get("x-test-deployment-protection"),
+        ).toBe("enabled");
+        expect(form.get("manifest")).toContain('"replayId":"sr_123"');
+        expect(form.get("screenshot-0")).toBeInstanceOf(Blob);
+        return Response.json({
+          response: "Added one screenshot.",
+          boardUrl: "https://design.example.test/design/design-123",
+          designId,
+          screenshotCount: 1,
+        });
+      },
+    );
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("uploads validated replay pixels directly to Design without Analytics blob storage", async () => {
+  it("uploads validated replay pixels through the SSRF-safe Design request", async () => {
     const result = await (handler as any)(makeEvent(makeFormData()));
 
     expect(result.screenshotCount).toBe(1);
@@ -181,12 +199,32 @@ describe("POST /api/session-replay/storyboard", () => {
     expect(new URL(result.boardUrl).searchParams.get("designId")).toBe(
       designId,
     );
-    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    expect(mocks.assertCredentialedA2AUrl).toHaveBeenCalledWith(
+      `${designUrl}/api/session-replay-storyboard`,
+      true,
+    );
+    expect(mocks.resolveVercelDeploymentProtectionHeaders).toHaveBeenCalledWith(
+      `${designUrl}/api/session-replay-storyboard`,
+    );
+    expect(mocks.ssrfSafeFetch).toHaveBeenCalledTimes(1);
+    expect(mocks.ssrfSafeFetch).toHaveBeenCalledWith(
+      `${designUrl}/api/session-replay-storyboard`,
+      expect.objectContaining({
+        method: "POST",
+        signal: expect.any(AbortSignal),
+      }),
+      {
+        allowedPrivateOrigins: ["http://127.0.0.1:3000"],
+        followRedirects: false,
+        maxRedirects: 0,
+        requireDispatcher: true,
+      },
+    );
     expect(mocks.invokeAgentAction).toHaveBeenCalledTimes(4);
   });
 
   it("shows the Design storage error instead of masking it with a boolean", async () => {
-    mocks.fetch.mockResolvedValueOnce(
+    mocks.ssrfSafeFetch.mockResolvedValueOnce(
       Response.json(
         {
           error: true,
@@ -229,6 +267,82 @@ describe("POST /api/session-replay/storyboard", () => {
       statusCode: 413,
     });
     expect(mocks.readMultipartFormData).not.toHaveBeenCalled();
-    expect(mocks.fetch).not.toHaveBeenCalled();
+    expect(mocks.ssrfSafeFetch).not.toHaveBeenCalled();
+  });
+
+  it("returns a gateway timeout when the Design upload exceeds its deadline", async () => {
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    mocks.ssrfSafeFetch.mockImplementation(() => {
+      markStarted();
+      return new Promise(() => {});
+    });
+    vi.useFakeTimers();
+    try {
+      const pending = (handler as any)(makeEvent(makeFormData()));
+      const rejected = expect(pending).rejects.toMatchObject({
+        statusCode: 504,
+        statusMessage: "Design screenshot upload timed out",
+      });
+      await started;
+      await vi.advanceTimersByTimeAsync(240_000);
+      await rejected;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the upload deadline active while reading the Design response body", async () => {
+    let markBodyRead!: () => void;
+    const bodyRead = new Promise<void>((resolve) => {
+      markBodyRead = resolve;
+    });
+    const response = new Response();
+    vi.spyOn(response, "text").mockImplementation(() => {
+      markBodyRead();
+      return new Promise(() => {});
+    });
+    mocks.ssrfSafeFetch.mockResolvedValueOnce(response);
+    vi.useFakeTimers();
+    try {
+      const pending = (handler as any)(makeEvent(makeFormData()));
+      const rejected = expect(pending).rejects.toMatchObject({
+        statusCode: 504,
+        statusMessage: "Design screenshot upload timed out",
+      });
+      await bodyRead;
+      await vi.advanceTimersByTimeAsync(240_000);
+      await rejected;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("propagates pending temporary-blob cleanup with the Design error", async () => {
+    mocks.ssrfSafeFetch.mockResolvedValueOnce(
+      Response.json(
+        {
+          statusMessage: "The Design action failed",
+          data: {
+            action: "add-session-replay-screenshots-to-board",
+            cleanupPending: true,
+          },
+        },
+        { status: 409 },
+      ),
+    );
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData())),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      statusMessage: "The Design action failed",
+      data: {
+        action: "add-session-replay-screenshots-to-board",
+        cleanupPending: true,
+      },
+    });
   });
 });

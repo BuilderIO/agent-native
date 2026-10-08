@@ -249,4 +249,32 @@ describe("POST /api/session-replay-storyboard", () => {
 
     expect(result.cleanupPending).toBe(true);
   });
+
+  it("preserves the action error and reports cleanup that could not be completed", async () => {
+    mocks.runAction.mockRejectedValueOnce(
+      Object.assign(new Error("The storyboard action failed"), {
+        statusCode: 409,
+        statusMessage: "The storyboard action failed",
+        data: { action: "add-session-replay-screenshots-to-board" },
+      }),
+    );
+    mocks.deleteAttachment.mockRejectedValueOnce(
+      new Error("temporary blob deletion failed"),
+    );
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData())),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      statusMessage: "The storyboard action failed",
+      data: {
+        action: "add-session-replay-screenshots-to-board",
+        cleanupPending: true,
+      },
+    });
+    expect(mocks.deleteAttachment).toHaveBeenCalledWith(
+      "private-attachment-ref",
+      { ownerEmail: "ada@example.test", orgId: null },
+    );
+  });
 });

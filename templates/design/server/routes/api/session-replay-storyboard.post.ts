@@ -321,6 +321,8 @@ export default defineEventHandler(async (event) => {
             cohortTotal: number;
           }
         | undefined;
+      let actionFailed = false;
+      let actionFailure: unknown;
       try {
         const screenshots = [];
         for (let index = 0; index < manifest.screenshots.length; index += 1) {
@@ -372,6 +374,9 @@ export default defineEventHandler(async (event) => {
           selectedReplayCount: manifest.selectedReplayCount,
           cohortTotal: manifest.cohortTotal,
         };
+      } catch (error) {
+        actionFailed = true;
+        actionFailure = error;
       } finally {
         for (const ref of refs) {
           try {
@@ -385,6 +390,32 @@ export default defineEventHandler(async (event) => {
             cleanupPending = true;
           }
         }
+      }
+      if (actionFailed) {
+        if (!cleanupPending) throw actionFailure;
+        const failure =
+          actionFailure && typeof actionFailure === "object"
+            ? (actionFailure as {
+                data?: unknown;
+                message?: unknown;
+                statusCode?: unknown;
+                statusMessage?: unknown;
+              })
+            : {};
+        const existingData =
+          failure.data && typeof failure.data === "object" ? failure.data : {};
+        throw createError({
+          statusCode:
+            typeof failure.statusCode === "number" ? failure.statusCode : 500,
+          statusMessage:
+            typeof failure.statusMessage === "string"
+              ? failure.statusMessage
+              : typeof failure.message === "string"
+                ? failure.message
+                : "Design screenshot action failed",
+          data: { ...existingData, cleanupPending: true },
+          cause: actionFailure,
+        });
       }
       if (!response) badRequest("Design did not confirm a storyboard", 502);
       return { ...response, cleanupPending };

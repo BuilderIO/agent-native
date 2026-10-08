@@ -1,8 +1,12 @@
 import {
+  assertCredentialedA2AUrl,
   invokeAgentAction,
   resolveA2ACallerAuth,
   resolveAgentInvocationTarget,
+  workspacePrivateOrigins,
 } from "@agent-native/core/a2a";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+import { resolveVercelDeploymentProtectionHeaders } from "@agent-native/core/server";
 import { createError, defineEventHandler, readMultipartFormData } from "h3";
 
 import { runApiHandlerWithContext } from "../../../lib/credentials";
@@ -15,6 +19,7 @@ const MAX_MANIFEST_BYTES = 32_000;
 const MAX_MULTIPART_OVERHEAD_BYTES = 64_000;
 const MAX_REQUEST_BYTES =
   MAX_BATCH_BYTES + MAX_MANIFEST_BYTES + MAX_MULTIPART_OVERHEAD_BYTES;
+const DESIGN_UPLOAD_TIMEOUT_MS = 240_000;
 
 type ScreenshotInput = {
   recordingId: string;
@@ -580,16 +585,59 @@ export default defineEventHandler(async (event) =>
       if (uploadTokens.length === 0) {
         badRequest("Analytics could not authenticate the Design upload", 401);
       }
+      const uploadUrl = designScreenshotUploadUrl(designTargetUrl);
+      assertCredentialedA2AUrl(uploadUrl, true);
       let uploadResponse: Response | undefined;
+      let uploadResponseBody: string | undefined;
       for (const token of uploadTokens) {
-        uploadResponse = await fetch(
-          designScreenshotUploadUrl(designTargetUrl),
-          {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}` },
-            body: createDesignUploadForm(designManifest, screenshotBytes),
-          },
-        );
+        const controller = new AbortController();
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        const timeoutFailure = new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => {
+            controller.abort();
+            reject(
+              createError({
+                statusCode: 504,
+                statusMessage: "Design screenshot upload timed out",
+              }),
+            );
+          }, DESIGN_UPLOAD_TIMEOUT_MS);
+        });
+        try {
+          const upload = await Promise.race([
+            (async () => {
+              const response = await ssrfSafeFetch(
+                uploadUrl,
+                {
+                  method: "POST",
+                  headers: {
+                    ...resolveVercelDeploymentProtectionHeaders(uploadUrl),
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: createDesignUploadForm(designManifest, screenshotBytes),
+                  signal: controller.signal,
+                },
+                {
+                  allowedPrivateOrigins: workspacePrivateOrigins(),
+                  followRedirects: false,
+                  maxRedirects: 0,
+                  requireDispatcher: true,
+                },
+              );
+              return { response, body: await response.text() };
+            })(),
+            timeoutFailure,
+          ]);
+          uploadResponse = upload.response;
+          uploadResponseBody = upload.body;
+        } catch (error) {
+          if (controller.signal.aborted) {
+            badRequest("Design screenshot upload timed out", 504);
+          }
+          throw error;
+        } finally {
+          if (timeout) clearTimeout(timeout);
+        }
         if (uploadResponse.status !== 401 && uploadResponse.status !== 403) {
           break;
         }
@@ -605,9 +653,12 @@ export default defineEventHandler(async (event) =>
         cleanupPending?: boolean;
         message?: string;
         statusMessage?: string;
+        data?: Record<string, unknown>;
       };
       try {
-        uploadResult = (await uploadResponse.json()) as typeof uploadResult;
+        uploadResult = JSON.parse(
+          uploadResponseBody ?? "",
+        ) as typeof uploadResult;
       } catch {
         badRequest(
           "Design returned an unexpected screenshot upload response",
@@ -615,12 +666,20 @@ export default defineEventHandler(async (event) =>
         );
       }
       if (!uploadResponse.ok) {
-        badRequest(
-          uploadResult.message ??
+        const data = {
+          ...uploadResult.data,
+          ...(uploadResult.cleanupPending || uploadResult.data?.cleanupPending
+            ? { cleanupPending: true }
+            : {}),
+        };
+        throw createError({
+          statusCode: uploadResponse.status,
+          statusMessage:
+            uploadResult.message ??
             uploadResult.statusMessage ??
             "Design screenshot upload failed",
-          uploadResponse.status,
-        );
+          ...(Object.keys(data).length > 0 ? { data } : {}),
+        });
       }
       const designId = uploadResult.designId ?? manifest.designId;
       if (!designId) {
