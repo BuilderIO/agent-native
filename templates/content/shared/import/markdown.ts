@@ -10,6 +10,7 @@ import type {
   Root,
   RootContent,
   Table,
+  TableCell,
 } from "mdast";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -182,14 +183,32 @@ const HTML_BLOCK_BREAKS = new Set([
 
 /** Tags a flattened HTML block reproduces faithfully, so they need no note. */
 const FAITHFUL_HTML_TAGS = new Set(["p", "br", "img", "a", "hr", "pre"]);
+const MAX_BLOCK_NESTING = 64;
+/** Embedded media Content can't show; any fallback text inside is kept. */
+const DROPPED_HTML_MEDIA = new Set([
+  "video",
+  "audio",
+  "iframe",
+  "embed",
+  "object",
+  "canvas",
+]);
 
 /**
- * Empty cells a table may gain from padding short rows to its widest row.
- * Past this, the cells built would far outnumber the cells written.
+ * Empty cells a file's tables may gain from padding short rows to their
+ * widest row. Past this, the cells built would far outnumber those written.
  */
 const MAX_TABLE_PADDING_CELLS = 100_000;
 
 type InlinePiece = PMNode | { block: PMNode } | { paragraphBreak: true };
+
+/** An open HTML element whose formatting applies to the text inside it. */
+interface HtmlStackEntry {
+  name: string;
+  mark: PMMark | null;
+  /** The `href` an `<a>` was written with. */
+  href?: string;
+}
 
 export interface ParseMarkdownImportInput {
   /** Import-root-relative path of the file, used for relative references. */
@@ -227,7 +246,7 @@ export function parseMarkdownImport(
   } else {
     const converter = new MarkdownConverter(
       input.sourcePath,
-      body,
+      dropDeepContainerLines(body, notes),
       notes,
       referencePrefix,
     );
@@ -275,12 +294,70 @@ export function titleFromFilename(sourcePath: string): string {
   return /\p{Lu}/u.test(base) ? base : base[0].toUpperCase() + base.slice(1);
 }
 
+/**
+ * Drops lines that open more block quotes and lists than `blocks()` converts.
+ * The parser's time grows with the square of that depth, and its tree walks
+ * overflow the stack, before the converter's own cap is ever reached.
+ */
+function dropDeepContainerLines(body: string, notes: ImportNoteBag): string {
+  let dropped = false;
+  const lines = body.split("\n").map((line) => {
+    if (containerMarkerCount(line) <= MAX_BLOCK_NESTING) return line;
+    notes.add("unsupported-markdown", line);
+    dropped = true;
+    return "";
+  });
+  return dropped ? lines.join("\n") : body;
+}
+
+/** Counts the block quote and list markers that open a line. */
+function containerMarkerCount(line: string): number {
+  let count = 0;
+  let index = 0;
+  while (index < line.length) {
+    const char = line[index];
+    if (char === " " || char === "\t") {
+      index += 1;
+      continue;
+    }
+    if (char === ">") {
+      count += 1;
+      index += 1;
+      continue;
+    }
+    let end = index;
+    if (char === "-" || char === "*" || char === "+") {
+      end += 1;
+    } else {
+      while (end - index < 9 && /[0-9]/.test(line[end] ?? "")) end += 1;
+      if (end === index || (line[end] !== "." && line[end] !== ")")) break;
+      end += 1;
+    }
+    if (end < line.length && line[end] !== " " && line[end] !== "\t") break;
+    count += 1;
+    index = end;
+  }
+  return count;
+}
+
 function looksLikeNfm(body: string): boolean {
-  const outsideCode = body.replace(
-    /^(```|~~~)[^\n]*\n[\s\S]*?^\1[ \t]*$/gm,
-    "",
-  );
-  return NFM_SIGNALS.some((signal) => signal.test(outsideCode));
+  // One pass over the lines: a fence left open runs to the end of the file,
+  // as in CommonMark, instead of being searched for again from every fence.
+  const outsideCode: string[] = [];
+  let fence: string | null = null;
+  for (const line of body.split("\n")) {
+    if (fence) {
+      if (line.startsWith(fence) && /^[ \t]*$/.test(line.slice(3))) {
+        fence = null;
+      }
+    } else if (line.startsWith("```") || line.startsWith("~~~")) {
+      fence = line.slice(0, 3);
+    } else {
+      outsideCode.push(line);
+    }
+  }
+  const text = outsideCode.join("\n");
+  return NFM_SIGNALS.some((signal) => signal.test(text));
 }
 
 interface FrontmatterFields {
@@ -312,7 +389,8 @@ function readFrontmatter(
   }
   if (record === null) return fields;
 
-  const unmapped: Record<string, unknown> = {};
+  // No prototype, so a `__proto__` key is kept like any other.
+  const unmapped: Record<string, unknown> = Object.create(null);
   for (const [key, value] of Object.entries(record)) {
     const name = key.toLowerCase();
     if (
@@ -424,6 +502,8 @@ class MarkdownConverter {
   >();
   private readonly footnotes = new Map<string, FootnoteDefinition>();
   private readonly footnoteNumbers = new Map<string, number>();
+  private paddingCellsLeft = MAX_TABLE_PADDING_CELLS;
+  private depth = 0;
   private root: Root | null = null;
 
   constructor(
@@ -529,6 +609,20 @@ class MarkdownConverter {
   }
 
   private blocks(source: readonly RootContent[]): PMNode[] {
+    // Every later pass over the page recurses per level, so blocks nested
+    // past this are reported instead of overflowing the stack.
+    if (this.depth >= MAX_BLOCK_NESTING) {
+      return source.flatMap((node) => this.unsupportedBlock(node));
+    }
+    this.depth += 1;
+    try {
+      return this.blocksAtDepth(source);
+    } finally {
+      this.depth -= 1;
+    }
+  }
+
+  private blocksAtDepth(source: readonly RootContent[]): PMNode[] {
     const out: PMNode[] = [];
     const nodes = [...source];
     for (let index = 0; index < nodes.length; index++) {
@@ -704,9 +798,9 @@ class MarkdownConverter {
     }
     // Short rows are padded to the widest, so one wide row over many short
     // ones would build far more cells than the source holds.
-    if (columns * node.children.length - cells > MAX_TABLE_PADDING_CELLS) {
-      return this.unsupportedBlock(node);
-    }
+    const padding = columns * node.children.length - cells;
+    if (padding > this.paddingCellsLeft) return this.unsupportedBlock(node);
+    this.paddingCellsLeft -= padding;
     const table: PMNode = {
       type: "table",
       attrs: { headerRow: true },
@@ -715,9 +809,7 @@ class MarkdownConverter {
         content: Array.from({ length: columns }, (_, column) => {
           const cell = row.children[column];
           const align = node.align?.[column] ?? null;
-          const blocks = cell
-            ? this.paragraphs(this.inline(cell.children, []))
-            : [];
+          const blocks = cell ? this.cellBlocks(cell) : [];
           return {
             type: rowIndex === 0 ? "tableHeader" : "tableCell",
             ...(align ? { attrs: { textAlign: align } } : {}),
@@ -729,6 +821,16 @@ class MarkdownConverter {
     return [table];
   }
 
+  /** Stored tables hold no images, so an image in a cell keeps its alt text. */
+  private cellBlocks(cell: TableCell): PMNode[] {
+    return this.paragraphs(this.inline(cell.children, [])).flatMap((block) => {
+      if (block.type !== "image") return [block];
+      this.notes.add("unsupported-markdown", this.sourceSlice(cell));
+      const alt = String(block.attrs?.alt ?? "");
+      return alt ? [{ type: "paragraph", content: [textNode(alt, [])] }] : [];
+    });
+  }
+
   /**
    * `<details>` is block HTML in Markdown, so CommonMark splits it into an
    * opening HTML node, ordinary Markdown blocks, and a closing HTML node.
@@ -738,14 +840,25 @@ class MarkdownConverter {
     start: number,
   ): { node: PMNode; end: number; after: string } {
     const opening = (nodes[start] as { value: string }).value;
-    const summaryMatch = /<summary\b[^>]*>([\s\S]*?)<\/summary>/i.exec(opening);
-    const summary = collapseWhitespace(
-      htmlVisibleText(summaryMatch?.[1] ?? ""),
-    );
-    const open = /<details\b[^>]*\bopen\b/i.test(opening);
-    const head = opening
-      .replace(/^\s*<details\b[^>]*>/i, "")
-      .replace(/<summary\b[^>]*>[\s\S]*?<\/summary>/i, "");
+    const openingTag = /^\s*<details\b[^>]*>/i.exec(opening)?.[0] ?? "";
+    const open = /\bopen\b/i.test(openingTag);
+    // Found by index, not one lazy regex, so many unclosed `<summary>` tags
+    // cost one scan instead of one per tag.
+    let head = opening.slice(openingTag.length);
+    let summary = "";
+    const summaryOpen = /<summary\b[^<>]*>/i.exec(head);
+    if (summaryOpen) {
+      const textStart = summaryOpen.index + summaryOpen[0].length;
+      const summaryClose = head.toLowerCase().indexOf("</summary>", textStart);
+      if (summaryClose !== -1) {
+        summary = collapseWhitespace(
+          htmlVisibleText(head.slice(textStart, summaryClose)),
+        );
+        head =
+          head.slice(0, summaryOpen.index) +
+          head.slice(summaryClose + "</summary>".length);
+      }
+    }
 
     const children: PMNode[] = [];
     let end = nodes.length - 1;
@@ -801,7 +914,7 @@ class MarkdownConverter {
     marks: readonly PMMark[],
   ): InlinePiece[] {
     const out: InlinePiece[] = [];
-    const htmlStack: Array<{ name: string; mark: PMMark | null }> = [];
+    const htmlStack: HtmlStackEntry[] = [];
     const active = () => [
       ...marks,
       ...htmlStack.flatMap((entry) => (entry.mark ? [entry.mark] : [])),
@@ -810,9 +923,7 @@ class MarkdownConverter {
     for (const node of nodes) {
       switch (node.type) {
         case "text":
-          out.push(
-            textNode(node.value.replace(/[ \t]*\n[ \t]*/g, " "), active()),
-          );
+          out.push(textNode(joinSoftBreaks(node.value), active()));
           break;
         case "emphasis":
           out.push(...this.inline(node.children, [...active(), ITALIC]));
@@ -926,7 +1037,7 @@ class MarkdownConverter {
   /** Inline HTML arrives one tag per node, so marks span sibling nodes. */
   private inlineHtml(
     html: string,
-    stack: Array<{ name: string; mark: PMMark | null }>,
+    stack: HtmlStackEntry[],
     active: () => PMMark[],
   ): InlinePiece[] {
     const out: InlinePiece[] = [];
@@ -944,15 +1055,35 @@ class MarkdownConverter {
       } else if (token.name === "br") {
         out.push({ type: "hardBreak" });
       } else if (token.name === "img") {
-        out.push({ block: this.htmlImage(token) });
+        out.push(this.htmlImagePiece(token, stack));
+      } else if (DROPPED_HTML_MEDIA.has(token.name)) {
+        this.notes.add("unsupported-markdown", `<${token.name}>`);
       } else if (!token.selfClosing) {
-        stack.push({
-          name: token.name,
-          mark: this.htmlTagMark(token, "inline"),
-        });
+        this.openHtmlElement(stack, token, "inline");
       }
     }
     return out;
+  }
+
+  /**
+   * Past the nesting cap an element is reported instead of tracked: every text
+   * run rebuilds its marks from the stack, so thousands of unclosed tags would
+   * cost the square of their number.
+   */
+  private openHtmlElement(
+    stack: HtmlStackEntry[],
+    token: Extract<HtmlToken, { type: "open" }>,
+    context: "inline" | "block",
+  ) {
+    if (stack.length >= MAX_BLOCK_NESTING) {
+      this.notes.add("unsupported-markdown", `<${token.name}>`);
+      return;
+    }
+    stack.push({
+      name: token.name,
+      mark: this.htmlTagMark(token, context),
+      href: token.attrs.href,
+    });
   }
 
   private htmlTagMark(
@@ -983,24 +1114,18 @@ class MarkdownConverter {
    */
   private htmlFragment(html: string): InlinePiece[] {
     const out: InlinePiece[] = [];
-    const stack: Array<{ name: string; mark: PMMark | null }> = [];
+    const stack: HtmlStackEntry[] = [];
     const flattened = new Set<string>();
-    let hiddenDepth = 0;
+    // A hidden element ends at its own closing tag; tags inside it don't count.
+    let hidden: string | null = null;
     let preText: string[] | null = null;
     let preLanguage: string | null = null;
     const active = () =>
       stack.flatMap((entry) => (entry.mark ? [entry.mark] : []));
 
     for (const token of tokenizeHtml(html)) {
-      if (hiddenDepth > 0) {
-        if (token.type === "open" && HIDDEN_HTML_ELEMENTS.has(token.name)) {
-          hiddenDepth += 1;
-        } else if (
-          token.type === "close" &&
-          HIDDEN_HTML_ELEMENTS.has(token.name)
-        ) {
-          hiddenDepth -= 1;
-        }
+      if (hidden) {
+        if (token.type === "close" && token.name === hidden) hidden = null;
         continue;
       }
       if (preText) {
@@ -1028,8 +1153,14 @@ class MarkdownConverter {
       }
       if (token.type === "open" && HIDDEN_HTML_ELEMENTS.has(token.name)) {
         if (!token.selfClosing) {
-          hiddenDepth = 1;
+          hidden = token.name;
           this.notes.add("hidden-html-dropped", `<${token.name}>`);
+        }
+        continue;
+      }
+      if (DROPPED_HTML_MEDIA.has(token.name)) {
+        if (token.type === "open") {
+          this.notes.add("unsupported-markdown", `<${token.name}>`);
         }
         continue;
       }
@@ -1053,7 +1184,7 @@ class MarkdownConverter {
       if (token.name === "br") {
         out.push({ type: "hardBreak" });
       } else if (token.name === "img") {
-        out.push({ block: this.htmlImage(token) });
+        out.push(this.htmlImagePiece(token, stack));
       } else if (token.name === "hr") {
         out.push({ block: { type: "horizontalRule" } });
       } else if (token.name === "pre" && !token.selfClosing) {
@@ -1063,12 +1194,7 @@ class MarkdownConverter {
       } else {
         if (HTML_BLOCK_BREAKS.has(token.name))
           out.push({ paragraphBreak: true });
-        if (!token.selfClosing) {
-          stack.push({
-            name: token.name,
-            mark: this.htmlTagMark(token, "block"),
-          });
-        }
+        if (!token.selfClosing) this.openHtmlElement(stack, token, "block");
       }
     }
     if (preText) out.push({ block: codeBlock(preText.join(""), preLanguage) });
@@ -1141,6 +1267,16 @@ class MarkdownConverter {
     return href === null ? null : { type: "link", attrs: { href } };
   }
 
+  /** An image can't carry a link, so an image inside `<a>` loses the link. */
+  private htmlImagePiece(
+    token: Extract<HtmlToken, { type: "open" }>,
+    stack: readonly HtmlStackEntry[],
+  ): InlinePiece {
+    const link = findLastIndex(stack, (entry) => entry.mark?.type === "link");
+    if (link !== -1) this.notes.add("link-removed", stack[link].href);
+    return { block: this.htmlImage(token) };
+  }
+
   private htmlImage(token: Extract<HtmlToken, { type: "open" }>): PMNode {
     return this.image(
       token.attrs.src ?? "",
@@ -1210,6 +1346,36 @@ function importedLinkHref(
   }
 }
 
+const URL_ATTRIBUTES = ["src", "url", "href"] as const;
+
+/**
+ * Keeps a url attribute only when it is safe to store as written: data URLs
+ * and unsafe schemes are removed, and paths to other files stay as links
+ * that aren't imported.
+ */
+function withCheckedUrls(
+  sourcePath: string,
+  attrs: Record<string, unknown>,
+  notes: ImportNoteBag,
+): Record<string, unknown> {
+  const checked = { ...attrs };
+  for (const key of URL_ATTRIBUTES) {
+    const written = checked[key];
+    if (typeof written !== "string" || !written) continue;
+    const reference = classifyImportReference(sourcePath, written);
+    if (reference.kind === "relative" || reference.kind === "outside") {
+      notes.add("link-target-not-imported", written);
+    } else if (reference.kind === "data-url") {
+      notes.add("unsupported-markdown", describeDataUrl(reference.url));
+      delete checked[key];
+    } else if (reference.kind === "unsupported") {
+      notes.add("link-removed", written);
+      delete checked[key];
+    }
+  }
+  return checked;
+}
+
 /**
  * Splits HTML at the `</details>` that closes the toggle open before it,
  * skipping toggles opened and closed inside. With no such tag, returns how
@@ -1219,7 +1385,7 @@ function splitAtDetailsClose(
   html: string,
   depth: number,
 ): { before: string; after: string } | { depth: number } {
-  for (const match of html.matchAll(/<(\/?)details\b[^>]*>/gi)) {
+  for (const match of html.matchAll(/<(\/?)details\b[^<>]*>/gi)) {
     depth += match[1] ? -1 : 1;
     if (depth === 0) {
       return {
@@ -1241,7 +1407,7 @@ function convertNfm(
   notes: ImportNoteBag,
   referencePrefix: string,
 ): { blocks: PMNode[]; slots: ImportReferenceSlot[] } {
-  const doc = nfmToDoc(legacyMarkdownToNfm(indentContainerBodies(body)));
+  const doc = nfmToDoc(legacyMarkdownToNfm(indentContainerBodies(body, notes)));
   const slots: ImportReferenceSlot[] = [];
   const slot = (value: ImportReferenceSlot) => {
     slots.push(value);
@@ -1271,6 +1437,18 @@ function convertNfm(
           ...node.attrs,
           src: slot({ role: "asset", reference, written }),
         };
+      }
+    } else if (node.attrs) {
+      // Other blocks and atoms aren't uploaded; their urls get a link's checks.
+      node.attrs = withCheckedUrls(sourcePath, node.attrs, notes);
+      if (typeof node.attrs.attrsJson === "string") {
+        const tagAttrs = JSON.parse(node.attrs.attrsJson) as Record<
+          string,
+          unknown
+        >;
+        node.attrs.attrsJson = JSON.stringify(
+          withCheckedUrls(sourcePath, tagAttrs, notes),
+        );
       }
     }
     if (node.marks?.length) {
@@ -1310,7 +1488,7 @@ const MAX_REPAIRED_NESTING = 16;
  * drops an untabbed body. Hand-written and agent-written NFM often omits the
  * tab, so indent such a body before parsing instead of losing it.
  */
-function indentContainerBodies(nfm: string): string {
+function indentContainerBodies(nfm: string, notes: ImportNoteBag): string {
   // `base` is the tabs added to the container's own tags; `shift` is the
   // extra tab its body needs, decided at the body's first line.
   const stack: Array<{
@@ -1338,7 +1516,11 @@ function indentContainerBodies(nfm: string): string {
       trimmed &&
       !(top.tag === "details" && trimmed.startsWith("<summary"))
     ) {
-      top.shift = tabs <= top.indent && top.base < MAX_REPAIRED_NESTING ? 1 : 0;
+      const untabbed = tabs <= top.indent;
+      top.shift = untabbed && top.base < MAX_REPAIRED_NESTING ? 1 : 0;
+      if (untabbed && top.shift === 0) {
+        notes.add("unsupported-markdown", `<${top.tag}>`);
+      }
     }
     const isSummary =
       !fence && top?.tag === "details" && trimmed.startsWith("<summary");
@@ -1360,10 +1542,17 @@ function indentContainerBodies(nfm: string): string {
   return out.join("\n");
 }
 
-function walk(node: Nodes, visit: (node: Nodes) => void) {
-  visit(node);
-  if ("children" in node) {
-    for (const child of node.children as Nodes[]) walk(child, visit);
+/** Visits nodes in document order, without recursion: nesting can be deep. */
+function walk(root: Nodes, visit: (node: Nodes) => void) {
+  const pending: Nodes[] = [root];
+  for (let node = pending.pop(); node; node = pending.pop()) {
+    visit(node);
+    if ("children" in node) {
+      const children = node.children as Nodes[];
+      for (let index = children.length - 1; index >= 0; index--) {
+        pending.push(children[index]);
+      }
+    }
   }
 }
 
@@ -1416,9 +1605,10 @@ function normalizeInline(nodes: readonly PMNode[]): PMNode[] {
   while (isEdge(out[0])) out.shift();
   while (isEdge(out[out.length - 1])) out.pop();
   const first = out[0];
-  if (first?.type === "text") first.text = first.text?.replace(/^\s+/, "");
+  if (first?.type === "text") first.text = first.text?.trimStart();
   const last = out[out.length - 1];
-  if (last?.type === "text") last.text = last.text?.replace(/\s+$/, "");
+  // Not `/\s+$/`: it rescans every run of spaces that isn't at the end.
+  if (last?.type === "text") last.text = last.text?.trimEnd();
   return out;
 }
 
@@ -1433,6 +1623,34 @@ function equation(latex: string): PMNode {
     type: "notionBlockAtom",
     attrs: { tagName: "equation", attrsJson: "{}", label: latex },
   };
+}
+
+/**
+ * Joins soft-wrapped lines with one space. A `[ \t]*\n` regex would rescan
+ * every run of spaces that has no newline after it.
+ */
+function joinSoftBreaks(value: string): string {
+  const lines = value.split("\n");
+  return lines
+    .map((line, index) => {
+      let start = 0;
+      let end = line.length;
+      if (index > 0) {
+        while (start < end && (line[start] === " " || line[start] === "\t")) {
+          start += 1;
+        }
+      }
+      if (index < lines.length - 1) {
+        while (
+          end > start &&
+          (line[end - 1] === " " || line[end - 1] === "\t")
+        ) {
+          end -= 1;
+        }
+      }
+      return line.slice(start, end);
+    })
+    .join(" ");
 }
 
 function codeBlock(text: string, language: string | null): PMNode {

@@ -482,7 +482,9 @@ describe("Markdown import", () => {
 
     expect(page.dialect).toBe("nfm");
     expect(page.content.length).toBeLessThan(source.length);
-    expect(noteKinds(page)).toContain("text-not-landed");
+    expect(noteKinds(page)).toEqual(
+      expect.arrayContaining(["unsupported-markdown", "text-not-landed"]),
+    );
   });
 
   it.each([
@@ -684,5 +686,126 @@ describe("Markdown import", () => {
         (row) => row.content?.length ?? 0,
       ),
     ).toEqual([3, 3, 3]);
+
+    // Each table pads 39,999 cells; the budget is for the whole file.
+    const paddedTable = [
+      "| a |",
+      "| - |",
+      `| ${Array.from({ length: 200 }, (_, index) => `c${index}`).join(" | ")} |`,
+      ...Array.from({ length: 200 }, () => "| x |"),
+    ].join("\n");
+    const many = importMarkdown(
+      [paddedTable, paddedTable, paddedTable].join("\n\nBetween\n\n"),
+    );
+    expect(nodesOfType(many.doc, "table")).toHaveLength(2);
+    expect(noteKinds(many)).toContain("unsupported-markdown");
+  });
+
+  it("keeps an image out of a table cell, since stored tables hold none", () => {
+    const requested: string[] = [];
+    const page = importMarkdown(
+      "| Logo | Name |\n| - | - |\n| ![Acme logo](logo.png) | Acme |",
+      {
+        resolvers: {
+          asset: (request) => {
+            requested.push(request.reference);
+            return { status: "resolved", url: "https://files.example/l.png" };
+          },
+        },
+      },
+    );
+
+    expect(requested).toEqual([]);
+    expect(nodesOfType(page.doc, "image")).toEqual([]);
+    expect(textOf(nodesOfType(page.doc, "tableCell")[0]!)).toBe("Acme logo");
+    expect(noteKinds(page)).toContain("unsupported-markdown");
+    expect(noteKinds(page)).not.toContain("structure-changed-on-save");
+  });
+
+  it("names a link around an HTML image and embedded media it can't keep", () => {
+    const page = importMarkdown(
+      [
+        '<p align="center"><a href="https://example.com"><img src="https://example.com/logo.png" alt="Logo"></a></p>',
+        'Demo: <video src="https://example.com/demo.mp4" controls/>',
+        '<iframe src="https://example.com/embed">Watch the demo</iframe>',
+      ].join("\n\n"),
+    );
+
+    const notes = Object.fromEntries(
+      page.report.notes.map((note) => [note.kind, note.samples]),
+    );
+    expect(notes["link-removed"]).toEqual(["https://example.com"]);
+    expect(notes["unsupported-markdown"]).toEqual(["<video>", "<iframe>"]);
+    expect(page.report.status).toBe("lost");
+    expect(page.content).toContain("Watch the demo");
+  });
+
+  it("keeps text after a script whose body looks like markup", () => {
+    const page = importMarkdown(
+      '<div><script>var s = "<style>"; // <!--</script>Visible after</div>',
+    );
+
+    expect(page.content).toContain("Visible after");
+    expect(page.content).not.toContain("var s");
+    expect(noteKinds(page)).not.toContain("text-not-landed");
+  });
+
+  it("checks the urls of Content Markdown files, bookmarks, and embeds", () => {
+    const page = importMarkdown(
+      [
+        "<empty-block/>",
+        '<file src="data:application/pdf;base64,JVBERi0xLjQK"></file>',
+        '<pdf src="./spec.pdf"></pdf>',
+        '<bookmark url="javascript:alert(1)"></bookmark>',
+        '<embed url="https://example.com/embed"></embed>',
+      ].join("\n"),
+    );
+
+    expect(page.dialect).toBe("nfm");
+    expect(page.content).not.toContain("base64");
+    expect(page.content).not.toContain("javascript:");
+    expect(page.content).toContain("./spec.pdf");
+    expect(page.content).toContain("https://example.com/embed");
+    const notes = Object.fromEntries(
+      page.report.notes.map((note) => [note.kind, note.samples]),
+    );
+    expect(notes["unsupported-markdown"]).toEqual([
+      expect.stringMatching(/^application\/pdf/),
+    ]);
+    expect(notes["link-removed"]).toEqual(["javascript:alert(1)"]);
+    expect(notes["link-target-not-imported"]).toEqual(["./spec.pdf"]);
+  });
+
+  it.each([
+    ["block quotes", `${"> ".repeat(5000)}deep`],
+    ["lists", `${"- ".repeat(5000)}deep`],
+    [
+      "lists continued across lines",
+      `${"- ".repeat(40)}a\n${"  ".repeat(40)}${"- ".repeat(40)}deep`,
+    ],
+  ])("reports %s nested past the limit instead of overflowing", (_, nested) => {
+    const page = importMarkdown(`Before\n\n${nested}\n\nAfter`);
+
+    expect(noteKinds(page)).toContain("unsupported-markdown");
+    expect(noteKinds(page)).not.toContain("text-not-landed");
+    expect(page.content).toContain("Before");
+    expect(page.content).toContain("After");
+  });
+
+  it("reports HTML elements nested past the limit and keeps their text", () => {
+    const page = importMarkdown(`<div>
+${"<span>".repeat(70)}deep
+</div>`);
+
+    expect(noteKinds(page)).toContain("unsupported-markdown");
+    expect(page.content).toContain("deep");
+  });
+
+  it("keeps a __proto__ frontmatter key with the import record", () => {
+    const page = importMarkdown('---\n"__proto__": kept\n---\nBody');
+
+    expect(Object.entries(page.frontmatter.unmapped ?? {})).toEqual([
+      ["__proto__", "kept"],
+    ]);
   });
 });

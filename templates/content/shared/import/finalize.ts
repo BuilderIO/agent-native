@@ -232,10 +232,9 @@ function measureCoverage(
 
   const missingSample: string[] = [];
   if (missingCharacters > 0) {
-    const landedText = compact(landedParts.join(" "));
-    for (const word of sourceParts.join(" ").match(/[\p{L}\p{N}]+/gu) ?? []) {
-      const token = word.normalize("NFKC").toLowerCase();
-      if (landedText.includes(token) || missingSample.includes(token)) continue;
+    const landedWords = new Set(words(landedParts.join(" ")));
+    for (const token of words(sourceParts.join(" "))) {
+      if (landedWords.has(token) || missingSample.includes(token)) continue;
       missingSample.push(token.slice(0, 40));
       if (missingSample.length >= MAX_MISSING_SAMPLE) break;
     }
@@ -261,12 +260,16 @@ function visibleDocText(doc: PMDoc): string[] {
  * both the source and the stored body, so its blind spots cancel out.
  */
 function nfmVisibleText(nfm: string): string {
-  return nfm
-    .replace(/^[\t ]*(```|~~~)[^\n]*$/gm, " ")
-    .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/<[^>\n]+>/g, " ")
-    .replace(/\]\((?:[^()\s]|\([^()]*\))*(?:\s+"[^"]*")?\)/g, "] ")
-    .replace(/\{[a-z-]+="[^"]*"(?:\s+[a-z-]+="[^"]*")*\}/g, " ");
+  return (
+    nfm
+      .replace(/^[\t ]*(```|~~~)[^\n]*$/gm, " ")
+      // An unclosed comment hides the rest, and a tag can't hold `<`, so each
+      // pattern fails fast instead of rescanning to the end from every `<`.
+      .replace(/<!--[\s\S]*?(?:-->|$)/g, " ")
+      .replace(/<[^<>\n]+>/g, " ")
+      .replace(/\]\((?:[^()\s]|\([^()]*\))*(?:\s+"[^"]*")?\)/g, "] ")
+      .replace(/\{[a-z-]+="[^"]*"(?:\s+[a-z-]+="[^"]*")*\}/g, " ")
+  );
 }
 
 function characterCounts(parts: Iterable<string>): Map<string, number> {
@@ -282,11 +285,11 @@ function characterCounts(parts: Iterable<string>): Map<string, number> {
   return counts;
 }
 
-function compact(text: string): string {
+function words(text: string): string[] {
   return (
     text
       .normalize("NFKC")
       .toLowerCase()
       .match(/[\p{L}\p{N}]+/gu) ?? []
-  ).join("");
+  );
 }

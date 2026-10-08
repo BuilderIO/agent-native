@@ -20,8 +20,10 @@ export const HIDDEN_HTML_ELEMENTS = new Set([
   "title",
 ]);
 
+const RAW_TEXT_ELEMENTS = new Set(["script", "style"]);
+
 const TOKEN_RE =
-  /<!--[\s\S]*?(?:-->|$)|<![\s\S]*?(?:>|$)|<\?[\s\S]*?(?:\?>|$)|<\/([a-zA-Z][\w:-]*)\s*>|<([a-zA-Z][\w:-]*)((?:\s+[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*(\/?)>/g;
+  /<!--[\s\S]*?(?:-->|$)|<![\s\S]*?(?:>|$)|<\?[\s\S]*?(?:\?>|$)|<\/([a-zA-Z][\w:-]*)\s*>|<([a-zA-Z][\w:-]*)((?:\s+[^\s"'<>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*(\/?)>/g;
 const ATTR_RE =
   /([^\s"'>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
 
@@ -83,25 +85,41 @@ export function decodeHtmlEntities(text: string): string {
 
 export function tokenizeHtml(html: string): HtmlToken[] {
   const tokens: HtmlToken[] = [];
+  const pattern = new RegExp(TOKEN_RE);
+  let lowered: string | null = null;
   let last = 0;
-  for (const match of html.matchAll(TOKEN_RE)) {
-    const index = match.index ?? 0;
-    if (index > last) {
+  for (;;) {
+    const match = pattern.exec(html);
+    if (!match) break;
+    if (match.index > last) {
       tokens.push({
         type: "text",
-        text: decodeHtmlEntities(html.slice(last, index)),
+        text: decodeHtmlEntities(html.slice(last, match.index)),
       });
     }
-    last = index + match[0].length;
+    last = pattern.lastIndex;
     if (match[1]) {
       tokens.push({ type: "close", name: match[1].toLowerCase() });
     } else if (match[2]) {
+      const name = match[2].toLowerCase();
+      const selfClosing = match[4] === "/";
       tokens.push({
         type: "open",
-        name: match[2].toLowerCase(),
+        name,
         attrs: parseAttributes(match[3] ?? ""),
-        selfClosing: match[4] === "/",
+        selfClosing,
       });
+      // Script and style bodies are raw text: a `<` or `<!--` inside them
+      // opens nothing, so the body runs to the element's own closing tag.
+      if (RAW_TEXT_ELEMENTS.has(name) && !selfClosing) {
+        lowered ??= html.toLowerCase();
+        const close = lowered.indexOf(`</${name}`, last);
+        const end = close === -1 ? html.length : close;
+        if (end > last)
+          tokens.push({ type: "text", text: html.slice(last, end) });
+        last = end;
+        pattern.lastIndex = end;
+      }
     } else {
       tokens.push({ type: "hidden", raw: match[0] });
     }
@@ -115,13 +133,14 @@ export function tokenizeHtml(html: string): HtmlToken[] {
 /** The text a reader sees when the fragment renders. */
 export function htmlVisibleText(html: string): string {
   const parts: string[] = [];
-  let hiddenDepth = 0;
+  // A hidden element ends at its own closing tag; tags inside it don't count.
+  let hidden: string | null = null;
   for (const token of tokenizeHtml(html)) {
-    if (token.type === "open" && HIDDEN_HTML_ELEMENTS.has(token.name)) {
-      if (!token.selfClosing) hiddenDepth += 1;
-    } else if (token.type === "close" && HIDDEN_HTML_ELEMENTS.has(token.name)) {
-      hiddenDepth = Math.max(0, hiddenDepth - 1);
-    } else if (token.type === "text" && hiddenDepth === 0) {
+    if (hidden) {
+      if (token.type === "close" && token.name === hidden) hidden = null;
+    } else if (token.type === "open" && HIDDEN_HTML_ELEMENTS.has(token.name)) {
+      if (!token.selfClosing) hidden = token.name;
+    } else if (token.type === "text") {
       parts.push(token.text);
     } else if (token.type === "open" && token.name === "img") {
       if (token.attrs.alt) parts.push(` ${token.attrs.alt} `);
