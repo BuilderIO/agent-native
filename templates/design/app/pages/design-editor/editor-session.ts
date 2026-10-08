@@ -1,6 +1,7 @@
 import { generateTabId } from "@agent-native/core/client/agent-chat";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
 
-export const TAB_ID = generateTabId();
+export const TAB_ID = getBrowserTabId();
 
 export function createEditorSaveOperationSource(
   tabId = TAB_ID,
