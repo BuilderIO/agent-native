@@ -21,3 +21,5 @@ Commit new firing history and its running marker together, honor live queued dis
 Keep newly admitted firings retryable after pre-start lease loss and reconcile terminal history independently of worker retention, preserving its recorded delivery evidence.
 
 Report post-commit notification and history-retention failures without aborting an already committed firing admission.
+
+Recover from an absent or mismatched firing-history reference as an explicit error without replaying work or modifying unrelated history; retain scheduled backoff and manual-run policy.

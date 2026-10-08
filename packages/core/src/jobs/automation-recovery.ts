@@ -50,6 +50,13 @@ export type AutomationRecovery =
   | { state: "active" }
   | { state: "resume"; resume: AutomationResume }
   | {
+      state: "unrecoverable";
+      status: "error";
+      error: string;
+      errorCode: string;
+      deliveryNote: string;
+    }
+  | {
       state: "settle";
       status: "success" | "error";
       history: AutomationRun;
@@ -113,8 +120,19 @@ export async function inspectAutomationRecovery(
       history.owner !== owner ||
       history.path !== resource.path ||
       (history.appId && history.appId !== appId)
-    )
-      throw new Error(automationRecoveryMessagesForLocale().unreadable);
+    ) {
+      const deliveryNote = deliveryNoteForEvents(null);
+      return {
+        state: "unrecoverable",
+        status: "error",
+        error: withDeliveryNote(
+          automationRecoveryMessagesForLocale().historyUnavailable,
+          deliveryNote,
+        ),
+        errorCode: "automation_recovery_history_unavailable",
+        deliveryNote,
+      };
+    }
   } else {
     if ((meta.triggerType ?? "schedule") !== "schedule") return null;
     const histories = await listAutomationRuns({

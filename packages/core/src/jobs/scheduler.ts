@@ -358,19 +358,24 @@ async function processRecurringJobsWithLease(
             });
             continue;
           }
-          if (recovery?.state === "settle") {
+          if (
+            recovery?.state === "settle" ||
+            recovery?.state === "unrecoverable"
+          ) {
+            const history =
+              recovery.state === "settle" ? recovery.history : null;
             // Keep the recovery marker until history is durable; a restart can
             // reconcile frontmatter from finished history, but not the reverse.
-            if (recovery.history.finishedAt === null)
+            if (history?.finishedAt === null)
               await finishAutomationRun(
-                recovery.history.id,
+                history.id,
                 recovery.status,
                 recovery.error,
                 recovery.errorCode,
                 {
                   requirePersisted: true,
-                  ...(recovery.history.dispatchPending
-                    ? { expectedClaimedAt: recovery.history.claimedAt }
+                  ...(history.dispatchPending
+                    ? { expectedClaimedAt: history.claimedAt }
                     : {}),
                 },
               );
@@ -396,10 +401,9 @@ async function processRecurringJobsWithLease(
                     pauseImmediately:
                       !meta.lastRunManual &&
                       isPermanentIdentityFailure(recovery.errorCode),
-                    eventId: recovery.history.id,
-                    ...(recovery.history.finishedAt !== null &&
-                    recovery.history.error
-                      ? { recordedError: recovery.history.error }
+                    eventId: history?.id ?? meta.lastHistoryId,
+                    ...(history?.finishedAt !== null && history?.error
+                      ? { recordedError: history.error }
                       : {}),
                   }
                 : undefined,

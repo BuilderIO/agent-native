@@ -417,6 +417,110 @@ describe("stale automation run-lock recovery across trigger types", () => {
     },
   );
 
+  it.each(["missing", "owner", "path", "app"])(
+    "settles an invalid %s firing reference once without replay or foreign history writes",
+    async (problem) => {
+      const fixture = interruptedScheduledJob();
+      const referenced =
+        problem === "missing"
+          ? null
+          : {
+              ...fixture.history,
+              ...(problem === "owner" ? { owner: "other@example.com" } : {}),
+              ...(problem === "path" ? { path: "jobs/other.md" } : {}),
+              ...(problem === "app" ? { appId: "other-app" } : {}),
+            };
+      vi.mocked(runHistory.getAutomationRun).mockResolvedValue(
+        referenced as any,
+      );
+      const finish = vi.spyOn(runHistory, "finishAutomationRun");
+      try {
+        await processRecurringJobs(recoveryDeps);
+        expect(resourcePutMock).toHaveBeenCalledOnce();
+        const content = resourcePutMock.mock.calls[0]![2];
+        const settled = parseJobResource(content).meta;
+        expect(settled).toMatchObject({
+          enabled: true,
+          lastStatus: "error",
+          lastHistoryId: fixture.history.id,
+          lastErrorCode: "automation_recovery_history_unavailable",
+          consecutiveFailures: 1,
+        });
+        expect(settled.lastError).toContain("Delivery outcome is unknown");
+        expect(settled.lastError).not.toContain("No delivery was confirmed");
+        expect(Date.parse(settled.nextRun!)).toBeGreaterThan(Date.now());
+        fixture.resource.content = content;
+        await processRecurringJobs(recoveryDeps);
+        expect(resourcePutMock).toHaveBeenCalledOnce();
+        expect(runHistory.getAutomationRun).toHaveBeenCalledOnce();
+        expect(finish).not.toHaveBeenCalled();
+        expect(runStore.reapIfStale).not.toHaveBeenCalled();
+        expect(startRunMock).not.toHaveBeenCalled();
+        expect(runAgentLoopMock).not.toHaveBeenCalled();
+      } finally {
+        finish.mockRestore();
+        fixture.restore();
+      }
+    },
+  );
+
+  it("preserves manual scheduling and failure streak when firing history is absent", async () => {
+    const fixture = interruptedScheduledJob();
+    const nextRun = new Date(Date.now() + 3_600_000).toISOString();
+    fixture.resource.content = fixture.resource.content.replace(
+      "enabled: true",
+      `enabled: true\nlastRunManual: true\nlastRunAdvanceSchedule: false\nconsecutiveFailures: 2\nnextRun: ${nextRun}`,
+    );
+    vi.mocked(runHistory.getAutomationRun).mockResolvedValue(null);
+    try {
+      await processRecurringJobs(recoveryDeps);
+      expect(
+        parseJobResource(resourcePutMock.mock.calls[0]![2]).meta,
+      ).toMatchObject({
+        enabled: true,
+        lastStatus: "error",
+        consecutiveFailures: 2,
+        nextRun,
+      });
+      expect(startRunMock).not.toHaveBeenCalled();
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it("retains a firing marker when its history lookup is temporarily unavailable", async () => {
+    const fixture = interruptedScheduledJob();
+    vi.mocked(runHistory.getAutomationRun).mockRejectedValue(
+      new Error("history database unavailable"),
+    );
+    try {
+      await processRecurringJobs(recoveryDeps);
+      expect(resourcePutMock).not.toHaveBeenCalled();
+      expect(startRunMock).not.toHaveBeenCalled();
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it("does not settle a newer firing after an invalid history lookup", async () => {
+    const fixture = interruptedScheduledJob();
+    vi.mocked(runHistory.getAutomationRun).mockResolvedValue(null);
+    resourceGetByPathMock.mockResolvedValue({
+      ...fixture.resource,
+      content: fixture.resource.content.replace(
+        fixture.history.id,
+        "newer-history",
+      ),
+    });
+    try {
+      await processRecurringJobs(recoveryDeps);
+      expect(resourcePutMock).not.toHaveBeenCalled();
+      expect(startRunMock).not.toHaveBeenCalled();
+    } finally {
+      fixture.restore();
+    }
+  });
+
   it("persists a new local firing's exact history id before the worker starts", async () => {
     const resource = {
       id: "resource-due",

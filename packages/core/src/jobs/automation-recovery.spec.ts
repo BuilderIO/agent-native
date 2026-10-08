@@ -305,11 +305,33 @@ describe("automation worker recovery", () => {
     expect(mocks.reap).toHaveBeenCalledWith(history.runId);
   });
 
-  it("rejects a firing history in another app before inspecting its worker", async () => {
-    mocks.history.mockResolvedValue({ ...history, appId: "another-app" });
+  it.each([
+    ["missing", null],
+    ["another owner", { ...history, owner: "other@example.com" }],
+    ["another automation", { ...history, path: "jobs/other.md" }],
+    ["another app", { ...history, appId: "another-app" }],
+  ])(
+    "settles %s firing history without inspecting or replaying another worker",
+    async (_reason, referencedHistory) => {
+      mocks.history.mockResolvedValue(referencedHistory);
+      expect(
+        await inspectAutomationRecovery(resource, meta, now, "scheduler-app"),
+      ).toMatchObject({
+        state: "unrecoverable",
+        errorCode: "automation_recovery_history_unavailable",
+        error: expect.stringContaining("Delivery outcome is unknown"),
+      });
+      expect(mocks.list).not.toHaveBeenCalled();
+      expect(mocks.reap).not.toHaveBeenCalled();
+      expect(mocks.events).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps a history lookup outage retryable", async () => {
+    mocks.history.mockRejectedValue(new Error("database unavailable"));
     await expect(
-      inspectAutomationRecovery(resource, meta, now, "scheduler-app"),
-    ).rejects.toThrow();
+      inspectAutomationRecovery(resource, meta, now),
+    ).rejects.toThrow("database unavailable");
     expect(mocks.reap).not.toHaveBeenCalled();
   });
 
