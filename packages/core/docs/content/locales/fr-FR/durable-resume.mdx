@@ -100,7 +100,7 @@ Le bloc dur n'arrête qu'une **répétition exacte** : le même outil d'écritu
 
 - **Une nouvelle tentative reformulée n'est pas reconnue.** Si le modèle modifie n'importe quel argument, comme le corps de l'e-mail, l'appel ne correspond plus à un appel terminé, et le bloc dur ne l'arrête donc pas.
 - **Un plantage en plein envoi peut entraîner une répétition.** Si le processus s'arrête brutalement après que l'effet secondaire s'est produit, mais avant que son résultat ne soit enregistré, l'appel est considéré comme interrompu, et le bloc dur ne couvre que les appels terminés. Une protection distincte refuse une nouvelle tentative identique d'une écriture interrompue, mais seulement quand l'historique de l'exécution reprise montre l'interruption.
-- **Une exécution plantée peut reprendre dans le même tour par deux voies distinctes.** La première est une [exécution durable en arrière-plan](/docs/durable-background-runs). La seconde est un segment ultérieur d'un tour normal au premier plan qui utilise l'[auto-chaînage au premier plan](/docs/durable-background-runs#foreground-self-chain). Toute autre exécution plantée se termine par une erreur, et **Continuer** démarre un nouveau tour avec un journal vide, si bien qu'aucune des deux couches ne s'applique.
+- **Une exécution plantée peut reprendre dans le même tour par deux voies distinctes.** La première est une [exécution durable en arrière-plan](/docs/durable-background-runs). La seconde est un segment ultérieur d'un tour normal au premier plan qui utilise l'[auto-chaînage au premier plan](/docs/durable-background-runs#foreground-self-chain). Toute autre exécution plantée se termine par une erreur. Choisir **Continuer** sur celle-ci reprend le même tour, si bien que les deux couches s'appliquent.
 
 Une action dont l'effet secondaire ne doit jamais se répéter a besoin de sa propre vérification d'idempotence. Le bloc dur ne s'applique jamais aux actions en lecture seule.
 
@@ -111,6 +111,8 @@ Une action dont l'effet secondaire ne doit jamais se répéter a besoin de sa pr
 Lorsque le serveur arrête un tour à sa limite de durée d'exécution et que rien côté serveur ne le reprend, le chat le poursuit de lui-même, dans le **même tour**. L'exécution reprise reçoit les appels d'outils et les résultats du fil ainsi que la note de journal ci-dessus : les étapes terminées sont réutilisées, et une répétition identique d'une écriture — y compris une délégation `call-agent` entre applications, dont la clé d'idempotence est dérivée du tour — renvoie le résultat enregistré au lieu d'être envoyée à nouveau. Le chat affiche le statut _Reprise_, et Arrêter continue de fonctionner.
 
 Un tour est poursuivi automatiquement **trois fois au maximum**. Le compteur est stocké avec les exécutions du tour : recharger la page ne le réinitialise pas et un second onglet ne peut pas le doubler. Ensuite, ou après une erreur, un arrêt, une annulation ou une limite d'identifiants ou de débit, le tour se termine avec **Continuer** disponible et vous attend.
+
+Choisir **Continuer** reprend le tour même de l'exécution arrêtée de la même façon, sans limite de nombre, si bien que les deux couches s'appliquent comme pour une reprise automatique. Ce choix n'est proposé que pour l'arrêt le plus récent de la conversation. Si vous envoyez plutôt un nouveau message, l'agent est d'abord informé de ce que le tour inachevé a déjà fait, mais aucune des deux couches n'empêche une répétition.
 
 ## Connexe
 

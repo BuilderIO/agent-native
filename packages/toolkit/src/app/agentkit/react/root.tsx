@@ -24,6 +24,7 @@ import {
   type AgentKitLabels,
   type AgentKitBranchNavigation,
   type AgentKitCopyMessageHandler,
+  type AgentKitFeedbackReportBuilder,
   type AgentKitRegistry,
   type AgentKitRenderFailure,
   type AgentKitRunUsageLoader,
@@ -77,6 +78,7 @@ export interface AgentKitRootBaseProps {
   onThreadForked?: (thread: AgentThread) => void;
   branchNavigation?: AgentKitBranchNavigation;
   onCopyMessage?: AgentKitCopyMessageHandler;
+  buildFeedbackReport?: AgentKitFeedbackReportBuilder;
   loadRunUsage?: AgentKitRunUsageLoader;
   onConnectionRequest?: (
     request: AgentConnectionRequest,
@@ -107,6 +109,7 @@ export function AgentKitRoot({
   onThreadForked,
   branchNavigation,
   onCopyMessage,
+  buildFeedbackReport,
   loadRunUsage,
   onConnectionRequest,
   onRenderError,
@@ -280,6 +283,7 @@ export function AgentKitRoot({
       onThreadForked={onThreadForked}
       branchNavigation={branchNavigation}
       onCopyMessage={onCopyMessage}
+      buildFeedbackReport={buildFeedbackReport}
       loadRunUsage={loadRunUsage}
       onConnectionRequest={onConnectionRequest}
       onRenderError={onRenderError}

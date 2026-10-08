@@ -505,13 +505,15 @@ export async function waitForBridge(
   page: Page,
   type: string,
   timeout = 15_000,
+  options?: { phase?: string },
 ): Promise<any> {
   const handle = await page.waitForFunction(
-    (t) =>
+    ({ t, phase }) =>
       [...((window as any).__bridge ?? [])]
         .reverse()
-        .find((m: any) => m.type === t) ?? null,
-    type,
+        .find((m: any) => m.type === t && (!phase || m.phase === phase)) ??
+      null,
+    { t: type, phase: options?.phase },
     { timeout },
   );
   return handle.jsonValue();

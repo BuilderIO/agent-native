@@ -990,6 +990,10 @@ export default {
       interact: "Interact",
       screens: "화면",
     },
+    topBar: {
+      modeDesign: "디자인",
+      modeSwitch: "편집기 모드",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",
@@ -1010,6 +1014,10 @@ export default {
     keyboardShortcuts: {
       title: "키보드 단축키",
       close: "닫다: 키보드 단축키",
+      search: "검색",
+      searchLabel: "키보드 단축키 검색",
+      categoriesLabel: "단축키 카테고리",
+      empty: "“{{query}}”와(과) 일치하는 단축키가 없습니다",
       codeContext: "코드",
       screenContext: "화면",
       nudgeAmount: {
@@ -1042,11 +1050,6 @@ export default {
         leftBracket: "왼쪽 대괄호",
         rightBracket: "오른쪽 대괄호",
       },
-      descriptions: {
-        toggleUi: "지금 눌러 패널을 빠르게 숨기고 작업에 집중하세요",
-        undo: "가장 최근 디자인 변경을 되돌립니다",
-        redo: "방금 실행 취소한 디자인 변경을 복원합니다",
-      },
       categories: {
         essential: "필수",
         tools: "도구",
@@ -1078,6 +1081,7 @@ export default {
         showLayers: "레이어",
         showAssets: "에셋",
         toggleUi: "View",
+        toggleMinimalUi: "최소 UI",
         toggleComments: "댓글 고정",
         zoomIn: "확대",
         zoomOut: "축소",

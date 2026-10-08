@@ -416,7 +416,7 @@ describe("http response telemetry", () => {
     });
   });
 
-  it("does not derive action names from unknown action URLs", async () => {
+  it("records unknown action URLs under the action template without naming an action", async () => {
     const { requestHooks, responseHooks } = createHooks();
     processState.requestSequence = 5;
     const tracked: TrackingEvent[] = [];
@@ -432,7 +432,9 @@ describe("http response telemetry", () => {
     await responseHooks[0](new Response("not found", { status: 404 }), event);
 
     expect(tracked[0]?.properties).not.toHaveProperty("action_name");
-    expect(tracked[0]?.properties).not.toHaveProperty("route_template");
+    expect(tracked[0]?.properties).toMatchObject({
+      route_template: "/_agent-native/actions/:action",
+    });
   });
 
   it("uses registered action metadata before the route handler runs", async () => {
@@ -537,9 +539,69 @@ describe("http response telemetry", () => {
         {
           "http.request.method": "GET",
           "http.response.status_code": 200,
+          "http.route": "page",
         },
       ]);
       expect(forceFlush).toHaveBeenCalledOnce();
+    } finally {
+      unregister();
+    }
+  });
+
+  it("attributes a framework 401 to its route on the metric and the span", async () => {
+    processState.requestSequence = 5;
+    const recorded: Array<Record<string, string | number> | undefined> = [];
+    const spanAttributes: Array<Record<string, unknown> | undefined> = [];
+    __setAgentTracerForTests({
+      startSpan(
+        _name: string,
+        options?: { attributes?: Record<string, unknown> },
+      ): AgentSpan {
+        spanAttributes.push(options?.attributes);
+        return {
+          setAttribute() {},
+          setAttributes() {},
+          setStatus() {},
+          recordException() {},
+          end() {},
+        };
+      },
+    });
+    const unregister = registerObservabilityProvider({
+      meterProvider: {
+        getMeter: () => ({
+          createHistogram: () => ({
+            record: (
+              _value: number,
+              attributes?: Record<string, string | number>,
+            ) => recorded.push(attributes),
+          }),
+          createCounter: () => ({ add() {} }),
+        }),
+      },
+    });
+    try {
+      const { requestHooks, responseHooks } = createHooks();
+      const event = eventFor(
+        "/_agent-native/agent-chat/runs/run-1783002639448-8rptjt/events",
+      );
+      await requestHooks[0](event);
+      await responseHooks[0](
+        new Response("unauthorized", { status: 401 }),
+        event,
+      );
+
+      expect(recorded).toEqual([
+        {
+          "http.request.method": "GET",
+          "http.response.status_code": 401,
+          "http.route": "/_agent-native/agent-chat/runs/:runId/events",
+        },
+      ]);
+      expect(spanAttributes[0]).toMatchObject({
+        "http.route": "/_agent-native/agent-chat/runs/:runId/events",
+        "http.status_code": 401,
+      });
     } finally {
       unregister();
     }
@@ -611,6 +673,42 @@ describe("http response telemetry", () => {
     });
     expect(line?.boot_to_module_ms).toEqual(expect.any(Number));
     expect(line?.module_to_request_ms).toEqual(expect.any(Number));
+    expect(line?.db_measured).toBe(true);
+  });
+
+  it("does not throw from the request hook where AsyncLocalStorage cannot enterWith", async () => {
+    const storageKey = Symbol.for(
+      "@agent-native/core/db.request-telemetry-storage",
+    );
+    const globalRef = globalThis as Record<symbol, unknown>;
+    const originalStorage = globalRef[storageKey];
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    globalRef[storageKey] = {
+      getStore: () => undefined,
+      run: (_store: unknown, fn: () => unknown) => fn(),
+      enterWith: () => {
+        throw new Error("asyncLocalStorage.enterWith() is not implemented");
+      },
+    };
+    try {
+      const { requestHooks, responseHooks } = createHooks();
+      processState.requestSequence = 0;
+
+      for (const path of ["/_agent-native/jobs/_process-sweep", "/"]) {
+        const event = eventFor(path);
+        expect(() => requestHooks[0](event)).not.toThrow();
+        await responseHooks[0](new Response("{}"), event);
+      }
+
+      expect(loggedLines()[0]).toMatchObject({
+        cold_start: true,
+        db_measured: false,
+      });
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      globalRef[storageKey] = originalStorage;
+      warnSpy.mockRestore();
+    }
   });
 
   it("does not put live phase timings on a shared-cacheable response", async () => {

@@ -136,6 +136,7 @@ const CHECK_NAMES = [
   "build",
   "trusted_acceptance",
   "scaffold",
+  "builder_code_starter_scaffold",
   "ssr_boot",
   "guards",
   "qa_static",
@@ -198,6 +199,7 @@ export type CheckSelection = Record<CheckName, boolean>;
 
 export type ChangeScope = {
   changedPaths: string[];
+  designCanvasE2eSpecs: string[];
   docsOnly: boolean;
   full: boolean;
   nonDocsPaths: string[];
@@ -457,6 +459,13 @@ function hasPath(paths: readonly string[], prefix: string): boolean {
   return paths.some((path) => path.startsWith(prefix));
 }
 
+function isDesignCanvasE2eSpecPath(path: string): boolean {
+  return (
+    path.startsWith("templates/design/e2e/") &&
+    /\.(?:spec|test)\.[cm]?[jt]sx?$/u.test(path)
+  );
+}
+
 function isDesignDndRuntimePath(path: string): boolean {
   if (
     DESIGN_CANVAS_E2E_FILES.has(path) ||
@@ -480,13 +489,6 @@ function isDesignDndRuntimePath(path: string): boolean {
     /\.(?:[cm]?[jt]sx?)$/u.test(path);
 
   return designAppSource || designSharedRuntimeSource;
-}
-
-function isDesignCanvasE2eSpecPath(path: string): boolean {
-  return (
-    path.startsWith("templates/design/e2e/") &&
-    /\.(?:spec|test)\.[cm]?[jt]sx?$/u.test(path)
-  );
 }
 
 function isContentConvergenceRuntimePath(path: string): boolean {
@@ -666,6 +668,8 @@ function buildChecks(
       chatChanged ||
       calendarChanged ||
       hasPath(changedPaths, "templates/dispatch/"),
+    // The bundled Builder Code starter is a layer in core over templates/chat.
+    builder_code_starter_scaffold: coreChanged || chatChanged,
     ssr_boot:
       ssrBootSharedPackageChanged(changedPaths) ||
       contentChanged ||
@@ -720,6 +724,7 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
 
   return {
     changedPaths,
+    designCanvasE2eSpecs: changedPaths.filter(isDesignCanvasE2eSpecPath).sort(),
     docsOnly,
     full,
     nonDocsPaths,
@@ -749,6 +754,7 @@ function writeOutputs(scope: ChangeScope): void {
       `docs_only=${scope.docsOnly ? "true" : "false"}`,
       `full=${scope.full ? "true" : "false"}`,
       `changed_count=${scope.changedPaths.length}`,
+      `design_canvas_e2e_specs=${JSON.stringify(scope.designCanvasE2eSpecs)}`,
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
       `script_tests=${JSON.stringify(scope.scriptTests)}`,
       `query_budget_matrix=${JSON.stringify({ include: scope.queryBudgetShards })}`,

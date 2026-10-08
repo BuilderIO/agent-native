@@ -46,6 +46,7 @@ export const ALLOWED_TAGS: ReadonlySet<string> = new Set([
   "section",
   "small",
   "span",
+  "source",
   "strong",
   "style",
   "sub",
@@ -59,6 +60,7 @@ export const ALLOWED_TAGS: ReadonlySet<string> = new Set([
   "tr",
   "u",
   "ul",
+  "video",
 ]);
 
 export const DROP_WITH_CHILDREN: ReadonlySet<string> = new Set([
@@ -83,20 +85,28 @@ const ALLOWED_ATTRS = new Set([
   "alt",
   "aria-label",
   "aria-hidden",
+  "autoplay",
   "border",
   "cellpadding",
   "cellspacing",
   "class",
   "colspan",
+  "controls",
   "height",
   "href",
   "id",
+  "loop",
   "role",
   "rowspan",
   "src",
   "style",
   "target",
   "title",
+  "muted",
+  "playsinline",
+  "preload",
+  "poster",
+  "type",
   "valign",
   "width",
 ]);
@@ -107,6 +117,14 @@ const TAG_ATTRS: Readonly<Record<string, ReadonlySet<string>>> = {
 };
 
 const URL_ATTRS = new Set(["href", "src", "poster", "xlink:href"]);
+const BOOLEAN_VIDEO_ATTRS = new Set([
+  "autoplay",
+  "controls",
+  "loop",
+  "muted",
+  "playsinline",
+]);
+const VIDEO_OPENING_TAG_REGEX = /<video\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi;
 
 function escapeHtml(value: string): string {
   return value
@@ -139,7 +157,7 @@ function decodeHtmlEntities(value: string): string {
 
 export function sanitizeSlideUrl(
   rawUrl: string | undefined,
-  kind: "link" | "image" = "link",
+  kind: "link" | "image" | "media" = "link",
   options?: { allowBlob?: boolean },
 ): string | null {
   const value = String(rawUrl ?? "").trim();
@@ -159,16 +177,17 @@ export function sanitizeSlideUrl(
   }
 
   if (lower.startsWith("data:")) {
+    if (kind !== "image") return null;
     const dataUrl = parseBase64DataUrl(decoded);
-    return kind === "image" &&
-      dataUrl &&
-      SAFE_INLINE_IMAGE_DATA_URL_TYPES.has(dataUrl.mediaType)
+    return dataUrl && SAFE_INLINE_IMAGE_DATA_URL_TYPES.has(dataUrl.mediaType)
       ? value
       : null;
   }
 
   if (lower.startsWith("blob:")) {
-    return kind === "image" && options?.allowBlob ? value : null;
+    return (kind === "image" || kind === "media") && options?.allowBlob
+      ? value
+      : null;
   }
 
   if (value.startsWith("/") || value.startsWith("#")) return value;
@@ -176,7 +195,7 @@ export function sanitizeSlideUrl(
 
   try {
     const url = new URL(decoded);
-    if (kind === "image") {
+    if (kind === "image" || kind === "media") {
       return url.protocol === "http:" || url.protocol === "https:"
         ? value
         : null;
@@ -264,6 +283,8 @@ function cleanNode(
   doc: Document,
   scopeSelector?: string,
   allowBlobImages = false,
+  allowBlobVideos = false,
+  disableVideoAutoplay = false,
 ): Node | null {
   if (node.nodeType === Node.TEXT_NODE) {
     return doc.createTextNode(node.textContent ?? "");
@@ -286,7 +307,14 @@ function cleanNode(
   if (!ALLOWED_TAGS.has(tag)) {
     const fragment = doc.createDocumentFragment();
     for (const child of Array.from(el.childNodes)) {
-      const cleaned = cleanNode(child, doc, undefined, allowBlobImages);
+      const cleaned = cleanNode(
+        child,
+        doc,
+        undefined,
+        allowBlobImages,
+        allowBlobVideos,
+        disableVideoAutoplay,
+      );
       if (cleaned) fragment.appendChild(cleaned);
     }
     return fragment;
@@ -307,11 +335,15 @@ function cleanNode(
       continue;
     }
     if (URL_ATTRS.has(name)) {
-      const safeUrl = sanitizeSlideUrl(
-        value,
-        tag === "img" ? "image" : "link",
-        { allowBlob: allowBlobImages },
-      );
+      const kind =
+        name === "poster" || tag === "img"
+          ? "image"
+          : tag === "video" || tag === "source"
+            ? "media"
+            : "link";
+      const safeUrl = sanitizeSlideUrl(value, kind, {
+        allowBlob: kind === "image" ? allowBlobImages : allowBlobVideos,
+      });
       if (!safeUrl) continue;
       out.setAttribute(name, safeUrl);
       continue;
@@ -321,8 +353,48 @@ function cleanNode(
       if (safeStyle) out.setAttribute("style", safeStyle);
       continue;
     }
+    if (tag === "video" && BOOLEAN_VIDEO_ATTRS.has(name)) {
+      if (value.toLowerCase() === "false") {
+        continue;
+      }
+      if (name === "autoplay" && disableVideoAutoplay) {
+        out.setAttribute("data-video-autoplay", "true");
+        continue;
+      }
+      out.setAttribute(name, "");
+      continue;
+    }
+    if (name === "preload" && !["none", "metadata", "auto"].includes(value)) {
+      continue;
+    }
+    if (
+      tag === "source" &&
+      name === "type" &&
+      !["video/mp4", "video/webm"].includes(
+        value.toLowerCase().split(";")[0]?.trim() ?? "",
+      )
+    ) {
+      continue;
+    }
     if (name === "target" && value !== "_blank") continue;
     out.setAttribute(name, value);
+  }
+
+  if (tag === "video") {
+    const autoplayConfigured =
+      out.hasAttribute("autoplay") ||
+      out.getAttribute("data-video-autoplay") === "true";
+    if (
+      autoplayConfigured &&
+      !disableVideoAutoplay &&
+      out.hasAttribute("data-video-autoplay")
+    ) {
+      out.setAttribute("autoplay", "");
+    }
+    if (autoplayConfigured) {
+      out.setAttribute("muted", "");
+      out.setAttribute("playsinline", "");
+    }
   }
 
   if (tag === "a") {
@@ -331,7 +403,14 @@ function cleanNode(
   }
 
   for (const child of Array.from(el.childNodes)) {
-    const cleaned = cleanNode(child, doc, scopeSelector, allowBlobImages);
+    const cleaned = cleanNode(
+      child,
+      doc,
+      scopeSelector,
+      allowBlobImages,
+      allowBlobVideos,
+      disableVideoAutoplay,
+    );
     if (cleaned) out.appendChild(cleaned);
   }
 
@@ -431,74 +510,162 @@ function sanitizeHtmlString(
   html: string,
   scopeSelector?: string,
   allowBlobImages = false,
+  allowBlobVideos = false,
+  disableVideoAutoplay = false,
 ): string {
-  return (
-    normalizeTagAttributeSeparators(html)
-      .replace(/<style\b[^>]*>([\s\S]*?)<\/\s*style\s*>/gi, (_match, css) => {
-        const safeCss = sanitizeStyleSheet(String(css), scopeSelector);
-        return safeCss
-          ? `<style>${safeCss.replace(/<\/style/gi, "<\\/style")}</style>`
-          : "";
-      })
-      .replace(
-        /<(script|iframe|object|embed|form|input|button|select|textarea|meta|base|link|svg|math)\b[\s\S]*?<\/\s*\1\s*>/gi,
-        "",
-      )
-      // Anything left here is a blocked element that never closed. The opening-tag
-      // pass below would strip only its tag and leave the body behind as slide
-      // text — which is how a script's JavaScript renders as visible copy on the
-      // SSR'd share/present pages, where DOMParser is undefined and this regex
-      // twin runs instead of cleanNode(). An unclosed raw-text or embedding
-      // element swallows the rest of the document in a real parser, so dropping
-      // the remainder is what keeps this path agreeing with the DOM path.
-      .replace(/[\s\S]*/, dropFromFirstUnclosedRawText)
-      .replace(
-        /<(script|iframe|object|embed|form|input|button|select|textarea|meta|base|link|svg|math)\b[^>]*\/?>/gi,
-        "",
-      )
-      .replace(/\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-      .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-      .replace(/\s+srcset\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-      .replace(
-        /\s+(href|src|xlink:href)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
-        (match, attr, _raw, dq, sq, bare) => {
-          const value = dq ?? sq ?? bare ?? "";
-          const safe = sanitizeSlideUrl(
-            value,
-            String(attr).toLowerCase() === "src" ? "image" : "link",
-            { allowBlob: allowBlobImages },
+  const normalized = normalizeTagAttributeSeparators(html);
+  const sanitized = normalized
+    .replace(/<style\b[^>]*>([\s\S]*?)<\/\s*style\s*>/gi, (_match, css) => {
+      const safeCss = sanitizeStyleSheet(String(css), scopeSelector);
+      return safeCss
+        ? `<style>${safeCss.replace(/<\/style/gi, "<\\/style")}</style>`
+        : "";
+    })
+    .replace(
+      /<(script|iframe|object|embed|form|input|button|select|textarea|meta|base|link|svg|math)\b[\s\S]*?<\/\s*\1\s*>/gi,
+      "",
+    )
+    // Anything left here is a blocked element that never closed. The opening-tag
+    // pass below would strip only its tag and leave the body behind as slide
+    // text — which is how a script's JavaScript renders as visible copy on the
+    // SSR'd share/present pages, where DOMParser is undefined and this regex
+    // twin runs instead of cleanNode(). An unclosed raw-text or embedding
+    // element swallows the rest of the document in a real parser, so dropping
+    // the remainder is what keeps this path agreeing with the DOM path.
+    .replace(/[\s\S]*/, dropFromFirstUnclosedRawText)
+    .replace(
+      /<(script|iframe|object|embed|form|input|button|select|textarea|meta|base|link|svg|math)\b[^>]*\/?>/gi,
+      "",
+    )
+    .replace(/\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s+srcset\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(
+      /\s+(href|src|poster|xlink:href)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+      (match, attr, _raw, dq, sq, bare, offset: number, source: string) => {
+        const value = dq ?? sq ?? bare ?? "";
+        const tagName = /<([a-z][\w-]*)\b[^<>]*$/i
+          .exec(source.slice(0, offset))?.[1]
+          ?.toLowerCase();
+        const kind =
+          String(attr).toLowerCase() === "poster" || tagName === "img"
+            ? "image"
+            : tagName === "video" || tagName === "source"
+              ? "media"
+              : "link";
+        const safe = sanitizeSlideUrl(value, kind, {
+          allowBlob: kind === "image" ? allowBlobImages : allowBlobVideos,
+        });
+        return safe ? ` ${attr}="${escapeHtml(safe)}"` : "";
+      },
+    )
+    .replace(
+      /\s+style\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+      (_match, _raw, dq, sq, bare) => {
+        const safe = sanitizeStyle(dq ?? sq ?? bare ?? "");
+        return safe ? ` style="${escapeHtml(safe)}"` : "";
+      },
+    );
+  const withoutFalseBooleanMediaAttrs = sanitized.replace(
+    VIDEO_OPENING_TAG_REGEX,
+    (tag) =>
+      tag.replace(
+        /"[^"]*"|'[^']*'|\s+(autoplay|controls|loop|muted|playsinline)\s*=\s*(?:"false"|'false'|false)(?=\s|\/?>)/gi,
+        (match, attribute: string | undefined) => (attribute ? "" : match),
+      ),
+  );
+  return withoutFalseBooleanMediaAttrs.replace(
+    VIDEO_OPENING_TAG_REGEX,
+    (tag) => {
+      const hasAutoplay = /\sautoplay(?:\s|=|\/?>)/i.test(tag);
+      const hasAutoplayMarker =
+        /\sdata-video-autoplay\s*=\s*(?:"true"|'true'|true)(?=\s|\/?>)/i.test(
+          tag,
+        );
+      const autoplayConfigured = hasAutoplay || hasAutoplayMarker;
+      let normalizedTag = tag;
+
+      if (disableVideoAutoplay && hasAutoplay) {
+        normalizedTag = normalizedTag.replace(
+          /\sautoplay(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi,
+          "",
+        );
+        normalizedTag = normalizedTag.replace(
+          /\s*\/?\s*>$/,
+          (end) => ` data-video-autoplay="true"${end}`,
+        );
+      } else if (!disableVideoAutoplay && hasAutoplayMarker && !hasAutoplay) {
+        normalizedTag = normalizedTag.replace(
+          /\s*\/?\s*>$/,
+          (end) => ` autoplay${end}`,
+        );
+      }
+
+      if (autoplayConfigured) {
+        for (const attribute of ["muted", "playsinline"]) {
+          if (
+            new RegExp(`\\s${attribute}(?:\\s|=|\\/>|>)`, "i").test(
+              normalizedTag,
+            )
+          ) {
+            continue;
+          }
+          normalizedTag = normalizedTag.replace(
+            /\s*\/?\s*>$/,
+            (end) => ` ${attribute}${end}`,
           );
-          return safe ? ` ${attr}="${escapeHtml(safe)}"` : "";
-        },
-      )
-      .replace(
-        /\s+style\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
-        (_match, _raw, dq, sq, bare) => {
-          const safe = sanitizeStyle(dq ?? sq ?? bare ?? "");
-          return safe ? ` style="${escapeHtml(safe)}"` : "";
-        },
-      )
+        }
+      }
+      return normalizedTag;
+    },
   );
 }
 
 export function sanitizeSlideHtml(
   html: string,
-  options?: { scopeSelector?: string; allowBlobImages?: boolean },
+  options?: {
+    scopeSelector?: string;
+    allowBlobImages?: boolean;
+    allowBlobVideos?: boolean;
+    disableVideoAutoplay?: boolean;
+  },
 ): string {
   const scopeSelector = options?.scopeSelector;
   const allowBlobImages = options?.allowBlobImages ?? false;
+  const allowBlobVideos = options?.allowBlobVideos ?? false;
+  const disableVideoAutoplay = options?.disableVideoAutoplay ?? false;
   if (typeof DOMParser === "undefined") {
-    return sanitizeHtmlString(html, scopeSelector, allowBlobImages);
+    return sanitizeHtmlString(
+      html,
+      scopeSelector,
+      allowBlobImages,
+      allowBlobVideos,
+      disableVideoAutoplay,
+    );
   }
 
   const doc = new DOMParser().parseFromString(html, "text/html");
   const fragment = doc.createDocumentFragment();
   for (const style of Array.from(doc.head.querySelectorAll("style"))) {
-    const cleaned = cleanNode(style, doc, scopeSelector, allowBlobImages);
+    const cleaned = cleanNode(
+      style,
+      doc,
+      scopeSelector,
+      allowBlobImages,
+      allowBlobVideos,
+      disableVideoAutoplay,
+    );
     if (cleaned) fragment.appendChild(cleaned);
   }
   for (const child of Array.from(doc.body.childNodes)) {
-    const cleaned = cleanNode(child, doc, scopeSelector, allowBlobImages);
+    const cleaned = cleanNode(
+      child,
+      doc,
+      scopeSelector,
+      allowBlobImages,
+      allowBlobVideos,
+      disableVideoAutoplay,
+    );
     if (cleaned) fragment.appendChild(cleaned);
   }
 

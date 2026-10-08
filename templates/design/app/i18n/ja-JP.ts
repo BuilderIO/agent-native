@@ -1003,6 +1003,10 @@ export default {
       interact: "Interact",
       screens: "画面",
     },
+    topBar: {
+      modeDesign: "デザイン",
+      modeSwitch: "エディターモード",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",
@@ -1023,6 +1027,10 @@ export default {
     keyboardShortcuts: {
       title: "キーボードショートカット",
       close: "近い: キーボードショートカット",
+      search: "検索",
+      searchLabel: "キーボードショートカットを検索",
+      categoriesLabel: "ショートカットのカテゴリ",
+      empty: "「{{query}}」に一致するショートカットはありません",
       codeContext: "コード",
       screenContext: "画面",
       nudgeAmount: {
@@ -1055,11 +1063,6 @@ export default {
         leftBracket: "左角括弧",
         rightBracket: "右角括弧",
       },
-      descriptions: {
-        toggleUi: "今すぐ押してパネルを隠し、作業に集中できます",
-        undo: "直前のデザイン変更を元に戻します",
-        redo: "元に戻したデザイン変更を復元します",
-      },
       categories: {
         essential: "基本",
         tools: "ツール",
@@ -1091,6 +1094,7 @@ export default {
         showLayers: "レイヤー",
         showAssets: "アセット",
         toggleUi: "View",
+        toggleMinimalUi: "ミニマルUI",
         toggleComments: "コメントをピン留め",
         zoomIn: "拡大",
         zoomOut: "縮小",

@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/server", () => ({
   getAppProductionUrl: () => "https://calendar.example.com",
+  getForwardedRequestOrigin: () => "https://calendar.example.com",
   getSession: mocks.getSession,
   getRequestContext: mocks.getRequestContext,
   recordChange: vi.fn(),

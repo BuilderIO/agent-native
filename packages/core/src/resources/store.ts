@@ -471,6 +471,41 @@ Keep one memory per logical topic. Descriptions should be concise — the index 
 const DEFAULT_SKILL_LEARN_SHARED_MD = `---
 name: learn-shared
 description: >-
+  Review and update shared LEARNINGS.md with explicitly approved organization-wide
+  preferences, corrections, and patterns from this session.
+user-invocable: true
+---
+
+# Learn (Shared)
+
+Review the current conversation for findings that are useful across the organization. Keep setup-specific findings in personal memory or the current analysis. Before writing a finding to shared \`LEARNINGS.md\` or organization memory, confirm that the user intends it to be shared unless they directly requested that shared write. A generic request to remember something does not authorize sharing it.
+
+## What to capture
+
+- **Team conventions** — agreed-upon approaches, code style decisions
+- **Technical learnings** — API quirks, library gotchas, surprising behavior
+- **Architectural decisions** — why something is done a certain way
+- **Corrections** — mistakes that any team member's agent should avoid
+
+## What NOT to capture
+
+- Personal preferences (use \`/learn\` for those)
+- Things obvious from reading the code
+- Standard language/framework behavior
+
+## Steps
+
+1. Read shared learnings with the \`resources\` tool: \`action: "read"\`, \`path: "LEARNINGS.md"\`, \`scope: "shared"\`
+2. Review the conversation for team-relevant insights
+3. Merge approved shared learnings with existing ones — don't duplicate, refine existing entries
+4. Write back with the \`resources\` tool only after the user has approved the shared write: \`action: "write"\`, \`path: "LEARNINGS.md"\`, \`scope: "shared"\`, \`content: "..."\`
+
+Keep entries concise — one line per learning, grouped by category (Conventions, Technical, Patterns).
+`;
+
+const PREVIOUS_DEFAULT_SKILL_LEARN_SHARED_MD = `---
+name: learn-shared
+description: >-
   Update the shared LEARNINGS.md with team-wide preferences, corrections, and
   patterns from this session.
 user-invocable: true
@@ -613,6 +648,32 @@ async function migrateDefaultResourcePath({
   } catch {
     // Best-effort compatibility migration; seeding below still works if it fails.
   }
+}
+
+async function migrateDefaultResourceContent({
+  client,
+  owner,
+  resourcePath,
+  previousContent,
+  content,
+}: {
+  client: DbExec;
+  owner: string;
+  resourcePath: string;
+  previousContent: string;
+  content: string;
+}): Promise<void> {
+  await client.execute({
+    sql: `UPDATE resources SET content = ?, size = ?, updated_at = ? WHERE owner = ? AND path = ? AND content = ?`,
+    args: [
+      content,
+      Buffer.byteLength(content, "utf8"),
+      Date.now(),
+      owner,
+      resourcePath,
+      previousContent,
+    ],
+  });
 }
 
 function normalizeCreatedBy(value: unknown): ResourceCreatedBy {
@@ -1137,6 +1198,44 @@ async function _doEnsureTable(): Promise<void> {
     );
   });
 
+  // Migrate both shipped paths without touching edited copies. The legacy
+  // path wins duplicate-name resolution in existing workspaces.
+  // This marker stays separate from the shared seed version so it cannot
+  // resurrect deleted defaults or rerun personal seeding.
+  try {
+    if (!(await alreadySeeded(SHARED_LEARN_SHARED_APPROVAL_MIGRATION_KEY))) {
+      let migrationComplete = true;
+      for (const resourcePath of [
+        "skills/learn-shared/SKILL.md",
+        "skills/learn-shared.md",
+      ]) {
+        try {
+          await migrateDefaultResourceContent({
+            client,
+            owner: SHARED_OWNER,
+            resourcePath,
+            previousContent: PREVIOUS_DEFAULT_SKILL_LEARN_SHARED_MD,
+            content: DEFAULT_SKILL_LEARN_SHARED_MD,
+          });
+        } catch (err) {
+          migrationComplete = false;
+          console.warn(
+            `[resources] could not migrate the shared learn-shared default at ${resourcePath}; it will retry on the next table ensure:`,
+            (err as Error)?.message ?? err,
+          );
+        }
+      }
+      if (migrationComplete) {
+        await markSeeded(SHARED_LEARN_SHARED_APPROVAL_MIGRATION_KEY);
+      }
+    }
+  } catch (err) {
+    console.warn(
+      "[resources] could not check or mark the shared learn-shared migration; it will retry on the next table ensure:",
+      (err as Error)?.message ?? err,
+    );
+  }
+
   // Seed default shared resources if they don't exist (INSERT OR IGNORE to avoid
   // race conditions).
   //
@@ -1274,6 +1373,8 @@ async function _doEnsureTable(): Promise<void> {
 }
 
 const RESOURCE_SEED_VERSION = 1;
+const SHARED_LEARN_SHARED_APPROVAL_MIGRATION_KEY =
+  "resources-migrated:shared:learn-shared-approval:v1";
 
 const _personalSeeded = new Set<string>();
 

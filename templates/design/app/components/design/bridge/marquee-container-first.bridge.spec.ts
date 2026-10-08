@@ -27,6 +27,22 @@ const FIXTURE = `<!doctype html><html><body style="margin:0">
        style="position:absolute;left:40px;top:300px;width:120px;height:80px;background:#a855f7"></div>
 </body></html>`;
 
+const WRAPPED_CONTAINER_FIXTURE = `<!doctype html><html><body style="margin:0">
+  <div data-agent-native-node-id="wrapper" data-agent-native-layer-name="Wrapper"
+       style="position:absolute;left:40px;top:40px;width:420px;height:280px;background:#1f2937">
+    <div data-agent-native-node-id="card" data-agent-native-layer-name="Card"
+         style="position:absolute;left:40px;top:40px;width:280px;height:200px;background:#111827">
+      <div data-agent-native-node-id="kid-a" data-agent-native-layer-name="Kid A"
+           style="position:absolute;left:16px;top:16px;width:110px;height:80px;background:#3b82f6"></div>
+    </div>
+  </div>
+  <div data-agent-native-node-id="outside-container" data-agent-native-layer-name="Outside"
+       style="position:absolute;left:500px;top:80px;width:180px;height:200px;background:#0f766e">
+    <div data-agent-native-node-id="outside-kid" data-agent-native-layer-name="Outside Kid"
+         style="position:absolute;left:16px;top:16px;width:100px;height:80px;background:#f97316"></div>
+  </div>
+</body></html>`;
+
 async function marqueeSelectedIds(
   page: import("@playwright/test").Page,
   from: { x: number; y: number },
@@ -83,6 +99,28 @@ describe("marquee selects at the current container level", () => {
         "a marquee over Card must select Card, not reach into Kid A",
       ).toEqual(["card"]);
       expect(errors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("keeps a background-origin marquee scoped when it crosses the container boundary", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(WRAPPED_CONTAINER_FIXTURE);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+
+      const selected = await marqueeSelectedIds(
+        page,
+        { x: 50, y: 50 },
+        { x: 520, y: 260 },
+      );
+
+      expect(
+        selected,
+        "a background-origin marquee should select only direct children within its gesture scope",
+      ).toEqual(["card"]);
     } finally {
       await browser.close();
     }

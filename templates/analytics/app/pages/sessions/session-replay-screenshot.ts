@@ -5,6 +5,213 @@ export class ReplayScreenshotAssetError extends Error {
   }
 }
 
+export class ReplayCompositorCaptureError extends Error {
+  constructor(
+    readonly kind:
+      | "unavailable"
+      | "wrongSurface"
+      | "tooLarge"
+      | "canceled" = "unavailable",
+  ) {
+    super(kind);
+    this.name = "ReplayCompositorCaptureError";
+  }
+}
+
+export type ReplayCompositorCapture = {
+  video: HTMLVideoElement;
+  capture(
+    iframe: HTMLIFrameElement,
+    width: number,
+    height: number,
+  ): Promise<Blob>;
+  stop(): void;
+};
+
+type CaptureHandleTrack = MediaStreamTrack & {
+  getCaptureHandle?: () => { handle?: string } | null;
+};
+
+type CaptureHandleMediaDevices = MediaDevices & {
+  setCaptureHandleConfig?: (config: {
+    handle: string;
+    permittedOrigins: string[];
+  }) => void;
+};
+
+export async function startReplayCompositorCapture(): Promise<ReplayCompositorCapture> {
+  const mediaDevices = navigator.mediaDevices as CaptureHandleMediaDevices;
+  if (
+    !mediaDevices?.getDisplayMedia ||
+    !mediaDevices.setCaptureHandleConfig ||
+    !window.isSecureContext
+  ) {
+    throw new ReplayCompositorCaptureError();
+  }
+
+  const captureHandle = crypto.randomUUID();
+  mediaDevices.setCaptureHandleConfig({
+    handle: captureHandle,
+    permittedOrigins: [window.location.origin],
+  });
+
+  let stream: MediaStream;
+  try {
+    stream = await mediaDevices.getDisplayMedia({
+      audio: false,
+      preferCurrentTab: true,
+      selfBrowserSurface: "include",
+      surfaceSwitching: "exclude",
+      systemAudio: "exclude",
+      monitorTypeSurfaces: "exclude",
+    } as DisplayMediaStreamOptions);
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "NotAllowedError") {
+      throw new ReplayCompositorCaptureError("canceled");
+    }
+    throw error;
+  }
+  const track = stream.getVideoTracks()[0] as CaptureHandleTrack | undefined;
+  const settings = track?.getSettings() as
+    | (MediaTrackSettings & { displaySurface?: string })
+    | undefined;
+  if (
+    !track ||
+    settings?.displaySurface !== "browser" ||
+    track.getCaptureHandle?.()?.handle !== captureHandle
+  ) {
+    stream.getTracks().forEach((current) => current.stop());
+    throw new ReplayCompositorCaptureError("wrongSurface");
+  }
+
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.srcObject = stream;
+  video.setAttribute("aria-hidden", "true");
+  video.style.cssText =
+    "position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1";
+  document.body.append(video);
+  try {
+    await video.play();
+    await waitForVideoDimensions(video);
+  } catch {
+    stream.getTracks().forEach((current) => current.stop());
+    video.srcObject = null;
+    video.remove();
+    throw new ReplayCompositorCaptureError();
+  }
+
+  let stopped = false;
+  return {
+    video,
+    async capture(iframe, width, height) {
+      if (
+        stopped ||
+        track.readyState !== "live" ||
+        !Number.isSafeInteger(width) ||
+        !Number.isSafeInteger(height) ||
+        width <= 0 ||
+        height <= 0 ||
+        width > MAX_SCREENSHOT_DIMENSION ||
+        height > MAX_SCREENSHOT_DIMENSION ||
+        width * height > MAX_SCREENSHOT_PIXELS
+      ) {
+        throw new ReplayCompositorCaptureError();
+      }
+
+      await nextCapturedVideoFrame(video);
+      const bounds = iframe.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      if (
+        viewportWidth <= 0 ||
+        viewportHeight <= 0 ||
+        bounds.width <= 0 ||
+        bounds.height <= 0 ||
+        bounds.left < 0 ||
+        bounds.top < 0 ||
+        bounds.right > viewportWidth ||
+        bounds.bottom > viewportHeight
+      ) {
+        throw new ReplayCompositorCaptureError();
+      }
+
+      const pixelScaleX = video.videoWidth / viewportWidth;
+      const pixelScaleY = video.videoHeight / viewportHeight;
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d", { alpha: false });
+      if (!context) throw new ReplayCompositorCaptureError();
+      context.drawImage(
+        video,
+        bounds.left * pixelScaleX,
+        bounds.top * pixelScaleY,
+        bounds.width * pixelScaleX,
+        bounds.height * pixelScaleY,
+        0,
+        0,
+        width,
+        height,
+      );
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((value) => {
+          if (value) resolve(value);
+          else reject(new ReplayCompositorCaptureError());
+        }, "image/png");
+      });
+      if (blob.size === 0 || blob.size > MAX_CLIPBOARD_PNG_BYTES) {
+        throw new ReplayCompositorCaptureError("tooLarge");
+      }
+      return blob;
+    },
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      stream.getTracks().forEach((current) => current.stop());
+      video.pause();
+      video.srcObject = null;
+      video.remove();
+    },
+  };
+}
+
+function waitForVideoDimensions(video: HTMLVideoElement): Promise<void> {
+  if (video.videoWidth > 0 && video.videoHeight > 0) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new ReplayCompositorCaptureError());
+    }, 5_000);
+    const onLoaded = () => {
+      if (video.videoWidth <= 0 || video.videoHeight <= 0) return;
+      cleanup();
+      resolve();
+    };
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      video.removeEventListener("loadedmetadata", onLoaded);
+      video.removeEventListener("resize", onLoaded);
+    };
+    video.addEventListener("loadedmetadata", onLoaded);
+    video.addEventListener("resize", onLoaded);
+    onLoaded();
+  });
+}
+
+function nextCapturedVideoFrame(video: HTMLVideoElement): Promise<void> {
+  const frameVideo = video as HTMLVideoElement & {
+    requestVideoFrameCallback?: (callback: () => void) => number;
+  };
+  if (!frameVideo.requestVideoFrameCallback) {
+    return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  }
+  return new Promise((resolve) => {
+    frameVideo.requestVideoFrameCallback?.(() => resolve());
+  });
+}
+
 const REMOTE_IMAGE_PREFLIGHT_TIMEOUT_MS = 8_000;
 const REMOTE_IMAGE_PREFLIGHT_CONCURRENCY = 2;
 const REPLAY_FONT_TIMEOUT_MS = 8_000;
@@ -15,7 +222,9 @@ const MAX_INLINE_ASSET_BYTES = 32_000_000;
 const MAX_IMAGE_RESPONSE_BYTES = 12_000_000;
 const MAX_SCREENSHOT_DIMENSION = 8_192;
 const MAX_SCREENSHOT_PIXELS = 16_000_000;
+const MAX_CLIPBOARD_PNG_BYTES = 32_000_000;
 const MAX_REPLAY_IFRAME_DEPTH = 8;
+const VIDEO_READY_STATE_HAVE_CURRENT_DATA = 2;
 const REPLAY_SCREENSHOT_MARKER = "data-replay-screenshot-map";
 
 type ReplayImageResource = { document: Document; url: string };
@@ -567,8 +776,12 @@ function imageResourcesInDocuments(
       (element): element is HTMLVideoElement => element.tagName === "VIDEO",
     )) {
       if (!isElementRendered(video, current)) continue;
-      if (
-        video.poster ||
+      if (video.controls) throw new ReplayScreenshotAssetError();
+      if (hasCurrentVideoFrame(video)) {
+        assertVideoFrameReadable(video);
+      } else if (video.poster) {
+        addUrl(video.poster, current.baseURI, current);
+      } else if (
         video.currentSrc ||
         video.hasAttribute("src") ||
         video.srcObject ||
@@ -629,6 +842,68 @@ function imageResourcesInDocuments(
   return [...urlsByDocument].flatMap(([document, urls]) =>
     [...urls].map((url) => ({ document, url })),
   );
+}
+
+function hasCurrentVideoFrame(video: HTMLVideoElement): boolean {
+  return (
+    video.readyState >= VIDEO_READY_STATE_HAVE_CURRENT_DATA &&
+    video.videoWidth > 0 &&
+    video.videoHeight > 0
+  );
+}
+
+function assertVideoFrameReadable(video: HTMLVideoElement): void {
+  const probe = video.ownerDocument.createElement("canvas");
+  probe.width = 1;
+  probe.height = 1;
+  const context = probe.getContext("2d");
+  if (!context) throw new ReplayScreenshotAssetError();
+  try {
+    context.drawImage(video, 0, 0, 1, 1);
+    context.getImageData(0, 0, 1, 1);
+  } catch {
+    throw new ReplayScreenshotAssetError();
+  }
+}
+
+function copyComputedStyles(
+  source: Element,
+  target: HTMLElement,
+  view: Window,
+): void {
+  const styles = view.getComputedStyle(source);
+  for (let index = 0; index < styles.length; index += 1) {
+    const property = styles.item(index);
+    target.style.setProperty(
+      property,
+      styles.getPropertyValue(property),
+      styles.getPropertyPriority(property),
+    );
+  }
+}
+
+function html2CanvasVideoClone(
+  video: HTMLVideoElement,
+  clonesByMarker: Map<string, Element>,
+): Element | undefined {
+  const parent = video.parentElement;
+  const parentMarker = parent?.getAttribute(REPLAY_SCREENSHOT_MARKER);
+  const clonedParent = parentMarker ? clonesByMarker.get(parentMarker) : null;
+  if (!parent || !clonedParent) return undefined;
+
+  const originalChildren = Array.from(parent.children).filter(
+    (element) => element.tagName !== "SCRIPT",
+  );
+  const videoIndex = originalChildren.indexOf(video);
+  if (videoIndex === -1) return undefined;
+
+  const clonedChildren = Array.from(clonedParent.children).filter(
+    (element) =>
+      element.tagName !== "SCRIPT" &&
+      element.localName !== "html2canvaspseudoelement",
+  );
+  const clone = clonedChildren[videoIndex];
+  return clone?.tagName === "CANVAS" ? clone : undefined;
 }
 
 function imageUrlsInDocuments(documents: Document[]): string[] {
@@ -859,6 +1134,17 @@ export function inlineReplayAssets(
     }
   }
 
+  for (const originalElement of originalElements) {
+    if (originalElement.tagName !== "VIDEO") continue;
+    const marker = originalElement.getAttribute(REPLAY_SCREENSHOT_MARKER);
+    if (!marker || clonesByMarker.has(marker)) continue;
+    const clone = html2CanvasVideoClone(
+      originalElement as HTMLVideoElement,
+      clonesByMarker,
+    );
+    if (clone) clonesByMarker.set(marker, clone);
+  }
+
   for (const [documentIndex, original] of originalDocuments.entries()) {
     const rootMarker = original.documentElement.getAttribute(
       REPLAY_SCREENSHOT_MARKER,
@@ -878,9 +1164,13 @@ export function inlineReplayAssets(
       if (originalElement.tagName === "SCRIPT") continue;
       const marker = originalElement.getAttribute(REPLAY_SCREENSHOT_MARKER);
       let clonedElement = marker ? clonesByMarker.get(marker) : undefined;
+      const isHtml2CanvasVideoClone =
+        originalElement.tagName === "VIDEO" &&
+        clonedElement?.tagName === "CANVAS";
       if (
         !clonedElement ||
-        (originalElement.tagName !== clonedElement.tagName &&
+        (!isHtml2CanvasVideoClone &&
+          originalElement.tagName !== clonedElement.tagName &&
           !originalElement.localName.includes("-"))
       ) {
         throw new ReplayScreenshotAssetError();
@@ -894,16 +1184,29 @@ export function inlineReplayAssets(
           const image = cloned.createElement("img");
           image.alt = "";
           image.src = screenshot;
-          const frameStyles = view.getComputedStyle(originalElement);
-          for (let index = 0; index < frameStyles.length; index += 1) {
-            const property = frameStyles.item(index);
-            image.style.setProperty(
-              property,
-              frameStyles.getPropertyValue(property),
-              frameStyles.getPropertyPriority(property),
-            );
-          }
+          copyComputedStyles(originalElement, image, view);
           image.style.setProperty("object-fit", "fill", "important");
+          clonedElement.replaceWith(image);
+          clonedElement = image;
+          if (marker) clonesByMarker.set(marker, image);
+        }
+      }
+      if (originalElement.tagName === "VIDEO") {
+        const video = originalElement as HTMLVideoElement;
+        if (!hasCurrentVideoFrame(video) && video.poster) {
+          const posterUrl = new URL(video.poster, original.baseURI).href;
+          const poster = documentAssets.get(posterUrl);
+          if (!poster) throw new ReplayScreenshotAssetError();
+          const image = cloned.createElement("img");
+          image.alt = "";
+          image.src = poster;
+          const videoStyles = view.getComputedStyle(video);
+          copyComputedStyles(video, image, view);
+          image.style.setProperty(
+            "object-fit",
+            videoStyles.objectFit || "contain",
+            "important",
+          );
           clonedElement.replaceWith(image);
           clonedElement = image;
           if (marker) clonesByMarker.set(marker, image);
@@ -1084,13 +1387,87 @@ function waitForReplayPaint(signal?: AbortSignal): Promise<void> {
   });
 }
 
-export async function downloadReplayScreenshot(
+export class ReplayScreenshotClipboardError extends Error {
+  constructor() {
+    super("Replay screenshot could not be copied to the clipboard");
+    this.name = "ReplayScreenshotClipboardError";
+  }
+}
+
+export function writeReplayScreenshotToClipboard(
+  screenshot: Blob | Promise<Blob>,
+  clipboard: Pick<Clipboard, "write"> | undefined = globalThis.navigator
+    ?.clipboard,
+  onClipboardWriteFailure?: () => void,
+): Promise<void> {
+  const ClipboardItemConstructor = globalThis.ClipboardItem;
+  const boundedPng = Promise.resolve(screenshot).then((blob) => {
+    if (
+      blob.type !== "image/png" ||
+      blob.size === 0 ||
+      blob.size > MAX_CLIPBOARD_PNG_BYTES
+    ) {
+      throw new ReplayScreenshotClipboardError();
+    }
+    return blob;
+  });
+  const pngResult = boundedPng.then(
+    () => ({ kind: "png-ready" as const }),
+    (error: unknown) => ({ error, kind: "png-failed" as const }),
+  );
+
+  let clipboardWrite: Promise<void>;
+  try {
+    if (!clipboard?.write || !ClipboardItemConstructor) {
+      throw new ReplayScreenshotClipboardError();
+    }
+
+    // Start the clipboard write with the click; the promised PNG can render afterward.
+    const item = new ClipboardItemConstructor({ "image/png": boundedPng });
+    clipboardWrite = Promise.resolve(clipboard.write([item]));
+  } catch (error) {
+    clipboardWrite = Promise.reject(error);
+  }
+
+  const writeResult = clipboardWrite.then(
+    () => ({ kind: "write-succeeded" as const }),
+    () => ({ kind: "write-failed" as const }),
+  );
+
+  return Promise.race([pngResult, writeResult]).then(async (firstResult) => {
+    if (firstResult.kind === "write-failed") {
+      const error = new ReplayScreenshotClipboardError();
+      onClipboardWriteFailure?.();
+      throw error;
+    }
+
+    const finalPngResult =
+      firstResult.kind === "png-ready" || firstResult.kind === "png-failed"
+        ? firstResult
+        : await pngResult;
+    if (finalPngResult.kind === "png-failed") {
+      if (finalPngResult.error instanceof ReplayScreenshotAssetError) {
+        throw finalPngResult.error;
+      }
+      throw new ReplayScreenshotClipboardError();
+    }
+
+    const finalWriteResult =
+      firstResult.kind === "write-succeeded" ? firstResult : await writeResult;
+    if (finalWriteResult.kind === "write-failed") {
+      const error = new ReplayScreenshotClipboardError();
+      onClipboardWriteFailure?.();
+      throw error;
+    }
+  });
+}
+
+export async function captureReplayScreenshot(
   stage: HTMLElement,
   stageRoot: HTMLElement,
   iframe: HTMLIFrameElement,
-  filename: string,
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<Blob> {
   const replayWindow = iframe.contentWindow;
   const replayDocument = iframe.contentDocument;
   if (
@@ -1198,13 +1575,7 @@ export async function downloadReplayScreenshot(
     assertScreenshotDimensions(canvas.width, canvas.height);
     const blob = await canvasToBlob(canvas);
     assertCaptureAvailable();
-
-    const downloadUrl = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.download = filename;
-    link.href = downloadUrl;
-    link.click();
-    window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+    return blob;
   } finally {
     if (previousStageFrameMarker === null) {
       iframe.removeAttribute(REPLAY_SCREENSHOT_MARKER);
@@ -1212,6 +1583,34 @@ export async function downloadReplayScreenshot(
       iframe.setAttribute(REPLAY_SCREENSHOT_MARKER, previousStageFrameMarker);
     }
   }
+}
+
+export function downloadReplayScreenshotBlob(
+  blob: Blob,
+  filename: string,
+): void {
+  const downloadUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.download = filename;
+  link.href = downloadUrl;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+}
+
+export async function downloadReplayScreenshot(
+  stage: HTMLElement,
+  stageRoot: HTMLElement,
+  iframe: HTMLIFrameElement,
+  filename: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const screenshot = await captureReplayScreenshot(
+    stage,
+    stageRoot,
+    iframe,
+    signal,
+  );
+  downloadReplayScreenshotBlob(screenshot, filename);
 }
 
 function assertScreenshotDimensions(width: number, height: number): void {

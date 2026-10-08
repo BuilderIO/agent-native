@@ -6,7 +6,13 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
+import { isMcpDirectoryWidgetReadCapabilityScope } from "../shared/embed-auth.js";
 import { FRAMEWORK_INTERNAL_ROUTE_PREFIX } from "../shared/framework-route-prefix.js";
+import { MCP_APP_HOST_FILL_ATTRIBUTE } from "../shared/mcp-app-display.js";
+import {
+  EMBED_TOKEN_STORAGE_KEY,
+  MCP_CHAT_BRIDGE_STORAGE_KEY,
+} from "../shared/mcp-app-widget-embed.js";
 import {
   SIGN_IN_ENTRY_PATH,
   SIGN_IN_LEGACY_ENTRY_PATH,
@@ -17,8 +23,6 @@ let installed = false;
 let memoryToken: string | null = null;
 let mcpChatBridgeActive = false;
 let mcpChatBridgeScope: string | null = null;
-const EMBED_TOKEN_STORAGE_KEY = "agent-native:embed-auth-token";
-const MCP_CHAT_BRIDGE_STORAGE_KEY = "agent-native:mcp-chat-bridge";
 
 const AUTH_FAILURE_COOLDOWN_MS = 60_000;
 const GUARDED_METHODS = new Set(["GET", "HEAD"]);
@@ -179,6 +183,57 @@ export function getEmbedAuthToken(): string | null {
   return memoryToken ?? storedToken(win);
 }
 
+function readEmbedTokenScope(token: string): string | undefined {
+  const payload = token.split(".")[0] ?? "";
+  try {
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const bytes = Uint8Array.from(
+      atob(base64 + "=".repeat((4 - (base64.length % 4)) % 4)),
+      (char) => char.charCodeAt(0),
+    );
+    const claims = JSON.parse(new TextDecoder().decode(bytes)) as {
+      scope?: unknown;
+    };
+    return typeof claims.scope === "string" ? claims.scope : undefined;
+    // coercion-ok: an unreadable token reads as a normal session; the server still enforces the real scope on every request.
+  } catch {
+    return undefined;
+  }
+}
+
+let readOnlyScopeCache: { token: string; readOnly: boolean } | null = null;
+
+/**
+ * True when the embed credential is a directory-widget read capability, which
+ * only the MCP App widget flows mint. It stays readable after a client
+ * navigation drops the URL params, so it identifies a widget document without
+ * the chat-bridge flag. The token's claims are only a UI hint (the signature
+ * is checked server-side), so this decides what not to attempt, never what is
+ * allowed.
+ */
+export function hasMcpDirectoryWidgetCapabilityToken(): boolean {
+  const token = getEmbedAuthToken();
+  if (!token) return false;
+  if (readOnlyScopeCache?.token !== token) {
+    readOnlyScopeCache = {
+      token,
+      readOnly: isMcpDirectoryWidgetReadCapabilityScope(
+        readEmbedTokenScope(token),
+      ),
+    };
+  }
+  return readOnlyScopeCache.readOnly;
+}
+
+/**
+ * True when this document is the app nested in an MCP App widget shell (the
+ * chat bridge is active) on a directory-widget read capability, which the
+ * server limits to the widget's own resource reads.
+ */
+export function isMcpDirectoryWidgetReadOnlyEmbed(): boolean {
+  return hasMcpDirectoryWidgetCapabilityToken() && isEmbedMcpChatBridgeActive();
+}
+
 export function isEmbedAuthActive(): boolean {
   const win = browserWindow();
   if (!win) return false;
@@ -195,18 +250,22 @@ function ensureMcpChatBridgeViewportClamp(win: Window): void {
     const style = doc.createElement("style");
     style.id = MCP_CHAT_BRIDGE_VIEWPORT_STYLE_ID;
     const height = `${MCP_CHAT_BRIDGE_VIEWPORT_HEIGHT}px`;
+    // An inline card sizes itself to this document, so `100vh` must not follow
+    // the frame. A host that owns the frame's height (see
+    // mcpAppHostFillsContainer) sets the fill attribute and the clamp lifts.
+    const inline = `html:not([${MCP_APP_HOST_FILL_ATTRIBUTE}])`;
     style.textContent = `
-html,
-body {
+${inline},
+${inline} body {
   min-height: 0 !important;
   height: ${height} !important;
   max-height: ${height} !important;
   overflow: hidden !important;
 }
 
-#root,
-#__next,
-[data-agent-native-app-root] {
+${inline} #root,
+${inline} #__next,
+${inline} [data-agent-native-app-root] {
   min-height: 0 !important;
   height: ${height} !important;
   max-height: ${height} !important;
@@ -294,6 +353,7 @@ export function _resetEmbedAuthForTests(): void {
   }
   installed = false;
   memoryToken = null;
+  readOnlyScopeCache = null;
   mcpChatBridgeActive = false;
   mcpChatBridgeScope = null;
   authFailureCache.clear();
@@ -380,6 +440,27 @@ function isAgentNativeRuntimePath(pathname: string): boolean {
       pathname.endsWith(prefix) ||
       pathname.includes(`${prefix}/`),
   );
+}
+
+// What a read-only widget session is refused whatever it asks for: the agent
+// state it can never write.
+function isReadOnlyWidgetRefusedPath(pathname: string): boolean {
+  return [FRAMEWORK_INTERNAL_ROUTE_PREFIX, frameworkRoutePrefix()].some(
+    (prefix) =>
+      pathname.endsWith(`${prefix}/application-state`) ||
+      pathname.includes(`${prefix}/application-state/`),
+  );
+}
+
+// The refusal the server's auth guard already sends such a session, answered
+// locally so each caller takes the error path it takes today without the
+// request or its console error.
+function readOnlyWidgetRefusal(): Response {
+  return new Response(JSON.stringify({ error: "Unauthorized" }), {
+    status: 401,
+    statusText: "Unauthorized",
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 function requestMethod(input: RequestInfo | URL, init?: RequestInit): string {
@@ -567,6 +648,12 @@ export function ensureEmbedAuthFetchInterceptor(): void {
     input: RequestInfo | URL,
     init?: RequestInit,
   ) => {
+    if (isMcpDirectoryWidgetReadOnlyEmbed() && sameOrigin(input, win)) {
+      const url = inputUrl(input, win);
+      if (url && isReadOnlyWidgetRefusedPath(url.pathname)) {
+        return readOnlyWidgetRefusal();
+      }
+    }
     const request = requestUrlAndKey(input, init, win);
     if (request?.shouldGuard) {
       const cached = getCachedAuthFailure(request.key);
