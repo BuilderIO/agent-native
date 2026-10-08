@@ -412,6 +412,9 @@ describe("trackOnboardingEvent", () => {
     expect(trackCustomKeyOnboardingOutcome("credential_validated")).toBe(
       "tracked",
     );
+    expect(trackCustomKeyOnboardingOutcome("credential_validated")).toBe(
+      "duplicate",
+    );
     expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe("tracked");
     expect(trackCustomKeyOnboardingOutcome("credential_validated")).toBe(
       "missing",

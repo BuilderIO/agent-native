@@ -2,10 +2,7 @@ import type { AgentEngineKeyScope } from "@agent-native/core/client/agent-engine
 import type { AgentProviderId } from "@agent-native/core/client/agent-provider-catalog";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import {
-  trackCustomKeyOnboardingOutcome,
-  useCustomKeyOnboardingAttemptLifecycle,
-} from "@agent-native/core/client/onboarding/use-onboarding";
+import { trackCustomKeyOnboardingOutcome } from "@agent-native/core/client/onboarding/use-onboarding";
 import { useOrg } from "@agent-native/core/client/org";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
@@ -95,8 +92,6 @@ function useSecretKeyHash(): string | null {
  * pages, read-only. Reads `list-api-keys`; deletes through `delete-api-key`.
  */
 export default function ApiKeysSettingsPage({ context }: SettingsPageProps) {
-  useCustomKeyOnboardingAttemptLifecycle();
-
   const t = useT();
   const org = useOrg();
   const listing = useActionQuery<ApiKeysListing>("list-api-keys" as never);

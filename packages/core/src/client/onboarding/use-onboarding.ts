@@ -25,6 +25,7 @@ import {
 const seenOnboardingEvents = new Set<string>();
 const CUSTOM_KEY_ATTEMPT_STORAGE_KEY =
   "agent-native.onboarding.custom_keys_attempt";
+const locallyTrackedCustomKeyOutcomes = new Set<string>();
 let onboardingCorrelationSequence = 0;
 const ONBOARDING_SUMMARY_TIMEOUT_MS = 15_000;
 const ONBOARDING_SUMMARY_REUSE_MS = 5_000;
@@ -40,6 +41,7 @@ interface CustomKeyOnboardingAttempt {
   id: string;
   sessionId: string;
   entryStarted?: boolean;
+  credentialValidated?: boolean;
 }
 
 type CustomKeyAttemptRead =
@@ -115,7 +117,18 @@ export function trackCustomKeyOnboardingOutcome(
     }
     return "session_mismatch";
   }
-  if (outcome === "credential_entry_started" && attempt.entryStarted) {
+  const attemptOutcomeKey =
+    outcome === "credential_entry_started" || outcome === "credential_validated"
+      ? `${attempt.id}:${outcome}`
+      : null;
+  const alreadyTracked =
+    (outcome === "credential_entry_started" && attempt.entryStarted) ||
+    (outcome === "credential_validated" && attempt.credentialValidated);
+  if (
+    alreadyTracked ||
+    (attemptOutcomeKey !== null &&
+      locallyTrackedCustomKeyOutcomes.has(attemptOutcomeKey))
+  ) {
     return "duplicate";
   }
 
@@ -127,11 +140,17 @@ export function trackCustomKeyOnboardingOutcome(
     outcome,
   });
 
-  if (outcome === "credential_entry_started") {
+  if (attemptOutcomeKey !== null) {
+    locallyTrackedCustomKeyOutcomes.add(attemptOutcomeKey);
     try {
       window.sessionStorage.setItem(
         CUSTOM_KEY_ATTEMPT_STORAGE_KEY,
-        JSON.stringify({ ...attempt, entryStarted: true }),
+        JSON.stringify({
+          ...attempt,
+          [outcome === "credential_entry_started"
+            ? "entryStarted"
+            : "credentialValidated"]: true,
+        }),
       );
     } catch {
       return "tracked_storage_unavailable";

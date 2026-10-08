@@ -46,6 +46,10 @@ vi.mock(
 );
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+import {
+  setCustomKeyOnboardingAttempt,
+  trackCustomKeyOnboardingOutcome,
+} from "@agent-native/core/client/onboarding/use-onboarding";
 
 import { createToolkitI18nCatalog } from "../../i18n.js";
 import { useSettingsPageHeader, useSettingsShell } from "./context.js";
@@ -62,6 +66,30 @@ import {
 import { SettingsShell, type SettingsShellProps } from "./SettingsShell.js";
 
 const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
+let restoreLocalStorage: (() => void) | null = null;
+
+function installTestLocalStorage() {
+  const descriptor = Object.getOwnPropertyDescriptor(window, "localStorage");
+  const values = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      get length() {
+        return values.size;
+      },
+      clear: () => values.clear(),
+      getItem: (key: string) => values.get(key) ?? null,
+      key: (index: number) => [...values.keys()][index] ?? null,
+      removeItem: (key: string) => values.delete(key),
+      setItem: (key: string, value: string) => values.set(key, String(value)),
+    } satisfies Storage,
+  });
+  restoreLocalStorage = () => {
+    if (descriptor) Object.defineProperty(window, "localStorage", descriptor);
+    else Reflect.deleteProperty(window, "localStorage");
+    restoreLocalStorage = null;
+  };
+}
 
 function renderWithToolkitI18n(children: React.ReactNode) {
   return (
@@ -129,6 +157,7 @@ describe("SettingsShell", () => {
     document.body.innerHTML = "";
     _resetSettingsPagesForTests();
     _resetSettingsReturnPathForTests();
+    restoreLocalStorage?.();
     vi.unstubAllGlobals();
   });
 
@@ -254,6 +283,34 @@ describe("SettingsShell", () => {
         .querySelector('[aria-current="page"]')
         ?.getAttribute("data-settings-page"),
     ).toBe("api-keys");
+  });
+
+  it("keeps an onboarding attempt through settings page navigation", async () => {
+    await render();
+    installTestLocalStorage();
+    expect(setCustomKeyOnboardingAttempt("settings-shell-nav")).toBe("stored");
+
+    clickPage("model");
+    await flush();
+    clickPage("api-keys");
+    await flush();
+
+    expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe("tracked");
+  });
+
+  it("records abandonment when the settings shell exits", async () => {
+    installTestLocalStorage();
+    expect(setCustomKeyOnboardingAttempt("settings-shell-exit")).toBe("stored");
+    await render();
+
+    const renderedRoot = root;
+    await act(async () => {
+      renderedRoot.unmount();
+      await Promise.resolve();
+    });
+    root = createRoot(container);
+
+    expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe("missing");
   });
 
   it("sends a member who opens an admin page to Profile", async () => {

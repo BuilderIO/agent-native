@@ -11,6 +11,7 @@ import {
 import { useFeatureFlags } from "@agent-native/core/client/feature-flags/use-feature-flag";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLabStates } from "@agent-native/core/client/labs/use-lab";
+import { useCustomKeyOnboardingAttemptLifecycle } from "@agent-native/core/client/onboarding/use-onboarding";
 import { useOrg } from "@agent-native/core/client/org";
 import { STANDARD_APP_ROUTES } from "@agent-native/core/navigation";
 import {
@@ -345,6 +346,8 @@ function SettingsShellContent({
   navigator,
   ...bridgeInput
 }: ShellContentProps) {
+  useCustomKeyOnboardingAttemptLifecycle();
+
   const t = useT();
   const { location, go } = navigator;
 
