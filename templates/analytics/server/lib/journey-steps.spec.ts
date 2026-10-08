@@ -1,0 +1,187 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  buildSessionSteps,
+  deriveJourneyStep,
+  JOURNEY_COHORT_EVENT_NAMES,
+  JOURNEY_STEP_EVENT_NAMES,
+  normalizeJourneyPath,
+  type JourneyEventRow,
+} from "./journey-steps";
+
+let nextId = 0;
+function row(
+  eventName: string,
+  tsMs: number,
+  extra: Partial<JourneyEventRow> = {},
+): JourneyEventRow {
+  return {
+    id: `e${nextId++}`,
+    sessionId: "s1",
+    tsMs,
+    eventName,
+    path: null,
+    stepId: null,
+    methodId: null,
+    outcome: null,
+    action: null,
+    ...extra,
+  };
+}
+
+describe("normalizeJourneyPath", () => {
+  it("replaces record ids and drops query and hash", () => {
+    expect(
+      normalizeJourneyPath("/deck/3f2a9c1e-7b4d-4e11-9a0f-1c2d3e4f5a6b?x=1"),
+    ).toBe("/deck/:id");
+    expect(normalizeJourneyPath("/clips/12345/edit#top")).toBe(
+      "/clips/:id/edit",
+    );
+    expect(normalizeJourneyPath("/design/aB3dE5gH7jK9mN2pQ4")).toBe(
+      "/design/:id",
+    );
+  });
+
+  it("keeps readable segments and the root", () => {
+    expect(normalizeJourneyPath("/home/")).toBe("/home");
+    expect(normalizeJourneyPath("/")).toBe("/");
+    expect(normalizeJourneyPath("/sign-in")).toBe("/sign-in");
+  });
+
+  it("returns null when there is no path", () => {
+    expect(normalizeJourneyPath(null)).toBeNull();
+    expect(normalizeJourneyPath("  ")).toBeNull();
+  });
+});
+
+describe("deriveJourneyStep", () => {
+  it("maps each onboarding event to a stable key and label", () => {
+    const cases: Array<[JourneyEventRow, string, string]> = [
+      [row("pageview", 1, { path: "/home" }), "page:/home", "/home"],
+      [
+        row("onboarding_step_viewed", 1, { stepId: "Role" }),
+        "step:role",
+        "Onboarding step: role",
+      ],
+      [
+        row("onboarding_method_clicked", 1, {
+          methodId: "builder_create_account",
+        }),
+        "method:builder_create_account",
+        "Chose: Create Builder.io account",
+      ],
+      [
+        row("onboarding_method_outcome", 1, {
+          methodId: "custom_keys",
+          outcome: "settings_opened",
+        }),
+        "outcome:custom_keys:settings_opened",
+        "Configure custom keys: settings_opened",
+      ],
+      [row("signup", 1), "signup", "Signed up"],
+      [
+        row("onboarding_completed", 1),
+        "onboarding:completed",
+        "Onboarding completed",
+      ],
+      [row("onboarding_app_entered", 1), "app:entered", "Entered app"],
+      [
+        row("app.first_action", 1, { action: "chat_submit" }),
+        "action:first:chat_submit",
+        "First action: chat_submit",
+      ],
+      [
+        row("generation_completed", 1),
+        "output:generation_completed",
+        "Generation completed",
+      ],
+      [row("recording_ready", 1), "output:recording_ready", "Recording ready"],
+    ];
+    for (const [input, key, label] of cases) {
+      expect(deriveJourneyStep(input)).toEqual({ key, label });
+    }
+  });
+
+  it("gives the dotted and underscored auth events one key", () => {
+    expect(deriveJourneyStep(row("auth.signup_viewed", 1))?.key).toBe(
+      deriveJourneyStep(row("auth_signup_viewed", 1))?.key,
+    );
+    expect(deriveJourneyStep(row("auth.signup_clicked", 1))?.key).toBe(
+      "auth:signup_clicked",
+    );
+  });
+
+  it("marks a missing property as unknown instead of dropping the step", () => {
+    expect(deriveJourneyStep(row("onboarding_step_viewed", 1))?.key).toBe(
+      "step:unknown",
+    );
+    expect(deriveJourneyStep(row("app.first_action", 1))?.key).toBe(
+      "action:first:unknown",
+    );
+  });
+
+  it("returns null for events with no step meaning, and a pageview with no path", () => {
+    expect(deriveJourneyStep(row("button_click", 1))).toBeNull();
+    expect(deriveJourneyStep(row("pageview", 1))).toBeNull();
+  });
+
+  it("covers every event name the SQL selects", () => {
+    for (const name of JOURNEY_STEP_EVENT_NAMES) {
+      const input = row(name, 1, { path: "/x" });
+      expect(deriveJourneyStep(input), name).not.toBeNull();
+    }
+    for (const name of JOURNEY_COHORT_EVENT_NAMES) {
+      if (name === "onboarding_started") continue;
+      expect(JOURNEY_STEP_EVENT_NAMES, name).toContain(name);
+    }
+  });
+});
+
+describe("buildSessionSteps", () => {
+  it("orders by timestamp, then by journey position, then by id", () => {
+    const steps = buildSessionSteps([
+      row("onboarding_step_viewed", 200, { stepId: "role" }),
+      row("signup", 200),
+      row("pageview", 100, { path: "/sign-in" }),
+    ]);
+    expect(steps.map((step) => step.key)).toEqual([
+      "page:/sign-in",
+      "signup",
+      "step:role",
+    ]);
+  });
+
+  it("collapses consecutive repeats into the first and keeps its timestamp", () => {
+    const steps = buildSessionSteps([
+      row("pageview", 100, { path: "/home" }),
+      row("pageview", 150, { path: "/home" }),
+      row("app_entered", 160),
+      row("pageview", 170, { path: "/home" }),
+    ]);
+    expect(steps.map((step) => [step.key, step.tsMs])).toEqual([
+      ["page:/home", 100],
+      ["app:entered", 160],
+      ["page:/home", 170],
+    ]);
+  });
+
+  it("skips events with no step meaning without breaking a repeat", () => {
+    const steps = buildSessionSteps([
+      row("signup", 1),
+      row("button_click", 2),
+      row("signup", 3),
+    ]);
+    expect(steps).toHaveLength(1);
+  });
+
+  it("is independent of input order", () => {
+    const rows = [
+      row("signup", 10),
+      row("onboarding_step_viewed", 20, { stepId: "role" }),
+      row("onboarding_step_viewed", 30, { stepId: "choice" }),
+    ];
+    expect(buildSessionSteps([...rows].reverse())).toEqual(
+      buildSessionSteps(rows),
+    );
+  });
+});

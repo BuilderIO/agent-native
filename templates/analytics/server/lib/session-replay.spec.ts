@@ -59,6 +59,7 @@ import { schema } from "../db/index.js";
 import {
   assertReplayKeyBudget,
   compactSessionRecordingSummary,
+  extractReplayViewport,
   getSessionRecordingPerformance,
   getSessionReplaySummary,
   getSessionReplayTokenizedEvents,
@@ -67,7 +68,9 @@ import {
   listSessionRecordingsPage,
   MAX_REPLAY_CHUNK_READ_BATCH_BYTES,
   MAX_REPLAY_CHUNK_READ_BATCH_SIZE,
+  mergeReplayMetadata,
   parseSessionReplayIngestPayload,
+  readRecordingViewport,
   readSessionReplayChunkBatch,
   readSessionReplayChunkBytes,
   recordSessionReplayChunks,
@@ -2341,5 +2344,213 @@ describe("session replay ingest parsing", () => {
     );
     expect(reservationDelete).toBeDefined();
     expect(conditionText(reservationDelete?.where)).toContain(reservedId);
+  });
+  it("stores the first Meta size and the last known size on a new recording", async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    putPrivateBlobMock.mockResolvedValue(null);
+    const { db, inserts } = createReplayDbMock(replayIngestKeyDbResults(null));
+    getDbMock.mockReturnValue(db);
+    const input = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      userId: "dev@example.com",
+      sequence: 0,
+      metadata: { sdk: "test", viewport: { first: { width: 1, height: 1 } } },
+      events: [
+        {
+          type: 4,
+          timestamp: 1,
+          data: { href: "/", width: 1440, height: 900 },
+        },
+        {
+          type: 3,
+          timestamp: 2,
+          data: { source: 4, width: 1280, height: 720 },
+        },
+      ],
+    });
+    try {
+      await recordSessionReplayChunks(input, {
+        origin: "https://app.example.com",
+        requestBytes: 100,
+      }).catch(() => {});
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+    const recordingInsert = inserts.find(
+      (entry) =>
+        typeof (entry.values as { visibility?: unknown })?.visibility ===
+        "string",
+    );
+    const metadata = JSON.parse(
+      (recordingInsert?.values as { metadata: string }).metadata,
+    );
+    expect(metadata).toEqual({
+      sdk: "test",
+      viewport: {
+        first: { width: 1440, height: 900 },
+        last: { width: 1280, height: 720 },
+      },
+    });
+    expect(readRecordingViewport(JSON.stringify(metadata))).toEqual({
+      status: "known",
+      width: 1440,
+      height: 900,
+    });
+  });
+});
+
+describe("replay viewport", () => {
+  const meta = (width: unknown, height: unknown, timestamp = 1) => ({
+    type: 4,
+    timestamp,
+    data: { href: "/", width, height },
+  });
+  const resize = (width: unknown, height: unknown, timestamp = 2) => ({
+    type: 3,
+    timestamp,
+    data: { source: 4, width, height },
+  });
+
+  it("reads the first Meta as first and the latest Meta or resize as last", () => {
+    expect(
+      extractReplayViewport([
+        { type: 2, timestamp: 0, data: {} },
+        meta(1440, 900),
+        resize(1000, 700),
+        meta(390, 844, 3),
+        resize(400, 800, 4),
+      ]),
+    ).toEqual({
+      first: { width: 1440, height: 900 },
+      last: { width: 400, height: 800 },
+    });
+  });
+
+  it("returns null, not a guess, when no Meta carries a size", () => {
+    expect(extractReplayViewport([])).toBeNull();
+    expect(extractReplayViewport([meta(undefined, 900)])).toBeNull();
+    // A resize alone is a last size with no known start.
+    expect(extractReplayViewport([resize(800, 600)])).toEqual({
+      first: null,
+      last: { width: 800, height: 600 },
+    });
+  });
+
+  it("skips impossible sizes and non-resize incremental events", () => {
+    expect(
+      extractReplayViewport([
+        meta(0, 900),
+        meta(-5, 900),
+        meta(999_999, 900),
+        { type: 3, timestamp: 2, data: { source: 3, width: 10, height: 10 } },
+        meta("1280", "720"),
+      ]),
+    ).toEqual({
+      first: { width: 1280, height: 720 },
+      last: { width: 1280, height: 720 },
+    });
+  });
+
+  it("keeps the stored first size across uploads and takes the newest last size", () => {
+    const first = mergeReplayMetadata(
+      {},
+      { sdk: "x" },
+      {
+        first: { width: 1440, height: 900 },
+        last: { width: 1440, height: 900 },
+      },
+    );
+    const second = mergeReplayMetadata(
+      first,
+      {},
+      {
+        first: { width: 390, height: 844 },
+        last: { width: 400, height: 800 },
+      },
+    );
+    expect(second).toEqual({
+      sdk: "x",
+      viewport: {
+        first: { width: 1440, height: 900 },
+        last: { width: 400, height: 800 },
+      },
+    });
+  });
+
+  it("takes a later resize as the last size, and stores nothing without a first size", () => {
+    const stored = mergeReplayMetadata(
+      {},
+      {},
+      {
+        first: { width: 1440, height: 900 },
+        last: { width: 1440, height: 900 },
+      },
+    );
+    expect(
+      mergeReplayMetadata(
+        stored,
+        {},
+        { first: null, last: { width: 700, height: 500 } },
+      ),
+    ).toEqual({
+      viewport: {
+        first: { width: 1440, height: 900 },
+        last: { width: 700, height: 500 },
+      },
+    });
+    expect(
+      mergeReplayMetadata(
+        {},
+        {},
+        { first: null, last: { width: 700, height: 500 } },
+      ),
+    ).toEqual({});
+  });
+
+  it("leaves a stored viewport alone when an upload carries none", () => {
+    const stored = {
+      viewport: {
+        first: { width: 1, height: 2 },
+        last: { width: 3, height: 4 },
+      },
+    };
+    expect(mergeReplayMetadata(stored, { other: 1 })).toEqual({
+      ...stored,
+      other: 1,
+    });
+    expect(mergeReplayMetadata({}, { other: 1 })).toEqual({ other: 1 });
+  });
+
+  it("drops a client-sent viewport at parse time", () => {
+    const parsed = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      sequence: 0,
+      metadata: { viewport: { first: { width: 5, height: 5 } }, keep: true },
+      events: [{ type: 2, timestamp: 1, data: {} }],
+    });
+    expect(parsed.metadata).toEqual({ keep: true });
+    expect(parsed.viewport).toBeNull();
+  });
+
+  it("tells a recording without a stored size from one it cannot read", () => {
+    expect(readRecordingViewport("{}")).toEqual({ status: "not_captured" });
+    expect(readRecordingViewport(null)).toEqual({ status: "not_captured" });
+    expect(readRecordingViewport("{not json")).toEqual({
+      status: "unreadable",
+    });
+    expect(readRecordingViewport("[]")).toEqual({ status: "unreadable" });
+    expect(readRecordingViewport('{"viewport":"wide"}')).toEqual({
+      status: "unreadable",
+    });
+    expect(
+      readRecordingViewport('{"viewport":{"first":{"width":0,"height":9}}}'),
+    ).toEqual({
+      status: "unreadable",
+    });
   });
 });
