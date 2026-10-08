@@ -121,13 +121,10 @@ import {
   buildAssistantMessage,
   buildUserMessage,
   applySubmittedUserMessage,
+  foldAgentChatRunCompletion,
   extractThreadMeta,
-  foldAssistantTurn,
-  foldThreadRunSuggestions,
   foldUnstartedTurnFailure,
   mergeThreadDataForClientSave,
-  normalizeThreadRepository,
-  type ThreadSuggestionRun,
   type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
 import { appendThreadDebugHistory } from "../agent/thread-debug-history.js";
@@ -646,25 +643,7 @@ export async function runPreAgentTurnAutosave(
   }
 }
 
-export function foldAgentChatRunCompletion(
-  repo: unknown,
-  assistantMsg: Parameters<typeof foldAssistantTurn>[1] | null,
-  run: ThreadSuggestionRun &
-    Pick<
-      ActiveRun,
-      "runId" | "turnId" | "parentId" | "agentKitApprovalContinuation"
-    >,
-) {
-  const folded = assistantMsg
-    ? foldAssistantTurn(repo, assistantMsg, {
-        runId: run.runId,
-        turnId: run.turnId,
-        parentId: run.parentId,
-        agentKitOwnsContinuation: run.agentKitApprovalContinuation === true,
-      })
-    : repo;
-  return foldThreadRunSuggestions(normalizeThreadRepository(folded), run);
-}
+export { foldAgentChatRunCompletion };
 
 /**
  * The model this mount runs with, when the caller does not pass one per request.
