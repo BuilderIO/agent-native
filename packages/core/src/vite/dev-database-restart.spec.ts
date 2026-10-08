@@ -248,9 +248,11 @@ export default { plugins: agentNative() };
     fs.mkdirSync(path.join(testRoot, "node_modules"));
     for (const entry of fs.readdirSync(workspaceModules)) {
       if (entry === ".nitro" || entry === ".vite") continue;
+      const target = fs.realpathSync(path.join(workspaceModules, entry));
       fs.symlinkSync(
-        fs.realpathSync(path.join(workspaceModules, entry)),
+        target,
         path.join(testRoot, "node_modules", entry),
+        fs.statSync(target).isDirectory() ? "junction" : "file",
       );
     }
     fs.writeFileSync(envFile, "VITE_RESTART_TOKEN=before\n");
