@@ -174,4 +174,29 @@ describe("Import planning", () => {
       ]),
     );
   });
+
+  it("pads short table rows from one budget for the whole import", () => {
+    // 200 one-cell rows under a 201-cell row pad 40,000 cells; the import
+    // may pad 100,000 in all.
+    const paddedTable = [
+      "| a |",
+      "| - |",
+      `| ${Array.from({ length: 201 }, (_, index) => `c${index}`).join(" | ")} |`,
+      ...Array.from({ length: 199 }, () => "| x |"),
+    ].join("\n");
+    const { pages, tooLarge } = planMarkdownPages({
+      markdown: ["a.md", "b.md", "c.md"].map((path) => ({
+        path,
+        text: `# ${path}\n\n${paddedTable}`,
+      })),
+      imagePaths: new Set(),
+    });
+
+    const tables = (path: string) =>
+      pages
+        .find((page) => page.path === path)
+        ?.preview.doc.content?.filter((node) => node.type === "table").length;
+    expect(tooLarge).toEqual([]);
+    expect([tables("a.md"), tables("b.md"), tables("c.md")]).toEqual([1, 1, 0]);
+  });
 });

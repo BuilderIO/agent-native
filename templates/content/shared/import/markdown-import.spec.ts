@@ -4,7 +4,7 @@ import { createContentEditorStructuralSchema } from "../content-editor-structura
 import { markdownWithTitle } from "../document-export";
 import { docToNfm, nfmToDoc, type PMDoc, type PMNode } from "../nfm";
 import { finalizeMarkdownImport, ImportContractError } from "./finalize";
-import { parseMarkdownImport } from "./markdown";
+import { newTablePaddingBudget, parseMarkdownImport } from "./markdown";
 import {
   LIST_INDENTS_MD,
   README_MD,
@@ -30,6 +30,7 @@ function importMarkdown(
   const draft = parseMarkdownImport({
     sourcePath: options.sourcePath ?? "notes/page.md",
     text,
+    tablePadding: newTablePaddingBudget(),
   });
   return finalizeMarkdownImport(
     draft,
@@ -494,7 +495,11 @@ describe("Markdown import", () => {
       "---\ntitle: Phantom paragraph\ndescription: A phantom paragraph\n---\nVisible words",
     ],
   ])("names source text that never reached a page %s", (_, text) => {
-    const draft = parseMarkdownImport({ sourcePath: "notes/page.md", text });
+    const draft = parseMarkdownImport({
+      sourcePath: "notes/page.md",
+      text,
+      tablePadding: newTablePaddingBudget(),
+    });
     if (draft.coverage.kind !== "markdown")
       throw new Error("expected Markdown");
     const page = finalizeMarkdownImport(
@@ -704,7 +709,7 @@ describe("Markdown import", () => {
       ),
     ).toEqual([3, 3, 3]);
 
-    // Each table pads 39,999 cells; the budget is for the whole file.
+    // Each table pads 39,999 cells, and one budget covers all three.
     const paddedTable = [
       "| a |",
       "| - |",

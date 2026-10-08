@@ -230,10 +230,23 @@ const DROPPED_HTML_MEDIA = new Set([
 ]);
 
 /**
- * Empty cells a file's tables may gain from padding short rows to their
+ * Empty cells an import's tables may gain from padding short rows to their
  * widest row. Past this, the cells built would far outnumber those written.
  */
 const MAX_TABLE_PADDING_CELLS = 100_000;
+
+/**
+ * What remains of `MAX_TABLE_PADDING_CELLS`. Every file in one import draws
+ * on the same budget: a few short lines under one wide row ask for thousands
+ * of cells, so a budget per file would grow with the number of files.
+ */
+export interface TablePaddingBudget {
+  cellsLeft: number;
+}
+
+export function newTablePaddingBudget(): TablePaddingBudget {
+  return { cellsLeft: MAX_TABLE_PADDING_CELLS };
+}
 
 type InlinePiece = PMNode | { block: PMNode } | { paragraphBreak: true };
 
@@ -256,6 +269,7 @@ export interface ParseMarkdownImportInput {
   /** Import-root-relative path of the file, used for relative references. */
   sourcePath: string;
   text: string;
+  tablePadding: TablePaddingBudget;
 }
 
 export function parseMarkdownImport(
@@ -291,6 +305,7 @@ export function parseMarkdownImport(
       dropDeepContainerLines(body, notes),
       notes,
       referencePrefix,
+      input.tablePadding,
     );
     blocks = converter.convert();
     slots = converter.slots;
@@ -607,7 +622,6 @@ class MarkdownConverter {
   >();
   private readonly footnotes = new Map<string, FootnoteDefinition>();
   private readonly footnoteNumbers = new Map<string, number>();
-  private paddingCellsLeft = MAX_TABLE_PADDING_CELLS;
   private depth = 0;
   private root: Root | null = null;
 
@@ -616,6 +630,7 @@ class MarkdownConverter {
     private readonly source: string,
     private readonly notes: ImportNoteBag,
     private readonly referencePrefix: string,
+    private readonly tablePadding: TablePaddingBudget,
   ) {}
 
   convert(): PMNode[] {
@@ -889,8 +904,10 @@ class MarkdownConverter {
     // Short rows are padded to the widest, so one wide row over many short
     // ones would build far more cells than the source holds.
     const padding = columns * node.children.length - cells;
-    if (padding > this.paddingCellsLeft) return this.unsupportedBlock(node);
-    this.paddingCellsLeft -= padding;
+    if (padding > this.tablePadding.cellsLeft) {
+      return this.unsupportedBlock(node);
+    }
+    this.tablePadding.cellsLeft -= padding;
     const table: PMNode = {
       type: "table",
       attrs: { headerRow: true },

@@ -1,5 +1,9 @@
 import { finalizeMarkdownImport } from "./finalize";
-import { type MarkdownImportDraft, parseMarkdownImport } from "./markdown";
+import {
+  type MarkdownImportDraft,
+  newTablePaddingBudget,
+  parseMarkdownImport,
+} from "./markdown";
 import { isMarkdownFilePath } from "./paths";
 import type {
   ImportAssetRequest,
@@ -152,10 +156,11 @@ export function planMarkdownPages(input: {
   markdown: Array<{ path: string; text: string }>;
   imagePaths: ReadonlySet<string>;
 }): { pages: PlannedImportPage[]; tooLarge: string[] } {
+  const tablePadding = newTablePaddingBudget();
   const drafts = new Map(
     input.markdown.map(({ path, text }) => [
       path,
-      parseMarkdownImport({ sourcePath: path, text }),
+      parseMarkdownImport({ sourcePath: path, text, tablePadding }),
     ]),
   );
   const importing = new Set(drafts.keys());
@@ -177,6 +182,7 @@ export function planMarkdownPages(input: {
     for (const path of dropped) {
       importing.delete(path);
       planned.delete(path);
+      drafts.delete(path);
       tooLarge.push(path);
     }
     // A link to a page left out reads differently, which changes the length
