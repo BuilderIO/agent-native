@@ -159,7 +159,7 @@ import {
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { exportDeckAsPptx } from "@/lib/export-pptx-client";
 import {
-  isNewDeckGenerationFailed,
+  getNewDeckGenerationRecoveryState,
   shouldClearNewDeckGeneratingState,
   shouldClearNewDeckGenerationRun,
   shouldShowNewDeckGeneratingOverlay,
@@ -1932,8 +1932,9 @@ export default function DeckEditor() {
       isNewDeckRoute: isNewDeckGenerationRoute,
       generating: newDeckGenerationSignal,
       waitingOnQuestions: waitingOnNewDeckQuestions,
+      slideCount,
     });
-  const generationFailed = isNewDeckGenerationFailed({
+  const generationState = {
     slideCount,
     hasGenerationContext: generationContext !== null,
     failureCode: generationContext?.generationFailureCode,
@@ -1941,7 +1942,10 @@ export default function DeckEditor() {
     phase: newDeckGenerationPhase,
     generating: newDeckGenerationSignal,
     waitingOnQuestions: waitingOnNewDeckQuestions,
-  });
+  };
+  const generationRecoveryState =
+    getNewDeckGenerationRecoveryState(generationState);
+  const showGenerationRecovery = generationRecoveryState !== null;
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
     generating: newDeckGenerationSignal,
     isNewDeckCreation,
@@ -4153,7 +4157,7 @@ export default function DeckEditor() {
 
         {!generatingSlideSelected &&
           deck.slides.length === 0 &&
-          (generationFailed ? (
+          (showGenerationRecovery ? (
             <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
               <div
                 className="m-auto flex max-w-md flex-col items-center gap-4 text-center"
@@ -4162,7 +4166,9 @@ export default function DeckEditor() {
                 <p>
                   {generationContext?.generationFailureCode === "agent_error"
                     ? t("deckEditor.agentRunFailed")
-                    : t("deckEditor.generationFailed")}
+                    : generationRecoveryState === "outcome_unresolved"
+                      ? t("deckEditor.generationOutcomeUnresolved")
+                      : t("deckEditor.generationFailed")}
                 </p>
                 <Button
                   disabled={!canEdit || generationRetryPending}
@@ -4185,7 +4191,7 @@ export default function DeckEditor() {
           ) : null)}
 
         {deck.slides.length === 0 &&
-          !generationFailed &&
+          !showGenerationRecovery &&
           !generatingSlideVisible && (
             <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
               <div className="m-auto w-full max-w-6xl">

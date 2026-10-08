@@ -799,6 +799,8 @@ const messages = {
       "Der Agent-Lauf ist fehlgeschlagen, bevor Folien erstellt wurden. Prüfe die Details im Chat und versuche es erneut.",
     generationFailed:
       "Es wurden keine Folien erstellt. Prüfe die Details im Chat und versuche es erneut.",
+    generationOutcomeUnresolved:
+      "Wir konnten nicht bestätigen, ob Folien erstellt wurden. Prüfe das Deck oder den Chat und versuche es erneut.",
     deckHasNoSlides: "Dieses Deck enthält keine Folien.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",

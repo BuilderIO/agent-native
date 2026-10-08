@@ -794,6 +794,8 @@ const messages = {
       "فشل تشغيل الوكيل قبل إنشاء أي شرائح. راجع التفاصيل في الدردشة، ثم حاول مرة أخرى.",
     generationFailed:
       "لم يتم إنشاء الشرائح. راجع التفاصيل في الدردشة، ثم حاول مرة أخرى.",
+    generationOutcomeUnresolved:
+      "تعذر علينا التأكد مما إذا كانت الشرائح قد أُنشئت. تحقق من العرض أو الدردشة، ثم حاول مرة أخرى.",
     deckHasNoSlides: "لا توجد شرائح في هذا العرض التقديمي.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",

@@ -852,6 +852,56 @@ describe("DeckEditor generation signal wiring", () => {
     });
   });
 
+  it("shows recovery guidance without claiming an unresolved run failed", async () => {
+    mocks.refreshOpenDeck.mockResolvedValue(null);
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        "generation_outcome_unresolved",
+        expect.objectContaining({
+          generation_attempt_id: "attempt-1",
+          outcome: "unresolved",
+          reason: "deck_not_visible_after_refresh",
+        }),
+      ),
+    );
+    expect(
+      screen.getByText("deckEditor.generationOutcomeUnresolved"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }),
+    ).toBeTruthy();
+    expect(mocks.deck.generationContext).not.toHaveProperty(
+      "generationFailureCode",
+    );
+  });
+
   it("restores a pending guided question and opens its owning chat on a plain deck route", async () => {
     const submitMessageId = "submit-pending-question";
     const tabId = "pending-question-tab";
