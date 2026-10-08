@@ -8,9 +8,12 @@ const trackEventMock = vi.hoisted(() => vi.fn());
 const analyticsSessionIdMock = vi.hoisted(() =>
   vi.fn(() => "browser-session-42"),
 );
+const analyticsIdentityKeyMock = vi.hoisted(() =>
+  vi.fn(() => "browser-identity-42"),
+);
 
 vi.mock("../analytics.js", () => ({
-  getAnalyticsIdentityKey: () => null,
+  getAnalyticsIdentityKey: () => analyticsIdentityKeyMock(),
   getAnalyticsSessionId: () => analyticsSessionIdMock(),
   trackEvent: trackEventMock,
 }));
@@ -32,6 +35,8 @@ import {
 // test's settled or stalled read must not answer the next test.
 beforeEach(() => {
   __resetOnboardingSummaryReadsForTests();
+  analyticsSessionIdMock.mockReturnValue("browser-session-42");
+  analyticsIdentityKeyMock.mockReturnValue("browser-identity-42");
 });
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
@@ -449,12 +454,26 @@ describe("trackOnboardingEvent", () => {
     ]);
   });
 
-  it("leaves a custom-key outcome unknown after the browser session rotates", () => {
-    setCustomKeyOnboardingAttempt("attempt-1");
+  it("preserves a custom-key attempt when the browser session rotates", () => {
+    setCustomKeyOnboardingAttempt("attempt-session-rotation");
     analyticsSessionIdMock.mockReturnValue("browser-session-43");
 
+    expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe("tracked");
+    expect(trackEventMock).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        onboarding_attempt_id: "attempt-session-rotation",
+        outcome: "credential_saved",
+      }),
+    );
+  });
+
+  it("discards a custom-key attempt after the analytics identity changes", () => {
+    setCustomKeyOnboardingAttempt("attempt-identity-rotation");
+    analyticsIdentityKeyMock.mockReturnValue("browser-identity-43");
+
     expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe(
-      "session_mismatch",
+      "identity_mismatch",
     );
     expect(trackEventMock).not.toHaveBeenCalled();
   });

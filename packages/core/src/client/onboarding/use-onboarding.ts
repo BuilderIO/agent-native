@@ -44,7 +44,8 @@ type CustomKeyOnboardingOutcome =
 
 interface CustomKeyOnboardingAttempt {
   id: string;
-  sessionId: string;
+  // Analytics sessions rotate after idle; attempt validity follows the identity.
+  identityKey: string;
   // A restored BFCache page keeps this ID; a new document must not inherit it.
   documentId: string;
   entryStarted?: boolean;
@@ -53,10 +54,7 @@ interface CustomKeyOnboardingAttempt {
 
 type CustomKeyAttemptRead =
   | { kind: "available"; attempt: CustomKeyOnboardingAttempt | null }
-  | {
-      kind: "stale";
-      attempt: Pick<CustomKeyOnboardingAttempt, "id" | "sessionId">;
-    }
+  | { kind: "stale" }
   | { kind: "unavailable" };
 
 type CustomKeyOutcomeResult =
@@ -65,7 +63,7 @@ type CustomKeyOutcomeResult =
   | "missing"
   | "unavailable"
   | "stale"
-  | "session_mismatch"
+  | "identity_mismatch"
   | "duplicate";
 
 export function createOnboardingCorrelationId(): string {
@@ -91,17 +89,12 @@ function readCustomKeyOnboardingAttempt(): CustomKeyAttemptRead {
       return { kind: "unavailable" };
     }
     const attempt = parsed as Partial<CustomKeyOnboardingAttempt>;
-    if (
-      typeof attempt.id !== "string" ||
-      typeof attempt.sessionId !== "string"
-    ) {
-      return { kind: "unavailable" };
-    }
+    if (typeof attempt.id !== "string") return { kind: "unavailable" };
     if (attempt.documentId !== getOnboardingDocumentId()) {
-      return {
-        kind: "stale",
-        attempt: { id: attempt.id, sessionId: attempt.sessionId },
-      };
+      return { kind: "stale" };
+    }
+    if (typeof attempt.identityKey !== "string") {
+      return { kind: "unavailable" };
     }
     return {
       kind: "available",
@@ -117,11 +110,16 @@ export function setCustomKeyOnboardingAttempt(
 ): "stored" | "no_session" | "unavailable" {
   if (typeof window === "undefined") return "unavailable";
   const sessionId = getAnalyticsSessionId();
-  if (!sessionId || getAnalyticsSessionId() !== sessionId) return "no_session";
+  const identityKey = getAnalyticsIdentityKey();
+  if (!sessionId || !identityKey) return "no_session";
   try {
     window.sessionStorage.setItem(
       CUSTOM_KEY_ATTEMPT_STORAGE_KEY,
-      JSON.stringify({ id, sessionId, documentId: getOnboardingDocumentId() }),
+      JSON.stringify({
+        id,
+        identityKey,
+        documentId: getOnboardingDocumentId(),
+      }),
     );
     return "stored";
   } catch {
@@ -145,13 +143,13 @@ export function trackCustomKeyOnboardingOutcome(
   }
   const { attempt } = stored;
   if (!attempt) return "missing";
-  if (attempt.sessionId !== getAnalyticsSessionId()) {
+  if (attempt.identityKey !== getAnalyticsIdentityKey()) {
     try {
       window.sessionStorage.removeItem(CUSTOM_KEY_ATTEMPT_STORAGE_KEY);
     } catch {
       return "unavailable";
     }
-    return "session_mismatch";
+    return "identity_mismatch";
   }
   const attemptOutcomeKey = `${attempt.id}:${outcome}`;
   const alreadyTracked =
@@ -223,7 +221,7 @@ function trackCustomKeyOnboardingOutcomeForAttempt(
   if (
     stored.kind !== "available" ||
     stored.attempt?.id !== attemptId ||
-    stored.attempt.sessionId !== getAnalyticsSessionId()
+    stored.attempt.identityKey !== getAnalyticsIdentityKey()
   ) {
     return "missing";
   }
@@ -237,7 +235,7 @@ function beginCustomKeyOnboardingCredentialSave(): {
   if (
     stored.kind !== "available" ||
     !stored.attempt ||
-    stored.attempt.sessionId !== getAnalyticsSessionId()
+    stored.attempt.identityKey !== getAnalyticsIdentityKey()
   ) {
     return null;
   }
@@ -308,7 +306,7 @@ function handleCustomKeyOnboardingAbandonment(
 ): void {
   const stored = readCustomKeyOnboardingAttempt();
   const attempt = stored.kind === "available" ? stored.attempt : null;
-  if (attempt && attempt.sessionId === getAnalyticsSessionId()) {
+  if (attempt && attempt.identityKey === getAnalyticsIdentityKey()) {
     const attemptId = attempt.id;
     const completedOutcome = (
       [

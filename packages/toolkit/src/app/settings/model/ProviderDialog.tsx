@@ -375,7 +375,9 @@ function ProviderDialogForm({
           if (request !== requestRef.current) return;
           setCheck(toCheckState(result));
           if (!result.ok) return;
-          trackCustomKeyOnboardingOutcome("credential_validated");
+          if (provider !== "ollama") {
+            trackCustomKeyOnboardingOutcome("credential_validated");
+          }
           setChecked((previous) => {
             const kept = previous.filter((model) =>
               result.models.includes(model),
@@ -490,7 +492,7 @@ function ProviderDialogForm({
     let settingsSaved = false;
     try {
       if (replacing) {
-        await withCustomKeyOnboardingCredentialSave(() =>
+        const saveProviderSettings = () =>
           saveAgentEngineProviderSettings({
             provider,
             ...(isOllama ? { baseUrl: value } : { apiKey: value }),
@@ -499,8 +501,12 @@ function ProviderDialogForm({
               ? { clearBaseUrl: true }
               : {}),
             scope,
-          }),
-        );
+          });
+        if (isOllama) {
+          await saveProviderSettings();
+        } else {
+          await withCustomKeyOnboardingCredentialSave(saveProviderSettings);
+        }
         settingsSaved = true;
       } else if (endpointChanged) {
         await saveAgentEngineProviderSettings({
@@ -648,7 +654,7 @@ function ProviderDialogForm({
                 onChange={(event) => {
                   setKeyValue(event.target.value);
                   setKeyError(false);
-                  if (event.target.value.trim()) {
+                  if (event.target.value.trim() && !isOllama) {
                     trackCustomKeyOnboardingOutcome("credential_entry_started");
                   }
                 }}

@@ -449,9 +449,10 @@ describe("ProviderDialog", () => {
       models: ["llama3.1:latest"],
       checkedAt: 1,
     });
-    render({ provider: "ollama" });
+    const { onSaved } = render({ provider: "ollama" });
     expect(document.body.textContent).toContain("No API key required.");
     typeInto(inputByLabel("Endpoint URL"), "http://ollama.internal:11434");
+    expect(onboardingOutcomeMock).not.toHaveBeenCalled();
     await vi.waitFor(() => {
       expect(document.body.textContent).toContain("llama3.1:latest");
     });
@@ -459,6 +460,18 @@ describe("ProviderDialog", () => {
       provider: "ollama",
       baseUrl: "http://ollama.internal:11434",
     });
+    expect(onboardingOutcomeMock).not.toHaveBeenCalled();
+
+    await act(async () => button("Add provider").click());
+    await vi.waitFor(() => expect(onSaved).toHaveBeenCalled());
+
+    expect(keyMock.saveAgentEngineProviderSettings).toHaveBeenCalledWith({
+      provider: "ollama",
+      baseUrl: "http://ollama.internal:11434",
+      scope: "org",
+    });
+    expect(credentialSaveBoundaryMock).not.toHaveBeenCalled();
+    expect(onboardingOutcomeMock).not.toHaveBeenCalled();
   });
 
   it("manages a saved key: masked, checked on save, and models only", async () => {
