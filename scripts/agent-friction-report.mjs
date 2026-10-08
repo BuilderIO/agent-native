@@ -93,8 +93,7 @@ const matchesUnauthorizedPrPush = (text) =>
         !AFFIRMATIVE_PR_PUSH_REMINDER_RE.test(sentence),
     );
 
-const OWN_PR_REFERENCE =
-  String.raw`(?:(?:my|our|your|yours)\s+own|own|my|our|your|yours)\s+(?:PRs?|pull requests?)`;
+const OWN_PR_REFERENCE = String.raw`(?:(?:my|our|your|yours)\s+own|own|my|our|your|yours)\s+(?:PRs?|pull requests?)`;
 const OWN_PR_COMMENT_AUTHORIZATION_RE = new RegExp(
   String.raw`\b(?:don't|do not|doesn't|does not)\s+need\s+(?:any\s+)?(?:extra\s+)?(?:authorization|permission|approval)\b[^.!?\n]{0,90}\b${OWN_PR_REFERENCE}\b|\b${OWN_PR_REFERENCE}\b[^.!?\n]{0,90}\b(?:don't|do not|doesn't|does not)\s+need\s+(?:any\s+)?(?:extra\s+)?(?:authorization|permission|approval)\b|\bno\s+(?:extra\s+)?(?:authorization|permission|approval)(?:\s+is)?\s+needed\b[^.!?\n]{0,90}\b${OWN_PR_REFERENCE}\b|\b${OWN_PR_REFERENCE}\b[^.!?\n]{0,90}\b(?:authorization|permission|approval)\s+(?:isn't|is not)\s+needed\b`,
   "i",
