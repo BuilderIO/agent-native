@@ -1572,6 +1572,7 @@ interface VisualEditorProps {
     serverRevision: string;
   }) => void;
   onRemoteSnapshotChange?: (markdown: string) => void;
+  isEditorClean?: (liveMarkdown: string) => boolean;
   onChange: (markdown: string) => void;
   onSaveContent?: (
     markdown: string,
@@ -3010,6 +3011,7 @@ export function VisualEditor({
   requestCollabSync,
   onBaseAwareReconcile,
   onRemoteSnapshotChange,
+  isEditorClean,
   onChange,
   onSaveContent,
   onEscape,
@@ -4113,6 +4115,7 @@ export function VisualEditor({
     requestCollabSync,
     onBaseAwareReconcile,
     onRemoteSnapshotChange,
+    isEditorClean,
     requestInitialSeed:
       ydoc && editable && documentId ? requestInitialSeed : undefined,
     onInitialSeedError,

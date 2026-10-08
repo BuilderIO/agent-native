@@ -52,6 +52,9 @@ import {
 export const AGENT_CHAT_PROCESS_RUN_PATH =
   "/_agent-native/agent-chat/_process-run";
 
+export const AGENT_TEAM_PROCESS_RUN_PATH =
+  "/_agent-native/agent-teams/_process-run";
+
 export const AGENT_BACKGROUND_FUNCTION_NAME = "server-agent-background";
 
 export const AGENT_BACKGROUND_FUNCTION_URL_PATH = `/.netlify/functions/${AGENT_BACKGROUND_FUNCTION_NAME}`;
@@ -59,6 +62,7 @@ export const AGENT_BACKGROUND_FUNCTION_URL_PATH = `/.netlify/functions/${AGENT_B
 export const AGENT_BACKGROUND_PROCESSOR_FIELD = "__agentNativeProcessor";
 export const AGENT_BACKGROUND_PROCESSOR_A2A = "a2a";
 export const AGENT_BACKGROUND_PROCESSOR_INTEGRATION = "integration";
+export const AGENT_BACKGROUND_PROCESSOR_AGENT_TEAM = "agent-team";
 export const AGENT_BACKGROUND_PROCESSOR_ROUTE = "route";
 export const AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD =
   "__agentNativeProcessorRoute";

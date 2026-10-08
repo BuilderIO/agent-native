@@ -61,6 +61,24 @@ describe("hasActiveAgentRuns", () => {
 
     expect(hasActiveAgentRuns(thread)).toBe(true);
   });
+
+  it("restores a pending approval run when its active-id projection is missing", () => {
+    const started = reduceAgentEvent(
+      createAgentThreadState("thread-1"),
+      event(1, { type: "run.started" }),
+    );
+    const withoutActiveId = { ...started, activeRunIds: [] };
+    const awaitingApproval = reduceAgentEvent(
+      withoutActiveId,
+      event(2, {
+        type: "approval.requested",
+        request: { id: "approval-1", title: "Continue?" },
+      }),
+    );
+
+    expect(awaitingApproval.activeRunIds).toEqual(["run-1"]);
+    expect(hasActiveAgentRuns(awaitingApproval)).toBe(true);
+  });
 });
 
 function event(

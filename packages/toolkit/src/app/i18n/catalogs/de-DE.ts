@@ -130,7 +130,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "Vorerst überspringen",
   "onboarding.saveRoleError": "Deine Rolle konnte nicht gespeichert werden.",
   "onboarding.builderCreateAccount": "Builder.io verwenden",
-  "onboarding.builderSignInWithAccount": "Mit Builder.io-Konto anmelden",
+  "onboarding.builderSignInWithAccount": "Builder.io verwenden",
   "onboarding.builderActivateDescription":
     "Erstelle oder verwende dein Builder.io-Konto erneut und aktiviere seine Gratiscredits mit einem Klick.",
   "onboarding.builderActiveCredits":
@@ -162,7 +162,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "Nutzungsbedingungen",
   "onboarding.builderPrivacy": "Datenschutzrichtlinien",
   "onboarding.builderConsentAnd": "und",
-  "onboarding.builderExistingAccount": "Ich habe ein Builder.io-Konto",
+  "onboarding.builderExistingAccount": "Builder.io verwenden",
   "onboarding.builderActivating": "Builder.io-Gratiscredits werden aktiviert",
   "onboarding.builderConnecting": "Builder.io-Credits werden eingerichtet",
   "onboarding.builderProvisioningDescription":
@@ -214,7 +214,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Builder-Speicher oder S3-kompatibler Bucket",
   "onboarding.capability.clipsObjectStorage.why":
-    "Aufgenommene Videos benötigen dauerhaften Objektspeicher, bevor sie abgespielt oder geteilt werden können.",
+    "Du kannst Clips ohne Speicher aufnehmen, ansehen und herunterladen. Verbinde dauerhaften Objektspeicher, damit Aufnahmen auf mehreren Geräten verfügbar sind und geteilt werden können.",
   "onboarding.capability.clipsTranscription.keySummary":
     "Schlüssel eines Sprache-zu-Text-Anbieters",
   "onboarding.capability.about": "Über {{label}}",
@@ -2193,7 +2193,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io konnte nicht getrennt werden.",
   "settingsShell.builder.disconnectTitle": "Builder.io trennen?",
   "settingsShell.builder.grantsFailed":
-    "Die Builder.io-Verbindungen konnten nicht gelesen werden.",
+    "Der Verbindungsstatus ist nicht verfügbar. Versuche es erneut, um ihn zu prüfen.",
   "settingsShell.builder.setupStartFailed":
     "Das Builder.io-Setup konnte nicht gestartet werden. Aktualisiere diese Seite und versuche es erneut.",
   "settingsShell.builder.setupHostFailed":
@@ -2647,7 +2647,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "Modellzugriff, Browserautomatisierung, Dateispeicher und Workspace-Identität. Kostenloser Tarif verfügbar.",
   "settingsShell.integrations.builderStatusFailed":
-    "Die Builder.io-Verbindung konnte nicht geprüft werden.",
+    "Der Verbindungsstatus ist nicht verfügbar. Versuche es erneut, um ihn zu prüfen.",
   "settingsShell.integrations.category.analytics": "Analytics",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Entwicklung",
@@ -2803,6 +2803,11 @@ const messages: ToolkitAgentChatTranslation = {
     "Ein Deployment-Fallback ist verfügbar. Nutze dein eigenes Builder.io-Konto, um ihn zu überschreiben.",
   "settingsInfra.builderStorageHint":
     "Objektspeicher bewahrt hochgeladene Dateien dauerhaft auf und hält ihre URLs im gesamten Thread wiederverwendbar. Nutze Builder.io oder den S3-kompatiblen Bucket unten.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io ist verbunden, kann aber noch keine hochgeladenen Dateien speichern. Autorisiere Builder.io erneut für Uploads oder richte unten einen Bucket ein.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Die Upload-Berechtigung von Builder.io konnte nicht geprüft werden. Versuche es erneut oder richte unten einen Bucket ein.",
+  "settingsInfra.reconnectBuilderUploads": "Upload-Zugriff gewähren",
   "settingsInfra.builderUnknown":
     "Die Builder.io-Verbindung konnte nicht geprüft werden.",
   "settingsInfra.manage": "Verwalten",

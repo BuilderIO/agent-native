@@ -123,7 +123,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "अभी छोड़ें",
   "onboarding.saveRoleError": "आपकी भूमिका सहेजी नहीं जा सकी।",
   "onboarding.builderCreateAccount": "Builder.io इस्तेमाल करें",
-  "onboarding.builderSignInWithAccount": "Builder.io खाते से साइन इन करें",
+  "onboarding.builderSignInWithAccount": "Builder.io इस्तेमाल करें",
   "onboarding.builderActivateDescription":
     "एक क्लिक में अपना Builder.io खाता बनाएँ या फिर से इस्तेमाल करें और उसके मुफ़्त क्रेडिट सक्रिय करें।",
   "onboarding.builderActiveCredits": "सक्रिय Builder.io मुफ़्त क्रेडिट में शामिल",
@@ -150,7 +150,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "सेवा की शर्तों",
   "onboarding.builderPrivacy": "गोपनीयता नीति",
   "onboarding.builderConsentAnd": "और",
-  "onboarding.builderExistingAccount": "मेरे पास Builder.io खाता है",
+  "onboarding.builderExistingAccount": "Builder.io इस्तेमाल करें",
   "onboarding.builderActivating": "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
   "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट सेट अप हो रहे हैं",
   "onboarding.builderProvisioningDescription":
@@ -199,7 +199,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Builder स्टोरेज या S3-संगत बकेट",
   "onboarding.capability.clipsObjectStorage.why":
-    "रिकॉर्ड किए गए वीडियो को चलाने या साझा करने से पहले टिकाऊ ऑब्जेक्ट स्टोरेज की आवश्यकता होती है।",
+    "आप स्टोरेज के बिना Clips रिकॉर्ड, प्रीव्यू और डाउनलोड कर सकते हैं। रिकॉर्डिंग को अलग-अलग डिवाइस पर उपलब्ध रखने और साझा करने के लिए टिकाऊ ऑब्जेक्ट स्टोरेज कनेक्ट करें।",
   "onboarding.capability.clipsTranscription.keySummary":
     "स्पीच-टू-टेक्स्ट प्रदाता की कुंजी",
   "onboarding.capability.about": "{{label}} के बारे में",
@@ -2047,7 +2047,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.disconnectFailed":
     "Builder.io को डिस्कनेक्ट नहीं किया जा सका।",
   "settingsShell.builder.disconnectTitle": "Builder.io डिस्कनेक्ट करें?",
-  "settingsShell.builder.grantsFailed": "Builder.io कनेक्शन पढ़े नहीं जा सके।",
+  "settingsShell.builder.grantsFailed":
+    "कनेक्शन की स्थिति उपलब्ध नहीं है। दोबारा जांचने के लिए फिर से कोशिश करें।",
   "settingsShell.builder.setupStartFailed":
     "Builder.io सेटअप शुरू नहीं हो सका। इस पेज को रीफ़्रेश करके फिर कोशिश करें।",
   "settingsShell.builder.setupHostFailed":
@@ -2464,7 +2465,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "मॉडल एक्सेस, ब्राउज़र ऑटोमेशन, फ़ाइल स्टोरेज और वर्कस्पेस पहचान। फ़्री टियर उपलब्ध है।",
   "settingsShell.integrations.builderStatusFailed":
-    "Builder.io कनेक्शन जाँचा नहीं जा सका।",
+    "कनेक्शन की स्थिति उपलब्ध नहीं है। दोबारा जांचने के लिए फिर से कोशिश करें।",
   "settingsShell.integrations.category.analytics": "एनालिटिक्स",
   "settingsShell.integrations.category.design": "डिज़ाइन",
   "settingsShell.integrations.category.engineering": "इंजीनियरिंग",
@@ -2615,6 +2616,11 @@ const messages: ToolkitAgentChatTranslation = {
     "डिप्लॉयमेंट फ़ॉलबैक उपलब्ध है। इसे बदलने के लिए अपने Builder.io खाते का उपयोग करें।",
   "settingsInfra.builderStorageHint":
     "ऑब्जेक्ट स्टोरेज अपलोड की गई फ़ाइलों को सुरक्षित रखता है और पूरे थ्रेड में उनके URL फिर से इस्तेमाल करने देता है। नीचे Builder.io या S3-संगत बकेट का उपयोग करें।",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io कनेक्ट है, लेकिन अभी अपलोड की गई फ़ाइलें संग्रहीत नहीं कर सकता। अपलोड की अनुमति देने के लिए इसे फिर से जोड़ें, या नीचे बकेट सेट करें।",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Builder.io की अपलोड अनुमति की पुष्टि नहीं हो सकी। फिर कोशिश करें या नीचे बकेट सेट करें।",
+  "settingsInfra.reconnectBuilderUploads": "अपलोड एक्सेस दें",
   "settingsInfra.builderUnknown": "Builder.io कनेक्शन जाँचा नहीं जा सका।",
   "settingsInfra.manage": "प्रबंधित करें",
   "settingsInfra.connect": "कनेक्ट करें",

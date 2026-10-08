@@ -341,7 +341,7 @@ async function readExtensionTargetsForRows(
   );
 }
 
-type ChangeVisibility = "visible" | "hidden" | "pending";
+export type ChangeVisibility = "visible" | "hidden" | "pending";
 
 class SyncEventsTableUnavailableError extends Error {
   constructor() {
@@ -860,11 +860,11 @@ export class AppSyncState {
    * `getChangesSinceForUser` loop in this file. Making it async would be
    * invasive. Instead, for the access-aware branch we consult an in-memory
    * cache and, on a miss, fire a NON-BLOCKING background access check and
-   * return `false` for the current event. Because the poll fallback re-evaluates
-   * with the now-populated cache, delivery is eventually guaranteed — the only
-   * cost is that the very first event for a fresh (user, resource) pair goes
-   * over poll instead of push, and every subsequent event within the TTL is
-   * pushed.
+   * return `false` for the current event. Callers that must not lose the event
+   * use `getChangeVisibilityForUser` and wait for the pending check (the SSE
+   * handler and `getCombinedChangesSinceForUser` do); this boolean form alone
+   * would drop the first event for a fresh (user, resource) pair, and a live
+   * stream does not poll to recover it.
    *
    * Security: a cache MISS returns `false`, so we NEVER deliver to a user before
    * their access has been affirmatively confirmed by the resolver — the same
@@ -884,7 +884,52 @@ export class AppSyncState {
     );
   }
 
-  private getChangeVisibilityForUser(
+  private async waitForAccessChecks(
+    checks: Iterable<Promise<void>>,
+    timeoutMs: number,
+  ): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      Promise.allSettled(checks),
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, timeoutMs);
+      }),
+    ]);
+    clearTimeout(timer);
+  }
+
+  /**
+   * Like `getChangeVisibilityForUser`, but a "pending" verdict waits (bounded)
+   * for this event's own access check and answers again, so a caller that
+   * cannot poll later does not lose the event. Still "pending" after the wait
+   * means the check did not finish.
+   */
+  async resolveChangeVisibilityForUser(
+    event: Pick<
+      ChangeEvent,
+      "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
+    >,
+    userEmail: string,
+    orgId: string | undefined,
+    timeoutMs: number,
+  ): Promise<ChangeVisibility> {
+    const visibility = this.getChangeVisibilityForUser(event, userEmail, orgId);
+    if (visibility !== "pending" || !event.resourceType || !event.resourceId) {
+      return visibility;
+    }
+    const check = this.accessInFlight.get(
+      accessCacheKey(
+        userEmail.trim().toLowerCase(),
+        orgId,
+        event.resourceType,
+        event.resourceId,
+      ),
+    );
+    if (check) await this.waitForAccessChecks([check], timeoutMs);
+    return this.getChangeVisibilityForUser(event, userEmail, orgId);
+  }
+
+  getChangeVisibilityForUser(
     event: Pick<
       ChangeEvent,
       "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
@@ -1430,14 +1475,10 @@ export class AppSyncState {
     // A read stopped at an event whose access check had not finished. The
     // check is already running, so waiting for it here (bounded) delivers the
     // event now instead of one poll interval later.
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([
-      Promise.allSettled(this.accessInFlight.values()),
-      new Promise((resolve) => {
-        timer = setTimeout(resolve, ACCESS_CHECK_WAIT_MS);
-      }),
-    ]);
-    clearTimeout(timer);
+    await this.waitForAccessChecks(
+      this.accessInFlight.values(),
+      ACCESS_CHECK_WAIT_MS,
+    );
     const { accessPending: _pending, ...result } =
       await this.readCombinedChangesSinceForUser(
         since,

@@ -998,6 +998,10 @@ export default {
       interact: "Interact",
       screens: "स्क्रीन",
     },
+    topBar: {
+      modeDesign: "डिज़ाइन",
+      modeSwitch: "एडिटर मोड",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",

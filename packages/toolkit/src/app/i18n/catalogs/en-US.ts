@@ -122,7 +122,7 @@ const messages = {
   "onboarding.skipForNow": "Skip for now",
   "onboarding.saveRoleError": "Could not save your role.",
   "onboarding.builderCreateAccount": "Use Builder.io",
-  "onboarding.builderSignInWithAccount": "Sign in with Builder.io account",
+  "onboarding.builderSignInWithAccount": "Use Builder.io",
   "onboarding.builderActivateDescription":
     "Create or reuse your Builder.io account and activate its free credits in one click.",
   "onboarding.builderActiveCredits":
@@ -153,7 +153,7 @@ const messages = {
   "onboarding.builderTerms": "Terms of Service",
   "onboarding.builderPrivacy": "Privacy Policy",
   "onboarding.builderConsentAnd": "and",
-  "onboarding.builderExistingAccount": "I have a Builder.io account",
+  "onboarding.builderExistingAccount": "Use Builder.io",
   "onboarding.builderActivating": "Activating Builder.io free credits",
   "onboarding.builderConnecting": "Setting up Builder.io credits",
   "onboarding.builderProvisioningDescription":
@@ -202,7 +202,7 @@ const messages = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Builder storage or an S3-compatible bucket",
   "onboarding.capability.clipsObjectStorage.why":
-    "Recorded videos need durable object storage before they can be played back or shared.",
+    "You can record, preview, and download Clips without storage. Connect durable object storage to keep recordings available across devices and share them.",
   "onboarding.capability.clipsTranscription.keySummary":
     "Speech-to-text provider key",
   "onboarding.capability.about": "About {{label}}",
@@ -2081,7 +2081,7 @@ const messages = {
   "settingsShell.builder.disconnectFailed": "Couldn't disconnect Builder.io.",
   "settingsShell.builder.disconnectTitle": "Disconnect Builder.io?",
   "settingsShell.builder.grantsFailed":
-    "Couldn't read the Builder.io connections.",
+    "Connection status is unavailable. Retry to check again.",
   "settingsShell.builder.setupStartFailed":
     "Couldn't start Builder.io setup. Refresh this page and try again.",
   "settingsShell.builder.setupHostFailed":
@@ -2525,7 +2525,7 @@ const messages = {
   "settingsShell.integrations.builderDescription":
     "Model access, browser automation, file storage, and workspace identity. Free tier available.",
   "settingsShell.integrations.builderStatusFailed":
-    "Couldn't check the Builder.io connection.",
+    "Connection status is unavailable. Retry to check again.",
   "settingsShell.integrations.category.analytics": "Analytics",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Engineering",
@@ -2678,6 +2678,11 @@ const messages = {
     "Deployment fallback is available. Use your own Builder.io account to override it.",
   "settingsInfra.builderStorageHint":
     "Object storage keeps uploaded files durable and their URLs reusable throughout the thread. Use Builder.io or an S3-compatible bucket below.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io is connected, but it can't store uploaded files yet. Reconnect it for upload access, or configure a bucket below.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Couldn't verify Builder.io upload access. Retry or configure a bucket below.",
+  "settingsInfra.reconnectBuilderUploads": "Grant upload access",
   "settingsInfra.builderUnknown": "Couldn't check the Builder.io connection.",
   "settingsInfra.manage": "Manage",
   "settingsInfra.connect": "Connect",

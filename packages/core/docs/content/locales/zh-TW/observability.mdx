@@ -361,6 +361,8 @@ export default defineAppConfig({
 
 在指標中，`gen_ai.tool.name` 是框架動作的名稱或 `other`；只有當引擎將某個模型 ID 列為支援時，`gen_ai.request.model` 才會是該模型 ID，否則為 `_OTHER`。因此，應用程式自訂的工具與呼叫端傳入的模型 ID 不會產生無限增長的序列；span 中會保留確切的值。
 
+每個請求都會設定 `http.route`，其值來自一個封閉集合：框架端點的路由範本（`/_agent-native/auth/session`、`/_agent-native/agent-chat/runs/:runId/events`）、動作宣告的範本、應用程式自身的 Nitro 檔案路由（`/api/clips/:id`），或一個分桶。分桶包括：這些命名空間中未列出的路徑對應的 `/_agent-native/*`、`/mcp/*` 與 `/.well-known/*`，其他 API 路徑對應的 `/api/*`，檔案請求對應的 `static`，其他 `GET` 或 `HEAD` 請求對應的 `page`，以及 `other`。原始請求路徑永遠不會被記錄。`http.server` span 會帶有相同的值。
+
 ## 連接 OpenTelemetry 後端 {#otel-provider}
 
 Core 不附帶任何 OpenTelemetry SDK 或匯出器。應用程式自行建立 SDK 提供者，並透過 `@agent-native/core/server` 中的 `registerObservabilityProvider()` 交給 Core。Core 接著透過它們發出上文的[跨度](#otel)與[指標](#otel-metrics)，再由應用程式的匯出器傳送到任意 OTLP 後端。

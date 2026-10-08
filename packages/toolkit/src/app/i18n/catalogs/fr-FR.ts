@@ -129,8 +129,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "Ignorer pour l’instant",
   "onboarding.saveRoleError": "Impossible d’enregistrer votre rôle.",
   "onboarding.builderCreateAccount": "Utiliser Builder.io",
-  "onboarding.builderSignInWithAccount":
-    "Se connecter avec un compte Builder.io",
+  "onboarding.builderSignInWithAccount": "Utiliser Builder.io",
   "onboarding.builderActivateDescription":
     "Créez ou réutilisez votre compte Builder.io et activez ses crédits gratuits en un clic.",
   "onboarding.builderActiveCredits":
@@ -160,7 +159,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "Conditions d’utilisation",
   "onboarding.builderPrivacy": "Politique de confidentialité",
   "onboarding.builderConsentAnd": "et",
-  "onboarding.builderExistingAccount": "J’ai un compte Builder.io",
+  "onboarding.builderExistingAccount": "Utiliser Builder.io",
   "onboarding.builderActivating": "Activation des crédits gratuits Builder.io",
   "onboarding.builderConnecting":
     "Configuration des crédits gratuits de Builder.io",
@@ -214,7 +213,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Stockage Builder ou bucket compatible S3",
   "onboarding.capability.clipsObjectStorage.why":
-    "Les vidéos enregistrées ont besoin d’un stockage objet durable avant de pouvoir être lues ou partagées.",
+    "Vous pouvez enregistrer, prévisualiser et télécharger des Clips sans stockage. Connectez un stockage objet durable pour retrouver vos enregistrements sur plusieurs appareils et les partager.",
   "onboarding.capability.clipsTranscription.keySummary":
     "Clé d’un fournisseur de conversion parole-texte",
   "onboarding.capability.about": "À propos de {{label}}",
@@ -2238,7 +2237,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Impossible de déconnecter Builder.io.",
   "settingsShell.builder.disconnectTitle": "Déconnecter Builder.io ?",
   "settingsShell.builder.grantsFailed":
-    "Impossible de lire les connexions Builder.io.",
+    "L’état de la connexion est indisponible. Réessayez pour le vérifier.",
   "settingsShell.builder.setupStartFailed":
     "Impossible de démarrer la configuration de Builder.io. Actualisez cette page, puis réessayez.",
   "settingsShell.builder.setupHostFailed":
@@ -2693,7 +2692,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "Accès aux modèles, automatisation du navigateur, stockage de fichiers et identité de l’espace de travail. Offre gratuite disponible.",
   "settingsShell.integrations.builderStatusFailed":
-    "Impossible de vérifier la connexion Builder.io.",
+    "L’état de la connexion est indisponible. Réessayez pour le vérifier.",
   "settingsShell.integrations.category.analytics": "Analytique",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Ingénierie",
@@ -2853,6 +2852,11 @@ const messages: ToolkitAgentChatTranslation = {
     "Le repli du déploiement est disponible. Utilisez votre propre compte Builder.io pour le remplacer.",
   "settingsInfra.builderStorageHint":
     "Le stockage objet conserve les fichiers envoyés et permet de réutiliser leurs URL tout au long du fil. Utilisez Builder.io ou le compartiment compatible S3 ci-dessous.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io est connecté, mais ne peut pas encore stocker les fichiers importés. Reconnectez-le pour autoriser les imports, ou configurez un bucket ci-dessous.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Impossible de vérifier l'accès de Builder.io aux imports. Réessayez ou configurez un bucket ci-dessous.",
+  "settingsInfra.reconnectBuilderUploads": "Autoriser les imports",
   "settingsInfra.builderUnknown":
     "Impossible de vérifier la connexion Builder.io.",
   "settingsInfra.manage": "Gérer",

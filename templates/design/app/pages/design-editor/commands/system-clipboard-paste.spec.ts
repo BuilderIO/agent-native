@@ -1,11 +1,10 @@
 // @vitest-environment happy-dom
 
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it, vi } from "vitest";
 
 import { readSystemClipboard } from "@/lib/design-clipboard";
 
+import { readDesignEditorSource } from "../read-design-editor-source";
 import { runContextMenuPaste } from "./system-clipboard-paste";
 
 describe("readSystemClipboard", () => {
@@ -207,7 +206,7 @@ describe("runContextMenuPaste", () => {
 
 describe("DesignEditor context-menu clipboard snapshot", () => {
   it("clears stale files on reopen and ignores reads from older menu sessions", () => {
-    const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+    const source = readDesignEditorSource();
     const menuSection = source.slice(
       source.indexOf("// U4/U8: hasCanvasClipboard"),
     );

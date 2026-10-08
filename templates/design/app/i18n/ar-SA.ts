@@ -993,6 +993,10 @@ export default {
       interact: "Interact",
       screens: "الشاشات",
     },
+    topBar: {
+      modeDesign: "التصميم",
+      modeSwitch: "وضع المحرر",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",

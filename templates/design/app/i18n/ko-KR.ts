@@ -1003,6 +1003,10 @@ export default {
       interact: "Interact",
       screens: "화면",
     },
+    topBar: {
+      modeDesign: "디자인",
+      modeSwitch: "편집기 모드",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",

@@ -1013,6 +1013,10 @@ export default {
       interact: "Interact",
       screens: "Telas",
     },
+    topBar: {
+      modeDesign: "Design",
+      modeSwitch: "Modo do editor",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",
