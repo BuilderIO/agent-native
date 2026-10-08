@@ -173,6 +173,10 @@ export function isBrowserSessionPath(pathname: string) {
   return pathname === basePath || pathname.startsWith(`${basePath}/`);
 }
 
+export function isConflictResourceConsoleError(message: string) {
+  return /\bstatus of 409\b/.test(message);
+}
+
 export function authoringFuzzLineNavigationKeys(
   platform: string,
   override?: ReturnType<typeof lineNavigationKeys>,
@@ -641,11 +645,13 @@ export async function runAuthoringFuzz(
   const slideContent: Locator = page.locator(slideContentSelector);
   const pageErrors: string[] = [];
   const pendingSaveConflicts: Promise<void>[] = [];
+  const conflictResponsePaths: string[] = [];
+  const patchDeckActionPath = "/_agent-native/actions/patch-deck";
   let patchDeckConflicts = 0;
   let conflictResourceErrors = 0;
   const onConsole = (message: any) => {
     if (message.type() !== "error") return;
-    if (message.text().includes("status of 409 (Conflict)")) {
+    if (isConflictResourceConsoleError(message.text())) {
       conflictResourceErrors += 1;
       return;
     }
@@ -661,12 +667,10 @@ export async function runAuthoringFuzz(
     );
   };
   const onResponse = (response: any) => {
-    if (
-      response.status() !== 409 ||
-      !response.url().includes("/_agent-native/actions/patch-deck")
-    ) {
-      return;
-    }
+    if (response.status() !== 409) return;
+    const responsePath = new URL(response.url()).pathname;
+    conflictResponsePaths.push(responsePath);
+    if (responsePath !== patchDeckActionPath) return;
     patchDeckConflicts += 1;
     pendingSaveConflicts.push(
       response
@@ -4239,9 +4243,19 @@ export async function runAuthoringFuzz(
     const persistence = await options.finishAndReload();
     assertAuthoringPersistence(persistence);
     await checkPageErrors();
-    if (conflictResourceErrors > patchDeckConflicts) {
+    const unexpectedConflictPaths = [
+      ...new Set(
+        conflictResponsePaths.filter(
+          (responsePath) => responsePath !== patchDeckActionPath,
+        ),
+      ),
+    ];
+    if (
+      conflictResourceErrors > patchDeckConflicts ||
+      unexpectedConflictPaths.length > 0
+    ) {
       throw new Error(
-        "a 409 resource error did not match a patch-deck conflict response",
+        `a 409 resource error did not match a patch-deck conflict response (${conflictResourceErrors} console error(s), ${patchDeckConflicts} patch-deck response(s); paths: ${conflictResponsePaths.length ? [...new Set(conflictResponsePaths)].join(", ") : "none captured"})`,
       );
     }
     if (patchDeckConflicts > 0) {

@@ -13,6 +13,7 @@ import {
   formatAuthoringFuzzFailure,
   isBrowserSessionPath,
   isCaretScrollOnlyChange,
+  isConflictResourceConsoleError,
   lineNavigationKeys,
   outsideAuthoringChangesFor,
   runAuthoringFuzz,
@@ -468,6 +469,24 @@ it("captures failed browser-session registration and subroute requests", () => {
     false,
   );
   expect(isBrowserSessionPath("/_agent-native/actions/patch-deck")).toBe(false);
+});
+
+it("recognizes resource conflicts with or without browser status text", () => {
+  expect(
+    isConflictResourceConsoleError(
+      "Failed to load resource: the server responded with a status of 409 ()",
+    ),
+  ).toBe(true);
+  expect(
+    isConflictResourceConsoleError(
+      "Failed to load resource: the server responded with a status of 409 (Conflict)",
+    ),
+  ).toBe(true);
+  expect(
+    isConflictResourceConsoleError(
+      "Failed to load resource: the server responded with a status of 404 ()",
+    ),
+  ).toBe(false);
 });
 
 it("maps absolute seeds to stable synthetic and committed layout profiles", () => {
