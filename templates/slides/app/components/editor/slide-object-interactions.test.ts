@@ -79,6 +79,7 @@ import {
   resolveSlideSelectionAnchor,
   clientRectToContainingBlockBox,
   hasRotatedAncestor,
+  parseSlideObjectTransformOrigin,
   probeScreenBasis,
   screenDeltaToLocal,
   type SlideObjectGeometry,
@@ -118,7 +119,7 @@ function rotationMember(
   objectId: string,
   element: HTMLElement,
   start: SlideObjectGeometry,
-  rotation: number,
+  rotation: number | null,
 ): SlideObjectRotationMember {
   return {
     objectId,
@@ -698,7 +699,8 @@ describe("slide object interactions", () => {
           ? ({
               transform: "matrix(0, 1, -1, 0, 0, 0)",
               transformOrigin: "50px 25px",
-            } as CSSStyleDeclaration)
+              getPropertyValue: () => "",
+            } as unknown as CSSStyleDeclaration)
           : getComputedStyle.call(window, target, pseudoElement),
       );
 
@@ -3212,7 +3214,10 @@ describe("slide object groups and rotation", () => {
     ].join(", ")})`;
 
     expect(readSlideObjectRotation(element)).toBeCloseTo(angle);
-    setSlideObjectRotation(element, readSlideObjectRotation(element) + 15);
+    setSlideObjectRotation(
+      element,
+      (readSlideObjectRotation(element) ?? 0) + 15,
+    );
     expect(readSlideObjectRotation(element)).toBeCloseTo(angle + 15);
   });
 
@@ -4323,6 +4328,577 @@ describe("default text box colour", () => {
   });
 });
 
+describe("transform-origin parsing", () => {
+  it.each([
+    ["top left", 0, 0],
+    ["left top", 0, 0],
+    ["top", 50, 0],
+    ["bottom", 50, 20],
+    ["right", 100, 10],
+    ["left", 0, 10],
+    ["center", 50, 10],
+    ["center top", 50, 0],
+    ["top center", 50, 0],
+    ["center left", 0, 10],
+    ["bottom right", 100, 20],
+    ["20% bottom", 20, 20],
+    ["left 10px", 0, 10],
+    ["10px top", 10, 0],
+    ["top left 0px", 0, 0],
+    ["left top 5px", 0, 0],
+    ["50% 50%", 50, 10],
+    ["10px 20px", 10, 20],
+    ["0 0", 0, 0],
+    ["-10px 150%", -10, 30],
+    ["  TOP   LEFT ", 0, 0],
+    ["", 50, 10],
+  ])("resolves %j in a 100x20 box to (%s, %s)", (value, x, y) => {
+    expect(parseSlideObjectTransformOrigin(value)?.(100, 20)).toEqual({ x, y });
+  });
+
+  it("resolves percentages and keywords against the dimensions it is given", () => {
+    const origin = parseSlideObjectTransformOrigin("25% bottom");
+    expect(origin?.(100, 20)).toEqual({ x: 25, y: 20 });
+    expect(origin?.(40, 80)).toEqual({ x: 10, y: 80 });
+  });
+
+  it.each([
+    "top 20px",
+    "bottom 25%",
+    "20px left",
+    "left right",
+    "top bottom",
+    "left left",
+    "constructor",
+    "calc(50% + 10px) top",
+    "var(--origin)",
+    "10em 0",
+    "50% 50% 50%",
+    "left top 10%",
+    "1 2 3 4",
+    "10 20",
+    "1e999px 0",
+  ])("refuses %j rather than guessing a centre", (value) => {
+    expect(parseSlideObjectTransformOrigin(value)).toBeNull();
+  });
+});
+
+describe("the effective transform of a slide object", () => {
+  const radians = (degrees: number) => (degrees * Math.PI) / 180;
+  const matrixOf = (transform: string) =>
+    transform
+      .match(/^matrix\((.+)\)$/)?.[1]
+      ?.split(",")
+      .map(Number);
+  const mount = (
+    declarations: Record<string, string>,
+    size = { width: 100, height: 20 },
+  ) => {
+    const element = createFreeformObject("effective");
+    for (const [property, value] of Object.entries(declarations)) {
+      element.style.setProperty(property, value);
+    }
+    resize(element, size);
+    return element;
+  };
+  const resize = (
+    element: HTMLElement,
+    size: { width: number; height: number },
+  ) => {
+    Object.defineProperty(element, "offsetWidth", {
+      value: size.width,
+      configurable: true,
+    });
+    Object.defineProperty(element, "offsetHeight", {
+      value: size.height,
+      configurable: true,
+    });
+  };
+
+  it.each([
+    [
+      "rotate",
+      { rotate: "20deg" },
+      [
+        Math.cos(radians(20)),
+        Math.sin(radians(20)),
+        -Math.sin(radians(20)),
+        Math.cos(radians(20)),
+        0,
+        0,
+      ],
+    ],
+    ["scale", { scale: "1.4" }, [1.4, 0, 0, 1.4, 0, 0]],
+    ["scale on both axes", { scale: "1.4 1.2" }, [1.4, 0, 0, 1.2, 0, 0]],
+    ["a percentage scale", { scale: "150%" }, [1.5, 0, 0, 1.5, 0, 0]],
+    ["translate", { translate: "30px 10px" }, [1, 0, 0, 1, 30, 10]],
+    ["translate along x", { translate: "30px" }, [1, 0, 0, 1, 30, 0]],
+    [
+      "translate by the object's own box",
+      { translate: "10% 50%" },
+      [1, 0, 0, 1, 10, 10],
+    ],
+    ["a turn of rotation", { rotate: "0.25turn" }, [0, 1, -1, 0, 0, 0]],
+    ["an explicit z axis", { rotate: "z 90deg" }, [0, 1, -1, 0, 0, 0]],
+  ])("composes %s into one matrix", (_name, declarations, expected) => {
+    const matrix = matrixOf(
+      readSlideObjectTransformSnapshot(mount(declarations)).transform,
+    );
+
+    expect(matrix).toHaveLength(6);
+    expected.forEach((value, index) => {
+      expect(matrix?.[index]).toBeCloseTo(value, 9);
+    });
+  });
+
+  it("applies translate, rotate, scale, then transform, as CSS does", () => {
+    const element = mount({
+      translate: "10px 0px",
+      rotate: "90deg",
+      scale: "2",
+      transform: "matrix(1, 0, 0, 1, 5, 0)",
+    });
+
+    // (x, y) -> transform: (x + 5, y) -> scale: (2x + 10, 2y)
+    // -> rotate: (-2y, 2x + 10) -> translate: (-2y + 10, 2x + 10)
+    const matrix = matrixOf(
+      readSlideObjectTransformSnapshot(element).transform,
+    );
+    [0, 2, -2, 0, 10, 10].forEach((value, index) => {
+      expect(matrix?.[index]).toBeCloseTo(value, 9);
+    });
+  });
+
+  it("leaves the transform property untouched when no longhand is set", () => {
+    expect(
+      readSlideObjectTransformSnapshot(
+        mount({
+          transform: "matrix(1.5, 0, 0, 1.5, 20, 8)",
+          rotate: "none",
+          scale: "none",
+          translate: "none",
+        }),
+      ).transform,
+    ).toBe("matrix(1.5, 0, 0, 1.5, 20, 8)");
+    expect(readSlideObjectTransformSnapshot(mount({})).transform).toBe("none");
+  });
+
+  it.each([
+    ["an axis keyword", { rotate: "x 20deg" }],
+    ["a 3D axis", { rotate: "1 1 0 20deg" }],
+    ["a z scale", { scale: "2 2 2" }],
+    ["a z translation", { translate: "10px 10px 10px" }],
+    ["a relative unit", { translate: "2em 0px" }],
+  ])(
+    "reports %s as a transform no consumer can read, not as none",
+    (_name, declarations) => {
+      const element = mount({ position: "absolute", ...declarations });
+      const { transform } = readSlideObjectTransformSnapshot(element);
+
+      expect(transform).not.toBe("none");
+      expect(matrixOf(transform)).toBeUndefined();
+      expect(
+        readSlideObjectSelectionFrame(element, {
+          left: 0,
+          top: 0,
+          width: 100,
+          height: 20,
+        } as DOMRect),
+      ).toBeNull();
+    },
+  );
+
+  it("keeps an unreadable transform property unreadable when a longhand is also set", () => {
+    const { transform } = readSlideObjectTransformSnapshot(
+      mount({
+        rotate: "20deg",
+        transform: "perspective(400px) rotateY(30deg)",
+      }),
+    );
+
+    expect(transform).not.toBe("none");
+    expect(matrixOf(transform)).toBeUndefined();
+  });
+
+  it("reads the rotation a rotate property adds to the transform", () => {
+    expect(readSlideObjectRotation(mount({ rotate: "20deg" }))).toBeCloseTo(
+      20,
+      9,
+    );
+    expect(
+      readSlideObjectRotation(
+        mount({ rotate: "20deg", transform: "rotate(10deg)" }),
+      ),
+    ).toBeCloseTo(30, 9);
+    expect(
+      readSlideObjectRotation(mount({ transform: "rotate(200deg)" })),
+    ).toBe(200);
+  });
+
+  it("reads the rotation of the matrix the browser painted, not of the authored string", () => {
+    const element = mount({
+      position: "absolute",
+      transform: "translate(-50%, -50%) rotate(15deg)",
+      rotate: "30deg",
+    });
+    const getComputedStyle = window.getComputedStyle;
+    const mock = vi
+      .spyOn(window, "getComputedStyle")
+      .mockImplementation((target, pseudoElement) =>
+        target === element
+          ? ({
+              transform: `matrix(${Math.cos(radians(15))}, ${Math.sin(radians(15))}, ${-Math.sin(radians(15))}, ${Math.cos(radians(15))}, -50, -10)`,
+              transformOrigin: "50px 10px",
+              getPropertyValue: (property: string) =>
+                property === "rotate" ? "30deg" : "",
+            } as unknown as CSSStyleDeclaration)
+          : getComputedStyle.call(window, target, pseudoElement),
+      );
+
+    try {
+      expect(readSlideObjectRotation(element)).toBeCloseTo(45, 9);
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
+  it.each([
+    ["an axis keyword", { rotate: "x 30deg" }],
+    ["a z scale", { rotate: "30deg", scale: "1 1 2" }],
+    [
+      "a calc() translation",
+      { rotate: "30deg", translate: "calc(50% - 10px)" },
+    ],
+    [
+      "a transform list that has a percentage in it",
+      { rotate: "30deg", transform: "translate(-50%, -50%) rotate(15deg)" },
+    ],
+  ])("has no rotation to read for %s", (_name, declarations) => {
+    expect(readSlideObjectRotation(mount(declarations))).toBeNull();
+  });
+
+  it("plans no rotation for a member whose rotation could not be read", () => {
+    const element = mount({ position: "absolute" });
+
+    expect(
+      rotateSlideObjectMembers(
+        [
+          rotationMember(
+            "a",
+            element,
+            { x: 0, y: 0, width: 100, height: 20 },
+            null,
+          ),
+        ],
+        30,
+      ).size,
+    ).toBe(0);
+  });
+
+  it("ungroups nothing when the group's rotation cannot be read", () => {
+    const group = document.createElement("div");
+    group.className = "fmd-slide-group";
+    group.setAttribute("data-slide-group", "true");
+    group.style.position = "absolute";
+    group.style.setProperty("rotate", "30deg");
+    group.style.setProperty("translate", "calc(50% - 10px) 0px");
+    const first = createFreeformObject("first");
+    const second = createFreeformObject("second");
+    group.append(first, second);
+    document.body.append(group);
+    const geometries = new Map<HTMLElement, SlideObjectGeometry>([
+      [group, { x: 100, y: 100, width: 200, height: 100 }],
+      [first, { x: 20, y: 20, width: 40, height: 20 }],
+      [second, { x: 120, y: 50, width: 30, height: 20 }],
+    ]);
+    const applied: HTMLElement[] = [];
+
+    try {
+      expect(
+        ungroupSlideObject(
+          group,
+          (element) => geometries.get(element)!,
+          (element) => applied.push(element),
+        ),
+      ).toBeNull();
+      expect(applied).toEqual([]);
+      expect(group.isConnected).toBe(true);
+    } finally {
+      group.remove();
+    }
+  });
+
+  it("falls back to the origin the browser resolved when the authored one is not a value we parse", () => {
+    const element = mount({
+      position: "absolute",
+      transform: "rotate(20deg)",
+      "transform-origin": "calc(50% + 10px) 0",
+    });
+    const getComputedStyle = window.getComputedStyle;
+    const mock = vi
+      .spyOn(window, "getComputedStyle")
+      .mockImplementation((target, pseudoElement) =>
+        target === element
+          ? ({
+              transform: "matrix(0.9397, 0.342, -0.342, 0.9397, 0, 0)",
+              transformOrigin: "60px 0px",
+              getPropertyValue: () => "",
+            } as unknown as CSSStyleDeclaration)
+          : getComputedStyle.call(window, target, pseudoElement),
+      );
+
+    try {
+      expect(readSlideObjectTransformSnapshot(element).transformOrigin).toBe(
+        "60% 0%",
+      );
+      expect(
+        readSlideObjectSelectionFrame(element, {
+          left: 0,
+          top: 0,
+          width: 100,
+          height: 20,
+        } as DOMRect),
+      ).not.toBeNull();
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
+  it("keeps an authored origin it cannot parse when the browser resolved none", () => {
+    const element = mount({
+      position: "absolute",
+      transform: "rotate(20deg)",
+      "transform-origin": "calc(50% + 10px) 0",
+    });
+    const getComputedStyle = window.getComputedStyle;
+    const mock = vi
+      .spyOn(window, "getComputedStyle")
+      .mockImplementation((target, pseudoElement) =>
+        target === element
+          ? ({
+              transform: "matrix(0.9397, 0.342, -0.342, 0.9397, 0, 0)",
+              transformOrigin: "",
+              getPropertyValue: () => "",
+            } as unknown as CSSStyleDeclaration)
+          : getComputedStyle.call(window, target, pseudoElement),
+      );
+
+    try {
+      expect(readSlideObjectTransformSnapshot(element).transformOrigin).toBe(
+        "calc(50% + 10px) 0",
+      );
+      expect(
+        readSlideObjectSelectionFrame(element, {
+          left: 0,
+          top: 0,
+          width: 100,
+          height: 20,
+        } as DOMRect),
+      ).toBeNull();
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
+  it("bounds a group around a member that is rotated by the rotate property", () => {
+    const parent = document.createElement("div");
+    const first = createFreeformObject("first");
+    const second = createFreeformObject("second");
+    first.style.setProperty("rotate", "90deg");
+    Object.defineProperty(first, "offsetWidth", { value: 100 });
+    Object.defineProperty(first, "offsetHeight", { value: 20 });
+    parent.append(first, second);
+    const geometries = new Map<HTMLElement, SlideObjectGeometry>([
+      [first, { x: 10, y: 10, width: 100, height: 20 }],
+      [second, { x: 90, y: 10, width: 20, height: 20 }],
+    ]);
+
+    const group = groupSlideObjects(
+      [first, second],
+      (element) => geometries.get(element)!,
+      (element, geometry) =>
+        geometries.set(element, { ...geometries.get(element)!, ...geometry }),
+    );
+
+    expect(group?.style.left).toBe("50px");
+    expect(group?.style.top).toBe("-30px");
+    expect(group?.style.width).toBe("60px");
+    expect(group?.style.height).toBe("100px");
+  });
+
+  // The editor writes a plan's `transform` over the inline transform and
+  // leaves the object's translate, rotate and scale in place, so what a plan
+  // writes must paint the planned transform on top of them.
+  describe("writing a plan back while the longhands stay on the element", () => {
+    const effective = (element: HTMLElement) => {
+      const matrix = matrixOf(
+        readSlideObjectTransformSnapshot(element).transform,
+      );
+      expect(matrix).toHaveLength(6);
+      return matrix ?? [];
+    };
+    const rotated = (matrix: number[], degrees: number, scale: number) => [
+      scale * Math.cos(radians(degrees)),
+      scale * Math.sin(radians(degrees)),
+      -scale * Math.sin(radians(degrees)),
+      scale * Math.cos(radians(degrees)),
+      matrix[4] ?? 0,
+      matrix[5] ?? 0,
+    ];
+    const expectMatrix = (actual: number[], expected: number[]) => {
+      expected.forEach((value, index) => {
+        expect(actual[index]).toBeCloseTo(value, 6);
+      });
+    };
+
+    it("rotates an object that sets translate, rotate and scale once, not twice", () => {
+      const element = mount({
+        position: "absolute",
+        translate: "10% 20%",
+        rotate: "20deg",
+        scale: "2",
+        transform: "matrix(1, 0, 0, 1, 6, 2)",
+      });
+      const before = effective(element);
+      const member = rotationMember(
+        "effective",
+        element,
+        { x: 0, y: 0, width: 100, height: 20 },
+        readSlideObjectRotation(element),
+      );
+      expect(member.rotation).toBeCloseTo(20, 9);
+
+      const next = rotateSlideObjectMembers([member], 30).get("effective")!;
+      element.style.transform = next.transform;
+
+      expect(next.rotation).toBeCloseTo(50, 9);
+      expectMatrix(effective(element), rotated(before, 50, 2));
+      expect(element.style.getPropertyValue("rotate")).toBe("20deg");
+    });
+
+    it("rotates an object whose translate, rotate and scale come from a stylesheet", () => {
+      const style = document.createElement("style");
+      style.textContent =
+        ".slide-longhand-test { rotate: 20deg; scale: 2; translate: 10px 0px; }";
+      document.head.append(style);
+      const element = mount({ position: "absolute" });
+      element.classList.add("slide-longhand-test");
+      document.body.append(element);
+
+      try {
+        const before = effective(element);
+        const member = rotationMember(
+          "effective",
+          element,
+          { x: 0, y: 0, width: 100, height: 20 },
+          readSlideObjectRotation(element),
+        );
+
+        const next = rotateSlideObjectMembers([member], -35).get("effective")!;
+        element.style.transform = next.transform;
+
+        expectMatrix(effective(element), rotated(before, -15, 2));
+      } finally {
+        element.remove();
+        style.remove();
+      }
+    });
+
+    it("keeps an object's translate, rotate and scale in step with its resized group", () => {
+      const element = mount({
+        position: "absolute",
+        translate: "10% 4px",
+        rotate: "20deg",
+        transform: "matrix(1.5, 0, 0, 1.5, 6, 2)",
+        "transform-origin": "25% 75%",
+      });
+      const before = effective(element);
+      const member = groupResizeMember("effective", element, {
+        x: 10,
+        y: 10,
+        width: 100,
+        height: 20,
+      });
+
+      const plan = scaleSlideObjectGroupMembers(
+        [member],
+        { width: 200, height: 100 },
+        { width: 400, height: 200 },
+      ).get(element)!;
+      resize(element, { width: 200, height: 40 });
+      element.style.transform = plan.transform!;
+      element.style.transformOrigin = plan.transformOrigin!;
+
+      // Doubling the group doubles the object's translation and nothing else.
+      expectMatrix(effective(element), [
+        before[0] ?? 0,
+        before[1] ?? 0,
+        before[2] ?? 0,
+        before[3] ?? 0,
+        2 * (before[4] ?? 0),
+        2 * (before[5] ?? 0),
+      ]);
+    });
+
+    it.each([
+      ["a longhand it cannot read", { rotate: "x 20deg" }],
+      ["a scale that collapses the object", { scale: "0" }],
+    ])("plans nothing for %s", (_name, declarations) => {
+      const element = mount({ position: "absolute", ...declarations });
+      const start = { x: 0, y: 0, width: 100, height: 20 };
+
+      expect(
+        rotateSlideObjectMembers([rotationMember("a", element, start, 0)], 30)
+          .size,
+      ).toBe(0);
+      expect(
+        scaleSlideObjectGroupMembers(
+          [groupResizeMember("a", element, start)],
+          { width: 200, height: 100 },
+          { width: 400, height: 200 },
+        ).size,
+      ).toBe(0);
+    });
+
+    it("ungroups a rotate-property child into the rotated group's frame once", () => {
+      const parent = document.createElement("div");
+      const group = document.createElement("div");
+      group.className = "fmd-slide-group";
+      group.setAttribute("data-slide-group", "true");
+      group.style.position = "absolute";
+      const first = createFreeformObject("first");
+      const second = createFreeformObject("second");
+      first.style.setProperty("rotate", "20deg");
+      first.style.transformOrigin = "50% 50%";
+      group.append(first, second);
+      parent.append(group);
+      document.body.append(parent);
+      const geometries = new Map<HTMLElement, SlideObjectGeometry>([
+        [group, { x: 100, y: 100, width: 200, height: 100 }],
+        [first, { x: 20, y: 20, width: 40, height: 20 }],
+        [second, { x: 120, y: 50, width: 30, height: 20 }],
+      ]);
+      setSlideObjectRotation(group, 90);
+
+      ungroupSlideObject(
+        group,
+        (element) => geometries.get(element)!,
+        (element, geometry) => {
+          geometries.set(element, { ...geometries.get(element)!, ...geometry });
+        },
+      );
+
+      const next = geometries.get(first)!;
+      // The child's centre (140, 130) turns 90deg about the group's (200, 150).
+      expect(next.x + next.width / 2).toBeCloseTo(220, 6);
+      expect(next.y + next.height / 2).toBeCloseTo(90, 6);
+      expect(readSlideObjectRotation(first)).toBeCloseTo(110, 5);
+      expect(first.style.getPropertyValue("rotate")).toBe("20deg");
+      parent.remove();
+    });
+  });
+});
+
 describe("rotated containing block basis", () => {
   const rotation = (degrees: number, scale: number) => {
     const radians = (degrees * Math.PI) / 180;
@@ -4568,6 +5144,326 @@ describe("rotated containing block basis", () => {
 
       expect(box).toBeNull();
       canvas.remove();
+    });
+
+    describe("a leaf painted through transform-origin keywords or the translate, rotate and scale properties", () => {
+      type Matrix = [number, number, number, number, number, number];
+      type Corner = [number, number];
+      const BOX = { x: 40, y: 30, width: 100, height: 20 };
+      const rotationOf = (degrees: number): Matrix => {
+        const radians = (degrees * Math.PI) / 180;
+        return [
+          Math.cos(radians),
+          Math.sin(radians),
+          -Math.sin(radians),
+          Math.cos(radians),
+          0,
+          0,
+        ];
+      };
+      const translationOf = (x: number, y: number): Matrix => [
+        1,
+        0,
+        0,
+        1,
+        x,
+        y,
+      ];
+      const scalingOf = (x: number, y: number): Matrix => [x, 0, 0, y, 0, 0];
+      const product = (...matrices: Matrix[]) =>
+        matrices.reduce(
+          (m, n): Matrix => [
+            m[0] * n[0] + m[2] * n[1],
+            m[1] * n[0] + m[3] * n[1],
+            m[0] * n[2] + m[2] * n[3],
+            m[1] * n[2] + m[3] * n[3],
+            m[0] * n[4] + m[2] * n[5] + m[4],
+            m[1] * n[4] + m[3] * n[5] + m[5],
+          ],
+        );
+      const nested = product(translationOf(5, 7), rotationOf(10));
+      const sheared = product(scalingOf(1.5, 0.5), rotationOf(15));
+
+      // `hull` is [left, top, width, height] of the box headless Chromium
+      // painted for the same declarations, relative to the layout box. `matrix`
+      // is the transform CSS composes from them (translate, rotate, scale, then
+      // transform) about `origin`.
+      const cases: {
+        name: string;
+        declarations: Record<string, string>;
+        origin: Corner;
+        matrix: Matrix;
+        hull: [number, number, number, number];
+      }[] = [
+        {
+          name: "rotate: 20deg",
+          declarations: { rotate: "20deg" },
+          origin: [50, 10],
+          matrix: rotationOf(20),
+          hull: [-0.404831, -16.497932, 100.809662, 52.995865],
+        },
+        {
+          name: "scale: 1.4",
+          declarations: { scale: "1.4" },
+          origin: [50, 10],
+          matrix: scalingOf(1.4, 1.4),
+          hull: [-20, -4, 140, 28],
+        },
+        {
+          name: "translate: 30px 10px",
+          declarations: { translate: "30px 10px" },
+          origin: [50, 10],
+          matrix: translationOf(30, 10),
+          hull: [30, 10, 100, 20],
+        },
+        {
+          name: "translate: 10% 50%",
+          declarations: { translate: "10% 50%" },
+          origin: [50, 10],
+          matrix: translationOf(10, 10),
+          hull: [10, 10, 100, 20],
+        },
+        {
+          name: "rotate: 20deg about top left",
+          declarations: { rotate: "20deg", "transform-origin": "top left" },
+          origin: [0, 0],
+          matrix: rotationOf(20),
+          hull: [-6.840408, 0, 100.809677, 52.995865],
+        },
+        {
+          name: "rotate: 20deg about top",
+          declarations: { rotate: "20deg", "transform-origin": "top" },
+          origin: [50, 0],
+          matrix: rotationOf(20),
+          hull: [-3.825027, -17.101006, 100.809662, 52.995865],
+        },
+        {
+          name: "transform: rotate(20deg) about top left",
+          declarations: {
+            transform: "rotate(20deg)",
+            "transform-origin": "top left",
+          },
+          origin: [0, 0],
+          matrix: rotationOf(20),
+          hull: [-6.840408, 0, 100.809677, 52.995865],
+        },
+        {
+          name: "transform: rotate(20deg) about top",
+          declarations: {
+            transform: "rotate(20deg)",
+            "transform-origin": "top",
+          },
+          origin: [50, 0],
+          matrix: rotationOf(20),
+          hull: [-3.825027, -17.101006, 100.809662, 52.995865],
+        },
+        {
+          name: "translate, rotate, scale and transform about 20% 80%",
+          declarations: {
+            translate: "30px 10px",
+            rotate: "20deg",
+            scale: "1.4 1.2",
+            transform: `matrix(${nested.join(", ")})`,
+            "transform-origin": "20% 80%",
+          },
+          origin: [20, 16],
+          matrix: product(
+            translationOf(30, 10),
+            rotationOf(20),
+            scalingOf(1.4, 1.2),
+            nested,
+          ),
+          hull: [26.688065, 6.502625, 135.084091, 87.283524],
+        },
+        {
+          name: "rotate and a sheared transform about right bottom",
+          declarations: {
+            rotate: "20deg",
+            transform: `matrix(${sheared.join(", ")})`,
+            "transform-origin": "right bottom",
+          },
+          origin: [100, 20],
+          matrix: product(rotationOf(20), sheared),
+          hull: [-31.724937, -48.136524, 142.324921, 68.13652],
+        },
+        {
+          name: "translate, rotate and scale about 100% 0",
+          declarations: {
+            translate: "10% 50%",
+            rotate: "30deg",
+            scale: "0.5 2",
+            "transform-origin": "100% 0",
+          },
+          origin: [100, 0],
+          matrix: product(
+            translationOf(10, 10),
+            rotationOf(30),
+            scalingOf(0.5, 2),
+          ),
+          hull: [46.69873, -15, 63.30127, 59.641014],
+        },
+      ];
+
+      /** The bounding box of the painted layout box, in screen space. */
+      const paintedRect =
+        (matrix: Matrix, [ox, oy]: Corner) =>
+        (toScreen: (x: number, y: number) => { x: number; y: number }) => {
+          const points = (
+            [
+              [0, 0],
+              [BOX.width, 0],
+              [0, BOX.height],
+              [BOX.width, BOX.height],
+            ] as Corner[]
+          ).map(([x, y]) =>
+            toScreen(
+              BOX.x +
+                ox +
+                matrix[0] * (x - ox) +
+                matrix[2] * (y - oy) +
+                matrix[4],
+              BOX.y +
+                oy +
+                matrix[1] * (x - ox) +
+                matrix[3] * (y - oy) +
+                matrix[5],
+            ),
+          );
+          const left = Math.min(...points.map((point) => point.x));
+          const top = Math.min(...points.map((point) => point.y));
+          return DOMRect.fromRect({
+            x: left,
+            y: top,
+            width: Math.max(...points.map((point) => point.x)) - left,
+            height: Math.max(...points.map((point) => point.y)) - top,
+          });
+        };
+
+      const promote = (
+        declarations: Record<string, string>,
+        block: { transform: string; degrees: number; scale: number },
+        rectFor: (
+          toScreen: (x: number, y: number) => { x: number; y: number },
+        ) => DOMRect,
+      ) => {
+        const {
+          canvas,
+          block: blockElement,
+          leaf,
+        } = mountPromotion(block.transform);
+        for (const [property, value] of Object.entries(declarations)) {
+          leaf.style.setProperty(property, value);
+        }
+        const radians = (block.degrees * Math.PI) / 180;
+        const toScreen = (x: number, y: number) => ({
+          x:
+            300 +
+            Math.cos(radians) * block.scale * x -
+            Math.sin(radians) * block.scale * y,
+          y:
+            120 +
+            Math.sin(radians) * block.scale * x +
+            Math.cos(radians) * block.scale * y,
+        });
+        Object.defineProperty(leaf, "offsetWidth", { value: BOX.width });
+        Object.defineProperty(leaf, "offsetHeight", { value: BOX.height });
+        const rectSpy = vi
+          .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+          .mockImplementation(function (this: HTMLElement) {
+            return DOMRect.fromRect(
+              toScreen(
+                Number.parseFloat(this.style.left || "0"),
+                Number.parseFloat(this.style.top || "0"),
+              ),
+            );
+          });
+        try {
+          return clientRectToContainingBlockBox(
+            rectFor(toScreen),
+            leaf,
+            blockElement,
+            canvas,
+          );
+        } finally {
+          rectSpy.mockRestore();
+          canvas.remove();
+        }
+      };
+
+      const expectLayoutBox = (
+        box: ReturnType<typeof clientRectToContainingBlockBox>,
+      ) => {
+        expect(box).not.toBeNull();
+        expect(box?.x).toBeCloseTo(BOX.x, 2);
+        expect(box?.y).toBeCloseTo(BOX.y, 2);
+        expect(box?.width).toBe(BOX.width);
+        expect(box?.height).toBe(BOX.height);
+      };
+
+      it.each(cases)(
+        "$name: the reference model paints the box Chromium painted",
+        ({ matrix, origin, hull }) => {
+          const rect = paintedRect(matrix, origin)((x, y) => ({ x, y }));
+
+          expect(rect.x - BOX.x).toBeCloseTo(hull[0], 3);
+          expect(rect.y - BOX.y).toBeCloseTo(hull[1], 3);
+          expect(rect.width).toBeCloseTo(hull[2], 3);
+          expect(rect.height).toBeCloseTo(hull[3], 3);
+        },
+      );
+
+      it.each(cases)(
+        "$name: promotes from the hull Chromium painted back to the layout box",
+        ({ declarations, hull }) => {
+          const box = promote(
+            declarations,
+            { transform: "none", degrees: 0, scale: 1 },
+            (toScreen) => {
+              const { x, y } = toScreen(BOX.x + hull[0], BOX.y + hull[1]);
+              return DOMRect.fromRect({
+                x,
+                y,
+                width: hull[2],
+                height: hull[3],
+              });
+            },
+          );
+
+          expectLayoutBox(box);
+        },
+      );
+
+      it.each(cases)(
+        "$name: promotes back to the layout box inside a rotated, scaled block",
+        ({ declarations, matrix, origin }) => {
+          const box = promote(
+            declarations,
+            { transform: "rotate(25deg) scale(0.8)", degrees: 25, scale: 0.8 },
+            paintedRect(matrix, origin),
+          );
+
+          expectLayoutBox(box);
+        },
+      );
+
+      it.each([
+        ["an axis keyword", { rotate: "x 20deg" }],
+        ["a 3D axis", { rotate: "1 1 0 20deg" }],
+        ["a z scale", { scale: "2 2 2" }],
+        ["a z translation", { translate: "10px 10px 10px" }],
+        [
+          "an origin it cannot read",
+          { rotate: "20deg", "transform-origin": "calc(50% + 4px) top" },
+        ],
+      ])("reports no box for %s", (_name, declarations) => {
+        const box = promote(
+          declarations,
+          { transform: "none", degrees: 0, scale: 1 },
+          paintedRect(rotationOf(20), [50, 10]),
+        );
+
+        expect(box).toBeNull();
+      });
     });
 
     it("keeps the bounding-rect conversion for unrotated blocks", () => {

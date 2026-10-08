@@ -199,6 +199,7 @@ import {
   canDropSlideLayerAdjacent,
   canDropSlideLayerInside,
   clampSlideObjectPlacementPosition,
+  clearSlideObjectRotateProperty,
   clientPointToSlideCoordinates,
   clientRectToContainingBlockBox,
   cloneSlideObject,
@@ -820,11 +821,8 @@ function buildStyleSnapshot(
   const isAbsolute = computed.position === "absolute";
   const slideWidth = fmdSlide?.offsetWidth ?? 0;
   const slideHeight = fmdSlide?.offsetHeight ?? 0;
-  const matrix = new DOMMatrixReadOnly(computed.transform);
-  const rotation =
-    computed.transform === "none"
-      ? 0
-      : Math.round((Math.atan2(matrix.b, matrix.a) * 180) / Math.PI);
+  // The inspector has no state for a rotation it cannot read, so that shows as 0.
+  const rotation = Math.round(readSlideObjectRotation(element) ?? 0);
   const textPreview = (element.textContent ?? "").trim().slice(0, 80);
   const blockFontSize = cssPx(computed.fontSize);
   const rawLineHeight = cssPx(computed.lineHeight);
@@ -2242,9 +2240,18 @@ export default function SlideEditor({
    *  placing pointerdown doesn't fall through to click-to-select/deselect
    *  logic and steal focus back off the freshly created box. */
   const suppressNextClickRef = useRef(false);
-  /** Ends the click suppression an Escape-cancelled gesture armed. */
-  const cancelClickSuppressionRef = useRef<(() => void) | null>(null);
-  useEffect(() => () => cancelClickSuppressionRef.current?.(), []);
+  /**
+   * The presses whose drag Escape cancelled and whose button is still down, by
+   * pointer. Each entry ends that hold; the pointer's release click must not
+   * select the object the press started on.
+   */
+  const cancelledPressesRef = useRef(new Map<number, () => void>());
+  useEffect(
+    () => () => {
+      for (const end of cancelledPressesRef.current.values()) end();
+    },
+    [],
+  );
   // The click that ends a press finishes what the press resolved. It cannot
   // re-resolve: a press selects, which changes what the pointer resolves to,
   // and a drag across text leaves clicks on their common ancestor.
@@ -2264,7 +2271,11 @@ export default function SlideEditor({
     x: number;
     y: number;
   } | null>(null);
-  const activeGestureCancelRef = useRef<(() => void) | null>(null);
+  /** The cancellable gesture in flight and the pointer whose press began it. */
+  const activeGestureRef = useRef<{
+    cancel: () => void;
+    pointerId: number;
+  } | null>(null);
   /**
    * If the user pressed shift/cmd before starting a marquee, additive mode
    * preserves the existing selection on pointerup.
@@ -4188,6 +4199,58 @@ export default function SlideEditor({
     onUndoSelectionConsumed,
   ]);
 
+  /**
+   * Keeps the release click of an Escape-cancelled press from click-selecting
+   * the object the press started on. The release can be lost (mouseup outside
+   * the window, alt-tab), so a hold also ends when its pointer presses again,
+   * when the window loses focus, and once the timeout has passed with no
+   * button down. Only the held pointer's events speak for its hold.
+   */
+  const holdCancelledPress = useCallback((pointerId: number) => {
+    const holds = cancelledPressesRef.current;
+    holds.get(pointerId)?.();
+    const ownsPress = (pointerEvent: PointerEvent) =>
+      pointerEvent.pointerId === pointerId;
+    let buttonDown = true;
+    let timedOut = false;
+    const drop = () => {
+      if (holds.get(pointerId) === onLost) holds.delete(pointerId);
+    };
+    const settle = (afterClick: boolean) => {
+      window.removeEventListener("pointerup", onRelease);
+      window.removeEventListener("pointercancel", onRelease);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerdown", onPress, true);
+      window.removeEventListener("blur", onLost);
+      window.clearTimeout(timer);
+      // The click that ends the press arrives after its release.
+      if (afterClick) window.setTimeout(drop, 0);
+      else drop();
+    };
+    const onRelease = (releaseEvent: PointerEvent) => {
+      if (ownsPress(releaseEvent)) settle(true);
+    };
+    const onPress = (pressEvent: PointerEvent) => {
+      if (ownsPress(pressEvent)) settle(false);
+    };
+    const onLost = () => settle(false);
+    const onMove = (moveEvent: PointerEvent) => {
+      if (!ownsPress(moveEvent)) return;
+      buttonDown = moveEvent.buttons !== 0;
+      if (timedOut && !buttonDown) onLost();
+    };
+    const timer = window.setTimeout(() => {
+      timedOut = true;
+      if (!buttonDown) onLost();
+    }, CANCEL_CLICK_SUPPRESSION_TIMEOUT_MS);
+    holds.set(pointerId, onLost);
+    window.addEventListener("pointerup", onRelease);
+    window.addEventListener("pointercancel", onRelease);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerdown", onPress, true);
+    window.addEventListener("blur", onLost);
+  }, []);
+
   // One Escape owner for the HTML editor. Radix dialogs/popovers and native
   // form controls retain their own Escape behavior before we arbitrate canvas
   // state. Gesture cancellation is deliberately ahead of selection clearing.
@@ -4218,9 +4281,10 @@ export default function SlideEditor({
           (target instanceof HTMLElement && target.isContentEditable)) &&
           !editing?.contains(target)),
       );
+      const held = activeGestureRef.current;
       const action = decideSlideEscape({
         editing: Boolean(editing),
-        activeGesture: activeGestureCancelRef.current !== null,
+        activeGesture: held !== null,
         activeMode: Boolean(drawMode || pinMode || textBoxMode || shapeType),
         multiSelection: multiSelection.size > 0,
         singleSelection: Boolean(selectedElementSelector),
@@ -4234,56 +4298,15 @@ export default function SlideEditor({
       if (action === "edit") {
         exitInlineEdit();
         slideCanvasRef.current?.focus({ preventScroll: true });
-      } else if (action === "gesture") {
+      } else if (action === "gesture" && held) {
         // The cancel restores the selection the gesture started with; Escape
         // then clears it, as in Google Slides.
-        activeGestureCancelRef.current?.();
+        held.cancel();
         clearMultiSelection();
         clearSelectedElement();
         syncSelectionToAppState(null);
-        // The button is still down: its release must not click-select the
-        // object the cancelled gesture started on.
         pointerPressRef.current = null;
-        suppressNextClickRef.current = true;
-        cancelClickSuppressionRef.current?.();
-        // The release can be lost (mouseup outside the window, alt-tab), and
-        // the flag would then swallow a later real click. A button still held
-        // past the timeout keeps the flag until its release or a pointer event
-        // that reports no button down.
-        let buttonDown = true;
-        let timedOut = false;
-        const settle = (afterClick: boolean) => {
-          window.removeEventListener("pointerup", onRelease);
-          window.removeEventListener("pointercancel", onRelease);
-          window.removeEventListener("pointermove", onMove);
-          window.removeEventListener("pointerdown", onLost, true);
-          window.removeEventListener("blur", onLost);
-          window.clearTimeout(timer);
-          cancelClickSuppressionRef.current = null;
-          if (afterClick) {
-            window.setTimeout(function clearCancelClickSuppression() {
-              suppressNextClickRef.current = false;
-            }, 0);
-          } else {
-            suppressNextClickRef.current = false;
-          }
-        };
-        const onRelease = () => settle(true);
-        const onLost = () => settle(false);
-        const onMove = (moveEvent: PointerEvent) => {
-          buttonDown = moveEvent.buttons !== 0;
-          if (timedOut && !buttonDown) onLost();
-        };
-        const timer = window.setTimeout(() => {
-          timedOut = true;
-          if (!buttonDown) onLost();
-        }, CANCEL_CLICK_SUPPRESSION_TIMEOUT_MS);
-        cancelClickSuppressionRef.current = onLost;
-        window.addEventListener("pointerup", onRelease);
-        window.addEventListener("pointercancel", onRelease);
-        window.addEventListener("pointermove", onMove);
-        window.addEventListener("pointerdown", onLost, true);
-        window.addEventListener("blur", onLost);
+        holdCancelledPress(held.pointerId);
       } else if (action === "mode") {
         if (drawMode) onExitDrawMode?.();
         else if (pinMode) onExitPinMode?.();
@@ -4304,6 +4327,7 @@ export default function SlideEditor({
     drawMode,
     exitInlineEdit,
     finishImageCrop,
+    holdCancelledPress,
     multiSelection.size,
     onExitDrawMode,
     onExitPinMode,
@@ -5114,6 +5138,9 @@ export default function SlideEditor({
             setSlideObjectDimension(element, property, value);
           } else {
             element.style.setProperty(stylePropertyName(property), value);
+            if (property === "transform") {
+              clearSlideObjectRotateProperty(element);
+            }
           }
         }
 
@@ -6150,8 +6177,8 @@ export default function SlideEditor({
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onCancel);
         clearAlignmentGuides();
-        if (activeGestureCancelRef.current === onCancel) {
-          activeGestureCancelRef.current = null;
+        if (activeGestureRef.current?.cancel === onCancel) {
+          activeGestureRef.current = null;
         }
       };
 
@@ -6350,7 +6377,7 @@ export default function SlideEditor({
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onCancel);
-      activeGestureCancelRef.current = onCancel;
+      activeGestureRef.current = { cancel: onCancel, pointerId: e.pointerId };
     },
     [
       applyObjectGeometry,
@@ -6542,8 +6569,8 @@ export default function SlideEditor({
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onCancel);
-        if (activeGestureCancelRef.current === onCancel) {
-          activeGestureCancelRef.current = null;
+        if (activeGestureRef.current?.cancel === onCancel) {
+          activeGestureRef.current = null;
         }
       };
 
@@ -6739,7 +6766,7 @@ export default function SlideEditor({
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onCancel);
-      activeGestureCancelRef.current = onCancel;
+      activeGestureRef.current = { cancel: onCancel, pointerId: e.pointerId };
     },
     [
       applyObjectGeometry,
@@ -6808,8 +6835,8 @@ export default function SlideEditor({
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onCancel);
-        if (activeGestureCancelRef.current === onCancel) {
-          activeGestureCancelRef.current = null;
+        if (activeGestureRef.current?.cancel === onCancel) {
+          activeGestureRef.current = null;
         }
       };
 
@@ -6910,7 +6937,7 @@ export default function SlideEditor({
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onCancel);
-      activeGestureCancelRef.current = onCancel;
+      activeGestureRef.current = { cancel: onCancel, pointerId: e.pointerId };
     },
     [
       applyObjectGeometry,
@@ -7116,8 +7143,8 @@ export default function SlideEditor({
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onCancel);
         clearAlignmentGuides();
-        if (activeGestureCancelRef.current === onCancel) {
-          activeGestureCancelRef.current = null;
+        if (activeGestureRef.current?.cancel === onCancel) {
+          activeGestureRef.current = null;
         }
       };
 
@@ -7304,7 +7331,7 @@ export default function SlideEditor({
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onCancel);
-      activeGestureCancelRef.current = onCancel;
+      activeGestureRef.current = { cancel: onCancel, pointerId: e.pointerId };
     },
     [
       applyObjectGeometry,
@@ -7565,8 +7592,8 @@ export default function SlideEditor({
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onCancel);
-        if (activeGestureCancelRef.current === onCancel) {
-          activeGestureCancelRef.current = null;
+        if (activeGestureRef.current?.cancel === onCancel) {
+          activeGestureRef.current = null;
         }
       };
 
@@ -7645,7 +7672,7 @@ export default function SlideEditor({
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onCancel);
-      activeGestureCancelRef.current = onCancel;
+      activeGestureRef.current = { cancel: onCancel, pointerId: e.pointerId };
     },
     [
       applyObjectGeometry,
@@ -7989,7 +8016,7 @@ export default function SlideEditor({
 
       placementRef.current = null;
       setPlacementRect(null);
-      activeGestureCancelRef.current = null;
+      activeGestureRef.current = null;
 
       const canvas = containerRef.current
         ? ensureSlideTextBoxCanvas(containerRef.current)
@@ -8058,7 +8085,7 @@ export default function SlideEditor({
 
   const handleSlidePointerCancel = useCallback(() => {
     if (!placementRef.current) return;
-    activeGestureCancelRef.current?.();
+    activeGestureRef.current?.cancel();
   }, []);
 
   const setCanvasHoverElement = useCallback((element: HTMLElement | null) => {
@@ -8152,7 +8179,7 @@ export default function SlideEditor({
         editingEl ||
         readOnly ||
         e.buttons !== 0 ||
-        activeGestureCancelRef.current ||
+        activeGestureRef.current ||
         // An armed placement tool owns the cursor; the inline cursor below
         // would override its crosshair class.
         shapeType ||
@@ -8218,11 +8245,14 @@ export default function SlideEditor({
           placementRef.current = null;
           setPlacementRect(null);
           suppressNextClickRef.current = false;
-          if (activeGestureCancelRef.current === cancelPlacement) {
-            activeGestureCancelRef.current = null;
+          if (activeGestureRef.current?.cancel === cancelPlacement) {
+            activeGestureRef.current = null;
           }
         };
-        activeGestureCancelRef.current = cancelPlacement;
+        activeGestureRef.current = {
+          cancel: cancelPlacement,
+          pointerId: e.pointerId,
+        };
         if (e.pointerId >= 0) e.currentTarget.setPointerCapture(e.pointerId);
         return;
       }
@@ -8244,11 +8274,14 @@ export default function SlideEditor({
           placementRef.current = null;
           setPlacementRect(null);
           suppressNextClickRef.current = false;
-          if (activeGestureCancelRef.current === cancelPlacement) {
-            activeGestureCancelRef.current = null;
+          if (activeGestureRef.current?.cancel === cancelPlacement) {
+            activeGestureRef.current = null;
           }
         };
-        activeGestureCancelRef.current = cancelPlacement;
+        activeGestureRef.current = {
+          cancel: cancelPlacement,
+          pointerId: e.pointerId,
+        };
         if (e.pointerId >= 0) e.currentTarget.setPointerCapture(e.pointerId);
         return;
       }
@@ -8699,6 +8732,9 @@ export default function SlideEditor({
           "height",
           "transform",
           "transform-origin",
+          "translate",
+          "rotate",
+          "scale",
           "z-index",
         ]) {
           const value = imageStyle.getPropertyValue(property);
@@ -8745,6 +8781,9 @@ export default function SlideEditor({
           maxHeight: "none",
           margin: "0",
         });
+        for (const property of ["translate", "rotate", "scale"]) {
+          image.style.setProperty(property, "none");
+        }
       }
 
       frame.classList.add("fmd-pptx-image");
@@ -9010,6 +9049,18 @@ export default function SlideEditor({
 
   const handleSlideClick = useCallback(
     (e: React.MouseEvent) => {
+      // The click is a PointerEvent naming the pointer that released. One that
+      // names none (a MouseEvent) cannot be told apart, so it ends a hold.
+      const { pointerId } = e.nativeEvent as Partial<PointerEvent>;
+      const holds = cancelledPressesRef.current;
+      const endHold =
+        pointerId === undefined
+          ? holds.values().next().value
+          : holds.get(pointerId);
+      if (endHold) {
+        endHold();
+        return;
+      }
       if (suppressNextClickRef.current) {
         suppressNextClickRef.current = false;
         return;

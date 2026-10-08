@@ -1084,6 +1084,235 @@ describe("SlideEditor pointer pipeline selection and press fixes", () => {
       expect(enterSelectionMode).not.toHaveBeenCalled();
     });
   });
+
+  describe("when a second pointer is active after Escape cancels a drag", () => {
+    const HELD = 7;
+    const OTHER = 2;
+    const tick = () =>
+      act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    const cancelHeldDrag = async (beforeEscape?: () => void) => {
+      const editor = await mountEditor(CLIP_SLIDE);
+      beforeEscape?.();
+      editor.press("card", { x: 85, y: 300 }, { pointerId: HELD });
+      fireEvent.pointerMove(window, {
+        clientX: 125,
+        clientY: 330,
+        pointerId: HELD,
+        buttons: 1,
+      });
+      fireEvent.keyDown(window, { key: "Escape" });
+      vi.mocked(enterSelectionMode).mockClear();
+      return editor;
+    };
+    const expectReleaseClickSwallowed = async (
+      editor: Awaited<ReturnType<typeof mountEditor>>,
+    ) => {
+      editor.release("card", { x: 125, y: 330 }, { pointerId: HELD });
+      expect(editor.hasSelection()).toBe(false);
+      expect(enterSelectionMode).not.toHaveBeenCalled();
+      // The suppression is spent: the next click selects normally.
+      await tick();
+      editor.click("card", { x: 85, y: 300 }, { pointerId: HELD });
+      expect(editor.lastSelected()).toBe(editor.el("card"));
+    };
+
+    it("swallows the release click of the pointer that held the drag, whatever its id", async () => {
+      const editor = await cancelHeldDrag();
+
+      await expectReleaseClickSwallowed(editor);
+    });
+
+    it.each([
+      ["pointerup", () => fireEvent.pointerUp(window, { pointerId: OTHER })],
+      [
+        "pointercancel",
+        () => fireEvent.pointerCancel(window, { pointerId: OTHER }),
+      ],
+    ])(
+      "keeps swallowing the held pointer's release click after an unrelated %s",
+      async (_name, unrelated) => {
+        const editor = await cancelHeldDrag();
+
+        unrelated();
+        await tick();
+
+        await expectReleaseClickSwallowed(editor);
+      },
+    );
+
+    it("keeps swallowing the held pointer's release click after an unrelated pointerdown", async () => {
+      const editor = await cancelHeldDrag();
+
+      fireEvent.pointerDown(window, { pointerId: OTHER, button: 0 });
+      await tick();
+
+      await expectReleaseClickSwallowed(editor);
+    });
+
+    it("keeps swallowing past the timeout while only an unrelated pointer reports no button", async () => {
+      const editor = await cancelHeldDrag(() => vi.useFakeTimers());
+      try {
+        act(() => vi.advanceTimersByTime(5000));
+        fireEvent.pointerMove(window, {
+          clientX: 300,
+          clientY: 300,
+          pointerId: OTHER,
+          buttons: 0,
+        });
+        act(() => vi.advanceTimersByTime(5000));
+        editor.release("card", { x: 125, y: 330 }, { pointerId: HELD });
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(enterSelectionMode).not.toHaveBeenCalled();
+    });
+
+    it("releases on a pointerdown of the held pointer itself", async () => {
+      const editor = await cancelHeldDrag();
+
+      editor.click("card", { x: 85, y: 300 }, { pointerId: HELD });
+      expect(editor.lastSelected()).toBe(editor.el("card"));
+    });
+
+    it("releases once the window loses focus while an unrelated pointer is down", async () => {
+      const editor = await cancelHeldDrag();
+
+      fireEvent.pointerDown(window, { pointerId: OTHER, button: 0 });
+      fireEvent.blur(window);
+      fireEvent.click(editor.el("card"), { clientX: 85, clientY: 300 });
+      expect(editor.lastSelected()).toBe(editor.el("card"));
+    });
+
+    it("releases on the held pointer's move without a button after the timeout", async () => {
+      const editor = await cancelHeldDrag(() => vi.useFakeTimers());
+      try {
+        act(() => vi.advanceTimersByTime(5000));
+        fireEvent.pointerMove(window, {
+          clientX: 125,
+          clientY: 330,
+          pointerId: HELD,
+          buttons: 0,
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+      fireEvent.click(editor.el("card"), { clientX: 85, clientY: 300 });
+      expect(editor.lastSelected()).toBe(editor.el("card"));
+    });
+
+    // A browser's click is a PointerEvent carrying the pointer that made it.
+    const pointerClick = (
+      editor: Awaited<ReturnType<typeof mountEditor>>,
+      id: string,
+      point: { x: number; y: number },
+      pointerId: number,
+    ) => {
+      stack = editor.chainOf(id);
+      fireEvent(
+        editor.el(id),
+        new PointerEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          pointerId,
+          clientX: point.x,
+          clientY: point.y,
+          detail: 1,
+        }),
+      );
+    };
+    const tap = (
+      editor: Awaited<ReturnType<typeof mountEditor>>,
+      id: string,
+      point: { x: number; y: number },
+      pointerId: number,
+    ) => {
+      editor.press(id, point, { pointerId });
+      fireEvent.pointerUp(editor.el(id), editor.init(point, { pointerId }));
+      pointerClick(editor, id, point, pointerId);
+    };
+    const releaseHeld = (editor: Awaited<ReturnType<typeof mountEditor>>) => {
+      fireEvent.pointerUp(window, {
+        clientX: 125,
+        clientY: 330,
+        pointerId: HELD,
+      });
+      pointerClick(editor, "card", { x: 125, y: 330 }, HELD);
+    };
+    const CALLOUT = { x: 90, y: 240 };
+
+    it("selects what an unrelated pointer taps and still swallows the held pointer's release click", async () => {
+      const editor = await cancelHeldDrag();
+
+      tap(editor, "callout", CALLOUT, OTHER);
+      expect(editor.lastSelected()).toBe(editor.el("callout"));
+
+      vi.mocked(enterSelectionMode).mockClear();
+      releaseHeld(editor);
+      await tick();
+      expect(enterSelectionMode).not.toHaveBeenCalled();
+    });
+
+    it("keeps swallowing the held pointer's release click after an unrelated pointer's drag ends", async () => {
+      const editor = await cancelHeldDrag();
+
+      editor.press("callout", CALLOUT, { pointerId: OTHER });
+      fireEvent.pointerMove(window, {
+        clientX: 130,
+        clientY: 290,
+        pointerId: OTHER,
+        buttons: 1,
+      });
+      fireEvent.pointerUp(window, {
+        clientX: 130,
+        clientY: 290,
+        pointerId: OTHER,
+      });
+      await tick();
+      vi.mocked(enterSelectionMode).mockClear();
+
+      releaseHeld(editor);
+      await tick();
+      expect(enterSelectionMode).not.toHaveBeenCalled();
+    });
+
+    it("swallows the release click of every pointer whose drag Escape cancelled", async () => {
+      const editor = await cancelHeldDrag();
+      editor.press("callout", CALLOUT, { pointerId: OTHER });
+      fireEvent.pointerMove(window, {
+        clientX: 130,
+        clientY: 290,
+        pointerId: OTHER,
+        buttons: 1,
+      });
+      fireEvent.keyDown(window, { key: "Escape" });
+      vi.mocked(enterSelectionMode).mockClear();
+
+      fireEvent.pointerUp(window, {
+        clientX: 130,
+        clientY: 290,
+        pointerId: OTHER,
+      });
+      pointerClick(editor, "callout", { x: 130, y: 290 }, OTHER);
+      releaseHeld(editor);
+      await tick();
+
+      expect(enterSelectionMode).not.toHaveBeenCalled();
+      expect(editor.hasSelection()).toBe(false);
+    });
+
+    it("does not let a release that never arrives swallow another pointer's tap", async () => {
+      const editor = await cancelHeldDrag(() => vi.useFakeTimers());
+      try {
+        act(() => vi.advanceTimersByTime(60_000));
+        tap(editor, "callout", CALLOUT, OTHER);
+      } finally {
+        vi.useRealTimers();
+      }
+
+      expect(editor.lastSelected()).toBe(editor.el("callout"));
+    });
+  });
 });
 
 describe("SlideEditor pointer pipeline on groups", () => {

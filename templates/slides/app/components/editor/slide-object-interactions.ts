@@ -649,24 +649,27 @@ export function clientPointToContainingBlockOffset(
 /**
  * How far the element's own transform carries its layout box centre, in its
  * parent's coordinates. A transform-origin off the centre makes this non-zero
- * even for a pure rotation. Null when the transform is not a readable 2D matrix.
+ * even for a pure rotation. Null when the transform is not a readable 2D matrix
+ * or the origin is not a value we can resolve.
  */
 function ownTransformCentreShift(
   element: HTMLElement,
+  { transform, transformOrigin }: SlideObjectTransformSnapshot,
 ): { x: number; y: number } | null {
   const width = element.offsetWidth;
   const height = element.offsetHeight;
-  const { transform, transformOrigin } =
-    readSlideObjectTransformSnapshot(element);
   const matrix = readSlideObjectTransformMatrix(
     { x: 0, y: 0, width, height },
     transform,
   );
-  if (!matrix) return null;
+  const origin = parseSlideObjectTransformOrigin(transformOrigin)?.(
+    width,
+    height,
+  );
+  if (!matrix || !origin) return null;
   const [a, b, c, d, tx, ty] = matrix;
-  const origin = transformOrigin.trim().split(/\s+/);
-  const x = width / 2 - transformOriginOffset(origin[0], width, "x");
-  const y = height / 2 - transformOriginOffset(origin[1], height, "y");
+  const x = width / 2 - origin.x;
+  const y = height / 2 - origin.y;
   return { x: a * x + c * y + tx - x, y: b * x + d * y + ty - y };
 }
 
@@ -685,12 +688,12 @@ export function clientRectToContainingBlockBox(
   containingBlock: HTMLElement,
   slideCanvas: HTMLElement,
 ): { x: number; y: number; width: number; height: number } | null {
-  const ownTransform = window.getComputedStyle(element).transform;
-  const hasOwnTransform = Boolean(ownTransform) && ownTransform !== "none";
+  const ownTransform = readSlideObjectTransformSnapshot(element);
+  const hasOwnTransform = ownTransform.transform !== "none";
   if (hasOwnTransform || hasRotatedAncestor(element, slideCanvas)) {
     const frame = probeScreenFrame(containingBlock);
     const shift = hasOwnTransform
-      ? ownTransformCentreShift(element)
+      ? ownTransformCentreShift(element, ownTransform)
       : { x: 0, y: 0 };
     if (!frame || !shift) return null;
     const local = screenDeltaToLocal(frame.basis, {
@@ -1532,28 +1535,37 @@ export function scaleSlideObjectGroupMembers(
     }
 
     const matrix = readSlideObjectTransformMatrix(start, transform);
-    if (!matrix) return null;
+    const origin = parseSlideObjectTransformOrigin(transformOrigin)?.(
+      start.width,
+      start.height,
+    );
+    if (!matrix || !origin) return null;
     const [a, b, c, d, tx, ty] = matrix;
-    const originTokens = transformOrigin.trim().split(/\s+/);
-    const originX = transformOriginOffset(originTokens[0], start.width, "x");
-    const originY = transformOriginOffset(originTokens[1], start.height, "y");
+    const { x: originX, y: originY } = origin;
     const format = (value: number) => {
       const rounded = Number(value.toFixed(8));
       return String(Object.is(rounded, -0) ? 0 : rounded);
     };
+    const writable = toTransformProperty(
+      element,
+      start.width * scaleX,
+      start.height * scaleY,
+      slideObjectMatrix2dString([
+        a,
+        (scaleY / scaleX) * b,
+        (scaleX / scaleY) * c,
+        d,
+        scaleX * tx,
+        scaleY * ty,
+      ]),
+    );
+    if (writable === null) return null;
 
     return {
       element,
       plan: {
         geometry,
-        transform: slideObjectMatrix2dString([
-          a,
-          (scaleY / scaleX) * b,
-          (scaleX / scaleY) * c,
-          d,
-          scaleX * tx,
-          scaleY * ty,
-        ]),
+        transform: writable,
         transformOrigin: `${format(scaleX * originX)}px ${format(scaleY * originY)}px`,
       },
     };
@@ -1994,37 +2006,271 @@ export interface SlideObjectSelectionFrame {
 export interface SlideObjectGroupResizeMember
   extends SlideObjectMoveMember, SlideObjectTransformSnapshot {}
 
+// What an unreadable longhand reads as: a perspective matrix, which every
+// consumer already refuses. An arbitrary string would not do, since the
+// DOMMatrix fallback may read it as the identity.
+const UNREADABLE_TRANSFORM =
+  "matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1)";
+
+const CSS_NUMBER = "[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:e[+-]?\\d+)?";
+const ROTATE_LONGHAND = new RegExp(
+  `^(?:z\\s+)?(${CSS_NUMBER})(deg|grad|rad|turn)$`,
+);
+const SCALE_FACTOR = new RegExp(`^(${CSS_NUMBER})(%?)$`);
+const ANGLE_UNIT_RADIANS = new Map([
+  ["deg", Math.PI / 180],
+  ["grad", Math.PI / 200],
+  ["rad", 1],
+  ["turn", 2 * Math.PI],
+]);
+
+function multiplySlideObjectMatrices(
+  m: SlideObjectTransformMatrix2d,
+  n: SlideObjectTransformMatrix2d,
+): SlideObjectTransformMatrix2d {
+  return [
+    m[0] * n[0] + m[2] * n[1],
+    m[1] * n[0] + m[3] * n[1],
+    m[0] * n[2] + m[2] * n[3],
+    m[1] * n[2] + m[3] * n[3],
+    m[0] * n[4] + m[2] * n[5] + m[4],
+    m[1] * n[4] + m[3] * n[5] + m[5],
+  ];
+}
+
+// Only 2D values are readable: a z translation or a z scale, an axis keyword
+// and a 3D axis all return null.
+function readTranslateLonghand(
+  value: string,
+  width: number,
+  height: number,
+): SlideObjectTransformMatrix2d | null {
+  const parts = value.split(/\s+/);
+  if (parts.length > 3) return null;
+  const x = parseTransformLength(parts[0], width);
+  const y = parseTransformLength(parts[1], height);
+  return x !== null && y !== null && parseTransformLength(parts[2], 0) === 0
+    ? [1, 0, 0, 1, x, y]
+    : null;
+}
+
+function readRotateLonghand(
+  value: string,
+): SlideObjectTransformMatrix2d | null {
+  const match = ROTATE_LONGHAND.exec(value.toLowerCase());
+  const unit = ANGLE_UNIT_RADIANS.get(match?.[2] ?? "");
+  if (!match || unit === undefined) return null;
+  const radians = Number(match[1]) * unit;
+  return [
+    Math.cos(radians),
+    Math.sin(radians),
+    -Math.sin(radians),
+    Math.cos(radians),
+    0,
+    0,
+  ];
+}
+
+function readScaleLonghand(value: string): SlideObjectTransformMatrix2d | null {
+  const parts = value.split(/\s+/);
+  const [x, y = x, z = 1] = parts.map((part) => {
+    const match = SCALE_FACTOR.exec(part);
+    return match ? Number(match[1]) / (match[2] ? 100 : 1) : null;
+  });
+  return parts.length <= 3 &&
+    typeof x === "number" &&
+    typeof y === "number" &&
+    z === 1
+    ? [x, 0, 0, y, 0, 0]
+    : null;
+}
+
+interface TransformLonghands {
+  translate: string;
+  rotate: string;
+  scale: string;
+}
+
+/** The longhands an object sets, or null when it sets none. */
+function readTransformLonghands(
+  element: HTMLElement,
+  computedStyle: CSSStyleDeclaration,
+): TransformLonghands | null {
+  const read = (property: string) => {
+    const value = (
+      computedStyle.getPropertyValue(property) ||
+      element.style.getPropertyValue(property)
+    ).trim();
+    return value === "none" ? "" : value;
+  };
+  const longhands = {
+    translate: read("translate"),
+    rotate: read("rotate"),
+    scale: read("scale"),
+  };
+  return longhands.translate || longhands.rotate || longhands.scale
+    ? longhands
+    : null;
+}
+
+/** The longhands as one matrix, or null when one is not plain 2D. */
+function composeTransformLonghands(
+  { translate, rotate, scale }: TransformLonghands,
+  width: number,
+  height: number,
+): SlideObjectTransformMatrix2d | null {
+  const identity: SlideObjectTransformMatrix2d = [1, 0, 0, 1, 0, 0];
+  const matrices = [
+    translate ? readTranslateLonghand(translate, width, height) : identity,
+    rotate ? readRotateLonghand(rotate) : identity,
+    scale ? readScaleLonghand(scale) : identity,
+  ].filter((matrix) => matrix !== null);
+  return matrices.length === 3
+    ? matrices.reduce(multiplySlideObjectMatrices)
+    : null;
+}
+
+function invertSlideObjectMatrix([
+  a,
+  b,
+  c,
+  d,
+  e,
+  f,
+]: SlideObjectTransformMatrix2d): SlideObjectTransformMatrix2d | null {
+  const determinant = a * d - b * c;
+  if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-8) {
+    return null;
+  }
+  return [
+    d / determinant,
+    -b / determinant,
+    -c / determinant,
+    a / determinant,
+    (c * f - d * e) / determinant,
+    (b * e - a * f) / determinant,
+  ];
+}
+
+/**
+ * CSS paints `translate`, then `rotate`, then `scale`, then `transform`, all
+ * about the transform origin, so the `transform` property alone no longer
+ * describes an object that uses one of them. This is the one matrix the four
+ * compose to, as a `matrix()` string. Percent translations resolve against the
+ * object's own box.
+ */
+function composeSlideObjectTransform(
+  element: HTMLElement,
+  computedStyle: CSSStyleDeclaration,
+  transform: string,
+): string {
+  const longhands = readTransformLonghands(element, computedStyle);
+  if (!longhands) return transform;
+  const width = element.offsetWidth;
+  const height = element.offsetHeight;
+  const own = readSlideObjectTransformMatrix(
+    { x: 0, y: 0, width, height },
+    transform,
+  );
+  const leading = composeTransformLonghands(longhands, width, height);
+  return leading && own
+    ? slideObjectMatrix2dString(multiplySlideObjectMatrices(leading, own))
+    : UNREADABLE_TRANSFORM;
+}
+
+/**
+ * The inspector writes an object's whole rotation to `transform`, so a
+ * `rotate` property set beside it would add to that rotation.
+ */
+export function clearSlideObjectRotateProperty(element: HTMLElement): void {
+  if (
+    readTransformLonghands(element, window.getComputedStyle(element))?.rotate
+  ) {
+    element.style.setProperty("rotate", "none");
+  }
+}
+
+/**
+ * What to write to `transform` for an object that paints `effective` (as a
+ * snapshot reads it) while its longhands stay in place and still apply first.
+ * Null when they cannot be undone. Writing `effective` itself would apply them
+ * twice.
+ */
+function toTransformProperty(
+  element: HTMLElement,
+  width: number,
+  height: number,
+  effective: string,
+): string | null {
+  const longhands = readTransformLonghands(
+    element,
+    window.getComputedStyle(element),
+  );
+  if (!longhands) return effective;
+  const leading = composeTransformLonghands(longhands, width, height);
+  const inverse = leading && invertSlideObjectMatrix(leading);
+  const matrix = readSlideObjectTransformMatrix(
+    { x: 0, y: 0, width, height },
+    effective,
+  );
+  if (!inverse || !matrix) return null;
+  const round = (value: number) => Number(value.toFixed(8)) + 0;
+  const [a, b, c, d, e, f] = multiplySlideObjectMatrices(inverse, matrix);
+  return slideObjectMatrix2dString([
+    round(a),
+    round(b),
+    round(c),
+    round(d),
+    round(e),
+    round(f),
+  ]);
+}
+
 export function readSlideObjectTransformSnapshot(
   element: HTMLElement,
 ): SlideObjectTransformSnapshot {
   const computedStyle = window.getComputedStyle(element);
   const computedTransform = computedStyle.transform;
-  const inlineTransformOrigin = element.style.transformOrigin.trim();
+  const authoredTransformOrigin = element.style.transformOrigin.trim();
+  // An authored origin we cannot parse (calc(), var()) is already resolved to
+  // pixels in the computed style.
+  const inlineTransformOrigin = parseSlideObjectTransformOrigin(
+    authoredTransformOrigin,
+  )
+    ? authoredTransformOrigin
+    : "";
   const computedTransformOrigin = computedStyle.transformOrigin?.trim();
   let transformOrigin =
-    inlineTransformOrigin || computedTransformOrigin || "50% 50%";
+    inlineTransformOrigin ||
+    computedTransformOrigin ||
+    authoredTransformOrigin ||
+    "50% 50%";
   if (
     !inlineTransformOrigin &&
     computedTransformOrigin &&
     element.offsetWidth > 0 &&
     element.offsetHeight > 0
   ) {
-    const [xToken, yToken] = computedTransformOrigin.split(/\s+/);
-    if (xToken?.endsWith("px") && yToken?.endsWith("px")) {
+    const origin = parseSlideObjectTransformOrigin(computedTransformOrigin)?.(
+      element.offsetWidth,
+      element.offsetHeight,
+    );
+    if (origin) {
       const format = (value: number) => {
         const rounded = Number(value.toFixed(8));
         return String(Object.is(rounded, -0) ? 0 : rounded);
       };
-      const x = transformOriginOffset(xToken, element.offsetWidth, "x");
-      const y = transformOriginOffset(yToken, element.offsetHeight, "y");
-      transformOrigin = `${format((x / element.offsetWidth) * 100)}% ${format((y / element.offsetHeight) * 100)}%`;
+      transformOrigin = `${format((origin.x / element.offsetWidth) * 100)}% ${format((origin.y / element.offsetHeight) * 100)}%`;
     }
   }
   return {
-    transform:
+    transform: composeSlideObjectTransform(
+      element,
+      computedStyle,
       computedTransform && computedTransform !== "none"
         ? computedTransform
         : element.style.transform || "none",
+    ),
     transformOrigin,
   };
 }
@@ -2144,27 +2390,72 @@ export function resolveSlideObjectGroupRoot(
   return null;
 }
 
-function transformOriginOffset(
-  token: string | undefined,
-  dimension: number,
-  axis: "x" | "y",
-): number {
-  const value = token?.trim().toLowerCase();
-  if (!value || value === "center") return dimension / 2;
-  if (value === "left") return axis === "x" ? 0 : dimension / 2;
-  if (value === "right") return axis === "x" ? dimension : dimension / 2;
-  if (value === "top") return axis === "y" ? 0 : dimension / 2;
-  if (value === "bottom") return axis === "y" ? dimension : dimension / 2;
-  if (value.endsWith("%")) {
-    const percentage = Number.parseFloat(value);
-    return Number.isFinite(percentage)
-      ? (dimension * percentage) / 100
-      : dimension / 2;
+const ORIGIN_KEYWORD_FRACTION = new Map([
+  ["left", 0],
+  ["top", 0],
+  ["center", 0.5],
+  ["right", 1],
+  ["bottom", 1],
+]);
+const ORIGIN_NUMBER = new RegExp(`^(${CSS_NUMBER})(%|px)?$`);
+
+function parseOriginOffset(
+  token: string,
+): [fraction: number, px: number] | null {
+  const keyword = ORIGIN_KEYWORD_FRACTION.get(token);
+  if (keyword !== undefined) return [keyword, 0];
+  const match = ORIGIN_NUMBER.exec(token);
+  const value = Number(match?.[1]);
+  // Only a zero may go without a unit.
+  if (!match || !Number.isFinite(value) || (!match[2] && value !== 0)) {
+    return null;
   }
-  if (/^-?(?:\d+\.?\d*|\.\d+)(?:px)?$/.test(value)) {
-    return Number.parseFloat(value);
+  return match[2] === "%" ? [value / 100, 0] : [0, value];
+}
+
+export type SlideObjectOriginResolver = (
+  width: number,
+  height: number,
+) => { x: number; y: number };
+
+/**
+ * Reads a CSS `transform-origin` value (one to three tokens, keywords in either
+ * order) into a function of the box it applies to. Null for anything else
+ * (`calc()`, `var()`, em units, a malformed list): a guessed centre would move
+ * the object, so callers refuse instead. An empty value is the CSS default,
+ * the centre.
+ */
+export function parseSlideObjectTransformOrigin(
+  value: string,
+): SlideObjectOriginResolver | null {
+  const tokens = value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (tokens.length > 3) return null;
+  const [first = "center", second = "center", depth] = tokens;
+  if (depth !== undefined) {
+    const length = ORIGIN_NUMBER.exec(depth);
+    if (!length || length[2] === "%") return null;
   }
-  return dimension / 2;
+  const isVertical = (token: string) => token === "top" || token === "bottom";
+  const isHorizontal = (token: string) => token === "left" || token === "right";
+  // `top left` and `center left` name the axes in reverse, which CSS only
+  // allows when both tokens are keywords; one token is the axis it names.
+  const reversed = isVertical(first) || isHorizontal(second);
+  if (
+    reversed &&
+    !(ORIGIN_KEYWORD_FRACTION.has(first) && ORIGIN_KEYWORD_FRACTION.has(second))
+  ) {
+    return null;
+  }
+  const [xToken, yToken] = reversed ? [second, first] : [first, second];
+  if (isVertical(xToken) || isHorizontal(yToken)) return null;
+  const x = parseOriginOffset(xToken);
+  const y = parseOriginOffset(yToken);
+  return x && y
+    ? (width, height) => ({
+        x: x[0] * width + x[1],
+        y: y[0] * height + y[1],
+      })
+    : null;
 }
 
 function transformedSlideObjectBoundsForTransform(
@@ -2198,15 +2489,13 @@ function transformedSlideObjectBoundsForTransform(
   const d = parsed.values[dIndex] ?? 1;
   const tx = parsed.values[txIndex] ?? 0;
   const ty = parsed.values[tyIndex] ?? 0;
-  const originTokens = (
+  const origin = parseSlideObjectTransformOrigin(
     transformOrigin ||
-    computedStyle.transformOrigin ||
-    element.style.transformOrigin
-  )
-    .trim()
-    .split(/\s+/);
-  const originX = transformOriginOffset(originTokens[0], geometry.width, "x");
-  const originY = transformOriginOffset(originTokens[1], geometry.height, "y");
+      computedStyle.transformOrigin ||
+      element.style.transformOrigin,
+  )?.(geometry.width, geometry.height);
+  if (!origin) return null;
+  const { x: originX, y: originY } = origin;
   const corners = [
     [0, 0],
     [geometry.width, 0],
@@ -2261,15 +2550,10 @@ export function groupSlideObjects(
   }[] = [];
   for (const element of orderedRoots) {
     const geometry = getGeometry(element);
-    const computedTransform = window.getComputedStyle(element).transform;
-    const transform =
-      computedTransform && computedTransform !== "none"
-        ? computedTransform
-        : element.style.transform;
     const visualBounds = transformedSlideObjectBoundsForTransform(
       element,
       geometry,
-      transform,
+      readSlideObjectTransformSnapshot(element).transform,
     );
     if (!visualBounds) return null;
     members.push({
@@ -2342,6 +2626,7 @@ export function ungroupSlideObject(
 
   const groupGeometry = getGeometry(group);
   const groupRotation = readSlideObjectRotation(group);
+  if (groupRotation === null) return null;
   const groupRotationRadians = (groupRotation * Math.PI) / 180;
   const groupRotationCos = Math.cos(groupRotationRadians);
   const groupRotationSin = Math.sin(groupRotationRadians);
@@ -2373,14 +2658,9 @@ export function ungroupSlideObject(
   >();
   if (groupRotation !== 0) {
     for (const { element, geometry } of childGeometries) {
-      const computedTransform = window.getComputedStyle(element).transform;
-      const currentTransform =
-        computedTransform && computedTransform !== "none"
-          ? computedTransform
-          : element.style.transform;
       const currentMatrix = readSlideObjectTransformMatrix(
         geometry,
-        currentTransform,
+        readSlideObjectTransformSnapshot(element).transform,
       );
       if (!currentMatrix) return null;
       const currentCenterOffset = slideObjectTransformCenterOffset(
@@ -2388,6 +2668,7 @@ export function ungroupSlideObject(
         geometry,
         currentMatrix,
       );
+      if (!currentCenterOffset) return null;
       const currentRotation =
         (Math.atan2(currentMatrix[1], currentMatrix[0]) * 180) / Math.PI;
       const nextTransform = rotatedSlideObjectMatrix(
@@ -2402,8 +2683,16 @@ export function ungroupSlideObject(
         geometry,
         slideObjectMatrix2dValues(nextParsed),
       );
-      transforms.set(element, {
+      if (!nextCenterOffset) return null;
+      const writable = toTransformProperty(
+        element,
+        geometry.width,
+        geometry.height,
         nextTransform,
+      );
+      if (writable === null) return null;
+      transforms.set(element, {
+        nextTransform: writable,
         currentCenterOffset,
         nextCenterOffset,
       });
@@ -2470,7 +2759,8 @@ export function ungroupSlideObject(
 
 export interface SlideObjectRotationMember
   extends SlideObjectMoveMember, SlideObjectTransformSnapshot {
-  rotation: number;
+  /** Null when the object's rotation could not be read. */
+  rotation: number | null;
 }
 
 function formatSlideObjectRotation(rotation: number): string {
@@ -2580,6 +2870,16 @@ function slideObjectMatrix2dString(
   return `matrix(${matrix.join(", ")})`;
 }
 
+function parseTransformLength(
+  value: string | undefined,
+  dimension: number,
+): number | null {
+  if (!value) return 0;
+  if (!/^-?(?:\d+\.?\d*|\.\d+)(?:px|%)?$/i.test(value)) return null;
+  const number = Number.parseFloat(value);
+  return value.endsWith("%") ? (number * dimension) / 100 : number;
+}
+
 function readSlideObjectTransformMatrix(
   geometry: SlideObjectGeometry,
   transform: string,
@@ -2604,21 +2904,16 @@ function readSlideObjectTransformMatrix(
   if (!translate) return null;
   const kind = transform.match(/^translate(?:3d|x|y)?/i)?.[0]?.toLowerCase();
   const values = translate[1]?.split(/[\s,]+/).filter(Boolean) ?? [];
-  const parseLength = (value: string | undefined, dimension: number) => {
-    if (!value) return 0;
-    if (!/^-?(?:\d+\.?\d*|\.\d+)(?:px|%)?$/i.test(value)) return null;
-    const number = Number.parseFloat(value);
-    return value.endsWith("%") ? (number * dimension) / 100 : number;
-  };
-  const x = kind === "translatey" ? 0 : parseLength(values[0], geometry.width);
+  const x =
+    kind === "translatey" ? 0 : parseTransformLength(values[0], geometry.width);
   const y =
     kind === "translatex"
       ? 0
-      : parseLength(
+      : parseTransformLength(
           kind === "translatey" ? values[0] : values[1],
           geometry.height,
         );
-  const z = kind === "translate3d" ? parseLength(values[2], 0) : 0;
+  const z = kind === "translate3d" ? parseTransformLength(values[2], 0) : 0;
   return x !== null && y !== null && z === 0 ? [1, 0, 0, 1, x, y] : null;
 }
 
@@ -2657,14 +2952,16 @@ export function resizeTransformedSlideObject(
     minWidth: minSize,
     minHeight: minSize,
   });
-  const originTokens = transform.transformOrigin.trim().split(/\s+/);
+  const resolveOrigin = parseSlideObjectTransformOrigin(
+    transform.transformOrigin,
+  );
+  if (!resolveOrigin) return null;
   const transformedPoint = (
     point: { x: number; y: number },
     width: number,
     height: number,
   ) => {
-    const originX = transformOriginOffset(originTokens[0], width, "x");
-    const originY = transformOriginOffset(originTokens[1], height, "y");
+    const { x: originX, y: originY } = resolveOrigin(width, height);
     return {
       x: originX + a * (point.x - originX) + c * (point.y - originY) + tx,
       y: originY + b * (point.x - originX) + d * (point.y - originY) + ty,
@@ -2755,11 +3052,11 @@ export function readSlideObjectSelectionFrame(
   }
 
   const [a, b, c, d, tx, ty] = matrix;
-  const originTokens = snapshot.transformOrigin.trim().split(/\s+/);
-  const origin = {
-    x: transformOriginOffset(originTokens[0], geometry.width, "x"),
-    y: transformOriginOffset(originTokens[1], geometry.height, "y"),
-  };
+  const origin = parseSlideObjectTransformOrigin(snapshot.transformOrigin)?.(
+    geometry.width,
+    geometry.height,
+  );
+  if (!origin) return null;
   const format = (value: number) => {
     const rounded = Number(value.toFixed(8));
     return Object.is(rounded, -0) ? 0 : rounded;
@@ -2795,15 +3092,13 @@ function slideObjectTransformCenterOffset(
   element: HTMLElement,
   geometry: SlideObjectGeometry,
   matrix: SlideObjectTransformMatrix2d,
-): { x: number; y: number } {
-  const originTokens = (
+): { x: number; y: number } | null {
+  const origin = parseSlideObjectTransformOrigin(
     window.getComputedStyle(element).transformOrigin ||
-    element.style.transformOrigin
-  )
-    .trim()
-    .split(/\s+/);
-  const originX = transformOriginOffset(originTokens[0], geometry.width, "x");
-  const originY = transformOriginOffset(originTokens[1], geometry.height, "y");
+      element.style.transformOrigin,
+  )?.(geometry.width, geometry.height);
+  if (!origin) return null;
+  const { x: originX, y: originY } = origin;
   const centerX = geometry.width / 2;
   const centerY = geometry.height / 2;
   const [a, b, c, d, tx, ty] = matrix;
@@ -2952,25 +3247,19 @@ export function screenDeltaToLocal(
   };
 }
 
-export function readSlideObjectRotation(element: HTMLElement): number {
-  const transform =
-    element.style.transform || window.getComputedStyle(element).transform;
-  if (!transform || transform === "none") return 0;
+/** The rotation the object paints, or null when its transform is not readable. */
+export function readSlideObjectRotation(element: HTMLElement): number | null {
+  const { transform } = readSlideObjectTransformSnapshot(element);
   const rotate = transform.match(
     /rotate(?:z)?\(\s*(-?(?:\d+\.?\d*|\.\d+))deg\s*\)/i,
   );
   if (rotate) return Number(rotate[1]);
 
-  const matrix = parseSlideObjectMatrix2d(transform);
-  if (matrix) {
-    const [aIndex, bIndex] = matrix.indexes;
-    return (
-      (Math.atan2(matrix.values[bIndex] ?? 0, matrix.values[aIndex] ?? 1) *
-        180) /
-      Math.PI
-    );
-  }
-  return 0;
+  const matrix = readSlideObjectTransformMatrix(
+    { x: 0, y: 0, width: element.offsetWidth, height: element.offsetHeight },
+    transform,
+  );
+  return matrix ? (Math.atan2(matrix[1], matrix[0]) * 180) / Math.PI : null;
 }
 
 export function resolveSlideObjectRotationDelta(
@@ -3024,6 +3313,7 @@ export function rotateSlideObjectMembers(
   { geometry: SlideObjectGeometry; rotation: number; transform: string }
 > {
   const transformedMembers = members.map((member) => {
+    if (member.rotation === null) return null;
     const currentBounds = transformedSlideObjectBoundsForTransform(
       member.element,
       member.start,
@@ -3041,13 +3331,19 @@ export function rotateSlideObjectMembers(
       nextTransform,
       member.transformOrigin,
     );
-    return currentBounds && nextBounds
+    const writable = toTransformProperty(
+      member.element,
+      member.start.width,
+      member.start.height,
+      nextTransform,
+    );
+    return currentBounds && nextBounds && writable !== null
       ? {
           member,
           currentBounds,
           nextBounds,
           rotation,
-          transform: nextTransform,
+          transform: writable,
         }
       : null;
   });

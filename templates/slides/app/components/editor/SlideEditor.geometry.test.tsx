@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Slide } from "@/context/DeckContext";
 import { enterSelectionMode } from "@/root";
 
+import { readSlideObjectRotation } from "./slide-object-interactions";
 import SlideEditor from "./SlideEditor";
 
 vi.mock("@agent-native/core/client/labs", () => ({
@@ -82,6 +83,9 @@ const DEFAULT_CONTENT_HEIGHTS: Record<string, number> = {
 let contentHeights: Record<string, number> = {};
 // Text taller than a size-contained block: reported by scrollHeight only.
 const overflowHeights = new Map<string, number>();
+// The hull a transformed flow object paints, which is what getBoundingClientRect
+// reports for it; its layout box (FLOW_RECTS) stays what offsetWidth reads.
+const paintedHulls = new Map<string, Rect>();
 
 const noop = () => {};
 
@@ -153,7 +157,9 @@ beforeEach(() => {
   });
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
     function (this: HTMLElement) {
-      const rect = layoutRect(this);
+      const rect =
+        (this.style.position !== "absolute" && paintedHulls.get(this.id)) ||
+        layoutRect(this);
       return rect ? toDomRect(rect) : new DOMRect(0, 0, 0, 0);
     },
   );
@@ -210,6 +216,7 @@ afterEach(() => {
   }
   originalGetters.clear();
   overflowHeights.clear();
+  paintedHulls.clear();
   stack = [];
   window.getSelection()?.removeAllRanges();
 });
@@ -506,6 +513,90 @@ describe("promotion from flow", () => {
     const outline = editor.outline()!;
     expect(outline.style.left).toBe("118px");
     expect(outline.style.top).toBe("318px");
+  });
+
+  describe("a card painted through its own transform", () => {
+    const CARD = FLOW_RECTS.card!;
+    const rotation = (degrees: number) => {
+      const radians = (degrees * Math.PI) / 180;
+      return [
+        Math.cos(radians),
+        Math.sin(radians),
+        -Math.sin(radians),
+        Math.cos(radians),
+        0,
+        0,
+      ];
+    };
+    /** The hull `matrix` paints for the card's box about `origin` (box px). */
+    const hullOf = (
+      [a = 1, b = 0, c = 0, d = 1, e = 0, f = 0]: number[],
+      [ox, oy]: [number, number],
+    ): Rect => {
+      const width = CARD.right - CARD.left;
+      const height = CARD.bottom - CARD.top;
+      const points = [
+        [0, 0],
+        [width, 0],
+        [0, height],
+        [width, height],
+      ].map(([x = 0, y = 0]) => ({
+        x: CARD.left + ox + a * (x - ox) + c * (y - oy) + e,
+        y: CARD.top + oy + b * (x - ox) + d * (y - oy) + f,
+      }));
+      const xs = points.map((point) => point.x);
+      const ys = points.map((point) => point.y);
+      return {
+        left: Math.min(...xs),
+        top: Math.min(...ys),
+        right: Math.max(...xs),
+        bottom: Math.max(...ys),
+      };
+    };
+
+    it.each([
+      [
+        "transform: rotate(20deg); transform-origin: top left",
+        rotation(20),
+        [0, 0],
+      ],
+      [
+        "transform: rotate(20deg); transform-origin: top",
+        rotation(20),
+        [180, 0],
+      ],
+      ["rotate: 20deg; transform-origin: top left", rotation(20), [0, 0]],
+      [
+        "rotate: 20deg; transform-origin: right bottom",
+        rotation(20),
+        [360, 80],
+      ],
+      ["translate: 30px 10px", [1, 0, 0, 1, 30, 10], [180, 40]],
+      ["scale: 1.4", [1.4, 0, 0, 1.4, 0, 0], [180, 40]],
+    ] as [string, number[], [number, number]][])(
+      "promotes the card with `%s` to its layout box",
+      async (declarations, matrix, origin) => {
+        paintedHulls.set("card", hullOf(matrix, origin));
+        const editor = await mountEditor(
+          FLOW_SLIDE.replace(
+            'id="card" style="',
+            `id="card" style="${declarations};`,
+          ),
+        );
+
+        editor.click("card", { x: 85, y: 300 });
+        editor.canvas.focus();
+        fireEvent.keyDown(editor.canvas, { key: "ArrowRight" });
+
+        const card = editor.el("card");
+        expect(card.style.position).toBe("absolute");
+        expect(Number.parseFloat(card.style.left)).toBeCloseTo(
+          CARD.left + 1,
+          2,
+        );
+        expect(Number.parseFloat(card.style.top)).toBeCloseTo(CARD.top, 2);
+      },
+    );
   });
 });
 
@@ -836,4 +927,259 @@ describe("duplicating a flow object", () => {
     expect(pastedCard).toBeDefined();
     expect(pastedCard.style.height).toBe("");
   });
+});
+
+describe("the rotation field of the style inspector", () => {
+  const ROTATED_BY_PROPERTY = `
+    <div class="fmd-slide" style="position:relative">
+      <div id="box" class="fmd-text-box" data-slide-object-id="box-1" style="position:absolute;left:100px;top:100px;width:300px;font-size:24px;rotate:20deg">Hello</div>
+    </div>`;
+
+  async function openRotationField(
+    editor: Awaited<ReturnType<typeof mountEditor>>,
+  ) {
+    editor.click("box", { x: 120, y: 110 });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+    fireEvent.click(
+      document.querySelector<HTMLElement>(
+        '[aria-label="styleInspector.controls"]',
+      )!,
+    );
+    await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+    const label = Array.from(document.querySelectorAll("label")).find(
+      (candidate) => candidate.textContent === "styleInspector.rotation",
+    )!;
+    return document.getElementById(label.htmlFor) as HTMLInputElement;
+  }
+
+  it("shows the rotation an object gets from the rotate property", async () => {
+    const editor = await mountEditor(ROTATED_BY_PROPERTY);
+
+    expect((await openRotationField(editor)).value).toBe("20°");
+  });
+
+  it("sets the rotation of an object that has a rotate property instead of adding to it", async () => {
+    const editor = await mountEditor(ROTATED_BY_PROPERTY);
+    const field = await openRotationField(editor);
+
+    field.focus();
+    fireEvent.change(field, { target: { value: "45" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    fireEvent.blur(field);
+    await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+
+    expect(readSlideObjectRotation(editor.el("box"))).toBeCloseTo(45, 6);
+  });
+
+  it("sets the rotation of an object whose rotate property comes from a stylesheet", async () => {
+    const style = document.createElement("style");
+    style.textContent = ".inspector-rotated { rotate: 20deg; }";
+    document.head.append(style);
+    try {
+      const editor = await mountEditor(
+        ROTATED_BY_PROPERTY.replace(";rotate:20deg", "").replace(
+          'class="fmd-text-box"',
+          'class="fmd-text-box inspector-rotated"',
+        ),
+      );
+      const field = await openRotationField(editor);
+      expect(field.value).toBe("20°");
+
+      field.focus();
+      fireEvent.change(field, { target: { value: "45" } });
+      fireEvent.keyDown(field, { key: "Enter" });
+      fireEvent.blur(field);
+      await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+
+      expect(readSlideObjectRotation(editor.el("box"))).toBeCloseTo(45, 6);
+    } finally {
+      style.remove();
+    }
+  });
+});
+
+describe("starting to crop an image", () => {
+  const painted = (element: HTMLElement) =>
+    ["transform", "translate", "rotate", "scale"].map((property) =>
+      element.style.getPropertyValue(property),
+    );
+
+  it.each([
+    ["transform", "transform:rotate(20deg);transform-origin:top left"],
+    ["rotate", "rotate:20deg"],
+    ["scale", "scale:1.3"],
+    ["translate", "translate:40px 10px"],
+  ])(
+    "moves the image's %s onto the crop frame so nothing shifts",
+    async (_name, declaration) => {
+      const editor = await mountEditor(`
+        <div class="fmd-slide" style="position:relative">
+          <img id="pic" data-slide-object-id="pic-1" src="x.png" style="position:absolute;left:200px;top:100px;width:160px;height:90px;${declaration}">
+        </div>`);
+      const image = editor.el("pic");
+      const [transform, translate, rotate, scale] = painted(image);
+
+      stack = [
+        image,
+        ...Array.from(editor.container.querySelectorAll(".fmd-slide")),
+      ];
+      fireEvent.doubleClick(image, { clientX: 220, clientY: 120, detail: 2 });
+      await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+
+      const frame = image.closest<HTMLElement>(".fmd-pptx-image")!;
+      expect(frame).not.toBeNull();
+      expect(painted(frame)).toEqual([transform, translate, rotate, scale]);
+      expect(image.style.transform).toBe("none");
+      expect(image.style.getPropertyValue("translate")).not.toMatch(/\d/);
+      expect(image.style.getPropertyValue("rotate")).not.toMatch(/\d/);
+      expect(image.style.getPropertyValue("scale")).not.toMatch(/\d/);
+    },
+  );
+});
+
+describe("releasing the press of a gesture Escape cancelled", () => {
+  const HELD = 7;
+  const PAIR_SLIDE = `
+    <div class="fmd-slide" style="position:relative">
+      <div id="box" class="fmd-text-box" data-slide-object-id="box-1" style="position:absolute;left:100px;top:100px;width:300px;height:40px;font-size:24px">Hello</div>
+      <div id="other" class="fmd-text-box" data-slide-object-id="box-2" style="position:absolute;left:100px;top:300px;width:300px;height:40px;font-size:24px">World</div>
+    </div>`;
+  type Editor = Awaited<ReturnType<typeof mountEditor>>;
+
+  const press = (target: HTMLElement, point: { x: number; y: number }) =>
+    fireEvent.pointerDown(target, {
+      button: 0,
+      pointerId: HELD,
+      clientX: point.x,
+      clientY: point.y,
+    });
+  const chainOf = (element: HTMLElement) => {
+    const chain: Element[] = [];
+    for (let node: Element | null = element; node; node = node.parentElement) {
+      chain.push(node);
+    }
+    return chain;
+  };
+  const selectBoth = (editor: Editor) => {
+    editor.click("box", { x: 110, y: 110 });
+    stack = chainOf(editor.el("other"));
+    const point = editor.init({ x: 110, y: 310 });
+    fireEvent.pointerDown(editor.el("other"), { ...point, shiftKey: true });
+    fireEvent.pointerUp(editor.el("other"), { ...point, shiftKey: true });
+    fireEvent.click(editor.el("other"), {
+      ...point,
+      shiftKey: true,
+      detail: 1,
+    });
+  };
+
+  it.each<
+    [
+      string,
+      Partial<ComponentProps<typeof SlideEditor>>,
+      (editor: Editor) => void,
+    ]
+  >([
+    [
+      "an element drag",
+      {},
+      (editor) => {
+        editor.click("box", { x: 110, y: 110 });
+        press(
+          document.querySelector<HTMLElement>("[data-slide-move-handle]")!,
+          { x: 250, y: 100 },
+        );
+      },
+    ],
+    [
+      "an element resize",
+      {},
+      (editor) => {
+        editor.click("box", { x: 110, y: 110 });
+        press(editor.handle("e")!, { x: 400, y: 120 });
+      },
+    ],
+    [
+      "a rotation",
+      {},
+      (editor) => {
+        editor.click("box", { x: 110, y: 110 });
+        press(
+          document.querySelector<HTMLElement>("[data-slide-rotate-handle]")!,
+          { x: 250, y: 60 },
+        );
+      },
+    ],
+    [
+      "a group resize",
+      {},
+      (editor) => {
+        selectBoth(editor);
+        press(editor.handle("e")!, { x: 400, y: 220 });
+      },
+    ],
+    [
+      "a group drag",
+      {},
+      (editor) => {
+        selectBoth(editor);
+        stack = chainOf(editor.el("box"));
+        press(editor.el("box"), { x: 110, y: 110 });
+      },
+    ],
+    [
+      "a shape placement",
+      { shapeType: "rectangle" },
+      (editor) => {
+        stack = chainOf(editor.el("box"));
+        press(editor.el("box"), { x: 600, y: 400 });
+      },
+    ],
+    [
+      "a text box placement",
+      { textBoxMode: true },
+      (editor) => {
+        stack = chainOf(editor.el("box"));
+        press(editor.el("box"), { x: 600, y: 400 });
+      },
+    ],
+  ])(
+    "swallows the release click of the pointer that began %s",
+    async (_name, props, begin) => {
+      const editor = await mountEditor(PAIR_SLIDE, props);
+      begin(editor);
+      fireEvent.pointerMove(window, {
+        pointerId: HELD,
+        clientX: 650,
+        clientY: 450,
+        buttons: 1,
+      });
+      fireEvent.keyDown(window, { key: "Escape" });
+      vi.mocked(enterSelectionMode).mockClear();
+
+      stack = chainOf(editor.el("box"));
+      fireEvent.pointerUp(window, {
+        pointerId: HELD,
+        clientX: 650,
+        clientY: 450,
+      });
+      fireEvent(
+        editor.el("box"),
+        new PointerEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          pointerId: HELD,
+          clientX: 650,
+          clientY: 450,
+          detail: 1,
+        }),
+      );
+
+      expect(enterSelectionMode).not.toHaveBeenCalled();
+      expect(
+        document.querySelector("[data-slide-selection-outline]"),
+      ).toBeNull();
+    },
+  );
 });
