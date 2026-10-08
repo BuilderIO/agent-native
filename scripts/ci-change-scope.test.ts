@@ -674,21 +674,20 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     screenSelectionRegressions.match(/^        timeout-minutes: (\d+)$/m)?.[1],
   );
   assert.ok(
-    Number.isInteger(jobTimeout) && jobTimeout > 0 && jobTimeout < 10,
-    `Design acceptance job must stop before ten minutes (got ${jobTimeout})`,
+    Number.isInteger(jobTimeout) && jobTimeout === 9,
+    `Design acceptance job must have the exact nine-minute cap (got ${jobTimeout})`,
   );
   assert.ok(
     Number.isInteger(stepTimeout) &&
-      stepTimeout > 0 &&
-      stepTimeout <= 4 &&
-      jobTimeout >= stepTimeout + 5,
-    `focused Design tests need a four-minute cap and five minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
+      stepTimeout === 5 &&
+      jobTimeout >= stepTimeout + 4,
+    `focused Design tests need the exact five-minute cap and four minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
   );
   assert.ok(
     Number.isInteger(screenHistoryStepTimeout) &&
-      screenHistoryStepTimeout === 4 &&
-      jobTimeout >= screenHistoryStepTimeout + 5,
-    `Screen-history tests need a four-minute cap and five minutes for setup (job ${jobTimeout}, step ${screenHistoryStepTimeout})`,
+      screenHistoryStepTimeout === 5 &&
+      jobTimeout >= screenHistoryStepTimeout + 4,
+    `Screen-history tests need the exact five-minute cap and four minutes for setup (job ${jobTimeout}, step ${screenHistoryStepTimeout})`,
   );
   assert.match(
     designJob,
