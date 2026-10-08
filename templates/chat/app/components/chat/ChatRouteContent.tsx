@@ -348,12 +348,14 @@ function ChatAgentFooter({ children }: { children: ReactNode }) {
   const submitAnswers = useCallback(
     async ({ formattedAnswers }: { formattedAnswers: string }) => {
       await controller.sendMessage({ threadId, text: formattedAnswers });
+      return { delivered: true };
     },
     [controller, threadId],
   );
   const skipQuestions = useCallback(
     async ({ message }: { message: string }) => {
       await controller.sendMessage({ threadId, text: message });
+      return { delivered: true };
     },
     [controller, threadId],
   );

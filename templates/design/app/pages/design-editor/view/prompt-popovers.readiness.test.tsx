@@ -81,7 +81,7 @@ describe("Design editor prompt readiness", () => {
       },
       id: "design-1",
       design: { title: "Test design", description: "" },
-    } as Parameters<typeof renderPromptPopovers>[0]);
+    } as unknown as Parameters<typeof renderPromptPopovers>[0]);
 
     const children = Children.toArray(
       (tree as ReactElement<{ children: ReactNode }>).props.children,

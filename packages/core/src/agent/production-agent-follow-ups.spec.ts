@@ -238,6 +238,9 @@ describe("native agent follow-up publication", () => {
     const runtime = createAgentNativeChatRuntime({
       apiUrl: "https://example.test/agent-chat",
       fetch: async (_url, init) => {
+        if (String(_url).endsWith("/_agent-native/agent-engine/status")) {
+          return Response.json({ configured: true, chatEligible: true });
+        }
         const body = JSON.parse(String(init?.body));
         requests.push(body);
         const turn = turns[requests.length - 1];
@@ -276,8 +279,14 @@ describe("native agent follow-up publication", () => {
     transport.persistThreadSnapshot = async (input) => {
       snapshot = structuredClone(input.snapshot);
     };
-    const client = new AgentKitClient({ transport });
-    const cold = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport,
+      aiSetupReadiness: "not-applicable",
+    });
+    const cold = new AgentKitClient({
+      transport,
+      aiSetupReadiness: "not-applicable",
+    });
     try {
       await client.loadThread("thread-1");
       await (

@@ -408,9 +408,6 @@ vi.mock("@/components/editor/PromptDialog", () => ({
           readOnly
           disabled={props.disabled}
         />
-        {props.preflightPending ? (
-          <div role="status">Preflight pending</div>
-        ) : null}
       </>
     );
   },
