@@ -1,9 +1,10 @@
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
 
 import { describe, expect, it } from "vitest";
 
-import { requestAppResponse } from "./journey-capture";
+import { loadReplayEvents, requestAppResponse } from "./journey-capture";
 
 async function listen(server: Server): Promise<number> {
   await new Promise<void>((resolve, reject) => {
@@ -137,6 +138,100 @@ describe("journey capture network requests", () => {
           maxBytes: 1_024,
         }),
       ).rejects.toThrow("app_request_timeout");
+    } finally {
+      await close(server);
+    }
+  });
+});
+
+describe("journey replay prefix loading", () => {
+  it("reads through the end of a timestamp group that crosses a batch boundary", async () => {
+    const recordId = "recording-1";
+    const accessToken = "scoped-token";
+    const chunkData = Array.from({ length: 10 }, (_, index) => {
+      const event = {
+        id: `event-${index}`,
+        type: index === 0 ? 4 : index === 1 ? 2 : 3,
+        timestamp: index === 9 ? 1_001 : 1_000,
+        data:
+          index === 0
+            ? {
+                href: "https://app.example.test/onboarding",
+                width: 1280,
+                height: 720,
+              }
+            : index === 1
+              ? { node: { type: 0, childNodes: [] } }
+              : { source: 0 },
+      };
+      const body = JSON.stringify([event]);
+      return {
+        body,
+        checksum: createHash("sha256").update(body, "utf8").digest("hex"),
+        event,
+        seq: index,
+      };
+    });
+    const chunks = chunkData.map(({ body, checksum, seq }) => ({
+      bytesPath: `/api/session-replay/recordings/${recordId}/chunks/${seq}?agent_access=${accessToken}`,
+      checksum,
+      byteLength: Buffer.byteLength(body, "utf8"),
+      eventCount: 1,
+      seq,
+    }));
+    const manifest = {
+      recording: {
+        id: recordId,
+        eventCount: chunkData.length,
+        totalBytes: chunkData.reduce(
+          (sum, chunk) => sum + Buffer.byteLength(chunk.body, "utf8"),
+          0,
+        ),
+        chunkCount: chunkData.length,
+      },
+      chunks,
+    };
+    const requestedChunks: number[] = [];
+    const server = createServer((request, response) => {
+      const url = new URL(request.url ?? "/", "http://127.0.0.1");
+      if (url.pathname.endsWith("/manifest")) {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify(manifest));
+        return;
+      }
+      const match = /\/chunks\/(\d+)$/.exec(url.pathname);
+      if (!match) {
+        response.writeHead(404).end();
+        return;
+      }
+      const seq = Number(match[1]);
+      const chunk = chunkData[seq]!;
+      requestedChunks.push(seq);
+      response.writeHead(200, {
+        "content-type": "application/json",
+        "x-session-replay-seq": String(seq),
+        "x-session-replay-checksum": chunk.checksum,
+      });
+      response.end(chunk.body);
+    });
+    const port = await listen(server);
+    const appUrl = `http://127.0.0.1:${port}`;
+
+    try {
+      const events = await loadReplayEvents(
+        `${appUrl}/api/session-replay/agent-context.json?id=${recordId}&agent_access=${accessToken}`,
+        appUrl,
+        recordId,
+        0,
+        1_000,
+      );
+
+      expect(events.map((event) => event.id)).toEqual(
+        chunkData.map((chunk) => chunk.event.id),
+      );
+      expect(requestedChunks.sort((a, b) => a - b)).toEqual(
+        chunkData.map((chunk) => chunk.seq),
+      );
     } finally {
       await close(server);
     }

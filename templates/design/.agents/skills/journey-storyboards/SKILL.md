@@ -31,15 +31,19 @@ sizes and persists the whole tree in one transaction.
 
 Options: `designId` (refresh that design), `cardWidth` (default 360),
 `maxExamplesPerNode` (default 3, at most 6), `includeScreenshotless` (default false).
+`allowEncryptedPublicUploadFallback` defaults to `false`; set it to `true` only
+when this call is approved to store encrypted screenshot ciphertext with the
+configured public-upload provider.
 
 ## Images
 
 - `imageUrl` must be `https://`. `data:` URLs, other schemes and embedded credentials are rejected.
 - `attachmentRef` is a personal private attachment. It is copied into opaque,
   encrypted private blob storage and served only to people who can view the
-  design. A configured private blob provider or the configured encrypted
-  public-upload fallback can store it; if neither is available, the call fails
-  with `private_blob_provider_required`.
+  design. A configured private blob provider is used by default. The encrypted
+  public-upload fallback is used only when
+  `allowEncryptedPublicUploadFallback: true` is passed and the fallback is
+  configured; otherwise the call fails with `private_blob_provider_required`.
 
 ## What you get
 

@@ -119,6 +119,7 @@ describe("create-journey-canvas input", () => {
     expect(input.cardWidth).toBe(360);
     expect(input.maxExamplesPerNode).toBe(3);
     expect(input.includeScreenshotless).toBe(false);
+    expect(input.allowEncryptedPublicUploadFallback).toBe(false);
   });
 
   it("accepts an https imageUrl and an attachmentRef", () => {
@@ -222,6 +223,7 @@ describe("create-journey-canvas input", () => {
     };
     expect(schema.required.sort()).toEqual(["frames", "title", "tree"]);
     expect(Object.keys(schema.properties).sort()).toEqual([
+      "allowEncryptedPublicUploadFallback",
       "cardWidth",
       "designId",
       "frames",

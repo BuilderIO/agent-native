@@ -444,8 +444,9 @@ describe("create-journey-canvas run", () => {
     mocks.getProvider.mockResolvedValue(null);
     mocks.putPrivateBlob.mockResolvedValue(fallbackHandle);
 
+    const input = parsed(rawInput([frame("a", { attachmentRef: "ref-a" })]));
     await action.run(
-      parsed(rawInput([frame("a", { attachmentRef: "ref-a" })])),
+      { ...input, allowEncryptedPublicUploadFallback: true },
       {} as any,
     );
 
@@ -467,9 +468,10 @@ describe("create-journey-canvas run", () => {
     mocks.getProvider.mockResolvedValue(null);
     mocks.putPrivateBlob.mockResolvedValue(malformedHandle);
 
+    const input = parsed(rawInput([frame("a", { attachmentRef: "ref-a" })]));
     await expect(
       action.run(
-        parsed(rawInput([frame("a", { attachmentRef: "ref-a" })])),
+        { ...input, allowEncryptedPublicUploadFallback: true },
         {} as any,
       ),
     ).rejects.toMatchObject({ errorCode: "private_blob_provider_mismatch" });
@@ -727,6 +729,22 @@ describe("create-journey-canvas failures", () => {
       {} as any,
     );
     expect(mocks.getProvider).not.toHaveBeenCalled();
+    expect(mocks.isPrivateBlobConfiguredForRequest).not.toHaveBeenCalled();
+  });
+
+  it("requires explicit opt-in before using the configured encrypted fallback", async () => {
+    mocks.getProvider.mockResolvedValue(null);
+    mocks.isPrivateBlobConfiguredForRequest.mockResolvedValue(true);
+
+    await expect(
+      action.run(
+        parsed(rawInput([frame("a", { attachmentRef: "ref-a" })])),
+        {} as any,
+      ),
+    ).rejects.toMatchObject({ errorCode: "private_blob_provider_required" });
+
+    expect(mocks.resolveAttachment).not.toHaveBeenCalled();
+    expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
     expect(mocks.isPrivateBlobConfiguredForRequest).not.toHaveBeenCalled();
   });
 

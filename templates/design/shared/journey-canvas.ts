@@ -168,6 +168,13 @@ export const createJourneyCanvasInputSchema = z
       .optional()
       .default(3),
     includeScreenshotless: z.boolean().optional().default(false),
+    allowEncryptedPublicUploadFallback: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Allow this call to store encrypted screenshot ciphertext with the configured public-upload provider when no private blob provider is available.",
+      ),
   })
   .superRefine((input, ctx) => {
     const issue = (path: (string | number)[], message: string) =>

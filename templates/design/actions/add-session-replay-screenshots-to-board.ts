@@ -7,7 +7,6 @@ import {
 import {
   ATTACHMENT_REF_MAX_CHARS,
   deletePrivateBlob,
-  isPrivateBlobConfiguredForRequest,
   putPrivateBlob,
   resolveAttachment,
   type PrivateBlobHandle,
@@ -23,6 +22,7 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   attachmentFailureMessage,
   detectImageMimeType,
+  resolveReplayScreenshotStorage,
 } from "../server/lib/replay-screenshot-blobs.js";
 import { isValidReplayScreenshotBlobHandle } from "../server/lib/replay-screenshot-private-blob.js";
 import {
@@ -78,6 +78,13 @@ const inputSchema = z
     cohortTotal: z.number().int().min(0).max(2_147_483_647).optional(),
     selectedReplayCount: z.number().int().min(0).max(2_147_483_647).optional(),
     screenshots: z.array(screenshotInputSchema).min(1).max(MAX_SCREENSHOTS),
+    allowEncryptedPublicUploadFallback: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Allow this call to store encrypted screenshot ciphertext with the configured public-upload provider when no private blob provider is available.",
+      ),
   })
   .strict();
 
@@ -404,7 +411,7 @@ function actionFailureWithRollbackState(
 
 export default defineAction({
   description:
-    "Add up to nine private Analytics session-replay screenshots to a Design board. Each image is copied to configured private storage, including the encrypted upload fallback when available. Replay metadata is stored separately, and board HTML references only authenticated image routes. Pass a Design ID to append to an existing board, or omit it to create a Design.",
+    "Add up to nine private Analytics session-replay screenshots to a Design board. Each image is copied to configured private storage. The encrypted public-upload fallback is opt-in for this call with `allowEncryptedPublicUploadFallback: true`. Replay metadata is stored separately, and board HTML references only authenticated image routes. Pass a Design ID to append to an existing board, or omit it to create a Design.",
   requiresAuth: true,
   maxBodyBytes: MAX_SCREENSHOTS * (ATTACHMENT_REF_MAX_CHARS + 3_200) + 16_384,
   schema: inputSchema,
@@ -415,6 +422,7 @@ export default defineAction({
       cohortTotal,
       selectedReplayCount,
       screenshots,
+      allowEncryptedPublicUploadFallback,
     },
     context,
   ) => {
@@ -427,18 +435,13 @@ export default defineAction({
       : undefined;
     const blobOwnerEmail =
       initialDesignAccess?.resource.ownerEmail ?? ownerEmail;
-    if (!(await isPrivateBlobConfiguredForRequest())) {
-      fail(
-        "Design requires configured private storage for replay screenshots.",
-        {
-          errorCode: "private_blob_provider_required",
-          statusCode: 503,
-        },
-      );
-    }
+    const storage = await resolveReplayScreenshotStorage(
+      allowEncryptedPublicUploadFallback,
+    );
 
     const uploaded: UploadedScreenshot[] = [];
-    let storageProviderId: string | undefined;
+    let storageProviderId =
+      storage.kind === "private-provider" ? storage.providerId : undefined;
     let totalBytes = 0;
     let createdDesignId: string | undefined;
     let screenshotMetadataInsertAttempted = false;

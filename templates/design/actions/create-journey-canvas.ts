@@ -4,10 +4,6 @@ import {
   hasCollabState,
   seedFromText,
 } from "@agent-native/core/collab";
-import {
-  getActivePrivateBlobProviderForRequest,
-  isPrivateBlobConfiguredForRequest,
-} from "@agent-native/core/private-blob";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -19,6 +15,7 @@ import { designChangeResource } from "../server/lib/design-change-resource.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import {
   discardPrivateBlobs,
+  resolveReplayScreenshotStorage,
   storeAttachmentAsPrivateBlob,
   type StoredReplayScreenshotBlob,
 } from "../server/lib/replay-screenshot-blobs.js";
@@ -85,7 +82,7 @@ function designDeepLink(designId: string): string {
 export default defineAction({
   description:
     "Create or refresh an onboarding-journey storyboard on a Design canvas in one call: a left-to-right tree of step cards with real session screenshots, arrows between them, a percent label on every fork, and a 'No later step observed' stub for sessions whose last observed step was a node. These counts do not prove that a session exited. " +
-    "Pass the journey tree from Analytics `get-onboarding-journey` as `tree` and one captured frame per example as `frames` ({ nodeKey, exampleIndex, width, height, capturedAt } plus exactly one of `imageUrl` (https only; data: URLs are rejected) or `attachmentRef` (a personal private attachment, copied into encrypted private blob storage and served only to people who can view the design)). Private providers and the configured encrypted public-upload fallback are supported. " +
+    "Pass the journey tree from Analytics `get-onboarding-journey` as `tree` and one captured frame per example as `frames` ({ nodeKey, exampleIndex, width, height, capturedAt } plus exactly one of `imageUrl` (https only; data: URLs are rejected) or `attachmentRef` (a personal private attachment, copied into private blob storage and served only to people who can view the design)). Private blob providers are used by default; set `allowEncryptedPublicUploadFallback: true` only when this call is approved to use the configured encrypted public-upload fallback. " +
     "Each card shows the journey example's event date, recording id, and replay offset separately from the screenshot capture date. " +
     "Cards are sized from each frame's real aspect ratio; extra examples (up to `maxExamplesPerNode`, default 3) stack behind the front card. A step with no frame is left off and listed in `skippedNodes` unless `includeScreenshotless` is true. " +
     "Omit `designId` to create a new design; pass one to replace the storyboard this action drew earlier in that design (only its own screens and board objects are replaced, everything else on the canvas is left alone). " +
@@ -126,17 +123,10 @@ export default defineAction({
     const attachmentScreens = plan.screens.filter(
       (screen) => screen.attachment,
     );
-    const storageConfigured = attachmentScreens.length
-      ? await isPrivateBlobConfiguredForRequest()
-      : false;
-    if (attachmentScreens.length && !storageConfigured) {
-      fail(
-        "Design requires configured private blob storage or the encrypted upload fallback to store attachmentRef screenshots. Pass https imageUrl frames instead, or configure private storage.",
-        { errorCode: "private_blob_provider_required", statusCode: 503 },
-      );
-    }
-    const provider = storageConfigured
-      ? await getActivePrivateBlobProviderForRequest()
+    const storage = attachmentScreens.length
+      ? await resolveReplayScreenshotStorage(
+          input.allowEncryptedPublicUploadFallback,
+        )
       : null;
 
     const stored = new Map<string, StoredReplayScreenshotBlob>();
@@ -152,7 +142,10 @@ export default defineAction({
               attachmentRef: attachment!.ref,
               requesterEmail,
               blobOwnerEmail,
-              providerId: provider?.id,
+              providerId:
+                storage?.kind === "private-provider"
+                  ? storage.providerId
+                  : undefined,
               rowId: attachment!.rowId,
               designId,
               replayId: attachment!.replayId,

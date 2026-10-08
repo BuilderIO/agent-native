@@ -600,7 +600,7 @@ function eventsFromChunkText(value: unknown): unknown[] {
   throw new Error("replay_chunk_invalid");
 }
 
-async function loadReplayEvents(
+export async function loadReplayEvents(
   contextUrl: string,
   appUrl: string,
   recordingId: string,
@@ -758,7 +758,7 @@ async function loadReplayEvents(
       }
     }
 
-    if (targetTimestamp !== undefined && previousTimestamp >= targetTimestamp) {
+    if (targetTimestamp !== undefined && previousTimestamp > targetTimestamp) {
       break;
     }
   }

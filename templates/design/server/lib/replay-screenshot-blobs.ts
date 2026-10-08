@@ -1,6 +1,8 @@
 import { fail } from "@agent-native/core/action";
 import {
   deletePrivateBlob,
+  getActivePrivateBlobProviderForRequest,
+  isPrivateBlobConfiguredForRequest,
   putPrivateBlob,
   resolveAttachment,
   type PrivateBlobHandle,
@@ -20,6 +22,27 @@ export interface StoredReplayScreenshotBlob {
   blobHandle: PrivateBlobHandle;
   mimeType: ReplayScreenshotMimeType;
   sizeBytes: number;
+}
+
+export type ReplayScreenshotStorage =
+  | { kind: "private-provider"; providerId: string }
+  | { kind: "encrypted-public-upload" };
+
+export async function resolveReplayScreenshotStorage(
+  allowEncryptedPublicUploadFallback: boolean,
+): Promise<ReplayScreenshotStorage> {
+  const provider = await getActivePrivateBlobProviderForRequest();
+  if (provider) return { kind: "private-provider", providerId: provider.id };
+  if (
+    allowEncryptedPublicUploadFallback === true &&
+    (await isPrivateBlobConfiguredForRequest())
+  ) {
+    return { kind: "encrypted-public-upload" };
+  }
+  fail(
+    "Replay screenshots require a configured private blob provider. Set allowEncryptedPublicUploadFallback to true only when approved to use the app's encrypted public-upload fallback.",
+    { errorCode: "private_blob_provider_required", statusCode: 503 },
+  );
 }
 
 export function detectImageMimeType(
