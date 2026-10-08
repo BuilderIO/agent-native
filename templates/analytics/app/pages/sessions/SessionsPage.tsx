@@ -242,11 +242,22 @@ export function ReplayStorageHint({
     storageStatus.isLoading ||
     builderStatus.loading ||
     !builderConnect.hasFetchedStatus;
-  const builderConnectionScope =
+  const effectiveBuilderConnectionScope =
     builderConnect.effective === "org" ||
     builderConnect.effective === "personal"
       ? builderConnect.effective
       : undefined;
+  const builderConnectionScope =
+    effectiveBuilderConnectionScope &&
+    builderConnect.canConnect[effectiveBuilderConnectionScope]
+      ? effectiveBuilderConnectionScope
+      : builderConnect.canConnect.org !== builderConnect.canConnect.personal
+        ? builderConnect.canConnect.org
+          ? "org"
+          : "personal"
+        : undefined;
+  const canConnectBuilder =
+    builderConnect.canConnect.org || builderConnect.canConnect.personal;
   const [s3Expanded, setS3Expanded] = useState(false);
   const [s3Values, setS3Values] = useState<Record<string, string>>({});
   const [savingStorage, setSavingStorage] = useState(false);
@@ -323,10 +334,14 @@ export function ReplayStorageHint({
                   {t("sessions.storageSetupTitle")}
                 </div>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  {builderAiConnected &&
-                  storageStatus.data?.builderUploadConfigured === false
-                    ? t("sessions.builderAiConnectedStorageNeedsGrant")
-                    : t("sessions.storageSetupDescription")}
+                  {!builderStatusLoading && !canConnectBuilder
+                    ? t("dataSources.workspaceAdminRequiredDescription", {
+                        name: "Builder.io",
+                      })
+                    : builderAiConnected &&
+                        storageStatus.data?.builderUploadConfigured === false
+                      ? t("sessions.builderAiConnectedStorageNeedsGrant")
+                      : t("sessions.storageSetupDescription")}
                 </p>
               </div>
             </div>
@@ -350,6 +365,7 @@ export function ReplayStorageHint({
                 disabled={
                   builderConnect.connecting ||
                   builderStatusLoading ||
+                  !canConnectBuilder ||
                   storageConnected
                 }
               >

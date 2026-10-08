@@ -1041,6 +1041,73 @@ describe("useBuilderConnectFlow", () => {
       );
     });
 
+    it("keeps a newer connection error when an older refresh succeeds", async () => {
+      setUserAgent("Mozilla/5.0 Chrome/140.0");
+      const popup = createPopupStub();
+      openSpy.mockReturnValue(popup);
+      let resolveOlderRefresh!: (response: Response) => void;
+      const olderRefresh = new Promise<Response>((resolve) => {
+        resolveOlderRefresh = resolve;
+      });
+      let statusReads = 0;
+      vi.mocked(fetch).mockImplementation(async () => {
+        statusReads += 1;
+        return statusReads === 2
+          ? olderRefresh
+          : jsonResponse(activationStatus);
+      });
+
+      await act(async () => {
+        root.render(<BuilderConnectProbe />);
+      });
+      await flushAfterPaint();
+
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        await Promise.resolve();
+      });
+      expect(statusReads).toBe(2);
+
+      await clickConnect();
+      const message = "The connection could not be saved";
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            origin: "https://agent-workspace.builder.io",
+            data: {
+              type: "builder-connect-error",
+              attemptId: popupAttemptId(popup),
+              message,
+            },
+          }),
+        );
+      });
+
+      expect(
+        container.querySelector('[data-testid="error-kind"]')?.textContent,
+      ).toBe("connection");
+      expect(container.textContent).toContain(
+        `Couldn't save Builder credentials: ${message}.`,
+      );
+
+      await act(async () => {
+        resolveOlderRefresh(jsonResponse(connectedBuilderStatus));
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      await flushAfterPaint();
+
+      expect(
+        container.querySelector('[data-testid="error-kind"]')?.textContent,
+      ).toBe("connection");
+      expect(container.textContent).toContain(
+        `Couldn't save Builder credentials: ${message}.`,
+      );
+      expect(container.textContent).not.toContain(
+        "Couldn't check the Builder.io connection.",
+      );
+    });
+
     it("reconciles status when the activation response is lost", async () => {
       let activationAttempts = 0;
       vi.mocked(fetch).mockImplementation(async (input) => {

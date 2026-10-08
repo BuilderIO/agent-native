@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act, type ReactNode } from "react";
+import { act, isValidElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -18,6 +18,7 @@ const storageMocks = vi.hoisted(() => ({
 const builderMocks = vi.hoisted(() => ({
   configured: false,
   effective: null as "org" | "personal" | "workspace" | "env" | null,
+  canConnect: { org: true, personal: true },
   start: vi.fn(),
   status: null as { configured?: boolean; effective?: string } | null,
   statusLoading: false,
@@ -41,6 +42,10 @@ vi.mock("@agent-native/toolkit/app/settings", () => ({
         <button
           type="button"
           data-testid="builder-connect-existing"
+          disabled={
+            isValidElement<{ disabled?: boolean }>(children) &&
+            children.props.disabled
+          }
           onClick={() => onConnect(false)}
         />
       ) : null}
@@ -51,7 +56,7 @@ vi.mock("@agent-native/toolkit/app/settings", () => ({
     connecting: false,
     effective: builderMocks.effective,
     hasFetchedStatus: true,
-    canConnect: { org: true, personal: true },
+    canConnect: builderMocks.canConnect,
     start: builderMocks.start,
   }),
   useBuilderStatus: () => ({
@@ -166,6 +171,7 @@ describe("ReplayStorageHint", () => {
     storageMocks.refetch.mockReset();
     builderMocks.configured = false;
     builderMocks.effective = null;
+    builderMocks.canConnect = { org: true, personal: true };
     builderMocks.start.mockReset();
     builderMocks.status = null;
     builderMocks.statusLoading = false;
@@ -259,4 +265,71 @@ describe("ReplayStorageHint", () => {
       });
     },
   );
+
+  it("uses an allowed personal scope when the existing org grant cannot connect", async () => {
+    builderMocks.configured = true;
+    builderMocks.effective = "org";
+    builderMocks.canConnect = { org: false, personal: true };
+    builderMocks.status = { configured: true, effective: "org" };
+    storageMocks.useReplayStorageStatus.mockReturnValue({
+      data: {
+        configured: false,
+        builderConfigured: true,
+        builderUploadConfigured: false,
+      },
+      isError: false,
+      isFetching: false,
+      isLoading: false,
+      isSuccess: true,
+      refetch: storageMocks.refetch,
+    });
+
+    await act(async () => {
+      root.render(<ReplayStorageHint />);
+    });
+
+    const connectExisting = container.querySelector<HTMLButtonElement>(
+      '[data-testid="builder-connect-existing"]',
+    );
+    await act(async () => connectExisting?.click());
+
+    expect(builderMocks.start).toHaveBeenCalledExactlyOnceWith({
+      provisionAccount: false,
+      scope: "personal",
+    });
+  });
+
+  it("asks an owner or admin when no Builder connection scope is available", async () => {
+    builderMocks.configured = true;
+    builderMocks.effective = "org";
+    builderMocks.canConnect = { org: false, personal: false };
+    builderMocks.status = { configured: true, effective: "org" };
+    storageMocks.useReplayStorageStatus.mockReturnValue({
+      data: {
+        configured: false,
+        builderConfigured: true,
+        builderUploadConfigured: false,
+      },
+      isError: false,
+      isFetching: false,
+      isLoading: false,
+      isSuccess: true,
+      refetch: storageMocks.refetch,
+    });
+
+    await act(async () => {
+      root.render(<ReplayStorageHint />);
+    });
+
+    expect(container.textContent).toContain(
+      "dataSources.workspaceAdminRequiredDescription",
+    );
+    const connectExisting = container.querySelector<HTMLButtonElement>(
+      '[data-testid="builder-connect-existing"]',
+    );
+    expect(connectExisting?.disabled).toBe(true);
+    await act(async () => connectExisting?.click());
+
+    expect(builderMocks.start).not.toHaveBeenCalled();
+  });
 });

@@ -1072,12 +1072,11 @@ export function useBuilderConnectFlow(
       const isCurrentRefresh = () => generation === refreshGeneration;
       const s = await fetchStatus();
       if (cancelled || !mountedRef.current || !isCurrentRefresh()) return;
+      if (errorRevisionRef.current !== errorRevisionAtStart) return;
       setHasFetchedStatus(true);
       setStatusReadSettledCount((count) => count + 1);
       if (!s) {
-        if (errorRevisionRef.current === errorRevisionAtStart) {
-          markStatusUnavailable();
-        }
+        markStatusUnavailable();
         return;
       }
       if (statusUnavailableRef.current) {
@@ -1119,13 +1118,15 @@ export function useBuilderConnectFlow(
       } else if (!connectComplete) {
         notifiedConnectedRef.current = false;
       }
-      const activeConnectStartedAt = connectStartedAtRef.current;
-      if (isCurrentConnectError(s.connectError, activeConnectStartedAt)) {
-        setError(s.connectError.message);
-      } else if (!activeConnectStartedAt && s.authError?.message) {
-        setError(s.authError.message);
-      } else if (s.configured) {
-        setError(null);
+      if (errorRevisionRef.current === errorRevisionAtStart) {
+        const activeConnectStartedAt = connectStartedAtRef.current;
+        if (isCurrentConnectError(s.connectError, activeConnectStartedAt)) {
+          setError(s.connectError.message);
+        } else if (!activeConnectStartedAt && s.authError?.message) {
+          setError(s.authError.message);
+        } else if (s.configured) {
+          setError(null);
+        }
       }
     };
     retryStatusRef.current = () => {
