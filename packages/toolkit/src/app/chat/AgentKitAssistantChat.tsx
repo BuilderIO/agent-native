@@ -66,7 +66,10 @@ import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return"
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { useSession } from "@agent-native/core/client/use-session";
 import { AGENTKIT_CHAT_MIGRATION_GUIDE_URL } from "@agent-native/core/package-lifecycle/migration-message";
-import { splitAgentChatContextFromMessage } from "@agent-native/core/shared";
+import {
+  splitAgentChatContextFromMessage,
+  stripAgentChatContextFromMessage,
+} from "@agent-native/core/shared";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   AgentSuggestionBar,
@@ -5400,15 +5403,25 @@ async function uploadAgentChatAttachments(
   );
 }
 
-function agentMessageText(message: AgentMessage): string {
-  return message.parts
+function rawAgentMessageTextFromParts(parts: AgentMessage["parts"]): string {
+  return parts
     .filter((part) => part.type === "text")
-    .map((part) =>
-      part.type === "text"
-        ? splitAgentChatContextFromMessage(part.text).message
-        : "",
-    )
+    .map((part) => (part.type === "text" ? part.text : ""))
     .join("\n");
+}
+
+export function agentMessageTextFromParts(
+  parts: AgentMessage["parts"],
+): string {
+  return stripAgentChatContextFromMessage(rawAgentMessageTextFromParts(parts));
+}
+
+function rawAgentMessageText(message: AgentMessage): string {
+  return rawAgentMessageTextFromParts(message.parts);
+}
+
+function agentMessageText(message: AgentMessage): string {
+  return agentMessageTextFromParts(message.parts);
 }
 
 function persistedAgentMessage(message: AgentMessage): AgentMessage {
@@ -5442,14 +5455,12 @@ function createAgentKitThreadSnapshot(thread: AgentThreadState) {
       createdAt: message.createdAt,
     },
   }));
-  const firstUserText =
-    messages.find((message) => message.role === "user") &&
-    agentMessageText(messages.find((message) => message.role === "user")!);
-  const latestUserText =
-    [...messages].reverse().find((message) => message.role === "user") &&
-    agentMessageText(
-      [...messages].reverse().find((message) => message.role === "user")!,
-    );
+  const firstUser = messages.find((message) => message.role === "user");
+  const latestUser = [...messages]
+    .reverse()
+    .find((message) => message.role === "user");
+  const firstUserText = firstUser && rawAgentMessageText(firstUser);
+  const latestUserText = latestUser && agentMessageText(latestUser);
   const handoffThread = thread.thread as AgentKitHandoffThreadSnapshot | null;
   const savedTitle = handoffThread?.title?.trim();
   const titleSource: "fallback" | undefined =
@@ -5743,7 +5754,7 @@ function appendVoiceTranscriptsToThreadSnapshot(
     }),
     title:
       snapshot.title ||
-      (firstUser ? fallbackChatTitle(agentMessageText(firstUser)) : ""),
+      (firstUser ? fallbackChatTitle(rawAgentMessageText(firstUser)) : ""),
     preview: latestUser ? agentMessageText(latestUser).slice(0, 280) : "",
     messageCount: messages.length,
   };
