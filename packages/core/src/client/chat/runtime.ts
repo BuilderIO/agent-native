@@ -9,6 +9,7 @@ import {
 import type { AgentChatStructuredMessage } from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
+import { getOrCreateAnalyticsSessionId } from "../analytics-session.js";
 import { agentChatStreamingUrl, agentNativePath } from "../api-path.js";
 import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import {
@@ -3953,6 +3954,12 @@ export function createAgentNativeChatRuntime(
     headers: async (input) => {
       const headers = await resolveHeaders(options.headers, input);
       headers.set("x-agent-native-surface", options.surface ?? "app");
+      if (!headers.has("x-agent-native-session-id")) {
+        const browserSessionId = getOrCreateAnalyticsSessionId();
+        if (browserSessionId) {
+          headers.set("x-agent-native-session-id", browserSessionId);
+        }
+      }
       return headers;
     },
     capabilities: {

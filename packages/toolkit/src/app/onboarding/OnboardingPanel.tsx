@@ -26,7 +26,7 @@ import {
   IconKey,
   IconLoader2,
 } from "@tabler/icons-react";
-import React, { useState, useEffect, useId } from "react";
+import React, { useState, useEffect, useId, useRef } from "react";
 
 import {
   BuilderConnectPopover,
@@ -74,21 +74,32 @@ export function OnboardingPanel({
   const checklistVisible =
     !loading && totalCount > 0 && (previewMode || (!dismissed && !allComplete));
   const [expanded, setExpanded] = useState(true);
+  const stepViewRef = useRef<{ key: string; id: string } | null>(null);
 
   useEffect(() => {
-    if (!checklistVisible) return;
+    if (!checklistVisible || !expanded) {
+      stepViewRef.current = null;
+      return;
+    }
     const activeStepIndex = steps.findIndex(
       (step) => step.id === currentStepId,
     );
     const activeStep = steps[activeStepIndex];
     trackOnboardingEvent("onboarding_started", { flow: "checklist" });
     if (!activeStep) return;
+    if (stepViewRef.current?.key !== activeStep.id) {
+      stepViewRef.current = {
+        key: activeStep.id,
+        id: window.crypto.randomUUID(),
+      };
+    }
     trackOnboardingEvent("onboarding_step_viewed", {
       flow: "checklist",
       step_id: activeStep.id,
       step_index: activeStepIndex,
+      step_view_id: stepViewRef.current.id,
     });
-  }, [checklistVisible, currentStepId, previewMode, steps]);
+  }, [checklistVisible, currentStepId, expanded, previewMode, steps]);
 
   if (loading || totalCount === 0) return null;
   if (!previewMode) {

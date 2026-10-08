@@ -10,6 +10,7 @@ import {
 } from "@agent-native/core/client/agent-provider-catalog";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { trackCustomKeyOnboardingOutcome } from "@agent-native/core/client/onboarding/use-onboarding";
 import { useOrg } from "@agent-native/core/client/org";
 import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import { Button } from "@agent-native/toolkit/ui/button";
@@ -135,7 +136,13 @@ function unique(models: readonly string[]): string[] {
  */
 export function ProviderDialog(props: ProviderDialogProps) {
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+    <Dialog
+      open={props.open}
+      onOpenChange={(open) => {
+        if (!open) trackCustomKeyOnboardingOutcome("credential_skipped");
+        props.onOpenChange(open);
+      }}
+    >
       {props.open ? <ProviderDialogContent {...props} /> : null}
     </Dialog>
   );
@@ -337,6 +344,7 @@ function ProviderDialogForm({
           if (request !== requestRef.current) return;
           setCheck(toCheckState(result));
           if (!result.ok) return;
+          trackCustomKeyOnboardingOutcome("credential_validated");
           setChecked((previous) => {
             const kept = previous.filter((model) =>
               result.models.includes(model),
@@ -467,6 +475,9 @@ function ProviderDialogForm({
           scope,
         });
         keySaved = true;
+      }
+      if (keySaved) {
+        trackCustomKeyOnboardingOutcome("credential_saved");
       }
       if (modelsChanged) {
         await callAction(
@@ -607,6 +618,9 @@ function ProviderDialogForm({
                 onChange={(event) => {
                   setKeyValue(event.target.value);
                   setKeyError(false);
+                  if (event.target.value.trim()) {
+                    trackCustomKeyOnboardingOutcome("credential_entry_started");
+                  }
                 }}
               />
             ) : (

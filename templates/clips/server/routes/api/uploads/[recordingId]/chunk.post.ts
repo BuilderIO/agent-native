@@ -4,7 +4,10 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { runWithRequestContext } from "@agent-native/core/server";
+import {
+  readBrowserSessionIdHeader,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { classifyTrackingFailure, track } from "@agent-native/core/tracking";
 import { normalizeChunkUploadNumber } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
@@ -302,7 +305,13 @@ export async function handleRecordingChunk(
   }
   debugLog("[chunk] resolved owner:", ownerEmail);
 
-  const requestContext = { userEmail: ownerEmail, orgId, authUserId };
+  const browserSessionId = readBrowserSessionIdHeader(event);
+  const requestContext = {
+    userEmail: ownerEmail,
+    orgId,
+    authUserId,
+    ...(browserSessionId ? { browserSessionId } : {}),
+  };
   return runWithRequestContext(requestContext, async () => {
     const db = getDb();
 

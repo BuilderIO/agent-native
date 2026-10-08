@@ -4,7 +4,7 @@ import {
   embedApp,
   fail,
 } from "@agent-native/core";
-import { buildDeepLink } from "@agent-native/core/server";
+import { buildDeepLink, getRequestContext } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
@@ -559,6 +559,7 @@ export default defineAction({
         generationContext.generationStartedAt >= 0
           ? generationContext.generationStartedAt
           : undefined;
+      const browserSessionId = getRequestContext()?.browserSessionId;
       if (
         shouldRepairTitle &&
         generationAttemptId &&
@@ -568,6 +569,7 @@ export default defineAction({
           deckId,
           generationAttemptId,
           targetSlideCount,
+          ...(browserSessionId ? { sessionId: browserSessionId } : {}),
           ...(generationStartedAt !== undefined ? { generationStartedAt } : {}),
         });
       }

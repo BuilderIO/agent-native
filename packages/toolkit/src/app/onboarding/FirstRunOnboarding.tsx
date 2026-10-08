@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/client/onboarding/first-run-registry";
 import { saveFirstRunOnboardingRole } from "@agent-native/core/client/onboarding/first-run-status";
 import {
+  setCustomKeyOnboardingAttempt,
   trackOnboardingEvent,
   useOnboarding,
 } from "@agent-native/core/client/onboarding/use-onboarding";
@@ -308,6 +309,7 @@ export function FirstRunOnboarding({
   const abandonmentTrackedRef = useRef(false);
   const setupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
   const builderSetupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
+  const stepViewRef = useRef<{ key: string; id: string } | null>(null);
   const startSetupMethod = useCallback(
     (methodId: FirstRunSetupMethodId, methodKind: "builder" | "manual") => {
       if (previewMode || typeof window === "undefined") return null;
@@ -362,7 +364,10 @@ export function FirstRunOnboarding({
     }
   }, [firstRun, loading, previewMode, profile]);
   useEffect(() => {
-    if (previewMode || !firstRun || loading || !profile) return;
+    if (previewMode || !firstRun || loading || !profile) {
+      stepViewRef.current = null;
+      return;
+    }
     const step = firstRunStepProperties(
       screen,
       beforeSetupExtensions,
@@ -371,7 +376,14 @@ export function FirstRunOnboarding({
       extensionIndex,
       extensionStepIndex,
     );
-    trackOnboardingEvent("onboarding_step_viewed", step);
+    const key = [step.step_id, step.extension_id, step.step_index].join(":");
+    if (stepViewRef.current?.key !== key) {
+      stepViewRef.current = { key, id: window.crypto.randomUUID() };
+    }
+    trackOnboardingEvent("onboarding_step_viewed", {
+      ...step,
+      step_view_id: stepViewRef.current.id,
+    });
   }, [
     afterSetupExtensions,
     beforeSetupExtensions,
@@ -581,6 +593,7 @@ export function FirstRunOnboarding({
       );
       return;
     }
+    if (attempt) setCustomKeyOnboardingAttempt(attempt.id);
     trackFirstRunSetupOutcome(attempt, "settings_opened");
     if (typeof window === "undefined") return;
     const search = new URLSearchParams(window.location.search);

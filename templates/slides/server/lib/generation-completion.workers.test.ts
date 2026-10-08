@@ -82,6 +82,33 @@ beforeEach(() => {
 });
 
 describe("finishing a turn on several workers", () => {
+  it("carries a verified browser session id through continuation storage", async () => {
+    const first = await worker();
+    first.noteGenerationFirstOutput("turn-1", {
+      ...output,
+      sessionId: "browser-session-42",
+    });
+    await first.trackGenerationCompletedForRun(
+      { ...finalRun, runId: "run-1" },
+      { turnContinues: true },
+      async () => 2,
+    );
+
+    const continuation = await worker();
+    await continuation.trackGenerationCompletedForRun(
+      finalRun,
+      finished,
+      async () => 5,
+      { userId: "owner@example.com" },
+    );
+
+    expect(reports()).toHaveLength(1);
+    expect(reports()[0]?.[2]).toEqual({
+      userId: "owner@example.com",
+      sessionId: "browser-session-42",
+    });
+  });
+
   it("reports once when two workers finish the same turn at the same time", async () => {
     await handOffFromFirstChunk();
     const [a, b] = [await worker(), await worker()];

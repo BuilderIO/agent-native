@@ -18,6 +18,7 @@ import type { ChatModelEngineEntry } from "@agent-native/core/client/chat-model-
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs/use-lab";
+import { trackCustomKeyOnboardingOutcome } from "@agent-native/core/client/onboarding/use-onboarding";
 import { useOrg } from "@agent-native/core/client/org";
 import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
@@ -155,6 +156,14 @@ function useChatGPTModels(
  * or its named client helper; the page only arranges what they return.
  */
 export default function ModelSettingsPage(_props: SettingsPageProps) {
+  useEffect(() => {
+    const abandonCustomKeySetup = () => {
+      trackCustomKeyOnboardingOutcome("credential_abandoned");
+    };
+    window.addEventListener("pagehide", abandonCustomKeySetup);
+    return () => window.removeEventListener("pagehide", abandonCustomKeySetup);
+  }, []);
+
   const t = useT();
   const org = useOrg();
   const listing = useActionQuery<ModelProvidersListing>(

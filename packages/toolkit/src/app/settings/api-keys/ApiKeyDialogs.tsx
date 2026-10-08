@@ -1,6 +1,7 @@
 import { getAgentProviderOption } from "@agent-native/core/client/agent-provider-catalog";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { trackCustomKeyOnboardingOutcome } from "@agent-native/core/client/onboarding/use-onboarding";
 import { useOrg } from "@agent-native/core/client/org";
 import type { SecretRemovalPreview } from "@agent-native/core/secrets/usage";
 import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
@@ -84,7 +85,13 @@ export interface KeyValueDialogProps {
 /** Add key (Name, Value, Available to), or Replace value on a saved key. */
 export function KeyValueDialog(props: KeyValueDialogProps) {
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+    <Dialog
+      open={props.open}
+      onOpenChange={(open) => {
+        if (!open) trackCustomKeyOnboardingOutcome("credential_skipped");
+        props.onOpenChange(open);
+      }}
+    >
       {props.open ? <KeyValueDialogContent {...props} /> : null}
     </Dialog>
   );
@@ -183,6 +190,10 @@ function KeyValueDialogContent({
         registered: target.kind === "registered",
         shared: isShared,
       });
+      if (target.kind === "registered") {
+        trackCustomKeyOnboardingOutcome("credential_validated");
+      }
+      trackCustomKeyOnboardingOutcome("credential_saved");
       void refreshKeys(queryClient);
       toast.success(replacing ? t(`${K}valueReplaced`) : t(`${K}keyAdded`));
       onSaved?.();
@@ -273,6 +284,9 @@ function KeyValueDialogContent({
             onChange={(event) => {
               setValue(event.target.value);
               setError(null);
+              if (event.target.value.trim()) {
+                trackCustomKeyOnboardingOutcome("credential_entry_started");
+              }
             }}
           />
           {docsUrl ? (

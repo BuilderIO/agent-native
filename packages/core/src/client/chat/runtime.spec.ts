@@ -595,6 +595,40 @@ describe("createHttpAgentChatRuntime", () => {
 });
 
 describe("createAgentNativeChatRuntime", () => {
+  it("sends the browser analytics session with agent-run requests", async () => {
+    const storage = new Map<string, string>([
+      ["agent-native.session_id", "browser-session-42"],
+      ["agent-native.session_last_activity", String(Date.now())],
+    ]);
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => storage.set(key, value),
+      },
+    });
+    try {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(sseResponse([{ type: "done" }]));
+      const runtime = createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: fetchMock as typeof fetch,
+      });
+      const session = await runtime.createSession();
+      await drain(
+        (await session.startTurn({ prompt: "Create a slide" })).events,
+      );
+
+      expect(
+        new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get(
+          "x-agent-native-session-id",
+        ),
+      ).toBe("browser-session-42");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("sends prior tool activity as structured history without duplicating the current prompt", async () => {
     const fetchMock = vi
       .fn()

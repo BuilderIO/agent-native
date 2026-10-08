@@ -6,14 +6,14 @@ import { encodeMagicLinkSignupAttribution } from "./magic-link-attribution.js";
 const tracked: Array<{
   name: string;
   properties: Record<string, unknown>;
-  source?: { userId?: string; anonymousId?: string };
+  source?: { userId?: string; anonymousId?: string; sessionId?: string };
 }> = [];
 
 vi.mock("../tracking/index.js", () => ({
   track: (
     name: string,
     properties: Record<string, unknown>,
-    source?: { userId?: string; anonymousId?: string },
+    source?: { userId?: string; anonymousId?: string; sessionId?: string },
   ) => {
     tracked.push({ name, properties, source });
   },
@@ -91,6 +91,24 @@ describe("emitSignupEventForCreatedUser", () => {
       utm_source: "google",
       utm_campaign: "launch",
     });
+  });
+
+  it("attaches only a valid browser session id from the signup request", async () => {
+    await emitSignupEventForCreatedUser(USER, {
+      headers: new Headers({
+        "x-agent-native-session-id": "browser-session-42",
+      }),
+    });
+    expect(tracked[0]?.source?.sessionId).toBe("browser-session-42");
+
+    tracked.length = 0;
+    await emitSignupEventForCreatedUser(USER, {
+      headers: new Headers({
+        "x-agent-native-session-id": "not a session id",
+      }),
+    });
+    expect(tracked[0]?.source?.sessionId).toBeUndefined();
+    expect(tracked[0]?.properties).not.toHaveProperty("session_id");
   });
 
   it("labels a signup created by magic-link verification", async () => {

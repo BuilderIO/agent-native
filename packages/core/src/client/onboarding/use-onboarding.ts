@@ -6,7 +6,11 @@ import type {
   OnboardingStepStatus,
   OnboardingSummary,
 } from "../../onboarding/types.js";
-import { getAnalyticsIdentityKey, trackEvent } from "../analytics.js";
+import {
+  getAnalyticsIdentityKey,
+  getAnalyticsSessionId,
+  trackEvent,
+} from "../analytics.js";
 import { agentNativePath } from "../api-path.js";
 import {
   scheduleAfterPaint,
@@ -19,8 +23,122 @@ import {
 } from "./first-run-status.js";
 
 const seenOnboardingEvents = new Set<string>();
+const CUSTOM_KEY_ATTEMPT_STORAGE_KEY =
+  "agent-native.onboarding.custom_keys_attempt";
 const ONBOARDING_SUMMARY_TIMEOUT_MS = 15_000;
 const ONBOARDING_SUMMARY_REUSE_MS = 5_000;
+
+type CustomKeyOnboardingOutcome =
+  | "credential_entry_started"
+  | "credential_validated"
+  | "credential_saved"
+  | "credential_skipped"
+  | "credential_abandoned";
+
+interface CustomKeyOnboardingAttempt {
+  id: string;
+  sessionId: string;
+  entryStarted?: boolean;
+}
+
+type CustomKeyAttemptRead =
+  | { kind: "available"; attempt: CustomKeyOnboardingAttempt | null }
+  | { kind: "unavailable" };
+
+type CustomKeyOutcomeResult =
+  | "tracked"
+  | "tracked_storage_unavailable"
+  | "missing"
+  | "unavailable"
+  | "session_mismatch"
+  | "duplicate";
+
+function readCustomKeyOnboardingAttempt(): CustomKeyAttemptRead {
+  if (typeof window === "undefined") return { kind: "unavailable" };
+  try {
+    const value = window.sessionStorage.getItem(CUSTOM_KEY_ATTEMPT_STORAGE_KEY);
+    if (!value) return { kind: "available", attempt: null };
+    const parsed: unknown = JSON.parse(value);
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      typeof (parsed as CustomKeyOnboardingAttempt).id !== "string" ||
+      typeof (parsed as CustomKeyOnboardingAttempt).sessionId !== "string"
+    ) {
+      return { kind: "unavailable" };
+    }
+    return { kind: "available", attempt: parsed as CustomKeyOnboardingAttempt };
+  } catch {
+    return { kind: "unavailable" };
+  }
+}
+
+export function setCustomKeyOnboardingAttempt(
+  id: string,
+): "stored" | "no_session" | "unavailable" {
+  if (typeof window === "undefined") return "unavailable";
+  const sessionId = getAnalyticsSessionId();
+  if (!sessionId || getAnalyticsSessionId() !== sessionId) return "no_session";
+  try {
+    window.sessionStorage.setItem(
+      CUSTOM_KEY_ATTEMPT_STORAGE_KEY,
+      JSON.stringify({ id, sessionId }),
+    );
+    return "stored";
+  } catch {
+    return "unavailable";
+  }
+}
+
+export function trackCustomKeyOnboardingOutcome(
+  outcome: CustomKeyOnboardingOutcome,
+): CustomKeyOutcomeResult {
+  const stored = readCustomKeyOnboardingAttempt();
+  if (stored.kind === "unavailable") return "unavailable";
+  const { attempt } = stored;
+  if (!attempt) return "missing";
+  if (attempt.sessionId !== getAnalyticsSessionId()) {
+    try {
+      window.sessionStorage.removeItem(CUSTOM_KEY_ATTEMPT_STORAGE_KEY);
+    } catch {
+      return "unavailable";
+    }
+    return "session_mismatch";
+  }
+  if (outcome === "credential_entry_started" && attempt.entryStarted) {
+    return "duplicate";
+  }
+
+  trackOnboardingEvent("onboarding_method_outcome", {
+    flow: "first_run",
+    step_id: "choice",
+    method_id: "custom_keys",
+    onboarding_attempt_id: attempt.id,
+    outcome,
+  });
+
+  if (outcome === "credential_entry_started") {
+    try {
+      window.sessionStorage.setItem(
+        CUSTOM_KEY_ATTEMPT_STORAGE_KEY,
+        JSON.stringify({ ...attempt, entryStarted: true }),
+      );
+    } catch {
+      return "tracked_storage_unavailable";
+    }
+  } else if (
+    outcome === "credential_saved" ||
+    outcome === "credential_skipped" ||
+    outcome === "credential_abandoned"
+  ) {
+    try {
+      window.sessionStorage.removeItem(CUSTOM_KEY_ATTEMPT_STORAGE_KEY);
+    } catch {
+      return "tracked_storage_unavailable";
+    }
+  }
+  return "tracked";
+}
 
 type SharedSummaryRead = {
   promise: Promise<OnboardingSummary>;
@@ -104,6 +222,7 @@ export function trackOnboardingEvent(
     properties.extension_id,
     properties.integration_id,
     properties.role,
+    properties.step_view_id,
   ]
     .map((value) => String(value ?? ""))
     .join(":");

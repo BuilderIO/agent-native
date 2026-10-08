@@ -260,6 +260,13 @@ export async function emitSignupEventForCreatedUser(
 
   const requestHeaders = context?.headers ?? context?.request?.headers ?? null;
   if (!requestHeaders) return;
+  const candidateSessionId = requestHeaders
+    .get("x-agent-native-session-id")
+    ?.trim();
+  const sessionId =
+    candidateSessionId && /^[!-~]{1,127}$/.test(candidateSessionId)
+      ? candidateSessionId
+      : undefined;
 
   const scoped = hasContinuationLocalRequestContext()
     ? getRequestContext()
@@ -308,6 +315,7 @@ export async function emitSignupEventForCreatedUser(
     name: user.name,
     attribution,
     anonymousId,
+    ...(sessionId ? { sessionId } : {}),
   });
 }
 
@@ -334,6 +342,7 @@ export async function trackSignupEvent({
   name,
   attribution,
   anonymousId,
+  sessionId,
 }: {
   authProvider: string;
   origin: SignupOrigin;
@@ -352,6 +361,7 @@ export async function trackSignupEvent({
    */
   attribution?: Record<string, string | undefined>;
   anonymousId?: string;
+  sessionId?: string;
 }): Promise<void> {
   identify(email, {
     email,
@@ -380,6 +390,7 @@ export async function trackSignupEvent({
       userId: email,
       authUserId,
       ...(anonymousId ? { anonymousId } : {}),
+      ...(sessionId ? { sessionId } : {}),
     },
   );
   await flushSignupTracking();

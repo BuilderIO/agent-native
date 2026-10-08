@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   useBuilderConnectFlow: vi.fn(),
   routePathname: "/",
   trackOnboardingEvent: vi.fn(),
+  setCustomKeyOnboardingAttempt: vi.fn(),
   useOnboarding: vi.fn(),
   useOnboardingPreviewMode: vi.fn(),
   useOnboardingPreviewStep: vi.fn(),
@@ -50,6 +51,7 @@ vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
 }));
 
 vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  setCustomKeyOnboardingAttempt: mocks.setCustomKeyOnboardingAttempt,
   trackOnboardingEvent: mocks.trackOnboardingEvent,
   useOnboarding: mocks.useOnboarding,
 }));
@@ -80,6 +82,7 @@ describe("FirstRunOnboarding", () => {
     mocks.completeFirstRun.mockResolvedValue(undefined);
     mocks.useBuilderConnectFlow.mockReset();
     mocks.trackOnboardingEvent.mockReset();
+    mocks.setCustomKeyOnboardingAttempt.mockReset();
     mocks.useOnboarding.mockReset();
     mocks.useOnboardingPreviewMode.mockReset();
     mocks.useOnboardingPreviewStep.mockReset();
@@ -1325,6 +1328,7 @@ describe("FirstRunOnboarding", () => {
     );
     const attemptId = (methodClick?.[1] as Record<string, unknown>)
       ?.onboarding_attempt_id;
+    expect(mocks.setCustomKeyOnboardingAttempt).toHaveBeenCalledWith(attemptId);
     expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
       "onboarding_method_outcome",
       expect.objectContaining({

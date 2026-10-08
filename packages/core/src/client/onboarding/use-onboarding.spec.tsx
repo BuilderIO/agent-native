@@ -5,14 +5,20 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const trackEventMock = vi.hoisted(() => vi.fn());
+const analyticsSessionIdMock = vi.hoisted(() =>
+  vi.fn(() => "browser-session-42"),
+);
 
 vi.mock("../analytics.js", () => ({
   getAnalyticsIdentityKey: () => null,
+  getAnalyticsSessionId: () => analyticsSessionIdMock(),
   trackEvent: trackEventMock,
 }));
 
 import {
   __resetOnboardingSummaryReadsForTests,
+  setCustomKeyOnboardingAttempt,
+  trackCustomKeyOnboardingOutcome,
   trackOnboardingEvent,
   useOnboarding,
   type UseOnboardingResult,
@@ -287,7 +293,10 @@ describe("useOnboarding — summary timeout", () => {
 });
 
 describe("trackOnboardingEvent", () => {
-  beforeEach(() => trackEventMock.mockReset());
+  beforeEach(() => {
+    trackEventMock.mockReset();
+    analyticsSessionIdMock.mockReturnValue("browser-session-42");
+  });
 
   it("keeps distinct integration and role intents distinct", () => {
     trackOnboardingEvent("integration_cta_clicked", {
@@ -372,6 +381,75 @@ describe("trackOnboardingEvent", () => {
     trackOnboardingEvent("onboarding_abandoned", properties);
 
     expect(trackEventMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("deduplicates one step visit while retaining a later revisit", () => {
+    const viewed = (stepViewId: string) =>
+      trackOnboardingEvent("onboarding_step_viewed", {
+        flow: "first_run",
+        step_id: "choice",
+        step_view_id: stepViewId,
+      });
+
+    viewed("visit-1");
+    viewed("visit-1");
+    viewed("visit-2");
+
+    expect(trackEventMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("links custom-key outcomes to the handed-off attempt without recording values", () => {
+    setCustomKeyOnboardingAttempt("attempt-1");
+
+    expect(trackCustomKeyOnboardingOutcome("credential_entry_started")).toBe(
+      "tracked",
+    );
+    expect(trackCustomKeyOnboardingOutcome("credential_entry_started")).toBe(
+      "duplicate",
+    );
+    expect(trackCustomKeyOnboardingOutcome("credential_validated")).toBe(
+      "tracked",
+    );
+    expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe("tracked");
+    expect(trackCustomKeyOnboardingOutcome("credential_validated")).toBe(
+      "missing",
+    );
+    expect(trackEventMock.mock.calls).toEqual([
+      [
+        "onboarding_method_outcome",
+        expect.objectContaining({
+          method_id: "custom_keys",
+          onboarding_attempt_id: "attempt-1",
+          outcome: "credential_entry_started",
+        }),
+      ],
+      [
+        "onboarding_method_outcome",
+        expect.objectContaining({
+          method_id: "custom_keys",
+          onboarding_attempt_id: "attempt-1",
+          outcome: "credential_validated",
+        }),
+      ],
+      [
+        "onboarding_method_outcome",
+        expect.objectContaining({
+          method_id: "custom_keys",
+          onboarding_attempt_id: "attempt-1",
+          outcome: "credential_saved",
+        }),
+      ],
+    ]);
+  });
+
+  it("leaves a custom-key outcome unknown after the browser session rotates", () => {
+    setCustomKeyOnboardingAttempt("attempt-1");
+    analyticsSessionIdMock.mockReturnValue("browser-session-43");
+
+    expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe(
+      "session_mismatch",
+    );
+    expect(trackEventMock).not.toHaveBeenCalled();
   });
 });
 
