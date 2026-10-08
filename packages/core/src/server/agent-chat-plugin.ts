@@ -7600,6 +7600,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 title: body?.title ?? "",
                 scope: bodyIncludesScope ? bodyScope : requestedScope,
                 source: options?.appId ? { appId: options.appId } : null,
+                orgId: await getOrgIdFromEvent(event),
               });
               return thread;
             } catch (err) {

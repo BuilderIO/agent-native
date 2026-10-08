@@ -2,6 +2,7 @@ export const INITIAL_TOOL_NAMES = [
   "describe-workspace-apps",
   "call-agent",
   "view-screen",
+  "ask-question",
   "data-source-status",
   "list-analyses",
   "get-analysis",
