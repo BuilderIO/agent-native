@@ -34,13 +34,16 @@ export function runTelemetryException(error: unknown, code: string): Error {
 
 function stackFrames(error: Error): string[] {
   // V8 renders `stack` as String(error) followed by the frames, and any line
-  // of the message can look like a frame. Without that exact header, where the
-  // message ends is unknown, so no line is kept.
+  // of a message can look like a frame. Without that exact header, where the
+  // message ends is unknown, so no line is kept. Text appended after the frames,
+  // such as a cause, carries its own message, so the first non-frame line ends
+  // the stack.
   const header = `${String(error)}\n`;
   const stack = error.stack;
   if (!stack?.startsWith(header)) return [];
-  return stack
-    .slice(header.length)
-    .split(/\r?\n/)
-    .filter((line) => /^\s+at\s.*(?:\)|:\d+:\d+)$/.test(line));
+  const lines = stack.slice(header.length).split(/\r?\n/);
+  const end = lines.findIndex(
+    (line) => !/^\s+at\s.*(?:\)|:\d+:\d+)$/.test(line),
+  );
+  return end === -1 ? lines : lines.slice(0, end);
 }

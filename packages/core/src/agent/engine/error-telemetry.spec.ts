@@ -28,12 +28,12 @@ describe("runTelemetryException", () => {
     );
   });
 
-  it("drops appended cause text but keeps its frames", () => {
+  it("stops at appended cause text", () => {
     const error = new Error("Run failed");
-    error.stack = `${String(error)}\n    at run (/app/run.ts:4:1)\nCaused by: Error: Jane Doe's private document\n    at line 3 of Jane Doe's notes\n    at readNotes (/app/notes.ts:10:2)`;
+    error.stack = `${String(error)}\n    at run (/app/run.ts:4:1)\nCaused by: Error: Jane Doe's private document\n    at Jane Doe (/notes/quarterly.md:3:1)\n    at readNotes (/app/notes.ts:10:2)`;
 
     expect(runTelemetryException(error, "provider_error").stack).toBe(
-      "Error: Internal Server Error\n    at run (/app/run.ts:4:1)\n    at readNotes (/app/notes.ts:10:2)",
+      "Error: Internal Server Error\n    at run (/app/run.ts:4:1)",
     );
   });
 
