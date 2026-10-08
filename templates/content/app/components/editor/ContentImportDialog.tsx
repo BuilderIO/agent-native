@@ -531,9 +531,9 @@ export function ContentImportDialog({
               {t("contentImport.notImported")}
             </h3>
             <ul className="grid gap-1">
-              {skipped.map((file) => (
+              {skipped.map((file, index) => (
                 <li
-                  key={`${file.name}:${file.reason}`}
+                  key={`${index}:${file.name}:${file.reason}`}
                   className="flex min-w-0 items-center gap-2 text-sm"
                 >
                   <IconFileOff className="size-4 shrink-0 text-muted-foreground" />

@@ -373,6 +373,17 @@ function intakeFiles(files: ImportContentFileInput[]) {
       continue;
     }
     if (seen.has(path)) {
+      // References match images by name, so a repeated image name can't say
+      // which file it means; every file with it is left out instead.
+      const image = images.get(path);
+      if (image) {
+        images.delete(path);
+        skipped.push({
+          name: image.name,
+          reason: "duplicate-name",
+          format: importFileFormat(image.name),
+        });
+      }
       skipped.push({ name: file.name, reason: "duplicate-name", format });
       continue;
     }

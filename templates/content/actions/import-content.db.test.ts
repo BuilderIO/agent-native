@@ -261,6 +261,30 @@ describe("import-content", () => {
     });
   });
 
+  it("skips images that share a name instead of guessing which one a page means", async () => {
+    const preview = await asOwner(() =>
+      importContent.run({
+        files: [
+          { name: "guide.md", text: "# Guide\n\n![Logo](images/logo.png)" },
+          { name: "logo.png", url: "/uploads/first-logo.png" },
+          { name: "logo.png", url: "/uploads/second-logo.png" },
+        ],
+        parentId: PARENT_ID,
+        dryRun: true,
+      }),
+    );
+    expect(preview.pages[0].notes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "asset-missing" }),
+      ]),
+    );
+    expect(preview.uploads).toEqual([]);
+    expect(preview.skipped).toEqual([
+      { name: "logo.png", reason: "duplicate-name", format: "png" },
+      { name: "logo.png", reason: "duplicate-name", format: "png" },
+    ]);
+  });
+
   it("creates a child page with provenance and an import History entry, once per key", async () => {
     const previewed = await asOwner(() =>
       importContent.run({
