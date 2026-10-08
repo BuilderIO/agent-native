@@ -378,12 +378,8 @@ export function signupAttributionFromCookieHeader(
  * Keep this as one boundary helper so every signup entry point carries the
  * same values into Better Auth's user-create hook.
  *
- * Returns `undefined` when the request carried neither cookie. A browser that
- * ran our client script always has `an_ft`, so "no cookies at all" means no
- * browser — a server-side backfill or provisioning call. Reporting that as
- * `referral_source: "direct"` is the coercion that made this metric unusable:
- * it renders "we never saw a visitor" identical to "a visitor arrived with no
- * campaign", and only the second one is direct traffic.
+ * Returns `undefined` when no attribution or anonymous ID identifies a signup
+ * context. A session ID alone cannot establish direct traffic.
  */
 export function signupAttributionContextFromCookieHeader(
   cookieHeader: string | null | undefined,
@@ -392,9 +388,7 @@ export function signupAttributionContextFromCookieHeader(
   const lastTouch = readLastTouchAttribution(cookieHeader);
   const anonymousId = readAnalyticsAnonymousId(cookieHeader);
   const sessionId = readAnalyticsSessionId(cookieHeader);
-  if (!firstTouch && !lastTouch && !anonymousId && !sessionId) {
-    return undefined;
-  }
+  if (!firstTouch && !lastTouch && !anonymousId) return undefined;
   return {
     attribution: withLastTouchAttribution(
       deriveSignupAttribution(firstTouch),

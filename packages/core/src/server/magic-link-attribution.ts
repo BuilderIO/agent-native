@@ -63,7 +63,7 @@ export function encodeMagicLinkSignupAttribution(
   const attribution = sanitizeAttribution(value.attribution);
   const anonymousId = normalizeAnalyticsAnonymousId(value.anonymousId);
   const sessionId = normalizeAnalyticsSessionId(value.sessionId);
-  if (!attribution && !anonymousId && !sessionId) return undefined;
+  if (!attribution && !anonymousId) return undefined;
 
   const payload: MagicLinkAttributionPayload = {
     exp: Math.floor(now / 1000) + MAGIC_LINK_ATTRIBUTION_TTL_SECONDS,
@@ -117,7 +117,7 @@ export function decodeMagicLinkSignupAttribution(
     const attribution = sanitizeAttribution(payload.attribution);
     const anonymousId = normalizeAnalyticsAnonymousId(payload.anonymousId);
     const sessionId = normalizeAnalyticsSessionId(payload.sessionId);
-    if (!attribution && !anonymousId && !sessionId) return undefined;
+    if (!attribution && !anonymousId) return undefined;
     return {
       ...(attribution ? { attribution } : {}),
       ...(anonymousId ? { anonymousId } : {}),

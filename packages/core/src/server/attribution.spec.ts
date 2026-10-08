@@ -325,7 +325,7 @@ describe("signupAttributionContextFromCookieHeader", () => {
     ).toBeUndefined();
   });
 
-  it("reads a session id cookie for signup correlation", () => {
+  it("uses the session id only with an established signup context", () => {
     expect(readAnalyticsSessionId("an_sid=session%2Fsignup-1")).toBe(
       "session/signup-1",
     );
@@ -333,8 +333,13 @@ describe("signupAttributionContextFromCookieHeader", () => {
     expect(readAnalyticsSessionId(`an_sid=${"x".repeat(128)}`)).toBeUndefined();
     expect(
       signupAttributionContextFromCookieHeader("an_sid=session-1"),
+    ).toBeUndefined();
+    expect(
+      signupAttributionContextFromCookieHeader(
+        `${ftCookie({ landing_path: "/" })}; an_sid=session-1`,
+      ),
     ).toEqual({
-      attribution: { referral_source: "direct" },
+      attribution: { referral_source: "direct", first_touch_path: "/" },
       sessionId: "session-1",
     });
   });
@@ -350,11 +355,12 @@ describe("signupAttributionContextFromCookieHeader", () => {
   it("still reports direct for a real visitor carrying no campaign", () => {
     expect(
       signupAttributionContextFromCookieHeader(
-        `${ftCookie({ landing_path: "/" })}; an_aid=anon_1`,
+        `${ftCookie({ landing_path: "/" })}; an_aid=anon_1; an_sid=session-1`,
       ),
     ).toEqual({
       attribution: { referral_source: "direct", first_touch_path: "/" },
       anonymousId: "anon_1",
+      sessionId: "session-1",
     });
   });
 });
