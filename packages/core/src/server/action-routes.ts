@@ -1551,7 +1551,7 @@ export function mountWebMcpActionRoutes(
       }
       setResponseHeader(event, "Cache-Control", "no-store");
       const visible = directoryWidgetReadCapability
-        ? { ...publicEligible, ...visibleDirectoryWidgetReadActions }
+        ? visibleDirectoryWidgetReadActions
         : authenticated
           ? eligible
           : { ...publicEligible, ...visibleCapabilityActions };

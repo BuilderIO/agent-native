@@ -2118,8 +2118,9 @@ export function embedApp(
       // ui/initialize answers { hostContext }; host-context-changed carries a
       // partial context, so merge it instead of replacing what we know.
       function setHostContext(payload, replace) {
-        hostContext = objectValue(payload);
-        const fields = objectValue(hostContext.hostContext || hostContext.context || hostContext);
+        const nextHostContext = objectValue(payload);
+        if (replace) hostContext = nextHostContext;
+        const fields = objectValue(nextHostContext.hostContext || nextHostContext.context || nextHostContext);
         if (replace) {
           hostContextFields = { ...fields };
         } else {

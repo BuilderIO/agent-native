@@ -4970,6 +4970,7 @@ describe("mountWebMcpActionRoutes", () => {
       userEmail: context.userEmail,
       mcpDirectoryWidgetReadOnly: context.mcpDirectoryWidgetReadOnly,
     }));
+    const runUnscopedPublicRead = vi.fn();
     const capability = createMcpDirectoryWidgetReadCapability({
       appId: "design",
       resourceUri: "ui://design/shell-v68",
@@ -5009,6 +5010,18 @@ describe("mountWebMcpActionRoutes", () => {
           http: { method: "GET" },
           readOnly: true,
         } as any,
+        "search-public-docs": {
+          tool: { description: "Search public docs", parameters: {} },
+          run: runUnscopedPublicRead,
+          http: { method: "GET" },
+          requiresAuth: false,
+          readOnly: true,
+          publicAgent: {
+            expose: true,
+            readOnly: true,
+            requiresAuth: false,
+          },
+        } as any,
       },
       {
         getOwnerContextFromEvent: async () => ({
@@ -5027,6 +5040,9 @@ describe("mountWebMcpActionRoutes", () => {
     );
     const webMcpRoute = mounted.find(
       ({ path }) => path === "/_agent-native/webmcp/actions/get-design",
+    );
+    const unscopedPublicRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/search-public-docs",
     );
     const mcpToolRoute = mounted.find(
       ({ path }) => path === "/mcp/tool/get-design",
@@ -5066,6 +5082,17 @@ describe("mountWebMcpActionRoutes", () => {
       error: "This widget capability only permits its scoped data routes.",
     });
     expect(run).toHaveBeenCalledOnce();
+
+    await expect(
+      unscopedPublicRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({
+      error: "This widget capability only permits its scoped data routes.",
+    });
+    expect(runUnscopedPublicRead).not.toHaveBeenCalled();
   });
 
   it("does not let a bootstrap capability match ordinary visual-edit actions", async () => {

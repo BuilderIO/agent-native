@@ -814,12 +814,13 @@ return requestFullscreenOnFirstInteraction;`;
       });
     });
 
-    it("reads the spec-shaped host context and merges partial updates", () => {
+    it("merges partial host context without discarding initialization metadata", () => {
       const html = htmlFor("directory");
 
       expect(html).toContain(
-        "objectValue(hostContext.hostContext || hostContext.context || hostContext)",
+        "objectValue(nextHostContext.hostContext || nextHostContext.context || nextHostContext)",
       );
+      expect(html).toContain("if (replace) hostContext = nextHostContext;");
       expect(html).toContain(
         "const merged = { ...hostContextFields, ...fields };",
       );
@@ -836,16 +837,25 @@ return requestFullscreenOnFirstInteraction;`;
         value && typeof value === "object" && !Array.isArray(value)
           ? value
           : {};
-      const updateHostContext = new Function(
+      const bridge = new Function(
         "objectValue",
-        `let hostContext = {}; let hostContextFields = {}; ${source}; return (payload, replace) => { setHostContext(payload, replace); return hostContextFields; };`,
-      )(objectValue) as (
-        payload: unknown,
-        replace: boolean,
-      ) => Record<string, unknown>;
+        `let hostContext = {}; let hostContextFields = {}; ${source}; return {
+          update(payload, replace) { setHostContext(payload, replace); },
+          getContext() { return hostContextFields; },
+          getCapabilities() { return hostContext.capabilities || { tools: true, messaging: true }; },
+          getVersion() { return hostContext.protocolVersion || "mcp-apps-postmessage"; },
+        };`,
+      )(objectValue) as {
+        update(payload: unknown, replace: boolean): void;
+        getContext(): Record<string, unknown>;
+        getCapabilities(): Record<string, unknown>;
+        getVersion(): string;
+      };
 
-      updateHostContext(
+      bridge.update(
         {
+          capabilities: { tools: { listChanged: true }, messaging: {} },
+          protocolVersion: "2026-01-26",
           hostContext: {
             displayMode: "inline",
             containerDimensions: { height: 860 },
@@ -853,15 +863,25 @@ return requestFullscreenOnFirstInteraction;`;
         },
         true,
       );
-      expect(
-        updateHostContext(
-          { hostContext: { containerDimensions: { width: 420 } } },
-          false,
-        ),
-      ).toMatchObject({
+      expect(bridge.getCapabilities()).toEqual({
+        tools: { listChanged: true },
+        messaging: {},
+      });
+      expect(bridge.getVersion()).toBe("2026-01-26");
+
+      bridge.update(
+        { hostContext: { containerDimensions: { width: 420 } } },
+        false,
+      );
+      expect(bridge.getContext()).toMatchObject({
         displayMode: "inline",
         containerDimensions: { width: 420, height: 860 },
       });
+      expect(bridge.getCapabilities()).toEqual({
+        tools: { listChanged: true },
+        messaging: {},
+      });
+      expect(bridge.getVersion()).toBe("2026-01-26");
     });
   });
 
