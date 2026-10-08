@@ -3066,6 +3066,41 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
       }
     });
 
+    it("keeps a peer's typing that lands after the snapshot was adopted at once", async () => {
+      vi.useFakeTimers();
+      const { harness, props } = await openWithPeer(hostClean);
+      const peerDoc = new Y.Doc();
+      Y.applyUpdate(peerDoc, Y.encodeStateAsUpdate(harness.ydoc));
+      const peerEditor = new CoreEditor({
+        extensions: createRichMarkdownExtensions({
+          dialect: "gfm",
+          ydoc: peerDoc,
+        }),
+      });
+      try {
+        const stateVector = Y.encodeStateVector(harness.ydoc);
+        // Typed inside the paragraph the snapshot rewrites; still in flight.
+        peerEditor.commands.insertContentAt(10, "Peer typing ");
+        adoptSnapshot(harness, props);
+        await act(async () => vi.advanceTimersByTimeAsync(300));
+        expect(harness.markdown()).toBe(snapshot.value);
+        act(() => {
+          Y.applyUpdate(
+            harness.ydoc,
+            Y.encodeStateAsUpdate(peerDoc, stateVector),
+            "remote",
+          );
+        });
+        await act(async () => vi.advanceTimersByTimeAsync(3000));
+        const merged = harness.markdown();
+        expect(merged.split("Peer typing").length - 1).toBe(1);
+      } finally {
+        peerEditor.destroy();
+        peerDoc.destroy();
+        harness.dispose();
+      }
+    });
+
     it("never adopts a snapshot older than the clean doc it lags", async () => {
       vi.useFakeTimers();
       const { harness, props } = await openWithPeer(hostClean);

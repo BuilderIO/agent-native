@@ -6676,8 +6676,9 @@ function PageEditorSessionBody({
 
   const isEditorClean = useCallback(
     (liveMarkdown: string) => {
+      // No scope means the journal cannot be read, which is never clean.
       const scope = journalScope();
-      let journalContents: string[] | null = [];
+      let journalContents: string[] | null = null;
       if (scope) {
         try {
           const { writerId: _writerId, ...documentScope } = scope;
