@@ -444,6 +444,8 @@ jobs:
             changed-4,
             changed-5,
             changed-6,
+            changed-7,
+            changed-8,
             screen-history-1,
             screen-history-2,
             screen-history-3,
@@ -470,7 +472,7 @@ jobs:
       - name: Run focused Screen selection history regressions
         if: startsWith(matrix.shard, 'screen-history-')
         working-directory: templates/design
-        timeout-minutes: 5
+        timeout-minutes: 4
         env:
           E2E_RUN_ID: design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
         run: |
@@ -497,7 +499,7 @@ jobs:
       - name: Run changed Design E2E specs
         if: startsWith(matrix.shard, 'changed-')
         working-directory: templates/design
-        timeout-minutes: 5
+        timeout-minutes: 4
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
@@ -524,12 +526,12 @@ jobs:
           fi
           changed_shard="${{ matrix.shard }}"
           changed_shard="${changed_shard#changed-}"
-          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/6"
+          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/8"
 
       - name: Run focused Design regression cases
         if: ${{ !startsWith(matrix.shard, 'screen-history-') && !startsWith(matrix.shard, 'changed-') }}
         working-directory: templates/design
-        timeout-minutes: 5
+        timeout-minutes: 4
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
