@@ -1275,12 +1275,12 @@ export function sanitizeAgentFailureSummary(
   const redactSecretValues = (line: string) =>
     line
       .replace(
-        /Authorization:\s*Bearer\s+\S+/gi,
+        /Authorization\s*[:=]\s*Bearer\s+\S+/gi,
         "Authorization: Bearer [redacted]",
       )
       .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
       .replace(
-        /Authorization:\s*(?!Bearer\s+\[redacted\])[^\s]+/gi,
+        /Authorization\s*[:=]\s*(?!Bearer\s+\[redacted\])(?:\S+\s+)?\S+/gi,
         "Authorization: [redacted]",
       )
       .replace(/PLAN_RECAP_TOKEN=([^\s]+)/g, "PLAN_RECAP_TOKEN=[redacted]")

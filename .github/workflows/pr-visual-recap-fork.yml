@@ -1230,9 +1230,9 @@ jobs:
             /-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----/,
           ];
           const redact = (line) => line
-            .replace(/Authorization:\s*Bearer\s+\S+/gi, "Authorization: Bearer [redacted]")
+            .replace(/Authorization\s*[:=]\s*Bearer\s+\S+/gi, "Authorization: Bearer [redacted]")
             .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
-            .replace(/Authorization:\s*(?!Bearer\s+\[redacted\])[^\s]+/gi, "Authorization: [redacted]")
+            .replace(/Authorization\s*[:=]\s*(?!Bearer\s+\[redacted\])(?:\S+\s+)?\S+/gi, "Authorization: [redacted]")
             .replace(/\b[A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|API_KEY|PRIVATE_KEY|ACCESS_KEY)[A-Z0-9_]*\s*=\s*[^\s]+/gi, "[redacted credential]");
           const text = (process.env.SHOT_REASON || "")
             .replace(/\u001b\[[0-9;]*m/g, "")

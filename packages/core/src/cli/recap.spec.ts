@@ -284,6 +284,13 @@ describe("recap agent failure summaries", () => {
     );
     expect(base64Summary).toContain("Authorization: Bearer [redacted]");
     expect(base64Summary).not.toContain(base64Token);
+
+    const basicCredential = "dXNlcjpzZWNyZXQ=";
+    const basicSummary = sanitizeAgentFailureSummary(
+      `Authorization: Basic ${basicCredential}`,
+    );
+    expect(basicSummary).toContain("Authorization: [redacted]");
+    expect(basicSummary).not.toContain(basicCredential);
   });
 });
 
@@ -2444,6 +2451,14 @@ describe("published recap readback workflow", () => {
     expect(diagnostic).toContain("Authorization: Bearer [redacted]");
     expect(diagnostic).not.toContain(token);
     expect(diagnostic.length).toBeLessThanOrEqual(400);
+
+    const basicCredential = "dXNlcjpzZWNyZXQ=";
+    const basicDiagnostic = executeShotDiagnostic(
+      scripts[0]!,
+      `Authorization: Basic ${basicCredential}`,
+    );
+    expect(basicDiagnostic).toContain("Authorization: [redacted]");
+    expect(basicDiagnostic).not.toContain(basicCredential);
   });
 
   it("keeps bearer requests on the Plan origin for a double-slash base path", async () => {
