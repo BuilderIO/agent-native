@@ -713,7 +713,22 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ),
   );
   assert.ok(regressionCases.includes('if [[ -f "$spec" ]]; then'));
-  const fastTestsJob = workflow.slice(workflow.indexOf("  fast-tests:\n"));
+  const fastTestsJobStart = workflow.indexOf("  fast-tests:\n");
+  assert.notEqual(fastTestsJobStart, -1, "missing fast-tests workflow job");
+  const nextJobHeader = workflow
+    .slice(fastTestsJobStart + 1)
+    .match(/\n  [a-z][a-z0-9_-]*:\n/);
+  const nextJobIndex = nextJobHeader?.index;
+  const fastTestsJobEnd =
+    nextJobIndex === undefined
+      ? undefined
+      : fastTestsJobStart + 1 + nextJobIndex;
+  const fastTestsJob = workflow.slice(fastTestsJobStart, fastTestsJobEnd);
+  assert.doesNotMatch(
+    fastTestsJob,
+    /\n  [a-z][a-z0-9_-]*:\n/,
+    "fast-tests assertions must stop before the next top-level job",
+  );
   const needsStart = fastTestsJob.indexOf("    needs:");
   const needsEnd = fastTestsJob.indexOf("    if:", needsStart);
   assert.ok(
