@@ -1627,7 +1627,7 @@ describe("workspace deploy", () => {
     );
   });
 
-  it("skips localhost aliases and IPv4-mapped loopback URLs", async () => {
+  it("skips local and unspecified addresses in favor of a public URL", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
 
     await runWorkspaceDeploy({
@@ -1650,6 +1650,8 @@ describe("workspace deploy", () => {
       "http://api.localhost.",
       "http://127.0.0.2",
       "http://[::ffff:127.0.0.2]",
+      "http://0.0.0.0:8888",
+      "http://[::]:8888",
     ];
 
     for (const [index, localUrl] of localUrls.entries()) {
@@ -1663,6 +1665,35 @@ describe("workspace deploy", () => {
         "https://beta.example.test/dispatch",
       );
     }
+  });
+
+  it("prefers the Dispatch URL over a separate OAuth origin", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    process.env.WORKSPACE_OAUTH_ORIGIN = "https://oauth.example.test";
+    process.env.VITE_WORKSPACE_OAUTH_ORIGIN = "https://oauth.example.test";
+    process.env.URL = "https://dispatch.example.test";
+    const dispatchEntry = path.join(
+      tmpDir,
+      ".netlify",
+      "functions-internal",
+      "dispatch-server",
+      "dispatch-server.mjs",
+    );
+    await import(
+      `${pathToFileURL(dispatchEntry).href}?oauth-origin=${Date.now()}`
+    );
+
+    expect(process.env.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
+      "https://dispatch.example.test/dispatch",
+    );
   });
 
   it("skips an invalid runtime URL and uses the gateway alias", async () => {

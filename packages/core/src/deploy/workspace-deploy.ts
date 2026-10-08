@@ -176,14 +176,12 @@ function workspaceDirectoryEnvSnippet(
       : [];
     const candidates = [
       processRef.env.APP_URL,
-      processRef.env.WORKSPACE_OAUTH_ORIGIN,
-      processRef.env.VITE_WORKSPACE_OAUTH_ORIGIN,
       processRef.env.URL,
       processRef.env.DEPLOY_URL,
       processRef.env.BETTER_AUTH_URL,
+      ...vercelCandidates,
       processRef.env.WORKSPACE_GATEWAY_URL,
       processRef.env.VITE_WORKSPACE_GATEWAY_URL,
-      ...vercelCandidates,
     ].filter(Boolean);
     let loopbackUrl;
     for (const candidate of candidates) {
@@ -212,8 +210,11 @@ function workspaceDirectoryEnvSnippet(
         hostname === "localhost" ||
         hostname.endsWith(".localhost") ||
         /^127(?:\\.\\d{1,3}){3}$/.test(hostname) ||
+        /^0(?:\\.\\d{1,3}){3}$/.test(hostname) ||
         hostname === "[::1]" ||
         hostname === "::1" ||
+        hostname === "[::]" ||
+        hostname === "::" ||
         isMappedIpv4Loopback
       ) {
         loopbackUrl ??= directoryUrl;
