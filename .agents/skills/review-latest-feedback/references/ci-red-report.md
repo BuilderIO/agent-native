@@ -34,13 +34,15 @@ all E2E workflows, tests, shards, fingerprints, and runs in the report. Keep
 the test-level evidence and disposition for every fingerprint in its body.
 Reuse the same open E2E issue on later reports, update it with every new or
 unmatched run and fingerprint, and preserve unresolved failures after they age
-out of the report's five-day window. A row is covered only when the issue body
-lists its exact fingerprint; a run URL or ID together with the workflow covers
-only that specific occurrence and leaves every other run in the grouped row
-actionable. A matching title alone is not enough. Add each unmatched
-fingerprint and occurrence to the aggregate before marking it owned. Never
-create a separate issue per test, fingerprint, shard, or run. If only
-per-fingerprint E2E issues are open, reuse one as the aggregate
+out of the report's five-day window. A grouped row is covered only when the
+issue body lists every matching run ID/attempt and its failure-level evidence:
+the exact fingerprint and, when available, the test name, shard, and failed
+job/step. A run URL or ID with the workflow but without a failure-level
+identifier does not cover a failure; an exact occurrence match leaves every
+other occurrence in the grouped row actionable. A matching title alone is not
+enough. Add each unmatched fingerprint and occurrence to the aggregate before
+marking it owned. Never create a separate issue per test, fingerprint, shard,
+or run. When only per-fingerprint E2E issues are open, reuse one as the aggregate
 and link the others; do not create another E2E issue or close duplicates unless
 the current sweep explicitly authorizes closure. Mark a listed failure
 recovered only after a later passing run of the same workflow and
