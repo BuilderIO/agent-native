@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { INITIAL_TOOL_NAMES } from "./initial-tool-names.js";
+import { INITIAL_TOOL_NAMES } from "../lib/initial-tool-names.js";
 
 describe("Clips initial chat tools", () => {
   it("exposes recording trim and split actions to the agent", () => {

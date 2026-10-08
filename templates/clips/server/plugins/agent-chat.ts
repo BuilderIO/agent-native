@@ -12,7 +12,7 @@ import {
 // why `autoDiscoverActions` on its own produces 404s for action routes in
 // production.
 import actionsRegistry from "../../.generated/actions-registry.js";
-import { INITIAL_TOOL_NAMES } from "./initial-tool-names.js";
+import { INITIAL_TOOL_NAMES } from "../lib/initial-tool-names.js";
 
 export default createAgentChatPlugin({
   appId: "clips",
