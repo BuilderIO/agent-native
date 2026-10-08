@@ -706,13 +706,13 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     Number.isInteger(changedSpecStepTimeout) &&
-      changedSpecStepTimeout === 5 &&
-      jobTimeout >= changedSpecStepTimeout + 4,
-    `changed-spec tests need the exact five-minute cap and four minutes for setup (job ${jobTimeout}, step ${changedSpecStepTimeout})`,
+      changedSpecStepTimeout === 4 &&
+      jobTimeout >= changedSpecStepTimeout + 5,
+    `changed-spec tests need the exact four-minute cap and five minutes for setup (job ${jobTimeout}, step ${changedSpecStepTimeout})`,
   );
   assert.match(
     designJob,
-    /shard:\s*\[\s*inspector-1,\s*inspector-2,\s*inspector-3,\s*inspector-4,\s*drag-1,\s*drag-2,\s*position-1,\s*position-2,\s*position-3,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,\s*screen-history-1,\s*screen-history-2,\s*screen-history-3,?\s*\]/,
+    /shard:\s*\[\s*inspector-1,\s*inspector-2,\s*inspector-3,\s*inspector-4,\s*drag-1,\s*drag-2,\s*position-1,\s*position-2,\s*position-3,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,\s*changed-7,\s*changed-8,\s*screen-history-1,\s*screen-history-2,\s*screen-history-3,?\s*\]/,
   );
   const fixedLocations = (start: number, end: number) =>
     [
@@ -810,7 +810,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     changedSpecRegressions.includes(
-      'pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/6"',
+      'pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/8"',
     ),
   );
   assert.ok(
