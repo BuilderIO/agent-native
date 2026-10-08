@@ -482,6 +482,7 @@ export default defineEventHandler(async (event) =>
           cleanupPending?: boolean;
         }
       | undefined;
+    let cleanupPending = false;
     try {
       const parts = await readBoundedMultipartFormData(event);
       if (!parts) {
@@ -706,6 +707,9 @@ export default defineEventHandler(async (event) =>
           502,
         );
       }
+      cleanupPending =
+        uploadResult.cleanupPending === true ||
+        uploadResult.data?.cleanupPending === true;
       if (!uploadResponse.ok) {
         const data = {
           ...uploadResult.data,
@@ -767,20 +771,48 @@ export default defineEventHandler(async (event) =>
         cleanupPending: uploadResult.cleanupPending ?? false,
       };
     } catch (error) {
+      const errorDetails =
+        error && typeof error === "object"
+          ? (error as {
+              data?: unknown;
+              message?: unknown;
+              statusCode?: unknown;
+              statusMessage?: unknown;
+            })
+          : {};
       const knownStatus =
-        error &&
-        typeof error === "object" &&
-        "statusCode" in error &&
-        typeof error.statusCode === "number"
-          ? error.statusCode
+        typeof errorDetails.statusCode === "number"
+          ? errorDetails.statusCode
           : 0;
-      if (knownStatus) throw error;
+      const existingData =
+        errorDetails.data && typeof errorDetails.data === "object"
+          ? (errorDetails.data as Record<string, unknown>)
+          : {};
+      if (knownStatus) {
+        if (!cleanupPending || existingData.cleanupPending === true)
+          throw error;
+        throw createError({
+          statusCode: knownStatus,
+          statusMessage:
+            typeof errorDetails.statusMessage === "string"
+              ? errorDetails.statusMessage
+              : error instanceof Error
+                ? error.message
+                : "Design screenshot upload failed",
+          data: { ...existingData, cleanupPending: true },
+          cause: error,
+        });
+      }
       throw createError({
         statusCode: 502,
         statusMessage:
           error instanceof Error
             ? `Design screenshot upload failed: ${error.message}`
             : "Design screenshot upload failed",
+        ...(cleanupPending
+          ? { data: { ...existingData, cleanupPending: true } }
+          : {}),
+        cause: error,
       });
     }
     if (!responseBody) {

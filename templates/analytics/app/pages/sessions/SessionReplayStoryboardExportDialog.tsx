@@ -446,6 +446,7 @@ export function SessionReplayStoryboardExportDialog({
         response?: string;
         boardUrl?: string;
         cleanupPending?: boolean;
+        data?: { cleanupPending?: boolean };
         error?: string | boolean;
         message?: string;
         statusMessage?: string;
@@ -454,6 +455,9 @@ export function SessionReplayStoryboardExportDialog({
         result = (await upload.json()) as typeof result;
       } catch {
         throw new Error(t("sessions.storyboardUnexpectedResponse"));
+      }
+      if (result?.cleanupPending || result?.data?.cleanupPending) {
+        setWarning(t("sessions.storyboardTemporaryCleanupPending"));
       }
       if (!upload.ok) {
         const errorMessage =
@@ -465,9 +469,6 @@ export function SessionReplayStoryboardExportDialog({
       }
       if (!result?.response?.trim() || !result.boardUrl?.trim()) {
         throw new Error(t("sessions.storyboardNoDesignResponse"));
-      }
-      if (result.cleanupPending) {
-        setWarning(t("sessions.storyboardTemporaryCleanupPending"));
       }
       setResponse(result.response);
       setBoardUrl(result.boardUrl);

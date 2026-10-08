@@ -248,6 +248,15 @@ describe("POST /api/session-replay/storyboard", () => {
   });
 
   it("does not report an ambiguous save as complete when read-back misses the new image", async () => {
+    mocks.ssrfSafeFetch.mockResolvedValueOnce(
+      Response.json({
+        response: "Added one screenshot.",
+        boardUrl: "https://design.example.test/design/design-123",
+        designId,
+        screenshotCount: 1,
+        cleanupPending: true,
+      }),
+    );
     mocks.invokeAgentAction.mockImplementation(async () => ({
       target: { url: designUrl },
       result: {
@@ -262,6 +271,7 @@ describe("POST /api/session-replay/storyboard", () => {
     ).rejects.toMatchObject({
       statusCode: 502,
       statusMessage: expect.stringContaining("check Design before retrying"),
+      data: { cleanupPending: true },
     });
   });
 
