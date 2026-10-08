@@ -198,6 +198,7 @@ describe("uploadSlideVideo", () => {
       "/api/uploads-chunked/session-1/status",
     );
     expect(fetchMock.mock.calls[3][1]?.method).toBeUndefined();
+    expect(fetchMock.mock.calls[3][1]).toMatchObject({ cache: "no-store" });
     expect(
       fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE"),
     ).toBe(false);

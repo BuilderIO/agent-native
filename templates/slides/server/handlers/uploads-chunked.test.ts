@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   readRawBody: vi.fn(),
   saveFile: vi.fn(),
   setStatus: vi.fn(),
+  setHeader: vi.fn(),
   resolveAuth: vi.fn(),
   findUploadedVideoAssetForSession: vi.fn(),
   uploadVideoAsset: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock("h3", () => ({
   readBody: (...args: unknown[]) => mocks.readBody(...args),
   readRawBody: (...args: unknown[]) => mocks.readRawBody(...args),
   setResponseStatus: (...args: unknown[]) => mocks.setStatus(...args),
+  setResponseHeader: (...args: unknown[]) => mocks.setHeader(...args),
 }));
 
 vi.mock("@agent-native/core/private-blob", async (importOriginal) => ({
@@ -754,6 +756,11 @@ describe("chunked reference uploads", () => {
       "owner@example.com",
       "session-1",
       "org-1",
+    );
+    expect(mocks.setHeader).toHaveBeenCalledWith(
+      expect.anything(),
+      "Cache-Control",
+      "private, no-store",
     );
   });
 

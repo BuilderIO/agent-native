@@ -15,6 +15,7 @@ import {
   getRouterParam,
   readBody,
   readRawBody,
+  setResponseHeader,
   setResponseStatus,
 } from "h3";
 import { nanoid } from "nanoid";
@@ -823,6 +824,7 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
 });
 
 export const getChunkedUploadStatus = defineEventHandler(async (event) => {
+  setResponseHeader(event, "Cache-Control", "private, no-store");
   const auth = await resolveSlidesRequestAuth(event);
   if (!auth.ok) {
     setResponseStatus(event, auth.statusCode);

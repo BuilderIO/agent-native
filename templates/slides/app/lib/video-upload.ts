@@ -96,7 +96,7 @@ async function readChunkedUploadStatus(
 ): Promise<ChunkedUploadStatus> {
   const response = await fetch(
     `${appBasePath()}/api/uploads-chunked/${sessionId}/status`,
-    { credentials: "include" },
+    { cache: "no-store", credentials: "include" },
   );
   let parsed: unknown;
   try {
