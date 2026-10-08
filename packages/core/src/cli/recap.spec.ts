@@ -2283,6 +2283,26 @@ describe("published recap readback workflow", () => {
     return match[1];
   }
 
+  function shotDiagnosticScript(file: string): string {
+    const workflow = parseYaml(
+      readFileSync(path.join(repoRoot, file), "utf8"),
+    ) as {
+      jobs: {
+        recap: {
+          steps: Array<{ name?: string; run?: string }>;
+        };
+      };
+    };
+    const step = workflow.jobs.recap.steps.find(
+      ({ name }) => name === "Complete visual recap check",
+    );
+    const match = step?.run?.match(
+      /SHOT_DIAGNOSTIC=\$\(SHOT_REASON="\$SHOT_REASON" node <<'NODE'\n([\s\S]*?)\nNODE/,
+    );
+    if (!match) throw new Error(`${file} is missing its diagnostic sanitizer`);
+    return match[1];
+  }
+
   function executeUrlValidation(
     script: string,
     input: { planUrl: string; appUrl: string },
@@ -2305,6 +2325,22 @@ describe("published recap readback workflow", () => {
     });
     expect(writes).toHaveLength(1);
     return JSON.parse(writes[0]!);
+  }
+
+  function executeShotDiagnostic(script: string, reason: string): string {
+    const writes: string[] = [];
+    runInNewContext(script, {
+      process: {
+        env: { SHOT_REASON: reason },
+        stdout: {
+          write: (chunk: string) => {
+            writes.push(chunk);
+            return true;
+          },
+        },
+      },
+    });
+    return writes.join("");
   }
 
   async function executeReadback(
@@ -2357,6 +2393,29 @@ describe("published recap readback workflow", () => {
       reason:
         "recap-url.txt points at https://evil.example, expected https://plan.agent-native.com",
     });
+  });
+
+  it("preserves a sanitized screenshot diagnostic in each CLI fallback", () => {
+    const scripts = workflowFiles.map(shotDiagnosticScript);
+    expect(scripts[1]).toBe(scripts[0]);
+    expect(scripts[2]).toBe(scripts[0]);
+
+    for (const file of workflowFiles) {
+      const workflow = readFileSync(path.join(repoRoot, file), "utf8");
+      expect(workflow).toContain(
+        "output[summary]=The recap was published, but its screenshot failed: $SHOT_DIAGNOSTIC.",
+      );
+    }
+
+    const token = "abcdefghijklmnopqrstuvwxyz123456";
+    const diagnostic = executeShotDiagnostic(
+      scripts[0]!,
+      `get-visual-plan returned HTTP 403; Authorization: Bearer ${token}`,
+    );
+    expect(diagnostic).toContain("get-visual-plan returned HTTP 403");
+    expect(diagnostic).toContain("Authorization: Bearer [redacted]");
+    expect(diagnostic).not.toContain(token);
+    expect(diagnostic.length).toBeLessThanOrEqual(400);
   });
 
   it("keeps bearer requests on the Plan origin for a double-slash base path", async () => {

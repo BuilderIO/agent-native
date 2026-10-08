@@ -1158,6 +1158,39 @@ jobs:
         run: |
           set -uo pipefail
           if [ "$URL_OK" = "true" ] && [ "$SHOT_OK" != "true" ]; then
+            SHOT_DIAGNOSTIC=$(SHOT_REASON="$SHOT_REASON" node <<'NODE'
+          const patterns = [
+            /\bsk-(?:proj-)?[A-Za-z0-9_-]{24,}\b/,
+            /\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\b/,
+            /\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b/,
+            /\bGOCSPX-[A-Za-z0-9_-]{20,}\b/,
+            /\bbpk-[A-Za-z0-9_-]{16,}\b/,
+            /\bghp_[A-Za-z0-9]{20,}\b/,
+            /\bgithub_pat_[A-Za-z0-9_]{20,}\b/,
+            /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/,
+            /\bAKIA[0-9A-Z]{16}\b/,
+            /\bAIza[0-9A-Za-z_-]{20,}\b/,
+            /authorization\s*[:=]\s*['"]?bearer\s+[A-Za-z0-9._-]{20,}/i,
+            /-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----/,
+          ];
+          const redact = (line) => line
+            .replace(/Authorization:\s*Bearer\s+[A-Za-z0-9._-]{8,}/gi, "Authorization: Bearer [redacted]")
+            .replace(/Bearer\s+[A-Za-z0-9._-]{8,}/gi, "Bearer [redacted]")
+            .replace(/Authorization:\s*(?!Bearer\s+\[redacted\])[^\s]+/gi, "Authorization: [redacted]")
+            .replace(/\b[A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|API_KEY|PRIVATE_KEY|ACCESS_KEY)[A-Z0-9_]*\s*=\s*[^\s]+/gi, "[redacted credential]");
+          const text = (process.env.SHOT_REASON || "")
+            .replace(/\u001b\[[0-9;]*m/g, "")
+            .split("\n")
+            .map(redact)
+            .map((line) => patterns.some((pattern) => pattern.test(line)) ? "[redacted sensitive line]" : line)
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim();
+          const summary = text.length <= 400 ? text : `${text.slice(0, 399).trimEnd()}…`;
+          process.stdout.write(summary);
+          NODE
+            )
+            SHOT_DIAGNOSTIC=${SHOT_DIAGNOSTIC:-screenshot capture or upload failed}
             if gh api --method PATCH \
               "repos/$GITHUB_REPOSITORY/check-runs/$CHECK_RUN_ID" \
               -f status=completed \
@@ -1165,8 +1198,8 @@ jobs:
               -f completed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               -f details_url="$PLAN_URL" \
               -f 'output[title]=Visual recap screenshot failed' \
-              -f 'output[summary]=The recap was published, but its screenshot was not captured or uploaded successfully. This informational check does not block the PR.' \
-              -f "output[text]=[Open visual recap]($PLAN_URL) — screenshot capture or upload failed; see this workflow run for details." \
+              -f "output[summary]=The recap was published, but its screenshot failed: $SHOT_DIAGNOSTIC. This informational check does not block the PR." \
+              -f "output[text]=[Open visual recap]($PLAN_URL) — screenshot failed: $SHOT_DIAGNOSTIC. See this workflow run for details." \
               > /dev/null; then
               exit 0
             fi
