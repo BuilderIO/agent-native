@@ -303,7 +303,9 @@ export async function withCustomKeyOnboardingCredentialSave<T>(
   }
 }
 
-function requestCustomKeyOnboardingAbandonment(): void {
+function requestCustomKeyOnboardingAbandonment(
+  deferWhileSavePending = true,
+): void {
   const stored = readCustomKeyOnboardingAttempt();
   const attempt = stored.kind === "available" ? stored.attempt : null;
   if (attempt && attempt.sessionId === getAnalyticsSessionId()) {
@@ -323,7 +325,14 @@ function requestCustomKeyOnboardingAbandonment(): void {
     }
     const pending = pendingCustomKeyCredentialSaves.get(attemptId);
     if (pending && pending.count > 0) {
-      pending.abandonmentRequested = true;
+      if (deferWhileSavePending) {
+        pending.abandonmentRequested = true;
+      } else {
+        trackCustomKeyOnboardingOutcomeForAttempt(
+          attemptId,
+          "credential_abandoned",
+        );
+      }
       return;
     }
   }
@@ -340,7 +349,7 @@ export function useCustomKeyOnboardingAttemptLifecycle(): void {
     }
     const handlePageHide = (event: PageTransitionEvent) => {
       if (!event.persisted) {
-        requestCustomKeyOnboardingAbandonment();
+        requestCustomKeyOnboardingAbandonment(false);
       }
     };
     window.addEventListener("pagehide", handlePageHide);

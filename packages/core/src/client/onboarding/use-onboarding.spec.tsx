@@ -595,7 +595,7 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
     ).toBeNull();
   });
 
-  it("defers page-exit abandonment until a pending save fails", async () => {
+  it("records page-exit abandonment while a save is still pending", async () => {
     setCustomKeyOnboardingAttempt("attempt-failed-save-after-unmount");
     await act(async () => root?.render(<Harness />));
 
@@ -610,13 +610,6 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
     const event = new Event("pagehide");
     Object.defineProperty(event, "persisted", { value: false });
     act(() => window.dispatchEvent(event));
-    expect(trackEventMock).not.toHaveBeenCalled();
-
-    await act(async () => {
-      rejectSave(new Error("save failed"));
-      await expect(save).rejects.toThrow("save failed");
-    });
-
     expect(trackEventMock).toHaveBeenCalledTimes(1);
     expect(trackEventMock).toHaveBeenCalledWith(
       "onboarding_method_outcome",
@@ -625,6 +618,18 @@ describe("useCustomKeyOnboardingAttemptLifecycle", () => {
         outcome: "credential_abandoned",
       }),
     );
+    expect(
+      window.sessionStorage.getItem(
+        "agent-native.onboarding.custom_keys_attempt",
+      ),
+    ).toBeNull();
+
+    await act(async () => {
+      rejectSave(new Error("save failed"));
+      await expect(save).rejects.toThrow("save failed");
+    });
+
+    expect(trackEventMock).toHaveBeenCalledTimes(1);
   });
 
   it("leaves an attempt available for retry after a save fails while settings stays mounted", async () => {
