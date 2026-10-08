@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   NEW_DECK_GENERATION_START_TIMEOUT_MS,
+  getNewDeckGenerationRecoveryState,
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
 } from "@/lib/generation-state";
@@ -43,6 +44,7 @@ describe("useNewDeckGeneration", () => {
       isNewDeckRoute: true,
       generating: false,
       waitingOnQuestions: false,
+      slideCount: 0,
     };
     const { result, rerender } = renderHook(
       (props) => useNewDeckGeneration(props),
@@ -73,7 +75,33 @@ describe("useNewDeckGeneration", () => {
     ).toBe(true);
 
     rerender({ ...initialProps, isNewDeckRoute: false, generating: false });
+    expect(result.current.isNewDeckCreation).toBe(true);
+    expect(
+      getNewDeckGenerationRecoveryState({
+        slideCount: 0,
+        hasGenerationContext: true,
+        failureCode: undefined,
+        isNewDeckCreation: result.current.isNewDeckCreation,
+        phase: result.current.phase,
+        generating: false,
+        waitingOnQuestions: false,
+      }),
+    ).toBe("outcome_unresolved");
+
+    rerender({ ...initialProps, isNewDeckRoute: false, slideCount: 1 });
     expect(result.current.isNewDeckCreation).toBe(false);
+    rerender({ ...initialProps, isNewDeckRoute: false, slideCount: 0 });
+    expect(
+      getNewDeckGenerationRecoveryState({
+        slideCount: 0,
+        hasGenerationContext: true,
+        failureCode: undefined,
+        isNewDeckCreation: result.current.isNewDeckCreation,
+        phase: result.current.phase,
+        generating: false,
+        waitingOnQuestions: false,
+      }),
+    ).toBeNull();
   });
 
   it("resets lifecycle state on deck navigation and a new-generation route", () => {
@@ -85,6 +113,7 @@ describe("useNewDeckGeneration", () => {
           isNewDeckRoute: true,
           generating: true,
           waitingOnQuestions: false,
+          slideCount: 0,
         },
       },
     );
@@ -95,6 +124,7 @@ describe("useNewDeckGeneration", () => {
       isNewDeckRoute: false,
       generating: false,
       waitingOnQuestions: false,
+      slideCount: 0,
     });
     expect(result.current.phase).toBe("pending");
     expect(result.current.isNewDeckCreation).toBe(false);
@@ -104,6 +134,7 @@ describe("useNewDeckGeneration", () => {
       isNewDeckRoute: true,
       generating: false,
       waitingOnQuestions: false,
+      slideCount: 0,
     });
     expect(result.current.phase).toBe("pending");
     expect(result.current.isNewDeckCreation).toBe(true);
@@ -116,6 +147,7 @@ describe("useNewDeckGeneration", () => {
       isNewDeckRoute: true,
       submitMessageId,
       waitingOnQuestions: false,
+      slideCount: 0,
     };
     const { result } = renderHook(
       (props) => {
@@ -131,6 +163,7 @@ describe("useNewDeckGeneration", () => {
             isNewDeckRoute: props.isNewDeckRoute,
             waitingOnQuestions: props.waitingOnQuestions,
             generating,
+            slideCount: props.slideCount,
           }),
         };
       },
@@ -190,6 +223,7 @@ describe("useNewDeckGeneration", () => {
       isNewDeckRoute: true,
       submitMessageId,
       waitingOnQuestions: false,
+      slideCount: 0,
     };
     const { result, rerender } = renderHook(
       (props) => {
@@ -211,6 +245,7 @@ describe("useNewDeckGeneration", () => {
               props.waitingOnQuestions ||
               generationRun.questionContinuationPending,
             generating,
+            slideCount: props.slideCount,
           }),
         };
       },
@@ -296,7 +331,7 @@ describe("useNewDeckGeneration", () => {
       );
       vi.advanceTimersByTime(CHAT_STOP_DEBOUNCE_MS);
     });
-    expect(result.current.isNewDeckCreation).toBe(false);
+    expect(result.current.isNewDeckCreation).toBe(true);
     expect(
       shouldClearNewDeckGeneratingState({
         generating: false,
@@ -304,6 +339,11 @@ describe("useNewDeckGeneration", () => {
         phase: result.current.phase,
       }),
     ).toBe(true);
+
+    rerender({ ...initialProps, slideCount: 1 });
+    expect(result.current.isNewDeckCreation).toBe(false);
+    rerender({ ...initialProps, slideCount: 0 });
+    expect(result.current.isNewDeckCreation).toBe(false);
   });
 
   it("restores the pending generation thread after reopening without its route id", () => {

@@ -29,6 +29,10 @@ import {
   updateLiveImagesUnderEdit,
 } from "@/lib/slide-image-replacement";
 import {
+  applyRemoteHtmlUnderEdit,
+  type LiveRemoteApplyResult,
+} from "@/lib/slide-live-remote";
+import {
   stampSlideSource,
   type RenderedSlideSource,
 } from "@/lib/slide-source-map";
@@ -826,6 +830,47 @@ export interface SlideContentReplaceDetail {
 
 const EDITING_SELECTOR = '[contenteditable="true"]';
 
+/**
+ * Shows `remote`, another writer's saved copy of the slide, on a canvas whose
+ * text is being edited, in place of the edit's own element. `confirmed` is the
+ * slide content the canvas last matched the server on. On `applied` the root
+ * is registered as rendered from `remote`, so the same content arriving as a
+ * prop later is recognized as already shown.
+ */
+// How each canvas root was rendered, so a remote copy is rendered the same way.
+const renderedVideoAutoplayDisabled = new WeakMap<HTMLElement, boolean>();
+
+export function applyRemoteSlideContentUnderEdit(
+  root: HTMLElement,
+  confirmed: string,
+  remote: string,
+): LiveRemoteApplyResult {
+  const source = getRenderedSlideSource(root);
+  const scopeId = root.getAttribute("data-slide-content-scope");
+  const edited = root.querySelector<HTMLElement>(EDITING_SELECTOR);
+  if (!source || !scopeId || !edited) return "unsupported";
+  const render = (content: string) =>
+    renderRawSlideHtml(content, {
+      scopeSelector: `[data-slide-content-scope="${scopeId}"]`,
+      stampNonce: source.nonce,
+      disableVideoAutoplay: renderedVideoAutoplayDisabled.get(root),
+    });
+  const prev = render(confirmed);
+  const next = render(remote);
+  if (
+    !prev.source ||
+    !next.source ||
+    prev.mermaidBlocks.join("\0") !== next.mermaidBlocks.join("\0")
+  ) {
+    return "unsupported";
+  }
+  const result = applyRemoteHtmlUnderEdit(root, edited, prev.html, next.html);
+  if (result !== "applied") return result;
+  loadImportedFonts(next.fontHrefs);
+  registerRenderedSlideSource(root, { ...next.source, base: next.html });
+  return "applied";
+}
+
 function registerRenderedSlideSource(
   root: HTMLElement,
   source: RenderedSlideSource | null,
@@ -898,12 +943,14 @@ function RawSlideHtmlContent({
   slideId,
   source,
   mermaidBlocks,
+  disableVideoAutoplay,
 }: {
   html: string;
   scopeId: string;
   slideId: string;
   source: RenderedSlideSource | null;
   mermaidBlocks: string[];
+  disableVideoAutoplay?: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const renderedHtmlRef = useRef(html);
@@ -913,9 +960,16 @@ function RawSlideHtmlContent({
   useLayoutEffect(() => {
     const root = contentRef.current;
     if (!root) return;
+    renderedVideoAutoplayDisabled.set(root, disableVideoAutoplay === true);
     if (renderedHtmlRef.current !== html) {
       const currentSource = getRenderedSlideSource(root);
       const sameSlide = currentSource?.nonce === source?.nonce;
+      if (source && currentSource?.base === html) {
+        // applyRemoteSlideContentUnderEdit already put this render on screen.
+        renderedHtmlRef.current = html;
+        registerRenderedSlideSource(root, source);
+        return;
+      }
       const isEditorDraftEcho =
         sameSlide &&
         source &&
@@ -1048,6 +1102,7 @@ function BlankSlideContent({
       slideId={slideId}
       source={source}
       mermaidBlocks={mermaidBlocks}
+      disableVideoAutoplay={disableVideoAutoplay}
     />
   );
 }

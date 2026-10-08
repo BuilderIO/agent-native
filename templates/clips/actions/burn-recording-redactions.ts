@@ -230,6 +230,7 @@ export async function burnRedactionsFor(args: {
     filename: `${args.recordingId}.mp4`,
     mimeType: "video/mp4",
     ownerEmail,
+    stableUrl: true,
     recordAsset: false,
   }).catch((err) => {
     console.warn("[burn-recording-redactions] upload failed", {

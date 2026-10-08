@@ -5279,4 +5279,199 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(events[0]?.properties?.["$ai_http_status"]).toBe(200);
     expect(events[1]?.properties?.["$ai_http_status"]).toBe(429);
   });
+  it("reports a failed trace write once per stage and counts it", async () => {
+    const recorded: Array<{
+      instrument: string;
+      value: number;
+      attributes?: Record<string, string | number>;
+    }> = [];
+    const instrument = (name: string) => {
+      const write = (
+        value: number,
+        attributes?: Record<string, string | number>,
+      ) => recorded.push({ instrument: name, value, attributes });
+      return { record: write, add: write };
+    };
+    const unregister = registerObservabilityProvider({
+      meterProvider: {
+        getMeter: () => ({
+          createHistogram: instrument,
+          createCounter: instrument,
+        }),
+      },
+    });
+    const insertSpan = vi
+      .spyOn(traceStore, "insertTraceSpan")
+      .mockRejectedValue(new Error("span insert failed"));
+    vi.spyOn(traceStore, "upsertTraceSummary").mockRejectedValue(
+      new Error("summary upsert failed for owner@example.com password=hunter2"),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await instrumentAgentLoop({
+        runAgentLoop: async ({ send }) => {
+          send({ type: "model_stream", status: "start" });
+          send({ type: "model_stream", status: "end", reason: "tool_use" });
+          send({ type: "tool_start", id: "a", tool: "read", input: {} });
+          send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
+          send({ type: "tool_start", id: "b", tool: "read", input: {} });
+          send({ type: "tool_done", id: "b", tool: "read", result: "ok" });
+          return {
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            model: "claude-test",
+            usageReported: true,
+          };
+        },
+        loopOpts: {
+          engine: { name: "anthropic" },
+          model: "claude-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId: "run-trace-write-failed",
+        threadId: "thread-1",
+        userId: "user@example.com",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(insertSpan.mock.calls.length).toBeGreaterThan(1);
+      const messages = warn.mock.calls.map(([message]) => String(message));
+      expect(
+        messages.filter((message) => message.includes("trace spans")),
+      ).toHaveLength(1);
+      expect(
+        messages.filter((message) => message.includes("trace summary")),
+      ).toHaveLength(1);
+      // The raw driver message can carry a credential or an address.
+      const logged = JSON.stringify(warn.mock.calls);
+      expect(logged).toContain("summary upsert failed for [email]");
+      expect(logged).not.toContain("owner@example.com");
+      expect(logged).not.toContain("hunter2");
+      expect(
+        recorded.filter(
+          (entry) =>
+            entry.instrument ===
+            "agent_native.observability.trace_write_failures",
+        ),
+      ).toEqual([
+        {
+          instrument: "agent_native.observability.trace_write_failures",
+          value: 1,
+          attributes: {
+            "agent_native.observability.stage": "spans",
+            "error.type": "Error",
+          },
+        },
+        {
+          instrument: "agent_native.observability.trace_write_failures",
+          value: 1,
+          attributes: {
+            "agent_native.observability.stage": "summary",
+            "error.type": "Error",
+          },
+        },
+      ]);
+    } finally {
+      unregister();
+    }
+  });
+  it("lets the run's org claim a thread that never recorded one", async () => {
+    vi.stubEnv("AGENT_ORG_ID", "org-a");
+    vi.spyOn(traceStore, "insertTraceSpan").mockResolvedValue(undefined);
+    vi.spyOn(traceStore, "upsertTraceSummary").mockResolvedValue(undefined);
+    const adopt = vi
+      .spyOn(traceStore, "adoptTraceOrgForThread")
+      .mockResolvedValue(undefined);
+
+    try {
+      await instrumentAgentLoop({
+        runAgentLoop: async () => ({
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        }),
+        loopOpts: {
+          engine: { name: "anthropic" },
+          model: "claude-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId: "run-claims-thread",
+        threadId: "thread-1",
+        userId: "user@example.com",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(adopt).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadId: "thread-1",
+          userId: "user@example.com",
+          orgId: "org-a",
+        }),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("does not let a run whose summary was not written claim a thread's org", async () => {
+    vi.stubEnv("AGENT_ORG_ID", "org-a");
+    vi.spyOn(traceStore, "insertTraceSpan").mockResolvedValue(undefined);
+    vi.spyOn(traceStore, "upsertTraceSummary").mockRejectedValue(
+      new Error("summary upsert failed"),
+    );
+    const adopt = vi
+      .spyOn(traceStore, "adoptTraceOrgForThread")
+      .mockResolvedValue(undefined);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await instrumentAgentLoop({
+        runAgentLoop: async () => ({
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        }),
+        loopOpts: {
+          engine: { name: "anthropic" },
+          model: "claude-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId: "run-summary-lost",
+        threadId: "thread-1",
+        userId: "user@example.com",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(adopt).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });

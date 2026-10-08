@@ -361,6 +361,8 @@ export default defineAppConfig({
 
 메트릭에서 `gen_ai.tool.name`은 프레임워크 액션 이름 또는 `other`이며, `gen_ai.request.model`은 엔진이 지원 모델로 등록한 경우에만 모델 ID이고 그렇지 않으면 `_OTHER`입니다. 따라서 앱에서 정의한 도구나 호출자가 지정한 모델 ID가 시리즈를 무한정 늘릴 수 없으며, 스팬에는 정확한 값이 남습니다.
 
+`http.route`는 모든 요청에 설정되며 닫힌 집합에서 값을 가져옵니다. 프레임워크 엔드포인트의 라우트 템플릿(`/_agent-native/auth/session`, `/_agent-native/agent-chat/runs/:runId/events`), 액션이 선언한 템플릿, 앱 자체의 Nitro 파일 라우트(`/api/clips/:id`), 또는 버킷입니다. 버킷은 해당 네임스페이스에서 목록에 없는 경로에 대한 `/_agent-native/*`, `/mcp/*`, `/.well-known/*`, 그 밖의 API 경로에 대한 `/api/*`, 파일 요청에 대한 `static`, 그 밖의 `GET` 또는 `HEAD`에 대한 `page`, 그리고 `other`입니다. 원시 요청 경로는 기록되지 않습니다. `http.server` 스팬에도 같은 값이 담깁니다.
+
 ## OpenTelemetry 백엔드 연결 {#otel-provider}
 
 Core는 OpenTelemetry SDK나 익스포터를 포함하지 않습니다. 앱은 자체 SDK 프로바이더를 만들고 `@agent-native/core/server`의 `registerObservabilityProvider()`로 Core에 전달합니다. 그러면 Core가 위의 [스팬](#otel)과 [메트릭](#otel-metrics)을 이를 통해 내보내고, 앱의 익스포터가 이를 임의의 OTLP 백엔드로 전송합니다.

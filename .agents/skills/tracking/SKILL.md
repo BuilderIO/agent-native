@@ -230,7 +230,10 @@ providers build it.
   that decides (`agentkit-protocol.ts`, `navigateForSession`; a refused
   start from the transport's start-run catch), not the callers.
   `agent_chat_stuck_detected` fires once per run and only while the stuck
-  banner shows, so Analytics' stuck chats are ones the person saw.
+  banner shows, so Analytics' stuck chats are ones the person saw. It carries
+  `reason`, `dispatchMode`, `hasInFlightWork` and `heartbeatSinceSec`, so a run
+  the server still holds (a live background worker) reads differently from a
+  dead one.
 
 Symbolication is per-backend and not automatic: the framework uploads no source
 maps to PostHog, so minified browser stacks stay minified there. Known gap, not

@@ -432,6 +432,8 @@ Core also records metrics once the host registers a meter provider with `registe
 
 On metrics, `gen_ai.tool.name` is a framework action's name or `other`, and `gen_ai.request.model` is the model id only when the engine lists it as supported, otherwise `_OTHER`. App-defined tools and caller-supplied model ids therefore cannot create unbounded series; spans keep the exact values.
 
+`http.route` is set on every request and comes from a closed set: a framework endpoint's route template (`/_agent-native/auth/session`, `/_agent-native/agent-chat/runs/:runId/events`), an action's declared template, the app's own Nitro file route (`/api/clips/:id`), or a bucket. The buckets are `/_agent-native/*`, `/mcp/*`, and `/.well-known/*` for an unlisted path in those namespaces, `/api/*` for any other API path, `static` for file requests, `page` for any other `GET` or `HEAD`, and `other`. A raw request path is never recorded. The `http.server` span carries the same value.
+
 ## Connecting an OpenTelemetry back end {#otel-provider}
 
 Core ships no OpenTelemetry SDK or exporter. An app builds its own SDK providers and hands them to core with `registerObservabilityProvider()` from `@agent-native/core/server`. Core then emits the [spans](#otel) and [metrics](#otel-metrics) above through them, and the app's exporter sends them to any OTLP back end.

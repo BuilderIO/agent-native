@@ -6,13 +6,13 @@ import { identifyFollowUpSuggestions } from "../agent/follow-up-suggestions.js";
 import {
   buildAssistantMessage,
   buildUserMessage,
+  foldAgentChatRunCompletion,
   mergeThreadDataForClientSave,
   upsertUserMessage,
   type ThreadSuggestionRun,
 } from "../agent/thread-data-builder.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { createAgentNativeAgentKitTransport } from "../client/chat/agentkit-agent-native.js";
-import { foldAgentChatRunCompletion } from "./agent-chat-plugin.js";
 
 vi.mock("../client/use-agent-chat-running-threads.js", () => ({
   dispatchAgentChatRunning: vi.fn(),

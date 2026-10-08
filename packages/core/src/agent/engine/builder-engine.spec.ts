@@ -216,6 +216,39 @@ describe("createBuilderEngine", () => {
     expect(engine.supportedModels).toContain("z-ai-glm-4-5");
   });
 
+  it("preserves optional action schemas in GPT gateway requests", async () => {
+    const inputSchema = {
+      type: "object",
+      properties: {
+        from: { type: "string" },
+        accountEmails: {
+          type: "array",
+          items: { type: "string", format: "email" },
+        },
+      },
+      required: ["from"],
+    };
+    const requestFetch = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonlResponse([
+        { type: "text", text: "Done" },
+        { type: "stop", stop_reason: "end_turn" },
+      ]),
+    );
+    vi.stubGlobal("fetch", requestFetch);
+    await collectEvents(
+      createBuilderEngine().stream({
+        ...BASE_OPTS,
+        model: "gpt-6-luna",
+        tools: [
+          { name: "list-events", description: "List events", inputSchema },
+        ],
+      }),
+    );
+    const body = JSON.parse(requestFetch.mock.calls[0][1]!.body as string);
+    expect(body.tools[0].input_schema).toEqual(inputSchema);
+    expect(body.tools[0]).not.toHaveProperty("strict");
+  });
+
   it("emits a missing-credentials stop-error when BUILDER_PRIVATE_KEY is unset", async () => {
     credentialState.builderPrivateKey = null;
     vi.unstubAllEnvs();

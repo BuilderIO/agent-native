@@ -14,6 +14,8 @@ import {
 import { generateActionRegistryForProject } from "@agent-native/core/vite";
 import { describe, expect, it, vi } from "vitest";
 
+import { DASHBOARD_MUTATION_EXAMPLES } from "../../actions/dashboard-mutation-api";
+
 const captured = vi.hoisted(() => ({
   options: [] as Array<Record<string, any>>,
 }));
@@ -34,8 +36,14 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
  * Ratchet: the first hosted request, estimated. Lower it whenever a change
  * trims the baseline; raise it only with a reason written next to the new
  * number, because every token here is paid on every turn of every chat.
+ *
+ * 18,000 -> 18,300: `ask-question` joined the initial tools (~600t, so a
+ * numbers-changing ambiguity is one tool call, not a tool-search first), and the
+ * UNDERSTAND THE ASK rule plus the mutate-dashboard examples (~400t) replaced a
+ * skill read on every small panel edit. Deleting the AGENTS.md skills list the
+ * skills summary already carries paid back ~650t.
  */
-const BASELINE_BUDGET_TOKENS = 18_000;
+const BASELINE_BUDGET_TOKENS = 18_300;
 
 /** An estimate: real tokenizers differ by model, and JSON runs 3 to 3.5. */
 const CHARS_PER_TOKEN = 3.5;
@@ -112,6 +120,7 @@ const coreInternal = (relativePath: string) =>
 const scriptEntries = await coreInternal("server/agent-chat/script-entries.js");
 const extensionActions = await coreInternal("extensions/actions.js");
 const workspaceFileActions = await coreInternal("workspace-files/actions.js");
+const contextTools = await coreInternal("server/agent-chat/context-tools.js");
 const skillMetadata = await import("@agent-native/core/resources/metadata");
 
 const templateActions = loadActionsFromStaticRegistry(actionsRegistry);
@@ -129,6 +138,7 @@ const leanRegistry = attachToolSearch({
   ...workspaceFileActions.createWorkspaceFileActionEntries(),
   ...(await scriptEntries.createCallAgentScriptEntry("analytics")),
   ...extensionActions.createExtensionActionEntries(),
+  "ask-question": contextTools.createUrlTools()["ask-question"],
 });
 
 // `resolveInitialToolNames` adds every template action that opts out of deferral.
@@ -212,6 +222,11 @@ function componentTable(): string {
   ].join("\n");
 }
 
+const ASKS_FOR_IDENTIFIERS =
+  /\bask(?:ing)?\b[^.]{0,80}\b(?:tables?|datasets?|columns?|schemas?|sql)\b/i;
+const PROHIBITS_OR_DEFERS_ASKING =
+  /\b(?:never|not|don't|without|rather than|instead of|only after|before asking)\b/i;
+
 function backtickedToolNames(text: string): string[] {
   return [
     ...new Set(
@@ -290,6 +305,56 @@ describe("Analytics first-request baseline", () => {
       .map(([name, chars]) => `${name} ~${tokens(chars)}t`);
 
     expect(oversized).toEqual([]);
+  });
+
+  it("starts with ask-question, so an ambiguity that changes the numbers costs one call", () => {
+    expect(initialTools.map((tool) => tool.name)).toContain("ask-question");
+  });
+
+  it("carries the canonical mutate-dashboard examples where the model reads its parameters", () => {
+    const schema = JSON.stringify(
+      initialTools.find((tool) => tool.name === "mutate-dashboard")
+        ?.inputSchema,
+    );
+
+    for (const index of [0, 2, 3, 4]) {
+      expect(schema).toContain(
+        JSON.stringify(DASHBOARD_MUTATION_EXAMPLES[index]).slice(1, -1),
+      );
+    }
+    expect(schema).toContain('{\\"op\\":\\"updatePanel\\"');
+  });
+
+  it("never tells the model to ask the user for dataset, table, column, or SQL identifiers", () => {
+    const sentences = Object.entries({
+      extraContext,
+      "AGENTS.md": agentsGuide,
+      "skills-summary": skillsSummary,
+      ...Object.fromEntries(
+        skillNames.map((dir) => [
+          `skill:${dir}`,
+          readFileSync(path.join(skillsDir, dir, "SKILL.md"), "utf8"),
+        ]),
+      ),
+      ...Object.fromEntries(
+        Object.entries(agentVisibleTemplateActions).map(([name, entry]) => [
+          `action:${name}`,
+          String(entry.tool?.description ?? ""),
+        ]),
+      ),
+    }).flatMap(([source, text]) =>
+      text
+        .replace(/\s+/g, " ")
+        .split(/(?<=[.!?])\s+/)
+        .filter(
+          (sentence) =>
+            ASKS_FOR_IDENTIFIERS.test(sentence) &&
+            !PROHIBITS_OR_DEFERS_ASKING.test(sentence),
+        )
+        .map((sentence) => `${source}: ${sentence}`),
+    );
+
+    expect(sentences).toEqual([]);
   });
 
   it("leaves every dropped tool one tool-search away", () => {

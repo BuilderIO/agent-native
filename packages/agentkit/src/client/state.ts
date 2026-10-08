@@ -848,6 +848,7 @@ export function reduceAgentEvent(
     case "approval.requested":
       return {
         ...updateRun(next, event.runId, { status: "awaiting_approval" }),
+        ...updateActiveRuns(next, event.runId, true),
         approvals: { ...next.approvals, [event.request.id]: event.request },
         approvalRunIds: {
           ...next.approvalRunIds,

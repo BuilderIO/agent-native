@@ -2573,51 +2573,29 @@ function AgentMentionIcon({ icon }: { icon: string }) {
   }
 }
 
+// Only the composer's serialized `@[label|icon]` form is a mention. A bare
+// "@word" is whatever the user typed — an address, a handle, "@3pm" — and
+// rendering it as a chip claims a reference the message never carried.
 function renderUserMessageText(text: string): ReactNode[] {
   const richMatches = Array.from(text.matchAll(/@\[([^\]|]+)\|([^\]]+)\]/g));
-  if (richMatches.length) {
-    const parts: ReactNode[] = [];
-    let lastIndex = 0;
-    richMatches.forEach((match, index) => {
-      const start = match.index ?? 0;
-      if (start > lastIndex) parts.push(text.slice(lastIndex, start));
-      const label = match[1] ?? "";
-      parts.push(
-        <span
-          key={`rich-mention:${start}:${index}`}
-          className="agentkit-mention"
-          data-mention-label={label}
-        >
-          <AgentMentionIcon icon={match[2] ?? ""} />
-          <span className="agentkit-mention-label">{label}</span>
-        </span>,
-      );
-      lastIndex = start + match[0].length;
-    });
-    if (lastIndex < text.length) parts.push(text.slice(lastIndex));
-    return parts;
-  }
-
-  const plainMatches = Array.from(text.matchAll(/(^|\s)@(\w+)/g));
-  if (!plainMatches.length) return [text];
+  if (!richMatches.length) return [text];
   const parts: ReactNode[] = [];
   let lastIndex = 0;
-  plainMatches.forEach((match, index) => {
-    const matchIndex = match.index ?? 0;
-    const start = matchIndex + (match[1]?.length ?? 0);
-    const end = matchIndex + match[0].length;
+  richMatches.forEach((match, index) => {
+    const start = match.index ?? 0;
     if (start > lastIndex) parts.push(text.slice(lastIndex, start));
-    const label = match[2] ?? "";
+    const label = match[1] ?? "";
     parts.push(
       <span
-        key={`plain-mention:${start}:${index}`}
-        className="agentkit-mention agentkit-mention--plain"
+        key={`rich-mention:${start}:${index}`}
+        className="agentkit-mention"
         data-mention-label={label}
       >
-        @{label}
+        <AgentMentionIcon icon={match[2] ?? ""} />
+        <span className="agentkit-mention-label">{label}</span>
       </span>,
     );
-    lastIndex = end;
+    lastIndex = start + match[0].length;
   });
   if (lastIndex < text.length) parts.push(text.slice(lastIndex));
   return parts;
@@ -3049,6 +3027,7 @@ export function AgentMessageActions({
     slots,
     onThreadForked,
     onCopyMessage,
+    buildFeedbackReport,
     branchNavigation,
     loadRunUsage,
   } = useAgentKit();
@@ -3073,6 +3052,10 @@ export function AgentMessageActions({
   const [feedbackReasonSubmitted, setFeedbackReasonSubmitted] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [requestIdCopied, setRequestIdCopied] = useState(false);
+  const [feedbackDetailsCopied, setFeedbackDetailsCopied] = useState(false);
+  const feedbackDetailsCopiedTimer = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [usageDetails, setUsageDetails] = useState<
     | { runId: string; status: "loading" }
@@ -3163,6 +3146,8 @@ export function AgentMessageActions({
       if (copiedTimer.current) clearTimeout(copiedTimer.current);
       if (requestIdCopiedTimer.current)
         clearTimeout(requestIdCopiedTimer.current);
+      if (feedbackDetailsCopiedTimer.current)
+        clearTimeout(feedbackDetailsCopiedTimer.current);
     },
     [message.id],
   );
@@ -3216,6 +3201,25 @@ export function AgentMessageActions({
     },
     `${threadId}:${message.id}:request-id:${requestId ?? "unavailable"}`,
   );
+  const copyFeedbackDetailsAction = useAgentKitMutation(async () => {
+    if (!buildFeedbackReport) throw new Error(labels.copyUnavailable);
+    const report = buildFeedbackReport({
+      threadId,
+      ...(runId ? { runId } : {}),
+      messageId: message.id,
+      note: feedbackReason,
+    });
+    if (!(await writeClipboardText(report))) {
+      throw new Error(labels.copyUnavailable);
+    }
+    setFeedbackDetailsCopied(true);
+    if (feedbackDetailsCopiedTimer.current)
+      clearTimeout(feedbackDetailsCopiedTimer.current);
+    feedbackDetailsCopiedTimer.current = setTimeout(
+      () => setFeedbackDetailsCopied(false),
+      1_400,
+    );
+  }, `${threadId}:${message.id}:feedback-details`);
   const forkAction = useAgentKitMutation(async () => {
     const thread = await control.fork(message.id);
     onThreadForked?.(thread);
@@ -3248,6 +3252,12 @@ export function AgentMessageActions({
       setFeedback(previous);
     }
   };
+  const addFeedbackReason = (reason: string) =>
+    setFeedbackReason((current) => {
+      if (current.includes(reason)) return current;
+      const trimmed = current.trim();
+      return (trimmed ? `${trimmed}. ${reason}` : reason).slice(0, 2_000);
+    });
   const submitFeedbackReason = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const reason = feedbackReason.trim();
@@ -3266,6 +3276,7 @@ export function AgentMessageActions({
     feedbackAction.error ??
     branchNavigationAction.error ??
     requestIdAction.error ??
+    copyFeedbackDetailsAction.error ??
     forkAction.error ??
     regenerateAction.error;
   const usageMenuItems = hasRunUsage
@@ -3479,6 +3490,25 @@ export function AgentMessageActions({
                       disabled={feedbackAction.pending}
                       className="agentkit-feedback-textarea"
                     />
+                    <div className="agentkit-feedback-reasons">
+                      {[
+                        labels.feedbackReasonMisread,
+                        labels.feedbackReasonNotDone,
+                        labels.feedbackReasonWrongNumbers,
+                        labels.feedbackReasonTooSlow,
+                      ].map((reason) => (
+                        <ActionButton
+                          key={reason}
+                          type="button"
+                          size="compact"
+                          emphasis="outline"
+                          disabled={feedbackAction.pending}
+                          onPress={() => addFeedbackReason(reason)}
+                        >
+                          {reason}
+                        </ActionButton>
+                      ))}
+                    </div>
                     <div className="agentkit-feedback-footer">
                       <span>
                         {labels.feedbackKeyboardHint.replace(
@@ -3489,17 +3519,43 @@ export function AgentMessageActions({
                             : "Ctrl",
                         )}
                       </span>
-                      <ActionButton
-                        type="submit"
-                        intent="primary"
-                        size="compact"
-                        pending={feedbackAction.pending}
-                        disabled={
-                          feedbackAction.pending || !feedbackReason.trim()
-                        }
-                      >
-                        {labels.feedbackSubmit}
-                      </ActionButton>
+                      <div className="agentkit-feedback-actions">
+                        {buildFeedbackReport ? (
+                          <ActionButton
+                            type="button"
+                            size="compact"
+                            emphasis="ghost"
+                            leadingIcon={
+                              feedbackDetailsCopied ? (
+                                <IconCircleCheck size={14} aria-hidden="true" />
+                              ) : (
+                                <IconCopy size={14} aria-hidden="true" />
+                              )
+                            }
+                            pending={copyFeedbackDetailsAction.pending}
+                            onPress={() =>
+                              void copyFeedbackDetailsAction
+                                .execute()
+                                .catch(() => undefined)
+                            }
+                          >
+                            {feedbackDetailsCopied
+                              ? labels.copied
+                              : labels.feedbackCopyDetails}
+                          </ActionButton>
+                        ) : null}
+                        <ActionButton
+                          type="submit"
+                          intent="primary"
+                          size="compact"
+                          pending={feedbackAction.pending}
+                          disabled={
+                            feedbackAction.pending || !feedbackReason.trim()
+                          }
+                        >
+                          {labels.feedbackSubmit}
+                        </ActionButton>
+                      </div>
                     </div>
                   </form>
                 </Popover>
@@ -3791,6 +3847,28 @@ export function AgentRunFailure({
   threadId,
 }: AgentRunFailureRenderProps) {
   const { labels } = useAgentKit();
+  const control = useAgentKitControl(threadId);
+  const thread = useAgentThread(threadId);
+  const [continuing, setContinuing] = useState(false);
+  const [continueFailed, setContinueFailed] = useState(false);
+  // Continuing resumes the stopped run's own turn, so only that turn's newest
+  // run can be continued; once anything ran after it, the card is history.
+  const startedAt = thread.runs[runId]?.startedAt;
+  const superseded = Object.values(thread.runs).some(
+    (run) =>
+      run.id !== runId &&
+      Boolean(run.startedAt && startedAt && run.startedAt > startedAt),
+  );
+  const canContinue =
+    error.retryable === true && control.canContinueRun && !superseded;
+  const continueRun = () => {
+    setContinuing(true);
+    setContinueFailed(false);
+    control.continueRun(runId).catch(() => {
+      setContinuing(false);
+      setContinueFailed(true);
+    });
+  };
   return (
     <div
       className="agentkit-run-failure"
@@ -3803,6 +3881,23 @@ export function AgentRunFailure({
       <div className="agentkit-run-failure-copy">
         <strong>{labels.runFailed}</strong>
         <span>{error.message}</span>
+        {canContinue ? (
+          <div className="agentkit-error-actions">
+            <ActionButton
+              emphasis="outline"
+              size="compact"
+              pending={continuing}
+              onPress={continueRun}
+            >
+              {labels.continueRun}
+            </ActionButton>
+          </div>
+        ) : null}
+        {continueFailed ? (
+          <span className="agentkit-command-error">
+            {labels.continueRunUnavailable}
+          </span>
+        ) : null}
       </div>
     </div>
   );
@@ -5140,12 +5235,86 @@ export function AgentKitChat({
       />
     </AgentKitSurfaceBoundary>
   );
+  const renderRunTail = (runId: RunId) => {
+    const items: ReactNode[] = [];
+    if (pendingRuns.has(runId)) {
+      const boundary = lastAssistantMessagesByRun.get(runId);
+      items.push(
+        renderRunWork({
+          runId,
+          anchor: boundary?.id ?? "start",
+          afterSequence: boundary?.sequence,
+        }),
+      );
+    }
+    if (failedRuns.has(runId)) {
+      items.push(
+        <AgentKitSurfaceBoundary
+          key={`run-failure:${runId}`}
+          surface="activity"
+          resetKey={`${runId}:${thread.events.length}`}
+        >
+          {renderRunFailure(runId)}
+        </AgentKitSurfaceBoundary>,
+      );
+    }
+    return items;
+  };
+  // A run's work after its last reply, and its failure, belong to its turn: a
+  // finished run's tail goes before the first message written after it ended.
+  const runEndedAt = new Map<RunId, number>();
+  for (const event of thread.events) {
+    const occurredAt = Date.parse(event.occurredAt);
+    if (!Number.isFinite(occurredAt)) continue;
+    runEndedAt.set(
+      event.runId,
+      Math.max(runEndedAt.get(event.runId) ?? occurredAt, occurredAt),
+    );
+  }
+  const tailRunIds = Array.from(
+    new Set([
+      ...pendingRunIds,
+      ...Array.from(failedRuns.keys()).filter(
+        (runId) => !lastAssistantMessagesByRun.has(runId),
+      ),
+    ]),
+  );
+  const tailsBeforeMessage = new Map<number, RunId[]>();
+  const tailsAtEnd: RunId[] = [];
+  for (const runId of tailRunIds) {
+    const status = thread.runs[runId]?.status;
+    const endedAt = runEndedAt.get(runId);
+    const lastOwnMessage = thread.messages.findLastIndex(
+      (message) => messageRunIds.get(message.id) === runId,
+    );
+    const before =
+      endedAt !== undefined &&
+      (status === "completed" || status === "failed" || status === "cancelled")
+        ? thread.messages.findIndex(
+            (message, index) =>
+              index > lastOwnMessage &&
+              messageRunIds.get(message.id) !== runId &&
+              Date.parse(message.createdAt ?? "") > endedAt,
+          )
+        : -1;
+    if (before === -1) {
+      tailsAtEnd.push(runId);
+    } else {
+      tailsBeforeMessage.set(before, [
+        ...(tailsBeforeMessage.get(before) ?? []),
+        runId,
+      ]);
+    }
+  }
   const transcriptItems: ReactNode[] = [];
   const previousAssistantByRun = new Map<
     RunId,
     { id: string; sequence: number }
   >();
-  for (const message of thread.messages) {
+  for (const [messageIndex, message] of thread.messages.entries()) {
+    for (const runId of tailsBeforeMessage.get(messageIndex) ?? []) {
+      transcriptItems.push(...renderRunTail(runId));
+    }
     const runId = messageRunIds.get(message.id);
     const sequence = messageBoundarySequences.get(message.id);
     const isAssistantBoundary =
@@ -5244,40 +5413,8 @@ export function AgentKitChat({
       );
     }
   }
-  for (const runId of pendingRunIds) {
-    const boundary = lastAssistantMessagesByRun.get(runId);
-    transcriptItems.push(
-      renderRunWork({
-        runId,
-        anchor: boundary?.id ?? "start",
-        afterSequence: boundary?.sequence,
-      }),
-    );
-    if (failedRuns.has(runId)) {
-      transcriptItems.push(
-        <AgentKitSurfaceBoundary
-          key={`run-failure:${runId}`}
-          surface="activity"
-          resetKey={`${runId}:${thread.events.length}`}
-        >
-          {renderRunFailure(runId)}
-        </AgentKitSurfaceBoundary>,
-      );
-    }
-  }
-  for (const [runId] of failedRuns) {
-    if (lastAssistantMessagesByRun.has(runId) || pendingRuns.has(runId)) {
-      continue;
-    }
-    transcriptItems.push(
-      <AgentKitSurfaceBoundary
-        key={`run-failure:${runId}`}
-        surface="activity"
-        resetKey={`${runId}:${thread.events.length}`}
-      >
-        {renderRunFailure(runId)}
-      </AgentKitSurfaceBoundary>,
-    );
+  for (const runId of tailsAtEnd) {
+    transcriptItems.push(...renderRunTail(runId));
   }
   return (
     <AgentMessageEditContext.Provider value={messageEditContext}>

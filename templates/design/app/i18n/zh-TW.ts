@@ -1060,6 +1060,8 @@ export default {
         figmaPasteFailed: "Figma 貼上匯入失敗",
         uploadFailed: "檔案上傳失敗",
         invalidFigFile: "請選擇副檔名為 .fig 的檔案。",
+        unsupportedFileType: "請選擇 .fig、.html 或 .htm 檔案。",
+        importBusy: "另一個匯入正在進行。請先完成或取消。",
         figFileTooLarge:
           "此 .fig 檔案太大 — 上傳上限為 {{max}} MB。請在 Figma 中將要匯入的畫框複製到新檔案，並匯出該檔案為 .fig，或改用「從 Figma 貼上」。",
       },
@@ -1071,7 +1073,16 @@ export default {
     generationStoppedCheckAgent: "生成在建立檔案前停止。請檢視代理訊息或重試。",
     notFound: "未找到設計",
     backToDesigns: "返回設計",
-    clickToRename: "點選重新命名",
+    fileMenu: {
+      pendingEditsBlocked: "複製前，請先套用或捨棄待處理的視覺編輯。",
+      designs: "設計",
+      rename: "重新命名",
+      duplicate: "複製",
+      versionHistory: "版本記錄",
+      import: "匯入…",
+      delete: "刪除",
+      deleteError: "無法刪除此設計",
+    },
     collaborators: "協作者",
     share: "分享",
     signUpToSave: "註冊",
@@ -1089,6 +1100,10 @@ export default {
       draw: "畫",
       interact: "Interact",
       screens: "螢幕",
+    },
+    topBar: {
+      modeDesign: "設計",
+      modeSwitch: "編輯器模式",
     },
     fileTabs: "檔案",
     tools: {

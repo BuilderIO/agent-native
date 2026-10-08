@@ -361,6 +361,8 @@ export default defineAppConfig({
 
 في المقاييس، تكون `gen_ai.tool.name` اسم إجراء من إجراءات إطار العمل أو `other`، وتكون `gen_ai.request.model` معرّف النموذج فقط عندما يدرجه المحرك ضمن النماذج المدعومة، وإلا فهي `_OTHER`. لذلك لا يمكن للأدوات التي يعرّفها التطبيق ولا لمعرّفات النماذج التي يمرّرها المستدعي إنشاء سلاسل غير محدودة؛ وتحتفظ الامتدادات (spans) بالقيم الدقيقة.
 
+تُضبط `http.route` على كل طلب وتأتي من مجموعة مغلقة: قالب مسار نقطة نهاية في إطار العمل (`/_agent-native/auth/session`، `/_agent-native/agent-chat/runs/:runId/events`)، أو القالب الذي يعلنه الإجراء، أو مسار ملف Nitro الخاص بالتطبيق (`/api/clips/:id`)، أو فئة. الفئات هي `/_agent-native/*` و`/mcp/*` و`/.well-known/*` للمسار غير المدرج ضمن هذه النطاقات، و`/api/*` لأي مسار API آخر، و`static` لطلبات الملفات، و`page` لأي طلب `GET` أو `HEAD` آخر، و`other`. لا يُسجَّل مسار الطلب الخام أبدًا. ويحمل الامتداد `http.server` القيمة نفسها.
+
 ## ربط واجهة خلفية لـ OpenTelemetry {#otel-provider}
 
 لا يتضمن Core أي SDK أو مُصدِّر (exporter) لـ OpenTelemetry. يبني التطبيق موفّري SDK الخاصين به ويسلّمهم إلى Core باستخدام `registerObservabilityProvider()` من `@agent-native/core/server`. بعد ذلك يُصدر Core [الامتدادات](#otel) و[المقاييس](#otel-metrics) المذكورة أعلاه عبرهم، ويرسلها مُصدِّر التطبيق إلى أي واجهة خلفية تدعم OTLP.

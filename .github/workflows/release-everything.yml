@@ -31,17 +31,22 @@ concurrency:
 jobs:
   release-everything:
     name: Release packages, desktop apps, and production sites
+    # Keeps the job alive on a manual cancel so the Slack alert steps still run.
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
       RELEASE_TYPE: ${{ inputs.releaseType || 'patch' }}
     steps:
       - name: Release packages, then desktop apps and production sites
+        id: release
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         timeout-minutes: 355
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            // Wrapped so the failure reason reaches the Slack alert step.
+            const releaseEverything = async () => {
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const apiVersion = "2026-03-10";
@@ -908,3 +913,46 @@ jobs:
               throw new Error(`Release everything had failures:\n${failures.join("\n")}`);
             }
             core.info(`Release everything completed from ${releaseBaseSha} through ${releaseSha}.`);
+            };
+
+            try {
+              await releaseEverything();
+            } catch (error) {
+              core.setOutput("error", error instanceof Error ? error.message : String(error));
+              throw error;
+            }
+
+      - name: Build the Slack failure alert
+        if: ${{ failure() || cancelled() }}
+        env:
+          RELEASE_ERROR: ${{ steps.release.outputs.error }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TRIGGER: ${{ github.event_name }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          jq -n \
+            --arg channel C0C7A1Y2EF6 \
+            --arg header "<!subteam^S0C43BD9CMT> :rotating_light: *Release everything failed* ($TRIGGER, $RELEASE_TYPE release)" \
+            --arg run "<$RUN_URL|Open the run>" \
+            --arg reason "${RELEASE_ERROR:-No error message was captured; the job ended $JOB_STATUS (cancelled or timed out).}" \
+            '{channel: $channel, text: "\($header)\n\($run)\n```\($reason)```", unfurl_links: false, unfurl_media: false}' \
+            > "$RUNNER_TEMP/slack-payload.json"
+
+      - name: Post the failure alert to #dev-agent-native-alerts
+        id: slack
+        if: ${{ failure() || cancelled() }}
+        continue-on-error: true
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.QA_SLACK_BOT_TOKEN }}
+          errors: false
+          payload-file-path: ${{ runner.temp }}/slack-payload.json
+
+      - name: Say so when the Slack alert failed
+        if: ${{ (failure() || cancelled()) && steps.slack.outputs.ok != 'true' }}
+        env:
+          SLACK_RESPONSE: ${{ steps.slack.outputs.response }}
+        run: |
+          reason="$(jq -r '.error // empty' <<< "${SLACK_RESPONSE:-null}" 2> /dev/null || true)"
+          echo "::error::Slack alert to #dev-agent-native-alerts failed (${reason:-no response}). Invite the QA_SLACK_BOT_TOKEN bot to the channel and check the token."
