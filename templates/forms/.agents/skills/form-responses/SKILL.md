@@ -15,6 +15,8 @@ Organization-owned forms always use that organization's role policy, even when p
 
 For organization-owned forms, editing and submission review require active membership in the form's organization unless the sharing system recognizes the caller as its owner. A direct share alone does not satisfy this app-permission check.
 
+If `view-screen` reports `responseAccess.status: "denied"`, use its navigation and available form metadata as context; submission counts and previews are omitted. Other permission-lookup failures still fail the action.
+
 - For tables or charts in chat, use typed action results. `response-insights`
   is the first-party path for native response tables and submission charts, but
   do not include both unless the user asked for both; iframe/MCP App rendering

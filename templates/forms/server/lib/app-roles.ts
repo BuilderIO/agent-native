@@ -99,18 +99,16 @@ export function requireFormsPermission(
       ids = response ? [response.formId] : [];
     }
     if (ids.length) {
-      const access = await Promise.all(
-        ids.map((id) => resolveAccess("form", id, resourceCaller)),
-      );
-      if (access.some((result) => !result)) throw new ForbiddenError();
-      await assertPermissionForTargets(
-        permission,
-        access.map((result) => ({
-          owned: result!.role === "owner",
-          orgId: result!.resource.orgId,
-        })),
-        caller,
-      );
+      const targets = [];
+      for (const id of ids) {
+        const access = await resolveAccess("form", id, resourceCaller);
+        if (!access) throw new ForbiddenError();
+        targets.push({
+          owned: access.role === "owner",
+          orgId: access.resource.orgId,
+        });
+      }
+      await assertPermissionForTargets(permission, targets, caller);
       return;
     }
     await assertPermissionForTargets(permission, [], caller);

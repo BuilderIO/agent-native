@@ -13,6 +13,9 @@ const state = vi.hoisted(() => ({
   lookupOrgs: [] as string[],
   selectCount: 0,
   accessLookups: 0,
+  activeAccessLookups: 0,
+  peakAccessLookups: 0,
+  accessError: null as Error | null,
   formRows: null as
     | {
         id: string;
@@ -22,7 +25,11 @@ const state = vi.hoisted(() => ({
         settings: string;
       }[]
     | null,
-  navigation: null as { view: string; formId: string } | null,
+  navigation: null as {
+    view: string;
+    formId: string;
+    activeTab?: string;
+  } | null,
   overrides: [] as { permission: string; roles_json: string }[],
   write: vi.fn(),
   assertAccess: vi.fn(),
@@ -55,12 +62,31 @@ vi.mock(
 );
 vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/sharing")>()),
+  ForbiddenError: (await import("../../../packages/core/src/sharing/access.js"))
+    .ForbiddenError,
   resolveAccess: async (_type: string, id: string) => {
     state.accessLookups++;
+    state.activeAccessLookups++;
+    state.peakAccessLookups = Math.max(
+      state.peakAccessLookups,
+      state.activeAccessLookups,
+    );
+    await Promise.resolve();
+    state.activeAccessLookups--;
+    if (state.accessError) throw state.accessError;
     const role = state.resourceRoles[id] ?? state.resourceRole;
     return role === "none"
       ? null
-      : { role, resource: { orgId: state.resourceOrg } };
+      : {
+          role,
+          resource: {
+            id,
+            title: "Shared form",
+            fields: "[]",
+            settings: "{}",
+            orgId: state.resourceOrg,
+          },
+        };
   },
   assertAccess: (...args: unknown[]) => state.assertAccess(...args),
   accessFilter: vi.fn(() => true),
@@ -157,6 +183,9 @@ beforeEach(() => {
   state.lookupOrgs = [];
   state.selectCount = 0;
   state.accessLookups = 0;
+  state.activeAccessLookups = 0;
+  state.peakAccessLookups = 0;
+  state.accessError = null;
   state.formRows = null;
   state.navigation = null;
   state.overrides = [];
@@ -166,6 +195,23 @@ beforeEach(() => {
 });
 
 describe("Forms app-role enforcement", () => {
+  it("bounds bulk permission access lookups before authorizing the operation", async () => {
+    state.roles = ["editor"];
+    const ids = Array.from({ length: 100 }, (_, index) => `shared-${index}`);
+    await requireFormsPermission("forms.edit", "id")({ id: ids }, caller);
+    expect(state.accessLookups).toBe(100);
+    expect(state.peakAccessLookups).toBe(1);
+    expect(state.lookupOrgs).toEqual(["org-example"]);
+  });
+  it("does not start bulk edits before every resource passes preflight", async () => {
+    state.roles = ["editor"];
+    state.resourceRoles = { denied: "none" };
+    await expect(
+      deleteForm.run({ id: ["shared-1", "shared-2", "denied"] }, caller),
+    ).rejects.toThrow();
+    expect(state.accessLookups).toBe(3);
+    expect(state.write).not.toHaveBeenCalled();
+  });
   it("retains the owner exemption for accessible bulk forms without an active membership", async () => {
     state.member = false;
     state.formRows = [
@@ -259,18 +305,48 @@ describe("Forms app-role enforcement", () => {
     expect(state.selectCount).toBe(1);
   });
   it.each(["denied-override", "removed-member", "retired-role"])(
-    "denies submission screen context to a %s before querying responses",
+    "preserves screen context without submission data for a %s",
     async (kind) => {
       state.navigation = { view: "responses", formId: "shared-form" };
       if (kind === "denied-override")
         state.overrides = [{ permission: "forms.review", roles_json: "[]" }];
       else if (kind === "removed-member") state.member = false;
       else state.roles = ["retired"];
-      await expect(viewScreen.run({}, caller)).rejects.toThrow("forms.review");
+      const screen = await viewScreen.run({}, caller);
+      expect(screen).toMatchObject({
+        navigation: state.navigation,
+        form: { id: "shared-form", title: "Shared form" },
+        responseAccess: { status: "denied", permission: "forms.review" },
+      });
+      expect(screen).not.toHaveProperty("responses");
+      expect(screen).not.toHaveProperty("form.responseCount");
       expect(state.lookupOrgs).toEqual(["org-example"]);
       expect(state.selectCount).toBe(0);
     },
   );
+  it.each(["responses", "results"])(
+    "keeps non-submission context for a denied form %s tab",
+    async (activeTab) => {
+      state.navigation = { view: "form", formId: "shared-form", activeTab };
+      state.roles = ["retired"];
+      const screen = await viewScreen.run({}, caller);
+      expect(screen).toMatchObject({
+        navigation: state.navigation,
+        responseAccess: { status: "denied", permission: "forms.review" },
+      });
+      expect(screen).not.toHaveProperty("responses");
+      expect(screen).not.toHaveProperty("form.responseCount");
+      expect(state.selectCount).toBe(0);
+    },
+  );
+  it("does not turn a response permission lookup failure into a denial", async () => {
+    state.navigation = { view: "responses", formId: "shared-form" };
+    state.accessError = new Error("Resource lookup unavailable");
+    await expect(viewScreen.run({}, caller)).rejects.toThrow(
+      "Resource lookup unavailable",
+    );
+    expect(state.selectCount).toBe(0);
+  });
   it("allows a Reviewer to read submission screen context", async () => {
     state.navigation = { view: "responses", formId: "shared-form" };
     await expect(viewScreen.run({}, caller)).resolves.toMatchObject({

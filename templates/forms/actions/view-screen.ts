@@ -1,5 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
-import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  ForbiddenError,
+  resolveAccess,
+} from "@agent-native/core/sharing";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -136,11 +140,21 @@ export default defineAction({
         (nav?.view === "form" &&
           (activeTab === "responses" || activeTab === "results"))) &&
       nav?.formId;
+    let responseAccessDenied = false;
     if (viewingResponses) {
-      await requireFormsPermission("forms.review", "formId")(
-        { formId: nav.formId },
-        ctx,
-      );
+      try {
+        await requireFormsPermission("forms.review", "formId")(
+          { formId: nav.formId },
+          ctx,
+        );
+      } catch (error) {
+        if (!(error instanceof ForbiddenError)) throw error;
+        responseAccessDenied = true;
+        screen.responseAccess = {
+          status: "denied",
+          permission: "forms.review",
+        };
+      }
     }
 
     if (nav?.formId) {
@@ -152,10 +166,12 @@ export default defineAction({
           const fields = safeJson<FormField[]>(form.fields, []);
           const settings = safeJson<FormSettings>(form.settings, {});
           const canReadPrivateData = canReadPrivateFormData(access.role);
-          const [responseCount] = await db
-            .select({ count: sql<number>`count(*)` })
-            .from(schema.responses)
-            .where(eq(schema.responses.formId, nav.formId));
+          const [responseCount] = responseAccessDenied
+            ? []
+            : await db
+                .select({ count: sql<number>`count(*)` })
+                .from(schema.responses)
+                .where(eq(schema.responses.formId, nav.formId));
           const selectionState = (await readAppStateForCurrentTab(
             "forms-selection",
             {
@@ -180,7 +196,9 @@ export default defineAction({
             settings: canReadPrivateData
               ? summarizeSettings(settings)
               : toPublicFormSettings(settings),
-            responseCount: responseCount?.count ?? 0,
+            ...(!responseAccessDenied
+              ? { responseCount: responseCount?.count ?? 0 }
+              : {}),
             createdAt: form.createdAt,
             updatedAt: form.updatedAt,
             ...(selection ? { selection } : {}),
@@ -254,7 +272,7 @@ export default defineAction({
       };
     }
 
-    if (viewingResponses) {
+    if (viewingResponses && !responseAccessDenied) {
       try {
         const db = getDb();
         const access = await resolveAccess("form", nav.formId);
