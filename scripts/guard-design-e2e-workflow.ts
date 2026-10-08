@@ -92,7 +92,7 @@ assert.equal(
     "mkdir -p .react-router/types",
     'if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then',
     "  pnpm exec playwright test e2e/url-export-font-fidelity.spec.ts e2e/single-screen-pdf-fidelity.spec.ts e2e/imported-html-export-fidelity.spec.ts",
-    '  pnpm exec playwright test e2e/selection-repros.spec.ts --grep "modifier-held marquee"',
+    '  pnpm exec playwright test e2e/marquee-reachability.spec.ts --grep "modifier-held marquee"',
     "else",
     "  pnpm exec playwright test --shard=${{ matrix.shard }}/8",
     "fi",

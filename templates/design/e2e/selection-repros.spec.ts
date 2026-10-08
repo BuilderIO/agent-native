@@ -117,19 +117,12 @@ async function sweep(
   page: Page,
   from: { x: number; y: number },
   to: { x: number; y: number },
-  deepSelect = false,
 ): Promise<void> {
-  const modifier = process.platform === "darwin" ? "Meta" : "Control";
-  if (deepSelect) await page.keyboard.down(modifier);
-  try {
-    await page.mouse.move(from.x, from.y);
-    await page.mouse.down();
-    await page.mouse.move(to.x, to.y, { steps: 18 });
-    await page.waitForTimeout(400);
-    await page.mouse.up();
-  } finally {
-    if (deepSelect) await page.keyboard.up(modifier);
-  }
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 18 });
+  await page.waitForTimeout(400);
+  await page.mouse.up();
   await page.waitForTimeout(2200);
 }
 
@@ -160,8 +153,7 @@ test.beforeEach(async ({ page }, testInfo) => {
 });
 
 test.describe("marquee reachability", () => {
-  // oracle: none — checks modifier-held marquee reachability; native Figma behavior is unmeasured.
-  test("modifier-held marquee from empty screen space rubber-bands its children", async ({
+  test("a drag from empty space inside a screen rubber-bands its children", async ({
     page,
   }) => {
     const id = await newDesign(page);
@@ -174,7 +166,6 @@ test.describe("marquee reachability", () => {
       page,
       { x: insideScreenX(card, a.x - 10 * px), y: a.y - 20 * px },
       { x: b.x + b.width + 10 * px, y: b.y + b.height + 10 * px },
-      true,
     );
 
     const names = await selectedRows(page).allTextContents();
@@ -189,8 +180,7 @@ test.describe("marquee reachability", () => {
     ).not.toContain("Wrapper");
   });
 
-  // oracle: none — checks modifier-held marquee reachability; native Figma behavior is unmeasured.
-  test("modifier-held marquee catches an element that has no id of its own", async ({
+  test("the band catches an element that has no id of its own", async ({
     page,
   }) => {
     const id = await newDesign(page);
@@ -211,7 +201,6 @@ test.describe("marquee reachability", () => {
         x: target.x + target.width + 10 * px,
         y: target.y + target.height + 14 * px,
       },
-      true,
     );
 
     const swept = (await selectedRows(page).allTextContents()).join("|");
@@ -224,8 +213,7 @@ test.describe("marquee reachability", () => {
     );
   });
 
-  // oracle: none — checks modifier-held marquee reachability; native Figma behavior is unmeasured.
-  test("modifier-held marquee catches a zero-height row", async ({ page }) => {
+  test("the band catches a zero-height row", async ({ page }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     const flat = (await node(page, "flat").boundingBox())!;
@@ -235,7 +223,6 @@ test.describe("marquee reachability", () => {
       page,
       { x: insideScreenX(card, flat.x - 10 * px), y: flat.y - 18 * px },
       { x: flat.x + flat.width + 10 * px, y: flat.y + 30 * px },
-      true,
     );
 
     expect(
