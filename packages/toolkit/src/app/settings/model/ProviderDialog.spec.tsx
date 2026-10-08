@@ -23,6 +23,11 @@ const keyMock = vi.hoisted(() => ({
   deleteAgentEngineProviderSettings: vi.fn(),
 }));
 const callActionMock = vi.hoisted(() => vi.fn());
+const onboardingOutcomeMock = vi.hoisted(() => vi.fn());
+const onboardingAbandonmentRequestMock = vi.hoisted(() => vi.fn());
+const onboardingSetupKindMock = vi.hoisted(() => vi.fn());
+const credentialSaveBoundaryMock = vi.hoisted(() => vi.fn());
+const localEndpointSaveBoundaryMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (name: string) => ({
@@ -41,6 +46,28 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("@agent-native/core/client/agent-engine-key", () => keyMock);
+
+vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  requestCustomKeyOnboardingAbandonment: onboardingAbandonmentRequestMock,
+  setCustomKeyOnboardingSetupKind: onboardingSetupKindMock,
+  trackCustomKeyOnboardingOutcome: onboardingOutcomeMock,
+  withCustomKeyOnboardingCredentialSave: async (
+    save: () => Promise<unknown>,
+  ) => {
+    credentialSaveBoundaryMock();
+    const result = await save();
+    onboardingOutcomeMock("credential_saved");
+    return result;
+  },
+  withCustomKeyOnboardingLocalEndpointSave: async (
+    save: () => Promise<unknown>,
+  ) => {
+    localEndpointSaveBoundaryMock();
+    const result = await save();
+    onboardingOutcomeMock("local_endpoint_saved");
+    return result;
+  },
+}));
 
 vi.mock("@agent-native/core/client/org", () => ({
   useOrg: () => ({ data: { orgName: "Acme" }, isLoading: false }),
@@ -187,6 +214,11 @@ describe("ProviderDialog", () => {
       .mockReset()
       .mockResolvedValue(undefined);
     callActionMock.mockReset().mockResolvedValue({});
+    onboardingOutcomeMock.mockReset();
+    onboardingAbandonmentRequestMock.mockReset();
+    onboardingSetupKindMock.mockReset();
+    credentialSaveBoundaryMock.mockReset();
+    localEndpointSaveBoundaryMock.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -306,6 +338,49 @@ describe("ProviderDialog", () => {
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
 
+  it("allows leaving a provider dialog while preserving its pending save outcome", async () => {
+    let resolveSave!: () => void;
+    keyMock.saveAgentEngineProviderSettings.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveSave = resolve;
+      }),
+    );
+    keyMock.fetchProviderModels.mockResolvedValue({
+      ok: true,
+      provider: "anthropic",
+      models: ["claude-sonnet-5"],
+      checkedAt: 1,
+    });
+    const { onOpenChange } = render({ provider: "anthropic" });
+
+    typeInto(inputByLabel("API key"), "sk-ant-test-0000");
+    await vi.waitFor(() => {
+      expect(button("Add provider").disabled).toBe(false);
+    });
+    await act(async () => button("Add provider").click());
+    await vi.waitFor(() => {
+      expect(keyMock.saveAgentEngineProviderSettings).toHaveBeenCalled();
+    });
+
+    await act(async () => button("Close").click());
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onboardingAbandonmentRequestMock).toHaveBeenCalledTimes(1);
+    expect(
+      onboardingOutcomeMock.mock.calls.map(([outcome]) => outcome),
+    ).not.toContain("credential_skipped");
+
+    await act(async () => {
+      resolveSave();
+      await vi.waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    });
+    const outcomes = onboardingOutcomeMock.mock.calls.map(
+      ([outcome]) => outcome,
+    );
+    expect(outcomes).toContain("credential_saved");
+    expect(outcomes).not.toContain("credential_skipped");
+    expect(credentialSaveBoundaryMock).toHaveBeenCalledTimes(1);
+  });
+
   it("locks members to a personal key", async () => {
     state.listing = listing({ canManageOrg: false });
     keyMock.fetchProviderModels.mockResolvedValue({
@@ -387,9 +462,10 @@ describe("ProviderDialog", () => {
       models: ["llama3.1:latest"],
       checkedAt: 1,
     });
-    render({ provider: "ollama" });
+    const { onSaved } = render({ provider: "ollama" });
     expect(document.body.textContent).toContain("No API key required.");
     typeInto(inputByLabel("Endpoint URL"), "http://ollama.internal:11434");
+    expect(onboardingOutcomeMock).not.toHaveBeenCalled();
     await vi.waitFor(() => {
       expect(document.body.textContent).toContain("llama3.1:latest");
     });
@@ -397,6 +473,36 @@ describe("ProviderDialog", () => {
       provider: "ollama",
       baseUrl: "http://ollama.internal:11434",
     });
+    expect(onboardingOutcomeMock).not.toHaveBeenCalled();
+
+    await act(async () => button("Add provider").click());
+    await vi.waitFor(() => expect(onSaved).toHaveBeenCalled());
+
+    expect(keyMock.saveAgentEngineProviderSettings).toHaveBeenCalledWith({
+      provider: "ollama",
+      baseUrl: "http://ollama.internal:11434",
+      scope: "org",
+    });
+    expect(credentialSaveBoundaryMock).not.toHaveBeenCalled();
+    expect(localEndpointSaveBoundaryMock).toHaveBeenCalledOnce();
+    expect(onboardingOutcomeMock).toHaveBeenCalledWith("local_endpoint_saved");
+    expect(onboardingOutcomeMock).not.toHaveBeenCalledWith("credential_saved");
+  });
+
+  it("classifies dismissing Ollama setup separately from skipping credentials", () => {
+    render({ provider: "ollama" });
+
+    expect(onboardingSetupKindMock).toHaveBeenCalledWith("local_endpoint");
+
+    act(() => button("Cancel").click());
+
+    expect(onboardingOutcomeMock).toHaveBeenCalledExactlyOnceWith(
+      "local_endpoint_skipped",
+    );
+    expect(onboardingOutcomeMock).not.toHaveBeenCalledWith(
+      "credential_skipped",
+    );
+    expect(onboardingAbandonmentRequestMock).not.toHaveBeenCalled();
   });
 
   it("manages a saved key: masked, checked on save, and models only", async () => {
@@ -440,6 +546,40 @@ describe("ProviderDialog", () => {
       scope: "org",
       models: ["gpt-a"],
     });
+  });
+
+  it("does not count an endpoint-only update as a credential save", async () => {
+    state.listing = listing(
+      {},
+      {
+        openai: {
+          org: {
+            scope: "org",
+            masked: "••••9f3a",
+            updatedAt: 1,
+            endpoint: "https://old.example",
+          },
+        },
+      },
+    );
+    state.models = models({ openai: { org: ["model-a"] } });
+    const { onSaved } = render({
+      mode: "manage",
+      provider: "openai",
+      scope: "org",
+    });
+
+    typeInto(inputByLabel("Endpoint URL"), "https://gateway.example");
+    await act(async () => button("Save").click());
+    await vi.waitFor(() => expect(onSaved).toHaveBeenCalled());
+
+    expect(keyMock.saveAgentEngineProviderSettings).toHaveBeenCalledWith({
+      provider: "openai",
+      baseUrl: "https://gateway.example",
+      scope: "org",
+    });
+    expect(credentialSaveBoundaryMock).not.toHaveBeenCalled();
+    expect(onboardingOutcomeMock).not.toHaveBeenCalledWith("credential_saved");
   });
 
   it("asks for a new key when the saved one was rejected", () => {

@@ -294,6 +294,7 @@ const messages = {
     silenceWorking: "正在消除静音…",
     silenceCompleted: "静音消除完成",
     silenceFailed: "静音消除失败",
+    silenceEditsUnreadable: "无法读取已保存的编辑，因此未移除静音片段。",
     generatePrSummary: "生成公关摘要",
     generateSop: "生成SOP",
     generateSopTooltip:

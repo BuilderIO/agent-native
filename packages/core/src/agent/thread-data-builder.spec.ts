@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js";
 import { LLM_MISSING_CREDENTIALS_MESSAGE } from "./engine/credential-errors.js";
 import {
   buildAssistantMessage,
@@ -173,6 +174,125 @@ describe("a client thread save after a refused turn", () => {
 });
 
 describe("extractThreadMeta", () => {
+  it.each([
+    [
+      "<context>Private instructions</context>\nPlan   next week",
+      "Plan next week",
+    ],
+    [
+      '<context source="legacy">Private instructions</context>\nPlan next week',
+      "Plan next week",
+    ],
+    [
+      "Question <context>private</context> still visible",
+      "Question still visible",
+    ],
+    [
+      "Use <context-menu>public</context-menu> and <Context.Provider>public</Context.Provider>.",
+      "Use <context-menu>public</context-menu> and <Context.Provider>public</Context.Provider>.",
+    ],
+    [
+      "<context>hidden </context>\nsecret tail\n</context>\nVisible prompt",
+      "Visible prompt",
+    ],
+    ["<context>Only private instructions", ""],
+    ["Ask @[Steve|private-id]   next week", "Ask @Steve next week"],
+    ["<context>Only private instructions</context>", ""],
+  ])(
+    "strips hidden prompt context from titles and previews: %s",
+    (prompt, visible) => {
+      expect(
+        extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+      ).toEqual({ title: visible.slice(0, 80), preview: visible });
+    },
+  );
+
+  it("chooses the first visible prompt after a context-only user message", () => {
+    expect(
+      extractThreadMeta({
+        messages: [
+          {
+            role: "user",
+            content: "<context>Private instructions only</context>",
+          },
+          {
+            role: "user",
+            content: "Find flights to <context>private note</context>Tokyo",
+          },
+          { role: "user", content: "Book a return flight" },
+        ],
+      }),
+    ).toEqual({
+      title: "Find flights to Tokyo",
+      preview: "Book a return flight",
+    });
+  });
+
+  it("hides nested legacy blocks and ambiguous text between them", () => {
+    const prompt =
+      "Before\n<context>Outer private </context>\nCopied private between blocks\n<context>Inner private</context>\nAfter";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: "Before After", preview: "Before After" });
+  });
+
+  it("treats multiple unencoded legacy blocks as one private span", () => {
+    // Legacy blocks have no trustworthy inner boundary; text between them may be private.
+    const prompt =
+      "Before\n<context>First private block</context>\nBetween\n<context>Second private block</context>\nAfter";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: "Before After", preview: "Before After" });
+  });
+
+  it("fails closed on an unclosed line-start legacy marker", () => {
+    // Unencoded text is ambiguous here; the current producer escapes authored markup.
+    const prompt = "Plan next week\n<context>Private trailing instructions";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: "Plan next week", preview: "Plan next week" });
+  });
+
+  it("fails closed when a later legacy opener is unclosed", () => {
+    const prompt =
+      "Before\n<context>hidden</context>\n<context>second private remainder";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: "Before", preview: "Before" });
+  });
+
+  it("uses the encoded producer boundary and restores authored markup", () => {
+    const prompt = "<context>";
+    const content = appendAgentChatContextToMessage(
+      prompt,
+      "private prefix </context> private suffix",
+    );
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content }] }),
+    ).toEqual({ title: prompt, preview: prompt });
+  });
+
+  it("fails closed on an inline unclosed exact context opener", () => {
+    const prompt = "Question <context>private remainder";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: "Question", preview: "Question" });
+  });
+
+  it("preserves a literal closing tag when there is no hidden context block", () => {
+    const prompt = "How should I write the literal </context> tag?";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: prompt, preview: prompt });
+  });
+
   it("prefers a manual title override while keeping the message preview", () => {
     const meta = extractThreadMeta({
       _titleOverride: "  Renamed   chat ",

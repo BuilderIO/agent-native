@@ -10,6 +10,13 @@ import {
 } from "@agent-native/core/client/agent-provider-catalog";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import {
+  requestCustomKeyOnboardingAbandonment,
+  setCustomKeyOnboardingSetupKind,
+  trackCustomKeyOnboardingOutcome,
+  withCustomKeyOnboardingCredentialSave,
+  withCustomKeyOnboardingLocalEndpointSave,
+} from "@agent-native/core/client/onboarding/use-onboarding";
 import { useOrg } from "@agent-native/core/client/org";
 import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import { Button } from "@agent-native/toolkit/ui/button";
@@ -40,7 +47,14 @@ import {
   IconServer,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { BrandLogo } from "../infra/logos.js";
 import { WhoField } from "../WhoField.js";
@@ -134,14 +148,58 @@ function unique(models: readonly string[]): string[] {
  * the checked models in one step.
  */
 export function ProviderDialog(props: ProviderDialogProps) {
+  const savePending = useRef(false);
+  const selectedProvider = useRef<AgentProviderId>(
+    props.provider ?? props.providers?.[0] ?? "anthropic",
+  );
+  const reportSelectedProvider = useCallback((provider: AgentProviderId) => {
+    selectedProvider.current = provider;
+    setCustomKeyOnboardingSetupKind(
+      provider === "ollama" ? "local_endpoint" : "credential",
+    );
+  }, []);
+  const dismiss = () => {
+    if (selectedProvider.current === "ollama" && !savePending.current) {
+      trackCustomKeyOnboardingOutcome("local_endpoint_skipped");
+    } else if (savePending.current) {
+      requestCustomKeyOnboardingAbandonment();
+    } else {
+      trackCustomKeyOnboardingOutcome("credential_skipped");
+    }
+    props.onOpenChange(false);
+  };
+
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      {props.open ? <ProviderDialogContent {...props} /> : null}
+    <Dialog
+      open={props.open}
+      onOpenChange={(open) => {
+        if (open) props.onOpenChange(true);
+        else dismiss();
+      }}
+    >
+      {props.open ? (
+        <ProviderDialogContent
+          {...props}
+          onDismiss={dismiss}
+          onProviderChange={reportSelectedProvider}
+          onSavingChange={(saving) => {
+            savePending.current = saving;
+          }}
+        />
+      ) : null}
     </Dialog>
   );
 }
 
-function ProviderDialogContent(props: ProviderDialogProps) {
+interface ProviderDialogInternalProps {
+  onDismiss: () => void;
+  onProviderChange: (provider: AgentProviderId) => void;
+  onSavingChange: (saving: boolean) => void;
+}
+
+function ProviderDialogContent(
+  props: ProviderDialogProps & ProviderDialogInternalProps,
+) {
   const t = useT();
   const listing = useActionQuery<ModelProvidersListing>(
     "list-model-providers" as never,
@@ -209,7 +267,7 @@ function ProviderDialogContent(props: ProviderDialogProps) {
   );
 }
 
-interface FormProps extends ProviderDialogProps {
+interface FormProps extends ProviderDialogProps, ProviderDialogInternalProps {
   title: string;
   listing: ModelProvidersListing;
   models: ProviderModelsRead;
@@ -222,6 +280,9 @@ function ProviderDialogForm({
   serviceLabel,
   providers: providerChoices,
   onOpenChange,
+  onDismiss,
+  onProviderChange,
+  onSavingChange,
   onSaved,
   onRemoved,
   title,
@@ -313,6 +374,10 @@ function ProviderDialogForm({
   const requestRef = useRef(0);
   const fromService = mode === "add-from-service";
 
+  useEffect(() => {
+    onProviderChange(provider);
+  }, [onProviderChange, provider]);
+
   // A pasted key (or Ollama endpoint) is checked as it's entered, by asking
   // the provider which models it reaches.
   useEffect(() => {
@@ -337,6 +402,9 @@ function ProviderDialogForm({
           if (request !== requestRef.current) return;
           setCheck(toCheckState(result));
           if (!result.ok) return;
+          if (provider !== "ollama") {
+            trackCustomKeyOnboardingOutcome("credential_validated");
+          }
           setChecked((previous) => {
             const kept = previous.filter((model) =>
               result.models.includes(model),
@@ -392,6 +460,7 @@ function ProviderDialogForm({
       addChoices.find((choice) => choice.provider === next)?.replaces ?? null;
     const nextEndpoint = next === "openai" ? (target?.endpoint ?? "") : "";
     setProvider(next);
+    onProviderChange(next);
     setKeyValue((value) => (keepValue ? value : ""));
     setKeyError(false);
     setChecked(
@@ -447,26 +516,33 @@ function ProviderDialogForm({
       mode !== "manage" || !sameModels(checked, initialSelection ?? []);
 
     setSaving(true);
-    let keySaved = false;
+    onSavingChange(true);
+    let settingsSaved = false;
     try {
       if (replacing) {
-        await saveAgentEngineProviderSettings({
-          provider,
-          ...(isOllama ? { baseUrl: value } : { apiKey: value }),
-          ...(gateway ? { baseUrl: gateway } : {}),
-          ...(isOpenAi && !gateway && existing?.endpoint
-            ? { clearBaseUrl: true }
-            : {}),
-          scope,
-        });
-        keySaved = true;
+        const saveProviderSettings = () =>
+          saveAgentEngineProviderSettings({
+            provider,
+            ...(isOllama ? { baseUrl: value } : { apiKey: value }),
+            ...(gateway ? { baseUrl: gateway } : {}),
+            ...(isOpenAi && !gateway && existing?.endpoint
+              ? { clearBaseUrl: true }
+              : {}),
+            scope,
+          });
+        if (isOllama) {
+          await withCustomKeyOnboardingLocalEndpointSave(saveProviderSettings);
+        } else {
+          await withCustomKeyOnboardingCredentialSave(saveProviderSettings);
+        }
+        settingsSaved = true;
       } else if (endpointChanged) {
         await saveAgentEngineProviderSettings({
           provider,
           ...(gateway ? { baseUrl: gateway } : { clearBaseUrl: true }),
           scope,
         });
-        keySaved = true;
+        settingsSaved = true;
       }
       if (modelsChanged) {
         await callAction(
@@ -484,12 +560,15 @@ function ProviderDialogForm({
       onOpenChange(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(keySaved ? t(`${K}modelsSaveFailed`, { message }) : message);
-      if (keySaved) {
+      setError(
+        settingsSaved ? t(`${K}modelsSaveFailed`, { message }) : message,
+      );
+      if (settingsSaved) {
         void queryClient.invalidateQueries({ queryKey: ["action"] });
       }
     } finally {
       setSaving(false);
+      onSavingChange(false);
     }
   };
 
@@ -508,11 +587,7 @@ function ProviderDialogForm({
           {t(`${K}restricted`)}
         </p>
         <DialogFooter>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => onOpenChange(false)}
-          >
+          <Button type="button" variant="secondary" onClick={onDismiss}>
             {t(`${K}cancel`)}
           </Button>
         </DialogFooter>
@@ -607,6 +682,9 @@ function ProviderDialogForm({
                 onChange={(event) => {
                   setKeyValue(event.target.value);
                   setKeyError(false);
+                  if (event.target.value.trim() && !isOllama) {
+                    trackCustomKeyOnboardingOutcome("credential_entry_started");
+                  }
                 }}
               />
             ) : (
@@ -762,11 +840,7 @@ function ProviderDialogForm({
               {t(`${K}removeProvider`)}
             </Button>
           ) : null}
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => onOpenChange(false)}
-          >
+          <Button type="button" variant="secondary" onClick={onDismiss}>
             {t(`${K}cancel`)}
           </Button>
           <Button type="submit" disabled={saving || !ready}>

@@ -317,6 +317,8 @@ const messages = {
     silenceWorking: "Eliminando silencios…",
     silenceCompleted: "Eliminación de silencios completada",
     silenceFailed: "No se pudieron eliminar los silencios",
+    silenceEditsUnreadable:
+      "No se pudieron leer las ediciones guardadas, así que no se eliminaron los silencios.",
     generatePrSummary: "Generar resumen de relaciones públicas",
     generateSop: "Generar SOP",
     generateSopTooltip:
