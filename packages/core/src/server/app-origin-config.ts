@@ -38,6 +38,8 @@ function workspaceAppMountPathsFromJson(
 }
 
 export function resolvePublicAppOriginConfig(): {
+  appId?: string;
+  workspaceAppId?: string;
   appHomePath: string;
   appUrl?: string;
   workspaceGatewayUrl?: string;
@@ -53,6 +55,10 @@ export function resolvePublicAppOriginConfig(): {
     config.workspace.appsJson,
   );
   const resolved = {
+    ...(config.app.id ? { appId: config.app.id } : {}),
+    ...(config.app.workspaceId
+      ? { workspaceAppId: config.app.workspaceId }
+      : {}),
     appHomePath: resolveAppHomePath(config.app, config.workspace),
     ...(config.app.url ? { appUrl: config.app.url } : {}),
     ...(config.workspace.gatewayUrl

@@ -1,5 +1,4 @@
 import {
-  AgentActionStopError,
   ActionContractError,
   defineAction,
   embedApp,
@@ -29,6 +28,7 @@ import {
 } from "../server/lib/deck-versions.js";
 import { noteGenerationFirstOutput } from "../server/lib/generation-completion.js";
 import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
+import { generationTimingFields } from "../shared/generation-timing.js";
 import {
   createLayoutFitRevision,
   hashSlideContent,
@@ -302,10 +302,11 @@ export default defineAction({
         slides.length >= targetSlideCount &&
         targetSlideCountOverride === undefined
       ) {
-        throw new AgentActionStopError(
-          `Cannot add a slide: this deck already has ${slides.length} slides and its requested target is ${targetSlideCount}. Re-read the deck and stop adding slides unless the user explicitly changes the target.`,
+        fail(
+          `No slide was added: this deck already has ${slides.length} slides against its requested target of ${targetSlideCount}. Re-read the deck. If the target is satisfied, stop authoring and finish the response; do not retry. Only add slides if the user explicitly asks for more and provides a new target.`,
           {
             errorCode: "target_slide_count_reached",
+            statusCode: 409,
             details: {
               deckId,
               currentSlideCount: slides.length,
@@ -552,6 +553,12 @@ export default defineAction({
         typeof generationContext?.generationAttemptId === "string"
           ? generationContext.generationAttemptId
           : undefined;
+      const generationStartedAt =
+        typeof generationContext?.generationStartedAt === "number" &&
+        Number.isFinite(generationContext.generationStartedAt) &&
+        generationContext.generationStartedAt >= 0
+          ? generationContext.generationStartedAt
+          : undefined;
       if (
         shouldRepairTitle &&
         generationAttemptId &&
@@ -561,6 +568,7 @@ export default defineAction({
           deckId,
           generationAttemptId,
           targetSlideCount,
+          ...(generationStartedAt !== undefined ? { generationStartedAt } : {}),
         });
       }
 
@@ -603,6 +611,7 @@ export default defineAction({
         generationAttemptId &&
         generationContext?.generationMode === "action"
       ) {
+        const generationEndedAt = Date.now();
         track(
           "generation_completed",
           {
@@ -614,6 +623,7 @@ export default defineAction({
             slide_count: slides.length,
             generation_mode: "incremental",
             outcome: "completed",
+            ...generationTimingFields(generationStartedAt, generationEndedAt),
             source: "add_slide_action",
           },
           ctx,

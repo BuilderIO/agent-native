@@ -88,7 +88,7 @@ export default {
     visibilityPrivateOnly: "Meus",
     visibilitySharedOnly: "Compartilhado",
     visibilityAllDescription: "Mostrar todos os itens",
-    visibilityPrivateOnlyDescription: "Mostrar apenas itens visíveis para você",
+    visibilityPrivateOnlyDescription: "Mostrar itens que você criou",
     visibilitySharedOnlyDescription:
       "Mostrar itens compartilhados com a organização e públicos",
     hiddenAnalyses: "Análises ocultas",
@@ -1519,6 +1519,19 @@ export default {
       "Blocos com escopo usados para reconstruir este replay. As URLs do provedor permanecem privadas.",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "Baixar captura",
+    savingScreenshot: "Salvando captura…",
+    screenshotDownloaded: "Captura baixada",
+    screenshotSaveFailed: "Não foi possível salvar a captura",
+    copyScreenshot: "Copiar para o Design",
+    copyingScreenshot: "Copiando captura…",
+    screenshotCopiedForDesign: "Captura copiada. Cole-a no Design.",
+    screenshotCopyFailed:
+      "Não foi possível copiar a captura. Baixe-a e envie o PNG para o Design.",
+    screenshotCopyUnsupportedAssets:
+      "Captura não copiada: este momento contém mídias ou imagens que não podem ser capturadas com segurança. Tente outro momento do replay.",
+    screenshotUnsupportedAssets:
+      "Captura não salva: algumas mídias incorporadas ou imagens não podem ser capturadas com segurança.",
     timeline: "Linha do tempo de eventos",
     replayTimeline: "Linha do tempo do replay",
     timelineDescription: "Mostrando {{count}} de {{total}} eventos úteis.",

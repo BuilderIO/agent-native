@@ -19,7 +19,7 @@ import {
   IconTool,
 } from "@tabler/icons-react";
 
-import type { SettingsPageIcon } from "./registry.js";
+import type { SettingsPageIcon } from "./types.js";
 
 declare const __AGENT_NATIVE_TEMPLATE__: string | undefined;
 

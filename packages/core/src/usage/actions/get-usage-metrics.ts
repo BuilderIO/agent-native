@@ -27,7 +27,7 @@ function resolveAppSelection(
 
 export default defineAction({
   description:
-    'Get LLM usage metrics for Settings › Usage: lookback totals, the daily trend split by feature, app, model and surface (dailyBy), top features, models, apps, chats and people, tool calls per day, recent prompts, and the apps with usage. Covers every app unless app names one. Members see only their own usage; scope "workspace" (everyone in the organization) is for owners and admins. billing.unit says whether amounts read as Builder.io credits or estimated dollars.',
+    'Get LLM usage metrics for Settings › Usage: lookback totals, the daily trend split by feature, app, model and surface (dailyBy), top features, models, apps, chats and people, tool calls per day, recent prompts, and the apps with usage. Covers every app unless app names one. Members see only their own usage; scope "workspace" (everyone in the organization) is for owners and admins. billing.unit identifies Builder.io credits, estimated dollars, mixed billing, or unknown when historical engine metadata is missing.',
   http: { method: "GET" },
   schema: z.object({
     sinceDays: z.coerce.number().int().min(1).max(365).default(30),

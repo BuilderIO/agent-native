@@ -88,7 +88,8 @@ export function embedApp(
   data-app-title="${attr(title)}"
   data-iframe-title="${attr(iframeTitle)}"
   data-open-label="${attr(openLabel)}"
-  data-start-tool="${attr(startToolName)}"
+  data-start-tool="${attr(ctx.startToolName ?? startToolName)}"
+  data-catalog-mode="${attr(ctx.catalogMode)}"
   data-embed-default="${embedByDefault ? "1" : "0"}"
 >
   <main class="shell">
@@ -135,6 +136,7 @@ export function embedApp(
     const hostChatRequests = new Map();
     let toolInput = {};
     let toolResultData = {};
+    let toolResponseMetadata = {};
     let openUrl = "";
     let openStartUrl = "";
     let startedFor = "";
@@ -436,6 +438,18 @@ export function embedApp(
 
     function embedSessionArgsFor(value) {
       const chrome = typeof toolInput.chrome === "string" ? toolInput.chrome : "full";
+      if (body.dataset.catalogMode === "directory") {
+        const widgetSource = toolResponseMetadata["agent-native/widgetSource"];
+        const sourceTool = widgetSource && typeof widgetSource.toolName === "string"
+          ? widgetSource.toolName
+          : undefined;
+        return {
+          ...(sourceTool ? { sourceTool } : {}),
+          toolInput,
+          toolOutput: toolResultData,
+          chrome
+        };
+      }
       return typeof value === "string" && value.startsWith("/")
         ? { path: value, chrome }
         : { url: value, chrome };
@@ -1852,7 +1866,8 @@ export function embedApp(
 
     function updateTitle(data) {
       const record = objectValue(data);
-      const label = record.label || record.app || record.view || body.dataset.appTitle || "App";
+      const openLink = objectValue(toolResponseMetadata["agent-native/openLink"]);
+      const label = record.label || openLink.label || record.app || record.view || body.dataset.appTitle || "App";
       titleEl.textContent = String(label);
     }
 
@@ -1896,10 +1911,14 @@ export function embedApp(
       openAiBridge = bridge;
       toolInput = objectValue(bridge.toolInput);
       const params = openAiToolResultParams(bridge);
+      toolResponseMetadata = objectValue(params._meta);
       const data = parseToolResult(params);
       toolResultData = objectValue(data);
       openUrl = openLinkFrom(params, data);
       openStartUrl = embedStartUrlFrom(params, data);
+      const openLinkLabel = objectValue(
+        toolResponseMetadata["agent-native/openLink"],
+      ).label;
       // set_globals fires constantly, and this sync calls notifyHostHeight/
       // sendHostContext which the host echoes back as another set_globals — an
       // infinite storm. Only do the host round-trips + (re)launch when something
@@ -1909,8 +1928,10 @@ export function embedApp(
       try {
         signature = JSON.stringify([
           toolInput,
+          toolResponseMetadata["agent-native/widgetSource"],
           openUrl,
           openStartUrl,
+          openLinkLabel,
           bridge.displayMode,
           bridge.theme,
           bridge.locale
@@ -2151,6 +2172,7 @@ export function embedApp(
       };
       app.ontoolresult = (params) => {
         const data = parseToolResult(params);
+        toolResponseMetadata = objectValue(metadataRecord(params));
         toolResultData = objectValue(data);
         openUrl = openLinkFrom(params, data);
         openStartUrl = embedStartUrlFrom(params, data);
@@ -2185,6 +2207,7 @@ export function embedApp(
       };
       app.ontoolresult = (params) => {
         const data = parseToolResult(params);
+        toolResponseMetadata = objectValue(metadataRecord(params));
         toolResultData = objectValue(data);
         openUrl = openLinkFrom(params, data);
         openStartUrl = embedStartUrlFrom(params, data);

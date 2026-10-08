@@ -1,6 +1,6 @@
 ---
 title: "持久的简历"
-description: "当托管代理运行被中断并恢复时，已完成的副作用工具调用不会重新运行 - 从持久账本派生的工具调用日志会阻止重复发送、收费和票证。"
+description: "当托管代理运行被中断并在同一回合中恢复时，从持久账本派生的工具调用日志会阻止完全相同地重复已完成的写入调用。"
 ---
 
 # 持久的简历
@@ -92,9 +92,15 @@ description: "当托管代理运行被中断并恢复时，已完成的副作用
 - **消费一次。**每个已完成的条目在匹配时都会被声明，因此同一轮中两个真正不同的相同的新调用不会在一个日志完成时同时短路。
 - **新呼叫未受影响。**首轮呼叫会看到空日志；正常运行没有任何变化。
 
-<Callout id="doc-block-fjhhyg" tone="success">
+<Callout id="doc-block-fjhhyg" tone="warning">
 
-Together the two layers mean an interrupted run that already had a real side effect resumes **without repeating it** — no duplicate emails, charges, or tickets — while genuinely new work still runs. Read-only actions are never blocked; re-reading is always safe.
+硬阻塞只会拦下**完全相同的重复**：同一个写入工具、相同的输入，且发生在同一回合中较早的一次尝试已完成并记录其结果之后。它并不能排除所有重复的电子邮件、扣款或票证：
+
+- **改写后的重试不会被匹配。** 如果模型更改了任何参数（例如邮件正文），调用就不再与已完成的调用匹配，因此硬阻塞不会拦下它。
+- **发送途中崩溃可能导致重复。** 如果进程在副作用已经发生、但结果尚未记录时终止，该调用会被视为已中断，而硬阻塞只覆盖已完成的调用。另有一道防护会拒绝与已中断写入完全相同的重试，但前提是恢复后运行的历史中显示了这次中断。
+- **崩溃的运行可以通过两条彼此独立的路径之一在同一回合中恢复。** 一条是[持久后台运行](/docs/durable-background-runs)。另一条是使用[前台自我续跑链](/docs/durable-background-runs#foreground-self-chain)的普通前台回合中的后续分段。其他崩溃的运行都会以错误结束，**继续** 会以空日志开始一个新回合，因此两层都不适用。
+
+副作用绝不能重复的操作需要自己的幂等性检查。硬阻塞永远不适用于只读操作。
 
 </Callout>
 

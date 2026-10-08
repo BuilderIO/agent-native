@@ -29,6 +29,8 @@ import type {
   FilePart,
 } from "@agent-native/agentkit/protocol";
 import {
+  AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+  AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
   AGENTKIT_PROTOCOL_VERSION,
   AgentProtocolValidationError,
   approvalResponseFromResume,
@@ -151,6 +153,7 @@ interface ProtocolRun {
   usage?: AgentUsage;
   metadata?: Record<string, unknown>;
   activeMessageId?: string;
+  activeMessageRole?: AgentChatRuntimeMessage["role"];
   activeMessageCompleted: boolean;
   runtimeSequence?: number;
   resumeAttempts?: number;
@@ -176,6 +179,7 @@ interface ProtocolRun {
   pendingWidgets: Map<string, AgentWidget>;
   actions: Map<string, AgentActionInvocation>;
   activeTools: Map<string, AgentToolCall>;
+  pendingToolMessageAssociations: Map<string, AgentToolCall>;
   activeActivities: Map<string, AgentActivity>;
   terminalAppendDepth: number;
   pumpPromise: Promise<void> | null;
@@ -196,8 +200,6 @@ function isTerminalRunStatus(
   );
 }
 
-const TOOL_RESULT_MEDIA_TYPE = "application/x-agent-native-tool-result";
-const TOOL_CALL_MEDIA_TYPE = "application/x-agent-native-tool-call";
 const RUNTIME_PART_MEDIA_TYPE = "application/x-agent-native-runtime-part";
 const RUNTIME_EVENT_TYPE = "x-core.runtime-event";
 const RUNTIME_USAGE_EVENT_TYPE = "x-core.usage";
@@ -487,6 +489,19 @@ function runtimeEventMessageId(
   return run.activeMessageCompleted ? undefined : run.activeMessageId;
 }
 
+function runtimeToolMessageId(
+  run: ProtocolRun,
+  ...metadata: Array<Record<string, unknown> | undefined>
+): string | undefined {
+  for (const value of metadata) {
+    const messageId = metadataString(value, "messageId");
+    if (messageId) return messageId;
+  }
+  return run.activeMessageRole === "assistant"
+    ? runtimeEventMessageId(run)
+    : undefined;
+}
+
 function runtimeAnnotationToProtocol(
   annotation: Extract<
     AgentChatRuntimeEvent,
@@ -751,7 +766,7 @@ function runtimePartToProtocolPart(
     case "tool-call":
       return {
         type: "data",
-        mediaType: TOOL_CALL_MEDIA_TYPE,
+        mediaType: AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
         data: {
           id: part.toolCallId,
           name: part.toolName,
@@ -762,7 +777,7 @@ function runtimePartToProtocolPart(
     case "tool-result":
       return {
         type: "data",
-        mediaType: TOOL_RESULT_MEDIA_TYPE,
+        mediaType: AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
         data: {
           id: part.toolCallId,
           name: part.toolName,
@@ -823,6 +838,49 @@ function protocolPartToRuntimePart(
         mediaType: part.mediaType,
         url: part.url,
       };
+    case "data": {
+      const data = asRecord(part.data);
+      if (part.mediaType === AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE) {
+        if (typeof data?.id !== "string" || typeof data.name !== "string") {
+          throw new AgentProtocolValidationError(
+            "message.parts.data",
+            "tool call history requires a call id and name",
+          );
+        }
+        return {
+          type: "tool-call",
+          toolCallId: data.id,
+          toolName: data.name,
+          ...(data.input === undefined ? {} : { input: data.input }),
+          ...(typeof data.inputText === "string"
+            ? { inputText: data.inputText }
+            : {}),
+        };
+      }
+      if (part.mediaType === AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE) {
+        if (typeof data?.id !== "string") {
+          throw new AgentProtocolValidationError(
+            "message.parts.data",
+            "tool result history requires a call id",
+          );
+        }
+        return {
+          type: "tool-result",
+          toolCallId: data.id,
+          ...(typeof data.name === "string" ? { toolName: data.name } : {}),
+          ...(data.result === undefined ? {} : { result: data.result }),
+          ...(typeof data.resultText === "string"
+            ? { resultText: data.resultText }
+            : {}),
+          ...(data.isError === true ? { isError: true } : {}),
+        };
+      }
+      return {
+        type: "data",
+        data: part,
+        mediaType: "application/x-agentkit-protocol-part",
+      };
+    }
     default:
       return {
         type: "data",
@@ -988,6 +1046,7 @@ function runtimeToolToProtocolTool(
   status: AgentToolCall["status"] = "running",
   result?: unknown,
   error?: AgentError,
+  messageId?: string,
 ): AgentToolCall {
   return {
     id: tool.id,
@@ -996,6 +1055,7 @@ function runtimeToolToProtocolTool(
     status,
     output: result,
     error,
+    ...(messageId ? { messageId } : {}),
     ...(tool.metadata ? { metadata: tool.metadata } : {}),
   };
 }
@@ -1160,6 +1220,7 @@ export function createAgentKitProtocolAdapter(
   }
   const sessions = new Map<string, Promise<AgentChatRuntimeSession>>();
   const runs = new Map<string, ProtocolRun>();
+  const runtimeRunAliases = new Map<string, ProtocolRun>();
   const disposedSessions = new WeakSet<AgentChatRuntimeSession>();
   let retentionTimer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
@@ -1176,6 +1237,62 @@ export function createAgentKitProtocolAdapter(
   function timeMs(value = now()): number {
     const parsed = Date.parse(value);
     return Number.isFinite(parsed) ? parsed : Date.now();
+  }
+
+  function runtimeRunAliasKey(threadId: string, runtimeRunId: string): string {
+    return JSON.stringify([threadId, runtimeRunId]);
+  }
+
+  function findRun(threadId: string, runId: string): ProtocolRun | undefined {
+    const run = runs.get(runId);
+    if (run?.threadId === threadId) return run;
+    const aliasKey = runtimeRunAliasKey(threadId, runId);
+    const aliasedRun = runtimeRunAliases.get(aliasKey);
+    if (!aliasedRun) return undefined;
+    if (runs.get(aliasedRun.runId) !== aliasedRun) {
+      runtimeRunAliases.delete(aliasKey);
+      return undefined;
+    }
+    return aliasedRun;
+  }
+
+  function indexRun(
+    run: ProtocolRun,
+    runtimeRunId = run.turn.runId ?? run.runId,
+  ): void {
+    const existingRun = runs.get(run.runId);
+    if (existingRun && existingRun !== run) {
+      throw new Error(`Duplicate AgentKit run id: ${run.runId}`);
+    }
+    if (runtimeRunId && runtimeRunId !== run.runId) {
+      const conflictingRun = runs.get(runtimeRunId);
+      if (conflictingRun?.threadId === run.threadId) {
+        throw new Error(
+          `Runtime run id ${runtimeRunId} conflicts with an AgentKit run id.`,
+        );
+      }
+      const aliasKey = runtimeRunAliasKey(run.threadId, runtimeRunId);
+      const previousRun = runtimeRunAliases.get(aliasKey);
+      if (
+        previousRun &&
+        previousRun !== run &&
+        runs.get(previousRun.runId) === previousRun &&
+        !previousRun.terminal
+      ) {
+        throw new Error(
+          `Runtime run id ${runtimeRunId} is already owned by active AgentKit run ${previousRun.runId}.`,
+        );
+      }
+      runtimeRunAliases.set(aliasKey, run);
+    }
+    runs.set(run.runId, run);
+  }
+
+  function removeRun(run: ProtocolRun): void {
+    if (runs.get(run.runId) === run) runs.delete(run.runId);
+    for (const [aliasKey, aliasedRun] of runtimeRunAliases) {
+      if (aliasedRun === run) runtimeRunAliases.delete(aliasKey);
+    }
   }
 
   function touchRun(run: ProtocolRun): void {
@@ -1223,7 +1340,7 @@ export function createAgentKitProtocolAdapter(
         run.terminalAtMs !== undefined &&
         referenceTimeMs - run.terminalAtMs >= retainedRunTtlMs
       ) {
-        runs.delete(run.runId);
+        removeRun(run);
       }
     }
 
@@ -1237,7 +1354,7 @@ export function createAgentKitProtocolAdapter(
       .sort((left, right) => left.lastAccessedAtMs - right.lastAccessedAtMs);
     while (retainedCompleted.length > maxRetainedRuns) {
       const run = retainedCompleted.shift();
-      if (run) runs.delete(run.runId);
+      if (run) removeRun(run);
     }
     scheduleRetentionSweep(referenceTimeMs);
   }
@@ -1495,6 +1612,7 @@ export function createAgentKitProtocolAdapter(
       pendingWidgets: new Map(),
       actions: new Map(),
       activeTools: new Map(),
+      pendingToolMessageAssociations: new Map(),
       activeActivities: new Map(),
       terminalAppendDepth: 0,
       pumpPromise: null,
@@ -1505,7 +1623,7 @@ export function createAgentKitProtocolAdapter(
       ...(runAuthority ? { restoredWithoutStream: true } : {}),
       listeners: new Set(),
     };
-    runs.set(input.runId, run);
+    indexRun(run, input.runId);
     append(run, {
       type: "run.started",
       agentId: runtime.id,
@@ -1809,6 +1927,7 @@ export function createAgentKitProtocolAdapter(
         });
       }
     }
+    run.pendingToolMessageAssociations.clear();
   }
 
   function runtimeEventToProtocolEvents(
@@ -1830,9 +1949,31 @@ export function createAgentKitProtocolAdapter(
         widget,
       }));
     };
+    const attachPendingToolMessageAssociations = (messageId: string) => {
+      const tools = [...run.pendingToolMessageAssociations.values()];
+      run.pendingToolMessageAssociations.clear();
+      return tools.map((toolCall) => ({
+        type: "tool.updated" as const,
+        ...base,
+        toolCall: { ...toolCall, messageId },
+      }));
+    };
+    const retainPendingToolMessageAssociation = (toolCall: AgentToolCall) => {
+      run.pendingToolMessageAssociations.delete(toolCall.id);
+      run.pendingToolMessageAssociations.set(toolCall.id, toolCall);
+      // Pending links use the same bound as the replay log they can be attached to.
+      while (run.pendingToolMessageAssociations.size > maxRetainedEvents) {
+        const oldestToolCallId = run.pendingToolMessageAssociations
+          .keys()
+          .next().value;
+        if (oldestToolCallId === undefined) break;
+        run.pendingToolMessageAssociations.delete(oldestToolCallId);
+      }
+    };
     switch (event.type) {
       case "message-start":
         run.activeMessageId = event.message.id;
+        run.activeMessageRole = event.message.role;
         run.activeMessageCompleted = false;
         return [
           {
@@ -1841,8 +1982,14 @@ export function createAgentKitProtocolAdapter(
             message: runtimeMessageToProtocolMessage(event.message, textFormat),
           },
           ...attachPendingWidgets(event.message.id),
+          ...(event.message.role === "assistant"
+            ? attachPendingToolMessageAssociations(event.message.id)
+            : []),
         ];
       case "message-delta":
+        if (run.activeMessageId !== event.messageId) {
+          run.activeMessageRole = undefined;
+        }
         run.activeMessageId = event.messageId;
         run.activeMessageCompleted = false;
         if (event.delta.type === "text") {
@@ -1883,6 +2030,7 @@ export function createAgentKitProtocolAdapter(
         ];
       case "message-done":
         run.activeMessageId = event.message.id;
+        run.activeMessageRole = event.message.role;
         run.activeMessageCompleted = true;
         return [
           {
@@ -1891,6 +2039,9 @@ export function createAgentKitProtocolAdapter(
             message: runtimeMessageToProtocolMessage(event.message, textFormat),
           },
           ...attachPendingWidgets(event.message.id),
+          ...(event.message.role === "assistant"
+            ? attachPendingToolMessageAssociations(event.message.id)
+            : []),
         ];
       case "tool-start": {
         const metadata = mergeProtocolMetadata(
@@ -1903,12 +2054,25 @@ export function createAgentKitProtocolAdapter(
           metadata,
         );
         if (invocation) run.actions.set(event.toolCall.id, invocation);
+        const messageId = runtimeToolMessageId(run, event.toolCall.metadata);
+        const toolCall = runtimeToolToProtocolTool(
+          event.toolCall,
+          "running",
+          undefined,
+          undefined,
+          messageId,
+        );
+        if (messageId) {
+          run.pendingToolMessageAssociations.delete(toolCall.id);
+        } else {
+          retainPendingToolMessageAssociation(toolCall);
+        }
         return [
           {
             type: "tool.started",
             ...base,
             metadata,
-            toolCall: runtimeToolToProtocolTool(event.toolCall),
+            toolCall,
           },
           ...(invocation
             ? [
@@ -1977,21 +2141,34 @@ export function createAgentKitProtocolAdapter(
           : undefined;
         if (invocation) run.actions.delete(event.toolCallId);
         const activeTool = run.activeTools.get(event.toolCallId);
+        const explicitMessageId = metadataString(event.metadata, "messageId");
+        const messageId =
+          activeTool?.messageId ??
+          explicitMessageId ??
+          (run.pendingToolMessageAssociations.has(event.toolCallId)
+            ? undefined
+            : runtimeToolMessageId(run, event.metadata));
+        const toolCall: AgentToolCall = {
+          ...activeTool,
+          id: event.toolCallId,
+          name: event.toolName,
+          status,
+          output: event.result !== undefined ? event.result : event.resultText,
+          error,
+          ...(messageId ? { messageId } : {}),
+          ...(metadata ? { metadata } : {}),
+        };
+        if (messageId) {
+          run.pendingToolMessageAssociations.delete(event.toolCallId);
+        } else if (run.pendingToolMessageAssociations.has(event.toolCallId)) {
+          retainPendingToolMessageAssociation(toolCall);
+        }
         return [
           {
             type: "tool.updated",
             ...base,
             metadata,
-            toolCall: {
-              ...activeTool,
-              id: event.toolCallId,
-              name: event.toolName,
-              status,
-              output:
-                event.result !== undefined ? event.result : event.resultText,
-              error,
-              ...(metadata ? { metadata } : {}),
-            },
+            toolCall,
           },
           ...(actionResult
             ? [
@@ -2906,6 +3083,7 @@ export function createAgentKitProtocolAdapter(
       run.successorWaitStartedAtMs = undefined;
     }
     run.turn = resumed;
+    indexRun(run, resumed.runId);
   }
 
   function ensurePump(run: ProtocolRun): void {
@@ -3137,6 +3315,7 @@ export function createAgentKitProtocolAdapter(
         pendingWidgets: new Map(),
         actions: new Map(),
         activeTools: new Map(),
+        pendingToolMessageAssociations: new Map(),
         activeActivities: new Map(),
         terminalAppendDepth: 0,
         pumpPromise: null,
@@ -3153,7 +3332,7 @@ export function createAgentKitProtocolAdapter(
         );
       }
       pruneRetainedRuns(run.lastAccessedAtMs);
-      runs.set(runId, run);
+      indexRun(run, turn.runId);
       append(run, {
         type: "run.started",
         agentId: runtime.id,
@@ -3165,9 +3344,11 @@ export function createAgentKitProtocolAdapter(
     },
     async *subscribeToRun(input) {
       pruneRetainedRuns();
-      let run = runs.get(input.runId);
-      if (!run || run.threadId !== input.threadId) {
-        if (run) throw new Error(`Unknown AgentKit run: ${input.runId}`);
+      let run = findRun(input.threadId, input.runId);
+      if (!run) {
+        if (runs.has(input.runId)) {
+          throw new Error(`Unknown AgentKit run: ${input.runId}`);
+        }
         run = await restoreRunFromRuntime(input);
       }
       touchRun(run);
@@ -3176,8 +3357,8 @@ export function createAgentKitProtocolAdapter(
     },
     async getRun(input) {
       pruneRetainedRuns();
-      const run = runs.get(input.runId);
-      if (!run || run.threadId !== input.threadId) return null;
+      const run = findRun(input.threadId, input.runId);
+      if (!run) return null;
       touchRun(run);
       return {
         id: run.runId,
@@ -3194,8 +3375,8 @@ export function createAgentKitProtocolAdapter(
     },
     async cancelRun(input) {
       pruneRetainedRuns();
-      let run = runs.get(input.runId);
-      if (run && run.threadId !== input.threadId) {
+      let run = findRun(input.threadId, input.runId);
+      if (!run && runs.has(input.runId)) {
         throw new Error(`Unknown AgentKit run: ${input.runId}`);
       }
       if (!run) {
@@ -3211,7 +3392,6 @@ export function createAgentKitProtocolAdapter(
           }
         }
         run = await restoreRunFromRuntime(input);
-        runs.set(input.runId, run);
       }
       touchRun(run);
       if (run.terminal) return;
@@ -3408,8 +3588,8 @@ export function createAgentKitProtocolAdapter(
       input,
     ) => {
       pruneRetainedRuns();
-      const run = runs.get(input.runId);
-      if (!run || run.threadId !== input.threadId) {
+      const run = findRun(input.threadId, input.runId);
+      if (!run) {
         throw new Error(`Unknown AgentKit run: ${input.runId}`);
       }
       touchRun(run);
@@ -3497,10 +3677,14 @@ export function createAgentKitProtocolAdapter(
           activeReaders: 0,
           metadata: replacementMetadata,
           activeMessageId: run.activeMessageId,
+          activeMessageRole: run.activeMessageRole,
           activeMessageCompleted: run.activeMessageCompleted,
           pendingWidgets: new Map(run.pendingWidgets),
           actions: new Map(run.actions),
           activeTools: new Map(run.activeTools),
+          pendingToolMessageAssociations: new Map(
+            run.pendingToolMessageAssociations,
+          ),
           activeActivities: new Map(run.activeActivities),
           terminalAppendDepth: 0,
           pumpPromise: null,
@@ -3514,7 +3698,7 @@ export function createAgentKitProtocolAdapter(
         run.pendingApprovalId = undefined;
         run.terminal = true;
         run.terminalAtMs = timeMs();
-        runs.set(nextRunId, replacementRun);
+        indexRun(replacementRun, nextTurn.runId);
         append(replacementRun, {
           type: "run.started",
           agentId: runtime.id,
@@ -3557,8 +3741,8 @@ export function createAgentKitProtocolAdapter(
   if (runtime.capabilities.rich?.connectionRequests) {
     transport.resolveConnectionRequest = async (input) => {
       pruneRetainedRuns();
-      const run = runs.get(input.runId);
-      if (!run || run.threadId !== input.threadId) {
+      const run = findRun(input.threadId, input.runId);
+      if (!run) {
         throw new Error(`Unknown AgentKit run: ${input.runId}`);
       }
       touchRun(run);
@@ -3634,6 +3818,7 @@ export function createAgentKitProtocolAdapter(
         run.waitingForContinuation = false;
         run.pendingConnectionRequestId = undefined;
         run.turn = nextTurn;
+        indexRun(run, nextTurn.runId);
         run.streamClosed = false;
         update(input.response.status);
         append(run, { type: "run.status", status: "running" });

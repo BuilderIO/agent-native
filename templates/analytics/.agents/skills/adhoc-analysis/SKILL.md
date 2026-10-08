@@ -98,6 +98,18 @@ Don't just dump raw data. Synthesize findings:
 - Make the evidence trail explicit enough to audit: source(s), time window,
   filters, sample size or row count, join/match method, caveats/gaps, and
   recommended next action when useful.
+- Unstructured source records (Pylon tickets, Jira issues, Gong calls and
+  transcripts, Slack messages) are valid evidence: code them for themes, mention
+  counts, sentiment, and objections, state the inspected sample size, and do not
+  imply unsupported statistical certainty.
+- The words all, total, or exact do not by themselves call for cross-source
+  validation when one structured query fully covers the requested source and
+  filters.
+- If the user challenges coverage, asks why more records were not included, or
+  asks for the updated answer, rerun the source query or revise from the
+  corrected cohort and put the updated answer in the response. Do not claim a
+  dashboard was revised unless the revised answer is saved with
+  `update-dashboard` or `mutate-dashboard`.
 
 ### Step 4: Generate Charts (when useful)
 

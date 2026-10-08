@@ -12,7 +12,6 @@ import {
   IconClipboardList,
   IconKey,
   IconPencil,
-  IconPlugConnected,
   IconHelpCircle,
   IconAlertCircle,
   IconLoader2,
@@ -42,6 +41,7 @@ import {
 } from "../ui/popover.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { formatAttachmentError } from "./attachment-accept.js";
+import { BuilderBMark } from "./BuilderBMark.js";
 import type { ComposerContextMenuItem } from "./ComposerContextMenu.js";
 import {
   ComposerPlusMenu,
@@ -770,16 +770,15 @@ export function handleComposerFileDrop(options: {
   options.event.preventDefault();
   options.event.stopPropagation();
   if (options.attachmentsEnabled === false) return true;
-  const attachments = droppedFiles.map(uniquifyComposerImageFile);
   let errorReported = false;
   void Promise.all(
-    attachments.map(async (file) => {
+    droppedFiles.map(async (droppedFile) => {
       try {
-        await options.addAttachment(file);
+        await options.addAttachment(uniquifyComposerImageFile(droppedFile));
       } catch (error) {
         if (errorReported) return;
         errorReported = true;
-        options.onError?.(error, file.name);
+        options.onError?.(error, droppedFile.name);
       }
     }),
   );
@@ -1223,8 +1222,8 @@ export interface TiptapComposerProps {
   interceptBuildRequestsForBuilder?: boolean;
   /**
    * Called when a drag-drop or paste attachment fails (e.g. unsupported format,
-   * size cap). Use this to surface a visible error in the parent chat surface
-   * rather than silently swallowing the problem.
+   * size cap) so the host can show it in its own surface. Without it, the
+   * composer shows the message inline.
    */
   onAttachmentError?: (message: string) => void;
 }
@@ -1400,9 +1399,9 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "z-ai/glm-5.2": "GLM 5.2",
   "openai/gpt-6-astra": "GPT-6 Astra",
   "openai/gpt-6-astra-pro": "GPT-6 Astra Pro",
-  "gpt-6-sol": "GPT-6 Sol",
+  "gpt-6.1-sol": "GPT-6.1 Sol",
   "gpt-6-luna": "GPT-6 Luna",
-  "openai/gpt-6-sol": "GPT-6 Sol",
+  "openai/gpt-6.1-sol": "GPT-6.1 Sol",
   "openai/gpt-6-luna": "GPT-6 Luna",
   "anthropic/claude-opus-5.5": "Claude Opus 5.5",
   "anthropic/claude-sonnet-5.5": "Claude Sonnet 5.5",
@@ -1991,7 +1990,9 @@ function ModelSelector({
     (selectedModelProviderGroups.length > 0 &&
       selectedModelProviderGroups.every((group) => !group.configured));
   const selectedModelName = selectedModelNeedsConnection
-    ? t("agentChat.composer.connectKeys", { defaultValue: "Connect keys" })
+    ? showBuilderAction
+      ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
+      : t("agentChat.composer.connectKeys", { defaultValue: "Connect keys" })
     : (selectedModelDisplayName ?? friendlyModelName(model, t));
   const selectedModelLabel = selectedModelName;
   const selectedModelButtonLabel = selectedModelNeedsConnection
@@ -2341,7 +2342,14 @@ function ModelSelector({
                                 disabled={builderFlow.connecting}
                                 className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-start hover:bg-accent/50 disabled:opacity-60"
                               >
-                                <IconPlugConnected className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                {builderFlow.connecting ? (
+                                  <IconLoader2
+                                    aria-hidden="true"
+                                    className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary"
+                                  />
+                                ) : (
+                                  <BuilderBMark className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                )}
                                 <span className="min-w-0 flex-1">
                                   <span className="block text-[12px] font-medium text-foreground">
                                     {builderFlow.connecting
@@ -2864,8 +2872,10 @@ export function TiptapComposer({
   // Refs for values accessed in handleKeyDown (ProseMirror doesn't re-bind)
   const popoverStateRef = useRef<PopoverState>(null);
   const composingRef = useRef(false);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const onAttachmentErrorRef = useRef(onAttachmentError);
-  onAttachmentErrorRef.current = onAttachmentError;
+  // Many standalone prompts pass no handler; a rejected file must still say so.
+  onAttachmentErrorRef.current = onAttachmentError ?? setAttachmentError;
   const onSubmitRef = useRef(onSubmit);
   onSubmitRef.current = onSubmit;
   const execModeRef = useRef(execMode);
@@ -3092,6 +3102,7 @@ export function TiptapComposer({
   }, [cleanStaleAttachments, composerRuntime]);
   const addAttachmentForCurrentScope = useCallback(
     (file: File) => {
+      setAttachmentError(null);
       const scopeGeneration = draftScopeGenerationRef.current;
       const submissionBarrier = attachmentSubmissionBarrierRef.current;
       let resolveOperation!: () => void;
@@ -3288,6 +3299,7 @@ export function TiptapComposer({
       // Drive the send button's enabled state from the actual editor contents;
       // the composer runtime is only synced on submit, so its isEmpty lags.
       setEditorHasText(composerDocumentHasContent(ed.state.doc));
+      setAttachmentError(null);
       onTextChangeRef.current?.(ed.getText({ blockSeparator: "\n" }).trim());
       setReferenceRevision((revision) => revision + 1);
 
@@ -5860,6 +5872,14 @@ export function TiptapComposer({
       {contextSubmissionError ? (
         <p role="alert" className="px-2 text-xs text-destructive">
           {contextSubmissionError}
+        </p>
+      ) : null}
+      {attachmentError ? (
+        <p
+          role="alert"
+          className="break-words px-2.5 pt-2 text-xs text-destructive"
+        >
+          {attachmentError}
         </p>
       ) : null}
       <div

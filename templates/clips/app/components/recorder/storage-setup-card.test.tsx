@@ -195,7 +195,7 @@ describe("StorageSetupCard", () => {
 
     await clickConnect();
     const includedServices = bodyButton(
-      "agentChat.onboarding.builderMoreServices",
+      "agentChat.onboarding.builderLlmCreditsAndMoreServices",
     );
     expect(includedServices).toBeDefined();
 

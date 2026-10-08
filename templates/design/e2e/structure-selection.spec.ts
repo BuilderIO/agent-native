@@ -822,6 +822,7 @@ test.describe("groups", () => {
     }
   });
 
+  // oracle: none — verifies paint persistence and undo behavior, not visual fidelity.
   test("Selection colors records a repeated preview as one undo step", async ({
     page,
   }) => {
@@ -848,8 +849,13 @@ test.describe("groups", () => {
         name: "Opacity",
         exact: true,
       });
-      await opacity.fill("50");
-      await opacity.press("Enter");
+      const opacityBounds = await opacity.boundingBox();
+      if (!opacityBounds)
+        throw new Error("Selection color opacity slider is missing");
+      await page.mouse.click(
+        opacityBounds.x + opacityBounds.width / 2,
+        opacityBounds.y + opacityBounds.height / 2,
+      );
       await page.keyboard.press("Escape");
 
       const readPaints = () =>

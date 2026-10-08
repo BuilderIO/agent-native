@@ -26,6 +26,7 @@ import {
   type AgentKitCopyMessageHandler,
   type AgentKitRegistry,
   type AgentKitRenderFailure,
+  type AgentKitRunUsageLoader,
   type AgentKitSlots,
 } from "./context.js";
 
@@ -76,6 +77,7 @@ export interface AgentKitRootBaseProps {
   onThreadForked?: (thread: AgentThread) => void;
   branchNavigation?: AgentKitBranchNavigation;
   onCopyMessage?: AgentKitCopyMessageHandler;
+  loadRunUsage?: AgentKitRunUsageLoader;
   onConnectionRequest?: (
     request: AgentConnectionRequest,
   ) => Promise<AgentConnectionResponse>;
@@ -105,6 +107,7 @@ export function AgentKitRoot({
   onThreadForked,
   branchNavigation,
   onCopyMessage,
+  loadRunUsage,
   onConnectionRequest,
   onRenderError,
   onClientEffect,
@@ -277,6 +280,7 @@ export function AgentKitRoot({
       onThreadForked={onThreadForked}
       branchNavigation={branchNavigation}
       onCopyMessage={onCopyMessage}
+      loadRunUsage={loadRunUsage}
       onConnectionRequest={onConnectionRequest}
       onRenderError={onRenderError}
       onClientEffect={onClientEffect}

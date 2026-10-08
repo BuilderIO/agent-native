@@ -220,6 +220,8 @@ describe("get-sql-dashboard seed fallback", () => {
         chartType: "line",
         source: "first-party",
         width: 2,
+        sqlChars: "SELECT COUNT(*) AS value FROM analytics_events".length,
+        sqlHash: expect.stringMatching(/^[0-9a-f]{12}$/),
       },
     ]);
     expect(compact.panels[0].sql).toBeUndefined();
@@ -308,5 +310,199 @@ describe("get-sql-dashboard seed fallback", () => {
       "customer-dashboard",
       { kind: "super-organization", orgId: "org-b" },
     );
+  });
+});
+
+describe("get-sql-dashboard agent reads", () => {
+  const agent = { caller: "tool" } as never;
+  const frontend = { caller: "frontend" } as never;
+
+  function savedDashboard(panels: Array<Record<string, unknown>>) {
+    return {
+      id: "weekly",
+      kind: "sql",
+      config: { name: "Weekly", panels, createdBy: "spoof@example.com" },
+      ownerEmail: "alice@example.com",
+      orgId: "org-a",
+      visibility: "private",
+      role: "owner",
+      canEdit: true,
+      canManage: true,
+      archivedAt: null,
+      hiddenAt: null,
+      hiddenBy: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      createdBy: "alice@example.com",
+      updatedAt: "2026-06-25T00:00:00.000Z",
+      updatedBy: "alice@example.com",
+    };
+  }
+
+  function sqlPanel(id: string, sqlChars = 80, config?: unknown) {
+    return {
+      id,
+      title: id,
+      source: "bigquery",
+      chartType: "line",
+      width: 1,
+      sql: `SELECT '${id}' ${"x".repeat(sqlChars)}`,
+      ...(config ? { config } : {}),
+    };
+  }
+
+  beforeEach(() => {
+    mocks.getDashboard.mockReset();
+    mocks.loadDashboardSeed.mockReset();
+  });
+
+  it("names the result columns each chart is bound to without returning SQL", async () => {
+    mocks.getDashboard.mockResolvedValue(
+      savedDashboard([
+        sqlPanel("trend", 80, {
+          xKey: "week",
+          yKeys: ["value", "value_4wk_avg"],
+          rightYKeys: ["value_4wk_avg"],
+          barKeys: ["value"],
+          pivot: { xKey: "week", seriesKey: "kind", valueKey: "value" },
+          columns: [{ key: "a" }, { key: "b", linkKey: "c" }],
+          color: "#ff0000",
+        }),
+      ]),
+    );
+
+    const result = (await getSqlDashboard.run({ id: "weekly" }, agent)) as {
+      panels: Array<Record<string, unknown>>;
+    };
+
+    expect(result.panels[0]).toMatchObject({
+      bindings: {
+        xKey: "week",
+        yKeys: ["value", "value_4wk_avg"],
+        rightYKeys: ["value_4wk_avg"],
+        barKeys: ["value"],
+        pivot: { xKey: "week", seriesKey: "kind", valueKey: "value" },
+        columns: ["a", "b"],
+      },
+      configKeys: expect.arrayContaining(["color", "xKey", "pivot"]),
+    });
+    expect(result.panels[0]).not.toHaveProperty("sql");
+    expect(result.panels[0].sqlChars).toBe(
+      (sqlPanel("trend", 80).sql as string).length,
+    );
+  });
+
+  it("returns full SQL and config for only the requested panels", async () => {
+    mocks.getDashboard.mockResolvedValue(
+      savedDashboard([
+        sqlPanel("p1"),
+        sqlPanel("p2", 80, { xKey: "week" }),
+        sqlPanel("p3"),
+      ]),
+    );
+
+    const result = (await getSqlDashboard.run(
+      { id: "weekly", panelIds: ["p2", "nope"] },
+      agent,
+    )) as {
+      panels: Array<{ id: string }>;
+      panelDetails: Array<{ id: string; sql: string; config: unknown }>;
+      missingPanelIds?: string[];
+    };
+
+    expect(result.panels.map((panel) => panel.id)).toEqual(["p1", "p2", "p3"]);
+    expect(result.panelDetails.map((panel) => panel.id)).toEqual(["p2"]);
+    expect(result.panelDetails[0].config).toEqual({ xKey: "week" });
+    expect(result.missingPanelIds).toEqual(["nope"]);
+    const text = JSON.stringify(result);
+    expect(text).toContain("SELECT 'p2'");
+    expect(text).not.toContain("SELECT 'p1'");
+    expect(text).not.toContain("SELECT 'p3'");
+  });
+
+  it("tells an agent which panels were left out when the full config is too large", async () => {
+    const panels = Array.from({ length: 10 }, (_, index) =>
+      sqlPanel(`p${index}`, 2_000),
+    );
+    mocks.getDashboard.mockResolvedValue(savedDashboard(panels));
+
+    const result = (await getSqlDashboard.run(
+      { id: "weekly", includeConfig: true },
+      agent,
+    )) as {
+      truncated?: boolean;
+      omittedPanelIds?: string[];
+      hint?: string;
+      panels: Array<Record<string, unknown>>;
+    };
+
+    expect(result.truncated).toBe(true);
+    expect(result.omittedPanelIds).toEqual(panels.map((panel) => panel.id));
+    expect(result.hint).toContain("panelIds");
+    expect(result.panels.every((panel) => !("sql" in panel))).toBe(true);
+    expect(JSON.stringify(result).length).toBeLessThan(12_000);
+  });
+
+  it("returns the whole config to the UI however large it is", async () => {
+    const panels = Array.from({ length: 10 }, (_, index) =>
+      sqlPanel(`p${index}`, 2_000),
+    );
+    mocks.getDashboard.mockResolvedValue(savedDashboard(panels));
+
+    const result = (await getSqlDashboard.run(
+      { id: "weekly", includeConfig: true },
+      frontend,
+    )) as { truncated?: boolean; panels: Array<{ sql?: string }> };
+
+    expect(result.truncated).toBeUndefined();
+    expect(result.panels.every((panel) => typeof panel.sql === "string")).toBe(
+      true,
+    );
+  });
+
+  it("returns a small full config to an agent untruncated", async () => {
+    mocks.getDashboard.mockResolvedValue(
+      savedDashboard([sqlPanel("p1"), sqlPanel("p2")]),
+    );
+
+    const result = (await getSqlDashboard.run(
+      { id: "weekly", includeConfig: true },
+      agent,
+    )) as { truncated?: boolean; panels: Array<{ sql?: string }> };
+
+    expect(result.truncated).toBeUndefined();
+    expect(result.panels.map((panel) => typeof panel.sql)).toEqual([
+      "string",
+      "string",
+    ]);
+  });
+
+  it("drops owner, org, and audit fields from the agent projection only", async () => {
+    mocks.getDashboard.mockResolvedValue(savedDashboard([sqlPanel("p1")]));
+
+    const forAgent = (await getSqlDashboard.run(
+      { id: "weekly", includeConfig: true },
+      agent,
+    )) as Record<string, unknown>;
+    const forUi = (await getSqlDashboard.run(
+      { id: "weekly" },
+      frontend,
+    )) as Record<string, unknown>;
+
+    for (const key of [
+      "ownerEmail",
+      "orgId",
+      "createdAt",
+      "createdBy",
+      "hiddenAt",
+      "hiddenBy",
+      "updatedBy",
+    ]) {
+      expect(forAgent).not.toHaveProperty(key);
+    }
+    expect(forAgent.revision).toBe("2026-06-25T00:00:00.000Z");
+    expect(forAgent.updatedAt).toBe("2026-06-25T00:00:00.000Z");
+    expect(forAgent.role).toBe("owner");
+    expect(forUi.ownerEmail).toBe("alice@example.com");
+    expect(forUi.createdBy).toBe("alice@example.com");
   });
 });

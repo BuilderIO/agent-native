@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "fig.inspector.empty-fill-title",
+  "claim": "Clicking an empty Fill section title adds the default fill and opens its color picker.",
+  "area": "inspector.fill",
+  "basis": "measured",
+  "status": "current",
+  "measuredBy": "figma-desktop-app-click",
+  "operator": "Claude (user-supplied evidence packet)",
+  "date": "2026-10-06",
+  "gesture": "Click the EMPTY Fill section title once.",
+  "nativeObservation": "The selection receives fill D9D9D9 at 100%, and the color picker opens.",
+  "trials": "One raw pointer click; the packet also includes a zoomed inspector capture.",
+  "values": {
+    "fill": { "hex": "D9D9D9", "opacity": 100 },
+    "pickerOpened": true
+  },
+  "figma": {
+    "fileKeyWithheld": true,
+    "pageName": "not captured; private scratch page name withheld",
+    "appBuild": "not captured"
+  },
+  "source": "User-provided native Figma measurement packet dated 2026-10-06; this task did not operate Figma.",
+  "artifacts": [
+    {
+      "path": "templates/design/parity/oracle/fig.inspector.empty-fill-title/fill-picker.png",
+      "kind": "figma-screenshot",
+      "sha256": "5872113a88d8a9c9c1f55a3e7728b4b2307e5b610dd7d4fc6d87b14df956701d",
+      "sourceName": "O01-fill-empty-title-adds-D9D9D9-picker.jpg",
+      "sourceSha256": "af582cff80ce57a4bc533e9d966667d6b1af3c8954325e28d0672b9e403de187",
+      "crop": "Lossless PNG crop from source pixels x=490,y=200,width=202,height=234; keeps the picker and inspector, excluding file and page labels."
+    },
+    {
+      "path": "templates/design/parity/oracle/fig.inspector.empty-fill-title/fill-inspector.jpg",
+      "kind": "figma-screenshot",
+      "sha256": "d1f96789179d0966c7f828ca9bca5e9f24fcb6cba315ed3e57e14181c6752489",
+      "sourceName": "O01-fill-empty-title-adds-D9D9D9-zoom.jpg",
+      "sourceSha256": "d1f96789179d0966c7f828ca9bca5e9f24fcb6cba315ed3e57e14181c6752489"
+    }
+  ]
+}

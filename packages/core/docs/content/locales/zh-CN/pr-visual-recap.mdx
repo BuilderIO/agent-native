@@ -266,8 +266,10 @@ URL 和模型 id。其他 OpenAI 兼容服务商也使用同样这三项设置�
 列出或撤销它。铸造一个（仅限组织所有者/管理员）：
 
 ```bash
-npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap
+npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap --ttl-days 3650
 ```
+
+这样 CI 令牌将有效 10 年，并且仍可随时撤销。
 
 该命令会在浏览器中对你进行身份验证，然后只打印一次这个服务
 令牌——把它存为 `PLAN_RECAP_TOKEN` 这个 secret。之后可以用 Plans

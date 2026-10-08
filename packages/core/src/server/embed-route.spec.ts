@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createMcpDirectoryWidgetReadCapability } from "../shared/embed-auth.js";
+
 const setResponseHeader = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
@@ -580,6 +582,54 @@ describe("createEmbedStartRouteHandler", () => {
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(
       "/inbox?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1&agentSidebar=closed",
+    );
+  });
+
+  it("does not expose directory widget scope in the embed URL", async () => {
+    const scope = createMcpDirectoryWidgetReadCapability({
+      appId: "content",
+      resourceUri: "ui://content/shell-v67",
+      resourceIds: { documentId: "doc-1" },
+      actionArguments: { "get-document": { id: "doc-1" } },
+    });
+    expect(scope).toBeDefined();
+    consumeEmbedSessionTicket.mockResolvedValue({
+      ownerEmail: "reviewer@example.test",
+      orgId: "org-widget",
+      targetPath: "/page/doc-1",
+      scope,
+      expiresAt: Date.now() + 60_000,
+      ticketCreatedAtMs: Date.now(),
+    });
+
+    const handler = createEmbedStartRouteHandler();
+    const res: Response = await handler(
+      fakeEvent("GET", { ticket: "directory-ticket" }),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(
+      "/page/doc-1?embedded=1&__an_embed_token=signed-token&agentSidebar=closed",
+    );
+  });
+
+  it("strips an untrusted directory widget marker from embed targets", async () => {
+    consumeEmbedSessionTicket.mockResolvedValue({
+      ownerEmail: "writer@example.test",
+      targetPath: "/page/doc-1?__an_mcp_directory_widget=1",
+      scope: "full",
+      expiresAt: Date.now() + 60_000,
+      ticketCreatedAtMs: Date.now(),
+    });
+
+    const handler = createEmbedStartRouteHandler();
+    const res: Response = await handler(
+      fakeEvent("GET", { ticket: "normal-ticket" }),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(
+      "/page/doc-1?embedded=1&__an_embed_token=signed-token&agentSidebar=closed",
     );
   });
 });
