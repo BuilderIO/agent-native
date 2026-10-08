@@ -68,6 +68,30 @@ describe("Brain source sync scheduling", () => {
     expect(nextBrainSourceSyncAt(zoomSource)).not.toBeNull();
   });
 
+  it("retries a transient classifier failure at its short retry time", () => {
+    const retryAt = "2026-07-29T16:10:00.000Z";
+    const failedSource = source({
+      status: "error",
+      cursorJson: JSON.stringify({ transientRetryAt: retryAt }),
+    });
+
+    expect(nextBrainSourceSyncAt(failedSource)).toBe(retryAt);
+    expect(isBrainSourceDue(failedSource, Date.parse(retryAt))).toBe(true);
+  });
+
+  it("ignores a transient retry time on a source that is not in error", () => {
+    const activeSource = source({
+      lastSyncedAt: FAILED_AT,
+      cursorJson: JSON.stringify({
+        transientRetryAt: "2026-07-29T16:10:00.000Z",
+      }),
+    });
+
+    expect(nextBrainSourceSyncAt(activeSource)).toBe(
+      "2026-07-29T17:00:00.000Z",
+    );
+  });
+
   it("keeps paused and non-polling sources out of automatic retries", () => {
     const now = Date.parse(FAILED_AT) + POLL_INTERVAL_MS;
 

@@ -71,7 +71,7 @@ describe("DocumentToolbar clipboard behavior", () => {
   let root: Root;
   let queryClient: QueryClient;
 
-  function renderToolbar(suggesting = false) {
+  function renderToolbar(suggesting = false, readOnly = false) {
     root.render(
       createElement(
         MemoryRouter,
@@ -86,6 +86,9 @@ describe("DocumentToolbar clipboard behavior", () => {
               documentId: "clipboard-fixture",
               utilityPanel: null,
               onUtilityPanelChange: () => {},
+              readOnly,
+              isFavorite: true,
+              onToggleFavorite: vi.fn(),
               canSuggest: true,
               suggesting,
               onCaptureEditorSelection: mocks.captureSelection,
@@ -222,6 +225,34 @@ describe("DocumentToolbar clipboard behavior", () => {
     );
     expect(mocks.success).not.toHaveBeenCalled();
     expect(mocks.track).not.toHaveBeenCalled();
+  });
+
+  it("hides share and favorite mutations in a read-only widget", async () => {
+    await act(async () => renderToolbar(false, true));
+
+    expect(
+      Array.from(container.querySelectorAll("button")).some((button) =>
+        button.textContent?.includes("editor.toolbar.share"),
+      ),
+    ).toBe(false);
+
+    const moreActions = container.querySelector<HTMLButtonElement>(
+      '[aria-label="editor.toolbar.morePageActions"]',
+    );
+    expect(moreActions).not.toBeNull();
+    await act(async () => {
+      moreActions!.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      moreActions!.click();
+    });
+    expect(container.textContent).not.toContain("editor.toolbar.pin");
+    expect(container.textContent).not.toContain("editor.toolbar.unpin");
+    expect(container.textContent).not.toContain("editor.toolbar.suggestEdits");
   });
 
   it("keeps local-file documents on their local page link", async () => {

@@ -1176,21 +1176,32 @@ const enUS = {
     documentUnavailable: "Document unavailable",
     documentUnavailableDescription:
       "This page may have been deleted, or it has not been shared with your account.",
-    signedInAs: "Signed in as {{email}}",
+    pageNoAccess: "You don't have access to this page",
+    pageMissing: "This page doesn't exist",
+    pageInTrash: "This page is in the trash",
+    pageInTrashAskOwner: "Ask the owner to restore it.",
+    openTrash: "Open Trash",
     goToMyPages: "Go to my pages",
-    switchAccount: "Switch account",
     documentNotFound: "Document not found",
     newPage: "New page",
     createFailed: "Failed to create page",
     genericError: "Something went wrong",
   },
   editor: {
+    widgetLoadStalled: "Still waiting for {{stage}}. Request: {{action}}.",
+    widgetDocumentLoadStage: "the saved page body",
+    widgetDraftCheckStage: "page draft recovery",
+    widgetEditorInitStage: "the rich-text editor to initialize",
     suggestionFormattingUnsupported:
       "This formatting cannot be suggested safely. Your draft is kept. Undo the last edit to continue.",
     suggestionFormattingBaselineUnsupported:
       "Some page formatting cannot be suggested safely. An editor can update it before you retry.",
     suggestionAmendmentEmpty:
       "This edit matches the current page. Reject the suggestion to remove it.",
+    suggestionUnplaceable:
+      "The text around this suggestion changed, so it can't be applied. It's still pending: reject it, or suggest the edit again.",
+    proposalUnplaceable:
+      "One of these suggestions can't be applied because the text around it changed, so none were applied. They're all still pending: accept or reject them one at a time.",
     suggestionAmendmentFailed: "Could not save suggestion",
     suggestionAmendmentResolved:
       "This suggestion changed elsewhere. Your unsaved draft is still here.",
@@ -2007,6 +2018,10 @@ const esESRawLiteralOverrides: PartialMessages = {
     documentNotFound: "Documento no encontrado",
   },
   editor: {
+    widgetLoadStalled: "Aún se espera {{stage}}. Solicitud: {{action}}.",
+    widgetDocumentLoadStage: "el cuerpo de la página guardada",
+    widgetDraftCheckStage: "la recuperación del borrador de la página",
+    widgetEditorInitStage: "la inicialización del editor de texto enriquecido",
     suggestionCreateFailed: "No se pudo crear la sugerencia",
     suggestionsCount: "{{count}} sugerencias",
     acceptSuggestion: "Aceptar",

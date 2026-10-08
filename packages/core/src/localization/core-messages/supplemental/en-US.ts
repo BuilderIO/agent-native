@@ -68,6 +68,22 @@ export const mcpConnectMessages: McpConnectMessages = {
   couldNotCreate: "Could not create token.",
   networkError: "Network error. Please try again.",
   urlTitle: "Your MCP URL",
+  servicePrincipals: "Service principals",
+  principalUngoverned: "Ungoverned",
+  principalActive: "Active",
+  principalSuspended: "Suspended",
+  principalRetired: "Retired",
+  principalUngovernedHint: "No owner or action grant is set.",
+  principalOwner: "Owner",
+  principalRisk: "Risk",
+  riskLow: "low",
+  riskMedium: "medium",
+  riskHigh: "high",
+  suspend: "Suspend",
+  resume: "Resume",
+  couldNotUpdatePrincipal: "Could not update the service principal.",
+  containmentIncomplete:
+    "Updated, but some runs or tokens could not be stopped. Try again.",
 };
 
 export const mcpSettingsMessages: McpSettingsMessages = {

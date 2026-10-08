@@ -1102,6 +1102,15 @@ export function interpolateMcpConnectTemplate(
 }
 
 /**
+ * A server chooses this name before anyone has signed in, and it becomes the
+ * entry's key in every client config, the label each client shows, and an
+ * unquoted argument in the copyable `claude mcp add` / `codex mcp add`
+ * commands, so only the identifier shape first-party server names use is
+ * accepted.
+ */
+export const PLAIN_MCP_SERVER_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+
+/**
  * Production keeps the bare name so existing client entries keep working;
  * every other environment gets its own entry instead of overwriting
  * production's in the same client.
@@ -1110,7 +1119,16 @@ export function mcpConnectServerName(
   baseName: string,
   environment: McpConnectEnvironment,
 ): string {
-  return environment === "production" ? baseName : `${baseName}-${environment}`;
+  const name =
+    environment === "production" ? baseName : `${baseName}-${environment}`;
+  if (!PLAIN_MCP_SERVER_NAME.test(name)) {
+    throw new Error(
+      `The MCP server name ${JSON.stringify(name)} is not a plain name ` +
+        `(letters, digits, "-" and "_", at most 64 characters). ` +
+        `Set mcp.serverName to one.`,
+    );
+  }
+  return name;
 }
 
 /**

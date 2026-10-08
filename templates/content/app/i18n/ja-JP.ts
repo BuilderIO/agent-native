@@ -1059,6 +1059,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "{{stage}}を待機しています。リクエスト: {{action}}。",
+    widgetDocumentLoadStage: "保存済みページの本文",
+    widgetDraftCheckStage: "ページ下書きの復元",
+    widgetEditorInitStage: "リッチテキストエディターの初期化",
     iconPickerIcons: "アイコン",
     iconPickerEmoji: "絵文字",
     iconPickerRecent: "最近",
@@ -1068,6 +1072,10 @@ const exactEnglish = {
     iconPickerUploading: "アップロード中…",
     suggestionAmendmentEmpty:
       "この編集は現在のページと同じです。提案を削除するには却下してください。",
+    suggestionUnplaceable:
+      "この提案の周囲のテキストが変更されたため、適用できません。提案は保留中のままです。却下するか、もう一度編集を提案してください。",
+    proposalUnplaceable:
+      "周囲のテキストが変更されたため適用できない提案があり、どの提案も適用されませんでした。すべて保留中のままです。1 件ずつ承認または却下してください。",
     suggestionAmendmentFailed: "提案を保存できませんでした",
     suggestionAmendmentResolved:
       "この提案は別の場所で変更されました。未保存の下書きはここに残っています。",
@@ -1350,9 +1358,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "ページが選択されていません",
-    signedInAs: "ログイン中のアカウント: {{email}}",
+    pageNoAccess: "このページへのアクセス権がありません",
+    pageMissing: "このページは存在しません",
+    pageInTrash: "このページはゴミ箱にあります",
+    pageInTrashAskOwner: "所有者に復元を依頼してください。",
+    openTrash: "ゴミ箱を開く",
     goToMyPages: "自分のページへ",
-    switchAccount: "アカウントを切り替える",
     noPageDescription:
       "サイドバーからページを選ぶか、新しいページを作成してください。",
     newPage: "新しいページ",

@@ -1380,6 +1380,14 @@ const messages = {
     agentTitle: "أنشئ حساب Clips مجانيًا للانضمام إلى المحادثة",
     genericTitle: "أنشئ حساب Clips مجانيًا للمتابعة",
     description: "ستعود إلى هذا المقطع فور الانتهاء.",
+    verificationPendingTitle: "تحقق من بريدك الإلكتروني",
+    verificationPendingCopy:
+      "أرسلنا رسالة تحقق إلى {{email}}. افتحها لإكمال إنشاء حسابك والعودة إلى هذا المقطع.",
+    resendVerification: "إعادة إرسال رسالة التحقق",
+    resendingVerification: "جارٍ إرسال رسالة التحقق...",
+    verificationEmailResent: "أرسلنا رسالة تحقق جديدة.",
+    verificationEmailFailed:
+      "تعذرت إعادة إرسال رسالة التحقق. حاول مرة أخرى أو سجّل الدخول برابط البريد الإلكتروني.",
     passwordsMismatch: "كلمتا المرور غير متطابقتين.",
     commentIntent: "التعليق",
     reactIntent: "إضافة تفاعل",
@@ -1459,7 +1467,7 @@ const messages = {
     waitingForBuilder: "بانتظار Builder...",
     description:
       "خزّن مقاطع الفيديو المسجّلة باستخدام Builder.io أو تخزين متوافق مع S3. يتضمّن Builder.io استضافة مجانية ورصيد ذكاء اصطناعي.",
-    createBuilderAccount: "إنشاء حساب Builder.io",
+    createBuilderAccount: "استخدم Builder.io",
     signInWithBuilderAccount: "تسجيل الدخول بحساب Builder.io",
     free: "مجاني",
     whyPrompt: "لماذا أرى هذا؟",

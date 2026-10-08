@@ -1338,6 +1338,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "Sigue esperando {{stage}}. Solicitud: {{action}}.",
+    widgetDocumentLoadStage: "el cuerpo de la página guardada",
+    widgetDraftCheckStage: "la recuperación del borrador de la página",
+    widgetEditorInitStage: "la inicialización del editor de texto enriquecido",
     iconPickerIcons: "Iconos",
     iconPickerEmoji: "Emoji",
     iconPickerRecent: "Recientes",
@@ -1347,6 +1351,10 @@ const exactEnglish = {
     iconPickerUploading: "Subiendo…",
     suggestionAmendmentEmpty:
       "Esta edición coincide con la página actual. Rechaza la sugerencia para eliminarla.",
+    suggestionUnplaceable:
+      "El texto alrededor de esta sugerencia cambió, así que no se puede aplicar. Sigue pendiente: recházala o vuelve a sugerir el cambio.",
+    proposalUnplaceable:
+      "Una de estas sugerencias no se puede aplicar porque el texto a su alrededor cambió, así que no se aplicó ninguna. Siguen pendientes: acéptalas o recházalas de una en una.",
     suggestionAmendmentFailed: "No se pudo guardar la sugerencia",
     suggestionAmendmentResolved:
       "Esta sugerencia cambió en otro lugar. Tu borrador sin guardar sigue aquí.",
@@ -1634,9 +1642,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "Ninguna página seleccionada",
-    signedInAs: "Sesión iniciada como {{email}}",
+    pageNoAccess: "No tienes acceso a esta página",
+    pageMissing: "Esta página no existe",
+    pageInTrash: "Esta página está en la papelera",
+    pageInTrashAskOwner: "Pide al propietario que la restaure.",
+    openTrash: "Abrir la papelera",
     goToMyPages: "Ir a mis páginas",
-    switchAccount: "Cambiar de cuenta",
     noPageDescription:
       "Selecciona una página en la barra lateral o crea una nueva para empezar.",
     newPage: "Nueva página",

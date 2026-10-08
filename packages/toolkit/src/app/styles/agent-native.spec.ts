@@ -275,17 +275,30 @@ describe("agent-native shell surface tokens", () => {
     );
   });
 
-  it("gives the composer a quiet boundary in both themes", () => {
+  it("uses a subtle dark composer surface and a focused boundary", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+    const agentkitCss = readFileSync(
+      new URL("../agentkit/react/styles.css", import.meta.url),
+      { encoding: "utf8" },
+    );
     const tokens = readFileSync(
       new URL("./tokens/agent-kit.css", import.meta.url),
       { encoding: "utf8" },
     );
 
     expect(tokens).toMatch(
-      /:root\s*\{[\s\S]*?--agent-kit-composer-border-mix: 82%;[\s\S]*?--agent-kit-composer-focus-border-mix: 100%;[\s\S]*?--agent-kit-composer-border-color: color-mix\([\s\S]*?--agent-kit-composer-focus-border-color: color-mix\(/s,
+      /:root\s*\{[\s\S]*?--agent-kit-composer-surface: var\(--agent-kit-raised-surface\);[\s\S]*?--agent-kit-composer-border-mix: 82%;[\s\S]*?--agent-kit-composer-focus-border-mix: 100%;[\s\S]*?--agent-kit-composer-border-color: color-mix\([\s\S]*?--agent-kit-composer-focus-border-color: color-mix\(/s,
     );
     expect(tokens).toMatch(
-      /:is\(\.dark, :root\[data-theme="dark"\]:not\(\.light\)\)\s*\{[\s\S]*?--agent-kit-composer-border-mix: 40%;[\s\S]*?--agent-kit-composer-focus-border-mix: 65%;[\s\S]*?--agent-kit-composer-border-color: color-mix\([\s\S]*?--agent-kit-composer-focus-border-color: color-mix\(/s,
+      /:is\(\.dark, :root\[data-theme="dark"\]:not\(\.light\)\)\s*\{[\s\S]*?--agent-kit-composer-surface: var\(--agent-kit-subtle-surface\);[\s\S]*?--agent-kit-composer-border-mix: 0%;[\s\S]*?--agent-kit-composer-focus-border-mix: 65%;[\s\S]*?--agent-kit-composer-border-color: color-mix\([\s\S]*?--agent-kit-composer-focus-border-color: color-mix\(/s,
+    );
+    expect(css).toMatch(
+      /background:\s*var\(\s*--agent-kit-composer-surface,\s*var\(--agent-kit-raised-surface\)\s*\);/,
+    );
+    expect(agentkitCss).toMatch(
+      /--agent-kit-composer-surface,\s*var\(--agentkit-surface\)/,
     );
   });
 

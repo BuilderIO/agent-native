@@ -439,6 +439,71 @@ describe("server/auth", () => {
       expect(desktopVerificationResponse.status).toBe(200);
     }, 15_000);
 
+    it("waits for an explicit click before forwarding emailed links to Better Auth", async () => {
+      const authHandler = vi.fn(
+        async () => new Response(null, { status: 302 }),
+      );
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: authHandler,
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signInMagicLink: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        getRefusedLocalDatabaseSource: () => null,
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const landingHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/email-link/landing",
+      )?.[1];
+      expect(landingHandler).toBeTypeOf("function");
+
+      const query = {
+        kind: "magic-link",
+        token: "one-time-token",
+        callbackURL: "/_agent-native/sign-in",
+      };
+      const landingResponse = (await landingHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/email-link/landing",
+          query,
+          headers: { "accept-language": "fr-FR" },
+        }),
+      )) as Response;
+      const html = await landingResponse.text();
+
+      expect(landingResponse.status).toBe(200);
+      expect(html).toContain('lang="fr-FR"');
+      expect(html).toContain("Continuer avec le lien reçu par e-mail");
+      expect(html).toContain('method="post"');
+      expect(html).toContain('name="token" value="one-time-token"');
+      expect(authHandler).not.toHaveBeenCalled();
+
+      const postResponse = (await landingHandler(
+        createFormPostEvent("/_agent-native/auth/email-link/landing", query),
+      )) as Response;
+
+      expect(postResponse.status).toBe(303);
+      expect(postResponse.headers.get("location")).toBe(
+        "http://localhost/_agent-native/auth/ba/magic-link/verify?callbackURL=%2F_agent-native%2Fsign-in&token=one-time-token",
+      );
+      expect(authHandler).not.toHaveBeenCalled();
+    });
+
     it("normalizes the email and uses absolute same-origin callbacks", async () => {
       vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("RESEND_API_KEY", "resend-example-key");
@@ -1192,6 +1257,21 @@ describe("server/auth", () => {
       expect(response.headers.get("set-cookie")).toContain(
         "agent-native-first-run=1",
       );
+
+      // A browser arriving with `?return=` lands on a page the edge cannot
+      // append that query to.
+      const navigation = createMockEvent({
+        path: callbackPath,
+        query: { return: "/welcome" },
+        headers: { "sec-fetch-mode": "navigate" },
+      });
+      const page = await handler(navigation);
+      expect(page.status).toBe(200);
+      expect(page.headers.get("location")).toBeNull();
+      expect(page.headers.get("set-cookie")).toContain(
+        "agent-native-first-run=1",
+      );
+      expect(await page.text()).toContain('content="0;url=/welcome"');
     });
 
     it("sets first-run onboarding when the new-user callback has no resolved session", async () => {
@@ -5470,6 +5550,148 @@ describe("server/auth", () => {
       expect(event.res.headers.get("access-control-allow-origin")).toBeNull();
     });
 
+    it.each([
+      "https://chatgpt.com",
+      "https://chat.openai.com",
+      "https://platform.openai.com",
+    ])("allows ChatGPT directory preflight from %s", async (origin) => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("CORS_ALLOWED_ORIGINS", "https://unlisted.example");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const event = createMockEvent({
+        path: "/mcp/directory",
+        headers: {
+          origin,
+          "access-control-request-method": "POST",
+          "access-control-request-headers":
+            "authorization,content-type,accept,mcp-protocol-version,mcp-session-id,last-event-id",
+        },
+      });
+      event.req.method = "OPTIONS";
+      event.node.req.method = "OPTIONS";
+
+      const result = await guard(event);
+
+      expect(result).toBe("");
+      expect(event.res.status).toBe(204);
+      expect(event.res.headers.get("access-control-allow-origin")).toBe(origin);
+      expect(event.res.headers.get("access-control-allow-methods")).toBe(
+        "POST, GET, DELETE, OPTIONS",
+      );
+      expect(event.res.headers.get("access-control-allow-headers")).toBe(
+        "Authorization, Content-Type, Accept, MCP-Protocol-Version, MCP-Session-Id, Last-Event-Id",
+      );
+      expect(event.res.headers.get("vary")).toBe("Origin");
+    });
+
+    it.each([
+      "https://chatgpt.com",
+      "https://chat.openai.com",
+      "https://platform.openai.com",
+    ])("allows ChatGPT directory responses from %s", async (origin) => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("CORS_ALLOWED_ORIGINS", "https://unlisted.example");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const event = createMockEvent({
+        path: "/mcp/directory",
+        headers: { origin },
+      });
+      event.req.method = "POST";
+      event.node.req.method = "POST";
+
+      await guard(event);
+
+      expect(event.res.headers.get("access-control-allow-origin")).toBe(origin);
+      expect(event.res.headers.get("vary")).toBe("Origin");
+    });
+
+    it("rejects other origins on the MCP directory and leaves /mcp unchanged", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("CORS_ALLOWED_ORIGINS", "https://unlisted.example");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const makePreflight = (path: string) => {
+        const event = createMockEvent({
+          path,
+          headers: {
+            origin: "https://unlisted.example",
+            "access-control-request-method": "POST",
+            "access-control-request-headers": "content-type",
+          },
+        });
+        event.req.method = "OPTIONS";
+        event.node.req.method = "OPTIONS";
+        return event;
+      };
+
+      const directoryEvent = makePreflight("/mcp/directory");
+      const directoryResult = await guard(directoryEvent);
+
+      expect(directoryResult).toBe("");
+      expect(directoryEvent.res.status).toBe(403);
+      expect(
+        directoryEvent.res.headers.get("access-control-allow-origin"),
+      ).toBeNull();
+
+      const publicMcpEvent = createMockEvent({
+        path: "/mcp",
+        headers: {
+          origin: "https://chatgpt.com",
+          "access-control-request-method": "POST",
+          "access-control-request-headers": "content-type",
+        },
+      });
+      publicMcpEvent.req.method = "OPTIONS";
+      publicMcpEvent.node.req.method = "OPTIONS";
+      const publicMcpResult = await guard(publicMcpEvent);
+
+      expect(publicMcpResult).toBe("");
+      expect(publicMcpEvent.res.status).toBe(403);
+      expect(
+        publicMcpEvent.res.headers.get("access-control-allow-origin"),
+      ).toBeNull();
+
+      const actualMcpRequest = createMockEvent({
+        path: "/mcp",
+        headers: { origin: "https://chatgpt.com" },
+      });
+      actualMcpRequest.req.method = "POST";
+      actualMcpRequest.node.req.method = "POST";
+      await guard(actualMcpRequest);
+      expect(
+        actualMcpRequest.res.headers.get("access-control-allow-origin"),
+      ).toBeNull();
+    });
+
     it("allows explicitly configured public ingest preflights without credentials", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -7861,6 +8083,57 @@ describe("server/auth", () => {
       );
     });
 
+    it("lands a verified magic link without the sign-in query and keeps a failed one's error", async () => {
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: async (request: Request) => {
+            const valid =
+              new URL(request.url).searchParams.get("token") === "valid-token";
+            return new Response(null, {
+              status: 302,
+              headers: {
+                location: valid
+                  ? "http://localhost/page/doc_1"
+                  : "http://localhost/page/doc_1?error=INVALID_TOKEN",
+              },
+            });
+          },
+          api: { getSession: vi.fn(async () => null) },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      const openLink = (token: string) => {
+        const event = createMockEvent({
+          path: "/_agent-native/auth/ba/magic-link/verify",
+          query: { token, callbackURL: "%2Fpage%2Fdoc_1" },
+          headers: { "sec-fetch-mode": "navigate" },
+        });
+        event.req = new Request(event.req.url, { headers: event.headers });
+        return baHandler(event);
+      };
+
+      // Netlify copies the request query onto a 302 whose Location has none,
+      // so a verified link must not answer with a bare 302.
+      const verified = await openLink("valid-token");
+      expect(verified.status).toBe(200);
+      const page = await verified.text();
+      expect(page).toContain('content="0;url=http://localhost/page/doc_1"');
+      expect(page).not.toContain("valid-token");
+
+      const failed = await openLink("used-token");
+      expect(failed.status).toBe(302);
+      expect(failed.headers.get("location")).toBe(
+        "http://localhost/page/doc_1?error=INVALID_TOKEN",
+      );
+    });
+
     it("persists the unsigned session token and framework cookie on magic-link verify", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
@@ -8586,38 +8859,50 @@ describe("server/auth", () => {
       expect(readDesktopSso).not.toHaveBeenCalled();
     });
 
-    it("does not promote a capability embed into the ticket owner's AuthSession", async () => {
-      vi.stubEnv("NODE_ENV", "production");
-      delete process.env.ACCESS_TOKEN;
-      delete process.env.ACCESS_TOKENS;
-      delete process.env.AUTH_DISABLED;
+    it.each([
+      {
+        scope: "capability:visual-edit:design:design_1",
+        targetPath: "/visual-edit/design_1",
+      },
+      {
+        scope: "capability:mcp-directory-widget-read:get-document",
+        targetPath: "/documents/doc-1",
+      },
+    ])(
+      "does not promote a capability embed into the ticket owner's AuthSession ($scope)",
+      async ({ scope, targetPath }) => {
+        vi.stubEnv("NODE_ENV", "production");
+        delete process.env.ACCESS_TOKEN;
+        delete process.env.ACCESS_TOKENS;
+        delete process.env.AUTH_DISABLED;
 
-      vi.doMock("./embed-session.js", async (importOriginal) => ({
-        ...(await importOriginal<object>()),
-        resolveEmbedSessionFromRequest: vi.fn(async () => ({
-          email: "ticket-owner@example.com",
-          token: "signed-capability",
-          targetPath: "/visual-edit/design_1",
-          scope: "capability:visual-edit:design:design_1",
-        })),
-      }));
-      vi.doMock("../db/client.js", () => ({
-        getDbExec: () => ({
-          execute: vi.fn(async () => ({ rows: [] })),
-        }),
-        isLocalDatabase: () => true,
-        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
-      }));
-      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
-        ...(await importOriginal<object>()),
-        getBetterAuth: async () => undefined,
-        getBetterAuthSync: () => null,
-      }));
+        vi.doMock("./embed-session.js", async (importOriginal) => ({
+          ...(await importOriginal<object>()),
+          resolveEmbedSessionFromRequest: vi.fn(async () => ({
+            email: "ticket-owner@example.com",
+            token: "signed-capability",
+            targetPath,
+            scope,
+          })),
+        }));
+        vi.doMock("../db/client.js", () => ({
+          getDbExec: () => ({
+            execute: vi.fn(async () => ({ rows: [] })),
+          }),
+          isLocalDatabase: () => true,
+          retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        }));
+        vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+          ...(await importOriginal<object>()),
+          getBetterAuth: async () => undefined,
+          getBetterAuthSync: () => null,
+        }));
 
-      const { getSession } = await import("./auth.js");
+        const { getSession } = await import("./auth.js");
 
-      await expect(getSession(createMockEvent())).resolves.toBeNull();
-    });
+        await expect(getSession(createMockEvent())).resolves.toBeNull();
+      },
+    );
 
     it("returns a shared session when AUTH_DISABLED=1", async () => {
       vi.stubEnv("NODE_ENV", "production");
@@ -10724,6 +11009,23 @@ describe("server/auth", () => {
         "an_session=example-session",
       );
       expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
+    });
+
+    // Deep-link and embed routes rebuild this response from its status and
+    // headers, so only callbacks that consumed a one-time query opt into the
+    // HTML landing page.
+    it("stays a redirect for a navigation that carries a query", async () => {
+      const { redirectWithStagedCookies } = await import("./auth.js");
+      const event = createMockEvent({
+        path: "/_agent-native/open",
+        query: { view: "inbox" },
+        headers: { "sec-fetch-mode": "navigate" },
+      });
+
+      const response = redirectWithStagedCookies(event, "/inbox");
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("Location")).toBe("/inbox");
     });
   });
 

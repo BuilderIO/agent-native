@@ -121,7 +121,7 @@ const messages = {
   "onboarding.roleOtherInputLabel": "Describe your role",
   "onboarding.skipForNow": "Skip for now",
   "onboarding.saveRoleError": "Could not save your role.",
-  "onboarding.builderCreateAccount": "Create Builder.io account",
+  "onboarding.builderCreateAccount": "Use Builder.io",
   "onboarding.builderSignInWithAccount": "Sign in with Builder.io account",
   "onboarding.builderActivateDescription":
     "Create or reuse your Builder.io account and activate its free credits in one click.",
@@ -133,6 +133,11 @@ const messages = {
   "onboarding.builderMonthlyCredits": "60 monthly Agent Credits",
   "onboarding.builderIncludedFree": "Included free",
   "onboarding.builderMoreServices": "+ {{count}} more services",
+  "onboarding.builderLlmCredits": "LLM credits",
+  "onboarding.builderLlmCreditsAndMoreServices":
+    "LLM credits + {{count}} more services",
+  "onboarding.builderAccountCreated":
+    "Builder.io account created and connected.",
   "onboarding.builderIncludedServices": "Included services",
   "onboarding.builderActivateTitle": "Activate free credits",
   "onboarding.builderAccountExistsTitle":
@@ -152,7 +157,7 @@ const messages = {
   "onboarding.builderActivating": "Activating Builder.io free credits",
   "onboarding.builderConnecting": "Setting up Builder.io credits",
   "onboarding.builderProvisioningDescription":
-    "Creating or reusing your Builder.io account. This usually takes a few seconds.",
+    "Creating your Builder.io account and activating free credits.",
   "onboarding.builderConnectionDescription":
     "Finish the one-click connection in the new window.",
   "onboarding.builderReadyWithCodeChanges":
@@ -402,6 +407,7 @@ const messages = {
   "composer.connectAbove": "Connect AI above to continue...",
   "composer.connectBuilder": "Use Builder.io",
   "composer.connectKeys": "Connect keys",
+  "composer.connectAgent": "Connect agent",
   "composer.connectingBuilder": "Setting up Builder.io…",
   "composer.costHigher": "Higher cost",
   "composer.costLower": "Lower cost",
@@ -1011,6 +1017,20 @@ const messages = {
   "message.actions": "Message actions",
   "message.copyMessage": "Copy message",
   "message.copyRequestId": "Copy request ID",
+  "message.usage": "Usage",
+  "message.usageLoading": "Loading usage…",
+  "message.usageUnavailable": "Usage unavailable",
+  "message.usageNotRecorded": "Usage not recorded",
+  "message.usageIncomplete":
+    "Some usage could not be classified; totals are hidden.",
+  "message.usageReportedCost": "Cost {{amount}}",
+  "message.usageEstimatedCost": "Estimated cost {{amount}}",
+  "message.usageBuilderCredits": "Builder credits used {{amount}}",
+  "message.usageEstimatedBuilderCredits":
+    "Estimated Builder credits {{amount}}",
+  "message.usageMixedCost": "Reported and estimated cost {{amount}}",
+  "message.usageMixedBuilderCredits":
+    "Reported and estimated Builder credits {{amount}}",
   "message.requestIdUnavailable": "Request ID unavailable",
   "message.unavailable":
     "The message is no longer available in this conversation.",
@@ -1206,6 +1226,49 @@ const messages = {
   "setup.keyProvider": "API key provider",
   "setup.keySaveFailed": "Could not save the key.",
   "setup.storedSecurely": "Stored securely for this app only.",
+  "accessGate.deniedTitle": "You don't have access",
+  "accessGate.deniedDescription": "Ask the owner to share it with you.",
+  "accessGate.missingTitle": "This doesn't exist",
+  "accessGate.missingDescription":
+    "The link may be wrong, or it may have been deleted.",
+  "accessGate.trashedTitle": "This is in the trash",
+  "accessGate.trashedDescription": "Restore it to open it again.",
+  "accessGate.signedOutTitle": "Sign in to continue",
+  "accessGate.signedOutDescription": "Sign in with an account that has access.",
+  "accessGate.signIn": "Sign in",
+  "accessGate.signedInAs": "You're signed in as {{email}}",
+  "accessGate.switchAccount": "Switch account",
+  "accessGate.requestDescription":
+    "Request access and the owner will be notified.",
+  "accessGate.requestSent": "Request sent. The owner has been notified.",
+  "accessGate.requestAccess": "Request access",
+  "accessGate.requestNoteLabel": "Note (optional)",
+  "accessGate.requestNotePlaceholder": "Add a note for the owner",
+  "accessGate.sendRequest": "Send request",
+  "accessGate.cancel": "Cancel",
+  "accessGate.requestRateLimited":
+    "Too many requests right now. Try again later.",
+  "accessGate.requestFailed": "Couldn't send your request. Try again.",
+  "accessGate.signedOutRequestDescription": "Sign in to request access.",
+  "accessRequest.title": "{{name}} is asking for access",
+  "accessRequest.approvedTitle": "Access allowed",
+  "accessRequest.declinedTitle": "Request declined",
+  "accessRequest.allow": "Allow",
+  "accessRequest.decline": "Decline",
+  "accessRequest.unavailableTitle": "You can't review this request",
+  "accessRequest.unavailableDescription":
+    "It may have been withdrawn, or this account can't manage access.",
+  "accessRequest.loadFailed": "Couldn't load this request.",
+  "accessRequest.retry": "Retry",
+  "accessRequest.decisionFailed": "Couldn't save your decision. Try again.",
+  "accessRequest.stale": "Someone already handled this request, or it changed.",
+  "share.accessRequests": "Access requests",
+  "share.accessRequestsLoadFailed": "Couldn't load access requests.",
+  "share.accessRequestsNewest": "Showing the {{count}} newest requests.",
+  "accessRequest.emailFailed":
+    "{{name}} has access, but we couldn't email them.",
+  "share.allowRequestFrom": "Allow {{name}}",
+  "share.declineRequestFrom": "Decline {{name}}",
   "share.add": "Add",
   "share.addPeopleEmail": "Add people by email",
   "share.addPeopleOrganization": "Add people from your organization",
@@ -1592,6 +1655,7 @@ const messages = {
   "settings.usage.appFilterLabel": "App",
   "settings.usage.allApps": "All apps",
   "settings.usage.unattributedApp": "Unattributed",
+  "settings.usage.unclassifiedUsage": "Unclassified usage",
   "settings.usage.peopleFilterLabel": "People",
   "settings.usage.everyone": "Everyone",
   "settings.usage.justYou": "Just you",

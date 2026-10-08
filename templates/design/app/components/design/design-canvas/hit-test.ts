@@ -19,13 +19,16 @@ export function sourceProvenanceBootstrap(
   return `<script data-agent-native-edit-overlay data-agent-native-source-provenance>window.__agentNativeSourceProvenance=${serialized};</script>`;
 }
 
+export function hitTestResponderMarkup(authoredContent: string): string {
+  return (
+    sourceProvenanceBootstrap(createSourceDocumentProvenance(authoredContent)) +
+    LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT
+  );
+}
+
 export function appendHitTestResponder(
   html: string,
   authoredContent: string = html,
 ): string {
-  return injectDocumentMarkup(
-    html,
-    sourceProvenanceBootstrap(createSourceDocumentProvenance(authoredContent)) +
-      LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT,
-  );
+  return injectDocumentMarkup(html, hitTestResponderMarkup(authoredContent));
 }

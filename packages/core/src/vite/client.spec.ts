@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseChangelog } from "../changelog/parse.js";
 import { DEV_SERVER_RECOVERY_EXIT_CODE } from "../cli/process.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
+import { AGENT_NATIVE_TYPEGEN_ENV } from "../shared/runtime-config.js";
 import { readAgentNativeBuildConfigMarker } from "./agent-native-config-loader.js";
 import {
   _debounceNitroFullReloadHotUpdate,
@@ -2230,6 +2231,40 @@ describe("agent-native app config", () => {
     }
   });
 
+  it("skips build diagnostics only for React Router typegen", async () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-typegen-config-"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.json"),
+      JSON.stringify({
+        runtime: { auth: { enabled: true }, database: { required: true } },
+      }),
+    );
+
+    try {
+      process.chdir(tmpDir);
+      const configPlugin = flatPlugins(agentNative()).find(
+        (plugin) => plugin?.name === "agent-native-config",
+      );
+      vi.stubEnv(AGENT_NATIVE_TYPEGEN_ENV, "1");
+      await configPlugin.config({}, { command: "build", mode: "production" });
+      expect(warn).not.toHaveBeenCalled();
+
+      vi.stubEnv(AGENT_NATIVE_TYPEGEN_ENV, undefined);
+      await configPlugin.config({}, { command: "build", mode: "production" });
+      expect(warn).toHaveBeenCalledOnce();
+      expect(warn.mock.calls[0][0]).toContain(
+        "production configuration errors",
+      );
+    } finally {
+      warn.mockRestore();
+      vi.unstubAllEnvs();
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it("loads agent-native.json defaults from the app root", async () => {
     const previousCwd = process.cwd();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-json-config-"));
@@ -2271,6 +2306,54 @@ describe("agent-native app config", () => {
 });
 
 describe("MCP integrations config", () => {
+  it("exposes the configured app identity to synchronous client behavior", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", " assigned-workspace-app ");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", "vite-workspace-app");
+    vi.stubEnv("AGENT_NATIVE_APP_ID", " configured-app ");
+    vi.stubEnv("APP_ID", "fallback-app");
+    vi.stubEnv("AGENT_APP", "legacy-app");
+    vi.stubEnv("npm_package_name", "package-app");
+
+    try {
+      const config = defineConfig();
+
+      expect(config.define?.__AGENT_NATIVE_APP_ID__).toBe(
+        JSON.stringify("assigned-workspace-app"),
+      );
+      expect(config.define?.__AGENT_NATIVE_WORKSPACE_APP_ID__).toBe(
+        JSON.stringify("assigned-workspace-app"),
+      );
+
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+      const viteWorkspaceId = defineConfig();
+      expect(viteWorkspaceId.define?.__AGENT_NATIVE_APP_ID__).toBe(
+        JSON.stringify("vite-workspace-app"),
+      );
+      expect(viteWorkspaceId.define?.__AGENT_NATIVE_WORKSPACE_APP_ID__).toBe(
+        JSON.stringify("vite-workspace-app"),
+      );
+
+      vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+      const configuredId = defineConfig();
+      expect(configuredId.define?.__AGENT_NATIVE_APP_ID__).toBe(
+        JSON.stringify("configured-app"),
+      );
+      expect(configuredId.define?.__AGENT_NATIVE_WORKSPACE_APP_ID__).toBe(
+        JSON.stringify(""),
+      );
+
+      vi.stubEnv("AGENT_NATIVE_APP_ID", undefined);
+      vi.stubEnv("APP_ID", undefined);
+      vi.stubEnv("AGENT_APP", undefined);
+      const packageFallback = defineConfig();
+      expect(packageFallback.define?.__AGENT_NATIVE_APP_ID__).toBe(
+        JSON.stringify("package-app"),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("exposes the active template to shared client capabilities", () => {
     const previous = process.env.AGENT_NATIVE_TEMPLATE;
     process.env.AGENT_NATIVE_TEMPLATE = " Design ";
@@ -3755,6 +3838,7 @@ describe("local-core dev aliases and router dedupe", () => {
           "@agent-native/toolkit/app/agentkit/react/components",
           "@agent-native/toolkit/app/agentkit/react/context",
           "@agent-native/toolkit/app/agentkit/react/root",
+          "@agent-native/toolkit/app/chat",
           "@agent-native/toolkit/app/chat/agentkit-chat/index",
           "@agent-native/core/client/agent-native-icon",
           "@agent-native/core/client/agentkit-chat/composer",

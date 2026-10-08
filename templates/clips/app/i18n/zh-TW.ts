@@ -1316,6 +1316,14 @@ const messages = {
     agentTitle: "建立免費的 Clips 帳號即可加入對話",
     genericTitle: "建立免費的 Clips 帳號即可繼續",
     description: "完成後，你會立即回到此剪輯。",
+    verificationPendingTitle: "驗證你的電子郵件",
+    verificationPendingCopy:
+      "我們已寄送驗證郵件至 {{email}}。開啟郵件以完成帳號建立並返回此剪輯。",
+    resendVerification: "重新寄送驗證郵件",
+    resendingVerification: "正在寄送驗證郵件...",
+    verificationEmailResent: "已寄送新的驗證郵件。",
+    verificationEmailFailed:
+      "無法重新寄送驗證郵件。請重試，或使用電子郵件連結登入。",
     passwordsMismatch: "兩次輸入的密碼不一致。",
     commentIntent: "留言",
     reactIntent: "新增回應",
@@ -1392,7 +1400,7 @@ const messages = {
     waitingForBuilder: "正在等待 Builder...",
     description:
       "使用 Builder.io 或相容 S3 的儲存空間來保存錄製的影片。Builder.io 包含免費代管和 AI 額度。",
-    createBuilderAccount: "建立 Builder.io 帳戶",
+    createBuilderAccount: "使用 Builder.io",
     signInWithBuilderAccount: "使用 Builder.io 帳戶登入",
     free: "免費",
     whyPrompt: "為什麼我會看到這個？",

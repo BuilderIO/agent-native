@@ -1090,6 +1090,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "Warte weiterhin auf {{stage}}. Anfrage: {{action}}.",
+    widgetDocumentLoadStage: "den Inhalt der gespeicherten Seite",
+    widgetDraftCheckStage: "die Wiederherstellung des Seitenentwurfs",
+    widgetEditorInitStage: "die Initialisierung des Rich-Text-Editors",
     iconPickerIcons: "Symbole",
     iconPickerEmoji: "Emoji",
     iconPickerRecent: "Zuletzt verwendet",
@@ -1099,6 +1103,10 @@ const exactEnglish = {
     iconPickerUploading: "Wird hochgeladen…",
     suggestionAmendmentEmpty:
       "Diese Bearbeitung entspricht der aktuellen Seite. Lehnen Sie den Vorschlag ab, um ihn zu entfernen.",
+    suggestionUnplaceable:
+      "Der Text um diesen Vorschlag hat sich geändert, daher kann er nicht übernommen werden. Er bleibt offen: Lehnen Sie ihn ab oder schlagen Sie die Änderung erneut vor.",
+    proposalUnplaceable:
+      "Einer dieser Vorschläge kann nicht übernommen werden, weil sich der Text um ihn herum geändert hat. Daher wurde keiner übernommen. Alle bleiben offen: Nehmen Sie sie einzeln an oder lehnen Sie sie einzeln ab.",
     suggestionAmendmentFailed: "Vorschlag konnte nicht gespeichert werden",
     suggestionAmendmentResolved:
       "Dieser Vorschlag wurde an anderer Stelle geändert. Ihr nicht gespeicherter Entwurf ist noch vorhanden.",
@@ -1388,9 +1396,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "Keine Seite ausgewählt",
-    signedInAs: "Angemeldet als {{email}}",
+    pageNoAccess: "Du hast keinen Zugriff auf diese Seite",
+    pageMissing: "Diese Seite gibt es nicht",
+    pageInTrash: "Diese Seite liegt im Papierkorb",
+    pageInTrashAskOwner: "Bitte den Eigentümer, sie wiederherzustellen.",
+    openTrash: "Papierkorb öffnen",
     goToMyPages: "Zu meinen Seiten",
-    switchAccount: "Konto wechseln",
     noPageDescription:
       "Wähle eine Seite in der Seitenleiste oder erstelle eine neue.",
     newPage: "Neue Seite",

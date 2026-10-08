@@ -114,7 +114,6 @@ vi.mock("./oauth-store.js", () => ({
   MCP_OAUTH_ACCESS_TOKEN_TTL: "30d",
   MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS: 30 * 86400,
   MCP_OAUTH_CODE_TTL_MS: 600_000,
-  MCP_OAUTH_REFRESH_TOKEN_TTL_MS: 365 * 24 * 60 * 60_000,
   generateOpaqueToken: vi.fn(() => `opaque-${++counter}`),
   registerOAuthClient: vi.fn(async (params: any) => {
     const row = {
@@ -179,7 +178,7 @@ vi.mock("./oauth-store.js", () => ({
       ...params,
       issuedForEmail: params.ownerEmail,
       createdAt: Date.now(),
-      expiresAt: Date.now() + 90 * 24 * 60 * 60_000,
+      expiresAt: null,
       revokedAt: null,
     });
   }),
@@ -190,7 +189,7 @@ vi.mock("./oauth-store.js", () => ({
       !row.issuedForEmail?.trim() ||
       row.issuedForEmail !== row.ownerEmail ||
       row.revokedAt ||
-      row.expiresAt < Date.now()
+      (row.expiresAt !== null && row.expiresAt < Date.now())
     )
       return null;
     return { ...row };
@@ -204,11 +203,11 @@ vi.mock("./oauth-store.js", () => ({
         row.issuedForEmail === expectedOwnerEmail &&
         row.ownerEmail === expectedOwnerEmail &&
         !row.revokedAt &&
-        row.expiresAt >= Date.now()
+        (row.expiresAt === null || row.expiresAt >= Date.now())
       ) {
         const now = Date.now();
         row.lastUsedAt = now;
-        row.expiresAt = now + 365 * 24 * 60 * 60_000;
+        row.expiresAt = null;
         return "renewed";
       }
       return "invalid";
@@ -369,6 +368,19 @@ describe("MCP OAuth route", () => {
       authorization_response_iss_parameter_supported: true,
       client_id_metadata_document_supported: true,
     });
+  });
+
+  it("names the resource on the MCP server's base path when both variables are set", async () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    vi.stubEnv("APP_BASE_PATH", "/legacy");
+    try {
+      const protectedRes = handleMcpOAuthProtectedResourceMetadata(event());
+      await expect(protectedRes.json()).resolves.toMatchObject({
+        resource: "https://mail.agent-native.com/dispatch/mcp",
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("prefers configured public URL over forwarded request headers for OAuth resource", async () => {
@@ -2075,7 +2087,7 @@ describe("MCP OAuth route", () => {
 
     const rowBefore = refreshRows.get(firstToken.refresh_token);
     expect(rowBefore).toBeTruthy();
-    const expiryBefore = rowBefore.expiresAt;
+    expect(rowBefore.expiresAt).toBeNull();
 
     const laterTime = Date.now() + 1000;
     vi.spyOn(Date, "now").mockReturnValue(laterTime);
@@ -2092,7 +2104,7 @@ describe("MCP OAuth route", () => {
     );
 
     const rowAfter = refreshRows.get(firstToken.refresh_token);
-    expect(rowAfter.expiresAt).toBeGreaterThan(expiryBefore);
+    expect(rowAfter.expiresAt).toBeNull();
     expect(rowAfter.lastUsedAt).toBe(laterTime);
   });
 });
@@ -2470,9 +2482,7 @@ describe("MCP OAuth grant validation", () => {
     expect(retriedBody.refresh_token).toBe(issued.refresh_token);
     expect(retriedBody.access_token).toBeTruthy();
     expect(sign).toHaveBeenCalledTimes(1);
-    expect(refreshRows.get(issued.refresh_token).expiresAt).toBeGreaterThan(
-      before.expiresAt,
-    );
+    expect(refreshRows.get(issued.refresh_token).expiresAt).toBeNull();
   });
 
   it.each(["revoked", "deleted", "transferred", "rekeyed"])(

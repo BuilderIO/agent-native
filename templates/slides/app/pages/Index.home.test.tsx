@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 // @vitest-environment happy-dom
 import {
@@ -397,12 +398,17 @@ vi.mock("@/components/editor/PromptDialog", () => ({
     }));
     if (!props.open) return null;
     return (
-      <textarea
-        aria-label="Presentation prompt"
-        value={props.initialText ?? ""}
-        readOnly
-        disabled={props.disabled}
-      />
+      <>
+        <textarea
+          aria-label="Presentation prompt"
+          value={props.initialText ?? ""}
+          readOnly
+          disabled={props.disabled}
+        />
+        {props.preflightPending ? (
+          <div role="status">Preflight pending</div>
+        ) : null}
+      </>
     );
   },
 }));
@@ -708,6 +714,194 @@ describe("Slides prompt-led home", () => {
     expect(attachments.commit).toHaveBeenCalledOnce();
   });
 
+  it("gives an explicitly selected target system priority over a reference deck's linked system", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    defaultDesignSystems.systems = [{ id: "system-b", title: "System B" }];
+    callAction.mockImplementation(async (action: string) => {
+      if (action === "get-design-system") {
+        return { title: "System B", agentContext: "System B tokens." };
+      }
+      if (action === "get-deck-reference-context") {
+        return {
+          designSystemId: "system-a",
+          linkedDesignSystemStatus: "available",
+          agentContext: [
+            "## Reference Deck — Visual Language",
+            "### Linked design system (reference default)",
+            "System A tokens apply only when no separate target system is selected.",
+            "### Patterns",
+            "Untrusted sample HTML for composition.",
+          ].join("\n"),
+        };
+      }
+      return undefined;
+    });
+    renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        `Use this as a style reference: ${window.location.origin}/deck/own?slide=7`,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: "system-b", references: [] },
+          contextItems: [
+            {
+              key: "system:system-b",
+              title: "System B",
+              context: "System B tokens.",
+              status: "ready" as const,
+            },
+          ],
+        },
+      );
+    });
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    const generationContext = agentSubmit.mock.calls[0][1] as string;
+    expect(generationContext).toContain(
+      "Use design system system-b for visual tokens",
+    );
+    expect(generationContext).toContain("System B tokens.");
+    expect(generationContext).toContain(
+      "System A tokens apply only when no separate target system is selected.",
+    );
+    expect(generationContext).toContain(
+      "controls its tokens and slide defaults, overriding styles inferred from references",
+    );
+    expect(generationContext).toContain(
+      "Untrusted sample HTML for composition.",
+    );
+    expect(generationContext).not.toContain(
+      "Follow its measured visual language as the styling source of truth",
+    );
+  });
+
+  it("uses a reference deck's linked system before measured styling when no target system is selected", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    callAction.mockResolvedValue({
+      designSystemId: "system-a",
+      linkedDesignSystemStatus: "available",
+      agentContext: [
+        "## Reference Deck — Visual Language",
+        "No separate target system is selected. Linked system A controls tokens and slide defaults.",
+        "### Patterns",
+        "Untrusted sample HTML for composition.",
+      ].join("\n"),
+    });
+    renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        `Use this as a style reference: ${window.location.origin}/deck/own?slide=7`,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+      );
+    });
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    const generationContext = agentSubmit.mock.calls[0][1] as string;
+    expect(generationContext).toContain(
+      "The reference deck's readable linked design system controls tokens and slide defaults",
+    );
+    expect(generationContext).toContain(
+      "Do not call `get-workspace-defaults` or apply a workspace default",
+    );
+    expect(generationContext).toContain(
+      "Linked system A controls tokens and slide defaults.",
+    );
+    expect(generationContext).toContain(
+      "Untrusted sample HTML for composition.",
+    );
+    expect(generationContext).not.toContain(
+      "Follow its measured visual language as the styling source of truth",
+    );
+  });
+
+  it("uses measured reference styling when the linked system is unavailable", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    callAction.mockResolvedValue({
+      designSystemId: "system-a",
+      linkedDesignSystemStatus: "unavailable",
+      agentContext: [
+        "## Reference Deck — Visual Language",
+        "### Linked design system (unavailable)",
+        "Use the readable samples' measured visual language as fallback.",
+        "### Patterns",
+        "Untrusted sample HTML for composition.",
+      ].join("\n"),
+    });
+    renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        `Use this as a style reference: ${window.location.origin}/deck/own?slide=7`,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+      );
+    });
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    const generationContext = agentSubmit.mock.calls[0][1] as string;
+    expect(generationContext).toContain(
+      "No target or readable linked design system was selected. Because the reference deck was read successfully, use its measured visual language",
+    );
+    expect(generationContext).not.toContain(
+      "The reference deck's readable linked design system controls tokens",
+    );
+  });
+
+  it("does not infer reference styling when the reference deck failed to load", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    callAction.mockImplementation(async (action: string) => {
+      if (action === "get-deck-reference-context") {
+        throw new Error("temporary reference read failure");
+      }
+      return undefined;
+    });
+    renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        `Use this as a style reference: ${window.location.origin}/deck/own?slide=7`,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+      );
+    });
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    const generationContext = agentSubmit.mock.calls[0][1] as string;
+    expect(generationContext).toContain(
+      "The selected reference deck could not be read, so its linked-system status and measured visual language are unknown",
+    );
+    expect(generationContext).toContain(
+      "stop instead of generating with an assumed style",
+    );
+    expect(generationContext).not.toContain(
+      "Because the reference deck was read successfully, use its measured visual language",
+    );
+  });
+
   it("explains an unreadable attachment instead of showing the raw send-failure code", async () => {
     createDeck.mockReturnValue({ id: "new-deck" });
     agentSubmit.mockResolvedValueOnce({
@@ -789,6 +983,12 @@ describe("Slides prompt-led home", () => {
     expect(agentSubmit.mock.calls[0][1]).toContain(
       "Do not restore a workspace default",
     );
+    expect(agentSubmit.mock.calls[0][1]).toContain(
+      "For a requested slide count, compare the slideCount returned by every add-slide result",
+    );
+    expect(agentSubmit.mock.calls[0][1]).toContain(
+      "If add-slide returns errorCode target_slide_count_reached, re-read get-deck once",
+    );
     expect(agentSubmit.mock.calls[0][1]).toContain("A restrained visual style");
     expect(agentSubmit.mock.calls[0][2]).toMatchObject({
       model: "test-model",
@@ -803,6 +1003,23 @@ describe("Slides prompt-led home", () => {
           contextItems,
         }),
       }),
+    );
+    const acceptedEvent = vi
+      .mocked(trackEvent)
+      .mock.calls.find(([name]) => name === "generation_request_accepted");
+    expect(acceptedEvent).toBeDefined();
+    const acceptedTiming = acceptedEvent?.[1];
+    expect(acceptedTiming).toMatchObject({
+      started_at_ms: expect.any(Number),
+      ended_at_ms: expect.any(Number),
+      duration_ms: expect.any(Number),
+    });
+    expect(acceptedTiming?.ended_at_ms).toBeGreaterThanOrEqual(
+      acceptedTiming?.started_at_ms as number,
+    );
+    expect(acceptedTiming?.duration_ms).toBe(
+      (acceptedTiming?.ended_at_ms as number) -
+        (acceptedTiming?.started_at_ms as number),
     );
     expect(commit).toHaveBeenCalledOnce();
   });
@@ -1146,7 +1363,7 @@ describe("Slides prompt-led home", () => {
       prompt,
     );
     expect(promptProps.mock.lastCall![0].disabled).toBe(false);
-    expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
+    expect(promptProps.mock.lastCall![0].submissionDisabled).toBe(true);
     expect(createDeck).not.toHaveBeenCalled();
   });
   it("uses the shared Builder setup card and keeps the composer interactive", async () => {
@@ -1318,11 +1535,35 @@ describe("Slides prompt-led home", () => {
     expect(promptProps.mock.lastCall![0].onBeforeSubmit).toEqual(
       expect.any(Function),
     );
+    let resolveStatus: (state: "unavailable") => void = () => {};
+    fetchAgentEngineConfiguredState.mockReturnValueOnce(
+      new Promise<"unavailable">((resolve) => {
+        resolveStatus = resolve;
+      }),
+    );
     let canSubmit = true;
+    let preflight = Promise.resolve(false);
     await act(async () => {
-      canSubmit = await promptProps.mock.lastCall![0].onBeforeSubmit();
+      preflight = promptProps.mock.lastCall![0].onBeforeSubmit();
+    });
+    expect(promptProps.mock.lastCall![0].preflightPending).toBe(true);
+    expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
+    expect(screen.getByRole("status").textContent).toBe("Preflight pending");
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "Presentation prompt",
+        }) as HTMLTextAreaElement
+      ).disabled,
+    ).toBe(false);
+
+    await act(async () => resolveStatus("unavailable"));
+    await act(async () => {
+      canSubmit = await preflight;
     });
     expect(canSubmit).toBe(false);
+    expect(promptProps.mock.lastCall![0].preflightPending).toBe(false);
+    expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
     expect(screen.getByRole("status").textContent).toContain(
       "providerStatusUnavailable",
     );
@@ -1379,6 +1620,55 @@ describe("Slides prompt-led home", () => {
     expect(screen.queryByTestId("builder-setup-card")).toBeNull();
   });
 
+  it("rechecks readiness before sending and holds the draft if AI was disconnected", async () => {
+    agentEngine.state = "configured";
+    agentEngine.missing = false;
+    getDraftSnapshot.mockReturnValue({ ...submittedDraft });
+    submitDraft.mockClear();
+    const home = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    let resolveStatus: (state: "missing") => void = () => {};
+    fetchAgentEngineConfiguredState.mockReturnValueOnce(
+      new Promise<"missing">((resolve) => {
+        resolveStatus = resolve;
+      }),
+    );
+
+    let preflight = Promise.resolve(false);
+    await act(async () => {
+      preflight = promptProps.mock.lastCall![0].onBeforeSubmit!(submittedDraft);
+    });
+
+    expect(fetchAgentEngineConfiguredState).toHaveBeenCalledOnce();
+    expect(promptProps.mock.lastCall![0].preflightPending).toBe(true);
+    expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "Presentation prompt",
+        }) as HTMLTextAreaElement
+      ).disabled,
+    ).toBe(false);
+
+    await act(async () => resolveStatus("missing"));
+    let canSubmit = true;
+    await act(async () => {
+      canSubmit = await preflight;
+    });
+
+    expect(canSubmit).toBe(false);
+    expect(screen.getByRole("heading", { name: "Connect AI" })).toBeTruthy();
+    expect(promptProps.mock.lastCall![0].submissionDisabled).toBe(true);
+    expect(submitDraft).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Use Builder.io" }));
+    await act(async () => home.rerenderHome());
+
+    expect(screen.queryByTestId("builder-setup-card")).toBeNull();
+    expect(getDraftSnapshot).toHaveBeenCalled();
+    expect(submitDraft).toHaveBeenCalledOnce();
+  });
+
   it("shows both tabs while loading, then defaults to Recent when decks are available", async () => {
     const home = renderHome({ loading: true });
     expect(screen.getByRole("tab", { name: "Recent" })).toBeTruthy();
@@ -1405,12 +1695,23 @@ describe("Slides prompt-led home", () => {
     expect(window.localStorage.getItem("slides-home-library-tab")).toBe(
       "recent",
     );
+    expect(window.localStorage.getItem("slides-home-has-recents")).toBe("true");
 
     home.unmount();
     renderHome({ decks: [ownDeck] });
     expect(
       screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
     ).toBe("true");
+  });
+
+  it("restores cached recents immediately while the deck list loads", () => {
+    window.localStorage.setItem("slides-home-has-recents", "true");
+    renderHome({ loading: true });
+
+    expect(
+      screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(screen.getByRole("tab", { name: "Templates" })).toBeTruthy();
   });
 
   it("restores a saved Templates choice before the deck list finishes loading", async () => {
@@ -1439,6 +1740,7 @@ describe("Slides prompt-led home", () => {
         .getByRole("tab", { name: "Templates" })
         .getAttribute("aria-selected"),
     ).toBe("true");
+    expect(window.localStorage.getItem("slides-home-has-recents")).toBe("true");
   });
 
   it("keeps the Recent skeleton available when its tab opens during loading", () => {
@@ -1476,6 +1778,9 @@ describe("Slides prompt-led home", () => {
         .getByRole("tab", { name: "Templates" })
         .getAttribute("aria-selected"),
     ).toBe("true");
+    expect(window.localStorage.getItem("slides-home-has-recents")).toBe(
+      "false",
+    );
   });
 
   it("keeps the composer as the focal point and shows both tabs without accessible work", async () => {
@@ -1704,7 +2009,9 @@ describe("Slides prompt-led home", () => {
         modelStatusChecksEnabled: ready,
         onBeforeSubmit: expect.any(Function),
       });
-      expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
+      expect(promptProps.mock.lastCall![0].submissionDisabled).toBe(
+        state === "missing" || missing ? true : undefined,
+      );
       expect(screen.queryByLabelText("home.suggestedPrompts")).toBeTruthy();
       expect(
         Boolean(screen.queryByRole("button", { name: "Build a pitch" })),

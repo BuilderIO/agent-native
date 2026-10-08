@@ -19,7 +19,7 @@ Ihre Bibliothek zeigt zuerst Ordner, dann Aufnahmen, als Raster von Vorschaubild
 Drei Wege, einen Clip zu Ihrer Bibliothek hinzuzufügen, alle über die Schaltfläche **Aufnehmen** und das **Importieren**-Menü daneben. Ein Rechtsklick auf einen leeren Bereich der Bibliothek bietet dieselben drei Optionen, plus **Neuer Ordner**.
 
 - **Aufnehmen.** Der integrierte Bildschirmrekorder von Clips, mit Webcam-Overlay, Audioaufnahme und Pause-/Zuschneide-Steuerung.
-- **Eine Videodatei hochladen.** Fügen Sie ein vorhandenes Video direkt von Ihrem Computer hinzu, ohne aufnehmen zu müssen.
+- **Eine Videodatei hochladen.** Fügen Sie ein vorhandenes Video direkt von Ihrem Computer hinzu, oder legen Sie es im Bibliotheks- oder Bereiche-Raster ab. Eine Aufnahme ist nicht nötig.
 - **Loom importieren.** Holen Sie ein öffentliches Loom-Video, ohne es neu aufzunehmen. Öffnen Sie neben **Aufnehmen** das Menü **Importieren**, wählen Sie **Loom importieren** und fügen Sie dann eine Loom-Freigabe- oder Einbettungs-URL ein. Clips speichert eine Kopie in Ihrer Bibliothek und importiert das öffentliche Transkript, wenn Loom eines bereitstellt.
 
 ### Einen Clip verwalten
@@ -86,11 +86,13 @@ Archivieren und in den Papierkorb verschieben blenden einen Clip beide aus der H
 
 ### Clips ansehen {#shared-view-clips}
 
-Diese Ansicht listet jede Aufnahme auf, die jemand direkt mit Ihnen oder Ihrer Organisation geteilt hat, per Name oder über eine organisationsweite Sichtbarkeitseinstellung. Ein öffentlicher Link, den jemand zufällig hat, zählt nicht zu dieser Liste. Sie können hier ansehen und kommentieren, aber es gibt kein Drei-Punkte-Menü: Die Verwaltung eines Clips (verschieben, archivieren, weiter teilen) bleibt die Entscheidung des Eigentümers.
+Diese Ansicht listet jede Aufnahme auf, die jemand direkt mit Ihnen oder Ihrer Organisation geteilt hat, per Name oder über eine organisationsweite Sichtbarkeitseinstellung. Ein öffentlicher Link, den jemand zufällig hat, zählt nicht zu dieser Liste.
+
+Sie können freigegebene Clips ansehen und darin vor- und zurückspulen und die Seitenleiste einklappen, um dem Video mehr Platz zu geben. Sie können hier kommentieren, aber es gibt kein Drei-Punkte-Menü: Die Verwaltung eines Clips (verschieben, archivieren, weiter teilen) bleibt die Entscheidung des Eigentümers.
 
 ### Clips kommentieren
 
-Fügen Sie einen Kommentar genau an der Stelle im Video hinzu, die Sie sich ansehen, nicht nur zur Aufnahme als Ganzes. Kommentare verzweigen sich zu Antworten, unterstützen Fett, Kursiv, Inline-Code und Links (Überschriften werden zu einfachem Text reduziert) und können einen Teamkollegen per @-Erwähnung benachrichtigen.
+Fügen Sie einen Kommentar genau an der Stelle im Video hinzu, die Sie sich ansehen, nicht nur zur Aufnahme als Ganzes. Kommentare verzweigen sich zu Antworten, unterstützen Fett, Kursiv, Inline-Code und Links (Überschriften werden zu einfachem Text reduziert) und können einen Teamkollegen per @-Erwähnung benachrichtigen. Kommentarfelder wachsen mit der Eingabe, und der Feed erweitert sich, um längere Kommentare anzuzeigen.
 
 ## Bereiche
 
@@ -148,7 +150,7 @@ Sie beobachtet nur den Tab, den Sie aktiv aufnehmen, und nur während die Aufnah
 
 ## Transkription und KI-Metadaten {#transcription-and-ai-metadata}
 
-Die Transkription versucht zuerst die schnellste, kostenlose Option und weicht nur bei Bedarf auf eine kostenpflichtige aus:
+Die Transkription versucht zuerst die schnellste, kostenlose Option und weicht nur bei Bedarf auf eine kostenpflichtige aus. Der Diktat-Verlauf zeigt Transkript-Vorschauen, die sich zu vollständigen Transkripten und abgeglichenen Aktionen erweitern lassen:
 
 | Reihenfolge | Anbieter                        | Hinweise                                                                                                                                                                      |
 | ----------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -156,7 +158,7 @@ Die Transkription versucht zuerst die schnellste, kostenlose Option und weicht n
 | 2           | Builder.io verwaltet (Gemini)   | Cloud-Fallback, wenn nativer Text fehlt. Kein zusätzlicher Schlüssel nötig, sobald Builder verbunden ist. Der kostenlose Tarif von Builder.io enthält verwaltete KI-Guthaben. |
 | 3           | Groq (`whisper-large-v3-turbo`) | Optionales Backup, wenn Sie lieber Ihren eigenen Schlüssel mitbringen.                                                                                                        |
 
-Sobald ein Transkript fertig ist, füllt der Agent automatisch Titel, Zusammenfassung und Kapitelmarkierungen aus und hält sie aktuell, während Sie bearbeiten. Sie können auch direkt fragen:
+Sobald ein Transkript fertig ist, füllt der Agent automatisch Titel, Zusammenfassung und Kapitelmarkierungen aus und hält sie aktuell, während Sie bearbeiten. Während der Wiedergabe folgt das Transkript der aktuellen Position. Sie können auch direkt fragen:
 
 - „Titel und Zusammenfassung neu generieren.“
 - „Füge Kapitel hinzu. Der ist lang.“
@@ -169,7 +171,9 @@ Backup-Transkription, Transkriptbereinigung und KI-Titel und -Zusammenfassungen 
 
 ## Zerstörungsfreie Bearbeitung {#non-destructive-editing}
 
-Zuschneiden, Teilen, Pausen oder Füllwörter entfernen oder Clips kombinieren, alles ohne die Originaldatei je zu berühren. Jede Bearbeitung wird als Anweisung über Ihre ursprüngliche Aufnahme gelegt, ist rückgängig zu machen, und nichts wird fest in eine neue Datei eingebrannt, bis Sie exportieren.
+Verwenden Sie die Timeline, um Clips zuzuschneiden und zu teilen, Pausen oder Füllwörter zu entfernen, und Clips zu kombinieren. Ziehen Sie Schnittgrenzen, um sie anzupassen, und nutzen Sie Rückgängig oder Wiederholen, um Bearbeitungen zu überprüfen. Diese Änderungen bleiben über der ursprünglichen Aufnahme gelagert, und nichts wird fest in eine neue Datei eingebrannt, bis Sie exportieren.
+
+Schwärzungen funktionieren anders. Das Zeichnen einer Schwärzung deckt den Bereich nur im Editor ab — die ursprünglichen Pixel bleiben in der Datei erhalten. Nichts ist wirklich verborgen, bis Sie die Schwärzungen **einbrennen**: Dabei wird das Video neu kodiert, die abgedeckten Pixel werden dauerhaft zerstört, und die Originaldatei wird gelöscht. Nach dem Einbrennen gibt es kein Rückgängig mehr — behandeln Sie diesen Schritt als den einzigen wirklich unumkehrbaren hier.
 
 <Video
   src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fed43d85ea6084a18a555aae13c5ae4ff?alt=media&token=70e78642-d149-4070-8b58-4bf7167ddfbe&apiKey=YJIGb4i01jvw0SRdL5Bt"

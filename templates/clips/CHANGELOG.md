@@ -3,14 +3,27 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-06
+
+### Fixed
+
+- Fixed arrow-key selection in comment mentions
+- Fixed attached images missing from visual analysis.
+- Fixed clips freezing when you hit play while the recording was still being optimized
+- Fixed returning to shared clips after email verification
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
 ## 2026-10-05
 
 ### Improved
 
+- Clips desktop offers one-click Builder account activation or sign-in.
 - Shared recording pages give the agent composer its own background.
 
 ### Fixed
 
+- Agent links copied from a clip are shorter, so Claude can fetch them without hitting its URL length limit.
+- Sign-in and signup pages now share the animated Agent-Native wave.
 - Confirming Discard recording now returns you to your library.
 - Discarding a recording now removes its failed upload card from your library.
 - Discarding a recovered recording no longer warns that it's open in another tab.

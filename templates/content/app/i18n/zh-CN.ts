@@ -1144,6 +1144,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "仍在等待{{stage}}。请求：{{action}}。",
+    widgetDocumentLoadStage: "已保存的页面正文",
+    widgetDraftCheckStage: "页面草稿恢复",
+    widgetEditorInitStage: "富文本编辑器初始化",
     iconPickerIcons: "图标",
     iconPickerEmoji: "表情符号",
     iconPickerRecent: "最近",
@@ -1152,6 +1156,10 @@ const exactEnglish = {
     iconPickerUpload: "上传",
     iconPickerUploading: "正在上传…",
     suggestionAmendmentEmpty: "此编辑与当前页面相同。拒绝建议即可移除。",
+    suggestionUnplaceable:
+      "此建议周围的文本已更改，因此无法应用。它仍处于待处理状态：请拒绝它，或重新建议此修改。",
+    proposalUnplaceable:
+      "其中一条建议周围的文本已更改，无法应用，因此所有建议均未应用。它们仍处于待处理状态：请逐条接受或拒绝。",
     suggestionAmendmentFailed: "无法保存建议",
     suggestionAmendmentResolved:
       "此建议已在其他地方更改。你未保存的草稿仍保留在这里。",
@@ -1414,9 +1422,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "未选择页面",
-    signedInAs: "当前登录账号：{{email}}",
+    pageNoAccess: "你没有此页面的访问权限",
+    pageMissing: "此页面不存在",
+    pageInTrash: "此页面在回收站中",
+    pageInTrashAskOwner: "请让所有者恢复它。",
+    openTrash: "打开回收站",
     goToMyPages: "前往我的页面",
-    switchAccount: "切换账号",
     noPageDescription: "从侧边栏选择页面，或创建新页面开始。",
     newPage: "新页面",
     createFailed: "创建页面失败",

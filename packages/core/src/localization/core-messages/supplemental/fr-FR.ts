@@ -70,6 +70,24 @@ export const mcpConnectMessages: McpConnectMessages = {
   couldNotCreate: "Impossible de créer le jeton.",
   networkError: "Erreur réseau. Réessayez.",
   urlTitle: "Votre URL MCP",
+  servicePrincipals: "Principaux de service",
+  principalUngoverned: "Non gouverné",
+  principalActive: "Actif",
+  principalSuspended: "Suspendu",
+  principalRetired: "Retiré",
+  principalUngovernedHint:
+    "Aucun propriétaire ni autorisation d'actions n'est défini.",
+  principalOwner: "Propriétaire",
+  principalRisk: "Risque",
+  riskLow: "faible",
+  riskMedium: "moyen",
+  riskHigh: "élevé",
+  suspend: "Suspendre",
+  resume: "Reprendre",
+  couldNotUpdatePrincipal:
+    "Impossible de mettre à jour le principal de service.",
+  containmentIncomplete:
+    "Mis à jour, mais certaines exécutions ou certains jetons n'ont pas pu être arrêtés. Réessayez.",
 };
 
 export const mcpSettingsMessages: McpSettingsMessages = {
@@ -93,7 +111,8 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpStaticTokenDescription:
     "Ouvrez la page complète de connexion pour créer un jeton pour les clients qui ne peuvent pas terminer OAuth.",
   mcpOpenConnectPage: "Ouvrir la page complète de connexion",
-  mcpIdentityError: "Impossible de charger les informations de connexion de cette app.",
+  mcpIdentityError:
+    "Impossible de charger les informations de connexion de cette app.",
   mcpRetry: "Réessayer",
   mcpConnect: mcpConnectMessages,
 };

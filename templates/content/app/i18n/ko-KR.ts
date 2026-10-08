@@ -1053,6 +1053,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "{{stage}}을(를) 기다리는 중입니다. 요청: {{action}}.",
+    widgetDocumentLoadStage: "저장된 페이지 본문",
+    widgetDraftCheckStage: "페이지 초안 복구",
+    widgetEditorInitStage: "서식 있는 텍스트 편집기 초기화",
     iconPickerIcons: "아이콘",
     iconPickerEmoji: "이모지",
     iconPickerRecent: "최근 항목",
@@ -1062,6 +1066,10 @@ const exactEnglish = {
     iconPickerUploading: "업로드 중…",
     suggestionAmendmentEmpty:
       "이 편집 내용은 현재 페이지와 같습니다. 제안을 삭제하려면 거부하세요.",
+    suggestionUnplaceable:
+      "이 제안 주변의 텍스트가 변경되어 적용할 수 없습니다. 제안은 계속 대기 중입니다. 거부하거나 수정 사항을 다시 제안하세요.",
+    proposalUnplaceable:
+      "이 제안 중 하나는 주변 텍스트가 변경되어 적용할 수 없으므로 아무것도 적용되지 않았습니다. 모든 제안은 계속 대기 중입니다. 하나씩 수락하거나 거부하세요.",
     suggestionAmendmentFailed: "제안을 저장하지 못했습니다",
     suggestionAmendmentResolved:
       "이 제안은 다른 곳에서 변경되었습니다. 저장하지 않은 초안은 여기에 그대로 있습니다.",
@@ -1337,9 +1345,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "선택된 페이지 없음",
-    signedInAs: "로그인한 계정: {{email}}",
+    pageNoAccess: "이 페이지에 접근 권한이 없습니다",
+    pageMissing: "이 페이지는 존재하지 않습니다",
+    pageInTrash: "이 페이지는 휴지통에 있습니다",
+    pageInTrashAskOwner: "소유자에게 복원을 요청하세요.",
+    openTrash: "휴지통 열기",
     goToMyPages: "내 페이지로 이동",
-    switchAccount: "계정 전환",
     noPageDescription: "사이드바에서 페이지를 선택하거나 새로 만드세요.",
     newPage: "새 페이지",
     createFailed: "페이지를 만들지 못했습니다",

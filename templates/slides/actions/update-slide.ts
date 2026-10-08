@@ -33,6 +33,7 @@ import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
 } from "../server/lib/source-import.js";
+import { generationTimingFields } from "../shared/generation-timing.js";
 import {
   createLayoutFitRevision,
   hashSlideContent,
@@ -326,6 +327,7 @@ export default defineAction({
     openWorldHint: false,
   },
   run: async (args, ctx) => {
+    const startedAt = Date.now();
     const isAgentCaller = isAgentPatchCaller(ctx?.caller);
     const {
       deckId,
@@ -827,6 +829,7 @@ export default defineAction({
       ...(agentChangeId ? { agentChangeId } : {}),
     });
 
+    const endedAt = Date.now();
     track(
       "deck_edited",
       {
@@ -837,6 +840,7 @@ export default defineAction({
         slide_id: slideId,
         edit_mode: "update_slide",
         edits_count: applied,
+        ...generationTimingFields(startedAt, endedAt),
       },
       ctx,
     );
