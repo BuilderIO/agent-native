@@ -2,15 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getDashboard: vi.fn(),
-  upsertDashboard: vi.fn(async () => ({ archivedAt: null })),
-  upsertDashboardWithRetry: vi.fn(),
+  upsertDashboard: vi.fn(async (..._args: unknown[]) => ({ archivedAt: null })),
+  upsertDashboardWithRetryOutcome: vi.fn(),
   dryRunQuery: vi.fn(),
+  resolvePanel: vi.fn(),
   hasCollabState: vi.fn(async () => false),
   applyText: vi.fn(async () => undefined),
   seedFromText: vi.fn(async () => undefined),
 }));
 
-function defaultUpsertDashboardWithRetry(
+function defaultUpsertDashboardWithRetryOutcome(
   id: string,
   ctx: unknown,
   mutate: (existing: any) =>
@@ -27,9 +28,19 @@ function defaultUpsertDashboardWithRetry(
         `dashboard "${id}" not found (or you don't have access).`,
       );
     }
+    // The edit mutates the record's config in place, so snapshot it first.
+    const stored = JSON.stringify(existing.config);
     const { kind, body } = await mutate(existing);
+    // Like the store: an identical config persists nothing and returns the
+    // stored record, with the same revision.
+    if (JSON.stringify(body) === stored) {
+      return { dashboard: existing, didWrite: false };
+    }
     await mocks.upsertDashboard(id, kind, body, ctx);
-    return { ...existing, kind, config: body };
+    return {
+      dashboard: { ...existing, kind, config: body, updatedAt: "moved" },
+      didWrite: true,
+    };
   })();
 }
 
@@ -68,14 +79,36 @@ vi.mock("@agent-native/core/collab", () => ({
 }));
 
 vi.mock("../server/lib/dashboards-store", () => ({
+  assertDashboardEditable: vi.fn(async () => undefined),
   getDashboard: mocks.getDashboard,
-  upsertDashboard: mocks.upsertDashboard,
-  upsertDashboardWithRetry: mocks.upsertDashboardWithRetry,
+  upsertDashboardOutcome: async (...args: unknown[]) => ({
+    dashboard: await mocks.upsertDashboard(...args),
+    didWrite: true,
+  }),
+  upsertDashboardWithRetryOutcome: mocks.upsertDashboardWithRetryOutcome,
   DashboardConflictError: class DashboardConflictError extends Error {},
 }));
 
 vi.mock("../server/lib/bigquery", () => ({
   dryRunQuery: mocks.dryRunQuery,
+  dryRunQuerySchema: vi.fn(async () => ({ error: null })),
+}));
+
+// Agent saves run their panels through the source resolver before committing.
+vi.mock(
+  "@agent-native/core/server/request-context",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/core/server/request-context")
+    >()),
+    getCredentialContext: () => ({
+      userEmail: "alice@example.com",
+      orgId: null,
+    }),
+  }),
+);
+vi.mock("../server/lib/dashboard-panel-source-resolver", () => ({
+  resolveAnalyticsPanelSource: mocks.resolvePanel,
 }));
 
 const { default: updateDashboard, validatePanelSql } =
@@ -92,16 +125,33 @@ function panel(id: string) {
   };
 }
 
+// The dashboard as stored before the save (a different name), then as saved.
+function seedRenameSave(config: { name: string; panels: unknown[] }) {
+  const updatedAt = "2026-10-06T00:00:00.000Z";
+  mocks.upsertDashboard.mockResolvedValue({ archivedAt: null, updatedAt });
+  mocks.getDashboard
+    .mockResolvedValueOnce({
+      config: { ...config, name: "Weekly draft" },
+      updatedAt: "2026-10-05T00:00:00.000Z",
+    })
+    .mockResolvedValue({ config, updatedAt });
+}
+
 describe("update-dashboard proof-of-done summary", () => {
   beforeEach(() => {
     mocks.getDashboard.mockReset();
     mocks.upsertDashboard.mockClear();
-    mocks.upsertDashboardWithRetry.mockReset();
-    mocks.upsertDashboardWithRetry.mockImplementation(
-      defaultUpsertDashboardWithRetry,
+    mocks.upsertDashboardWithRetryOutcome.mockReset();
+    mocks.upsertDashboardWithRetryOutcome.mockImplementation(
+      defaultUpsertDashboardWithRetryOutcome,
     );
     mocks.dryRunQuery.mockReset();
     mocks.dryRunQuery.mockResolvedValue(null);
+    mocks.resolvePanel.mockReset();
+    mocks.resolvePanel.mockResolvedValue({
+      rows: [{ value: 1 }],
+      schema: [{ name: "value", type: "INT64" }],
+    });
     mocks.hasCollabState.mockClear();
     mocks.applyText.mockClear();
     mocks.seedFromText.mockClear();
@@ -113,14 +163,11 @@ describe("update-dashboard proof-of-done summary", () => {
 
   it("uses custom date interpolation for BigQuery dry-run validation", async () => {
     const error = await validatePanelSql({
-      filters: [
-        {
-          id: "timeRange",
-          type: "select",
-          default: "custom",
-          options: [{ value: "30d", label: "Last 30 days" }],
-        },
-      ],
+      variables: {
+        timeRange: "custom",
+        timeRangeStart: "2026-01-01",
+        timeRangeEnd: "2026-01-31",
+      },
       panels: [
         {
           id: "signups",
@@ -140,12 +187,36 @@ describe("update-dashboard proof-of-done summary", () => {
     );
   });
 
+  it("validates with the variable state the page resolves, not guessed filter defaults", async () => {
+    await validatePanelSql({
+      variables: { mode: "from-variable", app: "from-variable" },
+      filters: [
+        { id: "mode", label: "Mode", type: "toggle", default: "on" },
+        { id: "app", label: "App", type: "select", default: "mail" },
+      ],
+      panels: [
+        {
+          id: "p",
+          title: "P",
+          source: "bigquery",
+          chartType: "line",
+          width: 1,
+          sql: "SELECT '{{mode}}' AS m, '{{app}}' AS a",
+        },
+      ],
+    });
+
+    // A toggle resolves empty and a filter beats a same-named variable.
+    expect(mocks.dryRunQuery).toHaveBeenCalledWith(
+      "SELECT '' AS m, 'mail' AS a",
+      expect.any(Object),
+    );
+  });
+
   it("does not mark frontend saves as AI edits", async () => {
     mocks.hasCollabState.mockResolvedValue(true);
     const config = { name: "Weekly", panels: [panel("a")] };
-    const updatedAt = "2026-10-06T00:00:00.000Z";
-    mocks.upsertDashboard.mockResolvedValue({ archivedAt: null, updatedAt });
-    mocks.getDashboard.mockResolvedValue({ config, updatedAt });
+    seedRenameSave(config);
 
     await updateDashboard.run(
       { dashboardId: "weekly", config },
@@ -164,9 +235,7 @@ describe("update-dashboard proof-of-done summary", () => {
   it("marks agent tool edits as AI edits", async () => {
     mocks.hasCollabState.mockResolvedValue(true);
     const config = { name: "Weekly", panels: [panel("a")] };
-    const updatedAt = "2026-10-06T00:00:00.000Z";
-    mocks.upsertDashboard.mockResolvedValue({ archivedAt: null, updatedAt });
-    mocks.getDashboard.mockResolvedValue({ config, updatedAt });
+    seedRenameSave(config);
 
     await updateDashboard.run(
       { dashboardId: "weekly", config },
@@ -284,7 +353,7 @@ describe("update-dashboard proof-of-done summary", () => {
         dashboardId: "weekly",
         ops: [{ op: "remove", path: "/panels/0/title" }],
       }),
-    ).rejects.toThrow(/panel\[0\]\.title is required/);
+    ).rejects.toThrow(/panel "a" title is missing/);
 
     expect(mocks.upsertDashboard).not.toHaveBeenCalled();
   });
@@ -300,14 +369,22 @@ describe("update-dashboard proof-of-done summary", () => {
     };
 
     let mutateCallCount = 0;
-    mocks.upsertDashboardWithRetry.mockImplementationOnce(
+    mocks.upsertDashboardWithRetryOutcome.mockImplementationOnce(
       async (id: string, ctx: unknown, mutate: (existing: any) => any) => {
         mutateCallCount += 1;
         await mutate(beforeConcurrentWrite);
         mutateCallCount += 1;
         const { kind, body } = await mutate(afterConcurrentWrite);
         await mocks.upsertDashboard(id, kind, body, ctx);
-        return { ...afterConcurrentWrite, kind, config: body };
+        return {
+          dashboard: {
+            ...afterConcurrentWrite,
+            kind,
+            config: body,
+            updatedAt: "moved",
+          },
+          didWrite: true,
+        };
       },
     );
 

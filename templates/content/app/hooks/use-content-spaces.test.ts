@@ -164,4 +164,14 @@ describe("useContentSpaces outside the ChatGPT widget", () => {
       }),
     );
   });
+
+  it("allows a nested scoped widget to disable workspace-wide data", () => {
+    useContentSpaces({ enabled: false });
+
+    expect(useActionQuery).toHaveBeenCalledWith(
+      "list-content-spaces",
+      undefined,
+      expect.objectContaining({ enabled: false, placeholderData: undefined }),
+    );
+  });
 });

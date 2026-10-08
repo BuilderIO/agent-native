@@ -1,10 +1,10 @@
 ---
 name: review-latest-feedback
 description: >-
-  Sweep Slack, GitHub, Sentry, Analytics, trackers, and automated diagnostics,
-  plus app/template, desktop, and package deploy/release/publish lanes. Fix
-  verified defects, verify recovery targets, and recap. Use for scheduled or
-  manual sweeps.
+  Review Slack, GitHub, CI, Sentry, Analytics, diagnostics, linked trackers,
+  and app/template, desktop, and package deploy/release lanes. Answer reporters
+  first; fix verified defects, verify delivery, build upvoted features, and
+  recap. Use for scheduled or manual sweeps.
 user-invocable: true
 scope: dev
 metadata:
@@ -21,8 +21,10 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply**, under a hard question budget, then recap.
 
-Output is fixes; reply only when informative. Two fixes and three messages
-beats thirty replies.
+Output is fixes. Reply in-thread for every workflow reaction added this run;
+continuing work gets a concrete progress reply, and resolved work gets a final
+reply after verification. Follow
+[`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
 ## Slack channels
 
@@ -46,9 +48,10 @@ work, post one status reply with task link and remaining scope.
 
 ## Phase 0: claim what you are taking
 
-For an eligible item you intend to take, add `👀` before investigation and
-never remove it. Do not resume items excluded by the Slack ownership gate. Post
-**In progress** only when work continues beyond this run.
+Resolve known duplicate clusters before claiming. For an eligible item, add
+`👀` before investigation and never remove it. Do not resume items excluded by
+the Slack ownership gate. Post **In progress** only when work continues beyond
+this run.
 
 **Defects are in scope: fix them or ask for the one detail needed to fix them.**
 Investigate first; ask what they saw or did in plain language. Gather request
@@ -62,17 +65,27 @@ doesn't close a separate defect. Tie each reaction to the scope it marks.
 
 ### Reaction gate
 
-`👀` is claim history; `✅` requires **Fixed** after all Phase 2 bars. `🎫`
-marks accepted work another owner must do; use it only with an existing ticket
-naming that owner and exact action, linked in the ledger and reply. No `🎫` for
-fixed scope, routine rollout, optional live checks, subjective/out-of-scope, or
-unapproved work. Pair `✅` + `🎫` only for distinct scopes; name the fixed
-behavior and ticket action. **Shipped**/**Live verified** alone don't earn
-`✅`. Never remove reactions.
+`👀` is claim history; `✅` requires **Fixed** after Phase 2 bars. Check each
+reported symptom separately. For partial fixes, pair `✅` for verified scope
+with `🎫` for any distinct unfinished scope that needs a human to take
+ownership or act, whether or not a ticket exists. Link a verified ticket and
+name its owner/action; without one, keep the handoff explicit in the reply and
+ledger and say that an owner or ticket still needs to be assigned. Do not
+create or promise a ticket without authorization. No `🎫` for fixed scope,
+routine rollout, optional checks, subjective/out-of-scope, or unapproved work.
+**Shipped**/**Live verified** alone don't earn `✅`. Never remove reactions.
+Follow the reply reference before marking an item replied.
 
-If no safe repo-owned fix is evident, record the evidence limit. Ask only a
-question that could unblock a fix; after four days without an answer, record
-**Abandoned - no answer in 4 days**.
+For every concrete objective defect, attempt to reproduce it before recording
+an evidence limit or asking the reporter for more information. A screenshot,
+error message, URL, or visible flow is enough to start tracing its owner; don't
+wait for details that would not change the reproduction attempt. Phase 2's
+local reproduction procedure applies to all defect reports, not only bashes.
+
+If no safe repo-owned fix is evident after that attempt, record the specific
+evidence limit. Ask only a question whose answer could change the reproduction
+or unblock a fix; after four days without an answer, record **Abandoned - no
+answer in 4 days**.
 
 Use **Skipped** only for non-defects, never breakage. **Open - no question**
 means you found neither a fix nor a useful question; state why in the thread.
@@ -82,7 +95,8 @@ means you found neither a fix nor a useful question; state why in the thread.
 For eligible items, use one disposition per row; record it in the recap and, if
 unstated, in the thread or linked work. Do not inspect gated items for status.
 For clusters, post one owner status with each source permalink and
-**Clustered**; reply in a non-owner only for a distinct question or update.
+**Clustered**; do not mark duplicate non-owners separately. Give a distinct
+question or update its own reaction and reply.
 
 - **Terminal (keep this workflow's eye):** **Fixed**, **Shipped**, **Live
   verified**, **Open - no question**, **Resolved elsewhere**, **Skipped**,
@@ -218,15 +232,9 @@ Phase 2 reapplies these rules after full-thread review.
 Use `## Slack channels` unless the invocation narrows scope.
 
 **Automated diagnostics are feedback.** For Slack, gate before reading.
-Before investigating, use only alert and linked issue/PR/run/task metadata to
-identify repo/ref/SHA, workflow/service/environment, failure fingerprint, and
-active same-failure owner; this is Phase 0's sole pre-claim exception. If
-unowned/in scope, claim: Slack `👀`; elsewhere, current-task status row with
-source permalink, fingerprint, owner task/worktree, next action. Continue if
-this task owns it; else record **Owned elsewhere** (owner/link/action) and
-stop. No logs/tests/artifacts before claim. The required Slack claim reaction
-is authorized here; other source mutations need exact authorization. Then read
-`references/automated-diagnostics.md`.
+Before claiming, use only alert/link metadata. Follow
+[`automated-diagnostics.md`](references/automated-diagnostics.md) for ownership,
+claim, and stop/continue; inspect logs, tests, and artifacts only afterward.
 
 **Defects and design feedback.** A clear bug has observable broken behavior: a
 click or submit does nothing, an action errors, data is lost or reverted, the
@@ -271,13 +279,12 @@ the query also returns ordinary replies and old polls that happen to carry the
 reaction. Take the ones that name a concrete improvement; skip the rest
 without comment.
 
-An upvoted item is a **feature or UX change**: it skips only the clear-bug bar,
-not `👀`, fix-altitude, verification, or question-budget requirements. The
-upvote overrides the bug gate, not ownership; build the smallest endorsed
-version and name Sid or Alice in the recap. Add `👀` before investigation or
-delegation and read it back. Keep an evidence-limited disposition until Phase
-2's four bars hold; then use **Shipped**, adding `✅` only if it also meets
-**Fixed**.
+An upvote endorses a **feature or UX change** and skips only the clear-bug bar;
+it does not change ownership, reaction, verification, or question-budget rules.
+Build the smallest endorsed version, name Sid or Alice, and state requested
+versus actual behavior in the recap. Add `👀` before investigation or
+delegation and read it back. Keep it evidence-limited until Phase 2's four bars
+hold; then use **Shipped**, adding `✅` only if it meets **Fixed**.
 
 Don't search `has::eyes:`; use the owner or handoff path above.
 
@@ -286,6 +293,15 @@ the cursor: recent open or unresolved items with no maintainer disposition,
 deduplicated against Slack. If a source cannot be read, record it as
 **unavailable**. Never report "nothing matched" for a source you could not
 query.
+
+<!-- framework-repo-only:start -->
+### CI failures
+
+Run `pnpm ci:red-report`; follow [CI triage](references/ci-red-report.md).
+Query failures mean **CI unavailable**, not empty. Deploy/release/publish rows
+follow [`deployment-recovery.md`](references/deployment-recovery.md) and stay
+active through target proof; track source-fix disposition separately.
+<!-- framework-repo-only:end -->
 
 ### GitHub issues, Sentry, and Agent-Native Analytics are first-class feedback
 
@@ -326,13 +342,15 @@ inventing a fix.
 
 ### Deployment, release, and publish failures
 
-Scan app/template, desktop build/release, and package-publish lanes on every
-sweep, even without a linked report. Include queued/running runs, run-only
-failures, and missing/stale artifacts; carry active run IDs and rows across
-cursors. Fix verified repo-owned causes; record external/manual causes with the
-next owner/action. Use [`deployment-recovery.md`](references/deployment-recovery.md)
-for lane-specific recovery and target proof. Green CI or merged source
-does not prove delivery.
+Scan app/template, desktop, and package lanes every sweep, even without linked
+feedback. Carry active run IDs, queued/running runs, failures, and missing/stale
+artifacts across cursors. Fix repo causes; record external/manual causes with
+the next owner/action. CI-red deploy rows from [CI triage](references/ci-red-report.md)
+reuse this operational fingerprint. Follow
+[`deployment-recovery.md`](references/deployment-recovery.md) for recovery and
+target proof; keep delivery active until proof passes. A source issue may be
+**Fixed** separately; delivery gaps are never **Quarantined**. Green CI or
+merged source does not prove delivery.
 
 ## Phase 2: fix
 
@@ -344,6 +362,26 @@ Open every screenshot, clip, and linked artifact. The error text in a
 screenshot is usually the whole diagnosis. Track an artifact that is
 permission-gated or expired separately from one that was never provided —
 inaccessible is not absent.
+
+### Attempt local reproduction before evidence-limiting
+
+For each concrete objective defect, try the reported flow before deciding it
+cannot be reproduced or fixed. Trace the screenshot, URL, visible action, and
+error through the app to its route, action, provider, or form contract; use
+those clues to choose the closest runnable local seam. Exercise the flow with
+a local build and synthetic fixtures. If its external dependency is unavailable,
+mock that boundary or submit the same shape to a local validator. Do not use a
+reporter's real email or create a real external record merely to prove a
+failure.
+
+Record the route or action, build, fixture, steps, expected and actual result,
+and error. Code inspection alone is not a reproduction attempt, and
+**Not reproducible - attempted** requires an actual flow attempt. Ask the
+reporter only when a specific missing detail would change the attempt or fix;
+otherwise make the best local attempt with the evidence already available.
+If the attempt stops at a concrete access or environment limit, name what was
+tried and what exact behavior remains untested. Measure misses with
+`feedback-no-local-repro`.
 
 **Sweep siblings before you claim anything is fixed.** Derive the fingerprint
 from the symptom, not the file — the exact crashing token, call shape, or
@@ -363,8 +401,7 @@ slack_search: <2-4 distinctive symptom words> in:<#CHANNEL>
 ```
 
 Search in the reporter's words — `zoom invalid_client`, `logout twice` — not
-your diagnosis. People describe one bug differently, so read the hits rather
-than trusting the count.
+your diagnosis. Read hits; one bug may have different descriptions.
 
 **A repeat report after a Fixed claim is evidence that fix failed.** It is the
 only falsification signal this workflow gets, and it outranks your belief that
@@ -390,55 +427,17 @@ Measure this gate with friction keys `false-done` and
 --pattern <key>` for each before changing it and again later. A climbing count
 requires a mechanical proof or release gate, not more prose.
 
-### Bug-bash reproduction contract
+### Reproduction and verification detail
 
-For Design, Slides, Core/framework, and template bashes, the reachable reported
-surface is the contract:
-
-1. **Reproduce before editing.** Use the exact URL/route, app/template,
-   account/workspace/role, build/package, browser/device, fixture, and inputs;
-   record expected/actual, errors, and attached artifacts.
-2. **Sweep siblings and boundaries.** Test a negative control plus empty, wrong,
-   whitespace, case, and permission variants; enumerate every shared fingerprint.
-3. **Repeat on the changed running artifact.** Rerun the flow, refresh/navigate,
-   read UI and persisted state, and cover failure/retry/cancel/async paths.
-   Destructive flows require wrong/partial/exact confirmation and recovery;
-   do not delete unless needed.
-4. **Test release/race layers when needed.** Use concurrency/10 runs, a clean
-   scaffold, and the exact package for package reports. Reproduce and verify
-   locally by default; use beta only if the full symptom cannot be reproduced
-   locally and hosted behavior is needed. Record why. These checks support
-   **Shipped**/**Live verified**, not a merged **Fixed** claim.
-5. Record untested layers. Before merge, use an evidence-limited status. After
-   verified source merge, mark **Fixed** even if release/live layers remain;
-   routine rollout and optional beta checks aren't ticketed follow-ups.
-   **Shipped**/**Live verified** need their own bars. Don't mark **Fixed**/`✅`
-   without merged-source proof. Reopen repeats only with a fresh failing
-   pre-change reproduction.
-
-### Reproduction ledger - required for every row
-
-For each row, record symptom/surface, reproduction steps and account, expected
-and pre/post behavior, tested commit/build, sibling results, untested layers,
-and runtime layer (`local`, `source-only`, `built`, `deployed`, `observed-live`).
-
-Without merged source proof, use an active or waiting disposition above. After
-merge, **Fixed** may coexist with release follow-up; **Live verified** requires
-all four bars. Status labels, reactions, and tests alone do not prove closure.
-Repeats require a new pre-change failure and link the earlier false claim.
-
-Regression claims require Red/Green proof: reverse-apply hunk with
-`git apply -R`, record failure, reapply, record pass. Repeat timing checks 10x.
-If output missing, build it and rerun on `origin/main` before calling them
-pre-existing.
+Use [`reproduction-and-verification.md`](references/reproduction-and-verification.md)
+for the bug-bash contract, reproduction ledger, and regression proof.
 
 ### Npx and package reports have a release follow-up
 
 Use [`deployment-recovery.md`](references/deployment-recovery.md) for npx
-version evidence, registry proof, publication status, and existing-app upgrade
-verification. A verified merge may be **Fixed** under the issue-closure rule
-above while its delivery row stays open; a local scaffold or beta promise is not
-delivery.
+version, registry, publication, and existing-app upgrade proof. A verified merge
+may be **Fixed** while its delivery row stays open; a local scaffold or beta
+promise is not delivery.
 
 ### Documentation has a runnable proof obligation
 
@@ -457,12 +456,6 @@ Never hard-code a rule for the wording of one report. One data point justifies
 a local regression test or a contained fix; it never justifies a global agent
 instruction or prompt exception.
 
-### The bar for saying "Fixed"
-
-Phase 2 defines the proof bars for **Fixed**, **Shipped**, and
-**Live verified**. Upvoted improvements state requested versus actual behavior
-and use **Shipped**.
-
 ## Phase 3: reply
 
 Thank issue reporters for opening it and Slack reporters for sharing. Give the
@@ -478,16 +471,8 @@ Share only new or useful information.
 
 ### After a PR merges
 
-After a Slack-fix PR merges, reply only in threads claimed this run.
-
-For beta app fixes, check the merge-triggered publisher run before giving the
-normal few-hours ETA. This checks release-job status, not beta behavior. If it
-succeeds, say what changed and that it'll be on beta in the next few hours.
-Keep test environment, verification, publisher results, and rollout details out
-of the reply; record evidence in the recap or PR. If the run is missing or
-failed, omit the ETA and state what's done, the exact remaining action and owner,
-and an existing ticket when available. Apply the Reaction gate before `🎫`.
-For packages, state availability without verification details.
+Follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md) for
+post-merge beta ETAs and package replies.
 
 For a fixed behavior with a ticketed handoff, state the done behavior and
 remaining action/owner/ticket separately; don't imply the fixed scope is open.
@@ -536,8 +521,15 @@ schemas once and reuse them.
 
 For every Slack write: use the exact parent `thread_ts` from a full-thread
 read, never a search-result or adjacent timestamp, and re-read after posting.
-Do not close, label, assign, or comment on GitHub or Sentry unless the
-invocation authorizes it; link them in the recap instead.
+Do not close, label, or assign GitHub/Sentry items, or post unrelated comments,
+unless the invocation authorizes it. For PR review feedback, first verify the
+live PR author and follow `babysit-pr`: concise replies that disposition
+feedback on the active user's own PR, including a recap for feedback found only
+in a review body, need no extra authorization. On another person's PR, comment
+only when the invocation explicitly authorizes comments on that exact PR;
+otherwise draft the reply, leave the feedback unresolved, and link it in the
+recap. This exception is only for PR review feedback, not proactive PR comments
+or issue comments.
 
 ## Publishing
 
@@ -584,9 +576,12 @@ Questions asked: N/3 · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
 
-| Tracker/source or workflow run | Reporter/owner | Status | Repro or failed step | Pre/post/recovery | Run/SHA/target/version/artifact/runtime proof | Locales | Handoff (action/owner/ticket) | Replied | Reactions |
+| Tracker/source or workflow run | Reporter/owner | Status | Repro or failed step | Pre/post/recovery | Run/SHA/target/version/artifact/runtime proof | Locales | Handoff (action/owner/ticket) | Reply proof | Reactions |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | yes/no | 👀 claim; ✅ Fixed; 🎫 ticketed only |
+| 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | [reply](...) or blocker | 👀 claim; ✅ Fixed; 🎫 human handoff needed |
+<!-- framework-repo-only:start -->
+| CI fingerprint · N runs · [latest run](...) | N/A | class · disposition | failed job/step | pre/post | test fix/quarantine; deploy target proof | N/A | owner/[issue](...) | N/A | N/A |
+<!-- framework-repo-only:end -->
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complete

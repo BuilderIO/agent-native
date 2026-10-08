@@ -2714,6 +2714,7 @@ const esES = {
     planAutomations: "Eventos y automatizaciones",
     planLocalAndDesktop: "Archivos locales y escritorio",
     planDevelopers: "Guía para desarrolladores",
+    turnIntoApp: "Convertir en app",
     prVisualRecap: "Resumen visual de PR",
     planPluginMarketplace: "Plugin y marketplace de Plan",
     slides: "Diapositivas",

@@ -178,6 +178,7 @@ test.describe("element interaction states", () => {
     expect(persistedButtonTag).not.toContain("data-an-state-preview=");
   });
 
+  // oracle: none — verifies pseudo-rule behavior against Chromium, not a design reference.
   test("persisted pseudo rules obey Chromium mouse, keyboard, pressed, and disabled semantics", async ({
     page,
   }) => {
@@ -209,9 +210,9 @@ test.describe("element interaction states", () => {
       )
       .toBe(true);
 
-    const interact = page
-      .locator("[data-design-bottom-toolbar]")
-      .getByRole("button", { name: "Interact", exact: true });
+    const interact = page.locator(
+      '[data-design-top-bar] [data-design-mode="interact"]',
+    );
     await interact.click();
     await expect(
       page.getByRole("button", { name: "Exit responsive preview" }),

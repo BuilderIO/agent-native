@@ -97,24 +97,45 @@ const EMAIL_PATTERN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
 // 16+ characters of an id alphabet with a digit in them: Google file ids, Gmail
 // message ids, ObjectIds, session ids. Plain identifiers have no digit.
 const OPAQUE_ID_PATTERN = /\b(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{16,}\b/g;
+const TOOL_ERROR_PREFIX_PATTERN = /^Error running [^\s:]+:\s*/;
 
 /**
  * The part of a tool failure that is always recorded, even with
  * captureToolResults off: the first non-blank line, bounded. It is stored
  * without the owner opting in, so beyond credentials (a quoted secret can span
  * lines, so redact the whole text first) it also drops the emails and opaque
- * ids a failing tool echoes back. Never empty — an empty `error_message` reads
- * as "no reason was captured", which is a different fact from "the tool gave no
- * text".
+ * ids a failing tool echoes back. The `Error running <tool>: ` prefix is
+ * dropped so signatures group by cause, and a JSON `{ error, message }` result
+ * is summarized as `error: message` rather than its opening brace. Never
+ * empty — an empty `error_message` reads as "no reason was captured", which is
+ * a different fact from "the tool gave no text".
  */
 export function toolErrorSignature(value: unknown): string {
-  const redacted = redactToolErrorMessage(
-    typeof value === "string" ? value : "",
-  )
+  const text = (typeof value === "string" ? value : "")
+    .trim()
+    .replace(TOOL_ERROR_PREFIX_PATTERN, "");
+  const redacted = redactToolErrorMessage(jsonErrorSummary(text) ?? text)
     .replace(EMAIL_PATTERN, "[email]")
     .replace(OPAQUE_ID_PATTERN, "[id]");
   const firstLine = redacted.split(/\r?\n/).find((line) => line.trim());
   return boundToolErrorMessage(
     firstLine?.trim() || "Tool failed with no error text",
   );
+}
+
+/** `error: message` for a JSON `{ error, message }` result; `undefined` when the text is not one. */
+function jsonErrorSummary(text: string): string | undefined {
+  if (!text.startsWith("{")) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+    // coercion-ok: unparseable text is not a JSON error result; the caller still records its first line
+  } catch {
+    return undefined;
+  }
+  const { error, message } = (parsed ?? {}) as Record<string, unknown>;
+  if (typeof error !== "string" || !error.trim()) return undefined;
+  return typeof message === "string" && message.trim()
+    ? `${error}: ${message}`
+    : error;
 }

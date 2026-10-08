@@ -1090,6 +1090,10 @@ export default {
       interact: "Interact",
       screens: "螢幕",
     },
+    topBar: {
+      modeDesign: "設計",
+      modeSwitch: "編輯器模式",
+    },
     fileTabs: "檔案",
     tools: {
       move: "移動",
@@ -1360,6 +1364,10 @@ export default {
     keyboardShortcuts: {
       title: "鍵盤快速鍵",
       close: "關閉: 鍵盤快速鍵",
+      search: "搜尋",
+      searchLabel: "搜尋鍵盤快速鍵",
+      categoriesLabel: "快速鍵分類",
+      empty: "沒有符合「{{query}}」的快速鍵",
       codeContext: "程式碼",
       screenContext: "畫面",
       nudgeAmount: {
@@ -1392,11 +1400,6 @@ export default {
         leftBracket: "左方括號",
         rightBracket: "右方括號",
       },
-      descriptions: {
-        toggleUi: "立即按下以快速隱藏面板並專注於工作",
-        undo: "逐步回復最近的設計變更",
-        redo: "還原剛才復原的設計變更",
-      },
       categories: {
         essential: "基本",
         tools: "工具",
@@ -1428,6 +1431,7 @@ export default {
         showLayers: "圖層",
         showAssets: "資源",
         toggleUi: "檢視",
+        toggleMinimalUi: "精簡介面",
         toggleComments: "固定評論",
         zoomIn: "放大",
         zoomOut: "縮小",

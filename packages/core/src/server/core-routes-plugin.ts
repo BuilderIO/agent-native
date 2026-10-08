@@ -18,9 +18,17 @@ import type { H3Event } from "h3";
 import { readMultipartFormData } from "h3";
 import { z } from "zod";
 
+import {
+  readAgentAppModelDefaultSettings,
+  normalizeAgentAppModelDefaultAppId,
+} from "../agent/app-model-defaults.js";
 import { CHATGPT_SUBSCRIPTION_CALLBACK_PATH } from "../agent/chatgpt-subscription-contract.js";
 import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js";
-import { DEFAULT_MODEL } from "../agent/default-model.js";
+import {
+  resolveAgentEngineStatus,
+  type AgentEngineStatusDeps,
+  type AgentEngineStatusResponse,
+} from "../agent/engine-status.js";
 import { registerBuiltinEngines } from "../agent/engine/builtin.js";
 import type { CredentialFixer } from "../agent/engine/credential-state.js";
 import {
@@ -29,12 +37,9 @@ import {
 } from "../agent/engine/provider-env-vars.js";
 import type { AgentEngineEntry } from "../agent/engine/registry.js";
 import {
-  isAgentEngineSettingConfigured,
-  getAgentEngineEntry,
   detectEngineFromEnv,
   detectEngineFromUserSecrets,
   isStoredEngineUsableForRequest,
-  normalizeModelForEngine,
 } from "../agent/engine/registry.js";
 import {
   canUpdateAgentLoopSettings,
@@ -43,6 +48,13 @@ import {
   validateMaxIterationsInput,
   writeAgentLoopSettings,
 } from "../agent/loop-settings.js";
+export {
+  normalizeAgentEngineStatusModel,
+  resolveAgentEngineStatus,
+  type AgentEngineStatusResult,
+  type AgentEngineStatusResponse,
+  type AgentEngineStatusDeps,
+} from "../agent/engine-status.js";
 import { getAppConfig } from "../app-config/index.js";
 import {
   getState,
@@ -311,6 +323,8 @@ import {
 } from "./realtime-token.js";
 import {
   getRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
   hasRequestContext,
   runWithRequestContext,
 } from "./request-context.js";
@@ -337,148 +351,22 @@ export const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
 export const FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/events`;
 export const LEGACY_FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/poll-events`;
 
-export function normalizeAgentEngineStatusModel(
-  entry:
-    | { name: string; defaultModel: string; supportedModels: readonly string[] }
-    | undefined,
-  model: string | null | undefined,
-): string {
-  if (!entry) return model ?? DEFAULT_MODEL;
-  return normalizeModelForEngine(entry, model ?? entry.defaultModel);
-}
-
-type AgentEngineStatusEntry = {
-  name: string;
-  defaultModel: string;
-  supportedModels: readonly string[];
-  requiredEnvVars: readonly string[];
-};
-
-export interface AgentEngineStatusResult {
-  configured: boolean;
-  engine?: string;
-  model?: string;
-  source?: "settings" | "env" | "app_secrets";
-  envVar?: string;
-  openAiBaseUrlConfigured?: boolean;
-}
-
-export interface AgentEngineStatusResponse extends AgentEngineStatusResult {
-  /** Strict chat-only eligibility; distinct from broad engine `configured`. */
-  chatEligible: boolean;
-}
-
-export interface AgentEngineStatusDeps<
-  E extends AgentEngineStatusEntry = AgentEngineStatusEntry,
-> {
-  readStoredEngine: () => Promise<{ engine?: string; model?: string } | null>;
-  readOpenAiBaseUrlConfigured: () => boolean | Promise<boolean>;
-  isStoredEngineUsable: (
-    stored: unknown,
-    entry: E,
-  ) => boolean | Promise<boolean>;
-  detectFromUserSecrets: () => Promise<E | null>;
-  detectFromEnv: () => E | null | Promise<E | null>;
-  lookupEntry?: (engine: string) => E | undefined;
-}
-
-/**
- * Resolve "does this request have a usable AI provider" for one identity.
- *
- * Every call site pays for these lookups on a user-visible path (the agent
- * composer blocks on the status probe), so the two identity-independent reads
- * start together and the expensive `app_secrets` sweep only runs when the
- * cheaper sources have not already answered.
- */
-export async function resolveAgentEngineStatus<
-  E extends AgentEngineStatusEntry,
->(deps: AgentEngineStatusDeps<E>): Promise<AgentEngineStatusResult> {
-  const lookupEntry = (deps.lookupEntry ?? getAgentEngineEntry) as (
-    engine: string,
-  ) => E | undefined;
-  const [stored, openAiBaseUrlConfigured] = await Promise.all([
-    deps.readStoredEngine(),
-    deps.readOpenAiBaseUrlConfigured(),
-  ]);
-
-  if (isAgentEngineSettingConfigured(stored)) {
-    const engine = (stored as { engine: string }).engine;
-    const entry = lookupEntry(engine);
-    return {
-      configured: true,
-      engine,
-      model: normalizeAgentEngineStatusModel(entry, stored?.model),
-      source: "settings",
-      openAiBaseUrlConfigured,
-    };
-  }
-
-  const configuredEngine = getAppConfig().agent.engine;
-  const envEntry = configuredEngine ? lookupEntry(configuredEngine) : undefined;
-  if (envEntry) {
-    if (await deps.isStoredEngineUsable({ engine: envEntry.name }, envEntry)) {
-      return {
-        configured: true,
-        engine: envEntry.name,
-        model: envEntry.defaultModel ?? DEFAULT_MODEL,
-        source: "env",
-        envVar: "AGENT_ENGINE",
-        openAiBaseUrlConfigured,
-      };
-    }
-    if (getRequestContext()?.isSyntheticTraffic !== true) {
-      return { configured: false, openAiBaseUrlConfigured };
-    }
-  }
-
-  // Stored provider selections win over an existing Builder connection, so
-  // this is checked before the app_secrets sweep — and the sweep is skipped
-  // entirely when it answers.
-  if (stored && typeof stored.engine === "string") {
-    const entry = lookupEntry(stored.engine);
-    if (entry && (await deps.isStoredEngineUsable(stored, entry))) {
-      return {
-        configured: true,
-        engine: stored.engine,
-        model: normalizeAgentEngineStatusModel(entry, stored.model),
-        source: "env",
-        envVar: entry.requiredEnvVars[0],
-        openAiBaseUrlConfigured,
-      };
-    }
-  }
-
-  // Per-user app_secrets — a user who connected Builder (or pasted their own
-  // provider key) may not have any deploy-level env vars set.
-  const detectedFromUser = await deps.detectFromUserSecrets();
-  if (detectedFromUser) {
-    return {
-      configured: true,
-      engine: detectedFromUser.name,
-      model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
-      source: "app_secrets",
-      envVar: detectedFromUser.requiredEnvVars[0],
-      openAiBaseUrlConfigured,
-    };
-  }
-
-  const detected = await deps.detectFromEnv();
-  if (detected) {
-    return {
-      configured: true,
-      engine: detected.name,
-      model: detected.defaultModel ?? DEFAULT_MODEL,
-      source: "env",
-      envVar: detected.requiredEnvVars[0],
-      openAiBaseUrlConfigured,
-    };
-  }
-
-  return { configured: false, openAiBaseUrlConfigured };
-}
-
 function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry> {
   return {
+    readAppDefault: async () => {
+      const app = getAppConfig().app;
+      const appId = normalizeAgentAppModelDefaultAppId(
+        app.id ?? app.template ?? app.slug,
+      );
+      if (!appId) return null;
+      const settings = await readAgentAppModelDefaultSettings(
+        { userEmail: getRequestUserEmail(), orgId: getRequestOrgId() },
+        appId,
+      );
+      return settings.engine && settings.model
+        ? { engine: settings.engine, model: settings.model }
+        : null;
+    },
     readStoredEngine: async () =>
       (await readDefaultAgentEngineSetting()) as {
         engine?: string;
@@ -1370,11 +1258,13 @@ const BUILDER_WAITLIST_DEFAULT_USE_CASE = "builder_agent_background_coding";
 const BUILDER_WAITLIST_USE_CASES = new Set([
   BUILDER_WAITLIST_DEFAULT_USE_CASE,
   "design_publish_app",
-  "design_make_real_waitlist",
-  "design_system_workflows_waitlist",
-  "design_system_waitlist",
   "docs_build_online_waitlist",
   "docs_edit_online_waitlist",
+]);
+const BUILDER_WAITLIST_USE_CASE_GROUPS = new Map([
+  ["design_make_real_waitlist", "design_publish_app"],
+  ["design_system_workflows_waitlist", "design_publish_app"],
+  ["design_system_waitlist", "design_publish_app"],
 ]);
 const BUILDER_WAITLIST_FORM_TIMEOUT_MS = 8000;
 const BUILDER_WAITLIST_TEXT_LIMIT = 4000;
@@ -1445,9 +1335,16 @@ function cleanBuilderWaitlistText(
 
 function normalizeBuilderWaitlistUseCase(value: unknown): string {
   const useCase = cleanBuilderWaitlistText(value, 100);
-  return useCase && BUILDER_WAITLIST_USE_CASES.has(useCase)
-    ? useCase
-    : BUILDER_WAITLIST_DEFAULT_USE_CASE;
+  if (!useCase) return BUILDER_WAITLIST_DEFAULT_USE_CASE;
+  if (BUILDER_WAITLIST_USE_CASES.has(useCase)) return useCase;
+
+  // The published waitlist form validates this select against its own option
+  // list. Keep new Design entry points in the existing Design category; their
+  // exact surfaces remain in the text `source` field.
+  return (
+    BUILDER_WAITLIST_USE_CASE_GROUPS.get(useCase) ??
+    BUILDER_WAITLIST_DEFAULT_USE_CASE
+  );
 }
 
 function normalizeBuilderWaitlistTemplate(value: unknown): string | undefined {
@@ -6170,16 +6067,35 @@ export function createCoreRoutesPlugin(
             return { error: "Unauthorized" };
           }
           const userEmail = session.email;
-          const result = await runWithRequestContext(
-            { userEmail, orgId: session.orgId },
-            () =>
-              uploadFile({
-                data: filePart.data,
-                filename: filePart.filename,
-                mimeType: filePart.type,
-                ownerEmail: userEmail,
-              }),
-          );
+          let result;
+          try {
+            result = await runWithRequestContext(
+              { userEmail, orgId: session.orgId },
+              () =>
+                uploadFile({
+                  data: filePart.data,
+                  filename: filePart.filename,
+                  mimeType: filePart.type,
+                  ownerEmail: userEmail,
+                }),
+            );
+          } catch (error) {
+            // A thrown provider error (e.g. an upstream API rejecting the
+            // request) carries its own `status`/`statusCode`, which h3 would
+            // otherwise surface verbatim to the client — indistinguishable
+            // from this route's own deliberate 4xx responses above and
+            // useless for the composer's generic "could not upload" copy.
+            // Normalize to one clear failure instead of leaking whatever
+            // status the active provider happened to respond with. Use 503
+            // (not 502/504) since gateway statuses get rewritten by the CDN
+            // layer anyway — see cdnSafeOriginStatus.
+            console.error("[file-upload] provider upload failed", error);
+            setResponseStatus(event, 503);
+            return {
+              error:
+                "The configured storage provider could not upload this file. Try again or check Settings → File uploads.",
+            };
+          }
 
           if (result) {
             setResponseStatus(event, 201);

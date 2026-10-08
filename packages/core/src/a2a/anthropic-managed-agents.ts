@@ -5,6 +5,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import { getForwardedRequestURL } from "../server/request-origin.js";
 import { canonicalA2AAudience } from "./audience.js";
 import { resolveA2ACallerAuth } from "./caller-auth.js";
 import { getGlobalA2ASecret, signA2AToken } from "./client.js";
@@ -273,9 +274,8 @@ async function mintContinuationToken(
   try {
     let audience: string | undefined;
     if (context.event) {
-      const { getRequestURL } = await import("h3");
       audience = canonicalA2AAudience(
-        getRequestURL(context.event as never).href,
+        getForwardedRequestURL(context.event as never).href,
       );
     } else {
       const appUrl = getAppConfig().app.url;

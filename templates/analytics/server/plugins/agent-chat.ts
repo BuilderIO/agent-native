@@ -27,7 +27,6 @@ import {
   failedDataQueryAttemptMessage,
   hasCatalogSearchAttempt,
   hasDashboardConstructionAttempt,
-  hasDashboardMutationAttempt,
   hasExplicitPartialDisclosure,
   hasFailedCorpusWorkflowEvidence,
   hasDataQueryAttempt,
@@ -38,7 +37,8 @@ import {
   looksLikeCoverageSensitiveAnalyticsRequest,
   looksLikeDashboardConstructionRequest,
   looksLikeStrongCoverageClaim,
-  looksLikeAnalyticsDataRequest,
+  isNonDataTurn,
+  isTrivialTurn,
   needsCorpusWorkflowForCoverageSensitiveRequest,
   needsSourceRecordBodyWorkflowForCoverageSensitiveRequest,
   registerGroundingActions,
@@ -222,6 +222,9 @@ function hasSuccessfulDashboardSave(
       .toLowerCase()
       .replace(/[\s_]+/g, "-");
     if (!saveActions.has(name)) return false;
+    if (result.receipt) return result.receipt.changed;
+    // mutate-dashboard reports every write through a receipt; none means a dry run.
+    if (name === "mutate-dashboard") return false;
     const content = String(result.content ?? "").trim();
     if (!content.startsWith("{")) return true;
     try {
@@ -255,67 +258,64 @@ function hasPartialDashboardBuild(
   });
 }
 
-export const BOUNDED_STRUCTURED_LOOKUP_GUIDANCE =
-  "TRUST SIGNALS: Prefer a current `dashboardCertified: true` saved panel; a `favorite: true` panel is a weaker relevance signal. " +
-  'BOUNDED STRUCTURED LOOKUP FAST PATH — Treat existing analytics work like an engineer treats existing code: use the retrieved `<resource scope="analytics-catalog">` references when they fit the request. These bounded dictionary entries and dashboard panels provide definitions and query examples, never live results. For an ordinary count, aggregate, grouped metric, trend, or record lookup, preserve the strongest approved definition or saved query\'s source and business logic, adapt only the requested filters and explicit time window, then run one bounded query. If no preloaded reference fits, call `search-analytics-query-catalog` once with focused metric/entity terms; it searches accessible dashboards, saved queries, shipped patterns, and dictionary definitions. A user-named source wins, while a matching saved definition can still supply a proven query shape. If there is no useful match, inspect the likely source schema before asking about business meaning; do not ask the user for internal dataset, table, column, or SQL identifiers. Do not fan out across providers or load broad catalogs after a strong match. Once the query succeeds, answer with its source, time window, filters, row count, and only necessary caveats. Do not add unasked checks or breakdowns. The words `all`, `total`, or `exact` do not by themselves make it a corpus investigation. Never repeat an identical invalid or failed tool call, and never answer from a guess or unverified result. ';
-
-export const INTERNAL_PRODUCT_USAGE_GUIDANCE =
-  "INTERNAL PRODUCT USAGE / CROSS-SOURCE ROUTING — Requests for product usage, AI credits, credit consumption, allowances, quotas, branch creation, branch creators, or user-level adoption by month are live data requests even when they say pull, export, or prepare a report. For workspace-wide internal Builder.io usage, route to Dispatch with `call-agent` and `list-dispatch-usage-metrics`; use its `monthlyByUser` and `workspaceAppCreationsByUserMonth` result. Do not ask for a user export or BigQuery schema on that path. For a named customer or account such as OCBC, preserve the customer scope and do not substitute workspace metrics. Use a relevant preloaded Analytics reference when available; if none fits, call `search-analytics-query-catalog`, then `list-data-dictionary` and `search-bigquery-schema` only when the catalog has no usable definition. `search-bigquery-schema` can search the configured project without a dataset, so do not ask the user for identifiers. Use the exact discovered schema in one bounded query, and resolve the named account identity before attributing rows to it. Limits, plans, or changelog metadata do not prove actual consumption or creator identity. Report the exact evidence gap if the source is unavailable. ";
-
-export const ANALYTICS_ACCOUNT_HEALTH_GUIDANCE =
-  "ACCOUNT HEALTH / CUSTOMER SCOPE GUARD — Use this for a named customer, organization ID, account-health, QBR, renewal, contract-usage, risk, or adoption request. Treat a prompt-supplied org ID as a lookup key, not proof of row ownership: resolve it against canonical account data first, carry the resolved customer name plus organization/root-organization identifiers through every usage query, and stop if results contain a different customer, mixed IDs, or an unresolved identity. Use the account-health skill. Account health is incomplete until verified usage queries cover each requested product or feature dimension separately. Before warehouse SQL, use the catalog/dictionary and schema metadata. Do not run definitions marked deprecated or retired, or use a source whose freshness cannot be verified; use the current approved definition instead. Do not call a current partial-period snapshot a completed period without proving the period/as-of row and freshness. Distinguish contract metrics from similarly named platform metrics, total distinct contracted users from DAU/WAU, and actual usage from contracted capacity. Always surface utilization at or above 100%, report adoption window and coverage, and state gaps instead of inferring them. ";
-
-export const DASHBOARD_REFERENCE_GUIDANCE =
-  "DASHBOARD REFERENCE DISCOVERY — When the user asks to replicate, clone, or adapt an existing dashboard, this branch takes precedence over the ordinary metric fast path: call `search-dashboard-references` with focused terms before creating, editing, or querying anything. It searches accessible active saved dashboard ids, names, descriptions, and serialized config with bounded SQL wildcard matches, including legacy saved dashboards. Treat each result as a reference to inspect with `get-sql-dashboard` when `kind` is `sql` or `get-explorer-dashboard` when `kind` is `explorer`, not as proof that its source is authoritative for the new request. Do not automatically route a replication request to first-party Analytics or copy its source semantics without checking the user's requested provider and scope. ";
-
-export const BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE =
-  "BUILT-IN FIRST-PARTY SOURCE — Analytics always provides one built-in first-party source alongside connected external providers such as BigQuery, HubSpot, Gong, Slack, and the other configured integrations. This does not replace or restrict external sources. When `search-analytics-query-catalog` identifies a first-party dashboard/chart definition, preserve its event semantics and use `query-agent-native-analytics` over `analytics_events` or `session_recordings` as appropriate. When the user names an external provider, or the catalog identifies one as authoritative, query that provider instead. Do not report the first-party source as disconnected merely because an external provider is not configured. If the authoritative query returns no rows, report that grounded result with its scope and time window. ";
-
-export const ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE =
-  "OBSERVABILITY INCIDENT WORKFLOW — For a named user's session or error question, resolve the user's email from context, then use list-session-recordings with userId over a bounded recent window to discover the relevant sessions. Do not require hasErrors=true for this initial lookup: replay/network/stuck-run evidence can exist while the recording's JavaScript errorCount is zero. Use hasErrors=true only when the user specifically asks for recordings with captured JavaScript errors or the recording metadata confirms that filter is appropriate. Use list-error-issues with userId or sessionRecordingId to identify a grouped issue, then get-error-issue for stack, breadcrumbs, occurrences, and linked recordings. For console diagnostics or failed network requests, create-session-replay-agent-link first and use its scoped diagnostics endpoint for detailed error text, stacks, request metadata, and bounded 5xx snippets; enumerate with kind/limit and fromMs/toMs or offset when needed. Use get-session-replay-summary and get-session-replay-timeline for the page-navigation and click sequence, and use get-session-replay-events only for additional bounded replay-event details. If no grouped error exists, correlate first-party observability events such as agent_chat_stuck_detected with query-agent-native-analytics. This and other read-only investigation tools remain available in Plan mode; run the query instead of deferring it to execution mode. Prefer these first-party actions over generic SQL. Report the matching evidence and do not claim a root cause without a corroborating error, event, or replay signal. ";
-
-export const ANALYTICS_CROSS_APP_ROUTING_GUIDANCE =
-  "WORKSPACE APP ROUTING — Analytics is the sibling app for first-party product usage, app/template events, agent-native signups, conversions, and other curated product metrics. When another app delegates one of these questions with `call-agent`, answer it here using the built-in first-party source and query catalog; do not send the user back to another app or ask the caller to invent SQL. " +
-  'INTERNAL USAGE EXCEPTION — Builder.io or AI credit spend, LLM usage by workspace member or month, and workspace app or Builder branch creation history are Dispatch-owned internal metrics. For workspace-wide internal requests, call `call-agent` with agent `dispatch`, action `list-dispatch-usage-metrics`, and the exact read-only input `{ sinceDays, scope: "workspace" }` (add `userEmail` only when the user explicitly narrows the request). The result includes `monthlyByUser` and `workspaceAppCreationsByUserMonth` from the shared `token_usage` and Dispatch audit tables. Do not ask for a user export or BigQuery schema. A request scoped to a named customer or account, such as OCBC, is different: keep that customer scope and use the catalog, dictionary, configured warehouse schema, and one bounded query; do not substitute the current workspace metrics. ' +
-  "WORKSPACE APP ROUTING — Brain is the sibling app that owns company knowledge and indexed Slack context. Brain is not an Analytics extension and will not appear in `list-extensions`. When the user asks about company knowledge, decisions, meeting context, or Slack messages/context such as a named channel or thread, use `call-agent` with agent `brain` and a narrow natural-language question. Use `describe-workspace-apps` only when you need to confirm the sibling capability. Do not use `list-extensions` to find Brain, and do not use `provider-api-request` to call Brain. If Brain reports an access or source error, preserve that exact error; do not infer that the Slack bot is absent from a channel or tell the user to re-invite it. Stay in Analytics for metrics and aggregates over a named provider. ";
-
-export const NON_ANALYTICS_REQUEST_GUIDANCE =
-  "NON-ANALYTICS REQUESTS — If the user is not asking for a live metric, source record, or derived analytics claim, answer normally in chat. Greetings, general-knowledge questions, math, writing, coding, and conceptual questions do not need a data-source call. Do not use the no-grounded-data fallback for those requests. ";
-
-export const ANALYTICS_CUSTOM_BLOCK_GUIDANCE =
-  "<analytics-artifact-guidance>\n" +
-  "Analytics has one user-facing artifact type: dashboards. Build with native dashboard panels and Data Programs first. A sandboxed extension embedded in a dashboard is presented to users as a Custom Block, not as a separate Analytics artifact. " +
-  "Use native chart, table, metric, section, funnel, heatmap, callout, filter, and layout capabilities whenever they can represent the request faithfully. Reusable ROI, engagement, cross-sell, and win/loss dashboards should compose these native panels around real SQL or Data Program results. Use a Data Program when the durable need is reusable fetching, transformation, or computed data that native panels can render. Do not create a Custom Block merely because a request says custom, asks for a dashboard, or would take more effort with native components. " +
-  'EXTENSION DATA BOUNDARY — Code inside a Custom Block runs in an iframe and may call only actions that are HTTP-mounted and intended for `appAction`. Use the canonical `bigquery` action for warehouse SQL; never call `query-agent-native-analytics`, `bigquery-table-info`, or another `http: false` agent-only action from extension code. For first-party Analytics data, prefer a native `source: "first-party"` panel or have the agent query it and seed the extension data store. ' +
-  'Create a Custom Block only when the user explicitly asks for a genuinely bespoke or one-off visualization or interaction, the native dashboard model cannot represent it faithfully, and its intended scope is this dashboard. Create it with `create-extension`, immediately embed it as a `chartType: "extension"` panel with `config.extensionId`, and set `config.customBlock` to `{ authoredBy: "agent", intent: "one-off", scope: "dashboard", nativeGapReason: "custom-visualization" | "custom-interaction" | "custom-layout" | "other" }`. Choose the narrow categorical reason; never put prompt text, customer data, or other free text in this metadata. Use the host theme CSS variables and match the dashboard typography, card spacing, and density so the sandboxed content reads as an agent-authored patch to Analytics instead of a foreign mini-app. Describe it as a sandboxed, agent-authored dashboard patch. Never leave it standalone or direct the user to an Extensions page. ' +
-  "A Custom Block is a fast runtime patch, not the durable destination for reusable product behavior. If the request should work across dashboards or users, changes app chrome or business logic, adds a reusable chart type, needs native accessibility/export/governance, or explicitly asks for app code, a PR, or a native feature, call `connect-builder` with the request verbatim instead of creating a Custom Block. If scope is ambiguous, ask whether the user wants a one-off block for this dashboard or a reusable app feature before choosing. " +
-  "When the user chooses Promote to app code, preserve the existing Custom Block and pass its dashboard id, panel id, extension id, and requested native placement through `connect-builder`; do not delete or replace the block until the native implementation is reviewed and deployed. Legacy analyses and existing extension-backed dashboards remain readable and editable for compatibility.\n" +
-  "</analytics-artifact-guidance>";
-
 export const NON_ANALYTICS_FALLBACK_RETRY_MESSAGE =
   "<non-analytics-retry>\nThe user's latest message is ordinary conversation. Reply to it directly and naturally. Never answer it with the no-grounded-data disclaimer.\n</non-analytics-retry>";
 
 export const NON_ANALYTICS_FALLBACK_FINAL_MESSAGE =
   "I got stuck generating a reply to that message. Please try again or rephrase it.";
 
-export function analyticsSourceGuidanceOpening(): string {
-  return (
-    "<data-source-guidance>\n" +
-    "INTERNAL USAGE OVERRIDE — For workspace-wide Builder.io or AI credit spend, LLM usage by workspace member or month, or workspace app/Builder branch creation history, your FIRST tool call is `call-agent` for Dispatch with action `list-dispatch-usage-metrics`, scope `workspace`, and the requested `sinceDays`. Do not start with a user list, `search-bigquery-schema`, or a request for dataset/table/column names. If the request names a customer or account such as OCBC, preserve that customer scope and use the Analytics catalog/warehouse path instead of substituting workspace metrics. " +
-    "START HERE — For an ordinary metric, cohort, list, count, or trend question, inspect any preloaded Analytics references first. If a reference fits, preserve its definition and query shape, then run one bounded live query. If the references are absent or inadequate, call `search-analytics-query-catalog` once with focused terms. For a request to replicate, clone, or adapt a dashboard, call `search-dashboard-references` first and inspect the returned dashboard before changing anything. Retrieved references are context, not live results. Use schema discovery only when no catalog reference is usable, then run one bounded query. " +
-    ANALYTICS_CROSS_APP_ROUTING_GUIDANCE +
-    'ONE BOUNDED CALL — List, filter, count, and cohort questions ("which X, excluding Y") are a single query, not a loop. Express the include filter, the exclude filter, and the aggregation in one SQL statement or one `run-code` script that filters server-side. Never page through a cohort across separate tool calls and never fan out per item to apply a filter; that is what turns a ten-second answer into a twenty-minute one. ' +
-    "Apply real-data requirements only when presenting analytics results, source records, or derived metrics. Do not call data-source tools for workflow migration, recurring-job setup, UI/code fixes, settings help, conceptual planning, or other non-data tasks unless the user explicitly asks for data. " +
-    NON_ANALYTICS_REQUEST_GUIDANCE +
-    DASHBOARD_REFERENCE_GUIDANCE +
-    BOUNDED_STRUCTURED_LOOKUP_GUIDANCE +
-    INTERNAL_PRODUCT_USAGE_GUIDANCE +
-    ANALYTICS_ACCOUNT_HEALTH_GUIDANCE +
-    BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE +
-    ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE +
-    `DATA-SOURCE SETUP UX — Chat remains available when no external data source is connected. For a live-data request that needs an unavailable external provider, explain what is missing in the context of the user's question and guide them naturally to [Connect data sources](${ANALYTICS_DATA_SOURCES_LINK}). Use that real link from the app; do not emit a generic canned no-data sentence. For general conversation, conceptual questions, and questions the built-in first-party source can answer, continue helping normally. ` +
-    "SURFACE DIFFERENTIATION — You are the analytics assistant for definitions, deep-dive analysis, and action. For questions about what a metric, model, or table means, use the Data Dictionary and configured schema tools first. For trends, comparisons, anomalies, current data, or anything that requires querying live data, answer directly in chat with the relevant provider query, dashboard analysis, and inline charts when useful. "
-  );
+export interface AnalyticsPromptRule {
+  id: string;
+  text: string;
+}
+
+/** The always-on Analytics prompt: hard invariants plus a router to the skills
+ *  that own each procedure. Procedures live in skills, not here; the baseline
+ *  budget spec counts this list. */
+export const ANALYTICS_PROMPT_RULES: readonly AnalyticsPromptRule[] = [
+  {
+    id: "real-data",
+    text: "REAL DATA — Present metrics, counts, trends, or source-record conclusions only from a live data-source query that ran this turn; a catalog or dictionary hit, `data-source-status`, `get-sql-dashboard`, and dry-run validation are not data queries. Never substitute a fabricated number for a failed query or unavailable provider; report the exact gap. Non-data tasks (greetings, general knowledge, math, writing, coding, workflow or settings help, conceptual planning) need no data call and never get the no-grounded-data fallback.",
+  },
+  {
+    id: "references",
+    text: 'REFERENCES — The system may preload bounded dictionary entries and saved dashboard panels in `<resource scope="analytics-catalog">`. They supply definitions and query examples, never current values. Approved entries are canonical, unreviewed human entries unverified, AI-generated unapproved entries suggestions. If nothing fits, search once with `search-analytics-query-catalog`, then `list-data-dictionary` or `search-bigquery-schema`. The words all, total, or exact do not by themselves make a question a corpus investigation.',
+  },
+  {
+    id: "failed-calls",
+    text: "FAILED CALLS — Correct invalid arguments once; never repeat an identical failed call. For credential, permission, quota, network, or repeated schema failures, stop using that source for the turn and surface the actual error rather than trying unrelated providers. `search-bigquery-schema` searches the configured project without a dataset, and `list-data-dictionary` defines the metrics.",
+  },
+  {
+    id: "understand-the-ask",
+    text: 'UNDERSTAND THE ASK — The open dashboard and selected panel (`<current-screen>`, `selected-object`) are what "this", "that", and "it" mean. When a preloaded or catalog reference fits, keep its source and business logic and change only filters and window; prefer certified over favorite over unmarked. If an ambiguity would change the numbers, ask exactly one `ask-question` with a recommended default; otherwise pick the default and label it. Open a data answer with one line, "Reading this as: <metric definition>, <window>, <filters>, <source>"; open an edit with "Changing <panel title> on <dashboard>". A source the user names wins. Never ask the user for dataset, table, column, or SQL identifiers; look them up.',
+  },
+  {
+    id: "sources",
+    text:
+      "SOURCES — A provider the user names is authoritative for the turn: use its first-class query action, or `tool-search` for it when it is not loaded, instead of loading unrelated catalogs. `query-agent-native-analytics` is the always-available built-in first-party source (product events, signups, session recordings): never call it disconnected because an external provider is, and keep the event semantics of a first-party dashboard definition the catalog returns. When a live request needs an unavailable external provider, explain what is missing in context and link [Connect data sources](" +
+      ANALYTICS_DATA_SOURCES_LINK +
+      ") rather than a canned no-data sentence. Load provider API, corpus, staging, or code tools (`provider-api-request`, `provider-corpus-job`, `query-staged-dataset`, `run-code`) only for explicit cross-source work, exhaustive unstructured-record coverage, an absence claim the first-class action cannot support, or a durable export.",
+  },
+  {
+    id: "workspace-routing",
+    text: 'WORKSPACE ROUTING — Analytics owns first-party product usage, app/template events, agent-native signups, and conversions; when another app delegates one with `call-agent`, answer here from the built-in source and query catalog. Builder.io or AI credit spend, LLM usage by workspace member or month, and workspace app or Builder branch creation history are Dispatch-owned: your first call is `call-agent` with agent `dispatch`, action `list-dispatch-usage-metrics`, and input `{ sinceDays, scope: "workspace" }` (add `userEmail` only when the user narrows to one person), then read `monthlyByUser` and `workspaceAppCreationsByUserMonth`. Do not ask for a user export or BigQuery schema on that path. A request scoped to a named customer or account keeps that scope and uses the catalog, dictionary, schema, and one bounded query; never substitute workspace metrics, and resolve the account identity before attributing rows to it. Company knowledge, decisions, meeting context, and Slack context belong to the Brain app: `call-agent` with agent `brain` and a narrow natural-language question (Brain is not in `list-extensions`; do not use `provider-api-request` for it), and report its access or source errors verbatim.',
+  },
+  {
+    id: "dashboard-builds",
+    text: "DASHBOARD BUILDS — An explicit request to build, create, save, or adapt a dashboard authorizes every non-destructive in-app step to finish it in the same turn: query or scaffold, seed extension data, save, embed, navigate. Do not ask 'want me to proceed?' or stop at an empty shell; ask one question only when metric scope or grain changes the result, and pause for destructive changes or external side effects such as sending email or outreach. An approved action with concrete input runs exactly as given, and its dashboard id is authoritative: do not reinterpret an edit as a template clone.",
+  },
+  {
+    id: "skills",
+    text: 'SKILLS — Read the owning skill with `docs-search --slug "skill-<name>"` before the work: `dashboard-management` to create a dashboard or to move, reorder, lay out, or file panels (a small edit of one existing panel needs no skill: `get-sql-dashboard` with `panelIds`, then `mutate-dashboard`); `custom-blocks` for extension panels, which are a one-off exception to native panels; `account-health` for a named customer, QBR, or renewal; `incident-investigation` for a named user\'s sessions, errors, stuck runs, or replay evidence; `analysis-workspace` for CSV, XLSX, or file delivery. Deliver a CSV or file in chat with Download CSV on compact tables; for a durable export load `show-workspace-file`; never finish with only a path. Deferred tools load with one `tool-search` call: `update-dashboard`, `compose-dashboard`, `generate-chart`, `show-workspace-file`, `provider-api-request`.',
+  },
+  {
+    id: "acknowledgments",
+    text: "ACKNOWLEDGMENTS: Give at most one brief acknowledgment. Avoid stacked compliments; address the feedback directly.",
+  },
+];
+
+export function analyticsExtraContext(): string {
+  return `<data-source-guidance>\n${ANALYTICS_PROMPT_RULES.map((rule) => rule.text).join("\n")}\n</data-source-guidance>`;
 }
 
 const SCHEMA_DETAILS_REQUEST_PATTERN =
@@ -325,12 +325,6 @@ function looksLikeSchemaDetailsRequest(text: string): boolean {
   return SCHEMA_DETAILS_REQUEST_PATTERN.test(
     stripInjectedAnalyticsGuardContext(String(text ?? "")),
   );
-}
-
-export function analyticsDataDictionaryRoutingContext(): string {
-  return `<data-dictionary-routing>
-The system may preload a small set of relevant dictionary entries and saved dashboard panels in \`<resource scope="analytics-catalog">\`. Use a matching definition or query example as context, then query the live source; retrieved references never supply current values. If no preloaded reference fits, use \`search-analytics-query-catalog\` for focused dictionary and saved-dashboard search. Call \`list-data-dictionary\` separately when the catalog has no usable match or the user asks to browse or filter definitions. Treat approved entries as canonical, unreviewed human entries as unverified, and AI-generated unapproved entries as suggestions. If no matching definition or chart exists, inspect the likely source schema before asking about business meaning. Never ask the user to supply internal dataset, table, column, or SQL identifiers that configured actions can discover.
-</data-dictionary-routing>`;
 }
 
 export { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
@@ -874,8 +868,11 @@ export function realDataFinalGuard(
   const userText = stableRequestText ?? latestUserText(context.messages ?? []);
   const dashboardConstructionRequest =
     looksLikeDashboardConstructionRequest(userText);
+  // A turn that already ran catalog discovery is a data turn whatever the
+  // wording, so a draft that follows it without a query is still judged.
   if (
-    !looksLikeAnalyticsDataRequest(userText) &&
+    isNonDataTurn(userText) &&
+    !hasCatalogSearchAttempt(context.toolResults) &&
     !dashboardConstructionRequest
   ) {
     if (isGenericNoDataFallback(context.text)) {
@@ -990,7 +987,6 @@ export function realDataFinalGuard(
     };
   }
   if (
-    hasDashboardMutationAttempt(context.toolResults) &&
     hasSuccessfulDashboardSave(context.toolResults) &&
     !draftClaimsAnalyticsMetrics(context.text)
   ) {
@@ -1208,6 +1204,9 @@ export default createAgentChatPlugin({
       preloadedReferenceCount:
         getRequestRunContext()?.analyticsJevPrefetch?.preloadedReferenceCount ??
         0,
+      // Core merges this app's status with its own preload stages.
+      prefetchStatus:
+        getRequestRunContext()?.contextStatus?.prefetch ?? "unrecorded",
     });
     properties.memory_capture_queued = memoryCaptureQueued;
     const { track } = await import("@agent-native/core/tracking");
@@ -1215,6 +1214,7 @@ export default createAgentChatPlugin({
   },
   prepareRequest: async ({
     ownerEmail,
+    message,
     requestContext,
     contextPrefetchDeadlineAt,
     dispatchToBackground,
@@ -1222,16 +1222,19 @@ export default createAgentChatPlugin({
     if (
       !ownerEmail ||
       dispatchToBackground ||
-      !looksLikeAnalyticsDataRequest(requestContext)
+      isTrivialTurn(message ?? requestContext)
     ) {
       return;
     }
-    return retrieveAnalyticsPromptReferences({
-      request: requestContext,
-      email: ownerEmail,
-      orgId: getRequestOrgId() || null,
-      deadlineAt: contextPrefetchDeadlineAt,
-    });
+    const { prefetchStatus, ...references } =
+      await retrieveAnalyticsPromptReferences({
+        request: requestContext,
+        email: ownerEmail,
+        orgId: getRequestOrgId() || null,
+        deadlineAt: contextPrefetchDeadlineAt,
+      });
+    // Core turns `timed_out` and `failed` into the model's context note.
+    return { ...references, status: prefetchStatus };
   },
   leanPrompt: isProductionServerlessRuntime(),
   actions: loadActionsFromStaticRegistry(actionsRegistry),
@@ -1248,35 +1251,7 @@ export default createAgentChatPlugin({
     const ctx = await getOrgContext(event);
     return ctx.orgId;
   },
-  extraContext: async () => {
-    const sourceGuidance =
-      analyticsSourceGuidanceOpening() +
-      "DASHBOARD CREATION RULE — You may create dashboard artifacts, SQL panels, or other resources only when the user explicitly asks you to (e.g. 'build me a dashboard for...', 'save this analysis', 'add a chart for...'). Treat a requested saved analysis or deep-dive report as a dashboard request. Never create any resource proactively during research, trend analysis, or answering questions. If you think a dashboard would be useful, suggest it and wait for explicit confirmation before creating anything. Never add new items to the sidebar or modify existing dashboards without an explicit user directive. " +
-      "EXECUTION CONTINUITY — An explicit request to build, create, save, or adapt a dashboard or one-off Custom Block authorizes all non-destructive in-app steps required to finish it in the same turn. After querying or scaffolding, continue through extension-data seeding/refresh, dashboard save/embed, and navigation. Do not ask 'want me to proceed?' or stop at an empty shell. Ask one clarification only when metric scope or grain materially changes the result, and pause for destructive changes or external side effects such as sending email or outreach. " +
-      "APPROVED MUTATION CONTINUITY — If this turn includes an explicitly approved dashboard action with concrete input, execute that exact action and input immediately. Treat the supplied dashboard id as authoritative: do not reinterpret an existing-dashboard edit as a template clone, ask for a template name, or substitute an inspection step. A dashboard mutation is complete only when the action result proves `saved: true` and the requested change is reflected by `changed: true`, refreshed/changed panel ids, or an equivalent non-empty proof field; a natural-language acknowledgement or a no-op with skipped panels is not success. " +
-      "DASHBOARD MUTATION RULE — For first-party dashboard creation or catalog refreshes, use `compose-dashboard` with metric keys; set `refreshExisting: true` when updating matching catalog panels so the server regenerates validated SQL without sending a large SQL payload through the prompt. For ordinary existing edits, use `mutate-dashboard` with structured `operations` in one atomic save; use its short `code` form only for compact layout/config edits. Both forms address panels by id, validate the resulting config, and return proof. Never stream a large multi-panel SQL script or count shifting `/panels/<index>` positions unless the user specifically asks for low-level JSON-pointer operations. " +
-      'CUSTOM BLOCK RULE — Analytics can embed sandboxed extensions as dashboard-scoped Custom Blocks, but native panels and Data Programs come first. Do not create one for an ordinary "put X in this dashboard" request. Use `config.extensionId` only for an explicitly requested one-off or bespoke visualization that the native dashboard model cannot represent faithfully. For each new block, set `config.customBlock` with `authoredBy: "agent"`, `intent: "one-off"`, `scope: "dashboard"`, and a categorical `nativeGapReason` of `custom-visualization`, `custom-interaction`, `custom-layout`, or `other`; never store prompt or customer text there. The embed is shared with the dashboard, appears in scheduled reports, and receives dashboard/panel/current-filter context. Use `config.extensionSlotId` only when the user explicitly asks for a personal/per-viewer slot. Slot ids use `analytics.dashboard.<dashboard-id>.panel.<panel-id>` and require `add-extension-slot-target` plus `install-extension`; installs are per-user, so viewers can see different content and report identities may see an empty slot. Use `get-sql-dashboard` panel summaries to inspect an existing Custom Block. ' +
-      'EXTENSION DATA-REPAIR RULE — When fixing data in an existing extension-backed dashboard or migrated surface such as Risk Meeting, inspect the current dashboard and extension first, then call `update-extension` with exactly `id`, `operation="edit"`, and a `payloadJson` string containing focused patches/edits that change only the data-loading seam. Never send empty placeholder fields. Preserve the existing layout, CSS, copy, and interactions; never reconstruct the full HTML body for a data-only fix. A request that combines a visual rewrite such as compacting, removing sections, renaming, or changing padding with a data repair is a broad rewrite; after inspecting the current extension, use `operation="replace"` with the complete replacement in `payloadJson`. If a focused edit fails, change the target instead of retrying identical arguments. ' +
-      'FIRST-PARTY DASHBOARD TIME RULE — AI-generated `source: "first-party"` panels are dashboard-time-bound by default: set `config.timeScope` to `dashboard` and include a matching dashboard time predicate. `{{timeRange}}` requires a matching `filters` entry with `id: "timeRange"` and `type: "select"`; `{{<id>Start}}`/`{{<id>End}}` require a matching `type: "date-range"` filter with that id. Allowed `timeScope` values are `dashboard`, `fixed-window`, `cohort-history`, and `all-time`; use `all-time` only when the user requests full available history and put all-time, lifetime, or historical in the title or description. Server validation rejects unbound first-party SQL. ' +
-      "DASHBOARD READ RULE — `get-sql-dashboard` is compact by default: use its `panels` summaries plus `layout.panelOrder`, `layout.firstPanelIds`, and `layout.groups[].rows[].rowNumber/panelIds` for orientation and verification. Pass `includeConfig: true` only when you truly need full panel SQL/config. " +
-      'DASHBOARD REORDER RULE — For simple chart/section moves, use `mutate-dashboard` code such as `dashboard.panels(["panel-a","panel-b"]).moveToTop();`. For visible placement requests like "second row" or "next to return rates", use row-aware placement such as `dashboard.insertPanel({...}).nextTo("retention-over-time")`, `.atRow(2)`, or `dashboard.panel("panel-a").moveNextTo("panel-b")`; these keep panels in the intended rendered row and expand/rebalance that row when needed. Never count shifting `/panels/<index>` positions for ordinary \'move this chart\' requests. Use `get-sql-dashboard.layout.groups[].rows` as proof of visible row placement, not only flat `panelOrder`. ' +
-      "Use configured data sources and actions only. The built-in first-party Analytics source is an additional source and is always available through `query-agent-native-analytics`, even when no external provider credentials are connected. External provider actions remain available and are the authoritative path when the user names a provider or the data lives there. Call `data-source-status` when you need to know which external providers are connected, and treat provider actions as unavailable for analysis only if they return missing credentials, permission, syntax, quota, or network errors. " +
-      "The built-in `demo` dashboard source is a demo-environment Prometheus source reserved for the Node Exporter demo. It must never satisfy REAL_DATA_REQUIRED or be cited as user analytics evidence unless the user explicitly asks to inspect the demo dashboard. " +
-      "When the user names a provider such as first-party Analytics, BigQuery, HubSpot, Gong, Jira, Pylon, Slack, Sentry, GA4, or another connected source, that source is authoritative for the turn. Use its first-class query action when available; if it is not on the initial tool surface, use tool-search for that provider instead of loading unrelated catalogs. For an ordinary structured lookup, make one bounded query and stop on success. " +
-      "Load provider API, corpus, staging, or code tools only when the user explicitly requests cross-source work, exhaustive unstructured-record coverage, an absence claim that the first-class action cannot support, or a durable CSV export. For a compact first-party table, use the query action's Download CSV control. For durable CSV, use run-code with workspaceWrite and show-workspace-file. For an explicit XLSX workbook, use docs-search once to load the spreadsheet export workflow; run-code cannot import xlsx or exceljs packages. For broad data workflows, fetch every relevant page or an explicitly bounded cohort, preserve coverage counts, and state any uncovered records. " +
-      "For named deal, account, renewal, churn-risk, or customer deep dives that need HubSpot and Gong context, `account-deep-dive` can provide a bounded evidence bundle. Do not answer a requested transcript deep dive from call metadata alone. " +
-      "When the user refers to the current dashboard artifact, this analysis, this project, or asks to spin off, adapt, modify, or reuse a saved analysis, call `view-screen` first and use the returned dashboard details; for an explicitly named legacy analysis id, call `get-analysis` before responding and preserve its legacy deep link only for compatibility. " +
-      "If a query action fails because its arguments are invalid, correct the arguments once. Never repeat the identical failed call. For credential, permission, quota, network, or repeated schema failures, stop using that source for the turn and surface the actual error instead of trying unrelated providers. " +
-      "EXPORT DELIVERY: For a user-requested CSV, Markdown, or other file, deliver it in the same chat turn. Set `showTable: true` on `query-agent-native-analytics` only when the user explicitly asks to see query rows; single numeric results render as an Analysis result card, and other results should ground a concise answer without a table. For a durable export, write only verified successful data to a non-scratch workspace path, then call `show-workspace-file` with that exact path so chat renders a direct download card. Never save an error or failed response as the requested export, and never finish with only a path or filename. " +
-      "For ordinary ad-hoc structured data questions, answer the explicit question after the first relevant successful query or bounded evidence batch. The words all, total, or exact do not require cross-source validation when a single structured query fully covers the requested source and filters. " +
-      "If the user challenges coverage, asks why more records were not included, or asks for the updated answer, rerun the relevant source query or revise from the corrected cohort and provide the updated deliverable directly. Do not claim a dashboard artifact was revised unless the revised answer is included in the response or saved with `update-dashboard`. " +
-      "Unstructured source records are valid analytics evidence: Pylon tickets, Jira issues, Gong calls/transcripts, Slack messages, and similar text records may be coded for themes, mention counts, sentiment, objections, and qualitative patterns as long as the answer states the inspected sample size and does not imply unsupported statistical certainty. " +
-      "SESSION REPLAY / PROMPT EVIDENCE — When a connected MCP exposes behavioral analytics or session replay, use it for qualitative product questions: start with an aggregate or bounded customer cohort, inspect a documented-limit sample of sessions, then read event transcripts and request screenshots or accessibility evidence when available. Treat explicitly typed user text as the prompt; keep generated suggestions, agent responses, and UI labels separate. Report session/user counts, sample bounds, masking or redaction, replay/screenshot availability, and source gaps. Never claim a visual was inspected unless the tool returned it. " +
-      "For schema questions, prefer data-dictionary entries and configured warehouse schemas over assumptions; use `search-bigquery-schema` for BigQuery metadata before inventing datasets, tables, or columns. " +
-      "Before finalizing any analytics answer, make the evidence trail explicit enough to audit: answer the user's question, name the source(s), time window, sample size or row count, filters, join/match method, caveats/gaps, and recommended next action when useful. Never substitute fabricated numbers for a failed query or unavailable provider. It is fine to ask a clarifying question, provide a plan, or say exactly which source is unavailable as long as you do not present metrics or source-record conclusions without evidence.\n" +
-      "</data-source-guidance>";
-    return `${sourceGuidance}\n\n${ANALYTICS_CUSTOM_BLOCK_GUIDANCE}\n\n${analyticsDataDictionaryRoutingContext()}`;
-  },
+  extraContext: analyticsExtraContext,
   mentionProviders: {
     dashboards: {
       label: "Dashboards",

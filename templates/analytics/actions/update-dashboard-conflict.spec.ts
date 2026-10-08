@@ -45,8 +45,12 @@ let row: { config: Record<string, unknown>; updatedAt: string } | null = null;
 let nextUpdatedAt = 0;
 
 vi.mock("../server/lib/dashboards-store", () => ({
+  assertDashboardEditable: vi.fn(async () => undefined),
   DashboardConflictError: mocks.DashboardConflictError,
-  upsertDashboard: vi.fn(
+  getDashboard: vi.fn(async () =>
+    row ? { kind: "sql", config: row.config } : null,
+  ),
+  upsertDashboardOutcome: vi.fn(
     async (
       _id: string,
       _kind: string,
@@ -63,10 +67,10 @@ vi.mock("../server/lib/dashboards-store", () => ({
       }
       nextUpdatedAt += 1;
       row = { config, updatedAt: `t${nextUpdatedAt}` };
-      return { ...row };
+      return { dashboard: { ...row }, didWrite: true };
     },
   ),
-  upsertDashboardWithRetry: vi.fn(),
+  upsertDashboardWithRetryOutcome: vi.fn(),
 }));
 
 const { default: updateDashboard } = await import("./update-dashboard");

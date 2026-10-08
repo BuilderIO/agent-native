@@ -964,6 +964,10 @@ export default {
       interact: "Interact",
       screens: "屏幕",
     },
+    topBar: {
+      modeDesign: "设计",
+      modeSwitch: "编辑器模式",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",
@@ -984,6 +988,10 @@ export default {
     keyboardShortcuts: {
       title: "键盘快捷键",
       close: "关闭: 键盘快捷键",
+      search: "搜索",
+      searchLabel: "搜索键盘快捷键",
+      categoriesLabel: "快捷键分类",
+      empty: "没有与“{{query}}”匹配的快捷键",
       codeContext: "代码",
       screenContext: "屏幕",
       nudgeAmount: {
@@ -1016,11 +1024,6 @@ export default {
         leftBracket: "左方括号",
         rightBracket: "右方括号",
       },
-      descriptions: {
-        toggleUi: "立即按下以快速隐藏面板并专注于工作",
-        undo: "逐步撤销最近的设计更改",
-        redo: "恢复刚刚撤销的设计更改",
-      },
       categories: {
         essential: "基本",
         tools: "工具",
@@ -1052,6 +1055,7 @@ export default {
         showLayers: "图层",
         showAssets: "资源",
         toggleUi: "View",
+        toggleMinimalUi: "极简界面",
         toggleComments: "固定评论",
         zoomIn: "放大",
         zoomOut: "缩小",

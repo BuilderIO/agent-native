@@ -295,6 +295,8 @@ export interface AgentChatRequest {
   internalContinuation?: boolean;
   /** The time-limit stop this request continues, in the same turn. */
   autoContinueOfRunId?: string;
+  /** The stopped run a person chose to continue, in the same turn. */
+  continueOfRunId?: string;
   __backgroundRun?: {
     runId: string;
     turnId?: string;
@@ -398,6 +400,7 @@ export type AgentChatEvent =
       input?: AgentToolInput;
       result: string;
       isError?: boolean;
+      errorCode?: string;
       completedSideEffect?: boolean;
       replayed?: true;
       fileMutation?: AgentFileMutationProof;

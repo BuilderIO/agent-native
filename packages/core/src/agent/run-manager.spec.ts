@@ -5,6 +5,7 @@ import {
   BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS,
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -850,6 +851,29 @@ describe("run manager soft timeout", () => {
         "errored",
       );
     });
+  });
+
+  it("identifies terminal events for attempt-scoped persistence", async () => {
+    const persistedEvents: boolean[] = [];
+    const run = startRun(
+      "run-event-persistence-metadata",
+      "thread-event-persistence-metadata",
+      async (send) => {
+        send({ type: "text", text: "finished" });
+      },
+      undefined,
+      {
+        softTimeoutMs: 0,
+        persistEvent: async (write, metadata) => {
+          persistedEvents.push(metadata.terminal);
+          await write();
+        },
+      },
+    );
+
+    await run.finalized;
+
+    expect(persistedEvents).toEqual([false, true]);
   });
 
   it("records terminal error diagnostics for errored runs", async () => {
@@ -2089,6 +2113,43 @@ describe("run manager soft timeout", () => {
     } finally {
       unregister();
     }
+  });
+
+  it("does not execute a service-principal run after its durable start is refused", async () => {
+    const runFn = vi.fn(async () => {});
+    vi.mocked(insertRun).mockRejectedValueOnce(
+      new ServicePrincipalRefusedError(
+        "service_principal_inactive",
+        "This service principal is suspended or retired.",
+      ),
+    );
+
+    const run = startRun(
+      "run-refused-service-principal",
+      "thread-refused-service-principal",
+      runFn,
+      undefined,
+      {
+        softTimeoutMs: 0,
+        runRowAlreadyInserted: true,
+        turnInitiator: {
+          email: "svc-ci@service.org-1",
+          orgId: "org-1",
+          anonymous: false,
+        },
+      },
+    );
+
+    await run.finalized;
+
+    expect(insertRun).toHaveBeenCalledWith(
+      "run-refused-service-principal",
+      "thread-refused-service-principal",
+      undefined,
+      { turnInitiator: expect.any(Object) },
+    );
+    expect(runFn).not.toHaveBeenCalled();
+    expect(run.status).toBe("errored");
   });
 
   it("captures run-event persistence failures with the sequence and event type", async () => {
@@ -4569,6 +4630,60 @@ describe("run manager soft timeout", () => {
       expect(getRun("run-persist-permanent-gap")).toBeNull();
     },
   );
+
+  it("keeps user cancellation when a pending event write permanently fails", async () => {
+    let rejectFirstWrite!: (error: Error) => void;
+    let seqZeroAttempts = 0;
+    const writeError = new Error("permanent event persistence failure");
+    const onComplete = vi.fn();
+    vi.mocked(insertRunEvent).mockImplementation(async (_runId, seq) => {
+      if (seq === 0 && seqZeroAttempts++ === 0) {
+        await new Promise<void>((_resolve, reject) => {
+          rejectFirstWrite = reject;
+        });
+      }
+      throw writeError;
+    });
+
+    const run = startRun(
+      "run-abort-during-event-persistence",
+      "thread-abort-during-event-persistence",
+      async (send, signal) => {
+        send({ type: "text", text: "pending event" });
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      onComplete,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.waitFor(() => expect(rejectFirstWrite).toBeTypeOf("function"));
+    expect(abortRun(run.runId, "user")).toBe(true);
+    rejectFirstWrite(writeError);
+    await run.finalized;
+
+    expect(run.status).toBe("aborted");
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "aborted",
+        events: expect.arrayContaining([
+          expect.objectContaining({
+            event: expect.objectContaining({ type: "done" }),
+          }),
+        ]),
+      }),
+    );
+    expect(setRunError).not.toHaveBeenCalledWith(
+      run.runId,
+      "run_event_persistence_failed",
+      expect.anything(),
+    );
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      run.runId,
+      "aborted:user",
+    );
+  });
 
   describe("no-progress backstop", () => {
     it("exports foreground and background backstop constants", () => {

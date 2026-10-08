@@ -1,6 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { assertAccess, roleSatisfies } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { and, eq, isNull, ne } from "drizzle-orm";
@@ -26,6 +29,7 @@ import {
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
 import { serializeDocumentSource } from "./_document-source.js";
+import { previewDocumentDraftAnswer } from "./_preview-document-draft.js";
 import {
   getDatabaseById,
   listPropertiesForDocument,
@@ -91,6 +95,12 @@ export default defineAction({
       .describe(
         "Backing collection document ID; only use with databaseId for the exact collection context.",
       ),
+    includePreviewDraft: z
+      .boolean()
+      .optional()
+      .describe(
+        "Also return the current user's private unsaved draft of this page as previewDraft. The editor sets this when it opens a page; other callers omit it.",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -116,6 +126,7 @@ export default defineAction({
     const hasInlineDatabase = documentHasInlineDatabase(doc.content ?? "");
     const mayBeExternallyLinked =
       canCommentRole(access.role) && !source?.mode && !hasInlineDatabase;
+    const readsPreviewDraft = args.includePreviewDraft === true && !!userEmail;
 
     // These reads depend only on the document, so they run as one round of
     // parallel statements. The checks after them decide what is returned.
@@ -127,6 +138,7 @@ export default defineAction({
       bodyHydrationTarget,
       favoriteIds,
       externalLink,
+      previewDraft,
     ] = await Promise.all([
       isSoftDeletedDatabaseDocument(args.id),
       db
@@ -183,6 +195,19 @@ export default defineAction({
             )
             .limit(1)
         : [],
+      readsPreviewDraft
+        ? previewDocumentDraftAnswer(
+            userEmail!,
+            getRequestOrgId() ?? "",
+            doc.id,
+          ).catch(
+            // coercion-ok: a failure here is no answer, not "nothing to
+            // recover". This page's access can come from its space, which the
+            // draft read never uses. Leaving previewDraft out sends the browser
+            // to get-preview-document-draft, which asks again and reports it.
+            () => undefined,
+          )
+        : undefined,
     ]);
     if (softDeleted) {
       throw Object.assign(new Error(`Document "${args.id}" not found`), {
@@ -356,6 +381,9 @@ export default defineAction({
       canSuggest,
       canEdit: canEditRole(access.role),
       canManage: canManageRole(access.role),
+      ...(ctx?.mcpDirectoryWidgetReadOnly
+        ? { mcpDirectoryWidgetReadOnly: true as const }
+        : {}),
       database: database
         ? serializeDatabase(database, doc.description)
         : undefined,
@@ -400,6 +428,9 @@ export default defineAction({
             definition: { ...property.definition, databaseId: null },
           })),
       contextPath,
+      // The same answer get-preview-document-draft gives, so a page open
+      // needs no second request before it can show the page.
+      ...(previewDraft ? { previewDraft } : {}),
     };
   },
   link: ({ result }) => {

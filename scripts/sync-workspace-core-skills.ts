@@ -10,6 +10,7 @@ import {
   readlinkSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -89,6 +90,13 @@ const factoryBundleSkillsDir = join(
   "skills",
 );
 const factoryBundleSkillIncludes = ["review-latest-feedback", "review-prs"];
+const FACTORY_REPO_ONLY_MARKERS = {
+  start: "<!-- framework-repo-only:start -->",
+  end: "<!-- framework-repo-only:end -->",
+};
+const FACTORY_EXCLUDED_SKILL_FILES = {
+  "review-latest-feedback": new Set(["references/ci-red-report.md"]),
+};
 
 const workspaceSkillIncludes = [...WORKSPACE_SKILLS];
 
@@ -411,9 +419,51 @@ function checkInSync() {
   );
 }
 
-function checkSkillDirInSync(label, skill, targetSkillDir) {
+function factorySkillFiles(skill) {
   const sourceSkillDir = join(sourceDir, skill);
-  const expected = listFiles(sourceSkillDir);
+  const excluded = FACTORY_EXCLUDED_SKILL_FILES[skill] ?? new Set();
+  return listFiles(sourceSkillDir).filter((file) => !excluded.has(file));
+}
+
+function factorySkillContent(skill, file, content) {
+  if (skill !== "review-latest-feedback" || file !== "SKILL.md") return content;
+  const output = [];
+  let inRepoOnlyBlock = false;
+  let blockCount = 0;
+  for (const line of content.split("\n")) {
+    if (line.trim() === FACTORY_REPO_ONLY_MARKERS.start) {
+      if (inRepoOnlyBlock) {
+        throw new Error("nested framework-repo-only skill markers");
+      }
+      inRepoOnlyBlock = true;
+      blockCount += 1;
+      continue;
+    }
+    if (line.trim() === FACTORY_REPO_ONLY_MARKERS.end) {
+      if (!inRepoOnlyBlock) {
+        throw new Error("unmatched framework-repo-only end marker");
+      }
+      inRepoOnlyBlock = false;
+      continue;
+    }
+    if (!inRepoOnlyBlock) output.push(line);
+  }
+  if (inRepoOnlyBlock || blockCount === 0) {
+    throw new Error("review-latest-feedback needs repo-only section markers");
+  }
+  return output.join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
+function checkSkillDirInSync(
+  label,
+  skill,
+  targetSkillDir,
+  factoryTarget = false,
+) {
+  const sourceSkillDir = join(sourceDir, skill);
+  const expected = factoryTarget
+    ? factorySkillFiles(skill)
+    : listFiles(sourceSkillDir);
   const actual = listFiles(targetSkillDir);
   const expectedSet = new Set(expected);
   const actualSet = new Set(actual);
@@ -421,9 +471,11 @@ function checkSkillDirInSync(label, skill, targetSkillDir) {
   const extra = actual.filter((file) => !expectedSet.has(file));
   const changed = expected.filter((file) => {
     if (!actualSet.has(file)) return false;
+    const sourceContent = readFileSync(join(sourceSkillDir, file), "utf-8");
     return (
-      readFileSync(join(sourceSkillDir, file), "utf-8") !==
-      readFileSync(join(targetSkillDir, file), "utf-8")
+      (factoryTarget
+        ? factorySkillContent(skill, file, sourceContent)
+        : sourceContent) !== readFileSync(join(targetSkillDir, file), "utf-8")
     );
   });
 
@@ -796,15 +848,22 @@ function forEachExistingTemplateSharedSkill(fn) {
         "skills",
         skill,
       );
-      fn(`templates/${template}/.agents/skills`, skill, targetSkillDir);
+      fn(
+        `templates/${template}/.agents/skills`,
+        skill,
+        targetSkillDir,
+        template === "factory",
+      );
     }
   }
 }
 
 function checkTemplateSharedSkillsInSync() {
-  forEachExistingTemplateSharedSkill((label, skill, targetSkillDir) => {
-    checkSkillDirInSync(label, skill, targetSkillDir);
-  });
+  forEachExistingTemplateSharedSkill(
+    (label, skill, targetSkillDir, factoryTarget) => {
+      checkSkillDirInSync(label, skill, targetSkillDir, factoryTarget);
+    },
+  );
   checkNoStaleTemplateSharedSkills();
 }
 
@@ -814,6 +873,7 @@ function checkFactoryBundleSkillsInSync() {
       "packages/core/src/templates/factory/.agents/skills",
       skill,
       join(factoryBundleSkillsDir, skill),
+      true,
     );
   }
 }
@@ -905,7 +965,7 @@ function validateSourceSkills() {
   }
 }
 
-function copySkill(skill, targetSkillDir) {
+function copySkill(skill, targetSkillDir, factoryTarget = false) {
   const sourceSkillDir = resolveSourceSkill(skill);
   if (
     existsSync(targetSkillDir) &&
@@ -917,6 +977,16 @@ function copySkill(skill, targetSkillDir) {
   rmSync(targetSkillDir, { recursive: true, force: true });
   mkdirSync(dirname(targetSkillDir), { recursive: true });
   cpSync(sourceSkillDir, targetSkillDir, { recursive: true });
+  if (factoryTarget) {
+    for (const file of FACTORY_EXCLUDED_SKILL_FILES[skill] ?? []) {
+      rmSync(join(targetSkillDir, file), { force: true });
+    }
+    const skillFile = join(targetSkillDir, "SKILL.md");
+    writeFileSync(
+      skillFile,
+      factorySkillContent(skill, "SKILL.md", readFileSync(skillFile, "utf-8")),
+    );
+  }
 }
 
 function syncWorkspaceCoreSkills() {
@@ -928,9 +998,11 @@ function syncWorkspaceCoreSkills() {
 }
 
 function syncTemplateSharedSkills() {
-  forEachExistingTemplateSharedSkill((_template, skill, targetSkillDir) => {
-    copySkill(skill, targetSkillDir);
-  });
+  forEachExistingTemplateSharedSkill(
+    (_template, skill, targetSkillDir, factoryTarget) => {
+      copySkill(skill, targetSkillDir, factoryTarget);
+    },
+  );
   forEachTemplateSkillsDir((_label, skillsDir, template) => {
     const includedSkills = includedSkillsForTemplate(template);
     const staleSkills = FRAMEWORK_TEMPLATE_SHARED_SKILLS.filter(
@@ -946,7 +1018,7 @@ function syncFactoryBundleSkills() {
   rmSync(factoryBundleSkillsDir, { recursive: true, force: true });
   mkdirSync(factoryBundleSkillsDir, { recursive: true });
   for (const skill of factoryBundleSkillIncludes) {
-    copySkill(skill, join(factoryBundleSkillsDir, skill));
+    copySkill(skill, join(factoryBundleSkillsDir, skill), true);
   }
 }
 

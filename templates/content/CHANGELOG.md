@@ -7,10 +7,20 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- ChatGPT widgets identify a stalled Content editor instead of keeping its body skeleton onscreen.
+- ChatGPT widgets open document content without a cookie session
+- Content documents now open in ChatGPT widgets with their full body
+- Text two people type at the same spot now reaches the saved page for both of them, so readers and agents see it
+- ChatGPT widget previews show saved document bodies without a Content session.
 - Documents opened in ChatGPT show their saved content right away.
+- ChatGPT widgets show saved document bodies in read-only mode without a Content session.
 - Fixed Content pages that opened to an error in ChatGPT widgets
 
 ## 2026-10-06
+
+### Added
+
+- External agents can now move a page and its sub-pages to recoverable Trash, list Trash, and restore it through Content's MCP tools.
 
 ### Improved
 
@@ -18,6 +28,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Connecting Notion no longer leaves its used authorization code in the address bar.
 - Documents and databases opened from ChatGPT load in the Content editor without a separate sign-in.
 - ChatGPT Content widgets load database views correctly.
 - Reopening a ChatGPT Content widget restores the editor for its saved document or collection.

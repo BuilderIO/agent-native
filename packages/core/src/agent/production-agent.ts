@@ -33,6 +33,7 @@ import {
   isAgentConnectionRequiredError,
   type ActionAutomationContext,
   type ActionCaller,
+  type WriteReceipt,
   stripUnsupportedSchemaKeywords,
 } from "../action.js";
 import { getAppConfig } from "../app-config/index.js";
@@ -75,6 +76,8 @@ import {
   SETTINGS_VIEW_STATE_KEY,
 } from "../navigation/settings-redirects.js";
 import { shouldInferSentimentForTurn } from "../observability/sentiment.js";
+import { parseServiceIdentityEmail } from "../org/service-identity.js";
+import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import {
   completeRun as completeProgressRun,
   startRun as startProgressRun,
@@ -86,13 +89,14 @@ import {
 } from "../secrets/optional-key-cache.js";
 import {
   COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS,
-  preloadJevContextForPrompt,
+  preloadJevContextWithStatus,
   type JevPromptContextCandidate,
 } from "../server/agent-chat/prompt-resources.js";
 import {
   isRuntimeVisibleScope,
   parseSkillFrontmatter,
 } from "../server/agent-chat/skill-frontmatter.js";
+import { captureError } from "../server/capture-error.js";
 import {
   canUseDeployCredentialFallbackForRequest,
   getProviderCredentialAuthFailure,
@@ -115,6 +119,7 @@ import {
   getRequestRunContext,
   ensureRequestRunContext,
   getRequestContext,
+  getRequestAuthCapability,
   getRequestOrgId,
   getRequestUserEmail,
   runWithRequestContext,
@@ -126,6 +131,15 @@ import {
   type RefusedTurnRetryContext,
 } from "../shared/agent-chat-run-not-started.js";
 import { ANALYTICS_CLIENT_PLATFORM_BODY_FIELD } from "../shared/analytics-platform.js";
+import {
+  isContextDegraded,
+  preloadedContextUnavailableNote,
+  readReportedContextStatus,
+  screenContextUnavailableNote,
+  SELECTION_CONTEXT_UNAVAILABLE_NOTE,
+  worstContextStatus,
+  type ContextStatus,
+} from "../shared/context-status.js";
 import { parseBase64DataUrl } from "../shared/data-url.js";
 import { stripDiagnosticSnippets } from "../shared/diagnostic-snippet.js";
 import {
@@ -144,6 +158,17 @@ import {
   drainAgentWarnings,
   formatAgentWarningsForToolResult,
 } from "./action-warnings.js";
+import {
+  CONTINUE_UNAVAILABLE_CODE,
+  type ContinueTrigger,
+} from "./auto-continue.js";
+import { clipHead } from "./clip-text.js";
+import {
+  connectionRequiredMessage,
+  priorConnectionContextNote,
+  resolvePriorConnectionNote,
+  type PriorConnectionNote,
+} from "./connection-required-note.js";
 import {
   buildSystemManifestSections,
   readContextXraySystemSections,
@@ -185,6 +210,10 @@ import {
   type ResolveEngineConfig,
 } from "./engine/index.js";
 import {
+  limitProviderTools,
+  MAX_PROVIDER_TOOLS,
+} from "./engine/limit-provider-tools.js";
+import {
   resolveEmptyResponseRetryMaxOutputTokens,
   resolveMainChatMaxOutputTokens,
   resolveMaxOutputTokensForEngine,
@@ -213,10 +242,11 @@ import type {
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
 import {
-  FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
+  FOLLOW_UP_SUGGESTIONS_COMPLETION_SYSTEM_PROMPT,
   FOLLOW_UP_SUGGESTIONS_INSTRUCTION,
   FOLLOW_UP_SUGGESTIONS_MAX_OUTPUT_TOKENS,
   FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+  buildFollowUpCompletionMessages,
   followUpSuggestionsTool,
   identifyFollowUpSuggestions,
   parseFollowUpSuggestions,
@@ -257,7 +287,7 @@ import {
   toolCallsFromContent,
   type Processor,
 } from "./processors.js";
-import { resolveUncheckedDefaultModelReplacement } from "./provider-model-selection.js";
+import { applyUncheckedDefaultModelReplacement } from "./provider-model-selection.js";
 import {
   startRun,
   subscribeToRun,
@@ -328,9 +358,12 @@ import {
 } from "./tool-result-images.js";
 import {
   createToolSearchEntry,
+  extractToolSearchResultNames,
   filterActionsForAgentDiscovery,
+  readLoadedToolNames,
   searchToolRegistry,
   TOOL_SEARCH_ACTION_NAME,
+  withLoadedToolNames,
 } from "./tool-search.js";
 import {
   normalizeAgentActionScope,
@@ -345,6 +378,12 @@ import {
   AgentChatStructuredMessage,
   RunEvent,
 } from "./types.js";
+import {
+  mergeFinalResponseGuards,
+  readWriteReceipt,
+  writeReceiptGuard,
+  type ToolWriteReceipt,
+} from "./write-receipts.js";
 
 registerBuiltinEngines();
 
@@ -536,6 +575,11 @@ export function normalizeChatScope(
 
 function appStateKeyForBrowserTab(key: string, browserTabId?: string): string {
   return browserTabId ? `${key}:${browserTabId}` : key;
+}
+
+/** `readAppState` throws when the request has no identity: that is no user to read for, not a failed read. */
+function hasAppStateIdentity(): boolean {
+  return Boolean(getRequestUserEmail() || getRequestAuthCapability());
 }
 
 async function readAppStateForBrowserTab<T>(
@@ -1046,6 +1090,8 @@ export interface ActionEntry {
   deferLoading?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
+  /** Bookkeeping writes still need replay protection, but cannot confirm automation work. */
+  confirmsAutomationWork?: boolean;
   grounding?: boolean;
   allowInPlanMode?: boolean;
   planMode?: import("../action.js").ActionPlanModeConfig<any>;
@@ -1611,6 +1657,20 @@ type AgentRunTrackingSource = Pick<
   "userId" | "authUserId" | "anonymousId" | "sessionId"
 > & { isSyntheticTraffic?: boolean };
 
+export interface PreparedAgentRequest {
+  message?: string;
+  displayMessage?: string;
+  attachments?: AgentChatAttachment[];
+  jevPromptCandidates?: JevPromptContextCandidate[];
+  jevFallbackCandidateIds?: string[];
+  /**
+   * Whether the app's own reference retrieval reached the model. Omit it to
+   * report nothing; `timed_out` and `failed` tell the model it is working
+   * without references it would normally have.
+   */
+  status?: ContextStatus;
+}
+
 export interface ProductionAgentOptions {
   actions?: Record<string, ActionEntry>;
   /** @deprecated Use `actions` instead */
@@ -1675,22 +1735,7 @@ export interface ProductionAgentOptions {
     dispatchToBackground: boolean;
     isBackgroundWorker?: boolean;
     mode: AgentExecutionMode;
-  }) =>
-    | void
-    | {
-        message?: string;
-        displayMessage?: string;
-        attachments?: AgentChatAttachment[];
-        jevPromptCandidates?: JevPromptContextCandidate[];
-        jevFallbackCandidateIds?: string[];
-      }
-    | Promise<void | {
-        message?: string;
-        displayMessage?: string;
-        attachments?: AgentChatAttachment[];
-        jevPromptCandidates?: JevPromptContextCandidate[];
-        jevFallbackCandidateIds?: string[];
-      }>;
+  }) => void | PreparedAgentRequest | Promise<void | PreparedAgentRequest>;
   resolveActionSurface?: (
     details: AgentActionSurfaceDetails,
   ) => AgentActionSurfaceResolution | Promise<AgentActionSurfaceResolution>;
@@ -1869,6 +1914,11 @@ export function resolveSourceSweepToolCallThreshold(): number {
   return getAppConfig().agent.sourceSweepToolCallThreshold;
 }
 const EXPANDED_TOOL_SCHEMA_WARN_BYTES = 32_000;
+const MAX_TOOL_SEARCH_OVERFLOW_NAMES_SHOWN = 5;
+const PROVIDER_CORE_TOOL_NAMES = [
+  TOOL_SEARCH_ACTION_NAME,
+  FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+];
 
 const MAX_SCREEN_CONTEXT_CHARS = 10_000;
 
@@ -2823,6 +2873,12 @@ export interface AgentLoopUsage {
   engineName?: string;
   model: string;
   llmCalls?: number;
+  /** Wall time and input tokens of the end-of-turn follow-up suggestions call. */
+  followUpMs?: number;
+  followUpInputTokens?: number;
+  /** Write receipts this run with `verified` other than true / with `changed: false`. */
+  receiptUnverifiedCount?: number;
+  receiptChangedFalseCount?: number;
   /**
    * True once the engine reported at least one real `usage` event for this
    * run. The token fields above start at 0 and are only ever incremented —
@@ -2832,6 +2888,39 @@ export interface AgentLoopUsage {
    */
   usageReported?: boolean;
   firstEngineEventAtMs?: number;
+}
+
+/**
+ * Folds one loop attempt's usage into a running total. Every wrapper that
+ * re-enters `runAgentLoop` merges through this, so a field added to
+ * `AgentLoopUsage` cannot be reported by the loop and dropped by a wrapper.
+ */
+export function mergeAgentLoopUsage(
+  total: AgentLoopUsage,
+  next: AgentLoopUsage,
+): void {
+  total.inputTokens += next.inputTokens;
+  total.outputTokens += next.outputTokens;
+  total.cacheReadTokens += next.cacheReadTokens;
+  total.cacheWriteTokens += next.cacheWriteTokens;
+  for (const key of [
+    "builderCreditsUsed",
+    "llmCalls",
+    "followUpMs",
+    "followUpInputTokens",
+    "receiptUnverifiedCount",
+    "receiptChangedFalseCount",
+  ] as const) {
+    if (typeof next[key] === "number") {
+      total[key] = (total[key] ?? 0) + next[key];
+    }
+  }
+  total.engineName = next.engineName ?? total.engineName;
+  total.model = next.model;
+  if (next.usageReported) total.usageReported = true;
+  // Keep the earliest attempt's first event — a later continuation
+  // attempt starting fresh must not overwrite genuine first-token timing.
+  total.firstEngineEventAtMs ??= next.firstEngineEventAtMs;
 }
 
 export type AgentLoopOutcome =
@@ -2855,7 +2944,11 @@ export interface AgentLoopToolResultSummary {
   content: string;
   isError: boolean;
   artifacts?: ArtifactReceipt[];
+  /** The action's `_receipt`, read before the result was truncated. */
+  receipt?: WriteReceipt;
 }
+
+export type { ToolWriteReceipt };
 
 export interface AgentLoopFinalResponseGuardContext {
   messages: EngineMessage[];
@@ -2864,6 +2957,8 @@ export interface AgentLoopFinalResponseGuardContext {
   text: string;
   toolCalls: AgentLoopToolCallSummary[];
   toolResults: AgentLoopToolResultSummary[];
+  /** Every write receipt this turn; set by the loop, absent only in hand-built contexts. */
+  receipts?: ToolWriteReceipt[];
   retryCount: number;
   executionMode: AgentExecutionMode;
 }
@@ -3410,6 +3505,52 @@ const INTERRUPTED_TOOL_LEDGER_RECOVERY_TIMEOUT_MS = 5_000;
 const MAX_IDENTICAL_TOOL_ERRORS = 3;
 export const MAX_SAME_ERROR_ACROSS_ARGUMENTS = 3;
 export const MAX_IDENTICAL_TOOL_CALLS = 8;
+const MAX_ALREADY_LOADED_TOOL_SEARCHES = 4;
+const MAX_STOP_ERROR_LINE_CHARS = 300;
+
+/** `error: message` for a JSON `{ error, message }` result; `undefined` when the text is not one. */
+function jsonErrorCause(text: string): string | undefined {
+  if (!text.startsWith("{")) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+    // coercion-ok: unparseable text is not a JSON error result; the caller reads its first line
+  } catch {
+    return undefined;
+  }
+  const { error, message } = (parsed ?? {}) as Record<string, unknown>;
+  if (typeof error !== "string" || !error.trim()) return undefined;
+  return typeof message === "string" && message.trim()
+    ? `${error}: ${message}`
+    : error;
+}
+
+function errorCauseLine(text: string): string {
+  const body = text.trim().replace(/^Error running [^\s:]+:\s*/, "");
+  return (
+    (jsonErrorCause(body) ?? body)
+      .split(/\r?\n/)
+      .find((line) => line.trim())
+      ?.trim() ?? ""
+  );
+}
+
+/**
+ * The line of a failed tool result that names the cause, for a message the
+ * user reads. It takes the credential-sanitized text and keeps identifiers and
+ * emails, since a column or account name is the diagnosis; the trace-grade
+ * `toolErrorSignature` redacts those. A pretty-printed JSON error opens with
+ * `Error running x: {`, and a `(errorCode: ...)` suffix keeps it from parsing,
+ * so a bare first line can be only a bracket.
+ */
+function stopErrorLine(sanitizedResult: string): string {
+  const lines = sanitizedResult.split(/\r?\n/).filter((line) => line.trim());
+  for (const candidate of [sanitizedResult, ...lines]) {
+    const cause = errorCauseLine(candidate);
+    if (/[\p{L}\p{N}]/u.test(cause)) return cause;
+  }
+  return errorCauseLine(sanitizedResult) || "(no error text)";
+}
 
 function isToolCallTimeoutResult(content: string): boolean {
   return /tool call timed out after \d+(?:\.\d+)? seconds?/i.test(content);
@@ -3763,28 +3904,12 @@ function isDefaultInitialToolName(name: string): boolean {
   return DEFAULT_INITIAL_TOOL_NAMES.has(name);
 }
 
-function extractToolSearchResultNames(value: unknown): string[] {
-  if (!value || typeof value !== "object") return [];
-  const result = value as { query?: unknown; results?: unknown };
-  if (typeof result.query !== "string" || result.query.trim().length === 0) {
-    return [];
-  }
-  if (!Array.isArray(result.results)) return [];
+function readToolSearchHistory(messages: EngineMessage[]): {
+  names: string[];
+  unreadable: number;
+} {
   const names: string[] = [];
-  for (const item of result.results) {
-    if (!item || typeof item !== "object") continue;
-    const record = item as Record<string, unknown>;
-    if (record.callable === false) continue;
-    const name = record.name;
-    if (typeof name === "string" && name.trim()) names.push(name);
-  }
-  return names;
-}
-
-function extractToolSearchResultNamesFromMessages(
-  messages: EngineMessage[],
-): string[] {
-  const names: string[] = [];
+  let unreadable = 0;
   for (const message of messages) {
     if (message.role !== "user") continue;
     for (const part of message.content) {
@@ -3795,14 +3920,12 @@ function extractToolSearchResultNamesFromMessages(
       ) {
         continue;
       }
-      try {
-        names.push(...extractToolSearchResultNames(JSON.parse(part.content)));
-      } catch {
-        // Tool results are best-effort history hints; ignore non-JSON content.
-      }
+      const loaded = readLoadedToolNames(part.content);
+      if (loaded) names.push(...loaded);
+      else unreadable += 1;
     }
   }
-  return names;
+  return { names, unreadable };
 }
 
 function normalizeToolInputSchema(
@@ -4869,6 +4992,8 @@ export async function runAgentLoop(opts: {
     : providedAvailableTools;
   let completedFollowUpSuggestions: AgentSuggestion[] | undefined;
   let completingFollowUpSuggestions = false;
+  let followUpCompletionContext: EngineMessage[] = [];
+  let followUpStartedAt: number | undefined;
   let followUpCompletionFailed = false;
   const failFollowUpCompletion = (code: FollowUpSuggestionsFailure) => {
     if (followUpCompletionFailed) return;
@@ -4903,8 +5028,8 @@ export async function runAgentLoop(opts: {
   const availableToolMap = new Map(
     (availableTools ?? tools).map((tool) => [tool.name, tool]),
   );
-  const activeToolNames = new Set(tools.map((tool) => tool.name));
-  let activeTools = tools;
+  let activeTools = limitProviderTools(tools, PROVIDER_CORE_TOOL_NAMES);
+  const activeToolNames = new Set(activeTools.map((tool) => tool.name));
   let appAuthorizationPromise:
     | Promise<import("../org/app-roles.js").AppAuthorizationContext | null>
     | undefined;
@@ -4931,26 +5056,73 @@ export async function runAgentLoop(opts: {
 
   let expandedToolSchemaBytes = 0;
   let reportedExpandedToolSchemaBytes = false;
-  const expandActiveTools = (names: string[]): string[] => {
-    const added: string[] = [];
-    for (const name of names) {
-      if (activeToolNames.has(name)) continue;
+  let alreadyLoadedToolSearches = 0;
+  // Tools loaded after the first request, least recently needed first.
+  const loadedToolNames = new Set<string>();
+  const noteToolNeeded = (name: string) => {
+    if (loadedToolNames.delete(name)) loadedToolNames.add(name);
+  };
+  // `names` lead with what the model needs most. Below MAX_PROVIDER_TOOLS they
+  // append in registry order, so the tools prefix of the prompt cache survives.
+  // Past it the request keeps, in this order: tool-search and the follow-up
+  // tool, `pinned` (already promised this step) and `names`, the initial
+  // tools, then the other loaded tools most recently needed first, so the least
+  // recently needed loaded tools are evicted before any initial one. A tool
+  // that still does not fit is returned as overflow and never becomes active,
+  // so `activeTools` is exactly what the engine sends and nothing it dropped is
+  // reported as loaded.
+  const expandActiveTools = (
+    names: string[],
+    pinned: ReadonlySet<string> = new Set(),
+  ): { added: string[]; overflow: string[] } => {
+    const requested = new Set(names);
+    for (const name of requested) noteToolNeeded(name);
+    const wanted = [...requested].flatMap((name) => {
       const tool = availableToolMap.get(name);
-      if (!tool) continue;
-      activeToolNames.add(name);
-      expandedToolSchemaBytes += JSON.stringify(tool).length;
-      added.push(name);
-    }
-    if (added.length > 0) {
-      const expandedTools = (availableTools ?? tools).filter((tool) =>
-        activeToolNames.has(tool.name),
-      );
-      const prioritizedNames = new Set(names);
-      if (followUpRunId) prioritizedNames.add(FOLLOW_UP_SUGGESTIONS_TOOL_NAME);
-      activeTools = [
-        ...expandedTools.filter((tool) => prioritizedNames.has(tool.name)),
-        ...expandedTools.filter((tool) => !prioritizedNames.has(tool.name)),
-      ];
+      return tool && !activeToolNames.has(name) ? [tool] : [];
+    });
+    const added: string[] = [];
+    const overflow: string[] = [];
+    if (wanted.length > 0) {
+      if (activeTools.length + wanted.length <= MAX_PROVIDER_TOOLS) {
+        const wantedNames = new Set(wanted.map((tool) => tool.name));
+        activeTools = [
+          ...activeTools,
+          ...(availableTools ?? tools).filter((tool) =>
+            wantedNames.has(tool.name),
+          ),
+        ];
+      } else {
+        const byName = new Map(
+          [...activeTools, ...wanted].map((tool) => [tool.name, tool] as const),
+        );
+        const priority = new Set([
+          ...PROVIDER_CORE_TOOL_NAMES,
+          ...pinned,
+          ...names,
+          ...activeTools
+            .map((tool) => tool.name)
+            .filter((name) => !loadedToolNames.has(name)),
+          ...[...loadedToolNames].reverse(),
+        ]);
+        activeTools = [...priority]
+          .flatMap((name) => byName.get(name) ?? [])
+          .slice(0, MAX_PROVIDER_TOOLS);
+      }
+      activeToolNames.clear();
+      for (const tool of activeTools) activeToolNames.add(tool.name);
+      for (const name of loadedToolNames) {
+        if (!activeToolNames.has(name)) loadedToolNames.delete(name);
+      }
+      for (const tool of wanted) {
+        if (!activeToolNames.has(tool.name)) {
+          overflow.push(tool.name);
+          continue;
+        }
+        added.push(tool.name);
+        loadedToolNames.add(tool.name);
+        expandedToolSchemaBytes += JSON.stringify(tool).length;
+      }
     }
     if (
       !reportedExpandedToolSchemaBytes &&
@@ -4961,10 +5133,17 @@ export async function runAgentLoop(opts: {
         `[agent-loop] expanded tool schemas reached ${expandedToolSchemaBytes} bytes across ${activeToolNames.size} active tools (runId=${opts.runId ?? "none"})`,
       );
     }
-    return added;
+    return { added, overflow };
   };
 
-  expandActiveTools(extractToolSearchResultNamesFromMessages(messages));
+  const priorSearches = readToolSearchHistory(messages);
+  if (priorSearches.unreadable > 0) {
+    console.warn(
+      `[agent-loop] ${priorSearches.unreadable} earlier tool-search result(s) could not be read, so the tools they loaded were not restored (runId=${opts.runId ?? "none"})`,
+    );
+  }
+  // Newest searches lead, so they win if history alone overflows the cap.
+  expandActiveTools(priorSearches.names.reverse());
 
   const processorChain =
     opts.processors && opts.processors.length > 0
@@ -5010,6 +5189,11 @@ export async function runAgentLoop(opts: {
     actions,
   });
   const toolResultHistory: AgentLoopToolResultSummary[] = [];
+  const turnReceipts = (): ToolWriteReceipt[] =>
+    toolResultHistory.flatMap((result) =>
+      result.receipt ? [{ tool: result.name, ...result.receipt }] : [],
+    );
+  let receiptGuardRetried = false;
   const runCtx = getRequestRunContext();
   if (runCtx) {
     runCtx.toolCalls = toolCallHistory;
@@ -5226,46 +5410,32 @@ export async function runAgentLoop(opts: {
       { name: string; input: unknown; error: string }
     >();
     let contextMessages = completingFollowUpSuggestions
-      ? [
-          ...messages,
-          {
-            role: "user" as const,
-            content: [
-              {
-                type: "text" as const,
-                text: FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
-              },
-            ],
-          },
-        ]
+      ? followUpCompletionContext
       : messages;
 
-    try {
-      if (opts.threadId) {
-        contextMessages = await applyContextXrayTransformForIteration({
-          threadId: opts.threadId,
-          ownerEmail: opts.ownerEmail,
-          turnId: opts.turnId,
-          model,
-          messages: contextMessages,
-          systemSections: opts.systemSections,
-        });
+    // The completion call carries a digest, not the conversation: the manifest
+    // and memory window describe the full thread, and the transform would
+    // overwrite this turn's manifest with the digest.
+    if (opts.threadId && !completingFollowUpSuggestions) {
+      contextMessages = await applyContextXrayTransformForIteration({
+        threadId: opts.threadId,
+        ownerEmail: opts.ownerEmail,
+        turnId: opts.turnId,
+        model,
+        messages: contextMessages,
+        systemSections: opts.systemSections,
+      });
 
-        if (opts.ownerEmail) {
-          contextMessages = await applyObservationalMemoryToContext(
-            contextMessages,
-            {
-              threadId: opts.threadId,
-              ownerEmail: opts.ownerEmail,
-              orgId: opts.orgId ?? null,
-            },
-          );
-        }
+      if (opts.ownerEmail) {
+        contextMessages = await applyObservationalMemoryToContext(
+          contextMessages,
+          {
+            threadId: opts.threadId,
+            ownerEmail: opts.ownerEmail,
+            orgId: opts.orgId ?? null,
+          },
+        );
       }
-    } catch (error) {
-      if (signal.aborted || !completingFollowUpSuggestions) throw error;
-      failFollowUpCompletion("context_error");
-      break;
     }
     if (signal.aborted) break;
 
@@ -5288,7 +5458,9 @@ export async function runAgentLoop(opts: {
         }
         const streamOpts = {
           model,
-          systemPrompt: continuationSystemPrompt,
+          systemPrompt: completingFollowUpSuggestions
+            ? FOLLOW_UP_SUGGESTIONS_COMPLETION_SYSTEM_PROMPT
+            : continuationSystemPrompt,
           messages: contextMessages,
           tools: loopBreakerCloseout
             ? []
@@ -5586,6 +5758,10 @@ export async function runAgentLoop(opts: {
               usage.outputTokens += eventUsage.outputTokens;
               usage.cacheReadTokens += eventUsage.cacheReadTokens;
               usage.cacheWriteTokens += eventUsage.cacheWriteTokens;
+              if (completingFollowUpSuggestions) {
+                usage.followUpInputTokens =
+                  (usage.followUpInputTokens ?? 0) + eventUsage.inputTokens;
+              }
               if (eventUsage.builderCreditsUsed !== undefined) {
                 usage.builderCreditsUsed =
                   (usage.builderCreditsUsed ?? 0) +
@@ -5720,6 +5896,10 @@ export async function runAgentLoop(opts: {
         }
         throw err;
       }
+    }
+
+    if (completingFollowUpSuggestions && followUpStartedAt !== undefined) {
+      usage.followUpMs = Date.now() - followUpStartedAt;
     }
 
     if (tripwire || followUpCompletionFailed) break;
@@ -5949,6 +6129,8 @@ export async function runAgentLoop(opts: {
       const finalResponseDraftText = collectTextParts(
         assistantContentForHistory,
       );
+      const receipts = turnReceipts();
+      const receiptGuard = writeReceiptGuard(receipts, receiptGuardRetried);
       if (opts.finalResponseGuard) {
         try {
           guard = await opts.finalResponseGuard({
@@ -5958,6 +6140,7 @@ export async function runAgentLoop(opts: {
             text: finalResponseDraftText,
             toolCalls: [...toolCallHistory],
             toolResults: [...toolResultHistory],
+            receipts,
             retryCount: finalGuardRetries,
             executionMode: opts.executionMode ?? "act",
           });
@@ -5965,6 +6148,11 @@ export async function runAgentLoop(opts: {
           send({ type: "clear" });
           throw err;
         }
+      }
+      if (receiptGuard) {
+        guard = guard
+          ? mergeFinalResponseGuards(receiptGuard, guard)
+          : receiptGuard;
       }
       if (guard) {
         completedFollowUpSuggestions = undefined;
@@ -5978,7 +6166,10 @@ export async function runAgentLoop(opts: {
             : Math.max(0, Math.min(3, Math.trunc(guard.maxRetries ?? 1)));
         if (finalGuardRetries < maxGuardRetries) {
           if (typeof guard !== "string" && guard.expandToolSurface) {
-            expandActiveTools([...availableToolMap.keys()]);
+            expandActiveTools([...activeToolNames, ...availableToolMap.keys()]);
+          }
+          if (receiptGuard && receiptGuard.maxRetries > 0) {
+            receiptGuardRetried = true;
           }
           finalGuardRetries += 1;
           send({ type: "clear" });
@@ -6011,6 +6202,12 @@ export async function runAgentLoop(opts: {
           terminalStopReason === "end_turn"
         ) {
           completingFollowUpSuggestions = true;
+          followUpStartedAt = Date.now();
+          followUpCompletionContext = buildFollowUpCompletionMessages({
+            requestText: finalResponseGuardRequestText,
+            replyText: finalResponseDraftText,
+            toolNames: toolCallHistory.map((call) => call.name),
+          });
           continue;
         }
       }
@@ -6089,9 +6286,15 @@ export async function runAgentLoop(opts: {
 
     const approvedToolCallKeys = new Set<string>(opts.approvedToolCalls ?? []);
 
+    // A tool-search in this step loads schemas the model can call only on the
+    // next step, so a sibling search must not read them as already callable.
+    const toolNamesLoadedThisStep = new Set<string>();
+    let countedAlreadyLoadedSearchThisStep = false;
+
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
+      noteToolNeeded(toolCall.name);
       const actionEntry = actions[toolCall.name];
       const placeholderNormalization = actionEntry
         ? normalizeOptionalToolPlaceholders(
@@ -6185,12 +6388,14 @@ export async function runAgentLoop(opts: {
         content: string,
         isError: boolean,
         artifacts?: ArtifactReceipt[],
+        receipt?: WriteReceipt,
       ) => {
         toolResultHistory.push({
           name: toolCall.name,
           content,
           isError,
           ...(artifacts?.length ? { artifacts } : {}),
+          ...(receipt ? { receipt } : {}),
         });
       };
       let directStop: { message: string; explicit: boolean } | null = null;
@@ -6239,10 +6444,15 @@ export async function runAgentLoop(opts: {
           const result =
             `Stopped after ${anyArgsCount} attempts at ${toolCall.name} that all failed the same way ` +
             `with different arguments. Last error: ${sanitizedResult}`;
+          const lastErrorLine = stopErrorLine(sanitizedResult);
           requestedActionStop ??= {
             message:
-              `I stopped because the ${toolCall.name} action rejected ${anyArgsCount} different attempts the same way, ` +
-              "so changing the arguments again would not have worked. Anything completed before this is saved.",
+              `I stopped because the ${toolCall.name} action rejected ${anyArgsCount} different attempts the same way. ` +
+              `Last error: ${
+                lastErrorLine.length > MAX_STOP_ERROR_LINE_CHARS
+                  ? `${clipHead(lastErrorLine, MAX_STOP_ERROR_LINE_CHARS)}…`
+                  : lastErrorLine
+              }\n\nAnything completed before this is saved.`,
             errorCode: "repeated_tool_error_across_arguments",
             details: sanitizedResult,
           };
@@ -6326,6 +6536,33 @@ export async function runAgentLoop(opts: {
           content: result,
           isError: true,
         };
+      }
+
+      // Before approval, so a human is never asked to approve a call the
+      // principal's grant already forbids. Covers framework tools that bypass
+      // `defineAction`, which enforces the same grant for the actions.
+      const userEmail = opts.ownerEmail ?? getRequestUserEmail();
+      if (parseServiceIdentityEmail(userEmail)) {
+        const {
+          enforceServicePrincipalActionGrant,
+          ServicePrincipalRefusedError,
+        } = await import("../org/service-principal-guard.js");
+        try {
+          await enforceServicePrincipalActionGrant({
+            email: userEmail,
+            orgId: opts.orgId ?? getRequestOrgId() ?? null,
+            actionName: toolCall.name,
+            caller: opts.actionCaller ?? "tool",
+          });
+        } catch (error) {
+          if (
+            !(error instanceof ServicePrincipalRefusedError) ||
+            error.statusCode !== 403
+          ) {
+            throw error;
+          }
+          return declineToolCall(error.message);
+        }
       }
 
       const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
@@ -6788,6 +7025,7 @@ export async function runAgentLoop(opts: {
         let result: string;
         let chatUIResult: unknown;
         let isError = false;
+        let toolErrorCode: string | undefined;
         let mcpApp:
           | import("../mcp-client/app-result.js").AgentMcpAppPayload
           | undefined;
@@ -6796,6 +7034,7 @@ export async function runAgentLoop(opts: {
           | undefined;
         let toolArtifacts: ArtifactReceipt[] = [];
         let fileMutation: AgentFileMutationProof | undefined;
+        let receipt: WriteReceipt | undefined;
         try {
           // The run may have been aborted while we waited above for an
           // interrupted tool's ledger result (the wait can poll for minutes).
@@ -6975,12 +7214,39 @@ export async function runAgentLoop(opts: {
             }
           }
           chatUIResult = resultForAgent;
+          // Before stringify and truncation: a large result must not lose it.
+          receipt = readWriteReceipt(resultForAgent);
           toolArtifacts = detectArtifactReceipts(resultForAgent, toolCall.name);
           if (toolResultImages) {
             imageNotes = [
               ...describeToolResultImages(toolResultImages),
               ...imageNotes,
             ];
+          }
+          let toolSearch:
+            | {
+                matched: string[];
+                overflow: string[];
+                loadedThisStep: string[];
+              }
+            | undefined;
+          if (toolCall.name === TOOL_SEARCH_ACTION_NAME && !isError) {
+            const matched = extractToolSearchResultNames(rawForAgent);
+            const { added, overflow } = expandActiveTools(
+              matched,
+              toolNamesLoadedThisStep,
+            );
+            for (const name of added) toolNamesLoadedThisStep.add(name);
+            const loadedThisStep = matched.filter((name) =>
+              toolNamesLoadedThisStep.has(name),
+            );
+            toolSearch = { matched, overflow, loadedThisStep };
+            if (matched.length > 0) {
+              resultForAgent = withLoadedToolNames(
+                rawForAgent as Record<string, unknown>,
+                loadedThisStep,
+              );
+            }
           }
           let resultStr =
             typeof resultForAgent === "string"
@@ -6994,21 +7260,93 @@ export async function runAgentLoop(opts: {
             resultStr = `${resultStr}\n\n${imageNotes.join("\n")}`;
           }
           result = resultStr;
-          if (toolCall.name === TOOL_SEARCH_ACTION_NAME && !isError) {
-            const added = expandActiveTools(
-              extractToolSearchResultNames(rawForAgent),
-            );
-            if (added.length > 0) {
-              result += `\n\nLoaded matching tool schemas for next step: ${added.join(", ")}`;
+          if (toolSearch) {
+            const { matched, overflow, loadedThisStep } = toolSearch;
+            const loadedNote = `Loaded matching tool schemas for the next step, not this one: ${loadedThisStep.join(", ")}`;
+            if (loadedThisStep.length > 0) {
+              result += `\n\n${loadedNote}`;
+              alreadyLoadedToolSearches = 0;
+            } else if (
+              matched.length > 0 &&
+              matched.every((name) => activeToolNames.has(name))
+            ) {
+              const priorMessage = (rawForAgent as { message?: unknown })
+                .message;
+              result = JSON.stringify(
+                {
+                  ...(resultForAgent as Record<string, unknown>),
+                  alreadyLoaded: true,
+                  message: [
+                    `All ${matched.length} matches are already callable; call them directly.`,
+                    typeof priorMessage === "string" ? priorMessage : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" "),
+                },
+                null,
+                2,
+              );
+              // One count per step, reset by any progress: parallel searches
+              // are one repeat, and a run that searches between writes is not
+              // repeating.
+              if (!countedAlreadyLoadedSearchThisStep) {
+                countedAlreadyLoadedSearchThisStep = true;
+                alreadyLoadedToolSearches += 1;
+              }
+              if (
+                alreadyLoadedToolSearches >= MAX_ALREADY_LOADED_TOOL_SEARCHES
+              ) {
+                requestedActionStop ??= {
+                  message:
+                    `Stopped because tool-search was used ${alreadyLoadedToolSearches} times in a row to look for tools that were already callable, ` +
+                    "which means the same step is repeating rather than making progress. " +
+                    "Everything completed before this point is preserved above.",
+                  errorCode: "repeated_tool_call",
+                };
+              }
+            }
+            if (overflow.length > 0) {
+              const shown = overflow.slice(
+                0,
+                MAX_TOOL_SEARCH_OVERFLOW_NAMES_SHOWN,
+              );
+              const more =
+                overflow.length > shown.length
+                  ? `, and ${overflow.length - shown.length} more`
+                  : "";
+              const overflowNote = `Could not load ${overflow.length} matched ${overflow.length === 1 ? "tool" : "tools"} because the per-request tool limit (${MAX_PROVIDER_TOOLS}) was reached: ${shown.join(", ")}${more}. They are not callable; use tools you already have.`;
+              // A repeated search's own message says its matches are
+              // available, which these are not.
+              result =
+                (rawForAgent as { repeated?: unknown }).repeated === true
+                  ? JSON.stringify(
+                      {
+                        ...(resultForAgent as Record<string, unknown>),
+                        message: [
+                          loadedThisStep.length > 0 ? loadedNote : "",
+                          overflowNote,
+                        ]
+                          .filter(Boolean)
+                          .join(" "),
+                      },
+                      null,
+                      2,
+                    )
+                  : `${result}\n\n${overflowNote}`;
             }
           }
         } catch (err: any) {
+          toolErrorCode = isActionContractError(err)
+            ? err.errorCode
+            : undefined;
           if (signal.aborted) {
             result = INTERRUPTED_TOOL_RESULT_MARKER;
           } else if (isAgentConnectionRequiredError(err)) {
-            const message =
+            const message = connectionRequiredMessage(
               sanitizeToolErrorValue(err.message) ||
-              `Connect ${err.provider} to continue.`;
+                `Connect ${err.provider} to continue.`,
+              err.reason,
+            );
             result = sanitizeToolErrorValue(err.toolResult || message);
             requestedConnection ??= {
               requestId: randomUUID(),
@@ -7068,11 +7406,23 @@ export async function runAgentLoop(opts: {
           );
         }
         if (isError) {
+          receipt = undefined;
           if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
             result = finalizeToolErrorResult(result);
           }
         } else {
           fileMutation = actionEntry.fileMutationProof?.(toolCall.input);
+          // Only a write or a receipt is progress; a read-only call between
+          // redundant searches is the same repeating step.
+          if (!actionIsReadOnly || receipt) alreadyLoadedToolSearches = 0;
+          if (receipt && receipt.verified !== true) {
+            usage.receiptUnverifiedCount =
+              (usage.receiptUnverifiedCount ?? 0) + 1;
+          }
+          if (receipt && !receipt.changed) {
+            usage.receiptChangedFalseCount =
+              (usage.receiptChangedFalseCount ?? 0) + 1;
+          }
         }
 
         const agentWarnings = drainAgentWarnings();
@@ -7122,18 +7472,21 @@ export async function runAgentLoop(opts: {
           input: toolCall.input as Record<string, unknown>,
           result,
           ...(isError ? { isError: true } : {}),
+          ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
           ...(isError
             ? { completedSideEffect: false }
-            : !actionIsReadOnly
-              ? { completedSideEffect: true }
-              : {}),
+            : receipt
+              ? { completedSideEffect: receipt.changed }
+              : !actionIsReadOnly
+                ? { completedSideEffect: true }
+                : {}),
           ...(mcpApp ? { mcpApp } : {}),
           ...(resolvedChatUI ? { chatUI: resolvedChatUI.chatUI } : {}),
           ...(resolvedChatUI ? { chatUIResult: resolvedChatUI.result } : {}),
           ...(fileMutation ? { fileMutation } : {}),
           ...(toolArtifacts.length > 0 ? { artifacts: toolArtifacts } : {}),
         });
-        recordToolResult(result, isError, toolArtifacts);
+        recordToolResult(result, isError, toolArtifacts, receipt);
         if (!isError) {
           noteToolCallSucceeded(actionEntry);
           if (cacheKey) {
@@ -7662,25 +8015,8 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     engineName: opts.engine.name,
     model: opts.model,
   };
-  const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) => {
-    usage.inputTokens += next.inputTokens;
-    usage.outputTokens += next.outputTokens;
-    usage.cacheReadTokens += next.cacheReadTokens;
-    usage.cacheWriteTokens += next.cacheWriteTokens;
-    if (next.builderCreditsUsed !== undefined) {
-      usage.builderCreditsUsed =
-        (usage.builderCreditsUsed ?? 0) + next.builderCreditsUsed;
-    }
-    usage.engineName = next.engineName ?? usage.engineName;
-    usage.model = next.model;
-    if (typeof next.llmCalls === "number") {
-      usage.llmCalls = (usage.llmCalls ?? 0) + next.llmCalls;
-    }
-    if (next.usageReported) usage.usageReported = true;
-    // Keep the earliest attempt's first event — a later continuation
-    // attempt starting fresh must not overwrite genuine first-token timing.
-    usage.firstEngineEventAtMs ??= next.firstEngineEventAtMs;
-  };
+  const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) =>
+    mergeAgentLoopUsage(usage, next);
 
   const budgetStartedAt = opts.budgetStartedAt ?? Date.now();
   const resumeResumableErrorsInProcess =
@@ -8457,7 +8793,8 @@ export async function chainServerDrivenContinuation(opts: {
     } catch (insertErr) {
       if (
         insertErr instanceof AgentTurnInitiatorMismatchError ||
-        insertErr instanceof AgentTurnInitiatorUnavailableError
+        insertErr instanceof AgentTurnInitiatorUnavailableError ||
+        insertErr instanceof ServicePrincipalRefusedError
       ) {
         throw insertErr;
       }
@@ -8704,7 +9041,8 @@ export type AgentModelSelectionSource =
   | "request"
   | "configured"
   | "stored"
-  | "default";
+  | "default"
+  | "provider-selection-fallback";
 
 function isConcreteModelSelection(
   model: string | null | undefined,
@@ -8803,6 +9141,7 @@ export function createProductionAgentHandler(
       agentKitMessageId: requestedAgentKitMessageId,
       internalContinuation,
       autoContinueOfRunId: requestedAutoContinueOfRunId,
+      continueOfRunId: requestedContinueOfRunId,
       turnId: requestTurnId,
       model: requestModel,
       engine: requestEngine,
@@ -8813,12 +9152,30 @@ export function createProductionAgentHandler(
       trackInRunsTray,
       skipPendingSelectionContext,
     } = body;
-    const autoContinueOfRunId =
+    const continuedRunId = (requested: unknown) =>
       internalContinuation === true &&
-      typeof requestedAutoContinueOfRunId === "string" &&
-      requestedAutoContinueOfRunId.trim().length <= 200
-        ? requestedAutoContinueOfRunId.trim() || undefined
+      typeof requested === "string" &&
+      requested.trim().length <= 200
+        ? requested.trim() || undefined
         : undefined;
+    const autoContinueOfRunId = continuedRunId(requestedAutoContinueOfRunId);
+    // The stopped run this request resumes in its own turn, from the turn's
+    // history and journal, whether the chat or a person asked.
+    const continueOf: { runId: string; trigger: ContinueTrigger } | undefined =
+      autoContinueOfRunId
+        ? { runId: autoContinueOfRunId, trigger: "auto" }
+        : (() => {
+            const runId = continuedRunId(requestedContinueOfRunId);
+            return runId ? { runId, trigger: "manual" } : undefined;
+          })();
+    const continueRefusal = (code: string) => ({
+      error:
+        continueOf?.trigger === "manual"
+          ? "This turn can no longer be continued."
+          : "This turn will not continue automatically.",
+      code,
+      retryable: false,
+    });
     if (requestEngine !== undefined && typeof requestEngine !== "string") {
       setResponseStatus(event, 400);
       return { error: "engine must be a string" };
@@ -8990,6 +9347,7 @@ export function createProductionAgentHandler(
     });
     let jevPromptCandidates: JevPromptContextCandidate[] = [];
     let jevFallbackCandidateIds: string[] = [];
+    const preparedReferenceStatus = readReportedContextStatus(preparedRequest);
     if (preparedRequest) {
       if (
         typeof preparedRequest.message === "string" &&
@@ -9253,22 +9611,17 @@ export function createProductionAgentHandler(
       !requestModelIsExplicit && !configuredModelIsExplicit
         ? await getStoredModelForEngine(engine, { appId: options.appId })
         : undefined;
-    const modelSelection = resolveAgentModelSelection({
-      requestModel,
-      configuredModel,
-      storedModel,
-      defaultModel: engine.defaultModel,
-    });
-    // Only the engine default yields to the provider's checked models. A model
-    // the request or a stored default names still runs after it is unchecked,
-    // so chats already on it keep working.
-    const modelCandidate =
-      modelSelection.source === "default"
-        ? ((await resolveUncheckedDefaultModelReplacement(engine)) ??
-          modelSelection.model)
-        : modelSelection.model;
+    const modelSelection = await applyUncheckedDefaultModelReplacement(
+      engine,
+      resolveAgentModelSelection({
+        requestModel,
+        configuredModel,
+        storedModel,
+        defaultModel: engine.defaultModel,
+      }),
+    );
     workerStep("model_done");
-    const model = normalizeModelForEngine(engine, modelCandidate);
+    const model = normalizeModelForEngine(engine, modelSelection.model);
     let effectiveModel = model;
     let modelSelectionSource: AgentModelSelectionSource | "experiment" =
       modelSelection.source;
@@ -9308,7 +9661,7 @@ export function createProductionAgentHandler(
     options.onEngineResolved?.(engine, effectiveModel);
 
     console.log(
-      `[agent-chat] resolved engine=${engine.name} model=${effectiveModel} requestModel=${requestModel ?? "(none)"} requestEngine=${requestEngine ?? "(none)"} modelSource=${modelSelectionSource} turnId=${requestTurnId ?? "(none)"}`,
+      `[agent-chat] resolved engine=${engine.name} model=${effectiveModel} requestModel=${requestModel ?? "(none)"} requestEngine=${requestEngine ?? "(none)"} modelSource=${modelSelectionSource} engineDefault=${engine.defaultModel} effort=${reasoningEffort ?? "unset"} turnId=${requestTurnId ?? "(none)"}`,
     );
 
     if (
@@ -9424,6 +9777,25 @@ export function createProductionAgentHandler(
         }
       })();
 
+    // `empty` (no navigation yet) stays silent; a timeout or a throw adds a
+    // note, because the model would otherwise read it as an app with no page.
+    const screenStatuses: Record<
+      "screen" | "url" | "selection",
+      ContextStatus
+    > = { screen: "empty", url: "empty", selection: "empty" };
+    // Once a cap fires the model has the fallback note, so a read that
+    // resolves late must not change what the trace says it saw.
+    const noteScreenStatus = (
+      source: keyof typeof screenStatuses,
+      status: ContextStatus,
+    ) => {
+      if (screenStatuses[source] !== "timed_out") {
+        screenStatuses[source] = status;
+      }
+    };
+    const screenUnavailableNote = screenContextUnavailableNote(
+      Boolean(surfacedRequestActions["view-screen"]),
+    );
     const screenContextThunk = (): Promise<string> =>
       (async (): Promise<string> => {
         const screenStart = Date.now();
@@ -9443,6 +9815,7 @@ export function createProductionAgentHandler(
                 typeof result === "string"
                   ? result
                   : JSON.stringify(result, null, 2);
+              noteScreenStatus("screen", "ok");
               return `\n\n<current-screen>\n${capScreenContext(screenText)}\n</current-screen>`;
             }
           } else {
@@ -9451,11 +9824,18 @@ export function createProductionAgentHandler(
               requestBrowserTabId,
             );
             if (navigation) {
+              noteScreenStatus("screen", "ok");
               return `\n\n<current-screen>\n${capScreenContext(JSON.stringify(navigation, null, 2))}\n</current-screen>`;
             }
           }
-        } catch {
-          // DB not ready or no navigation state — skip silently
+        } catch (error) {
+          if (!hasAppStateIdentity()) return "";
+          noteScreenStatus("screen", "failed");
+          console.warn(
+            "[agent-chat] current-screen context unavailable:",
+            error instanceof Error ? error.message : String(error),
+          );
+          return screenUnavailableNote;
         } finally {
           setupMarks.screenMs = Date.now() - screenStart;
         }
@@ -9500,10 +9880,17 @@ export function createProductionAgentHandler(
               );
               if (settingsPage) lines.push(settingsPage);
             }
+            noteScreenStatus("url", "ok");
             return `\n\n<current-url>\n${lines.join("\n")}\n</current-url>`;
           }
-        } catch {
-          // DB not ready — skip silently
+        } catch (error) {
+          if (!hasAppStateIdentity()) return "";
+          noteScreenStatus("url", "failed");
+          console.warn(
+            "[agent-chat] current-url context unavailable:",
+            error instanceof Error ? error.message : String(error),
+          );
+          return screenUnavailableNote;
         }
         return "";
       })();
@@ -9521,13 +9908,20 @@ export function createProductionAgentHandler(
           const capturedAt =
             typeof sel.capturedAt === "number" ? sel.capturedAt : 0;
           if (Date.now() - capturedAt > SELECTION_TTL_MS) return "";
+          noteScreenStatus("selection", "ok");
           return (
             `\n\nThe user has selected the following text and pressed Cmd I to focus the agent. ` +
             `Treat this as the immediate context to act on:\n` +
             `<selection>\n${capSelectionContext(sel.text)}\n</selection>`
           );
-        } catch {
-          // DB not ready — skip silently
+        } catch (error) {
+          if (!hasAppStateIdentity()) return "";
+          noteScreenStatus("selection", "failed");
+          console.warn(
+            "[agent-chat] selection context unavailable:",
+            error instanceof Error ? error.message : String(error),
+          );
+          return SELECTION_CONTEXT_UNAVAILABLE_NOTE;
         }
         return "";
       })();
@@ -9690,6 +10084,7 @@ export function createProductionAgentHandler(
       loopSettings,
       enrichedMessage,
       jevContextCredentials,
+      priorConnection,
     ] = await Promise.all([
       presendCap("systemPrompt", systemPromptThunk, "", 13000, () => {
         // An empty configured prompt is valid, but an empty timeout fallback
@@ -9699,9 +10094,27 @@ export function createProductionAgentHandler(
         systemPromptError ??= systemPromptTimeoutError;
       }),
       presendCap("time", timeContextThunk, "", 9000),
-      presendCap("screen", screenContextThunk, "", 9000),
-      presendCap("url", urlContextThunk, "", 9000),
-      presendCap("selection", selectionContextThunk, "", 9000),
+      presendCap(
+        "screen",
+        screenContextThunk,
+        screenUnavailableNote,
+        9000,
+        () => {
+          screenStatuses.screen = "timed_out";
+        },
+      ),
+      presendCap("url", urlContextThunk, screenUnavailableNote, 9000, () => {
+        screenStatuses.url = "timed_out";
+      }),
+      presendCap(
+        "selection",
+        selectionContextThunk,
+        SELECTION_CONTEXT_UNAVAILABLE_NOTE,
+        9000,
+        () => {
+          screenStatuses.selection = "timed_out";
+        },
+      ),
       presendCap("files", filesContextThunk, "", 12000),
       presendCap("loopSettings", loopSettingsThunk, fallbackLoopSettings, 9000),
       presendCap("enrichedMessage", enrichedMessageThunk, requestMessage, 9000),
@@ -9709,6 +10122,22 @@ export function createProductionAgentHandler(
         "jevContextCredentials",
         () => getJevContextCredentials(ownerEmail ?? getRequestUserEmail()),
         { apiKey: undefined, personalApiKey: undefined, builderAuth: null },
+        9000,
+      ),
+      presendCap(
+        "priorConnection",
+        // The foreground of a dispatched run never prompts the model; the
+        // worker re-reads, so reading here would pay for it twice.
+        (): Promise<PriorConnectionNote> =>
+          threadId && !dispatchToBackground
+            ? resolvePriorConnectionNote({
+                threadId,
+                orgId: getRequestOrgId() ?? null,
+                appId: options.appId,
+                excludeRunId: backgroundRunMarker?.runId,
+              })
+            : Promise.resolve({ status: "none" }),
+        { status: "unreadable", error: "timed out" },
         9000,
       ),
     ]);
@@ -9732,7 +10161,22 @@ export function createProductionAgentHandler(
         },
       });
     }
+    // Screen and URL share one note; the same failure needn't be told twice.
+    if (urlBlock === screenBlock) urlBlock = "";
     const screenContext = timeBlock + screenBlock + urlBlock + selectionBlock;
+    // Referenced agents don't share this run's tools, so a note telling the
+    // model to call view-screen would send them looking for a tool they lack.
+    const withoutUnavailableNote = (block: string) =>
+      block === screenUnavailableNote ||
+      block === SELECTION_CONTEXT_UNAVAILABLE_NOTE
+        ? ""
+        : block;
+    const referencedAgentContext =
+      timeBlock +
+      withoutUnavailableNote(screenBlock) +
+      withoutUnavailableNote(urlBlock) +
+      withoutUnavailableNote(selectionBlock);
+    const screenStatus = worstContextStatus(...Object.values(screenStatuses));
     const surfacedActionRegistry =
       requestMode === "plan"
         ? createPlanModeActionRegistry(surfacedRequestActions)
@@ -9768,7 +10212,7 @@ export function createProductionAgentHandler(
           COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS - systemPrompt.length - 2,
         )
       : undefined;
-    const [requestTools, jevContext] = await Promise.all([
+    const [requestTools, jevPreload] = await Promise.all([
       preloadJevTools({
         request: jevRequestContext,
         skip: Boolean(internalContinuation || dispatchToBackground),
@@ -9781,7 +10225,7 @@ export function createProductionAgentHandler(
         availableTools: availableRequestTools,
         readOnlyOnly: requestMode === "plan",
       }),
-      preloadJevContextForPrompt({
+      preloadJevContextWithStatus({
         request: jevRequestContext,
         appId: options.appId,
         owner: ownerEmail ?? undefined,
@@ -9798,7 +10242,27 @@ export function createProductionAgentHandler(
         fallbackCandidateIds: jevFallbackCandidateIds,
       }),
     ]);
+    const jevContext = jevPreload.context;
     if (jevContext) systemPrompt = `${systemPrompt}\n\n${jevContext}`;
+    const prefetchStatus = worstContextStatus(
+      jevPreload.status,
+      preparedReferenceStatus,
+    );
+    if (runContext) {
+      runContext.contextStatus = {
+        prefetch: prefetchStatus,
+        screen: screenStatus,
+      };
+    }
+    // Per-turn, so the stable system prompt prefix keeps caching.
+    const prefetchNote =
+      prefetchStatus && isContextDegraded(prefetchStatus)
+        ? preloadedContextUnavailableNote(prefetchStatus, {
+            // The other source delivered, so only part of the context is missing.
+            partial:
+              jevPreload.status === "ok" || preparedReferenceStatus === "ok",
+          })
+        : "";
     const contextXraySystemSections = [
       ...readContextXraySystemSections(event),
       ...(jevContext
@@ -9847,7 +10311,13 @@ export function createProductionAgentHandler(
         : "";
 
     const userContent = buildUserContentWithAttachments({
-      text: enrichedMessage + screenContext + filesContext + planModeAgentNote,
+      text:
+        enrichedMessage +
+        screenContext +
+        prefetchNote +
+        priorConnectionContextNote(priorConnection) +
+        filesContext +
+        planModeAgentNote,
       attachments: requestAttachments,
     });
 
@@ -9960,9 +10430,7 @@ export function createProductionAgentHandler(
           ...(dispatchToBackground
             ? { dispatchPayload: JSON.stringify(body) }
             : {}),
-          ...(autoContinueOfRunId
-            ? { autoContinueOf: autoContinueOfRunId }
-            : {}),
+          ...(continueOf ? { continueOf } : {}),
         });
       } catch (error) {
         await setupResumeClaim?.release();
@@ -9979,14 +10447,10 @@ export function createProductionAgentHandler(
         await setupResumeClaim?.release();
         return { ok: true, stopped: true };
       }
-      if (slot.autoContinueRefused) {
+      if (slot.continueRefused) {
         await setupResumeClaim?.release();
         setResponseStatus(event, 409);
-        return {
-          error: "This turn will not continue automatically.",
-          code: slot.autoContinueRefused,
-          retryable: false,
-        };
+        return continueRefusal(slot.continueRefused);
       }
       if (slot.completedRunId) {
         const stream = await replayCompletedTurn(threadId, effectiveTurnId);
@@ -10065,26 +10529,33 @@ export function createProductionAgentHandler(
       ? Math.max(0, priorTurnInputTokensFromBody)
       : 0;
 
-    // A server successor and an automatic continuation resume the same turn
-    // the same way: the thread's tool calls and results, plus the turn's
+    // A server successor and a continuation, automatic or chosen, resume the
+    // same turn the same way: the thread's tool calls and results, plus the turn's
     // journal of finished steps, so nothing already done is sent again.
-    if (
-      (isChainedBackgroundContinuation || autoContinueOfRunId) &&
-      effectiveThreadId
-    ) {
+    if ((isChainedBackgroundContinuation || continueOf) && effectiveThreadId) {
       try {
         const { getThread } = await import("../chat-threads/store.js");
-        const { resumeThreadHistoryForRequest } =
+        const { latestPromptTurnId, resumeThreadHistoryForRequest } =
           await import("./thread-data-builder.js");
+        const threadData = (await getThread(effectiveThreadId))?.threadData;
         const { messages: resumed, foundTurnPrompt } =
-          resumeThreadHistoryForRequest(
-            (await getThread(effectiveThreadId))?.threadData,
-          );
+          resumeThreadHistoryForRequest(threadData);
         // A continuation always follows a stopped run, so a thread without
         // that turn's prompt means its history was lost, not that there was
         // none. A successor stays best-effort and resumes from what is there.
-        if (autoContinueOfRunId && !foundTurnPrompt) {
+        if (continueOf && !foundTurnPrompt) {
           throw new Error(`thread ${effectiveThreadId} has no turn prompt`);
+        }
+        // Resuming takes the thread's newest prompt, so a newer one, even one
+        // whose run never started, would run under this turn's journal.
+        const promptTurnId =
+          continueOf && threadData ? latestPromptTurnId(threadData) : undefined;
+        if (promptTurnId && promptTurnId !== effectiveTurnId) {
+          if (await updateRunStatusIfRunning(runId, "errored")) {
+            await setRunTerminalReason(runId, CONTINUE_UNAVAILABLE_CODE);
+          }
+          setResponseStatus(event, 409);
+          return continueRefusal(CONTINUE_UNAVAILABLE_CODE);
         }
         if (resumed.length > 0) {
           const actionPreparationTool =
@@ -10101,7 +10572,7 @@ export function createProductionAgentHandler(
             effectiveThreadId,
             effectiveTurnId,
           );
-          if (autoContinueOfRunId && journalRead.status === "unreadable") {
+          if (continueOf && journalRead.status === "unreadable") {
             throw new Error(journalRead.error);
           }
           const journalNote =
@@ -10116,7 +10587,7 @@ export function createProductionAgentHandler(
           messages.push(...resumed);
         }
       } catch (error) {
-        if (autoContinueOfRunId) {
+        if (continueOf) {
           // The browser's history lacks the stopped run's tool results, so
           // continuing from it could repeat a step that already finished.
           console.warn(
@@ -10158,6 +10629,25 @@ export function createProductionAgentHandler(
           `[agent-chat] history recovery failed for thread ${threadId}; continuing with no prior context:`,
           err,
         );
+      }
+    }
+    if (!internalContinuation && !isChainedBackgroundContinuation && threadId) {
+      try {
+        const { loadStoppedPreviousTurnNote } =
+          await import("./previous-turn-note.js");
+        const note = await loadStoppedPreviousTurnNote(
+          threadId,
+          effectiveTurnId,
+        );
+        const prompt = messages.at(-1);
+        if (note && prompt?.role === "user") {
+          prompt.content = [{ type: "text", text: note }, ...prompt.content];
+        }
+      } catch (err) {
+        captureError(err, {
+          tags: { source: "agent-chat", failureClass: "previous-turn-note" },
+          extra: { threadId, turnId: effectiveTurnId },
+        });
       }
     }
     setupMark("depsThread");
@@ -10207,6 +10697,7 @@ export function createProductionAgentHandler(
           });
           backgroundRowInserted = true;
         } catch (err) {
+          if (err instanceof ServicePrincipalRefusedError) throw err;
           console.error(
             "[agent-chat] background insertRun failed; falling back to inline:",
             err instanceof Error ? err.message : err,
@@ -10545,7 +11036,9 @@ export function createProductionAgentHandler(
           await insertRun(runId, effectiveThreadId, effectiveTurnId, {
             dispatchMode: "background",
             ...(turnInitiator ? { turnInitiator } : {}),
-          }).catch(() => {});
+          }).catch((error) => {
+            if (error instanceof ServicePrincipalRefusedError) throw error;
+          });
         }
         const won = await claimBackgroundRun(runId);
         if (!won) {
@@ -10682,7 +11175,10 @@ export function createProductionAgentHandler(
                     {
                       role: "user",
                       content: [
-                        { type: "text", text: enrichedMessage + screenContext },
+                        {
+                          type: "text",
+                          text: enrichedMessage + referencedAgentContext,
+                        },
                       ],
                     },
                   ],
@@ -10788,7 +11284,7 @@ export function createProductionAgentHandler(
                 const responseText = await callConnectedAgentReference({
                   agent: ref.name,
                   path: ref.path,
-                  message: enrichedMessage + screenContext,
+                  message: enrichedMessage + referencedAgentContext,
                   send,
                   callAgent,
                   resolveCallerAuth: resolveA2ACallerAuth,
@@ -10960,6 +11456,17 @@ export function createProductionAgentHandler(
                     : undefined,
                 metadata: {
                   modelSelectionSource,
+                  // What the request asked for; the loop may lower it on retry.
+                  reasoningEffortRequested: reasoningEffort ?? null,
+                  ...(prefetchStatus
+                    ? { contextPrefetchStatus: prefetchStatus }
+                    : {}),
+                  ...(screenStatus
+                    ? { screenContextStatus: screenStatus }
+                    : {}),
+                  ...(priorConnection.status !== "none"
+                    ? { priorConnectionRequest: priorConnection.status }
+                    : {}),
                   ...(turnUsageLabel ? { label: turnUsageLabel } : {}),
                   ...(experimentAssignments.length > 0
                     ? { experimentAssignments }

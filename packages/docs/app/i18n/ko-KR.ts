@@ -2671,6 +2671,7 @@ const koKR = {
     planAutomations: "이벤트 및 자동화",
     planLocalAndDesktop: "로컬 파일 및 데스크톱",
     planDevelopers: "개발자 가이드",
+    turnIntoApp: "앱으로 전환",
     prVisualRecap: "PR 시각적 요약",
     planPluginMarketplace: "Plan 플러그인 및 마켓플레이스",
     slides: "슬라이드",

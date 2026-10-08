@@ -1,10 +1,14 @@
+import { hasCloudflareRuntime } from "../../db/migration-runtime.js";
+
 type RecurringJobsRuntimeEnvKey =
+  | "A2A_SECRET"
   | "AGENT_NATIVE_BUILD_RECURRING_JOBS"
   | "AGENT_NATIVE_DISABLE_RECURRING_JOBS"
   | "AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS"
   | "APP_URL"
   | "BETTER_AUTH_URL"
   | "CF_PAGES"
+  | "CRON_SECRET"
   | "DEPLOY_URL"
   | "AWS_EXECUTION_ENV"
   | "AWS_LAMBDA_FUNCTION_NAME"
@@ -15,6 +19,7 @@ type RecurringJobsRuntimeEnvKey =
   | "SITE_ID"
   | "URL"
   | "VERCEL"
+  | "VERCEL_ENV"
   | "VITE_APP_URL"
   | "VITE_WORKSPACE_GATEWAY_URL"
   | "WORKSPACE_GATEWAY_URL";
@@ -22,6 +27,19 @@ type RecurringJobsRuntimeEnvKey =
 type RecurringJobsRuntimeEnv = Partial<
   Record<RecurringJobsRuntimeEnvKey, string | undefined>
 >;
+
+/**
+ * Runtime facts the environment cannot carry. A Cloudflare Worker exposes its
+ * bindings only on the request, so the generated worker entry marks the
+ * isolate instead of setting an env var.
+ */
+export interface RecurringJobsPlatform {
+  cloudflareWorker: boolean;
+}
+
+function detectRecurringJobsPlatform(): RecurringJobsPlatform {
+  return { cloudflareWorker: hasCloudflareRuntime() };
+}
 
 function isTruthyEnv(value: string | undefined): boolean {
   return /^(1|true|yes|on)$/i.test(value?.trim() ?? "");
@@ -56,10 +74,12 @@ function isLoopbackAppUrl(value: string | undefined): boolean {
 
 function isServerlessRecurringJobsRuntime(
   env: RecurringJobsRuntimeEnv,
+  platform: RecurringJobsPlatform,
 ): boolean {
   return (
     env.NETLIFY_LOCAL !== "true" &&
-    (isTruthyEnv(env.NETLIFY) ||
+    (platform.cloudflareWorker ||
+      isTruthyEnv(env.NETLIFY) ||
       env.NITRO_PRESET === "netlify" ||
       Boolean(env.AWS_LAMBDA_FUNCTION_NAME) ||
       env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
@@ -70,10 +90,11 @@ function isServerlessRecurringJobsRuntime(
 
 export function shouldDisableRecurringJobsRuntime(
   env: RecurringJobsRuntimeEnv = process.env,
+  platform: RecurringJobsPlatform = detectRecurringJobsPlatform(),
 ): boolean {
   if (isTruthyEnv(env.AGENT_NATIVE_DISABLE_RECURRING_JOBS)) return true;
 
-  if (isServerlessRecurringJobsRuntime(env)) return true;
+  if (isServerlessRecurringJobsRuntime(env, platform)) return true;
 
   const isLocalRuntime =
     env.NODE_ENV === "development" ||
@@ -136,39 +157,92 @@ function readRecurringJobsBuildMarker(
   return value === "enabled" || value === "disabled" ? value : undefined;
 }
 
+export type PlatformScheduledTriggerDriver =
+  | "netlify-scheduled-function"
+  | "vercel-cron"
+  | "cloudflare-cron-trigger";
+
+export type ScheduledTriggerDriver =
+  | PlatformScheduledTriggerDriver
+  | "in-process";
+
+/**
+ * The secret each emitted trigger authenticates with. Netlify is absent
+ * because its build refuses to emit the scheduled function without
+ * `A2A_SECRET`; Vercel and Cloudflare read theirs only at runtime, so a deploy
+ * without one has a trigger that fires and is rejected every minute.
+ */
+const PLATFORM_TRIGGER_SECRET: Partial<
+  Record<PlatformScheduledTriggerDriver, "CRON_SECRET" | "A2A_SECRET">
+> = {
+  "vercel-cron": "CRON_SECRET",
+  "cloudflare-cron-trigger": "A2A_SECRET",
+};
+
 export type ScheduledTriggerAvailability =
-  | { available: true; driver: "netlify-scheduled-function" | "in-process" }
+  | { available: true; driver: ScheduledTriggerDriver }
   | {
       available: false;
       reason: "disabled-by-env" | "no-platform-scheduler" | "local-development";
+    }
+  | {
+      available: false;
+      reason: "missing-trigger-secret";
+      driver: PlatformScheduledTriggerDriver;
+      secret: "CRON_SECRET" | "A2A_SECRET";
     };
+
+function platformScheduledTriggerDriver(
+  env: RecurringJobsRuntimeEnv,
+  platform: RecurringJobsPlatform,
+): PlatformScheduledTriggerDriver | null {
+  if (isNetlifyRecurringJobsRuntime(env)) return "netlify-scheduled-function";
+  if (platform.cloudflareWorker) return "cloudflare-cron-trigger";
+  // Vercel invokes cron jobs only on the production deployment.
+  if (
+    isTruthyEnv(env.VERCEL) &&
+    (env.VERCEL_ENV ?? "production") === "production"
+  ) {
+    return "vercel-cron";
+  }
+  return null;
+}
 
 export function scheduledTriggerAvailability(
   env: RecurringJobsRuntimeEnv = process.env,
+  platform: RecurringJobsPlatform = detectRecurringJobsPlatform(),
 ): ScheduledTriggerAvailability {
-  const buildMarker = readRecurringJobsBuildMarker(env);
+  const driver = platformScheduledTriggerDriver(env, platform);
 
-  if (isNetlifyRecurringJobsRuntime(env)) {
-    if (buildMarker === "disabled") {
-      return { available: false, reason: "disabled-by-env" };
+  if (driver) {
+    // The emitted trigger fires on the platform's clock whatever the deployed
+    // env says, so the build's decision outranks a runtime-only switch.
+    const buildMarker = readRecurringJobsBuildMarker(env);
+    const disabled = buildMarker
+      ? buildMarker === "disabled"
+      : isTruthyEnv(env.AGENT_NATIVE_DISABLE_RECURRING_JOBS);
+    if (disabled) return { available: false, reason: "disabled-by-env" };
+    const secret = PLATFORM_TRIGGER_SECRET[driver];
+    if (secret && !env[secret]?.trim()) {
+      return {
+        available: false,
+        reason: "missing-trigger-secret",
+        driver,
+        secret,
+      };
     }
-    if (buildMarker === "enabled") {
-      return { available: true, driver: "netlify-scheduled-function" };
-    }
-    return isTruthyEnv(env.AGENT_NATIVE_DISABLE_RECURRING_JOBS)
-      ? { available: false, reason: "disabled-by-env" }
-      : { available: true, driver: "netlify-scheduled-function" };
+    return { available: true, driver };
   }
 
   if (isTruthyEnv(env.AGENT_NATIVE_DISABLE_RECURRING_JOBS)) {
     return { available: false, reason: "disabled-by-env" };
   }
 
-  if (isServerlessRecurringJobsRuntime(env)) {
+  if (isServerlessRecurringJobsRuntime(env, platform)) {
     return { available: false, reason: "no-platform-scheduler" };
   }
 
-  return shouldDisableRecurringJobsRuntime(env)
+  return shouldDisableRecurringJobsRuntime(env, platform)
     ? { available: false, reason: "local-development" }
     : { available: true, driver: "in-process" };
 }

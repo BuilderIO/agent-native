@@ -2658,6 +2658,122 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(ttft as number).toBeGreaterThanOrEqual(0);
   });
 
+  it("records the follow-up suggestions call's time and input tokens, and omits them when it did not run", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-trace",
+      track(event) {
+        if (event.name === "$ai_trace") events.push(event);
+      },
+    });
+    const runWith = async (
+      runId: string,
+      extra: { followUpMs?: number; followUpInputTokens?: number },
+    ) =>
+      instrumentAgentLoop({
+        runAgentLoop: async () => ({
+          inputTokens: 100,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "gpt-test",
+          usageReported: true,
+          ...extra,
+        }),
+        loopOpts: {
+          engine: { name: "builder" },
+          model: "gpt-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId,
+        threadId: "thread-1",
+        userId: "user@example.com",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      });
+
+    await runWith("run-follow-up", {
+      followUpMs: 840,
+      followUpInputTokens: 1200,
+    });
+    await runWith("run-no-follow-up", {});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events).toHaveLength(2);
+    expect(events[0]?.properties).toMatchObject({
+      follow_up_ms: 840,
+      follow_up_input_tokens: 1200,
+    });
+    expect(events[1]?.properties?.follow_up_ms).toBeUndefined();
+    expect(events[1]?.properties?.follow_up_input_tokens).toBeUndefined();
+  });
+
+  it("records how many write receipts were unverified or changed nothing, and omits them for clean runs", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-trace-receipts",
+      track(event) {
+        if (event.name === "$ai_trace") events.push(event);
+      },
+    });
+    const runWith = async (
+      runId: string,
+      extra: {
+        receiptUnverifiedCount?: number;
+        receiptChangedFalseCount?: number;
+      },
+    ) =>
+      instrumentAgentLoop({
+        runAgentLoop: async () => ({
+          inputTokens: 100,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "gpt-test",
+          usageReported: true,
+          ...extra,
+        }),
+        loopOpts: {
+          engine: { name: "builder" },
+          model: "gpt-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId,
+        threadId: "thread-1",
+        userId: "user@example.com",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      });
+
+    await runWith("run-receipts", {
+      receiptUnverifiedCount: 2,
+      receiptChangedFalseCount: 1,
+    });
+    await runWith("run-clean", {});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const byRun = (runId: string) =>
+      events.find((event) => event.properties?.run_id === runId);
+    expect(byRun("run-receipts")?.properties).toMatchObject({
+      receipt_unverified_count: 2,
+      receipt_changed_false_count: 1,
+    });
+    expect(
+      byRun("run-clean")?.properties?.receipt_unverified_count,
+    ).toBeUndefined();
+    expect(
+      byRun("run-clean")?.properties?.receipt_changed_false_count,
+    ).toBeUndefined();
+  });
+
   it("omits unreported token totals from the aggregate chat span", async () => {
     const { spans, runtime } = createRecordingTracer();
     __setAgentTraceRuntimeForTests(runtime as any);
@@ -4859,6 +4975,15 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(at("$ai_trace")).toBeCloseTo(startedAt, -2);
     expect(at("$ai_generation")).toBeCloseTo(startedAt, -2);
     expect(at("$ai_span")).toBeGreaterThan(at("$ai_trace"));
+    const generation = events.find((event) => event.name === "$ai_generation");
+    expect(generation?.properties.created_at_ms).toEqual(startedAt);
+    expect(generation?.properties.ended_at_ms).toEqual(
+      (generation?.properties.created_at_ms as number) +
+        (generation?.properties.duration_ms as number),
+    );
+    expect(generation?.properties.ended_at).toEqual(
+      new Date(generation?.properties.ended_at_ms as number).toISOString(),
+    );
   });
   it("sends $ai_session_id (thread) and $session_id (browser) as distinct ids on every AI event", async () => {
     const events: TrackingEvent[] = [];
@@ -5207,5 +5332,200 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(events).toHaveLength(2);
     expect(events[0]?.properties?.["$ai_http_status"]).toBe(200);
     expect(events[1]?.properties?.["$ai_http_status"]).toBe(429);
+  });
+  it("reports a failed trace write once per stage and counts it", async () => {
+    const recorded: Array<{
+      instrument: string;
+      value: number;
+      attributes?: Record<string, string | number>;
+    }> = [];
+    const instrument = (name: string) => {
+      const write = (
+        value: number,
+        attributes?: Record<string, string | number>,
+      ) => recorded.push({ instrument: name, value, attributes });
+      return { record: write, add: write };
+    };
+    const unregister = registerObservabilityProvider({
+      meterProvider: {
+        getMeter: () => ({
+          createHistogram: instrument,
+          createCounter: instrument,
+        }),
+      },
+    });
+    const insertSpan = vi
+      .spyOn(traceStore, "insertTraceSpan")
+      .mockRejectedValue(new Error("span insert failed"));
+    vi.spyOn(traceStore, "upsertTraceSummary").mockRejectedValue(
+      new Error("summary upsert failed for owner@example.com password=hunter2"),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await instrumentAgentLoop({
+        runAgentLoop: async ({ send }) => {
+          send({ type: "model_stream", status: "start" });
+          send({ type: "model_stream", status: "end", reason: "tool_use" });
+          send({ type: "tool_start", id: "a", tool: "read", input: {} });
+          send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
+          send({ type: "tool_start", id: "b", tool: "read", input: {} });
+          send({ type: "tool_done", id: "b", tool: "read", result: "ok" });
+          return {
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            model: "claude-test",
+            usageReported: true,
+          };
+        },
+        loopOpts: {
+          engine: { name: "anthropic" },
+          model: "claude-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId: "run-trace-write-failed",
+        threadId: "thread-1",
+        userId: "user@example.com",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(insertSpan.mock.calls.length).toBeGreaterThan(1);
+      const messages = warn.mock.calls.map(([message]) => String(message));
+      expect(
+        messages.filter((message) => message.includes("trace spans")),
+      ).toHaveLength(1);
+      expect(
+        messages.filter((message) => message.includes("trace summary")),
+      ).toHaveLength(1);
+      // The raw driver message can carry a credential or an address.
+      const logged = JSON.stringify(warn.mock.calls);
+      expect(logged).toContain("summary upsert failed for [email]");
+      expect(logged).not.toContain("owner@example.com");
+      expect(logged).not.toContain("hunter2");
+      expect(
+        recorded.filter(
+          (entry) =>
+            entry.instrument ===
+            "agent_native.observability.trace_write_failures",
+        ),
+      ).toEqual([
+        {
+          instrument: "agent_native.observability.trace_write_failures",
+          value: 1,
+          attributes: {
+            "agent_native.observability.stage": "spans",
+            "error.type": "Error",
+          },
+        },
+        {
+          instrument: "agent_native.observability.trace_write_failures",
+          value: 1,
+          attributes: {
+            "agent_native.observability.stage": "summary",
+            "error.type": "Error",
+          },
+        },
+      ]);
+    } finally {
+      unregister();
+    }
+  });
+  it("lets the run's org claim a thread that never recorded one", async () => {
+    vi.stubEnv("AGENT_ORG_ID", "org-a");
+    vi.spyOn(traceStore, "insertTraceSpan").mockResolvedValue(undefined);
+    vi.spyOn(traceStore, "upsertTraceSummary").mockResolvedValue(undefined);
+    const adopt = vi
+      .spyOn(traceStore, "adoptTraceOrgForThread")
+      .mockResolvedValue(undefined);
+
+    try {
+      await instrumentAgentLoop({
+        runAgentLoop: async () => ({
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        }),
+        loopOpts: {
+          engine: { name: "anthropic" },
+          model: "claude-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId: "run-claims-thread",
+        threadId: "thread-1",
+        userId: "user@example.com",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(adopt).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadId: "thread-1",
+          userId: "user@example.com",
+          orgId: "org-a",
+        }),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("does not let a run whose summary was not written claim a thread's org", async () => {
+    vi.stubEnv("AGENT_ORG_ID", "org-a");
+    vi.spyOn(traceStore, "insertTraceSpan").mockResolvedValue(undefined);
+    vi.spyOn(traceStore, "upsertTraceSummary").mockRejectedValue(
+      new Error("summary upsert failed"),
+    );
+    const adopt = vi
+      .spyOn(traceStore, "adoptTraceOrgForThread")
+      .mockResolvedValue(undefined);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await instrumentAgentLoop({
+        runAgentLoop: async () => ({
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        }),
+        loopOpts: {
+          engine: { name: "anthropic" },
+          model: "claude-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId: "run-summary-lost",
+        threadId: "thread-1",
+        userId: "user@example.com",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(adopt).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

@@ -2667,6 +2667,7 @@ const arSA = {
     planAutomations: "الأحداث والأتمتة",
     planLocalAndDesktop: "الملفات المحلية وسطح المكتب",
     planDevelopers: "دليل المطور",
+    turnIntoApp: "تحويل إلى تطبيق",
     prVisualRecap: "ملخص PR بصري",
     planPluginMarketplace: "إضافة Plan والسوق",
     slides: "الشرائح",

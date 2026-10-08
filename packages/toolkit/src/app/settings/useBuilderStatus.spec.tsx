@@ -103,6 +103,13 @@ function BuilderConnectProbeContent({
       <output data-testid="credential-source">
         {flow.credentialSource ?? "none"}
       </output>
+      <output data-testid="error-kind">{flow.errorKind ?? ""}</output>
+      <output data-testid="status-unavailable">
+        {flow.statusUnavailable ? "unavailable" : "available"}
+      </output>
+      <output data-testid="terminal-error">
+        {flow.terminalError ?? "none"}
+      </output>
       <output>{flow.error ?? ""}</output>
     </div>
   );
@@ -127,6 +134,42 @@ function BuilderConnectPopoverProbeContent() {
     <BuilderConnectPopover flow={flow}>
       <button type="button">Connect</button>
     </BuilderConnectPopover>
+  );
+}
+
+function BuilderConnectStatusRetryProbeContent() {
+  const flow = useBuilderConnectFlow();
+  return (
+    <div>
+      <BuilderConnectPopover flow={flow} openOnMount>
+        <button type="button">Connect</button>
+      </BuilderConnectPopover>
+      <button
+        type="button"
+        data-testid="start-failed-setup"
+        onClick={() => flow.start({ provisionAccount: true })}
+      >
+        Start setup
+      </button>
+      <output data-testid="error-kind">{flow.errorKind ?? ""}</output>
+      <output data-testid="status-unavailable">
+        {flow.statusUnavailable ? "unavailable" : "available"}
+      </output>
+      <output data-testid="terminal-error">
+        {flow.terminalError ?? "none"}
+      </output>
+    </div>
+  );
+}
+
+function BuilderConnectStatusRetryProbe() {
+  return (
+    <AgentNativeI18nProvider
+      catalog={toolkitI18nCatalog}
+      persistPreference={false}
+    >
+      <BuilderConnectStatusRetryProbeContent />
+    </AgentNativeI18nProvider>
   );
 }
 
@@ -842,6 +885,229 @@ describe("useBuilderConnectFlow", () => {
       expect(openSpy).not.toHaveBeenCalled();
     });
 
+    it("shows status retry when a failed setup is followed by an unreadable status", async () => {
+      let failStatusReads = false;
+      vi.mocked(fetch).mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/_agent-native/builder/provision") {
+          return activationResponse(503, {
+            ok: false,
+            code: "provision_failed",
+            message: "The previous connection failed.",
+          });
+        }
+        if (failStatusReads) {
+          return new Response("unavailable", { status: 503 });
+        }
+        return jsonResponse(activationStatus);
+      });
+
+      await act(async () => {
+        root.render(<BuilderConnectStatusRetryProbe />);
+      });
+      await flushAfterPaint();
+
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            "[data-testid='start-failed-setup']",
+          )
+          ?.click();
+      });
+      await flushAfterPaint();
+      expect(
+        container.querySelector('[data-testid="error-kind"]')?.textContent,
+      ).toBe("connection");
+      expect(container.textContent).toContain(
+        "The previous connection failed.",
+      );
+
+      failStatusReads = true;
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        await Promise.resolve();
+      });
+      await flushAfterPaint();
+
+      expect(
+        container.querySelector('[data-testid="error-kind"]')?.textContent,
+      ).toBe("status-read");
+      expect(
+        container.querySelector('[data-testid="status-unavailable"]')
+          ?.textContent,
+      ).toBe("unavailable");
+      expect(
+        container.querySelector('[data-testid="terminal-error"]')?.textContent,
+      ).toBe("The previous connection failed.");
+      const statusNotice = document.body.querySelector('[role="status"]');
+      expect(statusNotice?.textContent).toContain(
+        "Connection status is unavailable. Retry to check again.",
+      );
+      expect(
+        document.body.querySelector('[role="alert"]')?.textContent ?? "",
+      ).not.toContain("The previous connection failed.");
+      expect(
+        [...(statusNotice?.querySelectorAll("button") ?? [])].some(
+          (button) => button.textContent === "Retry",
+        ),
+      ).toBe(true);
+
+      failStatusReads = false;
+      const retry = [...(statusNotice?.querySelectorAll("button") ?? [])].find(
+        (button) => button.textContent === "Retry",
+      );
+      await act(async () => {
+        retry?.click();
+      });
+      await flushAfterPaint();
+
+      expect(
+        container.querySelector('[data-testid="status-unavailable"]')
+          ?.textContent,
+      ).toBe("available");
+      expect(
+        container.querySelector('[data-testid="error-kind"]')?.textContent,
+      ).toBe("connection");
+    });
+
+    it("keeps a newer connection error when an older refresh fails", async () => {
+      setUserAgent("Mozilla/5.0 Chrome/140.0");
+      const popup = createPopupStub();
+      openSpy.mockReturnValue(popup);
+      let rejectOlderRefresh!: (error: Error) => void;
+      const olderRefresh = new Promise<Response>((_resolve, reject) => {
+        rejectOlderRefresh = reject;
+      });
+      let statusReads = 0;
+      vi.mocked(fetch).mockImplementation(async () => {
+        statusReads += 1;
+        return statusReads === 2
+          ? olderRefresh
+          : jsonResponse(activationStatus);
+      });
+
+      await act(async () => {
+        root.render(<BuilderConnectProbe />);
+      });
+      await flushAfterPaint();
+
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        await Promise.resolve();
+      });
+      expect(statusReads).toBe(2);
+
+      await clickConnect();
+      const message = "The connection could not be saved";
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            origin: "https://agent-workspace.builder.io",
+            data: {
+              type: "builder-connect-error",
+              attemptId: popupAttemptId(popup),
+              message,
+            },
+          }),
+        );
+      });
+
+      expect(
+        container.querySelector('[data-testid="error-kind"]')?.textContent,
+      ).toBe("connection");
+      expect(container.textContent).toContain(
+        `Couldn't save Builder credentials: ${message}.`,
+      );
+
+      await act(async () => {
+        rejectOlderRefresh(new Error("status unavailable"));
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      await flushAfterPaint();
+
+      expect(
+        container.querySelector('[data-testid="error-kind"]')?.textContent,
+      ).toBe("connection");
+      expect(
+        container.querySelector('[data-testid="status-unavailable"]')
+          ?.textContent,
+      ).toBe("available");
+      expect(container.textContent).toContain(
+        `Couldn't save Builder credentials: ${message}.`,
+      );
+      expect(container.textContent).not.toContain(
+        "Connection status is unavailable. Retry to check again.",
+      );
+    });
+
+    it("keeps a newer connection error when an older refresh succeeds", async () => {
+      setUserAgent("Mozilla/5.0 Chrome/140.0");
+      const popup = createPopupStub();
+      openSpy.mockReturnValue(popup);
+      let resolveOlderRefresh!: (response: Response) => void;
+      const olderRefresh = new Promise<Response>((resolve) => {
+        resolveOlderRefresh = resolve;
+      });
+      let statusReads = 0;
+      vi.mocked(fetch).mockImplementation(async () => {
+        statusReads += 1;
+        return statusReads === 2
+          ? olderRefresh
+          : jsonResponse(activationStatus);
+      });
+
+      await act(async () => {
+        root.render(<BuilderConnectProbe />);
+      });
+      await flushAfterPaint();
+
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        await Promise.resolve();
+      });
+      expect(statusReads).toBe(2);
+
+      await clickConnect();
+      const message = "The connection could not be saved";
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            origin: "https://agent-workspace.builder.io",
+            data: {
+              type: "builder-connect-error",
+              attemptId: popupAttemptId(popup),
+              message,
+            },
+          }),
+        );
+      });
+
+      expect(
+        container.querySelector('[data-testid="error-kind"]')?.textContent,
+      ).toBe("connection");
+      expect(container.textContent).toContain(
+        `Couldn't save Builder credentials: ${message}.`,
+      );
+
+      await act(async () => {
+        resolveOlderRefresh(jsonResponse(connectedBuilderStatus));
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      await flushAfterPaint();
+
+      expect(
+        container.querySelector('[data-testid="error-kind"]')?.textContent,
+      ).toBe("connection");
+      expect(container.textContent).toContain(
+        `Couldn't save Builder credentials: ${message}.`,
+      );
+      expect(container.textContent).not.toContain(
+        "Connection status is unavailable. Retry to check again.",
+      );
+    });
+
     it("reconciles status when the activation response is lost", async () => {
       let activationAttempts = 0;
       vi.mocked(fetch).mockImplementation(async (input) => {
@@ -994,6 +1260,78 @@ describe("useBuilderConnectFlow", () => {
         "signed",
         "refreshed",
       ]);
+      expect(container.textContent).toContain("configured idle resolved");
+    });
+
+    it("ignores a failed credential refresh after a newer attempt starts", async () => {
+      let statusReads = 0;
+      let activationPosts = 0;
+      let rejectRefresh: (() => void) | null = null;
+      let resolveNewActivation: ((response: Response) => void) | null = null;
+      let newActivationComplete = false;
+      vi.mocked(fetch).mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/_agent-native/builder/provision") {
+          activationPosts += 1;
+          if (activationPosts === 1) {
+            return activationResponse(403, {
+              ok: false,
+              code: "provision_token_invalid",
+              message: "This activation link is expired.",
+            });
+          }
+          return new Promise<Response>((resolve) => {
+            resolveNewActivation = resolve;
+          });
+        }
+
+        statusReads += 1;
+        if (statusReads === 1) return jsonResponse(activationStatus);
+        if (statusReads === 2) {
+          return new Promise<Response>((_, reject) => {
+            rejectRefresh = () => reject(new TypeError("Failed to fetch"));
+          });
+        }
+        return jsonResponse(
+          newActivationComplete ? connectedBuilderStatus : activationStatus,
+        );
+      });
+
+      await act(async () => {
+        root.render(<BuilderConnectProbe provisionAccount />);
+      });
+      await flushAfterPaint();
+      await clickConnect();
+
+      expect(rejectRefresh).not.toBeNull();
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
+          ?.click();
+      });
+      await clickConnect();
+      expect(activationPosts).toBe(2);
+      expect(container.textContent).toContain("not-configured connecting");
+
+      await act(async () => {
+        rejectRefresh?.();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(container.textContent).toContain("not-configured connecting");
+      expect(
+        container.querySelector('[data-testid="status-unavailable"]')
+          ?.textContent,
+      ).toBe("available");
+      expect(
+        container.querySelector('[data-testid="error-kind"]')?.textContent,
+      ).toBe("");
+
+      await act(async () => {
+        newActivationComplete = true;
+        resolveNewActivation?.(activationResponse(200, { ok: true }));
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
       expect(container.textContent).toContain("configured idle resolved");
     });
 
@@ -1644,8 +1982,15 @@ describe("useBuilderConnectFlow", () => {
     await flushAfterPaint();
 
     expect(container.textContent).toContain("not-configured idle unresolved");
+    expect(
+      container.querySelector('[data-testid="status-unavailable"]')
+        ?.textContent,
+    ).toBe("unavailable");
+    expect(
+      container.querySelector('[data-testid="terminal-error"]')?.textContent,
+    ).toBe("none");
     expect(container.textContent).toContain(
-      "Couldn't reach Builder to check your account.",
+      "Connection status is unavailable. Retry to check again.",
     );
 
     await act(async () => {
@@ -1655,7 +2000,90 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(container.textContent).toContain("not-configured idle resolved");
-    expect(container.textContent).not.toContain("Couldn't reach Builder");
+    expect(
+      container.querySelector('[data-testid="status-unavailable"]')
+        ?.textContent,
+    ).toBe("available");
+    expect(
+      container.querySelector('[data-testid="terminal-error"]')?.textContent,
+    ).toBe("none");
+    expect(container.textContent).not.toContain(
+      "Connection status is unavailable. Retry to check again.",
+    );
+  });
+
+  it("shows whichever status or launch failure happened most recently", async () => {
+    const staleConnectionError = "The previous Builder connection failed.";
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: false,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          connectUrl: signedConnectUrl,
+          authError: {
+            message: staleConnectionError,
+            at: Date.now() - 60_000,
+          },
+        }),
+      )
+      .mockRejectedValueOnce(new Error("status unavailable"))
+      .mockRejectedValueOnce(new Error("status unavailable"));
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    expect(
+      container.querySelector('[data-testid="error-kind"]')?.textContent,
+    ).toBe("connection");
+    expect(container.textContent).toContain(staleConnectionError);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(
+      container.querySelector('[data-testid="error-kind"]')?.textContent,
+    ).toBe("status-read");
+    expect(container.textContent).toContain(
+      "Connection status is unavailable. Retry to check again.",
+    );
+    expect(
+      container.querySelector('[data-testid="terminal-error"]')?.textContent,
+    ).toBe(staleConnectionError);
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="status-unavailable"]')
+        ?.textContent,
+    ).toBe("unavailable");
+    expect(
+      container.querySelector('[data-testid="error-kind"]')?.textContent,
+    ).toBe("launch");
+    expect(container.textContent).toContain("Allow popups and try again.");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(
+      container.querySelector('[data-testid="error-kind"]')?.textContent,
+    ).toBe("status-read");
+    expect(container.textContent).toContain(
+      "Connection status is unavailable. Retry to check again.",
+    );
   });
 
   it("shows the chooser without navigating when status cannot be resolved", async () => {
@@ -1769,9 +2197,7 @@ describe("useBuilderConnectFlow", () => {
       document.querySelectorAll<HTMLButtonElement>(
         "[data-radix-popper-content-wrapper] button",
       ),
-    ).find((button) =>
-      button.textContent?.includes("I have a Builder.io account"),
-    );
+    ).find((button) => button.textContent?.includes("Use Builder.io"));
     expect(existingAccountAction).toBeDefined();
 
     await act(async () => existingAccountAction?.click());
@@ -2178,6 +2604,77 @@ describe("useBuilderConnectFlow", () => {
 
     expect(container.textContent).toContain("not-configured idle");
     expect(container.textContent).toContain("Didn't hear back from Builder");
+  });
+
+  it("clears a stale status-read error after a readable incomplete callback status", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const incompleteStatus = {
+      ...connectedBuilderStatus,
+      configured: false,
+      orgName: null,
+    };
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(incompleteStatus))
+      .mockResolvedValueOnce(jsonResponse(incompleteStatus))
+      .mockRejectedValueOnce(new Error("poll status unavailable"))
+      .mockImplementation(async () => jsonResponse(incompleteStatus));
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(
+      container.querySelector('[data-testid="error-kind"]')?.textContent,
+    ).toBe("status-read");
+    expect(container.textContent).toContain(
+      "Connection status is unavailable. Retry to check again.",
+    );
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://agent-workspace.builder.io",
+          data: {
+            type: "builder-connect-success",
+            attemptId: popupAttemptId(popup),
+          },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+
+    expect(container.textContent).toContain(
+      "not-configured connecting resolved",
+    );
+    expect(
+      container.querySelector('[data-testid="status-unavailable"]')
+        ?.textContent,
+    ).toBe("available");
+    expect(
+      container.querySelector('[data-testid="terminal-error"]')?.textContent,
+    ).toBe("none");
+    expect(
+      container.querySelector('[data-testid="error-kind"]')?.textContent,
+    ).toBe("");
+    expect(container.textContent).not.toContain(
+      "Connection status is unavailable. Retry to check again.",
+    );
   });
 
   it("waits for a member's own grant instead of the org connection they already ride", async () => {

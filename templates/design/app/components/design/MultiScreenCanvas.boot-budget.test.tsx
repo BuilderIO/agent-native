@@ -78,13 +78,15 @@ describe("MultiScreenCanvas live boot budget", () => {
         <MultiScreenCanvas
           screens={screens}
           zoom={100}
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 10, y: 0, width: 320, height: 640 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 10, y: 0, width: 320, height: 640 },
+              ]),
+            ),
+          }}
           screenSnapshotsById={Object.fromEntries(
             screens.map((screen) => [screen.id, { html: "<p>snapshot</p>" }]),
           )}
@@ -138,13 +140,15 @@ describe("MultiScreenCanvas live boot budget", () => {
         <MultiScreenCanvas
           screens={screens}
           zoom={100}
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 10, y: 0, width: 320, height: 640 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 10, y: 0, width: 320, height: 640 },
+              ]),
+            ),
+          }}
           screenSnapshotsById={Object.fromEntries(
             screens.map((screen) => [screen.id, { html: "<p>snapshot</p>" }]),
           )}
@@ -195,13 +199,15 @@ describe("MultiScreenCanvas live boot budget", () => {
         <MultiScreenCanvas
           screens={screens}
           zoom={100}
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 10, y: 0, width: 320, height: 640 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 10, y: 0, width: 320, height: 640 },
+              ]),
+            ),
+          }}
           renderScreenContent={(screen, _metadata, _geometry, options) => {
             if (options?.onBootReady) {
               readyById.set(screen.id, options.onBootReady);
@@ -237,13 +243,15 @@ describe("MultiScreenCanvas live boot budget", () => {
           screens={screens}
           zoom={10}
           activeId="inline-1"
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 1500, y: 0, width: 1440, height: 900 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 1500, y: 0, width: 1440, height: 900 },
+              ]),
+            ),
+          }}
           renderScreenContent={(screen) => {
             renderCalls.push(screen.id);
             return <div data-live-screen={screen.id} />;
@@ -271,14 +279,16 @@ describe("MultiScreenCanvas live boot budget", () => {
         screens={screens}
         zoom={10}
         activeId="inline-1"
-        activeTool="move"
+        creation={{ activeTool: "move" }}
         tweakValues={tweakValues}
-        geometryById={Object.fromEntries(
-          screens.map((screen, index) => [
-            screen.id,
-            { x: index * 1500, y: 0, width: 1440, height: 900 },
-          ]),
-        )}
+        geometry={{
+          geometryById: Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              { x: index * 1500, y: 0, width: 1440, height: 900 },
+            ]),
+          ),
+        }}
         metadataById={{ "inline-2": { heightMode: "hug" } }}
         renderScreenContent={(screen) => <div data-live-screen={screen.id} />}
         onPick={() => {}}
@@ -330,13 +340,15 @@ describe("MultiScreenCanvas live boot budget", () => {
         screens={screens}
         zoom={10}
         activeId={activeId}
-        activeTool="move"
-        geometryById={Object.fromEntries(
-          screens.map((screen, index) => [
-            screen.id,
-            { x: index * 1500, y: 0, width: 1440, height: 900 },
-          ]),
-        )}
+        creation={{ activeTool: "move" }}
+        geometry={{
+          geometryById: Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              { x: index * 1500, y: 0, width: 1440, height: 900 },
+            ]),
+          ),
+        }}
         renderScreenContent={(screen, _metadata, _geometry, options) => {
           if (options?.onBootReady) {
             readyById.set(screen.id, options.onBootReady);
@@ -376,13 +388,15 @@ describe("MultiScreenCanvas live boot budget", () => {
         screens={screens}
         zoom={10}
         activeId={activeId}
-        activeTool="move"
-        geometryById={Object.fromEntries(
-          screens.map((screen, index) => [
-            screen.id,
-            { x: index * 1500, y: 0, width: 1440, height: 900 },
-          ]),
-        )}
+        creation={{ activeTool: "move" }}
+        geometry={{
+          geometryById: Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              { x: index * 1500, y: 0, width: 1440, height: 900 },
+            ]),
+          ),
+        }}
         renderScreenContent={(screen, _metadata, _geometry, options) => {
           if (options?.onBootReady) {
             readyById.set(screen.id, options.onBootReady);
@@ -425,13 +439,15 @@ describe("MultiScreenCanvas live boot budget", () => {
         screens={screens}
         zoom={10}
         activeId={activeId}
-        activeTool="move"
-        geometryById={Object.fromEntries(
-          screens.map((screen, index) => [
-            screen.id,
-            { x: index * 1500, y: 0, width: 1440, height: 900 },
-          ]),
-        )}
+        creation={{ activeTool: "move" }}
+        geometry={{
+          geometryById: Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              { x: index * 1500, y: 0, width: 1440, height: 900 },
+            ]),
+          ),
+        }}
         renderScreenContent={(screen) => <div data-live-screen={screen.id} />}
         onPick={() => {}}
       />
@@ -462,14 +478,16 @@ describe("MultiScreenCanvas live boot budget", () => {
         screens={screens}
         zoom={45}
         activeId={activeId}
-        selectedScreenIds={[activeId]}
-        activeTool="move"
-        geometryById={Object.fromEntries(
-          screens.map((screen, index) => [
-            screen.id,
-            { x: index * 430, y: 0, width: 390, height: 844 },
-          ]),
-        )}
+        selection={{ selectedScreenIds: [activeId] }}
+        creation={{ activeTool: "move" }}
+        geometry={{
+          geometryById: Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              { x: index * 430, y: 0, width: 390, height: 844 },
+            ]),
+          ),
+        }}
         renderScreenContent={(screen) => (
           <TrackedEditor id={screen.id} mounts={mounts} unmounts={unmounts} />
         )}
@@ -503,13 +521,15 @@ describe("MultiScreenCanvas live boot budget", () => {
           zoom={10}
           activeId="inline-1"
           interactMode
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 1500, y: 0, width: 1440, height: 900 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 1500, y: 0, width: 1440, height: 900 },
+              ]),
+            ),
+          }}
           renderScreenContent={(screen, _metadata, _geometry, options) => {
             if (options?.onBootReady) {
               readyById.set(screen.id, options.onBootReady);
@@ -543,14 +563,19 @@ describe("MultiScreenCanvas live boot budget", () => {
           screens={screens}
           zoom={10}
           activeId="inline-1"
-          selectedScreenIds={["inline-0"]}
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 1500, y: 0, width: 1440, height: 900 },
-            ]),
-          )}
+          selection={{
+            selectedScreenIds: ["inline-0"],
+            onLayerMarqueeSelectionChange,
+          }}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 1500, y: 0, width: 1440, height: 900 },
+              ]),
+            ),
+          }}
           metadataById={Object.fromEntries(
             screens.map((screen) => [screen.id, { width: 1440, height: 900 }]),
           )}
@@ -566,7 +591,6 @@ describe("MultiScreenCanvas live boot budget", () => {
             );
           }}
           onPick={() => {}}
-          onLayerMarqueeSelectionChange={onLayerMarqueeSelectionChange}
         />,
       );
     });
@@ -661,13 +685,15 @@ describe("MultiScreenCanvas live boot budget", () => {
           screens={screens}
           zoom={10}
           activeId="inline-1"
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 1500, y: 0, width: 1440, height: 900 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 1500, y: 0, width: 1440, height: 900 },
+              ]),
+            ),
+          }}
           renderScreenContent={(screen) => <div data-live-screen={screen.id} />}
           onPick={() => {}}
         />,
@@ -713,18 +739,20 @@ describe("MultiScreenCanvas live boot budget", () => {
         screens={screens}
         zoom={zoom}
         activeId="inline-0"
-        activeTool="move"
-        geometryById={Object.fromEntries(
-          screens.map((screen, index) => [
-            screen.id,
-            {
-              x: (index % 6) * 320,
-              y: Math.floor(index / 6) * 220,
-              width: 300,
-              height: 200,
-            },
-          ]),
-        )}
+        creation={{ activeTool: "move" }}
+        geometry={{
+          geometryById: Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              {
+                x: (index % 6) * 320,
+                y: Math.floor(index / 6) * 220,
+                width: 300,
+                height: 200,
+              },
+            ]),
+          ),
+        }}
         renderScreenContent={(screen, _metadata, _geometry, options) => {
           if (options?.onBootReady) {
             readyById.set(screen.id, options.onBootReady);
@@ -792,13 +820,15 @@ describe("MultiScreenCanvas live boot budget", () => {
           screens={screens}
           zoom={10}
           activeId="inline-0"
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 1500, y: 0, width: 1440, height: 900 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 1500, y: 0, width: 1440, height: 900 },
+              ]),
+            ),
+          }}
           renderScreenContent={(screen) => <div data-live-screen={screen.id} />}
           onPick={() => {}}
         />,
@@ -840,13 +870,15 @@ describe("MultiScreenCanvas live boot budget", () => {
         <MultiScreenCanvas
           screens={screens}
           zoom={10}
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 1500, y: 0, width: 1440, height: 900 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 1500, y: 0, width: 1440, height: 900 },
+              ]),
+            ),
+          }}
           onPick={() => {}}
         />,
       );

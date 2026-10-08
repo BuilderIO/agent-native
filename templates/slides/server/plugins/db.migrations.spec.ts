@@ -65,6 +65,18 @@ describe("Slides share migrations", () => {
         created_at TIMESTAMP NOT NULL DEFAULT now()
       )
     `);
+    await exec.execute(`
+      CREATE TABLE uploaded_assets (
+        id TEXT PRIMARY KEY,
+        filename TEXT NOT NULL,
+        url TEXT NOT NULL,
+        type TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        provider TEXT,
+        owner_email TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT now()
+      )
+    `);
     await exec.execute(
       "CREATE TABLE slides_migrations (version BIGINT PRIMARY KEY)",
     );
@@ -129,6 +141,29 @@ describe("Slides share migrations", () => {
     expect(commentColumns).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: "anchor" })]),
     );
+
+    const { rows: uploadedAssetColumns } = await exec.execute(
+      `SELECT column_name AS name
+       FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'uploaded_assets'`,
+    );
+    expect(uploadedAssetColumns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "provider_object_id" }),
+        expect.objectContaining({ name: "upload_session_id" }),
+        expect.objectContaining({ name: "org_id" }),
+      ]),
+    );
+
+    const { rows: uploadSessionIndexes } = await exec.execute(
+      `SELECT indexname AS name
+       FROM pg_indexes
+       WHERE schemaname = 'public'
+         AND indexname = 'uploaded_assets_owner_upload_session_uidx'`,
+    );
+    expect(uploadSessionIndexes).toEqual([
+      { name: "uploaded_assets_owner_upload_session_uidx" },
+    ]);
 
     const { rows } = await exec.execute(
       `SELECT id, resource_id, principal_type, principal_id, role

@@ -2725,6 +2725,7 @@ const frFR = {
     planAutomations: "Événements et automatisations",
     planLocalAndDesktop: "Fichiers locaux et bureau",
     planDevelopers: "Guide développeur",
+    turnIntoApp: "Transformer en app",
     prVisualRecap: "Récapitulatif visuel de PR",
     planPluginMarketplace: "Plugin Plan et marketplace",
     slides: "Diapositives",
