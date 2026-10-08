@@ -137,12 +137,19 @@ vi.mock("../../../../db/index.js", () => ({
   },
 }));
 
-vi.mock("../../../../lib/recording-upload-state.js", () => ({
-  deleteRecordingChunks: (...args: unknown[]) =>
-    mockDeleteRecordingChunks(...args),
-  sumRecordingChunkBytes: (...args: unknown[]) =>
-    mockSumRecordingChunkBytes(...args),
-}));
+vi.mock("../../../../lib/recording-upload-state.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../../../../lib/recording-upload-state.js")
+    >();
+  return {
+    ...actual,
+    deleteRecordingChunks: (...args: unknown[]) =>
+      mockDeleteRecordingChunks(...args),
+    sumRecordingChunkBytes: (...args: unknown[]) =>
+      mockSumRecordingChunkBytes(...args),
+  };
+});
 
 vi.mock("../../../../lib/recordings.js", () => ({
   getEventOwnerContext: (...args: unknown[]) =>
@@ -573,6 +580,63 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     ]);
     expect(mockUpdateSets).toEqual([]);
     expect(mockFinalizeRun).not.toHaveBeenCalled();
+  });
+
+  it("persists the first chunk request session for its upload attempt", async () => {
+    mockSelectRows.rows[0] = {
+      ...mockSelectRows.rows[0],
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    mockGetHeader.mockImplementation((_, name) =>
+      name === "x-agent-native-session-id" ? "browser-session-1" : undefined,
+    );
+    setRequest({
+      query: {
+        index: "0",
+        total: "2",
+        mimeType: "video/webm",
+        attemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+      body: new Uint8Array([1, 2, 3]),
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: true,
+      finalized: false,
+      index: 0,
+      bytes: 3,
+    });
+    expect(mockAppState.get(UPLOAD_KEY)).toEqual(
+      expect.objectContaining({
+        recordingId: "rec-1",
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+        browserSessionId: "browser-session-1",
+      }),
+    );
+
+    mockGetHeader.mockReturnValue(undefined);
+    setRequest({
+      query: {
+        index: "1",
+        total: "2",
+        mimeType: "video/webm",
+        attemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+      body: new Uint8Array([4, 5, 6]),
+    });
+
+    await handler({} as any);
+    expect(mockAppState.get(UPLOAD_KEY)).toEqual(
+      expect.objectContaining({
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+        browserSessionId: "browser-session-1",
+      }),
+    );
   });
 
   it("finalizes on the empty final sentinel and reports the finalize result", async () => {
@@ -1405,6 +1469,14 @@ describe("/api/uploads/:recordingId/chunk route", () => {
   });
 
   it("relays a fresh resumable chunk to the provider and advances the committed offset", async () => {
+    mockSelectRows.rows[0] = {
+      ...mockSelectRows.rows[0],
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    mockGetHeader.mockImplementation((_, name) =>
+      name === "x-agent-native-session-id" ? "browser-session-1" : undefined,
+    );
     mockGetResumableSession.mockResolvedValue({
       providerId: "s3",
       sessionId: "sess-1",
@@ -1418,6 +1490,8 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         index: "3",
         total: "0",
         mimeType: "video/webm;codecs=vp9,opus",
+        attemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
       },
       body: bytes,
     });
@@ -1458,7 +1532,14 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         bytesUploaded: 105,
         lastCommittedIndex: 3,
       },
-      null,
+      "generation-1",
+    );
+    expect(mockAppState.get(UPLOAD_KEY)).toEqual(
+      expect.objectContaining({
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+        browserSessionId: "browser-session-1",
+      }),
     );
     expect(mockFinalizeRun).not.toHaveBeenCalled();
   });

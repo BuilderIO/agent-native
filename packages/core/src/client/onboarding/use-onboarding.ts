@@ -22,10 +22,7 @@ import {
   readFirstRunOnboardingCookieState,
 } from "./first-run-status.js";
 
-const pendingOnboardingEvents = new Map<
-  string,
-  ReturnType<typeof setTimeout>
->();
+const lastOnboardingStepViews = new Map<string, string>();
 const seenOnboardingEvents = new Set<string>();
 const ONBOARDING_SUMMARY_TIMEOUT_MS = 15_000;
 const ONBOARDING_SUMMARY_REUSE_MS = 5_000;
@@ -99,8 +96,7 @@ export function __resetOnboardingSummaryReadsForTests(): void {
 }
 
 export function __resetOnboardingEventDedupeForTests(): void {
-  for (const timeout of pendingOnboardingEvents.values()) clearTimeout(timeout);
-  pendingOnboardingEvents.clear();
+  lastOnboardingStepViews.clear();
   seenOnboardingEvents.clear();
 }
 
@@ -123,6 +119,15 @@ export function trackOnboardingEvent(
   ]
     .map((value) => String(value ?? ""))
     .join(":");
+  const stepViewScope = JSON.stringify([
+    sessionId,
+    identityKey,
+    properties.flow,
+  ]);
+  const stepIdentity = JSON.stringify([
+    properties.step_id,
+    properties.extension_id,
+  ]);
   const isRepeatableInteraction =
     name.startsWith("integration_") ||
     name === "onboarding_role_save_started" ||
@@ -133,15 +138,10 @@ export function trackOnboardingEvent(
     name === "onboarding_reopened" ||
     name === "onboarding_abandoned";
   if (name === "onboarding_step_viewed") {
-    if (pendingOnboardingEvents.has(key)) return;
-    // StrictMode replays effects in the same turn. Expire the key immediately
-    // afterward so later views and analytics sessions remain observable.
-    const timeout = setTimeout(() => {
-      if (pendingOnboardingEvents.get(key) === timeout) {
-        pendingOnboardingEvents.delete(key);
-      }
-    }, 0);
-    pendingOnboardingEvents.set(key, timeout);
+    if (lastOnboardingStepViews.get(stepViewScope) === stepIdentity) return;
+    lastOnboardingStepViews.set(stepViewScope, stepIdentity);
+  } else if (name === "onboarding_reopened") {
+    lastOnboardingStepViews.delete(stepViewScope);
   } else if (!isRepeatableInteraction) {
     if (seenOnboardingEvents.has(key)) return;
     seenOnboardingEvents.add(key);

@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockTrack = vi.hoisted(() => vi.fn());
 const mockGetRequestContext = vi.hoisted(() =>
-  vi.fn(() => undefined as { authUserId?: string } | undefined),
+  vi.fn(
+    () =>
+      undefined as
+        | { authUserId?: string; browserSessionId?: string }
+        | undefined,
+  ),
 );
 
 vi.mock("@agent-native/core/tracking", () => ({
@@ -27,6 +32,7 @@ describe("recording failure analytics", () => {
   it("adds the verified Better Auth id without inferring it from the email", () => {
     mockGetRequestContext.mockReturnValue({
       authUserId: "better-auth-user-1",
+      browserSessionId: "ambient-browser-session",
     });
 
     trackRecordingFailure({
@@ -39,7 +45,11 @@ describe("recording failure analytics", () => {
     expect(mockTrack).toHaveBeenCalledWith(
       "recording_failed",
       expect.any(Object),
-      { userId: "owner@example.com", authUserId: "better-auth-user-1" },
+      {
+        userId: "owner@example.com",
+        authUserId: "better-auth-user-1",
+        sessionId: "ambient-browser-session",
+      },
     );
   });
 
@@ -78,6 +88,26 @@ describe("recording failure analytics", () => {
       "recording_failed",
       expect.any(Object),
       { userId: "owner@example.com", sessionId: "browser-session-1" },
+    );
+  });
+
+  it("prefers an explicitly stored session over the ambient request session", () => {
+    mockGetRequestContext.mockReturnValue({
+      browserSessionId: "ambient-browser-session",
+    });
+
+    trackRecordingFailure({
+      recordingId: "rec_1",
+      userId: "owner@example.com",
+      platform: "web",
+      failureCode: "media_verification_failed",
+      browserSessionId: "stored-browser-session",
+    });
+
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_failed",
+      expect.any(Object),
+      { userId: "owner@example.com", sessionId: "stored-browser-session" },
     );
   });
 

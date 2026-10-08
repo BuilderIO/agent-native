@@ -5,6 +5,7 @@ import { registerFirstRunOnboardingExtension } from "@agent-native/core/client/o
 import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createToolkitI18nCatalog } from "../i18n.js";
@@ -31,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   completeFirstRun: vi.fn(),
   useBuilderConnectFlow: vi.fn(),
   routePathname: "/",
+  useActualRouter: false,
   navigate: vi.fn(),
   trackOnboardingEvent: vi.fn(),
   useOnboarding: vi.fn(),
@@ -42,8 +44,12 @@ vi.mock("react-router", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react-router")>();
   return {
     ...actual,
-    useLocation: () => ({ pathname: mocks.routePathname }),
-    useNavigate: () => mocks.navigate,
+    useLocation: () =>
+      mocks.useActualRouter
+        ? actual.useLocation()
+        : { pathname: mocks.routePathname },
+    useNavigate: () =>
+      mocks.useActualRouter ? actual.useNavigate() : mocks.navigate,
   };
 });
 
@@ -79,6 +85,7 @@ describe("FirstRunOnboarding", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.completeFirstRun.mockReset();
     mocks.routePathname = "/";
+    mocks.useActualRouter = false;
     mocks.navigate.mockReset();
     mocks.completeFirstRun.mockResolvedValue(undefined);
     mocks.useBuilderConnectFlow.mockReset();
@@ -1424,6 +1431,63 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
+  it("navigates to Clips recording inside the router basename", async () => {
+    mocks.useActualRouter = true;
+    mocks.useOnboardingPreviewMode.mockReturnValue(true);
+    mocks.useOnboardingPreviewStep.mockReturnValue("choice");
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "clips",
+        appName: "Clips",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+    vi.stubEnv("VITE_APP_BASE_PATH", "/clips");
+    window.history.replaceState(
+      null,
+      "",
+      "/clips/library?onboarding=preview&step=choice",
+    );
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter
+          basename="/clips"
+          initialEntries={["/clips/library?onboarding=preview&step=choice"]}
+        >
+          <Routes>
+            <Route path="/library" element={<FirstRunOnboarding />} />
+            <Route
+              path="/record"
+              element={<div data-testid="clips-record-route" />}
+            />
+            <Route path="*" element={<div data-testid="not-found-route" />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    });
+
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-setup-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      document.body.querySelector('[data-testid="clips-record-route"]'),
+    ).not.toBeNull();
+    expect(
+      document.body.querySelector('[data-testid="not-found-route"]'),
+    ).toBeNull();
+  });
+
   it("does not start duplicate manual setup attempts while completion is pending", async () => {
     let resolveCompletion: (() => void) | undefined;
     mocks.completeFirstRun.mockImplementation(
@@ -1992,5 +2056,67 @@ describe("FirstRunOnboarding", () => {
         '[data-testid="first-run-builder-status-error"]',
       ),
     ).toBeNull();
+  });
+
+  it("clears a skip redirect after a failed diverted completion", async () => {
+    mocks.completeFirstRun
+      .mockRejectedValueOnce(new Error("first-run completion failed: 500"))
+      .mockResolvedValueOnce(undefined);
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "clips",
+        appName: "Clips",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: "first-run completion failed: 500",
+    });
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-setup-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const extensionSkip = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Extension Skip",
+    );
+    if (extensionSkip) {
+      await act(async () => {
+        extensionSkip.click();
+        await Promise.resolve();
+      });
+    }
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).toContain(
+      "first-run completion failed: 500",
+    );
+    await act(async () => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Try again")
+        ?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledTimes(2);
+    expect(mocks.navigate).not.toHaveBeenCalled();
   });
 });

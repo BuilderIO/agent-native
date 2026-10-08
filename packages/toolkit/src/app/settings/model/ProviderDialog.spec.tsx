@@ -231,7 +231,10 @@ describe("ProviderDialog", () => {
       models: ["claude-sonnet-5", "claude-haiku-4-5", "claude-opus-4-8"],
       checkedAt: 1,
     });
-    const { onSaved, onOpenChange } = render({ provider: "anthropic" });
+    const { onSaved, onOpenChange } = render({
+      provider: "anthropic",
+      trackingFlow: "settings",
+    });
 
     expect(document.body.textContent).toContain("Add provider");
     expect(document.body.textContent).toContain(
@@ -282,7 +285,7 @@ describe("ProviderDialog", () => {
     expect(setupTelemetryMock).toHaveBeenCalledWith(
       "integration_key_entry_started",
       expect.objectContaining({
-        flow: "chat_setup",
+        flow: "settings",
         app_name: expect.any(String),
         step_id: "connect_ai",
         method_id: "custom_keys",
@@ -293,7 +296,7 @@ describe("ProviderDialog", () => {
     expect(setupTelemetryMock).toHaveBeenCalledWith(
       "integration_key_validation_outcome",
       expect.objectContaining({
-        flow: "chat_setup",
+        flow: "settings",
         app_name: expect.any(String),
         step_id: "connect_ai",
         method_id: "custom_keys",
@@ -304,6 +307,7 @@ describe("ProviderDialog", () => {
     expect(setupTelemetryMock).toHaveBeenCalledWith(
       "integration_key_save_outcome",
       expect.objectContaining({
+        flow: "settings",
         method_id: "custom_keys",
         action: "save",
         outcome: "saved",
@@ -322,6 +326,46 @@ describe("ProviderDialog", () => {
     expect(JSON.stringify(setupTelemetryMock.mock.calls)).not.toContain(
       "sk-ant-test-0000",
     );
+  });
+
+  it("keeps chat setup attribution when the caller supplies it", async () => {
+    render({ provider: "anthropic", trackingFlow: "chat_setup" });
+
+    typeInto(inputByLabel("API key"), "sk-ant-test-0000");
+    await vi.waitFor(() => {
+      expect(setupTelemetryMock).toHaveBeenCalledWith(
+        "integration_key_entry_started",
+        expect.objectContaining({ flow: "chat_setup", outcome: "started" }),
+      );
+    });
+  });
+
+  it("tracks saved-key rechecks as settings activity", async () => {
+    state.listing = listing(
+      {},
+      {
+        anthropic: {
+          org: { scope: "org", masked: "••••1234", updatedAt: 1 },
+        },
+      },
+    );
+    keyMock.fetchProviderModels.mockResolvedValue({
+      ok: true,
+      provider: "anthropic",
+      models: ["claude-sonnet-5"],
+      checkedAt: 2,
+    });
+    render({ mode: "manage", provider: "anthropic", scope: "org" });
+
+    await act(async () => {
+      button("Check again").click();
+    });
+    await vi.waitFor(() => {
+      expect(setupTelemetryMock).toHaveBeenCalledWith(
+        "integration_key_validation_outcome",
+        expect.objectContaining({ flow: "settings", outcome: "accepted" }),
+      );
+    });
   });
 
   it("keeps Add disabled until the key checks out and keeps a failed save open", async () => {

@@ -21,7 +21,9 @@ function row(
     tsMs,
     eventName,
     path: null,
+    flow: null,
     stepId: null,
+    stepIndex: null,
     methodId: null,
     outcome: null,
     action: null,
@@ -201,6 +203,35 @@ describe("buildSessionSteps", () => {
       "onboarding:step_skipped",
       "step:choice",
       "onboarding:abandoned",
+    ]);
+  });
+
+  it("orders equal-timestamp skip events between the skipped and next steps", () => {
+    const steps = buildSessionSteps([
+      row("onboarding_step_viewed", 100, {
+        id: "z-current-view",
+        flow: "first_run",
+        stepId: "choice",
+        stepIndex: 1,
+      }),
+      row("onboarding_step_skipped", 100, {
+        id: "a-current-skip",
+        flow: "first_run",
+        stepId: "choice",
+        stepIndex: 1,
+      }),
+      row("onboarding_step_viewed", 100, {
+        id: "m-next-view",
+        flow: "first_run",
+        stepId: "connecting",
+        stepIndex: 2,
+      }),
+    ]);
+
+    expect(steps.map((step) => step.key)).toEqual([
+      "step:choice",
+      "onboarding:step_skipped",
+      "step:connecting",
     ]);
   });
 

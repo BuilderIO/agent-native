@@ -262,6 +262,7 @@ export default function ApiKeysSettingsPage({ context }: SettingsPageProps) {
       ) : null}
       <ProviderDialog
         open={provider !== null}
+        trackingFlow="settings"
         onOpenChange={(open) => {
           if (!open) setProvider(null);
         }}

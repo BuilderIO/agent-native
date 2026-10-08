@@ -337,6 +337,8 @@ export function FirstRunOnboarding({
       completedScreen: FirstRunScreen | null,
       completedExtensionIndex = extensionIndex,
     ) => {
+      const redirect = completionRedirectRef.current;
+      completionRedirectRef.current = null;
       completionAttemptRef.current = completedScreen
         ? { screen: completedScreen, extensionIndex: completedExtensionIndex }
         : { screen: null, extensionIndex: completedExtensionIndex };
@@ -348,15 +350,8 @@ export function FirstRunOnboarding({
         }
         onboardingTerminalRef.current = true;
         completionAttemptRef.current = null;
-        const redirect = completionRedirectRef.current;
         if (redirect) {
-          completionRedirectRef.current = null;
-          navigate(
-            appMountedPath(redirect, pathname || STANDARD_APP_ROUTES.home),
-            {
-              replace: true,
-            },
-          );
+          navigate(redirect, { replace: true });
         }
         return true;
       } catch {

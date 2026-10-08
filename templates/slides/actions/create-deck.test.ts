@@ -704,11 +704,18 @@ describe("create-deck — generation lifecycle tracking", () => {
     });
   });
 
-  it("does not count an empty existing-deck replacement as a completed output", async () => {
+  it("does not start a generation lifecycle for an empty existing-deck replacement", async () => {
     existingDeckRow = {
       id: "deck-1",
       updatedAt: "2026-01-01T00:00:00.000Z",
-      data: JSON.stringify({ title: "T", slides: [{ id: "s1" }] }),
+      data: JSON.stringify({
+        title: "T",
+        slides: [{ id: "s1" }],
+        generationContext: {
+          generationAttemptId: "previous-attempt",
+          generationMode: "action",
+        },
+      }),
     };
 
     const result = await action.run({
@@ -718,13 +725,17 @@ describe("create-deck — generation lifecycle tracking", () => {
     });
 
     expect(result.slideCount).toBe(0);
+    const events = trackedEvents();
+    expect(events.some((event) => event.name.startsWith("generation_"))).toBe(
+      false,
+    );
+    expect(events.some((event) => event.name === "deck_edited")).toBe(true);
     expect(
-      trackedEvents().some((event) => event.name === "generation_completed"),
-    ).toBe(false);
-    expect(
-      trackedEvents().find((event) => event.name === "generation_started")
-        ?.properties,
-    ).toMatchObject({ slide_count: 0, output_id: "deck-1" });
+      events.find((event) => event.name === "deck_edited")?.properties,
+    ).not.toHaveProperty("generation_attempt_id");
+    expect(JSON.parse(updatedFields!.data as string)).not.toHaveProperty(
+      "generationContext",
+    );
   });
 
   it.each([

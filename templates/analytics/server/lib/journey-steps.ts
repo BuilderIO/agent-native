@@ -15,7 +15,9 @@ export interface JourneyEventRow {
   tsMs: number;
   eventName: string;
   path: string | null;
+  flow: string | null;
   stepId: string | null;
+  stepIndex: number | null;
   methodId: string | null;
   outcome: string | null;
   action: string | null;
@@ -38,6 +40,10 @@ const METHOD_LABELS: Record<string, string> = {
 // and core aliases them to the underscored ones.
 const SIGNUP_VIEWED = ["auth.signup_viewed", "auth_signup_viewed"];
 const SIGNUP_CLICKED = ["auth.signup_clicked", "auth_signup_clicked"];
+const ONBOARDING_STEP_EVENT_NAMES = new Set([
+  "onboarding_step_viewed",
+  "onboarding_step_skipped",
+]);
 
 /** Events that put a session in the onboarding cohort at all. */
 export const JOURNEY_COHORT_EVENT_NAMES: readonly string[] = [
@@ -179,12 +185,23 @@ export function deriveJourneyStep(
 export function buildSessionSteps(
   rows: readonly JourneyEventRow[],
 ): JourneyStep[] {
-  const ordered = [...rows].sort(
-    (a, b) =>
-      a.tsMs - b.tsMs ||
+  const ordered = [...rows].sort((a, b) => {
+    if (a.tsMs !== b.tsMs) return a.tsMs - b.tsMs;
+    if (
+      a.stepIndex !== null &&
+      b.stepIndex !== null &&
+      a.flow === b.flow &&
+      ONBOARDING_STEP_EVENT_NAMES.has(a.eventName) &&
+      ONBOARDING_STEP_EVENT_NAMES.has(b.eventName) &&
+      a.stepIndex !== b.stepIndex
+    ) {
+      return a.stepIndex - b.stepIndex;
+    }
+    return (
       (TIE_RANK[a.eventName] ?? 99) - (TIE_RANK[b.eventName] ?? 99) ||
-      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-  );
+      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+    );
+  });
   const steps: JourneyStep[] = [];
   for (const row of ordered) {
     const step = deriveJourneyStep(row);

@@ -30,6 +30,8 @@ import {
 } from "../../../../lib/recording-failures.js";
 import {
   deleteRecordingChunks,
+  recordingUploadBrowserSessionId,
+  recordingUploadStateForAttempt,
   sumRecordingChunkBytes,
 } from "../../../../lib/recording-upload-state.js";
 import {
@@ -466,6 +468,20 @@ export async function handleRecordingChunk(
       }
     }
 
+    const uploadStateKey = `recording-upload-${recordingId}`;
+    const uploadAttempt = {
+      recordingId,
+      uploadAttemptId: attemptId,
+      uploadGenerationId,
+    };
+    const uploadStateAtRequest = browserSessionId
+      ? recordingUploadStateForAttempt({
+          state: await readAppState(uploadStateKey),
+          attempt: uploadAttempt,
+          browserSessionId,
+        })
+      : null;
+
     const resumableSession = await getResumableSession(
       recordingId,
       uploadGenerationId,
@@ -476,6 +492,9 @@ export async function handleRecordingChunk(
       );
     }
     if (resumableSession) {
+      if (uploadStateAtRequest) {
+        await writeAppState(uploadStateKey, uploadStateAtRequest);
+      }
       return handleResumableChunk(
         event,
         resumableSession,
@@ -514,9 +533,28 @@ export async function handleRecordingChunk(
         uploadAttemptId: attemptId,
         platform: existing.recordingPlatform,
         failureCode: "storage_setup_required",
+        browserSessionId,
       });
+      const storedUploadState =
+        uploadStateAtRequest ??
+        (await readAppState(uploadStateKey).then((state) => {
+          const sessionId = recordingUploadBrowserSessionId(
+            state,
+            uploadAttempt,
+          );
+          return sessionId
+            ? recordingUploadStateForAttempt({
+                state,
+                attempt: uploadAttempt,
+                browserSessionId: sessionId,
+              })
+            : null;
+        }));
       await writeAppState(`recording-upload-${recordingId}`, {
+        ...(storedUploadState ?? {}),
         recordingId,
+        uploadAttemptId: attemptId,
+        uploadGenerationId,
         status: "failed",
         failureReason: STORAGE_SETUP_REQUIRED_REASON,
         storageSetupRequired: true,
@@ -563,6 +601,16 @@ export async function handleRecordingChunk(
       uploadStateRaw && typeof uploadStateRaw === "object"
         ? uploadStateRaw
         : null;
+    const uploadSessionId =
+      recordingUploadBrowserSessionId(uploadState, uploadAttempt) ??
+      browserSessionId;
+    const uploadStateAttribution = uploadSessionId
+      ? recordingUploadStateForAttempt({
+          state: uploadState,
+          attempt: uploadAttempt,
+          browserSessionId: uploadSessionId,
+        })
+      : null;
     let bytesReceived = stateNumber(uploadState, "bytesReceived") ?? 0;
 
     const failRecordingTooLarge = async (nextBytes: number) => {
@@ -588,9 +636,13 @@ export async function handleRecordingChunk(
         uploadAttemptId: attemptId,
         platform: existing.recordingPlatform,
         failureCode: "recording_too_large",
+        browserSessionId,
       });
       await writeAppState(`recording-upload-${recordingId}`, {
+        ...(uploadStateAttribution ?? {}),
         recordingId,
+        uploadAttemptId: attemptId,
+        uploadGenerationId,
         status: "failed",
         failureReason: RECORDING_TOO_LARGE_REASON,
         bytesReceived: nextBytes,
@@ -665,7 +717,9 @@ export async function handleRecordingChunk(
       const leaseFailure = await rejectIfLeaseLost();
       if (leaseFailure) return leaseFailure;
       await writeAppState(`recording-upload-${recordingId}`, {
+        ...(uploadStateAttribution ?? {}),
         recordingId,
+        uploadAttemptId: attemptId,
         uploadGenerationId,
         status: isFinal ? "processing" : "uploading",
         progress,
@@ -687,7 +741,9 @@ export async function handleRecordingChunk(
       const leaseFailure = await rejectIfLeaseLost();
       if (leaseFailure) return leaseFailure;
       await writeAppState(`recording-upload-${recordingId}`, {
+        ...(uploadStateAttribution ?? {}),
         recordingId,
+        uploadAttemptId: attemptId,
         uploadGenerationId,
         status: isFinal ? "processing" : "uploading",
         chunksReceived: Math.max(

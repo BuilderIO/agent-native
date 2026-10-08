@@ -73,11 +73,13 @@ export function recordingTrackingSource(
   userId: string,
   browserSessionId?: string,
 ) {
-  const authUserId = getRequestContext()?.authUserId;
+  const requestContext = getRequestContext();
+  const authUserId = requestContext?.authUserId;
+  const sessionId = browserSessionId ?? requestContext?.browserSessionId;
   return {
     userId,
     ...(authUserId ? { authUserId } : {}),
-    ...(browserSessionId ? { sessionId: browserSessionId } : {}),
+    ...(sessionId ? { sessionId } : {}),
   };
 }
 

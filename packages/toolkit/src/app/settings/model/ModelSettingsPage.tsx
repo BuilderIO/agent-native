@@ -295,6 +295,7 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
       </div>
       <ProviderDialog
         open={dialog !== null}
+        trackingFlow="settings"
         onOpenChange={(open) => {
           if (!open) setDialog(null);
         }}

@@ -69,6 +69,7 @@ type ProviderSetupEventName =
   | "integration_key_entry_started"
   | "integration_key_validation_outcome"
   | "integration_key_save_outcome";
+type ProviderSetupTrackingFlow = "chat_setup" | "settings";
 type ProviderSetupOutcome =
   | "started"
   | "accepted"
@@ -88,12 +89,13 @@ function setupTelemetryAppName(): string {
 }
 
 function trackProviderSetupEvent(
+  flow: ProviderSetupTrackingFlow,
   eventName: ProviderSetupEventName,
   action: "enter" | "validate" | "save",
   outcome: ProviderSetupOutcome,
 ): void {
   trackOnboardingEvent(eventName, {
-    flow: "chat_setup",
+    flow,
     app_name: setupTelemetryAppName(),
     step_id: "connect_ai",
     method_id: "custom_keys",
@@ -146,6 +148,8 @@ export interface ProviderDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   mode: ProviderDialogMode;
+  /** Keep setup-originated key work in its funnel; settings pages use `settings`. */
+  trackingFlow?: ProviderSetupTrackingFlow;
   /** Required for `manage` and `add-from-service`; the first choice for `add`. */
   provider?: AgentProviderId;
   /** `manage`: which saved key, the personal (`user`) or organization (`org`) one. */
@@ -277,6 +281,7 @@ interface FormProps extends ProviderDialogProps {
 
 function ProviderDialogForm({
   mode,
+  trackingFlow = "settings",
   provider: requestedProvider,
   scope: requestedScope,
   serviceLabel,
@@ -380,6 +385,7 @@ function ProviderDialogForm({
     if (keyValue.trim() && !keyEntryTrackedRef.current) {
       keyEntryTrackedRef.current = true;
       trackProviderSetupEvent(
+        trackingFlow,
         "integration_key_entry_started",
         "enter",
         "started",
@@ -406,6 +412,7 @@ function ProviderDialogForm({
           if (request !== requestRef.current) return;
           setCheck(toCheckState(result));
           trackProviderSetupEvent(
+            trackingFlow,
             "integration_key_validation_outcome",
             "validate",
             providerCheckOutcome(result),
@@ -426,6 +433,7 @@ function ProviderDialogForm({
             message: err instanceof Error ? err.message : String(err),
           });
           trackProviderSetupEvent(
+            trackingFlow,
             "integration_key_validation_outcome",
             "validate",
             "error",
@@ -441,6 +449,7 @@ function ProviderDialogForm({
     replacing,
     models,
     fromService,
+    trackingFlow,
   ]);
 
   // Models checked when the dialog opened stay listed after a check, so one
@@ -491,6 +500,7 @@ function ProviderDialogForm({
           setCheck(toCheckState(result));
           setRecheck({ checkedAt: result.checkedAt });
           trackProviderSetupEvent(
+            trackingFlow,
             "integration_key_validation_outcome",
             "validate",
             providerCheckOutcome(result),
@@ -500,6 +510,7 @@ function ProviderDialogForm({
         setRecheck("idle");
         setCheck(toCheckState(result));
         trackProviderSetupEvent(
+          trackingFlow,
           "integration_key_validation_outcome",
           "validate",
           providerCheckOutcome(result),
@@ -515,6 +526,7 @@ function ProviderDialogForm({
         setRecheck("idle");
         setError(err instanceof Error ? err.message : String(err));
         trackProviderSetupEvent(
+          trackingFlow,
           "integration_key_validation_outcome",
           "validate",
           "error",
@@ -556,6 +568,7 @@ function ProviderDialogForm({
         });
         keySaved = true;
         trackProviderSetupEvent(
+          trackingFlow,
           "integration_key_save_outcome",
           "save",
           "saved",
@@ -568,6 +581,7 @@ function ProviderDialogForm({
         });
         keySaved = true;
         trackProviderSetupEvent(
+          trackingFlow,
           "integration_key_save_outcome",
           "save",
           "saved",
@@ -591,6 +605,7 @@ function ProviderDialogForm({
       const message = err instanceof Error ? err.message : String(err);
       if (keySettingsChanged && !keySaved) {
         trackProviderSetupEvent(
+          trackingFlow,
           "integration_key_save_outcome",
           "save",
           "failed",

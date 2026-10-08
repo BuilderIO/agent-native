@@ -294,7 +294,7 @@ describe("useOnboarding — summary timeout", () => {
 describe("trackOnboardingEvent", () => {
   beforeEach(() => trackEventMock.mockReset());
 
-  it("deduplicates StrictMode effect replay but allows a later step revisit", async () => {
+  it("deduplicates a stable step view and allows a later step revisit", async () => {
     const properties = { flow: "first_run", step_id: "role" };
     function ViewOnMount() {
       React.useEffect(() => {
@@ -320,7 +320,14 @@ describe("trackOnboardingEvent", () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
       trackOnboardingEvent("onboarding_step_viewed", properties);
-      expect(trackEventMock).toHaveBeenCalledTimes(2);
+      expect(trackEventMock).toHaveBeenCalledTimes(1);
+
+      trackOnboardingEvent("onboarding_step_viewed", {
+        flow: "first_run",
+        step_id: "choice",
+      });
+      trackOnboardingEvent("onboarding_step_viewed", properties);
+      expect(trackEventMock).toHaveBeenCalledTimes(3);
     } finally {
       act(() => root.unmount());
       container.remove();
@@ -331,6 +338,19 @@ describe("trackOnboardingEvent", () => {
     const properties = { flow: "first_run", step_id: "role" };
     trackOnboardingEvent("onboarding_step_viewed", properties);
     analyticsSession.id = "session-2";
+    trackOnboardingEvent("onboarding_step_viewed", properties);
+
+    expect(trackEventMock).toHaveBeenCalledTimes(2);
+
+    trackOnboardingEvent("onboarding_reopened", { flow: "first_run" });
+    trackOnboardingEvent("onboarding_step_viewed", properties);
+    expect(trackEventMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps a completion refetch from duplicating the same step view", () => {
+    const properties = { flow: "first_run", step_id: "role" };
+    trackOnboardingEvent("onboarding_step_viewed", properties);
+    trackOnboardingEvent("onboarding_step_completed", properties);
     trackOnboardingEvent("onboarding_step_viewed", properties);
 
     expect(trackEventMock).toHaveBeenCalledTimes(2);

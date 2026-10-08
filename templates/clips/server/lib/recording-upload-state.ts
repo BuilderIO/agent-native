@@ -1,5 +1,83 @@
 import { getDbExec } from "@agent-native/core/db";
 
+export interface RecordingUploadAttempt {
+  recordingId: string;
+  uploadAttemptId: string | null;
+  uploadGenerationId: string | null;
+}
+
+function recordingUploadStateRecord(
+  state: unknown,
+): Record<string, unknown> | null {
+  return state && typeof state === "object"
+    ? (state as Record<string, unknown>)
+    : null;
+}
+
+function validBrowserSessionId(value: unknown): string | undefined {
+  return typeof value === "string" && /^[!-~]{1,127}$/.test(value)
+    ? value
+    : undefined;
+}
+
+export function recordingUploadStateMatchesAttempt(
+  state: unknown,
+  attempt: RecordingUploadAttempt,
+): boolean {
+  const record = recordingUploadStateRecord(state);
+  return (
+    record?.recordingId === attempt.recordingId &&
+    (record.uploadAttemptId ?? null) === attempt.uploadAttemptId &&
+    (record.uploadGenerationId ?? null) === attempt.uploadGenerationId
+  );
+}
+
+export function recordingUploadBrowserSessionId(
+  state: unknown,
+  attempt: RecordingUploadAttempt,
+): string | undefined {
+  if (!recordingUploadStateMatchesAttempt(state, attempt)) return undefined;
+  return validBrowserSessionId(
+    recordingUploadStateRecord(state)?.browserSessionId,
+  );
+}
+
+export function recordingUploadStateForAttempt(params: {
+  state: unknown;
+  attempt: RecordingUploadAttempt;
+  browserSessionId?: string;
+}): Record<string, unknown> {
+  const { state, attempt, browserSessionId } = params;
+  const record = recordingUploadStateRecord(state);
+  const matchesAttempt = recordingUploadStateMatchesAttempt(state, attempt);
+  const isInitialUploadState =
+    record?.recordingId === attempt.recordingId &&
+    record.status === "uploading" &&
+    record.uploadAttemptId == null &&
+    record.uploadGenerationId == null;
+  const storedBrowserSessionId = recordingUploadBrowserSessionId(
+    state,
+    attempt,
+  );
+  const baseState: Record<string, unknown> =
+    matchesAttempt && record
+      ? record
+      : isInitialUploadState && record
+        ? { ...record }
+        : {};
+  if (!matchesAttempt) delete baseState.browserSessionId;
+  const nextState: Record<string, unknown> = {
+    ...baseState,
+    recordingId: attempt.recordingId,
+    uploadAttemptId: attempt.uploadAttemptId,
+    uploadGenerationId: attempt.uploadGenerationId,
+  };
+  const sessionId =
+    storedBrowserSessionId ?? validBrowserSessionId(browserSessionId);
+  if (sessionId) nextState.browserSessionId = sessionId;
+  return nextState;
+}
+
 function escapeLike(value: string): string {
   return value.replace(/[!%_]/g, (match) => `!${match}`);
 }

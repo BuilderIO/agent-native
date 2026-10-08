@@ -323,7 +323,12 @@ export default defineAction({
       normalizedSlides.originalIds,
     );
     const incrementalGeneration = !deckId && slides.length === 0;
-    if (actionOwnsGenerationLifecycle) {
+    const isEmptyExistingDeckReplacement = Boolean(
+      deckId && slides.length === 0,
+    );
+    const tracksGenerationLifecycle =
+      actionOwnsGenerationLifecycle && !isEmptyExistingDeckReplacement;
+    if (tracksGenerationLifecycle) {
       trackGenerationEvent(
         "generation_started",
         {
@@ -517,7 +522,7 @@ export default defineAction({
             error instanceof Error ? error.name : "unknown_error";
         }
         const postProcessStatus = postProcessErrorType ? "failed" : "completed";
-        if (postProcessErrorType && actionOwnsGenerationLifecycle) {
+        if (postProcessErrorType && tracksGenerationLifecycle) {
           const generationEndedAt = Date.now();
           trackGenerationEvent(
             "generation_outcome_unresolved",
@@ -538,11 +543,7 @@ export default defineAction({
             },
             ctx,
           );
-        } else if (
-          !postProcessErrorType &&
-          actionOwnsGenerationLifecycle &&
-          slides.length > 0
-        ) {
+        } else if (!postProcessErrorType && tracksGenerationLifecycle) {
           const generationEndedAt = Date.now();
           trackGenerationEvent(
             "generation_completed",
@@ -568,7 +569,10 @@ export default defineAction({
           {
             app_name: "slides",
             template_name: "slides",
-            generation_attempt_id: generationAttemptId,
+            ...(browserGenerationAttemptId !== undefined ||
+            tracksGenerationLifecycle
+              ? { generation_attempt_id: generationAttemptId }
+              : {}),
             output_id: deckId,
             output_type: "deck",
             slide_count: slides.length,
@@ -611,7 +615,7 @@ export default defineAction({
         slides,
         createdAt: now,
         updatedAt: now,
-        ...(actionOwnsGenerationLifecycle && incrementalGeneration
+        ...(tracksGenerationLifecycle && incrementalGeneration
           ? {
               generationContext: {
                 generationAttemptId,
@@ -663,7 +667,7 @@ export default defineAction({
           error instanceof Error ? error.name : "unknown_error";
       }
       const postProcessStatus = postProcessErrorType ? "failed" : "completed";
-      if (postProcessErrorType && actionOwnsGenerationLifecycle) {
+      if (postProcessErrorType && tracksGenerationLifecycle) {
         const generationEndedAt = Date.now();
         trackGenerationEvent(
           "generation_outcome_unresolved",
@@ -704,7 +708,7 @@ export default defineAction({
         );
       } else if (
         postProcessStatus === "completed" &&
-        actionOwnsGenerationLifecycle
+        tracksGenerationLifecycle
       ) {
         const generationEndedAt = Date.now();
         trackGenerationEvent(
@@ -753,7 +757,7 @@ export default defineAction({
         ...creativeContextProvenance,
       };
     } catch (error) {
-      if (actionOwnsGenerationLifecycle) {
+      if (tracksGenerationLifecycle) {
         const terminal = generationTerminalEvent(ctx?.signal);
         const generationEndedAt = Date.now();
         trackGenerationEvent(
