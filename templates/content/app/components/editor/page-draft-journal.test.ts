@@ -6,7 +6,7 @@ import {
   clearPageDraftJournalGeneration,
   listPageDraftJournal,
   PageDraftJournalError,
-  persistTitleBeforeSyncingPageDraftJournal,
+  syncPageDraftJournalBeforePersistingRecoveryDraft,
   readPageDraftJournal,
   sweepLegacyRetainedPageDraftMarkers,
   updatePageDraftJournalTitle,
@@ -54,22 +54,34 @@ beforeEach(() => {
 });
 
 describe("Page draft journal", () => {
-  it("persists the retained title before changing a clean local journal title", async () => {
+  it("syncs a clean local journal before persisting the retained title and body", async () => {
     const clean = {
       ...snapshot,
       title: "Earlier title",
       baseTitle: "Earlier title",
+      content: "Older local body",
+      authoredBaseRevision: "old-body-revision",
+      authoredBaseContent: "Old saved body",
+      authoredCandidateContent: "Older local body",
+      saveAttemptId: "old-body-attempt",
+      equivalentSaveAttemptIds: ["old-body-equivalent"],
     };
     writePageDraftJournal({ scope, snapshot: clean });
-    const persist = vi.fn().mockResolvedValue(undefined);
+    const persist = vi.fn(async () => {
+      expect(readPageDraftJournal(scope)?.snapshot).toMatchObject({
+        title: "Peer title",
+        baseTitle: "Peer title",
+        content: "Local body",
+      });
+    });
 
     await expect(
-      persistTitleBeforeSyncingPageDraftJournal({
+      syncPageDraftJournalBeforePersistingRecoveryDraft({
         persist,
         scope,
         title: "Peer title",
         editGeneration: clean.editGeneration,
-        content: clean.content,
+        content: "Local body",
       }),
     ).resolves.toBe(true);
 
@@ -77,19 +89,27 @@ describe("Page draft journal", () => {
     expect(readPageDraftJournal(scope)?.snapshot).toMatchObject({
       title: "Peer title",
       baseTitle: "Peer title",
+      content: "Local body",
     });
+    expect(readPageDraftJournal(scope)?.snapshot.saveAttemptId).toBeUndefined();
+    expect(
+      readPageDraftJournal(scope)?.snapshot.authoredCandidateContent,
+    ).toBeUndefined();
+    expect(
+      readPageDraftJournal(scope)?.snapshot.equivalentSaveAttemptIds,
+    ).toBeUndefined();
   });
 
-  it("leaves the local journal unchanged when retaining the SQL title fails", async () => {
+  it("restores the local journal when retaining the SQL recovery draft fails", async () => {
     const clean = {
       ...snapshot,
       title: "Earlier title",
       baseTitle: "Earlier title",
     };
-    writePageDraftJournal({ scope, snapshot: clean });
+    const original = writePageDraftJournal({ scope, snapshot: clean });
 
     await expect(
-      persistTitleBeforeSyncingPageDraftJournal({
+      syncPageDraftJournalBeforePersistingRecoveryDraft({
         persist: () => Promise.reject(new Error("SQL unavailable")),
         scope,
         title: "Peer title",
@@ -98,14 +118,14 @@ describe("Page draft journal", () => {
       }),
     ).rejects.toThrow("SQL unavailable");
 
-    expect(readPageDraftJournal(scope)?.snapshot).toEqual(clean);
+    expect(readPageDraftJournal(scope)).toEqual(original);
   });
 
   it("preserves a locally authored title when SQL retains a peer title", async () => {
     writePageDraftJournal({ scope, snapshot });
 
     await expect(
-      persistTitleBeforeSyncingPageDraftJournal({
+      syncPageDraftJournalBeforePersistingRecoveryDraft({
         persist: () => Promise.resolve(),
         scope,
         title: "Peer title",
@@ -115,6 +135,61 @@ describe("Page draft journal", () => {
     ).resolves.toBe(false);
 
     expect(readPageDraftJournal(scope)?.snapshot.title).toBe("Local title");
+  });
+
+  it("persists the server draft when the local journal write fails", async () => {
+    const clean = {
+      ...snapshot,
+      title: "Earlier title",
+      baseTitle: "Earlier title",
+    };
+    writePageDraftJournal({ scope, snapshot: clean });
+    const originalSetItem = store.setItem;
+    store.setItem = () => {
+      throw new DOMException("Storage full", "QuotaExceededError");
+    };
+    const persist = vi.fn().mockResolvedValue(undefined);
+
+    try {
+      await expect(
+        syncPageDraftJournalBeforePersistingRecoveryDraft({
+          persist,
+          scope,
+          title: "Peer title",
+          editGeneration: clean.editGeneration,
+          content: clean.content,
+        }),
+      ).rejects.toMatchObject({ code: "write_failed" });
+    } finally {
+      store.setItem = originalSetItem;
+    }
+
+    expect(persist).toHaveBeenCalledOnce();
+    expect(readPageDraftJournal(scope)?.snapshot).toEqual(clean);
+  });
+
+  it("does not roll back a newer journal written while persistence is pending", async () => {
+    writePageDraftJournal({ scope, snapshot });
+    const newer = {
+      ...snapshot,
+      content: "Newer local body",
+      editGeneration: snapshot.editGeneration + 1,
+    };
+
+    await expect(
+      syncPageDraftJournalBeforePersistingRecoveryDraft({
+        persist: async () => {
+          writePageDraftJournal({ scope, snapshot: newer });
+          throw new Error("SQL unavailable");
+        },
+        scope,
+        title: "Peer title",
+        editGeneration: snapshot.editGeneration,
+        content: snapshot.content,
+      }),
+    ).rejects.toThrow("SQL unavailable");
+
+    expect(readPageDraftJournal(scope)?.snapshot).toEqual(newer);
   });
 
   it("writes synchronously and isolates account, organization, Page, and writer", () => {

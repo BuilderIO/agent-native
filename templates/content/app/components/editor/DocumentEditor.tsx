@@ -236,7 +236,7 @@ import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
   clearPageDraftJournal,
   clearPageDraftJournalGeneration,
-  persistTitleBeforeSyncingPageDraftJournal,
+  syncPageDraftJournalBeforePersistingRecoveryDraft,
   writePageDraftJournal,
 } from "./page-draft-journal";
 import { PageDraftRecovery } from "./PageDraftRecovery";
@@ -4353,7 +4353,7 @@ function PageEditorSessionBody({
             true,
           );
         if (scope) {
-          await persistTitleBeforeSyncingPageDraftJournal({
+          await syncPageDraftJournalBeforePersistingRecoveryDraft({
             persist,
             scope,
             title,
