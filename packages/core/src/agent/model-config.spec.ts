@@ -379,6 +379,11 @@ describe("getContextWindowForModel", () => {
     }
   });
 
+  it("uses the documented Grok Code Fast context window for Builder and OpenRouter IDs", () => {
+    expect(getContextWindowForModel("grok-code-fast")).toBe(256_000);
+    expect(getContextWindowForModel("x-ai/grok-code-fast-1")).toBe(256_000);
+  });
+
   it("returns 1M for Claude Fable 5, Sonnet 5.5/4.6, and Opus 4.6+", () => {
     expect(getContextWindowForModel("claude-fable-5")).toBe(1_000_000);
     expect(getContextWindowForModel("claude-sonnet-5")).toBe(1_000_000);

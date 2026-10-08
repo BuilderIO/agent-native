@@ -1411,6 +1411,7 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "z-ai-glm-5-1": "Z-AI GLM 5.1",
   "z-ai-glm-5-3-flash": "Z-AI GLM 5.3 Flash",
   "grok-code-fast": "Grok Code Fast",
+  "x-ai/grok-code-fast-1": "Grok Code Fast 1",
   "gpt-6-1-sol": "GPT-6.1 Sol",
   "gemini-3-1-pro": "Gemini 3.1 Pro",
   "gemini-3-8-flash": "Gemini 3.8 Flash",

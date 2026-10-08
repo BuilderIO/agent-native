@@ -25,6 +25,7 @@ describe("friendlyModelName", () => {
     expect(friendlyModelName("toString")).toBe("toString");
     expect(friendlyModelName("claude-haiku-4-20251001")).toBe("Haiku 4");
     expect(friendlyModelName("claude-fable-5-1")).toBe("Fable 5.1");
+    expect(friendlyModelName("x-ai/grok-code-fast-1")).toBe("Grok Code Fast 1");
   });
 });
 
