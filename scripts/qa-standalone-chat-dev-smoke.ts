@@ -2365,7 +2365,10 @@ async function assertAssistantContentOutsideActivity(
   page: Page,
   text: string,
 ): Promise<Locator> {
-  const target = page.getByText(text, { exact: true }).first();
+  const target = page
+    .getByText(text, { exact: true })
+    .filter({ visible: true })
+    .first();
   await target.waitFor({ state: "visible" });
   assert.equal(
     await target.evaluate((element) =>
@@ -3355,6 +3358,11 @@ async function assertAgentKitChatAcceptance(
     "the AgentKit thread must call each sample action sequentially",
   );
   assert.equal(provider.widgetActionResults.length, widgetToolCalls.length);
+  await page
+    .getByText("All seven local sample widgets are ready.", { exact: true })
+    .filter({ visible: true })
+    .first()
+    .waitFor({ state: "visible" });
   await assertAssistantContentOutsideActivity(
     page,
     "All seven local sample widgets are ready.",
