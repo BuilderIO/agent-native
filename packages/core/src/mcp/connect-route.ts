@@ -32,6 +32,7 @@ import {
   type McpConnectGuide,
   type McpConnectGuideId,
 } from "../shared/mcp-connect-content.js";
+import { connectionApp, trackAgentConnected } from "./agent-connected.js";
 import {
   ensureConnectTables,
   recordMintedToken,
@@ -1371,7 +1372,8 @@ function renderConnectPage(params: {
         var ttlEl = document.getElementById("ttl");
         var label = labelEl ? labelEl.value || undefined : undefined;
         var ttlDays = ttlEl ? parseInt(ttlEl.value, 10) || undefined : undefined;
-        var m = await postJson("/token", { label: label, ttlDays: ttlDays });
+        var activeGuide = document.querySelector('[data-tab].is-active');
+        var m = await postJson("/token", { label: label, ttlDays: ttlDays, client: activeGuide ? activeGuide.getAttribute("data-tab") : undefined });
         if (!m.ok) {
           resetButtonLoading(btn);
           showMsg(COPY.couldNotCreate);
@@ -1496,6 +1498,7 @@ export async function handleMcpConnect(
       label?: unknown;
       ttlDays?: unknown;
       fullCatalog?: unknown;
+      client?: unknown;
     };
     const label =
       typeof body.label === "string" && body.label.trim()
@@ -1520,6 +1523,12 @@ export async function handleMcpConnect(
         requestOrigin: origin,
         ...(catalogScope ? { catalogScope } : {}),
       });
+      await trackAgentConnected({
+        email: session.email,
+        app: connectionApp(appUrl, options.appId),
+        client: typeof body.client === "string" ? body.client : null,
+        method: "mcp",
+      });
       return json(mcpResultPayload(appUrl, options, { token }));
     } catch (err) {
       if (err instanceof McpCredentialIssuanceError)
@@ -1543,15 +1552,38 @@ export async function handleMcpConnect(
       ) {
         return json({ error: "Invalid request body." }, 400);
       }
-      const body = (parsedBody ?? {}) as { fullCatalog?: unknown };
+      const body = (parsedBody ?? {}) as {
+        fullCatalog?: unknown;
+        client?: unknown;
+        purpose?: unknown;
+      };
       if (
         body.fullCatalog !== undefined &&
         typeof body.fullCatalog !== "boolean"
       ) {
         return json({ error: "fullCatalog must be a boolean." }, 400);
       }
+      if (
+        body.client !== undefined &&
+        (typeof body.client !== "string" || body.client.length > 500)
+      ) {
+        return json({ error: "Invalid request body." }, 400);
+      }
+      if (
+        body.purpose !== undefined &&
+        body.purpose !== "agent" &&
+        body.purpose !== "credential"
+      ) {
+        return json({ error: "Invalid request body." }, 400);
+      }
       const row = await createDeviceCode(
         body.fullCatalog === true ? "full" : null,
+        {
+          ...(typeof body.client === "string" ? { client: body.client } : {}),
+          ...(body.purpose === "agent" || body.purpose === "credential"
+            ? { purpose: body.purpose }
+            : {}),
+        },
       );
       const verificationUri = `${appUrl}${MCP_PUBLIC_ROUTE_PREFIX}/connect`;
       return json({
@@ -1657,7 +1689,8 @@ export async function handleMcpConnect(
         canUseDevOpenConnect(event);
       const orgDomain = await resolveOrgDomain(row.orgId ?? undefined);
       await prepareConnectIssuance();
-      return await withMcpCredentialIssuance(
+      let connected = false;
+      const response = await withMcpCredentialIssuance(
         {
           email: row.ownerEmail,
           orgId: row.orgId,
@@ -1717,12 +1750,22 @@ export async function handleMcpConnect(
           if (!(await finishDeviceCodeMint(deviceCode, jti, tx))) {
             throw new McpCredentialIssuanceError("unavailable");
           }
+          connected = true;
           return json({
             status: "approved",
             ...mcpResultPayload(appUrl, options, { token }),
           });
         },
       );
+      if (connected && row.purpose !== "credential") {
+        await trackAgentConnected({
+          email: row.ownerEmail,
+          app: connectionApp(appUrl, options.appId),
+          client: row.client?.split(",") ?? null,
+          method: "mcp",
+        });
+      }
+      return response;
     } catch (err) {
       if (err instanceof McpCredentialIssuanceError)
         return issuanceErrorResponse(err);

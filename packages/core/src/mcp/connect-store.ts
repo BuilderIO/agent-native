@@ -93,6 +93,16 @@ export async function ensureTable(): Promise<void> {
         "catalog_scope",
         `ALTER TABLE mcp_device_codes ADD COLUMN IF NOT EXISTS catalog_scope TEXT`,
       );
+      await ensureColumnExists(
+        "mcp_device_codes",
+        "client",
+        `ALTER TABLE mcp_device_codes ADD COLUMN IF NOT EXISTS client TEXT`,
+      );
+      await ensureColumnExists(
+        "mcp_device_codes",
+        "purpose",
+        `ALTER TABLE mcp_device_codes ADD COLUMN IF NOT EXISTS purpose TEXT`,
+      );
     })().catch((err) => {
       _initPromise = undefined;
       throw err;
@@ -381,6 +391,8 @@ export interface DeviceCodeRow {
   status: "pending" | "approved" | "minting" | "consumed" | "expired";
   tokenJti: string | null;
   catalogScope: "full" | null;
+  client?: string | null;
+  purpose?: "agent" | "credential" | null;
   createdAt: number | null;
   expiresAt: number | null;
   consumedAt: number | null;
@@ -404,6 +416,7 @@ function generateDeviceCode(): string {
 
 export async function createDeviceCode(
   catalogScope: "full" | null = null,
+  connection: { client?: string; purpose?: "agent" | "credential" } = {},
 ): Promise<DeviceCodeRow> {
   await ensureTable();
   const client = getDbExec();
@@ -428,7 +441,7 @@ export async function createDeviceCode(
   const userCode = generateUserCode();
   const expiresAt = now + DEVICE_CODE_TTL_MS;
   await client.execute({
-    sql: `INSERT INTO mcp_device_codes (device_code, user_code, owner_email, org_id, status, token_jti, catalog_scope, created_at, expires_at, consumed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO mcp_device_codes (device_code, user_code, owner_email, org_id, status, token_jti, catalog_scope, created_at, expires_at, consumed_at, client, purpose) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       deviceCode,
       userCode,
@@ -440,6 +453,8 @@ export async function createDeviceCode(
       now,
       expiresAt,
       null,
+      connection.client ?? null,
+      connection.purpose ?? null,
     ],
   });
   return {
@@ -450,6 +465,8 @@ export async function createDeviceCode(
     status: "pending",
     tokenJti: null,
     catalogScope,
+    client: connection.client ?? null,
+    purpose: connection.purpose ?? null,
     createdAt: now,
     expiresAt,
     consumedAt: null,
@@ -466,6 +483,8 @@ function mapDeviceRow(r: any): DeviceCodeRow {
     tokenJti: (r.token_jti ?? r.tokenJti ?? null) as string | null,
     catalogScope:
       (r.catalog_scope ?? r.catalogScope) === "full" ? "full" : null,
+    client: r.client ?? null,
+    purpose: r.purpose ?? null,
     createdAt: numOrNull(r.created_at ?? r.createdAt),
     expiresAt: numOrNull(r.expires_at ?? r.expiresAt),
     consumedAt: numOrNull(r.consumed_at ?? r.consumedAt),

@@ -1,6 +1,28 @@
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const trackMock = vi.hoisted(() => vi.fn());
+const connectionClaims = new Map<string, Record<string, unknown>>();
+vi.mock("../tracking/registry.js", () => ({
+  isTrackingSuppressed: () => false,
+  track: trackMock,
+  listTrackingProviders: () => ["test"],
+}));
+vi.mock("../settings/store.js", () => ({
+  mutateSetting: async (
+    key: string,
+    updater: (value: Record<string, unknown> | null) => Record<string, unknown>,
+  ) => {
+    const next = updater(connectionClaims.get(key) ?? null);
+    connectionClaims.set(key, next);
+    return next;
+  },
+}));
+beforeEach(() => {
+  trackMock.mockClear();
+  connectionClaims.clear();
+});
+
 vi.mock("h3", () => ({
   getMethod: (event: any) => event.method ?? "GET",
   getHeader: (event: any, name: string) =>
@@ -136,22 +158,29 @@ vi.mock("./connect-store.js", () => ({
     t.revokedAt = Date.now();
     return true;
   }),
-  createDeviceCode: vi.fn(async (catalogScope: "full" | null = null) => {
-    const row = {
-      deviceCode: "dev-" + deviceRows.length,
-      userCode: "ABCD-2345",
-      ownerEmail: null,
-      orgId: null,
-      status: "pending",
-      tokenJti: null,
-      catalogScope,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + 600_000,
-      consumedAt: null,
-    };
-    deviceRows.push(row);
-    return { ...row };
-  }),
+  createDeviceCode: vi.fn(
+    async (
+      catalogScope: "full" | null = null,
+      connection: { client?: string; purpose?: string } = {},
+    ) => {
+      const row = {
+        deviceCode: "dev-" + deviceRows.length,
+        userCode: "ABCD-2345",
+        ownerEmail: null,
+        orgId: null,
+        status: "pending",
+        tokenJti: null,
+        catalogScope,
+        client: connection.client ?? null,
+        purpose: connection.purpose ?? null,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 600_000,
+        consumedAt: null,
+      };
+      deviceRows.push(row);
+      return { ...row };
+    },
+  ),
   getDeviceCode: vi.fn(async (dc: string) => {
     const r = deviceRows.find((d) => d.deviceCode === dc);
     return r ? { ...r } : null;
@@ -251,6 +280,174 @@ describe("handleMcpConnect", () => {
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
   });
+
+  it("records one attributed MCP connection across token reconnects and page refreshes", async () => {
+    getSessionMock.mockResolvedValue({ email: "Person@Example.com" });
+    const connect = () =>
+      handleMcpConnect(
+        ev({ method: "POST", body: { client: "Claude" } }),
+        "/token",
+        { appId: "agent-native-plan" },
+      );
+    expect((await connect()).status).toBe(200);
+    expect((await connect()).status).toBe(200);
+    expect((await handleMcpConnect(ev({}), "/")).status).toBe(200);
+    expect(trackMock.mock.calls).toEqual([
+      [
+        "agent_connected",
+        {
+          email: "person@example.com",
+          app: "plan",
+          client: "claude",
+          connection_method: "mcp",
+        },
+        { userId: "person@example.com" },
+      ],
+    ]);
+  });
+
+  it("does not record unsuccessful or rolled-back token issuance", async () => {
+    getSessionMock.mockResolvedValue(null);
+    expect(
+      (await handleMcpConnect(ev({ method: "POST" }), "/token")).status,
+    ).toBe(401);
+    getSessionMock.mockResolvedValue({ email: "person@example.com" });
+    withMcpCredentialIssuanceMock.mockRejectedValueOnce(
+      new Error("commit failed"),
+    );
+    expect(
+      (
+        await handleMcpConnect(
+          ev({ method: "POST", body: { client: "Claude" } }),
+          "/token",
+        )
+      ).status,
+    ).toBe(500);
+    expect(trackMock).not.toHaveBeenCalled();
+  });
+
+  it("records device connect once after consumption, including reconnects", async () => {
+    getSessionMock.mockResolvedValue({ email: "person@example.com" });
+    const connect = async (purpose?: string) => {
+      const start = await handleMcpConnect(
+        ev({
+          method: "POST",
+          body: { client: "claude", ...(purpose ? { purpose } : {}) },
+        }),
+        "/device/start",
+      );
+      const { device_code, user_code } = await start.json();
+      const pending = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code } }),
+        "/device/poll",
+      );
+      expect((await pending.json()).status).toBe("pending");
+      const approved = await handleMcpConnect(
+        ev({ method: "POST", body: { user_code } }),
+        "/device/authorize",
+      );
+      expect(approved.status).toBe(200);
+      const poll = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code } }),
+        "/device/poll",
+        { appId: "plan" },
+      );
+      expect((await poll.json()).status).toBe("approved");
+      const replay = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code } }),
+        "/device/poll",
+      );
+      expect((await replay.json()).status).toBe("consumed");
+    };
+    await connect("credential");
+    expect(trackMock).not.toHaveBeenCalled();
+    // The store mock uses the same user code; remove consumed rows before the next flow.
+    deviceRows.length = 0;
+    await connect();
+    deviceRows.length = 0;
+    await connect();
+    expect(trackMock.mock.calls).toEqual([
+      [
+        "agent_connected",
+        {
+          email: "person@example.com",
+          app: "plan",
+          client: "claude",
+          connection_method: "mcp",
+        },
+        { userId: "person@example.com" },
+      ],
+    ]);
+  });
+
+  it.each([200, 403])(
+    "does not count service-token authentication when creation returns %s",
+    async (status) => {
+      getSessionMock.mockResolvedValue({ email: "person@example.com" });
+      const { runServiceTokenMint, parseConnectArgs } =
+        await import("../cli/connect.js");
+      const out = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation(() => true);
+      const err = vi
+        .spyOn(process.stderr, "write")
+        .mockImplementation(() => true);
+      try {
+        const result = await runServiceTokenMint(
+          parseConnectArgs([
+            "https://plan.example.com",
+            "--service-token",
+            "ci",
+          ]),
+          {
+            fetchImpl: async (input, init) => {
+              const path = new URL(String(input)).pathname;
+              if (path.endsWith("/create-org-service-token")) {
+                return new Response(
+                  JSON.stringify(
+                    status === 200
+                      ? { token: "synthetic-service-token" }
+                      : { error: "Forbidden" },
+                  ),
+                  { status },
+                );
+              }
+              const body = JSON.parse(String(init?.body ?? "{}"));
+              return handleMcpConnect(
+                ev({ method: "POST", body }),
+                path.replace("/mcp/connect", ""),
+                { appId: "plan" },
+              );
+            },
+            openBrowser: async (url) => {
+              const user_code = new URL(url).searchParams.get("user_code");
+              await handleMcpConnect(
+                ev({ method: "POST", body: { user_code } }),
+                "/device/authorize",
+              );
+            },
+            sleep: async () => {},
+          },
+        );
+        expect(result).toBe(status === 200);
+        expect(trackMock).not.toHaveBeenCalled();
+        expect(
+          (
+            await handleMcpConnect(
+              ev({ method: "POST", body: { client: "codex" } }),
+              "/token",
+              { appId: "plan" },
+            )
+          ).status,
+        ).toBe(200);
+        expect(trackMock).toHaveBeenCalledTimes(1);
+        expect(trackMock.mock.calls[0][1].client).toBe("codex");
+      } finally {
+        out.mockRestore();
+        err.mockRestore();
+      }
+    },
+  );
 
   it.each(["mint", "approve", "poll"] as const)(
     "returns retryable unavailable when Connect table preflight fails for %s",

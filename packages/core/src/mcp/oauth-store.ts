@@ -122,6 +122,11 @@ export async function ensureTable(): Promise<void> {
         `ALTER TABLE mcp_oauth_clients ADD COLUMN IF NOT EXISTS application_type TEXT`,
       );
       await ensureTableExists("mcp_oauth_codes", createCodesSql);
+      await ensureColumnExists(
+        "mcp_oauth_codes",
+        "client_name",
+        `ALTER TABLE mcp_oauth_codes ADD COLUMN IF NOT EXISTS client_name TEXT`,
+      );
       // Legacy owners may already have been transferred; leave their bindings unset.
       await ensureColumnExists(
         "mcp_oauth_codes",
@@ -159,6 +164,7 @@ export interface OAuthClientRow {
 }
 
 export interface OAuthCodeRow {
+  clientName: string | null;
   code: string;
   clientId: string;
   redirectUri: string;
@@ -269,6 +275,7 @@ function mapClientRow(row: any): OAuthClientRow {
 
 function mapCodeRow(row: any): OAuthCodeRow {
   return {
+    clientName: row.client_name ?? row.clientName ?? null,
     code: row.code,
     clientId: row.client_id ?? row.clientId,
     redirectUri: row.redirect_uri ?? row.redirectUri,
@@ -395,6 +402,7 @@ export async function getOAuthClient(
 export async function createOAuthCode(
   params: {
     clientId: string;
+    clientName?: string | null;
     redirectUri: string;
     codeChallenge: string;
     codeChallengeMethod: string;
@@ -412,7 +420,7 @@ export async function createOAuthCode(
   const now = Date.now();
   const expiresAt = now + MCP_OAUTH_CODE_TTL_MS;
   const result = await client.execute({
-    sql: `INSERT INTO mcp_oauth_codes (code, client_id, redirect_uri, code_challenge, code_challenge_method, owner_email, issued_for_email, org_id, org_domain, scope, resource, created_at, expires_at, consumed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO mcp_oauth_codes (code, client_id, redirect_uri, code_challenge, code_challenge_method, owner_email, issued_for_email, org_id, org_domain, scope, resource, created_at, expires_at, consumed_at, client_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       code,
       params.clientId,
@@ -428,6 +436,7 @@ export async function createOAuthCode(
       now,
       expiresAt,
       null,
+      params.clientName ?? null,
     ],
   });
   if (result.rowsAffected !== 1) {
@@ -437,6 +446,7 @@ export async function createOAuthCode(
   }
   return {
     code,
+    clientName: params.clientName ?? null,
     clientId: params.clientId,
     redirectUri: params.redirectUri,
     codeChallenge: params.codeChallenge,

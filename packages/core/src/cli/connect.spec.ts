@@ -267,6 +267,38 @@ function makeFetch(
 }
 
 describe("runDeviceFlow", () => {
+  it.each([undefined, "agent", "credential"] as const)(
+    "sends the optional %s credential purpose when starting the device flow",
+    async (purpose) => {
+      const fetchImpl = makeFetch([
+        {
+          status: "approved",
+          token: "tok-purpose",
+          mcpUrl: "https://app.example.com/mcp",
+          serverName: "agent-native-app",
+        },
+      ]);
+
+      await runDeviceFlow(
+        "https://app.example.com",
+        "app",
+        "codex",
+        { fetchImpl, sleep: noopSleep, openBrowser: vi.fn() },
+        { purpose },
+      );
+
+      const startCall = vi
+        .mocked(fetchImpl)
+        .mock.calls.find(([url]) => String(url).endsWith("/device/start"));
+      expect(startCall).toBeDefined();
+      expect(JSON.parse(String(startCall![1]?.body))).toEqual({
+        client: "codex",
+        app: "app",
+        ...(purpose ? { purpose } : {}),
+      });
+    },
+  );
+
   it("polls pending then resolves on approved", async () => {
     const open = vi.fn();
     const deps: ConnectDeps = {
@@ -756,6 +788,34 @@ describe("runConnect", () => {
     } else {
       process.env.PLAN_PUBLISH_CONFIG_PATH = originalPlanPublishPath;
     }
+  });
+
+  it("preserves every selected device-flow client in the start request", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const fetchImpl = makeFetch([
+      {
+        status: "approved",
+        token: "tok-multiple-clients",
+        mcpUrl: "https://mail.agent-native.com/mcp",
+        serverName: "agent-native-mail",
+      },
+    ]);
+
+    await runConnect(
+      ["https://mail.agent-native.com", "--client", "codex,cowork"],
+      { fetchImpl, sleep: noopSleep, openBrowser: vi.fn() },
+    );
+
+    expect(process.exitCode).toBeFalsy();
+    const startCall = vi
+      .mocked(fetchImpl)
+      .mock.calls.find(([url]) => String(url).endsWith("/device/start"));
+    expect(startCall).toBeDefined();
+    expect(JSON.parse(String(startCall![1]?.body))).toEqual({
+      client: "codex,cowork",
+      app: "mail",
+    });
   });
 
   it("token fallback skips the device flow and writes the entry", async () => {
@@ -1254,6 +1314,13 @@ describe("runConnect", () => {
     );
 
     expect(process.exitCode).toBeFalsy();
+    const startCall = vi
+      .mocked(fetchImpl)
+      .mock.calls.find(([url]) => String(url).endsWith("/device/start"));
+    expect(startCall).toBeDefined();
+    expect(JSON.parse(String(startCall![1]?.body))).toMatchObject({
+      purpose: "credential",
+    });
     const canonical = JSON.parse(fs.readFileSync(planPublishPath, "utf-8"));
     expect(canonical).toMatchObject({
       url: "https://plan.agent-native.com",
@@ -1988,11 +2055,12 @@ describe("runConnect --service-token", () => {
 
   function makeServiceTokenFetch(
     actionResponse: { status: number; json: unknown },
-    captured: { url?: string; auth?: string; body?: any },
+    captured: { url?: string; auth?: string; body?: any; deviceStart?: any },
   ): typeof fetch {
     return vi.fn(async (url: string, init?: RequestInit) => {
       const u = String(url);
       if (u.endsWith("/device/start")) {
+        captured.deviceStart = JSON.parse(String(init?.body ?? "{}"));
         return new Response(
           JSON.stringify({
             device_code: "dev-123",
@@ -2038,7 +2106,12 @@ describe("runConnect --service-token", () => {
     const out = vi
       .spyOn(process.stdout, "write")
       .mockImplementation(() => true);
-    const captured: { url?: string; auth?: string; body?: any } = {};
+    const captured: {
+      url?: string;
+      auth?: string;
+      body?: any;
+      deviceStart?: any;
+    } = {};
 
     await runConnect(
       [
@@ -2069,6 +2142,10 @@ describe("runConnect --service-token", () => {
     );
 
     expect(process.exitCode).toBeFalsy();
+    expect(captured.deviceStart).toMatchObject({
+      client: "codex",
+      purpose: "credential",
+    });
     expect(captured.auth).toBe("Bearer personal-grant-token");
     expect(captured.body).toEqual({ name: "PR Recap", ttlDays: 90 });
 
@@ -2087,7 +2164,12 @@ describe("runConnect --service-token", () => {
     const err = vi
       .spyOn(process.stderr, "write")
       .mockImplementation(() => true);
-    const captured: { url?: string; auth?: string; body?: any } = {};
+    const captured: {
+      url?: string;
+      auth?: string;
+      body?: any;
+      deviceStart?: any;
+    } = {};
 
     await runConnect(["https://plan.example.com", "--service-token", "ci"], {
       fetchImpl: makeServiceTokenFetch(
@@ -2105,6 +2187,10 @@ describe("runConnect --service-token", () => {
     });
 
     expect(process.exitCode).toBe(1);
+    expect(captured.deviceStart).toMatchObject({
+      client: "codex",
+      purpose: "credential",
+    });
     const printedErr = err.mock.calls.flat().join("");
     expect(printedErr).toContain("owners or admins");
   });

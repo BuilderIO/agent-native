@@ -10,6 +10,7 @@ import { getAuthSecret } from "../server/better-auth-instance.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import { connectionApp, trackAgentConnected } from "./agent-connected.js";
 import {
   McpCredentialIssuanceError,
   withMcpCredentialIssuance,
@@ -985,6 +986,7 @@ async function handleAuthorize(
         createOAuthCode(
           {
             clientId,
+            clientName: client.clientName,
             redirectUri,
             codeChallenge: params.code_challenge,
             codeChallengeMethod: "S256",
@@ -1092,6 +1094,7 @@ function grantUnavailableError(description: string): Response {
 async function handleAuthorizationCodeGrant(
   event: H3Event,
   body: Record<string, string>,
+  options: McpOAuthRouteOptions,
 ): Promise<Response> {
   const code = body.code;
   const clientId = body.client_id;
@@ -1119,7 +1122,7 @@ async function handleAuthorizationCodeGrant(
   if (!issuer)
     return oauthError("server_error", "Unable to derive issuer", 500);
   try {
-    return await withMcpCredentialIssuance(
+    const response = await withMcpCredentialIssuance(
       {
         email: row.ownerEmail,
         orgId: row.orgId,
@@ -1145,6 +1148,15 @@ async function handleAuthorizationCodeGrant(
         );
       },
     );
+    if (response.status === 200) {
+      await trackAgentConnected({
+        email: row.ownerEmail,
+        app: connectionApp(issuer, options.appId),
+        client: row.clientName ?? null,
+        method: "oauth",
+      });
+    }
+    return response;
   } catch (error) {
     if (
       error instanceof McpCredentialIssuanceError &&
@@ -1239,14 +1251,17 @@ async function handleRefreshTokenGrant(
   }
 }
 
-async function handleToken(event: H3Event): Promise<Response> {
+async function handleToken(
+  event: H3Event,
+  options: McpOAuthRouteOptions,
+): Promise<Response> {
   if (getMethod(event) !== "POST") {
     return oauthError("invalid_request", "Method not allowed", 405);
   }
   const body = await readOAuthParams(event);
   switch (body.grant_type) {
     case "authorization_code":
-      return handleAuthorizationCodeGrant(event, body);
+      return handleAuthorizationCodeGrant(event, body, options);
     case "refresh_token":
       return handleRefreshTokenGrant(event, body);
     default:
@@ -1262,7 +1277,7 @@ export async function handleMcpOAuth(
   const path = subpath.replace(/^\/+/, "").replace(/\/+$/, "");
   try {
     if (path === "authorize") return await handleAuthorize(event, options);
-    if (path === "token") return await handleToken(event);
+    if (path === "token") return await handleToken(event, options);
     if (path === "register") return await handleRegister(event);
     setResponseStatus(event, 404);
     return json({ error: "Not found" }, 404);
