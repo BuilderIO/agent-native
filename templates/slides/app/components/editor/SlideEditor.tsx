@@ -38,6 +38,7 @@ import {
   parseExcalidrawData,
 } from "@/components/deck/ExcalidrawSlide";
 import SlideRenderer, {
+  applyRemoteSlideContentUnderEdit,
   getRenderedSlideSource,
   isRawHtmlSlide,
   noteSlideEditDraft,
@@ -86,6 +87,10 @@ import {
   sendEditorPromptToAgent,
 } from "@/lib/editor-agent-handoff";
 import { downloadImage } from "@/lib/image-download";
+import {
+  registerInlineEditRemoteApplier,
+  requestInlineEditRemoteRetry,
+} from "@/lib/inline-edit-remote";
 import { publishSlidesSelection } from "@/lib/slide-agent-context";
 import {
   getElementPreview,
@@ -3214,6 +3219,54 @@ export default function SlideEditor({
     return () =>
       boundary.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
   }, []);
+
+  // Another writer's saved edit to this slide is shown around the open text
+  // edit instead of waiting for it to end. The edited element is never
+  // replaced, so the caret, selection and IME composition stay where they are.
+  useEffect(() => {
+    if (!editingEl || !deckId) return;
+    const slideId = slide.id;
+    let composing = false;
+    const onCompositionStart = () => {
+      composing = true;
+    };
+    const onCompositionEnd = () => {
+      composing = false;
+      requestInlineEditRemoteRetry(deckId);
+    };
+    editingEl.addEventListener("compositionstart", onCompositionStart);
+    editingEl.addEventListener("compositionend", onCompositionEnd);
+    const unregister = registerInlineEditRemoteApplier(
+      deckId,
+      slideId,
+      (confirmed, remote) => {
+        const session = textSessionRef.current;
+        if (!session || session.slideId !== slideId) return "held";
+        if (composing) return "later";
+        const result = applyRemoteSlideContentUnderEdit(
+          session.slideContent,
+          confirmed,
+          remote,
+        );
+        if (result !== "applied") return "held";
+        // The no-change baseline is the stored copy the edit started from.
+        // Once that copy moved on, a stale one would be saved over the other
+        // writer's change when the typing nets out, so only an exact match is
+        // carried forward; otherwise the live canvas is serialized instead.
+        const initial = inlineEditInitialContentRef.current;
+        inlineEditInitialContentRef.current =
+          initial?.slideId === slideId && initial.content === confirmed
+            ? { slideId, content: remote }
+            : null;
+        return "applied";
+      },
+    );
+    return () => {
+      unregister();
+      editingEl.removeEventListener("compositionstart", onCompositionStart);
+      editingEl.removeEventListener("compositionend", onCompositionEnd);
+    };
+  }, [deckId, editingEl, slide.id]);
 
   // Keep canvas gesture handlers from stealing the browser's native text
   // selection stream once an inline edit has started.
