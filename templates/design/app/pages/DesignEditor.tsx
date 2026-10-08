@@ -24464,7 +24464,6 @@ function DesignEditor() {
     ) =>
       handleLayerMarqueeSelectionChange(selection, intent, {
         clearExplicitScreenSelection:
-          intent.final === true &&
           selection.length > 0 &&
           (intent.additive === true ||
             intent.shiftKey === true ||

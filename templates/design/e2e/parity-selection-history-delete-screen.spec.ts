@@ -131,6 +131,14 @@ async function lastSelectedLayers(page: Page): Promise<string[]> {
   });
 }
 
+async function selectedScreenIds(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    Array.isArray((window as any).__designSelection?.selectedScreenIds)
+      ? [...(window as any).__designSelection.selectedScreenIds]
+      : [],
+  );
+}
+
 // oracle: none — this checks app undo-history mapping, not a Figma observation.
 test("undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id", async ({
   page,
@@ -257,6 +265,7 @@ test("undo restores a child layer with its additive Screen selection", async ({
     );
     await expect(secondFrameTitle).toHaveText("Second");
     await secondFrameTitle.click({ modifiers: ["Shift"] });
+    await expect.poll(() => selectedScreenIds(page)).toContain(secondId);
     await expect.poll(() => lastSelectedLayers(page)).toEqual([blueBoxId]);
 
     const indigoBoxButton = page
@@ -272,6 +281,7 @@ test("undo restores a child layer with its additive Screen selection", async ({
 
     await page.keyboard.press(UNDO);
     await expect.poll(() => lastSelectedLayers(page)).toEqual([blueBoxId]);
+    await expect.poll(() => selectedScreenIds(page)).toContain(secondId);
 
     await page.keyboard.press("Delete");
     await expect(layerRow(page, "Second")).toHaveCount(0, { timeout: 10_000 });
@@ -506,6 +516,7 @@ test("deep-select marquee over a Screen deletes only the child", async ({
 }) => {
   await page.addInitScript(() => {
     (window as any).__DESIGN_TRACE = true;
+    (window as any).__designPerformanceProbe = Object.create(null);
   });
 
   const id = await newThreeScreenDesign(page);
@@ -540,6 +551,12 @@ test("deep-select marquee over a Screen deletes only the child", async ({
     expect(to.x).toBeGreaterThan(iframeBox!.x + iframeBox!.width);
     expect(to.y).toBeGreaterThan(iframeBox!.y + iframeBox!.height);
 
+    const finalSelectionChangeCount = await page.evaluate(
+      () =>
+        (window as any).__designPerformanceProbe?.marqueeFinalSelectionChange ??
+        0,
+    );
+
     await page.keyboard.down(DEEP_SELECT_MODIFIER);
     try {
       await page.mouse.move(from.x, from.y);
@@ -549,6 +566,17 @@ test("deep-select marquee over a Screen deletes only the child", async ({
     } finally {
       await page.keyboard.up(DEEP_SELECT_MODIFIER);
     }
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () =>
+              (window as any).__designPerformanceProbe
+                ?.marqueeFinalSelectionChange ?? 0,
+          ),
+        { timeout: 30_000 },
+      )
+      .toBe(finalSelectionChangeCount + 1);
 
     const blueBoxButton = page
       .getByRole("tree", { name: "Layers" })
