@@ -44,6 +44,7 @@ import {
   persistSlideObjectZOrderFromDom,
   removeSlideObjectAndLayoutSpacer,
   resolveSlideObjectContainingBlock,
+  resolveSelectionOwner,
   resolveSlideObjectGroupRoot,
   resolveSlideObjectInsertionContainingBlock,
   resolveSlideObjectMoveRoots,
@@ -2505,6 +2506,28 @@ describe("slide object groups and rotation", () => {
     expect(resolveSlideObjectGroupRoot(member, boundary)).toBe(inner);
     expect(resolveSlideObjectGroupRoot(inner, boundary)).toBe(inner);
     expect(resolveSlideObjectGroupRoot(boundary, boundary)).toBeNull();
+  });
+
+  it("resolves a selection owner to its group, else its table, else itself", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <table id="plain"><tbody><tr id="plainRow"><td id="plainCell"><p id="cellText">a</p></td></tr></tbody></table>
+      <div class="fmd-slide-group" data-slide-group="true" id="group">
+        <table id="grouped"><tbody><tr><td id="groupedCell">b</td></tr></tbody></table>
+        <p id="free">c</p>
+      </div>
+      <p id="loose">d</p>`;
+    const byId = (id: string) => root.querySelector<HTMLElement>(`#${id}`)!;
+
+    expect(resolveSelectionOwner(byId("plainCell"), root)).toBe(byId("plain"));
+    expect(resolveSelectionOwner(byId("cellText"), root)).toBe(byId("plain"));
+    expect(resolveSelectionOwner(byId("plainRow"), root)).toBe(byId("plain"));
+    expect(resolveSelectionOwner(byId("plain"), root)).toBe(byId("plain"));
+    expect(resolveSelectionOwner(byId("groupedCell"), root)).toBe(
+      byId("group"),
+    );
+    expect(resolveSelectionOwner(byId("free"), root)).toBe(byId("group"));
+    expect(resolveSelectionOwner(byId("loose"), root)).toBe(byId("loose"));
   });
 
   it("groups absolute siblings into one durable wrapper and ungroups at its stack position", () => {

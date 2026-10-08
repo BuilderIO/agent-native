@@ -97,13 +97,25 @@ export function isSlideTableStructureElement(element: Element): boolean {
   return SLIDE_TABLE_STRUCTURE_ELEMENTS.has(element.tagName);
 }
 
-/** A table is one movable object: its rows and cells join a selection as the table. */
-export function resolveMultiSelectableElement(
+/**
+ * The object a selection or membership check acts on for any element: its slide
+ * group, else its table when it sits anywhere inside one (a row, a cell, or text
+ * inside a cell), else the element itself.
+ */
+export function resolveSelectionOwner(
   element: HTMLElement,
-): HTMLElement | null {
-  return isSlideTableStructureElement(element)
-    ? element.closest<HTMLElement>("table")
-    : element;
+  root: HTMLElement,
+): HTMLElement {
+  const table = element.closest<HTMLElement>("table");
+  const part = table && root.contains(table) ? table : element;
+  return resolveSlideObjectGroupRoot(part, root) ?? part;
+}
+
+export function resolveSelectionOwnerId(
+  element: HTMLElement,
+  root: HTMLElement,
+): string | null {
+  return resolveSelectionOwner(element, root).getAttribute("data-builder-id");
 }
 
 const SLIDE_LAYER_REQUIRED_CHILDREN = new Map<string, Set<string>>([

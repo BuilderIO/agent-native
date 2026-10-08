@@ -86,6 +86,18 @@ const TABLE_NOTE_SLIDE = `
     <div id="note" class="fmd-text-box" data-slide-object-id="note-1" style="position:absolute;left:600px;top:100px;width:200px;height:40px;font-size:24px">Note</div>
   </div>`;
 
+// A table positioned inside a slide group; the group is taller than the table
+// so the selection outline tells which of the two was selected.
+const GROUPED_TABLE_SLIDE = `
+  <div id="slide" class="fmd-slide" style="position:relative">
+    <div id="tableGroup" class="fmd-slide-group" data-slide-group="true" data-slide-object-id="group-3" style="position:absolute;left:100px;top:100px;width:400px;height:160px">
+      <table id="groupedTable" style="position:absolute;left:0;top:0"><tbody><tr id="groupedRow">
+        <td id="groupedCell" style="padding:20px">Grouped cell</td>
+      </tr></tbody></table>
+    </div>
+    <div id="note" class="fmd-text-box" data-slide-object-id="note-1" style="position:absolute;left:600px;top:100px;width:200px;height:40px;font-size:24px">Note</div>
+  </div>`;
+
 const TEXT_RECTS: Record<string, Rect> = {
   note: { left: 600, top: 100, right: 700, bottom: 120 },
   cell: { left: 150, top: 150, right: 250, bottom: 170 },
@@ -107,6 +119,10 @@ const BOX_RECTS: Record<string, Rect> = {
   tr: { left: 100, top: 100, right: 500, bottom: 200 },
   cell: { left: 100, top: 100, right: 300, bottom: 200 },
   emptyCell: { left: 300, top: 100, right: 500, bottom: 200 },
+  tableGroup: { left: 100, top: 100, right: 500, bottom: 260 },
+  groupedTable: { left: 100, top: 100, right: 500, bottom: 200 },
+  groupedRow: { left: 100, top: 100, right: 500, bottom: 200 },
+  groupedCell: { left: 100, top: 100, right: 500, bottom: 200 },
   imgGroup: { left: 100, top: 300, right: 500, bottom: 420 },
   memberImg: { left: 100, top: 300, right: 200, bottom: 400 },
   memberC: { left: 300, top: 300, right: 480, bottom: 340 },
@@ -334,12 +350,18 @@ async function mountEditor(
         }
       : null;
   };
+  /** How many objects the multi-selection chip counts (0 when it is hidden). */
+  const selectedCount = () =>
+    Number(
+      document.querySelector("[data-multi-select-chip] span")?.textContent ?? 0,
+    );
   return {
     ...view,
     el,
     canvas,
     chainOf,
     outlineBox,
+    selectedCount,
     click,
     press,
     release,
@@ -785,6 +807,93 @@ describe("SlideEditor pointer pipeline selection and press fixes", () => {
       fireEvent.pointerUp(window, { clientX: 90, clientY: 90, pointerId: 1 });
       dragNote(editor);
       expectTableMovedWhole(editor);
+    });
+
+    it("drags the whole selection from a press on a cell of a selected table", async () => {
+      const editor = await mountEditor(TABLE_NOTE_SLIDE);
+      const cellPoint = { x: 110, y: 110 };
+
+      editor.click("note", memberPoint);
+      editor.click("cell", cellPoint, { shiftKey: true });
+      editor.press("cell", cellPoint);
+      fireEvent.pointerMove(window, {
+        clientX: cellPoint.x + 40,
+        clientY: cellPoint.y + 30,
+        pointerId: 1,
+      });
+      fireEvent.pointerUp(window, {
+        clientX: cellPoint.x + 40,
+        clientY: cellPoint.y + 30,
+        pointerId: 1,
+      });
+
+      expectTableMovedWhole(editor);
+      expect(editor.el("note").style.left).not.toBe("600px");
+    });
+
+    it("keeps the multi-selection on a plain click of a cell of a selected table", async () => {
+      const editor = await mountEditor(TABLE_NOTE_SLIDE);
+      const cellPoint = { x: 110, y: 110 };
+
+      editor.click("note", memberPoint);
+      editor.click("cell", cellPoint, { shiftKey: true });
+      vi.mocked(enterSelectionMode).mockClear();
+      editor.click("cell", cellPoint);
+
+      expect(enterSelectionMode).not.toHaveBeenCalled();
+      expect(editor.outlineBox()).toEqual({ top: 100, height: 100 });
+      expect(editor.isEditing("cell")).toBe(false);
+    });
+
+    it("selects a plain table from a marquee", async () => {
+      const editor = await mountEditor(TABLE_NOTE_SLIDE);
+
+      editor.press("slide", { x: 550, y: 500 });
+      fireEvent.pointerMove(window, { clientX: 90, clientY: 90, pointerId: 1 });
+      fireEvent.pointerUp(window, { clientX: 90, clientY: 90, pointerId: 1 });
+
+      expect(editor.outlineBox()).toEqual({ top: 100, height: 100 });
+      expect(editor.selectedCount()).toBe(1);
+    });
+  });
+
+  describe("a table inside a slide group", () => {
+    const cellPoint = { x: 110, y: 110 };
+
+    it("selects the group, not the table, from a marquee", async () => {
+      const editor = await mountEditor(GROUPED_TABLE_SLIDE);
+
+      editor.press("slide", { x: 550, y: 500 });
+      fireEvent.pointerMove(window, { clientX: 90, clientY: 90, pointerId: 1 });
+      fireEvent.pointerUp(window, { clientX: 90, clientY: 90, pointerId: 1 });
+
+      expect(editor.outlineBox()).toEqual({ top: 100, height: 160 });
+      expect(editor.selectedCount()).toBe(1);
+    });
+
+    it("toggles the group when one of its cells is shift-clicked", async () => {
+      const editor = await mountEditor(GROUPED_TABLE_SLIDE);
+
+      editor.click("note", { x: 780, y: 130 });
+      editor.click("groupedCell", cellPoint, { shiftKey: true });
+      expect(editor.outlineBox()).toEqual({ top: 100, height: 160 });
+      expect(editor.selectedCount()).toBe(2);
+      editor.click("groupedCell", cellPoint, { shiftKey: true });
+      expect(editor.outlineBox()).toEqual({ top: 100, height: 40 });
+      expect(editor.selectedCount()).toBe(1);
+    });
+
+    it("adds the group, not its table, when a drilled cell is the selection", async () => {
+      const editor = await mountEditor(GROUPED_TABLE_SLIDE);
+
+      editor.click("groupedCell", cellPoint);
+      expect(editor.lastSelected()).toBe(editor.el("tableGroup"));
+      editor.click("groupedCell", cellPoint);
+      expect(editor.lastSelected()).toBe(editor.el("groupedCell"));
+      editor.click("note", { x: 780, y: 130 }, { shiftKey: true });
+
+      expect(editor.outlineBox()).toEqual({ top: 100, height: 160 });
+      expect(editor.selectedCount()).toBe(2);
     });
   });
 
