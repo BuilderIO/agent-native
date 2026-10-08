@@ -88,6 +88,11 @@ import {
   createCountdownAudioCue,
   type CountdownAudioCue,
 } from "@/lib/countdown-audio-cue";
+import {
+  readFirstRunStorageSetupDismissal,
+  saveFirstRunStorageSetupDismissal,
+  type FirstRunStorageSetupDismissal,
+} from "@/lib/first-run-storage-setup";
 import { LocalCopyOwnership } from "@/lib/local-copy-ownership";
 import {
   discardLocalRecording,
@@ -1094,6 +1099,28 @@ export function shouldRedirectToStorageSetupHome({
   );
 }
 
+export function shouldShowFirstRunStorageSetup({
+  storageConfigured,
+  dismissal,
+  hasPendingUpload,
+  isClipIntake,
+  connectStorageRequested,
+}: {
+  storageConfigured: boolean | null;
+  dismissal: FirstRunStorageSetupDismissal;
+  hasPendingUpload: boolean;
+  isClipIntake: boolean;
+  connectStorageRequested: boolean;
+}): boolean {
+  return (
+    storageConfigured === false &&
+    dismissal !== "dismissed" &&
+    !hasPendingUpload &&
+    !isClipIntake &&
+    !connectStorageRequested
+  );
+}
+
 export default function RecordRoute() {
   const t = useT();
   const navigate = useNavigate();
@@ -1123,6 +1150,8 @@ export default function RecordRoute() {
     [authSession, completeUploadToast, t],
   );
   const [uiState, setUiState] = useState<UiState>("idle");
+  const [firstRunStorageSetupDismissal, setFirstRunStorageSetupDismissal] =
+    useState<FirstRunStorageSetupDismissal>(readFirstRunStorageSetupDismissal);
   const [savingKind, setSavingKind] = useState<"recording" | "upload" | null>(
     null,
   );
@@ -1207,8 +1236,16 @@ export default function RecordRoute() {
     : storageQuery.isLoading || storageQuery.isError
       ? null
       : (storageQuery.data?.configured ?? null);
+  const firstRunStorageSetup = shouldShowFirstRunStorageSetup({
+    storageConfigured,
+    dismissal: firstRunStorageSetupDismissal,
+    hasPendingUpload: pendingUploadFile,
+    isClipIntake: !!clipIntake,
+    connectStorageRequested,
+  });
   const storageSetupRequested =
-    !clipIntake && (pendingUploadFile || connectStorageRequested);
+    !clipIntake &&
+    (pendingUploadFile || connectStorageRequested || firstRunStorageSetup);
   const markStorageConfigured = useCallback(
     (status?: VideoStorageStatus) => {
       queryClient.setQueryData<VideoStorageStatus>(
@@ -3707,20 +3744,28 @@ export default function RecordRoute() {
   // to finish it.
   const showBackButton =
     uiState === "idle" || uiState === "error" || uiState === "pendingUpload";
-  // Recording never asks for storage first. An uploaded file (no local copy
-  // to hold) does, and so do the desktop app's and extension's "Connect
-  // storage" links (`?connectStorage=1`).
+  // Recording can start locally after the first storage choice is skipped.
   const showStorageSetupFirst =
     storageConfigured === false && storageSetupRequested;
   const canSkipStorageSetup =
-    !clipIntake && !pendingUploadFile && connectStorageRequested;
+    !clipIntake &&
+    !pendingUploadFile &&
+    (connectStorageRequested || firstRunStorageSetup);
   const showStorageStatusUnavailable =
     storageQuery.isError && storageSetupRequested;
   const skipStorageSetup = () => {
+    if (firstRunStorageSetup) {
+      saveFirstRunStorageSetupDismissal();
+      setFirstRunStorageSetupDismissal("dismissed");
+    }
     const params = new URLSearchParams(location.search);
     params.delete("connectStorage");
     const search = params.toString();
     void navigate(`/record${search ? `?${search}` : ""}`, { replace: true });
+  };
+  const configureFirstRunStorage = () => {
+    markStorageConfigured();
+    void navigate("/home", { replace: true });
   };
 
   if (
@@ -3769,7 +3814,11 @@ export default function RecordRoute() {
             <div className="min-w-0">
               {showStorageSetupFirst ? (
                 <StorageSetupCard
-                  onConfigured={markStorageConfigured}
+                  onConfigured={
+                    firstRunStorageSetup
+                      ? configureFirstRunStorage
+                      : markStorageConfigured
+                  }
                   onSkip={canSkipStorageSetup ? skipStorageSetup : undefined}
                   connectSource="clips_record_storage_setup_card"
                   connectFlow="record"

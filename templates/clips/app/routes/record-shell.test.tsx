@@ -18,6 +18,7 @@ import {
   RecordingErrorCard,
   RecordingLeaveChoices,
   shouldRedirectToStorageSetupHome,
+  shouldShowFirstRunStorageSetup,
 } from "./record";
 
 describe("record route lifecycle shell", () => {
@@ -71,6 +72,58 @@ describe("record route lifecycle shell", () => {
         uiState: "idle",
       }),
     ).toBe(true);
+  });
+
+  it("offers storage setup on the first unconfigured recorder visit", () => {
+    expect(
+      shouldShowFirstRunStorageSetup({
+        storageConfigured: false,
+        dismissal: "not-dismissed",
+        hasPendingUpload: false,
+        isClipIntake: false,
+        connectStorageRequested: false,
+      }),
+    ).toBe(true);
+  });
+
+  it.each([
+    {
+      storageConfigured: true,
+      dismissal: "not-dismissed",
+      hasPendingUpload: false,
+      isClipIntake: false,
+      connectStorageRequested: false,
+    },
+    {
+      storageConfigured: false,
+      dismissal: "dismissed",
+      hasPendingUpload: false,
+      isClipIntake: false,
+      connectStorageRequested: false,
+    },
+    {
+      storageConfigured: false,
+      dismissal: "not-dismissed",
+      hasPendingUpload: true,
+      isClipIntake: false,
+      connectStorageRequested: false,
+    },
+    {
+      storageConfigured: false,
+      dismissal: "not-dismissed",
+      hasPendingUpload: false,
+      isClipIntake: true,
+      connectStorageRequested: false,
+    },
+    {
+      storageConfigured: false,
+      dismissal: "not-dismissed",
+      hasPendingUpload: false,
+      isClipIntake: false,
+      connectStorageRequested: true,
+    },
+  ] as const)("does not show the first-run prompt for $dismissal", (input) => {
+    expect(shouldShowFirstRunStorageSetup(input)).toBe(false);
   });
 
   it("uses the shared classifier and sanitized body for dropped-file uploads", () => {
