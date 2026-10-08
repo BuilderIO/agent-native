@@ -544,29 +544,44 @@ describe("trackOnboardingEvent", () => {
   });
 
   it("uses the in-memory attempt if session storage becomes unavailable", async () => {
-    const storagePrototype = Object.getPrototypeOf(window.sessionStorage);
-    const originalSetItem = storagePrototype.setItem;
-    const setItem = vi
-      .spyOn(storagePrototype, "setItem")
-      .mockImplementation(function (this: Storage, key: string, value: string) {
-        if (key === "agent-native.onboarding.custom_keys_attempt") {
-          throw new Error("session storage unavailable");
-        }
-        originalSetItem.call(this, key, value);
-      });
+    const key = "agent-native.onboarding.custom_keys_attempt";
+    const storage = window.sessionStorage;
+    storage.removeItem(key);
+    const sessionStorage = vi
+      .spyOn(window, "sessionStorage", "get")
+      .mockReturnValue({
+        clear: () => storage.clear(),
+        getItem: (itemKey) => storage.getItem(itemKey),
+        key: (index) => storage.key(index),
+        removeItem: (itemKey) => storage.removeItem(itemKey),
+        setItem: (itemKey, value) => {
+          if (itemKey === key) {
+            throw new Error("session storage unavailable");
+          }
+          storage.setItem(itemKey, value);
+        },
+        get length() {
+          return storage.length;
+        },
+      } as Storage);
 
-    expect(await setCustomKeyOnboardingAttempt("attempt-memory-fallback")).toBe(
-      "unavailable",
-    );
-    expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe("tracked");
-    expect(trackEventMock).toHaveBeenCalledWith(
-      "onboarding_method_outcome",
-      expect.objectContaining({
-        onboarding_attempt_id: "attempt-memory-fallback",
-        outcome: "credential_saved",
-      }),
-    );
-    setItem.mockRestore();
+    try {
+      expect(
+        await setCustomKeyOnboardingAttempt("attempt-memory-fallback"),
+      ).toBe("unavailable");
+      expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe(
+        "tracked",
+      );
+      expect(trackEventMock).toHaveBeenCalledWith(
+        "onboarding_method_outcome",
+        expect.objectContaining({
+          onboarding_attempt_id: "attempt-memory-fallback",
+          outcome: "credential_saved",
+        }),
+      );
+    } finally {
+      sessionStorage.mockRestore();
+    }
   });
 
   it("uses a terminal local-endpoint outcome without a credential outcome", async () => {
