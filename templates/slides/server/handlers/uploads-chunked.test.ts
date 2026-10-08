@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   createSession: vi.fn(),
+  compareAndSetSession: vi.fn(),
   deleteBlob: vi.fn(),
   deleteSession: vi.fn(),
   getHeader: vi.fn(),
@@ -42,6 +43,8 @@ vi.mock("../lib/tenant-files.js", () => ({
 }));
 
 vi.mock("../lib/chunked-upload-session.js", () => ({
+  compareAndSetChunkedUploadSession: (...args: unknown[]) =>
+    mocks.compareAndSetSession(...args),
   createChunkedUploadSession: (...args: unknown[]) =>
     mocks.createSession(...args),
   deleteChunkedUploadSession: (...args: unknown[]) =>
@@ -57,7 +60,8 @@ vi.mock("./request-auth-context.js", () => ({
     async (
       _event: unknown,
       callback: (context: { orgId: string }) => unknown,
-    ) => callback({ orgId: "org-1" }),
+      preResolvedContext?: { orgId?: string },
+    ) => callback({ orgId: preResolvedContext?.orgId ?? "org-1" }),
   ),
 }));
 
@@ -71,7 +75,11 @@ vi.mock("./assets.js", () => ({
   uploadVideoAsset: (...args: unknown[]) => mocks.uploadVideoAsset(...args),
 }));
 
-import { startChunkedUpload, uploadChunkedChunk } from "./uploads-chunked";
+import {
+  abortChunkedUpload,
+  startChunkedUpload,
+  uploadChunkedChunk,
+} from "./uploads-chunked";
 
 function session(overrides: Record<string, unknown> = {}) {
   return {
@@ -93,6 +101,7 @@ function session(overrides: Record<string, unknown> = {}) {
 describe("chunked reference uploads", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.compareAndSetSession.mockResolvedValue(true);
     mocks.getRouterParam.mockReturnValue("session-1");
     mocks.isHosted.mockReturnValue(true);
     mocks.resolveAuth.mockResolvedValue({
@@ -266,8 +275,9 @@ describe("chunked reference uploads", () => {
     });
     expect(mocks.deleteBlob).toHaveBeenCalledWith(oldHandle);
     expect(mocks.putBlob).toHaveBeenCalled();
-    expect(mocks.createSession).toHaveBeenCalledWith(
+    expect(mocks.compareAndSetSession).toHaveBeenCalledWith(
       "session-1",
+      expect.objectContaining({ chunks: { "0": oldHandle } }),
       expect.objectContaining({
         chunks: { "0": expect.objectContaining({ id: "blob-1" }) },
       }),
@@ -339,5 +349,137 @@ describe("chunked reference uploads", () => {
     });
     expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 400);
     expect(mocks.readBlob).not.toHaveBeenCalled();
+  });
+
+  it("deletes every chunk and its session when the owner aborts", async () => {
+    const handles = [
+      {
+        id: "chunk-0",
+        provider: "public-upload:builder",
+        opaque: true,
+        encrypted: true,
+      },
+      {
+        id: "chunk-1",
+        provider: "public-upload:builder",
+        opaque: true,
+        encrypted: true,
+      },
+    ];
+    mocks.getSession.mockResolvedValue(
+      session({
+        uploadType: "video",
+        filename: "clip.mp4",
+        chunks: { "0": handles[0], "1": handles[1] },
+        chunkSizes: { "0": 4, "1": 4 },
+      }),
+    );
+
+    await expect(abortChunkedUpload({} as never)).resolves.toEqual({
+      ok: true,
+    });
+    expect(mocks.compareAndSetSession).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ uploadType: "video" }),
+      expect.objectContaining({ cleanupState: "aborting" }),
+    );
+    expect(mocks.deleteBlob).toHaveBeenCalledTimes(2);
+    for (const handle of handles) {
+      expect(mocks.deleteBlob).toHaveBeenCalledWith(handle);
+    }
+    expect(mocks.deleteSession).toHaveBeenCalledWith("session-1");
+  });
+
+  it("treats an absent session as already cleaned", async () => {
+    mocks.getSession.mockResolvedValue(null);
+
+    await expect(abortChunkedUpload({} as never)).resolves.toEqual({
+      ok: true,
+    });
+    expect(mocks.deleteBlob).not.toHaveBeenCalled();
+    expect(mocks.deleteSession).not.toHaveBeenCalled();
+  });
+
+  it("does not let another user abort the session", async () => {
+    mocks.resolveAuth.mockResolvedValueOnce({
+      ok: true,
+      context: { email: "other@example.com", orgId: "org-1" },
+    });
+    mocks.getSession.mockResolvedValue(
+      session({ uploadType: "video", filename: "clip.mp4" }),
+    );
+
+    await expect(abortChunkedUpload({} as never)).resolves.toEqual({
+      error: "Upload session belongs to another user",
+    });
+    expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 403);
+    expect(mocks.compareAndSetSession).not.toHaveBeenCalled();
+    expect(mocks.deleteBlob).not.toHaveBeenCalled();
+  });
+
+  it("does not let the same user in another org abort the session", async () => {
+    mocks.resolveAuth.mockResolvedValueOnce({
+      ok: true,
+      context: { email: "owner@example.com", orgId: "org-2" },
+    });
+    mocks.getSession.mockResolvedValue(
+      session({ uploadType: "video", filename: "clip.mp4" }),
+    );
+
+    await expect(abortChunkedUpload({} as never)).resolves.toEqual({
+      error: "Upload session belongs to another user",
+    });
+    expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 403);
+    expect(mocks.compareAndSetSession).not.toHaveBeenCalled();
+    expect(mocks.deleteBlob).not.toHaveBeenCalled();
+  });
+
+  it("retains the aborting session when blob deletion fails", async () => {
+    mocks.getSession.mockResolvedValue(
+      session({
+        uploadType: "video",
+        filename: "clip.mp4",
+        chunks: {
+          "0": {
+            id: "chunk-0",
+            provider: "public-upload:builder",
+            opaque: true,
+            encrypted: true,
+          },
+        },
+        chunkSizes: { "0": 4 },
+      }),
+    );
+    mocks.deleteBlob.mockResolvedValue({
+      deleted: false,
+      provider: "public-upload:builder",
+    });
+
+    await expect(abortChunkedUpload({} as never)).resolves.toEqual({
+      error: "Could not clean up upload session",
+    });
+    expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 503);
+    expect(mocks.compareAndSetSession).toHaveBeenCalledWith(
+      "session-1",
+      expect.any(Object),
+      expect.objectContaining({ cleanupState: "aborting" }),
+    );
+    expect(mocks.deleteSession).not.toHaveBeenCalled();
+  });
+
+  it("does not recreate an aborted session when a chunk write loses its CAS", async () => {
+    mocks.compareAndSetSession.mockResolvedValueOnce(false);
+    mocks.getSession.mockResolvedValueOnce(
+      session({ uploadType: "video", filename: "clip.mp4" }),
+    );
+
+    await expect(uploadChunkedChunk({} as never)).resolves.toEqual({
+      error: "Upload session changed while saving the chunk",
+    });
+    expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 409);
+    expect(mocks.deleteBlob).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "blob-1" }),
+    );
+    expect(mocks.createSession).not.toHaveBeenCalled();
   });
 });

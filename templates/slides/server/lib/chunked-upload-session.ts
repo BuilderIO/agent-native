@@ -1,4 +1,5 @@
 import {
+  compareAndSetAppState,
   deleteAppState,
   listAppState,
   readAppState,
@@ -8,6 +9,7 @@ import type { PrivateBlobHandle } from "@agent-native/core/private-blob";
 
 export interface ChunkedUploadSession {
   uploadType?: "reference" | "video";
+  cleanupState?: "aborting";
   ownerEmail?: string;
   orgId?: string | null;
   filename: string;
@@ -38,6 +40,18 @@ export async function getChunkedUploadSession(
   const raw = await readAppState(key(sessionId));
   if (!raw || typeof raw !== "object") return null;
   return raw as unknown as ChunkedUploadSession;
+}
+
+export async function compareAndSetChunkedUploadSession(
+  sessionId: string,
+  expectedSession: ChunkedUploadSession,
+  nextSession: ChunkedUploadSession,
+): Promise<boolean> {
+  return compareAndSetAppState(
+    key(sessionId),
+    expectedSession as unknown as Record<string, unknown>,
+    nextSession as unknown as Record<string, unknown>,
+  );
 }
 
 export async function listChunkedUploadSessions(): Promise<

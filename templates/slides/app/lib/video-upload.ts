@@ -86,36 +86,58 @@ async function uploadVideoChunked(file: File): Promise<string> {
       ? Math.min(startData.maxChunkBytes, CHUNK_SIZE_BYTES)
       : CHUNK_SIZE_BYTES;
   const totalChunks = Math.ceil(file.size / chunkSize);
-  for (let index = 0; index < totalChunks; index++) {
-    const isFinal = index === totalChunks - 1;
-    const chunkResponse = await fetch(
-      `${appBasePath()}/api/uploads-chunked/${startData.sessionId}/chunk?index=${index}&isFinal=${isFinal ? "1" : "0"}`,
-      {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/octet-stream" },
-        body: file.slice(
-          index * chunkSize,
-          Math.min((index + 1) * chunkSize, file.size),
-        ),
-      },
-    );
-    const chunkData = await readVideoUploadResponse(chunkResponse);
-    if (isFinal) {
-      if (typeof chunkData.url !== "string") {
+  try {
+    for (let index = 0; index < totalChunks; index++) {
+      const isFinal = index === totalChunks - 1;
+      const chunkResponse = await fetch(
+        `${appBasePath()}/api/uploads-chunked/${startData.sessionId}/chunk?index=${index}&isFinal=${isFinal ? "1" : "0"}`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/octet-stream" },
+          body: file.slice(
+            index * chunkSize,
+            Math.min((index + 1) * chunkSize, file.size),
+          ),
+        },
+      );
+      const chunkData = await readVideoUploadResponse(chunkResponse);
+      if (isFinal) {
+        if (typeof chunkData.url !== "string") {
+          throw uploadError(
+            "Video upload response was invalid",
+            chunkResponse.status,
+          );
+        }
+        return chunkData.url;
+      }
+      if (chunkData.ok !== true) {
         throw uploadError(
           "Video upload response was invalid",
           chunkResponse.status,
         );
       }
-      return chunkData.url;
     }
-    if (chunkData.ok !== true) {
-      throw uploadError(
-        "Video upload response was invalid",
-        chunkResponse.status,
+  } catch (error) {
+    try {
+      const cleanupResponse = await fetch(
+        `${appBasePath()}/api/uploads-chunked/${startData.sessionId}`,
+        { method: "DELETE", credentials: "include" },
       );
+      if (!cleanupResponse.ok) {
+        console.warn("Failed to clean up incomplete video upload session", {
+          status: cleanupResponse.status,
+        });
+      }
+    } catch (cleanupError) {
+      console.warn("Failed to clean up incomplete video upload session", {
+        error:
+          cleanupError instanceof Error
+            ? cleanupError.message
+            : String(cleanupError),
+      });
     }
+    throw error;
   }
 
   throw uploadError("Video upload did not complete", startResponse.status);

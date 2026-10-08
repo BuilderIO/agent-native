@@ -74,6 +74,70 @@ describe("uploadSlideVideo", () => {
     expect(fetchMock.mock.calls[2][0]).toContain("index=1&isFinal=1");
   });
 
+  it("cleans up the session after a chunk fails and preserves the upload error", async () => {
+    const chunkSize = 4 * 1024 * 1024;
+    const file = new File([new Uint8Array(5_566_718)], "clip.mp4", {
+      type: "video/mp4",
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ sessionId: "session-1", maxChunkBytes: chunkSize }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "Chunk storage failed" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(uploadSlideVideo(file)).rejects.toMatchObject({
+      message: "Chunk storage failed",
+      status: 503,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock.mock.calls[3][0]).toContain(
+      "/api/uploads-chunked/session-1",
+    );
+    expect(fetchMock.mock.calls[3][1]).toMatchObject({
+      method: "DELETE",
+      credentials: "include",
+    });
+  });
+
+  it("cleans up the session after a chunk network failure", async () => {
+    const chunkSize = 4 * 1024 * 1024;
+    const file = new File([new Uint8Array(chunkSize + 1)], "clip.mp4", {
+      type: "video/mp4",
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ sessionId: "session-1", maxChunkBytes: chunkSize }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockRejectedValueOnce(new Error("connection lost"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(uploadSlideVideo(file)).rejects.toThrow("connection lost");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[2][1]).toMatchObject({ method: "DELETE" });
+  });
+
   it("surfaces an unreadable response as an error", async () => {
     vi.stubGlobal(
       "fetch",
