@@ -265,7 +265,7 @@ export function SqlChartCard({
       if (
         target instanceof Element &&
         target.closest(
-          "button, a, input, textarea, select, [role='menuitem'], [data-no-panel-chat-select]",
+          "button, a, input, textarea, select, [role='menuitem'], [role='menuitemradio'], [data-no-panel-chat-select]",
         )
       ) {
         return;
@@ -615,7 +615,7 @@ export function SqlChartCard({
               title={timeRangeOverrideLabel}
             >
               <span className="sr-only">
-                {t("sqlDashboard.chartTimeRangeOverride")}:{" "}
+                {t("sqlDashboard.chartTimeRangeOverride")}{" "}
               </span>
               {timeRangeOverrideLabel}
             </Badge>
