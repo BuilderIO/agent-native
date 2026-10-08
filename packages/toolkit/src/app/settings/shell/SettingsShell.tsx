@@ -314,6 +314,8 @@ function revealSettingsAnchor(anchor: string, flash: boolean): () => void {
  * core, the page registry, and today's `SettingsTabsPage` props (the bridge).
  */
 export function SettingsShell(props: SettingsShellProps) {
+  useCustomKeyOnboardingAttemptLifecycle();
+
   const initialValueRef = useRef(
     "initialValue" in props ? props.initialValue : props.value,
   );
@@ -346,8 +348,6 @@ function SettingsShellContent({
   navigator,
   ...bridgeInput
 }: ShellContentProps) {
-  useCustomKeyOnboardingAttemptLifecycle();
-
   const t = useT();
   const { location, go } = navigator;
 

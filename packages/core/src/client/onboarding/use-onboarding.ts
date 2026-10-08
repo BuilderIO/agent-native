@@ -26,6 +26,7 @@ const seenOnboardingEvents = new Set<string>();
 const CUSTOM_KEY_ATTEMPT_STORAGE_KEY =
   "agent-native.onboarding.custom_keys_attempt";
 const locallyTrackedCustomKeyOutcomes = new Set<string>();
+let onboardingDocumentId: string | null = null;
 let onboardingCorrelationSequence = 0;
 const ONBOARDING_SUMMARY_TIMEOUT_MS = 15_000;
 const ONBOARDING_SUMMARY_REUSE_MS = 5_000;
@@ -40,12 +41,15 @@ type CustomKeyOnboardingOutcome =
 interface CustomKeyOnboardingAttempt {
   id: string;
   sessionId: string;
+  // A restored BFCache page keeps this ID; a new document must not inherit it.
+  documentId: string;
   entryStarted?: boolean;
   credentialValidated?: boolean;
 }
 
 type CustomKeyAttemptRead =
   | { kind: "available"; attempt: CustomKeyOnboardingAttempt | null }
+  | { kind: "stale" }
   | { kind: "unavailable" };
 
 type CustomKeyOutcomeResult =
@@ -53,6 +57,7 @@ type CustomKeyOutcomeResult =
   | "tracked_storage_unavailable"
   | "missing"
   | "unavailable"
+  | "stale"
   | "session_mismatch"
   | "duplicate";
 
@@ -65,21 +70,33 @@ export function createOnboardingCorrelationId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${onboardingCorrelationSequence.toString(36)}`;
 }
 
+function getOnboardingDocumentId(): string {
+  return (onboardingDocumentId ??= createOnboardingCorrelationId());
+}
+
 function readCustomKeyOnboardingAttempt(): CustomKeyAttemptRead {
   if (typeof window === "undefined") return { kind: "unavailable" };
   try {
     const value = window.sessionStorage.getItem(CUSTOM_KEY_ATTEMPT_STORAGE_KEY);
     if (!value) return { kind: "available", attempt: null };
     const parsed: unknown = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object") {
+      return { kind: "unavailable" };
+    }
+    const attempt = parsed as Partial<CustomKeyOnboardingAttempt>;
     if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      typeof (parsed as CustomKeyOnboardingAttempt).id !== "string" ||
-      typeof (parsed as CustomKeyOnboardingAttempt).sessionId !== "string"
+      typeof attempt.id !== "string" ||
+      typeof attempt.sessionId !== "string"
     ) {
       return { kind: "unavailable" };
     }
-    return { kind: "available", attempt: parsed as CustomKeyOnboardingAttempt };
+    if (attempt.documentId !== getOnboardingDocumentId()) {
+      return { kind: "stale" };
+    }
+    return {
+      kind: "available",
+      attempt: attempt as CustomKeyOnboardingAttempt,
+    };
   } catch {
     return { kind: "unavailable" };
   }
@@ -94,7 +111,7 @@ export function setCustomKeyOnboardingAttempt(
   try {
     window.sessionStorage.setItem(
       CUSTOM_KEY_ATTEMPT_STORAGE_KEY,
-      JSON.stringify({ id, sessionId }),
+      JSON.stringify({ id, sessionId, documentId: getOnboardingDocumentId() }),
     );
     return "stored";
   } catch {
@@ -107,6 +124,14 @@ export function trackCustomKeyOnboardingOutcome(
 ): CustomKeyOutcomeResult {
   const stored = readCustomKeyOnboardingAttempt();
   if (stored.kind === "unavailable") return "unavailable";
+  if (stored.kind === "stale") {
+    try {
+      window.sessionStorage.removeItem(CUSTOM_KEY_ATTEMPT_STORAGE_KEY);
+    } catch {
+      return "unavailable";
+    }
+    return "stale";
+  }
   const { attempt } = stored;
   if (!attempt) return "missing";
   if (attempt.sessionId !== getAnalyticsSessionId()) {

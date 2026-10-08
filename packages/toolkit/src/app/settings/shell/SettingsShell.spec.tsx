@@ -301,7 +301,15 @@ describe("SettingsShell", () => {
   it("records abandonment when the settings shell exits", async () => {
     installTestLocalStorage();
     expect(setCustomKeyOnboardingAttempt("settings-shell-exit")).toBe("stored");
+    orgState.value = {
+      data: { orgId: "org-1", role: "member" },
+      isLoading: true,
+      errorUpdatedAt: 0,
+    };
     await render();
+    expect(
+      container.querySelector('[role="status"][aria-busy="true"]'),
+    ).not.toBeNull();
 
     const renderedRoot = root;
     await act(async () => {

@@ -456,6 +456,23 @@ describe("trackOnboardingEvent", () => {
     );
     expect(trackEventMock).not.toHaveBeenCalled();
   });
+
+  it("discards a custom-key attempt carried into another document", () => {
+    setCustomKeyOnboardingAttempt("attempt-old-document");
+    const key = "agent-native.onboarding.custom_keys_attempt";
+    const stored = window.sessionStorage.getItem(key);
+    expect(stored).not.toBeNull();
+    if (!stored) throw new Error("Expected a stored onboarding attempt");
+    const attempt = JSON.parse(stored) as Record<string, unknown>;
+    window.sessionStorage.setItem(
+      key,
+      JSON.stringify({ ...attempt, documentId: "old" }),
+    );
+
+    expect(trackCustomKeyOnboardingOutcome("credential_saved")).toBe("stale");
+    expect(window.sessionStorage.getItem(key)).toBeNull();
+    expect(trackEventMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("useCustomKeyOnboardingAttemptLifecycle", () => {

@@ -190,9 +190,6 @@ function KeyValueDialogContent({
         registered: target.kind === "registered",
         shared: isShared,
       });
-      if (target.kind === "registered") {
-        trackCustomKeyOnboardingOutcome("credential_validated");
-      }
       trackCustomKeyOnboardingOutcome("credential_saved");
       void refreshKeys(queryClient);
       toast.success(replacing ? t(`${K}valueReplaced`) : t(`${K}keyAdded`));

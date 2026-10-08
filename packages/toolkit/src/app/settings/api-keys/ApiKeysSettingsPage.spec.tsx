@@ -21,6 +21,11 @@ const clientMock = vi.hoisted(() => ({
   test: vi.fn(),
   notify: vi.fn(),
 }));
+const onboardingOutcomeMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  trackCustomKeyOnboardingOutcome: onboardingOutcomeMock,
+}));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   getBrowserTabId: () => "test-tab",
@@ -199,6 +204,7 @@ describe("ApiKeysSettingsPage", () => {
     navigateMock.mockReset();
     clientMock.save.mockReset();
     clientMock.test.mockReset();
+    onboardingOutcomeMock.mockReset();
     window.history.replaceState(null, "", "/settings/api-keys");
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -405,6 +411,34 @@ describe("ApiKeysSettingsPage", () => {
     expect(name!.value).toBe("GITHUB_TOKEN");
     expect(dialog.textContent).toContain("GitHub token");
     expect(dialog.textContent).toContain("Get key");
+  });
+
+  it("does not count saving a registered key as validation", async () => {
+    clientMock.save.mockResolvedValue(undefined);
+    await render();
+    const header = await renderHeader();
+    await act(async () => buttonByText("Add key", header).click());
+
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const [name, value] = [
+      ...dialog.querySelectorAll("input"),
+    ] as HTMLInputElement[];
+    await act(async () => typeInto(name!, "git"));
+    await act(async () => buttonByText("GITHUB_TOKEN", dialog).click());
+    await act(async () => typeInto(value!, "fake-github-token"));
+    await act(async () => {
+      dialog
+        .querySelector("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+
+    const outcomes = onboardingOutcomeMock.mock.calls.map(
+      ([outcome]) => outcome,
+    );
+    expect(outcomes).toContain("credential_saved");
+    expect(outcomes).not.toContain("credential_validated");
   });
 
   it("opens Add key for a #secrets:KEY link to a key nobody saved", async () => {
