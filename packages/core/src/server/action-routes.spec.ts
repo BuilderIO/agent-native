@@ -4960,11 +4960,16 @@ describe("mountWebMcpActionRoutes", () => {
     ).rejects.toMatchObject({ statusCode: 401 });
   });
 
-  it("keeps directory-widget read manifests scoped when a session cookie is present", async () => {
+  it("keeps directory-widget read manifests and WebMCP calls scoped when a session cookie is present", async () => {
     const { createMcpDirectoryWidgetReadCapability } =
       await import("../shared/embed-auth.js");
     const { mountWebMcpActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async (_args, context) => ({
+      caller: context.caller,
+      userEmail: context.userEmail,
+      mcpDirectoryWidgetReadOnly: context.mcpDirectoryWidgetReadOnly,
+    }));
     const capability = createMcpDirectoryWidgetReadCapability({
       appId: "design",
       resourceUri: "ui://design/shell-v68",
@@ -4988,7 +4993,7 @@ describe("mountWebMcpActionRoutes", () => {
       {
         "get-design": {
           tool: { description: "Read this design", parameters: {} },
-          run: vi.fn(),
+          run,
           http: { method: "GET" },
           readOnly: true,
         } as any,
@@ -5020,6 +5025,12 @@ describe("mountWebMcpActionRoutes", () => {
     const manifestRoute = mounted.find(
       ({ path }) => path === "/_agent-native/webmcp/manifest",
     );
+    const webMcpRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/get-design",
+    );
+    const mcpToolRoute = mounted.find(
+      ({ path }) => path === "/mcp/tool/get-design",
+    );
     await expect(
       manifestRoute?.handler({ _method: "GET", _headers: {} }),
     ).resolves.toEqual([
@@ -5031,6 +5042,30 @@ describe("mountWebMcpActionRoutes", () => {
         readOnly: true,
       },
     ]);
+
+    await expect(
+      webMcpRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({ id: "d1" }) },
+      }),
+    ).resolves.toEqual({
+      caller: "mcp-widget",
+      userEmail: "ticket-owner@example.com",
+      mcpDirectoryWidgetReadOnly: true,
+    });
+    expect(run).toHaveBeenCalledOnce();
+
+    await expect(
+      mcpToolRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({ id: "d1" }) },
+      }),
+    ).resolves.toEqual({
+      error: "This widget capability only permits its scoped data routes.",
+    });
+    expect(run).toHaveBeenCalledOnce();
   });
 
   it("does not let a bootstrap capability match ordinary visual-edit actions", async () => {

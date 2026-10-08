@@ -129,6 +129,7 @@ import {
 } from "./request-context.js";
 
 const ROUTE_PREFIX = "/_agent-native/actions";
+const WEBMCP_ACTION_ROUTE_PREFIX = "/_agent-native/webmcp/actions";
 const MAX_MCP_DIRECTORY_WIDGET_SCHEMA_ARGUMENT_BYTES = 32 * 1024;
 const FRONTEND_MUTATION_METHODS = new Set(["POST", "PUT", "DELETE"]);
 const EMBED_ACTION_QUERY_PARAMS = new Set([
@@ -692,10 +693,14 @@ function mountActionRoutesInternal(
         const embedSession = directoryWidgetReadCapability
           ? await resolveRequestEmbedSession(event)
           : null;
+        const directoryWidgetReadRequest =
+          isFrontendActionRequest(event) ||
+          (options?.caller === "webmcp" &&
+            options.routePrefix === WEBMCP_ACTION_ROUTE_PREFIX);
         const directoryWidgetReadAllowed =
           directoryWidgetReadCapability &&
           embedSession !== null &&
-          isFrontendActionRequest(event) &&
+          directoryWidgetReadRequest &&
           entry.http !== false &&
           entry.http?.method === "GET" &&
           (entry.readOnly === true ||
@@ -1462,7 +1467,7 @@ export function mountWebMcpActionRoutes(
   );
 
   const app = getH3App(nitroApp);
-  const actionRoutePrefixes = ["/_agent-native/webmcp/actions", "/mcp/tool"];
+  const actionRoutePrefixes = [WEBMCP_ACTION_ROUTE_PREFIX, "/mcp/tool"];
   const actionRoutePaths = actionRoutePrefixes.flatMap((routePrefix) =>
     Object.keys(eligible).map(
       (name) => `${routePrefix}/${encodeURIComponent(name)}`,
