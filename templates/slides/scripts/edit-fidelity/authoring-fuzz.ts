@@ -2627,13 +2627,13 @@ export async function runAuthoringFuzz(
       throw new Error(
         `slash menu is clipped beyond the viewport (${JSON.stringify(position)})`,
       );
-    return { listbox, options };
+    return listbox;
   };
   const runSlashCommand = async (
     command: string,
     key: "Enter" | "Tab" = "Enter",
   ) => {
-    const { listbox, options } = await openSlashMenu();
+    const listbox = await openSlashMenu();
     const commandIndex = SLASH_COMMANDS.findIndex(
       ([value]) => value === command,
     );
