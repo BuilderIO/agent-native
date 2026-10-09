@@ -811,7 +811,9 @@ export async function createEmbedSessionTicket(
     input.scope ?? undefined,
   );
   const checksOwnerRevocation =
-    !capabilityScope || input.revocationAnchorCreatedAtMs !== undefined;
+    !capabilityScope ||
+    isMcpDirectoryWidgetWriteCapabilityScope(input.scope ?? undefined) ||
+    input.revocationAnchorCreatedAtMs !== undefined;
   if (
     input.revocationAnchorCreatedAtMs !== undefined &&
     !Number.isSafeInteger(input.revocationAnchorCreatedAtMs)

@@ -338,6 +338,46 @@ export const OperationSchema = z.discriminatedUnion("op", [
 
 export type Operation = z.infer<typeof OperationSchema>;
 
+const MCP_WIDGET_PATCH_SLIDE_FIELDS = new Set([
+  "content",
+  "notes",
+  "background",
+  "layout",
+  "layoutWarningDismissed",
+  "imageUrl",
+  "imageLoading",
+  "imagePrompt",
+  "excalidrawData",
+  "transition",
+  "animations",
+  "splitByParagraph",
+  "skipped",
+]);
+
+const MCP_WIDGET_ADD_SLIDE_FIELDS = new Set([
+  "content",
+  "notes",
+  "background",
+  "layout",
+  "layoutFitRevision",
+  "layoutWarningDismissed",
+  "imageUrl",
+  "imagePrompt",
+  "excalidrawData",
+  "transition",
+  "animations",
+  "splitByParagraph",
+  "skipped",
+]);
+
+function hasOnlyMcpWidgetSlideFields(
+  fields: object,
+  allowedFields: Set<string>,
+): boolean {
+  const names = Object.keys(fields);
+  return names.length > 0 && names.every((name) => allowedFields.has(name));
+}
+
 export function isMcpWidgetPatchAllowed(
   caller: string | undefined,
   operations: Operation[],
@@ -354,16 +394,42 @@ export function isMcpWidgetPatchAllowed(
       );
     }
 
-    if (operation.op !== "patch-slide") return false;
+    if (operation.op === "patch-slide") {
+      const touchedBaselineFields = Object.keys(operation.fields).filter(
+        (field) =>
+          field !== "content" &&
+          operation.fields[field as keyof typeof operation.fields] !==
+            undefined,
+      );
+      const baselineFields = Object.keys(operation.baseFields ?? {});
+      const validBaseFields =
+        operation.baseFields === undefined ||
+        (touchedBaselineFields.length > 0 &&
+          baselineFields.length === touchedBaselineFields.length &&
+          baselineFields.every((field) =>
+            touchedBaselineFields.includes(field),
+          ));
+      return (
+        hasOnlyMcpWidgetSlideFields(
+          operation.fields,
+          MCP_WIDGET_PATCH_SLIDE_FIELDS,
+        ) &&
+        validBaseFields &&
+        (operation.fields.content === undefined ||
+          (typeof operation.baseContentHash === "string" &&
+            operation.baseContentHash.length > 0)) &&
+        operation.preserveSource !== false
+      );
+    }
 
-    return (
-      Object.keys(operation.fields).length === 1 &&
-      typeof operation.fields.content === "string" &&
-      typeof operation.baseContentHash === "string" &&
-      operation.baseContentHash.length > 0 &&
-      operation.baseFields === undefined &&
-      operation.preserveSource !== false
-    );
+    if (operation.op === "add-slide") {
+      return hasOnlyMcpWidgetSlideFields(
+        operation.fields,
+        MCP_WIDGET_ADD_SLIDE_FIELDS,
+      );
+    }
+
+    return operation.op === "delete-slide" || operation.op === "reorder-slides";
   });
 }
 
@@ -1017,7 +1083,7 @@ export default defineAction({
       })
     ) {
       fail(
-        "The Slides widget can only update the deck title and slide content, not deck access or linked resources.",
+        "The Slides widget can edit slide content and structure and the deck title, not deck access or linked resources.",
         {
           errorCode: "mcp_widget_write_outside_editor_scope",
           statusCode: 403,

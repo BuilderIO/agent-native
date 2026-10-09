@@ -322,6 +322,44 @@ describe("embed session tickets", () => {
     expect(inserted[0].args[8]).toBe(Date.now() + 30 * 24 * 60 * 60 * 1000);
   });
 
+  it("rejects an initial write-widget ticket authenticated before owner logout", async () => {
+    const authenticatedAtMs = Date.now() - 1000;
+    const revokedBefore = authenticatedAtMs + 1;
+    let ticketInserted = false;
+    dbExec.execute.mockImplementation(async ({ sql }) => {
+      if (sql.includes("SELECT revoked_before")) {
+        return { rows: [{ revoked_before: revokedBefore }] };
+      }
+      if (sql.includes("INSERT INTO agent_native_embed_tickets")) {
+        ticketInserted = true;
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.com",
+          identityAuthenticatedAtMs: authenticatedAtMs,
+        },
+        () =>
+          createEmbedSessionTicket({
+            ownerEmail: "owner@example.com",
+            targetPath: "/page/doc_123",
+            scope: "capability:mcp-directory-widget-write:example",
+          }),
+      ),
+    ).rejects.toThrow("Embed session ticket creation was revoked by logout.");
+
+    expect(dbExec.transaction).toHaveBeenCalledOnce();
+    expect(dbExec.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("SELECT revoked_before"),
+      }),
+    );
+    expect(ticketInserted).toBe(false);
+  });
+
   it("preserves the original renewal cutoff when minting a renewed ticket", async () => {
     const inserted: { sql: string; args: unknown[] }[] = [];
     const renewalExpiresAtMs = Date.now() + 7 * 24 * 60 * 60 * 1000;
