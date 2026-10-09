@@ -52,6 +52,7 @@ import {
 } from "../selection-state";
 import { resolveToolAfterSelection } from "../tool-state";
 import {
+  isPublicDesignViewer,
   shouldShowLocalhostPreviewRecovery,
   shouldShowPublicLocalhostPreviewUnavailable,
 } from "./localhost-preview-recovery";
@@ -193,6 +194,11 @@ export function useEditorScreenRendering({
     scheduleVisualEditSnapshotPublication,
     handleComponentSourceJump,
   } = editorGenerationAndAccess;
+  const publicViewer = isPublicDesignViewer({
+    publicVisualEdit,
+    visibility: design?.visibility,
+    accessRole: designAccessRole,
+  });
   const {
     navigate,
     cssVarValues,
@@ -678,7 +684,7 @@ export function useEditorScreenRendering({
           sourceType: screenSourceType,
           connectionId: screen.connectionId,
           snapshotOnly: screenSnapshotOnly,
-          publicVisualEdit,
+          publicViewer,
           serverUnavailable:
             refreshedLocalhostConnection?.errorCode ===
             "public_localhost_preview_unavailable",
@@ -694,8 +700,7 @@ export function useEditorScreenRendering({
         connectionUnavailable:
           refreshedLocalhostConnection?.status === "unavailable",
         canEdit: canEditDesign || canEditLiveScreen(screen.id),
-        publicUnavailable:
-          publicVisualEdit && localhostPreviewUnavailablePublic,
+        publicUnavailable: localhostPreviewUnavailablePublic,
         publicVisualEdit,
       });
       const screenSnapshot = liveScreenSnapshotsById[screen.id]?.html;

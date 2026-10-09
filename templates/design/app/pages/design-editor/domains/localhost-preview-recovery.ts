@@ -33,15 +33,31 @@ export function shouldShowPublicLocalhostPreviewUnavailable({
   sourceType,
   connectionId,
   snapshotOnly,
-  publicVisualEdit,
+  publicViewer,
   serverUnavailable,
 }: {
   sourceType?: string | null;
   connectionId?: string | null;
   snapshotOnly: boolean;
-  publicVisualEdit: boolean;
+  publicViewer: boolean;
   serverUnavailable: boolean;
 }): boolean {
   if (sourceType !== "localhost" || snapshotOnly) return false;
-  return serverUnavailable || (publicVisualEdit && !connectionId);
+  return serverUnavailable || (publicViewer && !connectionId);
+}
+
+export function isPublicDesignViewer({
+  publicVisualEdit,
+  visibility,
+  accessRole,
+}: {
+  publicVisualEdit: boolean;
+  visibility?: "private" | "org" | "public" | null;
+  accessRole?: "owner" | "admin" | "editor" | "commenter" | "viewer" | null;
+}): boolean {
+  return (
+    publicVisualEdit ||
+    (visibility === "public" &&
+      (accessRole === "viewer" || accessRole === "commenter"))
+  );
 }

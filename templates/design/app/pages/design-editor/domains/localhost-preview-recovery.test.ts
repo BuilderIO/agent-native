@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isPublicDesignViewer,
   shouldShowLocalhostPreviewRecovery,
   shouldShowPublicLocalhostPreviewUnavailable,
 } from "./localhost-preview-recovery";
@@ -42,11 +43,11 @@ describe("shouldShowLocalhostPreviewRecovery", () => {
     ).toBe(false);
   });
 
-  it("shows an unavailable message for public legacy screens without a connection id", () => {
+  it("shows an unavailable message for public viewer legacy screens without a connection id", () => {
     const publicUnavailable = shouldShowPublicLocalhostPreviewUnavailable({
       ...base,
       connectionId: undefined,
-      publicVisualEdit: true,
+      publicViewer: true,
       serverUnavailable: false,
     });
 
@@ -68,7 +69,7 @@ describe("shouldShowLocalhostPreviewRecovery", () => {
       shouldShowPublicLocalhostPreviewUnavailable({
         ...base,
         connectionId: undefined,
-        publicVisualEdit: false,
+        publicViewer: false,
         serverUnavailable: false,
       }),
     ).toBe(false);
@@ -77,7 +78,7 @@ describe("shouldShowLocalhostPreviewRecovery", () => {
         ...base,
         sourceType: "inline",
         connectionId: undefined,
-        publicVisualEdit: true,
+        publicViewer: true,
         serverUnavailable: false,
       }),
     ).toBe(false);
@@ -86,17 +87,78 @@ describe("shouldShowLocalhostPreviewRecovery", () => {
         ...base,
         snapshotOnly: true,
         connectionId: undefined,
-        publicVisualEdit: true,
+        publicViewer: true,
         serverUnavailable: false,
       }),
     ).toBe(false);
     expect(
       shouldShowPublicLocalhostPreviewUnavailable({
         ...base,
-        publicVisualEdit: false,
+        publicViewer: false,
         serverUnavailable: true,
       }),
     ).toBe(true);
+  });
+
+  it("recognizes only explicit public viewers, not arbitrary read-only users", () => {
+    expect(
+      isPublicDesignViewer({
+        publicVisualEdit: false,
+        visibility: "public",
+        accessRole: "viewer",
+      }),
+    ).toBe(true);
+    expect(
+      isPublicDesignViewer({
+        publicVisualEdit: false,
+        visibility: "org",
+        accessRole: "viewer",
+      }),
+    ).toBe(false);
+    expect(
+      isPublicDesignViewer({
+        publicVisualEdit: false,
+        visibility: "public",
+        accessRole: "commenter",
+      }),
+    ).toBe(true);
+    expect(
+      isPublicDesignViewer({
+        publicVisualEdit: false,
+        visibility: "public",
+        accessRole: "editor",
+      }),
+    ).toBe(false);
+    expect(
+      isPublicDesignViewer({
+        publicVisualEdit: true,
+        visibility: "private",
+        accessRole: "viewer",
+      }),
+    ).toBe(true);
+
+    const readOnlyButNotPublicViewer = isPublicDesignViewer({
+      publicVisualEdit: false,
+      visibility: "org",
+      accessRole: "viewer",
+    });
+    expect(
+      shouldShowPublicLocalhostPreviewUnavailable({
+        sourceType: "localhost",
+        connectionId: undefined,
+        snapshotOnly: false,
+        publicViewer: readOnlyButNotPublicViewer,
+        serverUnavailable: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowLocalhostPreviewRecovery({
+        ...base,
+        connectionId: undefined,
+        canEdit: false,
+        publicUnavailable: false,
+      }),
+    ).toBe(false);
   });
 
   it("keeps a failed public preview refresh recoverable", () => {

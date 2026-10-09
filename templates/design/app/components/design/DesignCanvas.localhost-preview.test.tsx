@@ -19,6 +19,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 import { i18nCatalog } from "../../i18n";
 import {
+  isPublicDesignViewer,
   shouldShowLocalhostPreviewRecovery,
   shouldShowPublicLocalhostPreviewUnavailable,
 } from "../../pages/design-editor/domains/localhost-preview-recovery";
@@ -2108,12 +2109,17 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
       Promise.reject(new Error(`Unexpected fetch: ${requestInfoUrl(input)}`)),
     );
     vi.stubGlobal("fetch", fetchMock);
+    const publicViewer = isPublicDesignViewer({
+      publicVisualEdit: false,
+      visibility: "public",
+      accessRole: "viewer",
+    });
     const localhostPreviewUnavailablePublic =
       shouldShowPublicLocalhostPreviewUnavailable({
         sourceType: "localhost",
         connectionId: undefined,
         snapshotOnly: false,
-        publicVisualEdit: true,
+        publicViewer,
         serverUnavailable: false,
       });
     const localhostPreviewUnavailable = shouldShowLocalhostPreviewRecovery({
@@ -2125,7 +2131,7 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
       connectionUnavailable: false,
       canEdit: false,
       publicUnavailable: localhostPreviewUnavailablePublic,
-      publicVisualEdit: true,
+      publicVisualEdit: false,
     });
 
     await act(async () =>
@@ -2145,7 +2151,6 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
           editMode={false}
           readOnly
           interactMode={false}
-          publicVisualEdit
           onElementSelect={() => {}}
           onElementHover={() => {}}
           tweakValues={{}}
