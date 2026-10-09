@@ -143,6 +143,40 @@ interface DesignListResult {
 }
 
 const DESIGN_PAGE_SIZE = 50;
+const HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY = "design-home-has-recents";
+
+function readHomeLibraryHasRecents():
+  | { status: "available"; value: boolean | null }
+  | { status: "unavailable" } {
+  if (typeof window === "undefined") return { status: "unavailable" };
+
+  try {
+    const value = window.localStorage.getItem(
+      HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY,
+    );
+    return {
+      status: "available",
+      value: value === "true" ? true : value === "false" ? false : null,
+    };
+  } catch {
+    return { status: "unavailable" };
+  }
+}
+
+function writeHomeLibraryHasRecents(
+  value: boolean,
+): { status: "available" } | { status: "unavailable" } {
+  if (typeof window === "undefined") return { status: "unavailable" };
+  try {
+    window.localStorage.setItem(
+      HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY,
+      String(value),
+    );
+    return { status: "available" };
+  } catch {
+    return { status: "unavailable" };
+  }
+}
 
 interface HomeSuggestion {
   id?: string;
@@ -154,7 +188,7 @@ type HomeSuggestionsResult =
   | { status: "ready"; suggestions: HomeSuggestion[] }
   | {
       status: "unavailable";
-      reason: "missing_credentials";
+      reason: "missing_credentials" | "timeout";
       suggestions: [];
     };
 
@@ -173,8 +207,13 @@ export default function Index() {
   const [selectedDesignIds, setSelectedDesignIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [homeSection, setHomeSection] =
-    useState<DesignHomeLibraryTab>("templates");
+  const [storedHasAccessibleDesigns] = useState(readHomeLibraryHasRecents);
+  const [homeSection, setHomeSection] = useState<DesignHomeLibraryTab>(
+    storedHasAccessibleDesigns.status === "available" &&
+      storedHasAccessibleDesigns.value === true
+      ? "recent"
+      : "templates",
+  );
   const homeLibraryTabWasSelectedRef = useRef(false);
   const designFilterWasSelectedRef = useRef(false);
   const composerRef = useRef<TiptapComposerHandle>(null);
@@ -234,6 +273,11 @@ export default function Index() {
     compact: "true",
     includePreview: "false",
   });
+  const accessibleDesignCount = accessibleDesignsSummary.data?.totalCount;
+  const hasAccessibleDesigns =
+    accessibleDesignsSummary.isSuccess &&
+    accessibleDesignCount !== undefined &&
+    accessibleDesignCount > 0;
   const ownedDesignsSummary = useActionQuery<
     Pick<DesignListResult, "totalCount">
   >("list-designs", {
@@ -244,21 +288,21 @@ export default function Index() {
     includePreview: "false",
   });
   const hasSearchResultsSection = normalizedSearch.length > 0;
-  const recentVisible =
-    accessibleDesignsSummary.isSuccess &&
-    (accessibleDesignsSummary.data?.totalCount ?? 0) > 0;
   const revealRecentSearch = useCallback(() => {
-    if (!recentVisible) return false;
     homeLibraryTabWasSelectedRef.current = true;
     setHomeSection("recent");
     return true;
-  }, [recentVisible]);
+  }, []);
   useHomeSearchShortcut(true, revealRecentSearch);
   useEffect(() => {
-    if (!accessibleDesignsSummary.isSuccess) return;
+    if (
+      !accessibleDesignsSummary.isSuccess ||
+      accessibleDesignCount === undefined
+    ) {
+      return;
+    }
 
-    const hasAccessibleDesigns =
-      (accessibleDesignsSummary.data?.totalCount ?? 0) > 0;
+    writeHomeLibraryHasRecents(hasAccessibleDesigns);
     if (!hasAccessibleDesigns) {
       setHomeSection("templates");
       homeLibraryTabWasSelectedRef.current = false;
@@ -269,8 +313,9 @@ export default function Index() {
     setHomeSection("recent");
     homeLibraryTabWasSelectedRef.current = true;
   }, [
-    accessibleDesignsSummary.data?.totalCount,
+    accessibleDesignCount,
     accessibleDesignsSummary.isSuccess,
+    hasAccessibleDesigns,
   ]);
   useEffect(() => {
     if (hasSearchResultsSection) setHomeSection("recent");
@@ -1310,9 +1355,8 @@ export default function Index() {
         ) : null}
         <ClientOnly>
           <DesignHomeLibrary
-            recentVisible={recentVisible}
             value={
-              recentVisible && !homeLibraryTabWasSelectedRef.current
+              hasAccessibleDesigns && !homeLibraryTabWasSelectedRef.current
                 ? "recent"
                 : homeSection
             }
@@ -1415,13 +1459,13 @@ export default function Index() {
                 ) : (
                   <>
                     {isSelectingDesigns ? (
-                      <div className="-mt-4 mb-3 flex flex-wrap items-center justify-between gap-3 px-1 py-1 sm:-mt-6">
+                      <div className="mb-3 flex w-full flex-wrap items-center justify-between gap-3 px-1 py-1">
                         <div className="text-sm text-muted-foreground">
                           <span className="font-medium text-foreground">
                             {t("home.selected", { count: selectedDesignCount })}
                           </span>
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button

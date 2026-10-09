@@ -9,6 +9,8 @@ const mockVerifyScopedAgentAccessToken = vi.hoisted(() =>
 vi.mock("@agent-native/core/server", () => ({
   AGENT_ACCESS_PARAM: "agent_access",
   getConfiguredAppBasePath: () => "",
+  getForwardedRequestOrigin: (event: { url: string }) =>
+    new URL(event.url).origin,
   verifyScopedAgentAccessToken: (token: unknown, options: unknown) =>
     mockVerifyScopedAgentAccessToken(token, options),
 }));

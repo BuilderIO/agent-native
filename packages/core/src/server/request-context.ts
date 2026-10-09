@@ -1,5 +1,6 @@
 import type { AgentActionScope } from "../agent/types.js";
 import type { TrackingEventScope } from "../observability/tracing.js";
+import type { ContextStatus } from "../shared/context-status.js";
 import type { SignupAttributionContext } from "./attribution.js";
 
 type AsyncLocalStorageLike<T> = {
@@ -87,6 +88,8 @@ export interface RequestRunContext {
   analyticsJevPrefetch?: {
     preloadedReferenceCount: number;
   };
+  /** Whether the pre-model reference prefetch and screen grounding reached the model. */
+  contextStatus?: { prefetch?: ContextStatus; screen?: ContextStatus };
   toolCalls?: Array<{ name: string; input: unknown }>;
   toolResults?: Array<{ name: string; content: string; isError: boolean }>;
   extensionContentReads?: Record<string, string>;
@@ -103,6 +106,8 @@ export interface RequestContext {
   userEmail?: string;
   /** Keep data-source credentials within the selected org, not the user. */
   credentialScope?: "org";
+  /** Provenance set only after a stored org service token is verified. */
+  verifiedServiceIdentity?: { userEmail: string; orgId: string };
   identityAuthenticatedAtMs?: number;
   identitySessionToken?: string;
   authUserId?: string;
@@ -176,6 +181,36 @@ export interface RequestContext {
 }
 
 const EXPLICIT_PERSONAL_ORG_SCOPE_KEY = "__anExplicitPersonalOrgScope";
+const VERIFIED_SERVICE_IDENTITY_EVENT_KEY = "__anVerifiedServiceIdentity";
+
+type RequestContextEvent = { context?: Record<string, unknown> };
+
+export function markVerifiedServiceIdentityForEvent(
+  event: RequestContextEvent,
+  identity: { userEmail: string; orgId: string },
+): void {
+  const context = (event.context ??= {});
+  context[VERIFIED_SERVICE_IDENTITY_EVENT_KEY] = identity;
+}
+
+export function getVerifiedServiceIdentityFromEvent(
+  event: RequestContextEvent,
+): { userEmail: string; orgId: string } | undefined {
+  const identity = event.context?.[VERIFIED_SERVICE_IDENTITY_EVENT_KEY] as
+    | { userEmail?: unknown; orgId?: unknown }
+    | undefined;
+  const userEmail = identity?.userEmail;
+  const orgId = identity?.orgId;
+  if (
+    typeof userEmail !== "string" ||
+    !userEmail.trim() ||
+    typeof orgId !== "string" ||
+    !orgId.trim()
+  ) {
+    return undefined;
+  }
+  return { userEmail: userEmail.trim(), orgId: orgId.trim() };
+}
 
 export function markExplicitPersonalOrgScope(event: {
   context?: Record<string, unknown>;

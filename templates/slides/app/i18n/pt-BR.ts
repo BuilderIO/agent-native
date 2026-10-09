@@ -126,7 +126,7 @@ const messages = {
     googleOAuthNotConfigured:
       "Google OAuth não está configurado para esta implantação.",
     googlePickerNeedsKeys:
-      "Google Picker precisa de GOOGLE_PICKER_API_KEY e GOOGLE_PICKER_APP_ID.",
+      "A navegação de arquivos do Google Drive não está configurada. Você ainda pode importar um documento colando o link.",
     imageUploadFailed: "Falha ao enviar imagem",
     imageUploadNeedsBuilder:
       "Conecte um armazenamento de objetos para enviar imagens: conecte o Builder.io (grátis) ou adicione suas próprias chaves de armazenamento compatíveis com S3 em Configurações → Envio de arquivos.",
@@ -255,6 +255,16 @@ const messages = {
     generateImage: "Gerar imagem",
     assetLibrary: "Biblioteca de assets",
     imageOptions: "Opções da imagem",
+    videoPlayback: "Reprodução de vídeo",
+    autoplayVideo: "Reprodução automática",
+    loopVideo: "Repetir vídeo",
+    videoUploading: "Enviando vídeo…",
+    videoAdded: "Vídeo adicionado",
+    videoUploadFailed: "Falha ao enviar vídeo",
+    videoUploadError: "Não foi possível enviar este vídeo.",
+    videoFormatUnsupported: "Só há suporte para vídeos MP4 e WebM.",
+    videoTooLarge: "O vídeo deve ter no máximo 50 MB.",
+    videoUploadNeedsBuilder: "O armazenamento de vídeos não está configurado.",
     cropImage: "Cortar imagem",
     cropHandle: "Cortar imagem {{position}}",
     diagrams: "Diagramas",
@@ -308,6 +318,9 @@ const messages = {
     conflictStatus: "Conflito de texto",
     conflictStatusDescription:
       "Revise o texto em conflito antes de salvar outras alterações.",
+    accessLost: "Acesso perdido",
+    accessLostDescription:
+      "Seu acesso a esta apresentação mudou. Suas edições continuam na tela; tente novamente quando o acesso for restaurado ou baixe um backup.",
     reviewConflict: "Revisar conflito",
     conflictTitle: "Conflito de texto no slide {{number}}",
     conflictDescription:
@@ -356,6 +369,7 @@ const messages = {
     googleSlidesCreated: "Aberto no Google Slides",
     googleSlidesCreatedHint:
       "Uma cópia desta apresentação foi criada no seu Google Drive.",
+    googleSlidesGoTo: "Ir para o Google Slides",
     duplicateDeck: "Duplicar deck",
   },
   share: {
@@ -775,6 +789,10 @@ const messages = {
     exportFailed: "Error al exportar",
     agentRunFailed:
       "A execução do agente falhou antes de criar qualquer slide. Confira os detalhes no chat e tente novamente.",
+    generationFailed:
+      "Os slides não foram criados. Confira os detalhes no chat e tente novamente.",
+    generationOutcomeUnresolved:
+      "Não foi possível confirmar se os slides foram criados. Confira a apresentação ou o chat e tente novamente.",
     deckHasNoSlides: "Esta apresentação não contém slides.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",

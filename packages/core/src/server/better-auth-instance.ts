@@ -50,6 +50,7 @@ import {
   sharedDbPool,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
+  onDbClientsClosing,
 } from "../db/client.js";
 import {
   CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
@@ -81,6 +82,7 @@ import {
   enforceSignupAdmission,
   isBootstrapAdmin,
 } from "../org/signup-admission.js";
+import { normalizeAnalyticsSessionId } from "../shared/analytics-session-id.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
@@ -106,6 +108,7 @@ import {
   MissingAuthSecretError,
 } from "./deploy-settings.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
+import { emailAuthLinkLandingUrl } from "./email-auth-links.js";
 import {
   getDeploymentEmailReadiness,
   sendEmail,
@@ -258,12 +261,16 @@ export async function emitSignupEventForCreatedUser(
 
   const requestHeaders = context?.headers ?? context?.request?.headers ?? null;
   if (!requestHeaders) return;
+  const requestSessionId = normalizeAnalyticsSessionId(
+    requestHeaders.get("x-agent-native-session-id"),
+  );
 
   const scoped = hasContinuationLocalRequestContext()
     ? getRequestContext()
     : undefined;
   let attribution: Record<string, string> | undefined;
   let anonymousId: string | undefined;
+  let sessionId: string | undefined;
   try {
     const browser =
       (context?.request?.url?.includes("newUserCallbackURL")
@@ -274,6 +281,8 @@ export async function emitSignupEventForCreatedUser(
       signupAttributionContextFromCookieHeader(requestHeaders.get("cookie"));
     attribution = browser?.attribution;
     anonymousId = browser?.anonymousId;
+    sessionId =
+      normalizeAnalyticsSessionId(browser?.sessionId) ?? requestSessionId;
   } catch (err) {
     console.error("[auth] failed to derive signup attribution", err);
   }
@@ -282,9 +291,13 @@ export async function emitSignupEventForCreatedUser(
   // so an account created by another signed-in user (admin or API creation)
   // must not inherit it.
   const actingUserId = context?.context?.session?.user?.id;
-  if (user.id && attribution && (!actingUserId || actingUserId === user.id)) {
+  const ownsSignupAttribution = !actingUserId || actingUserId === user.id;
+  const eventAttribution = ownsSignupAttribution ? attribution : undefined;
+  const eventAnonymousId = ownsSignupAttribution ? anonymousId : undefined;
+  const eventSessionId = ownsSignupAttribution ? sessionId : undefined;
+  if (user.id && eventAttribution) {
     try {
-      await persistUserFirstTouchAttribution(user.id, attribution);
+      await persistUserFirstTouchAttribution(user.id, eventAttribution);
     } catch (err) {
       // The signup itself already succeeded; the event below still carries
       // the attribution, so only the row copy is missing, and loudly so.
@@ -304,8 +317,9 @@ export async function emitSignupEventForCreatedUser(
     authUserId: user.id,
     email,
     name: user.name,
-    attribution,
-    anonymousId,
+    attribution: eventAttribution,
+    anonymousId: eventAnonymousId,
+    sessionId: eventSessionId,
   });
 }
 
@@ -332,6 +346,7 @@ export async function trackSignupEvent({
   name,
   attribution,
   anonymousId,
+  sessionId,
 }: {
   authProvider: string;
   origin: SignupOrigin;
@@ -350,6 +365,7 @@ export async function trackSignupEvent({
    */
   attribution?: Record<string, string | undefined>;
   anonymousId?: string;
+  sessionId?: string;
 }): Promise<void> {
   identify(email, {
     email,
@@ -378,6 +394,7 @@ export async function trackSignupEvent({
       userId: email,
       authUserId,
       ...(anonymousId ? { anonymousId } : {}),
+      ...(sessionId ? { sessionId } : {}),
     },
   );
   await flushSignupTracking();
@@ -858,6 +875,7 @@ export interface BetterAuthConfig {
 
 let _auth: BetterAuthInstance | undefined;
 let _initPromise: Promise<BetterAuthInstance> | undefined;
+let _authInitGeneration = 0;
 let _neonAuthPool: any;
 
 const pgAuthSchema = {
@@ -1249,12 +1267,24 @@ export async function getBetterAuth(
   if (_auth) return _auth;
   if (_initPromise) return _initPromise;
 
-  _initPromise = createBetterAuthInstance(config).catch((error) => {
-    _initPromise = undefined;
-    throw error;
-  });
-  _auth = await _initPromise;
-  return _auth;
+  const generation = _authInitGeneration;
+  let initPromise: Promise<BetterAuthInstance>;
+  initPromise = createBetterAuthInstance(config)
+    .then((auth) => {
+      if (generation !== _authInitGeneration) {
+        throw new Error(
+          "Better Auth initialization was invalidated before it completed.",
+        );
+      }
+      _auth = auth;
+      return auth;
+    })
+    .catch((error) => {
+      if (_initPromise === initPromise) _initPromise = undefined;
+      throw error;
+    });
+  _initPromise = initPromise;
+  return initPromise;
 }
 
 export function getBetterAuthSync(): BetterAuthInstance | undefined {
@@ -1952,27 +1982,38 @@ export async function ensureGoogleAuthIdentityWithAdapter(
 }
 
 export async function resetBetterAuth(): Promise<void> {
+  _authInitGeneration++;
   _auth = undefined;
   _initPromise = undefined;
   _neonAuthPool = undefined;
 }
 
 let _poolCloseHookRegistered = false;
+let _dbExecCloseHookRegistered = false;
+function resetAuthInstanceState(): void {
+  _authInitGeneration++;
+  _auth = undefined;
+  _initPromise = undefined;
+  _neonAuthPool = undefined;
+}
+
 function resetAuthOnPoolClose(driver?: string, url?: string): void {
   if (_poolCloseHookRegistered) return;
   _poolCloseHookRegistered = true;
-  onSharedDbPoolsClosed(() => {
-    _auth = undefined;
-    _initPromise = undefined;
-    _neonAuthPool = undefined;
-  });
+  onSharedDbPoolsClosed(resetAuthInstanceState);
   if (driver && url) {
-    onSharedDbPoolReplaced(driver, url, () => {
-      _auth = undefined;
-      _initPromise = undefined;
-      _neonAuthPool = undefined;
-    });
+    onSharedDbPoolReplaced(driver, url, resetAuthInstanceState);
   }
+}
+
+function resetAuthOnDbExecClose(): void {
+  if (_dbExecCloseHookRegistered) return;
+  _dbExecCloseHookRegistered = true;
+  // Nitro can close this worker's PGlite client before the process exits.
+  onDbClientsClosing(() => {
+    resetAuthInstanceState();
+    _dbExecCloseHookRegistered = false;
+  });
 }
 
 async function createBetterAuthInstance(
@@ -2176,7 +2217,8 @@ async function createBetterAuthInstance(
           urlQueryKeys,
         });
       }
-      const deliveredMagicLinkUrl = desktopMagicLinkLandingUrl(url) ?? url;
+      const deliveredMagicLinkUrl =
+        desktopMagicLinkLandingUrl(url) ?? emailAuthLinkLandingUrl(url) ?? url;
       const { subject, html, text, appSender } = await renderTransactionalEmail(
         CORE_MAGIC_LINK_EMAIL_ID,
         {
@@ -2241,14 +2283,7 @@ async function createBetterAuthInstance(
       sendOnSignUp: requireEmailVerification,
       autoSignInAfterVerification: true,
       sendVerificationEmail: async ({ user, url, token }) => {
-        const verifyBasePath = (
-          process.env.VITE_APP_BASE_PATH ||
-          process.env.APP_BASE_PATH ||
-          ""
-        ).replace(/\/$/, "");
-        const verifyUrl = verifyBasePath
-          ? url.replace(/(\/\/[^/]+)(\/)/, `$1${verifyBasePath}$2`)
-          : url;
+        const deliveredVerifyUrl = emailAuthLinkLandingUrl(url) ?? url;
         const emailChange = await verifiedEmailChangeFromToken(
           token,
           secret,
@@ -2263,7 +2298,7 @@ async function createBetterAuthInstance(
           emailChange
             ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
             : CORE_VERIFY_SIGNUP_EMAIL_ID,
-          { email: user.email, verifyUrl },
+          { email: user.email, verifyUrl: deliveredVerifyUrl },
         );
         await sendEmail({
           to: user.email,
@@ -2308,10 +2343,7 @@ async function createBetterAuthInstance(
         updateEmailWithoutVerification: false,
         sendChangeEmailConfirmation: async ({ user, newEmail, url }) => {
           await preflightEmailIdentityRekey(user.email, newEmail);
-          const confirmationBasePath = getConfiguredAppBasePath();
-          const confirmationUrl = confirmationBasePath
-            ? url.replace(/(\/\/[^/]+)(\/)/, `$1${confirmationBasePath}$2`)
-            : url;
+          const confirmationUrl = emailAuthLinkLandingUrl(url) ?? url;
           const renderedEmail = await renderTransactionalEmail(
             CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
             { email: user.email, newEmail, confirmationUrl },
@@ -2529,6 +2561,8 @@ async function createBetterAuthInstance(
     },
     advanced: {
       cookiePrefix: cookieNamespace.betterAuthCookiePrefix,
+      // Keep callback URL validation active in test runs as well as production.
+      disableOriginCheck: false,
       ...(appUrl.startsWith("https://") || isBuilderPreviewHttpsEnvironment()
         ? {
             defaultCookieAttributes: {
@@ -2598,6 +2632,7 @@ export async function buildDatabaseConfig(): Promise<
   } = await import("../db/create-get-db.js");
 
   if (isPgliteUrl(url)) {
+    resetAuthOnDbExecClose();
     const { drizzle } = await loadPgliteDrizzle();
     const client = await getPgliteClient(url);
     const db = drizzle({

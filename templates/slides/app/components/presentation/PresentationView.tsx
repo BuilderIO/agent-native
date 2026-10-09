@@ -28,6 +28,7 @@ import {
   getPersistedElementPath,
   resolveSlideAnimationTargets,
 } from "@/lib/slide-animation-elements";
+import { isMediaKeyboardEvent } from "@/lib/slide-video";
 
 import type { DesignSystemData } from "../../../shared/api";
 import { openPresentChannel, type PresentMessage } from "./present-channel";
@@ -56,11 +57,13 @@ function PdfExportStage({
       data-pdf-export-stage="true"
       style={{ left: "-10000px", width: dims.width }}
     >
-      {slides.map((slide) => (
+      {slides.map((slide, index) => (
         <div key={slide.id} style={{ width: dims.width, height: dims.height }}>
           <SlideRenderer
             slide={slide}
+            slidePosition={{ number: index + 1, count: slides.length }}
             thumbnail={false}
+            disableVideoAutoplay
             aspectRatio={aspectRatio}
             designSystem={designSystem}
           />
@@ -492,6 +495,7 @@ export default function PresentationView({
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      if (isMediaKeyboardEvent(e)) return;
       switch (e.key) {
         case "ArrowRight":
         case "ArrowDown":
@@ -698,7 +702,13 @@ export default function PresentationView({
         height: "100dvh",
         cursor: cursorVisible ? "default" : "none",
       }}
-      onClick={() => {
+      onClick={(event) => {
+        if (
+          event.target instanceof Element &&
+          event.target.closest("video, audio")
+        ) {
+          return;
+        }
         if (needsFullscreenGesture) {
           enterFullscreen();
           return;
@@ -715,6 +725,7 @@ export default function PresentationView({
         >
           <SlideRenderer
             slide={safeSlides[prevIndex]}
+            slidePosition={{ number: prevIndex + 1, count: safeSlides.length }}
             thumbnail={false}
             aspectRatio={aspectRatio}
             designSystem={designSystem}
@@ -730,6 +741,10 @@ export default function PresentationView({
       >
         <SlideRenderer
           slide={displaySlide}
+          slidePosition={{
+            number: currentIndex + 1,
+            count: safeSlides.length,
+          }}
           thumbnail={false}
           aspectRatio={aspectRatio}
           designSystem={designSystem}

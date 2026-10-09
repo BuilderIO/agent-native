@@ -12,13 +12,17 @@ import {
 } from "../shared/workspace-app-id.js";
 import type { CreateStartKind } from "./create-tui.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
+import { applyTemplateLayer, readTemplateLayer } from "./template-layer.js";
 import {
   coreTemplates,
   getTemplate,
   allTemplateNames,
   type TemplateMeta,
 } from "./templates-meta.js";
-import { addConfiguredMigrationDependencies } from "./upgrade.js";
+import {
+  addConfiguredMigrationDependencies,
+  readUpgradeEnvironment,
+} from "./upgrade.js";
 import {
   ensureNodePtyBuildDependency,
   parseWorkspaceScope,
@@ -722,7 +726,7 @@ async function createWorkspaceInteractive(
         ...resolution,
         shape: "workspace",
       });
-      addConfiguredFeatureDependencies(appDir, targetDir);
+      _addConfiguredFeatureDependencies(appDir, targetDir);
       ensureGuardedScaffold(appDir);
       fixWebManifestName(
         appDir,
@@ -1078,7 +1082,7 @@ async function scaffoldOneAppIntoWorkspace(
       ...resolution,
       shape: "workspace",
     });
-    addConfiguredFeatureDependencies(appDir, workspace.workspaceRoot);
+    _addConfiguredFeatureDependencies(appDir, workspace.workspaceRoot);
     ensureScaffoldEmailBrandingConfig(appDir, appName, templateName);
     ensureGuardedScaffold(appDir);
     fixWebManifestName(
@@ -1444,7 +1448,7 @@ async function scaffoldAppTemplate(
   const sourceTemplate = templateSourceName(resolved);
   const localTemplate = findLocalTemplate(sourceTemplate);
   if (localTemplate) {
-    copyDir(localTemplate, targetDir);
+    copyTemplateTree(localTemplate, targetDir);
     removeWorkspaceOnlyTemplateWiring(targetDir);
     return {
       templateSource: localTemplateSourceKind(localTemplate),
@@ -1476,6 +1480,30 @@ function removeWorkspaceOnlyTemplateWiring(appDir: string): void {
     changed = true;
   }
   if (changed) fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+}
+
+/** Copies a bundled template's source tree, resolving template layers. */
+function copyTemplateTree(templateDir: string, dest: string): void {
+  const layer = readTemplateLayer(templateDir);
+  if (!layer) {
+    copyDir(templateDir, dest);
+    return;
+  }
+  const base = findLocalTemplate(layer.base);
+  if (!base) {
+    throw new Error(
+      `No local copy of "${layer.base}", the base of ${templateDir}.`,
+    );
+  }
+  copyTemplateTree(base, dest);
+  applyTemplateLayer(templateDir, layer, dest);
+}
+
+// A bundled layer (template-layer.json) installs its base template's
+// dependencies, so it needs the same workspace overrides as that base.
+function firstPartyBaseTemplate(templateName: string): string {
+  const local = findLocalTemplate(templateName);
+  return (local && readTemplateLayer(local)?.base) || templateName;
 }
 
 function localTemplateSourceKind(
@@ -2094,9 +2122,6 @@ function ensureGuardedScaffold(appDir: string): void {
     !existingNativeDoctor.includes(AGENT_NATIVE_DOCTOR)
       ? `${existingNativeDoctor} && ${AGENT_NATIVE_DOCTOR}`
       : AGENT_NATIVE_DOCTOR;
-  if (typeof scripts.doctor !== "string") {
-    scripts.doctor = AGENT_NATIVE_DOCTOR;
-  }
 
   if (
     typeof scripts.build === "string" &&
@@ -2230,7 +2255,7 @@ function postProcessStandalone(
         pkg.optionalDependencies,
       ].some((deps) => Boolean(deps?.["node-pty"]));
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-      addConfiguredFeatureDependencies(targetDir);
+      _addConfiguredFeatureDependencies(targetDir);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`Could not finalize ${pkgPath}: ${detail}`, {
@@ -2260,7 +2285,7 @@ function postProcessStandalone(
       nf3: '"0.3.17"',
     };
   }
-  if (templateName && getTemplate(templateName)) {
+  if (templateName && getTemplate(firstPartyBaseTemplate(templateName))) {
     sections.overrides = {
       ...sections.overrides,
       ...TIPTAP_WORKSPACE_OVERRIDES,
@@ -2293,17 +2318,21 @@ function postProcessStandalone(
   setupAgentSymlinks(targetDir);
 }
 
-function addConfiguredFeatureDependencies(
+export function _addConfiguredFeatureDependencies(
   appDir: string,
   workspaceRoot = appDir,
 ): void {
   const packageFile = path.join(appDir, "package.json");
   if (!fs.existsSync(packageFile)) return;
-  addConfiguredMigrationDependencies({
-    root: workspaceRoot,
-    kind: workspaceRoot === appDir ? "standalone" : "workspace",
-    packageFiles: [packageFile],
-  });
+  const projectEnvironment = readUpgradeEnvironment(workspaceRoot, appDir, {});
+  addConfiguredMigrationDependencies(
+    {
+      root: workspaceRoot,
+      kind: workspaceRoot === appDir ? "standalone" : "workspace",
+      packageFiles: [packageFile],
+    },
+    projectEnvironment,
+  );
 }
 
 function ensureReactRouterBuildDependencies(pkg: Record<string, any>): void {
@@ -2548,6 +2577,7 @@ export {
   ensureScaffoldEmailBrandingConfig as _ensureScaffoldEmailBrandingConfig,
   fixWebManifestName as _fixWebManifestName,
   copyDir as _copyDir,
+  copyTemplateTree as _copyTemplateTree,
   localTemplateSourceKind as _localTemplateSourceKind,
   REPO as _REPO,
   TEMPLATES_DIR as _TEMPLATES_DIR,
@@ -3952,7 +3982,9 @@ function scaffoldGuidanceForTemplate(
   if (!templateName || templateName.startsWith("github:")) return undefined;
   const normalized = normalizeTemplateName(templateName);
   if (normalized === "headless") return "headless";
-  return getTemplate(normalized) ? "default" : undefined;
+  return getTemplate(firstPartyBaseTemplate(normalized))
+    ? "default"
+    : undefined;
 }
 
 function fixWebManifestName(

@@ -354,6 +354,44 @@ export interface ListNotificationsOptions {
   before?: string;
 }
 
+export async function hasNotificationWithMetadata(
+  owner: string,
+  expected: Record<string, string | number | boolean>,
+): Promise<boolean> {
+  const entries = Object.entries(expected);
+  if (entries.length === 0) return false;
+  await ensureTable();
+  const client = getDbExec();
+  const predicates = entries
+    .map(() => "metadata LIKE ? ESCAPE '\\'")
+    .join(" AND ");
+  const args = [
+    owner,
+    ...entries.map(([key, value]) => {
+      const fragment = `${JSON.stringify(key)}:${JSON.stringify(value)}`;
+      const escaped = fragment.replace(/[\\%_]/g, "\\$&");
+      return `%${escaped}%`;
+    }),
+    25,
+  ];
+  const { rows } = await client.execute({
+    sql: `SELECT metadata FROM notifications
+      WHERE owner = ? AND ${predicates}
+      ORDER BY created_at DESC LIMIT ?`,
+    args,
+  });
+  return rows.some((row) => {
+    const metadata = safeJsonParse<Record<string, unknown> | undefined>(
+      row.metadata,
+      undefined,
+    );
+    return (
+      metadata !== undefined &&
+      entries.every(([key, value]) => metadata[key] === value)
+    );
+  });
+}
+
 export async function listNotifications(
   owner: string,
   options: ListNotificationsOptions = {},

@@ -125,6 +125,18 @@ export function mixedElementFromSelection(
       elements.map((element) => element.parentBoundingRect),
       base.parentBoundingRect,
     ),
+    positionReferenceRect: sameValueOrUndefined(
+      elements.map((element) => element.positionReferenceRect),
+      base.positionReferenceRect,
+    ),
+    positionContainingBlockOrigin: sameValueOrUndefined(
+      elements.map((element) => element.positionContainingBlockOrigin),
+      base.positionContainingBlockOrigin,
+    ),
+    positionContainingBlockTransform: sameValueOrUndefined(
+      elements.map((element) => element.positionContainingBlockTransform),
+      base.positionContainingBlockTransform,
+    ),
     parentLayout: sameValueOrUndefined(
       elements.map((element) => element.parentLayout),
       base.parentLayout,

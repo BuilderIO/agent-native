@@ -106,6 +106,23 @@ class AppCreationSettingsAuthorizationError extends Error {
   }
 }
 
+class WorkspaceAppOrgRequiredError extends Error {
+  statusCode = 400;
+
+  constructor() {
+    super(
+      "Select or join an organization before creating a workspace app. Apps are owned by the organization of the signed-in session.",
+    );
+    this.name = "WorkspaceAppOrgRequiredError";
+  }
+}
+
+function requireWorkspaceAppOrgId(): string {
+  const orgId = currentOrgId();
+  if (!orgId) throw new WorkspaceAppOrgRequiredError();
+  return orgId;
+}
+
 class WorkspaceAppsGatewayAuthorizationError extends Error {
   constructor(
     statusCode: 401 | 403,
@@ -1307,7 +1324,9 @@ async function ensureWorkspaceAppRecords(
     return apps;
   }
 
-  const orgId = currentOrgId();
+  // Read-only calls (persist: false) are allowed without an org; any call that
+  // may write must have one before it touches the database.
+  const orgId = shouldPersist ? requireWorkspaceAppOrgId() : null;
   const metadata = await readWorkspaceAppMetadataSettings();
   const db = getDbExec();
   const records = new Map<
@@ -1967,6 +1986,7 @@ export async function updateWorkspaceAppMetadata(input: {
 }): Promise<WorkspaceAppSummary> {
   const appId = input.appId.trim();
   assertValidWorkspaceAppId(appId);
+  requireWorkspaceAppOrgId();
 
   const apps = await listWorkspaceApps({
     includeAgentCards: false,
@@ -2016,7 +2036,9 @@ export async function listWorkspaceApps(
     { persist = true }: FinalizeWorkspaceAppsOptions = {},
   ) => {
     const annotated = await applyArchivedAndPending(apps);
-    const recorded = await ensureWorkspaceAppRecords(annotated, { persist });
+    const recorded = await ensureWorkspaceAppRecords(annotated, {
+      persist: persist && currentOrgId() !== null,
+    });
     const listed = options.includeArchived
       ? recorded
       : recorded.filter((app) => !app.archived);
@@ -2214,6 +2236,7 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
         "Use the Builder branch flow on a deployed workspace.",
     );
   }
+  requireWorkspaceAppOrgId();
   const template = input.template.trim();
   if (!template) throw new Error("template is required");
   if (!ADDABLE_TEMPLATES.some((tpl) => tpl.name === template)) {
@@ -2870,6 +2893,7 @@ export async function startWorkspaceAppCreation(input: {
     template: input.template,
   });
   assertValidWorkspaceAppId(initial.appId);
+  requireWorkspaceAppOrgId();
   const isLocal = isLocalAppCreationRuntime();
 
   if (!isLocal) {

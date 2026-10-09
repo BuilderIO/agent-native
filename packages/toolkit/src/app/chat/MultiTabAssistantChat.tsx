@@ -1,5 +1,6 @@
 import type { AgentChatAttachment } from "@agent-native/core";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
+import type { ModelEngineConfig } from "@agent-native/core/agent/model-version";
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
 import {
   DEFAULT_MODEL,
@@ -86,6 +87,7 @@ import type {
   AssistantChatHandle,
   AssistantChatSendOptions,
 } from "./chat/surface-types.js";
+import { fallbackChatTitle } from "./fallback-chat-title.js";
 
 type AgentActionScope = NonNullable<AgentChatMessage["actionScope"]>;
 
@@ -884,6 +886,8 @@ export type MultiTabAssistantChatProps = Omit<
   showScopeBadge?: boolean;
   /** Cadence for hydrating agent-team sub-agent tab status. Default: 3000. */
   agentTeamPollMs?: number;
+  /** Reports the exact model engine selected for the active thread. */
+  onActiveModelEngineChange?: (engine: ModelEngineConfig | null) => void;
 };
 
 export function MultiTabAssistantChat({
@@ -904,6 +908,7 @@ export function MultiTabAssistantChat({
   modelListError: hostModelListError,
   onRetryModelList: hostOnRetryModelList,
   onModelChange: hostOnModelChange,
+  onActiveModelEngineChange,
   ...props
 }: MultiTabAssistantChatProps) {
   const translate = useT();
@@ -1153,6 +1158,9 @@ export function MultiTabAssistantChat({
   const [discoveredModels, setDiscoveredModels] = useState<EngineModelGroup[]>(
     [],
   );
+  const [discoveredModelEngines, setDiscoveredModelEngines] = useState<
+    Readonly<Record<string, ModelEngineConfig>>
+  >({});
   const availableModels = hostAvailableModels ?? discoveredModels;
   const [discoveredModelsLoading, setModelListLoading] = useState(true);
   const [discoveredModelsError, setDiscoveredModelsError] = useState(false);
@@ -1278,6 +1286,51 @@ export function MultiTabAssistantChat({
       ),
     [availableModels, persistedModelSelection, modelSelectionVersion],
   );
+
+  useEffect(() => {
+    if (!onActiveModelEngineChange) return;
+    const selection = activeThreadId
+      ? resolveThreadModelSelection(activeThreadId)
+      : undefined;
+    const selectedModel = selection?.model ?? defaultModel;
+    const engineName =
+      selection?.engine ??
+      availableModels.find((group) => group.models.includes(selectedModel))
+        ?.engine;
+    const hostEngineGroups = hostManagedModels
+      ? availableModels.filter((group) => group.engine === engineName)
+      : [];
+    const hostSelectableModels = [
+      ...new Set(hostEngineGroups.flatMap((group) => group.models)),
+    ];
+    const hostModelEngine =
+      engineName && hostSelectableModels.length > 0
+        ? {
+            name: engineName,
+            label: hostEngineGroups[0]?.label ?? engineName,
+            defaultModel: hostSelectableModels.includes(selectedModel)
+              ? selectedModel
+              : hostSelectableModels[0]!,
+            supportedModels: hostSelectableModels,
+            selectableModels: hostSelectableModels,
+          }
+        : null;
+    onActiveModelEngineChange(
+      hostManagedModels
+        ? hostModelEngine
+        : engineName
+          ? (discoveredModelEngines[engineName] ?? null)
+          : null,
+    );
+  }, [
+    activeThreadId,
+    availableModels,
+    defaultModel,
+    discoveredModelEngines,
+    hostManagedModels,
+    onActiveModelEngineChange,
+    resolveThreadModelSelection,
+  ]);
 
   const persistModelSelection = useCallback(
     (selection: ModelSelection) => {
@@ -1424,10 +1477,25 @@ export function MultiTabAssistantChat({
         }
         setDiscoveredModelsError(false);
         setDiscoveredModels(catalog.groups);
+        setDiscoveredModelEngines(catalog.modelEngines);
         setDefaultModel(catalog.defaultModel);
         void catalog.loadLiveGroups().then((liveGroups) => {
           if (isCurrentRequest() && liveGroups) {
             setDiscoveredModels(liveGroups);
+            setDiscoveredModelEngines((current) => {
+              const next = { ...current };
+              for (const group of liveGroups) {
+                const engine = next[group.engine];
+                if (engine) {
+                  next[group.engine] = {
+                    ...engine,
+                    supportedModels: group.models,
+                    selectableModels: group.models,
+                  };
+                }
+              }
+              return next;
+            });
           }
         });
       })
@@ -2725,15 +2793,14 @@ export function MultiTabAssistantChat({
       selection: { engine?: string; model?: string },
     ) => {
       void generateTitle(threadId, message, selection).then((title) => {
-        if (title) {
-          // Persist the generated title to the server
-          void saveThreadData(threadId, {
-            threadData: "",
-            title,
-            preview: message.slice(0, 120),
-            titleSource: "generated",
-          });
-        }
+        const resolvedTitle = title ?? fallbackChatTitle(message);
+        if (!resolvedTitle) return;
+        void saveThreadData(threadId, {
+          threadData: "",
+          title: resolvedTitle,
+          preview: message.slice(0, 120),
+          titleSource: title ? "generated" : "fallback",
+        });
       });
     },
     [generateTitle, saveThreadData],
@@ -2747,9 +2814,13 @@ export function MultiTabAssistantChat({
         title: string;
         preview: string;
         messageCount: number;
+        titleSource?: "fallback";
       },
     ) => {
-      void saveThreadData(threadId, data);
+      void saveThreadData(threadId, {
+        ...data,
+        threadData: "",
+      });
       if (
         data.messageCount > 0 &&
         threadId === activeThreadIdRef.current &&
@@ -3190,6 +3261,8 @@ export function MultiTabAssistantChat({
               tabId === activeThreadId || mountedTabsRef.current.has(tabId),
           )
           .map((tabId) => {
+            const isKnownNewThread =
+              newThreadIds.current.has(tabId) || isNewThread(tabId);
             const modelSelection = resolveThreadModelSelection(tabId);
             const modelSelectionPending =
               !hostManagedModels && modelListLoading && !modelSelection;
@@ -3225,9 +3298,7 @@ export function MultiTabAssistantChat({
                   isolateHistoryByScope={isolateHistoryByScope}
                   isActiveComposer={!contentHidden && tabId === activeThreadId}
                   apiUrl={apiUrl}
-                  isNewThread={
-                    newThreadIds.current.has(tabId) || isNewThread(tabId)
-                  }
+                  isNewThread={isKnownNewThread}
                   onThreadRestoreNotFound={
                     tabId === activeThreadId &&
                     (props.agentChatSurface !== "desktop" ||
@@ -3235,7 +3306,7 @@ export function MultiTabAssistantChat({
                       ? clearActiveTab
                       : undefined
                   }
-                  isThreadStateLoading={isLoading}
+                  isThreadStateLoading={isLoading && !isKnownNewThread}
                   onMessageCountChange={(count) => {
                     setMessageCounts((prev) =>
                       prev[tabId] === count

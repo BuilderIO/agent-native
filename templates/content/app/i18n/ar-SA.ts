@@ -1056,6 +1056,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "ما زلنا بانتظار {{stage}}. الطلب: {{action}}.",
+    widgetDocumentLoadStage: "محتوى الصفحة المحفوظة",
+    widgetDraftCheckStage: "استعادة مسودة الصفحة",
+    widgetEditorInitStage: "تهيئة محرر النص المنسق",
     iconPickerIcons: "الأيقونات",
     iconPickerEmoji: "الرموز التعبيرية",
     iconPickerRecent: "الأخيرة",

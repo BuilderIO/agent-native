@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  LUNA_OPENAI_MODEL,
   MISSING_ENGINE,
   readTurnSelection,
   spendViolations,
@@ -9,7 +10,7 @@ import {
 } from "./chat";
 
 const OPENAI = "ai-sdk:openai";
-const LUNA = "gpt-5.6-luna";
+const LUNA = LUNA_OPENAI_MODEL;
 
 function log(
   requests: Array<{ model: string | null; engine: string | null }>,
@@ -28,7 +29,7 @@ test("reads only what a turn body names at the top level", () => {
     readTurnSelection(JSON.stringify({ model: LUNA, engine: OPENAI })),
     { model: LUNA, engine: OPENAI },
   );
-  // The Chat template's composer puts the engine in metadata, which the server ignores.
+  // Metadata alone is not evidence; only the top-level request field counts.
   assert.deepEqual(
     readTurnSelection(
       JSON.stringify({ model: LUNA, metadata: { engine: OPENAI } }),

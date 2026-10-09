@@ -4,7 +4,13 @@ import {
   EmbeddedExtension,
   ExtensionSlot,
 } from "@agent-native/toolkit/app/extensions";
-import { resolveDashboardFunnelRows } from "@shared/dashboard-funnel";
+import type { DashboardFunnelRows } from "@shared/dashboard-funnel";
+import {
+  isNumericLikeValue,
+  limitChartRows,
+  planPanelRender,
+  type HeatmapKeys,
+} from "@shared/panel-render-contract";
 import {
   IconArrowsSort,
   IconSortAscending,
@@ -76,7 +82,6 @@ import {
   type DualAxisPlan,
 } from "@/pages/adhoc/sql-dashboard/dual-axis";
 import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
-import { pivotRows } from "@/pages/adhoc/sql-dashboard/pivot";
 import type {
   SqlPanel,
   ChartType,
@@ -86,34 +91,7 @@ import type {
 
 import { DashboardPanelSkeleton } from "./DashboardPanelSkeleton";
 
-const MAX_CHART_POINTS = 400;
-
-export function limitChartRows(
-  rows: Record<string, unknown>[],
-  chartType: ChartType,
-): Record<string, unknown>[] {
-  if (
-    rows.length <= MAX_CHART_POINTS ||
-    ![
-      "line",
-      "area",
-      "bar",
-      "combo",
-      "pie",
-      "heatmap",
-      "funnel",
-      "callout",
-    ].includes(chartType)
-  ) {
-    return rows;
-  }
-  return chartType !== "line" &&
-    chartType !== "area" &&
-    chartType !== "combo" &&
-    chartType !== "heatmap"
-    ? rows.slice(0, MAX_CHART_POINTS)
-    : rows.slice(-MAX_CHART_POINTS);
-}
+export { limitChartRows };
 
 const DEFAULT_COLORS = [
   "var(--brand-blue)",
@@ -332,15 +310,6 @@ export function formatMetricValue(
     : raw == null
       ? "-"
       : stringifyValue(raw);
-}
-
-function isNumericLikeValue(value: unknown): boolean {
-  if (typeof value === "number") return Number.isFinite(value);
-  return (
-    typeof value === "string" &&
-    value.trim() !== "" &&
-    Number.isFinite(Number(value))
-  );
 }
 
 export function detectMetricValueColumn(
@@ -1161,79 +1130,6 @@ export function ChartTooltip({
   );
 }
 
-function detectKeys(
-  rows: Record<string, unknown>[],
-  config?: SqlPanel["config"],
-  forcedYKeys?: string[],
-): { xKey: string; yKeys: string[] } {
-  if (rows.length === 0) return { xKey: "", yKeys: [] };
-
-  const cols = Object.keys(rows[0]);
-  const colSet = new Set(cols);
-  const sample = rows[0] as Record<string, unknown>;
-
-  let xKey = config?.xKey && colSet.has(config.xKey) ? config.xKey : "";
-  if (!xKey) {
-    xKey =
-      cols.find((c) => {
-        const v = sample[c];
-        if (typeof v === "string" && v.length >= 8) {
-          const d = new Date(v);
-          return !isNaN(d.getTime());
-        }
-        return false;
-      }) ||
-      cols.find((c) => typeof sample[c] === "string") ||
-      cols[0];
-  }
-
-  if (forcedYKeys && forcedYKeys.length) {
-    return { xKey, yKeys: forcedYKeys.filter((key) => colSet.has(key)) };
-  }
-
-  const yKeys = (config?.yKeys ?? (config?.yKey ? [config.yKey] : [])).filter(
-    (key) => colSet.has(key),
-  );
-  if (yKeys.length === 0) {
-    for (const c of cols) {
-      if (c === xKey) continue;
-      if (isNumericLikeValue(sample[c])) yKeys.push(c);
-    }
-  }
-  if (yKeys.length === 0 && cols.length > 1) {
-    yKeys.push(cols.find((c) => c !== xKey) || cols[1]);
-  }
-
-  return { xKey, yKeys };
-}
-
-function configuredKeysMissingFromRows(
-  rows: Record<string, unknown>[],
-  panel: SqlPanel,
-): string[] {
-  if (rows.length === 0) return [];
-  const rowKeys = new Set(Object.keys(rows[0]));
-  const missing = new Set<string>();
-  const config = panel.config;
-  if (config?.xKey && !rowKeys.has(config.xKey)) missing.add(config.xKey);
-
-  if (!config?.pivot) {
-    if (config?.yKey && !rowKeys.has(config.yKey)) missing.add(config.yKey);
-    for (const key of config?.yKeys ?? []) {
-      if (!rowKeys.has(key)) missing.add(key);
-    }
-    for (const key of config?.rightYKeys ?? []) {
-      if (!rowKeys.has(key)) missing.add(key);
-    }
-  }
-
-  for (const col of config?.columns ?? []) {
-    if (!rowKeys.has(col.key)) missing.add(col.key);
-    if (col.linkKey && !rowKeys.has(col.linkKey)) missing.add(col.linkKey);
-  }
-  return Array.from(missing);
-}
-
 function ConfigWarning({ keys }: { keys: string[] }) {
   if (keys.length === 0) return null;
   return (
@@ -1253,6 +1149,8 @@ interface SqlChartProps {
   showLoadingWhenDisabled?: boolean;
   timeRange?: number;
   reportScreenshot?: boolean;
+  refreshToken?: number;
+  onRefreshRequested?: () => void;
   onExportCsvChange?: (handler: (() => void) | null) => void;
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
   dashboardId?: string;
@@ -1267,6 +1165,8 @@ export function SqlChart({
   showLoadingWhenDisabled = true,
   timeRange,
   reportScreenshot = false,
+  refreshToken = 0,
+  onRefreshRequested,
   onExportCsvChange,
   onCopyTableChange,
   dashboardId,
@@ -1278,17 +1178,21 @@ export function SqlChart({
   const isExtension = panel.chartType === "extension";
   const shouldQuery = !isSection && !isExtension && loadData && !resultOverride;
   const sql = serializePanelSql(resolvedSql ?? panel.sql);
+  const [localRefreshToken, setLocalRefreshToken] = useState(0);
   const {
     data: queryResult,
     isLoading: queryIsLoading,
     isFetching: queryIsFetching,
     error: queryError,
-    refetch,
   } = useSqlQuery(
     ["sql-chart", dashboardId || panel.id, sql, panel.source],
     sql,
     panel.source,
-    { enabled: shouldQuery, reportScreenshot },
+    {
+      enabled: shouldQuery,
+      reportScreenshot,
+      refreshToken: refreshToken + localRefreshToken,
+    },
   );
 
   const result = resultOverride ?? queryResult;
@@ -1300,22 +1204,20 @@ export function SqlChart({
       ? (result?.error ??
         (queryError ? formatSqlChartError(queryError) : undefined))
       : undefined;
+  const refreshError =
+    shouldQuery && rawRows.length > 0 && queryError
+      ? formatSqlChartError(queryError)
+      : undefined;
+  const requestRefresh = () => {
+    if (onRefreshRequested) onRefreshRequested();
+    else setLocalRefreshToken((token) => token + 1);
+  };
 
-  const { rows: queryRows, forcedYKeys } = useMemo(() => {
-    if (panel.config?.pivot && rawRows.length) {
-      const pivoted = pivotRows(rawRows, panel.config.pivot, {
-        fillDateGaps: panel.chartType !== "bar",
-        timeRange,
-      });
-      return { rows: pivoted.rows, forcedYKeys: pivoted.seriesKeys };
-    }
-    return { rows: rawRows, forcedYKeys: undefined };
-  }, [rawRows, panel.chartType, panel.config?.pivot, timeRange]);
-
-  const { xKey, yKeys } = useMemo(
-    () => detectKeys(queryRows, panel.config, forcedYKeys),
-    [queryRows, panel.config, forcedYKeys],
+  const plan = useMemo(
+    () => planPanelRender(rawRows, panel, { timeRange }),
+    [rawRows, panel.chartType, panel.config, timeRange],
   );
+  const { rows: queryRows, xKey, yKeys } = plan;
   const shouldCreateDemoTrend =
     demoModeEnabled &&
     (panel.chartType === "line" ||
@@ -1402,7 +1304,7 @@ export function SqlChart({
             type="button"
             variant="secondary"
             size="sm"
-            onClick={() => void refetch()}
+            onClick={requestRefresh}
           >
             <IconRefresh className="mr-2 h-3.5 w-3.5" />
             {t("sqlDashboard.refresh")}
@@ -1412,8 +1314,47 @@ export function SqlChart({
     );
   }
 
-  if (rows.length === 0) {
-    return (
+  const missingConfigKeys = plan.missingKeys;
+  const withConfigWarning = (node: ReactNode) => {
+    if (refreshError) {
+      return (
+        <div className="flex h-full min-h-0 flex-col gap-2">
+          <div
+            className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2"
+            role="alert"
+          >
+            <p className="min-w-0 break-words text-xs text-destructive">
+              {refreshError}
+            </p>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={requestRefresh}
+            >
+              <IconRefresh className="mr-2 h-3.5 w-3.5" />
+              {t("sqlDashboard.refresh")}
+            </Button>
+          </div>
+          {missingConfigKeys.length > 0 && (
+            <ConfigWarning keys={missingConfigKeys} />
+          )}
+          <div className="min-h-0 flex-1">{node}</div>
+        </div>
+      );
+    }
+    return missingConfigKeys.length > 0 ? (
+      <div className="space-y-2">
+        <ConfigWarning keys={missingConfigKeys} />
+        {node}
+      </div>
+    ) : (
+      node
+    );
+  };
+
+  if (plan.empty) {
+    const noData = (
       <div
         className={`flex flex-1 items-center justify-center ${placeholderPadY} ${placeholderMinH}`}
       >
@@ -1422,18 +1363,11 @@ export function SqlChart({
         </p>
       </div>
     );
+    // A funnel or heatmap with rows that draws nothing keeps the warning and
+    // refresh banner that say why; a result with no rows to plot is a bare
+    // "No data".
+    return plan.rows.length === 0 ? noData : withConfigWarning(noData);
   }
-
-  const missingConfigKeys = configuredKeysMissingFromRows(rows, panel);
-  const withConfigWarning = (node: ReactNode) =>
-    missingConfigKeys.length > 0 ? (
-      <div className="space-y-2">
-        <ConfigWarning keys={missingConfigKeys} />
-        {node}
-      </div>
-    ) : (
-      node
-    );
 
   if (chartType === "metric") {
     return withConfigWarning(<MetricRenderer rows={rows} panel={panel} />);
@@ -1490,15 +1424,15 @@ export function SqlChart({
     );
   }
 
-  if (chartType === "funnel") {
+  if (chartType === "funnel" && plan.funnel) {
     return withConfigWarning(
-      <FunnelRenderer rows={chartRows} panel={panel} colors={colors} />,
+      <FunnelRenderer funnel={plan.funnel} panel={panel} colors={colors} />,
     );
   }
 
-  if (chartType === "heatmap") {
+  if (chartType === "heatmap" && plan.heatmap) {
     return withConfigWarning(
-      <HeatmapRenderer rows={chartRows} panel={panel} />,
+      <HeatmapRenderer rows={chartRows} panel={panel} keys={plan.heatmap} />,
     );
   }
 
@@ -2590,33 +2524,14 @@ function TimeSeriesRenderer({
 }
 
 function FunnelRenderer({
-  rows,
+  funnel,
   panel,
   colors,
 }: {
-  rows: Record<string, unknown>[];
+  funnel: DashboardFunnelRows;
   panel: SqlPanel;
   colors: string[];
 }) {
-  const t = useT();
-  const funnel = useMemo(
-    () =>
-      resolveDashboardFunnelRows(rows, panel.config?.xKey, panel.config?.yKey),
-    [rows, panel.config?.xKey, panel.config?.yKey],
-  );
-
-  if (funnel.items.length === 0) {
-    return (
-      <div
-        className={`flex items-center justify-center py-8 ${TABLE_PANEL_MIN_HEIGHT_CLASS}`}
-      >
-        <p className="text-sm text-muted-foreground text-center">
-          {t("common.noData")}
-        </p>
-      </div>
-    );
-  }
-
   const maxValue = Math.max(...funnel.items.map((item) => item.value), 1);
   const formatter = panel.config?.yFormatter;
   const funnelColors = colors.length > 0 ? colors : DEFAULT_COLORS;
@@ -2666,42 +2581,16 @@ function FunnelRenderer({
 function HeatmapRenderer({
   rows,
   panel,
+  keys,
 }: {
   rows: Record<string, unknown>[];
   panel: SqlPanel;
+  keys: HeatmapKeys;
 }) {
-  const t = useT();
-  const cfg = panel.config;
-  const yFormatter = cfg?.yFormatter;
+  const yFormatter = panel.config?.yFormatter;
+  const { xKey: xK, valueKey: valK, rowKey: rowK } = keys;
 
-  const { valueKey, rowKey, xValues, yValues, grid, stats } = useMemo(() => {
-    if (rows.length === 0) {
-      return {
-        xKey: "",
-        valueKey: "",
-        rowKey: "",
-        xValues: [] as string[],
-        yValues: [] as string[],
-        grid: new Map<string, number>(),
-        stats: new Map<string, { mean: number; std: number }>(),
-      };
-    }
-    const cols = Object.keys(rows[0]);
-    const sample = rows[0] as Record<string, unknown>;
-    const xK =
-      cfg?.xKey || cols.find((c) => typeof sample[c] === "string") || cols[0];
-    const valK =
-      cfg?.yKey ||
-      cols.find((c) => c !== xK && typeof sample[c] === "number") ||
-      cols[1] ||
-      "";
-    const rowK =
-      cfg?.color ||
-      cols.find(
-        (c) => c !== xK && c !== valK && typeof sample[c] === "string",
-      ) ||
-      "";
-
+  const { xValues, yValues, grid, stats } = useMemo(() => {
     const xs: string[] = [];
     const ys: string[] = [];
     const seenX = new Set<string>();
@@ -2738,28 +2627,8 @@ function HeatmapRenderer({
         vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length;
       s.set(xv, { mean, std: Math.sqrt(variance) });
     }
-    return {
-      xKey: xK,
-      valueKey: valK,
-      rowKey: rowK,
-      xValues: xs,
-      yValues: ys,
-      grid: g,
-      stats: s,
-    };
-  }, [rows, cfg?.xKey, cfg?.yKey, cfg?.color]);
-
-  if (rows.length === 0 || !valueKey) {
-    return (
-      <div
-        className={`flex items-center justify-center py-8 ${TABLE_PANEL_MIN_HEIGHT_CLASS}`}
-      >
-        <p className="text-sm text-muted-foreground text-center">
-          {t("common.noData")}
-        </p>
-      </div>
-    );
-  }
+    return { xValues: xs, yValues: ys, grid: g, stats: s };
+  }, [rows, xK, valK, rowK]);
 
   const cellColor = (xv: string, v: number | undefined) => {
     if (v == null) return undefined;
@@ -2779,7 +2648,7 @@ function HeatmapRenderer({
         <thead>
           <tr className="border-b border-border">
             <th className="text-left py-1.5 px-2 font-medium text-muted-foreground whitespace-nowrap">
-              {rowKey || ""}
+              {rowK}
             </th>
             {xValues.map((xv) => (
               <th

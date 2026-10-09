@@ -24,6 +24,11 @@ export type UploadId = string;
 export type TaskId = string;
 export type AgentInteractionId = string;
 
+export const AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE =
+  "application/x-agent-native-tool-call";
+export const AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE =
+  "application/x-agent-native-tool-result";
+
 export interface AgentProtocolReference {
   id: string;
   kind?: string;
@@ -1109,6 +1114,15 @@ export interface AgentTransport extends AgentTransportThreadOperations {
     context?: AgentRequestContext,
   ): Promise<StartRunResult>;
   /**
+   * Continues a run that stopped before it finished (a time limit, a crashed
+   * worker, an error) as a new run in the same turn, so steps the stopped run
+   * already finished are reused instead of run again.
+   */
+  continueRun?(
+    input: ContinueRunInput,
+    context?: AgentRequestContext,
+  ): Promise<StartRunResult>;
+  /**
    * @deprecated Implement {@link resumeRun}. Kept as a source-compatible
    * bridge for protocol-v1 transports while consumers migrate to interrupts.
    */
@@ -1170,6 +1184,12 @@ export interface ResumeRunInput {
   threadId: ThreadId;
   runId: RunId;
   resume: AgentResumeEntry[];
+}
+
+export interface ContinueRunInput {
+  threadId: ThreadId;
+  /** The stopped run to continue. */
+  runId: RunId;
 }
 
 export interface StartRunResult {

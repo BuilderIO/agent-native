@@ -59,6 +59,7 @@ export interface ApplyDesignEditorCommandArgs {
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
   setViewMode: Dispatch<SetStateAction<"single" | "overview">>;
   pendingOverviewScreenSelectionRef?: RefObject<string | null>;
+  setExplicitOverviewScreenSelection?: (screenIds: string[]) => void;
   setZoomForView: (
     targetView: "single" | "overview",
     update: SetStateAction<number>,
@@ -91,6 +92,7 @@ export function runApplyDesignEditorCommand(
     setViewMode,
     setZoomForView,
     pendingOverviewScreenSelectionRef,
+    setExplicitOverviewScreenSelection,
     overviewDataReady = true,
     viewModeRef,
     requestCameraFit,
@@ -293,6 +295,22 @@ export function runApplyDesignEditorCommand(
     setViewMode("single");
   } else if (effectiveCommandTool) {
     applyCommandTool("move");
+  }
+
+  if (editorView === "single") {
+    setExplicitOverviewScreenSelection?.([]);
+  } else if (targetView === "overview") {
+    if (selectionId) {
+      const normalizedSelectionId = selectionId.replace(/^code:/, "");
+      const selectedScreen = files.find(
+        (file) => file.id === normalizedSelectionId,
+      );
+      setExplicitOverviewScreenSelection?.(
+        selectedScreen ? [selectedScreen.id] : [],
+      );
+    } else if (targetFile) {
+      setExplicitOverviewScreenSelection?.([targetFile.id]);
+    }
   }
 
   return true;

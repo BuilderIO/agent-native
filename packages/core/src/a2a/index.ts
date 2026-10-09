@@ -27,6 +27,7 @@ export {
   A2AMissingJsonRpcResponseError,
   A2ANoJsonRpcInterfaceError,
   A2AProtocolError,
+  assertCredentialedA2AUrl,
   callAction,
   callAgent,
   clearA2ACardCache,
@@ -35,6 +36,7 @@ export {
   signA2AToken,
 } from "./client.js";
 export type { A2AProtocolErrorCode } from "./client.js";
+export { workspacePrivateOrigins } from "./workspace-private-origins.js";
 export {
   clearRemoteAgentTokenCache,
   RemoteAgentAuthError,

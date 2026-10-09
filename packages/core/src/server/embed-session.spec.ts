@@ -390,13 +390,29 @@ describe("requestMatchesEmbedTarget", () => {
     process.env = ORIGINAL_ENV;
   });
 
-  function fakeEvent(path: string, headers: Record<string, string> = {}) {
+  function fakeEvent(
+    path: string,
+    headers: Record<string, string> = {},
+    options: { clientAddress?: string } = {},
+  ) {
+    const requestHeaders = new Headers(headers);
+    const requestUrl = new URL(path, `http://${headers.host ?? "mail.test"}`);
     return {
       path,
-      req: { url: `http://mail.test${path}`, headers: new Headers(headers) },
-      request: { headers: new Headers(headers) },
-      headers: new Headers(headers),
-      node: { req: { url: path, headers } },
+      req: {
+        url: requestUrl.href,
+        headers: requestHeaders,
+        context: { clientAddress: options.clientAddress },
+      },
+      request: { url: requestUrl.href, headers: requestHeaders },
+      headers: requestHeaders,
+      node: {
+        req: {
+          url: path,
+          headers,
+          socket: { remoteAddress: options.clientAddress },
+        },
+      },
       res: { headers: new Headers(), status: 200 },
     } as any;
   }
@@ -538,12 +554,16 @@ describe("requestMatchesEmbedTarget", () => {
     ).toBe(false);
     expect(
       requestMatchesEmbedTarget(
-        fakeEvent("/_agent-native/application-state/compose", {
-          host: "internal.gateway:3000",
-          "x-forwarded-host": "mail.agent-native.com",
-          "x-forwarded-proto": "https, http",
-          referer: "https://evil.example/inbox?embedded=1",
-        }),
+        fakeEvent(
+          "/_agent-native/application-state/compose",
+          {
+            host: "internal.gateway:3000",
+            "x-forwarded-host": "mail.agent-native.com",
+            "x-forwarded-proto": "https, http",
+            referer: "https://evil.example/inbox?embedded=1",
+          },
+          { clientAddress: "127.0.0.1" },
+        ),
         "/_agent-native/open?app=mail&view=inbox&composeDraftId=d1",
       ),
     ).toBe(false);
@@ -909,12 +929,16 @@ describe("requestMatchesEmbedTarget", () => {
 
     await expect(
       resolveEmbedSessionFromRequest(
-        fakeEvent("/inbox", {
-          host: "internal.gateway:3000",
-          "x-forwarded-host": betaHost,
-          "x-forwarded-proto": "https, http",
-          cookie: `${EMBED_SESSION_COOKIE}=${legacyToken}`,
-        }),
+        fakeEvent(
+          "/inbox",
+          {
+            host: "internal.gateway:3000",
+            "x-forwarded-host": betaHost,
+            "x-forwarded-proto": "https, http",
+            cookie: `${EMBED_SESSION_COOKIE}=${legacyToken}`,
+          },
+          { clientAddress: "127.0.0.1" },
+        ),
       ),
     ).resolves.toBeNull();
 
@@ -940,24 +964,32 @@ describe("requestMatchesEmbedTarget", () => {
 
     await expect(
       resolveEmbedSessionFromRequest(
-        fakeEvent("/visual-edit", {
-          host: "internal.gateway:3000",
-          "x-forwarded-host": host,
-          "x-forwarded-proto": "https",
-          authorization: `Bearer ${token}`,
-        }),
+        fakeEvent(
+          "/visual-edit",
+          {
+            host: "internal.gateway:3000",
+            "x-forwarded-host": host,
+            "x-forwarded-proto": "https",
+            authorization: `Bearer ${token}`,
+          },
+          { clientAddress: "127.0.0.1" },
+        ),
       ),
     ).resolves.toMatchObject({
       email: "bootstrap@example.invalid",
       scope: `capability:visual-edit-bootstrap:${"a".repeat(32)}`,
     });
 
-    const siblingRequest = fakeEvent("/visual-edit", {
-      host: "internal.gateway:3000",
-      "x-forwarded-host": "beta.calendar.agent-native.com",
-      "x-forwarded-proto": "https",
-      authorization: `Bearer ${token}`,
-    });
+    const siblingRequest = fakeEvent(
+      "/visual-edit",
+      {
+        host: "internal.gateway:3000",
+        "x-forwarded-host": "beta.calendar.agent-native.com",
+        "x-forwarded-proto": "https",
+        authorization: `Bearer ${token}`,
+      },
+      { clientAddress: "127.0.0.1" },
+    );
     await expect(resolveEmbedSessionFromRequest(siblingRequest)).resolves.toBe(
       null,
     );

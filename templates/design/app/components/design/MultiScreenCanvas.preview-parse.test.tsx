@@ -90,13 +90,15 @@ it("mounts a static preview only once the worker has parsed its screen", async (
       <MultiScreenCanvas
         screens={screens}
         zoom={10}
-        activeTool="move"
-        geometryById={Object.fromEntries(
-          screens.map((screen, index) => [
-            screen.id,
-            { x: index * 1500, y: 0, width: 1440, height: 900 },
-          ]),
-        )}
+        creation={{ activeTool: "move" }}
+        geometry={{
+          geometryById: Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              { x: index * 1500, y: 0, width: 1440, height: 900 },
+            ]),
+          ),
+        }}
         onPick={() => {}}
       />,
     );

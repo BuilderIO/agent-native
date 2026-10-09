@@ -89,7 +89,7 @@ export default {
     visibilityPrivateOnly: "Míos",
     visibilitySharedOnly: "Compartido",
     visibilityAllDescription: "Mostrar todos los elementos",
-    visibilityPrivateOnlyDescription: "Mostrar solo elementos visibles para ti",
+    visibilityPrivateOnlyDescription: "Mostrar elementos que has creado",
     visibilitySharedOnlyDescription:
       "Mostrar elementos compartidos con la organización y públicos",
     hiddenAnalyses: "Análisis ocultos",
@@ -1514,6 +1514,8 @@ export default {
     replayLoading: "Cargando reproducción...",
     replayLoadingProgress:
       "{{loaded}} de {{total}} fragmentos de reproducción cargados",
+    replayTargetFallback:
+      "El desplazamiento solicitado ({{requested}}) no está disponible; se muestra el fotograma de reproducción más cercano en {{available}}.",
     replayUnavailable: "Esta sesión no tiene fragmentos de reproducción",
     replayUnavailableDescription:
       "La sesión tiene eventos de analítica, pero no se encontraron eventos de fragmentos rrweb.",
@@ -1523,6 +1525,19 @@ export default {
       "Fragmentos con acceso controlado usados para reconstruir esta reproducción. Las URL del proveedor permanecen privadas.",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "Descargar captura",
+    savingScreenshot: "Guardando captura…",
+    screenshotDownloaded: "Captura descargada",
+    screenshotSaveFailed: "No se pudo guardar la captura",
+    copyScreenshot: "Copiar a Design",
+    copyingScreenshot: "Copiando captura…",
+    screenshotCopiedForDesign: "Captura copiada. Pégala en Design.",
+    screenshotCopyFailed:
+      "No se pudo copiar la captura. Descárgala y sube el PNG a Design.",
+    screenshotCopyUnsupportedAssets:
+      "No se copió la captura: este momento contiene medios o imágenes que no se pueden capturar de forma segura. Prueba otro momento de la reproducción.",
+    screenshotUnsupportedAssets:
+      "No se guardó la captura: algunos medios o imágenes incrustados no se pudieron capturar de forma segura.",
     timeline: "Línea de tiempo de eventos",
     replayTimeline: "Línea de tiempo de reproducción",
     timelineDescription: "Mostrando {{count}} de {{total}} eventos útiles.",
@@ -1558,8 +1573,12 @@ export default {
     time: "Hora",
     storageSetupTitle: "Conectar almacenamiento de repeticiones",
     storageSetupDescription:
-      "Las grabaciones de repetición de sesión necesitan almacenamiento antes de poder guardar los fragmentos. Usa el almacenamiento de nivel gratuito de Builder.io o configura tu propio bucket compatible con S3.",
+      "Las repeticiones de sesión necesitan un proveedor autorizado para subir archivos. Builder.io puede almacenarlas cuando se concede el permiso de subida, o puedes configurar tu propio bucket compatible con S3.",
     storageConnected: "Almacenamiento conectado",
+    storageStatusUnavailable:
+      "No se pudo comprobar el estado del almacenamiento de repeticiones. Reintenta para saber si las subidas están disponibles.",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io está conectado para IA y créditos, pero las subidas de repeticiones necesitan un permiso de almacenamiento independiente.",
     connectBuilder: "Usar Builder.io",
     configureS3: "Configurar almacenamiento S3",
     devtools: "Herramientas de desarrollo",
@@ -1592,6 +1611,61 @@ export default {
       "Ningún mensaje de consola coincide con los filtros actuales.",
     devtoolsNoNetworkMatches:
       "Ninguna solicitud coincide con los filtros actuales.",
+    storyboardSelectionCoverage:
+      "Seleccionaste {{selected}} de {{total}} sesiones de reproducción ({{percent}}).",
+    storyboardSelectHint:
+      "Selecciona hasta 3 sesiones para crear un guion gráfico.",
+    clearStoryboardSelection: "Borrar selección",
+    createStoryboard: "Crear guion gráfico",
+    selectReplayForStoryboard:
+      "Seleccionar la reproducción {{id}} para el guion gráfico",
+    storyboardDesignId: "ID de Design (opcional)",
+    storyboardTitle: "Título del guion gráfico",
+    storyboardDefaultTitle: "Guion gráfico de reproducciones de sesión",
+    storyboardTimestamps: "Marcas de tiempo (hasta 3, separadas por comas)",
+    storyboardReplayPreview: "Vista previa de la reproducción",
+    storyboardStartingCapture:
+      "Elige esta pestaña de Analytics en el selector de captura del navegador.",
+    storyboardLoadingReplay: "Cargando reproducción {{replayId}}…",
+    storyboardCapturingFrame:
+      "Capturando {{current}} de {{total}} · {{replayId}} · {{timestamp}}",
+    storyboardSendingToDesign: "Enviando capturas a Design…",
+    storyboardComplete: "Se añadieron {{screenshots}} capturas a Design.",
+    storyboardTimestampError: "Usa mm:ss, hh:mm:ss o mm:ss.mmm.",
+    storyboardTimestampRequired:
+      "Introduce al menos una marca de tiempo para cada reproducción seleccionada.",
+    storyboardTimestampLimit:
+      "Elige como máximo 3 marcas de tiempo por reproducción.",
+    storyboardDuplicateTimestamp: "Elimina las marcas de tiempo duplicadas.",
+    storyboardScreenshotLimit: "Elige como máximo 9 capturas.",
+    storyboardReplayLimit: "Selecciona hasta 3 sesiones de reproducción.",
+    storyboardCaptureFailed: "No se pudo capturar la imagen.",
+    storyboardCanceled: "Se canceló la captura.",
+    storyboardReplayIncomplete:
+      "La reproducción {{replayId}} contiene eventos no disponibles; se detuvo la exportación.",
+    storyboardViewportUnavailable:
+      "No están disponibles las dimensiones grabadas de la ventana.",
+    storyboardTimestampOutOfRange:
+      "La marca de tiempo queda fuera de la reproducción {{replayId}}.",
+    storyboardScreenshotTooLarge: "Una captura supera el límite de 5 MB.",
+    storyboardBatchTooLarge: "El lote de capturas supera el límite de 20 MB.",
+    storyboardRouteUnavailable:
+      "La ruta de {{timestamp}} no está disponible para la reproducción {{replayId}}.",
+    storyboardNoDesignResponse:
+      "Design no devolvió un resultado del guion gráfico.",
+    storyboardTemporaryCleanupPending:
+      "El guion gráfico se guardó, pero no se pudieron eliminar los archivos temporales de captura.",
+    storyboardTemporaryCleanupFailed:
+      "La limpieza de las capturas temporales sigue pendiente.",
+    storyboardUnexpectedResponse:
+      "La exportación de capturas devolvió una respuesta ilegible. Vuelve a intentarlo.",
+    storyboardSaveOutcomeUnknown:
+      "Es posible que Design haya guardado el guion gráfico. Comprueba Design antes de volver a intentarlo.",
+    openStoryboard: "Abrir guion gráfico en Design",
+    cancelStoryboardCapture: "Cancelar captura",
+    captureToDesign: "Capturar y añadir a Design",
+    storyboardSelectAnalyticsTab:
+      "Selecciona esta pestaña de Analytics en el selector de captura del navegador.",
   },
   catalog: {
     description:

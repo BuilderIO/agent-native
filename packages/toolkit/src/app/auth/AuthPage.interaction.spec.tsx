@@ -290,9 +290,18 @@ describe("AuthPage interactions", () => {
       });
 
       expect(sendBeacon).toHaveBeenCalled();
-      for (const [url] of sendBeacon.mock.calls as unknown as [string][]) {
+      const sessionId = window.localStorage.getItem("agent-native.session_id");
+      expect(sessionId).toBeTruthy();
+      for (const [url, body] of sendBeacon.mock.calls as unknown as [
+        string,
+        string,
+      ][]) {
         expect(url).toBe("https://beta.analytics.agent-native.com/track");
+        expect(JSON.parse(body).sessionId).toBe(sessionId);
       }
+      expect(document.cookie).toContain(
+        `an_sid=${encodeURIComponent(sessionId!)}`,
+      );
     } finally {
       delete (window as Window & { __AGENT_NATIVE_CONFIG__?: unknown })
         .__AGENT_NATIVE_CONFIG__;

@@ -1,11 +1,23 @@
 // @vitest-environment happy-dom
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+import { SESSION_REPLAY_BLOCK_ATTRIBUTE } from "@agent-native/core/client/session-replay-privacy";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AgentConversationMessageView } from "./AgentConversation.js";
+import {
+  clearToolRenderersForTests,
+  registerToolRenderer,
+} from "../chat/tool-render-registry.js";
+import {
+  AgentConversation,
+  AgentConversationMessageView,
+} from "./AgentConversation.js";
+
+vi.mock("../mcp-apps/McpAppRenderer.js", () => ({
+  McpAppRenderer: () => <div data-testid="conversation-mcp-app" />,
+}));
 
 vi.mock("../../extensions/index.js", () => ({
   InlineExtensionFrame: ({ extensionId, extension }: any) => (
@@ -34,9 +46,186 @@ describe("AgentConversationMessageView", () => {
       root.unmount();
     });
     container.remove();
+    clearToolRenderersForTests();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
+
+  it("masks the conversation error without masking its container", () => {
+    act(() =>
+      root.render(
+        <AgentConversation
+          messages={[]}
+          error="Example Person's example run failed."
+        />,
+      ),
+    );
+    const alert = container.querySelector('[role="alert"]');
+    expect(alert?.querySelector("span")?.hasAttribute("data-an-mask")).toBe(
+      true,
+    );
+    expect(alert?.hasAttribute("data-an-mask")).toBe(false);
+  });
+
+  it.each(["errored", "completed"] as const)(
+    "masks only errored conversation tool diagnostics (%s)",
+    (state) => {
+      act(() =>
+        root.render(
+          <AgentConversationMessageView
+            message={{
+              id: "message-example",
+              role: "assistant",
+              parts: [
+                {
+                  id: "tool-example",
+                  type: "tool",
+                  tool: {
+                    id: "tool-example",
+                    name: "example-tool",
+                    state,
+                    summary: "Example Person's example notes.",
+                    result: "Example Document failed.",
+                  },
+                },
+              ],
+            }}
+          />,
+        ),
+      );
+      const summary = container.querySelector(
+        ".agent-conversation-tool__summary",
+      );
+      const result = container.querySelector("pre span");
+      expect(summary?.hasAttribute("data-an-mask")).toBe(state === "errored");
+      expect(result?.textContent).toBe("Example Document failed.");
+      expect(result?.hasAttribute("data-an-mask")).toBe(state === "errored");
+      expect(
+        container
+          .querySelector(".agent-conversation-tool__name")
+          ?.closest("[data-an-mask]"),
+      ).toBeNull();
+      expect(
+        container.querySelector("pre strong")?.closest("[data-an-mask]"),
+      ).toBeNull();
+    },
+  );
+
+  it("shows an errored tool through the masked fallback, not its renderer", () => {
+    registerToolRenderer({
+      id: "example-renderer",
+      match: "example-tool",
+      Component: ({ context }) => (
+        <div data-testid="example-renderer">{context.resultText}</div>
+      ),
+    });
+    act(() =>
+      root.render(
+        <AgentConversationMessageView
+          message={{
+            id: "message-example",
+            role: "assistant",
+            parts: [
+              {
+                id: "tool-example",
+                type: "tool",
+                tool: {
+                  id: "tool-example",
+                  name: "example-tool",
+                  state: "errored",
+                  result: "Example Document failed.",
+                },
+              },
+            ],
+          }}
+        />,
+      ),
+    );
+    expect(container.querySelector('[data-testid="example-renderer"]')).toBe(
+      null,
+    );
+    expect(
+      container.querySelector("pre span")?.hasAttribute("data-an-mask"),
+    ).toBe(true);
+  });
+
+  it.each(["errored", "completed"] as const)(
+    "blocks only an errored tool's MCP App from replays (%s)",
+    (state) => {
+      act(() =>
+        root.render(
+          <AgentConversationMessageView
+            message={{
+              id: "message-example",
+              role: "assistant",
+              parts: [
+                {
+                  id: "tool-example",
+                  type: "tool",
+                  tool: {
+                    id: "tool-example",
+                    name: "example-tool",
+                    state,
+                    result: "Example Document failed.",
+                    mcpApp: {
+                      serverId: "server",
+                      toolName: "example-tool",
+                      originalToolName: "example-tool",
+                      resourceUri: "ui://example-tool",
+                      toolInput: {},
+                      toolResult: {},
+                    },
+                  },
+                },
+              ],
+            }}
+          />,
+        ),
+      );
+      const app = container.querySelector(
+        '[data-testid="conversation-mcp-app"]',
+      );
+      expect(app).not.toBeNull();
+      expect(app?.closest(`[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`) !== null).toBe(
+        state === "errored",
+      );
+    },
+  );
+
+  it.each(["error", "warning", "info"] as const)(
+    "masks notice text but not its title or action (%s)",
+    (tone) => {
+      act(() =>
+        root.render(
+          <AgentConversationMessageView
+            message={{
+              id: "message-example",
+              role: "assistant",
+              notices: [
+                {
+                  id: "notice-example",
+                  tone,
+                  title: "Run status",
+                  text: "Example Person's example run status.",
+                  action: <button>Retry</button>,
+                },
+              ],
+            }}
+          />,
+        ),
+      );
+      const notice = container.querySelector(".agent-conversation-notice");
+      expect(notice?.querySelector("span")?.hasAttribute("data-an-mask")).toBe(
+        true,
+      );
+      expect(
+        notice?.querySelector("strong")?.closest("[data-an-mask]"),
+      ).toBeNull();
+      expect(
+        notice?.querySelector("button")?.closest("[data-an-mask]"),
+      ).toBeNull();
+    },
+  );
 
   it("renders text and tool parts in transcript order", () => {
     act(() => {

@@ -34,5 +34,41 @@ describe("AlignmentGuides", () => {
     expect(horizontal?.style.left).toBe("10px");
     expect(horizontal?.style.top).toBe("40px");
     expect(horizontal?.style.width).toBe("200px");
+    expect(horizontal?.style.height).toBe("1px");
+    for (const line of [vertical, horizontal]) {
+      expect(line?.style.backgroundColor).toBe("#ff0000");
+      expect(line?.style.boxShadow).toBe("");
+    }
+  });
+
+  it("draws equal-spacing guides in blue", () => {
+    render(
+      <AlignmentGuides
+        guides={[
+          { orientation: "vertical", position: 25, start: 0, end: 50 },
+          {
+            orientation: "horizontal",
+            position: 10,
+            start: 20,
+            end: 40,
+            equalSpacing: true,
+          },
+        ]}
+        viewport={{
+          rect: { left: 0, top: 0, width: 100, height: 50 },
+          canvas: { width: 100, height: 50 },
+        }}
+      />,
+    );
+
+    const red = document.querySelector<HTMLElement>(
+      '[data-slide-alignment-guide="vertical"]',
+    );
+    const blue = document.querySelector<HTMLElement>(
+      '[data-slide-guide-kind="equal-spacing"]',
+    );
+    expect(red?.style.backgroundColor).toBe("#ff0000");
+    expect(blue?.style.backgroundColor).toBe("#009ef5");
+    expect(blue?.style.height).toBe("1px");
   });
 });

@@ -8,6 +8,8 @@ const mockLoadAgentTranscript = vi.hoisted(() => vi.fn());
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getQuery: (...args: unknown[]) => mockGetQuery(...args),
+  getRequestHeader: () => undefined,
+  getRequestIP: () => undefined,
   getRequestURL: () =>
     new URL("https://clips.example.com/api/agent-transcript.json"),
   setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),

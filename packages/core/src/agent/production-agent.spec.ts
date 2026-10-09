@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { mockEvent } from "h3";
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import {
   AgentActionStopError,
@@ -25,6 +26,7 @@ import {
 } from "../file-upload/test-image-fixtures.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
+import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import {
   getRequestRunContext,
@@ -40,6 +42,7 @@ import type {
   EngineStreamOptions,
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
+import { BUILDER_MODEL_CONFIG } from "./model-config.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
   AGENT_INTERNAL_GUARD_PROMPT,
@@ -789,12 +792,31 @@ describe("buildUserContentWithAttachments", () => {
             type: "image",
             name: "screen.png",
             contentType: "image/png",
-            data: `data:image/png;base64,${PNG_BASE64}`,
+            data: `data:image/png;charset=binary;base64,${PNG_BASE64}`,
           },
         ],
       }),
     ).toEqual([
       { type: "image", mediaType: "image/png", data: PNG_BASE64 },
+      { type: "text", text: "Describe this" },
+    ]);
+  });
+
+  it("normalizes image/jpg before sending the image to vision", () => {
+    expect(
+      buildUserContentWithAttachments({
+        text: "Describe this",
+        attachments: [
+          {
+            type: "image",
+            name: "screen.jpg",
+            contentType: "image/jpg",
+            data: `data:image/jpg;base64,${JPEG_BASE64}`,
+          },
+        ],
+      }),
+    ).toEqual([
+      { type: "image", mediaType: "image/jpeg", data: JPEG_BASE64 },
       { type: "text", text: "Describe this" },
     ]);
   });
@@ -1134,7 +1156,7 @@ describe("buildUserContentWithAttachments", () => {
             type: "file",
             name: "reference.pdf",
             contentType: "application/pdf",
-            data: `data:application/pdf;base64,${PDF_BASE64}`,
+            data: `data:application/pdf;charset=binary;base64,${PDF_BASE64}`,
           },
         ],
       }),
@@ -4593,8 +4615,10 @@ describe("runAgentLoop", () => {
   const modelStreamBracket = (events: AgentChatEvent[]) =>
     events.filter((event) => event.type === "model_stream");
 
-  it("brackets each engine call with a model_stream start/end pair", async () => {
+  it("brackets each call and gives the observer an isolated media projection", async () => {
     let streamCalls = 0;
+    const streamedMessages: unknown[] = [];
+    const imageData = "a".repeat(1024 * 1024);
     const engine: AgentEngine = {
       name: "test",
       label: "Test",
@@ -4607,25 +4631,64 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: true,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(opts): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        streamedMessages.push(structuredClone(opts.messages));
         yield { type: "text-delta", text: "answer" };
       },
     };
     const events: AgentChatEvent[] = [];
+    const capturedInputs: unknown[] = [];
 
     await runAgentLoop({
       engine,
       model: "test-model",
       systemPrompt: "system",
       tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "go" },
+            { type: "image", mediaType: "image/png", data: imageData },
+          ],
+        },
+      ],
       actions: {},
       send: (event) => events.push(event),
       signal: new AbortController().signal,
+      onModelInput: async (messages) => {
+        capturedInputs.push(structuredClone(messages));
+        const observerMessages = messages as unknown as Array<{
+          role: string;
+          content: Array<{ type: string; text: string }>;
+        }>;
+        observerMessages[0]!.content[0]!.text = "observer mutation";
+        observerMessages.push({
+          role: "user",
+          content: [{ type: "text", text: "observer mutation" }],
+        });
+        throw new Error("observer failure");
+      },
     });
 
     expect(streamCalls).toBe(1);
+    expect(capturedInputs).toEqual([
+      [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "go" },
+            { type: "text", text: "[image: image/png, ~786432 bytes]" },
+          ],
+        },
+      ],
+    ]);
+    const modelInput = streamedMessages[0] as Array<{
+      content: Array<{ data?: string; text?: string }>;
+    }>;
+    expect(modelInput[0]?.content[0]?.text).toBe("go");
+    expect(modelInput[0]?.content[1]?.data).toBe(imageData);
     expect(events[0]).toEqual({ type: "model_stream", status: "start" });
     expect(modelStreamBracket(events)).toEqual([
       { type: "model_stream", status: "start" },
@@ -8176,6 +8239,158 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("quotes the last error's first line when the across-arguments breaker stops the turn", async () => {
+    const events = await runToolCallSequence(
+      [1, 2, 3].map((id) => ({
+        name: "edit-panel",
+        input: { id },
+      })),
+      {
+        "edit-panel": {
+          ...actionEntry({ readOnly: false }),
+          run: async () =>
+            fail("panel width must be a number\nsecond line of detail"),
+        },
+      },
+    );
+
+    const done = events.find((event) => event.type === "done");
+    expect(done).toMatchObject({ reason: "loop_breaker" });
+    const message = (done as { message?: string }).message ?? "";
+    expect(message).toContain("rejected 3 different attempts the same way");
+    expect(message).toContain("Last error: panel width must be a number");
+    expect(message).not.toContain("second line of detail");
+  });
+
+  it.each([
+    [
+      "parses a JSON error into its cause",
+      undefined,
+      "Last error: bigquery_error: Unrecognized name: foo",
+    ],
+    [
+      "skips the bare opening brace when a suffix keeps the JSON from parsing",
+      { errorCode: "bad_query" },
+      'Last error: "error": "bigquery_error"',
+    ],
+  ])(
+    "names the cause in the across-arguments stop when the error is pretty-printed JSON (%s)",
+    async (_label, failOptions, expectedLine) => {
+      const events = await runToolCallSequence(
+        [1, 2, 3].map((id) => ({ name: "run-query", input: { id } })),
+        {
+          "run-query": {
+            ...actionEntry({ readOnly: false }),
+            run: async () =>
+              fail(
+                JSON.stringify(
+                  {
+                    error: "bigquery_error",
+                    message: "Unrecognized name: foo",
+                  },
+                  null,
+                  2,
+                ),
+                failOptions,
+              ),
+          },
+        },
+      );
+
+      const done = events.find((event) => event.type === "done");
+      expect(done).toMatchObject({ reason: "loop_breaker" });
+      const message = (done as { message?: string }).message ?? "";
+      expect(message).toContain("rejected 3 different attempts the same way");
+      expect(message).toContain(expectedLine);
+      expect(message).not.toMatch(/Last error: (Error running \S+: )?[{[]?\n/);
+    },
+  );
+
+  it.each([
+    [
+      "the offending column name",
+      "Unrecognized name: weekly_active_users_7d at [1:20]",
+      "Last error: Unrecognized name: weekly_active_users_7d at [1:20]",
+    ],
+    [
+      "the account that lacks access",
+      "ana.person@example.com does not have access to dataset growth_2026",
+      "Last error: ana.person@example.com does not have access to dataset growth_2026",
+    ],
+    [
+      "the cause without a credential",
+      "Request to the warehouse failed (token=fake-test-token-1234567890)",
+      "Last error: Request to the warehouse failed (token=[REDACTED",
+    ],
+  ])(
+    "keeps %s in the across-arguments stop message",
+    async (_label, errorText, expectedLine) => {
+      const events = await runToolCallSequence(
+        [1, 2, 3].map((id) => ({ name: "run-query", input: { id } })),
+        {
+          "run-query": {
+            ...actionEntry({ readOnly: false }),
+            run: async () => fail(errorText),
+          },
+        },
+      );
+
+      const done = events.find((event) => event.type === "done");
+      expect(done).toMatchObject({ reason: "loop_breaker" });
+      const message = (done as { message?: string }).message ?? "";
+      expect(message).toContain(expectedLine);
+      expect(message).not.toContain("[id]");
+      expect(message).not.toContain("[email]");
+      expect(message).not.toContain("fake-test-token");
+    },
+  );
+
+  it("never cuts the across-arguments stop message inside an emoji", async () => {
+    const events = await runToolCallSequence(
+      [1, 2, 3].map((id) => ({ name: "run-query", input: { id } })),
+      {
+        "run-query": {
+          ...actionEntry({ readOnly: false }),
+          run: async () => fail(`${"a".repeat(299)}${"😀".repeat(5)}`),
+        },
+      },
+    );
+
+    const done = events.find((event) => event.type === "done");
+    expect(done).toMatchObject({ reason: "loop_breaker" });
+    const message = (done as { message?: string }).message ?? "";
+    expect(message).toContain(`${"a".repeat(299)}…`);
+    expect(message).not.toMatch(
+      /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/,
+    );
+  });
+
+  it("does not trip the across-arguments breaker when each error names a different target", async () => {
+    const events = await runToolCallSequence(
+      [1, 2, 3, 4].map((id) => ({
+        name: "edit-panel",
+        input: { id },
+      })),
+      {
+        "edit-panel": {
+          ...actionEntry({ readOnly: false }),
+          run: async (args: Record<string, unknown>) =>
+            fail(`panel[${args.id}].width must be a number`),
+        },
+      },
+    );
+
+    expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
+      4,
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "text", text: "Done." }),
+    );
+  });
+
   it("lets a long turn keep going while each tool call is genuinely different", async () => {
     let streamCalls = 0;
     const run = vi.fn(async () => "distinct answer");
@@ -11113,7 +11328,8 @@ describe("runAgentLoop", () => {
         provider: "slack",
         reason: "grant",
         appId: "dispatch",
-        detail: "Connect Slack to continue.",
+        detail:
+          "Connect Slack to continue. Ask a workspace admin to grant this app access to the existing connection.",
         source: { id: "dispatch", kind: "app", label: "Dispatch" },
       }),
     );
@@ -11124,9 +11340,95 @@ describe("runAgentLoop", () => {
       {
         state: "input_required",
         code: "connection_required",
-        message: "Connect Slack to continue.",
+        message:
+          "Connect Slack to continue. Ask a workspace admin to grant this app access to the existing connection.",
       },
     ]);
+  });
+
+  it("lets the model correct an invented optional value by omitting it", async () => {
+    const execute = vi.fn(
+      async (_args: { from: string; accountEmails?: string[] }) => ({
+        events: [],
+      }),
+    );
+    const action = defineAction({
+      description: "List events",
+      schema: z.object({
+        from: z.string(),
+        accountEmails: z.array(z.string().email()).optional(),
+      }),
+      readOnly: true,
+      run: execute,
+    });
+    let attempts = 0;
+    const seenMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenMessages.push(structuredClone(opts.messages));
+        attempts += 1;
+        if (attempts <= 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: `call-${attempts}`,
+                name: "list-events",
+                input:
+                  attempts === 1
+                    ? { from: "2026-10-06", accountEmails: ["invalid-email"] }
+                    : { from: "2026-10-06" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+        } else {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        }
+      },
+    };
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: actionsToEngineTools({ "list-events": action }),
+      messages: [{ role: "user", content: [{ type: "text", text: "list" }] }],
+      actions: { "list-events": action },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+    const failure = seenMessages[1]
+      .flatMap((message) => message.content)
+      .find((part) => part.type === "tool-result");
+    expect(failure).toMatchObject({
+      type: "tool-result",
+      isError: true,
+      toolCallId: "call-1",
+    });
+    if (failure?.type !== "tool-result")
+      throw new Error("Missing validation feedback");
+    expect(failure.content).toContain("accountEmails.0");
+    expect(failure.content).toContain("accountEmails?");
+    expect(failure.content).toContain("? = optional");
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute.mock.calls[0][0]).toEqual({ from: "2026-10-06" });
+    expect(attempts).toBe(3);
   });
 
   it("tells the model the expected signature when raw-schema validation rejects a write", async () => {
@@ -13134,6 +13436,7 @@ describe("runAgentLoop", () => {
 
   const approvalEngine = (
     toolInput: Record<string, unknown> = { to: "a@b.com" },
+    toolName = "send-email",
   ): { engine: AgentEngine; streamCalls: () => number } => {
     let streamCalls = 0;
     const engine: AgentEngine = {
@@ -13157,7 +13460,7 @@ describe("runAgentLoop", () => {
               {
                 type: "tool-call" as const,
                 id: "approval-call-1",
-                name: "send-email",
+                name: toolName,
                 input: toolInput,
               },
             ],
@@ -13264,6 +13567,60 @@ describe("runAgentLoop", () => {
         message: "Waiting for your approval to run send-email.",
       },
     ]);
+  });
+
+  it("requires fresh approval before shared resource and organization-memory writes", async () => {
+    const entries = await createResourceScriptEntries();
+    const cases = [
+      {
+        name: "resources",
+        input: {
+          action: "write",
+          path: "LEARNINGS.md",
+          content: "Shared learning proposal",
+        },
+      },
+      {
+        name: "save-memory",
+        input: {
+          name: "coding-style",
+          type: "feedback",
+          description: "A shared preference",
+          content: "Shared learning proposal",
+          scope: "current-org",
+        },
+      },
+    ] as const;
+
+    for (const { name, input } of cases) {
+      const entry = entries[name];
+      expect(entry).toBeDefined();
+      if (!entry) throw new Error(`Missing ${name} action entry`);
+
+      const { engine } = approvalEngine(input, name);
+      const run = vi.fn(async () => "saved");
+      const events: any[] = [];
+
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: { [name]: { ...entry, run } },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      expect(run).not.toHaveBeenCalled();
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "approval_required",
+          tool: name,
+          allowPersistentApproval: false,
+        }),
+      );
+    }
   });
 
   it("does not run later tool calls in the same message while approval is pending", async () => {
@@ -13802,6 +14159,43 @@ describe("runAgentLoop", () => {
 });
 
 describe("runAgentLoop model fallback", () => {
+  it("normalizes a saved model before streaming it to its engine", async () => {
+    const modelsUsed: string[] = [];
+    const engine: AgentEngine = {
+      name: "builder",
+      label: "Builder.io",
+      ...BUILDER_MODEL_CONFIG,
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        modelsUsed.push(opts.model);
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "claude-fable-5",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(modelsUsed).toEqual([BUILDER_MODEL_CONFIG.defaultModel]);
+  });
+
   it("switches to the fallback model once retries are exhausted, with an activity event", async () => {
     vi.useFakeTimers({ now: 1_000_000 });
     let streamCalls = 0;
@@ -14282,6 +14676,18 @@ describe("isRecoverableContinuationError", () => {
       ).toBe(true);
     }
   });
+
+  it("keeps explicitly terminal invalid requests from continuing on timeout wording", () => {
+    expect(
+      isRecoverableContinuationError({
+        type: "error",
+        error: "Invalid request timed out",
+        errorCode: "invalid_request",
+        recoverable: true,
+        providerRetryable: false,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("isTransientProviderRateLimitError", () => {
@@ -14364,6 +14770,14 @@ describe("isRetryableError", () => {
 
   it("does not retry when providerRetryable is false and no other signals", () => {
     const err = new EngineError("not retryable", { providerRetryable: false });
+    expect(isRetryableError(err)).toBe(false);
+  });
+
+  it("honors an explicit terminal provider classification over retryable wording", () => {
+    const err = new EngineError("Gateway error (no detail)", {
+      errorCode: "invalid_request",
+      providerRetryable: false,
+    });
     expect(isRetryableError(err)).toBe(false);
   });
 
@@ -14888,9 +15302,14 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     return makeRun([
       {
         type: "error",
-        error: "429 status code (no body)",
+        error:
+          errorCode === "overloaded_error"
+            ? "Gateway error (no detail)"
+            : "429 status code (no body)",
         errorCode,
-        recoverable: true,
+        ...(errorCode === "overloaded_error"
+          ? { providerRetryable: true }
+          : { recoverable: true }),
       },
     ]);
   }
@@ -14907,6 +15326,11 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         makeRateLimitedRun("provider_transient_rejection"),
       ),
     ).toBe("rate_limited");
+    expect(
+      backgroundContinuationReasonForRun(
+        makeRateLimitedRun("overloaded_error"),
+      ),
+    ).toBe("rate_limited");
   });
 
   it("CHAINS the first rate-limited chunk of a turn (no prior rate-limited chunk)", () => {
@@ -14921,6 +15345,25 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
       rateLimitChainCapTripped({
         run: makeRateLimitedRun(),
         priorContinuationReason: undefined,
+      }),
+    ).toBe(false);
+  });
+
+  it("chains a no-detail overloaded_error once, then hits the rate-limit cap", () => {
+    const run = makeRateLimitedRun("overloaded_error");
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 0,
+      }),
+    ).toBe(true);
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 1,
+        priorContinuationReason: "rate_limited",
       }),
     ).toBe(false);
   });

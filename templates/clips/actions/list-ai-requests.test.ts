@@ -24,7 +24,8 @@ vi.mock("@agent-native/core/action", () => ({
   defineAction: (options: unknown) => options,
 }));
 vi.mock("@agent-native/core/application-state", () => ({
-  listAppState: async () => mocks.appState,
+  listAppState: async (prefix: string) =>
+    mocks.appState.filter((entry) => entry.key.startsWith(prefix)),
 }));
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => "me@example.com",
@@ -102,7 +103,80 @@ describe("list-ai-requests", () => {
           currentTitle: "Title when queued",
         },
       ],
+      activeSessions: [],
       titleCandidates: [],
     });
+  });
+
+  it("recovers accepted filler sessions and filters their consumed queue entries", async () => {
+    await insertRecording("rec_filler", "Filler cleanup", "me@example.com");
+    const requestedAt = "2026-09-28T12:00:00.000Z";
+    mocks.appState = [
+      {
+        key: "clips-ai-request-rec_filler",
+        value: {
+          kind: "remove-filler-words",
+          recordingId: "rec_filler",
+          requestedAt,
+        },
+      },
+      {
+        key: "clips-ai-request-status-rec_filler",
+        value: {
+          kind: "remove-filler-words",
+          status: "working",
+          requestedAt,
+          operationId: "operation-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          runId: "run-1",
+        },
+      },
+    ];
+
+    const result = await (listAiRequests as any).run({});
+
+    expect(result.requests).toEqual([]);
+    expect(result.activeSessions).toEqual([
+      {
+        recordingId: "rec_filler",
+        kind: "remove-filler-words",
+        status: "working",
+        requestedAt,
+        operationId: "operation-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        runId: "run-1",
+      },
+    ]);
+  });
+
+  it("keeps a working filler request dispatchable until its receipt is persisted", async () => {
+    await insertRecording("rec_filler", "Filler cleanup", "me@example.com");
+    const requestedAt = "2026-09-28T12:00:00.000Z";
+    mocks.appState = [
+      {
+        key: "clips-ai-request-rec_filler",
+        value: {
+          kind: "remove-filler-words",
+          recordingId: "rec_filler",
+          requestedAt,
+        },
+      },
+      {
+        key: "clips-ai-request-status-rec_filler",
+        value: {
+          kind: "remove-filler-words",
+          status: "working",
+          requestedAt,
+          operationId: "operation-1",
+        },
+      },
+    ];
+
+    const result = await (listAiRequests as any).run({});
+
+    expect(result.requests).toHaveLength(1);
+    expect(result.activeSessions).toEqual([]);
   });
 });

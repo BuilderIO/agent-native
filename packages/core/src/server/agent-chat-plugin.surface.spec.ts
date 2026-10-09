@@ -102,9 +102,10 @@ describe("lean production run policy", () => {
     const codeExecution =
       "<code-execution-mode>Sandboxed</code-execution-mode>";
 
-    expect(buildLeanRunPolicyPrompt(restriction, codeExecution)).toBe(
-      restriction + codeExecution,
-    );
+    const policy = buildLeanRunPolicyPrompt(restriction, codeExecution);
+
+    expect(policy.endsWith(restriction + codeExecution)).toBe(true);
+    expect(policy).toContain("emit them in the same step");
   });
 
   it("keeps resource-backed AGENTS.md in the lean system prompt", () => {

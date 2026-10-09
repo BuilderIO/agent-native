@@ -102,7 +102,7 @@ async function visitAppPage(visit: Visit): Promise<void> {
   );
   vi.resetModules();
   const { captureAttribution } =
-    await import("@agent-native/core/client/attribution");
+    await import("@agent-native/core/client/analytics");
   captureAttribution();
 }
 

@@ -1,5 +1,4 @@
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
-import { AppShellSkeleton } from "@agent-native/toolkit/app/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
 import messages from "@/i18n/en-US";
@@ -32,10 +31,6 @@ export function meta() {
     { name: "twitter:title", content: SEO_TITLE },
     { name: "twitter:description", content: SEO_DESCRIPTION },
   ];
-}
-
-export function HydrateFallback() {
-  return <AppShellSkeleton layout="assistant" />;
 }
 
 export default function HomeRoute() {

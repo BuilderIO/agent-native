@@ -928,6 +928,8 @@ export default {
         figmaPasteFailed: "Figma paste आयात विफल रहा",
         uploadFailed: "File upload विफल रहा",
         invalidFigFile: ".fig पर समाप्त होने वाली file चुनें।",
+        unsupportedFileType: "कोई .fig, .html या .htm फ़ाइल चुनें।",
+        importBusy: "एक और आयात जारी है। पहले उसे पूरा करें या रद्द करें।",
         figFileTooLarge:
           "यह .fig बहुत बड़ी है — uploads की सीमा {{max}} MB है। Figma में जिस frame को import करना है उसे एक नई file में copy करें और उस file को .fig के रूप में export करें, या Paste from Figma का उपयोग करें।",
       },
@@ -965,7 +967,16 @@ export default {
     saveTemplate: "टेम्पलेट सहेजें",
     templateSaved: "टेम्पलेट लाइब्रेरी में सहेजा गया",
     templateSaveFailed: "यह टेम्पलेट सहेजा नहीं जा सका",
-    clickToRename: "नाम बदलने के लिए क्लिक करें",
+    fileMenu: {
+      pendingEditsBlocked: "डुप्लिकेट करने से पहले लंबित विज़ुअल संपादन लागू करें या छोड़ दें।",
+      designs: "डिज़ाइन",
+      rename: "नाम बदलें",
+      duplicate: "डुप्लिकेट करें",
+      versionHistory: "संस्करण इतिहास",
+      import: "आयात करें…",
+      delete: "हटाएँ",
+      deleteError: "इस डिज़ाइन को हटाया नहीं जा सका",
+    },
     collaborators: "सहयोगी",
     share: "साझा करें",
     signUpToSave: "साइन अप करें",
@@ -987,6 +998,10 @@ export default {
       interact: "Interact",
       screens: "स्क्रीन",
     },
+    topBar: {
+      modeDesign: "डिज़ाइन",
+      modeSwitch: "एडिटर मोड",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",
@@ -1007,6 +1022,10 @@ export default {
     keyboardShortcuts: {
       title: "कीबोर्ड शॉर्टकट",
       close: "बंद करना: कीबोर्ड शॉर्टकट",
+      search: "खोजें",
+      searchLabel: "कीबोर्ड शॉर्टकट खोजें",
+      categoriesLabel: "शॉर्टकट श्रेणियाँ",
+      empty: "“{{query}}” से मेल खाने वाला कोई शॉर्टकट नहीं",
       codeContext: "कोड",
       screenContext: "स्क्रीन",
       nudgeAmount: {
@@ -1039,11 +1058,6 @@ export default {
         leftBracket: "बायाँ कोष्ठक",
         rightBracket: "दायाँ कोष्ठक",
       },
-      descriptions: {
-        toggleUi: "पैनल तुरंत छिपाकर अपने काम पर ध्यान देने के लिए इसे अभी दबाएँ",
-        undo: "सबसे हाल के डिज़ाइन बदलाव को वापस करें",
-        redo: "अभी वापस किए गए डिज़ाइन बदलाव को फिर से लागू करें",
-      },
       categories: {
         essential: "आवश्यक",
         tools: "उपकरण",
@@ -1075,6 +1089,7 @@ export default {
         showLayers: "परतें",
         showAssets: "एसेट",
         toggleUi: "View",
+        toggleMinimalUi: "न्यूनतम UI",
         toggleComments: "टिप्पणी पिन करें",
         zoomIn: "ज़ूम इन",
         zoomOut: "ज़ूम आउट",
@@ -1566,6 +1581,8 @@ export default {
     assetAdded: "संपत्ति जोड़ी गई",
     assetsNoImageUrl: "Assets ने कोई छवि URL नहीं लौटाया।",
     failedToUploadFile: "फ़ाइल अपलोड करने में विफल",
+    imageAttachmentUnavailable:
+      "इस छवि को दृश्य इनपुट के रूप में तैयार नहीं किया जा सका। छोटी PNG, JPG, GIF या WebP फ़ाइल जोड़ें।",
     attachmentsTooLarge:
       "ये attachments बहुत बड़े हैं। Uploads की कुल सीमा {{max}} MB है — कम या छोटी files attach करें।",
     failedToSubmitPrompt: "प्रॉम्प्ट सबमिट नहीं हो सका",
@@ -1989,6 +2006,15 @@ export default {
       "कोड और रिपॉज़िटरी इंडेक्सिंग के लिए Builder Enterprise योजना आवश्यक है",
   },
   designSystems: {
+    comingSoonTitle: "डिज़ाइन सिस्टम जल्द आ रहे हैं",
+    waitlist: {
+      join: "प्रतीक्षा सूची में शामिल हों",
+      joining: "शामिल हो रहे हैं…",
+      joined: "आप प्रतीक्षा सूची में हैं",
+      error: "प्रतीक्षा सूची में शामिल नहीं हो सके। कृपया फिर से कोशिश करें।",
+      unavailable:
+        "प्रतीक्षा सूची में शामिल होना अभी उपलब्ध नहीं है। कृपया बाद में फिर से कोशिश करें।",
+    },
     deleteError: "डिज़ाइन सिस्टम को हटाया नहीं जा सका",
     updateSuccess: "डिज़ाइन सिस्टम अपडेट किया गया",
     updateError: "डिज़ाइन सिस्टम अपडेट नहीं किया जा सका",

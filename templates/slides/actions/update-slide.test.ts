@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
+const mockTrack = vi.fn();
 const mockGetCurrentRequestBrowserTabId = vi.fn(() => null);
 const mockReadAppStateForCurrentTab = vi.fn(async () => null);
 
@@ -85,6 +86,10 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
 }));
 
 vi.mock("@agent-native/creative-context/server", () => ({
@@ -254,6 +259,18 @@ describe("update-slide", () => {
       slideId: "slide-1",
       actor: "agent",
     });
+    expect(mockTrack).toHaveBeenCalledWith(
+      "deck_edited",
+      expect.objectContaining({
+        output_id: "deck-1",
+        slide_id: "slide-1",
+        edit_mode: "update_slide",
+        started_at_ms: expect.any(Number),
+        ended_at_ms: expect.any(Number),
+        duration_ms: expect.any(Number),
+      }),
+      { caller: "tool" },
+    );
     // A deterministic focused edit without an existing or explicit Creative
     // Context scope must not enter the generation-context gate.
     expect(mockValidateGenerationCreativeContext).not.toHaveBeenCalled();
@@ -266,6 +283,43 @@ describe("update-slide", () => {
           descriptor: { kind: "paths", paths: ["slides.slide-1"] },
         }),
       }),
+    );
+  });
+
+  it("reports only the hygiene problems an edit introduced", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "<div><svg></svg><p>Old</p></div>" }],
+    });
+    const result = (await runSlideActionWithCurrentHash(
+      {
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [{ find: "Old", replace: "New" }],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+    // The svg was already there: not this edit's doing.
+    expect(result).not.toHaveProperty("hygieneWarnings");
+
+    const added = (await runSlideActionWithCurrentHash(
+      {
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [{ find: "<p>New</p>", replace: "<button>Go</button>" }],
+      },
+      { caller: "tool" },
+    )) as { hygieneWarnings?: { warnings: Array<Record<string, unknown>> } };
+    expect(added.hygieneWarnings?.warnings).toEqual([
+      expect.objectContaining({
+        code: "stripped-element",
+        count: 1,
+        slideIds: ["slide-1"],
+      }),
+    ]);
+    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
+      "<div><svg></svg><button>Go</button></div>",
     );
   });
 

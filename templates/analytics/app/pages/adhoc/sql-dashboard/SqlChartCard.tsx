@@ -16,8 +16,7 @@ import {
   IconBrandGoogle,
   IconArrowUpRight,
 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
@@ -31,6 +30,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -43,16 +43,14 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Tooltip,
   TooltipContent,
@@ -62,7 +60,6 @@ import type { SelectDashboardPanelOptions } from "@/hooks/use-dashboard-chat-con
 import { buildCustomBlockPromotionRequest } from "@/lib/custom-block-promotion";
 import { cn } from "@/lib/utils";
 
-import { serializePanelSql } from "./panel-sql";
 import { timeRangeDays } from "./pivot";
 import type { DashboardFilter, SqlPanel } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
@@ -152,7 +149,9 @@ export function SqlChartCard({
 }: SqlChartCardProps) {
   const t = useT();
   const timeRange = timeRangeDays(filters?.timeRange);
-  const queryClient = useQueryClient();
+  const timeRangeOverrideLabel = timeRangeFilter?.options?.find(
+    (option) => option.value === timeRangeOverride,
+  )?.label;
   const exportToGoogleSheets = useActionMutation(
     "export-dashboard-panel-to-google-sheet",
   );
@@ -172,17 +171,8 @@ export function SqlChartCard({
       panel.chartType === "section" ||
       panel.chartType === "extension",
   );
+  const [refreshToken, setRefreshToken] = useState(0);
   const cardRef = useRef<HTMLDivElement | null>(null);
-  const chartQueryKey = useMemo(
-    () =>
-      [
-        "sql-chart",
-        dashboardId || panel.id,
-        serializePanelSql(resolvedSql ?? panel.sql),
-        panel.source,
-      ] as const,
-    [dashboardId, panel.id, panel.source, panel.sql, resolvedSql],
-  );
   const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
     cardRef.current = node;
   }, []);
@@ -210,10 +200,8 @@ export function SqlChartCard({
 
   const handleRefresh = useCallback(() => {
     setShouldLoadData(true);
-    void queryClient.invalidateQueries({
-      queryKey: chartQueryKey,
-    });
-  }, [chartQueryKey, queryClient]);
+    setRefreshToken((token) => token + 1);
+  }, []);
 
   const handleExportToGoogleSheets = useCallback(async () => {
     if (!dashboardId || panel.chartType !== "table") return;
@@ -277,7 +265,7 @@ export function SqlChartCard({
       if (
         target instanceof Element &&
         target.closest(
-          "button, a, input, textarea, select, [role='menuitem'], [data-no-panel-chat-select]",
+          "button, a, input, textarea, select, [role='menuitem'], [role='menuitemradio'], [data-no-panel-chat-select]",
         )
       ) {
         return;
@@ -620,44 +608,17 @@ export function SqlChartCard({
           <CardTitle className="text-sm font-medium flex-1 truncate">
             {panel.title}
           </CardTitle>
-          {timeRangeFilter?.options?.length ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Select
-                  value={timeRangeOverride ?? INHERIT_TIME_RANGE}
-                  onValueChange={(value) =>
-                    onTimeRangeOverrideChange?.(
-                      value === INHERIT_TIME_RANGE ? null : value,
-                    )
-                  }
-                >
-                  <SelectTrigger
-                    size="sm"
-                    className="h-6 w-[100px] text-xs"
-                    aria-label={t("sqlDashboard.chartTimeRangeOverride")}
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent align="end">
-                    <SelectItem value={INHERIT_TIME_RANGE} className="text-xs">
-                      {t("sqlDashboard.chartTimeRangeInherit")}
-                    </SelectItem>
-                    {timeRangeFilter.options.map((opt) => (
-                      <SelectItem
-                        key={opt.value}
-                        value={opt.value}
-                        className="text-xs"
-                      >
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t("sqlDashboard.chartTimeRangeOverride")}
-              </TooltipContent>
-            </Tooltip>
+          {timeRangeOverrideLabel ? (
+            <Badge
+              variant="secondary"
+              className="max-w-32 shrink-0 truncate px-1.5 py-0 text-[10px] font-normal"
+              title={timeRangeOverrideLabel}
+            >
+              <span className="sr-only">
+                {t("sqlDashboard.chartTimeRangeOverride")}{" "}
+              </span>
+              {timeRangeOverrideLabel}
+            </Badge>
           ) : null}
           <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
             {!editable || onSaveSql ? (
@@ -703,6 +664,35 @@ export function SqlChartCard({
                     {t("sqlDashboard.chatWithPanel")}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
+                  {timeRangeFilter?.options?.length ? (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        {timeRangeFilter.label}
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-52">
+                        <DropdownMenuRadioGroup
+                          value={timeRangeOverride ?? INHERIT_TIME_RANGE}
+                          onValueChange={(value) =>
+                            onTimeRangeOverrideChange?.(
+                              value === INHERIT_TIME_RANGE ? null : value,
+                            )
+                          }
+                        >
+                          <DropdownMenuRadioItem value={INHERIT_TIME_RANGE}>
+                            {t("sqlDashboard.chartTimeRangeInherit")}
+                          </DropdownMenuRadioItem>
+                          {timeRangeFilter.options.map((opt) => (
+                            <DropdownMenuRadioItem
+                              key={opt.value}
+                              value={opt.value}
+                            >
+                              {opt.label}
+                            </DropdownMenuRadioItem>
+                          ))}
+                        </DropdownMenuRadioGroup>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  ) : null}
                   <DropdownMenuItem onSelect={() => setExpanded(true)}>
                     <IconMaximize className="h-4 w-4 mr-2" />
                     {t("sqlDashboard.fullScreen")}
@@ -784,6 +774,8 @@ export function SqlChartCard({
             loadData={shouldLoadData}
             timeRange={timeRange}
             reportScreenshot={reportScreenshot}
+            refreshToken={refreshToken}
+            onRefreshRequested={handleRefresh}
             dashboardId={dashboardId}
             onExportCsvChange={handleExportCsvChange}
             onCopyTableChange={handleCopyTableChange}
@@ -805,6 +797,8 @@ export function SqlChartCard({
                 loadData
                 timeRange={timeRange}
                 reportScreenshot={reportScreenshot}
+                refreshToken={refreshToken}
+                onRefreshRequested={handleRefresh}
                 dashboardId={dashboardId}
                 extensionContext={extensionContext}
               />

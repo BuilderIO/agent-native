@@ -124,7 +124,7 @@ const messages = {
     googleOAuthNotConfigured:
       "Google OAuth não está configurado para esta implantação.",
     googlePickerNeedsKeys:
-      "Google Picker precisa de GOOGLE_PICKER_API_KEY e GOOGLE_PICKER_APP_ID.",
+      "لم يتم إعداد تصفح ملفات Google Drive. لا يزال بإمكانك استيراد المستند بلصق رابطه.",
     imageUploadFailed: "Falha ao enviar imagem",
     imageUploadNeedsBuilder:
       "اربط تخزين الكائنات لتحميل الصور: اربط Builder.io (مجانًا) أو أضف مفاتيح التخزين المتوافقة مع S3 ضمن الإعدادات ← تحميل الملفات.",
@@ -255,6 +255,16 @@ const messages = {
     generateImage: "إنشاء صورة",
     assetLibrary: "مكتبة الأصول",
     imageOptions: "خيارات الصورة",
+    videoPlayback: "تشغيل الفيديو",
+    autoplayVideo: "تشغيل تلقائي",
+    loopVideo: "تكرار الفيديو",
+    videoUploading: "جارٍ رفع الفيديو…",
+    videoAdded: "تمت إضافة الفيديو",
+    videoUploadFailed: "تعذّر رفع الفيديو",
+    videoUploadError: "تعذّر رفع هذا الفيديو.",
+    videoFormatUnsupported: "تتوافق المنصة مع فيديوهات MP4 وWebM فقط.",
+    videoTooLarge: "يجب ألا يتجاوز حجم الفيديو 50 ميغابايت.",
+    videoUploadNeedsBuilder: "لم يتم إعداد تخزين الفيديو.",
     cropImage: "اقتصاص الصورة",
     cropHandle: "اقتصاص الصورة {{position}}",
     diagrams: "المخططات",
@@ -306,6 +316,9 @@ const messages = {
     downloadBackup: "تنزيل نسخة احتياطية",
     conflictStatus: "تعارض في النص",
     conflictStatusDescription: "راجع النص المتعارض قبل حفظ تغييرات أخرى.",
+    accessLost: "فُقد الوصول",
+    accessLostDescription:
+      "تغيّر وصولك إلى هذا العرض. تبقى تعديلاتك على الشاشة؛ أعد المحاولة عند استعادة الوصول أو نزّل نسخة احتياطية.",
     reviewConflict: "مراجعة التعارض",
     conflictTitle: "تعارض نصي في الشريحة {{number}}",
     conflictDescription: "غيّر إصدار آخر هذه الشريحة أثناء تحرير النص.",
@@ -352,6 +365,7 @@ const messages = {
     googleSlidesCreated: "تم الفتح في Google Slides",
     googleSlidesCreatedHint:
       "تم إنشاء نسخة من هذا العرض في Google Drive الخاص بك.",
+    googleSlidesGoTo: "الانتقال إلى Google Slides",
     duplicateDeck: "تكرار العرض",
   },
   share: {
@@ -778,6 +792,10 @@ const messages = {
     exportFailed: "Error al exportar",
     agentRunFailed:
       "فشل تشغيل الوكيل قبل إنشاء أي شرائح. راجع التفاصيل في الدردشة، ثم حاول مرة أخرى.",
+    generationFailed:
+      "لم يتم إنشاء الشرائح. راجع التفاصيل في الدردشة، ثم حاول مرة أخرى.",
+    generationOutcomeUnresolved:
+      "تعذر علينا التأكد مما إذا كانت الشرائح قد أُنشئت. تحقق من العرض أو الدردشة، ثم حاول مرة أخرى.",
     deckHasNoSlides: "لا توجد شرائح في هذا العرض التقديمي.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",

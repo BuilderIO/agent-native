@@ -97,7 +97,7 @@ describe("formatChatErrorText", () => {
 
   it("adds a Start-new-chat CTA for no-detail builder gateway errors", () => {
     const text = formatChatErrorText(
-      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+      "Gateway error (no detail)",
       undefined,
       "builder_gateway_error",
     );
@@ -126,17 +126,35 @@ describe("formatChatErrorText", () => {
     expect(text).toContain(`[Start new chat](${NEW_CHAT_ACTION_HREF})`);
   });
 
-  it("keeps raw gateway events out of the primary user-facing message", () => {
-    const normalized = normalizeChatError(
-      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
-    );
-    expect(normalized.details).toBe(
-      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
-    );
+  it("normalizes no-detail gateway errors without exposing a raw event", () => {
+    const normalized = normalizeChatError("Gateway error (no detail)");
+    expect(normalized.details).toBe("Gateway error (no detail)");
     expect(normalized.message).not.toMatch(/recover automatically/i);
     expect(normalized.message).not.toMatch(/another model/i);
     expect(normalized.message).toMatch(/gateway/i);
     expect(normalized.message).toMatch(/new chat|retry|wait/i);
+  });
+
+  it("redacts legacy raw gateway events from persisted error details", () => {
+    const legacyError =
+      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_example"})';
+
+    for (const errorCode of [undefined, "invalid_request"]) {
+      const normalized = normalizeChatError(legacyError, errorCode);
+
+      expect(normalized.details).toBe("Gateway error (no detail)");
+      expect(normalized.message).not.toContain("req_example");
+    }
+  });
+
+  it("uses malformed-request guidance for no-detail invalid_request errors", () => {
+    const normalized = normalizeChatError(
+      "Gateway error (no detail)",
+      "invalid_request",
+    );
+
+    expect(normalized.message).toMatch(/rejected this request as malformed/i);
+    expect(normalized.message).toMatch(/was not retried/i);
   });
 
   it("normalizes provider rate limits without exposing raw status-only text", () => {

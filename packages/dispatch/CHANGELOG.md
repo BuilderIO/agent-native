@@ -1,5 +1,69 @@
 # @agent-native/dispatch
 
+## 0.40.18
+
+### Patch Changes
+
+- 1b1d976: Distinguish confirmed automation work, explicitly declared no-op skips, and undelivered failures in run history and automation status. Preserve failure causes and recovery codes without pausing legitimate no-op runs.
+- Release all public npm packages with a patch version bump.
+- 401bc5e: Require an organization on the request before creating or materializing a workspace app record, so `workspace_apps` rows are no longer inserted with a null `org_id`. Orgless listing stays read-only, and existing null-org rows are left untouched.
+- 5a3890a: Thread Debug search now matches an exact thread ID, the ID of the app object a thread was opened on (a deck, design, clip, document, and so on), or the thread's source URL, so pasting any of those pulls up the matching threads and their runs.
+- 06bda81: Removed Sentry auth token from sync script
+- Updated dependencies [b7e32e4]
+- Updated dependencies [ab41d2b]
+- Updated dependencies [de66ff4]
+- Updated dependencies [947f911]
+- Updated dependencies [4fe4088]
+- Updated dependencies [cbc151c]
+- Updated dependencies [3dc0aeb]
+- Updated dependencies [9236359]
+- Updated dependencies [1b1d976]
+- Updated dependencies
+- Updated dependencies [f325447]
+- Updated dependencies [cc79bd1]
+- Updated dependencies [8418b84]
+- Updated dependencies [004f2a9]
+- Updated dependencies [701c672]
+- Updated dependencies [ae5aed6]
+  - @agent-native/toolkit@0.205.0
+
+## 0.40.17
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [c8bbbd4]
+- Updated dependencies [4ba5ea5]
+- Updated dependencies
+- Updated dependencies [4c1d77f]
+  - @agent-native/toolkit@0.204.0
+
+## 0.40.16
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 69d237c: Thread Debug lets owners and admins of the observability super organization (`AGENT_NATIVE_OBSERVABILITY_SUPER_ORG_ID`) inspect threads from every user and organization, including cross-app sources whose users are not in the Dispatch organization.
+- Updated dependencies [b717c70]
+- Updated dependencies
+- Updated dependencies [2842af8]
+  - @agent-native/toolkit@0.203.1
+
+## 0.40.15
+
+### Patch Changes
+
+- 6b0f888: Show per-run provider or Builder credit costs in chat, and keep historical usage without billing metadata unclassified across usage dashboards.
+- Release all public npm packages with a patch version bump.
+- 2b08ee1: Remove background fills from the Dispatch app card grid.
+- Updated dependencies [8944abb]
+- Updated dependencies [6b0f888]
+- Updated dependencies [d317d31]
+- Updated dependencies
+- Updated dependencies [6f748b3]
+- Updated dependencies [de755c7]
+  - @agent-native/toolkit@0.203.0
+
 ## 0.40.14
 
 ### Patch Changes
@@ -1129,29 +1193,5 @@
 ### Patch Changes
 
 - febb983: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
-
-## 0.27.11
-
-### Patch Changes
-
-- 802f708: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
-
-## 0.27.10
-
-### Patch Changes
-
-- 904b67c: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
-
-## 0.27.9
-
-### Patch Changes
-
-- d525c66: Harden embedded workspace authentication across hosts and prevent unauthorized session-location reads.
-
-## 0.27.8
-
-### Patch Changes
-
-- 8d34d57: Harden embedded workspace authentication across hosts and prevent unauthorized session-location reads.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

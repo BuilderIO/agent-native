@@ -8,6 +8,7 @@ const messages = {
       providerStatusUnavailable: "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
     },
     common: { retry: "إعادة المحاولة" },
+    onboarding: { skipForNow: "تخطي الآن" },
   },
   timelineTrack: {
     helpOtherSide: "انقر على ذلك المقطع أولًا، ثم اسحب الخط الأحمر إلى اليمين.",
@@ -211,6 +212,7 @@ const messages = {
   recordingPage: {
     back: "خلف",
     done: "تم",
+    backToClip: "العودة إلى المقطع",
     untitledClip: "مقطع بدون عنوان",
     recordingNotFound: "لم يتم العثور على التسجيل",
     noAccess: "قد لا يكون لديك حق الوصول إلى هذا المقطع.",
@@ -301,6 +303,8 @@ const messages = {
     silenceWorking: "جارٍ إزالة فترات الصمت…",
     silenceCompleted: "اكتملت إزالة فترات الصمت",
     silenceFailed: "فشلت إزالة فترات الصمت",
+    silenceEditsUnreadable:
+      "تعذرت قراءة التعديلات المحفوظة، لذلك لم تتم إزالة فترات الصمت.",
     generatePrSummary: "إنشاء ملخص للعلاقات العامة",
     generateSop: "توليد SOP",
     generateSopTooltip:
@@ -1343,6 +1347,11 @@ const messages = {
     burningRedactions: "جارٍ تثبيت مناطق الإخفاء في الفيديو…",
     burningRedactionsPercent: "جارٍ تثبيت مناطق الإخفاء في الفيديو… {{percent}}%",
     editFailed: "تعذّر حفظ هذا التعديل",
+    refreshFailed:
+      "تعذر تحميل أحدث التعديلات. حاول مرة أخرى قبل متابعة التحرير.",
+    autoSaveHint: "تُحفَظ التعديلات في هذا المقطع تلقائيًا",
+    savingChanges: "جارٍ حفظ التغييرات…",
+    changesSaved: "تم حفظ التغييرات في هذا المقطع",
     nothingToRedo: "لا يوجد ما يمكن إعادته",
   },
   transcriptEditor: {
@@ -1380,6 +1389,14 @@ const messages = {
     agentTitle: "أنشئ حساب Clips مجانيًا للانضمام إلى المحادثة",
     genericTitle: "أنشئ حساب Clips مجانيًا للمتابعة",
     description: "ستعود إلى هذا المقطع فور الانتهاء.",
+    verificationPendingTitle: "تحقق من بريدك الإلكتروني",
+    verificationPendingCopy:
+      "أرسلنا رسالة تحقق إلى {{email}}. افتحها لإكمال إنشاء حسابك والعودة إلى هذا المقطع.",
+    resendVerification: "إعادة إرسال رسالة التحقق",
+    resendingVerification: "جارٍ إرسال رسالة التحقق...",
+    verificationEmailResent: "أرسلنا رسالة تحقق جديدة.",
+    verificationEmailFailed:
+      "تعذرت إعادة إرسال رسالة التحقق. حاول مرة أخرى أو سجّل الدخول برابط البريد الإلكتروني.",
     passwordsMismatch: "كلمتا المرور غير متطابقتين.",
     commentIntent: "التعليق",
     reactIntent: "إضافة تفاعل",
@@ -1452,14 +1469,23 @@ const messages = {
     builderConnectPopupError:
       "تعذّر فتح Builder.io. إذا كان التطبيق مضمّنًا في محادثة، فافتحه في علامة تبويب بالمتصفح؛ وإلا فحاول مرة أخرى.",
     builderConnectError:
-      "تعذّر إعداد Builder.io. حاول مرة أخرى أو تواصل مع الدعم.",
+      "لم يكتمل إعداد Builder.io. حاول مرة أخرى أو اختر تخزينًا متوافقًا مع S3.",
+    builderConnectErrorAskAdmin:
+      "لم يكتمل إعداد Builder.io. حاول مرة أخرى أو اطلب من مالك أو مسؤول إعداد التخزين.",
+    builderStatusReadError:
+      "حالة الاتصال غير متاحة. أعد المحاولة للتحقق مرة أخرى.",
+    builderUploadGrantMissing:
+      "Builder.io متصل بخدمات الذكاء الاصطناعي، لكن هذا الاتصال لا يمكنه رفع المقاطع. أعد ربط Builder.io مع صلاحية الرفع، أو اطلب المساعدة من مالك أو مسؤول.",
+    builderGrantAskAdmin:
+      "اطلب من مالك أو مسؤول ربط Builder.io مع صلاحية رفع المقاطع.",
+    statusUnavailable: "تعذر التحقق من جاهزية تخزين الفيديو.",
     checkingBuilderConnection: "جارٍ التحقق من اتصال Builder…",
-    builderTimeout: "لم يصل رد من Builder خلال 5 دقائق. حاول مرة أخرى.",
+    builderTimeout: "تعذّر تأكيد جاهزية تخزين Builder.io. حاول مرة أخرى.",
     builderConnected: "Builder.io متصل",
     waitingForBuilder: "بانتظار Builder...",
     description:
       "خزّن مقاطع الفيديو المسجّلة باستخدام Builder.io أو تخزين متوافق مع S3. يتضمّن Builder.io استضافة مجانية ورصيد ذكاء اصطناعي.",
-    createBuilderAccount: "إنشاء حساب Builder.io",
+    createBuilderAccount: "استخدم Builder.io",
     signInWithBuilderAccount: "تسجيل الدخول بحساب Builder.io",
     free: "مجاني",
     whyPrompt: "لماذا أرى هذا؟",
@@ -1807,6 +1833,9 @@ const messages = {
     pendingStorageDescription: "اربط مساحة تخزين وسيرفعه Clips فورًا.",
     storageConnectedUploading: "تم ربط التخزين. جارٍ رفع تسجيلك…",
     downloadCopy: "تنزيل نسخة",
+    localRecordingPreview: "معاينة التسجيل المحلي",
+    localPreviewUnavailable:
+      "المعاينة المحلية غير متاحة. لا يزال بإمكانك تنزيل نسخة.",
     localRecordingOpenElsewhere:
       "هذا التسجيل لا يزال مفتوحًا في علامة تبويب أخرى من Clips.",
     uploadWaitingForConnection:

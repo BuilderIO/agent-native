@@ -1,5 +1,30 @@
 # @agent-native/recap-cli
 
+## 0.5.67
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.66
+
+### Patch Changes
+
+- c3feada: Allow revocable organization service tokens to have a lifetime of up to ten years and give recap-auth failures the correct recovery command.
+- Release all public npm packages with a patch version bump.
+
+## 0.5.65
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.64
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.5.63
 
 ### Patch Changes

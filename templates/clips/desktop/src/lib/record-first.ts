@@ -2,13 +2,16 @@ import type { LocalRecordingMode } from "../shared/config";
 import type { LocalExportedFile } from "./local-export";
 import type { PendingBrowserRecordingUpload } from "./recorder";
 
-export type VideoStorageStatus = "checking" | "configured" | "missing";
+export type VideoStorageStatus =
+  | "checking"
+  | "configured"
+  | "missing"
+  | "unavailable";
 
 /**
  * The local mode a recording actually uses. Recording never waits on
- * storage: until storage reads as connected (missing, still checking, or
- * unreachable) a cloud recording is written to Movies/Clips first and
- * uploads once storage connects.
+ * storage: until storage reads as connected, a cloud recording is written to
+ * Movies/Clips first and uploads once storage connects.
  */
 export function effectiveLocalRecordingMode(
   mode: LocalRecordingMode,

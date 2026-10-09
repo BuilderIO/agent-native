@@ -24,10 +24,12 @@ import {
   WORKSPACE_APP_ACCESS_UNAVAILABLE,
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
 } from "../org/workspace-app-access.js";
+import { resolveWorkspaceAccessAppId } from "../org/workspace-app-identity.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_START_PATH,
   EMBED_TARGET_HEADER,
+  isMcpDirectoryWidgetReadCapabilityScope,
 } from "../shared/embed-auth.js";
 import {
   FIRST_RUN_ONBOARDING_COOKIE,
@@ -43,6 +45,13 @@ import {
 import { readDevActionDiscoveryFile } from "./dev-action-discovery.js";
 import { devLoopbackAuthHint } from "./dev-origin-hint.js";
 import {
+  EMAIL_AUTH_LINK_LANDING_PATH,
+  emailAuthLinkFields,
+  emailAuthLinkLandingPage,
+  emailAuthVerificationPath,
+  emailAuthVerificationUrl,
+} from "./email-auth-links.js";
+import {
   isEmbedCapabilityScope,
   revokeEmbedSessionsForOwners,
   requestHasEmbedAuthMarker,
@@ -53,6 +62,7 @@ import {
 import { getPublicFrameworkPathname } from "./framework-request-context.js";
 import type { H3AppShim } from "./framework-request-handler.js";
 import {
+  FRAMEWORK_INTERNAL_ROUTE_PREFIX,
   canonicalFrameworkPathname,
   getFrameworkRoutePrefix,
   publicFrameworkPath,
@@ -107,7 +117,10 @@ import {
 import type { ResolvedRequiredAuthProvider } from "../org/auth-policy.js";
 import { readBody } from "../server/h3-helpers.js";
 import { putSetting } from "../settings/store.js";
-import { AUTH_SIGNUP_INVITE_ONLY_CODE } from "../shared/auth-copy.js";
+import {
+  AUTH_SIGNUP_INVITE_ONLY_CODE,
+  resolveNativeAuthCopy,
+} from "../shared/auth-copy.js";
 import type {
   AuthPageProps,
   ResetPasswordPageProps,
@@ -168,6 +181,10 @@ import {
   type SignupAttributionContext,
 } from "./attribution.js";
 import { getAuthLoginMode } from "./auth-login-mode.js";
+import {
+  markBearerCredentialRefused,
+  respondBearerCredentialRefused,
+} from "./bearer-credential-refusal.js";
 import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
 import {
   createBetterAuthSessionForEmail,
@@ -257,9 +274,11 @@ import {
   getResetPasswordHtml,
   type OnboardingHtmlOptions,
 } from "./onboarding-html.js";
+import { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 import {
   getRequestContext,
   markRequestIdentityAuthenticatedAtMs,
+  markVerifiedServiceIdentityForEvent,
   hasContinuationLocalRequestContext,
   hasExplicitPersonalOrgScope,
   markExplicitPersonalOrgScope,
@@ -1151,11 +1170,13 @@ export async function getMcpOAuthBearerSession(
   if (!bearerToken) return null;
 
   try {
-    const [{ getMcpOAuthAudiences }, { verifyAuth, resolveMcpIdentityOrgId }] =
-      await Promise.all([
-        import("../mcp/oauth-route.js"),
-        import("../mcp/build-server.js"),
-      ]);
+    const [
+      { getMcpConnectUrl, getMcpOAuthAudiences },
+      { verifyAuth, resolveMcpIdentityOrgId },
+    ] = await Promise.all([
+      import("../mcp/oauth-route.js"),
+      import("../mcp/build-server.js"),
+    ]);
     const result = await verifyAuth(authHeader, undefined, {
       resourceUrl: getMcpOAuthAudiences(event),
       allowDevOpen: false,
@@ -1165,10 +1186,30 @@ export async function getMcpOAuthBearerSession(
       markCredentialMembershipUnavailable(event);
       return null;
     }
-    const identity = result.authed ? result.identity : undefined;
+    if (!result.authed) {
+      if (result.refusal) {
+        markBearerCredentialRefused(
+          event,
+          result.refusal,
+          getMcpConnectUrl(event),
+        );
+      }
+      return null;
+    }
+    const identity = result.identity;
     if (!identity?.userEmail) return null;
     if (identity.orgId === null) markExplicitPersonalOrgScope(event);
     const orgId = await resolveMcpIdentityOrgId(identity);
+    if (
+      identity.identityAssurance === "service" &&
+      identity.orgId &&
+      orgId === identity.orgId
+    ) {
+      markVerifiedServiceIdentityForEvent(event, {
+        userEmail: identity.userEmail,
+        orgId: identity.orgId,
+      });
+    }
     return {
       email: identity.userEmail,
       token: bearerToken,
@@ -3727,21 +3768,6 @@ function loginHtmlResponse(
   });
 }
 
-function resolveWorkspaceAccessAppId(): string {
-  const app = getAppConfig().app;
-  const workspaceId = app.workspaceId?.trim();
-  if (workspaceId) return workspaceId;
-
-  const isDispatch = [
-    app.id,
-    app.legacyId,
-    app.template,
-    app.slug,
-    app.packageName,
-  ].some((value) => value?.trim().toLowerCase() === "dispatch");
-  return isDispatch ? "dispatch" : "";
-}
-
 function isHtmlDocumentRequest(event: H3Event, pathname: string): boolean {
   if (!isReadMethod(event)) return false;
   if (pathname.endsWith(".data")) return false;
@@ -3873,10 +3899,10 @@ function createAuthGuardFn(
       return;
     }
 
-    // Scheduled recurring-job sweeps are self-fired by the platform scheduler
-    // through the durable background function and authenticate with the same
-    // short-lived HMAC token as the other internal processors. They do not
-    // carry a browser session, so let the route perform its own token check.
+    // Scheduled recurring-job sweeps are fired by the platform scheduler
+    // (Netlify's scheduled function, a Cloudflare Cron Trigger, or Vercel Cron)
+    // and authenticate with a short-lived HMAC token or Vercel's CRON_SECRET.
+    // They do not carry a browser session, so let the route check them itself.
     if (p === "/_agent-native/jobs/_process-sweep") {
       return;
     }
@@ -4193,6 +4219,8 @@ function createAuthGuardFn(
     if (isCredentialMembershipUnavailable(event)) {
       return respondCredentialMembershipUnavailable(event);
     }
+    const refused = respondBearerCredentialRefused(event);
+    if (refused) return refused;
 
     if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
       setResponseStatus(event, 401);
@@ -4642,6 +4670,14 @@ async function resolveSessionUncached(
   const cookieOnlyDesktopCheck = isDesktopSessionCookieOnlyCheck(event);
   if (!options.ignoreEmbedSession) {
     const embedSession = await resolveEmbedSessionFromRequest(event);
+    if (
+      isMcpDirectoryWidgetReadCapabilityApplicationStateRequest(
+        event,
+        embedSession?.scope,
+      )
+    ) {
+      return null;
+    }
     if (embedSession && !isEmbedCapabilityScope(embedSession.scope)) {
       return {
         email: embedSession.email,
@@ -4722,6 +4758,24 @@ async function resolveSessionUncached(
   if (authDisabledSession) return authDisabledSession;
 
   return null;
+}
+
+function isMcpDirectoryWidgetReadCapabilityApplicationStateRequest(
+  event: H3Event,
+  scope: string | undefined,
+): boolean {
+  if (!isMcpDirectoryWidgetReadCapabilityScope(scope)) return false;
+
+  const rawUrl = event.node?.req?.url ?? event.path ?? "/";
+  const base = "http://agent-native.invalid";
+  if (!URL.canParse(rawUrl, base)) return false;
+  const pathname = new URL(rawUrl, base).pathname;
+
+  const canonicalPath = canonicalFrameworkPathname(pathname);
+  const statePath = `${FRAMEWORK_INTERNAL_ROUTE_PREFIX}/application-state`;
+  return (
+    canonicalPath === statePath || canonicalPath.startsWith(`${statePath}/`)
+  );
 }
 
 async function promoteQuerySession(
@@ -4882,6 +4936,19 @@ function normalizePath(path: string): string {
 function matchesPathList(path: string, paths: string[]): boolean {
   return paths.some((candidate) => {
     const normalized = normalizePath(candidate);
+    if (normalized.includes("/:")) {
+      const expectedSegments = normalized.split("/");
+      const actualSegments = path.split("/");
+      return (
+        expectedSegments.length === actualSegments.length &&
+        expectedSegments.every((segment, index) => {
+          if (/^:[A-Za-z][A-Za-z0-9_]*$/.test(segment)) {
+            return Boolean(actualSegments[index]);
+          }
+          return segment === actualSegments[index];
+        })
+      );
+    }
     return path === normalized || path.startsWith(normalized + "/");
   });
 }
@@ -5545,6 +5612,64 @@ async function mountBetterAuthRoutes(
         emailDomain: entry.email.split("@")[1] || "",
       });
       return { token: entry.token, email: entry.email };
+    }),
+  );
+
+  app.use(
+    EMAIL_AUTH_LINK_LANDING_PATH,
+    defineEventHandler(async (event) => {
+      const setupRequiredHtml = getDeploySettingsRequiredPage(
+        event,
+        getRequestPathAndSearch(event).rawPath,
+      );
+      if (setupRequiredHtml) return setupRequiredResponse(setupRequiredHtml);
+
+      const method = getMethod(event);
+      if (method !== "GET" && method !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+
+      const values =
+        method === "POST"
+          ? await readBody<Record<string, unknown>>(event)
+          : getQuery(event);
+      const verificationPath = emailAuthVerificationPath(values.kind);
+      const fields = emailAuthLinkFields(values);
+      const verificationURL = verificationPath
+        ? emailAuthVerificationUrl(getAppUrl(event, verificationPath), values)
+        : undefined;
+      if (!verificationURL || !fields) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid or expired email link." };
+      }
+
+      if (method === "POST") {
+        return new Response(null, {
+          status: 303,
+          headers: {
+            "cache-control": "no-store",
+            location: verificationURL.toString(),
+            "referrer-policy": "no-referrer",
+          },
+        });
+      }
+
+      const { locale, dir } = resolveLocaleFromRequest({
+        acceptLanguage: getHeader(event, "accept-language"),
+      });
+      const copy = resolveNativeAuthCopy(locale);
+      return emailAuthLinkLandingPage(
+        getAppUrl(event, EMAIL_AUTH_LINK_LANDING_PATH),
+        fields,
+        {
+          title: copy.emailLinkContinueTitle,
+          message: copy.emailLinkContinueMessage,
+          action: copy.emailLinkContinueAction,
+        },
+        locale,
+        dir,
+      );
     }),
   );
 
@@ -6422,7 +6547,9 @@ async function mountBetterAuthRoutes(
         setFirstRunOnboardingCookie(event);
       }
 
-      return response;
+      return isResponse
+        ? queryEchoSafeRedirect(event, response as Response)
+        : response;
     }),
   );
 
@@ -6505,7 +6632,10 @@ async function mountBetterAuthRoutes(
         ? query.return[0]
         : query.return;
       setFirstRunOnboardingCookie(event);
-      return redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302);
+      return queryEchoSafeRedirect(
+        event,
+        redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302),
+      );
     }),
   );
 

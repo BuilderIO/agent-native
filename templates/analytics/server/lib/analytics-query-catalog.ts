@@ -30,49 +30,109 @@ const RETIRED_CATALOG_STATES = new Set([
 ]);
 const STOP_WORDS = new Set([
   "a",
+  "about",
   "all",
+  "also",
+  "am",
   "an",
   "and",
+  "any",
   "are",
+  "as",
+  "at",
+  "be",
+  "been",
+  "but",
   "by",
+  "can",
+  "could",
   "count",
   "data",
   "day",
   "days",
+  "did",
   "do",
+  "does",
   "exact",
   "find",
   "for",
   "from",
   "get",
   "give",
+  "has",
+  "have",
+  "hello",
+  "her",
+  "here",
+  "hey",
+  "hi",
+  "his",
   "how",
   "i",
+  "if",
   "in",
+  "into",
+  "is",
+  "it",
+  "its",
+  "just",
   "last",
   "look",
   "many",
   "me",
   "metric",
+  "my",
+  "no",
+  "not",
   "number",
   "of",
+  "ok",
+  "okay",
   "on",
-  "over",
+  "or",
   "our",
+  "out",
+  "over",
   "please",
+  "should",
   "show",
+  "so",
+  "some",
+  "than",
+  "thank",
+  "thanks",
   "that",
   "the",
+  "their",
+  "them",
+  "then",
+  "there",
+  "these",
+  "they",
   "this",
+  "those",
   "time",
+  "to",
   "today",
   "total",
   "up",
-  "week",
-  "what",
-  "were",
+  "was",
   "we",
+  "week",
+  "were",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "why",
+  "will",
+  "with",
+  "would",
+  "yes",
   "yesterday",
+  "you",
+  "your",
 ]);
 
 type DictionaryEntry = Record<string, unknown>;
@@ -263,24 +323,55 @@ function stem(token: string): string {
   return token;
 }
 
-function tokenize(value: string): string[] {
+function rawTokens(value: string): string[] {
   return value
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
     .split(/\s+/)
-    .filter(Boolean)
-    .map(stem);
+    .filter(Boolean);
 }
 
-function searchTerms(search: string): string[] {
-  const tokens = tokenize(search);
-  if (!tokens.length) return [];
-  const meaningful = tokens.filter(
-    (term) => term.length > 1 && !STOP_WORDS.has(term),
+function tokenize(value: string): string[] {
+  return rawTokens(value).map(stem);
+}
+
+/** Terms that carry the ask. A stop word is checked before stemming: stemming
+ *  turns "this" into "thi", which no stop list contains. */
+function meaningfulTerms(search: string): string[] {
+  const terms = rawTokens(search)
+    .filter((token) => token.length > 1 && !STOP_WORDS.has(token))
+    .map(stem)
+    .filter((term) => !STOP_WORDS.has(term));
+  return Array.from(new Set(terms));
+}
+
+export function searchTerms(search: string): string[] {
+  const meaningful = meaningfulTerms(search);
+  if (meaningful.length) return meaningful;
+  return Array.from(new Set(tokenize(search)));
+}
+
+// Words about the product rather than the data: they match every dashboard
+// titled "... Dashboard", so "how do I share a dashboard" is not a data ask.
+const PRODUCT_TERMS = new Set([
+  "app",
+  "chart",
+  "dashboard",
+  "graph",
+  "page",
+  "panel",
+  "tab",
+  "widget",
+]);
+
+/** The terms that can make a reference relevant. Unlike `searchTerms` there is
+ *  no fallback to filler: an ask made only of filler has no relevant terms. */
+export function relevanceTerms(search: string): string[] {
+  return meaningfulTerms(search).filter(
+    (term) => term.length >= 3 && !PRODUCT_TERMS.has(term),
   );
-  return Array.from(new Set(meaningful.length ? meaningful : tokens));
 }
 
 function expandedTerms(primary: string[]): string[] {
@@ -318,7 +409,7 @@ function matchScore(
       score += field.weight * 4;
     }
     for (const term of terms) {
-      if (!tokens.has(term) && !lowered.includes(term)) continue;
+      if (!tokens.has(term)) continue;
       matched.add(term);
       score += field.weight * (LOW_INFORMATION_TERMS.has(term) ? 0.3 : 1);
     }
