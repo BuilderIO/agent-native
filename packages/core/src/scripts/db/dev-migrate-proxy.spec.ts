@@ -143,10 +143,12 @@ describe("tryForwardDbMigrateToDevServer", () => {
     await expect(tryForwardDbMigrateToDevServer(options)).resolves.toBe(false);
   });
 
-  it("does not forward when the route isn't mounted (404)", async () => {
+  it("asks for a dev server restart when the route isn't mounted (404)", async () => {
     mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery());
     fetchMock.mockResolvedValue({ status: 404, json: async () => ({}) });
-    await expect(tryForwardDbMigrateToDevServer(options)).resolves.toBe(false);
+    await expect(tryForwardDbMigrateToDevServer(options)).rejects.toThrow(
+      "Restart it, then rerun this command.",
+    );
   });
 
   it("throws the server's error when migrations fail", async () => {
