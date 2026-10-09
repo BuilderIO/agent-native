@@ -1115,6 +1115,7 @@ export function useEditorScreenRendering({
       publicVisualEditConnectionId,
       localhostPreviewTokenQuery.data?.previewToken,
       localhostPreviewTokenQuery.data?.connections,
+      localhostPreviewTokenQuery.isFetching,
       designAccessRole,
       scheduleVisualEditSnapshotPublication,
       canEditDesign,

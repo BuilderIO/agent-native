@@ -1852,25 +1852,26 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
 
   it("surfaces unavailable preview credentials with a recovery message", async () => {
     const retryLocalhostPreview = vi.fn();
-    await act(async () => {
-      root.render(
-        <DesignCanvas
-          content="http://localhost:5173/settings"
-          contentKey="screen-settings"
-          screenId="screen-settings"
-          sourceType="localhost"
-          localhostPreviewUnavailable
-          onRetryLocalhostPreview={retryLocalhostPreview}
-          zoom={100}
-          deviceFrame="none"
-          editMode
-          interactMode={false}
-          onElementSelect={() => {}}
-          onElementHover={() => {}}
-          tweakValues={{}}
-        />,
-      );
-    });
+    const renderCanvas = (isFetching: boolean) => (
+      <DesignCanvas
+        content="http://localhost:5173/settings"
+        contentKey="screen-settings"
+        screenId="screen-settings"
+        sourceType="localhost"
+        localhostPreviewUnavailable
+        onRetryLocalhostPreview={retryLocalhostPreview}
+        localhostPreviewRetryPending={isFetching}
+        zoom={100}
+        deviceFrame="none"
+        editMode
+        interactMode={false}
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+      />
+    );
+
+    await act(async () => root.render(renderCanvas(true)));
 
     expect(container.textContent).toContain(
       "Local preview credentials are unavailable",
@@ -1882,7 +1883,14 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
       (button) => button.textContent?.includes("Retry credentials"),
     );
     expect(retryButton).toBeTruthy();
-    await act(async () => retryButton?.click());
+    expect((retryButton as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => root.render(renderCanvas(false)));
+    const readyRetryButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Retry credentials"));
+    expect((readyRetryButton as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => readyRetryButton?.click());
     expect(retryLocalhostPreview).toHaveBeenCalledOnce();
   });
 
