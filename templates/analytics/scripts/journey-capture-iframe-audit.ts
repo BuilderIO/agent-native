@@ -559,7 +559,6 @@ export function auditReplayIframeContent({
           let establishesContainingBlock = false;
           if (styles.display !== "none" && styles.display !== "contents") {
             const containment = styles.contain.split(/\s+/);
-            const containerType = styles.getPropertyValue("container-type");
             const transformProperties = [
               "transform",
               "perspective",
@@ -585,7 +584,6 @@ export function auditReplayIframeContent({
               (position === "absolute" &&
                 styles.position !== "" &&
                 styles.position !== "static") ||
-              ["inline-size", "size"].includes(containerType) ||
               containment.some((value) =>
                 ["layout", "paint", "strict", "content"].includes(value),
               ) ||
@@ -602,7 +600,6 @@ export function auditReplayIframeContent({
                 return [
                   ...containingBlockProperties,
                   "contain",
-                  "container-type",
                   "content-visibility",
                 ].includes(property);
               });

@@ -416,7 +416,7 @@ describe("replay iframe audit", () => {
     ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 1 });
   });
 
-  it("treats a size query container as an absolute containing block", () => {
+  it("keeps an escaped absolute iframe visible outside a query container", () => {
     const replayFrame = appendFrame(
       document,
       { left: 0, top: 0, width: 100, height: 100 },
@@ -444,7 +444,7 @@ describe("replay iframe audit", () => {
         dimensions: { width: 100, height: 100 },
         recordedIframeParentIds: [],
       }),
-    ).toEqual({ visibleIframeCount: 0, unavailableIframeCount: 0 });
+    ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 1 });
   });
 
   it("ignores transforms on non-replaced inline ancestors", () => {
