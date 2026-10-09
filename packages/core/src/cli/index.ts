@@ -1200,7 +1200,7 @@ Usage:
                                 changelog/; 'release' rolls them into CHANGELOG.md.
   agent-native db-migrate       Apply drizzle migrations. With PGlite and a running
                                 dev server, applies them through that server
-                                (--out <dir>, default ./drizzle/migrations);
+                                (reads drizzle.config.ts, or --config <path>);
                                 otherwise runs drizzle-kit migrate.
   agent-native clean            Reclaim disk by deleting regenerable build
                                 caches (node_modules/.vite, .nitro). Dry-run

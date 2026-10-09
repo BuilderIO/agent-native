@@ -482,7 +482,7 @@ export function isProcessAlive(pid: number): boolean {
   }
 }
 
-function readPgliteProcessLockOwner(
+export function readPgliteProcessLockOwner(
   fs: typeof import("fs"),
   lockPath: string,
   dataDir: string,

@@ -7,6 +7,7 @@ import {
 import { discoverPgliteDevServer } from "./dev-server-discovery.js";
 
 export interface TryForwardDbMigrateOptions {
+  dataDir: string;
   migrationsFolder: string;
   migrationsTable?: string;
   migrationsSchema?: string;
@@ -16,7 +17,8 @@ export async function tryForwardDbMigrateToDevServer(
   options: TryForwardDbMigrateOptions,
 ): Promise<boolean> {
   const discovery = discoverPgliteDevServer();
-  if (!discovery) return false;
+  if (!discovery || discovery.dataDir !== options.dataDir) return false;
+  const { dataDir: _dataDir, ...requestBody } = options;
 
   // Created only after the loopback-origin check in discovery, so the
   // certificate bypass cannot send the dev token to a remote host.
@@ -31,7 +33,7 @@ export async function tryForwardDbMigrateToDevServer(
         "content-type": "application/json",
         [DEV_ACTION_TOKEN_HEADER]: discovery.token,
       },
-      body: JSON.stringify(options),
+      body: JSON.stringify(requestBody),
       ...(tlsDispatcher ? { dispatcher: tlsDispatcher } : {}),
     };
     response = await fetch(

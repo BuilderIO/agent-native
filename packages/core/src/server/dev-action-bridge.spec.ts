@@ -698,6 +698,35 @@ describe("mountDevDbMigrateForwardRoute", () => {
     },
   );
 
+  it("allows a migrationsFolder whose name starts with two dots", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const event: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken()! },
+      _body: { migrationsFolder: "..foo/migrations" },
+    };
+    await expect(mountedMigrateHandler()(event)).resolves.toEqual({ ok: true });
+    expect(mockMigrate).toHaveBeenCalledWith(expect.anything(), {
+      migrationsFolder: path.resolve(process.cwd(), "..foo/migrations"),
+    });
+  });
+
+  it("responds 400 when the dev server database is not PGlite", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    vi.stubEnv("DATABASE_URL", "postgres://localhost/db");
+    const event: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken()! },
+      _body: { migrationsFolder: "drizzle/migrations" },
+    };
+    await expect(mountedMigrateHandler()(event)).resolves.toEqual({
+      ok: false,
+      error:
+        "The dev server database is not PGlite; run drizzle-kit migrate directly.",
+    });
+    expect(event._status).toBe(400);
+    expect(mockGetPgliteClient).not.toHaveBeenCalled();
+    expect(mockMigrate).not.toHaveBeenCalled();
+  });
+
   it("migrates through the dev server's own PGlite client", async () => {
     writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
     const event: any = {

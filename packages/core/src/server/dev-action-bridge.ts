@@ -430,7 +430,11 @@ export function mountDevDbMigrateForwardRoute(nitroApp: any): void {
       const appRoot = process.cwd();
       const migrationsFolder = path.resolve(appRoot, body.migrationsFolder);
       const relative = path.relative(appRoot, migrationsFolder);
-      if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      if (
+        relative === ".." ||
+        relative.startsWith(".." + path.sep) ||
+        path.isAbsolute(relative)
+      ) {
         setResponseStatus(event, 500);
         return {
           ok: false,
@@ -440,7 +444,16 @@ export function mountDevDbMigrateForwardRoute(nitroApp: any): void {
 
       try {
         const databaseUrl = getRuntimeDatabaseUrl("pglite:./data/pglite");
-        const { getPgliteClient } = await import("../db/client.js");
+        const { getPgliteClient, isPgliteUrl } =
+          await import("../db/client.js");
+        if (!isPgliteUrl(databaseUrl)) {
+          setResponseStatus(event, 400);
+          return {
+            ok: false,
+            error:
+              "The dev server database is not PGlite; run drizzle-kit migrate directly.",
+          };
+        }
         const { drizzle } = await import("drizzle-orm/pglite");
         const { migrate } = await import("drizzle-orm/pglite/migrator");
         const client = await getPgliteClient(databaseUrl);

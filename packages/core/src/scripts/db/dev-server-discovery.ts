@@ -2,6 +2,7 @@ import {
   getRuntimeDatabaseUrl,
   isPgliteUrl,
   isProcessAlive,
+  pgliteClientKeyFromUrl,
 } from "../../db/client.js";
 import {
   hashDatabaseKey,
@@ -12,6 +13,7 @@ import {
 export interface PgliteDevServer {
   origin: string;
   token: string;
+  dataDir: string;
 }
 
 export function discoverPgliteDevServer(): PgliteDevServer | null {
@@ -22,5 +24,9 @@ export function discoverPgliteDevServer(): PgliteDevServer | null {
   const runtimeUrl = getRuntimeDatabaseUrl("pglite:./data/pglite");
   if (!isPgliteUrl(runtimeUrl)) return null;
   if (discovery.databaseKey !== hashDatabaseKey(runtimeUrl)) return null;
-  return { origin: discovery.origin, token: discovery.token };
+  return {
+    origin: discovery.origin,
+    token: discovery.token,
+    dataDir: pgliteClientKeyFromUrl(runtimeUrl),
+  };
 }

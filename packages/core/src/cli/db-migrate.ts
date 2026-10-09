@@ -1,42 +1,83 @@
 import { spawn } from "child_process";
+import path from "path";
+import { pathToFileURL } from "url";
 
 import { tryForwardDbMigrateToDevServer } from "../scripts/db/dev-migrate-proxy.js";
 import { findBinUpwards } from "./react-router-command.js";
 
-export function parseDbMigrateArgs(args: string[]): {
-  out: string;
-  passthrough: string[];
-} {
-  let out = "./drizzle/migrations";
-  const passthrough: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === "--out" && args[i + 1] !== undefined) {
-      out = args[++i];
-    } else if (arg.startsWith("--out=")) {
-      out = arg.slice("--out=".length);
-    } else {
-      passthrough.push(arg);
-    }
+export function parseDbMigrateConfigArg(
+  args: string[],
+): { config: string } | null {
+  if (args.length === 0) return { config: "drizzle.config.ts" };
+  if (args.length === 2 && args[0] === "--config" && args[1]) {
+    return { config: args[1] };
   }
-  return { out, passthrough };
+  if (
+    args.length === 1 &&
+    args[0].startsWith("--config=") &&
+    args[0].length > "--config=".length
+  ) {
+    return { config: args[0].slice("--config=".length) };
+  }
+  return null;
+}
+
+interface LoadedDrizzleConfig {
+  out?: string;
+  driver?: string;
+  migrations?: { table?: string; schema?: string };
+  dbCredentials?: { url?: string };
+}
+
+async function loadDrizzleConfig(
+  configPath: string,
+): Promise<LoadedDrizzleConfig> {
+  const { createJiti } = await import("jiti");
+  const resolved = path.resolve(process.cwd(), configPath);
+  const jiti = createJiti(pathToFileURL(resolved).href, {
+    interopDefault: true,
+    moduleCache: false,
+  });
+  const config = await jiti.import(resolved, { default: true });
+  if (!config || typeof config !== "object") {
+    throw new Error(`${configPath} does not export a drizzle config.`);
+  }
+  return config as LoadedDrizzleConfig;
 }
 
 export async function runDbMigrate(args: string[]): Promise<number> {
-  const { out, passthrough } = parseDbMigrateArgs(args);
+  const parsed = parseDbMigrateConfigArg(args);
 
-  try {
-    if (await tryForwardDbMigrateToDevServer({ migrationsFolder: out })) {
-      return 0;
+  if (parsed) {
+    try {
+      const config = await loadDrizzleConfig(parsed.config);
+      const url = config.dbCredentials?.url;
+      if (
+        config.driver === "pglite" &&
+        typeof url === "string" &&
+        typeof config.out === "string"
+      ) {
+        const forwarded = await tryForwardDbMigrateToDevServer({
+          dataDir: path.resolve(process.cwd(), url),
+          migrationsFolder: config.out,
+          ...(config.migrations?.table
+            ? { migrationsTable: config.migrations.table }
+            : {}),
+          ...(config.migrations?.schema
+            ? { migrationsSchema: config.migrations.schema }
+            : {}),
+        });
+        if (forwarded) return 0;
+      }
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      return 1;
     }
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    return 1;
   }
 
   const bin = findBinUpwards("drizzle-kit") ?? "drizzle-kit";
   return new Promise((resolve) => {
-    const child = spawn(bin, ["migrate", ...passthrough], {
+    const child = spawn(bin, ["migrate", ...args], {
       stdio: "inherit",
       shell: process.platform === "win32",
     });

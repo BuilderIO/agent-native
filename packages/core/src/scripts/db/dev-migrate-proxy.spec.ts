@@ -11,6 +11,8 @@ vi.mock("../../db/client.js", () => ({
     mockGetRuntimeDatabaseUrl(...args),
   isPgliteUrl: (url: string) => url.toLowerCase().startsWith("pglite:"),
   isProcessAlive: (...args: unknown[]) => mockIsProcessAlive(...args),
+  pgliteClientKeyFromUrl: (url: string) =>
+    `/app/${url.slice("pglite:".length)}`,
 }));
 vi.mock("../../server/dev-action-bridge.js", () => ({
   DEV_ACTION_TOKEN_HEADER: "x-agent-native-dev-token",
@@ -37,7 +39,10 @@ function liveDiscovery(overrides: Record<string, unknown> = {}) {
 describe("tryForwardDbMigrateToDevServer", () => {
   const originalFetch = global.fetch;
   let fetchMock: ReturnType<typeof vi.fn>;
-  const options = { migrationsFolder: "./drizzle/migrations" };
+  const options = {
+    dataDir: "/app/./data/pglite",
+    migrationsFolder: "./drizzle/migrations",
+  };
 
   beforeEach(() => {
     fetchMock = vi.fn();
@@ -83,6 +88,17 @@ describe("tryForwardDbMigrateToDevServer", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("does not forward when the config's data dir isn't the dev server's", async () => {
+    mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery());
+    await expect(
+      tryForwardDbMigrateToDevServer({
+        ...options,
+        dataDir: "/app/other/pglite",
+      }),
+    ).resolves.toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("does not forward for a hosted PostgreSQL database", async () => {
     mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery());
     mockGetRuntimeDatabaseUrl.mockReturnValue("postgres://localhost/db");
@@ -109,7 +125,7 @@ describe("tryForwardDbMigrateToDevServer", () => {
           headers: expect.objectContaining({
             "x-agent-native-dev-token": "dev-token",
           }),
-          body: JSON.stringify(options),
+          body: JSON.stringify({ migrationsFolder: options.migrationsFolder }),
           ...(origin.startsWith("https:")
             ? { dispatcher: expect.anything() }
             : {}),

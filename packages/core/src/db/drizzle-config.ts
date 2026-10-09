@@ -7,6 +7,7 @@ import {
   getIsolatedTestDatabaseUrl,
   isProcessAlive,
   pgliteProcessLockPath,
+  readPgliteProcessLockOwner,
 } from "./client.js";
 
 export interface CreateDrizzleConfigOptions {
@@ -29,36 +30,53 @@ function isDrizzlePushInvocation(): boolean {
   return /\bdrizzle-kit\s+push\b/.test(lifecycleScript);
 }
 
+const DRIZZLE_KIT_COMMANDS = new Set([
+  "generate",
+  "migrate",
+  "push",
+  "pull",
+  "introspect",
+  "studio",
+  "check",
+  "up",
+  "drop",
+  "export",
+]);
+const PGLITE_EXCLUSIVE_COMMANDS = new Set([
+  "migrate",
+  "push",
+  "pull",
+  "introspect",
+  "studio",
+]);
+
+function drizzleKitCommandAfterBin(tokens: string[]): string | undefined {
+  const bin = tokens.findIndex((t) => /\bdrizzle-kit\b/.test(t));
+  if (bin === -1) return undefined;
+  return tokens.slice(bin + 1).find((t) => DRIZZLE_KIT_COMMANDS.has(t));
+}
+
 function isPgliteExclusiveDrizzleInvocation(): boolean {
-  const exclusive = new Set(["migrate", "push", "studio", "pull"]);
   const argv = process.argv.map((a) => a.toLowerCase());
-  const bin = argv.findIndex((a) => /\bdrizzle-kit\b/.test(a));
-  if (bin !== -1) {
-    const subcommand = argv.slice(bin + 1).find((a) => !a.startsWith("-"));
-    if (subcommand && exclusive.has(subcommand)) return true;
-  }
+  const argvCommand = drizzleKitCommandAfterBin(argv);
+  if (argvCommand) return PGLITE_EXCLUSIVE_COMMANDS.has(argvCommand);
   const lifecycleScript = (
     process.env.npm_lifecycle_script ||
     process.env.npm_lifecycle_event ||
     ""
   ).toLowerCase();
-  return /\bdrizzle-kit\s+(?:migrate|push|studio|pull)\b/.test(lifecycleScript);
+  const scriptCommand = drizzleKitCommandAfterBin(
+    lifecycleScript.split(/\s+/).filter(Boolean),
+  );
+  return scriptCommand ? PGLITE_EXCLUSIVE_COMMANDS.has(scriptCommand) : false;
 }
 
 function assertPgliteNotOpenInAnotherProcess(dataDir: string): void {
   if (dataDir === "memory://") return;
-  let owner: unknown;
-  try {
-    owner = JSON.parse(fs.readFileSync(pgliteProcessLockPath(dataDir), "utf8"));
-  } catch {
-    // coercion-ok: no readable lock file means no dev server is holding the
-    // directory; PGlite's own lock check still reports a real conflict.
-    return;
-  }
-  const pid = (owner as { pid?: unknown } | null)?.pid;
-  if (typeof pid !== "number" || pid === process.pid || !isProcessAlive(pid)) {
-    return;
-  }
+  const lockPath = pgliteProcessLockPath(dataDir);
+  if (!fs.existsSync(lockPath)) return;
+  const { pid } = readPgliteProcessLockOwner(fs, lockPath, dataDir);
+  if (pid === process.pid || !isProcessAlive(pid)) return;
   throw new Error(
     `PGlite database directory "${dataDir}" is open in the running dev server (pid ${pid}). ` +
       "Running drizzle-kit against it from another process corrupts it. " +

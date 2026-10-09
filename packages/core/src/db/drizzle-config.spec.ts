@@ -177,6 +177,37 @@ describe("createDrizzleConfig PGlite dev-server guard", () => {
     },
   );
 
+  it.each([
+    ["--config", "c.ts", "migrate"],
+    ["--config=c.ts", "migrate"],
+  ])("detects migrate after leading flags: %s", async (...rest) => {
+    writeLock(process.ppid);
+    process.argv = [
+      "node",
+      "/app/node_modules/drizzle-kit/bin.cjs",
+      ...(rest as string[]),
+    ];
+    const { createDrizzleConfig } = await import("./drizzle-config.js");
+    expect(() => createDrizzleConfig()).toThrow(/running dev server/);
+  });
+
+  it("throws when the lock file is empty", async () => {
+    fs.writeFileSync(`${path.resolve(dataDir)}.agent-native-pglite.lock`, "");
+    vi.stubEnv("npm_lifecycle_script", "drizzle-kit migrate");
+    const { createDrizzleConfig } = await import("./drizzle-config.js");
+    expect(() => createDrizzleConfig()).toThrow(/invalid process lock/);
+  });
+
+  it("throws when the lock file is malformed JSON", async () => {
+    fs.writeFileSync(
+      `${path.resolve(dataDir)}.agent-native-pglite.lock`,
+      "{not json",
+    );
+    vi.stubEnv("npm_lifecycle_script", "drizzle-kit migrate");
+    const { createDrizzleConfig } = await import("./drizzle-config.js");
+    expect(() => createDrizzleConfig()).toThrow(/invalid process lock/);
+  });
+
   it("detects the subcommand from argv", async () => {
     writeLock(process.ppid);
     process.argv = ["node", "/app/node_modules/drizzle-kit/bin.cjs", "migrate"];
