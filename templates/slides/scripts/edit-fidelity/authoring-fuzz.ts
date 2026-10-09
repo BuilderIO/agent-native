@@ -2556,9 +2556,32 @@ export async function runAuthoringFuzz(
     tracePhase("slash.type:start");
     await typeText("/");
     tracePhase("slash.type:end");
-    const options = page.locator('[role="listbox"] [role="option"]');
+    await page.waitForFunction(
+      (selector: string) => {
+        const editingEl = document.querySelector<HTMLElement>(selector);
+        const listboxId = editingEl?.getAttribute("aria-controls");
+        const optionId = editingEl?.getAttribute("aria-activedescendant");
+        const listbox = listboxId ? document.getElementById(listboxId) : null;
+        const activeOption = optionId
+          ? document.getElementById(optionId)
+          : null;
+        return (
+          listbox?.getAttribute("role") === "listbox" &&
+          activeOption?.getAttribute("role") === "option" &&
+          listbox.contains(activeOption)
+        );
+      },
+      editorSelector,
+      { timeout: 5000 },
+    );
+    const listboxId = await editor.getAttribute("aria-controls");
+    if (!listboxId) throw new Error("slash menu did not expose its listbox");
+    const listbox = page.locator(
+      `[role="listbox"][id=${JSON.stringify(listboxId)}]`,
+    );
+    const options = listbox.locator('[role="option"]');
     tracePhase("slash.wait-visible:start");
-    await options.first().waitFor({ state: "visible", timeout: 1500 });
+    await options.first().waitFor({ state: "visible", timeout: 3000 });
     tracePhase("slash.wait-visible:end");
     if ((await options.count()) !== SLASH_COMMANDS.length)
       throw new Error("slash menu did not expose all eight commands");
@@ -2566,52 +2589,51 @@ export async function runAuthoringFuzz(
       (root: HTMLElement) => document.activeElement === root,
     );
     if (!focused) throw new Error("slash menu stole focus from the editor");
-    const position = await page
-      .locator('[role="listbox"]')
-      .evaluate((menu: HTMLElement) => {
-        const bounds = (rect: DOMRect) => ({
-          left: rect.left,
-          top: rect.top,
-          right: rect.right,
-          bottom: rect.bottom,
-          width: rect.width,
-          height: rect.height,
-        });
-        const rect = menu.getBoundingClientRect();
-        const anchor = window
-          .getSelection()
-          ?.getRangeAt(0)
-          .getBoundingClientRect();
-        return {
-          menu: bounds(rect),
-          anchor: anchor ? bounds(anchor) : null,
-          viewport: { width: window.innerWidth, height: window.innerHeight },
-          anchorInViewport:
-            !!anchor &&
-            anchor.right >= 0 &&
-            anchor.left <= window.innerWidth &&
-            anchor.bottom >= 0 &&
-            anchor.top <= window.innerHeight,
-          side: menu.getAttribute("data-side"),
-          within:
-            rect.width > 0 &&
-            rect.height > 0 &&
-            rect.left >= 0 &&
-            rect.top >= 0 &&
-            rect.right <= window.innerWidth &&
-            rect.bottom <= window.innerHeight,
-        };
+    const position = await listbox.evaluate((menu: HTMLElement) => {
+      const bounds = (rect: DOMRect) => ({
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
       });
+      const rect = menu.getBoundingClientRect();
+      const anchor = window
+        .getSelection()
+        ?.getRangeAt(0)
+        .getBoundingClientRect();
+      return {
+        menu: bounds(rect),
+        anchor: anchor ? bounds(anchor) : null,
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        anchorInViewport:
+          !!anchor &&
+          anchor.right >= 0 &&
+          anchor.left <= window.innerWidth &&
+          anchor.bottom >= 0 &&
+          anchor.top <= window.innerHeight,
+        side: menu.getAttribute("data-side"),
+        within:
+          rect.width > 0 &&
+          rect.height > 0 &&
+          rect.left >= 0 &&
+          rect.top >= 0 &&
+          rect.right <= window.innerWidth &&
+          rect.bottom <= window.innerHeight,
+      };
+    });
     if (!position.within && position.anchorInViewport)
       throw new Error(
         `slash menu is clipped beyond the viewport (${JSON.stringify(position)})`,
       );
+    return { listbox, options };
   };
   const runSlashCommand = async (
     command: string,
     key: "Enter" | "Tab" = "Enter",
   ) => {
-    await openSlashMenu();
+    const { listbox, options } = await openSlashMenu();
     const commandIndex = SLASH_COMMANDS.findIndex(
       ([value]) => value === command,
     );
@@ -2619,8 +2641,8 @@ export async function runAuthoringFuzz(
     tracePhase(`slash.navigate:start:${command}`);
     for (let index = 0; index < commandIndex; index += 1)
       await page.keyboard.press("ArrowDown");
-    const activeOptionId = await page
-      .locator(`[role="listbox"] [role="option"][data-value="${command}"]`)
+    const activeOptionId = await listbox
+      .locator(`[role="option"][data-value="${command}"]`)
       .getAttribute("id");
     if (
       !activeOptionId ||
@@ -2633,9 +2655,7 @@ export async function runAuthoringFuzz(
     await page.keyboard.press(key);
     tracePhase(`slash.command-key:end:${command}:${key}`);
     tracePhase(`slash.wait-hidden:start:${command}`);
-    await page
-      .locator('[role="listbox"]')
-      .waitFor({ state: "hidden", timeout: 1500 });
+    await listbox.waitFor({ state: "hidden", timeout: 1500 });
     tracePhase(`slash.wait-hidden:end:${command}`);
     if (
       slashCount((await inspectSelection()).text) !==
@@ -4683,7 +4703,14 @@ export async function runAuthoringFuzz(
             prefix = "";
           }
         }
-        const listbox = document.querySelector<HTMLElement>('[role="listbox"]');
+        const controls =
+          root instanceof HTMLElement
+            ? root.getAttribute("aria-controls")
+            : null;
+        const listboxes = Array.from(
+          document.querySelectorAll<HTMLElement>('[role="listbox"]'),
+        );
+        const listbox = controls ? document.getElementById(controls) : null;
         const listboxStyle = listbox ? getComputedStyle(listbox) : null;
         return {
           historyStats:
@@ -4717,7 +4744,10 @@ export async function runAuthoringFuzz(
             slashOffset: prefix.lastIndexOf("/"),
           },
           slashMenu: {
-            count: document.querySelectorAll('[role="listbox"]').length,
+            count: listboxes.length,
+            controlledId: controls,
+            id: listbox?.id ?? null,
+            dataState: listbox?.getAttribute("data-state") ?? null,
             visible:
               !!listbox &&
               listboxStyle?.visibility !== "hidden" &&
@@ -4725,14 +4755,30 @@ export async function runAuthoringFuzz(
               listbox.getClientRects().length > 0,
             optionCount:
               listbox?.querySelectorAll('[role="option"]').length ?? 0,
+            listboxes: listboxes.map((menu) => {
+              const style = getComputedStyle(menu);
+              const rect = menu.getBoundingClientRect();
+              return {
+                id: menu.id,
+                dataState: menu.getAttribute("data-state"),
+                optionCount: menu.querySelectorAll('[role="option"]').length,
+                visible:
+                  style.visibility !== "hidden" &&
+                  style.display !== "none" &&
+                  menu.getClientRects().length > 0,
+                rect: {
+                  left: rect.left,
+                  top: rect.top,
+                  width: rect.width,
+                  height: rect.height,
+                },
+              };
+            }),
             activeDescendant:
               root instanceof HTMLElement
                 ? root.getAttribute("aria-activedescendant")
                 : null,
-            controls:
-              root instanceof HTMLElement
-                ? root.getAttribute("aria-controls")
-                : null,
+            controls,
           },
           recentInputEvents:
             scope.__slidesAuthoringInputTrace?.slice(-12) ?? [],
