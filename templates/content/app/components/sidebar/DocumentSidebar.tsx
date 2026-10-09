@@ -1,5 +1,6 @@
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
 import {
+  callAction,
   setClientAppState,
   useActionMutation,
   useActionQuery,
@@ -142,6 +143,7 @@ import {
   getDesktopContentFiles,
   type DesktopContentFilesFolder,
 } from "@/lib/desktop-content-files";
+import { documentQueryKey } from "@/lib/document-query";
 import {
   filesNavigationOrder,
   openFilesFolderIds,
@@ -162,8 +164,10 @@ import {
   clearDocumentCreationConfirmed,
   clearDocumentCreationPending,
   clearDocumentCreateIntent,
+  DocumentCreateCoordinationUnavailableError,
   markDocumentCreationConfirmed,
   markDocumentCreationPending,
+  readDocumentCreateIntent,
   readDocumentCreateIntents,
   isDocumentCreateInFlight,
   shouldAutoRetryDocumentCreate,
@@ -271,6 +275,23 @@ export function retryCreateAfterIntentWrite<T>(
 ): Promise<{ created: T; draft: PageDraftJournalEntry | null }> {
   writeDocumentCreateIntentBestEffort(scope, { ...intent, status: "pending" });
   return retryCreateAfterDraftRead(read, create);
+}
+
+export async function readDocumentBeforeCreateDiscard(
+  read: () => Promise<Document>,
+): Promise<{ kind: "committed"; document: Document } | { kind: "missing" }> {
+  try {
+    return { kind: "committed", document: await read() };
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      (error as { status?: unknown }).status === 404
+    ) {
+      return { kind: "missing" };
+    }
+    throw error;
+  }
 }
 
 export function mergeCreatedDocumentWithDraft(
@@ -1667,7 +1688,7 @@ export function DocumentSidebar({
     },
     [localFileMode, queryClient],
   );
-  const discardPendingCreate = useCallback(() => {
+  const discardPendingCreate = useCallback(async () => {
     if (!pendingCreateDiscard) return;
     const { intent, scope } = pendingCreateDiscard;
     const draftScope = {
@@ -1675,84 +1696,145 @@ export function DocumentSidebar({
       orgId: scope.orgId,
       documentId: intent.id,
     };
-    let drafts: ReturnType<typeof listPageDraftJournal>;
     try {
-      drafts = listPageDraftJournal(draftScope);
-    } catch (error) {
-      toast.error(t("sidebar.failedCreatePage"), {
-        description:
-          error instanceof Error ? error.message : t("empty.genericError"),
-      });
-      return;
-    }
+      await withDocumentCreateInFlight(
+        intent.id,
+        async () => {
+          const resolution = await readDocumentBeforeCreateDiscard(() =>
+            callAction<Document>(
+              "get-document",
+              { id: intent.id },
+              { method: "GET" },
+            ),
+          );
+          let drafts: ReturnType<typeof listPageDraftJournal>;
+          try {
+            drafts = listPageDraftJournal(draftScope);
+          } catch (error) {
+            toast.error(t("sidebar.failedCreatePage"), {
+              description:
+                error instanceof Error
+                  ? error.message
+                  : t("empty.genericError"),
+            });
+            return;
+          }
 
-    let intentCleared = false;
-    const clearedDrafts: typeof drafts = [];
-    try {
-      intentCleared = clearDocumentCreateIntent(scope, intent.id);
-      for (const draft of drafts) {
-        if (!clearPageDraftJournal(draft.scope, draft.snapshot)) {
-          throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
-        }
-        clearedDrafts.push(draft);
-      }
-    } catch (error) {
-      for (const draft of clearedDrafts) {
-        try {
-          writePageDraftJournal({
-            scope: draft.scope,
-            snapshot: draft.snapshot,
+          let intentCleared = false;
+          const clearedDrafts: typeof drafts = [];
+          try {
+            intentCleared = clearDocumentCreateIntent(scope, intent.id);
+            for (const draft of drafts) {
+              if (!clearPageDraftJournal(draft.scope, draft.snapshot)) {
+                throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
+              }
+              clearedDrafts.push(draft);
+            }
+          } catch (error) {
+            for (const draft of clearedDrafts) {
+              try {
+                writePageDraftJournal({
+                  scope: draft.scope,
+                  snapshot: draft.snapshot,
+                });
+              } catch (restoreError) {
+                console.error(
+                  "Could not restore a discarded page draft.",
+                  restoreError,
+                );
+              }
+            }
+            if (intentCleared) {
+              try {
+                writeDocumentCreateIntent(scope, intent);
+              } catch (restoreError) {
+                console.error(
+                  "Could not restore a pending page creation.",
+                  restoreError,
+                );
+              }
+            }
+            toast.error(t("sidebar.failedCreatePage"), {
+              description:
+                error instanceof Error
+                  ? error.message
+                  : t("empty.genericError"),
+            });
+            return;
+          }
+
+          if (resolution.kind === "committed") {
+            const confirmed = markDocumentCreationConfirmed(
+              queryClient,
+              resolution.document,
+            );
+            queryClient.setQueryData(documentQueryKey(intent.id), confirmed);
+            queryClient.setQueryData(
+              LIST_DOCUMENTS_QUERY_KEY,
+              (old: unknown) => {
+                const docs: Document[] =
+                  (old as { documents?: Document[] })?.documents ??
+                  (Array.isArray(old) ? old : []);
+                const documents = docs.some(
+                  (document) => document.id === intent.id,
+                )
+                  ? docs.map((document) =>
+                      document.id === intent.id ? confirmed : document,
+                    )
+                  : [...docs, confirmed];
+                return withDocumentsCacheShape(old, documents);
+              },
+            );
+            seedCreatedDocumentNavigation(
+              queryClient,
+              confirmed,
+              intent.filesDatabaseId ?? null,
+            );
+            void queryClient.invalidateQueries(documentQueryFilter(intent.id));
+          } else {
+            clearDocumentCreationPending(queryClient, { id: intent.id });
+            queryClient.removeQueries(documentQueryFilter(intent.id));
+            removeCreatedDocumentNavigation(queryClient, intent);
+            queryClient.setQueryData(
+              LIST_DOCUMENTS_QUERY_KEY,
+              (old: unknown) => {
+                const docs: Document[] =
+                  (old as { documents?: Document[] })?.documents ??
+                  (Array.isArray(old) ? old : []);
+                return withDocumentsCacheShape(
+                  old,
+                  docs.filter((document) => document.id !== intent.id),
+                );
+              },
+            );
+          }
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "list-documents"],
           });
-        } catch (restoreError) {
-          console.error(
-            "Could not restore a discarded page draft.",
-            restoreError,
-          );
-        }
-      }
-      if (intentCleared) {
-        try {
-          writeDocumentCreateIntent(scope, intent);
-        } catch (restoreError) {
-          console.error(
-            "Could not restore a pending page creation.",
-            restoreError,
-          );
-        }
-      }
+          if (intent.filesDatabaseId) {
+            void queryClient.invalidateQueries({
+              queryKey: contentDatabaseByIdQueryKey(intent.filesDatabaseId),
+            });
+          }
+          settleOptimisticListRefresh(intent.id);
+          toast.dismiss(`create-page-retry-${intent.id}`);
+          if (locationRef.current.pathname === `/page/${intent.id}`) {
+            void navigate("/home", { replace: true, flushSync: true });
+          }
+          setPendingCreateDiscard(null);
+        },
+        scope,
+      );
+    } catch (error) {
       toast.error(t("sidebar.failedCreatePage"), {
         description:
-          error instanceof Error ? error.message : t("empty.genericError"),
-      });
-      return;
-    }
-
-    clearDocumentCreationPending(queryClient, { id: intent.id });
-    queryClient.removeQueries(documentQueryFilter(intent.id));
-    removeCreatedDocumentNavigation(queryClient, intent);
-    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) => {
-      const docs: Document[] =
-        (old as { documents?: Document[] })?.documents ??
-        (Array.isArray(old) ? old : []);
-      return withDocumentsCacheShape(
-        old,
-        docs.filter((document) => document.id !== intent.id),
-      );
-    });
-    void queryClient.invalidateQueries({
-      queryKey: ["action", "list-documents"],
-    });
-    if (intent.filesDatabaseId) {
-      void queryClient.invalidateQueries({
-        queryKey: contentDatabaseByIdQueryKey(intent.filesDatabaseId),
+          error instanceof DocumentCreateCoordinationUnavailableError
+            ? t("empty.genericError")
+            : error instanceof Error
+              ? error.message
+              : t("empty.genericError"),
       });
     }
-    settleOptimisticListRefresh(intent.id);
-    toast.dismiss(`create-page-retry-${intent.id}`);
-    if (locationRef.current.pathname === `/page/${intent.id}`) {
-      void navigate("/home", { replace: true, flushSync: true });
-    }
-    setPendingCreateDiscard(null);
   }, [
     navigate,
     pendingCreateDiscard,
@@ -2029,12 +2111,14 @@ export function DocumentSidebar({
         draftPreserved = Boolean(journal),
       ) => {
         const errorDescription = error
-          ? error instanceof PageDraftJournalError ||
-            !(error instanceof Error && error.message)
-            ? t("editor.pageSaveBeforeNavigationFailed")
-            : error instanceof Error
-              ? error.message
-              : t("empty.genericError")
+          ? error instanceof DocumentCreateCoordinationUnavailableError
+            ? t("empty.genericError")
+            : error instanceof PageDraftJournalError ||
+                !(error instanceof Error && error.message)
+              ? t("editor.pageSaveBeforeNavigationFailed")
+              : error instanceof Error
+                ? error.message
+                : t("empty.genericError")
           : null;
         toast.error(t("sidebar.failedCreatePage"), {
           id: retryToastId,
@@ -2053,7 +2137,7 @@ export function DocumentSidebar({
           duration: Infinity,
           action: {
             label: t("root.searchRetry"),
-            onClick: () => void retry(),
+            onClick: () => void retry(true),
           },
           cancel: {
             label: t("editor.discardSuggestionDraft"),
@@ -2061,171 +2145,289 @@ export function DocumentSidebar({
           },
         });
       };
-      const retry = async () => {
+      const retry = async (manual = false) => {
         if (retrying) return;
         retrying = true;
         try {
-          const read = () => readPageDraftJournal(draftScope);
-          const { created, draft } = await retryCreateAfterIntentWrite(
-            scope,
-            intent,
-            read,
-            () =>
-              withDocumentCreateInFlight(intent.id, () =>
-                createDocumentAsync({
-                  id: intent.id,
-                  title: "",
-                  parentId: intent.parentId ?? undefined,
-                  spaceId: intent.parentId
-                    ? undefined
-                    : (intent.spaceId ?? undefined),
-                }),
-              ),
-          );
-          let confirmedDocument: Document = created;
-          if (draft) {
-            const replay = prepareCreatedDraftReplay(created, draft);
-            if (replay) {
-              const requeued = writePageDraftJournal({
-                scope: draft.scope,
-                snapshot: replay.snapshot,
-              });
-              const replayWithLatest = prepareCreatedDraftReplay(created, {
-                ...draft,
-                snapshot: requeued.snapshot,
-              });
-              if (replayWithLatest) {
-                const current = writePageDraftJournal({
-                  scope: draft.scope,
-                  snapshot: replayWithLatest.snapshot,
-                });
-                const finalReplay = prepareCreatedDraftReplay(created, {
-                  ...draft,
-                  snapshot: current.snapshot,
-                });
-                if (finalReplay) {
-                  const result = await updateDocumentAsync(finalReplay.request);
-                  if (
-                    isDocumentUpdateConflict(result) ||
-                    isDocumentUpdatePreservationRequired(result) ||
-                    isDocumentUpdateSuperseded(result)
-                  ) {
-                    throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
+          await withDocumentCreateInFlight(
+            intent.id,
+            async () => {
+              let currentIntent = intent;
+              try {
+                const storedIntent = readDocumentCreateIntent(scope, intent.id);
+                if (!storedIntent) {
+                  const resolution = await readDocumentBeforeCreateDiscard(() =>
+                    callAction<Document>(
+                      "get-document",
+                      { id: intent.id },
+                      { method: "GET" },
+                    ),
+                  );
+                  if (resolution.kind === "committed") {
+                    const confirmed = markDocumentCreationConfirmed(
+                      queryClient,
+                      resolution.document,
+                    );
+                    queryClient.setQueryData(documentQueryKey, confirmed);
+                    queryClient.setQueryData(
+                      LIST_DOCUMENTS_QUERY_KEY,
+                      (old: unknown) => {
+                        const docs: Document[] =
+                          (old as { documents?: Document[] })?.documents ??
+                          (Array.isArray(old) ? old : []);
+                        const documents = docs.some(
+                          (document) => document.id === intent.id,
+                        )
+                          ? docs.map((document) =>
+                              document.id === intent.id ? confirmed : document,
+                            )
+                          : [...docs, confirmed];
+                        return withDocumentsCacheShape(old, documents);
+                      },
+                    );
+                    seedCreatedDocumentNavigation(
+                      queryClient,
+                      confirmed,
+                      intent.filesDatabaseId ?? null,
+                    );
+                  } else {
+                    clearDocumentCreationPending(queryClient, {
+                      id: intent.id,
+                    });
+                    queryClient.removeQueries(documentQueryFilter(intent.id));
+                    removeCreatedDocumentNavigation(queryClient, intent);
+                    queryClient.setQueryData(
+                      LIST_DOCUMENTS_QUERY_KEY,
+                      (old: unknown) => {
+                        const docs: Document[] =
+                          (old as { documents?: Document[] })?.documents ??
+                          (Array.isArray(old) ? old : []);
+                        return withDocumentsCacheShape(
+                          old,
+                          docs.filter((document) => document.id !== intent.id),
+                        );
+                      },
+                    );
                   }
-                  const intentOutcome = (
-                    result as Document & {
-                      bodyIntentOutcome?: {
-                        status: "applied" | "displaced-preserved";
-                      };
-                    }
-                  ).bodyIntentOutcome;
-                  const confirmsBodyIntent =
-                    intentOutcome?.status === "applied" ||
-                    intentOutcome?.status === "displaced-preserved";
-                  if (
-                    result.title !== finalReplay.snapshot.title ||
-                    (result.content !== finalReplay.snapshot.content &&
-                      !confirmsBodyIntent)
-                  ) {
-                    throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
+                  void queryClient.invalidateQueries(
+                    documentQueryFilter(intent.id),
+                  );
+                  void queryClient.invalidateQueries({
+                    queryKey: ["action", "list-documents"],
+                  });
+                  if (intent.filesDatabaseId) {
+                    void queryClient.invalidateQueries({
+                      queryKey: contentDatabaseByIdQueryKey(
+                        intent.filesDatabaseId,
+                      ),
+                    });
                   }
-                  confirmedDocument = result;
-                  clearPageDraftJournal(draft.scope, finalReplay.snapshot);
+                  settleOptimisticListRefresh(intent.id);
+                  toast.dismiss(retryToastId);
+                  return;
                 }
-              } else {
-                clearPageDraftJournal(draft.scope, requeued.snapshot);
-              }
-            } else {
-              clearPageDraftJournal(draft.scope, draft.snapshot);
-            }
-          }
-          const remainingDraft = read();
-          confirmedDocument = mergeCreatedDocumentWithDraft(
-            confirmedDocument,
-            remainingDraft,
-          );
-          markDocumentCreationConfirmed(queryClient, created);
-          queryClient.setQueryData(documentQueryKey, confirmedDocument);
-          queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
-            const docs: Document[] =
-              old?.documents ?? (Array.isArray(old) ? old : []);
-            const documents = docs.some(
-              (item) => item.id === confirmedDocument.id,
-            )
-              ? docs.map((item) =>
-                  item.id === confirmedDocument.id ? confirmedDocument : item,
-                )
-              : [...docs, confirmedDocument];
-            return withDocumentsCacheShape(old, documents);
-          });
-          try {
-            clearDocumentCreateIntent(scope, intent.id);
-          } catch (error) {
-            console.error(
-              "Could not clear the confirmed Content create intent.",
-              error,
-            );
-          }
-          if (locationRef.current.pathname !== `/page/${created.id}`) {
-            clearDocumentCreationConfirmed(queryClient, { id: created.id });
-          }
-          void queryClient.invalidateQueries(documentQueryFilter(intent.id));
-          void queryClient.invalidateQueries({
-            queryKey: ["action", "list-documents"],
-          });
-          settleOptimisticListRefresh(intent.id);
-          if (intent.filesDatabaseId) {
-            void queryClient.invalidateQueries({
-              queryKey: contentDatabaseByIdQueryKey(intent.filesDatabaseId),
-            });
-          }
-          toast.dismiss(retryToastId);
-        } catch (error) {
-          const currentDraft = readCreateRecoveryDraft(() =>
-            readPageDraftJournal(draftScope),
-          );
-          const preserved =
-            currentDraft.kind === "readable" && currentDraft.entry
-              ? currentDraft.entry
-              : journal;
-          if (preserved) {
-            const current =
-              queryClient.getQueryData<Document>(documentQueryKey) ??
-              pendingDocument;
-            if (current) {
-              const nextPending = markDocumentCreationPending(queryClient, {
-                ...current,
-                title: preserved.snapshot.title,
-                content: preserved.snapshot.content,
-              });
-              pendingDocument = nextPending;
-              queryClient.setQueryData(documentQueryKey, nextPending);
-              queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
-                const docs: Document[] =
-                  old?.documents ?? (Array.isArray(old) ? old : []);
-                const documents = docs.some(
-                  (item) => item.id === nextPending.id,
-                )
-                  ? docs.map((item) =>
-                      item.id === nextPending.id ? nextPending : item,
+                currentIntent = storedIntent;
+                if (!manual && currentIntent.status === "failed") {
+                  showRetry();
+                  return;
+                }
+                const read = () => readPageDraftJournal(draftScope);
+                const { created, draft } = await retryCreateAfterIntentWrite(
+                  scope,
+                  currentIntent,
+                  read,
+                  () =>
+                    createDocumentAsync({
+                      id: currentIntent.id,
+                      title: "",
+                      parentId: currentIntent.parentId ?? undefined,
+                      spaceId: currentIntent.parentId
+                        ? undefined
+                        : (currentIntent.spaceId ?? undefined),
+                    }),
+                );
+                let confirmedDocument: Document = created;
+                if (draft) {
+                  const replay = prepareCreatedDraftReplay(created, draft);
+                  if (replay) {
+                    const requeued = writePageDraftJournal({
+                      scope: draft.scope,
+                      snapshot: replay.snapshot,
+                    });
+                    const replayWithLatest = prepareCreatedDraftReplay(
+                      created,
+                      {
+                        ...draft,
+                        snapshot: requeued.snapshot,
+                      },
+                    );
+                    if (replayWithLatest) {
+                      const current = writePageDraftJournal({
+                        scope: draft.scope,
+                        snapshot: replayWithLatest.snapshot,
+                      });
+                      const finalReplay = prepareCreatedDraftReplay(created, {
+                        ...draft,
+                        snapshot: current.snapshot,
+                      });
+                      if (finalReplay) {
+                        const result = await updateDocumentAsync(
+                          finalReplay.request,
+                        );
+                        if (
+                          isDocumentUpdateConflict(result) ||
+                          isDocumentUpdatePreservationRequired(result) ||
+                          isDocumentUpdateSuperseded(result)
+                        ) {
+                          throw new Error(
+                            t("editor.pageSaveBeforeNavigationFailed"),
+                          );
+                        }
+                        const intentOutcome = (
+                          result as Document & {
+                            bodyIntentOutcome?: {
+                              status: "applied" | "displaced-preserved";
+                            };
+                          }
+                        ).bodyIntentOutcome;
+                        const confirmsBodyIntent =
+                          intentOutcome?.status === "applied" ||
+                          intentOutcome?.status === "displaced-preserved";
+                        if (
+                          result.title !== finalReplay.snapshot.title ||
+                          (result.content !== finalReplay.snapshot.content &&
+                            !confirmsBodyIntent)
+                        ) {
+                          throw new Error(
+                            t("editor.pageSaveBeforeNavigationFailed"),
+                          );
+                        }
+                        confirmedDocument = result;
+                        clearPageDraftJournal(
+                          draft.scope,
+                          finalReplay.snapshot,
+                        );
+                      }
+                    } else {
+                      clearPageDraftJournal(draft.scope, requeued.snapshot);
+                    }
+                  } else {
+                    clearPageDraftJournal(draft.scope, draft.snapshot);
+                  }
+                }
+                const remainingDraft = read();
+                confirmedDocument = mergeCreatedDocumentWithDraft(
+                  confirmedDocument,
+                  remainingDraft,
+                );
+                markDocumentCreationConfirmed(queryClient, created);
+                queryClient.setQueryData(documentQueryKey, confirmedDocument);
+                queryClient.setQueryData(
+                  LIST_DOCUMENTS_QUERY_KEY,
+                  (old: any) => {
+                    const docs: Document[] =
+                      old?.documents ?? (Array.isArray(old) ? old : []);
+                    const documents = docs.some(
+                      (item) => item.id === confirmedDocument.id,
                     )
-                  : [...docs, nextPending];
-                return withDocumentsCacheShape(old, documents);
-              });
-            }
-          } else {
-            if (pendingDocument)
-              queryClient.setQueryData(documentQueryKey, pendingDocument);
-          }
-          try {
-            writeDocumentCreateIntent(scope, { ...intent, status: "failed" });
-          } catch (statusError) {
-            console.error(
-              "Could not save the failed Content create state.",
-              statusError,
-            );
-          }
-          showRetry(error, Boolean(preserved));
+                      ? docs.map((item) =>
+                          item.id === confirmedDocument.id
+                            ? confirmedDocument
+                            : item,
+                        )
+                      : [...docs, confirmedDocument];
+                    return withDocumentsCacheShape(old, documents);
+                  },
+                );
+                try {
+                  clearDocumentCreateIntent(scope, intent.id);
+                } catch (error) {
+                  console.error(
+                    "Could not clear the confirmed Content create intent.",
+                    error,
+                  );
+                }
+                if (locationRef.current.pathname !== `/page/${created.id}`) {
+                  clearDocumentCreationConfirmed(queryClient, {
+                    id: created.id,
+                  });
+                }
+                void queryClient.invalidateQueries(
+                  documentQueryFilter(intent.id),
+                );
+                void queryClient.invalidateQueries({
+                  queryKey: ["action", "list-documents"],
+                });
+                settleOptimisticListRefresh(intent.id);
+                if (intent.filesDatabaseId) {
+                  void queryClient.invalidateQueries({
+                    queryKey: contentDatabaseByIdQueryKey(
+                      intent.filesDatabaseId,
+                    ),
+                  });
+                }
+                toast.dismiss(retryToastId);
+              } catch (error) {
+                const currentDraft = readCreateRecoveryDraft(() =>
+                  readPageDraftJournal(draftScope),
+                );
+                const preserved =
+                  currentDraft.kind === "readable" && currentDraft.entry
+                    ? currentDraft.entry
+                    : journal;
+                if (preserved) {
+                  const current =
+                    queryClient.getQueryData<Document>(documentQueryKey) ??
+                    pendingDocument;
+                  if (current) {
+                    const nextPending = markDocumentCreationPending(
+                      queryClient,
+                      {
+                        ...current,
+                        title: preserved.snapshot.title,
+                        content: preserved.snapshot.content,
+                      },
+                    );
+                    pendingDocument = nextPending;
+                    queryClient.setQueryData(documentQueryKey, nextPending);
+                    queryClient.setQueryData(
+                      LIST_DOCUMENTS_QUERY_KEY,
+                      (old: any) => {
+                        const docs: Document[] =
+                          old?.documents ?? (Array.isArray(old) ? old : []);
+                        const documents = docs.some(
+                          (item) => item.id === nextPending.id,
+                        )
+                          ? docs.map((item) =>
+                              item.id === nextPending.id ? nextPending : item,
+                            )
+                          : [...docs, nextPending];
+                        return withDocumentsCacheShape(old, documents);
+                      },
+                    );
+                  }
+                } else {
+                  if (pendingDocument)
+                    queryClient.setQueryData(documentQueryKey, pendingDocument);
+                }
+                try {
+                  writeDocumentCreateIntent(scope, {
+                    ...currentIntent,
+                    status: "failed",
+                  });
+                } catch (statusError) {
+                  console.error(
+                    "Could not save the failed Content create state.",
+                    statusError,
+                  );
+                }
+                showRetry(error, Boolean(preserved));
+              }
+            },
+            scope,
+          );
+        } catch (error) {
+          showRetry(error, Boolean(journal));
         } finally {
           retrying = false;
         }
@@ -2350,52 +2552,75 @@ export function DocumentSidebar({
       navigateToDocument(id);
       onNavigate?.();
 
-      const persistCreatedPage = async () => {
-        if (createIntentScope) {
-          writeDocumentCreateIntentBestEffort(createIntentScope, {
-            ...createIntent,
-            status: "pending",
-          });
-        }
-        const created = await withDocumentCreateInFlight(id, () =>
-          createDocument.mutateAsync({
-            id,
-            title: "",
-            parentId: parentId ?? undefined,
-            spaceId: parentId ? undefined : rootSpaceId,
-          }),
+      const persistCreatedPage = async () =>
+        withDocumentCreateInFlight(
+          id,
+          async () => {
+            if (createIntentScope) {
+              writeDocumentCreateIntentBestEffort(createIntentScope, {
+                ...createIntent,
+                status: "pending",
+              });
+            }
+            try {
+              const created = await createDocument.mutateAsync({
+                id,
+                title: "",
+                parentId: parentId ?? undefined,
+                spaceId: parentId ? undefined : rootSpaceId,
+              });
+              const nextId = created?.id || id;
+              const confirmed = markDocumentCreationConfirmed(
+                queryClient,
+                created,
+              );
+              if (createIntentScope) {
+                try {
+                  clearDocumentCreateIntent(createIntentScope, id);
+                } catch (error) {
+                  console.error(
+                    "Could not clear the confirmed Content create intent.",
+                    error,
+                  );
+                }
+              }
+              queryClient.setQueryData(
+                ["action", "get-document", { id: nextId }],
+                confirmed,
+              );
+              if (nextId !== id) {
+                queryClient.removeQueries(documentQueryFilter(id));
+                navigateToDocument(nextId);
+              }
+              if (locationRef.current.pathname !== `/page/${nextId}`) {
+                clearDocumentCreationConfirmed(queryClient, { id: nextId });
+              }
+              void queryClient.invalidateQueries(documentQueryFilter(nextId));
+              settleOptimisticListRefresh(id);
+              if (rootFilesDatabaseId) {
+                void queryClient.invalidateQueries({
+                  queryKey: contentDatabaseByIdQueryKey(rootFilesDatabaseId),
+                });
+              }
+            } catch (error) {
+              if (createIntentScope) {
+                try {
+                  writeDocumentCreateIntent(createIntentScope, {
+                    ...createIntent,
+                    status: "failed",
+                  });
+                } catch (statusError) {
+                  console.error(
+                    "Could not save the failed Content create state.",
+                    statusError,
+                  );
+                }
+              }
+              throw error;
+            }
+          },
+          createIntentScope,
         );
-        const nextId = created?.id || id;
-        const confirmed = markDocumentCreationConfirmed(queryClient, created);
-        if (createIntentScope) {
-          try {
-            clearDocumentCreateIntent(createIntentScope, id);
-          } catch (error) {
-            console.error(
-              "Could not clear the confirmed Content create intent.",
-              error,
-            );
-          }
-        }
-        queryClient.setQueryData(
-          ["action", "get-document", { id: nextId }],
-          confirmed,
-        );
-        if (nextId !== id) {
-          queryClient.removeQueries(documentQueryFilter(id));
-          navigateToDocument(nextId);
-        }
-        if (locationRef.current.pathname !== `/page/${nextId}`) {
-          clearDocumentCreationConfirmed(queryClient, { id: nextId });
-        }
-        void queryClient.invalidateQueries(documentQueryFilter(nextId));
-        settleOptimisticListRefresh(id);
-        if (rootFilesDatabaseId) {
-          void queryClient.invalidateQueries({
-            queryKey: contentDatabaseByIdQueryKey(rootFilesDatabaseId),
-          });
-        }
-      };
       const retryToastId = `create-page-retry-${id}`;
       let retrying = false;
       function showCreatePageRetry(err: unknown) {
@@ -2410,23 +2635,12 @@ export function DocumentSidebar({
           : null;
         const draftPreserved =
           recoveryDraft?.kind === "readable" && recoveryDraft.entry !== null;
-        if (createIntentScope) {
-          try {
-            writeDocumentCreateIntent(createIntentScope, {
-              ...createIntent,
-              status: "failed",
-            });
-          } catch (statusError) {
-            console.error(
-              "Could not save the failed Content create state.",
-              statusError,
-            );
-          }
-        }
         toast.error(t("sidebar.failedCreatePage"), {
           id: retryToastId,
           description: [
-            err instanceof Error ? err.message : t("empty.genericError"),
+            err instanceof Error && err.message
+              ? err.message
+              : t("empty.genericError"),
             draftPreserved
               ? t("sidebar.failedCreatePageDraftDescription")
               : null,

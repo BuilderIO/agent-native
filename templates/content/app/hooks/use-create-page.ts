@@ -25,6 +25,7 @@ import {
   markDocumentCreationPending,
   clearDocumentCreateIntent,
   withDocumentCreateInFlight,
+  writeDocumentCreateIntent,
   writeDocumentCreateIntentBestEffort,
 } from "@/lib/optimistic-document";
 
@@ -128,52 +129,81 @@ export function useCreatePage(opts?: {
         onAfterNavigate?.();
       }
 
-      const persist = async () => {
-        if (createIntentScope && shouldNavigate) {
-          writeDocumentCreateIntentBestEffort(createIntentScope, {
-            id,
-            parentId: parentId ?? null,
-            spaceId: spaceId ?? null,
-            ...(selectedSpace?.filesDatabaseId
-              ? { filesDatabaseId: selectedSpace.filesDatabaseId }
-              : {}),
-            createdAt: now,
-          });
-        }
-        const created = await withDocumentCreateInFlight(id, () =>
-          createDocument.mutateAsync({
-            id,
-            title: "",
-            parentId: parentId ?? undefined,
-            spaceId,
-          }),
-        );
-        const confirmed = markDocumentCreationConfirmed(queryClient, created);
-        if (createIntentScope && shouldNavigate) {
-          try {
-            clearDocumentCreateIntent(createIntentScope, created.id);
-          } catch (error) {
-            console.error(
-              "Could not clear the pending Content create intent.",
-              error,
-            );
-          }
-        }
-        queryClient.setQueryData(
-          ["action", "get-document", { id: created.id }],
-          confirmed,
-        );
-        if (
-          !shouldNavigate ||
-          locationRef.current.pathname !== `/page/${created.id}`
-        ) {
-          clearDocumentCreationConfirmed(queryClient, { id: created.id });
-        }
-        void queryClient.invalidateQueries(documentQueryFilter(id));
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
+      const createIntent = {
+        id,
+        parentId: parentId ?? null,
+        spaceId: spaceId ?? null,
+        ...(selectedSpace?.filesDatabaseId
+          ? { filesDatabaseId: selectedSpace.filesDatabaseId }
+          : {}),
+        createdAt: now,
       };
+      const persist = async () =>
+        withDocumentCreateInFlight(
+          id,
+          async () => {
+            if (createIntentScope && shouldNavigate) {
+              writeDocumentCreateIntentBestEffort(createIntentScope, {
+                ...createIntent,
+                status: "pending",
+              });
+            }
+            try {
+              const created = await createDocument.mutateAsync({
+                id,
+                title: "",
+                parentId: parentId ?? undefined,
+                spaceId,
+              });
+              const confirmed = markDocumentCreationConfirmed(
+                queryClient,
+                created,
+              );
+              if (createIntentScope && shouldNavigate) {
+                try {
+                  clearDocumentCreateIntent(createIntentScope, created.id);
+                } catch (error) {
+                  console.error(
+                    "Could not clear the pending Content create intent.",
+                    error,
+                  );
+                }
+              }
+              queryClient.setQueryData(
+                ["action", "get-document", { id: created.id }],
+                confirmed,
+              );
+              if (
+                !shouldNavigate ||
+                locationRef.current.pathname !== `/page/${created.id}`
+              ) {
+                clearDocumentCreationConfirmed(queryClient, {
+                  id: created.id,
+                });
+              }
+              void queryClient.invalidateQueries(documentQueryFilter(id));
+              void queryClient.invalidateQueries({
+                queryKey: ["action", "list-documents"],
+              });
+            } catch (error) {
+              if (createIntentScope && shouldNavigate) {
+                try {
+                  writeDocumentCreateIntent(createIntentScope, {
+                    ...createIntent,
+                    status: "failed",
+                  });
+                } catch (statusError) {
+                  console.error(
+                    "Could not save the failed Content create state.",
+                    statusError,
+                  );
+                }
+              }
+              throw error;
+            }
+          },
+          createIntentScope,
+        );
 
       let createErrorToastId: string | number | undefined;
       let retrying = false;
@@ -191,7 +221,9 @@ export function useCreatePage(opts?: {
           queryClient.removeQueries(documentQueryFilter(id));
           toast.error(t("sidebar.failedCreatePage"), {
             description:
-              err instanceof Error ? err.message : t("empty.genericError"),
+              err instanceof Error && err.message
+                ? err.message
+                : t("empty.genericError"),
           });
           return;
         }

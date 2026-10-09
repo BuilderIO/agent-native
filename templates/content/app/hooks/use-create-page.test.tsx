@@ -93,12 +93,25 @@ vi.mock("@/components/sidebar/select-content-space", () => ({
 
 import { useCreatePage } from "./use-create-page";
 
+function createTestLockManager() {
+  return {
+    request<T>(
+      _name: string,
+      _options: { mode: "exclusive" },
+      callback: (lock: unknown) => T | Promise<T>,
+    ) {
+      return Promise.resolve(callback({}));
+    },
+  };
+}
+
 describe("useCreatePage", () => {
   let container: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal("navigator", { locks: createTestLockManager() });
     window.localStorage.clear();
     mocks.location.pathname = "/page/existing-page";
     mocks.location.search = "?view=table";
@@ -110,6 +123,7 @@ describe("useCreatePage", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    vi.unstubAllGlobals();
     window.history.replaceState({}, "", "/");
     window.localStorage.clear();
     container.remove();

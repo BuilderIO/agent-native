@@ -13,6 +13,7 @@ import {
   isDocumentCreateInFlight,
   markDocumentCreationConfirmed,
   markDocumentCreationPending,
+  readDocumentCreateIntent,
   readDocumentCreateIntents,
   shouldCreateDocumentOptimistically,
   shouldAutoRetryDocumentCreate,
@@ -49,6 +50,28 @@ function memoryStorage(): Storage {
   };
 }
 
+function createLockManager() {
+  const queues = new Map<string, Promise<void>>();
+  return {
+    request<T>(
+      name: string,
+      _options: { mode: "exclusive" },
+      callback: (lock: unknown) => T | Promise<T>,
+    ): Promise<T> {
+      const previous = queues.get(name) ?? Promise.resolve();
+      const current = previous.then(() => callback({ name }));
+      const tail = current.then(
+        () => undefined,
+        () => undefined,
+      );
+      queues.set(name, tail);
+      return current.finally(() => {
+        if (queues.get(name) === tail) queues.delete(name);
+      });
+    },
+  };
+}
+
 function quarantinedIntentValues(storage: Storage, key: string): string[] {
   const prefix = `${key}:quarantine:`;
   const values: string[] = [];
@@ -64,6 +87,7 @@ function quarantinedIntentValues(storage: Storage, key: string): string[] {
 describe("optimistic document creation", () => {
   beforeEach(() => {
     vi.stubGlobal("window", { localStorage: memoryStorage() });
+    vi.stubGlobal("navigator", { locks: createLockManager() });
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -109,22 +133,64 @@ describe("optimistic document creation", () => {
   it("keeps concurrent creates in flight until each request settles", async () => {
     let finishFirst!: () => void;
     let finishSecond!: () => void;
+    let secondStarted = false;
     const first = withDocumentCreateInFlight(
       "page-in-flight",
       () => new Promise<void>((resolve) => (finishFirst = resolve)),
     );
-    const second = withDocumentCreateInFlight(
-      "page-in-flight",
-      () => new Promise<void>((resolve) => (finishSecond = resolve)),
-    );
+    const second = withDocumentCreateInFlight("page-in-flight", () => {
+      secondStarted = true;
+      return new Promise<void>((resolve) => (finishSecond = resolve));
+    });
 
     expect(isDocumentCreateInFlight("page-in-flight")).toBe(true);
+    await Promise.resolve();
+    expect(secondStarted).toBe(false);
     finishFirst();
     await first;
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(secondStarted).toBe(true);
     expect(isDocumentCreateInFlight("page-in-flight")).toBe(true);
     finishSecond();
     await second;
     expect(isDocumentCreateInFlight("page-in-flight")).toBe(false);
+  });
+
+  it("serializes create recovery across browser tabs for the same document", async () => {
+    const scope = { accountId: "writer@example.com", orgId: "org-1" };
+    const intent = {
+      id: "page-cross-tab",
+      parentId: null,
+      spaceId: null,
+      createdAt: "2026-10-08T12:00:00.000Z",
+    };
+    writeDocumentCreateIntent(scope, intent);
+    let finishFirst!: () => void;
+    let createCalls = 0;
+    const first = withDocumentCreateInFlight(
+      intent.id,
+      async () => {
+        createCalls += 1;
+        await new Promise<void>((resolve) => (finishFirst = resolve));
+        clearDocumentCreateIntent(scope, intent.id);
+      },
+      scope,
+    );
+    const second = withDocumentCreateInFlight(
+      intent.id,
+      async () => {
+        if (readDocumentCreateIntent(scope, intent.id)) createCalls += 1;
+      },
+      scope,
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(createCalls).toBe(1);
+    finishFirst();
+    await Promise.all([first, second]);
+    expect(createCalls).toBe(1);
   });
 
   it("replaces an intent by ID and clears it without disturbing other intents", () => {

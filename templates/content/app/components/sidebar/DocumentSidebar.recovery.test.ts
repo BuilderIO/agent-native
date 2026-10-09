@@ -8,6 +8,7 @@ import type {
 import {
   mergeCreatedDocumentWithDraft,
   prepareCreatedDraftReplay,
+  readDocumentBeforeCreateDiscard,
   retryCreateAfterDraftRead,
   retryCreateAfterIntentWrite,
 } from "./DocumentSidebar";
@@ -53,6 +54,32 @@ function draftEntry(
 }
 
 describe("document sidebar create recovery", () => {
+  it("preserves committed pages when a failed create is discarded", async () => {
+    const document = createdDocument({ id: "committed-page" });
+
+    await expect(
+      readDocumentBeforeCreateDiscard(async () => document),
+    ).resolves.toEqual({ kind: "committed", document });
+  });
+
+  it("treats only a confirmed 404 as an uncommitted create", async () => {
+    const notFound = Object.assign(new Error("not found"), { status: 404 });
+    const unavailable = Object.assign(new Error("unavailable"), {
+      status: 503,
+    });
+
+    await expect(
+      readDocumentBeforeCreateDiscard(async () => {
+        throw notFound;
+      }),
+    ).resolves.toEqual({ kind: "missing" });
+    await expect(
+      readDocumentBeforeCreateDiscard(async () => {
+        throw unavailable;
+      }),
+    ).rejects.toBe(unavailable);
+  });
+
   it("overlays a restored draft onto the create response without losing server metadata", () => {
     const created = createdDocument();
 

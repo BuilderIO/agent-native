@@ -45,6 +45,21 @@ export class DocumentCreateIntentStorageError extends Error {
 const DOCUMENT_CREATE_INTENTS_PREFIX = "content-document-create-intent-v1:";
 const documentCreatesInFlight = new Map<string, number>();
 
+type DocumentCreateLockManager = {
+  request<T>(
+    name: string,
+    options: { mode: "exclusive" },
+    callback: (lock: unknown) => T | Promise<T>,
+  ): Promise<T>;
+};
+
+export class DocumentCreateCoordinationUnavailableError extends Error {
+  constructor() {
+    super();
+    this.name = "DocumentCreateCoordinationUnavailableError";
+  }
+}
+
 export function isDocumentCreateInFlight(id: string): boolean {
   return (documentCreatesInFlight.get(id) ?? 0) > 0;
 }
@@ -52,10 +67,29 @@ export function isDocumentCreateInFlight(id: string): boolean {
 export async function withDocumentCreateInFlight<T>(
   id: string,
   create: () => Promise<T>,
+  scope?: DocumentCreateIntentScope | null,
 ): Promise<T> {
   documentCreatesInFlight.set(id, (documentCreatesInFlight.get(id) ?? 0) + 1);
   try {
-    return await create();
+    const locks =
+      typeof navigator === "undefined"
+        ? undefined
+        : (navigator as Navigator & { locks?: DocumentCreateLockManager })
+            .locks;
+    if (typeof window !== "undefined" && !locks?.request) {
+      throw new DocumentCreateCoordinationUnavailableError();
+    }
+    if (!locks?.request) return await create();
+
+    const name = [
+      "agent-native:content:document-create",
+      scope?.accountId.trim().toLowerCase() ?? "",
+      scope?.orgId?.trim() ?? "",
+      id,
+    ]
+      .map(encodeURIComponent)
+      .join(":");
+    return await locks.request(name, { mode: "exclusive" }, () => create());
   } finally {
     const active = documentCreatesInFlight.get(id) ?? 1;
     if (active <= 1) documentCreatesInFlight.delete(id);
@@ -350,6 +384,15 @@ export function readDocumentCreateIntents(
   return readStoredDocumentCreateIntents(
     documentCreateIntentStorage(),
     documentCreateIntentsKey(scope),
+  );
+}
+
+export function readDocumentCreateIntent(
+  scope: DocumentCreateIntentScope,
+  id: string,
+): DocumentCreateIntent | null {
+  return (
+    readDocumentCreateIntents(scope).find((intent) => intent.id === id) ?? null
   );
 }
 
