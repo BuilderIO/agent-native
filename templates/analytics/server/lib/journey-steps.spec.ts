@@ -590,6 +590,49 @@ describe("buildSessionSteps", () => {
     expect(JSON.stringify(steps)).not.toContain("private-attempt");
   });
 
+  it("keeps adjacent saved outputs from distinct attempts separate", () => {
+    const steps = buildSessionSteps([
+      row("recording_ready", 1, {
+        templateName: "clips",
+        attemptId: "private-recording-attempt-one",
+      }),
+      row("recording_ready", 2, {
+        templateName: "clips",
+        attemptId: "private-recording-attempt-two",
+      }),
+      row("generation_completed", 3, {
+        templateName: "slides",
+        attemptId: "private-generation-attempt-one",
+      }),
+      row("generation_completed", 4, {
+        templateName: "slides",
+        attemptId: "private-generation-attempt-two",
+      }),
+    ]);
+
+    expect(steps).toEqual([
+      { key: "output:recording_ready", label: "Clip saved", tsMs: 1 },
+      {
+        key: "output:recording_ready:2",
+        label: "Clip saved",
+        tsMs: 2,
+      },
+      {
+        key: "output:generation_completed",
+        label: "Generation completed",
+        tsMs: 3,
+      },
+      {
+        key: "output:generation_completed:2",
+        label: "Generation completed",
+        tsMs: 4,
+      },
+    ]);
+    const serialized = JSON.stringify(steps);
+    expect(serialized).not.toContain("private-recording-attempt");
+    expect(serialized).not.toContain("private-generation-attempt");
+  });
+
   it("deduplicates legacy and canonical aliases and orders first-run Builder events", () => {
     const steps = buildSessionSteps([
       row("onboarding_method_outcome", 100, {

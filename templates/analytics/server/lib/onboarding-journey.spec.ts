@@ -277,6 +277,14 @@ describe("getOnboardingJourney", () => {
         template_name: "slides",
         attempt_id: "private-attempt-two",
       }),
+      eventRow("s1", "generation_completed", 13, {
+        template_name: "slides",
+        attempt_id: "private-completion-attempt-one",
+      }),
+      eventRow("s1", "generation_completed", 14, {
+        template_name: "slides",
+        attempt_id: "private-completion-attempt-two",
+      }),
     );
     mocks.queryFirstPartyAnalytics.mockResolvedValue({ rows, schema: [] });
 
@@ -292,8 +300,13 @@ describe("getOnboardingJourney", () => {
     expect(tree.nodes.map((node) => node.key)).toContain(
       "signup > step:role > onboarding:completed > attempt:generation_started > attempt:generation_started:2",
     );
+    expect(tree.nodes.map((node) => node.key)).toContain(
+      "signup > step:role > onboarding:completed > attempt:generation_started > attempt:generation_started:2 > output:generation_completed > output:generation_completed:2",
+    );
     expect(serialized).not.toContain("private-attempt-one");
     expect(serialized).not.toContain("private-attempt-two");
+    expect(serialized).not.toContain("private-completion-attempt-one");
+    expect(serialized).not.toContain("private-completion-attempt-two");
     expect(serialized).not.toContain("attempt_id");
   });
 

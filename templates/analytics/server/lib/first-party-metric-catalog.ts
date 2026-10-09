@@ -1462,9 +1462,14 @@ SELECT e.id, e.session_id, e.timestamp::text AS timestamp, e.event_name, e.path,
   NULLIF(e.properties::jsonb ->> 'outcome', '') AS outcome,
   NULLIF(e.properties::jsonb ->> 'action', '') AS action,
   CASE
-    WHEN e.event_name = 'recording_started'
+    WHEN e.template_name = 'clips'
+      AND e.event_name IN ('recording_started', 'recording_ready')
       THEN NULLIF(e.properties::jsonb ->> 'recording_attempt_id', '')
-    WHEN e.event_name IN (${sqlNameList(SLIDES_GENERATION_ATTEMPT_EVENT_NAMES)})
+    WHEN e.template_name = 'slides'
+      AND e.event_name IN (${sqlNameList([
+        ...SLIDES_GENERATION_ATTEMPT_EVENT_NAMES,
+        "generation_completed",
+      ])})
       THEN NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
   END AS attempt_id,
   NULLIF(e.properties::jsonb ->> 'event_alias_id', '') AS alias_id

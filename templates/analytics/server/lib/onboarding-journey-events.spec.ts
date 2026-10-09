@@ -264,6 +264,7 @@ describe("onboarding journey events SQL", () => {
     );
 
     expect(readyRows.map((row) => row.session_id)).toEqual(["exact-session"]);
+    expect(readyRows[0]).toMatchObject({ attempt_id: "attempt-exact" });
     expect(readyRows[0]).not.toHaveProperty("output_id");
     expect(readyRows[0]).not.toHaveProperty("recording_attempt_id");
   });
@@ -325,6 +326,7 @@ describe("onboarding journey events SQL", () => {
     expect(
       rows.some((row) => row.event_name === "generation_outcome_unresolved"),
     ).toBe(false);
+    expect(rows[1]).toMatchObject({ attempt_id: "attempt-1" });
     expect(rows.some((row) => row.generation_attempt_id)).toBe(false);
     expect(rows.some((row) => row.output_id)).toBe(false);
   });
