@@ -706,7 +706,12 @@ describe("editor chrome selection overlays", () => {
 
       const pathWidthBefore = await page
         .locator("#shape")
-        .evaluate((element) => element.getBBox().width);
+        .evaluate((element) => {
+          if (!(element instanceof SVGGraphicsElement)) {
+            throw new Error("selected path is not an SVG graphics element");
+          }
+          return element.getBBox().width;
+        });
       expect(pathWidthBefore).toBe(200);
       const geometryBaseline = (await readMutations()).measurements;
       await page.locator("#shape").evaluate((element) => {
@@ -715,7 +720,12 @@ describe("editor chrome selection overlays", () => {
       let redrawCount = await waitForMeasurementRedraw(geometryBaseline);
       const pathWidthAfter = await page
         .locator("#shape")
-        .evaluate((element) => element.getBBox().width);
+        .evaluate((element) => {
+          if (!(element instanceof SVGGraphicsElement)) {
+            throw new Error("selected path is not an SVG graphics element");
+          }
+          return element.getBBox().width;
+        });
       expect(pathWidthAfter).toBe(100);
 
       const styleBaseline = redrawCount;
