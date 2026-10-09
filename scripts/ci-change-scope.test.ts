@@ -1096,11 +1096,12 @@ test("fast-tests gates the selected browser checks on their actual job results",
   );
   assert.match(
     fastTestsJob,
-    /if \[\[ "\$DESIGN_CANVAS_E2E" == "true" \]\]; then\s+require_success "Design canvas interaction acceptance \(matrix jobs\)" "\$DESIGN_CANVAS_RESULT"/,
+    /case "\$DESIGN_CANVAS_E2E" in\s+true\)\s+require_success "Design canvas interaction acceptance \(matrix jobs\)" "\$DESIGN_CANVAS_RESULT"\s+;;\s+false\)\s+if \[\[ "\$DESIGN_CANVAS_RESULT" != "skipped" && "\$DESIGN_CANVAS_RESULT" != "success" \]\]; then\s+record_failure "Design canvas interaction acceptance \(matrix jobs\)"/,
   );
-  assert.match(
-    fastTestsJob,
-    /elif \[\[ "\$DESIGN_CANVAS_RESULT" != "skipped" && "\$DESIGN_CANVAS_RESULT" != "success" \]\]; then\s+record_failure "Design canvas interaction acceptance \(matrix jobs\)"/,
+  assert.ok(
+    fastTestsJob.includes(
+      'record_failure "Determine change scope" "Design canvas selection was missing or invalid ($DESIGN_CANVAS_E2E)"',
+    ),
   );
   assert.ok(
     fastTestsJob.includes(
@@ -1138,6 +1139,32 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
     {
       name: "selected targeted lanes pass",
       overrides: {},
+      status: 0,
+    },
+    {
+      name: "selected Design lanes pass",
+      overrides: {
+        DESIGN_CANVAS_E2E: "true",
+        DESIGN_CANVAS_RESULT: "success",
+      },
+      status: 0,
+    },
+    {
+      name: "selected pre-auth lanes pass",
+      overrides: {
+        PRE_AUTH_REPLAY_E2E: "true",
+        PRE_AUTH_REPLAY_RESULT: "success",
+      },
+      status: 0,
+    },
+    {
+      name: "full-suite lanes pass",
+      overrides: { CI_FULL: "true", TEST_REST_RESULT: "success" },
+      status: 0,
+    },
+    {
+      name: "docs-only changes pass when docs checks succeed",
+      overrides: { DOCS_ONLY: "true", DOCS_RESULT: "success" },
       status: 0,
     },
     {
@@ -1216,6 +1243,20 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
       status: 1,
       outputIncludes:
         "Determine change scope: pre-auth replay selection was missing or invalid (invalid)",
+    },
+    {
+      name: "a missing Design selection fails closed",
+      overrides: { DESIGN_CANVAS_E2E: "" },
+      status: 1,
+      outputIncludes:
+        "Determine change scope: Design canvas selection was missing or invalid ()",
+    },
+    {
+      name: "an invalid Design selection fails closed",
+      overrides: { DESIGN_CANVAS_E2E: "invalid" },
+      status: 1,
+      outputIncludes:
+        "Determine change scope: Design canvas selection was missing or invalid (invalid)",
     },
   ];
 

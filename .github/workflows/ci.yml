@@ -706,11 +706,19 @@ jobs:
               require_success "Docs checks" "$DOCS_RESULT"
               success_message="Docs-only change: docs checks passed; fast-test lanes are not required."
             else
-              if [[ "$DESIGN_CANVAS_E2E" == "true" ]]; then
-                require_success "Design canvas interaction acceptance (matrix jobs)" "$DESIGN_CANVAS_RESULT"
-              elif [[ "$DESIGN_CANVAS_RESULT" != "skipped" && "$DESIGN_CANVAS_RESULT" != "success" ]]; then
-                record_failure "Design canvas interaction acceptance (matrix jobs)" "did not skip cleanly outside its selected path (received $DESIGN_CANVAS_RESULT)"
-              fi
+              case "$DESIGN_CANVAS_E2E" in
+                true)
+                  require_success "Design canvas interaction acceptance (matrix jobs)" "$DESIGN_CANVAS_RESULT"
+                  ;;
+                false)
+                  if [[ "$DESIGN_CANVAS_RESULT" != "skipped" && "$DESIGN_CANVAS_RESULT" != "success" ]]; then
+                    record_failure "Design canvas interaction acceptance (matrix jobs)" "did not skip cleanly outside its selected path (received $DESIGN_CANVAS_RESULT)"
+                  fi
+                  ;;
+                *)
+                  record_failure "Determine change scope" "Design canvas selection was missing or invalid ($DESIGN_CANVAS_E2E)"
+                  ;;
+              esac
 
               if [[ "$CI_FULL" == "true" ]]; then
                 if [[ "$HAS_TESTS" != "true" ]]; then
