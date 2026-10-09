@@ -86,6 +86,8 @@ export interface AgentChatContextItem {
   hidden?: boolean;
   /** Stays with the composer that staged it; never published to the shared store. */
   composerOnly?: boolean;
+  /** When a composer-only item was staged; stale ones expire. */
+  stagedAt?: number;
 }
 
 export interface ComposerAgentChatMessage {

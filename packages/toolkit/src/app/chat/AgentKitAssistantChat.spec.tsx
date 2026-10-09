@@ -1888,6 +1888,7 @@ describe("AgentKitAssistantChat host behavior", () => {
           title: "prefill-context-a",
           context: "Thread A cast",
           hidden: true,
+          stagedAt: Date.now(),
         },
         { focus: false },
       ),
@@ -1918,6 +1919,7 @@ describe("AgentKitAssistantChat host behavior", () => {
           title: "Active app context",
           context: "Selected rows: a, b",
           composerOnly: true,
+          stagedAt: Date.now(),
         },
         { focus: false },
       ),
@@ -1938,6 +1940,52 @@ describe("AgentKitAssistantChat host behavior", () => {
     writeAssistantChatHiddenContext(chatMocks.threadId, []);
   });
 
+  it("removing composer-only context does not publish to the shared store", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    await act(async () =>
+      ref.current!.setComposerContextItem(
+        {
+          key: "agent-chat-prefill-context",
+          title: "Active app context",
+          context: "Selected rows: a, b",
+          composerOnly: true,
+          stagedAt: Date.now(),
+        },
+        { focus: false },
+      ),
+    );
+    vi.mocked(publishAgentChatContextItems).mockClear();
+
+    await act(async () =>
+      chatMocks.composerProps.onRemoveContextItem("agent-chat-prefill-context"),
+    );
+
+    expect(chatMocks.composerProps.contextItems).toEqual([]);
+    expect(publishAgentChatContextItems).not.toHaveBeenCalled();
+  });
+
+  it("keeps composer-only context past its expiry out of the composer", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    await act(async () =>
+      ref.current!.setComposerContextItem(
+        {
+          key: "prefill-context-stale",
+          title: "prefill-context-stale",
+          context: "Stale cast",
+          composerOnly: true,
+          hidden: true,
+          stagedAt: Date.now() - 25 * 60 * 60 * 1000,
+        },
+        { focus: false },
+      ),
+    );
+
+    expect(chatMocks.composerProps.contextItems).toEqual([]);
+    writeAssistantChatHiddenContext(chatMocks.threadId, []);
+  });
+
   it("keeps hidden prefill context out of the shared context store", async () => {
     const ref = createRef<AssistantChatHandle>();
     await mount(baseProps(), ref);
@@ -1946,6 +1994,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       title: "prefill-context-hidden",
       context: "Cast: Tom Holland, Sadie Sink",
       hidden: true,
+      stagedAt: Date.now(),
     };
     await act(async () =>
       ref.current!.setComposerContextItem(hidden, { focus: false }),
@@ -3880,6 +3929,7 @@ describe("AgentKitAssistantChat host behavior", () => {
           title: "prefill-context-queued",
           context: "Queued cast",
           hidden: true,
+          stagedAt: Date.now(),
         },
         { focus: false },
       ),

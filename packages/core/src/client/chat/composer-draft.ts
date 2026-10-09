@@ -139,6 +139,7 @@ const hiddenContextEnvelopeSchema = z.object({
       title: z.string(),
       context: z.string().min(1),
       hidden: z.boolean().optional(),
+      stagedAt: z.number().optional(),
     }),
   ),
 });
@@ -149,6 +150,20 @@ export interface AssistantChatHiddenContextItem {
   context: string;
   hidden?: boolean;
   composerOnly: true;
+  stagedAt?: number;
+}
+
+// Composer-only context whose prompt was abandoned must not attach to a later
+// prompt. Unstamped entries have no age to check, so they are dropped too.
+export const COMPOSER_ONLY_CONTEXT_TTL_MS = 24 * 60 * 60 * 1000;
+
+export function isComposerOnlyContextExpired(
+  stagedAt: number | undefined,
+  now: number = Date.now(),
+): boolean {
+  return (
+    stagedAt === undefined || now - stagedAt > COMPOSER_ONLY_CONTEXT_TTL_MS
+  );
 }
 
 function assistantChatHiddenContextKey(scope?: string | null): string | null {
@@ -176,7 +191,9 @@ export function readAssistantChatHiddenContext(
   if (stored === null) return [];
   const items = parseHiddenContextEnvelope(stored);
   if (items)
-    return items.map((item) => ({ ...item, composerOnly: true as const }));
+    return items
+      .filter((item) => !isComposerOnlyContextExpired(item.stagedAt))
+      .map((item) => ({ ...item, composerOnly: true as const }));
   // Discard the unreadable entry so it cannot fail every later mount. The draft text is stored separately and still restores.
   try {
     storage.removeItem(key);
@@ -207,6 +224,7 @@ export function writeAssistantChatHiddenContext(
     title: string;
     context: string;
     hidden?: boolean;
+    stagedAt?: number;
   }[],
 ): void {
   const key = assistantChatHiddenContextKey(scope);
@@ -220,11 +238,12 @@ export function writeAssistantChatHiddenContext(
         key,
         JSON.stringify({
           version: 1,
-          items: items.map(({ key, title, context, hidden }) => ({
+          items: items.map(({ key, title, context, hidden, stagedAt }) => ({
             key,
             title,
             context,
             ...(hidden ? { hidden } : {}),
+            ...(stagedAt !== undefined ? { stagedAt } : {}),
           })),
         }),
       );

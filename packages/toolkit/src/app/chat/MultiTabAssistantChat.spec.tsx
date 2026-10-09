@@ -686,10 +686,11 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
     expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith("Tell me more");
     expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith({
-      key: "prefill-context",
+      key: "agent-chat-prefill-context",
       title: "Spider-Man: Brand New Day",
       context: '{"movieId":969681}',
       composerOnly: true,
+      stagedAt: expect.any(Number),
     });
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });
@@ -706,10 +707,11 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
     expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith({
-      key: "prefill-context",
+      key: "agent-chat-prefill-context",
       title: "Active app context",
       context: "Selected rows: a, b",
       composerOnly: true,
+      stagedAt: expect.any(Number),
     });
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });
@@ -726,10 +728,11 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
     expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith({
-      key: "prefill-context",
+      key: "agent-chat-prefill-context",
       title: "Active app context",
       context: "Selected rows: a, b",
       composerOnly: true,
+      stagedAt: expect.any(Number),
     });
   });
 
@@ -747,8 +750,11 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
 
     expect(chatHandleMocks.setComposerContextItem).not.toHaveBeenCalled();
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
     expect(consoleError).toHaveBeenCalledWith(
-      expect.stringContaining("not staged"),
+      expect.stringContaining("was not applied"),
+      expect.anything(),
     );
     consoleError.mockRestore();
   });
@@ -764,10 +770,11 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
 
     expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith({
-      key: "prefill-context",
+      key: "agent-chat-prefill-context",
       title: "Active app context",
       context: "Selected rows: a, b",
       composerOnly: true,
+      stagedAt: expect.any(Number),
     });
   });
 

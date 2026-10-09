@@ -53,6 +53,9 @@ export function snapshotComposerContextItems(
         context: item.context,
         ...(item.removable === undefined ? {} : { removable: item.removable }),
         ...(item.hidden === undefined ? {} : { hidden: item.hidden }),
+        ...(item.composerOnly === undefined
+          ? {}
+          : { composerOnly: item.composerOnly }),
         ...(item.blocksSubmission === undefined
           ? {}
           : { blocksSubmission: item.blocksSubmission }),

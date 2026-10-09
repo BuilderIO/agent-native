@@ -45,6 +45,7 @@ import type { CreateAgentNativeAgentKitTransportOptions } from "@agent-native/co
 import { AGENT_NATIVE_PROTOCOL_METADATA_KEY } from "@agent-native/core/client/agent-chat";
 import {
   readAssistantChatComposerDraft,
+  isComposerOnlyContextExpired,
   readAssistantChatHiddenContext,
   writeAssistantChatComposerDraft,
   writeAssistantChatHiddenContext,
@@ -2349,9 +2350,15 @@ const AgentKitAssistantChatBody = forwardRef<
           requestPendingSelectionClear();
         }
         const usedKeys = new Set(contextItems.map((item) => item.key));
+        // Composer-only items never live in the shared store, so their keys must not remove a shared item.
+        const usedSharedKeys = new Set(
+          contextItems
+            .filter((item) => !item.composerOnly)
+            .map((item) => item.key),
+        );
         publishAgentChatContextItems(
           getAgentChatContextState().items.filter(
-            (item) => !usedKeys.has(item.key),
+            (item) => !usedSharedKeys.has(item.key),
           ),
         );
         setContextItems((items) =>
@@ -2516,9 +2523,14 @@ const AgentKitAssistantChatBody = forwardRef<
                   (item) => item.key,
                 ),
               );
+              const consumedSharedKeys = new Set(
+                (submittedComposerOptions.contextItems ?? contextItems)
+                  .filter((item) => !item.composerOnly)
+                  .map((item) => item.key),
+              );
               publishAgentChatContextItems(
                 getAgentChatContextState().items.filter(
-                  (item) => !consumedKeys.has(item.key),
+                  (item) => !consumedSharedKeys.has(item.key),
                 ),
               );
               setContextItems((items) =>
@@ -3032,10 +3044,9 @@ const AgentKitAssistantChatBody = forwardRef<
   );
   const removeContextItem = useCallback(
     (key: string) => {
-      const next = getAgentChatContextState().items.filter(
-        (item) => item.key !== key,
-      );
-      publishAgentChatContextItems(next);
+      const current = getAgentChatContextState().items;
+      const next = current.filter((item) => item.key !== key);
+      if (next.length !== current.length) publishAgentChatContextItems(next);
       setContextItems((items) => [
         ...filterAgentChatContextItems(next, props.contextNamespace),
         ...items.filter((item) => item.composerOnly && item.key !== key),
@@ -3962,9 +3973,14 @@ function AgentKitComposerSurface({
   const providerContextKeys = new Set(
     composerContext?.contextItems.map((item) => item.key),
   );
+  // Composer-only context whose prompt was abandoned past its expiry stays out of the next submission.
+  const liveContextItems = contextItems.filter(
+    (item) =>
+      !item.composerOnly || !isComposerOnlyContextExpired(item.stagedAt),
+  );
   const visibleContextItems = composerContext
-    ? [...contextItems, ...composerContext.contextItems]
-    : contextItems;
+    ? [...liveContextItems, ...composerContext.contextItems]
+    : liveContextItems;
   const submissionScope = JSON.stringify([
     threadId,
     props.tabId,

@@ -87,6 +87,8 @@ export interface AgentChatContextItem {
   hidden?: boolean;
   /** Stays with the composer that staged it: never published to the shared store, kept with its draft. */
   composerOnly?: boolean;
+  /** When a composer-only item was staged; stale ones expire rather than attach to a later prompt. */
+  stagedAt?: number;
 }
 
 export interface AgentChatContextSetOptions extends AgentChatContextItem {
@@ -393,6 +395,9 @@ export function normalizeAgentChatContextItem(
     ...(candidate.hidden === true ? { hidden: true } : {}),
     ...(candidate.hidden === true || candidate.composerOnly === true
       ? { composerOnly: true }
+      : {}),
+    ...(typeof candidate.stagedAt === "number"
+      ? { stagedAt: candidate.stagedAt }
       : {}),
   };
 }

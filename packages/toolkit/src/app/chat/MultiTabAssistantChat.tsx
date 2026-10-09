@@ -76,7 +76,7 @@ import React, {
   useCallback,
 } from "react";
 
-import { COMPOSER_CONTEXT_MAX_BYTES } from "../../composer/context-items.js";
+import { snapshotComposerContextItems } from "../../composer/context-items.js";
 import { AgentKitAssistantChat } from "./AgentKitAssistantChat.js";
 import {
   ChatHistoryList,
@@ -2154,33 +2154,45 @@ export function MultiTabAssistantChat({
           : message;
       // One prefill context per composer, like the draft it accompanies: a newer
       // prefill replaces it, so repeated prefills cannot pile up submit-limit items.
-      const prefillKey = "prefill-context";
+      const prefillKey = "agent-chat-prefill-context";
       const hasPromptText = message.trim().length > 0;
-      const contextBytes = new TextEncoder().encode(context ?? "").length;
-      if (!submit && contextBytes > COMPOSER_CONTEXT_MAX_BYTES) {
-        // Over the limit, every later submit would fail until the next prefill, so it is refused here.
-        console.error(
-          `Prefill context is ${contextBytes} bytes, over the ${COMPOSER_CONTEXT_MAX_BYTES}-byte composer limit; not staged.`,
-        );
+      let prefillContext: AgentChatContextItem | undefined;
+      if (!submit && context) {
+        const candidate: AgentChatContextItem = {
+          key: prefillKey,
+          title:
+            contextLabel ??
+            (hasPromptText
+              ? prefillKey
+              : translate("agentChat.composer.activeAppContext", {
+                  defaultValue: "Active app context",
+                })),
+          context,
+          composerOnly: true,
+          stagedAt: Date.now(),
+          // Hidden only when there is prompt text to send with it; an empty
+          // prefill would otherwise leave nothing visible to act on.
+          ...(!contextLabel && hasPromptText ? { hidden: true } : {}),
+        };
+        try {
+          // Validate the whole staged item the way a submit serializes it, so an
+          // accepted prefill cannot make every later submit fail.
+          snapshotComposerContextItems([candidate]);
+          prefillContext = candidate;
+        } catch (error) {
+          // Refused as a whole: a draft without its context would send an incomplete request.
+          console.error(
+            "Prefill context does not fit the composer context limit; the prefill was not applied.",
+            error,
+          );
+          reportAgentChatSubmitResult(
+            submitMessageId,
+            false,
+            "context-too-large",
+          );
+          return;
+        }
       }
-      // Hidden only when there is prompt text to send with it; an empty prefill
-      // would otherwise leave nothing visible to act on.
-      const prefillContext: AgentChatContextItem | undefined =
-        !submit && context && contextBytes <= COMPOSER_CONTEXT_MAX_BYTES
-          ? {
-              key: prefillKey,
-              title:
-                contextLabel ??
-                (hasPromptText
-                  ? prefillKey
-                  : translate("agentChat.composer.activeAppContext", {
-                      defaultValue: "Active app context",
-                    })),
-              context,
-              composerOnly: true,
-              ...(!contextLabel && hasPromptText ? { hidden: true } : {}),
-            }
-          : undefined;
 
       const send: PendingSend = {
         message: fullMessage,

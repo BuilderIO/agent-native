@@ -11,6 +11,7 @@ import {
   readAssistantChatHiddenContext,
   writeAssistantChatComposerContextDraft,
   writeAssistantChatHiddenContext,
+  COMPOSER_ONLY_CONTEXT_TTL_MS,
 } from "./composer-draft.js";
 
 describe("assistant chat composer drafts", () => {
@@ -136,6 +137,7 @@ describe("hidden composer context", () => {
       key: "prefill-context-1",
       title: "prefill-context-1",
       context: "Cast: Tom Holland, Sadie Sink",
+      stagedAt: Date.now(),
     };
     writeAssistantChatHiddenContext("thread-a", [item]);
 
@@ -146,6 +148,20 @@ describe("hidden composer context", () => {
 
     writeAssistantChatHiddenContext("thread-a", []);
     expect(readAssistantChatHiddenContext("thread-a")).toEqual([]);
+  });
+});
+
+describe("hidden composer context expiry", () => {
+  it("drops context staged longer ago than the expiry window", () => {
+    const expired = {
+      key: "prefill-context-old",
+      title: "prefill-context-old",
+      context: "Stale cast",
+      stagedAt: Date.now() - COMPOSER_ONLY_CONTEXT_TTL_MS - 1000,
+    };
+    writeAssistantChatHiddenContext("thread-e", [expired]);
+
+    expect(readAssistantChatHiddenContext("thread-e")).toEqual([]);
   });
 });
 
@@ -163,6 +179,7 @@ describe("hidden composer context recovery", () => {
       key: "prefill-context-long",
       title: "x".repeat(3000),
       context: "Cast: Tom Holland",
+      stagedAt: Date.now(),
     };
     writeAssistantChatHiddenContext("thread-d", [item]);
 
