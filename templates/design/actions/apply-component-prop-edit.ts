@@ -491,6 +491,40 @@ async function persistLinkedComponentEdit(args: {
   const liveFiles = await Promise.all(
     files.map(async (file) => ({ file, ...(await readLiveSourceFile(file)) })),
   );
+  const documents: ComponentSourceDocument[] = liveFiles.map(
+    ({ file, content }) => ({
+      source: {
+        kind: "design-file",
+        designId: args.designId,
+        fileId: file.id,
+        filename: file.filename,
+      },
+      content,
+    }),
+  );
+  let targetPropertyEdit:
+    | ReturnType<typeof applyComponentPropertyEdit>
+    | undefined;
+  if (
+    args.edit.kind === "attribute" &&
+    args.edit.attribute.startsWith(COMPONENT_PROP_PREFIX)
+  ) {
+    targetPropertyEdit = applyComponentPropertyEdit({
+      documents,
+      target: { fileId: args.fileId, nodeId: args.nodeId },
+      edit: args.edit,
+    });
+    if (targetPropertyEdit.status === "not-linked") {
+      return {
+        designId: args.designId,
+        nodeId: args.nodeId,
+        persisted: false,
+        transformStatus: targetPropertyEdit.status,
+        error: `Linked component edit failed: ${targetPropertyEdit.status}.`,
+      };
+    }
+  }
+
   if (
     liveFiles.some(
       ({ file, versionHash }) => expected.get(file.id) !== versionHash,
@@ -506,17 +540,6 @@ async function persistLinkedComponentEdit(args: {
     };
   }
 
-  const documents: ComponentSourceDocument[] = liveFiles.map(
-    ({ file, content }) => ({
-      source: {
-        kind: "design-file",
-        designId: args.designId,
-        fileId: file.id,
-        filename: file.filename,
-      },
-      content,
-    }),
-  );
   let transformed: ComponentStructureTransformResult | null = null;
   let selection: LinkedComponentSelection | undefined;
   if (args.edit.kind === "resetOverrides") {
@@ -693,11 +716,13 @@ async function persistLinkedComponentEdit(args: {
       }
     }
   } else {
-    transformed = applyComponentPropertyEdit({
-      documents,
-      target: { fileId: args.fileId, nodeId: args.nodeId },
-      edit: args.edit,
-    });
+    transformed =
+      targetPropertyEdit ??
+      applyComponentPropertyEdit({
+        documents,
+        target: { fileId: args.fileId, nodeId: args.nodeId },
+        edit: args.edit,
+      });
   }
   if (transformed.status !== "updated") {
     return {
