@@ -166,6 +166,7 @@ import {
 } from "./agent-run-context.js";
 import { isAnonymousWaitlistSessionEmail } from "./anonymous-identity.js";
 import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
+import { readAnalyticsSessionId } from "./attribution.js";
 import { getSession, type AuthSession } from "./auth.js";
 import { createAutomationFailureUnsubscribeHandler } from "./automation-failure-notifications.js";
 import {
@@ -1632,6 +1633,9 @@ async function trackBuilderLifecycle(
 ): Promise<void> {
   if (!userEmail) return;
   const engine = await detectUsageEngineName(event, userEmail);
+  const sessionId =
+    readBrowserSessionIdHeader(event) ??
+    readAnalyticsSessionId(getHeader(event, "cookie"));
   track(
     name,
     {
@@ -1642,7 +1646,10 @@ async function trackBuilderLifecycle(
       }),
       ...properties,
     },
-    { userId: userEmail },
+    {
+      userId: userEmail,
+      ...(sessionId ? { sessionId } : {}),
+    },
   );
 }
 

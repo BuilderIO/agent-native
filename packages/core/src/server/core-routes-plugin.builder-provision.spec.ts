@@ -128,6 +128,12 @@ function trackedEvents(name: string) {
     .map(([, properties]) => properties as Record<string, unknown>);
 }
 
+function trackedSources(name: string) {
+  return mocks.track.mock.calls
+    .filter(([event]) => event === name)
+    .map(([, , source]) => source);
+}
+
 beforeEach(() => {
   owner = { email: OWNER, session: session(), anonymous: false };
   mocks.getOrgContext.mockReset();
@@ -216,6 +222,39 @@ describe("POST /builder/provision", () => {
         personal: true,
       }),
     );
+  });
+
+  it("attaches the browser session to lifecycle tracking from the request", async () => {
+    const response = await post(
+      { provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN) },
+      {
+        cookie: "an_sid=cookie-session",
+        "x-agent-native-session-id": "header-session",
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(trackedSources("builder connect succeeded")).toEqual([
+      expect.objectContaining({
+        userId: OWNER,
+        sessionId: "header-session",
+      }),
+    ]);
+  });
+
+  it("uses the analytics cookie session for popup-compatible lifecycle tracking", async () => {
+    const response = await post(
+      { provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN) },
+      { cookie: "an_sid=popup-session" },
+    );
+
+    expect(response.status).toBe(200);
+    expect(trackedSources("builder connect succeeded")).toEqual([
+      expect.objectContaining({
+        userId: OWNER,
+        sessionId: "popup-session",
+      }),
+    ]);
   });
 
   it("answers an existing Builder account with account_exists", async () => {
