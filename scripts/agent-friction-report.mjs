@@ -2280,6 +2280,16 @@ const E2E_ISSUE_FANOUT_NORMALIZATION_CASES = [
 const LEGACY_LINE_NORMALIZATION_CASES = [
   [true, "Signup pages should always show\nthe WebGL wave, not this graphic."],
 ];
+const FEEDBACK_REPLY_DETAIL_RE =
+  /\b(?:reply|repl(?:y|ies)|response|status\s+updates?|feedback\s+updates?)\b[^.!?\n]{0,100}\b(?:too\s+technical|overly\s+technical|very\s+technical|excessively\s+technical|too\s+detailed|overly\s+detailed|excessively\s+detailed|too\s+much\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|less\s+technical|less\s+detail)\b|\b(?:too\s+technical|overly\s+technical|very\s+technical|excessively\s+technical|too\s+detailed|overly\s+detailed|excessively\s+detailed|too\s+much\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|less\s+technical|less\s+detail)\b[^.!?\n]{0,100}\b(?:reply|repl(?:y|ies)|response|status\s+updates?|feedback\s+updates?)\b|\b(?:reply|repl(?:y|ies)|response|status\s+updates?|feedback\s+updates?)\b[^.!?\n]{0,100}\b(?:don't|do not|avoid|skip|omit|leave out|remove|no|stop(?:\s+(?:including|mentioning))?)\b[^.!?\n]{0,120}\b(?:(?:technical|implementation|internal|deployment)\s+(?:details?|information)|(?:commit|branch|ci|publisher|deployment|run|workflow)(?:\s+(?:details?|hash(?:es)?|results?|mentions?|status|ids?|names?))?|hash(?:es)?|results?)\b|\b(?:don't|do not|avoid|skip|omit|leave out|remove|no|stop(?:\s+(?:including|mentioning))?)\b[^.!?\n]{0,120}\b(?:(?:technical|implementation|internal|deployment)\s+(?:details?|information)|(?:commit|branch|ci|publisher|deployment|run|workflow)(?:\s+(?:details?|hash(?:es)?|results?|mentions?|status|ids?|names?))?|hash(?:es)?|results?)\b[^.!?\n]{0,120}\b(?:in|from|for|when)\b[^.!?\n]{0,30}\b(?:you\s+)?(?:reply|repl(?:y|ies)|response|status\s+updates?|feedback\s+updates?)\b/i;
+const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
+  [true, "When you reply, don't include all those technical details."],
+  [true, "Too much technical detail in replies."],
+  [true, "Leave out publisher details from replies."],
+  [true, "Don't include commit hashes or CI results in replies."],
+  [false, "Please reply with technical details."],
+  [false, "CI results and branch details are useful."],
+];
 
 if (process.argv.includes("--self-test")) {
   const failures = FEEDBACK_REGEX_CASES.filter(
@@ -2289,6 +2299,12 @@ if (process.argv.includes("--self-test")) {
   failures.push(
     ...RESOURCE_CLEANUP_REGEX_CASES.filter(
       ([expected, message]) => RESOURCE_CLEANUP_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...FEEDBACK_REPLY_DETAIL_REGEX_CASES.filter(
+      ([expected, message]) =>
+        FEEDBACK_REPLY_DETAIL_RE.test(message) !== expected,
     ),
   );
   failures.push(
@@ -2440,7 +2456,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -2686,8 +2702,8 @@ const PATTERNS = [
     label: "Had to correct overly technical feedback replies",
     fixedBy:
       ".agents/skills/review-latest-feedback + address-feedback-with-replies (concise, plain-language replies, 2026-10-09)",
-    // Count corrections about reply detail, including "replies are too technical."
-    re: /\b(?:reply|repl(?:y|ies)|response|status\s+updates?|feedback\s+updates?)\b[^.!?\n]{0,100}\b(?:too\s+technical|overly\s+technical|excessively\s+technical|too\s+detailed|too\s+much\s+detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|less\s+technical|less\s+detail)\b|\b(?:too\s+technical|overly\s+technical|excessively\s+technical|too\s+detailed|too\s+much\s+detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|less\s+technical|less\s+detail)\b[^.!?\n]{0,100}\b(?:reply|repl(?:y|ies)|response|status\s+updates?|feedback\s+updates?)\b|\b(?:reply|repl(?:y|ies)|response|status\s+updates?|feedback\s+updates?)\b[^.!?\n]{0,100}\b(?:don't|do not|avoid|skip|omit|leave out|remove|no)\b[^.!?\n]{0,60}\b(?:technical|implementation|commit|branch|ci|publisher)\s+details?\b|\b(?:don't|do not|avoid|skip|omit|leave out|remove|no)\b[^.!?\n]{0,80}\b(?:technical|implementation|commit|branch|ci|publisher|deployment|run)\s+details?\b[^.!?\n]{0,80}\b(?:in|from|for)\b[^.!?\n]{0,25}\b(?:reply|response|status\s+update|feedback\s+update)\b/i,
+    // Exclude neutral requests like "please reply with technical details."
+    re: FEEDBACK_REPLY_DETAIL_RE,
     lineSensitive: true,
   },
   {
