@@ -1119,6 +1119,7 @@ export default {
   },
   sqlDashboard: {
     customRange: "Benutzerdefinierter Zeitraum",
+    allValues: "Alle",
     untitledDashboard: "Unbenanntes Dashboard",
     dashboardFallback: "Dashboard",
     viewOnly: "Sie haben nur Lesezugriff auf dieses Dashboard.",
