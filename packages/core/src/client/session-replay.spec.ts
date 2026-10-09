@@ -3911,7 +3911,7 @@ describe("session replay", () => {
     await second.stopSessionReplay();
   });
 
-  it("keeps pre-auth replay anonymous in properties when the same tab resumes after sign-in", async () => {
+  it("keeps pre-auth replay anonymous in its envelope when the same tab resumes after sign-in", async () => {
     const { fetchMock, location, storage } = installBrowser(
       "https://app.agent-native.com/signup",
     );
@@ -4001,13 +4001,13 @@ describe("session replay", () => {
     );
 
     expect(secondBody).toMatchObject({
-      userId: "qa+auth@example.test",
-      userEmail: "qa+auth@example.test",
       properties: {
         capture_context: "pre_auth",
         safeProperty: "retained",
       },
     });
+    expect(secondBody.userId).toBeUndefined();
+    expect(secondBody.userEmail).toBeUndefined();
     expect(secondBody.properties).not.toHaveProperty("userId");
     expect(secondBody.properties).not.toHaveProperty("userEmail");
     expect(secondBody.properties).not.toHaveProperty("userName");

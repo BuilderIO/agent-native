@@ -1562,11 +1562,15 @@ function buildReplayBody(
   const sessionId = getOrCreateAnalyticsSessionId();
   if (!sessionId) return null;
   const replayProperties = replayPropertiesForUpload(state, options);
-  const userEmail = replayUserEmail(replayProperties);
-  if (options.requireSignedInUser && !userEmail) return null;
-  const userId =
-    userEmail ||
-    replayString(replayProperties?.userId ?? replayProperties?.user_id);
+  const authenticatedUserEmail = replayUserEmail(replayProperties);
+  if (options.requireSignedInUser && !authenticatedUserEmail) return null;
+  const userEmail = state.suppressIdentityInProperties
+    ? undefined
+    : authenticatedUserEmail;
+  const userId = state.suppressIdentityInProperties
+    ? undefined
+    : userEmail ||
+      replayString(replayProperties?.userId ?? replayProperties?.user_id);
   const properties = state.suppressIdentityInProperties
     ? stripReplayIdentityProperties(replayProperties)
     : replayProperties;
