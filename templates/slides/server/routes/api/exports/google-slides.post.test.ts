@@ -203,6 +203,25 @@ describe("google slides export route analytics", () => {
     });
   });
 
+  it("reports one failed export when the browser sends no file", async () => {
+    const upload = vi.fn();
+    vi.stubGlobal("fetch", upload);
+    mocks.parts = mocks.parts.filter((part) => part.name !== "file");
+
+    await handler();
+
+    expect(mocks.setResponseStatus).toHaveBeenCalledWith({}, 400);
+    expect(upload).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(mocks.track).toHaveBeenCalled());
+    expect(mocks.track).toHaveBeenCalledTimes(1);
+    expect(mocks.track.mock.calls[0][1]).toMatchObject({
+      output_id: "deck-1",
+      export_format: "google_slides",
+      status: "failed",
+      error_type: "file_missing",
+    });
+  });
+
   it("still reports the export when the optional deck fields are absent", async () => {
     mocks.parts = [
       { name: "file", data: new Uint8Array([1]) },

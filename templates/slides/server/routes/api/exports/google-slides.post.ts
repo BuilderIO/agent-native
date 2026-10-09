@@ -96,11 +96,6 @@ export default defineEventHandler(async (event) => {
     ? new TextDecoder().decode(titlePart.data).trim() || "Untitled deck"
     : "Untitled deck";
 
-  if (!file?.data?.length) {
-    setResponseStatus(event, 400);
-    return { error: "file required" };
-  }
-
   // Started now, awaited only when the event is sent: the analytics lookup
   // must never delay or block the user's export.
   const factsPromise = Promise.resolve(
@@ -134,6 +129,12 @@ export default defineEventHandler(async (event) => {
       // coercion-ok: a platform without a usable waitUntil still sends the event; it just isn't held open.
     }
   };
+
+  if (!file?.data?.length) {
+    trackExport("file_missing");
+    setResponseStatus(event, 400);
+    return { error: "file required" };
+  }
 
   let account: Awaited<ReturnType<typeof getGoogleDocsAccessToken>>;
   try {
