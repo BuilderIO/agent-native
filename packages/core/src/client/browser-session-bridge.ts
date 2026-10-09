@@ -645,20 +645,27 @@ export function createAgentNativeBrowserSessionBridge(
             { ok: false, error: messageError(error).message },
           );
         } catch (completionError) {
-          throw new AggregateError(
+          const combinedError = new AggregateError(
             [error, completionError],
             `Browser-session request "${request.id}" failed and its failure could not be reported`,
           );
+          requestPoll.onError(combinedError, { force: true });
+          throw combinedError;
         }
         return request;
       }
-      await postJson(
-        options,
-        `/${encodePathSegment(currentSessionId)}/requests/${encodePathSegment(
-          request.id,
-        )}/complete`,
-        { ok: true, result },
-      );
+      try {
+        await postJson(
+          options,
+          `/${encodePathSegment(currentSessionId)}/requests/${encodePathSegment(
+            request.id,
+          )}/complete`,
+          { ok: true, result },
+        );
+      } catch (error) {
+        requestPoll.onError(error, { force: true });
+        throw error;
+      }
     } finally {
       clearTimeout(expiryTimer);
       requestExpiryTimers.delete(expiryTimer);

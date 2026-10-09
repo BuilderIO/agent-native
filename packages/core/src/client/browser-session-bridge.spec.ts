@@ -284,6 +284,104 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     ]);
   });
 
+  it.each(["timeout", "stop"])(
+    "reports completion failures after a poll %s abort",
+    async (abortMode) => {
+      vi.useFakeTimers();
+      const onError = vi.fn();
+      let resolveAction: ((result: unknown) => void) | undefined;
+      const runAction = vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveAction = resolve;
+          }),
+      );
+      const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+        if (
+          url === "/_agent-native/browser-sessions" &&
+          init?.method === "POST"
+        ) {
+          const body = JSON.parse(String(init.body));
+          return jsonResponse({
+            ok: true,
+            session: {
+              sessionId: body.sessionId,
+              session: body.session,
+              active: true,
+              actions: body.actions,
+            },
+          });
+        }
+        if (url.endsWith("/requests/claim")) {
+          return jsonResponse({
+            ok: true,
+            request: {
+              id: "req-completion-failed-after-abort",
+              sessionId: "tab-1",
+              type: "run-action",
+              name: "slow-action",
+              args: {},
+              status: "claimed",
+              createdAt: Date.now(),
+              expiresAt: Date.now() + 60_000,
+            },
+          });
+        }
+        if (
+          url.endsWith("/requests/req-completion-failed-after-abort/complete")
+        ) {
+          return jsonResponse(
+            { ok: false, error: "Completion service unavailable" },
+            { status: 503 },
+          );
+        }
+        if (init?.method === "DELETE") return jsonResponse({ ok: true });
+        throw new Error(`Unexpected fetch ${init?.method} ${url}`);
+      });
+      const bridge = createAgentNativeBrowserSessionBridge({
+        session: { id: "tab-1" },
+        sessionId: "tab-1",
+        getContext: () => ({}),
+        actions: [
+          {
+            name: "slow-action",
+            description: "Finishes after the polling request aborts",
+            schema: { type: "object" },
+            run: runAction,
+          },
+        ],
+        heartbeatMs: 100_000,
+        pollMs: 500,
+        fetch: fetchMock as unknown as typeof fetch,
+        onError,
+      });
+
+      bridge.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(runAction).toHaveBeenCalledOnce();
+
+      if (abortMode === "timeout") {
+        await vi.advanceTimersByTimeAsync(10_000);
+      } else {
+        bridge.stop();
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      resolveAction?.({ completed: true });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining("Completion service unavailable"),
+        }),
+        "poll",
+      );
+      expect(onError).toHaveBeenCalledOnce();
+
+      bridge.stop();
+      await vi.advanceTimersByTimeAsync(0);
+    },
+  );
+
   it("aborts an in-flight polling claim when stopped", async () => {
     const onError = vi.fn();
     let claimSignal: AbortSignal | undefined;
