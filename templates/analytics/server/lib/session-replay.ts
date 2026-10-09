@@ -2186,7 +2186,7 @@ export interface JourneyReplayLink {
 
 export interface JourneyRecordingsRead {
   recordings: JourneyRecording[];
-  /** False when a batch is capped or a recording/link is missing, ambiguous, or unusable. */
+  /** False when a read is capped or a provided link or recording is invalid, ambiguous, or unusable. */
   complete: boolean;
 }
 
