@@ -48,6 +48,10 @@ const SHOW_SECONDARY_PANELS_IN_E2E =
 const SECONDARY_PANELS_ENV = SHOW_SECONDARY_PANELS_IN_E2E
   ? "VITE_SHOW_DESIGN_SECONDARY_LEFT_PANELS=1 "
   : "VITE_SHOW_DESIGN_SECONDARY_LEFT_PANELS=0 ";
+const SIGNUP_REPLAY_AUTH_ENV =
+  process.env.E2E_DISABLE_AUTO_DEV_ACCOUNT === "1"
+    ? `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1 AUTH_DISABLED=0 VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=1 VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_test VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=http://127.0.0.1:${PORT}/api/analytics/track `
+    : "";
 const ADVANCED_PANEL_SPEC_FILES = [
   /canvas-tools\.spec\.ts$/,
   /code-native-deep-surfaces\.spec\.ts$/,
@@ -87,7 +91,7 @@ export default defineConfig({
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
-        command: `APP_NAME=design AGENT_NATIVE_DESIGN_QA_LOCAL_UPLOADS=1 ${USE_SIDEBAR_LOOPBACK ? `AGENT_ENGINE=ai-sdk:openai AGENT_MODEL=agentkit-loopback OPENAI_API_KEY=sk-agentkit-loopback-not-a-real-key OPENAI_BASE_URL=http://127.0.0.1:${LOOPBACK_PORT}/v1 E2E_LOOPBACK_PORT=${LOOPBACK_PORT} ` : ""}${SECONDARY_PANELS_ENV}DESIGN_DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} PORT=${PORT} corepack pnpm exec agent-native dev --inspect=${INSPECT_PORT}`,
+        command: `${SIGNUP_REPLAY_AUTH_ENV}APP_NAME=design AGENT_NATIVE_DESIGN_QA_LOCAL_UPLOADS=1 AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_test AGENT_NATIVE_ANALYTICS_ENDPOINT=http://127.0.0.1:${PORT}/api/analytics/track ${USE_SIDEBAR_LOOPBACK ? `AGENT_ENGINE=ai-sdk:openai AGENT_MODEL=agentkit-loopback OPENAI_API_KEY=sk-agentkit-loopback-not-a-real-key OPENAI_BASE_URL=http://127.0.0.1:${LOOPBACK_PORT}/v1 E2E_LOOPBACK_PORT=${LOOPBACK_PORT} ` : ""}${SECONDARY_PANELS_ENV}DESIGN_DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} PORT=${PORT} corepack pnpm exec agent-native dev --inspect=${INSPECT_PORT}`,
         url: BASE_URL,
         reuseExistingServer: false,
         timeout: 300_000,

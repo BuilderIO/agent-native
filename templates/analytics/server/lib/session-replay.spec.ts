@@ -75,6 +75,7 @@ import {
   readSessionReplayChunkBatch,
   readSessionReplayChunkBytes,
   recordSessionReplayChunks,
+  resolveSessionReplayLink,
 } from "./session-replay";
 
 function createBudgetDbMock(results: unknown[][]) {
@@ -285,6 +286,73 @@ describe("session replay list page", () => {
     expect(conditionText(conditions[1])).not.toContain("clips");
     expect(conditionText(conditions[2])).toContain("clips");
     expect(conditionText(orders[1])).toContain("nulls last");
+  });
+
+  it("filters anonymous sessions to scoped pre-auth recordings", async () => {
+    const conditions: unknown[] = [];
+    const anonymousRecording = {
+      id: "sr_pre_auth",
+      clientRecordingId: "recording_1",
+      sessionId: "session_1",
+      userId: null,
+      anonymousId: "anon_1",
+      userKey: "anon_1",
+      startedAt: "2026-10-08T00:00:00.000Z",
+      chunkCount: 1,
+      eventCount: 2,
+      metadata: '{"capture_context":"pre_auth"}',
+      ownerEmail: "owner@example.test",
+      orgId: "org_1",
+      visibility: "org",
+      status: "completed",
+    };
+    const db = {
+      select: vi.fn((selection?: Record<string, unknown>) => ({
+        from: vi.fn((table: unknown) => ({
+          where: vi.fn((condition: unknown) => {
+            if (table === organizations) {
+              return { limit: async () => [] };
+            }
+            conditions.push(condition);
+            const rows = selection?.app
+              ? [{ app: null, count: "1" }]
+              : selection?.count
+                ? [{ count: "1" }]
+                : [anonymousRecording];
+            const query = {
+              orderBy: () => query,
+              groupBy: () => query,
+              limit: () => query,
+              offset: async () => rows,
+              then: (resolve: (value: unknown[]) => void) =>
+                Promise.resolve(rows).then(resolve),
+            };
+            return query;
+          }),
+        })),
+      })),
+    };
+    getDbMock.mockReturnValue(db);
+
+    const page = await listSessionRecordingsPage(
+      { userEmail: "owner@example.test", orgId: "org_1" },
+      { visitorType: "anonymous" },
+    );
+
+    expect(page.recordings).toMatchObject([
+      {
+        id: "sr_pre_auth",
+        userId: null,
+        anonymousId: "anon_1",
+        metadata: { capture_context: "pre_auth" },
+      },
+    ]);
+    expect(conditionText(conditions[0])).toContain("capture_context");
+    expect(conditionText(conditions[0])).toContain("pre_auth");
+    expect(conditionText(conditions[0])).toContain("anonymous_id");
+    expect(conditionText(conditions[0])).toContain("owner_email");
+    expect(conditionText(conditions[0])).toContain("org_id");
+    expect(conditionText(conditions[0])).toContain("user_id");
   });
 });
 
@@ -743,6 +811,34 @@ describe("session replay ingest parsing", () => {
     expect(parsed.chunks).toHaveLength(1);
   });
 
+  it("derives pre-auth context only from replay properties", () => {
+    const parsed = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      anonymousId: "anon_1",
+      sequence: 0,
+      properties: { capture_context: "pre_auth" },
+      metadata: { capture_context: "forged", retained: true },
+      events: [{ type: 4, timestamp: 1 }],
+    });
+    const unmarked = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_2",
+      sessionId: "session_2",
+      anonymousId: "anon_2",
+      sequence: 0,
+      metadata: { capture_context: "pre_auth" },
+      events: [{ type: 4, timestamp: 1 }],
+    });
+
+    expect(parsed.metadata).toEqual({
+      retained: true,
+      capture_context: "pre_auth",
+    });
+    expect(unmarked.metadata).toEqual({});
+  });
+
   it("rejects metadata-only recordings from direct summary reads", async () => {
     resolveAccessMock.mockResolvedValue({
       role: "viewer",
@@ -888,6 +984,91 @@ describe("session replay ingest parsing", () => {
       lastIngestedAt: "2026-01-01T00:00:04.000Z",
     };
   }
+
+  it("returns marked anonymous recordings only through scoped detail access", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        ...playableRecordingResource("sr_pre_auth"),
+        userId: null,
+        anonymousId: "anon_1",
+        userKey: "anon_1",
+        metadata: '{"capture_context":"pre_auth"}',
+      },
+    });
+
+    await expect(
+      getSessionReplaySummary("sr_pre_auth", {
+        userEmail: "viewer@example.test",
+        orgId: "org_1",
+      }),
+    ).resolves.toMatchObject({
+      id: "sr_pre_auth",
+      userId: null,
+      anonymousId: "anon_1",
+      role: "viewer",
+    });
+    expect(resolveAccessMock).toHaveBeenCalledWith(
+      "session-recording",
+      "sr_pre_auth",
+      { userEmail: "viewer@example.test", orgId: "org_1" },
+    );
+  });
+
+  it("resolves replay links for marked anonymous recordings within owner scope", async () => {
+    const anonymousRecording = {
+      id: "sr_pre_auth",
+      startedAt: "2026-10-08T00:00:00.000Z",
+      endedAt: "2026-10-08T00:01:00.000Z",
+      durationMs: 60_000,
+      ownerEmail: "owner@example.test",
+      orgId: "org_1",
+      visibility: "org",
+      chunkCount: 1,
+      eventCount: 2,
+      userId: null,
+      userKey: "anon_1",
+      anonymousId: "anon_1",
+      metadata: '{"capture_context":"pre_auth"}',
+    };
+    let selection: Record<string, unknown> | undefined;
+    let condition: unknown;
+    const db = {
+      select: vi.fn((selected: Record<string, unknown>) => {
+        selection = selected;
+        return {
+          from: vi.fn(() => ({
+            where: vi.fn((where: unknown) => {
+              condition = where;
+              return { limit: async () => [anonymousRecording] };
+            }),
+          })),
+        };
+      }),
+    };
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      resolveSessionReplayLink(
+        {
+          sessionId: "session_1",
+          clientRecordingId: "recording_1",
+          at: "2026-10-08T00:00:00.000Z",
+        },
+        { userEmail: "owner@example.test", orgId: "org_1" },
+      ),
+    ).resolves.toMatchObject({
+      recordingId: "sr_pre_auth",
+      offsetMs: 0,
+      path: "/sessions/sr_pre_auth?atMs=0",
+    });
+    expect(selection).toMatchObject({
+      anonymousId: schema.sessionRecordings.anonymousId,
+      metadata: schema.sessionRecordings.metadata,
+    });
+    expect(conditionText(condition)).toContain("owner_email");
+    expect(conditionText(condition)).toContain("org_id");
+  });
 
   it("returns compact recording data from tokenized event reads", async () => {
     const eventsJson = JSON.stringify([
@@ -2480,6 +2661,37 @@ describe("replay viewport", () => {
         first: { width: 1440, height: 900 },
         last: { width: 400, height: 800 },
       },
+    });
+  });
+
+  it("keeps pre-auth context last in merged metadata across later uploads", () => {
+    const first = mergeReplayMetadata(
+      {},
+      { capture_context: "pre_auth", route: "/signup" },
+      {
+        first: { width: 1440, height: 900 },
+        last: { width: 1440, height: 900 },
+      },
+    );
+    const second = mergeReplayMetadata(
+      first,
+      { route: "/signup/verify", app: "analytics" },
+      { first: null, last: { width: 390, height: 844 } },
+    );
+
+    const metadataKeys = Object.keys(second);
+    expect(metadataKeys[metadataKeys.length - 1]).toBe("capture_context");
+    expect(
+      JSON.stringify(second).endsWith('"capture_context":"pre_auth"}'),
+    ).toBe(true);
+    expect(second).toEqual({
+      route: "/signup/verify",
+      app: "analytics",
+      viewport: {
+        first: { width: 1440, height: 900 },
+        last: { width: 390, height: 844 },
+      },
+      capture_context: "pre_auth",
     });
   });
 

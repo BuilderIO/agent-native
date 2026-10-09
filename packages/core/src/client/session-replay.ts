@@ -124,6 +124,8 @@ interface SessionReplayState {
   restoreCaptures: (() => void) | null;
   options: NormalizedSessionReplayOptions | null;
   lastAuthenticatedProperties: Record<string, unknown> | null;
+  captureContext: "pre_auth" | null;
+  suppressIdentityInProperties: boolean;
   resourceNodes: Map<number, ReplayResourceNode>;
   automaticConflictRestartAttempted: boolean;
   broadcastChannel: BroadcastChannel | null;
@@ -136,6 +138,8 @@ interface StoredReplaySession {
   sequence?: number;
   linkBaseUrl?: string;
   analyticsEventCount?: number;
+  captureContext?: "pre_auth";
+  suppressIdentityInProperties?: boolean;
 }
 
 interface ReplayClaimMessage {
@@ -457,6 +461,8 @@ function getState(): SessionReplayState {
       restoreCaptures: null,
       options: null,
       lastAuthenticatedProperties: null,
+      captureContext: null,
+      suppressIdentityInProperties: false,
       resourceNodes: new Map(),
       automaticConflictRestartAttempted: false,
       broadcastChannel: null,
@@ -475,6 +481,8 @@ function getState(): SessionReplayState {
   state.awaitingFullSnapshot ??= false;
   state.startGeneration ??= 0;
   state.replayLinkBaseUrl ??= null;
+  state.captureContext ??= null;
+  state.suppressIdentityInProperties ??= false;
   return state;
 }
 
@@ -574,12 +582,15 @@ function removeStoredReplaySession(replayId: string): void {
 function getOrCreateReplaySession(
   sessionId: string,
   linkBaseUrl?: string | null,
+  captureContext?: "pre_auth",
 ): {
   replayId: string;
   startedAtMs: number;
   sequence: number;
   linkBaseUrl?: string;
   analyticsEventCount: number;
+  captureContext: "pre_auth" | null;
+  suppressIdentityInProperties: boolean;
   resumed: boolean;
 } {
   clearLegacyLocalStorageReplaySession();
@@ -598,8 +609,29 @@ function getOrCreateReplaySession(
         : Date.now();
     const sequence = parsedSequence;
     const resolvedLinkBaseUrl = linkBaseUrl ?? parsed.linkBaseUrl;
-    if (linkBaseUrl && parsed.linkBaseUrl !== linkBaseUrl) {
-      writeStoredReplaySession({ ...parsed, linkBaseUrl });
+    const resolvedCaptureContext =
+      parsed.captureContext === "pre_auth" || captureContext === "pre_auth"
+        ? "pre_auth"
+        : null;
+    const suppressIdentityInProperties =
+      parsed.suppressIdentityInProperties === true ||
+      resolvedCaptureContext === "pre_auth";
+    if (
+      (linkBaseUrl && parsed.linkBaseUrl !== linkBaseUrl) ||
+      resolvedCaptureContext !== (parsed.captureContext ?? null) ||
+      suppressIdentityInProperties !==
+        (parsed.suppressIdentityInProperties === true)
+    ) {
+      writeStoredReplaySession({
+        ...parsed,
+        ...(linkBaseUrl ? { linkBaseUrl } : {}),
+        ...(resolvedCaptureContext
+          ? { captureContext: resolvedCaptureContext }
+          : {}),
+        ...(suppressIdentityInProperties
+          ? { suppressIdentityInProperties: true }
+          : {}),
+      });
     }
     return {
       replayId: parsed.replayId,
@@ -607,6 +639,8 @@ function getOrCreateReplaySession(
       sequence,
       ...(resolvedLinkBaseUrl ? { linkBaseUrl: resolvedLinkBaseUrl } : {}),
       analyticsEventCount: storedCount(parsed.analyticsEventCount),
+      captureContext: resolvedCaptureContext,
+      suppressIdentityInProperties,
       resumed: true,
     };
   }
@@ -618,6 +652,10 @@ function getOrCreateReplaySession(
     startedAtMs,
     sequence: 0,
     ...(linkBaseUrl ? { linkBaseUrl } : {}),
+    ...(captureContext ? { captureContext } : {}),
+    ...(captureContext === "pre_auth"
+      ? { suppressIdentityInProperties: true }
+      : {}),
   });
   return {
     replayId,
@@ -625,6 +663,8 @@ function getOrCreateReplaySession(
     sequence: 0,
     ...(linkBaseUrl ? { linkBaseUrl } : {}),
     analyticsEventCount: 0,
+    captureContext: captureContext ?? null,
+    suppressIdentityInProperties: captureContext === "pre_auth",
     resumed: false,
   };
 }
@@ -749,6 +789,12 @@ function persistReplaySequence(
       : {}),
     ...(existing?.replayId === replayId && existing.analyticsEventCount
       ? { analyticsEventCount: existing.analyticsEventCount }
+      : {}),
+    ...(existing?.captureContext === "pre_auth"
+      ? { captureContext: "pre_auth" }
+      : {}),
+    ...(existing?.suppressIdentityInProperties === true
+      ? { suppressIdentityInProperties: true }
       : {}),
   });
 }
@@ -1367,12 +1413,106 @@ function replayPropertiesForUpload(
   const properties = replayExtraProperties(options);
   if (replayUserEmail(properties)) {
     state.lastAuthenticatedProperties = properties ? { ...properties } : null;
-    return properties;
+    return propertiesWithCaptureContext(state, properties);
   }
   if (options.requireSignedInUser && state.lastAuthenticatedProperties) {
-    return state.lastAuthenticatedProperties;
+    return propertiesWithCaptureContext(
+      state,
+      state.lastAuthenticatedProperties,
+    );
   }
-  return properties;
+  return propertiesWithCaptureContext(state, properties);
+}
+
+function propertiesWithCaptureContext(
+  state: SessionReplayState,
+  properties: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (state.captureContext !== "pre_auth") return properties;
+  return { ...properties, capture_context: "pre_auth" };
+}
+
+const REPLAY_IDENTITY_PROPERTY_KEYS = new Set([
+  "email",
+  "emailaddress",
+  "useremail",
+  "user_email",
+  "useremailaddress",
+  "userid",
+  "user_id",
+  "username",
+  "user_name",
+  "name",
+  "firstname",
+  "first_name",
+  "lastname",
+  "last_name",
+  "fullname",
+  "full_name",
+  "displayname",
+  "display_name",
+  "user",
+  "session",
+  "auth",
+  "response",
+  "orgid",
+  "org_id",
+  "orgname",
+  "org_name",
+  "organizationid",
+  "organization_id",
+  "organizationname",
+  "organization_name",
+  "tenantid",
+  "tenant_id",
+  "workspaceid",
+  "workspace_id",
+  "code",
+  "state",
+  "nonce",
+  "otp",
+  "verifier",
+  "flowid",
+  "callbackurl",
+  "redirecturl",
+  "verificationcode",
+  "authuserid",
+  "auth_user_id",
+  "identity",
+]);
+
+function isSensitiveReplayPropertyKey(key: string): boolean {
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return (
+    REPLAY_IDENTITY_PROPERTY_KEYS.has(normalized) ||
+    /password|passwd|passphrase|token|secret|credential|authorization|authresponse|authcode|verificationcode|otp|nonce|verifier|callbackurl|redirecturl/.test(
+      normalized,
+    )
+  );
+}
+
+function stripReplayIdentityProperties(
+  value: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!value) return undefined;
+  const result: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (isSensitiveReplayPropertyKey(key)) continue;
+    if (Array.isArray(child)) {
+      result[key] = child.map((entry) =>
+        entry && typeof entry === "object" && !Array.isArray(entry)
+          ? stripReplayIdentityProperties(entry as Record<string, unknown>)
+          : entry,
+      );
+    } else if (child && typeof child === "object") {
+      result[key] = stripReplayIdentityProperties(
+        child as Record<string, unknown>,
+      );
+    } else {
+      result[key] = child;
+    }
+  }
+  return result;
 }
 
 interface ReplayUploadPayload {
@@ -1403,11 +1543,15 @@ function buildReplayBody(
   if (!options || !state.replayId) return null;
   const sessionId = getOrCreateAnalyticsSessionId();
   if (!sessionId) return null;
-  const properties = replayPropertiesForUpload(state, options);
-  const userEmail = replayUserEmail(properties);
+  const replayProperties = replayPropertiesForUpload(state, options);
+  const userEmail = replayUserEmail(replayProperties);
   if (options.requireSignedInUser && !userEmail) return null;
   const userId =
-    userEmail || replayString(properties?.userId ?? properties?.user_id);
+    userEmail ||
+    replayString(replayProperties?.userId ?? replayProperties?.user_id);
+  const properties = state.suppressIdentityInProperties
+    ? stripReplayIdentityProperties(replayProperties)
+    : replayProperties;
   const eventTimestamps = events.map((event) => event.timestampMs);
   const nowMs = Date.now();
   const startedAtMs =
@@ -3449,9 +3593,12 @@ async function startSessionReplayRecorder(
     return { started: false, reason: "disabled", sessionId, sampled };
   }
 
+  const captureContext =
+    initialProperties?.capture_context === "pre_auth" ? "pre_auth" : undefined;
   let replaySession = getOrCreateReplaySession(
     sessionId,
     normalized.linkBaseUrl,
+    captureContext,
   );
   const instanceNonce = generateReplayId();
   const { channel: replayChannel, probeClaim } = createReplayClaimChannel(
@@ -3471,6 +3618,12 @@ async function startSessionReplayRecorder(
         ...(normalized.linkBaseUrl
           ? { linkBaseUrl: normalized.linkBaseUrl }
           : {}),
+        ...(replaySession.captureContext === "pre_auth"
+          ? { captureContext: "pre_auth" }
+          : {}),
+        ...(replaySession.suppressIdentityInProperties
+          ? { suppressIdentityInProperties: true }
+          : {}),
       });
       replaySession = {
         replayId: freshReplayId,
@@ -3480,6 +3633,9 @@ async function startSessionReplayRecorder(
           ? { linkBaseUrl: normalized.linkBaseUrl }
           : {}),
         analyticsEventCount: 0,
+        captureContext: replaySession.captureContext,
+        suppressIdentityInProperties:
+          replaySession.suppressIdentityInProperties,
         resumed: false,
       };
     }
@@ -3504,6 +3660,9 @@ async function startSessionReplayRecorder(
   state.replayLinkBaseUrl =
     replaySession.linkBaseUrl ?? normalized.linkBaseUrl ?? null;
   state.sequence = replaySession.sequence;
+  state.captureContext = replaySession.captureContext;
+  state.suppressIdentityInProperties =
+    replaySession.suppressIdentityInProperties;
   state.queue = [];
   state.queuedBytes = 0;
   state.retryBatches = [];

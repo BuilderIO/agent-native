@@ -3911,6 +3911,95 @@ describe("session replay", () => {
     await second.stopSessionReplay();
   });
 
+  it("keeps pre-auth replay anonymous in properties when the same tab resumes after sign-in", async () => {
+    const { fetchMock, location, storage } = installBrowser(
+      "https://app.agent-native.com/signup",
+    );
+    const recordOptions: any[] = [];
+    recordMock.mockImplementation((options) => {
+      recordOptions.push(options);
+      return vi.fn();
+    });
+
+    const first = await freshSessionReplay();
+    const firstResult = await first.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      extraProperties: { capture_context: "pre_auth" },
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    expect(firstResult.started).toBe(true);
+    recordOptions[0].emit({ type: 3, data: { href: "/signup" } });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const firstBody = await parseReplayUpload(
+      fetchMock.mock.calls[0]?.[1] as RequestInit,
+    );
+    expect(firstBody.properties).toEqual({ capture_context: "pre_auth" });
+    await first.stopSessionReplay();
+
+    const storedSession = JSON.parse(
+      storage.get("agent-native.session_replay_id") ?? "{}",
+    );
+    expect(storedSession).toMatchObject({
+      replayId: firstResult.replayId,
+      captureContext: "pre_auth",
+      suppressIdentityInProperties: true,
+    });
+
+    delete (globalThis as any)[replayStateKey];
+    setLocation(location, "https://app.agent-native.com/inbox");
+    const second = await freshSessionReplay();
+    const secondResult = await second.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      requireSignedInUser: true,
+      extraProperties: {
+        userId: "qa+auth@example.test",
+        userEmail: "qa+auth@example.test",
+        userName: "QA User",
+        orgId: "org-123",
+        safeProperty: "retained",
+        nested: {
+          email: "qa+auth@example.test",
+          password: "secret-password",
+          accessToken: "secret-token",
+          authResponse: { userId: "auth-user-1" },
+          verificationCode: "one-time-code",
+          callbackUrl: "https://app.example.test?code=one-time-code",
+          nonce: "opaque-nonce",
+        },
+      },
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+
+    expect(secondResult.started).toBe(true);
+    expect(secondResult.replayId).toBe(firstResult.replayId);
+    recordOptions[1].emit({ type: 3, data: { href: "/inbox" } });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const secondBody = await parseReplayUpload(
+      fetchMock.mock.calls[1]?.[1] as RequestInit,
+    );
+
+    expect(secondBody).toMatchObject({
+      userId: "qa+auth@example.test",
+      userEmail: "qa+auth@example.test",
+      properties: {
+        capture_context: "pre_auth",
+        safeProperty: "retained",
+      },
+    });
+    expect(secondBody.properties).not.toHaveProperty("userId");
+    expect(secondBody.properties).not.toHaveProperty("userEmail");
+    expect(secondBody.properties).not.toHaveProperty("userName");
+    expect(secondBody.properties).not.toHaveProperty("orgId");
+    expect(JSON.stringify(secondBody.properties)).not.toMatch(
+      /qa\+auth@example\.test|secret-password|secret-token|auth-user-1|one-time-code|opaque-nonce/,
+    );
+    await second.stopSessionReplay();
+  });
+
   it("retries a transient 503 response", async () => {
     const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
     fetchMock
