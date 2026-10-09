@@ -706,7 +706,8 @@ export default {
     replayOriginsDescription:
       "Fügen Sie exakte HTTPS-Ursprünge ein, einen pro Zeile. Vorhandene Ursprünge bleiben erhalten.",
     currentReplayOrigins: "Derzeit erlaubte Ursprünge",
-    anyReplayOriginAllowed: "Derzeit ist jeder Ursprung zugelassen.",
+    anyReplayOriginAllowed:
+      "Derzeit ist jeder Ursprung zugelassen. Nach dem Hinzufügen sind nur die aufgeführten Ursprünge erlaubt. Fügen Sie daher jede App hinzu, die diesen Schlüssel verwendet.",
     originsToAdd: "Hinzuzufügende Ursprünge",
     replayOriginsPlaceholder: "https://app.example.com",
     addReplayOrigins: "Ursprünge hinzufügen",

@@ -697,7 +697,8 @@ export default {
     replayOriginsDescription:
       "Añade orígenes HTTPS exactos, uno por línea. Se conservarán los existentes.",
     currentReplayOrigins: "Orígenes permitidos actuales",
-    anyReplayOriginAllowed: "Actualmente se permite cualquier origen.",
+    anyReplayOriginAllowed:
+      "Actualmente se permite cualquier origen. Al añadir orígenes, la reproducción se limitará a la lista; incluye todas las aplicaciones que usan esta clave.",
     originsToAdd: "Orígenes para añadir",
     replayOriginsPlaceholder: "https://app.example.com",
     addReplayOrigins: "Añadir orígenes",

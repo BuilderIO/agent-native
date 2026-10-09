@@ -654,7 +654,8 @@ export default {
     manageReplayOrigins: "管理回放來源",
     replayOriginsDescription: "每行新增一個精確的 HTTPS 來源。現有來源會保留。",
     currentReplayOrigins: "目前允許的來源",
-    anyReplayOriginAllowed: "目前允許任何來源。",
+    anyReplayOriginAllowed:
+      "目前允許任何來源。新增來源後，回放將限制為清單中的來源，因此請加入所有使用此金鑰的應用程式。",
     originsToAdd: "要新增的來源",
     replayOriginsPlaceholder: "https://app.example.com",
     addReplayOrigins: "新增來源",

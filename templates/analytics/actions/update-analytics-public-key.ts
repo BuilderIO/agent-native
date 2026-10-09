@@ -8,17 +8,14 @@ import { z } from "zod";
 import { updateAnalyticsPublicKeyOrigins } from "../server/lib/first-party-analytics.js";
 
 const exactHttpsOrigin = z.string().refine((value) => {
-  try {
-    const url = new URL(value);
-    return (
-      url.protocol === "https:" &&
-      url.origin === value &&
-      !url.username &&
-      !url.password
-    );
-  } catch {
-    return false;
-  }
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  return (
+    url.protocol === "https:" &&
+    url.origin === value &&
+    !url.username &&
+    !url.password
+  );
 }, "Use an exact HTTPS origin without a path, query, or fragment.");
 
 export default defineAction({

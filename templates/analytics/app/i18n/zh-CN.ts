@@ -657,7 +657,8 @@ export default {
     manageReplayOrigins: "管理回放来源",
     replayOriginsDescription: "每行添加一个准确的 HTTPS 来源。现有来源将保留。",
     currentReplayOrigins: "当前允许的来源",
-    anyReplayOriginAllowed: "当前允许任何来源。",
+    anyReplayOriginAllowed:
+      "当前允许任何来源。添加来源后，回放将仅限于列表中的来源，因此请包含使用此密钥的所有应用。",
     originsToAdd: "要添加的来源",
     replayOriginsPlaceholder: "https://app.example.com",
     addReplayOrigins: "添加来源",

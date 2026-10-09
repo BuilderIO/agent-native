@@ -1131,7 +1131,8 @@ export default {
     replayOriginsDescription:
       "Add exact HTTPS origins, one per line. Existing origins are preserved.",
     currentReplayOrigins: "Current allowed origins",
-    anyReplayOriginAllowed: "Any origin is currently allowed.",
+    anyReplayOriginAllowed:
+      "Any origin is currently allowed. Adding origins limits replay to the list, so include every app that uses this key.",
     originsToAdd: "Origins to add",
     replayOriginsPlaceholder: "https://app.example.com",
     addReplayOrigins: "Add origins",

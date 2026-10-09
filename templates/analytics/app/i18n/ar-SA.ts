@@ -683,7 +683,8 @@ export default {
     replayOriginsDescription:
       "أضف مصادر HTTPS دقيقة، مصدرًا واحدًا في كل سطر. سيتم الاحتفاظ بالمصادر الحالية.",
     currentReplayOrigins: "المصادر المسموح بها حاليًا",
-    anyReplayOriginAllowed: "أي مصدر مسموح به حاليًا.",
+    anyReplayOriginAllowed:
+      "أي مصدر مسموح به حاليًا. ستقيّد إضافة المصادر إعادة التشغيل بها، لذا أدرج كل تطبيق يستخدم هذا المفتاح.",
     originsToAdd: "المصادر المراد إضافتها",
     replayOriginsPlaceholder: "https://app.example.com",
     addReplayOrigins: "إضافة المصادر",

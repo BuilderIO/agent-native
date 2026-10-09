@@ -682,7 +682,8 @@ export default {
     replayOriginsDescription:
       "정확한 HTTPS 오리진을 한 줄에 하나씩 추가하세요. 기존 오리진은 유지됩니다.",
     currentReplayOrigins: "현재 허용된 오리진",
-    anyReplayOriginAllowed: "현재 모든 오리진이 허용됩니다.",
+    anyReplayOriginAllowed:
+      "현재 모든 오리진이 허용됩니다. 오리진을 추가하면 리플레이가 목록으로 제한되므로 이 키를 사용하는 모든 앱을 포함하세요.",
     originsToAdd: "추가할 오리진",
     replayOriginsPlaceholder: "https://app.example.com",
     addReplayOrigins: "오리진 추가",

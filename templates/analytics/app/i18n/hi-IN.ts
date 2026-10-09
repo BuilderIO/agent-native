@@ -677,7 +677,8 @@ export default {
     replayOriginsDescription:
       "सटीक HTTPS ऑरिजिन जोड़ें, हर पंक्ति में एक। मौजूदा ऑरिजिन बने रहेंगे।",
     currentReplayOrigins: "मौजूदा अनुमत ऑरिजिन",
-    anyReplayOriginAllowed: "अभी किसी भी ऑरिजिन की अनुमति है।",
+    anyReplayOriginAllowed:
+      "अभी किसी भी ऑरिजिन की अनुमति है। ऑरिजिन जोड़ने पर रीप्ले केवल इस सूची तक सीमित होगा, इसलिए इस कुंजी का उपयोग करने वाले हर ऐप को शामिल करें।",
     originsToAdd: "जोड़ने के ऑरिजिन",
     replayOriginsPlaceholder: "https://app.example.com",
     addReplayOrigins: "ऑरिजिन जोड़ें",
