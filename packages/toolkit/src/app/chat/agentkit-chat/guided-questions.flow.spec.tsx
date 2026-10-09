@@ -354,16 +354,52 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     expect(result.current().questions).toBeNull();
 
     hasQuestion = true;
-    let stillWaiting = false;
+    let questionCheck: unknown;
     await act(async () => {
-      stillWaiting = await result.current().refetchPendingQuestion();
+      questionCheck = await result.current().refetchPendingQuestion();
     });
 
-    expect(stillWaiting).toBe(true);
+    expect(questionCheck).toEqual({ status: "pending" });
     for (let i = 0; i < 20 && !result.current().questions; i += 1) {
       await flush();
     }
     expect(result.current().questions?.length).toBe(1);
+  });
+
+  it("preserves application-state read errors when checking for pending questions", async () => {
+    let failReads = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (!isApplicationStateRequest(input)) {
+          return new Response(JSON.stringify({ chatEligible: true }), {
+            status: 200,
+          });
+        }
+        if (failReads) {
+          return new Response("state unavailable", { status: 503 });
+        }
+        return readResponse(String(input), () => "");
+      }),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      refetchInterval: false,
+    });
+    expect(result.current().questions).toBeNull();
+
+    failReads = true;
+    let questionCheck: unknown;
+    await act(async () => {
+      questionCheck = await result.current().refetchPendingQuestion();
+    });
+
+    expect(questionCheck).toMatchObject({
+      status: "error",
+      error: expect.anything(),
+    });
   });
 
   it("keeps active questions visible while a DB-sync refresh is pending", async () => {
@@ -398,11 +434,11 @@ describe("useGuidedQuestionFlow scoped reads", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    for (let i = 0; i < 20 && fetchMock.mock.calls.length < 2; i += 1) {
+    for (let i = 0; i < 20 && reads < 2; i += 1) {
       await flush();
     }
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(reads).toBe(2);
     expect(result.current().questions).toEqual(payload.questions);
 
     await act(async () => {

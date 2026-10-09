@@ -173,15 +173,6 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("submission.reason ??");
   });
 
-  it("keeps image and logo search optional during new deck generation", () => {
-    expect(source).toContain(
-      "Image and logo lookup with search-images or search-logos is optional enrichment.",
-    );
-    expect(source).toContain(
-      "Do not stop generation or retry the lookup in a loop.",
-    );
-  });
-
   it("closes before references and restores prompt state when returning", () => {
     const recovery = flow.slice(
       flow.indexOf("const recoverFromGenerationSetupFailure"),

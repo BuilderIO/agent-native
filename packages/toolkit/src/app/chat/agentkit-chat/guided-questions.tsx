@@ -1092,6 +1092,11 @@ export interface UseGuidedQuestionFlowOptions {
   }) => void | Promise<{ delivered: boolean }>;
 }
 
+export type PendingQuestionRefetchResult =
+  | { status: "pending" }
+  | { status: "none" }
+  | { status: "error"; error: unknown };
+
 function payloadBelongsToThread(
   payload: GuidedQuestionPayload,
   threadId: string | undefined,
@@ -1160,9 +1165,7 @@ export function useGuidedQuestionFlow({
     queryFn: async () => {
       const queryGeneration = queryGenerationRef.current;
       const read = async (key: string) => {
-        const parsed = await readClientAppState<GuidedQuestionPayload>(
-          key,
-        ).catch(() => null);
+        const parsed = await readClientAppState<GuidedQuestionPayload>(key);
         if (Array.isArray(parsed?.questions) && parsed.questions.length > 0) {
           return parsed;
         }
@@ -1349,15 +1352,18 @@ export function useGuidedQuestionFlow({
   const refetchPendingQuestion = useCallback(async () => {
     const result = await refetch();
     if (result.status === "error") {
-      return true;
+      return { status: "error", error: result.error } as const;
     }
     const latest = result.data ?? null;
-    return Boolean(
+    const hasPendingQuestion = Boolean(
       latest &&
       payloadBelongsToThread(latest, threadId) &&
       Array.isArray(latest.questions) &&
       latest.questions.length > 0,
     );
+    return hasPendingQuestion
+      ? ({ status: "pending" } as const)
+      : ({ status: "none" } as const);
   }, [refetch, threadId]);
 
   return {
