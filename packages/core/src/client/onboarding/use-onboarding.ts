@@ -23,6 +23,7 @@ import {
   readFirstRunOnboardingCookieState,
 } from "./first-run-status.js";
 
+const lastOnboardingStepViews = new Map<string, string>();
 const seenOnboardingEvents = new Set<string>();
 const CUSTOM_KEY_ATTEMPT_STORAGE_KEY =
   "agent-native.onboarding.custom_keys_attempt";
@@ -716,13 +717,20 @@ export function __resetOnboardingSummaryReadsForTests(): void {
   sharedSummaryReads.clear();
 }
 
+export function __resetOnboardingEventDedupeForTests(): void {
+  lastOnboardingStepViews.clear();
+  seenOnboardingEvents.clear();
+}
+
 export function trackOnboardingEvent(
   name: string,
   properties: Record<string, unknown>,
 ): void {
   if (typeof window === "undefined") return;
   const identityKey = getAnalyticsIdentityKey() ?? "anonymous";
+  const sessionId = getAnalyticsSessionId() ?? "unknown-session";
   const key = [
+    sessionId,
     identityKey,
     name,
     properties.flow,
@@ -735,6 +743,15 @@ export function trackOnboardingEvent(
   ]
     .map((value) => String(value ?? ""))
     .join(":");
+  const stepViewScope = JSON.stringify([
+    sessionId,
+    identityKey,
+    properties.flow,
+  ]);
+  const stepIdentity = JSON.stringify([
+    properties.step_id,
+    properties.extension_id,
+  ]);
   const isRepeatableInteraction =
     name.startsWith("integration_") ||
     name === "onboarding_role_save_started" ||
@@ -744,8 +761,23 @@ export function trackOnboardingEvent(
     name === "onboarding_dismissed" ||
     name === "onboarding_reopened" ||
     name === "onboarding_abandoned";
-  if (!isRepeatableInteraction && seenOnboardingEvents.has(key)) return;
-  if (!isRepeatableInteraction) seenOnboardingEvents.add(key);
+  if (name === "onboarding_step_viewed") {
+    if (
+      typeof properties.step_view_id === "string" &&
+      properties.step_view_id
+    ) {
+      if (seenOnboardingEvents.has(key)) return;
+      seenOnboardingEvents.add(key);
+    } else {
+      if (lastOnboardingStepViews.get(stepViewScope) === stepIdentity) return;
+      lastOnboardingStepViews.set(stepViewScope, stepIdentity);
+    }
+  } else if (name === "onboarding_reopened") {
+    lastOnboardingStepViews.delete(stepViewScope);
+  } else if (!isRepeatableInteraction) {
+    if (seenOnboardingEvents.has(key)) return;
+    seenOnboardingEvents.add(key);
+  }
   trackEvent(name, properties);
 }
 

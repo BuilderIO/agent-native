@@ -174,6 +174,26 @@ describe("onboarding journey events SQL", () => {
     expect(() => assertFirstPartyAnalyticsBigQuerySql(sql)).not.toThrow();
   });
 
+  it("selects renderable Design output events for onboarding sessions", async () => {
+    await setup();
+    await insert("design-output", "signup", 1, {
+      email: "dave@example.com",
+      template: "design",
+    });
+    await insert("design-output", "design_output_created", 2, {
+      email: "dave@example.com",
+      template: "design",
+      properties: { source: "create_file_action" },
+    });
+
+    const rows = await run({ app: "design" });
+
+    expect(rows.map((row) => row.event_name)).toEqual([
+      "signup",
+      "design_output_created",
+    ]);
+  });
+
   it("returns only step events of onboarding sessions, in window, with their properties", async () => {
     await setup();
     await seedSessions();

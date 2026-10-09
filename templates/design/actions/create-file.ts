@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { seedFromText } from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -161,6 +162,19 @@ export default defineAction({
         isApplied: (current) =>
           Boolean(parseCanvasFrameGeometryById(current.canvasFrames)[id]),
       });
+
+      track(
+        "design_output_created",
+        {
+          app_name: "design",
+          template_name: "design",
+          output_id: designId,
+          output_type: "design",
+          file_type: resolvedFileType,
+          source: "create_file_action",
+        },
+        context,
+      );
     }
 
     return {

@@ -770,6 +770,40 @@ describe("create-deck — generation lifecycle tracking", () => {
     });
   });
 
+  it("does not start a generation lifecycle for an empty existing-deck replacement", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "T",
+        slides: [{ id: "s1" }],
+        generationContext: {
+          generationAttemptId: "previous-attempt",
+          generationMode: "action",
+        },
+      }),
+    };
+
+    const result = await action.run({
+      title: "T",
+      slides: [],
+      deckId: "deck-1",
+    });
+
+    expect(result.slideCount).toBe(0);
+    const events = trackedEvents();
+    expect(events.some((event) => event.name.startsWith("generation_"))).toBe(
+      false,
+    );
+    expect(events.some((event) => event.name === "deck_edited")).toBe(true);
+    expect(
+      events.find((event) => event.name === "deck_edited")?.properties,
+    ).not.toHaveProperty("generation_attempt_id");
+    expect(JSON.parse(updatedFields!.data as string)).not.toHaveProperty(
+      "generationContext",
+    );
+  });
+
   it.each([
     [
       "client notification",
