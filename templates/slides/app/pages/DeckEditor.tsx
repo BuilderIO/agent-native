@@ -639,8 +639,9 @@ export default function DeckEditor() {
   const { generating: addSlideAgentGenerating, submit: addSlideAgentSubmit } =
     useAgentGenerating();
   const retryEmptyGenerationInFlightRef = useRef(false);
-  const refetchPendingQuestionRef = useRef<
-    ReturnType<typeof useGuidedQuestionFlow>["refetchPendingQuestion"] | null
+  const refetchPendingQuestionStatusRef = useRef<
+    | ReturnType<typeof useGuidedQuestionFlow>["refetchPendingQuestionStatus"]
+    | null
   >(null);
   const emptyGenerationRecoveryRef = useRef<string | null>(null);
   const [retryEmptyGenerationPending, setRetryEmptyGenerationPending] =
@@ -1338,18 +1339,19 @@ export default function DeckEditor() {
     }
     retryEmptyGenerationInFlightRef.current = true;
     setRetryEmptyGenerationPending(true);
-    const refetchPendingQuestion = refetchPendingQuestionRef.current;
-    if (!refetchPendingQuestion) {
+    const refetchPendingQuestionStatus =
+      refetchPendingQuestionStatusRef.current;
+    if (!refetchPendingQuestionStatus) {
       retryEmptyGenerationInFlightRef.current = false;
       setRetryEmptyGenerationPending(false);
       toast.error(t("deckEditor.generationOutcomeUnresolved"));
       return;
     }
     let pendingQuestionCheck: Awaited<
-      ReturnType<typeof refetchPendingQuestion>
+      ReturnType<typeof refetchPendingQuestionStatus>
     >;
     try {
-      pendingQuestionCheck = await refetchPendingQuestion();
+      pendingQuestionCheck = await refetchPendingQuestionStatus();
     } catch (error) {
       console.error("Failed to check guided questions before retrying.", error);
       retryEmptyGenerationInFlightRef.current = false;
@@ -1775,7 +1777,7 @@ export default function DeckEditor() {
     handleSubmit: handleQuestionSubmit,
     handleSkip: handleQuestionSkip,
     isSubmitting: questionFlowSubmitting,
-    refetchPendingQuestion,
+    refetchPendingQuestionStatus,
   } = useGuidedQuestionFlow({
     stateKey: "guided-questions",
     browserTabId: TAB_ID,
@@ -1802,7 +1804,7 @@ export default function DeckEditor() {
     onSubmitMessage: submitQuestionContinuation,
     onSkipMessage: submitQuestionContinuation,
   });
-  refetchPendingQuestionRef.current = refetchPendingQuestion;
+  refetchPendingQuestionStatusRef.current = refetchPendingQuestionStatus;
   questionFlowTargetTabIdRef.current = newDeckGenerationTabId;
 
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
@@ -1864,18 +1866,14 @@ export default function DeckEditor() {
     let pausedForQuestionOrRun = false;
     void (async () => {
       try {
-        const refreshResult = await refreshDeckForGenerationOutcome(
-          refreshOpenDeck,
-          id,
-        );
-        const generationEndedAt = refreshResult.endedAt;
+        await refreshDeckForGenerationOutcome(refreshOpenDeck, id);
         if (
           generationSettlingAttemptRef.current !== generationAttemptId ||
           generationTerminalAttemptRef.current === generationAttemptId
         ) {
           return;
         }
-        const pendingQuestionCheck = await refetchPendingQuestion();
+        const pendingQuestionCheck = await refetchPendingQuestionStatus();
         if (
           generationSettlingAttemptRef.current !== generationAttemptId ||
           generationTerminalAttemptRef.current === generationAttemptId
@@ -1894,7 +1892,7 @@ export default function DeckEditor() {
               : {}),
             ...generationTimingFields(
               generationStartedAtRef.current ?? undefined,
-              generationEndedAt,
+              Date.now(),
             ),
             source: "new_deck_prompt",
             outcome: "unresolved",
@@ -1931,7 +1929,7 @@ export default function DeckEditor() {
           generationSettlingAttemptRef.current = null;
           return;
         }
-        const finalPendingQuestionCheck = await refetchPendingQuestion();
+        const finalPendingQuestionCheck = await refetchPendingQuestionStatus();
         if (
           generationSettlingAttemptRef.current !== generationAttemptId ||
           generationTerminalAttemptRef.current === generationAttemptId
@@ -1950,7 +1948,7 @@ export default function DeckEditor() {
               : {}),
             ...generationTimingFields(
               generationStartedAtRef.current ?? undefined,
-              outcomeRefreshResult.endedAt,
+              Date.now(),
             ),
             source: "new_deck_prompt",
             outcome: "unresolved",
@@ -1969,6 +1967,7 @@ export default function DeckEditor() {
           generationSettlingAttemptRef.current = null;
           return;
         }
+        const generationEndedAt = Date.now();
         generationTerminalAttemptRef.current = generationAttemptId;
         const refreshedDeck =
           outcomeRefreshResult.status === "ready"
@@ -2153,7 +2152,7 @@ export default function DeckEditor() {
     flushDeckSave,
     t,
     targetSlideCount,
-    refetchPendingQuestion,
+    refetchPendingQuestionStatus,
     waitingOnNewDeckQuestions,
   ]);
 
@@ -2458,7 +2457,7 @@ export default function DeckEditor() {
       return;
     }
     let cancelled = false;
-    void refetchPendingQuestion().then((questionCheck) => {
+    void refetchPendingQuestionStatus().then((questionCheck) => {
       if (cancelled || questionCheck.status !== "none") return;
       clearNewDeckGenerationRun(id, generationSubmitId);
       setSearchParams(
@@ -2479,7 +2478,7 @@ export default function DeckEditor() {
     newDeckGenerationGenerating,
     newDeckGenerationSignal,
     newDeckGenerationPhase,
-    refetchPendingQuestion,
+    refetchPendingQuestionStatus,
     searchParams,
     setSearchParams,
     waitingOnNewDeckQuestions,

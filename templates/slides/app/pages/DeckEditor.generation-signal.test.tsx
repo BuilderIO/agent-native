@@ -202,7 +202,7 @@ vi.mock(
           : mocks.guidedQuestions,
         handleSubmit: vi.fn(),
         handleSkip: vi.fn(),
-        refetchPendingQuestion: mocks.guidedQuestionRefetchPending,
+        refetchPendingQuestionStatus: mocks.guidedQuestionRefetchPending,
       };
     },
   }),

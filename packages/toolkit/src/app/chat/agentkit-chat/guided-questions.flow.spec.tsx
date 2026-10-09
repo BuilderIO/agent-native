@@ -314,6 +314,10 @@ describe("useGuidedQuestionFlow scoped reads", () => {
       fetchMock.mock.calls.filter(([input]) =>
         isApplicationStateRequest(input),
       );
+    const unrelatedFetches = () =>
+      fetchMock.mock.calls
+        .filter(([input]) => !isApplicationStateRequest(input))
+        .map(([input]) => String(input));
 
     const result = await renderFlow({
       stateKey: "guided-questions-refresh",
@@ -321,6 +325,7 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     });
     expect(result.current().questions).toBeNull();
     const initialReads = applicationStateReads().length;
+    const initialUnrelatedFetches = unrelatedFetches();
 
     hasQuestion = true;
     await act(async () => {
@@ -333,6 +338,10 @@ describe("useGuidedQuestionFlow scoped reads", () => {
 
     expect(result.current().questions?.length).toBe(1);
     expect(applicationStateReads()).toHaveLength(initialReads + 1);
+    expect(unrelatedFetches()).toEqual([
+      ...initialUnrelatedFetches,
+      expect.stringContaining("/_agent-native/agent-engine/status"),
+    ]);
   });
 
   it("confirms a question written after the caller's own trigger, without a DB-sync wakeup", async () => {
@@ -356,7 +365,7 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     hasQuestion = true;
     let questionCheck: unknown;
     await act(async () => {
-      questionCheck = await result.current().refetchPendingQuestion();
+      questionCheck = await result.current().refetchPendingQuestionStatus();
     });
 
     expect(questionCheck).toEqual({ status: "pending" });
@@ -393,13 +402,52 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     failReads = true;
     let questionCheck: unknown;
     await act(async () => {
-      questionCheck = await result.current().refetchPendingQuestion();
+      questionCheck = await result.current().refetchPendingQuestionStatus();
     });
 
     expect(questionCheck).toMatchObject({
       status: "error",
       error: expect.anything(),
     });
+  });
+
+  it("preserves the boolean refetchPendingQuestion contract", async () => {
+    let hasQuestion = false;
+    let failReads = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (failReads && isApplicationStateRequest(input)) {
+          return new Response("state unavailable", { status: 503 });
+        }
+        return readResponse(String(input), () =>
+          hasQuestion ? JSON.stringify(payload) : "",
+        );
+      }),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      refetchInterval: false,
+    });
+    let isPending = true;
+    await act(async () => {
+      isPending = await result.current().refetchPendingQuestion();
+    });
+    expect(isPending).toBe(false);
+
+    hasQuestion = true;
+    await act(async () => {
+      isPending = await result.current().refetchPendingQuestion();
+    });
+    expect(isPending).toBe(true);
+
+    failReads = true;
+    await act(async () => {
+      isPending = await result.current().refetchPendingQuestion();
+    });
+    expect(isPending).toBe(true);
   });
 
   it("keeps active questions visible while a DB-sync refresh is pending", async () => {

@@ -1349,7 +1349,7 @@ export function useGuidedQuestionFlow({
     skipMessage,
   ]);
 
-  const refetchPendingQuestion = useCallback(async () => {
+  const refetchPendingQuestionStatus = useCallback(async () => {
     const result = await refetch();
     if (result.status === "error") {
       return { status: "error", error: result.error } as const;
@@ -1365,6 +1365,10 @@ export function useGuidedQuestionFlow({
       ? ({ status: "pending" } as const)
       : ({ status: "none" } as const);
   }, [refetch, threadId]);
+  const refetchPendingQuestion = useCallback(async () => {
+    const result = await refetchPendingQuestionStatus();
+    return result.status !== "none";
+  }, [refetchPendingQuestionStatus]);
 
   return {
     payload: visiblePayload,
@@ -1381,5 +1385,6 @@ export function useGuidedQuestionFlow({
     handleSubmit,
     handleSkip,
     refetchPendingQuestion,
+    refetchPendingQuestionStatus,
   };
 }
