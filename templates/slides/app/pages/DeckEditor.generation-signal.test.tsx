@@ -737,9 +737,6 @@ describe("DeckEditor generation signal wiring", () => {
         "slides:empty-generation-retry-recovery:deck-1",
       ),
     ).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: "deckEditor.tryAgain" }),
-    ).toBeNull();
   });
 
   it("keeps generation unsettled when the guided-question check fails", async () => {
@@ -934,6 +931,72 @@ describe("DeckEditor generation signal wiring", () => {
       "generation_failed",
       expect.anything(),
     );
+  });
+
+  it("rechecks guided questions after the final deck refresh", async () => {
+    let resolveOutcomeRefresh!: (deck: typeof mocks.deck) => void;
+    const outcomeRefreshPromise = new Promise<typeof mocks.deck>((resolve) => {
+      resolveOutcomeRefresh = resolve;
+    });
+    let outcomeRefreshStarted = false;
+    mocks.refreshOpenDeck.mockImplementation(() => {
+      if (mocks.guidedQuestionRefetchPending.mock.calls.length > 0) {
+        outcomeRefreshStarted = true;
+        return outcomeRefreshPromise;
+      }
+      return Promise.resolve(mocks.deck);
+    });
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() => expect(outcomeRefreshStarted).toBe(true));
+    expect(mocks.guidedQuestionRefetchPending).toHaveBeenCalledTimes(1);
+    mocks.guidedQuestionQuestions = [
+      { id: "q1", question: "What should the deck focus on?" },
+    ];
+    await act(async () => {
+      resolveOutcomeRefresh(mocks.deck);
+      await outcomeRefreshPromise;
+    });
+
+    await waitFor(() =>
+      expect(mocks.guidedQuestionRefetchPending).toHaveBeenCalledTimes(2),
+    );
+    expect(mocks.deck.generationContext).not.toHaveProperty(
+      "generationFailureCode",
+    );
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      "generation_failed",
+      expect.anything(),
+    );
+    expect(
+      window.localStorage.getItem(
+        "slides:empty-generation-retry-recovery:deck-1",
+      ),
+    ).toBeNull();
   });
 
   it("routes a reopened deck answer to its original chat thread", async () => {

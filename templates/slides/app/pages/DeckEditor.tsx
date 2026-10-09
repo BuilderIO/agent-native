@@ -1931,6 +1931,44 @@ export default function DeckEditor() {
           generationSettlingAttemptRef.current = null;
           return;
         }
+        const finalPendingQuestionCheck = await refetchPendingQuestion();
+        if (
+          generationSettlingAttemptRef.current !== generationAttemptId ||
+          generationTerminalAttemptRef.current === generationAttemptId
+        ) {
+          return;
+        }
+        if (finalPendingQuestionCheck.status === "error") {
+          trackEvent("generation_outcome_unresolved", {
+            app_name: "slides",
+            template_name: "slides",
+            generation_attempt_id: generationAttemptId,
+            output_id: id,
+            output_type: "deck",
+            ...(targetSlideCount !== null
+              ? { target_slide_count: targetSlideCount }
+              : {}),
+            ...generationTimingFields(
+              generationStartedAtRef.current ?? undefined,
+              outcomeRefreshResult.endedAt,
+            ),
+            source: "new_deck_prompt",
+            outcome: "unresolved",
+            reason: "guided_question_refetch_failed",
+          });
+          pausedForQuestionOrRun = true;
+          generationSettlingAttemptRef.current = null;
+          return;
+        }
+        if (
+          finalPendingQuestionCheck.status === "pending" ||
+          generationLifecyclePauseRef.current.waitingOnQuestions ||
+          generationLifecyclePauseRef.current.generating
+        ) {
+          pausedForQuestionOrRun = true;
+          generationSettlingAttemptRef.current = null;
+          return;
+        }
         generationTerminalAttemptRef.current = generationAttemptId;
         const refreshedDeck =
           outcomeRefreshResult.status === "ready"
