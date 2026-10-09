@@ -197,8 +197,15 @@ function itemResponse(result: ActionBatchItemResult): Response {
   if (result.status === 204 || payload === undefined) {
     return new Response(null, { status: result.status, headers });
   }
+  // The payload is serialized again here, so its length is measured from this
+  // body. A length carried over from the single GET would describe other bytes.
+  const body = JSON.stringify(payload);
   headers.set("Content-Type", "application/json");
-  return new Response(JSON.stringify(payload), {
+  headers.set(
+    "Content-Length",
+    String(new TextEncoder().encode(body).byteLength),
+  );
+  return new Response(body, {
     status: result.status,
     headers,
   });

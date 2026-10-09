@@ -10,7 +10,10 @@ const sessionMocks = vi.hoisted(() => ({
 }));
 vi.mock("./use-session.js", () => sessionMocks);
 
-import { resetActionGetBatchForTests } from "./action-get-batch.js";
+import {
+  fetchActionGet,
+  resetActionGetBatchForTests,
+} from "./action-get-batch.js";
 import { callAction } from "./use-action.js";
 
 const BATCH_URL = "/_agent-native/actions/get-actions-batch";
@@ -137,6 +140,35 @@ describe("action GET batching", () => {
     expect(error.status).toBe(403);
     expect(error.errorCode).toBe("forbidden");
     expect(error.actionMessage).toBe("Not allowed for this design");
+  });
+
+  it("gives each batched item response the byte length of its body", async () => {
+    stubFetch((call) =>
+      call.url === BATCH_URL
+        ? batchResponses(call, (index) => ({
+            status: 200,
+            body: { index, title: "café ✓" },
+          }))
+        : jsonResponse({}),
+    );
+
+    const [first, second] = await Promise.all(
+      ["get-a", "get-b"].map((name) =>
+        fetchActionGet({
+          name,
+          query: "",
+          url: `/_agent-native/actions/${name}`,
+          init: { method: "GET" },
+          headers: {},
+          batchUrl: BATCH_URL,
+        }),
+      ),
+    );
+
+    // 28 characters but 31 UTF-8 bytes: the header must count bytes.
+    expect(await first.text()).toBe('{"index":0,"title":"café ✓"}');
+    expect(first.headers.get("content-length")).toBe("31");
+    expect(second.headers.get("content-length")).toBe("31");
   });
 
   it("never batches a mutation", async () => {
