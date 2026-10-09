@@ -242,6 +242,7 @@ describe("template artboard preview", () => {
       ),
     );
     const frame = container.querySelector("iframe")!;
+    const getComputedStyle = vi.spyOn(window, "getComputedStyle");
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
     expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(false);
     expect(intersectionObservers[0]?.options?.threshold).toEqual([
@@ -305,6 +306,21 @@ describe("template artboard preview", () => {
       ),
     );
     expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(true);
+    const visibilityStyleChecks = getComputedStyle.mock.calls.length;
+    act(() => {
+      intersectionObservers[0]!.callback(
+        [
+          {
+            isIntersecting: true,
+            intersectionRatio: 1,
+            intersectionRect: { width: 320, height: 180 },
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      );
+      frame.dispatchEvent(new Event("transitionend", { bubbles: true }));
+    });
+    expect(getComputedStyle).toHaveBeenCalledTimes(visibilityStyleChecks);
     act(() =>
       intersectionObservers[0]!.callback(
         [

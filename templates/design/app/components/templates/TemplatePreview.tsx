@@ -109,7 +109,9 @@ export function TemplatePreview({
     const frame = frameRef.current;
     if (!recordSessionReplay || !frame) return;
     let latestIntersection: IntersectionObserverEntry | undefined;
+    let hasMarkedVisible = false;
     const markVisiblePreview = () => {
+      if (hasMarkedVisible) return;
       const entry = latestIntersection;
       const hasVisibleArea =
         entry?.isIntersecting &&
@@ -136,6 +138,7 @@ export function TemplatePreview({
         }
       }
 
+      hasMarkedVisible = true;
       setSessionReplayVisibility({
         enabled: recordSessionReplay,
         html,
