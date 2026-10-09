@@ -47,6 +47,7 @@ import {
   useCallback,
   useRef,
   useEffect,
+  useLayoutEffect,
   type FormEvent,
 } from "react";
 import { createPortal } from "react-dom";
@@ -688,6 +689,10 @@ export default function DeckEditor() {
   const generationSettlingAttemptRef = useRef<string | null>(null);
   const generationTerminalAttemptRef = useRef<string | null>(null);
   const generationLifecycleAttemptKeyRef = useRef<string | null>(null);
+  const generationLifecyclePauseRef = useRef({
+    waitingOnQuestions: false,
+    generating: false,
+  });
   if (isNewDeckGenerationRoute) {
     wasNewDeckCreation.current = true;
   }
@@ -1318,230 +1323,6 @@ export default function DeckEditor() {
     newDeckGenerationTabId,
   ]);
 
-  useEffect(() => {
-    if (
-      !generationLifecycleOwnedByEditor ||
-      !generationAttemptId ||
-      !id ||
-      !wasNewDeckCreation.current
-    )
-      return;
-    if (!generationRunStartedRef.current) return;
-    const persistedGenerationStartedAt = generationContext?.generationStartedAt;
-    const generationStartedAt =
-      typeof persistedGenerationStartedAt === "number" &&
-      Number.isFinite(persistedGenerationStartedAt) &&
-      persistedGenerationStartedAt >= 0
-        ? persistedGenerationStartedAt
-        : Date.now();
-    if (attemptObservedRun) {
-      generationSawActiveRef.current = true;
-      generationStartedAtRef.current ??= generationStartedAt;
-    }
-    if (newDeckGenerationSignal) {
-      generationSawActiveRef.current = true;
-      generationStartedAtRef.current ??= generationStartedAt;
-      return;
-    }
-    if (
-      !generationSawActiveRef.current ||
-      generationSettlingAttemptRef.current === generationAttemptId ||
-      generationTerminalAttemptRef.current === generationAttemptId
-    ) {
-      return;
-    }
-    generationSettlingAttemptRef.current = generationAttemptId;
-    void (async () => {
-      try {
-        const refreshResult = await refreshDeckForGenerationOutcome(
-          refreshOpenDeck,
-          id,
-        );
-        const generationEndedAt = refreshResult.endedAt;
-        if (
-          generationSettlingAttemptRef.current !== generationAttemptId ||
-          generationTerminalAttemptRef.current === generationAttemptId
-        ) {
-          return;
-        }
-        generationTerminalAttemptRef.current = generationAttemptId;
-        const refreshedDeck =
-          refreshResult.status === "ready" ? refreshResult.deck : null;
-        const startedAt = generationStartedAtRef.current;
-        const properties = {
-          app_name: "slides",
-          template_name: "slides",
-          generation_attempt_id: generationAttemptId,
-          output_id: id,
-          output_type: "deck",
-          ...(refreshedDeck !== null
-            ? { slide_count: refreshedDeck.slides.length }
-            : {}),
-          ...(targetSlideCount !== null
-            ? { target_slide_count: targetSlideCount }
-            : {}),
-          ...generationTimingFields(startedAt ?? undefined, generationEndedAt),
-          source: "new_deck_prompt",
-        };
-        if (refreshResult.status !== "ready") {
-          trackEvent("generation_outcome_unresolved", {
-            ...properties,
-            outcome: "unresolved",
-            reason:
-              refreshResult.status === "failed"
-                ? "deck_refresh_failed"
-                : "deck_not_visible_after_refresh",
-          });
-          if (slideCountRef.current === 0 && generationContext) {
-            const failureCode = "outcome_unresolved";
-            updateDeck(id, {
-              generationContext: {
-                ...generationContext,
-                generationFailureCode: failureCode,
-                generationFailureAttemptId: generationAttemptId,
-              },
-            });
-            const recovery: EmptyGenerationRecovery = {
-              kind: "generation_failure",
-              attemptId: generationAttemptId,
-              failureCode,
-            };
-            const serializedRecovery = JSON.stringify(recovery);
-            if (retryRecoveryStorageKey) {
-              try {
-                window.localStorage.setItem(
-                  retryRecoveryStorageKey,
-                  serializedRecovery,
-                );
-                emptyGenerationRecoveryRef.current = serializedRecovery;
-              } catch (error) {
-                console.error(
-                  "Failed to store Slides generation recovery data.",
-                  error,
-                );
-              }
-            }
-            try {
-              await flushDeckSave(id);
-              if (
-                clearEmptyGenerationRecovery(
-                  retryRecoveryStorageKey,
-                  serializedRecovery,
-                )
-              ) {
-                emptyGenerationRecoveryRef.current = null;
-              }
-            } catch {
-              toast.error(t("editorSidebar.newSlideSaveFailed"));
-            }
-          }
-          return;
-        }
-        const settledSlideCount = refreshResult.deck.slides.length;
-        const failureCode =
-          attemptStopReason === "stopped"
-            ? "cancelled"
-            : attemptTimedOut
-              ? "timeout"
-              : attemptRunError
-                ? "agent_error"
-                : settledSlideCount === 0
-                  ? "no_output"
-                  : targetSlideCount !== null &&
-                      settledSlideCount < targetSlideCount
-                    ? "incomplete_output"
-                    : null;
-        if (failureCode && settledSlideCount === 0 && generationContext) {
-          updateDeck(id, {
-            generationContext: {
-              ...generationContext,
-              generationFailureCode: failureCode,
-              generationFailureAttemptId: generationAttemptId,
-            },
-          });
-          const recovery: EmptyGenerationRecovery = {
-            kind: "generation_failure",
-            attemptId: generationAttemptId,
-            failureCode,
-          };
-          const serializedRecovery = JSON.stringify(recovery);
-          if (retryRecoveryStorageKey) {
-            try {
-              window.localStorage.setItem(
-                retryRecoveryStorageKey,
-                serializedRecovery,
-              );
-              emptyGenerationRecoveryRef.current = serializedRecovery;
-            } catch (error) {
-              console.error(
-                "Failed to store Slides generation recovery data.",
-                error,
-              );
-            }
-          }
-          try {
-            await flushDeckSave(id);
-            if (
-              clearEmptyGenerationRecovery(
-                retryRecoveryStorageKey,
-                serializedRecovery,
-              )
-            ) {
-              emptyGenerationRecoveryRef.current = null;
-            }
-          } catch {
-            toast.error(t("editorSidebar.newSlideSaveFailed"));
-          }
-        }
-        if (failureCode === "cancelled") {
-          trackEvent("generation_cancelled", {
-            ...properties,
-            outcome: "cancelled",
-            failure_code: failureCode,
-          });
-        } else if (failureCode === "timeout") {
-          trackEvent("generation_stuck", {
-            ...properties,
-            outcome: "stuck",
-            failure_code: failureCode,
-          });
-        } else if (failureCode) {
-          trackEvent("generation_failed", {
-            ...properties,
-            failure_code: failureCode,
-            failure_stage: "agent",
-          });
-        }
-        // Success is `generation_completed`, reported by the server when the
-        // run that wrote the first slide ends; this tab may already be closed.
-      } finally {
-        clearStartedGenerationAttempt(generationAttemptId, id);
-        if (generationSettlingAttemptRef.current === generationAttemptId) {
-          generationSettlingAttemptRef.current = null;
-          generationSawActiveRef.current = false;
-          generationRunStartedRef.current = false;
-          generationStartedAtRef.current = null;
-        }
-      }
-    })();
-  }, [
-    attemptObservedRun,
-    generationAttemptId,
-    generationLifecycleOwnedByEditor,
-    generationContext,
-    attemptRunError,
-    attemptStopReason,
-    attemptTimedOut,
-    id,
-    newDeckGenerationSignal,
-    refreshOpenDeck,
-    retryRecoveryStorageKey,
-    updateDeck,
-    flushDeckSave,
-    t,
-    targetSlideCount,
-  ]);
-
   const retryEmptyGeneration = useCallback(async () => {
     if (
       !id ||
@@ -2005,6 +1786,261 @@ export default function DeckEditor() {
   }, [id, newDeckGenerationTabId, pendingQuestionKey]);
   const waitingOnNewDeckQuestions =
     showQuestionFlow || questionContinuationPending;
+  useLayoutEffect(() => {
+    generationLifecyclePauseRef.current = {
+      waitingOnQuestions: waitingOnNewDeckQuestions,
+      generating: newDeckGenerationSignal,
+    };
+  }, [newDeckGenerationSignal, waitingOnNewDeckQuestions]);
+  useEffect(() => {
+    if (
+      !generationLifecycleOwnedByEditor ||
+      !generationAttemptId ||
+      !id ||
+      !wasNewDeckCreation.current
+    )
+      return;
+    if (!generationRunStartedRef.current) return;
+    const persistedGenerationStartedAt = generationContext?.generationStartedAt;
+    const generationStartedAt =
+      typeof persistedGenerationStartedAt === "number" &&
+      Number.isFinite(persistedGenerationStartedAt) &&
+      persistedGenerationStartedAt >= 0
+        ? persistedGenerationStartedAt
+        : Date.now();
+    if (attemptObservedRun) {
+      generationSawActiveRef.current = true;
+      generationStartedAtRef.current ??= generationStartedAt;
+    }
+    if (newDeckGenerationSignal) {
+      generationSawActiveRef.current = true;
+      generationStartedAtRef.current ??= generationStartedAt;
+      return;
+    }
+    if (waitingOnNewDeckQuestions) return;
+    if (
+      !generationSawActiveRef.current ||
+      generationSettlingAttemptRef.current === generationAttemptId ||
+      generationTerminalAttemptRef.current === generationAttemptId
+    ) {
+      return;
+    }
+    generationSettlingAttemptRef.current = generationAttemptId;
+    let pausedForQuestionOrRun = false;
+    void (async () => {
+      try {
+        const refreshResult = await refreshDeckForGenerationOutcome(
+          refreshOpenDeck,
+          id,
+        );
+        const generationEndedAt = refreshResult.endedAt;
+        if (
+          generationSettlingAttemptRef.current !== generationAttemptId ||
+          generationTerminalAttemptRef.current === generationAttemptId
+        ) {
+          return;
+        }
+        const pendingQuestion = await refetchPendingQuestion();
+        if (
+          generationSettlingAttemptRef.current !== generationAttemptId ||
+          generationTerminalAttemptRef.current === generationAttemptId
+        ) {
+          return;
+        }
+        if (
+          pendingQuestion ||
+          generationLifecyclePauseRef.current.waitingOnQuestions ||
+          generationLifecyclePauseRef.current.generating
+        ) {
+          pausedForQuestionOrRun = true;
+          generationSettlingAttemptRef.current = null;
+          return;
+        }
+        generationTerminalAttemptRef.current = generationAttemptId;
+        const refreshedDeck =
+          refreshResult.status === "ready" ? refreshResult.deck : null;
+        const startedAt = generationStartedAtRef.current;
+        const properties = {
+          app_name: "slides",
+          template_name: "slides",
+          generation_attempt_id: generationAttemptId,
+          output_id: id,
+          output_type: "deck",
+          ...(refreshedDeck !== null
+            ? { slide_count: refreshedDeck.slides.length }
+            : {}),
+          ...(targetSlideCount !== null
+            ? { target_slide_count: targetSlideCount }
+            : {}),
+          ...generationTimingFields(startedAt ?? undefined, generationEndedAt),
+          source: "new_deck_prompt",
+        };
+        if (refreshResult.status !== "ready") {
+          trackEvent("generation_outcome_unresolved", {
+            ...properties,
+            outcome: "unresolved",
+            reason:
+              refreshResult.status === "failed"
+                ? "deck_refresh_failed"
+                : "deck_not_visible_after_refresh",
+          });
+          if (slideCountRef.current === 0 && generationContext) {
+            const failureCode = "outcome_unresolved";
+            updateDeck(id, {
+              generationContext: {
+                ...generationContext,
+                generationFailureCode: failureCode,
+                generationFailureAttemptId: generationAttemptId,
+              },
+            });
+            const recovery: EmptyGenerationRecovery = {
+              kind: "generation_failure",
+              attemptId: generationAttemptId,
+              failureCode,
+            };
+            const serializedRecovery = JSON.stringify(recovery);
+            if (retryRecoveryStorageKey) {
+              try {
+                window.localStorage.setItem(
+                  retryRecoveryStorageKey,
+                  serializedRecovery,
+                );
+                emptyGenerationRecoveryRef.current = serializedRecovery;
+              } catch (error) {
+                console.error(
+                  "Failed to store Slides generation recovery data.",
+                  error,
+                );
+              }
+            }
+            try {
+              await flushDeckSave(id);
+              if (
+                clearEmptyGenerationRecovery(
+                  retryRecoveryStorageKey,
+                  serializedRecovery,
+                )
+              ) {
+                emptyGenerationRecoveryRef.current = null;
+              }
+            } catch {
+              toast.error(t("editorSidebar.newSlideSaveFailed"));
+            }
+          }
+          return;
+        }
+        const settledSlideCount = refreshResult.deck.slides.length;
+        const failureCode =
+          attemptStopReason === "stopped"
+            ? "cancelled"
+            : attemptTimedOut
+              ? "timeout"
+              : attemptRunError
+                ? "agent_error"
+                : settledSlideCount === 0
+                  ? "no_output"
+                  : targetSlideCount !== null &&
+                      settledSlideCount < targetSlideCount
+                    ? "incomplete_output"
+                    : null;
+        if (failureCode && settledSlideCount === 0 && generationContext) {
+          updateDeck(id, {
+            generationContext: {
+              ...generationContext,
+              generationFailureCode: failureCode,
+              generationFailureAttemptId: generationAttemptId,
+            },
+          });
+          const recovery: EmptyGenerationRecovery = {
+            kind: "generation_failure",
+            attemptId: generationAttemptId,
+            failureCode,
+          };
+          const serializedRecovery = JSON.stringify(recovery);
+          if (retryRecoveryStorageKey) {
+            try {
+              window.localStorage.setItem(
+                retryRecoveryStorageKey,
+                serializedRecovery,
+              );
+              emptyGenerationRecoveryRef.current = serializedRecovery;
+            } catch (error) {
+              console.error(
+                "Failed to store Slides generation recovery data.",
+                error,
+              );
+            }
+          }
+          try {
+            await flushDeckSave(id);
+            if (
+              clearEmptyGenerationRecovery(
+                retryRecoveryStorageKey,
+                serializedRecovery,
+              )
+            ) {
+              emptyGenerationRecoveryRef.current = null;
+            }
+          } catch {
+            toast.error(t("editorSidebar.newSlideSaveFailed"));
+          }
+        }
+        if (failureCode === "cancelled") {
+          trackEvent("generation_cancelled", {
+            ...properties,
+            outcome: "cancelled",
+            failure_code: failureCode,
+          });
+        } else if (failureCode === "timeout") {
+          trackEvent("generation_stuck", {
+            ...properties,
+            outcome: "stuck",
+            failure_code: failureCode,
+          });
+        } else if (failureCode) {
+          trackEvent("generation_failed", {
+            ...properties,
+            failure_code: failureCode,
+            failure_stage: "agent",
+          });
+        }
+        // Success is `generation_completed`, reported by the server when the
+        // run that wrote the first slide ends; this tab may already be closed.
+      } finally {
+        if (!pausedForQuestionOrRun) {
+          clearStartedGenerationAttempt(generationAttemptId, id);
+        }
+        if (
+          !pausedForQuestionOrRun &&
+          generationSettlingAttemptRef.current === generationAttemptId
+        ) {
+          generationSettlingAttemptRef.current = null;
+          generationSawActiveRef.current = false;
+          generationRunStartedRef.current = false;
+          generationStartedAtRef.current = null;
+        }
+      }
+    })();
+  }, [
+    attemptObservedRun,
+    generationAttemptId,
+    generationLifecycleOwnedByEditor,
+    generationContext,
+    attemptRunError,
+    attemptStopReason,
+    attemptTimedOut,
+    id,
+    newDeckGenerationSignal,
+    refreshOpenDeck,
+    retryRecoveryStorageKey,
+    updateDeck,
+    flushDeckSave,
+    t,
+    targetSlideCount,
+    refetchPendingQuestion,
+    waitingOnNewDeckQuestions,
+  ]);
+
   const { isNewDeckCreation, phase: newDeckGenerationPhase } =
     useNewDeckGeneration({
       deckId: id ?? "",

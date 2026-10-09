@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   guidedQuestionFlowOptions: [] as unknown[],
   guidedQuestionQuestions: [] as Array<{ id: string; question: string }>,
   guidedQuestionPayload: null as { threadId?: string } | null,
+  guidedQuestionRefetchPending: vi.fn(),
   pendingUnloadGuard: vi.fn(),
   attemptGenerating: false,
   attemptObservedRun: false,
@@ -201,7 +202,7 @@ vi.mock(
           : mocks.guidedQuestions,
         handleSubmit: vi.fn(),
         handleSkip: vi.fn(),
-        refetchPendingQuestion: vi.fn(async () => false),
+        refetchPendingQuestion: mocks.guidedQuestionRefetchPending,
       };
     },
   }),
@@ -459,6 +460,13 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.submitAndConfirm
       .mockReset()
       .mockResolvedValue({ tabId: "target-tab", delivered: true });
+    mocks.guidedQuestionRefetchPending
+      .mockReset()
+      .mockImplementation(
+        async () =>
+          mocks.guidedQuestionQuestions.length > 0 ||
+          mocks.guidedQuestions.length > 0,
+      );
     mocks.abortStalledRun.mockReset().mockResolvedValue(true);
     mocks.deck.generationContext = {
       generationAttemptId: "attempt-1",
@@ -680,6 +688,122 @@ describe("DeckEditor generation signal wiring", () => {
     expect(screen.getByTestId("generating-preview")).toBeTruthy();
     expect(screen.queryByText("deckEditor.tryAgain")).toBeNull();
     window.removeEventListener("agent-panel:open", openChat);
+  });
+
+  it("does not finalize an empty deck while a guided question is pending", async () => {
+    mocks.guidedQuestionQuestions = [
+      { id: "q1", question: "What should the deck focus on?" },
+    ];
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("question-flow")).toBeTruthy(),
+    );
+
+    expect(mocks.deck.generationContext).not.toHaveProperty(
+      "generationFailureCode",
+    );
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      "generation_failed",
+      expect.anything(),
+    );
+    expect(
+      window.localStorage.getItem(
+        "slides:empty-generation-retry-recovery:deck-1",
+      ),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "deckEditor.tryAgain" }),
+    ).toBeNull();
+  });
+
+  it("rechecks guided questions that arrive while generation refresh is pending", async () => {
+    let resolveRefresh!: (deck: typeof mocks.deck) => void;
+    const refreshPromise = new Promise<typeof mocks.deck>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    mocks.refreshOpenDeck.mockImplementation(() => refreshPromise);
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() =>
+      expect(mocks.refreshOpenDeck).toHaveBeenCalledWith("deck-1"),
+    );
+    mocks.guidedQuestionQuestions = [
+      { id: "q1", question: "What should the deck focus on?" },
+    ];
+    act(publishAgentGeneratingChange);
+    await act(async () => {
+      resolveRefresh(mocks.deck);
+      await refreshPromise;
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("question-flow")).toBeTruthy(),
+    );
+
+    expect(mocks.deck.generationContext).not.toHaveProperty(
+      "generationFailureCode",
+    );
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      "generation_failed",
+      expect.anything(),
+    );
+    expect(
+      window.localStorage.getItem(
+        "slides:empty-generation-retry-recovery:deck-1",
+      ),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "deckEditor.tryAgain" }),
+    ).toBeNull();
   });
 
   it("routes a reopened deck answer to its original chat thread", async () => {
