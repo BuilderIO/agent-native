@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { ActionContractError } from "@agent-native/core";
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import {
@@ -197,6 +197,38 @@ function isFavoriteOnlyUpdate(args: {
     args.description === undefined &&
     args.icon === undefined
   );
+}
+
+function isScopedWidgetDocumentWriter(
+  ctx: ActionRunContext | undefined,
+  documentId: string,
+) {
+  const grant = ctx?.mcpDirectoryWidgetWrite;
+  return (
+    ctx?.caller === "mcp-widget-write" &&
+    grant?.appId === "content" &&
+    Array.isArray(grant.actionNames) &&
+    grant.actionNames.includes("update-document") &&
+    grant.resourceIds?.documentId === documentId
+  );
+}
+
+function assertWidgetDocumentWriteScope(
+  ctx: ActionRunContext | undefined,
+  documentId: string,
+) {
+  if (
+    ctx?.caller === "mcp-widget-write" &&
+    !isScopedWidgetDocumentWriter(ctx, documentId)
+  ) {
+    throw new ActionContractError(
+      "This Content widget write capability is missing or scoped to a different document or action.",
+      {
+        errorCode: "mcp_widget_write_scope_mismatch",
+        statusCode: 403,
+      },
+    );
+  }
 }
 
 const reuseLabelSchema = z.object({
@@ -593,6 +625,7 @@ export default defineAction({
   > => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
+    assertWidgetDocumentWriteScope(ctx, id);
     if (
       (args.editorSessionId === undefined) !==
       (args.editorEditGeneration === undefined)
@@ -671,7 +704,7 @@ export default defineAction({
       ctx?.caller === "a2a";
     if (
       args.browserSaveAttemptId !== undefined &&
-      (ctx?.caller !== "frontend" ||
+      ((ctx?.caller !== "frontend" && !isScopedWidgetDocumentWriter(ctx, id)) ||
         (args.title === undefined && args.content === undefined))
     ) {
       throw new ActionContractError(
@@ -981,6 +1014,17 @@ export default defineAction({
           .from(schema.documents)
           .where(eq(schema.documents.id, id))
           .limit(1);
+        if (
+          isScopedWidgetDocumentWriter(ctx, id) &&
+          args.content !== undefined &&
+          args.baseRevision === undefined &&
+          args.baseUpdatedAt === undefined &&
+          args.recoveryExpectedUpdatedAt === undefined &&
+          !authoredBase
+        ) {
+          contentCasConflict = true;
+          return;
+        }
         if (
           args.recoveryExpectedUpdatedAt !== undefined &&
           historyBefore.updatedAt !== args.recoveryExpectedUpdatedAt

@@ -3113,8 +3113,11 @@ export function createAgentChatPlugin(
 
       if (mcpOptions.enabled) {
         // Mount MCP remote server — same action registry as A2A + agent chat
-        const { mountMCP, selectMcpDirectoryWidgetReadActions } =
-          await import("../mcp/server.js");
+        const {
+          mountMCP,
+          selectMcpDirectoryWidgetReadActions,
+          selectMcpDirectoryWidgetWriteActions,
+        } = await import("../mcp/server.js");
         mountMCP(nitroApp, {
           name: mcpServerName,
           title: mcpOptions.title,
@@ -3130,6 +3133,10 @@ export function createAgentChatPlugin(
           actions: externalActions,
           productionActions: externalFullActions,
           widgetReadActions: selectMcpDirectoryWidgetReadActions(
+            mcpOptions.directoryProfile,
+            templateScriptsAll,
+          ),
+          widgetWriteActions: selectMcpDirectoryWidgetWriteActions(
             mcpOptions.directoryProfile,
             templateScriptsAll,
           ),
@@ -3455,6 +3462,41 @@ export function createAgentChatPlugin(
             ),
           }
         : {};
+      const mcpDirectoryWidgetWriteOptions = directoryProfile
+        ? {
+            mcpDirectoryWidgetWriteActionArguments: Object.fromEntries(
+              Object.entries(directoryProfile.widgetWriteActionArguments ?? {})
+                .filter(
+                  ([name]) =>
+                    httpActions[name] &&
+                    httpActions[name]?.http !== false &&
+                    httpActions[name]?.http?.method !== "GET" &&
+                    httpActions[name]?.requiresAuth !== false &&
+                    httpActions[name]?.readOnly !== true,
+                )
+                .map(([name, args]) => [name, Object.keys(args)]),
+            ),
+            mcpDirectoryWidgetWriteActionSchemaArguments: Object.fromEntries(
+              Object.entries(directoryProfile.widgetWriteActionArguments ?? {})
+                .map(([name, args]) => [
+                  name,
+                  Object.entries(args)
+                    .filter(
+                      ([, argument]) =>
+                        typeof argument !== "string" &&
+                        (argument.type === "actionSchema" ||
+                          argument.type === "actionSchemaResourceBound"),
+                    )
+                    .map(([argumentName]) => argumentName),
+                ])
+                .filter(([, argumentNames]) => argumentNames.length > 0),
+            ),
+            mcpDirectoryWidgetAppId: options?.appId ?? mcpServerName,
+            mcpDirectoryWidgetResourceUri: getMcpDirectoryWidgetResourceUri(
+              options?.appId ?? mcpServerName,
+            ),
+          }
+        : {};
       if (Object.keys(httpActions).length > 0) {
         if (options?.actionRoutePublicPaths?.length) {
           registerAuthPublicPaths(
@@ -3473,6 +3515,7 @@ export function createAgentChatPlugin(
           resolveOrgId: options?.resolveOrgId,
           actionRouteAuth: options?.actionRouteAuth,
           ...mcpDirectoryWidgetReadOptions,
+          ...mcpDirectoryWidgetWriteOptions,
         });
       }
       // Dev-only loopback endpoint `pnpm action` forwards to so it doesn't

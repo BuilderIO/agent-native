@@ -1595,6 +1595,7 @@ export default {
     fork: "फोर्क",
     fullView: "पूर्ण दृश्य",
     preview: "पूर्वावलोकन",
+    focusScreen: "स्क्रीन पर फ़ोकस करें",
     openAndDuplicate:
       "{{display}} चुनें। केंद्रित स्क्रॉलिंग के लिए इंटरैक्ट मोड का उपयोग करें।",
     openAndPreview:

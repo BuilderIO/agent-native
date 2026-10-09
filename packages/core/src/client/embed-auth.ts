@@ -5,8 +5,12 @@ import {
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+  MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER,
 } from "../shared/embed-auth.js";
-import { isMcpDirectoryWidgetReadCapabilityScope } from "../shared/embed-auth.js";
+import {
+  isMcpDirectoryWidgetReadCapabilityScope,
+  isMcpDirectoryWidgetWriteCapabilityScope,
+} from "../shared/embed-auth.js";
 import { FRAMEWORK_INTERNAL_ROUTE_PREFIX } from "../shared/framework-route-prefix.js";
 import { MCP_APP_HOST_FILL_ATTRIBUTE } from "../shared/mcp-app-display.js";
 import {
@@ -21,12 +25,17 @@ import { frameworkRoutePrefix } from "./api-path.js";
 
 let installed = false;
 let memoryToken: string | null = null;
+let renewedFromUrlToken: string | null = null;
+let pendingWidgetSessionRenewal: Promise<boolean> | null = null;
+let widgetSessionRenewalRequestId = 0;
 let mcpChatBridgeActive = false;
 let mcpChatBridgeScope: string | null = null;
 
 const AUTH_FAILURE_COOLDOWN_MS = 60_000;
 const GUARDED_METHODS = new Set(["GET", "HEAD"]);
 const AUTH_FAILURE_HEADER = "x-agent-native-auth-circuit-breaker";
+const EMBED_TOKEN_RENEWED_FROM_STORAGE_KEY = `${EMBED_TOKEN_STORAGE_KEY}:renewed-from`;
+const EMBED_SESSION_RENEWAL_TIMEOUT_MS = 15_000;
 const MCP_CHAT_BRIDGE_VIEWPORT_STYLE_ID =
   "agent-native-mcp-chat-bridge-viewport";
 const MCP_CHAT_BRIDGE_VIEWPORT_HEIGHT = 560;
@@ -79,7 +88,7 @@ export function readEmbedMcpChatBridgeFlagFromUrl(): boolean {
 }
 
 function currentMcpChatBridgeScope(win: Window): string | null {
-  return readTokenFromUrl(win) ?? memoryToken ?? storedToken(win);
+  return getEmbedAuthToken() ?? memoryToken ?? storedToken(win);
 }
 
 function clearMcpChatBridge(win: Window): void {
@@ -177,6 +186,28 @@ export function getEmbedAuthToken(): string | null {
   if (!win) return null;
   const fromUrl = readTokenFromUrl(win);
   if (fromUrl) {
+    let renewedFrom = renewedFromUrlToken;
+    if (!renewedFrom) {
+      try {
+        renewedFrom =
+          win.sessionStorage?.getItem(EMBED_TOKEN_RENEWED_FROM_STORAGE_KEY) ??
+          null;
+      } catch {
+        renewedFrom = null;
+      }
+    }
+    if (renewedFrom === fromUrl) {
+      const refreshed = memoryToken ?? storedToken(win);
+      if (refreshed && refreshed !== fromUrl) return refreshed;
+    }
+    if (renewedFrom && renewedFrom !== fromUrl) {
+      renewedFromUrlToken = null;
+      try {
+        win.sessionStorage?.removeItem(EMBED_TOKEN_RENEWED_FROM_STORAGE_KEY);
+      } catch {
+        // coercion-ok: cleanup is best-effort; the refreshed URL token still supersedes this marker.
+      }
+    }
     storeToken(fromUrl, win);
     return fromUrl;
   }
@@ -201,7 +232,11 @@ function readEmbedTokenScope(token: string): string | undefined {
   }
 }
 
-let readOnlyScopeCache: { token: string; readOnly: boolean } | null = null;
+let widgetScopeCache: {
+  token: string;
+  readOnly: boolean;
+  writable: boolean;
+} | null = null;
 
 /**
  * True when the embed credential is a directory-widget read capability, which
@@ -214,15 +249,29 @@ let readOnlyScopeCache: { token: string; readOnly: boolean } | null = null;
 export function hasMcpDirectoryWidgetCapabilityToken(): boolean {
   const token = getEmbedAuthToken();
   if (!token) return false;
-  if (readOnlyScopeCache?.token !== token) {
-    readOnlyScopeCache = {
+  if (widgetScopeCache?.token !== token) {
+    const scope = readEmbedTokenScope(token);
+    widgetScopeCache = {
       token,
-      readOnly: isMcpDirectoryWidgetReadCapabilityScope(
-        readEmbedTokenScope(token),
-      ),
+      readOnly: isMcpDirectoryWidgetReadCapabilityScope(scope),
+      writable: isMcpDirectoryWidgetWriteCapabilityScope(scope),
     };
   }
-  return readOnlyScopeCache.readOnly;
+  return widgetScopeCache.readOnly || widgetScopeCache.writable;
+}
+
+export function hasMcpDirectoryWidgetWriteCapabilityToken(): boolean {
+  const token = getEmbedAuthToken();
+  if (!token) return false;
+  if (widgetScopeCache?.token !== token) {
+    const scope = readEmbedTokenScope(token);
+    widgetScopeCache = {
+      token,
+      readOnly: isMcpDirectoryWidgetReadCapabilityScope(scope),
+      writable: isMcpDirectoryWidgetWriteCapabilityScope(scope),
+    };
+  }
+  return widgetScopeCache.writable;
 }
 
 /**
@@ -231,7 +280,23 @@ export function hasMcpDirectoryWidgetCapabilityToken(): boolean {
  * server limits to the widget's own resource reads.
  */
 export function isMcpDirectoryWidgetReadOnlyEmbed(): boolean {
-  return hasMcpDirectoryWidgetCapabilityToken() && isEmbedMcpChatBridgeActive();
+  const token = getEmbedAuthToken();
+  if (!token) return false;
+  if (widgetScopeCache?.token !== token) {
+    const scope = readEmbedTokenScope(token);
+    widgetScopeCache = {
+      token,
+      readOnly: isMcpDirectoryWidgetReadCapabilityScope(scope),
+      writable: isMcpDirectoryWidgetWriteCapabilityScope(scope),
+    };
+  }
+  return widgetScopeCache.readOnly && isEmbedMcpChatBridgeActive();
+}
+
+export function isMcpDirectoryWidgetWriteEmbed(): boolean {
+  return (
+    hasMcpDirectoryWidgetWriteCapabilityToken() && isEmbedMcpChatBridgeActive()
+  );
 }
 
 export function isEmbedAuthActive(): boolean {
@@ -353,7 +418,10 @@ export function _resetEmbedAuthForTests(): void {
   }
   installed = false;
   memoryToken = null;
-  readOnlyScopeCache = null;
+  renewedFromUrlToken = null;
+  pendingWidgetSessionRenewal = null;
+  widgetSessionRenewalRequestId = 0;
+  widgetScopeCache = null;
   mcpChatBridgeActive = false;
   mcpChatBridgeScope = null;
   authFailureCache.clear();
@@ -628,6 +696,74 @@ function requestUrlAndKey(
   };
 }
 
+function requestWidgetSessionRenewal(win: Window): Promise<boolean> {
+  if (pendingWidgetSessionRenewal) return pendingWidgetSessionRenewal;
+  if (!win.parent || win.parent === win) return Promise.resolve(false);
+
+  widgetSessionRenewalRequestId += 1;
+  const requestId = `embed-renewal-${Date.now()}-${widgetSessionRenewalRequestId}`;
+  const renewal = new Promise<boolean>((resolve) => {
+    let settled = false;
+    let timeoutId: number | null = null;
+    const finish = (succeeded: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId !== null) win.clearTimeout(timeoutId);
+      win.removeEventListener("message", onMessage);
+      resolve(succeeded);
+    };
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== win.parent) return;
+      const message = event.data;
+      const data = message && typeof message === "object" ? message.data : null;
+      if (
+        message?.type !== "agentNative.embedSessionRenewed" ||
+        data?.requestId !== requestId
+      ) {
+        return;
+      }
+      if (data.ok !== true) {
+        finish(false);
+        return;
+      }
+      try {
+        win.parent.postMessage(
+          { type: "agentNative.embedSessionRenewalApplied", requestId },
+          "*",
+        );
+      } catch (error) {
+        console.warn(
+          "[agent-native] could not acknowledge embedded session renewal",
+          error,
+        );
+      }
+      finish(true);
+    };
+
+    win.addEventListener("message", onMessage);
+    timeoutId = win.setTimeout(
+      () => finish(false),
+      EMBED_SESSION_RENEWAL_TIMEOUT_MS,
+    );
+    try {
+      win.parent.postMessage(
+        {
+          type: "agentNative.embedSessionExpired",
+          data: { requestId },
+        },
+        "*",
+      );
+    } catch {
+      finish(false);
+    }
+  }).finally(() => {
+    pendingWidgetSessionRenewal = null;
+  });
+
+  pendingWidgetSessionRenewal = renewal;
+  return renewal;
+}
+
 export function ensureEmbedAuthFetchInterceptor(): void {
   const win = browserWindow();
   if (!win) return;
@@ -636,7 +772,7 @@ export function ensureEmbedAuthFetchInterceptor(): void {
 
   const urlToken = readTokenFromUrl(win);
   if (urlToken) {
-    storeToken(urlToken, win);
+    getEmbedAuthToken();
     stripTokenFromUrl(win);
   }
   ensureMcpChatBridgeViewportClamp(win);
@@ -667,7 +803,42 @@ export function ensureEmbedAuthFetchInterceptor(): void {
       [fetchInput, fetchInit] = withEmbedAuthHeaders(input, init, token, win);
     }
 
-    const response = await originalFetch(fetchInput as any, fetchInit as any);
+    const canRenewWidgetSession =
+      Boolean(token) &&
+      isMcpDirectoryWidgetWriteEmbed() &&
+      request &&
+      sameOrigin(input, win);
+    let replayRequest: Request | null = null;
+    let firstRequest: Request | null = null;
+    if (canRenewWidgetSession) {
+      try {
+        firstRequest = new Request(fetchInput as RequestInfo, fetchInit);
+        replayRequest = firstRequest.clone();
+      } catch {
+        // coercion-ok: non-cloneable streamed writes retain their original response and are not replayed.
+      }
+    }
+
+    let response = firstRequest
+      ? await originalFetch(firstRequest)
+      : await originalFetch(fetchInput as any, fetchInit as any);
+    if (response.status === 401 && canRenewWidgetSession) {
+      const sessionExpired =
+        response.headers.get(MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER) ===
+        "1";
+      if (sessionExpired && replayRequest && token) {
+        const renewed = await requestWidgetSessionRenewal(win);
+        if (renewed) {
+          const [retryInput, retryInit] = withEmbedAuthHeaders(
+            replayRequest,
+            undefined,
+            token,
+            win,
+          );
+          response = await originalFetch(retryInput as any, retryInit as any);
+        }
+      }
+    }
     if (request?.shouldGuard && isAuthFailureStatus(response.status)) {
       await recordAuthFailure(request.key, response);
     } else if (request?.shouldGuard && response.ok) {

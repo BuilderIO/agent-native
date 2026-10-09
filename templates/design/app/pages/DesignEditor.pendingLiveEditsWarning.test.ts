@@ -98,7 +98,7 @@ describe("DesignEditor pending live edits", () => {
     expect(deps).not.toContain("isLiveCanvasShareLink,");
   });
 
-  it("uses the shared guard for frame entry and close path for re-clicking the focused screen", () => {
+  it("keeps screen focus in the All screens canvas", () => {
     const source = readDesignEditorSource();
     const handlerStart = source.indexOf(
       "const handleOverviewFrameAction = useCallback(",
@@ -106,18 +106,10 @@ describe("DesignEditor pending live edits", () => {
     expect(handlerStart).toBeGreaterThan(-1);
     const handler = source.slice(
       handlerStart,
-      source.indexOf("// Escape is the standard", handlerStart),
+      source.indexOf("  useEffect(() => {", handlerStart),
     );
-    const focusedFrameIndex = handler.indexOf(
-      "overviewInteractScreenIdRef.current === screenId",
-    );
-    const closeIndex = handler.indexOf("handleExitResponsiveInteract();");
-    const enterIndex = handler.indexOf(
-      'handleModeChange("interact", { targetFileId: screenId })',
-    );
-    expect(focusedFrameIndex).toBeGreaterThan(-1);
-    expect(closeIndex).toBeGreaterThan(focusedFrameIndex);
-    expect(enterIndex).toBeGreaterThan(closeIndex);
+    expect(handler).toContain("focusOverviewScreen(screenId)");
+    expect(handler).not.toContain('handleModeChange("interact"');
 
     const modeChangeStart = source.indexOf(
       "const handleModeChange = useCallback(",

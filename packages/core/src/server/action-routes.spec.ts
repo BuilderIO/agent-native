@@ -22,6 +22,9 @@ const mockConsumeOneTimeJti = vi.hoisted(() => vi.fn(async () => false));
 const mockResolveEmbedSessionFromRequest = vi.hoisted(() =>
   vi.fn(async () => null),
 );
+const mockIsExpiredMcpDirectoryWidgetSessionRequest = vi.hoisted(() =>
+  vi.fn(async (..._args: unknown[]) => false),
+);
 const mockRegisterAuthPublicPaths = vi.hoisted(() => vi.fn());
 const mockHasUiActionCapability = vi.hoisted(() => vi.fn(() => false));
 const mockCountActionFailure = vi.hoisted(() => vi.fn());
@@ -94,6 +97,16 @@ vi.mock("./auth.js", () => ({
   isLoopbackRequest: () => false,
 }));
 vi.mock("./embed-session.js", () => ({
+  isExpiredMcpDirectoryWidgetSessionRequest: (...args: unknown[]) =>
+    mockIsExpiredMcpDirectoryWidgetSessionRequest(...args),
+  hasExplicitEmbedSessionCredential: (event: any) =>
+    event._hasExplicitEmbedSessionCredential ??
+    Boolean(
+      event._query?.__an_embed_token ||
+      (event._headers?.authorization?.startsWith("Bearer ") &&
+        (event._headers?.["x-agent-native-embed-target"] ||
+          event._query?.__an_embed_target)),
+    ),
   resolveEmbedSessionFromRequest: (...args: unknown[]) =>
     mockResolveEmbedSessionFromRequest(...args),
   resolvedEmbedCapabilityScope: (session: { scope?: string } | null) =>
@@ -134,6 +147,8 @@ describe("mountActionRoutes", () => {
     mockConsumeOneTimeJti.mockResolvedValue(false);
     mockResolveEmbedSessionFromRequest.mockReset();
     mockResolveEmbedSessionFromRequest.mockResolvedValue(null);
+    mockIsExpiredMcpDirectoryWidgetSessionRequest.mockReset();
+    mockIsExpiredMcpDirectoryWidgetSessionRequest.mockResolvedValue(false);
     mockHasUiActionCapability.mockReset();
     mockHasUiActionCapability.mockReturnValue(false);
     vi.restoreAllMocks();
@@ -177,11 +192,57 @@ describe("mountActionRoutes", () => {
       _responseHeaders: {
         "cache-control": "no-store",
         "access-control-expose-headers":
-          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After",
+          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After,x-agent-native-widget-session-expired",
         "x-agent-native-client-mismatch": "1",
       },
     });
     expect(event.req.json).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("marks only an expired, renewable widget session as a typed 401", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      { update: { http: { method: "POST" }, requiresAuth: true, run } as any },
+    );
+
+    mockIsExpiredMcpDirectoryWidgetSessionRequest.mockResolvedValueOnce(true);
+    const event: any = {
+      _method: "POST",
+      _hasExplicitEmbedSessionCredential: true,
+      _headers: { authorization: "Bearer expired-token" },
+      req: {
+        url: "http://app.test/_agent-native/actions/update",
+        json: async () => ({}),
+      },
+    };
+    await expect(mounted[0]!.handler(event)).rejects.toMatchObject({
+      statusCode: 401,
+    });
+    expect(event._responseHeaders).toMatchObject({
+      "x-agent-native-widget-session-expired": "1",
+    });
+    expect(mockIsExpiredMcpDirectoryWidgetSessionRequest).toHaveBeenCalledWith(
+      event,
+    );
+
+    const invalidEvent = {
+      ...event,
+      _responseHeaders: undefined,
+    };
+    await expect(mounted[0]!.handler(invalidEvent)).rejects.toMatchObject({
+      statusCode: 401,
+    });
+    expect(invalidEvent._responseHeaders).not.toHaveProperty(
+      "x-agent-native-widget-session-expired",
+    );
     expect(run).not.toHaveBeenCalled();
   });
 
@@ -1470,6 +1531,123 @@ describe("mountActionRoutes", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it("rejects a failed embed credential before same-origin cookie auth can fall through", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    const getOwnerFromEvent = vi.fn(async () => "session-user@example.com");
+    mockResolveEmbedSessionFromRequest.mockResolvedValue(null);
+
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        "get-document": {
+          http: { method: "GET" },
+          readOnly: true,
+          requiresAuth: true,
+          run,
+        } as any,
+      },
+      { getOwnerFromEvent },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        _query: { __an_embed_token: "revoked-widget-token" },
+        _headers: { cookie: "better-auth.session_token=valid-session" },
+        req: {
+          url: "http://app.test/_agent-native/actions/get-document?id=doc-1&__an_embed_token=revoked-widget-token",
+        },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("propagates embed revocation lookup failures instead of using cookie auth", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    const getOwnerFromEvent = vi.fn(async () => "session-user@example.com");
+    const unavailable = new Error("revocation lookup unavailable");
+    mockResolveEmbedSessionFromRequest.mockRejectedValue(unavailable);
+
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        "get-document": {
+          http: { method: "GET" },
+          readOnly: true,
+          requiresAuth: true,
+          run,
+        } as any,
+      },
+      { getOwnerFromEvent },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        _query: { __an_embed_token: "scoped-widget-token" },
+        _headers: { cookie: "better-auth.session_token=valid-session" },
+        req: {
+          url: "http://app.test/_agent-native/actions/get-document?id=doc-1&__an_embed_token=scoped-widget-token",
+        },
+      }),
+    ).rejects.toBe(unavailable);
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("still permits cookie auth when the request has no embed credential", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async (_args, context) => ({
+      userEmail: context?.userEmail,
+    }));
+    mockResolveEmbedSessionFromRequest.mockResolvedValue(null);
+
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        "get-document": {
+          http: { method: "GET" },
+          readOnly: true,
+          requiresAuth: true,
+          run,
+        } as any,
+      },
+      { getOwnerFromEvent: async () => "session-user@example.com" },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        _headers: {
+          cookie:
+            "better-auth.session_token=valid-session; an_embed_session=unrelated-widget-cookie",
+        },
+        req: {
+          url: "http://app.test/_agent-native/actions/get-document?id=doc-1",
+        },
+      }),
+    ).resolves.toEqual({ userEmail: "session-user@example.com" });
+    expect(run).toHaveBeenCalledOnce();
+  });
+
   it("allows a matching capability on a frontend action request", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const { getRequestAuthCapability } = await import("./request-context.js");
@@ -1554,7 +1732,7 @@ describe("mountActionRoutes", () => {
     const runWrite = vi.fn(async () => ({ ok: true }));
     const capability = createMcpDirectoryWidgetReadCapability({
       appId: "content",
-      resourceUri: "ui://content/shell-v68",
+      resourceUri: "ui://content/shell-v69",
       resourceIds: { documentId: "doc-1" },
       actionArguments: {
         "get-document": { id: "doc-1" },
@@ -1651,7 +1829,7 @@ describe("mountActionRoutes", () => {
           });
         },
         appId: "content",
-        mcpDirectoryWidgetResourceUri: "ui://content/shell-v68",
+        mcpDirectoryWidgetResourceUri: "ui://content/shell-v69",
         mcpDirectoryWidgetReadActionArguments: {
           "get-document": ["id"],
           "get-content-database": ["databaseId", "documentId", "limit"],
@@ -1667,7 +1845,7 @@ describe("mountActionRoutes", () => {
       allowsMcpDirectoryWidgetReadAction(capability, {
         actionName: "get-document",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: { id: "doc-1" },
         allowedArgumentNames: ["id"],
       }),
@@ -1676,7 +1854,7 @@ describe("mountActionRoutes", () => {
       allowsMcpDirectoryWidgetReadAction(capability, {
         actionName: "private-read",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: { id: "doc-1" },
         allowedArgumentNames: ["id"],
       }),
@@ -1685,7 +1863,7 @@ describe("mountActionRoutes", () => {
       normalizeMcpDirectoryWidgetReadActionArguments(capability, {
         actionName: "get-content-database",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: {
           databaseId: "database-1",
           documentId: "doc-1",
@@ -1888,7 +2066,7 @@ describe("mountActionRoutes", () => {
     }));
     const capability = createMcpDirectoryWidgetReadCapability({
       appId: "design",
-      resourceUri: "ui://design/shell-v68",
+      resourceUri: "ui://design/shell-v69",
       resourceIds: { designId: "design-1" },
       actionArguments: { "get-design": { id: "design-1" } },
     })!;
@@ -1921,7 +2099,7 @@ describe("mountActionRoutes", () => {
           });
         },
         appId: "design",
-        mcpDirectoryWidgetResourceUri: "ui://design/shell-v68",
+        mcpDirectoryWidgetResourceUri: "ui://design/shell-v69",
         mcpDirectoryWidgetReadActionArguments: { "get-design": ["id"] },
         mcpDirectoryWidgetReadPublicActions: ["get-design"],
       },
@@ -2003,7 +2181,7 @@ describe("mountActionRoutes", () => {
             event._headers?.["x-test-owner"] !== "signed-in@example.com",
         }),
         appId: "content",
-        mcpDirectoryWidgetResourceUri: "ui://content/shell-v68",
+        mcpDirectoryWidgetResourceUri: "ui://content/shell-v69",
         mcpDirectoryWidgetReadActionArguments: {
           "list-documents": ["id"],
         },
@@ -2046,7 +2224,7 @@ describe("mountActionRoutes", () => {
     }));
     const capability = createMcpDirectoryWidgetReadCapability({
       appId: "agent",
-      resourceUri: "ui://agent/shell-v68",
+      resourceUri: "ui://agent/shell-v69",
       resourceIds: { deckId: "deck-1" },
       actionArguments: { "get-deck": { id: "deck-1" } },
     })!;
@@ -2077,7 +2255,7 @@ describe("mountActionRoutes", () => {
         mcpDirectoryWidgetReadActionArguments: { "get-deck": ["id"] },
         mcpDirectoryWidgetReadOnlyActions: ["get-deck"],
         mcpDirectoryWidgetAppId: "agent",
-        mcpDirectoryWidgetResourceUri: "ui://agent/shell-v68",
+        mcpDirectoryWidgetResourceUri: "ui://agent/shell-v69",
         getOwnerFromEvent: async () => {
           throw Object.assign(new Error("Unauthenticated"), {
             statusCode: 401,
@@ -2102,6 +2280,423 @@ describe("mountActionRoutes", () => {
     });
     expect(run).toHaveBeenCalledOnce();
     expect(mockNotifyActionChange).not.toHaveBeenCalled();
+  });
+
+  it("carries only the ticketed widget write actions into scoped read context", async () => {
+    const { createMcpDirectoryWidgetWriteCapability } =
+      await import("../shared/embed-auth.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async (_args, context) => ({
+      mcpDirectoryWidgetReadOnly: context?.mcpDirectoryWidgetReadOnly,
+      mcpDirectoryWidgetWrite: context?.mcpDirectoryWidgetWrite,
+    }));
+    const capability = createMcpDirectoryWidgetWriteCapability({
+      appId: "content",
+      resourceUri: "ui://content/shell-v69",
+      resourceIds: { documentId: "doc-1", spaceId: "space-1" },
+      userEmail: "ticket-owner@example.com",
+      orgId: "org-1",
+      expiresAtMs: Date.now() + 60_000,
+      readActionArguments: { "get-document": { id: "doc-1" } },
+      writeActionArguments: {
+        "update-document": {
+          id: "doc-1",
+          content: { type: "actionSchema" },
+        },
+      },
+    })!;
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "ticket-owner@example.com",
+      orgId: "org-1",
+      token: "signed-directory-capability",
+      targetPath: "/page/doc-1",
+      scope: capability,
+    });
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountActionRoutes(
+      nitroApp,
+      {
+        "get-document": {
+          http: { method: "GET" },
+          readOnly: true,
+          requiresAuth: true,
+          run,
+        } as any,
+      },
+      {
+        mcpDirectoryWidgetReadActionArguments: { "get-document": ["id"] },
+        mcpDirectoryWidgetReadOnlyActions: ["get-document"],
+        mcpDirectoryWidgetAppId: "content",
+        mcpDirectoryWidgetResourceUri: "ui://content/shell-v69",
+        getOwnerFromEvent: async () => {
+          throw Object.assign(new Error("Unauthenticated"), {
+            statusCode: 401,
+          });
+        },
+      },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
+        _query: { id: "doc-1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/get-document?id=doc-1",
+        },
+      }),
+    ).resolves.toEqual({
+      mcpDirectoryWidgetReadOnly: true,
+      mcpDirectoryWidgetWrite: {
+        appId: "content",
+        resourceIds: { documentId: "doc-1", spaceId: "space-1" },
+        actionNames: ["update-document"],
+      },
+    });
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("requires authenticated callers for every directory widget write route", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    const actionNames = [
+      "update-document",
+      "add-database-item",
+      "update-database-item",
+      "update-design",
+      "update-file",
+      "create-file",
+      "patch-deck",
+    ];
+    const actions = Object.fromEntries(
+      actionNames.map((name) => [
+        name,
+        {
+          http: { method: "POST" },
+          readOnly: false,
+          requiresAuth: true,
+          run,
+        } as any,
+      ]),
+    );
+    const getOwnerContextFromEvent = vi.fn(async () => ({
+      owner: "public-00000000-0000-4000-8000-000000000001@agent-native.local",
+      anonymous: true,
+    }));
+
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      actions,
+      {
+        appId: "content",
+        mcpDirectoryWidgetAppId: "content",
+        mcpDirectoryWidgetResourceUri: "ui://content/shell-v69",
+        mcpDirectoryWidgetWriteActionArguments: Object.fromEntries(
+          actionNames.map((name) => [name, ["id"]]),
+        ),
+        getOwnerContextFromEvent,
+        getOwnerFromEvent: async () =>
+          "public-00000000-0000-4000-8000-000000000001@agent-native.local",
+      },
+    );
+
+    const outcomes = await Promise.all(
+      actionNames.map(async (name) => {
+        const event: any = {
+          _method: "POST",
+          _headers: {
+            "x-agent-native-frontend": "1",
+            host: "content.agent-native.test",
+            origin: "https://content.agent-native.test",
+            referer: "https://content.agent-native.test/p/public-document",
+            cookie: "viewer-id=00000000-0000-4000-8000-000000000001",
+          },
+          req: {
+            url: `https://content.agent-native.test/_agent-native/actions/${name}`,
+            json: async () => ({ id: "public-document" }),
+          },
+        };
+        const route = mounted.find(
+          ({ path }) => path === `/_agent-native/actions/${name}`,
+        );
+        const result = await route!.handler(event);
+        return { name, status: event._status ?? 200, result };
+      }),
+    );
+
+    expect(outcomes).toEqual(
+      actionNames.map((name) => ({
+        name,
+        status: 401,
+        result: { error: "Unauthorized" },
+      })),
+    );
+    expect(getOwnerContextFromEvent).toHaveBeenCalledTimes(actionNames.length);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("rechecks workspace app access for authenticated non-widget write calls", async () => {
+    vi.resetModules();
+    const workspaceAccess = vi.fn(async () => false);
+    vi.doMock("../org/workspace-app-access.js", () => ({
+      isWorkspaceAppAccessAllowed: workspaceAccess,
+      WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
+      WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
+        "Workspace app access is temporarily unavailable.",
+    }));
+    vi.doMock("../org/workspace-app-identity.js", () => ({
+      resolveWorkspaceAccessAppId: () => "slides",
+    }));
+
+    try {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async () => ({ ok: true }));
+      mountActionRoutes(
+        {
+          use: vi.fn((path: string, handler: any) =>
+            mounted.push({ path, handler }),
+          ),
+        },
+        {
+          "patch-deck": {
+            http: { method: "POST" },
+            readOnly: false,
+            requiresAuth: true,
+            run,
+          } as any,
+        },
+        {
+          appId: "slides",
+          mcpDirectoryWidgetAppId: "slides",
+          mcpDirectoryWidgetResourceUri: "ui://slides/shell-v69",
+          mcpDirectoryWidgetWriteActionArguments: {
+            "patch-deck": ["deckId"],
+          },
+          actionRouteAuth: {
+            resolveCaller: async () => ({
+              owner: "reviewer@example.com",
+              anonymous: false,
+              orgId: "org-1",
+            }),
+          },
+        },
+      );
+
+      const event: any = {
+        _method: "POST",
+        _headers: {
+          "x-agent-native-frontend": "1",
+          host: "slides.agent-native.test",
+          origin: "https://slides.agent-native.test",
+        },
+        req: {
+          url: "https://slides.agent-native.test/_agent-native/actions/patch-deck",
+          json: async () => ({ deckId: "deck-1" }),
+        },
+      };
+      const route = mounted.find(
+        ({ path }) => path === "/_agent-native/actions/patch-deck",
+      );
+      const result = await route!.handler(event);
+
+      expect(event._status).toBe(403);
+      expect(result).toEqual({
+        error: "You do not have access to this workspace app.",
+      });
+      expect(workspaceAccess).toHaveBeenCalledWith("slides", {
+        email: "reviewer@example.com",
+        orgId: "org-1",
+      });
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock("../org/workspace-app-access.js");
+      vi.doUnmock("../org/workspace-app-identity.js");
+      vi.resetModules();
+    }
+  });
+
+  it("allows the Design create-file route when workspace app access is not configured", async () => {
+    vi.resetModules();
+    const workspaceAccess = vi.fn(async () => false);
+    vi.doMock("../org/workspace-app-access.js", () => ({
+      isWorkspaceAppAccessAllowed: workspaceAccess,
+      WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
+      WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
+        "Workspace app access is temporarily unavailable.",
+    }));
+    vi.doMock("../org/workspace-app-identity.js", () => ({
+      resolveWorkspaceAccessAppId: () => "",
+    }));
+
+    try {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async () => ({ id: "file-1", designId: "design-1" }));
+      mountActionRoutes(
+        {
+          use: vi.fn((path: string, handler: any) =>
+            mounted.push({ path, handler }),
+          ),
+        },
+        {
+          "create-file": {
+            http: { method: "POST" },
+            readOnly: false,
+            requiresAuth: true,
+            run,
+          } as any,
+        },
+        {
+          appId: "design",
+          mcpDirectoryWidgetAppId: "design",
+          mcpDirectoryWidgetResourceUri: "ui://design/shell-v69",
+          mcpDirectoryWidgetWriteActionArguments: {
+            "create-file": ["designId"],
+          },
+          actionRouteAuth: {
+            resolveCaller: async () => ({
+              owner: "reviewer@example.com",
+              anonymous: false,
+              orgId: null,
+            }),
+          },
+        },
+      );
+
+      const event: any = {
+        _method: "POST",
+        _headers: {
+          "x-agent-native-frontend": "1",
+          host: "design.agent-native.test",
+          origin: "https://design.agent-native.test",
+        },
+        req: {
+          url: "https://design.agent-native.test/_agent-native/actions/create-file",
+          json: async () => ({
+            designId: "design-1",
+            filename: "screen.html",
+            content: "<main>Screen</main>",
+          }),
+        },
+      };
+      const route = mounted.find(
+        ({ path }) => path === "/_agent-native/actions/create-file",
+      );
+      const result = await route!.handler(event);
+
+      expect(event._status ?? 200).toBe(200);
+      expect(result).toEqual({ id: "file-1", designId: "design-1" });
+      expect(run).toHaveBeenCalledOnce();
+      expect(workspaceAccess).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock("../org/workspace-app-access.js");
+      vi.doUnmock("../org/workspace-app-identity.js");
+      vi.resetModules();
+    }
+  });
+
+  it("returns 401 only for an expired widget write grant bound to this caller", async () => {
+    const { createMcpDirectoryWidgetWriteCapability } =
+      await import("../shared/embed-auth.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    const expiresAtMs = Date.now() + 60_000;
+    const capability = createMcpDirectoryWidgetWriteCapability({
+      appId: "content",
+      resourceUri: "ui://content/shell-v69",
+      resourceIds: { documentId: "doc-1" },
+      userEmail: "ticket-owner@example.com",
+      orgId: "org-1",
+      expiresAtMs,
+      readActionArguments: { "get-document": { id: "doc-1" } },
+      writeActionArguments: {
+        "update-document": {
+          id: "doc-1",
+          content: { type: "actionSchema" },
+        },
+      },
+    })!;
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "ticket-owner@example.com",
+      orgId: "org-1",
+      token: "signed-directory-capability",
+      targetPath: "/page/doc-1",
+      scope: capability,
+    });
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        "update-document": {
+          http: { method: "POST" },
+          readOnly: false,
+          requiresAuth: true,
+          run,
+        } as any,
+      },
+      {
+        appId: "content",
+        mcpDirectoryWidgetAppId: "content",
+        mcpDirectoryWidgetResourceUri: "ui://content/shell-v69",
+        mcpDirectoryWidgetWriteActionArguments: {
+          "update-document": ["id", "content"],
+        },
+      },
+    );
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(expiresAtMs + 1);
+      const request = () => ({
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/update-document",
+          json: async () => ({ id: "doc-1", content: "Updated" }),
+        },
+      });
+      const expiredOwnerRequest = request();
+      await expect(mounted[0]!.handler(expiredOwnerRequest)).resolves.toEqual({
+        error: "Unauthorized",
+      });
+      expect(expiredOwnerRequest._status).toBe(401);
+      expect(expiredOwnerRequest._responseHeaders).toMatchObject({
+        "x-agent-native-widget-session-expired": "1",
+      });
+
+      mockResolveEmbedSessionFromRequest.mockResolvedValue({
+        email: "other@example.com",
+        orgId: "org-1",
+        token: "signed-directory-capability",
+        targetPath: "/page/doc-1",
+        scope: capability,
+      });
+      const otherUserRequest = request();
+      await expect(mounted[0]!.handler(otherUserRequest)).resolves.toEqual({
+        error:
+          "This widget write capability is scoped to a different user, app resource, or action.",
+      });
+      expect(otherUserRequest._status).toBe(403);
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects a capability request for a different design", async () => {
@@ -4978,7 +5573,7 @@ describe("mountWebMcpActionRoutes", () => {
     const runUnscopedPublicRead = vi.fn();
     const capability = createMcpDirectoryWidgetReadCapability({
       appId: "design",
-      resourceUri: "ui://design/shell-v68",
+      resourceUri: "ui://design/shell-v69",
       resourceIds: { designId: "d1" },
       actionArguments: { "get-design": { id: "d1" } },
     })!;
@@ -5036,7 +5631,7 @@ describe("mountWebMcpActionRoutes", () => {
         mcpDirectoryWidgetReadActionArguments: { "get-design": ["id"] },
         mcpDirectoryWidgetReadOnlyActions: ["get-design"],
         mcpDirectoryWidgetAppId: "design",
-        mcpDirectoryWidgetResourceUri: "ui://design/shell-v68",
+        mcpDirectoryWidgetResourceUri: "ui://design/shell-v69",
       },
     );
 

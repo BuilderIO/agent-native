@@ -6,12 +6,14 @@ const {
   hasSessionHint,
   pageReads,
   readOnlyWidget,
+  writeWidget,
 } = vi.hoisted(() => ({
   writeClientAppState: vi.fn(),
   callAction: vi.fn(),
   hasSessionHint: vi.fn(() => true),
   pageReads: vi.fn(),
   readOnlyWidget: { value: false },
+  writeWidget: { value: false },
 }));
 
 vi.mock("@agent-native/core/client/application-state", () => ({
@@ -30,6 +32,7 @@ vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
 vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/host")>()),
   isMcpDirectoryWidgetReadOnlyEmbed: () => readOnlyWidget.value,
+  isMcpDirectoryWidgetWriteEmbed: () => writeWidget.value,
 }));
 vi.mock("@/hooks/use-documents", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/use-documents")>()),
@@ -50,17 +53,25 @@ describe("rememberContentLandingDocument", () => {
   beforeEach(() => {
     writeClientAppState.mockReset();
     readOnlyWidget.value = false;
+    writeWidget.value = false;
   });
 
-  it("writes nothing and does not fail inside a read-only directory widget", async () => {
-    readOnlyWidget.value = true;
+  it.each([
+    ["read-only", true, false],
+    ["write-enabled", false, true],
+  ] as const)(
+    "skips landing-state writes for a %s directory widget capability",
+    async (_label, isReadOnlyWidget, isWriteWidget) => {
+      readOnlyWidget.value = isReadOnlyWidget;
+      writeWidget.value = isWriteWidget;
 
-    await expect(
-      rememberContentLandingDocument({ documentId: "doc-1" }, "space-1"),
-    ).resolves.toBeUndefined();
+      await expect(
+        rememberContentLandingDocument({ documentId: "doc-1" }, "space-1"),
+      ).resolves.toBeUndefined();
 
-    expect(writeClientAppState).not.toHaveBeenCalled();
-  });
+      expect(writeClientAppState).not.toHaveBeenCalled();
+    },
+  );
 
   it("still surfaces a failed write in a normal session", async () => {
     writeClientAppState.mockRejectedValue(new Error("offline"));

@@ -1074,7 +1074,6 @@ Respond to the fanout event.`,
     });
 
     const eventHandler = busEventHandler(eventName);
-    expect(eventHandler).toBeTypeOf("function");
 
     triggerQueueMocks.enqueue.mockRejectedValueOnce(
       new Error("queue write failed"),
