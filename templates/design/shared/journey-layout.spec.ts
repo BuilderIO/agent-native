@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CARD_HEADER_HEIGHT,
+  CARD_PROVENANCE_HEADER_HEIGHT,
   COLUMN_GAP,
   JourneyLayoutError,
   LABEL_HEIGHT,
@@ -76,6 +77,17 @@ describe("cardSize", () => {
       imageHeight: 225,
     });
     expect(cardSize(360, { width: 390, height: 780 }).imageHeight).toBe(720);
+  });
+
+  it("reserves card height for visible journey-example provenance", () => {
+    expect(
+      cardSize(
+        360,
+        { width: 1440, height: 900 },
+        undefined,
+        CARD_PROVENANCE_HEADER_HEIGHT,
+      ).height,
+    ).toBe(CARD_PROVENANCE_HEADER_HEIGHT + 225);
   });
 
   it("clamps the box to [0.5, 2] so ultra-wide and ultra-tall frames stay bounded", () => {

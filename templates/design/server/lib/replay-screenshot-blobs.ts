@@ -1,11 +1,14 @@
 import { fail } from "@agent-native/core/action";
 import {
   deletePrivateBlob,
+  getActivePrivateBlobProviderForRequest,
+  isPrivateBlobConfiguredForRequest,
   putPrivateBlob,
   resolveAttachment,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
 
+import { isValidReplayScreenshotBlobHandle } from "./replay-screenshot-private-blob.js";
 import { deleteVisualEditSnapshotBlobs } from "./visual-edit-snapshot-blobs.js";
 
 export const MAX_REPLAY_SCREENSHOT_BYTES = 10 * 1024 * 1024;
@@ -19,6 +22,27 @@ export interface StoredReplayScreenshotBlob {
   blobHandle: PrivateBlobHandle;
   mimeType: ReplayScreenshotMimeType;
   sizeBytes: number;
+}
+
+export type ReplayScreenshotStorage =
+  | { kind: "private-provider"; providerId: string }
+  | { kind: "encrypted-public-upload" };
+
+export async function resolveReplayScreenshotStorage(
+  allowEncryptedPublicUploadFallback: boolean,
+): Promise<ReplayScreenshotStorage> {
+  const provider = await getActivePrivateBlobProviderForRequest();
+  if (provider) return { kind: "private-provider", providerId: provider.id };
+  if (
+    allowEncryptedPublicUploadFallback === true &&
+    (await isPrivateBlobConfiguredForRequest())
+  ) {
+    return { kind: "encrypted-public-upload" };
+  }
+  fail(
+    "Replay screenshots require a configured private blob provider. Set allowEncryptedPublicUploadFallback to true only when approved to use the app's encrypted public-upload fallback.",
+    { errorCode: "private_blob_provider_required", statusCode: 503 },
+  );
 }
 
 export function detectImageMimeType(
@@ -66,15 +90,15 @@ export function attachmentFailureMessage(status: string): string {
 }
 
 /**
- * Copies a personal attachment into the active private blob provider, owned by
- * the design owner, so `/api/design-board-replay-screenshots/:id` can serve it
- * to anyone with viewer access to the design.
+ * Copies a personal attachment into private blob storage, owned by the design
+ * owner, so `/api/design-board-replay-screenshots/:id` can serve it to anyone
+ * with viewer access to the design.
  */
 export async function storeAttachmentAsPrivateBlob(args: {
   attachmentRef: string;
   requesterEmail: string;
   blobOwnerEmail: string;
-  providerId: string;
+  providerId?: string;
   rowId: string;
   designId: string;
   replayId: string;
@@ -129,12 +153,15 @@ export async function storeAttachmentAsPrivateBlob(args: {
       statusCode: 503,
     });
   }
-  if (blobHandle.provider !== args.providerId || blobHandle.opaque !== true) {
+  if (
+    !isValidReplayScreenshotBlobHandle(blobHandle) ||
+    (args.providerId && blobHandle.provider !== args.providerId)
+  ) {
     await discardPrivateBlobs([blobHandle]);
-    fail(
-      "Replay screenshots must be stored by the active private blob provider.",
-      { errorCode: "private_blob_provider_mismatch", statusCode: 503 },
-    );
+    fail("Replay screenshots must use an opaque private blob storage handle.", {
+      errorCode: "private_blob_provider_mismatch",
+      statusCode: 503,
+    });
   }
   return { blobHandle, mimeType, sizeBytes };
 }

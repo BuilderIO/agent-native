@@ -1510,6 +1510,8 @@ export default {
     replayLoading: "Carregando replay...",
     replayLoadingProgress:
       "{{loaded}} de {{total}} blocos de replay carregados",
+    replayTargetFallback:
+      "O ponto solicitado ({{requested}}) não está disponível; exibindo o quadro de replay mais próximo em {{available}}.",
     replayUnavailable: "Nenhum bloco de replay para esta sessão",
     replayUnavailableDescription:
       "A sessão tem eventos de analytics, mas nenhum evento de bloco rrweb foi encontrado.",

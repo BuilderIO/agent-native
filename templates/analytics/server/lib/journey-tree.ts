@@ -59,7 +59,7 @@ export interface JourneyExample {
   recordingId: string | null;
   /** ISO time of the step in this session. */
   ts: string;
-  /** Where to seek in the recording to see the step; null without a recording. */
+  /** Milliseconds from recording.startedAt to the step; null without a recording. */
   offsetMs: number | null;
   viewport: { width: number; height: number } | null;
   /** Present exactly when `viewport` is null. */

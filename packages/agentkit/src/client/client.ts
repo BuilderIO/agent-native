@@ -3980,6 +3980,15 @@ export class AgentKitClient implements AgentKitController {
           }
           if (!terminalEvent) {
             if (this.hasTerminalRunCatchUp(threadId, runId)) {
+              if (attempt < this.reconnectAttempts) {
+                attempt += 1;
+                this.setConnection("reconnecting");
+                await this.waitForReconnect(
+                  this.reconnectDelay(attempt),
+                  abortController.signal,
+                );
+                continue;
+              }
               this.reportIntegrity({
                 code: "run_missing_terminal",
                 threadId,
@@ -4111,6 +4120,9 @@ export class AgentKitClient implements AgentKitController {
     duration: number,
     signal: AbortSignal,
   ): Promise<void> {
+    if (signal.aborted) {
+      return Promise.reject(signal.reason ?? this.abortError());
+    }
     return new Promise((resolve, reject) => {
       const onAbort = () => {
         clearTimeout(timeout);

@@ -289,6 +289,72 @@ describe("create-deck — save boundary", () => {
   });
 });
 
+describe("create-deck — hygiene warnings", () => {
+  const slidesWithProblems = [
+    {
+      id: "slide-1",
+      content:
+        '<div class="fmd-slide"><svg viewBox="0 0 4 4"></svg><footer>01 / 03</footer></div>',
+    },
+    { id: "slide-2", content: '<div class="fmd-slide"><p>Fine</p></div>' },
+    {
+      id: "slide-3",
+      content:
+        '<div class="fmd-slide"><svg></svg><footer>03 / 03</footer></div>',
+    },
+  ];
+
+  it("groups warnings across the new deck's slides without blocking the write", async () => {
+    const result = (await action.run({
+      title: "Quarterly update",
+      slides: slidesWithProblems,
+    })) as { hygieneWarnings?: { warnings: Array<Record<string, unknown>> } };
+
+    expect(insertedRow).toBeDefined();
+    expect(result.hygieneWarnings?.warnings).toEqual([
+      expect.objectContaining({
+        code: "inline-svg",
+        severity: "error",
+        count: 2,
+        slideIds: ["slide-1", "slide-3"],
+      }),
+      expect.objectContaining({
+        code: "typed-page-number",
+        count: 2,
+        slideIds: ["slide-1", "slide-3"],
+      }),
+    ]);
+  });
+
+  it("also reports them when it replaces an existing deck", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      data: JSON.stringify({ title: "Old", slides: [] }),
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const result = (await action.run({
+      title: "Old",
+      deckId: "deck-1",
+      slides: slidesWithProblems,
+    })) as { hygieneWarnings?: { warnings: Array<Record<string, unknown>> } };
+
+    expect(updatedFields).toBeDefined();
+    expect(result.hygieneWarnings?.warnings.map((w) => w.code)).toEqual([
+      "inline-svg",
+      "typed-page-number",
+    ]);
+  });
+
+  it("omits the field for a clean deck", async () => {
+    const result = await action.run({
+      title: "Quarterly update",
+      slides: [slidesWithProblems[1]],
+    });
+
+    expect(result).not.toHaveProperty("hygieneWarnings");
+  });
+});
+
 describe("create-deck — aspectRatio", () => {
   it("defaults omitted slides to an empty deck", async () => {
     await action.run({

@@ -142,6 +142,26 @@ export function mapAxeContrastResults(
   };
 }
 
+/**
+ * Slide-number tokens paint their digits from `::before`, which axe never
+ * measures; report them so a deck cannot claim to pass with an unchecked footer.
+ */
+export function slideNumberTokenUnverified(
+  canvas: Element,
+  slideId: string,
+): ContrastUnverified[] {
+  if (!canvas.hasAttribute("data-slide-count")) return [];
+  return Array.from(
+    canvas.querySelectorAll("[data-slide-number],[data-slide-total]"),
+  ).map(
+    (token): ContrastUnverified => ({
+      slideId,
+      ...describeElement(token),
+      reason: "slideNumberToken",
+    }),
+  );
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -360,7 +380,10 @@ export async function runContrastAudit(
     }
     audited.push({ id: target.id, contentHash });
     failures.push(...mapped.failures);
-    unverified.push(...mapped.unverified);
+    unverified.push(
+      ...mapped.unverified,
+      ...slideNumberTokenUnverified(canvas, target.id),
+    );
   }
 
   return { deckId: deck.id, renderKey, audited, failures, unverified, skipped };

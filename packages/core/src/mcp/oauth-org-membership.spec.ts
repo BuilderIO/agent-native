@@ -174,10 +174,17 @@ async function docsVisibleTo(accessToken: string): Promise<string[]> {
   const { auth, mcpOrgId } = await authenticateMcpRequest(accessToken);
   if (!auth.authed) return [];
   const db = drizzle(await getPgliteClient(process.env.DATABASE_URL!));
+  const verifiedServiceIdentity =
+    auth.identity?.identityAssurance === "service" &&
+    auth.identity.userEmail &&
+    auth.identity.orgId === mcpOrgId
+      ? { userEmail: auth.identity.userEmail, orgId: auth.identity.orgId }
+      : undefined;
   return runWithRequestContext(
     {
       userEmail: auth.identity?.userEmail,
       orgId: mcpOrgId,
+      ...(verifiedServiceIdentity ? { verifiedServiceIdentity } : {}),
       ...(auth.identity?.orgId === null
         ? { orgScope: "personal" as const }
         : {}),

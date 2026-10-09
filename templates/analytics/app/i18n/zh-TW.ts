@@ -1505,6 +1505,8 @@ export default {
     askSessionPlaceholder: "此工作階段發生了什麼？",
     replayPlayer: "回放播放器",
     replayLoading: "正在載入回放...",
+    replayTargetFallback:
+      "無法顯示要求的錄製偏移 {{requested}}；目前顯示 {{available}} 的最接近回放畫面。",
     replayUnavailable: "此工作階段沒有回放分塊",
     replayUnavailableDescription:
       "此工作階段有分析事件，但未找到 rrweb 分塊事件。",
