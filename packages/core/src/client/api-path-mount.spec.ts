@@ -64,6 +64,26 @@ describe("appMountPath", () => {
     expect(appBasePath()).toBe("");
   });
 
+  it("does not infer a mount from an unmatched URL and a root index route", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "content", path: "/content" }]),
+    );
+    vi.stubGlobal("window", {
+      location: { pathname: "/nope" },
+      __reactRouterManifest: {
+        routes: {
+          root: { id: "root", path: "/" },
+          index: { id: "index", parentId: "root", index: true },
+          home: { id: "home", parentId: "root", path: "home" },
+        },
+      },
+    });
+
+    expect(appBasePath()).toBe("");
+  });
+
   it("keeps a root wildcard route from becoming an omitted workspace mount", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
@@ -82,6 +102,26 @@ describe("appMountPath", () => {
     });
 
     expect(appBasePath()).toBe("");
+  });
+
+  it("uses the router basename for a mounted app with a root catch-all route", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "content", path: "/content" }]),
+    );
+    vi.stubGlobal("window", {
+      location: { pathname: "/dispatch/missing" },
+      __reactRouterContext: { basename: "/dispatch" },
+      __reactRouterManifest: {
+        routes: {
+          root: { id: "root", path: "/" },
+          catchall: { id: "catchall", parentId: "root", path: "*" },
+        },
+      },
+    });
+
+    expect(appBasePath()).toBe("/dispatch");
   });
 
   it("keeps a root route inside its live workspace mount when omitted by the manifest", () => {

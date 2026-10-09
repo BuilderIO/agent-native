@@ -118,6 +118,14 @@ function pathMatchesBasePath(pathname: string, basePath: string): boolean {
   return pathname === basePath || pathname.startsWith(`${basePath}/`);
 }
 
+function routerContextBasePath(): string {
+  if (typeof window === "undefined") return "";
+  const basename = (
+    window as Window & { __reactRouterContext?: { basename?: unknown } }
+  ).__reactRouterContext?.basename;
+  return typeof basename === "string" ? normalizeBasePath(basename) : "";
+}
+
 export function isWorkspaceRuntime(): boolean {
   const env = clientEnv();
   const projected =
@@ -139,6 +147,10 @@ function workspacePathBasePath(): string {
   if (typeof window === "undefined" || !isWorkspaceRuntime()) return "";
   const pathname = window.location?.pathname;
   if (typeof pathname !== "string") return "";
+  const routerBasePath = routerContextBasePath();
+  if (routerBasePath && pathMatchesBasePath(pathname, routerBasePath)) {
+    return routerBasePath;
+  }
   const segment = pathname.split("/").find(Boolean);
   if (!segment || isFrameworkSegment(segment) || segment === "api") return "";
   const basePath = normalizeBasePath(segment);
@@ -157,7 +169,7 @@ function workspacePathBasePath(): string {
     const localPathname = pathname.slice(basePath.length) || "/";
     const routeForFullPath = routeTemplateForPath(pathname, routes);
     const routeForLocalPath = routeTemplateForPath(localPathname, routes);
-    if (routeForLocalPath && !routeForFullPath) {
+    if (routeForLocalPath && localPathname !== "/" && !routeForFullPath) {
       return basePath;
     }
     return "";
