@@ -41,6 +41,7 @@ jobs:
       query_budget_matrix: ${{ steps.scope.outputs.query_budget_matrix }}
       neon_connection_budget: ${{ steps.scope.outputs.neon_connection_budget }}
       design_canvas_interaction_e2e: ${{ steps.scope.outputs.design_canvas_interaction_e2e }}
+      pre_auth_session_replay_e2e: ${{ steps.scope.outputs.pre_auth_session_replay_e2e }}
       design_canvas_e2e_specs: ${{ steps.scope.outputs.design_canvas_e2e_specs }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       slides_chat_e2e: ${{ steps.scope.outputs.slides_chat_e2e }}
@@ -701,6 +702,39 @@ jobs:
           fi
           pnpm exec playwright test "${focused_specs[@]}" --workers=1
 
+  pre-auth-session-replay-smoke:
+    name: Pre-auth session replay smoke
+    needs: change-scope
+    if: needs.change-scope.outputs.pre_auth_session_replay_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/free-disk
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Run pre-auth session replay smoke
+        working-directory: templates/design
+        timeout-minutes: 7
+        env:
+          E2E_DISABLE_AUTO_DEV_ACCOUNT: "1"
+          E2E_RUN_ID: pre-auth-replay-${{ github.run_id }}-${{ github.run_attempt }}
+        run: pnpm exec playwright test e2e/pre-auth-session-replay-smoke.spec.ts --workers=1
+
   fast-tests:
     name: Fast tests
     needs:
@@ -710,6 +744,7 @@ jobs:
         test-rest,
         test-targeted,
         design-canvas-interaction-acceptance,
+        pre-auth-session-replay-smoke,
       ]
     if: always()
     runs-on: ubuntu-latest
@@ -727,9 +762,25 @@ jobs:
           TEST_TARGETED_RESULT: ${{ needs.test-targeted.result }}
           DESIGN_CANVAS_E2E: ${{ needs.change-scope.outputs.design_canvas_interaction_e2e }}
           DESIGN_CANVAS_RESULT: ${{ needs.design-canvas-interaction-acceptance.result }}
+          PRE_AUTH_REPLAY_E2E: ${{ needs.change-scope.outputs.pre_auth_session_replay_e2e }}
+          PRE_AUTH_REPLAY_RESULT: ${{ needs.pre-auth-session-replay-smoke.result }}
         run: |
           if [ "$CHANGE_SCOPE_RESULT" != "success" ]; then
             echo "::error::change-scope did not succeed ($CHANGE_SCOPE_RESULT)"
+            exit 1
+          fi
+          if [ "$PRE_AUTH_REPLAY_E2E" = "true" ]; then
+            if [ "$PRE_AUTH_REPLAY_RESULT" != "success" ]; then
+              echo "::error::pre-auth session replay smoke did not succeed ($PRE_AUTH_REPLAY_RESULT)"
+              exit 1
+            fi
+          elif [ "$PRE_AUTH_REPLAY_E2E" = "false" ]; then
+            if [ "$PRE_AUTH_REPLAY_RESULT" != "skipped" ]; then
+              echo "::error::pre-auth session replay smoke ran outside its selected paths ($PRE_AUTH_REPLAY_RESULT)"
+              exit 1
+            fi
+          else
+            echo "::error::pre-auth replay selection was missing or invalid ($PRE_AUTH_REPLAY_E2E)"
             exit 1
           fi
           if [ "$DOCS_ONLY" = "true" ]; then

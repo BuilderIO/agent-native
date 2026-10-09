@@ -1,6 +1,6 @@
 import { gzipSync } from "node:zlib";
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
 const putPrivateBlobMock = vi.hoisted(() => vi.fn());
@@ -75,6 +75,7 @@ import {
   readSessionReplayChunkBatch,
   readSessionReplayChunkBytes,
   recordSessionReplayChunks,
+  resolveSessionReplayLink,
 } from "./session-replay";
 
 function createBudgetDbMock(results: unknown[][]) {
@@ -286,6 +287,75 @@ describe("session replay list page", () => {
     expect(conditionText(conditions[2])).toContain("clips");
     expect(conditionText(orders[1])).toContain("nulls last");
   });
+
+  it("filters explicit anonymous sessions without trusting capture claims", async () => {
+    const conditions: unknown[] = [];
+    const anonymousRecording = {
+      id: "sr_pre_auth",
+      clientRecordingId: "recording_1",
+      sessionId: "session_1",
+      userId: null,
+      anonymousId: "anon_1",
+      userKey: "anon_1",
+      startedAt: "2026-10-08T00:00:00.000Z",
+      chunkCount: 1,
+      eventCount: 2,
+      metadata:
+        '{"route":"/signup","capture_context":"pre_auth","pre_auth_base_path":"/app"}',
+      ownerEmail: "owner@example.test",
+      orgId: "org_1",
+      visibility: "org",
+      status: "completed",
+    };
+    const db = {
+      select: vi.fn((selection?: Record<string, unknown>) => ({
+        from: vi.fn((table: unknown) => ({
+          where: vi.fn((condition: unknown) => {
+            if (table === organizations) {
+              return { limit: async () => [] };
+            }
+            conditions.push(condition);
+            const rows = selection?.app
+              ? [{ app: null, count: "1" }]
+              : selection?.count
+                ? [{ count: "1" }]
+                : [anonymousRecording];
+            const query = {
+              orderBy: () => query,
+              groupBy: () => query,
+              limit: () => query,
+              offset: async () => rows,
+              then: (resolve: (value: unknown[]) => void) =>
+                Promise.resolve(rows).then(resolve),
+            };
+            return query;
+          }),
+        })),
+      })),
+    };
+    getDbMock.mockReturnValue(db);
+
+    const page = await listSessionRecordingsPage(
+      { userEmail: "owner@example.test", orgId: "org_1" },
+      { visitorType: "anonymous" },
+    );
+
+    expect(page.recordings).toMatchObject([
+      {
+        id: "sr_pre_auth",
+        userId: null,
+        anonymousId: "anon_1",
+        metadata: { route: "/signup" },
+      },
+    ]);
+    expect(conditionText(conditions[0])).not.toContain("capture_context");
+    expect(conditionText(conditions[0])).not.toContain("pre_auth");
+    expect(conditionText(conditions[0])).toContain("anonymous_id");
+    expect(conditionText(conditions[0])).toContain("owner_email");
+    expect(conditionText(conditions[0])).toContain("org_id");
+    expect(conditionText(conditions[0])).toContain("user_id");
+    expect(conditionText(conditions[0])).toContain("user_key");
+  });
 });
 
 describe("session recording performance", () => {
@@ -430,6 +500,8 @@ describe("session replay agent summaries", () => {
 });
 
 describe("session replay ingest parsing", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   beforeEach(() => {
     getDbMock.mockReset();
     putPrivateBlobMock.mockReset();
@@ -743,6 +815,42 @@ describe("session replay ingest parsing", () => {
     expect(parsed.chunks).toHaveLength(1);
   });
 
+  it("drops client auth-context claims from replay properties and metadata", () => {
+    const parsed = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      anonymousId: "anon_1",
+      sequence: 0,
+      properties: {
+        capture_context: "pre_auth",
+        pre_auth_base_path: "/app",
+      },
+      metadata: {
+        capture_context: "forged",
+        pre_auth_base_path: "/forged",
+        retained: true,
+      },
+      events: [{ type: 4, timestamp: 1 }],
+    });
+    const unmarked = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_2",
+      sessionId: "session_2",
+      anonymousId: "anon_2",
+      sequence: 0,
+      properties: { capture_context: "pre_auth" },
+      metadata: { capture_context: "pre_auth" },
+      events: [{ type: 4, timestamp: 1 }],
+    });
+
+    expect(parsed.metadata).toEqual({ retained: true });
+    expect(parsed).not.toHaveProperty("preAuthCaptureContextRequested");
+    expect(parsed).not.toHaveProperty("preAuthBasePath");
+    expect(unmarked.metadata).toEqual({});
+    expect(unmarked).not.toHaveProperty("preAuthCaptureContextRequested");
+  });
+
   it("rejects metadata-only recordings from direct summary reads", async () => {
     resolveAccessMock.mockResolvedValue({
       role: "viewer",
@@ -773,7 +881,7 @@ describe("session replay ingest parsing", () => {
     });
   });
 
-  it("rejects anonymous recordings from direct summary reads", async () => {
+  it("rejects anonymous recordings without an anonymous id", async () => {
     resolveAccessMock.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -781,7 +889,7 @@ describe("session replay ingest parsing", () => {
         clientRecordingId: "recording_1",
         sessionId: "session_1",
         userId: null,
-        anonymousId: "anon_1",
+        anonymousId: null,
         userKey: "anon_1",
         startedAt: "2026-01-01T00:00:00.000Z",
         endedAt: null,
@@ -888,6 +996,111 @@ describe("session replay ingest parsing", () => {
       lastIngestedAt: "2026-01-01T00:00:04.000Z",
     };
   }
+
+  it("returns client-submitted anonymous recordings only through scoped detail access", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        ...playableRecordingResource("sr_pre_auth"),
+        userId: null,
+        anonymousId: "anon_1",
+        userKey: "anon_1",
+        metadata: "{}",
+      },
+    });
+
+    await expect(
+      getSessionReplaySummary("sr_pre_auth", {
+        userEmail: "viewer@example.test",
+        orgId: "org_1",
+      }),
+    ).resolves.toMatchObject({
+      id: "sr_pre_auth",
+      userId: null,
+      anonymousId: "anon_1",
+      role: "viewer",
+      metadata: {},
+    });
+    expect(resolveAccessMock).toHaveBeenCalledWith(
+      "session-recording",
+      "sr_pre_auth",
+      { userEmail: "viewer@example.test", orgId: "org_1" },
+    );
+  });
+
+  it("keeps anonymous read-by-id behind the existing resource ACL", async () => {
+    resolveAccessMock.mockResolvedValue(null);
+
+    await expect(
+      getSessionReplaySummary("sr_anonymous_outside_scope", {
+        userEmail: "viewer@example.test",
+        orgId: "org_1",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      message: "Session recording not found",
+    });
+    expect(resolveAccessMock).toHaveBeenCalledWith(
+      "session-recording",
+      "sr_anonymous_outside_scope",
+      { userEmail: "viewer@example.test", orgId: "org_1" },
+    );
+  });
+
+  it("resolves anonymous replay links within owner scope", async () => {
+    const anonymousRecording = {
+      id: "sr_pre_auth",
+      startedAt: "2026-10-08T00:00:00.000Z",
+      endedAt: "2026-10-08T00:01:00.000Z",
+      durationMs: 60_000,
+      ownerEmail: "owner@example.test",
+      orgId: "org_1",
+      visibility: "org",
+      chunkCount: 1,
+      eventCount: 2,
+      userId: null,
+      userKey: "anon_1",
+      anonymousId: "anon_1",
+      metadata: "{}",
+    };
+    let selection: Record<string, unknown> | undefined;
+    let condition: unknown;
+    const db = {
+      select: vi.fn((selected: Record<string, unknown>) => {
+        selection = selected;
+        return {
+          from: vi.fn(() => ({
+            where: vi.fn((where: unknown) => {
+              condition = where;
+              return { limit: async () => [anonymousRecording] };
+            }),
+          })),
+        };
+      }),
+    };
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      resolveSessionReplayLink(
+        {
+          sessionId: "session_1",
+          clientRecordingId: "recording_1",
+          at: "2026-10-08T00:00:00.000Z",
+        },
+        { userEmail: "owner@example.test", orgId: "org_1" },
+      ),
+    ).resolves.toMatchObject({
+      recordingId: "sr_pre_auth",
+      offsetMs: 0,
+      path: "/sessions/sr_pre_auth?atMs=0",
+    });
+    expect(selection).toMatchObject({
+      anonymousId: schema.sessionRecordings.anonymousId,
+      metadata: schema.sessionRecordings.metadata,
+    });
+    expect(conditionText(condition)).toContain("owner_email");
+    expect(conditionText(condition)).toContain("org_id");
+  });
 
   it("returns compact recording data from tokenized event reads", async () => {
     const eventsJson = JSON.stringify([
@@ -2076,6 +2289,128 @@ describe("session replay ingest parsing", () => {
     });
   }
 
+  it("does not persist caller auth-page context claims to replay metadata", async () => {
+    const { db, inserts } = createReplayDbMock(replayIngestKeyDbResults(null));
+    const updateValues: Array<Record<string, unknown>> = [];
+    const update = vi.fn(() => ({
+      set: vi.fn((values: Record<string, unknown>) => {
+        updateValues.push(values);
+        return { where: vi.fn(async () => undefined) };
+      }),
+    }));
+    getDbMock.mockReturnValue({ ...db, update });
+    putPrivateBlobMock.mockResolvedValue(null);
+
+    const input = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      anonymousId: "anon_1",
+      sequence: 0,
+      url: "https://app.example.com/signup?source=invite",
+      properties: {
+        capture_context: "pre_auth",
+        pre_auth_base_path: "/app",
+      },
+      metadata: {
+        capture_context: "pre_auth",
+        pre_auth_base_path: "/forged",
+        route: "/signup",
+        retained: true,
+      },
+      events: [{ type: 4, timestamp: 1 }],
+    });
+    await recordSessionReplayChunks(input, {
+      origin: "https://app.example.com",
+      requestBytes: 100,
+    });
+
+    const recordingInsert = inserts.find(
+      (entry) => entry.table === schema.sessionRecordings,
+    )?.values as { metadata: string } | undefined;
+    expect(JSON.parse(recordingInsert?.metadata ?? "{}")).toEqual({
+      route: "/signup",
+      retained: true,
+    });
+    expect(JSON.parse(String(updateValues[0]?.metadata ?? "{}"))).toEqual({
+      route: "/signup",
+      retained: true,
+    });
+  });
+
+  it("does not promote an existing identified recording from an auth-page marker", async () => {
+    const existingRecording = {
+      id: "sr_existing",
+      publicKeyId: "key_1",
+      clientRecordingId: "recording_1",
+      sessionId: "session_1",
+      userId: "known@example.com",
+      anonymousId: null,
+      userKey: "known@example.com",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      endedAt: null,
+      durationMs: null,
+      chunkCount: 0,
+      eventCount: 0,
+      totalBytes: 0,
+      pageCount: 0,
+      errorCount: 0,
+      networkErrorCount: 0,
+      rageClickCount: 0,
+      privacyMode: "unknown",
+      metadata: "{}",
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      visibility: "private",
+      status: "active",
+    };
+    const { db } = createReplayDbMock([
+      [
+        {
+          id: "key_1",
+          publicKey: "anpk_test",
+          ownerEmail: "owner@example.com",
+          orgId: null,
+          replayAllowedOrigins: "[]",
+          replayMaxBytesPerDay: 100_000,
+          replayMaxRequestsPerMinute: 120,
+        },
+      ],
+      [{ bytes: 0 }],
+      [{ requests: 0 }],
+      [existingRecording],
+      [],
+    ]);
+    const updateValues: Array<Record<string, unknown>> = [];
+    const update = vi.fn(() => ({
+      set: vi.fn((values: Record<string, unknown>) => {
+        updateValues.push(values);
+        return { where: vi.fn(async () => undefined) };
+      }),
+    }));
+    getDbMock.mockReturnValue({ ...db, update });
+    putPrivateBlobMock.mockResolvedValue(null);
+
+    await recordSessionReplayChunks(
+      parseSessionReplayIngestPayload({
+        publicKey: "anpk_test",
+        replayId: "recording_1",
+        sessionId: "session_1",
+        userId: "known@example.com",
+        sequence: 0,
+        url: "https://app.example.com/signup",
+        properties: { capture_context: "pre_auth" },
+        events: [{ type: 4, timestamp: 1 }],
+      }),
+      { origin: "https://app.example.com", requestBytes: 100 },
+    );
+
+    expect(updateValues[0]).toMatchObject({ userId: "known@example.com" });
+    expect(
+      JSON.parse(String(updateValues[0]?.metadata ?? "{}")).capture_context,
+    ).toBeUndefined();
+  });
+
   it("clamps future replay recording times before inserting rows", async () => {
     const originalNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";
@@ -2483,6 +2818,40 @@ describe("replay viewport", () => {
     });
   });
 
+  it("drops client auth-context claims from merged metadata across later uploads", () => {
+    const first = mergeReplayMetadata(
+      {},
+      {
+        capture_context: "pre_auth",
+        pre_auth_base_path: "/app",
+        route: "/signup",
+      },
+      {
+        first: { width: 1440, height: 900 },
+        last: { width: 1440, height: 900 },
+      },
+    );
+    const second = mergeReplayMetadata(
+      { ...first, capture_context: "pre_auth" },
+      {
+        capture_context: "forged",
+        pre_auth_base_path: "/other",
+        route: "/signup/verify",
+        app: "analytics",
+      },
+      { first: null, last: { width: 390, height: 844 } },
+    );
+
+    expect(second).toEqual({
+      route: "/signup/verify",
+      app: "analytics",
+      viewport: {
+        first: { width: 1440, height: 900 },
+        last: { width: 390, height: 844 },
+      },
+    });
+  });
+
   it("takes a later resize as the last size, and stores nothing without a first size", () => {
     const stored = mergeReplayMetadata(
       {},
@@ -2525,6 +2894,30 @@ describe("replay viewport", () => {
       other: 1,
     });
     expect(mergeReplayMetadata({}, { other: 1 })).toEqual({ other: 1 });
+  });
+
+  it("keeps server metadata outside the caller metadata cap", () => {
+    const maxBytes = 16 * 1024;
+    const metadata = {
+      payload: "x".repeat(maxBytes - JSON.stringify({ payload: "" }).length),
+    };
+    expect(JSON.stringify(metadata)).toHaveLength(maxBytes);
+
+    const viewport = {
+      first: { width: 1440, height: 900 },
+      last: { width: 1440, height: 900 },
+    };
+    const merged = mergeReplayMetadata(
+      {},
+      { ...metadata, capture_context: "pre_auth" },
+      viewport,
+    );
+
+    expect(merged).toEqual({ payload: metadata.payload, viewport });
+    expect(JSON.stringify(merged).length).toBeGreaterThan(maxBytes);
+    expect(() =>
+      mergeReplayMetadata({}, { payload: "x".repeat(maxBytes) }),
+    ).toThrow("Replay metadata must be 16384 bytes or smaller");
   });
 
   it("drops a client-sent viewport at parse time", () => {

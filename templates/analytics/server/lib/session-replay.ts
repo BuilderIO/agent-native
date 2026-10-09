@@ -33,6 +33,7 @@ import {
   gte,
   inArray,
   isNull,
+  isNotNull,
   lt,
   lte,
   not,
@@ -134,7 +135,7 @@ export interface SessionReplayListFilters {
   hasRageClicks?: boolean;
   hideEmpty?: boolean;
   hideInternal?: boolean;
-  visitorType?: "internal" | "work" | "personal";
+  visitorType?: "internal" | "work" | "personal" | "anonymous";
   emailDomain?: string;
   sort?:
     | "newest"
@@ -1177,20 +1178,27 @@ export function parseSessionReplayIngestPayload(
       400,
     );
   }
-  // `viewport` is server-derived from the rrweb events, so a client value
-  // never reaches the stored metadata.
-  const { viewport: _clientViewport, ...metadata } = replayRecord(
-    body.metadata,
-  );
-  assertReplayMetadataCap(metadata);
+  // The viewport is server-derived. Auth-page context is not a trusted claim.
+  const {
+    viewport: _clientViewport,
+    capture_context: _clientCaptureContext,
+    pre_auth_base_path: _clientPreAuthBasePath,
+    ...metadata
+  } = replayRecord(body.metadata);
 
+  const {
+    capture_context: _clientCaptureContextProperty,
+    pre_auth_base_path: _clientPreAuthBasePathProperty,
+    ...callerProperties
+  } = replayRecord(body.properties);
   const directApp = replayString(body.app);
   const directTemplate = replayString(body.template);
   const properties: Record<string, unknown> = {
-    ...replayRecord(body.properties),
+    ...callerProperties,
     ...(directApp ? { app: directApp } : {}),
     ...(directTemplate ? { template: directTemplate } : {}),
   };
+  assertReplayMetadataCap(metadata);
   const context: Record<string, unknown> = replayRecord(body.context);
   const url =
     replayString(body.url) ||
@@ -1426,7 +1434,12 @@ async function resolveReplayPublicKey(publicKey: string): Promise<{
 
 function parseRecordingMetadata(row: any): Record<string, unknown> {
   try {
-    return replayRecord(JSON.parse(row.metadata ?? "{}"));
+    const {
+      capture_context: _legacyCaptureContext,
+      pre_auth_base_path: _legacyPreAuthBasePath,
+      ...metadata
+    } = replayRecord(JSON.parse(row.metadata ?? "{}"));
+    return metadata;
   } catch {
     return {};
   }
@@ -1483,13 +1496,23 @@ function hasVisibleSessionRecordingIdentity(row: any): boolean {
   return Boolean(replayEmail(row.userId) || replayEmail(row.userKey));
 }
 
+function hasAnonymousSessionRecording(row: any): boolean {
+  return Boolean(
+    row.userId == null &&
+    typeof row.anonymousId === "string" &&
+    row.anonymousId.trim() &&
+    !hasVisibleSessionRecordingIdentity(row),
+  );
+}
+
 function hasPlayableSessionRecordingEvents(row: any): boolean {
   return Number(row.chunkCount ?? 0) > 0 && Number(row.eventCount ?? 0) > 0;
 }
 
 function isVisibleSessionRecording(row: any): boolean {
   return (
-    hasVisibleSessionRecordingIdentity(row) &&
+    (hasVisibleSessionRecordingIdentity(row) ||
+      hasAnonymousSessionRecording(row)) &&
     hasPlayableSessionRecordingEvents(row)
   );
 }
@@ -1499,10 +1522,20 @@ export function mergeReplayMetadata(
   incoming: Record<string, unknown>,
   viewport: RecordedReplayViewport | null = null,
 ): Record<string, unknown> {
-  const { viewport: stored, ...rest } = existing;
-  const merged = { ...rest, ...incoming };
-  // The cap bounds caller metadata; the server-owned viewport is a few bytes.
+  const {
+    viewport: stored,
+    capture_context: _existingCaptureContext,
+    pre_auth_base_path: _existingPreAuthBasePath,
+    ...existingMetadata
+  } = existing;
+  const {
+    capture_context: _incomingCaptureContext,
+    pre_auth_base_path: _incomingPreAuthBasePath,
+    ...incomingMetadata
+  } = incoming;
+  const merged = { ...existingMetadata, ...incomingMetadata };
   assertReplayMetadataCap(merged);
+  // The cap bounds caller metadata; the server-owned viewport is a few bytes.
   const next = mergeReplayViewport(stored, viewport);
   return next === undefined ? merged : { ...merged, viewport: next };
 }
@@ -1549,6 +1582,15 @@ function replayVisibleIdentityCondition() {
   return or(
     replayTextContains(schema.sessionRecordings.userId, "@"),
     replayTextContains(schema.sessionRecordings.userKey, "@"),
+  );
+}
+
+function replayAnonymousCondition() {
+  return and(
+    isNull(schema.sessionRecordings.userId),
+    isNotNull(schema.sessionRecordings.anonymousId),
+    sql`length(btrim(${schema.sessionRecordings.anonymousId})) > 0`,
+    not(replayTextContains(schema.sessionRecordings.userKey, "@")),
   );
 }
 
@@ -1602,7 +1644,10 @@ export async function recordSessionReplayChunks(
   }
   const db = getDb() as any;
   const ingestedAt = replayTimestamp(context.now) ?? replayNowIso();
-  const clampedInput = clampReplayIngestTiming(input, ingestedAt);
+  const timingClampedInput = clampReplayIngestTiming(input, ingestedAt);
+  const clampedInput = {
+    ...timingClampedInput,
+  };
 
   let [recording] = await db
     .select()
@@ -1943,7 +1988,9 @@ export async function listSessionRecordings(
       userEmail: scope.userEmail,
       orgId: scope.orgId ?? undefined,
     }),
-    replayVisibleIdentityCondition(),
+    filters.visitorType === "anonymous"
+      ? replayAnonymousCondition()
+      : replayVisibleIdentityCondition(),
     replayPlayableEventsCondition(),
   ];
   if (filters.app)
@@ -2208,7 +2255,9 @@ export async function listSessionRecordingsPage(
       userEmail: scope.userEmail,
       orgId: scope.orgId ?? undefined,
     }),
-    replayVisibleIdentityCondition(),
+    filters.visitorType === "anonymous"
+      ? replayAnonymousCondition()
+      : replayVisibleIdentityCondition(),
     replayPlayableEventsCondition(),
   ];
   if (filters.template)
@@ -2251,14 +2300,21 @@ export async function listSessionRecordingsPage(
     conditions.push(gte(schema.sessionRecordings.rageClickCount, 1));
   if (filters.status)
     conditions.push(eq(schema.sessionRecordings.status, filters.status));
-  if (filters.emailDomain)
+  if (filters.emailDomain && filters.visitorType === "anonymous") {
+    conditions.push(sql`false`);
+  } else if (filters.emailDomain) {
     conditions.push(
       eq(
         visitorDomain,
         filters.emailDomain.trim().replace(/^@/, "").toLowerCase(),
       ),
     );
-  if (filters.hideInternal && internalDomains.length)
+  }
+  if (
+    filters.hideInternal &&
+    filters.visitorType !== "anonymous" &&
+    internalDomains.length
+  )
     conditions.push(not(inArray(visitorDomain, internalDomains)));
   if (filters.visitorType === "internal") {
     conditions.push(
@@ -2422,6 +2478,8 @@ export async function resolveSessionReplayLink(
       eventCount: schema.sessionRecordings.eventCount,
       userId: schema.sessionRecordings.userId,
       userKey: schema.sessionRecordings.userKey,
+      anonymousId: schema.sessionRecordings.anonymousId,
+      metadata: schema.sessionRecordings.metadata,
     })
     .from(schema.sessionRecordings)
     .where(
