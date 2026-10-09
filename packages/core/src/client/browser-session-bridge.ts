@@ -572,7 +572,7 @@ export function createAgentNativeBrowserSessionBridge(
   options: AgentNativeBrowserSessionBridgeOptions = {},
 ): AgentNativeBrowserSessionBridge {
   let currentSessionId: string | null = options.sessionId ?? null;
-  let fallbackSessionId: string | null = null;
+  let fallbackSessionId: string | null = options.sessionId ?? null;
   let stopGeneration = 0;
   let started = false;
   let onVisibility: (() => void) | undefined;
@@ -603,7 +603,7 @@ export function createAgentNativeBrowserSessionBridge(
     const hostSession = context.session;
     if (!currentSessionId) {
       currentSessionId =
-        hostSession?.id || fallbackSessionId || browserSessionId();
+        fallbackSessionId || hostSession?.id || browserSessionId();
       fallbackSessionId = currentSessionId;
     }
     const session = normalizeSession(
@@ -650,10 +650,7 @@ export function createAgentNativeBrowserSessionBridge(
       );
     } catch (error) {
       const timedOut = error instanceof BrowserSessionRequestTimeoutError;
-      if (
-        claimStopGeneration === stopGeneration &&
-        (timedOut || (signal?.aborted && started))
-      ) {
+      if (claimStopGeneration === stopGeneration && timedOut) {
         try {
           await deleteJson(options, `/${encodePathSegment(sessionId)}`);
           if (
