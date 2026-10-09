@@ -135,6 +135,37 @@ function problems(raw: unknown): string[] {
 }
 
 describe("create-journey-canvas input", () => {
+  it("plans up to 500 journey nodes and rejects larger trees", () => {
+    const root = node("root", null, 1000);
+    const nodes = [
+      root,
+      ...Array.from({ length: 499 }, (_, index) =>
+        node(`root > branch-${index}`, "root", 1),
+      ),
+    ];
+    const raw = rawInput({
+      includeScreenshotless: true,
+      frames: [],
+      tree: { ...rawInput().tree, nodes },
+    });
+
+    expect(planJourneyCanvas(parse(raw), "design-1").nodeCount).toBe(500);
+    const oversized = createJourneyCanvasInputSchema.safeParse({
+      ...raw,
+      tree: {
+        ...raw.tree,
+        nodes: [...nodes, node("root > overflow", "root", 1)],
+      },
+    });
+    expect(oversized.success).toBe(false);
+    if (!oversized.success) {
+      expect(oversized.error.issues.map((issue) => issue.path)).toContainEqual([
+        "tree",
+        "nodes",
+      ]);
+    }
+  });
+
   it("applies the documented defaults", () => {
     const input: CreateJourneyCanvasInput = parse(rawInput());
     expect(input.cardWidth).toBe(360);
@@ -563,6 +594,28 @@ describe("planJourneyCanvas", () => {
     expect(root.frame.height).toBe(
       CARD_PROVENANCE_HEADER_HEIGHT + 20 + 12 + 225,
     );
+  });
+
+  it("reserves header space when the observed replay time adds a provenance row", () => {
+    const checkpointFrame = frame("signup", 0, { screenshotOffsetMs: 4_000 });
+    const observedFrame = frame("signup", 0, {
+      screenshotOffsetMs: 4_000,
+      recordingStartedAt: "2026-10-01T11:59:56.300Z",
+    });
+    const checkpoint = plan(
+      rawInput({ frames: [checkpointFrame] }),
+    ).screens.find((screen) => screen.nodeKey === "signup")!;
+    const observed = plan(rawInput({ frames: [observedFrame] })).screens.find(
+      (screen) => screen.nodeKey === "signup",
+    )!;
+
+    expect(observed.provenance?.replayObservedAt).toBe(
+      "2026-10-01T12:00:00.300Z",
+    );
+    expect(observed.html).toContain(
+      "Replay observed 2026-10-01T12:00:00.300Z UTC",
+    );
+    expect(observed.frame.height).toBe(checkpoint.frame.height + 10);
   });
 
   it("labels cohort sessions that continue beyond pictured child paths", () => {

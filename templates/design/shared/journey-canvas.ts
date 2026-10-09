@@ -37,11 +37,12 @@ export const JOURNEY_FILENAME_PREFIX = "journey-";
 export const REPLAY_SCREENSHOT_ROUTE = "/api/design-board-replay-screenshots/";
 export const JOURNEY_STAGED_REPLAY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 
-export const MAX_JOURNEY_NODES = 300;
+export const MAX_JOURNEY_NODES = 500;
 export const MAX_JOURNEY_FRAMES = 900;
 export const MAX_EXAMPLES_PER_NODE = 6;
 const MAX_DIMENSION = 16_384;
 const MAX_IMAGE_URL_CHARS = 2_048;
+const PROVENANCE_ROW_HEIGHT = 10;
 
 // guard:allow-raw-color — generated storyboard HTML is standalone and cannot read app theme tokens
 const INK = "#111827";
@@ -409,6 +410,7 @@ export const createJourneyCanvasInputSchema = z
 
 export type JourneyNode = z.infer<typeof journeyNodeSchema>;
 export type JourneyFrame = z.infer<typeof journeyFrameSchema>;
+type JourneyExample = JourneyNode["examples"][number];
 export type CreateJourneyCanvasInput = z.infer<
   typeof createJourneyCanvasInputSchema
 >;
@@ -666,6 +668,48 @@ function captionHeaderHeight(
   return rows === 0 ? 0 : Math.max(48, rows * 12);
 }
 
+function provenanceHeaderExtraHeight(
+  frames: JourneyFrame[],
+  examples: JourneyExample[],
+  cardWidth: number,
+  messages: JourneyCanvasMessages,
+): number {
+  const charactersPerLine = Math.max(1, Math.floor((cardWidth - 24) / 5.5));
+  // The base reserves the event, ID, offset, seek, and capture rows.
+  const extraRows = Math.max(
+    0,
+    ...frames.map((frame) => {
+      const example = examples[frame.exampleIndex];
+      if (!example) return 0;
+
+      const offsetMs = frame.screenshotOffsetMs ?? example.offsetMs;
+      const observedAt = replayObservedAt(
+        frame.recordingStartedAt,
+        frame.screenshotOffsetMs,
+      );
+      const eventAt = utcTimestamp(example.ts);
+      const recordingId = example.recordingId ?? messages.recordingUnavailable;
+      const recordingRows = Math.min(
+        2,
+        Math.max(1, Math.ceil(recordingId.length / charactersPerLine)),
+      );
+      const provenanceRows =
+        1 +
+        recordingRows +
+        1 +
+        Number(
+          frame.screenshotOffsetMs !== undefined || example.offsetMs !== null,
+        ) +
+        Number(example.offsetMs !== null && example.offsetMs !== offsetMs) +
+        Number(observedAt !== null && observedAt !== eventAt) +
+        1;
+
+      return Math.max(0, provenanceRows - 5);
+    }),
+  );
+  return extraRows * PROVENANCE_ROW_HEIGHT;
+}
+
 interface ExampleGalleryItem {
   selectorId: string;
   index: number;
@@ -765,7 +809,7 @@ h1{margin:0;font-size:14px;line-height:20px;font-weight:600;color:${INK};white-s
 header p{margin:0;color:${MUTED};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 header .metrics{font-size:12px;line-height:18px}
 header .coverage-note{font-size:10px;line-height:12px;overflow:hidden;text-overflow:ellipsis}
-header .provenance{font-size:9px;line-height:10px}
+header .provenance{font-size:9px;line-height:${PROVENANCE_ROW_HEIGHT}px}
 header .example-provenance{display:block}
 header .recording-id{font-family:ui-monospace,monospace;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal;overflow-wrap:anywhere}
 header .caption-line{font-size:10px;line-height:12px;white-space:normal;overflow-wrap:anywhere}
@@ -967,17 +1011,12 @@ export function planJourneyCanvas(
             headerHeight: entry.frames.length
               ? CARD_PROVENANCE_HEADER_HEIGHT +
                 captionHeaderHeight(entry.frames, cardWidth, messages) +
-                (entry.frames.some((frame) => {
-                  const eventOffset =
-                    entry.node.examples[frame.exampleIndex]?.offsetMs;
-                  return (
-                    frame.screenshotOffsetMs !== undefined &&
-                    eventOffset != null &&
-                    frame.screenshotOffsetMs !== eventOffset
-                  );
-                })
-                  ? 20
-                  : 0) +
+                provenanceHeaderExtraHeight(
+                  entry.frames,
+                  entry.node.examples,
+                  cardWidth,
+                  messages,
+                ) +
                 (continuationNotes.has(entry.node.key) ? 12 : 0) +
                 (entry.frames.length > 1 ? 20 : 0)
               : CARD_HEADER_HEIGHT,
@@ -1096,17 +1135,12 @@ export function planJourneyCanvas(
         headerHeight: provenance
           ? CARD_PROVENANCE_HEADER_HEIGHT +
             captionHeaderHeight(entry.frames, cardWidth, messages) +
-            (entry.frames.some((candidate) => {
-              const eventOffset =
-                entry.node.examples[candidate.exampleIndex]?.offsetMs;
-              return (
-                candidate.screenshotOffsetMs !== undefined &&
-                eventOffset != null &&
-                candidate.screenshotOffsetMs !== eventOffset
-              );
-            })
-              ? 20
-              : 0) +
+            provenanceHeaderExtraHeight(
+              entry.frames,
+              entry.node.examples,
+              cardWidth,
+              messages,
+            ) +
             (continuationNotes.has(entry.node.key) ? 12 : 0) +
             (entry.frames.length > 1 ? 20 : 0)
           : CARD_HEADER_HEIGHT,

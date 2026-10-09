@@ -6,13 +6,13 @@ const ID_SEGMENT =
 // a tree key, a label, or a line in a shared capture manifest.
 const EMAIL_SEGMENT = /@|%40/i;
 const RESOURCE_ROUTES = new Set([
+  "r",
   "deck",
   "design",
   "recording",
   "share",
   "visual-edit",
 ]);
-const STATIC_RESOURCE_ROUTES = new Map([["design", new Set(["new-copy"])]]);
 
 /** A page path with its query and hash dropped and dynamic segments named, not copied. */
 export function normalizeJourneyPath(path: string | null): string | null {
@@ -21,11 +21,8 @@ export function normalizeJourneyPath(path: string | null): string | null {
   const parts = pathname.split("/").filter(Boolean);
   const segments = parts.map((segment, index) => {
     if (EMAIL_SEGMENT.test(segment)) return ":email";
-    const isStaticResourceRoute =
-      index === 1 && STATIC_RESOURCE_ROUTES.get(parts[0]!)?.has(segment);
-    return !isStaticResourceRoute &&
-      ((index === 1 && RESOURCE_ROUTES.has(parts[0]!)) ||
-        ID_SEGMENT.test(segment))
+    return (index === 1 && RESOURCE_ROUTES.has(parts[0]!)) ||
+      ID_SEGMENT.test(segment)
       ? ":id"
       : segment;
   });

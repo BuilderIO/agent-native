@@ -53,8 +53,9 @@ describe("normalizeJourneyPath", () => {
     );
   });
 
-  it("normalizes short and all-letter artifact ids at resource routes", () => {
+  it("normalizes short resource ids at resource routes", () => {
     for (const route of [
+      "r",
       "deck",
       "design",
       "recording",
@@ -75,7 +76,7 @@ describe("normalizeJourneyPath", () => {
     expect(normalizeJourneyPath("/templates/landing-page")).toBe(
       "/templates/landing-page",
     );
-    expect(normalizeJourneyPath("/design/new-copy")).toBe("/design/new-copy");
+    expect(normalizeJourneyPath("/design/new-copy")).toBe("/design/:id");
   });
 
   it("keeps readable segments and the root", () => {
