@@ -7,4 +7,8 @@ installRouteChunkRecovery();
 
 configureClientRouterBasename();
 
+if (new URLSearchParams(window.location.search).get("embedded") === "1") {
+  document.documentElement.dataset.embed = "1";
+}
+
 hydrateRoot(document, <HydratedRouter useTransitions={false} />);
