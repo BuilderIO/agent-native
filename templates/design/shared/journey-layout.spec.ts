@@ -293,6 +293,70 @@ describe("layoutJourney", () => {
 });
 
 describe("layoutJourneyAppBands", () => {
+  it("packs sibling forks independently of each branch's descendant depth", () => {
+    const layout = layoutJourneyAppBands(
+      [
+        {
+          key: "clips",
+          rootN: 100,
+          nodes: [
+            { key: "clips::choice", parentKey: null, kind: "card" },
+            { key: "clips::custom", parentKey: "clips::choice", kind: "card" },
+            {
+              key: "clips::custom-1",
+              parentKey: "clips::custom",
+              kind: "card",
+            },
+            {
+              key: "clips::custom-left",
+              parentKey: "clips::custom-1",
+              kind: "card",
+            },
+            {
+              key: "clips::custom-left-1",
+              parentKey: "clips::custom-left",
+              kind: "card",
+            },
+            {
+              key: "clips::custom-left-2",
+              parentKey: "clips::custom-left-1",
+              kind: "card",
+            },
+            {
+              key: "clips::custom-right",
+              parentKey: "clips::custom-1",
+              kind: "card",
+            },
+            {
+              key: "clips::builder",
+              parentKey: "clips::choice",
+              kind: "card",
+            },
+            { key: "clips::skip", parentKey: "clips::choice", kind: "card" },
+          ],
+        },
+      ],
+      { cardWidth: 360 },
+    );
+    const byKey = new Map(layout.nodes.map((node) => [node.key, node]));
+    const custom = byKey.get("clips::custom")!;
+    const builder = byKey.get("clips::builder")!;
+    const skip = byKey.get("clips::skip")!;
+
+    expect(builder.rect.y).toBe(
+      custom.footprint.y + custom.footprint.height + ROW_GAP,
+    );
+    expect(skip.rect.y).toBe(
+      builder.footprint.y + builder.footprint.height + ROW_GAP,
+    );
+    expect(layout.edges).toContainEqual(
+      expect.objectContaining({
+        fromKey: "clips::choice",
+        toKey: "clips::builder",
+      }),
+    );
+  });
+
   it("keeps independent app trees side by side with only their internal edges", () => {
     const layout = layoutJourneyAppBands(
       [
