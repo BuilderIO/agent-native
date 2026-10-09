@@ -1164,6 +1164,44 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
     }
   });
 
+  it("moves a custom-property-only transform animation onto the crop frame", async () => {
+    const css =
+      '@property --angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; } .ruled { transform: rotate(var(--angle)); animation: angle-only 4s linear infinite; } @keyframes angle-only { from { --angle: 0deg; } to { --angle: 120deg; } }';
+    const page = await openPage(css, imageHtml());
+    try {
+      const saved = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        image.getAnimations()[0]!.currentTime = 2000;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.id = "frame";
+        return {
+          markup: wrapped.frame.outerHTML,
+          frameTransform: getComputedStyle(wrapped.frame).transform,
+        };
+      });
+      expect(saved.frameTransform).not.toBe("none");
+      expect(saved.markup).toContain("transform: rotate(var(--angle))");
+      expect(saved.markup).toContain("--angle:");
+
+      const reopened = await openPage(css, saved.markup);
+      const reference = await openPage(css, imageHtml());
+      try {
+        for (const time of [0, 1000, 2000, 3000]) {
+          expectSameHull(
+            await hullAt(reopened, "#frame", time),
+            await hullAt(reference, "#pic", time),
+            1,
+          );
+        }
+      } finally {
+        await reopened.close();
+        await reference.close();
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
   it("preserves case-sensitive animated custom properties in keyframe fallback", async () => {
     const css =
       '@property --brandColor { syntax: "<angle>"; inherits: false; initial-value: 0deg; } .ruled { animation: variable-turn 4s linear infinite; } @keyframes variable-turn { from { --brandColor: 0deg; transform: rotate(0deg); } to { --brandColor: 120deg; transform: rotate(var(--brandColor)); } }';
@@ -1790,6 +1828,50 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
     }
   });
 
+  it("moves an important filter transition to the crop frame", async () => {
+    const css =
+      ".base { filter: blur(0px) !important; transform: rotate(0deg); transition: transform 1s linear, filter 2s linear; } .moving { filter: blur(8px) !important; transform: rotate(90deg); }";
+    const page = await openPage(
+      css,
+      imageHtml().replace('class="ruled"', 'class="base"'),
+    );
+    try {
+      await page.evaluate(() =>
+        document.getElementById("pic")!.classList.add("moving"),
+      );
+      await page.waitForTimeout(600);
+      const wrapped = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        const result = window.slideObjects.wrapImageInCropFrame(image)!;
+        result.frame.id = "frame";
+        return {
+          imageFilter: getComputedStyle(image).filter,
+          frameFilter: getComputedStyle(result.frame).filter,
+          copiedFilterTransition: result.frame
+            .getAnimations()
+            .some(
+              (animation) =>
+                animation.effect instanceof KeyframeEffect &&
+                animation.effect
+                  .getKeyframes()
+                  .some((keyframe) => "filter" in keyframe),
+            ),
+        };
+      });
+      await page.waitForTimeout(160);
+      const nextFilter = await page.evaluate(
+        () => getComputedStyle(document.getElementById("frame")!).filter,
+      );
+
+      expect(wrapped.imageFilter).toBe("none");
+      expect(wrapped.frameFilter).not.toBe("none");
+      expect(wrapped.copiedFilterTransition).toBe(true);
+      expect(nextFilter).not.toBe(wrapped.frameFilter);
+    } finally {
+      await page.close();
+    }
+  });
+
   it("transfers important opacity transitions across slide HTML replacement", async () => {
     const css =
       ".base { opacity: 0.2 !important; transform: rotate(0deg); transition: transform 1s linear, opacity 2s linear; } .moving { opacity: 0.8 !important; transform: rotate(90deg); }";
@@ -2333,24 +2415,73 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       "@keyframes spin { to { transform: rotate(360deg); } } .ruled { animation-name: spin, spin; animation-duration: 4s, 4s; animation-timing-function: linear, linear; animation-iteration-count: infinite, infinite; animation-play-state: running, paused; }";
     const page = await openPage(css, imageHtml());
     try {
-      const playStates = await page.evaluate(() => {
+      const animationStates = await page.evaluate(() => {
         const image = document.getElementById("pic") as HTMLImageElement;
         const animations = image.getAnimations() as CSSAnimation[];
         const resume = window.slideObjects.pauseCssAnimations(
           image,
-          animations.map((animation) => ({
+          animations.map((animation, index) => ({
             name: animation.animationName,
             currentTime: animation.currentTime,
+            playbackRate: index === 0 ? 1.5 : 0.75,
             resume: animation.playState === "running",
           })),
         );
         resume();
-        return image
-          .getAnimations()
-          .map((animation) => (animation as CSSAnimation).playState);
+        return image.getAnimations().map((animation) => ({
+          playState: (animation as CSSAnimation).playState,
+          playbackRate: animation.playbackRate,
+        }));
       });
 
-      expect(playStates).toEqual(["running", "paused"]);
+      expect(animationStates).toEqual([
+        { playState: "running", playbackRate: 1.5 },
+        { playState: "paused", playbackRate: 0.75 },
+      ]);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("preserves playback rates when splitting and restoring CSS animations", async () => {
+    const css =
+      "@keyframes turn-and-fade { from { transform: rotate(0deg); opacity: 0.2; } to { transform: rotate(90deg); opacity: 0.8; } } .ruled { animation: turn-and-fade 4s linear infinite; }";
+    const page = await openPage(css, imageHtml());
+    try {
+      const playbackRates = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        const original = image.getAnimations()[0] as CSSAnimation;
+        original.playbackRate = 1.75;
+        const snapshot =
+          window.slideObjects.captureSlideObjectAnimationState(image);
+        original.playbackRate = 0.5;
+        window.slideObjects.restoreSlideObjectAnimationState(image, snapshot);
+        const restoredOriginalRate = original.playbackRate;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        const generated = (element: Element) =>
+          element
+            .getAnimations()
+            .filter(
+              (animation) =>
+                "animationName" in animation &&
+                String((animation as CSSAnimation).animationName).startsWith(
+                  "fmd_crop_",
+                ),
+            );
+        return {
+          restoredOriginalRate,
+          frameRates: generated(wrapped.frame).map(
+            (animation) => animation.playbackRate,
+          ),
+          imageRates: generated(image).map(
+            (animation) => animation.playbackRate,
+          ),
+        };
+      });
+
+      expect(playbackRates.restoredOriginalRate).toBe(1.75);
+      expect(playbackRates.frameRates).toEqual([1.75]);
+      expect(playbackRates.imageRates).toEqual([1.75]);
     } finally {
       await page.close();
     }

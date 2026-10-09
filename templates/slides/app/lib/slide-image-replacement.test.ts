@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   applyOptimisticImagePreview,
+  captureCropTransitionAnimations,
   captureSlideImageUploadProvenance,
   captureOptimisticImagePreview,
   createPlaceholderImageTarget,
@@ -32,6 +33,15 @@ function firstImage(html: string): HTMLImageElement | null {
 }
 
 describe("slide image replacement", () => {
+  it("captures crop animations safely without the Web Animations API", () => {
+    const root = document.createElement("div");
+    const image = document.createElement("img");
+    Object.defineProperty(image, "getAnimations", { value: undefined });
+    root.append(image);
+
+    expect(captureCropTransitionAnimations(root)).toEqual([]);
+  });
+
   it("swaps hosted sources without replacing a live transformed image", () => {
     const previousContent =
       '<div class="fmd-slide"><img src="blob:preview" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';

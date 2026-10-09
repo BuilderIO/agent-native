@@ -213,7 +213,11 @@ export function captureCropTransitionAnimations(
   ];
   for (const element of elements) {
     const cssAnimationOccurrences = new Map<string, number>();
-    for (const animation of element.getAnimations()) {
+    const animations =
+      typeof element.getAnimations === "function"
+        ? element.getAnimations()
+        : [];
+    for (const animation of animations) {
       const animationName =
         "animationName" in animation &&
         typeof animation.animationName === "string"

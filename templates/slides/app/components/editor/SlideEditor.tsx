@@ -109,6 +109,7 @@ import {
   imageFileLooksSupported,
   imageOccurrenceInRenderedSlide,
   normalizeImageObjectPosition,
+  serializeWithRestoredCropTransitionInlineOverrides,
   type ImageObjectPosition,
   type SlideImageDropPosition,
 } from "@/lib/slide-image-replacement";
@@ -8742,6 +8743,8 @@ export default function SlideEditor({
         ".fmd-image-crop-viewport",
       );
       if (frameIsPersistedImage) {
+        serializeWithoutCopiedTransitionOverrides = (serialize) =>
+          serializeWithRestoredCropTransitionInlineOverrides(frame, serialize);
         image =
           viewport?.querySelector<HTMLImageElement>("img") ??
           frame.querySelector<HTMLImageElement>("img") ??
