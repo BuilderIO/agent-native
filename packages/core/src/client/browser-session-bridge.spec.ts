@@ -42,7 +42,7 @@ function responseType(
   }
 }
 
-function hostWindow() {
+function hostWindow(options: { actionError?: string } = {}) {
   const sent: Record<string, unknown>[] = [];
   const host = {
     postMessage: vi.fn(
@@ -68,14 +68,18 @@ function hostWindow() {
         } else if (type === AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_ACTIONS) {
           response = {
             type: responseType(type),
-            ok: true,
-            actions: [
-              {
-                name: "select-row",
-                description: "Select a visible row",
-                schema: { type: "object" },
-              },
-            ],
+            ok: options.actionError === undefined,
+            ...(options.actionError === undefined
+              ? {
+                  actions: [
+                    {
+                      name: "select-row",
+                      description: "Select a visible row",
+                      schema: { type: "object" },
+                    },
+                  ],
+                }
+              : { error: options.actionError }),
           };
         } else if (type === AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION) {
           response = {
@@ -173,6 +177,21 @@ describe("createAgentNativeBrowserSessionBridge", () => {
       active: true,
     });
     expect(bridge.sessionId).toBe("tab-1");
+  });
+
+  it("fails registration when host action discovery fails", async () => {
+    const { host } = hostWindow({ actionError: "Host actions unavailable" });
+    const fetchMock = vi.fn();
+    const bridge = createAgentNativeBrowserSessionBridge({
+      targetWindow: host,
+      hostOrigin: "https://app.example",
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    await expect(bridge.refreshRegistration()).rejects.toThrow(
+      "Host actions unavailable",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("claims a server request, executes it in the host, and completes it", async () => {
@@ -1653,6 +1672,24 @@ describe("createAgentNativeBrowserSessionBridge", () => {
       sessionId: "embedded-tab",
       active: true,
     });
+  });
+
+  it("fails registration when direct client action discovery fails", async () => {
+    const error = new Error("Client actions unavailable");
+    const actions = vi.fn(async () => {
+      throw error;
+    });
+    const fetchMock = vi.fn();
+    const bridge = createAgentNativeBrowserSessionBridge({
+      session: { id: "embedded-tab" },
+      getContext: () => ({ route: { name: "builder-editor" } }),
+      actions,
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    await expect(bridge.refreshRegistration()).rejects.toBe(error);
+    expect(actions).toHaveBeenCalledOnce();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("keeps session registration alive when WebMCP discovery fails", async () => {
