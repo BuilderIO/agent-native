@@ -200,12 +200,13 @@ describe("password sign-up on a one-connection Neon pool", () => {
   );
 
   it.each([
-    "application/json",
-    "application/x-www-form-urlencoded",
-    "Application/X-WWW-Form-Urlencoded; charset=UTF-8",
+    ["application/json", false],
+    ["application/x-www-form-urlencoded", true],
+    ["Application/X-WWW-Form-Urlencoded; charset=UTF-8", true],
+    ["application/json; profile=application/x-www-form-urlencoded", false],
   ])(
     "keeps new and existing verification signup responses consistent for %s",
-    async (contentType) => {
+    async (contentType, formEncoded) => {
       const fetchMock = vi.fn(
         async (_input: unknown, _init?: RequestInit) =>
           new Response(JSON.stringify({ id: "email_http" }), { status: 200 }),
@@ -233,10 +234,9 @@ describe("password sign-up on a one-connection Neon pool", () => {
                 "content-type": contentType,
                 origin: "https://auth.example.test",
               },
-              body:
-                contentType === "application/json"
-                  ? JSON.stringify(body)
-                  : new URLSearchParams(body),
+              body: formEncoded
+                ? new URLSearchParams(body)
+                : JSON.stringify(body),
             },
           ),
         );

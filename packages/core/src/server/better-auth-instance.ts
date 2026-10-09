@@ -2298,12 +2298,11 @@ async function createBetterAuthInstance(
               user.email,
             );
             const body = request
-              ? request.headers
-                  .get("content-type")
-                  ?.toLowerCase()
-                  .includes("application/x-www-form-urlencoded")
-                ? Object.fromEntries(await request.formData())
-                : await request.json()
+              ? /^application\/([a-z0-9.+-]*\+)?json/i.test(
+                  request.headers.get("content-type") ?? "",
+                )
+                ? await request.json()
+                : Object.fromEntries(await request.formData())
               : undefined;
             const callbackURL =
               typeof body?.callbackURL === "string" ? body.callbackURL : "/";
