@@ -1701,6 +1701,7 @@ type ActiveImageCrop = {
   restoreChrome: () => void;
   resumeAnimations: () => void;
   restoreTransitions: () => void;
+  cancelCopiedTransitions: () => void;
   restoreAnimations: () => void;
   hasChanges: () => boolean;
   cancel: () => HTMLElement | null;
@@ -8722,6 +8723,7 @@ export default function SlideEditor({
       let frame: HTMLElement = frameIsPersistedImage ? existingFrame! : target;
       let resumeCropAnimations = () => {};
       let restoreCropTransitions = () => {};
+      let cancelCropCopiedTransitions = () => {};
       const frozen = freezeElementForFreeformSelection(frame);
       if (!frozen) return;
 
@@ -8778,6 +8780,7 @@ export default function SlideEditor({
         viewport = wrapped.viewport;
         resumeCropAnimations = wrapped.resumeAnimations;
         restoreCropTransitions = wrapped.restoreTransitions;
+        cancelCropCopiedTransitions = wrapped.cancelCopiedTransitions;
         frame.setAttribute("data-builder-id", ensureBuilderId(frame));
       }
 
@@ -8850,6 +8853,7 @@ export default function SlideEditor({
         },
         resumeAnimations: resumeCropAnimations,
         restoreTransitions: restoreCropTransitions,
+        cancelCopiedTransitions: cancelCropCopiedTransitions,
         restoreAnimations: () =>
           restoreSlideObjectAnimationState(
             frameIsPersistedImage ? originalFrame! : image,
@@ -8867,6 +8871,7 @@ export default function SlideEditor({
             [image.offsetHeight, cropStartGeometry.image.height],
           ].some(([current, initial]) => Math.abs(current! - initial!) >= 0.5),
         cancel: () => {
+          activeCrop.cancelCopiedTransitions();
           removeSlideObjectLayoutSpacer(frame, slideContent);
           if (frozen.restoreMarkdownTree) {
             if (frameIsPersistedImage) frame.replaceWith(originalFrame!);

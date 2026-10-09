@@ -1295,6 +1295,7 @@ const TRANSFORM_TRANSITION_PROPERTIES = new Set([
   "transform-origin",
 ]);
 const CSS_VAR_REFERENCE = /var\(\s*(--(?:[\w-]|[^\u0000-\u007f])+)/giu;
+const FONT_RELATIVE_LENGTH = /(?:\d+(?:\.\d*)?|\.\d+)(?:em|ex|ch|cap|ic)\b/iu;
 
 // A value that reads the element's own cascade (a custom property its class
 // defines, a length against its font size) means something else on a frame.
@@ -1519,6 +1520,91 @@ function restoreInlineTransitionsAfterTransformSettles(
   restoreInlineTransitions(element, declarations);
 }
 
+type CopiedTransition = {
+  animation: Animation;
+  cancel: () => void;
+};
+
+type TransitionSnapshot = {
+  property: string;
+  keyframes: Keyframe[];
+  timing: EffectTiming;
+  playbackRate: number;
+  currentTime: CSSNumberish | null;
+  playState: AnimationPlayState;
+};
+
+function snapshotTransition(
+  transition: Animation,
+  property: string,
+): TransitionSnapshot | null {
+  const effect = transition.effect;
+  if (!(effect instanceof KeyframeEffect)) return null;
+  return {
+    property,
+    keyframes: effect.getKeyframes(),
+    timing: effect.getTiming(),
+    playbackRate: transition.playbackRate,
+    currentTime: transition.currentTime,
+    playState: transition.playState,
+  };
+}
+
+function copyTransitionEffect(
+  transition: TransitionSnapshot,
+  element: HTMLElement,
+  options: { underlyingValue?: string; restoreImportant?: boolean } = {},
+): CopiedTransition | null {
+  const { property } = transition;
+  const originalValue = element.style.getPropertyValue(property);
+  const originalPriority = element.style.getPropertyPriority(property);
+  const underlyingValue = options.underlyingValue ?? originalValue;
+  const temporaryPriority =
+    originalPriority === "important" ? "" : originalPriority;
+  if (
+    options.underlyingValue !== undefined ||
+    temporaryPriority !== originalPriority
+  ) {
+    element.style.setProperty(property, underlyingValue, temporaryPriority);
+  }
+
+  const animation = element.animate(transition.keyframes, transition.timing);
+  animation.playbackRate = transition.playbackRate;
+  if (transition.currentTime !== null) {
+    animation.currentTime = transition.currentTime;
+  }
+  if (transition.playState === "paused") animation.pause();
+
+  const restoreImportant = () => {
+    if (
+      options.restoreImportant !== false &&
+      originalPriority === "important" &&
+      element.style.getPropertyValue(property) === underlyingValue &&
+      element.style.getPropertyPriority(property) !== "important"
+    ) {
+      element.style.setProperty(property, originalValue, originalPriority);
+    }
+  };
+  const cancel = () => {
+    animation.cancel();
+    restoreImportant();
+  };
+  void animation.finished.then(cancel, restoreImportant);
+  return { animation, cancel };
+}
+
+function transitionTargetValue(transition: TransitionSnapshot): string | null {
+  let target: string | null = null;
+  for (const frame of transition.keyframes) {
+    const value = keyframeValue(frame, transition.property);
+    if (value === null) continue;
+    target = value;
+    const record = frame as Keyframe & { computedOffset?: number };
+    if (record.offset === 1 || record.computedOffset === 1) return value;
+  }
+  return target;
+}
+
 /**
  * CSS transitions have higher cascade priority than Web Animations, so clone
  * unrelated in-flight transitions before disabling the source's transition
@@ -1527,26 +1613,19 @@ function restoreInlineTransitionsAfterTransformSettles(
  */
 function preserveUnrelatedTransitions(
   element: HTMLElement,
-  transitions: Animation[],
+  transitions: TransitionSnapshot[],
+  copies: CopiedTransition[],
 ): void {
   for (const transition of transitions) {
-    const property = (transition as Animation & { transitionProperty?: string })
-      .transitionProperty;
-    const effect = transition.effect;
+    const { property } = transition;
     if (
-      !property ||
       TRANSFORM_TRANSITION_PROPERTIES.has(property) ||
-      !(effect instanceof KeyframeEffect) ||
       transition.playState === "finished"
     ) {
       continue;
     }
-    const copy = element.animate(effect.getKeyframes(), effect.getTiming());
-    copy.playbackRate = transition.playbackRate;
-    if (transition.currentTime !== null) {
-      copy.currentTime = transition.currentTime;
-    }
-    if (transition.playState === "paused") copy.pause();
+    const copy = copyTransitionEffect(transition, element);
+    if (copy) copies.push(copy);
   }
 }
 
@@ -2320,6 +2399,7 @@ interface CropTransformHandoff {
   style: HTMLStyleElement | null;
   activateAnimations: () => () => void;
   restoreTransitions: () => void;
+  cancelCopiedTransitions: () => void;
 }
 
 /**
@@ -2394,10 +2474,14 @@ function moveSlideObjectTransform(
                 .transitionProperty === "string",
           )
       : [];
-  const hasCustomPropertyTransition = runningTransitions.some((transition) =>
-    (
-      transition as Animation & { transitionProperty: string }
-    ).transitionProperty.startsWith("--"),
+  const transitionSnapshots = runningTransitions.flatMap((transition) => {
+    const property = (transition as Animation & { transitionProperty: string })
+      .transitionProperty;
+    const snapshot = snapshotTransition(transition, property);
+    return snapshot ? [snapshot] : [];
+  });
+  const hasCustomPropertyTransition = transitionSnapshots.some(({ property }) =>
+    property.startsWith("--"),
   );
   const transformCustomProperties = hasCustomPropertyTransition
     ? transformCustomPropertyReferences(
@@ -2444,7 +2528,8 @@ function moveSlideObjectTransform(
       transitionedProperties.add(property);
     }
   }
-  preserveUnrelatedTransitions(source, runningTransitions);
+  const copiedTransitions: CopiedTransition[] = [];
+  preserveUnrelatedTransitions(source, transitionSnapshots, copiedTransitions);
   source.style.setProperty("transition", "none", "important");
   for (const transition of transitions) transition.cancel();
 
@@ -2526,9 +2611,42 @@ function moveSlideObjectTransform(
       }
     }
   }
+  const frameCustomPropertyTransitions = splitAnimations
+    ? transitionSnapshots.filter(({ property }) =>
+        [...activeFrameProperties].some((frameProperty) =>
+          transformCustomProperties.get(frameProperty)?.has(property),
+        ),
+      )
+    : [];
+  const frameUsesFontRelativeLength = [
+    ...activeFrameProperties,
+    ...referencedCustomProperties,
+  ].some((property) => {
+    if (FONT_RELATIVE_LENGTH.test(computed.getPropertyValue(property))) {
+      return true;
+    }
+    return plans.some(
+      (plan) =>
+        keyframes.get(plan)!.has(property) &&
+        animationKeyframeValues(
+          plan.animation,
+          property,
+          authoredByPlan.get(plan)!,
+        ).some((value) => FONT_RELATIVE_LENGTH.test(value)),
+    );
+  });
   const cssRules: string[] = [];
   if (splitAnimations) {
     copyAnimationEnvironment(source, frame, referencedCustomProperties);
+    for (const transition of frameCustomPropertyTransitions) {
+      const targetValue = transitionTargetValue(transition);
+      if (targetValue === null) continue;
+      const copy = copyTransitionEffect(transition, frame, {
+        underlyingValue: targetValue,
+        restoreImportant: false,
+      });
+      if (copy) copiedTransitions.push(copy);
+    }
     for (const plan of plans) {
       const properties = keyframes.get(plan)!;
       const imageProperties = new Set(
@@ -2543,6 +2661,9 @@ function moveSlideObjectTransform(
       );
       for (const property of referencedCustomProperties) {
         if (properties.has(property)) frameProperties.add(property);
+      }
+      if (frameUsesFontRelativeLength && properties.has("font-size")) {
+        frameProperties.add("font-size");
       }
       if (imageProperties.size > 0) {
         plan.imageName = nextCropAnimationName();
@@ -2607,6 +2728,10 @@ function moveSlideObjectTransform(
 
   return {
     style,
+    cancelCopiedTransitions: () => {
+      for (const transition of copiedTransitions) transition.cancel();
+      copiedTransitions.length = 0;
+    },
     activateAnimations: () => {
       if (!splitAnimations) return () => {};
       const imageRunning = setAnimationList(
@@ -2650,6 +2775,7 @@ export function wrapImageInCropFrame(image: HTMLImageElement): {
   viewport: HTMLElement;
   resumeAnimations: () => void;
   restoreTransitions: () => void;
+  cancelCopiedTransitions: () => void;
 } | null {
   const parent = image.parentElement;
   if (!parent) return null;
@@ -2722,6 +2848,7 @@ export function wrapImageInCropFrame(image: HTMLImageElement): {
     viewport,
     resumeAnimations,
     restoreTransitions: animationHandoff.restoreTransitions,
+    cancelCopiedTransitions: animationHandoff.cancelCopiedTransitions,
   };
 }
 

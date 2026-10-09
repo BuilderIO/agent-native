@@ -1636,18 +1636,24 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
     }
   });
 
-  it("preserves an active opacity transition while wrapping the image", async () => {
+  it("preserves an important opacity transition while wrapping the image", async () => {
     const css =
-      ".ruled { transform: rotate(0deg); opacity: 0.2; transition: transform 1s linear, opacity 2s linear; } .moving { transform: rotate(90deg); opacity: 0.8; }";
-    const page = await openPage(css, imageHtml());
+      ".ruled { transform: rotate(0deg); transition: transform 1s linear, opacity 2s linear; } .moving { transform: rotate(90deg); }";
+    const page = await openPage(
+      css,
+      imageHtml().replace('class="ruled"', 'class="bare"'),
+    );
     try {
       await page.evaluate(() => {
         const image = document.getElementById("pic")!;
+        image.style.setProperty("opacity", "0.2", "important");
+        void getComputedStyle(image).opacity;
         image.classList.add("ruled");
         void getComputedStyle(image).opacity;
         image.classList.add("moving");
+        image.style.setProperty("opacity", "0.8", "important");
       });
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(600);
       const wrapped = await page.evaluate(() => {
         const image = document.getElementById("pic") as HTMLImageElement;
         const before = Number(getComputedStyle(image).opacity);
@@ -1656,6 +1662,7 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
         return {
           before,
           transitionProperty: getComputedStyle(image).transitionProperty,
+          inlinePriority: image.style.getPropertyPriority("opacity"),
           runningOpacityEffect: image
             .getAnimations()
             .some(
@@ -1673,9 +1680,76 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       );
 
       expect(wrapped.transitionProperty).toBe("none");
+      expect(wrapped.inlinePriority).toBe("");
       expect(wrapped.runningOpacityEffect).toBe(true);
       expect(after).toBeGreaterThan(wrapped.before + 0.04);
       expect(after).toBeLessThan(0.8);
+
+      await page.waitForTimeout(1400);
+      const settled = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        return {
+          opacity: Number(getComputedStyle(image).opacity),
+          inlinePriority: image.style.getPropertyPriority("opacity"),
+          runningOpacityEffects: image
+            .getAnimations()
+            .filter(
+              (animation) =>
+                animation.effect instanceof KeyframeEffect &&
+                animation.effect
+                  .getKeyframes()
+                  .some((keyframe) => "opacity" in keyframe),
+            ).length,
+        };
+      });
+      expect(settled.opacity).toBeCloseTo(0.8, 2);
+      expect(settled.inlinePriority).toBe("important");
+      expect(settled.runningOpacityEffects).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("cancels copied opacity transitions when a crop is canceled", async () => {
+    const css =
+      ".ruled { opacity: 0.2; transition: opacity 2s linear; } .moving { opacity: 0.8; }";
+    const page = await openPage(css, imageHtml());
+    try {
+      await page.evaluate(() => {
+        const image = document.getElementById("pic")!;
+        image.classList.add("ruled");
+        void getComputedStyle(image).opacity;
+        image.classList.add("moving");
+      });
+      await page.waitForTimeout(300);
+      const result = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        const runningBefore = image
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.effect instanceof KeyframeEffect &&
+              animation.effect
+                .getKeyframes()
+                .some((keyframe) => "opacity" in keyframe),
+          ).length;
+        wrapped.cancelCopiedTransitions();
+        return {
+          runningBefore,
+          runningAfter: image
+            .getAnimations()
+            .filter(
+              (animation) =>
+                animation.effect instanceof KeyframeEffect &&
+                animation.effect
+                  .getKeyframes()
+                  .some((keyframe) => "opacity" in keyframe),
+            ).length,
+        };
+      });
+      expect(result.runningBefore).toBe(1);
+      expect(result.runningAfter).toBe(0);
     } finally {
       await page.close();
     }
@@ -1773,6 +1847,124 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       expect(angleAfter).toBeGreaterThan(result.paintedAngle);
       expectSameHull(result.frame, result.painted, 1);
       expect(result.frameTransform).toBe(result.paintedTransform);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("keeps custom-property transitions in sync with split transform animations", async () => {
+    const css =
+      '@property --angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; } @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(var(--angle)); } } .ruled { --angle: 0deg; animation: spin 4s linear infinite; transition: --angle 1s linear; } .moving { --angle: 90deg; }';
+    const body = `${imageHtml().replace('class="ruled"', 'class="bare"')} ${imageHtml().replace('id="pic"', 'id="reference"').replace('class="ruled"', 'class="bare"')}`;
+    const page = await openPage(css, body);
+    try {
+      const result = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        const reference = document.getElementById(
+          "reference",
+        ) as HTMLImageElement;
+        for (const element of [image, reference]) {
+          element.classList.add("ruled");
+          void getComputedStyle(element).getPropertyValue("--angle");
+          element.classList.add("moving");
+        }
+        const animationFor = (element: Element) =>
+          element
+            .getAnimations()
+            .find((animation) => "animationName" in animation)!;
+        const transitionFor = (element: Element) =>
+          element
+            .getAnimations()
+            .find(
+              (animation) =>
+                (animation as Animation & { transitionProperty?: string })
+                  .transitionProperty === "--angle",
+            )!;
+        const sourceAnimation = animationFor(image);
+        const referenceAnimation = animationFor(reference);
+        const sourceTransition = transitionFor(image);
+        const referenceTransition = transitionFor(reference);
+        sourceAnimation.currentTime = 600;
+        referenceAnimation.currentTime = 600;
+        sourceTransition.currentTime = 300;
+        referenceTransition.currentTime = 300;
+        const paintedTransform = getComputedStyle(image).transform;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.id = "frame";
+        const frameAnimation = animationFor(wrapped.frame);
+        const frameTransition = wrapped.frame
+          .getAnimations()
+          .find(
+            (animation) =>
+              animation.effect instanceof KeyframeEffect &&
+              animation.effect
+                .getKeyframes()
+                .some((keyframe) => "--angle" in keyframe),
+          )!;
+        const immediateTransform = getComputedStyle(wrapped.frame).transform;
+        wrapped.resumeAnimations();
+        frameAnimation.currentTime = 900;
+        referenceAnimation.currentTime = 900;
+        frameTransition.currentTime = 600;
+        referenceTransition.currentTime = 600;
+        return {
+          paintedTransform,
+          immediateTransform,
+          frameTransform: getComputedStyle(wrapped.frame).transform,
+          referenceTransform: getComputedStyle(reference).transform,
+          frameAngleEndpoint: wrapped.frame.style.getPropertyValue("--angle"),
+        };
+      });
+
+      expect(result.immediateTransform).toBe(result.paintedTransform);
+      expect(result.frameTransform).toBe(result.referenceTransform);
+      expect(result.frameAngleEndpoint).toBe("90deg");
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("keeps animated font-size units in sync with split transform tracks", async () => {
+    const css =
+      "@keyframes grow-and-shift { from { font-size: 10px; transform: translateX(0em); } to { font-size: 30px; transform: translateX(1em); } } .ruled { animation: grow-and-shift 4s linear infinite; }";
+    const body = `${imageHtml()} ${imageHtml().replace('id="pic"', 'id="reference"')}`;
+    const page = await openPage(css, body);
+    try {
+      const result = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        const reference = document.getElementById(
+          "reference",
+        ) as HTMLImageElement;
+        const animationFor = (element: Element) =>
+          element
+            .getAnimations()
+            .find((animation) => "animationName" in animation)!;
+        const sourceAnimation = animationFor(image);
+        const referenceAnimation = animationFor(reference);
+        sourceAnimation.currentTime = 1000;
+        referenceAnimation.currentTime = 1000;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.id = "frame";
+        const frameAnimation = animationFor(wrapped.frame);
+        wrapped.resumeAnimations();
+        frameAnimation.currentTime = 2000;
+        referenceAnimation.currentTime = 2000;
+        return {
+          frameFontSize: getComputedStyle(wrapped.frame).fontSize,
+          referenceFontSize: getComputedStyle(reference).fontSize,
+          frameTransform: getComputedStyle(wrapped.frame).transform,
+          referenceTransform: getComputedStyle(reference).transform,
+          frameHasFontSizeTrack:
+            frameAnimation.effect instanceof KeyframeEffect &&
+            frameAnimation.effect
+              .getKeyframes()
+              .some((keyframe) => "fontSize" in keyframe),
+        };
+      });
+
+      expect(result.frameHasFontSizeTrack).toBe(true);
+      expect(result.frameFontSize).toBe(result.referenceFontSize);
+      expect(result.frameTransform).toBe(result.referenceTransform);
     } finally {
       await page.close();
     }
