@@ -70,7 +70,13 @@ describe("screen deletion metadata history", () => {
     };
     const deletionUndoStackRef = ref([] as FileDeletionHistoryEntry[]);
     const noop = vi.fn();
+    let releaseDesignReadCancellation!: () => void;
+    const designReadCancellation = new Promise<void>((resolve) => {
+      releaseDesignReadCancellation = resolve;
+    });
+    const cancelQueries = vi.fn(() => designReadCancellation);
     const queryClient = {
+      cancelQueries,
       invalidateQueries: vi.fn(),
       setQueryData: vi.fn(),
     } as unknown as QueryClient;
@@ -234,6 +240,12 @@ describe("screen deletion metadata history", () => {
     const redoOrderRef = ref([]);
 
     const restoredContent = vi.fn();
+    const createFileMutation = {
+      mutateAsync: vi.fn(async ({ content }: { content: string }) => {
+        restoredContent(content);
+        return { id: restoredId };
+      }),
+    } as any;
     runUndo({
       activeEditorDragRef: ref(false),
       activeFile: { ...file, id: "tablet-screen" },
@@ -258,12 +270,7 @@ describe("screen deletion metadata history", () => {
       contentRedoStackRef: ref([]),
       contentUndoSelectionStackRef: ref([]),
       contentUndoStackRef: ref([]),
-      createFileMutation: {
-        mutateAsync: vi.fn(async ({ content }: { content: string }) => {
-          restoredContent(content);
-          return { id: restoredId };
-        }),
-      } as any,
+      createFileMutation,
       deleteFileMutation: { mutateAsync: vi.fn() } as any,
       designDataJsonRef,
       fileCreationRedoStackRef: ref([]),
@@ -293,6 +300,15 @@ describe("screen deletion metadata history", () => {
       viewModeRef: ref("overview"),
       writeFrameGeometrySnapshot,
     } as unknown as UndoArgs);
+
+    await vi.waitFor(() =>
+      expect(cancelQueries).toHaveBeenCalledWith({
+        queryKey: ["action", "get-design", { id: "design" }],
+        exact: true,
+      }),
+    );
+    expect(createFileMutation.mutateAsync).not.toHaveBeenCalled();
+    releaseDesignReadCancellation();
 
     await vi.waitFor(() =>
       expect(fileDeletionRedoStackRef.current).toHaveLength(1),
@@ -438,6 +454,7 @@ describe("screen deletion metadata history", () => {
         }),
       };
       const queryClient = {
+        cancelQueries: vi.fn(async () => {}),
         invalidateQueries: vi.fn(),
         setQueryData: vi.fn(),
       } as unknown as QueryClient;

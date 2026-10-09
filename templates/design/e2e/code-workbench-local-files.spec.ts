@@ -980,6 +980,7 @@ test("duplicates a URL-backed React component through undo and redo", async ({
   );
 });
 
+// oracle: none - verifies Design-owned persisted state and transport behavior.
 test("keeps a URL screen selected when its static snapshot fails", async ({
   page,
   request,
@@ -1029,6 +1030,7 @@ test("keeps a URL screen selected when its static snapshot fails", async ({
   ).toBeVisible({ timeout: 10_000 });
 });
 
+// oracle: none - verifies Design-owned persisted state and transport behavior.
 test("registers an inactive local Screen at its current bridge endpoint", async ({
   page,
   request,
@@ -1062,13 +1064,14 @@ test("registers an inactive local Screen at its current bridge endpoint", async 
       throw new Error("add-localhost-screens returned no bridge URL");
     }
     const expectedBridgeOrigin = new URL(expectedBridgeUrl).origin;
+    const staleBridgeOrigin = new URL(baseURL).origin;
     await postAction(request, "update-design", {
       id: isolatedDesignId,
       dataOperations: [
         {
           op: "set",
           path: ["screenMetadata", localScreenId, "bridgeUrl"],
-          value: "http://127.0.0.1:7399",
+          value: staleBridgeOrigin,
         },
         {
           op: "set",

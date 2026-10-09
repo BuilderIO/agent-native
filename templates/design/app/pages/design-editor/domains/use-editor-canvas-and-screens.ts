@@ -456,9 +456,7 @@ export function useEditorCanvasAndScreens({
               designSourceType,
             );
             if (sourceType !== "inline") {
-              return (
-                files.find((file) => file.id === targetScreenId)?.content ?? ""
-              );
+              return files.find((file) => file.id === targetScreenId)?.content;
             }
             return historySourceReaderRef.current(targetScreenId);
           },

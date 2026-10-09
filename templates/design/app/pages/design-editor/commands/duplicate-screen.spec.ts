@@ -202,6 +202,32 @@ describe("runDuplicateScreen", () => {
     );
   });
 
+  it("falls back to the selected file when current content is unavailable", async () => {
+    const createFileAsync = vi.fn().mockResolvedValue({ id: "copy" });
+    const args = duplicateArgs({
+      files: [
+        {
+          id: "source",
+          filename: "index.html",
+          fileType: "html",
+          content: '<main data-version="saved"><span>Saved</span></main>',
+          createdAt: "",
+          updatedAt: "",
+        },
+      ],
+      createFileAsync,
+      getCurrentScreenContentForDuplicate: () => undefined,
+    });
+
+    await runDuplicateScreen(args, "source");
+
+    expect(createFileAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining('data-version="saved"'),
+      }),
+    );
+  });
+
   it("keeps Cmd+D duplicates on the board's 56px spacing", async () => {
     const sourceGeometry = { x: 200, y: 720, width: 320, height: 240, z: 4 };
     const args = duplicateArgs({

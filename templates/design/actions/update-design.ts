@@ -1,12 +1,14 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
+import { designConnectionIdsFromData } from "../shared/source-mode.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
 
 const MAX_DATA_CAS_ATTEMPTS = 5;
@@ -424,7 +426,7 @@ export default defineAction({
       }
     }
 
-    await assertAccess("design", id, "editor");
+    const access = await assertAccess("design", id, "editor");
     await snapshotDesignBeforeAgentEdit(id, context);
     if (designSystemId != null) {
       await assertAccess("design-system", designSystemId, "viewer");
@@ -504,6 +506,58 @@ export default defineAction({
               ...incomingParsed,
             })
           : data!;
+      }
+      const existingConnectionIds = new Set(
+        designConnectionIdsFromData(existing.data),
+      );
+      const addedConnectionIds = [
+        ...new Set(
+          designConnectionIdsFromData(nextData).filter(
+            (connectionId) => !existingConnectionIds.has(connectionId),
+          ),
+        ),
+      ];
+      if (addedConnectionIds.length > 0 && access?.role !== "owner") {
+        const connectionScope = await resolveLocalhostConnectionScope().catch(
+          () =>
+            fail(
+              "Only local app connections in your workspace can be added to this design.",
+              {
+                errorCode: "localhost_connection_scope_required",
+                statusCode: 403,
+              },
+            ),
+        );
+        const ownedConnections = await db
+          .select({ id: schema.designLocalhostConnections.id })
+          .from(schema.designLocalhostConnections)
+          .where(
+            and(
+              inArray(schema.designLocalhostConnections.id, addedConnectionIds),
+              eq(
+                schema.designLocalhostConnections.ownerEmail,
+                connectionScope.ownerEmail,
+              ),
+              connectionScope.orgId
+                ? eq(
+                    schema.designLocalhostConnections.orgId,
+                    connectionScope.orgId,
+                  )
+                : isNull(schema.designLocalhostConnections.orgId),
+            ),
+          );
+        const ownedConnectionIds = new Set(
+          ownedConnections.map((connection) => connection.id),
+        );
+        if (addedConnectionIds.some((id) => !ownedConnectionIds.has(id))) {
+          fail(
+            "Only local app connections in your workspace can be added to this design.",
+            {
+              errorCode: "localhost_connection_scope_mismatch",
+              statusCode: 403,
+            },
+          );
+        }
       }
       const touchedMaps = dataOperations
         ? new Set(dataOperations.map((operation) => operation.path[0]))

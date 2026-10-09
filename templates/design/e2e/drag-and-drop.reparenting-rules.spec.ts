@@ -34,6 +34,7 @@ async function persistedNodeParent(
 }
 
 test.describe("reparenting rules", () => {
+  // oracle: none - verifies Design's saved parent and position after dragging.
   test("dragging a flow child out places it directly above the exited frame in visible overlap and persists after reload", async ({
     page,
   }) => {
@@ -298,7 +299,7 @@ test.describe("reparenting rules", () => {
       });
     expect(
       directParent,
-      'Figma: "If an object is smaller than a frame, we will make it a child of the frame."',
+      "An object dropped within a frame's bounds should become its child.",
     ).toBe("frame-a");
   });
 
@@ -381,7 +382,7 @@ test.describe("reparenting rules", () => {
       await expect
         .poll(chipParent, {
           message:
-            'Figma: "When moving an object out of a frame\'s bounds, hold the Space bar to keep an object within the current parent."',
+            "Holding Space should keep the object in its current parent.",
         })
         .toBe("row");
     } finally {
@@ -497,7 +498,7 @@ test.describe("reparenting rules", () => {
       await expect
         .poll(chipParent, {
           message:
-            'Figma: "When moving an object out of a frame\'s bounds, hold the Space bar to keep an object within the current parent."',
+            "Holding Space should keep the object in its current parent.",
         })
         .toBe("row");
     } finally {

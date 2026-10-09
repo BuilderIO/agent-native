@@ -654,16 +654,12 @@ export function useEditorEditCommands({
           : selectedFiles;
       if (!filesToDelete.length) return false;
 
-      const maxDeleteCount = Math.max(1, overviewScreens.length - 1);
-      const boundedFilesToDelete = filesToDelete.slice(0, maxDeleteCount);
-      if (!boundedFilesToDelete.length) return false;
-
       const explicitScreenIds = explicitScreenDeletion
-        ? boundedFilesToDelete.map((file) => file.id)
+        ? filesToDelete.map((file) => file.id)
         : explicitlySelectedFiles.map((file) => file.id);
       const selectionRevisionAtStart = selectionRevisionRef.current;
       explicitOverviewScreenSelectionRef.current = [];
-      performDeleteFiles(boundedFilesToDelete, {
+      performDeleteFiles(filesToDelete, {
         recordDeletionHistory: true,
         onMutationSettled: (deletedFiles) => {
           if (selectionRevisionRef.current !== selectionRevisionAtStart) return;

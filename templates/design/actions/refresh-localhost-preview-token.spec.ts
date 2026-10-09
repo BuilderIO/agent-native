@@ -219,7 +219,50 @@ describe("refresh-localhost-preview-token", () => {
     );
   });
 
-  it("reads a shared editor's localhost connection in the design owner's scope", async () => {
+  it("does not expose a design owner's connection to a shared editor", async () => {
+    mocks.connections = [];
+    mocks.resolveScope.mockResolvedValueOnce({
+      ownerEmail: "editor@example.com",
+      orgId: "editor-org",
+    });
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "editor",
+      resource: {
+        ownerEmail: "design-owner@example.com",
+        orgId: "design-org",
+        visibility: "public",
+        data: JSON.stringify({
+          sourceType: "localhost",
+          connectionId: "conn_2",
+        }),
+      },
+    });
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        connectionId: "conn_2",
+        publicVisualEdit: true,
+      }),
+    ).rejects.toThrow("has no preview token");
+
+    expect(mocks.eq).toHaveBeenCalledWith("ownerEmail", "editor@example.com");
+    expect(mocks.eq).toHaveBeenCalledWith("orgId", "editor-org");
+    expect(mocks.resolveScope).toHaveBeenCalledWith();
+  });
+
+  it("refreshes a shared editor's own localhost connection", async () => {
+    mocks.connections = [
+      {
+        id: "conn_2",
+        previewToken: "editor-preview",
+        bridgeUrl: "http://127.0.0.1:7331",
+      },
+    ];
+    mocks.resolveScope.mockResolvedValueOnce({
+      ownerEmail: "editor@example.com",
+      orgId: "editor-org",
+    });
     mocks.assertAccess.mockResolvedValueOnce({
       role: "editor",
       resource: {
@@ -232,27 +275,23 @@ describe("refresh-localhost-preview-token", () => {
         }),
       },
     });
-    mocks.connections = [
-      {
-        id: "conn_2",
-        previewToken: "owner-preview",
-        bridgeUrl: "http://127.0.0.1:7331",
-      },
-    ];
 
     await expect(
       action.run({
         designId: "design_1",
         connectionId: "conn_2",
       }),
-    ).resolves.toMatchObject({ previewToken: "owner-preview" });
+    ).resolves.toMatchObject({
+      previewToken: "editor-preview",
+      bridgeUrl: "http://127.0.0.1:7331",
+    });
 
-    expect(mocks.eq).toHaveBeenCalledWith(
+    expect(mocks.eq).toHaveBeenCalledWith("ownerEmail", "editor@example.com");
+    expect(mocks.eq).toHaveBeenCalledWith("orgId", "editor-org");
+    expect(mocks.eq).not.toHaveBeenCalledWith(
       "ownerEmail",
       "design-owner@example.com",
     );
-    expect(mocks.eq).toHaveBeenCalledWith("orgId", "design-org");
-    expect(mocks.resolveScope).not.toHaveBeenCalled();
   });
 
   it("rejects a connection that is not part of the design", async () => {

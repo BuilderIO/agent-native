@@ -345,7 +345,9 @@ export interface DuplicateScreenArgs {
   duplicateRecoveryRef: RefObject<Map<string, DuplicateScreenRecoveryEntry>>;
   displayedCanvasFrameGeometryById?: CanvasFrameGeometryById;
   files: DesignFile[];
-  getCurrentScreenContentForDuplicate?: (screenId: string) => string;
+  getCurrentScreenContentForDuplicate?: (
+    screenId: string,
+  ) => string | undefined;
   focusCreatedScreen: (
     screenId: string,
     geometry: FrameGeometry,

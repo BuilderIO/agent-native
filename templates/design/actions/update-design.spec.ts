@@ -3,7 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 type Predicate =
   | { kind: "eq"; left: unknown; right: unknown }
   | { kind: "and"; conditions: Predicate[] }
-  | { kind: "isNull"; value: unknown };
+  | { kind: "isNull"; value: unknown }
+  | { kind: "inArray"; value: unknown; values: unknown[] };
+
+interface ConnectionRow {
+  id: string;
+  ownerEmail: string;
+  orgId: string | null;
+}
 
 interface DesignRow {
   id: string;
@@ -35,6 +42,8 @@ const mocks = vi.hoisted(() => {
     gatedReadCount: 0,
     releaseGatedReads: null as (() => void) | null,
     resultShape: "changes" as ResultShape,
+    connections: [] as ConnectionRow[],
+    resolveScope: vi.fn(),
   };
 
   const resetReadGate = (count: number) => {
@@ -66,6 +75,9 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (config: unknown) => config,
+  fail: (message: string, options: Record<string, unknown>) => {
+    throw Object.assign(new Error(message), options);
+  },
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -84,6 +96,15 @@ vi.mock("drizzle-orm", () => ({
   }),
   sql: vi.fn(),
   isNull: (value: unknown): Predicate => ({ kind: "isNull", value }),
+  inArray: (value: unknown, values: unknown[]): Predicate => ({
+    kind: "inArray",
+    value,
+    values,
+  }),
+}));
+
+vi.mock("../server/lib/localhost-connection.js", () => ({
+  resolveLocalhostConnectionScope: mocks.state.resolveScope,
 }));
 
 vi.mock("../server/db/index.js", () => {
@@ -93,39 +114,75 @@ vi.mock("../server/db/index.js", () => {
       data: "designs.data",
       dataOperationRevisions: "designs.dataOperationRevisions",
     },
+    designLocalhostConnections: {
+      id: "connections.id",
+      ownerEmail: "connections.ownerEmail",
+      orgId: "connections.orgId",
+    },
   };
 
-  const matches = (predicate: Predicate): boolean => {
+  const matches = (
+    predicate: Predicate,
+    row: DesignRow | ConnectionRow,
+  ): boolean => {
     if (predicate.kind === "and") {
-      return predicate.conditions.every(matches);
+      return predicate.conditions.every((condition) => matches(condition, row));
+    }
+    if (predicate.kind === "inArray") {
+      return (
+        predicate.value === schema.designLocalhostConnections.id &&
+        predicate.values.includes(row.id)
+      );
     }
     if (predicate.kind === "isNull") {
+      if (predicate.value === schema.designLocalhostConnections.orgId) {
+        return "orgId" in row && row.orgId === null;
+      }
       if (predicate.value === schema.designs.data) {
-        return mocks.state.row.data === null;
+        return "data" in row && row.data === null;
       }
       if (predicate.value === schema.designs.dataOperationRevisions) {
-        return mocks.state.row.dataOperationRevisions === null;
+        return (
+          "dataOperationRevisions" in row && row.dataOperationRevisions === null
+        );
       }
       return true;
     }
+    if (predicate.left === schema.designLocalhostConnections.id) {
+      return "id" in row && row.id === predicate.right;
+    }
+    if (predicate.left === schema.designLocalhostConnections.ownerEmail) {
+      return "ownerEmail" in row && row.ownerEmail === predicate.right;
+    }
+    if (predicate.left === schema.designLocalhostConnections.orgId) {
+      return "orgId" in row && row.orgId === predicate.right;
+    }
     if (predicate.left === schema.designs.id) {
-      return mocks.state.row.id === predicate.right;
+      return row.id === predicate.right;
     }
     if (predicate.left === schema.designs.data) {
-      return mocks.state.row.data === predicate.right;
+      return "data" in row && row.data === predicate.right;
     }
     if (predicate.left === schema.designs.dataOperationRevisions) {
-      return mocks.state.row.dataOperationRevisions === predicate.right;
+      return (
+        "dataOperationRevisions" in row &&
+        row.dataOperationRevisions === predicate.right
+      );
     }
     return true;
   };
 
   const select = () => ({
-    from: () => ({
+    from: (table: unknown) => ({
       where: async (predicate: Predicate) => {
+        if (table === schema.designLocalhostConnections) {
+          return mocks.state.connections.filter((connection) =>
+            matches(predicate, connection),
+          );
+        }
         const snapshot = { ...mocks.state.row };
         await mocks.waitAtReadGate();
-        return matches(predicate)
+        return matches(predicate, snapshot)
           ? [
               {
                 id: snapshot.id,
@@ -141,7 +198,7 @@ vi.mock("../server/db/index.js", () => {
   const update = () => ({
     set: (updates: Partial<DesignRow>) => ({
       where: async (predicate: Predicate) => {
-        const affected = matches(predicate) ? 1 : 0;
+        const affected = matches(predicate, mocks.state.row) ? 1 : 0;
         if (affected > 0) Object.assign(mocks.state.row, updates);
         switch (mocks.state.resultShape) {
           case "rowsAffected":
@@ -200,6 +257,12 @@ describe("update-design data concurrency", () => {
     mocks.resetReadGate(0);
     mocks.state.resultShape = "changes";
     mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.state.connections = [];
+    mocks.state.resolveScope.mockReset();
+    mocks.state.resolveScope.mockResolvedValue({
+      ownerEmail: "editor@example.com",
+      orgId: null,
+    });
   });
 
   it("rejects an ID-only update instead of reporting a content change", async () => {
@@ -209,6 +272,85 @@ describe("update-design data concurrency", () => {
       "At least one design field or data operation is required.",
     );
     expect(mocks.state.row.updatedAt).toBe(previousUpdatedAt);
+  });
+
+  it("rejects a shared editor adding another user's localhost connection", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
+    mocks.state.connections = [
+      {
+        id: "owner-connection",
+        ownerEmail: "design-owner@example.com",
+        orgId: null,
+      },
+    ];
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "frame-a"],
+            value: { title: "A", connectionId: "owner-connection" },
+          },
+        ],
+      } as never),
+    ).rejects.toMatchObject({
+      message:
+        "Only local app connections in your workspace can be added to this design.",
+      statusCode: 403,
+    });
+
+    expect(JSON.parse(mocks.state.row.data!)).toEqual(BASE_DATA);
+  });
+
+  it("allows a shared editor to add their own localhost connection", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
+    mocks.state.connections = [
+      {
+        id: "editor-connection",
+        ownerEmail: "editor@example.com",
+        orgId: null,
+      },
+    ];
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "frame-a"],
+            value: { title: "A", connectionId: "editor-connection" },
+          },
+        ],
+      } as never),
+    ).resolves.toMatchObject({ changed: true });
+
+    expect(
+      JSON.parse(mocks.state.row.data!).screenMetadata["frame-a"].connectionId,
+    ).toBe("editor-connection");
+  });
+
+  it("allows the design owner to add a local app connection", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({ role: "owner" });
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "frame-a"],
+            value: { title: "A", connectionId: "owner-connection" },
+          },
+        ],
+      } as never),
+    ).resolves.toMatchObject({ changed: true });
+
+    expect(
+      JSON.parse(mocks.state.row.data!).screenMetadata["frame-a"].connectionId,
+    ).toBe("owner-connection");
   });
 
   it("rejects one ambiguous legacy snapshot instead of silently losing a concurrent frame edit", async () => {

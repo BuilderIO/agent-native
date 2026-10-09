@@ -1643,6 +1643,11 @@ export function runUndo({
       const recreatedIds: string[] = [];
       let preparedFiles: ReturnType<typeof prepareDeletedFileRestore>[] = [];
       try {
+        // A delete-triggered read can finish late and replace restored geometry.
+        await queryClient.cancelQueries({
+          queryKey: ["action", "get-design", { id }],
+          exact: true,
+        });
         preparedFiles = entry.files.map((file) => {
           try {
             return prepareDeletedFileRestore(file);

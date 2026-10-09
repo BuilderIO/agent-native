@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -62,7 +62,10 @@ export default defineAction({
       throw error;
     }
     if (connectionId && connectionIds) {
-      throw new Error("Provide connectionId or connectionIds, not both.");
+      fail("Provide connectionId or connectionIds, not both.", {
+        errorCode: "invalid_connection_selectors",
+        statusCode: 400,
+      });
     }
     const requestedConnectionIds = connectionId
       ? [connectionId]
@@ -92,23 +95,13 @@ export default defineAction({
       access.role === "editor";
     const canIssueRegistrationCapability =
       canIssueLiveEditCapability || publicVisualEdit === true;
-    const designOwner = access.resource as {
-      ownerEmail?: unknown;
-      orgId?: unknown;
-    };
     const connectionScope =
-      canIssueLiveEditCapability &&
-      typeof designOwner.ownerEmail === "string" &&
-      designOwner.ownerEmail
-        ? {
-            ownerEmail: designOwner.ownerEmail,
-            orgId:
-              typeof designOwner.orgId === "string" ? designOwner.orgId : null,
-          }
-        : await resolveLocalhostConnectionScope({
+      publicVisualEdit === true && access.role === "viewer"
+        ? await resolveLocalhostConnectionScope({
             designId,
-            allowPublicViewer: publicVisualEdit === true,
-          });
+            allowPublicViewer: true,
+          })
+        : await resolveLocalhostConnectionScope();
     const { ownerEmail, orgId } = connectionScope;
     const connections = await getDb()
       .select({

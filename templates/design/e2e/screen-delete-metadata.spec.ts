@@ -69,6 +69,7 @@ async function zoomTo100(page: Page) {
   await expect(zoom).toHaveText(/100%/);
 }
 
+// oracle: none - verifies persisted Screen state after undo.
 test("Undo restores deleted Screen metadata and variant membership", async ({
   page,
 }) => {
@@ -385,10 +386,11 @@ test("Undo restores deleted Screen metadata and variant membership", async ({
   }
 });
 
-test("Delete removes the final selected Screen", async ({ page }) => {
+// oracle: none - verifies deletion of every selected Screen.
+test("Delete removes all selected Screens", async ({ page }) => {
   test.setTimeout(120_000);
   const created = await action(page, "create-design", {
-    title: `Delete final Screen ${Date.now()}`,
+    title: `Delete selected Screens ${Date.now()}`,
     projectType: "prototype",
   });
   const designId = created.id ?? created.data?.id;
@@ -397,47 +399,58 @@ test("Delete removes the final selected Screen", async ({ page }) => {
   }
 
   try {
-    const file = await action(page, "create-file", {
+    const firstFile = await action(page, "create-file", {
       designId,
       filename: "index.html",
       content: ALPHA_HTML,
       fileType: "html",
     });
-    const screenId = file.id ?? file.data?.id;
-    if (typeof screenId !== "string") {
-      throw new Error("create-file did not return a Screen id");
+    const secondFile = await action(page, "create-file", {
+      designId,
+      filename: "beta.html",
+      content: BETA_HTML,
+      fileType: "html",
+    });
+    const firstScreenId = firstFile.id ?? firstFile.data?.id;
+    const secondScreenId = secondFile.id ?? secondFile.data?.id;
+    if (
+      typeof firstScreenId !== "string" ||
+      typeof secondScreenId !== "string"
+    ) {
+      throw new Error("create-file did not return both Screen ids");
     }
 
     await gotoEditor(page, designId);
     await expandAllLayers(page);
-    const screenLayer = page
-      .getByRole("tree", { name: "Layers" })
-      .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`)
+    const layers = page.getByRole("tree", { name: "Layers" });
+    const firstLayer = layers
+      .locator(`[data-layer-row-button][data-layer-node-id="${firstScreenId}"]`)
       .locator("xpath=ancestor::*[@role='treeitem']");
-    await expect(screenLayer).toHaveCount(1);
-    await screenLayer.locator("[data-layer-row-button]").click();
-    await expect(screenLayer).toHaveAttribute("aria-selected", "true");
+    const secondLayer = layers
+      .locator(
+        `[data-layer-row-button][data-layer-node-id="${secondScreenId}"]`,
+      )
+      .locator("xpath=ancestor::*[@role='treeitem']");
+    await expect(firstLayer).toHaveCount(1);
+    await expect(secondLayer).toHaveCount(1);
+    await firstLayer.locator("[data-layer-row-button]").click();
+    await secondLayer
+      .locator("[data-layer-row-button]")
+      .click({ modifiers: ["Shift"] });
+    await expect(
+      layers.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(2);
 
-    const deleteResponsePromise = page.waitForResponse((response) => {
-      const request = response.request();
-      return (
-        request.method() === "POST" &&
-        response.url().includes("/_agent-native/actions/delete-file") &&
-        request.postDataJSON()?.id === screenId
-      );
-    });
     await page.keyboard.press("Delete");
-    const deleteResponse = await deleteResponsePromise;
-    expect(deleteResponse.status()).toBe(200);
     await expect
       .poll(async () => {
         const files = (await readDesign(page, designId)).files ?? [];
-        return files.some((candidate) => candidate.id === screenId);
+        return [firstScreenId, secondScreenId].map((screenId) =>
+          files.some((candidate) => candidate.id === screenId),
+        );
       })
-      .toBe(false);
-    await expect(
-      page.locator(`[data-screen-shell][data-frame-id="${screenId}"]`),
-    ).toHaveCount(0);
+      .toEqual([false, false]);
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
   } finally {
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }
