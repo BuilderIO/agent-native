@@ -10,15 +10,18 @@ describe("appMountPath", () => {
     vi.unstubAllEnvs();
   });
 
-  it("keeps the live mount when the workspace manifest omits it", () => {
+  it("uses the projected current mount when the workspace manifest omits it", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
       "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
       JSON.stringify([{ id: "content", path: "/content" }]),
     );
-    vi.stubGlobal("window", { location: { pathname: "/dispatch/settings" } });
+    vi.stubGlobal("window", {
+      location: { pathname: "/dispatch/settings" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppPath: "/dispatch" },
+    });
 
-    expect(appBasePath()).toBe("");
+    expect(appBasePath()).toBe("/dispatch");
     expect(appMountPath(SETTINGS)).toBe("/dispatch");
     expect(appMountedPath("/settings/general", SETTINGS)).toBe(
       "/dispatch/settings/general",
@@ -77,6 +80,24 @@ describe("appMountPath", () => {
     });
 
     expect(appBasePath()).toBe("");
+    expect(appMountPath("/home")).toBe("");
+  });
+
+  it("does not infer a workspace mount without positive path metadata", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubGlobal("window", {
+      location: { pathname: "/nope" },
+      __reactRouterManifest: {
+        routes: {
+          root: { id: "root", path: "/" },
+          index: { id: "index", parentId: "root", index: true },
+          home: { id: "home", parentId: "root", path: "home" },
+        },
+      },
+    });
+
+    expect(appBasePath()).toBe("");
+    expect(appMountPath("/")).toBe("");
   });
 
   it("does not infer a mount from an unmatched URL and a root index route", () => {
@@ -311,7 +332,10 @@ describe("appMountPath", () => {
       "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
       JSON.stringify([{ id: "content", path: "/content" }]),
     );
-    vi.stubGlobal("window", { location: { pathname: "/dispatch/" } });
+    vi.stubGlobal("window", {
+      location: { pathname: "/dispatch/" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppPath: "/dispatch" },
+    });
 
     expect(appMountPath("/")).toBe("/dispatch");
     expect(appMountedPath("/settings/keys", "/")).toBe(

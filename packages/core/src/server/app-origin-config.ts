@@ -44,7 +44,7 @@ function workspaceAppMountConfigFromJson(
         }
       : undefined;
   } catch {
-    // coercion-ok: malformed manifests omit optional mount hints; the browser falls back to the live segment.
+    // coercion-ok: malformed manifests omit optional mount hints; the app base path remains authoritative.
     return undefined;
   }
 }

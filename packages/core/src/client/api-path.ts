@@ -172,7 +172,7 @@ function workspacePathBasePath(): string {
   const segment = pathname.split("/").find(Boolean);
   if (!segment || isFrameworkSegment(segment) || segment === "api") return "";
   const mounts = workspaceAppMountPaths();
-  if (!mounts) return normalizeBasePath(segment);
+  if (!mounts) return "";
   return (
     [...mounts]
       .filter((mount) => pathMatchesBasePath(pathname, mount))
@@ -297,11 +297,7 @@ export function appMountPath(appLocalRoute: string): string {
   if (basePath && pathMatchesBasePath(pathname, basePath)) return basePath;
 
   const marker = normalizeBasePath(appLocalRoute);
-  if (!marker) {
-    return isWorkspaceRuntime() && pathname !== "/"
-      ? normalizeBasePath(pathname)
-      : basePath;
-  }
+  if (!marker) return basePath;
   const markerSegment = marker.slice(1);
 
   const mounts = workspaceAppMountPaths();
@@ -320,12 +316,13 @@ export function appMountPath(appLocalRoute: string): string {
     }
   }
 
-  const knownCandidates = mounts
-    ? candidates.filter((candidate) => mounts.has(candidate))
-    : candidates;
-  if (mounts && knownCandidates.length) {
-    return knownCandidates.sort((a, b) => b.length - a.length)[0];
+  if (mounts) {
+    const knownCandidates = candidates.filter((candidate) =>
+      mounts.has(candidate),
+    );
+    return knownCandidates.sort((a, b) => b.length - a.length)[0] ?? basePath;
   }
+  if (isWorkspaceRuntime()) return basePath;
   return candidates[0] ?? basePath;
 }
 
