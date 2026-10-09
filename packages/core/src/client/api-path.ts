@@ -238,6 +238,7 @@ export function configureClientRouterBasename(): boolean {
   }
 
   if (typeof window === "undefined") return true;
+  if (!basePath && !hasExplicitWorkspaceRootPath()) return true;
   const pathname = window.location.pathname;
   const routerBasePath =
     basePath && pathMatchesBasePath(pathname, basePath) ? basePath : "";

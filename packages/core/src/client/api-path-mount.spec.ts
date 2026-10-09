@@ -274,6 +274,19 @@ describe("appMountPath", () => {
     expect(error).toHaveBeenCalledOnce();
   });
 
+  it("preserves a server basename when an empty path is not declared as root", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    const context = { basename: "/dispatch" };
+    vi.stubGlobal("window", {
+      location: { pathname: "/_agent-native/auth/session" },
+      __reactRouterContext: context,
+    });
+
+    expect(appBasePath()).toBe("");
+    expect(configureClientRouterBasename()).toBe(true);
+    expect(context.basename).toBe("/dispatch");
+  });
+
   it("matches the current workspace mount when the router basename defaults to root", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     const context = { basename: "/" };
