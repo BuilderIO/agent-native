@@ -68,7 +68,10 @@ export interface ContrastAuditReport {
   failures: Array<ContrastFailure & { slideNumber: number }>;
   unverified: Array<ContrastUnverified & { slideNumber: number }>;
   skipped: Array<ContrastSkipped & { slideNumber: number }>;
+  /** True only when the whole deck was audited and came back clean. */
   canClaimContrastPasses: boolean;
+  /** True when the requested subset came back clean; says nothing about other slides. */
+  canClaimRequestedSlidesPass: boolean;
 }
 
 export function deckContrastRenderKey(deck: {
@@ -232,6 +235,13 @@ export function finalizeContrastAudit(
       withNumber({ slideId: slide.id, reason: skipped.get(slide.id)! }),
     );
 
+  const clean =
+    failures.length === 0 &&
+    unverified.length === 0 &&
+    skippedList.length === 0;
+  const coversWholeDeck =
+    request.slides.length === Object.keys(request.slideNumbers).length;
+
   return {
     deckId: request.deckId,
     slideCount: request.slides.length,
@@ -239,9 +249,7 @@ export function finalizeContrastAudit(
     failures,
     unverified,
     skipped: skippedList,
-    canClaimContrastPasses:
-      failures.length === 0 &&
-      unverified.length === 0 &&
-      skippedList.length === 0,
+    canClaimContrastPasses: clean && coversWholeDeck,
+    canClaimRequestedSlidesPass: clean,
   };
 }

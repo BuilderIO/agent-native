@@ -121,3 +121,12 @@ describe("finalizeContrastAudit", () => {
     expect(report.failures).toEqual([{ ...failure, slideNumber: 2 }]);
   });
 });
+
+describe("scoped audits", () => {
+  it("cannot claim a deck-wide pass when only some slides were requested", () => {
+    const scoped = { ...request, slides: [request.slides[0]] };
+    const report = finalizeContrastAudit(scoped, browserResult());
+    expect(report.canClaimRequestedSlidesPass).toBe(true);
+    expect(report.canClaimContrastPasses).toBe(false);
+  });
+});

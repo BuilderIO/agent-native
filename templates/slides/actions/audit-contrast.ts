@@ -23,7 +23,7 @@ export default defineAction({
     "Check text color contrast against WCAG AA on the given slideIds, or on every slide when omitted, using axe-core in the user's open editor tab. " +
     "Requires the deck to be open in the Slides editor. Returns failures (measured vs required ratio, colors, objectId), " +
     "unverified text that could not be measured (text over images, gradients, blend modes, or filters; text over overlapping solid shapes is measured), and skipped slides. " +
-    "Only claim the deck passes when canClaimContrastPasses is true; report unverified and skipped slides as not checked.",
+    "Only claim the deck passes when canClaimContrastPasses is true (whole deck audited, no findings). A slideIds audit can only support canClaimRequestedSlidesPass, for those slides alone. Report unverified and skipped slides as not checked.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     slideIds: z
