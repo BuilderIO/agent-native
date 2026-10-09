@@ -71,7 +71,7 @@ export function renderProjectMenu({
     editorHistory;
   const { canEditDesign, canCommentDesign, pinMode } =
     editorGenerationAndAccess;
-  const { files, overviewScreens } = editorFilesAndSaving;
+  const { files } = editorFilesAndSaving;
   const { activeFile, handleZoomOut, handleZoomIn, handleOpenMakeReal } =
     editorActiveScreenAndGeometry;
   const { setSaveTemplateOpen } = editorLiveEditsAndPresence;
