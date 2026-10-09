@@ -206,6 +206,30 @@ describe("multi-select dashboard filter", () => {
     );
   });
 
+  it("deduplicates options with the same value before rendering and selecting all", () => {
+    const duplicateOptions: DashboardFilter[] = [
+      {
+        ...filters[0],
+        options: [
+          ...filters[0].options!,
+          { value: "free", label: "Free duplicate" },
+        ],
+      },
+    ];
+    render("/dashboards/test", duplicateOptions);
+    act(() => trigger().click());
+
+    expect(() => optionLabel("Free duplicate")).toThrow(
+      "option Free duplicate not rendered",
+    );
+    act(() => popoverButton("Select all").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe(
+      "free,self_serve,enterprise",
+    );
+    expect(trigger().textContent).toContain("All");
+  });
+
   it("keeps unknown URL values when selecting all search matches", () => {
     render("/dashboards/test?f_plan=legacy,self_serve");
     act(() => trigger().click());

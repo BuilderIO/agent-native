@@ -403,7 +403,12 @@ function MultiSelectFilter({
   const optionsListId = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const options = filter.options ?? [];
+  const seenOptionValues = new Set<string>();
+  const options = (filter.options ?? []).filter((option) => {
+    if (seenOptionValues.has(option.value)) return false;
+    seenOptionValues.add(option.value);
+    return true;
+  });
   // Values are comma-joined in the URL, so option values must not contain ",".
   const selected = value.split(",").filter(Boolean);
   const selectedSet = new Set(selected);
