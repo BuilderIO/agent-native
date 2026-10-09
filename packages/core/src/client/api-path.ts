@@ -172,7 +172,7 @@ function workspacePathBasePath(): string {
   const segment = pathname.split("/").find(Boolean);
   if (!segment || isFrameworkSegment(segment) || segment === "api") return "";
   const mounts = workspaceAppMountPaths();
-  if (!mounts) return "";
+  if (!mounts) return normalizeBasePath(segment);
   return (
     [...mounts]
       .filter((mount) => pathMatchesBasePath(pathname, mount))
