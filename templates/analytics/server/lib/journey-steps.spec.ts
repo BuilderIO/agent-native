@@ -559,6 +559,37 @@ describe("buildSessionSteps", () => {
     ]);
   });
 
+  it("keeps distinct adjacent attempts separate without exposing their ids", () => {
+    const steps = buildSessionSteps([
+      row("generation_started", 1, {
+        templateName: "slides",
+        attemptId: "private-attempt-one",
+      }),
+      row("generation_started", 2, {
+        templateName: "slides",
+        attemptId: "private-attempt-two",
+      }),
+      row("generation_started", 3, {
+        templateName: "slides",
+        attemptId: "private-attempt-two",
+      }),
+    ]);
+
+    expect(steps).toEqual([
+      {
+        key: "attempt:generation_started",
+        label: "Generation attempt started",
+        tsMs: 1,
+      },
+      {
+        key: "attempt:generation_started:2",
+        label: "Generation attempt started",
+        tsMs: 2,
+      },
+    ]);
+    expect(JSON.stringify(steps)).not.toContain("private-attempt");
+  });
+
   it("deduplicates legacy and canonical aliases and orders first-run Builder events", () => {
     const steps = buildSessionSteps([
       row("onboarding_method_outcome", 100, {

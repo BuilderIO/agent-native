@@ -25,6 +25,7 @@ export interface JourneyEventRow {
   outcome: string | null;
   action: string | null;
   aliasId?: string | null;
+  attemptId?: string | null;
 }
 
 export interface JourneyStep {
@@ -489,9 +490,8 @@ export function deriveJourneyStep(
 }
 
 /**
- * One session's rows as ordered steps. Rows with no step meaning are skipped
- * and consecutive repeats of the same step collapse into the first, which
- * keeps that first occurrence's timestamp.
+ * One session's rows as ordered steps. Rows with no step meaning are skipped;
+ * consecutive repeats without an attempt ID collapse into the first step.
  */
 export function buildSessionSteps(
   rows: readonly JourneyEventRow[],
@@ -536,6 +536,8 @@ export function buildSessionSteps(
   });
   const steps: JourneyStep[] = [];
   const seenAliases = new Set<string>();
+  const seenAttemptSteps = new Map<string, Set<string>>();
+  const attemptOccurrences = new Map<string, number>();
   for (const row of ordered) {
     const step = deriveJourneyStep(row);
     if (!step) continue;
@@ -545,6 +547,23 @@ export function buildSessionSteps(
       const aliasStep = `${row.sessionId}\u0000${row.aliasId}\u0000${step.key}`;
       if (seenAliases.has(aliasStep)) continue;
       seenAliases.add(aliasStep);
+    }
+    const attemptId = row.attemptId?.trim();
+    if (attemptId) {
+      // Keep raw attempt IDs in this local dedup set; tree keys use ordinals.
+      const seenForStep = seenAttemptSteps.get(step.key) ?? new Set<string>();
+      if (seenForStep.has(attemptId)) continue;
+      seenForStep.add(attemptId);
+      seenAttemptSteps.set(step.key, seenForStep);
+
+      const occurrence = (attemptOccurrences.get(step.key) ?? 0) + 1;
+      attemptOccurrences.set(step.key, occurrence);
+      steps.push({
+        ...step,
+        key: occurrence === 1 ? step.key : `${step.key}:${occurrence}`,
+        tsMs: row.tsMs,
+      });
+      continue;
     }
     if (steps[steps.length - 1]?.key === step.key) continue;
     steps.push({ ...step, tsMs: row.tsMs });

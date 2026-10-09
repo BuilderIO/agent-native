@@ -147,7 +147,14 @@ describe("parseJourneyEventRow", () => {
       }),
     );
     expect(parsed).not.toHaveProperty("outputId");
-    expect(parsed).not.toHaveProperty("attemptId");
+    expect(parsed).toHaveProperty("attemptId", null);
+    expect(
+      parseJourneyEventRow(
+        eventRow("s1", "generation_started", 0, {
+          attempt_id: "private-attempt-id",
+        }),
+      )?.attemptId,
+    ).toBe("private-attempt-id");
     for (const broken of [
       { ...eventRow("s1", "signup", 0), id: "" },
       { ...eventRow("s1", "signup", 0), session_id: null },
@@ -257,6 +264,37 @@ describe("getOnboardingJourney", () => {
     expect(serialized).not.toContain("private-attempt-id");
     expect(serialized).not.toContain("output_id");
     expect(serialized).not.toContain("generation_attempt_id");
+  });
+
+  it("keeps distinct consecutive Slides attempts in the tree without exposing ids", async () => {
+    const rows = journeyRows();
+    rows.push(
+      eventRow("s1", "generation_started", 11, {
+        template_name: "slides",
+        attempt_id: "private-attempt-one",
+      }),
+      eventRow("s1", "generation_started", 12, {
+        template_name: "slides",
+        attempt_id: "private-attempt-two",
+      }),
+    );
+    mocks.queryFirstPartyAnalytics.mockResolvedValue({ rows, schema: [] });
+
+    const tree = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      app: "slides",
+    })) as JourneyTree;
+    const serialized = JSON.stringify(tree);
+
+    expect(tree.nodes.map((node) => node.key)).toContain(
+      "signup > step:role > onboarding:completed > attempt:generation_started",
+    );
+    expect(tree.nodes.map((node) => node.key)).toContain(
+      "signup > step:role > onboarding:completed > attempt:generation_started > attempt:generation_started:2",
+    );
+    expect(serialized).not.toContain("private-attempt-one");
+    expect(serialized).not.toContain("private-attempt-two");
+    expect(serialized).not.toContain("attempt_id");
   });
 
   it("omits replayUrl when the request has no origin", async () => {

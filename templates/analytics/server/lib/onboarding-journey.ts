@@ -160,6 +160,7 @@ export function parseJourneyEventRow(
     outcome: text(raw.outcome),
     action: text(raw.action),
     aliasId: text(raw.alias_id),
+    attemptId: text(raw.attempt_id),
   };
 }
 

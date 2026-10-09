@@ -541,6 +541,28 @@ describe("onboarding journey events SQL", () => {
     expect(normal[3]).toMatchObject({ step_id: "role", method_id: null });
   });
 
+  it("selects attempt ids only as an internal journey field", async () => {
+    await setup();
+    await insert("slides", "signup", 1, {
+      email: "person@example.com",
+      template: "slides",
+    });
+    await insert("slides", "generation_started", 2, {
+      template: "slides",
+      properties: { generation_attempt_id: "private-generation-attempt" },
+    });
+
+    const rows = await run({ app: "slides" });
+    const started = rows.find((row) => row.event_name === "generation_started");
+
+    expect(started).toMatchObject({
+      session_id: "slides",
+      attempt_id: "private-generation-attempt",
+    });
+    expect(started).not.toHaveProperty("generation_attempt_id");
+    expect(started).not.toHaveProperty("properties");
+  });
+
   it("selects Builder aliases and custom-key outcomes without returning raw properties", async () => {
     await setup();
     await insert("setup-flow", "signup", 1, {
@@ -647,6 +669,7 @@ describe("onboarding journey events SQL", () => {
     expect(Object.keys(builderRows[2]!).sort()).toEqual([
       "action",
       "alias_id",
+      "attempt_id",
       "event_name",
       "flow",
       "id",
