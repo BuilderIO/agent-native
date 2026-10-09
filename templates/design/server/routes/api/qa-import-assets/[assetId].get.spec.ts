@@ -114,6 +114,14 @@ describe("GET /api/qa-import-assets/:assetId", () => {
     expect(mockAssetPaths).not.toHaveBeenCalled();
   });
 
+  it("surfaces session lookup errors instead of treating them as unauthenticated", async () => {
+    const error = new Error("session store unavailable");
+    mockGetSession.mockRejectedValue(error);
+
+    await expect(handler(makeEvent() as never)).rejects.toBe(error);
+    expect(mockAssetPaths).not.toHaveBeenCalled();
+  });
+
   it("resolves assets only inside the authenticated owner's directory", async () => {
     mockGetSession.mockResolvedValue({ email: "other-owner@example.test" });
     mockAssetPaths.mockReturnValue([

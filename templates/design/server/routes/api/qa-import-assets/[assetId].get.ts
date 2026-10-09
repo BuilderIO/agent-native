@@ -20,7 +20,7 @@ export default defineEventHandler(async (event) => {
     setResponseStatus(event, 404);
     return { error: "Not found" };
   }
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   if (!session?.email) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
