@@ -4,6 +4,7 @@ import {
   appBasePath,
   appMountPath,
   appMountedPath,
+  configureClientRouterBasename,
   isWorkspaceAppPath,
 } from "./api-path.js";
 
@@ -13,6 +14,7 @@ describe("appMountPath", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
+    vi.restoreAllMocks();
   });
 
   it("uses the projected current mount when the workspace manifest omits it", () => {
@@ -112,6 +114,46 @@ describe("appMountPath", () => {
     expect(() => appMountPath("/")).toThrow(
       "Cannot resolve workspace app mount path without explicit mount metadata.",
     );
+  });
+
+  it("preserves the server router basename when mount metadata is unresolved", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const context = { basename: undefined as string | undefined };
+    vi.stubGlobal("window", {
+      location: { pathname: "/dispatch/home" },
+      __reactRouterContext: context,
+    });
+
+    expect(configureClientRouterBasename()).toBe(false);
+    expect(context.basename).toBeUndefined();
+    expect(error).toHaveBeenCalledOnce();
+  });
+
+  it("configures the router with an explicitly declared root mount", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    const context = { basename: "/stale" };
+    vi.stubGlobal("window", {
+      location: { pathname: "/settings/model" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppPath: "/" },
+      __reactRouterContext: context,
+    });
+
+    expect(configureClientRouterBasename()).toBe(true);
+    expect(context.basename).toBe("");
+  });
+
+  it("configures the router with the matching current app mount", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    const context = { basename: undefined as string | undefined };
+    vi.stubGlobal("window", {
+      location: { pathname: "/dispatch/settings" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppPath: "/dispatch" },
+      __reactRouterContext: context,
+    });
+
+    expect(configureClientRouterBasename()).toBe(true);
+    expect(context.basename).toBe("/dispatch");
   });
 
   it("fails when projected sibling mounts do not include the current app", () => {

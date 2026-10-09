@@ -54,6 +54,13 @@ function normalizeBasePath(value: string | undefined): string {
   return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
 }
 
+export class WorkspaceAppMountResolutionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WorkspaceAppMountResolutionError";
+  }
+}
+
 function isDeclaredRootPath(value: unknown): boolean {
   return (
     typeof value === "string" &&
@@ -204,11 +211,41 @@ function workspacePathBasePath(fallbackPath = ""): string {
     : undefined;
   if (matchingMount) return matchingMount;
   if (fallbackPath) return fallbackPath;
-  throw new Error(
+  throw new WorkspaceAppMountResolutionError(
     mounts
       ? "Cannot resolve workspace app mount path because the current URL matches no projected mount."
       : "Cannot resolve workspace app mount path without explicit mount metadata.",
   );
+}
+
+/**
+ * Configure the router basename before hydration. If mount metadata is missing,
+ * keep the basename supplied by the server instead of guessing from the URL.
+ */
+export function configureClientRouterBasename(): boolean {
+  let basePath: string;
+  try {
+    basePath = appBasePath();
+  } catch (error) {
+    if (error instanceof WorkspaceAppMountResolutionError) {
+      console.error(
+        "Unable to resolve the workspace app mount; preserving the server router basename.",
+        error,
+      );
+      return false;
+    }
+    throw error;
+  }
+
+  if (typeof window === "undefined") return true;
+  const pathname = window.location.pathname;
+  const routerBasePath =
+    basePath && pathMatchesBasePath(pathname, basePath) ? basePath : "";
+  const context = (
+    window as Window & { __reactRouterContext?: { basename?: string } }
+  ).__reactRouterContext;
+  if (context) context.basename = routerBasePath;
+  return true;
 }
 
 function externalEmbedTargetBasePath(): string {

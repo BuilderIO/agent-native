@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Restore an omitted workspace mount from the app's route manifest when bootstrapping the router.
+Resolve workspace app mount paths from explicit metadata and preserve the server router basename when legacy metadata is missing.
