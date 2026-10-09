@@ -2,7 +2,10 @@ import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { verifyGenerationArtifactAccessCapability } from "../server/generation-artifact-access.js";
+import {
+  verifyGenerationArtifactAccessCapability,
+  verifyGenerationCreativeContextSnapshotCapability,
+} from "../server/generation-artifact-access.js";
 import {
   createCreativeContextA2AResponseToken,
   decodeCreativeContextA2ARequest,
@@ -62,7 +65,7 @@ export default defineAction({
           await import("../store/generation.js");
         const { recordGenerationCreativeContextFromSnapshot } =
           await import("../store/generation.js");
-        const { artifactAccessCapability, persistedSnapshot, ...record } =
+        const { artifactAccessCapability, snapshotCapability, ...record } =
           request.payload;
         const artifactAccess = artifactAccessCapability
           ? await verifyGenerationArtifactAccessCapability(
@@ -71,11 +74,20 @@ export default defineAction({
               "record",
             )
           : undefined;
-        result = persistedSnapshot
-          ? await recordGenerationCreativeContextFromSnapshot(record, {
-              artifactAccess,
-            })
-          : await recordGenerationCreativeContext(record, { artifactAccess });
+        if (snapshotCapability) {
+          const snapshot = { ...record, onlyIfMissing: true as const };
+          await verifyGenerationCreativeContextSnapshotCapability(
+            snapshotCapability,
+            snapshot,
+          );
+          result = await recordGenerationCreativeContextFromSnapshot(snapshot, {
+            artifactAccess,
+          });
+        } else {
+          result = await recordGenerationCreativeContext(record, {
+            artifactAccess,
+          });
+        }
         break;
       }
     }

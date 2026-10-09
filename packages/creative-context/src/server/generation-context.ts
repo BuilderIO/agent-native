@@ -31,8 +31,10 @@ import { getCreativeContext } from "./context.js";
 import {
   assertGenerationArtifactAccess,
   createGenerationArtifactAccessCapability,
+  createGenerationCreativeContextSnapshotCapability,
   type GenerationArtifactAccessTarget,
   type GenerationArtifactIdentity,
+  type GenerationCreativeContextSnapshot,
 } from "./generation-artifact-access.js";
 import {
   callIsolatedCreativeContextA2A,
@@ -621,7 +623,7 @@ export async function recordGenerationCreativeContext(
 export async function recordGenerationCreativeContextFromSnapshot(
   input: Omit<
     IsolatedRecordPayload,
-    "artifactAccessCapability" | "persistedSnapshot"
+    "artifactAccessCapability" | "snapshotCapability"
   >,
   options: { db?: any; artifactAccess?: GenerationArtifactAccessTarget } = {},
 ) {
@@ -638,6 +640,12 @@ export async function recordGenerationCreativeContextFromSnapshot(
     !options.db &&
     hasIsolatedCreativeContextA2A()
   ) {
+    const snapshot = {
+      ...input,
+      onlyIfMissing: true,
+    } satisfies GenerationCreativeContextSnapshot;
+    const snapshotCapability =
+      await createGenerationCreativeContextSnapshotCapability(snapshot);
     const artifactAccessCapability = artifactAccessTarget
       ? await createGenerationArtifactAccessCapability(
           input,
@@ -646,8 +654,8 @@ export async function recordGenerationCreativeContextFromSnapshot(
         )
       : undefined;
     return callIsolatedCreativeContextA2A("record", {
-      ...input,
-      persistedSnapshot: true,
+      ...snapshot,
+      snapshotCapability,
       artifactAccessCapability,
     });
   }

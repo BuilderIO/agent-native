@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   getRequestOrgId: vi.fn(),
   getRequestUserEmail: vi.fn(() => "user@example.test"),
   createArtifactCapability: vi.fn(),
+  createSnapshotCapability: vi.fn(),
   isCreativeContextLabAvailable: vi.fn(),
 }));
 
@@ -74,6 +75,8 @@ vi.mock("./context.js", () => ({
 vi.mock("./generation-artifact-access.js", () => ({
   assertGenerationArtifactAccess: vi.fn(),
   createGenerationArtifactAccessCapability: mocks.createArtifactCapability,
+  createGenerationCreativeContextSnapshotCapability:
+    mocks.createSnapshotCapability,
 }));
 
 import {
@@ -100,6 +103,7 @@ describe("generation context isolated A2A routing", () => {
     mocks.createArtifactCapability.mockImplementation(
       async (_identity, _target, operation) => `cap-${operation}`,
     );
+    mocks.createSnapshotCapability.mockResolvedValue("snapshot-cap");
     mocks.isCreativeContextLabAvailable.mockResolvedValue(true);
     mocks.callA2A.mockResolvedValue(emptyRemoteContext);
     mocks.listCreativeContexts.mockResolvedValue({ contexts: [] });
@@ -196,9 +200,10 @@ describe("generation context isolated A2A routing", () => {
     expect(mocks.readAppState).not.toHaveBeenCalled();
     expect(mocks.callA2A).toHaveBeenCalledWith("record", {
       ...input,
-      persistedSnapshot: true,
+      snapshotCapability: "snapshot-cap",
       artifactAccessCapability: "cap-record",
     });
+    expect(mocks.createSnapshotCapability).toHaveBeenCalledWith(input);
     expect(mocks.recordLocal).not.toHaveBeenCalled();
   });
 

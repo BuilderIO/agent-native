@@ -9,6 +9,7 @@ import {
   mergeCreatedDocumentWithDraft,
   prepareCreatedDraftReplay,
   retryCreateAfterDraftRead,
+  retryCreateAfterIntentWrite,
 } from "./DocumentSidebar";
 
 function createdDocument(overrides: Partial<Document> = {}): Document {
@@ -137,6 +138,50 @@ describe("document sidebar create recovery", () => {
     );
     expect(read).toHaveBeenCalledOnce();
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("still retries creation when browser storage cannot refresh the intent", async () => {
+    const storageError = new DOMException(
+      "Storage is full.",
+      "QuotaExceededError",
+    );
+    const storage = {
+      setItem: vi.fn(() => {
+        throw storageError;
+      }),
+    } as unknown as Storage;
+    vi.stubGlobal("window", { localStorage: storage });
+    const storageWarning = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const created = createdDocument();
+    const read = vi.fn<() => PageDraftJournalEntry | null>(() => null);
+    const create = vi.fn(async () => created);
+
+    try {
+      await expect(
+        retryCreateAfterIntentWrite(
+          { accountId: "writer@example.test", orgId: "org-1" },
+          {
+            id: created.id,
+            parentId: null,
+            spaceId: null,
+            createdAt: "2026-10-08T12:00:00.000Z",
+            status: "failed",
+          },
+          read,
+          create,
+        ),
+      ).resolves.toEqual({ created, draft: null });
+      expect(create).toHaveBeenCalledOnce();
+      expect(storageWarning).toHaveBeenCalledWith(
+        expect.stringContaining("attempting server creation anyway"),
+        expect.any(Error),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      storageWarning.mockRestore();
+    }
   });
 
   it("returns the journal snapshot read after create for replay", async () => {

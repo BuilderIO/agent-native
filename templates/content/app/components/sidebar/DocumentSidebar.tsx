@@ -263,6 +263,16 @@ export async function retryCreateAfterDraftRead<T>(
   return { created, draft: afterCreate.entry };
 }
 
+export function retryCreateAfterIntentWrite<T>(
+  scope: DocumentCreateIntentScope,
+  intent: DocumentCreateIntent,
+  read: () => PageDraftJournalEntry | null,
+  create: () => Promise<T>,
+): Promise<{ created: T; draft: PageDraftJournalEntry | null }> {
+  writeDocumentCreateIntentBestEffort(scope, { ...intent, status: "pending" });
+  return retryCreateAfterDraftRead(read, create);
+}
+
 export function mergeCreatedDocumentWithDraft(
   created: Document,
   entry: PageDraftJournalEntry | null,
@@ -2055,19 +2065,22 @@ export function DocumentSidebar({
         if (retrying) return;
         retrying = true;
         try {
-          writeDocumentCreateIntent(scope, { ...intent, status: "pending" });
           const read = () => readPageDraftJournal(draftScope);
-          const { created, draft } = await retryCreateAfterDraftRead(read, () =>
-            withDocumentCreateInFlight(intent.id, () =>
-              createDocumentAsync({
-                id: intent.id,
-                title: "",
-                parentId: intent.parentId ?? undefined,
-                spaceId: intent.parentId
-                  ? undefined
-                  : (intent.spaceId ?? undefined),
-              }),
-            ),
+          const { created, draft } = await retryCreateAfterIntentWrite(
+            scope,
+            intent,
+            read,
+            () =>
+              withDocumentCreateInFlight(intent.id, () =>
+                createDocumentAsync({
+                  id: intent.id,
+                  title: "",
+                  parentId: intent.parentId ?? undefined,
+                  spaceId: intent.parentId
+                    ? undefined
+                    : (intent.spaceId ?? undefined),
+                }),
+              ),
           );
           let confirmedDocument: Document = created;
           if (draft) {

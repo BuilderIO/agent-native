@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   createResponseToken: vi.fn(),
   resolveLocal: vi.fn(),
   verifyArtifactAccess: vi.fn(),
+  verifySnapshotCapability: vi.fn(),
   getGeneration: vi.fn(),
   recordGeneration: vi.fn(),
   recordGenerationFromSnapshot: vi.fn(),
@@ -26,6 +27,8 @@ vi.mock("../server/generation-context.js", () => ({
 
 vi.mock("../server/generation-artifact-access.js", () => ({
   verifyGenerationArtifactAccessCapability: mocks.verifyArtifactAccess,
+  verifyGenerationCreativeContextSnapshotCapability:
+    mocks.verifySnapshotCapability,
 }));
 
 vi.mock("../store/generation.js", () => ({
@@ -55,6 +58,7 @@ describe("creative-context-a2a receiver action", () => {
     });
     mocks.createResponseToken.mockReturnValue("response-token");
     mocks.verifyArtifactAccess.mockResolvedValue({ verified: true });
+    mocks.verifySnapshotCapability.mockResolvedValue(undefined);
     mocks.getGeneration.mockResolvedValue(null);
     mocks.recordGeneration.mockResolvedValue({
       id: "record-1",
@@ -187,14 +191,71 @@ describe("creative-context-a2a receiver action", () => {
       protocol: "creative-context-a2a-v1",
       requestId: "87f466ae-32f4-4d0f-9de7-96f955e69f7b",
       operation: "record",
-      payload: { ...record, persistedSnapshot: true },
+      payload: { ...record, snapshotCapability: "signed-snapshot-capability" },
     });
 
     await action.run({ requestToken: "request-token" });
 
+    expect(mocks.verifySnapshotCapability).toHaveBeenCalledWith(
+      "signed-snapshot-capability",
+      record,
+    );
     expect(mocks.recordGenerationFromSnapshot).toHaveBeenCalledWith(record, {
       artifactAccess: undefined,
     });
     expect(mocks.recordGeneration).not.toHaveBeenCalled();
+  });
+
+  it("does not bypass pack checks without a snapshot capability", async () => {
+    const record = {
+      appId: "slides",
+      artifactType: "deck",
+      artifactId: "deck-1",
+      contextMode: "pinned",
+      contextPackId: "pack-1",
+      reuseLabels: [],
+      onlyIfMissing: true,
+    };
+    mocks.decodeRequest.mockReturnValue({
+      protocol: "creative-context-a2a-v1",
+      requestId: "87f466ae-32f4-4d0f-9de7-96f955e69f7b",
+      operation: "record",
+      payload: record,
+    });
+
+    await action.run({ requestToken: "request-token" });
+
+    expect(mocks.verifySnapshotCapability).not.toHaveBeenCalled();
+    expect(mocks.recordGeneration).toHaveBeenCalledWith(record, {
+      artifactAccess: undefined,
+    });
+    expect(mocks.recordGenerationFromSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid snapshot capability before storing provenance", async () => {
+    const record = {
+      appId: "slides",
+      artifactType: "deck",
+      artifactId: "deck-1",
+      contextMode: "pinned",
+      contextPackId: "pack-1",
+      reuseLabels: [],
+      onlyIfMissing: true,
+    };
+    mocks.decodeRequest.mockReturnValue({
+      protocol: "creative-context-a2a-v1",
+      requestId: "87f466ae-32f4-4d0f-9de7-96f955e69f7b",
+      operation: "record",
+      payload: { ...record, snapshotCapability: "forged" },
+    });
+    mocks.verifySnapshotCapability.mockRejectedValue(
+      new Error("Invalid Creative Context snapshot capability"),
+    );
+
+    await expect(action.run({ requestToken: "request-token" })).rejects.toThrow(
+      /invalid creative context snapshot capability/i,
+    );
+    expect(mocks.recordGeneration).not.toHaveBeenCalled();
+    expect(mocks.recordGenerationFromSnapshot).not.toHaveBeenCalled();
   });
 });
