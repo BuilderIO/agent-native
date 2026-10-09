@@ -8,6 +8,7 @@ import {
   AUTHORING_FUZZ_STYLE_PROPERTIES,
   authoringFuzzLineNavigationKeys,
   authoringFuzzProfileIndex,
+  authoringFuzzUnavailableExitCode,
   canonicalizeAuthoringFuzzPersistence,
   createAuthoringFuzzPlan,
   formatAuthoringFuzzCleanupIssue,
@@ -735,7 +736,7 @@ it("captures failed browser-session registration and subroute requests", () => {
   expect(isBrowserSessionPath("/_agent-native/actions/patch-deck")).toBe(false);
 });
 
-it("ignores only the two expected action aborts during save/reload navigation", () => {
+it("ignores only known action and browser-session aborts during save/reload", () => {
   expect(
     isExpectedSaveReloadActionAbort(
       "/_agent-native/actions/get-lab-states",
@@ -755,6 +756,54 @@ it("ignores only the two expected action aborts during save/reload navigation", 
       "/_agent-native/browser-sessions/session-id/claim",
       "NS_BINDING_ABORTED",
       "save/reload",
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadActionAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim",
+      "Load request cancelled",
+      "save/reload",
+      "POST",
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadActionAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+      "POST",
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadActionAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim",
+      "net::ERR_ABORTED",
+      "save/reload",
+      "POST",
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadActionAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim",
+      "Load request cancelled",
+      "step 12",
+      "POST",
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadActionAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim-extra",
+      "Load request cancelled",
+      "save/reload",
+      "POST",
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadActionAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim",
+      "Load request cancelled",
+      "save/reload",
+      "GET",
     ),
   ).toBe(false);
   expect(
@@ -792,6 +841,11 @@ it("ignores only the two expected action aborts during save/reload navigation", 
       "step 12",
     ),
   ).toBe(false);
+});
+
+it("keeps a prior authoring regression's failure exit when a later seed cannot run", () => {
+  expect(authoringFuzzUnavailableExitCode(0)).toBe(2);
+  expect(authoringFuzzUnavailableExitCode(1)).toBe(1);
 });
 
 it("maps absolute seeds to stable synthetic and committed layout profiles", () => {

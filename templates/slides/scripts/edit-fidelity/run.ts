@@ -22,6 +22,7 @@ import {
 } from "../export-fidelity/resolve-pkg.ts";
 import {
   assertAuthoringPersistence,
+  authoringFuzzUnavailableExitCode,
   authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
   formatAuthoringFuzzCleanupIssue,
@@ -5292,13 +5293,16 @@ async function runAuthoringFuzzQa(
     }
   }
   if (harnessUnavailable) {
-    throw new CouldNotRun(
-      formatAuthoringFuzzUnavailable(
-        harnessUnavailable.message,
-        problems,
-        cleanupProblems,
-      ),
+    const report = formatAuthoringFuzzUnavailable(
+      harnessUnavailable.message,
+      problems,
+      cleanupProblems,
     );
+    if (authoringFuzzUnavailableExitCode(problems.length) === 1) {
+      console.error(`[edit-fidelity] authoring fuzz incomplete:\n${report}`);
+      return problems;
+    }
+    throw new CouldNotRun(report);
   }
   if (problems.length || cleanupProblems.length) {
     return [...problems, ...cleanupProblems];
@@ -6759,7 +6763,7 @@ async function main() {
       );
       if (problems.length) {
         console.error(
-          `[edit-fidelity] authoring fuzz completed with ${problems.length} failed seed or cleanup check(s); details are printed above`,
+          `[edit-fidelity] authoring fuzz stopped with ${problems.length} failed seed or cleanup check(s); details are printed above`,
         );
         return 1;
       }

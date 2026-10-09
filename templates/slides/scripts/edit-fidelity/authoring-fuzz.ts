@@ -177,15 +177,27 @@ export function isExpectedSaveReloadActionAbort(
   pathname: string,
   errorText: string,
   activePhase: string,
+  method?: string,
 ) {
-  return (
-    [
-      "/_agent-native/actions/get-lab-states",
-      "/_agent-native/actions/get-deck-access-status",
-    ].includes(pathname) &&
-    (errorText === "NS_BINDING_ABORTED" || errorText === "net::ERR_ABORTED") &&
-    activePhase === "save/reload"
-  );
+  const isKnownAction = [
+    "/_agent-native/actions/get-lab-states",
+    "/_agent-native/actions/get-deck-access-status",
+  ].includes(pathname);
+  const isBrowserSessionClaim =
+    method === "POST" &&
+    /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/.test(
+      pathname,
+    );
+  const isExpectedAbort = isKnownAction
+    ? errorText === "NS_BINDING_ABORTED" || errorText === "net::ERR_ABORTED"
+    : isBrowserSessionClaim &&
+      [
+        "Load request cancelled",
+        "NS_BINDING_ABORTED",
+        "net::ERR_ABORTED",
+      ].includes(errorText);
+
+  return isExpectedAbort && activePhase === "save/reload";
 }
 
 export function isConflictResourceConsoleError(message: string) {
@@ -671,6 +683,12 @@ export function formatAuthoringFuzzUnavailable(
   return lines.join("\n");
 }
 
+export function authoringFuzzUnavailableExitCode(
+  priorRegressionCount: number,
+): 1 | 2 {
+  return priorRegressionCount > 0 ? 1 : 2;
+}
+
 export function formatAuthoringFuzzFailure(
   seed: number,
   phase: string,
@@ -772,7 +790,14 @@ export async function runAuthoringFuzz(
         `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText})`,
       );
     }
-    if (isExpectedSaveReloadActionAbort(pathname, errorText, activePhase)) {
+    if (
+      isExpectedSaveReloadActionAbort(
+        pathname,
+        errorText,
+        activePhase,
+        request.method(),
+      )
+    ) {
       return;
     }
     if (
