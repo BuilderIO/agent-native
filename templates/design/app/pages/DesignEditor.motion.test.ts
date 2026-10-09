@@ -41,7 +41,7 @@ describe("applyMotionAutoKeyframesForStyles (item 7 — motion auto-key wiring)"
     expect(next).toBe(tracks);
   });
 
-  it("returns the SAME reference when the property has no existing track (Figma parity — never invents a track)", () => {
+  it("returns the SAME reference when the property has no existing track", () => {
     const tracks = [track({ property: "opacity" })];
     const next = applyMotionAutoKeyframesForStyles(tracks, {
       targetNodeId: "hero",

@@ -1,5 +1,13 @@
 # @agent-native/creative-context
 
+## 0.8.37
+
+### Patch Changes
+
+- 853e988: Serialize create-provenance writes across instances to prevent duplicate context records.
+- Release all public npm packages with a patch version bump.
+- 72e4ca7: Use descriptive titles for the Figma connector visual fixture tests.
+
 ## 0.8.36
 
 ### Patch Changes

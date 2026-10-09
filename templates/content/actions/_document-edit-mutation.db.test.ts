@@ -2,8 +2,38 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+const { countOutcome } = vi.hoisted(() => ({ countOutcome: vi.fn() }));
+vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/tracking")>()),
+  countOutcome,
+}));
+vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/application-state")
+  >()),
+  writeAppState: vi.fn(async () => undefined),
+}));
+vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/creative-context/server")
+  >()),
+  getGenerationCreativeContext: vi.fn(async () => null),
+}));
+
+const deliverTelemetry = () =>
+  new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -16,17 +46,21 @@ let getDb: typeof import("../server/db/index.js").getDb;
 let schema: typeof import("../server/db/schema.js");
 let mutateDocumentBody: typeof import("./_document-edit-mutation.js").mutateDocumentBody;
 let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
+let editDocument: typeof import("./edit-document.js").default;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   ({ getDb, schema } = await import("../server/db/index.js"));
   ({ mutateDocumentBody, documentRevisionToken } =
     await import("./_document-edit-mutation.js"));
+  editDocument = (await import("./edit-document.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as never);
 }, 60_000);
 
 beforeEach(async () => {
+  await deliverTelemetry();
+  countOutcome.mockReset();
   const db = getDb();
   await db.delete(schema.documentBodyIntents);
   await db.delete(schema.documentEditReceipts);
@@ -49,6 +83,402 @@ afterAll(() => {
 const ctx = { caller: "mcp" as const, userEmail: OWNER };
 
 describe("revisioned document edit mutation", () => {
+  it("counts a linked-local source write once as applied when its History transaction fails", async () => {
+    const db = getDb();
+    await db
+      .update(schema.documents)
+      .set({
+        sourceMode: "local-files",
+        sourceKind: "file",
+        sourcePath: "fixture.md",
+      })
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+    const linkedLocal = await import("./_linked-local-document-edit.js");
+    const sourceWrite = vi
+      .spyOn(linkedLocal, "editLinkedLocalDocumentThroughBrowser")
+      .mockResolvedValueOnce({
+        status: "persisted",
+        content: "omega beta",
+        title: "Integrity test",
+        path: "fixture.md",
+        runtime: "browser",
+      });
+    const error = new Error("injected History failure");
+    const transaction = vi
+      .spyOn(db, "transaction")
+      .mockRejectedValueOnce(error);
+    try {
+      const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+        editDocument.run(
+          { id: DOCUMENT_ID, find: "alpha", replace: "omega", reuseLabels: [] },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      );
+      expect(sourceWrite).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({
+        applied: 1,
+        persistence: "source-persisted/history-pending",
+        path: "fixture.md",
+        error: error.message,
+      });
+      expect((await db.select().from(schema.documents))[0].content).toBe(
+        "alpha beta",
+      );
+      expect(await db.select().from(schema.documentVersions)).toHaveLength(0);
+      await deliverTelemetry();
+      expect(countOutcome).toHaveBeenCalledExactlyOnceWith(
+        "content_save_outcome_counts",
+        {
+          operation: "edit_document",
+          origin: "agent",
+          outcome: "applied",
+          stale_base: "unknown",
+          history_effect: "none",
+          reason_code: "source_persisted_history_pending",
+        },
+      );
+    } finally {
+      transaction.mockRestore();
+      sourceWrite.mockRestore();
+    }
+  });
+
+  it("counts an action preflight refusal once without reaching the mutation", async () => {
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        editDocument.run(
+          { id: DOCUMENT_ID, find: "alpha", replace: "omega", reuseLabels: [] },
+          ctx,
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "DOCUMENT_EDIT_PROTOCOL_REQUIRED" });
+    await deliverTelemetry();
+    expect(countOutcome).toHaveBeenCalledExactlyOnceWith(
+      "content_save_outcome_counts",
+      {
+        operation: "edit_document",
+        origin: "agent",
+        outcome: "refusal",
+        stale_base: "unknown",
+        history_effect: "none",
+        reason_code: "DOCUMENT_EDIT_PROTOCOL_REQUIRED",
+      },
+    );
+    expect(await getDb().select().from(schema.documentVersions)).toHaveLength(
+      0,
+    );
+  });
+
+  it("counts the inner revisioned edit once even through the HTTP action caller", async () => {
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      editDocument.run(
+        {
+          id: DOCUMENT_ID,
+          baseRevision: documentRevisionToken(0, "alpha beta"),
+          idempotencyKey: "http-edit",
+          find: "alpha",
+          replace: "omega",
+          reuseLabels: [],
+        },
+        { caller: "http", userEmail: OWNER },
+      ),
+    );
+    expect(result.applied).toBe(1);
+    await deliverTelemetry();
+    expect(countOutcome).toHaveBeenCalledExactlyOnceWith(
+      "content_save_outcome_counts",
+      {
+        operation: "edit_document",
+        origin: "agent",
+        outcome: "applied",
+        stale_base: "false",
+        history_effect: "transition",
+      },
+    );
+  });
+
+  it("counts a legacy edit transaction and unchanged retry without adding History", async () => {
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      editDocument.run(
+        { id: DOCUMENT_ID, find: "alpha", replace: "omega", reuseLabels: [] },
+        { caller: "frontend", userEmail: OWNER },
+      ),
+    );
+    const unchanged = await runWithRequestContext({ userEmail: OWNER }, () =>
+      editDocument.run(
+        { id: DOCUMENT_ID, edits: [], reuseLabels: [] },
+        { caller: "frontend", userEmail: OWNER },
+      ),
+    );
+    expect(first.applied).toBe(1);
+    expect(unchanged.applied).toBe(0);
+    const refused = await runWithRequestContext({ userEmail: OWNER }, () =>
+      editDocument.run(
+        { id: DOCUMENT_ID, find: "missing", replace: "omega", reuseLabels: [] },
+        { caller: "frontend", userEmail: OWNER },
+      ),
+    );
+    expect(refused.applied).toBe(0);
+    expect(await getDb().select().from(schema.documentVersions)).toHaveLength(
+      2,
+    );
+    await deliverTelemetry();
+    expect(countOutcome.mock.calls.map(([, dimensions]) => dimensions)).toEqual(
+      [
+        {
+          operation: "edit_document",
+          origin: "agent",
+          outcome: "applied",
+          stale_base: "unknown",
+          history_effect: "transition",
+        },
+        {
+          operation: "edit_document",
+          origin: "agent",
+          outcome: "unchanged",
+          stale_base: "unknown",
+          history_effect: "none",
+        },
+        {
+          operation: "edit_document",
+          origin: "agent",
+          outcome: "refusal",
+          stale_base: "unknown",
+          history_effect: "none",
+          reason_code: "EDIT_MATCH_MISSING",
+        },
+      ],
+    );
+  });
+
+  it("counts each terminal edit outcome once after settlement, with no replay History effect", async () => {
+    const baseRevision = documentRevisionToken(0, "alpha beta");
+    const input = {
+      documentId: DOCUMENT_ID,
+      baseRevision,
+      idempotencyKey: "z-first",
+      edits: [{ find: "alpha", replace: "omega" }],
+      ctx,
+    };
+    const applied = await mutateDocumentBody(input);
+    const replay = await mutateDocumentBody(input);
+    const unchanged = await mutateDocumentBody({
+      ...input,
+      baseRevision: applied.receipt.revisions.after,
+      idempotencyKey: "unchanged",
+      edits: [{ find: "omega", replace: "omega" }],
+    });
+    const displaced = await mutateDocumentBody({
+      ...input,
+      idempotencyKey: "a-displaced",
+      edits: [{ find: "alpha", replace: "gamma" }],
+    });
+    await expect(
+      mutateDocumentBody({
+        ...input,
+        idempotencyKey: "refused",
+        edits: [{ find: "missing", replace: "gamma" }],
+      }),
+    ).rejects.toMatchObject({ errorCode: "EDIT_MATCH_MISSING" });
+    const preserved = await mutateDocumentBody({
+      ...input,
+      idempotencyKey: "preserved",
+      edits: [
+        { find: "alpha beta", replace: "# New structure\n\nAnother paragraph" },
+      ],
+    });
+    expect(replay.receipt.idempotency.result).toBe("replayed");
+    expect(unchanged.receipt.outcome).toBe("unchanged");
+    expect(displaced.receipt.outcome).toBe("displaced-preserved");
+    expect(preserved.receipt.outcome).toBe("preservation-required");
+    await deliverTelemetry();
+    expect(
+      countOutcome.mock.calls.map(([name, dimensions]) => ({
+        name,
+        ...dimensions,
+      })),
+    ).toEqual([
+      {
+        name: "content_save_outcome_counts",
+        operation: "edit_document",
+        origin: "agent",
+        outcome: "applied",
+        stale_base: "false",
+        history_effect: "transition",
+      },
+      {
+        name: "content_save_outcome_counts",
+        operation: "edit_document",
+        origin: "agent",
+        outcome: "replay",
+        stale_base: "unknown",
+        history_effect: "none",
+      },
+      {
+        name: "content_save_outcome_counts",
+        operation: "edit_document",
+        origin: "agent",
+        outcome: "unchanged",
+        stale_base: "false",
+        history_effect: "none",
+      },
+      {
+        name: "content_save_outcome_counts",
+        operation: "edit_document",
+        origin: "agent",
+        outcome: "displaced_preserved",
+        stale_base: "true",
+        history_effect: "preservation",
+      },
+      {
+        name: "content_save_outcome_counts",
+        operation: "edit_document",
+        origin: "agent",
+        outcome: "refusal",
+        stale_base: "true",
+        history_effect: "none",
+        reason_code: "EDIT_MATCH_MISSING",
+      },
+      {
+        name: "content_save_outcome_counts",
+        operation: "edit_document",
+        origin: "agent",
+        outcome: "preservation_required",
+        stale_base: "true",
+        history_effect: "preservation",
+        reason_code: "structure",
+      },
+    ]);
+  });
+
+  it("distinguishes a transition with displaced preservation from preservation alone", async () => {
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "alpha\nbeta" })
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+    const input = {
+      documentId: DOCUMENT_ID,
+      baseRevision: documentRevisionToken(0, "alpha\nbeta"),
+      idempotencyKey: "z-first",
+      edits: [{ find: "alpha", replace: "omega" }],
+      ctx,
+    };
+    await mutateDocumentBody(input);
+    await deliverTelemetry();
+    countOutcome.mockClear();
+    const displaced = await mutateDocumentBody({
+      ...input,
+      idempotencyKey: "a-displaced",
+      edits: [
+        { find: "alpha", replace: "gamma" },
+        { find: "beta", replace: "delta" },
+      ],
+    });
+    expect(displaced.receipt.outcome).toBe("displaced-preserved");
+    const [document] = await getDb().select().from(schema.documents);
+    expect(document.content).toBe("omega\ndelta");
+    const history = await getDb().select().from(schema.documentVersions);
+    expect(history.some((version) => version.content === "gamma\ndelta")).toBe(
+      true,
+    );
+    await deliverTelemetry();
+    expect(countOutcome).toHaveBeenCalledExactlyOnceWith(
+      "content_save_outcome_counts",
+      {
+        operation: "edit_document",
+        origin: "agent",
+        outcome: "displaced_preserved",
+        stale_base: "true",
+        history_effect: "transition_and_preservation",
+      },
+    );
+  });
+
+  it.each(["slow", "rejected", "throwing"] as const)(
+    "keeps save settlement and ordering independent of %s telemetry",
+    async (failure) => {
+      const order: string[] = [];
+      let releaseTelemetry: (() => void) | undefined;
+      countOutcome.mockImplementation(() => {
+        order.push("telemetry");
+        if (failure === "throwing") throw new Error("telemetry failed");
+        if (failure === "rejected")
+          return Promise.reject(new Error("telemetry failed"));
+        return new Promise<void>((resolve) => {
+          releaseTelemetry = resolve;
+        });
+      });
+      const input = {
+        documentId: DOCUMENT_ID,
+        baseRevision: documentRevisionToken(0, "alpha beta"),
+        idempotencyKey: "telemetry-independent",
+        edits: [{ find: "alpha", replace: "omega" }],
+        ctx,
+      };
+      const first = await mutateDocumentBody(input);
+      order.push("save_settled");
+      expect(order).toEqual(["save_settled"]);
+      await deliverTelemetry();
+      expect(order).toEqual(["save_settled", "telemetry"]);
+      const replay = await mutateDocumentBody(input);
+      expect(first.receipt).toMatchObject({
+        outcome: "applied",
+        bodyRevision: { before: 0, after: 1 },
+      });
+      expect(replay.receipt).toMatchObject({
+        receiptId: first.receipt.receiptId,
+        idempotency: { result: "replayed" },
+      });
+      expect(await getDb().select().from(schema.documentVersions)).toHaveLength(
+        2,
+      );
+      expect(
+        await getDb().select().from(schema.documentEditReceipts),
+      ).toHaveLength(1);
+      releaseTelemetry?.();
+      await deliverTelemetry();
+      releaseTelemetry?.();
+    },
+  );
+
+  it("retains the exact save error when telemetry fails", async () => {
+    const saveError = new Error("creative-context validation failed");
+    countOutcome.mockImplementation(() => {
+      throw new Error("telemetry failed");
+    });
+    await expect(
+      mutateDocumentBody({
+        documentId: DOCUMENT_ID,
+        baseRevision: documentRevisionToken(0, "alpha beta"),
+        idempotencyKey: "save-error-identity",
+        edits: [{ find: "alpha", replace: "omega" }],
+        resolveCreativeContext: async () => {
+          throw saveError;
+        },
+        ctx,
+      }),
+    ).rejects.toBe(saveError);
+    expect(countOutcome).not.toHaveBeenCalled();
+    await deliverTelemetry();
+    expect(countOutcome).toHaveBeenCalledExactlyOnceWith(
+      "content_save_outcome_counts",
+      {
+        operation: "edit_document",
+        origin: "agent",
+        outcome: "refusal",
+        stale_base: "false",
+        history_effect: "none",
+        reason_code: "untyped",
+      },
+    );
+    expect(await getDb().select().from(schema.documentVersions)).toHaveLength(
+      0,
+    );
+    expect(
+      await getDb().select().from(schema.documentEditReceipts),
+    ).toHaveLength(0);
+  });
+
   it("records the first revision-tagged base after a legacy History checkpoint", async () => {
     const db = getDb();
     await db.insert(schema.documentVersions).values({
@@ -371,6 +801,19 @@ describe("revisioned document edit mutation", () => {
     expect(
       await getDb().select().from(schema.documentEditReceipts),
     ).toHaveLength(1);
+    await deliverTelemetry();
+    expect(countOutcome).toHaveBeenCalledTimes(2);
+    expect(
+      countOutcome.mock.calls
+        .map(([, dimensions]) => [
+          dimensions.outcome,
+          dimensions.history_effect,
+        ])
+        .sort(),
+    ).toEqual([
+      ["applied", "transition"],
+      ["replay", "none"],
+    ]);
   });
 
   it("replays across transient network and run identifiers in the same trusted scope", async () => {
@@ -467,6 +910,18 @@ describe("revisioned document edit mutation", () => {
       ).toHaveLength(0);
       expect(await getDb().select().from(schema.documentVersions)).toHaveLength(
         0,
+      );
+      await deliverTelemetry();
+      expect(countOutcome).toHaveBeenCalledExactlyOnceWith(
+        "content_save_outcome_counts",
+        {
+          operation: "edit_document",
+          outcome: "refusal",
+          origin: "agent",
+          stale_base: "true",
+          history_effect: "none",
+          reason_code: "STALE_BASE_REVISION",
+        },
       );
     } finally {
       await getDbExec().execute(

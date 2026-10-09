@@ -301,6 +301,8 @@ const messages = {
     silenceWorking: "मौन हटाए जा रहे हैं…",
     silenceCompleted: "मौन हटाना पूरा हुआ",
     silenceFailed: "मौन हटाना विफल रहा",
+    silenceEditsUnreadable:
+      "सहेजे गए संपादन पढ़े नहीं जा सके, इसलिए मौन भाग नहीं हटाए गए।",
     generatePrSummary: "पीआर सारांश तैयार करें",
     generateSop: "SOP उत्पन्न करें",
     generateSopTooltip:
@@ -332,7 +334,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "एजेंट-पठनीय क्लिप संदर्भ",
     agentInstructions:
-      "प्रतिलेख और JPEG फ्रेम URLs के लिए एजेंटकॉन्टेक्स्टयूआरएल प्राप्त करें। स्क्रीन देखने के लिए फ़्रेम URLs प्राप्त करें, न कि केवल प्रतिलेख पढ़ने के लिए।",
+      "पहले agentContextUrl खोलें। apis.transcript से पूरा ट्रांसक्रिप्ट पढ़ें और recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access को जैसा दिया गया है वैसा ही रखें। हर त्रुटि पर JSON उत्तर में failureKind, error और nextStep देखें। यदि failureKind=access है, बताएं कि लिंक से पहुंच नहीं मिलती; निजी क्लिप के लिए मालिक से Clips Share मेनू में {{shareWithAgents}} चुनकर बनाया गया लिंक भेजने को कहें। यदि failureKind=media है और ट्रांसक्रिप्ट काम कर रहा है, बताएं कि सहेजा गया मीडिया प्राप्त नहीं हो सका; नया लिंक इसे ठीक नहीं करेगा। यदि failureKind=processing है, तो nextStep का पालन करें; इसका अर्थ यह नहीं कि क्लिप गायब है या लिंक अमान्य है। यदि failureKind=expired है, मालिक से Share मेनू में क्लिप की expiry बढ़ाने या हटाने, बदलाव सहेजने, फिर {{shareWithAgents}} चुनकर नया लिंक भेजने को कहें।",
     untitledClip: "शीर्षक रहित क्लिप",
     incorrectPassword: "गलत पासवर्ड",
     passwordProtected: "यह क्लिप पासवर्ड से सुरक्षित है",
@@ -588,7 +590,7 @@ const messages = {
     openInCodex: "Codex में खोलें",
     copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
     agentPrompt:
-      "यह Clips एजेंट संदर्भ URL प्राप्त करें: {{agentContextUrl}}। बोले गए संदर्भ के लिए transcript.segments का उपयोग करें, स्क्रीन देखने के लिए recommendedFrames या फ्रेम API URL प्राप्त करें, और यदि browserDiagnostics मौजूद हो तो संशोधित कंसोल लॉग और fetch/XHR अनुरोध मेटाडेटा जांचें।",
+      "यह Clips एजेंट संदर्भ URL पढ़ें: {{agentContextUrl}}। apis.transcript से पूरा ट्रांसक्रिप्ट पढ़ें और recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access को जैसा दिया गया है वैसा ही रखें। हर त्रुटि पर JSON उत्तर में failureKind, error और nextStep देखें। यदि failureKind=access है, बताएं कि लिंक से पहुंच नहीं मिलती; निजी क्लिप के लिए मालिक से Clips Share मेनू में {{shareWithAgents}} चुनकर बनाया गया लिंक भेजने को कहें। यदि failureKind=media है और ट्रांसक्रिप्ट काम कर रहा है, बताएं कि सहेजा गया मीडिया प्राप्त नहीं हो सका; नया लिंक इसे ठीक नहीं करेगा। यदि failureKind=processing है, तो nextStep का पालन करें; इसका अर्थ यह नहीं कि क्लिप गायब है या लिंक अमान्य है। यदि failureKind=expired है, मालिक से Share मेनू में क्लिप की expiry बढ़ाने या हटाने, बदलाव सहेजने, फिर {{shareWithAgents}} चुनकर नया लिंक भेजने को कहें। बग रिपोर्ट में उपलब्ध होने पर browserDiagnostics भी देखें।",
     agentTokenDescription:
       "यह क्लिप सार्वजनिक नहीं है, इसलिए एजेंटों के लिए अस्थायी रीड-ओनली लिंक। 2 घंटे में समाप्त।",
     agentPublicDescription:

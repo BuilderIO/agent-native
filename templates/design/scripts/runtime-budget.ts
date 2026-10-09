@@ -346,7 +346,7 @@ async function zoomTo(target: number): Promise<boolean> {
   const deadline = startedAt + 10_000;
   const remainingTimeout = () => Math.max(1, deadline - Date.now());
   // This benchmark measures camera-driven rendering and preview churn; wheel
-  // forwarding is covered by parity-pan-zoom-mouse.spec.ts.
+  // forwarding is covered by interaction-pan-zoom-mouse.spec.ts.
   const readout = page.getByRole("button", { name: /^\d+%$/ }).first();
   const currentZoomPercent = await readZoomUntilAvailable(
     zoomPercentFromUrl,

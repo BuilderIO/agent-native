@@ -349,7 +349,7 @@ export function Composer({
     text: string,
     attachments: ChatAttachment[],
     references: ChatReference[],
-  ) => void;
+  ) => void | boolean | Promise<void | boolean>;
   onStop: () => void;
   onOpenSettings: () => void;
   onToggleMode: () => void;
@@ -357,17 +357,11 @@ export function Composer({
 }) {
   const t = useT();
   const chatPlaceholder =
-    chatEligibility === "checking" || chatEligibility === "eligible"
-      ? t("composer.messageAgent")
-      : chatEligibility === "unavailable"
-        ? t("setup.providerStatusUnavailable")
-        : t("setup.connectToStart");
+    chatEligibility === "missing"
+      ? t("setup.connectToStart")
+      : t("composer.messageAgent");
   const chatAccessibilityHint =
-    chatEligibility === "checking" || chatEligibility === "eligible"
-      ? undefined
-      : chatEligibility === "unavailable"
-        ? t("setup.providerStatusUnavailable")
-        : t("setup.connectToStart");
+    chatEligibility === "missing" ? t("setup.connectToStart") : undefined;
   const providerStatus =
     chatEligibility === "checking"
       ? "unknown"
@@ -380,6 +374,8 @@ export function Composer({
     useMobileThemeColors();
   const mobileNavigation = useMobileNavigation();
   const [text, setText] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [references, setReferences] = useState<ChatReference[]>([]);
@@ -389,10 +385,13 @@ export function Composer({
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const [menuScreen, setMenuScreen] = useState<"main" | "skill">("main");
   const [actionTag, setActionTag] = useState<ActionTag | null>(null);
+  const draftRevisionRef = useRef(0);
+  const updateText = useCallback((next: string) => {
+    draftRevisionRef.current += 1;
+    setText(next);
+  }, []);
   const chatEligibilityRef = useRef(chatEligibility);
   chatEligibilityRef.current = chatEligibility;
-  const chatReadyRef = useRef(chatReady);
-  chatReadyRef.current = chatReady;
   const targetRef = useRef(target);
   targetRef.current = target;
 
@@ -454,9 +453,13 @@ export function Composer({
   const canSend =
     (text.trim().length > 0 || attachments.length > 0 || actionTag !== null) &&
     !isStreaming &&
+    !isSubmitting &&
     !isRestoring &&
     !(target === "computer" && attachments.length > 0) &&
-    canSendChatMessage(chatReady, fileUploadStatus, attachments.length > 0);
+    (canSendChatMessage(chatReady, fileUploadStatus, attachments.length > 0) ||
+      (target !== "computer" &&
+        (providerStatus === "unknown" || providerStatus === "unavailable") &&
+        (!attachments.length || fileUploadStatus === "configured")));
 
   const activeMention = useMemo(
     () =>
@@ -502,7 +505,7 @@ export function Composer({
       activeMention,
       `@${item.label} `,
     );
-    setText(next);
+    updateText(next);
     setSelection({ start: cursor, end: cursor });
     setReferences((current) =>
       current.some((r) => r.name === item.label && r.refId === item.refId)
@@ -530,6 +533,7 @@ export function Composer({
       }
       const dictated = getAndClearLastDictatedText();
       if (dictated) {
+        draftRevisionRef.current += 1;
         setText((current) => {
           const next = current ? current + "\n" + dictated : dictated;
           setSelection({ start: next.length, end: next.length });
@@ -551,15 +555,18 @@ export function Composer({
   const openBuilderSetup = () =>
     openChatSettings("/settings/integrations/builder?builderConnect=1");
 
-  const submit = () => {
+  const submit = async () => {
     if (
+      isSubmittingRef.current ||
       !canSend ||
       (targetRef.current === "computer" && attachments.length > 0) ||
-      !canSendChatMessage(
-        chatReadyRef.current,
-        fileUploadStatusRef.current,
-        attachments.length > 0,
-      )
+      (chatEligibilityRef.current !== "eligible" &&
+        !(
+          targetRef.current !== "computer" &&
+          (chatEligibilityRef.current === "checking" ||
+            chatEligibilityRef.current === "unavailable")
+        )) ||
+      (attachments.length > 0 && fileUploadStatusRef.current !== "configured")
     ) {
       return;
     }
@@ -573,22 +580,41 @@ export function Composer({
     const activeReferences = references.filter((r) =>
       value.includes(`@${r.name}`),
     );
-    setText("");
-    setAttachments([]);
-    setReferences([]);
-    setActionTag(null);
-    setSelection({ start: 0, end: 0 });
-    onSend(value, attachments, activeReferences);
+    const submittedRevision = draftRevisionRef.current;
+    isSubmittingRef.current = true;
+    setIsSubmitting(true);
+    try {
+      const accepted = await onSend(value, attachments, activeReferences);
+      if (
+        accepted === false ||
+        draftRevisionRef.current !== submittedRevision
+      ) {
+        return;
+      }
+      setText("");
+      setAttachments([]);
+      setReferences([]);
+      setActionTag(null);
+      setSelection({ start: 0, end: 0 });
+    } catch {
+      // coercion-ok: a rejected dispatch keeps the draft and never reports acceptance.
+      // Keep the user's draft when the send did not reach the chat service.
+    } finally {
+      isSubmittingRef.current = false;
+      setIsSubmitting(false);
+    }
   };
 
   const addAttachment = useCallback((attachment: ChatAttachment | null) => {
     if (attachment && canAttachToChatRef.current) {
+      draftRevisionRef.current += 1;
       setAttachments((current) => [...current, attachment]);
     }
   }, []);
 
   const addAttachments = useCallback((incoming: ChatAttachment[]) => {
     if (incoming.length > 0 && canAttachToChatRef.current) {
+      draftRevisionRef.current += 1;
       setAttachments((current) => [...current, ...incoming]);
     }
   }, []);
@@ -666,6 +692,7 @@ export function Composer({
   };
 
   const handleSelectActionTag = (tag: ActionTag) => {
+    draftRevisionRef.current += 1;
     setActionTag(tag);
     setPlusMenuOpen(false);
   };
@@ -674,6 +701,7 @@ export function Composer({
     if (!canAttachToChat || isStreaming) {
       return;
     }
+    draftRevisionRef.current += 1;
     setActionTag({
       id: "upload-skill",
       label: "Upload Skill File",
@@ -732,11 +760,12 @@ export function Composer({
                 <Pressable
                   className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-zinc-900 border border-border-dark items-center justify-center active:opacity-75"
                   hitSlop={8}
-                  onPress={() =>
+                  onPress={() => {
+                    draftRevisionRef.current += 1;
                     setAttachments((current) =>
                       current.filter((_, i) => i !== index),
-                    )
-                  }
+                    );
+                  }}
                   accessibilityRole="button"
                   accessibilityLabel={`Remove ${attachment.name}`}
                 >
@@ -795,42 +824,26 @@ export function Composer({
       )}
 
       <View className="rounded-[22px] bg-card-dark border border-border-dark px-3.5 pt-3 pb-2.5">
-        {!chatReady && providerStatus !== "unknown" ? (
+        {providerStatus === "missing" ? (
           <View
             className="mb-2 gap-2 rounded-lg border border-border-dark bg-zinc-900/70 px-3 py-2"
             accessibilityRole="alert"
           >
             <Text className="text-muted-foreground text-[12px]">
-              {providerStatus === "unavailable"
-                ? t("agentChat.setup.providerStatusUnavailable")
-                : t("agentChat.setup.connectToStart")}
+              {t("agentChat.setup.connectToStart")}
             </Text>
-            {providerStatus === "missing" ? (
-              <View className="flex-row flex-wrap gap-3">
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={openBuilderSetup}
-                >
-                  <Text className="text-foreground text-[12px] font-medium">
-                    {t("agentChat.setup.connectBuilder")}
-                  </Text>
-                </Pressable>
-                <Pressable accessibilityRole="button" onPress={onOpenSettings}>
-                  <Text className="text-foreground text-[12px] font-medium">
-                    {t("agentChat.setup.addOwnKeys")}
-                  </Text>
-                </Pressable>
-              </View>
-            ) : providerStatus === "unavailable" ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={refreshChatEligibility}
-              >
+            <View className="flex-row flex-wrap gap-3">
+              <Pressable accessibilityRole="button" onPress={openBuilderSetup}>
                 <Text className="text-foreground text-[12px] font-medium">
-                  {t("agentChat.common.retry")}
+                  {t("agentChat.setup.connectBuilder")}
                 </Text>
               </Pressable>
-            ) : null}
+              <Pressable accessibilityRole="button" onPress={onOpenSettings}>
+                <Text className="text-foreground text-[12px] font-medium">
+                  {t("agentChat.setup.addOwnKeys")}
+                </Text>
+              </Pressable>
+            </View>
           </View>
         ) : null}
         {actionTag && (
@@ -840,7 +853,10 @@ export function Composer({
               {actionTag.label}
             </Text>
             <Pressable
-              onPress={() => setActionTag(null)}
+              onPress={() => {
+                draftRevisionRef.current += 1;
+                setActionTag(null);
+              }}
               className="p-0.5 ml-1 active:opacity-75"
               accessibilityRole="button"
               accessibilityLabel={`Remove ${actionTag.label} tag`}
@@ -853,7 +869,7 @@ export function Composer({
         <TextInput
           className="text-foreground text-[15px] leading-5 min-h-[44px] max-h-32 py-1 mb-1.5"
           value={text}
-          onChangeText={setText}
+          onChangeText={updateText}
           selection={selection}
           onSelectionChange={(event) =>
             setSelection(event.nativeEvent.selection)
@@ -861,7 +877,7 @@ export function Composer({
           placeholder={chatPlaceholder}
           placeholderTextColor={mutedForeground}
           multiline
-          editable={(chatReady || providerStatus === "unknown") && !isRestoring}
+          editable={providerStatus !== "missing" && !isRestoring}
           accessibilityHint={canChat ? undefined : chatAccessibilityHint}
           keyboardAppearance={theme}
           accessibilityLabel="Message input"
@@ -945,11 +961,15 @@ export function Composer({
                 accessibilityRole="button"
                 accessibilityLabel="Send message"
               >
-                <IconArrowUp
-                  color={canSend ? primaryForeground : mutedForeground}
-                  size={17}
-                  strokeWidth={2.2}
-                />
+                {isSubmitting ? (
+                  <ActivityIndicator size="small" color={primaryForeground} />
+                ) : (
+                  <IconArrowUp
+                    color={canSend ? primaryForeground : mutedForeground}
+                    size={17}
+                    strokeWidth={2.2}
+                  />
+                )}
               </Pressable>
             )}
           </View>

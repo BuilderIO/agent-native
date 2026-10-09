@@ -61,6 +61,7 @@ import {
 } from "../lib/normalize-slide-padding";
 import { mergeSlideContent } from "../lib/slide-content-merge";
 import { renderArtifactGrowth } from "../lib/slide-source-map";
+import { undoRevealForOps, type UndoReveal } from "../lib/undo-reveal";
 
 type GranularOp =
   | {
@@ -160,7 +161,13 @@ type PendingPersistedResultHandler = {
 function addSlideFields(
   slide: Slide,
 ): Extract<GranularOp, { op: "add-slide" }>["fields"] {
-  const { id: _id, imageLoading: _imageLoading, ...fields } = slide;
+  const {
+    id: _id,
+    imageLoading: _imageLoading,
+    imagePrompt: _imagePrompt,
+    layoutFitRevision: _layoutFitRevision,
+    ...fields
+  } = slide;
   return {
     ...fields,
     content: normalizeSlidePadding(fields.content),
@@ -353,6 +360,8 @@ export interface UpdateSlideOptions {
   persistence?: "debounced" | "immediate";
   preserveLocalState?: boolean;
   recordUndoOnly?: boolean;
+  /** Never merge this write into the previous undo step (each key press is a step). */
+  separateUndo?: boolean;
   clearMissingImagePreviews?: boolean;
 }
 
@@ -409,6 +418,7 @@ export interface Deck {
   shareToken?: string;
   visibility?: "private" | "org" | "public";
   createdByMe?: boolean;
+  widgetAccessRole?: "owner" | "viewer" | "commenter" | "editor" | "admin";
   designSystemId?: string;
   tweaks?: Record<string, string | number | boolean>;
   starred?: boolean;
@@ -564,6 +574,8 @@ interface DeckContextType {
   undo: (deckId?: string) => void;
   redo: (deckId?: string) => void;
   undoAvailability: Record<string, { canUndo: boolean; canRedo: boolean }>;
+  /** Called after each Undo/Redo with the objects the step changed. */
+  subscribeUndoReveal: (listener: (reveal: UndoReveal) => void) => () => void;
 }
 
 const DeckContext = createContext<DeckContextType | null>(null);
@@ -3965,6 +3977,18 @@ export function DeckProvider({
     new Map<string, LocalOpUndoController<DeckUndoOp>>(),
   );
   const lastUndoDeckIdRef = useRef<string | null>(null);
+  const undoRevealListenersRef = useRef(
+    new Set<(reveal: UndoReveal) => void>(),
+  );
+  const subscribeUndoReveal = useCallback(
+    (listener: (reveal: UndoReveal) => void) => {
+      undoRevealListenersRef.current.add(listener);
+      return () => {
+        undoRevealListenersRef.current.delete(listener);
+      };
+    },
+    [],
+  );
   const lastExternalUpdateRef = useRef(0);
   const pendingCreateIdsRef = useRef<Set<string>>(new Set());
   const confirmedPendingCreateIdsRef = useRef<Set<string>>(new Set());
@@ -4525,6 +4549,17 @@ export function DeckProvider({
             direction === "undo" ? entry.redo : entry.undo,
             startingDecks,
           );
+          // Nothing consumes the reveal without a mounted editor, and a
+          // multi-slide step makes the diff expensive.
+          const reveal =
+            undoRevealListenersRef.current.size > 0
+              ? undoRevealForOps(
+                  startingDecks.find((deck) => deck.id === deckId),
+                  deckId,
+                  applicableOps,
+                  direction,
+                )
+              : null;
           setDecks((prev) => {
             let next = prev;
             for (const op of applicableOps) {
@@ -4532,6 +4567,11 @@ export function DeckProvider({
             }
             return next;
           });
+          if (reveal) {
+            for (const listener of undoRevealListenersRef.current) {
+              listener(reveal);
+            }
+          }
           let currentDecks = startingDecks;
           for (const op of applicableOps) {
             markDeckDirty(op.deckId);
@@ -6214,9 +6254,9 @@ export function DeckProvider({
           );
           recordUndo(before, op, {
             label,
-            coalesceKey: `${deckId}:${slideId}:${Object.keys(updates)
-              .sort()
-              .join(",")}`,
+            coalesceKey: options.separateUndo
+              ? undefined
+              : `${deckId}:${slideId}:${Object.keys(updates).sort().join(",")}`,
           });
         }
         return storedContent;
@@ -6245,9 +6285,9 @@ export function DeckProvider({
       if (before && !options?.preserveLocalState) {
         recordUndo(before, op, {
           label,
-          coalesceKey: `${deckId}:${slideId}:${Object.keys(updates)
-            .sort()
-            .join(",")}`,
+          coalesceKey: options?.separateUndo
+            ? undefined
+            : `${deckId}:${slideId}:${Object.keys(updates).sort().join(",")}`,
         });
       }
       return storedContent;
@@ -6809,6 +6849,7 @@ export function DeckProvider({
         undo,
         redo,
         undoAvailability,
+        subscribeUndoReveal,
       }}
     >
       {children}

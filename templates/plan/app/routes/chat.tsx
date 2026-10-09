@@ -1,5 +1,5 @@
 import { APP_TITLE } from "@/lib/app-config";
-import { PlanChatPage, PlanChatSkeleton } from "@/pages/PlanChatPage";
+import { PlanChatHydrateFallback, PlanChatPage } from "@/pages/PlanChatPage";
 
 const SEO_TITLE = `${APP_TITLE} - Open Source visual planning and PR recaps for coding agents`;
 const SEO_DESCRIPTION =
@@ -21,7 +21,7 @@ export function meta() {
 }
 
 export function HydrateFallback() {
-  return <PlanChatSkeleton />;
+  return <PlanChatHydrateFallback />;
 }
 
 export default function ChatRoute() {

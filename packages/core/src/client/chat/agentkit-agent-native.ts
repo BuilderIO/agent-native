@@ -9,6 +9,7 @@ import type {
   AgentObjectReference,
   AgentRunSnapshot,
   AgentQueuedMessage,
+  AgentRequestContext,
   AgentToolCall,
   AgentThreadSnapshot,
   AgentWidgetSnapshot,
@@ -16,8 +17,10 @@ import type {
 } from "@agent-native/agentkit/protocol";
 import {
   isAgentKitProtocolVersion,
+  parseAgentQueuedMessage,
   parseAgentRunOptions,
   parseAgentThreadSnapshot,
+  persistableFilePart,
 } from "@agent-native/agentkit/protocol";
 
 import { projectRootAssistantMessages } from "../../agent/thread-message-projection.js";
@@ -25,6 +28,10 @@ import {
   RUN_NOT_STARTED_METADATA_KEY,
   retryContextFromRequest,
 } from "../../shared/agent-chat-run-not-started.js";
+import {
+  agentEngineStatusUrlForChatApi,
+  requireAgentEngineConfiguredForDispatch,
+} from "../agent-engine-readiness.js";
 import { agentNativePath } from "../api-path.js";
 import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import { dispatchAgentChatRunning } from "../use-agent-chat-running-threads.js";
@@ -86,6 +93,7 @@ interface SnapshotAnnotationConflict {
 
 const RUN_SLOT_POLL_INTERVAL_MS = 150;
 const RUN_SLOT_STABLE_POLLS = 2;
+const MAX_READINESS_SOURCES = 128;
 const MAX_THREAD_SNAPSHOT_REQUEST_BYTES = 4 * 1024 * 1024;
 const MAX_THREAD_SNAPSHOT_RETRIES = 2;
 const MAX_THREAD_SNAPSHOT_ANNOTATION_REPLACEMENT_BYTES = 64 * 1024;
@@ -273,6 +281,9 @@ function messagePart(
         : typeof part.mimeType === "string"
           ? { mediaType: part.mimeType }
           : {}),
+      ...(part.omitted === "inline-bytes"
+        ? { omitted: "inline-bytes" as const }
+        : {}),
     };
   }
   return {
@@ -1216,12 +1227,23 @@ function storedQueue(
               part?.type === "file",
           )
       : undefined;
+    const requestAttachments =
+      queued.requestAttachments === undefined
+        ? undefined
+        : parseAgentQueuedMessage({
+            id: queued.id,
+            threadId,
+            text: queued.text,
+            createdAt: timestamp(queued.createdAt, fallbackCreatedAt),
+            requestAttachments: queued.requestAttachments,
+          }).requestAttachments;
     return {
       id: queued.id,
       threadId,
       text: queued.text,
       createdAt: timestamp(queued.createdAt, fallbackCreatedAt),
       ...(attachments?.length ? { attachments } : {}),
+      ...(requestAttachments?.length ? { requestAttachments } : {}),
       ...(asRecord(queued.metadata)
         ? { metadata: asRecord(queued.metadata)! }
         : {}),
@@ -1351,10 +1373,6 @@ function assistantMessageIdsByRun(
   return uniqueMessageIdsByRun;
 }
 
-function persistedFileUrl(url?: string): string | undefined {
-  return url && !/^\s*data:/i.test(url) ? url : undefined;
-}
-
 function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
   const sequenceByRun = new Map<string, number>();
   return events.flatMap((event): AgentEvent[] => {
@@ -1465,15 +1483,16 @@ function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
         ];
       }
       if (part.type === "file") {
-        const url = persistedFileUrl(part.url);
-        if (!url && !part.fileId) return [];
+        const stored = persistableFilePart(part);
+        if (!stored.url && !stored.fileId && !stored.omitted) return [];
         return [
           {
             type: "file",
-            name: part.name,
-            ...(part.mediaType ? { mediaType: part.mediaType } : {}),
-            ...(url ? { url } : {}),
-            ...(part.fileId ? { fileId: part.fileId } : {}),
+            name: stored.name,
+            ...(stored.mediaType ? { mediaType: stored.mediaType } : {}),
+            ...(stored.url ? { url: stored.url } : {}),
+            ...(stored.fileId ? { fileId: stored.fileId } : {}),
+            ...(stored.omitted ? { omitted: stored.omitted } : {}),
           },
         ];
       }
@@ -1921,6 +1940,14 @@ export function createAgentNativeAgentKitTransport(
   const promotionClaimIds = new Map<string, string>();
   const durableAssistantMessageIdsByRun = new Map<string, string | null>();
   const assistantHistoryMessageIdsByRun = new Map<string, string>();
+  const readinessSourcesBySession = new Map<
+    string,
+    {
+      statusUrl: string;
+      fetch: typeof fetch;
+      headers: () => Promise<Headers>;
+    }
+  >();
   let transport: AgentKitProtocolAdapter;
 
   function promotionClaimId(threadId: string, messageId: string): string {
@@ -1939,6 +1966,33 @@ export function createAgentNativeAgentKitTransport(
 
   function clearPromotionClaimId(threadId: string, messageId: string): void {
     promotionClaimIds.delete(JSON.stringify([threadId, messageId]));
+  }
+
+  async function assertAiSetupReady(
+    input: { engine?: string; threadId?: string },
+    _context?: AgentRequestContext,
+  ): Promise<void> {
+    const sessionId = input.threadId ?? options.threadId;
+    const sessionKey = sessionId ?? "";
+    let source = readinessSourcesBySession.get(sessionKey);
+    if (!source) {
+      if (readinessSourcesBySession.size >= MAX_READINESS_SOURCES) {
+        const oldestSession = readinessSourcesBySession.keys().next().value;
+        if (oldestSession !== undefined) {
+          readinessSourcesBySession.delete(oldestSession);
+        }
+      }
+      source = {
+        statusUrl: agentEngineStatusUrlForChatApi(apiUrl),
+        fetch: fetcher,
+        headers: () => headers({ sessionId }),
+      };
+      readinessSourcesBySession.set(sessionKey, source);
+    }
+    return requireAgentEngineConfiguredForDispatch({
+      engine: input.engine ?? options.engine,
+      source,
+    });
   }
 
   async function headers(input: { sessionId?: string } = {}): Promise<Headers> {
@@ -3332,6 +3386,7 @@ export function createAgentNativeAgentKitTransport(
         id,
         text,
         attachments,
+        requestAttachments,
         metadata,
         options: runOptions,
       }) => {
@@ -3348,6 +3403,7 @@ export function createAgentNativeAgentKitTransport(
           text,
           createdAt: now(),
           attachments,
+          requestAttachments,
           metadata,
           options: runOptions,
         };
@@ -3458,6 +3514,7 @@ export function createAgentNativeAgentKitTransport(
                   metadata: queued.metadata,
                 },
               ],
+              requestAttachments: queued.requestAttachments,
               options: queued.options,
               metadata: queued.metadata,
               queuePromotion: {
@@ -3700,6 +3757,7 @@ export function createAgentNativeAgentKitTransport(
     protocolTransport.subscribeToRun.bind(protocolTransport);
   transport = {
     ...protocolTransport,
+    assertAiSetupReady,
     startRun: (input, context) => startRunTrackingRunningState(input, context),
     async *subscribeToRun(input) {
       dispatchAgentChatRunning({

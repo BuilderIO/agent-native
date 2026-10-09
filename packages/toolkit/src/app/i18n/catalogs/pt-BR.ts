@@ -814,6 +814,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Esta execução não pode mais ser continuada. Envie uma mensagem para seguir.",
   "recovery.retryAttachmentUnavailable":
     "Esta solicitação incluía um arquivo que não pode ser reenviado. Anexe-o novamente no campo de mensagem e tente outra vez.",
+  "recovery.retryWithoutAttachment": "Tentar novamente sem o anexo",
   "recovery.deferredSubmissionFailed":
     "Não foi possível enviar esta mensagem. Verifique sua conexão ou a configuração do chat e tente novamente.",
   "recovery.credentialRejected":
@@ -1135,7 +1136,20 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.upload": "Carregar",
   "composer.uploadFailed":
     "Não foi possível fazer upload do arquivo selecionado.",
+  "composer.fileTooLarge":
+    "Este arquivo é maior que o limite de upload de {{size}} MB.",
+  "composer.sessionExpired":
+    "Sua sessão expirou. Entre novamente e envie sua mensagem outra vez.",
   "composer.unsupportedFileType": "Este tipo de arquivo não é compatível.",
+  "composer.uploadUnavailable":
+    "O upload de arquivos não está disponível no momento. Tente novamente em instantes.",
+  "composer.uploadOffline":
+    "O upload não conseguiu chegar ao servidor. Verifique sua conexão e tente novamente.",
+  "composer.submissionNotReady":
+    "O chat ainda não está pronto para enviar. Aguarde um momento e envie novamente.",
+  "composer.submissionScopeChanged":
+    "Este chat mudou antes de sua mensagem ser enviada. Envie-a novamente.",
+  "composer.attachmentNotSaved": "Não salvo com este chat",
   "composer.useAttachedContext": "Use o contexto anexado.",
   "mentions.commands": "Comandos",
   "mentions.learnMore": "Saber mais",
@@ -1295,6 +1309,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Você saiu da sua conta, então este chat não consegue acompanhar o agente. Entre novamente e recarregue.",
   "errorMessages.malformedRequestAttachment":
     "O modelo rejeitou um arquivo anexado, então esta mensagem nunca foi enviada. Remova o anexo e tente novamente: um PDF, um arquivo de texto simples ou uma imagem JPEG, PNG, GIF ou WebP é lido diretamente; outros formatos precisam ser enviados e vinculados.",
+  "errorMessages.invalidAttachment":
+    "O provedor do modelo rejeitou este anexo por causa do formato ou tamanho. Para imagens, exporte uma versão menor em PNG, JPEG, GIF ou WebP; para documentos, use um formato de arquivo compatível ou cole o texto relevante e anexe novamente.",
   "errorMessages.noProviderConnected":
     "Nenhum provedor LLM está conectado. Abra Configurações > Agente > Provedores de IA e use o Builder.io (plano gratuito disponível) ou adicione uma chave de provedor.",
   "errorMessages.openBuilderSpaceSettings":

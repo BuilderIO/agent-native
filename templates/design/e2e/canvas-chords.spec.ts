@@ -256,6 +256,7 @@ test.describe("canvas chords", () => {
       request,
       baseURL,
       "E2E Chords AutoLayout",
+      CHORDS_HTML.replace(">Alpha</div>", "></div>"),
     );
     await gotoEditor(page, designId);
 

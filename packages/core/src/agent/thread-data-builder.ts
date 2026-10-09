@@ -19,12 +19,16 @@ import {
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import { stripAgentChatContextFromMessage } from "../shared/agent-chat-context.js";
 import {
   RUN_NOT_STARTED_METADATA_KEY,
   type RefusedTurnRetryContext,
 } from "../shared/agent-chat-run-not-started.js";
 import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
-import { stringifyToolUseInputForGateway } from "./engine/translate-anthropic.js";
+import {
+  INTERRUPTED_TOOL_RESULT_MARKER as INTERRUPTED_TOOL_RESULT,
+  stringifyToolUseInputForGateway,
+} from "./engine/translate-anthropic.js";
 import type { EngineContentPart, EngineMessage } from "./engine/types.js";
 import { parseFollowUpSuggestions } from "./follow-up-suggestions.js";
 import type { ActiveRun } from "./run-manager.js";
@@ -65,8 +69,6 @@ interface BuildAssistantMessageOptions {
 type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
 type UserMessage = ReturnType<typeof buildUserMessage>;
 
-const INTERRUPTED_TOOL_RESULT =
-  "Interrupted before this tool returned a result.";
 const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
 
 export const ASSISTANT_RUN_DURATION_METADATA_KEY = "agentNativeRunDurationMs";
@@ -77,11 +79,19 @@ function isInternalContinuationError(event: {
   error: string;
   errorCode?: string;
   recoverable?: boolean;
+  providerRetryable?: boolean;
 }): boolean {
   const code = String(event.errorCode ?? "").toLowerCase();
   const msg = event.error.toLowerCase();
-  if (code === "builder_gateway_error") return false;
-  if (event.recoverable === false) return false;
+  if (
+    event.providerRetryable === false ||
+    event.recoverable === false ||
+    code === "builder_gateway_error" ||
+    code === "invalid_request" ||
+    code === "invalid_request_error"
+  ) {
+    return false;
+  }
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
@@ -309,9 +319,17 @@ export function buildAssistantMessage(
           : {}),
         ...(event.recoverable ? { recoverable: event.recoverable } : {}),
       };
-      appendText(
-        `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`,
-      );
+      const missingProvider =
+        event.errorCode === "missing_api_key" ||
+        event.errorCode === "missing_credentials" ||
+        /no llm provider(?: key)? (?:is connected|was found)/i.test(
+          `${event.error}\n${normalized.message}`,
+        );
+      if (!missingProvider) {
+        appendText(
+          `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`,
+        );
+      }
       continue;
     }
 
@@ -2991,11 +3009,12 @@ export function mergeThreadDataForClientSave(
   // Queue mutations are the only writer of the queue and opt out here. Any
   // other save carries a queue it read earlier, and letting that copy win drops
   // a promotion claim or an append that landed in between.
-  if (
-    preserveExistingQueuedMessages &&
-    existingNormalized?.queuedMessages !== undefined
-  ) {
-    merged.queuedMessages = existingNormalized.queuedMessages;
+  if (preserveExistingQueuedMessages) {
+    if (existingNormalized?.queuedMessages !== undefined) {
+      merged.queuedMessages = existingNormalized.queuedMessages;
+    } else {
+      delete merged.queuedMessages;
+    }
   }
 
   const promptRunIds = submittedPromptRunIds(
@@ -3873,9 +3892,13 @@ export function extractThreadMeta(repo: any): {
       : typeof msg.content === "string"
         ? msg.content
         : "";
-    if (textParts.trim()) {
-      if (!title) title = textParts.trim().slice(0, 80);
-      preview = textParts.trim().slice(0, 120);
+    const visiblePrompt = stripAgentChatContextFromMessage(textParts)
+      .replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (visiblePrompt) {
+      if (!title) title = visiblePrompt.slice(0, 80);
+      preview = visiblePrompt.slice(0, 120);
     }
   }
   return { title: titleOverride || title, preview };

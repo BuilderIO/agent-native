@@ -282,6 +282,7 @@ async function signConnectToken(params: {
     scope: MCP_OAUTH_DEFAULT_SCOPE,
     resource: mcpResourceUrl(params.issuer),
     issuer: params.issuer,
+    grantCreatedAtMs: Date.now(),
     jti: params.jti,
     expiresIn: params.expiresIn,
     ...(params.catalogScope === "full" ? { catalogScope: "full" } : {}),

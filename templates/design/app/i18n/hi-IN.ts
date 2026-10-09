@@ -1,4 +1,74 @@
 export default {
+  journeyCanvas: {
+    observedSessionReference: "देखे गए सत्र का संदर्भ",
+    sessionsOfAll: "{count} सत्र · कुल का {percent}",
+    sessionsOfAppRoot: "{count} सत्र · {app} समूह का {percent} (n={rootCount})",
+    sessionsOfPrevious: "{count} सत्र · पिछले चरण का {percent}",
+    sessionsOfParent: "{count} सत्र · {label} का {percent}",
+    observedContinuation:
+      "वही रिकॉर्डिंग · उदाहरण {fromExample} → उदाहरण {toExample}",
+    observedContinuationCompact: "उदा. {fromExample} → {toExample}",
+    observedBranchLabel: "{label} · {percent}",
+    sessionsOfStep: "{count} सत्र · इस चरण का {percent}",
+    partialSample: "आंशिक नमूना",
+    continuedOnUnpictured:
+      "न दिखाए गए रास्तों पर जारी: {count} · इस चरण का {percent}",
+    noLaterStepObserved: "इसके बाद कोई चरण नहीं देखा गया",
+    examplePosition: "गैलरी {current}/{total}",
+    sourceExampleLabel: "स्रोत",
+    showExample: "स्रोत उदाहरण {current} दिखाएँ",
+    screenshotExamples: "स्क्रीनशॉट उदाहरण",
+    screenshotAlt:
+      "{label}, स्रोत उदाहरण {source}, गैलरी में स्थान {current}/{total}, कैप्चर की तारीख {date}",
+    screenshotMissing: "कोई स्क्रीनशॉट कैप्चर नहीं हुआ",
+    recordingUnavailable: "उपलब्ध नहीं",
+    recordingGap: "रिकॉर्डिंग में अंतराल",
+    recordingGapDuration: "रिकॉर्डिंग में अंतराल · {duration}",
+    eventTime: "इवेंट समय (UTC)",
+    generationCompletedEvent: "generation_completed इवेंट (UTC)",
+    replayObservation: "रीप्ले अवलोकन",
+    utcTimestamp: "UTC टाइमस्टैम्प",
+    recordingId: "रिकॉर्डिंग ID",
+    replayOffset: "रीप्ले ऑफ़सेट",
+    replayOffsetUnavailable: "उपलब्ध नहीं",
+    replaySeek: "रीप्ले खोज",
+    checkpointSeekTarget: "चेकपॉइंट खोज लक्ष्य",
+    analyticsCheckpointOffset: "Analytics चेकपॉइंट ऑफ़सेट",
+    replayObserved: "रीप्ले देखा गया",
+    screenshotCaptured: "स्क्रीनशॉट कैप्चर समय",
+    screenshotExportTimestamp: "स्क्रीनशॉट निर्यात UTC समय",
+    output: "आउटपुट",
+    outputTitle: "आउटपुट शीर्षक",
+    observedState: "देखी गई स्थिति",
+    actorRecording: "कर्ता (रिकॉर्डिंग)",
+    actorSource: "कर्ता का स्रोत",
+    recordingMetadata: "रिकॉर्डिंग मेटाडेटा",
+    evidence: "साक्ष्य",
+    generationCompletedEvidence: "generation_completed इवेंट",
+    renderedOutputEvidence:
+      "रेंडर किया गया आउटपुट देखा गया; completion event का दावा नहीं",
+    openFullPrompt: "पूरा prompt खोलें",
+    prompt: "Prompt",
+    promptEnglish: "Prompt (अंग्रेज़ी)",
+    promptSource: "Prompt (स्रोत)",
+    source: "स्रोत",
+    promptNotCaptured: "Prompt कैप्चर नहीं हुआ",
+    actorUnavailable: "कर्ता उपलब्ध नहीं",
+    replayDetails: "रीप्ले और स्रोत का विवरण",
+    sourceApp: "स्रोत ऐप",
+    route: "कैप्चर के समय वर्तमान मार्ग",
+    routeUnavailable: "उपलब्ध नहीं",
+    captureSourceFingerprint: "कैप्चर स्रोत फ़िंगरप्रिंट",
+    captureSourceUnavailable: "प्रदान नहीं किया गया",
+    recordingStarted: "रिकॉर्डिंग शुरू हुई",
+    appBandHeading: "{app} · {count} सत्र",
+    journeyTitleSummary: "{app} · {from} से {to} · {count} सत्र{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} से {to} · ऐप के अनुसार अलग-अलग समूह{partial}",
+    sessionCount: "{count} सत्र",
+    otherPaths: "अन्य रास्ते",
+    htmlLanguage: "hi-IN",
+  },
   composer: { menu: { integrations: "इंटीग्रेशन" } },
   creativeContext: {
     title: "लाइब्रेरी",
@@ -220,6 +290,18 @@ export default {
       exportSvg: "SVG export करें",
       actionsPrefill: "जाँचें, फिर भेजें",
       retry: "फिर कोशिश करें",
+      currentDesign: "मौजूदा Design",
+      chooseDesign: "एक Design (ज़रूरत हो तो पूछें कि कौन-सा Design इस्तेमाल करना है)",
+      importFramePrompt:
+        "इस Figma frame को {{destination}} में import करें और बताएँ कि importer कौन-सी सामग्री साथ नहीं ला सका: {{url}}",
+      importFilePrompt:
+        "यह Figma file खोलें, उसके शीर्ष-स्तर के frames की सूची दें, और पूछें कि कौन-सा frame import करना है: {{url}}",
+      inspectFramePrompt:
+        "इस Figma frame की संरचना, components, styles और दोबारा इस्तेमाल किए जा सकने वाले tokens का सार दें: {{url}}",
+      inspectFilePrompt:
+        "इस Figma file की संरचना, components, styles और दोबारा इस्तेमाल किए जा सकने वाले tokens का सार दें: {{url}}",
+      exportSvgPrompt:
+        "मौजूदा Design screen को Figma में इस्तेमाल के लिए SVG के रूप में export करें और बताएँ कि कौन-से हिस्से स्थिर SVG सामग्री बनेंगे।",
     },
   },
   common: {
@@ -689,6 +771,9 @@ export default {
       tools: "उपकरण",
       tokens: "टोकन",
       label: "डिज़ाइन कार्यक्षेत्र",
+      account: "खाता",
+      collapse: "साइडबार समेटें",
+      expand: "साइडबार फैलाएँ",
     },
     breakpointBar: {
       base: "आधार",
@@ -778,12 +863,10 @@ export default {
       "{{path}} इसके खुलने के बाद डिस्क पर बदल गई है। स्क्रीन को रीलोड करें और फिर से प्रयास करें।",
     applyToSourceError: "स्रोत में सहेजा नहीं जा सका: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "टोकन इम्पोर्ट करें",
       importTitle: "टोकन इम्पोर्ट करें",
       importHint:
@@ -795,6 +878,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "पेस्ट किए गए टोकन इम्पोर्ट करें",
       importedCount: "{{count}} टोकन इम्पोर्ट हुए",
+      count: "{{count}} टोकन",
+      search: "टोकन खोजें",
+      noMatches: "कोई मेल खाता टोकन नहीं",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -841,6 +927,12 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} छवि{{plural}} को लोड करने के लिए Figma की पहुँच चाहिए।",
       figmaPasteImagesDontShowAgain: "फिर से न दिखाएँ",
+      figmaPasteUploadImage: "इमेज अपलोड करें",
+      figmaPasteUploadImageFor: "“{{name}}” अपलोड करें",
+      figmaPasteImageFallbackName: "इमेज {{index}}",
+      figmaPasteUploadImageSuccess: "इमेज भर दी गई",
+      figmaPasteUploadImageInvalid: "SVG, PNG या JPG जैसी कोई इमेज फ़ाइल चुनें।",
+      figmaPasteUploadImageError: "वह इमेज नहीं भरी जा सकी",
       figmaHydrationDialogTitle: "छवियाँ लोड करने के लिए Figma जोड़ें",
       figmaHydrationDialogDescription:
         "आयातित screen{{screensPlural}} में {{count}} गायब छवि{{plural}} लोड करने के लिए अपना Figma access token दर्ज करें।",
@@ -941,6 +1033,8 @@ export default {
       "फ़ाइलें बनाने से पहले जनरेशन रुक गया। उसी प्रॉम्प्ट से जारी रखने के लिए फिर कोशिश करें।",
     generationStoppedCheckAgent:
       "फ़ाइलें बनाने से पहले जनरेशन रुक गया। एजेंट संदेश देखें या फिर कोशिश करें।",
+    invalidCanvasDimensions:
+      "अनुरोधित कैनवास आकार समर्थित नहीं है। संपादक की सीमाओं के भीतर सकारात्मक पिक्सेल आयामों का उपयोग करें।",
     notFound: "डिज़ाइन नहीं मिला",
     backToDesigns: "डिज़ाइन पर वापस जाएँ",
     designNotFoundDescription: "यह डिज़ाइन मौजूद नहीं है या हटा दिया गया है।",
@@ -1497,6 +1591,12 @@ export default {
       permissionPromptSettingsInstructions:
         "ऐड्रेस बार के बाईं ओर साइट कंट्रोल आइकन पर क्लिक करें, साइट सेटिंग खोलें, फिर लोकल नेटवर्क को ‘अनुमति दें’ पर सेट करें।",
       permissionPromptRetry: "कनेक्शन फिर से आज़माएँ",
+      previewCredentialsUnavailableTitle: "लोकल प्रीव्यू क्रेडेंशियल उपलब्ध नहीं हैं",
+      previewCredentialsUnavailableDescription:
+        "इंस्पेक्टर में इस स्क्रीन का localhost कनेक्शन फिर से जोड़ें, फिर दोबारा कोशिश करें।",
+      publicPreviewUnavailableDescription:
+        "लोकलहोस्ट प्रीव्यू सार्वजनिक दर्शकों के साथ साझा नहीं किए जाते। इस स्क्रीन को देखने के लिए इस डिज़ाइन को सहयोगी के रूप में खोलें।",
+      previewCredentialsRetry: "क्रेडेंशियल फिर से आज़माएँ",
     },
   },
   multiScreenCanvas: {
@@ -1507,6 +1607,7 @@ export default {
     fork: "फोर्क",
     fullView: "पूर्ण दृश्य",
     preview: "पूर्वावलोकन",
+    focusScreen: "स्क्रीन पर फ़ोकस करें",
     openAndDuplicate:
       "{{display}} चुनें। केंद्रित स्क्रॉलिंग के लिए इंटरैक्ट मोड का उपयोग करें।",
     openAndPreview:

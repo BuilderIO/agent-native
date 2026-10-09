@@ -12,6 +12,17 @@ description: >-
 and linked skills. This does not override the active design system, Creative
 Context, reference deck, or source material that the app already provides.
 
+## Read before
+
+Read a reference with `docs-search --slug "skill-create-deck--references-<file>"`,
+for example `skill-create-deck--references-reference-inputs`.
+
+| Situation | Read |
+| --- | --- |
+| A reference deck, attached PDF/PPTX/DOCX, or workspace default applies | `references/reference-inputs.md` |
+| The source is a transcript, meeting notes, or a Google Docs URL | `references/source-material.md` |
+| Writing slide HTML from the fallback title/content patterns or image placeholders | `references/slide-templates.md` |
+
 ## Workflow
 
 1. Read the `creative-context` skill and retrieve factual evidence separately
@@ -80,14 +91,6 @@ composition and information hierarchy, not the canvas, font system, or palette.
 Alternating light and dark slides are a theme failure unless the user explicitly
 asks for that structure.
 
-When the source is a transcript or meeting notes, extract the audience's
-terminology, goals, objections, decisions, owners, dates, metrics, and open
-questions before outlining. Preserve exact names, numbers, dates, and requested
-quotes; retain speaker/source attribution; distinguish quotation, paraphrase,
-inference, and unresolved claim. Do not invent connective claims to make the
-story smoother. Keep factual evidence separate from visual references and
-record the source/version identifiers in provenance when available.
-
 When creative context is available, pass the pre-generation search result's
 `contextPackId` to `create-deck`, pass deck-wide `reuseLabels`, and add
 `creativeContextReuseLabels` to each slide that reused a specific item/version.
@@ -103,84 +106,6 @@ authored live. Reserve `patch-deck` for deck fields, existing-slide edits,
 ordering, or source-preserving work. Sub-agents may research or draft slide
 copy, but one writer owns every deck mutation so the editor stays stable and the
 user can watch progress.
-
-## Reference Decks
-
-The user can pick an existing deck as a style reference when starting a new one.
-When they do, a `## Reference Deck` block is already in your context holding one
-worked HTML example per layout.
-
-Treat it as a pattern library, not an outline. The most common failure here is
-walking the reference deck slide by slide and swapping in new copy, which
-produces a deck with the wrong shape for its own content. Instead:
-
-1. Plan the new deck from the user's request alone — story, slide count, order.
-2. For each slide you decided to write, pick the pattern that fits that content.
-3. Reuse a pattern as often as the content warrants, or never.
-4. When nothing fits, compose a new slide from the same type scale, spacing,
-   color, and markup conventions rather than bending content to a near-miss.
-
-The block deliberately omits the reference deck's slide sequence. Call
-`get-deck --id <reference deck id> --compact false` only if you need full slide
-HTML to see how that deck handled a case the patterns do not cover.
-
-A reference deck and a design system are independent: the design system wins on
-tokens (color, type, spacing, imagery, and slide defaults), the reference deck
-wins on slide-level composition and markup idiom. Apply both when both are
-present. Generic templates in this skill are fallback patterns only. Never let
-a reference screenshot or deck silently transfer its brand tokens.
-
-Decks the user has starred are their intended reference decks. `list-decks`
-reports `starred` so you can offer them when the user asks for something "like
-our usual deck".
-
-## Attached Reference Documents
-
-A PDF, PPTX, or DOCX attached to a new-deck prompt is read before your run
-starts. Its extracted content and, for a PDF, its measured visual language —
-page proportions, painted backgrounds, the ranked type scale with families,
-sizes, weights and colors, median text margins, paragraph alignment — arrive as
-an `## Attached Reference Documents` block.
-
-That block is the reference. Do not call `import-file` for a file listed there,
-and never generate as if the attachment were missing: if the file could not be
-read, the run would have been stopped before it reached you, so a file you can
-see in that block was read successfully.
-
-When the user attached the file as a visual or style reference, match the
-measured type scale, weights, colors, alignment, and margins. A deck generated
-from a style reference must not come out looking like one generated without it.
-Structure and wording still come from the user's request, not from the
-reference's own page order.
-
-The fallback visual language in this skill applies only when no reference
-document, reference deck, or design system is present.
-
-## Workspace Defaults
-
-A workspace admin can flag one deck and one design system as the workspace
-default. Use `get-workspace-defaults` once when needed to identify a workspace
-reference deck or design system; `create-deck` also applies the effective design
-system default when no override is passed.
-
-- `referenceDeck` — call `get-deck-reference-context --id <id>` and treat the
-  result exactly like a user-picked reference deck.
-- `designSystem` — pass its id as `designSystemId` to `create-deck`, unless the
-  caller already has a personal default, which `create-deck` applies on its own.
-- Either field can come back `{ unavailable: true }`. That means the default
-  exists but this user cannot open it, which is a misconfiguration, not an
-  absent default. Generate without it and tell the user their workspace default
-  is not shared with them, rather than silently producing an off-brand deck.
-
-An explicit request always wins over the workspace default. Do not re-apply a
-workspace default to an existing deck the user is editing.
-
-If the user provides a Google Docs URL as source material, call
-`import-google-doc --url <url>` first and build from the returned text. If the
-action cannot read a private document, the user can connect Google Docs and
-choose the file through the picker, or share the Doc with the configured service
-account. Relay the action's exact access instructions instead of generating from
-the URL alone.
 
 ```bash
 pnpm action create-deck --title "My Deck" --slides '[]'
@@ -235,6 +160,15 @@ resolves to a browser default, so the deck reads as unstyled rather than as the
 direction you chose. Never import a stock presentation palette, font, or
 component language as a substitute for choosing.
 
+## Slide numbers
+
+For a footer page number, use the tokens `<span data-slide-number></span>` and
+`<span data-slide-total></span>`, never typed digits: reorders, inserts, and
+deletes would leave a typed `04 / 08` stale. Add `="pad"` for two digits
+(`<span data-slide-number="pad"></span> / <span data-slide-total="pad"></span>`
+renders `04 / 08`). Leave the spans empty; the renderer fills them from the
+slide's position in the deck.
+
 ## Fit budget
 
 The canvas is fixed at its aspect-ratio dimensions. With the standard 16:9
@@ -286,56 +220,6 @@ the last step before the final response, call
 `slide-editing`; never judge contrast by eye or from hex values. Do not claim
 full-deck or pixel-perfect fidelity unless the whole deck
 was rendered and compared.
-
-## Ready-to-Use Templates
-
-Copy and fill in the bracketed values. `[WRAPPER STYLE]` stands for the deck
-contract chosen in "Slide Wrapper" - the inherited `var(--ds-*)` form when a
-system is linked, the literal form when none is. It is identical on every
-slide. Inside the slide, read the contract directly (`var(--deck-accent)`), not
-through another layer of fallbacks; the wrapper has already defined every role.
-
-### Title Slide
-
-```html
-<div class="fmd-slide" style="[WRAPPER STYLE] justify-content: center; align-items: flex-start; gap: 18px;">
-  <div style="font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--deck-accent);">[LABEL OR DATE]</div>
-  <h1 style="font-size: 56px; font-weight: 750; color: var(--deck-ink); font-family: var(--deck-heading-font); line-height: 1.05; letter-spacing: -0.04em; margin: 0; max-width: 760px;">[TITLE]</h1>
-  <p style="font-size: 20px; color: var(--deck-muted); margin: 4px 0 0;">[SUBTITLE OR PRESENTER]</p>
-</div>
-```
-
-### Content or Two-Column Slide
-
-```html
-<div class="fmd-slide" style="[WRAPPER STYLE] justify-content: flex-start; gap: 18px;">
-  <div style="font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--deck-accent);">[SECTION LABEL]</div>
-  <h2 style="font-size: 34px; font-weight: 750; color: var(--deck-ink); font-family: var(--deck-heading-font); line-height: 1.12; letter-spacing: -0.03em; margin: 0 0 18px;">[SLIDE HEADING]</h2>
-  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start;">
-    <div style="display: flex; flex-direction: column; gap: 14px;">
-      <div style="border-left: 3px solid var(--deck-accent); padding: 12px 16px; background: var(--deck-surface); border-radius: var(--deck-radius); font-size: 18px; line-height: 1.4;">[KEY POINT]</div>
-      <div style="border-left: 3px solid var(--deck-accent); padding: 12px 16px; background: var(--deck-surface); border-radius: var(--deck-radius); font-size: 18px; line-height: 1.4;">[KEY POINT]</div>
-    </div>
-    <div class="fmd-img-placeholder" style="min-height: 220px; border-radius: var(--deck-radius);">[VISUAL OR IMAGE DESCRIPTION]</div>
-  </div>
-</div>
-```
-
-Use the same wrapper and tokens for section, statement, metrics, and closing
-slides, changing only the composition. An image placeholder, metric row,
-short rule, or callout should support the message, not fill empty space.
-
-## Image Placeholders
-
-When a slide needs a specific visual, use this div. It renders as a styled
-placeholder and can later be replaced with a generated image. Describe the
-content the image must show ("Q3 revenue by region, bar chart"), not its role
-("hero image"). If type, layout, and color can carry the slide, use no
-placeholder:
-
-```html
-<div class="fmd-img-placeholder" style="width: 100%; min-height: 220px; border-radius: var(--deck-radius);">[Description of what image should show]</div>
-```
 
 ## Batch and incremental generation
 

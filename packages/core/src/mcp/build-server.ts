@@ -36,6 +36,7 @@ import {
 } from "../agent/tool-result-images.js";
 import { getAppConfig } from "../app-config/store.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
+import { implicitServiceOrgRole } from "../org/service-identity.js";
 import {
   assertServicePrincipalMayCall,
   assertServicePrincipalMayRun,
@@ -68,8 +69,12 @@ import {
 import { withCollapsedAgentSidebarParam } from "../shared/agent-sidebar-url.js";
 import {
   createMcpDirectoryWidgetReadCapability,
+  createMcpDirectoryWidgetWriteCapability,
+  type McpDirectoryWidgetWriteCapabilityInput,
+  MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
   type McpDirectoryWidgetReadArgument,
+  renewMcpDirectoryWidgetCapabilityScope,
 } from "../shared/embed-auth.js";
 import {
   type McpAnalyticsContext,
@@ -149,6 +154,8 @@ export interface MCPConfig {
   productionActions?: Record<string, ActionEntry>;
   /** Unlisted from this MCP surface; used only when minting scoped widget tickets. */
   widgetReadActions?: Record<string, ActionEntry>;
+  /** Unlisted from this MCP surface; editor mutations callable only by scoped widget grants. */
+  widgetWriteActions?: Record<string, ActionEntry>;
   askAgent?: (message: string) => Promise<string>;
   builtinCrossAppTools?: boolean;
   /**
@@ -176,7 +183,18 @@ export interface MCPConfig {
         result: unknown,
       ) => McpDirectoryWidgetTarget | null
     >;
+    authorizeWidgetWrite?: (input: {
+      toolName: string;
+      args: Record<string, unknown>;
+      result: unknown;
+      target: McpDirectoryWidgetTarget;
+      identity: MCPCallerIdentity;
+    }) => boolean | Promise<boolean>;
     widgetReadActionArguments?: Record<
+      string,
+      Record<string, McpDirectoryWidgetReadArgument>
+    >;
+    widgetWriteActionArguments?: Record<
       string,
       Record<string, McpDirectoryWidgetReadArgument>
     >;
@@ -188,6 +206,12 @@ export interface MCPConfig {
     widgetReadPrivateActions?: readonly string[];
     /** Authenticated reads surfaced on other agent profiles, but only scoped here. */
     widgetReadAuthenticatedActions?: readonly string[];
+    /**
+     * Scoped reads minted only into a write capability, and only for a target
+     * that lists the mapped write action: `{ "list-resource-shares":
+     * "share-resource" }` keeps collaborator lists out of read-only tickets.
+     */
+    widgetReadActionWriteGates?: Record<string, string>;
     /** Omit the one shared resource title when tools have distinct invocation labels. */
     widgetResourceTitle?: string | false;
     keyToolNames?: readonly string[];
@@ -204,16 +228,38 @@ export interface MCPConfig {
 export interface McpDirectoryWidgetTarget {
   targetPath: string;
   resourceIds: Record<string, string>;
+  /** Mutations available to this artifact's editor, selected from the profile allowlist. */
+  writeActions?: readonly string[];
 }
 
 export interface MCPCallerIdentity {
   userEmail: string | undefined;
   identityAssurance?: "user" | "organization" | "service";
+  /** Issue time, in milliseconds, from a verified app-issued MCP credential. */
+  mcpCredentialIssuedAtMs?: number;
   orgId?: string | null;
   orgDomain: string | undefined;
   oauthScopes?: string[];
   oauthClientId?: string;
   firstPartyMcp?: boolean;
+}
+
+function verifiedServiceIdentityForRequest(
+  identity: MCPCallerIdentity | undefined,
+  requestOrgId: string | undefined,
+): { userEmail: string; orgId: string } | undefined {
+  const userEmail = identity?.userEmail?.trim();
+  const orgId = identity?.orgId;
+  if (
+    identity?.identityAssurance !== "service" ||
+    !userEmail ||
+    typeof orgId !== "string" ||
+    orgId !== requestOrgId ||
+    !implicitServiceOrgRole({ email: userEmail, orgId, requestOrgId })
+  ) {
+    return undefined;
+  }
+  return { userEmail, orgId };
 }
 
 function hasVerifiedMcpUserIdentity(
@@ -460,6 +506,20 @@ export function selectMcpDirectoryWidgetReadActions(
   );
 }
 
+export function selectMcpDirectoryWidgetWriteActions(
+  profile: MCPConfig["directoryProfile"] | undefined,
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> | undefined {
+  if (!profile) return undefined;
+  return Object.fromEntries(
+    Object.keys(profile.widgetWriteActionArguments ?? {})
+      .map((name) => [name, actions[name]] as const)
+      .filter((entry): entry is readonly [string, ActionEntry] =>
+        Boolean(entry[1]),
+      ),
+  );
+}
+
 export function getConfiguredMcpOwnerEmail(): string | undefined {
   return getAppConfig().auth.mcpOwnerEmail;
 }
@@ -684,6 +744,71 @@ export function validateMcpDirectoryProfile(
     ) {
       throw new McpDirectoryProfileValidationError(
         `[agent-native] MCP directory widget read route "${name}" must be an explicitly scoped read-only GET action with valid resource arguments in the connector allowlist or hidden-read profiles.`,
+      );
+    }
+  }
+
+  for (const [readAction, writeAction] of Object.entries(
+    profile?.widgetReadActionWriteGates ?? {},
+  )) {
+    if (
+      !Object.hasOwn(profile?.widgetReadActionArguments ?? {}, readAction) ||
+      !Object.hasOwn(profile?.widgetWriteActionArguments ?? {}, writeAction)
+    ) {
+      throw new McpDirectoryProfileValidationError(
+        `[agent-native] MCP directory widget read "${readAction}" is gated on "${writeAction}", which must both be declared widget actions.`,
+      );
+    }
+  }
+
+  for (const [name, argumentMap] of Object.entries(
+    profile?.widgetWriteActionArguments ?? {},
+  )) {
+    const entry = actions[name] ?? config.widgetWriteActions?.[name];
+    if (
+      !entry ||
+      entry.http === false ||
+      entry.http?.method === "GET" ||
+      entry.readOnly === true ||
+      entry.requiresAuth === false ||
+      !entry.schema ||
+      typeof entry.schema !== "object" ||
+      !("~standard" in entry.schema) ||
+      Object.keys(argumentMap).length === 0 ||
+      !Object.values(argumentMap).some(
+        (rule) =>
+          typeof rule === "string" ||
+          (rule?.type === "actionSchemaResourceBound" &&
+            MCP_DIRECTORY_WIDGET_ARGUMENT.test(rule.resourceKey)),
+      ) ||
+      Object.entries(argumentMap).some(
+        ([argumentName, argument]) =>
+          !MCP_DIRECTORY_WIDGET_ARGUMENT.test(argumentName) ||
+          (typeof argument === "string"
+            ? !MCP_DIRECTORY_WIDGET_ARGUMENT.test(argument)
+            : argument?.type === "actionSchema"
+              ? Object.keys(argument).length !== 1 ||
+                !entry.schema ||
+                typeof entry.schema !== "object" ||
+                !("~standard" in entry.schema)
+              : argument?.type === "actionSchemaResourceBound"
+                ? Object.keys(argument).length !== 2 ||
+                  !MCP_DIRECTORY_WIDGET_ARGUMENT.test(argument.resourceKey) ||
+                  !entry.schema ||
+                  typeof entry.schema !== "object" ||
+                  !("~standard" in entry.schema)
+                : !argument ||
+                  argument.type !== "integerRange" ||
+                  Object.keys(argument).length !== 3 ||
+                  !Number.isSafeInteger(argument.min) ||
+                  !Number.isSafeInteger(argument.max) ||
+                  argument.min < 0 ||
+                  argument.max < argument.min ||
+                  argument.max > 5_000),
+      )
+    ) {
+      throw new McpDirectoryProfileValidationError(
+        `[agent-native] MCP directory widget write action "${name}" must be an authenticated mutation action with an exact resource ID binding and valid argument allowlist.`,
       );
     }
   }
@@ -1188,21 +1313,50 @@ function mcpAppEmbedOpenLinkMeta(
   };
 }
 
+function mcpDirectoryWidgetSourceMeta(
+  toolName: string,
+  embedMeta: Record<string, unknown>,
+): Record<string, unknown> {
+  const embedStart = metadataObject(embedMeta["agent-native/embedStart"]);
+  if (typeof embedStart.startUrl !== "string") {
+    return { "agent-native/widgetSource": { toolName } };
+  }
+  try {
+    const url = new URL(embedStart.startUrl, "https://agent-native.invalid");
+    const sourceTicket = url.pathname.includes("/_agent-native/embed/start")
+      ? url.searchParams.get("ticket")
+      : null;
+    return {
+      "agent-native/widgetSource": {
+        toolName,
+        ...(sourceTicket ? { sourceTicket } : {}),
+      },
+    };
+  } catch {
+    return { "agent-native/widgetSource": { toolName } };
+  }
+}
+
 async function withServerMintedMcpAppEmbedStart(
   result: unknown,
   meta: MCPRequestMeta | undefined,
   directoryLinkUrl?: string,
   directoryWidget?: {
     targetPath: string;
-    capability: {
-      appId: string;
-      resourceUri: string;
-      resourceIds: Record<string, string>;
-      actionArguments: Record<
-        string,
-        Record<string, McpDirectoryWidgetReadArgument>
-      >;
-    };
+    capability:
+      | {
+          mode: "read";
+          value: {
+            appId: string;
+            resourceUri: string;
+            resourceIds: Record<string, string>;
+            actionArguments: Record<
+              string,
+              Record<string, McpDirectoryWidgetReadArgument>
+            >;
+          };
+        }
+      | { mode: "write"; value: McpDirectoryWidgetWriteCapabilityInput };
   },
 ): Promise<unknown> {
   if (!result || typeof result !== "object" || Array.isArray(result)) {
@@ -1210,30 +1364,32 @@ async function withServerMintedMcpAppEmbedStart(
   }
 
   const out = result as Record<string, unknown>;
-  const restrictDirectoryWidgetRead = directoryWidget !== undefined;
+  const restrictDirectoryWidgetCapability = directoryWidget !== undefined;
   const resultWithoutExistingEmbedTicket = { ...out };
-  if (restrictDirectoryWidgetRead) {
+  if (restrictDirectoryWidgetCapability) {
     delete resultWithoutExistingEmbedTicket.embedStartUrl;
     delete resultWithoutExistingEmbedTicket.embedTargetPath;
     delete resultWithoutExistingEmbedTicket.embedExpiresAt;
   }
   if (
     out.embed === false ||
-    (!restrictDirectoryWidgetRead && out.embed !== true && !directoryLinkUrl)
+    (!restrictDirectoryWidgetCapability &&
+      out.embed !== true &&
+      !directoryLinkUrl)
   ) {
-    return restrictDirectoryWidgetRead
+    return restrictDirectoryWidgetCapability
       ? resultWithoutExistingEmbedTicket
       : result;
   }
   if (
-    !restrictDirectoryWidgetRead &&
+    !restrictDirectoryWidgetCapability &&
     typeof out.embedStartUrl === "string" &&
     out.embedStartUrl.trim()
   ) {
     return result;
   }
   if (
-    !restrictDirectoryWidgetRead &&
+    !restrictDirectoryWidgetCapability &&
     typeof out.url === "string" &&
     out.url.trim() &&
     isEmbedStartUrl(out.url)
@@ -1241,17 +1397,17 @@ async function withServerMintedMcpAppEmbedStart(
     return result;
   }
 
-  const candidates = restrictDirectoryWidgetRead
+  const candidates = restrictDirectoryWidgetCapability
     ? [directoryWidget.targetPath]
     : out.embed === true
       ? [out.url, out.path, out.deepLinkUrl, directoryLinkUrl]
       : [directoryLinkUrl];
   const candidate = candidates.find((value): value is string => {
     if (typeof value !== "string" || value.trim().length === 0) return false;
-    return !restrictDirectoryWidgetRead || !isEmbedStartUrl(value);
+    return !restrictDirectoryWidgetCapability || !isEmbedStartUrl(value);
   });
   if (!candidate) {
-    return restrictDirectoryWidgetRead
+    return restrictDirectoryWidgetCapability
       ? resultWithoutExistingEmbedTicket
       : result;
   }
@@ -1260,12 +1416,12 @@ async function withServerMintedMcpAppEmbedStart(
   const isPath = trimmed.startsWith("/") && !trimmed.startsWith("//");
   const isAbsoluteHttp = /^https?:\/\//i.test(trimmed);
   if (!isPath && !isAbsoluteHttp) {
-    return restrictDirectoryWidgetRead
+    return restrictDirectoryWidgetCapability
       ? resultWithoutExistingEmbedTicket
       : result;
   }
   if (isAbsoluteHttp && !meta?.origin) {
-    return restrictDirectoryWidgetRead
+    return restrictDirectoryWidgetCapability
       ? resultWithoutExistingEmbedTicket
       : result;
   }
@@ -1273,7 +1429,7 @@ async function withServerMintedMcpAppEmbedStart(
   const ctx = getRequestContext();
   const ownerEmail = ctx?.userEmail?.trim();
   if (!ownerEmail) {
-    return restrictDirectoryWidgetRead
+    return restrictDirectoryWidgetCapability
       ? resultWithoutExistingEmbedTicket
       : result;
   }
@@ -1286,35 +1442,110 @@ async function withServerMintedMcpAppEmbedStart(
     meta?.origin,
   );
   if (!targetPath) {
-    return restrictDirectoryWidgetRead
+    return restrictDirectoryWidgetCapability
       ? resultWithoutExistingEmbedTicket
       : result;
   }
 
-  const scope = restrictDirectoryWidgetRead
-    ? createMcpDirectoryWidgetReadCapability(directoryWidget.capability)
-    : typeof out.chrome === "string"
-      ? out.chrome
-      : null;
-  if (restrictDirectoryWidgetRead && !scope) {
+  if (
+    directoryWidget?.capability.mode === "write" &&
+    (directoryWidget.capability.value.userEmail.toLowerCase() !==
+      ownerEmail.toLowerCase() ||
+      (directoryWidget.capability.value.orgId ?? undefined) !==
+        (ctx?.orgId ?? undefined))
+  ) {
     throw new Error(
-      "Could not create a valid read-only capability for this MCP directory widget.",
+      "The widget write grant must match the authenticated MCP user and organization.",
     );
   }
 
-  const ticket = await createEmbedSessionTicket({
-    ownerEmail,
-    orgId: ctx?.orgId,
-    targetPath,
-    scope,
-  });
+  const revocationAnchorCandidate = ctx?.mcpCredentialIssuedAtMs;
+  const revocationAnchorCreatedAtMs =
+    typeof revocationAnchorCandidate === "number" &&
+    Number.isSafeInteger(revocationAnchorCandidate)
+      ? revocationAnchorCandidate
+      : undefined;
+  if (
+    restrictDirectoryWidgetCapability &&
+    revocationAnchorCreatedAtMs === undefined
+  ) {
+    throw new Error(
+      "Directory widget sessions require a trusted MCP credential issue time.",
+    );
+  }
+
+  const mintTicket = async (
+    capability: NonNullable<typeof directoryWidget>["capability"] | undefined,
+  ) => {
+    const scope = capability
+      ? capability.mode === "write"
+        ? createMcpDirectoryWidgetWriteCapability(capability.value)
+        : createMcpDirectoryWidgetReadCapability(capability.value)
+      : typeof out.chrome === "string"
+        ? out.chrome
+        : null;
+    // An oversize or invalid scope has no ticket; the caller degrades or
+    // returns the result without one. Throwing here would fail a tool call
+    // whose action already ran.
+    if (capability && !scope) return null;
+    return createEmbedSessionTicket({
+      ownerEmail,
+      orgId: ctx?.orgId,
+      targetPath,
+      scope,
+      ...(capability?.mode === "write" ? { ttlSeconds: 5 * 60 } : {}),
+      ...(capability ? { revocationAnchorCreatedAtMs } : {}),
+    });
+  };
+  const writeCapability =
+    directoryWidget?.capability.mode === "write"
+      ? directoryWidget.capability
+      : undefined;
+  let ticket: Awaited<ReturnType<typeof mintTicket>> = null;
+  let writeMintError: unknown = new Error(
+    "Could not create a valid scoped capability for this MCP directory widget.",
+  );
+  try {
+    ticket = await mintTicket(directoryWidget?.capability);
+  } catch (error) {
+    if (!writeCapability) throw error;
+    writeMintError = error;
+  }
+  if (!ticket && writeCapability) {
+    // The write grant is an upgrade over the read grant. Losing it must not
+    // also lose the widget's session ticket, which the shell cannot start without.
+    console.error(
+      "[mcp:directory] Could not mint the widget write grant; issuing a read-only widget session instead.",
+      writeMintError,
+    );
+    const { appId, resourceUri, resourceIds, readActionArguments } =
+      writeCapability.value;
+    ticket = await mintTicket({
+      mode: "read",
+      value: {
+        appId,
+        resourceUri,
+        resourceIds,
+        actionArguments: readActionArguments,
+      },
+    });
+  }
+  if (!ticket) {
+    console.error(
+      "[mcp:directory] Could not build a widget capability within the scope size limits; returning the result without a session ticket.",
+      { targetPath },
+    );
+    return resultWithoutExistingEmbedTicket;
+  }
   const startPath = buildEmbedStartPath(ticket.ticket);
   const embedStartUrl = meta?.origin
     ? new URL(startPath, meta.origin).toString()
     : startPath;
 
   return {
-    ...(restrictDirectoryWidgetRead ? resultWithoutExistingEmbedTicket : out),
+    ...(restrictDirectoryWidgetCapability
+      ? resultWithoutExistingEmbedTicket
+      : out),
     embedStartUrl,
     embedTargetPath: targetPath,
     embedExpiresAt: ticket.expiresAt,
@@ -1332,14 +1563,14 @@ function withoutMcpAppEmbedTicket(result: unknown): unknown {
   return output;
 }
 
-function mcpDirectoryWidgetCapabilityForTool(
+async function mcpDirectoryWidgetCapabilityForTool(
   config: MCPConfig,
   resource: ResolvedMcpAppResource,
   toolName: string,
   args: Record<string, unknown>,
   result: unknown,
   actions: Record<string, ActionEntry>,
-  oauthScopes: string[] | undefined,
+  identity: MCPCallerIdentity | undefined,
 ) {
   const profile = config.directoryProfile;
   const resolveTarget = profile?.widgetTargets?.[toolName];
@@ -1350,6 +1581,13 @@ function mcpDirectoryWidgetCapabilityForTool(
   const actionArguments: Record<
     string,
     Record<string, McpDirectoryWidgetReadArgument>
+  > = {};
+  const writeGatedReadArguments: Record<
+    string,
+    {
+      writeGate: string;
+      scopedArguments: Record<string, McpDirectoryWidgetReadArgument>;
+    }
   > = {};
   for (const [actionName, argumentMap] of Object.entries(
     profile.widgetReadActionArguments ?? {},
@@ -1375,7 +1613,7 @@ function mcpDirectoryWidgetCapabilityForTool(
         !profile.widgetReadOnlyActions?.includes(actionName)) ||
       !isActionVisibleForOAuthScope(
         entry,
-        oauthScopes,
+        identity?.oauthScopes,
         profile.widgetReadOnlyActions?.includes(actionName) === true,
       ) ||
       entry.http === false ||
@@ -1399,18 +1637,139 @@ function mcpDirectoryWidgetCapabilityForTool(
     if (
       Object.keys(scopedArguments).length === Object.keys(argumentMap).length
     ) {
-      actionArguments[actionName] = scopedArguments;
+      const writeGate = profile.widgetReadActionWriteGates?.[actionName];
+      if (writeGate === undefined) {
+        actionArguments[actionName] = scopedArguments;
+      } else if (target.writeActions?.includes(writeGate)) {
+        writeGatedReadArguments[actionName] = { writeGate, scopedArguments };
+      }
     }
   }
-  if (Object.keys(actionArguments).length === 0) return undefined;
+  const writeActionArguments: Record<
+    string,
+    Record<string, McpDirectoryWidgetReadArgument>
+  > = {};
+  const targetWriteActions = new Set(target.writeActions ?? []);
+  for (const actionName of targetWriteActions) {
+    if (!Object.hasOwn(profile.widgetWriteActionArguments ?? {}, actionName)) {
+      throw new Error(
+        `MCP directory widget target references undeclared write action "${actionName}".`,
+      );
+    }
+  }
+  for (const [actionName, argumentMap] of Object.entries(
+    profile.widgetWriteActionArguments ?? {},
+  )) {
+    if (!targetWriteActions.has(actionName)) continue;
+    const entry =
+      actions[actionName] ?? config.widgetWriteActions?.[actionName];
+    if (
+      !entry ||
+      entry.http === false ||
+      entry.http?.method === "GET" ||
+      entry.readOnly === true ||
+      entry.requiresAuth === false ||
+      !isActionVisibleForOAuthScope(entry, identity?.oauthScopes)
+    ) {
+      continue;
+    }
+    const scopedArguments: Record<string, McpDirectoryWidgetReadArgument> = {};
+    for (const [argumentName, rule] of Object.entries(argumentMap)) {
+      if (typeof rule === "string") {
+        const resourceId = target.resourceIds[rule];
+        if (typeof resourceId !== "string" || !resourceId.trim()) break;
+        scopedArguments[argumentName] = resourceId;
+      } else {
+        scopedArguments[argumentName] = rule;
+      }
+    }
+    if (
+      Object.keys(scopedArguments).length === Object.keys(argumentMap).length &&
+      Object.values(scopedArguments).some((argument) => {
+        if (typeof argument === "string") {
+          return Object.values(target.resourceIds).includes(argument);
+        }
+        if (argument.type !== "actionSchemaResourceBound") return false;
+        const resourceId = target.resourceIds[argument.resourceKey];
+        return typeof resourceId === "string" && resourceId.trim().length > 0;
+      })
+    ) {
+      writeActionArguments[actionName] = scopedArguments;
+    }
+  }
+  if (
+    Object.keys(actionArguments).length === 0 &&
+    Object.keys(writeActionArguments).length === 0
+  ) {
+    return undefined;
+  }
+
+  let editorAccessAllowed = false;
+  if (
+    Object.keys(writeActionArguments).length > 0 &&
+    hasVerifiedMcpUserIdentity(identity) &&
+    profile.authorizeWidgetWrite
+  ) {
+    try {
+      editorAccessAllowed = await profile.authorizeWidgetWrite({
+        toolName,
+        args,
+        result,
+        target,
+        identity,
+      });
+    } catch {
+      console.error(
+        `[mcp] Directory widget editor authorization failed for ${toolName}; issuing a read-only capability.`,
+      );
+    }
+  }
+
+  if (
+    Object.keys(writeActionArguments).length > 0 &&
+    hasVerifiedMcpUserIdentity(identity) &&
+    editorAccessAllowed
+  ) {
+    const requestOrgId = getRequestContext()?.orgId;
+    const value: McpDirectoryWidgetWriteCapabilityInput = {
+      appId: config.appId ?? config.name,
+      resourceUri: resource.uri,
+      resourceIds: target.resourceIds,
+      userEmail: identity.userEmail,
+      ...(typeof requestOrgId === "string" ? { orgId: requestOrgId } : {}),
+      expiresAtMs:
+        Date.now() + MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS,
+      readActionArguments: {
+        ...actionArguments,
+        ...Object.fromEntries(
+          Object.entries(writeGatedReadArguments)
+            .filter(([, { writeGate }]) =>
+              Object.hasOwn(writeActionArguments, writeGate),
+            )
+            .map(([actionName, { scopedArguments }]) => [
+              actionName,
+              scopedArguments,
+            ]),
+        ),
+      },
+      writeActionArguments,
+    };
+    return {
+      targetPath: target.targetPath,
+      capability: { mode: "write" as const, value },
+    };
+  }
 
   return {
     targetPath: target.targetPath,
     capability: {
-      appId: config.appId ?? config.name,
-      resourceUri: resource.uri,
-      resourceIds: target.resourceIds,
-      actionArguments,
+      mode: "read" as const,
+      value: {
+        appId: config.appId ?? config.name,
+        resourceUri: resource.uri,
+        resourceIds: target.resourceIds,
+        actionArguments,
+      },
     },
   };
 }
@@ -1431,16 +1790,21 @@ function mcpDirectoryWidgetSessionTool(config: MCPConfig): Tool | null {
   return {
     name: "create_embed_session",
     description:
-      "Refresh the authenticated embed session for this app widget after it is reopened.",
+      "Creates a short-lived session for the same app widget using its original server-issued result ticket.",
     inputSchema: {
       type: "object",
       properties: {
-        sourceTool: { type: "string", enum: sourceNames },
-        toolInput: { type: "object", additionalProperties: true },
-        toolOutput: { type: "object", additionalProperties: true },
-        chrome: { type: "string", enum: ["full", "minimal"] },
+        sourceTicket: {
+          type: "string",
+          description: "Original server-issued widget ticket from this result.",
+        },
+        renewInPlace: {
+          type: "boolean",
+          description:
+            "Extend the active scoped widget session without replacing its mounted app frame.",
+        },
       },
-      required: ["toolInput", "toolOutput"],
+      required: ["sourceTicket"],
     },
     _meta: { ui: { visibility: ["app"] } },
   } as Tool;
@@ -1448,11 +1812,12 @@ function mcpDirectoryWidgetSessionTool(config: MCPConfig): Tool | null {
 
 async function renewMcpDirectoryWidgetEmbedSession(
   config: MCPConfig,
-  actions: Record<string, ActionEntry>,
   args: Record<string, unknown>,
   identity: MCPCallerIdentity | undefined,
-  requestMeta: MCPRequestMeta | undefined,
-): Promise<{ startUrl: string; targetPath: string; expiresAt: number }> {
+): Promise<
+  | { startUrl: string; targetPath: string; expiresAt: number }
+  | { renewed: true; expiresAt: number }
+> {
   const profile = config.directoryProfile;
   if (!profile || config.catalogMode !== "directory") {
     throw new Error("Directory widget session renewal is not enabled.");
@@ -1461,90 +1826,104 @@ async function renewMcpDirectoryWidgetEmbedSession(
     throw new Error("Widget session renewal requires a verified user caller.");
   }
 
-  const sourceTool =
-    typeof args.sourceTool === "string" && args.sourceTool.trim()
-      ? args.sourceTool.trim()
-      : undefined;
-  const toolInput = metadataObject(args.toolInput);
-  const toolOutput = metadataObject(args.toolOutput);
-  const sourceNames = sourceTool
-    ? [sourceTool]
-    : Object.keys(profile.widgetTargets ?? {});
-  const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
-    await import("../server/embed-session.js");
-  const { buildEmbedStartPath } = await import("../server/embed-route.js");
-  const candidates: Array<{
-    targetPath: string;
-    capability: NonNullable<
-      ReturnType<typeof mcpDirectoryWidgetCapabilityForTool>
-    >["capability"];
-  }> = [];
-
-  for (const name of sourceNames) {
-    if (!profile.connectorCatalog.includes(name)) continue;
-    const entry = actions[name];
-    const resolver = profile.widgetTargets?.[name];
-    if (!entry?.mcpApp?.resource || !resolver) continue;
-    const target = resolver(toolInput, toolOutput);
-    if (!target) continue;
-    const resource = await resolveMcpAppResourceSafely(
-      config,
-      name,
-      entry,
-      requestMeta,
-    );
-    if (!resource) continue;
-    const widgetCapability = mcpDirectoryWidgetCapabilityForTool(
-      config,
-      resource,
-      name,
-      toolInput,
-      toolOutput,
-      actions,
-      identity.oauthScopes,
-    );
-    if (!widgetCapability) continue;
-    const targetPath = normalizeEmbedTargetPath(
-      withMcpChatBridgeParam(target.targetPath),
-    );
-    if (targetPath) {
-      candidates.push({
-        targetPath,
-        capability: widgetCapability.capability,
-      });
-    }
-  }
-
-  const distinctCandidates = new Map(
-    candidates.map((candidate) => [
-      JSON.stringify([candidate.targetPath, candidate.capability]),
-      candidate,
-    ]),
-  );
-  if (distinctCandidates.size !== 1) {
+  const sourceTicket = args.sourceTicket;
+  if (typeof sourceTicket !== "string") {
     throw new Error(
-      "Could not resolve one authorized app resource from this saved widget result.",
+      "Widget session renewal requires its original result ticket.",
     );
   }
 
-  const [{ targetPath, capability }] = [...distinctCandidates.values()];
-  const scope = createMcpDirectoryWidgetReadCapability(capability);
-  if (!scope) {
-    throw new Error("Could not create a scoped app widget session.");
+  const {
+    createEmbedSessionTicket,
+    readMcpDirectoryWidgetRenewalTicket,
+    renewMcpDirectoryWidgetSession,
+  } = await import("../server/embed-session.js");
+  const originalTicket =
+    await readMcpDirectoryWidgetRenewalTicket(sourceTicket);
+  const callerOrgId = getRequestContext()?.orgId;
+  if (
+    !originalTicket ||
+    originalTicket.ownerEmail.trim().toLowerCase() !==
+      identity.userEmail.trim().toLowerCase() ||
+    (originalTicket.orgId ?? undefined) !== (callerOrgId ?? undefined)
+  ) {
+    throw new Error(
+      "The original widget ticket is not available to this caller.",
+    );
   }
-  const ticket = await createEmbedSessionTicket({
-    ownerEmail: identity.userEmail.trim(),
-    orgId: getRequestOrgId(),
-    targetPath,
-    scope,
+
+  const appId = config.appId ?? config.name;
+  const renewalNow = Date.now();
+  const capabilityExpiresAtMs = Math.min(
+    renewalNow + MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS,
+    originalTicket.renewalExpiresAtMs,
+  );
+  const scope = renewMcpDirectoryWidgetCapabilityScope(originalTicket.scope, {
+    appId,
+    resourceUri: getMcpDirectoryWidgetResourceUri(appId),
+    userEmail: identity.userEmail,
+    orgId: callerOrgId,
+    expiresAtMs: capabilityExpiresAtMs,
+    readAllowed: hasMcpOAuthScope(identity.oauthScopes, "mcp:read"),
+    writeAllowed: hasMcpOAuthScope(identity.oauthScopes, "mcp:write"),
   });
-  const startPath = buildEmbedStartPath(ticket.ticket);
+  if (!scope) {
+    throw new Error(
+      "The original widget ticket has an invalid app capability.",
+    );
+  }
+
+  if (args.renewInPlace === true) {
+    if (
+      originalTicket.consumedAtMs === null ||
+      originalTicket.sessionActiveUntilMs === null
+    ) {
+      throw new Error(
+        "The original widget session cannot be renewed in place.",
+      );
+    }
+    const expiresAt = await renewMcpDirectoryWidgetSession({
+      sourceTicket,
+      ownerEmail: identity.userEmail,
+      orgId: callerOrgId,
+      expectedScope: originalTicket.scope,
+      renewedScope: scope,
+    });
+    if (!expiresAt) {
+      throw new Error(
+        "The original widget session can no longer be renewed in place.",
+      );
+    }
+    return { renewed: true, expiresAt };
+  }
+
   const appOrigin = profile.widgetDomain ?? config.widgetDomain;
   if (!appOrigin) {
-    throw new Error("Widget session renewal has no configured app origin.");
+    throw new Error("Directory widget session renewal requires an app origin.");
   }
+  let appOriginUrl: URL;
+  try {
+    appOriginUrl = new URL(appOrigin);
+  } catch {
+    throw new Error("Directory widget session renewal has an invalid origin.");
+  }
+  const { buildEmbedStartPath } = await import("../server/embed-route.js");
+  const targetPath = withMcpChatBridgeParam(originalTicket.targetPath);
+  const ticket = await createEmbedSessionTicket({
+    ownerEmail: identity.userEmail,
+    orgId: callerOrgId,
+    targetPath,
+    scope,
+    ttlSeconds: Math.max(
+      1,
+      Math.ceil((capabilityExpiresAtMs - renewalNow) / 1000),
+    ),
+    renewalExpiresAtMs: originalTicket.renewalExpiresAtMs,
+    revocationAnchorCreatedAtMs: originalTicket.createdAtMs,
+  });
+  const startPath = buildEmbedStartPath(ticket.ticket);
   return {
-    startUrl: new URL(startPath, appOrigin).toString(),
+    startUrl: new URL(startPath, appOriginUrl).toString(),
     targetPath,
     expiresAt: ticket.expiresAt,
   };
@@ -1674,7 +2053,7 @@ function safeUiSegment(value: string | undefined, fallback: string): string {
 }
 
 const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v65";
-const MCP_DIRECTORY_APP_RESOURCE_SHELL_VERSION = "shell-v68";
+const MCP_DIRECTORY_APP_RESOURCE_SHELL_VERSION = "shell-v69";
 
 export function getMcpDirectoryWidgetResourceUri(
   appId: string | undefined,
@@ -2371,10 +2750,15 @@ export async function createMCPServerForRequest(
   );
   const orgIdPromise = resolveMcpIdentityOrgId(effectiveIdentity);
   const orgId = await orgIdPromise;
+  const verifiedServiceIdentity = verifiedServiceIdentityForRequest(
+    effectiveIdentity,
+    orgId,
+  );
   const visibleActions = await runWithRequestContext(
     {
       userEmail: effectiveIdentity?.userEmail,
       orgId,
+      ...(verifiedServiceIdentity ? { verifiedServiceIdentity } : {}),
       ...(effectiveIdentity?.orgId === null
         ? { orgScope: "personal" as const }
         : {}),
@@ -2528,11 +2912,14 @@ export async function createMCPServerForRequest(
       {
         userEmail: effectiveIdentity?.userEmail,
         orgId,
+        ...(verifiedServiceIdentity ? { verifiedServiceIdentity } : {}),
         ...(effectiveIdentity?.orgId === null
           ? { orgScope: "personal" as const }
           : {}),
         ...(requestMeta?.origin ? { requestOrigin: requestMeta.origin } : {}),
         ...(mcpRequestId ? { mcpRequestId } : {}),
+        mcpCredentialIssuedAtMs:
+          effectiveIdentity?.mcpCredentialIssuedAtMs ?? null,
       },
       fn,
     ) as Promise<T>;
@@ -3001,10 +3388,8 @@ export async function createMCPServerForRequest(
           try {
             const renewed = await renewMcpDirectoryWidgetEmbedSession(
               config,
-              visibleActions,
               metadataObject(args),
               effectiveIdentity,
-              requestMeta,
             );
             return {
               content: [
@@ -3109,16 +3494,21 @@ export async function createMCPServerForRequest(
             });
             directoryLinkUrl = linked?.url ?? undefined;
           }
+          const trustedCredentialIssuedAtMs =
+            effectiveIdentity?.mcpCredentialIssuedAtMs;
           const directoryWidget =
-            directoryCatalog && mcpAppResourceCandidate
-              ? mcpDirectoryWidgetCapabilityForTool(
+            directoryCatalog &&
+            mcpAppResourceCandidate &&
+            typeof trustedCredentialIssuedAtMs === "number" &&
+            Number.isSafeInteger(trustedCredentialIssuedAtMs)
+              ? await mcpDirectoryWidgetCapabilityForTool(
                   config,
                   mcpAppResourceCandidate,
                   name,
                   (args as Record<string, unknown>) ?? {},
                   projectedRawResult,
                   visibleActions,
-                  effectiveIdentity?.oauthScopes,
+                  effectiveIdentity,
                 )
               : undefined;
           const missingDirectoryWidgetCapability =
@@ -3128,6 +3518,21 @@ export async function createMCPServerForRequest(
             directoryWidget === undefined;
           const suppressDirectoryWidget =
             directoryCatalog && !hasVerifiedMcpUserIdentity(effectiveIdentity);
+          // The host mounts a widget for this tool from its descriptor, with or
+          // without a ticket in the result, so a withheld ticket must be visible.
+          if (
+            missingDirectoryWidgetCapability &&
+            !suppressDirectoryWidget &&
+            !mcpResultIsError
+          ) {
+            console.warn(
+              `[mcp:directory] ${name} returned no widget session ticket: ${
+                typeof trustedCredentialIssuedAtMs === "number"
+                  ? "the result has no widget target or scoped actions"
+                  : "the credential carries no issue time"
+              }.`,
+            );
+          }
           const rawResultForClient =
             missingDirectoryWidgetCapability || suppressDirectoryWidget
               ? withoutMcpAppEmbedTicket(projectedRawResult)
@@ -3139,6 +3544,14 @@ export async function createMCPServerForRequest(
                     directoryWidget,
                   )
                 : projectedRawResult;
+          if (
+            directoryWidget &&
+            typeof metadataObject(rawResultForClient).embedStartUrl !== "string"
+          ) {
+            console.error(
+              `[mcp:directory] ${name} built a widget capability but issued no session ticket.`,
+            );
+          }
           const {
             value: actionResultForClient,
             images: resultImages,
@@ -3165,18 +3578,19 @@ export async function createMCPServerForRequest(
             actionResultForClient,
             requestMeta,
           );
+          const mcpAppOpenLinkMeta = mcpAppResource
+            ? mcpAppEmbedOpenLinkMeta(
+                actionResultForClient,
+                mcpAppResource,
+                requestMeta,
+              )
+            : {};
           const responseMeta: Record<string, unknown> = {
             ...(_meta ?? {}),
             ...(directoryCatalog && mcpAppResource
-              ? { "agent-native/widgetSource": { toolName: name } }
+              ? mcpDirectoryWidgetSourceMeta(name, mcpAppOpenLinkMeta)
               : {}),
-            ...(mcpAppResource
-              ? mcpAppEmbedOpenLinkMeta(
-                  actionResultForClient,
-                  mcpAppResource,
-                  requestMeta,
-                )
-              : {}),
+            ...mcpAppOpenLinkMeta,
             ...(mcpAppResource
               ? openAiToolResultMeta(mcpAppResource, directoryCatalog)
               : {}),
@@ -3732,6 +4146,8 @@ type IssuedMcpCredential = {
   oauthScopes?: string[];
   oauthClientId?: string;
   catalogScope?: "full";
+  /** Immutable server-recorded OAuth grant creation time, in milliseconds. */
+  grantCreatedAtMs?: number;
   /** `iat`, in seconds. */
   issuedAt: number | undefined;
 };
@@ -3812,6 +4228,9 @@ async function verifyIssuedMcpCredential(
     oauthScopes: oauth.scopes,
     oauthClientId: oauth.clientId,
     ...(oauth.catalogScope ? { catalogScope: oauth.catalogScope } : {}),
+    ...(oauth.grantCreatedAtMs !== undefined
+      ? { grantCreatedAtMs: oauth.grantCreatedAtMs }
+      : {}),
     issuedAt: oauth.issuedAt,
   };
 }
@@ -3852,12 +4271,30 @@ async function admitIssuedMcpCredential(
   }
   const orgId =
     credential.orgId !== undefined ? credential.orgId : stored?.orgId;
+  // Access tokens signed before grant times existed carry no claim, and the
+  // directory widget refuses to mint a session without an issue time. Their
+  // signed `iat` is the only anchor they have. `iat` moves on every refresh, so
+  // it must stay the fallback and never outrank a signed grant time.
+  const credentialIssuedAtMs =
+    credential.grantCreatedAtMs ??
+    (typeof credential.issuedAt === "number" &&
+    Number.isSafeInteger(credential.issuedAt)
+      ? credential.issuedAt * 1000
+      : undefined);
+  const mcpCredentialIssuedAtMs =
+    credentialIssuedAtMs !== undefined &&
+    Number.isSafeInteger(credentialIssuedAtMs)
+      ? credentialIssuedAtMs
+      : undefined;
   const admitted = await admitIssuedCredential(
     {
       authed: true,
       identity: {
         userEmail: credential.userEmail,
         identityAssurance: stored?.kind === "service" ? "service" : "user",
+        ...(mcpCredentialIssuedAtMs !== undefined
+          ? { mcpCredentialIssuedAtMs }
+          : {}),
         ...(orgId !== undefined ? { orgId } : {}),
         orgDomain: credential.orgDomain,
         ...(credential.oauthScopes

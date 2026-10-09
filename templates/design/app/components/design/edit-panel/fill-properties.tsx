@@ -505,7 +505,7 @@ export function FillProperties({
       {fillIsMixed ? (
         <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
           {
-            "Click + to replace mixed content" /* i18n-ignore figma mixed fill hint */
+            "Click + to replace mixed content" /* i18n-ignore mixed-content helper text */
           }
         </p>
       ) : hasVisibleFill ? (

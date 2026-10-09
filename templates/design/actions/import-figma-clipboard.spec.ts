@@ -399,6 +399,24 @@ describe("import-figma-clipboard", () => {
     expect(result.guidance).toMatch(/connect your figma access token/i);
   });
 
+  it("rethrows the typed figma_auth_required when there is no fallback HTML or buffer to import", async () => {
+    mocks.executeProviderApiRequest.mockRejectedValue(
+      Object.assign(new Error("No Figma access token is available"), {
+        errorCode: "figma_auth_required",
+        statusCode: 401,
+      }),
+    );
+
+    await expect(
+      action.run({
+        figmetaFileKey: FILE_KEY,
+        selectedNodeIds: ["1:1"],
+        clipboardHtml: CLIPBOARD_HTML_CURRENT_BINARY_ONLY,
+      } as any),
+    ).rejects.toMatchObject({ errorCode: "figma_auth_required" });
+    expect(mocks.saveImportedDesignFiles).not.toHaveBeenCalled();
+  });
+
   it("treats a provider quota cooldown as transient so the local buffer still decodes", async () => {
     mocks.executeProviderApiRequest.mockRejectedValue(
       Object.assign(new Error("Design is pacing its own Figma requests"), {
@@ -612,6 +630,87 @@ describe("import-figma-clipboard", () => {
       expect(mocks.saveImportedDesignFiles).toHaveBeenCalledWith(
         expect.objectContaining({ sourceType: "figma-clipboard-local-kiwi" }),
       );
+    });
+
+    it("falls back to the local decode when Figma has no workspace connection", async () => {
+      const { AgentConnectionRequiredError } =
+        await import("@agent-native/core/action");
+      mocks.executeProviderApiRequest.mockRejectedValue(
+        new AgentConnectionRequiredError(
+          "figma requires an available workspace connection.",
+          { provider: "figma" },
+        ),
+      );
+      mocks.importFigmaClipboardFromBuffer.mockResolvedValue({
+        files: [
+          {
+            filename: "image 1.html",
+            fileType: "html",
+            content: '<div data-figma-image-ref="abc"></div>',
+          },
+        ],
+        warnings: [],
+        unresolvedImageRefs: ["abc"],
+        stats: {
+          sourceKind: "figma-clipboard-local-kiwi",
+          format: "kiwi",
+          frameCount: 1,
+          nodeCount: 1,
+          unresolvedImageCount: 1,
+        },
+      });
+
+      const result = await action.run({
+        figmetaFileKey: FILE_KEY,
+        selectedNodeIds: ["1:1"],
+        clipboardHtml: CLIPBOARD_HTML_CURRENT_BINARY_ONLY,
+        clipboardBuffer: FAKE_BUFFER_BASE64,
+      } as any);
+
+      expect(result.strategy).toBe("localKiwi");
+      expect(result.figmaApiKeyMissing).toBe(true);
+      expect(result.unresolvedImages).toBe(1);
+    });
+
+    it("keeps the reauthorize prompt instead of falling back when Figma is connected", async () => {
+      const { AgentConnectionRequiredError } =
+        await import("@agent-native/core/action");
+      mocks.executeProviderApiRequest.mockRejectedValue(
+        new AgentConnectionRequiredError(
+          "figma requires an available workspace connection.",
+          { provider: "figma", reason: "reauthorize" },
+        ),
+      );
+
+      await expect(
+        action.run({
+          figmetaFileKey: FILE_KEY,
+          selectedNodeIds: ["1:1"],
+          clipboardHtml: CLIPBOARD_HTML_CURRENT_BINARY_ONLY,
+          clipboardBuffer: FAKE_BUFFER_BASE64,
+        } as any),
+      ).rejects.toMatchObject({ errorCode: "connection_required" });
+      expect(mocks.importFigmaClipboardFromBuffer).not.toHaveBeenCalled();
+    });
+
+    it("keeps the connect prompt when there is no clipboard buffer to decode locally", async () => {
+      const { AgentConnectionRequiredError } =
+        await import("@agent-native/core/action");
+      mocks.executeProviderApiRequest.mockRejectedValue(
+        new AgentConnectionRequiredError(
+          "figma requires an available workspace connection.",
+          { provider: "figma" },
+        ),
+      );
+
+      await expect(
+        action.run({
+          figmetaFileKey: FILE_KEY,
+          selectedNodeIds: ["1:1"],
+          clipboardHtml: CLIPBOARD_HTML_CURRENT_BINARY_ONLY,
+        } as any),
+      ).rejects.toMatchObject({ errorCode: "connection_required" });
+      expect(mocks.importFigmaClipboardFromBuffer).not.toHaveBeenCalled();
     });
 
     describe("with the editor's paste scene", () => {

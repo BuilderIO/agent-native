@@ -34,7 +34,7 @@ describe("checkCredentialOrgMembership", () => {
     });
   });
 
-  it("admits an authenticated stored org service token without a membership lookup", async () => {
+  it("admits a stored org service token only for an existing unlinked org", async () => {
     await expect(
       checkCredentialOrgMembership({
         orgId: "Org_Mixed_Case",
@@ -46,7 +46,34 @@ describe("checkCredentialOrgMembership", () => {
         },
       }),
     ).resolves.toBe("member");
-    expect(executeMock).not.toHaveBeenCalled();
+    expect(executeMock).toHaveBeenCalledOnce();
+    expect(executeMock).toHaveBeenCalledWith({
+      sql: expect.stringContaining("FROM organizations"),
+      args: ["Org_Mixed_Case"],
+    });
+  });
+
+  it("rejects a stored org service token for a federated organization", async () => {
+    executeMock.mockResolvedValueOnce({
+      rows: [
+        {
+          identity_authority: "https://identity.example.test",
+          identity_id: "org-upstream-1",
+        },
+      ],
+    });
+
+    await expect(
+      checkCredentialOrgMembership({
+        orgId: "org-1",
+        email: "svc-ci@service.org-1",
+        storedConnectToken: {
+          kind: "service",
+          ownerEmail: "svc-ci@service.org-1",
+          orgId: "org-1",
+        },
+      }),
+    ).resolves.toBe("not-member");
   });
 
   it.each([

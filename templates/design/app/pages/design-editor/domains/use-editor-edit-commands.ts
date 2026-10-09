@@ -38,6 +38,7 @@ import { getDesignDataRecord } from "../design-data-geometry-utils";
 import { type UndoRedoOrderKind } from "../editor-state";
 import {
   type ContentHistoryChange,
+  type FileDeletionRestoreClaim,
   type FileDeletionHistorySnapshot,
 } from "../history";
 import {
@@ -652,21 +653,14 @@ export function useEditorEditCommands({
         explicitlySelectedFiles.length > 0
           ? explicitlySelectedFiles
           : selectedFiles;
-      if (!filesToDelete.length || overviewScreens.length <= 1) return false;
-
-      const maxDeleteCount =
-        filesToDelete.length >= overviewScreens.length
-          ? Math.max(0, overviewScreens.length - 1)
-          : filesToDelete.length;
-      const boundedFilesToDelete = filesToDelete.slice(0, maxDeleteCount);
-      if (!boundedFilesToDelete.length) return false;
+      if (!filesToDelete.length) return false;
 
       const explicitScreenIds = explicitScreenDeletion
-        ? boundedFilesToDelete.map((file) => file.id)
+        ? filesToDelete.map((file) => file.id)
         : explicitlySelectedFiles.map((file) => file.id);
       const selectionRevisionAtStart = selectionRevisionRef.current;
       explicitOverviewScreenSelectionRef.current = [];
-      performDeleteFiles(boundedFilesToDelete, {
+      performDeleteFiles(filesToDelete, {
         recordDeletionHistory: true,
         onMutationSettled: (deletedFiles) => {
           if (selectionRevisionRef.current !== selectionRevisionAtStart) return;
@@ -978,11 +972,15 @@ export function useEditorEditCommands({
   );
 
   const applyDesignDataHistoryChanges = useCallback(
-    (changes: readonly ContentHistoryChange[], direction: "undo" | "redo") => {
+    (
+      changes: readonly ContentHistoryChange[],
+      direction: "undo" | "redo",
+      restoreClaims?: readonly FileDeletionRestoreClaim[],
+    ) => {
       const operations = changes.flatMap(
         (change) => change.designDataChange?.[direction] ?? [],
       );
-      if (operations.length === 0) return true;
+      if (operations.length === 0) return !restoreClaims?.length;
       if (!id) return false;
       const nextData = applyDesignDataOperations(
         designDataJsonRef.current,
@@ -1017,7 +1015,9 @@ export function useEditorEditCommands({
           ? { ...old, data: JSON.stringify(nextData) }
           : old,
       );
-      return enqueueFrameGeometryDataSave(operations);
+      return enqueueFrameGeometryDataSave(operations, {
+        restoreClaims: direction === "undo" ? restoreClaims : undefined,
+      });
     },
     [enqueueFrameGeometryDataSave, id, queryClient],
   );

@@ -25,6 +25,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -37,6 +42,7 @@ import { DateRangeInput } from "../_shared/components/DateRangeInput";
 import {
   FILTER_PARAM_PREFIX,
   isDateRangePresetFilter,
+  MULTI_SELECT_EMPTY,
   resolveDefault,
   resolveFilterVars,
 } from "./filter-vars";
@@ -340,6 +346,30 @@ export function DashboardFilterBar({
   );
 }
 
+function MultiSelectOption({
+  label,
+  checked,
+  onCheckedChange,
+}: {
+  label: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  const id = useId();
+  return (
+    <div className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-xs hover:bg-accent">
+      <Checkbox
+        id={id}
+        checked={checked}
+        onCheckedChange={(next) => onCheckedChange(next === true)}
+      />
+      <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer truncate">
+        {label}
+      </label>
+    </div>
+  );
+}
+
 interface FilterControlProps {
   filter: DashboardFilter;
   vars: Record<string, string>;
@@ -354,6 +384,8 @@ function FilterControl({
   setValue,
 }: FilterControlProps) {
   const t = useT();
+  const labelId = useId();
+  const triggerId = useId();
   if (filter.type === "date-range") {
     const startKey = `${filter.id}Start`;
     const endKey = `${filter.id}End`;
@@ -445,6 +477,75 @@ function FilterControl({
       );
     }
     return selectControl;
+  }
+
+  if (filter.type === "multi-select") {
+    // Values are comma-joined in the URL, so option values must not contain ",".
+    const options = filter.options ?? [];
+    const selected = (vars[filter.id] || "").split(",").filter(Boolean);
+    // Label the values the query receives, including URL values with no matching option, so the trigger never reads "All" over a filtered query.
+    const selectedLabels = selected.map(
+      (value) => options.find((opt) => opt.value === value)?.label ?? value,
+    );
+    const setSelected = (next: string[]) =>
+      setValue({
+        [filter.id]: next.length > 0 ? next.join(",") : MULTI_SELECT_EMPTY,
+      });
+    const toggle = (value: string, checked: boolean) =>
+      setSelected(
+        options
+          .filter((opt) =>
+            opt.value === value ? checked : selected.includes(opt.value),
+          )
+          .map((opt) => opt.value),
+      );
+    return (
+      <div className="flex flex-col gap-1">
+        <label
+          id={labelId}
+          className="text-xs text-muted-foreground font-medium"
+        >
+          {filter.label}
+        </label>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              id={triggerId}
+              aria-labelledby={`${labelId} ${triggerId}`}
+              variant="outline"
+              size="sm"
+              className="w-[160px] justify-start text-xs font-normal"
+            >
+              <span className="min-w-0 truncate">
+                {selectedLabels.length > 0
+                  ? selectedLabels.join(", ")
+                  : t("sqlDashboard.allValues")}
+              </span>
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-[200px] p-1">
+            {options.map((opt) => (
+              <MultiSelectOption
+                key={opt.value}
+                label={opt.label}
+                checked={selected.includes(opt.value)}
+                onCheckedChange={(checked) => toggle(opt.value, checked)}
+              />
+            ))}
+            {selected.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mt-1 h-6 w-full justify-start px-2 text-xs text-muted-foreground"
+                onClick={() => setSelected([])}
+              >
+                {t("sqlDashboard.clearAll")}
+              </Button>
+            )}
+          </PopoverContent>
+        </Popover>
+      </div>
+    );
   }
 
   if (filter.type === "toggle") {

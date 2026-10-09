@@ -1432,12 +1432,13 @@ describe("queryFirstPartyAnalytics", () => {
       "builder-3b0a2.analytics.first_party_analytics_events_raw",
     );
     expect(backendMocks.query).toHaveBeenCalledWith(
-      expect.stringContaining("FROM analytics_events"),
+      expect.stringContaining("analytics_events"),
       expect.any(Array),
       expect.objectContaining({
         fullyQualified:
           "builder-3b0a2.analytics.first_party_analytics_events_raw",
       }),
+      expect.objectContaining({ maxBytesBilled: undefined }),
     );
     expect(execute).not.toHaveBeenCalled();
   });

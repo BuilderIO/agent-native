@@ -7,6 +7,7 @@ export {
 export {
   appendAgentChatContextToMessage,
   splitAgentChatContextFromMessage,
+  stripAgentChatContextFromMessage,
   type AgentChatMessageParts,
 } from "./agent-chat-context.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";

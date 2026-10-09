@@ -1,5 +1,23 @@
 # @agent-native/agentkit
 
+## 0.206.0
+
+### Minor Changes
+
+- e88f35c: Prevent new AI chat work from dispatching without an eligible provider, and provide a consistent Connect AI flow.
+
+  `createProductionAgentHandler` now requires the `assertAiSetupReady` callback. Existing callers must provide a readiness assertion before upgrading; refusals can use the existing `onRunNotStarted` callback to retain the user's prompt and retry context.
+
+  AgentKit transports must provide `assertAiSetupReady`, or clients for transports where shared Agent-Native provider setup does not apply must set `aiSetupReadiness: "not-applicable"` explicitly.
+
+### Patch Changes
+
+- d6f1e18: Keep inline attachment bytes out of durable chat payloads, reject data URLs in queued file references, and distinguish stored references from unreadable malformed uploads.
+- 80e66f8: Persist a sanitized first-prompt title for chat threads without replacing an existing title, hide prompt context from extracted previews, match context tags by exact name, and remove unused browser-installer dependencies from serverless functions.
+- Release all public npm packages with a patch version bump.
+- d6f1e18: Preserve image MIME types through shared chat attachments, report active engine configuration errors instead of treating them as missing provider credentials, validate queued image sizes before decoding, keep legacy queued messages readable, and avoid misleading storage setup guidance for generic upload failures.
+- f3d2b81: Recover completed chat runs when terminal replay is briefly incomplete, keep invalid gateway requests from retrying as transient errors, classify completion timeouts with a stable error code, preserve retries for no-detail transient gateway codes, continue recoverable run timeouts, and reject partial completion when a stream ends cleanly after timeout.
+
 ## 0.205.0
 
 ### Patch Changes

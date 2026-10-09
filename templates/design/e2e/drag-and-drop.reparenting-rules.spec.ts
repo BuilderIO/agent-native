@@ -34,6 +34,7 @@ async function persistedNodeParent(
 }
 
 test.describe("reparenting rules", () => {
+  // oracle: none — verifies app drag persistence across parent changes, not native visual parity.
   test("dragging a flow child out places it directly above the exited frame in visible overlap and persists after reload", async ({
     page,
   }) => {
@@ -139,10 +140,15 @@ test.describe("reparenting rules", () => {
         x: draggedBox.x + grabOffset.x,
         y: draggedBox.y + grabOffset.y,
       };
+      const gapStart = nestedBox.x + nestedBox.width;
+      const gapWidth = candidateBox.x - gapStart;
+      expect(gapWidth).toBeGreaterThan(0);
       const release = {
-        x: nestedBox.x + nestedBox.width + 12,
+        x: gapStart + gapWidth / 2,
         y: nestedBox.y + nestedBox.height / 2,
       };
+      expect(release.x).toBeGreaterThan(gapStart);
+      expect(release.x).toBeLessThan(candidateBox.x);
       expect(release.x).toBeLessThan(outerBox.x + outerBox.width);
       expect(release.y).toBeLessThan(outerBox.y + outerBox.height);
       const crossedPath = {
@@ -256,6 +262,7 @@ test.describe("reparenting rules", () => {
     }
   });
 
+  // oracle: none — verifies app parent assignment for drops, not a measured Figma result.
   test("an object smaller than a frame becomes its direct child when dropped in", async ({
     page,
   }) => {
@@ -293,10 +300,11 @@ test.describe("reparenting rules", () => {
       });
     expect(
       directParent,
-      'Figma: "If an object is smaller than a frame, we will make it a child of the frame."',
+      "Dropping a smaller object over a frame should place it inside the frame.",
     ).toBe("frame-a");
   });
 
+  // oracle: none — verifies the app-specific Space-key drag override, not visual parity.
   test("holding Space while dragging keeps the object in its current parent", async ({
     page,
   }) => {
@@ -376,7 +384,7 @@ test.describe("reparenting rules", () => {
       await expect
         .poll(chipParent, {
           message:
-            'Figma: "When moving an object out of a frame\'s bounds, hold the Space bar to keep an object within the current parent."',
+            "The layer should stay in its current parent while Space is held.",
         })
         .toBe("row");
     } finally {
@@ -392,6 +400,7 @@ test.describe("reparenting rules", () => {
     }
   });
 
+  // oracle: none — verifies nested auto-layout parent persistence, not a measured Figma result.
   test("holding Space keeps a flow child in its nested auto-layout parent", async ({
     page,
   }) => {
@@ -492,7 +501,7 @@ test.describe("reparenting rules", () => {
       await expect
         .poll(chipParent, {
           message:
-            'Figma: "When moving an object out of a frame\'s bounds, hold the Space bar to keep an object within the current parent."',
+            "The layer should stay in its current parent while Space is held.",
         })
         .toBe("row");
     } finally {

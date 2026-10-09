@@ -689,6 +689,18 @@ export default {
     copied: "コピーされました",
     copy: "コピー",
     keyActions: "{{name}} キーアクション",
+    manageReplayOrigins: "リプレイオリジンを管理",
+    replayOriginsDescription:
+      "正確なHTTPSオリジンを1行に1つ追加します。既存のオリジンは保持されます。",
+    currentReplayOrigins: "現在許可されているオリジン",
+    anyReplayOriginAllowed:
+      "現在はすべてのオリジンが許可されています。オリジンを追加すると再生は一覧のみに制限されるため、このキーを使うすべてのアプリを追加してください。",
+    originsToAdd: "追加するオリジン",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "オリジンを追加",
+    addingReplayOrigins: "オリジンを追加中…",
+    replayOriginsUpdateFailed: "許可オリジンを更新できませんでした。",
+    cancel: "キャンセル",
     lastUsed: "最後に使用した{{date}}",
     neverUsed: "決して使われていない",
     revoking: "取り消し中...",
@@ -1084,6 +1096,7 @@ export default {
   },
   sqlDashboard: {
     customRange: "カスタム範囲",
+    allValues: "すべて",
     untitledDashboard: "無題のダッシュボード",
     dashboardFallback: "ダッシュボード",
     viewOnly: "このダッシュボードには表示のみのアクセス権があります。",
@@ -1500,6 +1513,8 @@ export default {
     replayLoading: "リプレイを読み込み中...",
     replayLoadingProgress:
       "{{loaded}} / {{total}} 個のリプレイチャンクを読み込み済み",
+    replayTargetFallback:
+      "指定した録画位置（{{requested}}）は再生できないため、最も近い再生フレーム（{{available}}）を表示しています。",
     replayUnavailable: "このセッションにはリプレイチャンクがありません",
     replayUnavailableDescription:
       "このセッションには分析イベントがありますが、rrweb チャンクイベントは見つかりませんでした。",

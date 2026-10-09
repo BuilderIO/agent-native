@@ -36,6 +36,7 @@ export interface McpOAuthAccessTokenClaims {
   scope: string;
   client_id: string;
   resource: string;
+  grant_created_at_ms?: number;
   jti?: string;
   typ: typeof MCP_OAUTH_TOKEN_TYPE;
   credential_version:
@@ -110,12 +111,24 @@ export async function signMcpOAuthAccessToken(params: {
   scope: string;
   resource: string;
   issuer: string;
+  /** Immutable server-recorded creation time of the OAuth grant, in ms. */
+  grantCreatedAtMs?: number | null;
   jti?: string;
   expiresIn?: string | number;
   catalogScope?: "full";
   /** An org service identity, not a person. */
   service?: true;
 }): Promise<string> {
+  if (
+    params.grantCreatedAtMs !== undefined &&
+    params.grantCreatedAtMs !== null &&
+    (!Number.isSafeInteger(params.grantCreatedAtMs) ||
+      params.grantCreatedAtMs < 0)
+  ) {
+    throw new Error(
+      "OAuth grant creation time must be a non-negative integer.",
+    );
+  }
   return new jose.SignJWT({
     typ: MCP_OAUTH_TOKEN_TYPE,
     credential_version: params.service
@@ -127,6 +140,9 @@ export async function signMcpOAuthAccessToken(params: {
     scope: params.scope,
     client_id: params.clientId,
     resource: params.resource,
+    ...(typeof params.grantCreatedAtMs === "number"
+      ? { grant_created_at_ms: params.grantCreatedAtMs }
+      : {}),
     ...(params.catalogScope === "full" ? { catalog_scope: "full" } : {}),
   })
     .setProtectedHeader({ alg: "HS256" })
@@ -169,6 +185,8 @@ export async function verifyMcpOAuthAccessToken(
   scopes: string[];
   clientId: string;
   jti?: string;
+  /** Immutable OAuth grant creation time, in milliseconds. */
+  grantCreatedAtMs?: number;
   catalogScope?: "full";
   /** `iat`, in seconds. */
   issuedAt?: number;
@@ -221,6 +239,15 @@ export async function verifyMcpOAuthAccessToken(
     }
     const orgIdClaim = parseMcpOAuthOrgIdClaim(payload);
     if (!orgIdClaim) return null;
+    const grantCreatedAtMs = payload.grant_created_at_ms;
+    if (
+      grantCreatedAtMs !== undefined &&
+      (typeof grantCreatedAtMs !== "number" ||
+        !Number.isSafeInteger(grantCreatedAtMs) ||
+        grantCreatedAtMs < 0)
+    ) {
+      return null;
+    }
     return {
       userEmail: payload.sub,
       orgId: orgIdClaim.orgId,
@@ -229,6 +256,7 @@ export async function verifyMcpOAuthAccessToken(
       scopes,
       clientId: payload.client_id,
       jti: typeof payload.jti === "string" ? payload.jti : undefined,
+      ...(typeof grantCreatedAtMs === "number" ? { grantCreatedAtMs } : {}),
       ...(payload.catalog_scope === "full" ? { catalogScope: "full" } : {}),
       ...(typeof payload.iat === "number" ? { issuedAt: payload.iat } : {}),
     };

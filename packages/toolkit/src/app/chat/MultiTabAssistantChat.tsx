@@ -3261,6 +3261,8 @@ export function MultiTabAssistantChat({
               tabId === activeThreadId || mountedTabsRef.current.has(tabId),
           )
           .map((tabId) => {
+            const isKnownNewThread =
+              newThreadIds.current.has(tabId) || isNewThread(tabId);
             const modelSelection = resolveThreadModelSelection(tabId);
             const modelSelectionPending =
               !hostManagedModels && modelListLoading && !modelSelection;
@@ -3296,9 +3298,7 @@ export function MultiTabAssistantChat({
                   isolateHistoryByScope={isolateHistoryByScope}
                   isActiveComposer={!contentHidden && tabId === activeThreadId}
                   apiUrl={apiUrl}
-                  isNewThread={
-                    newThreadIds.current.has(tabId) || isNewThread(tabId)
-                  }
+                  isNewThread={isKnownNewThread}
                   onThreadRestoreNotFound={
                     tabId === activeThreadId &&
                     (props.agentChatSurface !== "desktop" ||
@@ -3306,7 +3306,7 @@ export function MultiTabAssistantChat({
                       ? clearActiveTab
                       : undefined
                   }
-                  isThreadStateLoading={isLoading}
+                  isThreadStateLoading={isLoading && !isKnownNewThread}
                   onMessageCountChange={(count) => {
                     setMessageCounts((prev) =>
                       prev[tabId] === count
