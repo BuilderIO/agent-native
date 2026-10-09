@@ -399,6 +399,24 @@ describe("import-figma-clipboard", () => {
     expect(result.guidance).toMatch(/connect your figma access token/i);
   });
 
+  it("rethrows the typed figma_auth_required when there is no fallback HTML or buffer to import", async () => {
+    mocks.executeProviderApiRequest.mockRejectedValue(
+      Object.assign(new Error("No Figma access token is available"), {
+        errorCode: "figma_auth_required",
+        statusCode: 401,
+      }),
+    );
+
+    await expect(
+      action.run({
+        figmetaFileKey: FILE_KEY,
+        selectedNodeIds: ["1:1"],
+        clipboardHtml: CLIPBOARD_HTML_CURRENT_BINARY_ONLY,
+      } as any),
+    ).rejects.toMatchObject({ errorCode: "figma_auth_required" });
+    expect(mocks.saveImportedDesignFiles).not.toHaveBeenCalled();
+  });
+
   it("treats a provider quota cooldown as transient so the local buffer still decodes", async () => {
     mocks.executeProviderApiRequest.mockRejectedValue(
       Object.assign(new Error("Design is pacing its own Figma requests"), {
