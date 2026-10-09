@@ -5,6 +5,50 @@ import { auditReplayIframeContent } from "./journey-capture-iframe-audit";
 
 type Rect = { left: number; top: number; width: number; height: number };
 
+function setBox(
+  element: HTMLElement,
+  rect: Rect,
+  clientWidth: number,
+  clientHeight: number,
+  clientLeft = 0,
+  clientTop = 0,
+): void {
+  Object.defineProperties(element, {
+    clientHeight: { configurable: true, value: clientHeight },
+    clientLeft: { configurable: true, value: clientLeft },
+    clientTop: { configurable: true, value: clientTop },
+    clientWidth: { configurable: true, value: clientWidth },
+    offsetHeight: { configurable: true, value: rect.height },
+    offsetWidth: { configurable: true, value: rect.width },
+  });
+  element.getBoundingClientRect = () =>
+    ({
+      bottom: rect.top + rect.height,
+      height: rect.height,
+      left: rect.left,
+      right: rect.left + rect.width,
+      top: rect.top,
+      width: rect.width,
+      x: rect.left,
+      y: rect.top,
+      toJSON: () => ({}),
+    }) as DOMRect;
+}
+
+function appendClipper(
+  owner: Document,
+  rect: Rect,
+  clientWidth: number,
+  clientHeight: number,
+  parent: Element = owner.body,
+): HTMLDivElement {
+  const clipper = owner.createElement("div");
+  clipper.style.overflow = "hidden";
+  parent.append(clipper);
+  setBox(clipper, rect, clientWidth, clientHeight);
+  return clipper;
+}
+
 function setViewport(view: Window | null, width: number, height: number): void {
   if (!view) throw new Error("iframe_view_missing");
   Object.defineProperties(view, {
@@ -24,26 +68,7 @@ function appendFrame(
 ): HTMLIFrameElement {
   const frame = owner.createElement("iframe");
   parent.append(frame);
-  Object.defineProperties(frame, {
-    clientHeight: { configurable: true, value: clientHeight },
-    clientLeft: { configurable: true, value: clientLeft },
-    clientTop: { configurable: true, value: clientTop },
-    clientWidth: { configurable: true, value: clientWidth },
-    offsetHeight: { configurable: true, value: rect.height },
-    offsetWidth: { configurable: true, value: rect.width },
-  });
-  frame.getBoundingClientRect = () =>
-    ({
-      bottom: rect.top + rect.height,
-      height: rect.height,
-      left: rect.left,
-      right: rect.left + rect.width,
-      top: rect.top,
-      width: rect.width,
-      x: rect.left,
-      y: rect.top,
-      toJSON: () => ({}),
-    }) as DOMRect;
+  setBox(frame, rect, clientWidth, clientHeight, clientLeft, clientTop);
   setViewport(
     frame.contentDocument?.defaultView ?? null,
     clientWidth,
@@ -260,27 +285,12 @@ describe("replay iframe audit", () => {
       100,
     );
     const replayDocument = replayFrame.contentDocument!;
-    const clipper = replayDocument.createElement("div");
-    clipper.style.overflow = "hidden";
-    replayDocument.body.append(clipper);
-    Object.defineProperties(clipper, {
-      clientHeight: { configurable: true, value: 20 },
-      clientWidth: { configurable: true, value: 20 },
-      offsetHeight: { configurable: true, value: 20 },
-      offsetWidth: { configurable: true, value: 20 },
-    });
-    clipper.getBoundingClientRect = () =>
-      ({
-        bottom: 20,
-        height: 20,
-        left: 0,
-        right: 20,
-        top: 0,
-        width: 20,
-        x: 0,
-        y: 0,
-        toJSON: () => ({}),
-      }) as DOMRect;
+    const clipper = appendClipper(
+      replayDocument,
+      { left: 0, top: 0, width: 20, height: 20 },
+      20,
+      20,
+    );
     const frame = appendFrame(
       replayDocument,
       { left: 30, top: 30, width: 20, height: 20 },
@@ -310,6 +320,249 @@ describe("replay iframe audit", () => {
     ).toEqual({ visibleIframeCount: 0, unavailableIframeCount: 0 });
   });
 
+  it("does not clip an absolute frame by ancestors between it and its containing block", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const containingBlock = replayDocument.createElement("div");
+    containingBlock.style.position = "relative";
+    replayDocument.body.append(containingBlock);
+    const clipper = appendClipper(
+      replayDocument,
+      { left: 0, top: 0, width: 20, height: 20 },
+      20,
+      20,
+      containingBlock,
+    );
+    const frame = appendFrame(
+      replayDocument,
+      { left: 30, top: 30, width: 20, height: 20 },
+      20,
+      20,
+      clipper,
+    );
+    frame.style.position = "absolute";
+    Object.defineProperty(frame, "offsetParent", {
+      configurable: true,
+      value: containingBlock,
+    });
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [],
+      }),
+    ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 1 });
+  });
+
+  it("clips a fixed frame only when an ancestor establishes its containing block", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const viewportWrapper = appendClipper(
+      replayDocument,
+      { left: 0, top: 0, width: 20, height: 20 },
+      20,
+      20,
+    );
+    const escaped = appendFrame(
+      replayDocument,
+      { left: 30, top: 30, width: 20, height: 20 },
+      20,
+      20,
+      viewportWrapper,
+    );
+    escaped.style.position = "fixed";
+    Object.defineProperty(escaped, "offsetParent", {
+      configurable: true,
+      value: null,
+    });
+    const fixedContainingBlock = appendClipper(
+      replayDocument,
+      { left: 50, top: 50, width: 20, height: 20 },
+      20,
+      20,
+    );
+    fixedContainingBlock.style.transform = "translateZ(0)";
+    const clipped = appendFrame(
+      replayDocument,
+      { left: 75, top: 75, width: 20, height: 20 },
+      20,
+      20,
+      fixedContainingBlock,
+    );
+    clipped.style.position = "fixed";
+    Object.defineProperty(clipped, "offsetParent", {
+      configurable: true,
+      value: fixedContainingBlock,
+    });
+    installReplayState(
+      replayFrame,
+      new WeakMap([
+        [escaped, 1],
+        [clipped, 2],
+      ]),
+    );
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [],
+      }),
+    ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 1 });
+  });
+
+  it("uses the initial containing block when offsetParent falls back to a short body", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    replayDocument.documentElement.style.overflow = "hidden";
+    replayDocument.documentElement.style.contain = "none";
+    replayDocument.body.style.display = "block";
+    replayDocument.body.style.position = "static";
+    replayDocument.body.style.overflow = "hidden";
+    replayDocument.body.style.contain = "none";
+    setBox(
+      replayDocument.body,
+      { left: 0, top: 0, width: 100, height: 1 },
+      100,
+      1,
+    );
+    const frame = appendFrame(
+      replayDocument,
+      { left: 10, top: 10, width: 20, height: 20 },
+      20,
+      20,
+    );
+    frame.style.position = "absolute";
+    Object.defineProperty(frame, "offsetParent", {
+      configurable: true,
+      value: replayDocument.body,
+    });
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [],
+      }),
+    ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 1 });
+  });
+
+  it("uses the viewport when body overflow propagates to it", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    replayDocument.documentElement.style.overflow = "visible";
+    replayDocument.documentElement.style.contain = "none";
+    replayDocument.body.style.display = "block";
+    replayDocument.body.style.position = "static";
+    replayDocument.body.style.overflow = "hidden";
+    replayDocument.body.style.contain = "none";
+    setBox(
+      replayDocument.body,
+      { left: 0, top: 0, width: 100, height: 1 },
+      100,
+      1,
+    );
+    const frame = appendFrame(
+      replayDocument,
+      { left: 10, top: 10, width: 20, height: 20 },
+      20,
+      20,
+    );
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [],
+      }),
+    ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 1 });
+  });
+
+  it("uses the viewport for root overflow instead of the root element box", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    replayDocument.documentElement.style.overflow = "hidden";
+    setBox(
+      replayDocument.documentElement,
+      { left: 0, top: 0, width: 100, height: 1 },
+      100,
+      1,
+    );
+    const frame = appendFrame(
+      replayDocument,
+      { left: 10, top: 10, width: 20, height: 20 },
+      20,
+      20,
+    );
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [],
+      }),
+    ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 1 });
+  });
+
+  it("clips an iframe outside a paint-contained ancestor", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const contained = replayDocument.createElement("div");
+    contained.style.contain = "paint";
+    replayDocument.body.append(contained);
+    setBox(contained, { left: 0, top: 0, width: 20, height: 20 }, 20, 20);
+    const frame = appendFrame(
+      replayDocument,
+      { left: 30, top: 30, width: 20, height: 20 },
+      20,
+      20,
+      contained,
+    );
+    frame.style.position = "absolute";
+    Object.defineProperty(frame, "offsetParent", {
+      configurable: true,
+      value: contained,
+    });
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [],
+      }),
+    ).toEqual({ visibleIframeCount: 0, unavailableIframeCount: 0 });
+  });
+
   it("maps ancestor clipping into a nested document before auditing", () => {
     const replayFrame = appendFrame(
       document,
@@ -318,27 +571,12 @@ describe("replay iframe audit", () => {
       100,
     );
     const replayDocument = replayFrame.contentDocument!;
-    const clipper = replayDocument.createElement("div");
-    clipper.style.overflow = "hidden";
-    replayDocument.body.append(clipper);
-    Object.defineProperties(clipper, {
-      clientHeight: { configurable: true, value: 80 },
-      clientWidth: { configurable: true, value: 50 },
-      offsetHeight: { configurable: true, value: 80 },
-      offsetWidth: { configurable: true, value: 50 },
-    });
-    clipper.getBoundingClientRect = () =>
-      ({
-        bottom: 80,
-        height: 80,
-        left: 0,
-        right: 50,
-        top: 0,
-        width: 50,
-        x: 0,
-        y: 0,
-        toJSON: () => ({}),
-      }) as DOMRect;
+    const clipper = appendClipper(
+      replayDocument,
+      { left: 0, top: 0, width: 50, height: 80 },
+      50,
+      80,
+    );
     const outer = appendFrame(
       replayDocument,
       { left: 40, top: 0, width: 40, height: 40 },

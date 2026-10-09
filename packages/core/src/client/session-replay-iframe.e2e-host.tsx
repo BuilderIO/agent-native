@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 
+import { templatePreviewDocument } from "../../../../templates/design/app/components/templates/template-preview-document.js";
+import { socialStory } from "../../../../templates/design/shared/design-template-presets/social-story.js";
 import { AgentNativeExtensionSlot } from "../../../toolkit/src/app/extensions/AgentNativeExtensionFrame.js";
+import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "../session-replay-iframe-protocol.js";
 import { startSessionReplay, stopSessionReplay } from "./session-replay.js";
 
 const extension = {
@@ -37,6 +40,7 @@ declare global {
     __sessionReplayIframeE2E?: {
       done: boolean;
       error?: string;
+      stop?: () => Promise<void>;
     };
   }
 }
@@ -46,6 +50,13 @@ function Host() {
 
   useEffect(() => {
     let disposed = false;
+    let stopped = false;
+    const finish = async () => {
+      if (stopped) return;
+      stopped = true;
+      await stopSessionReplay("manual");
+      window.__sessionReplayIframeE2E = { done: true };
+    };
     void startSessionReplay({
       publicKey: "anpk_iframe_e2e",
       endpoint: "/__session-replay-iframe-upload",
@@ -61,24 +72,42 @@ function Host() {
         };
         return;
       }
+      window.__sessionReplayIframeE2E = { done: false, stop: finish };
       setRecording(true);
     });
 
     const onMessage = (event: MessageEvent) => {
       if (event.data?.type !== "session-replay-iframe-e2e.done") return;
-      void stopSessionReplay("manual").then(() => {
-        window.__sessionReplayIframeE2E = { done: true };
-      });
+      void finish();
     };
     window.addEventListener("message", onMessage);
     return () => {
       disposed = true;
       window.removeEventListener("message", onMessage);
-      void stopSessionReplay("manual");
+      void finish();
     };
   }, []);
 
-  return recording ? (
+  if (!recording) return null;
+
+  if (
+    new URLSearchParams(window.location.search).get("surface") ===
+    "design-template"
+  ) {
+    return (
+      <iframe
+        {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
+        title={socialStory.title}
+        srcDoc={templatePreviewDocument(socialStory.content)}
+        sandbox="allow-scripts"
+        {...{ credentialless: "" }}
+        loading="eager"
+        style={{ border: 0, height: 680, width: 600 }}
+      />
+    );
+  }
+
+  return (
     <>
       <AgentNativeExtensionSlot
         id="session-replay.test"
@@ -94,7 +123,7 @@ function Host() {
         </body></html>`}
       />
     </>
-  ) : null;
+  );
 }
 
 createRoot(document.getElementById("root") as HTMLElement).render(<Host />);

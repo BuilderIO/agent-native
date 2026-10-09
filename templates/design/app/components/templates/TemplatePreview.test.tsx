@@ -60,7 +60,9 @@ describe("template artboard preview", () => {
         "translate(-50%, -50%) scale(var(--design-template-scale))",
       );
       expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
-      expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(true);
+      expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(
+        false,
+      );
       expect(frame.style.getPropertyValue("--design-template-width")).toBe(
         `${width}px`,
       );
@@ -76,6 +78,7 @@ describe("template artboard preview", () => {
           title="Interactive fixture"
           html='<main x-data="{count:0}"><button @click="count++">Increment</button><span x-text="count"></span></main>'
           interactive
+          recordSessionReplay
           onNavigate={onNavigate}
           onEscape={onEscape}
         />,
@@ -83,6 +86,7 @@ describe("template artboard preview", () => {
     );
     const frame = container.querySelector("iframe")!;
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(true);
     expect(frame.hasAttribute("credentialless")).toBe(true);
     expect(frame.tabIndex).toBe(0);
     expect(frame.getAttribute("aria-hidden")).toBeNull();

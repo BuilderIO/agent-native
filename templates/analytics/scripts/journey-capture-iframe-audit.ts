@@ -67,8 +67,71 @@ export function auditReplayIframeContent({
     }
 
     for (const frame of frames) {
-      const visibility = view.getComputedStyle(frame).visibility;
+      const frameStyle = view.getComputedStyle(frame);
+      const visibility = frameStyle.visibility;
       if (visibility === "hidden" || visibility === "collapse") continue;
+      const position = frameStyle.position;
+      const positioned = position === "absolute" || position === "fixed";
+      let containingBlock = positioned ? frame.offsetParent : null;
+      if (position === "absolute" && containingBlock === owner.body) {
+        const bodyStyle = view.getComputedStyle(owner.body);
+        let bodyEstablishesContainingBlock =
+          (bodyStyle.position !== "" && bodyStyle.position !== "static") ||
+          (bodyStyle.transform !== "" && bodyStyle.transform !== "none") ||
+          (bodyStyle.perspective !== "" && bodyStyle.perspective !== "none") ||
+          (bodyStyle.getPropertyValue("filter") !== "" &&
+            bodyStyle.getPropertyValue("filter") !== "none") ||
+          (bodyStyle.getPropertyValue("backdrop-filter") !== "" &&
+            bodyStyle.getPropertyValue("backdrop-filter") !== "none") ||
+          (bodyStyle.getPropertyValue("translate") !== "" &&
+            bodyStyle.getPropertyValue("translate") !== "none") ||
+          (bodyStyle.getPropertyValue("rotate") !== "" &&
+            bodyStyle.getPropertyValue("rotate") !== "none") ||
+          (bodyStyle.getPropertyValue("scale") !== "" &&
+            bodyStyle.getPropertyValue("scale") !== "none") ||
+          bodyStyle.contentVisibility === "auto";
+        const bodyContainment = bodyStyle.contain.split(/\s+/);
+        for (const value of bodyContainment) {
+          if (
+            value === "layout" ||
+            value === "paint" ||
+            value === "strict" ||
+            value === "content"
+          ) {
+            bodyEstablishesContainingBlock = true;
+          }
+        }
+        const bodyWillChange = bodyStyle.willChange;
+        if (
+          bodyWillChange.includes("transform") ||
+          bodyWillChange.includes("perspective") ||
+          bodyWillChange.includes("filter") ||
+          bodyWillChange.includes("backdrop-filter") ||
+          bodyWillChange.includes("translate") ||
+          bodyWillChange.includes("rotate") ||
+          bodyWillChange.includes("scale") ||
+          bodyWillChange.includes("position") ||
+          bodyWillChange.includes("contain") ||
+          bodyWillChange.includes("content-visibility")
+        ) {
+          bodyEstablishesContainingBlock = true;
+        }
+        if (!bodyEstablishesContainingBlock) containingBlock = null;
+      }
+      let reachedContainingBlock = !positioned;
+      const rootElement = owner.documentElement;
+      const rootStyle = view.getComputedStyle(rootElement);
+      const bodyStyle = view.getComputedStyle(owner.body);
+      const rootOverflowX = rootStyle.overflowX || rootStyle.overflow;
+      const rootOverflowY = rootStyle.overflowY || rootStyle.overflow;
+      const bodyOverflowPropagatesToViewport =
+        rootOverflowX === "visible" &&
+        rootOverflowY === "visible" &&
+        rootStyle.contain === "none" &&
+        rootStyle.contentVisibility !== "auto" &&
+        bodyStyle.display !== "none" &&
+        bodyStyle.contain === "none" &&
+        bodyStyle.contentVisibility !== "auto";
 
       let rendered = true;
       const bounds = frame.getBoundingClientRect();
@@ -99,7 +162,10 @@ export function auditReplayIframeContent({
           rendered = false;
           break;
         }
-        if (current !== frame) {
+        if (
+          current !== frame &&
+          (!positioned || reachedContainingBlock || current === containingBlock)
+        ) {
           const ancestor = current as HTMLElement;
           const ancestorBounds = ancestor.getBoundingClientRect();
           const scaleX =
@@ -112,8 +178,26 @@ export function auditReplayIframeContent({
               : 1;
           const overflowX = styles.overflowX || styles.overflow;
           const overflowY = styles.overflowY || styles.overflow;
+          const overflowAppliesToViewport =
+            current === rootElement ||
+            (current === owner.body && bodyOverflowPropagatesToViewport);
+          const containment = styles.contain.split(/\s+/);
+          let paintContainment = styles.contentVisibility === "auto";
+          for (const value of containment) {
+            if (
+              value === "paint" ||
+              value === "strict" ||
+              value === "content"
+            ) {
+              paintContainment = true;
+            }
+          }
           if (
-            ["auto", "clip", "hidden", "overlay", "scroll"].includes(overflowX)
+            paintContainment ||
+            (!overflowAppliesToViewport &&
+              ["auto", "clip", "hidden", "overlay", "scroll"].includes(
+                overflowX,
+              ))
           ) {
             const left = ancestorBounds.left + ancestor.clientLeft * scaleX;
             visibleLeft = Math.max(visibleLeft, left);
@@ -123,7 +207,11 @@ export function auditReplayIframeContent({
             );
           }
           if (
-            ["auto", "clip", "hidden", "overlay", "scroll"].includes(overflowY)
+            paintContainment ||
+            (!overflowAppliesToViewport &&
+              ["auto", "clip", "hidden", "overlay", "scroll"].includes(
+                overflowY,
+              ))
           ) {
             const top = ancestorBounds.top + ancestor.clientTop * scaleY;
             visibleTop = Math.max(visibleTop, top);
@@ -132,6 +220,9 @@ export function auditReplayIframeContent({
               top + ancestor.clientHeight * scaleY,
             );
           }
+        }
+        if (positioned && current === containingBlock) {
+          reachedContainingBlock = true;
         }
         if (current.assignedSlot) {
           current = current.assignedSlot;

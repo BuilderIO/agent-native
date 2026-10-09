@@ -20,6 +20,7 @@ export function TemplatePreview({
   height,
   className,
   interactive = false,
+  recordSessionReplay = false,
   onNavigate,
   onEscape,
 }: {
@@ -29,6 +30,7 @@ export function TemplatePreview({
   height?: number | null;
   className?: string;
   interactive?: boolean;
+  recordSessionReplay?: boolean;
   onNavigate?: (href: string) => void;
   onEscape?: () => void;
 }) {
@@ -106,7 +108,9 @@ export function TemplatePreview({
     >
       <iframe
         ref={frameRef}
-        {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
+        {...(recordSessionReplay
+          ? { [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }
+          : {})}
         title={title}
         srcDoc={document}
         sandbox="allow-scripts"
