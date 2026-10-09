@@ -2284,7 +2284,7 @@ const FEEDBACK_REPLY_CONTEXT =
   /(?:reply|repl(?:y|ies)|responses?|status\s+updates?|feedback\s+updates?)/i
     .source;
 const FEEDBACK_REPLY_DETAIL_ISSUE =
-  /(?:too\s+technical|overly\s+technical|excessively\s+technical|too\s+detailed|overly\s+detailed|excessively\s+detailed|high[- ]level|too\s+much\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|less\s+technical|less\s+detail|(?:should\s+not|shouldn't)\s+(?:(?:include|contain|have)\s+)?(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|should\s+(?:include|contain|have)\s+no\s+(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|(?:without|free\s+of)\s+(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information))/i
+  /(?:too\s+technical|overly\s+technical|excessively\s+technical|too\s+detailed|overly\s+detailed|excessively\s+detailed|too\s+much\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|less\s+technical|less\s+detail|(?:should\s+not|shouldn't)\s+(?:(?:include|contain|have)\s+)?(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|should\s+(?:include|contain|have)\s+no\s+(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|(?:without|free\s+of)\s+(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information))/i
     .source;
 const FEEDBACK_REPLY_DETAIL_TARGET =
   /(?:(?:technical|implementation|internal|deployment)\s+(?:details?|information)|(?:commit|branch|ci|publisher|deployment|run|workflow)(?:\s+(?:details?|hash(?:es)?|results?|mentions?|status|ids?|names?))?|hash(?:es)?|results?)/i
@@ -2321,6 +2321,9 @@ const FEEDBACK_REPLY_DETAIL_RE = new RegExp(
         "\\b[^.!?;]{0,100}\\b" +
         FEEDBACK_REPLY_CONTEXT +
         "\\b",
+      "\\b(?:keep|make|write|use)\\b[^.!?;]{0,100}\\b" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b[^.!?;]{0,100}\\b(?:at\\s+)?(?:a\\s+)?high[- ]level\\b",
       "\\b" +
         FEEDBACK_REPLY_CONTEXT +
         "\\b[^.!?;]{0,100}\\b" +
@@ -2352,6 +2355,7 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [true, "Your replies\nare too technical."],
   [true, "Replies are too technical."],
   [true, "Leave out publisher details from replies."],
+  [true, "Please keep replies at a high level."],
   [true, "Don't include commit hashes or CI results in replies."],
   [true, "Don't include commit hashes in responses."],
   [true, "Replies should not include any more technical details."],
@@ -2371,6 +2375,9 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [false, "Please reply with technical details."],
   [false, "Please reply with very technical details."],
   [false, "Don't make replies less technical."],
+  [false, "Replies are too high level."],
+  [false, "Your replies are already high level."],
+  [false, "I like the high-level replies."],
   [false, "Don’t skip technical details in your reply."],
   [false, "Replies are not too technical."],
   [false, "Replies aren't too technical."],
