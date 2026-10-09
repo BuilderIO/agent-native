@@ -2648,15 +2648,59 @@ export async function runAuthoringFuzz(
     if (!listboxId) throw new Error("slash menu did not expose its listbox");
     return page.locator(`[role="listbox"][id=${JSON.stringify(listboxId)}]`);
   };
-  const controlledSlashListbox = async () => {
-    const listboxId = await editor.getAttribute("aria-controls");
-    return listboxId
-      ? page.locator(`[role="listbox"][id=${JSON.stringify(listboxId)}]`)
-      : null;
-  };
-  const waitForSlashMenuHidden = async () => {
-    const listbox = await controlledSlashListbox();
-    if (listbox) await listbox.waitFor({ state: "hidden", timeout: 1500 });
+  const assertSlashMenuStaysHidden = async () => {
+    const menuOpened = await page.evaluate(
+      (selector: string, durationMs: number) => {
+        const editingEl = document.querySelector<HTMLElement>(selector);
+        if (!editingEl) throw new Error("slash menu editor is unavailable");
+        const isControlledListboxVisible = () => {
+          const listboxId = editingEl.getAttribute("aria-controls");
+          const listbox = listboxId ? document.getElementById(listboxId) : null;
+          if (listbox?.getAttribute("role") !== "listbox") return false;
+          const style = getComputedStyle(listbox);
+          return (
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            listbox.getClientRects().length > 0
+          );
+        };
+        return new Promise<boolean>((resolve) => {
+          let observer: MutationObserver | undefined;
+          let timer: number | undefined;
+          const finish = (opened: boolean) => {
+            observer?.disconnect();
+            if (timer !== undefined) window.clearTimeout(timer);
+            resolve(opened);
+          };
+          const check = () => {
+            if (isControlledListboxVisible()) finish(true);
+          };
+          observer = new MutationObserver(check);
+          observer.observe(document.documentElement, {
+            subtree: true,
+            childList: true,
+            attributes: true,
+            attributeFilter: [
+              "aria-activedescendant",
+              "aria-controls",
+              "aria-hidden",
+              "class",
+              "data-state",
+              "hidden",
+              "id",
+              "role",
+              "style",
+            ],
+          });
+          timer = window.setTimeout(() => finish(false), durationMs);
+          check();
+        });
+      },
+      editorSelector,
+      1_500,
+    );
+    if (menuOpened)
+      throw new Error("slash menu opened for a slash within text or a URL");
   };
   const runSlashCommand = async (
     command: string,
@@ -3254,12 +3298,11 @@ export async function runAuthoringFuzz(
         case "slash-position": {
           await newLine();
           await typeText("and");
-          await waitForSlashMenuHidden();
           await typeText("/");
-          await waitForSlashMenuHidden();
+          await assertSlashMenuStaysHidden();
           await typeText("or https:");
           await typeText("/");
-          await waitForSlashMenuHidden();
+          await assertSlashMenuStaysHidden();
           await typeText("/example.com ");
           await typeText("/");
           const listbox = await waitForControlledSlashListbox();
