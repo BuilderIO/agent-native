@@ -99,6 +99,7 @@ export interface AnalyticsQueryResult {
 export interface AnalyticsQueryOptions {
   cache?: boolean;
   timeoutMs?: number;
+  maxBytesBilled?: number;
   /** Debugging only: metrics exclude test identities by default. */
   includeTestIdentities?: boolean;
 }
@@ -1386,7 +1387,9 @@ export async function queryFirstPartyAnalytics(
     );
     const table = await getFirstPartyAnalyticsTable(backend.table);
     const scoped = scopedAnalyticsSql(sql, scope, undefined, scopeOptions);
-    return queryFirstPartyAnalyticsInBigQuery(scoped.sql, scoped.args, table);
+    return queryFirstPartyAnalyticsInBigQuery(scoped.sql, scoped.args, table, {
+      maxBytesBilled: options.maxBytesBilled,
+    });
   }
   validateAnalyticsSqlFunctions(validateFirstPartyAnalyticsSqlShape(sql));
   const scoped = scopedAnalyticsSql(sql, scope, undefined, scopeOptions);

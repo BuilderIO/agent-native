@@ -2,6 +2,7 @@ import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  openMcpAppHostLink,
   useIsMcpAppWidgetEmbed,
   useIsMcpDirectoryWidgetReadOnlyEmbed,
 } from "@agent-native/core/client/mcp-app-host";
@@ -27,6 +28,7 @@ import {
   IconSun,
   IconMoon,
   IconDotsVertical,
+  IconExternalLink,
   IconArrowBackUp,
   IconArrowForwardUp,
   IconLoader2,
@@ -105,6 +107,7 @@ import {
   parseUploadResponse,
   promptImportResponseError,
 } from "@/lib/upload-response";
+import { cn } from "@/lib/utils";
 
 import {
   registerEditorCommands,
@@ -770,6 +773,21 @@ export default function EditorToolbar({
 
   useEffect(() => registerEditorCommands(() => editorCommandsRef.current), []);
 
+  // The host decides how a link leaves the widget frame; a host that cannot
+  // open it, or has no bridge, falls back to a plain new tab.
+  const openEditorInApp = () => {
+    const openTab = () =>
+      window.open(editorUrl, "_blank", "noopener,noreferrer");
+    const request = openMcpAppHostLink(editorUrl);
+    if (!request) {
+      openTab();
+      return;
+    }
+    void request.then((opened) => {
+      if (!opened) openTab();
+    }, openTab);
+  };
+
   const handlePresentClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
     if (event.button !== 0 && event.button !== 1) return;
     const preserveNativeNavigation =
@@ -849,7 +867,12 @@ export default function EditorToolbar({
         readOnly={!canEdit}
         onChange={(e) => onTitleChange(e.target.value)}
         style={{ width: `${titleInputWidth}px` }}
-        className="min-w-0 max-w-[500px] shrink-0 bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"
+        className={cn(
+          "min-w-0 max-w-[500px] bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground",
+          // The widget pane is narrower than the toolbar's controls, so a long
+          // title gives way to Share instead of pushing it out of view.
+          widgetEmbed ? "shrink truncate" : "shrink-0",
+        )}
         spellCheck={false}
       />
 
@@ -1127,52 +1150,71 @@ export default function EditorToolbar({
       </div>
 
       {/* Framework share (ownership, per-user/org grants, visibility) */}
-      {!widgetEmbed && (
-        <div className="flex-shrink-0">
-          <ShareButton
-            resourceType="deck"
-            resourceId={deckId}
-            resourceTitle={deckTitle}
-            panelTitle={t("share.title")}
-            roleCopy={{
-              commenter: {
-                label: t("editorToolbar.commenterRoleLabel"),
-                description: t("editorToolbar.commenterRoleDescription"),
-              },
-            }}
-            shareUrl={showShareLink ? primaryShareLink.url : undefined}
-            shareUrlLabel={primaryShareLink.label}
-            shareUrlDescription={primaryShareLink.description}
-            showShareLinks={showShareLink}
-            shareTabs={
-              creativeContextEnabled
-                ? {
-                    tabs: [
-                      {
-                        value: "context",
-                        label: t("creativeContext.share.tabLabel"),
-                        content: (
-                          <CreativeContextShareTab
-                            resource={{
-                              appId: "slides",
-                              resourceType: "deck",
-                              resourceId: deckId,
-                              title: deckTitle,
-                              updatedAt: deck.updatedAt,
-                              preview: {
-                                kind: "document",
-                                label: t("header.deck"),
-                              },
-                            }}
-                          />
-                        ),
-                      },
-                    ],
-                  }
-                : undefined
-            }
-          />
-        </div>
+      <div className="flex-shrink-0">
+        <ShareButton
+          resourceType="deck"
+          resourceId={deckId}
+          resourceTitle={deckTitle}
+          panelTitle={t("share.title")}
+          roleCopy={{
+            commenter: {
+              label: t("editorToolbar.commenterRoleLabel"),
+              description: t("editorToolbar.commenterRoleDescription"),
+            },
+          }}
+          shareUrl={showShareLink ? primaryShareLink.url : undefined}
+          shareUrlLabel={primaryShareLink.label}
+          shareUrlDescription={primaryShareLink.description}
+          showShareLinks={showShareLink}
+          mobileSheet={widgetEmbed}
+          basicSharingOnly={widgetEmbed}
+          shareTabs={
+            creativeContextEnabled && !widgetEmbed
+              ? {
+                  tabs: [
+                    {
+                      value: "context",
+                      label: t("creativeContext.share.tabLabel"),
+                      content: (
+                        <CreativeContextShareTab
+                          resource={{
+                            appId: "slides",
+                            resourceType: "deck",
+                            resourceId: deckId,
+                            title: deckTitle,
+                            updatedAt: deck.updatedAt,
+                            preview: {
+                              kind: "document",
+                              label: t("header.deck"),
+                            },
+                          }}
+                        />
+                      ),
+                    },
+                  ],
+                }
+              : undefined
+          }
+        />
+      </div>
+      {widgetEmbed && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={`${TOOLBAR_ICON_BUTTON_CLASS} cursor-pointer text-muted-foreground hover:bg-accent hover:text-foreground/70`}
+              aria-label={t("editorToolbar.openInAgentNative")}
+              onClick={openEditorInApp}
+            >
+              <IconExternalLink className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {t("editorToolbar.openInAgentNative")}
+          </TooltipContent>
+        </Tooltip>
       )}
       {/* Present button — matches Share trigger height (h-9) */}
       {!widgetEmbed && hasSlides ? (
