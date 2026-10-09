@@ -3199,6 +3199,53 @@ describe("createAgentNativeAgentKitTransport", () => {
                 contentType: "image/png",
                 url: "data:image/png;base64,inline-url-must-not-persist",
               },
+              {
+                type: "image",
+                name: "inline-with-durable-reference.png",
+                contentType: "image/png",
+                url: "data:image/png;base64,inline-url-must-not-persist",
+                referenceUrl:
+                  "https://files.example.test/reference-fallback.png",
+              },
+              {
+                type: "image",
+                name: "signed-url.png",
+                contentType: "image/png",
+                url: "https://files.example.test/signed.png?token=signed-url-secret",
+                referenceUrl:
+                  "https://files.example.test/signed-reference.png#private-fragment",
+              },
+              {
+                type: "image",
+                name: "short-base64-url.png",
+                contentType: "image/png",
+                url: "AQID",
+              },
+              {
+                type: "image",
+                name: "short-base64-reference.png",
+                contentType: "image/png",
+                url: "https://files.example.test/reference-with-short-base64.png",
+                referenceUrl: "AQIDBA==",
+              },
+              {
+                type: "image",
+                name: "credential-url.png",
+                contentType: "image/png",
+                url: "https://user:password-secret@files.example.test/private.png",
+              },
+              {
+                type: "image",
+                name: "insecure-url.png",
+                contentType: "image/png",
+                url: "http://files.example.test/insecure.png",
+              },
+              {
+                type: "image",
+                name: "relative-url.png",
+                contentType: "image/png",
+                url: "/uploads/reference.png",
+              },
             ],
           },
         },
@@ -3226,6 +3273,18 @@ describe("createAgentNativeAgentKitTransport", () => {
               url: "https://files.example.test/reference-resized.png",
               referenceUrl: "https://files.example.test/reference-original.png",
             },
+            {
+              type: "image",
+              name: "inline-with-durable-reference.png",
+              contentType: "image/png",
+              url: "https://files.example.test/reference-fallback.png",
+            },
+            {
+              type: "image",
+              name: "short-base64-reference.png",
+              contentType: "image/png",
+              url: "https://files.example.test/reference-with-short-base64.png",
+            },
           ],
         },
       });
@@ -3235,6 +3294,13 @@ describe("createAgentNativeAgentKitTransport", () => {
       expect(serializedReload).not.toContain("inline-pixels-must-not-persist");
       expect(serializedReload).not.toContain("inline-url-must-not-persist");
       expect(serializedReload).not.toContain("data:image");
+      expect(serializedReload).not.toContain("signed-url-secret");
+      expect(serializedReload).not.toContain("private-fragment");
+      expect(serializedReload).not.toContain("password-secret");
+      expect(serializedReload).not.toContain("AQID");
+      expect(serializedReload).not.toContain("AQIDBA==");
+      expect(serializedReload).not.toContain("insecure.png");
+      expect(serializedReload).not.toContain("/uploads/reference.png");
       expect(serializedReload).not.toContain("ignoredField");
       await transport.dispose();
     });

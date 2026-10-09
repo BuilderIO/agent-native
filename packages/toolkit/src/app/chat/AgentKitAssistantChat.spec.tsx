@@ -3345,7 +3345,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     },
   );
 
-  it("sends a downscaled image without storage and marks retry unavailable", async () => {
+  it("surfaces missing storage before sending a downscaled image", async () => {
     const bitmap = {
       width: 2560,
       height: 1440,
@@ -3374,29 +3374,63 @@ describe("AgentKitAssistantChat host behavior", () => {
       type: "image/png",
     });
 
-    await act(async () => {
-      await chatMocks.composerProps.onSubmit("Use this reference", [file], [], {
+    await expect(
+      chatMocks.composerProps.onSubmit("Use this reference", [file], [], {
         intent: "immediate",
-      });
+      }),
+    ).rejects.toMatchObject({
+      message: "onboarding.fileStorage.title",
+      code: "upload_storage_unavailable",
+      retryable: false,
     });
 
     expect(bitmap.close).toHaveBeenCalledOnce();
     expect(chatMocks.control.uploadFiles).not.toHaveBeenCalled();
-    const sent = chatMocks.control.sendMessage.mock.calls[0]?.[0] as any;
-    expect(sent.requestAttachments).toEqual([
-      {
-        type: "image",
-        name: "reference.png",
-        contentType: "image/png",
-        data: "data:image/png;base64,cmVzaXplZCBwaXhlbHM=",
-      },
-    ]);
-    expect(sent.metadata.custom.agentNativeRetryAttachmentsUnavailable).toBe(
-      true,
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("surfaces failure when neither original nor resized image can be stored", async () => {
+    const bitmap = {
+      width: 2560,
+      height: 1440,
+      close: vi.fn(),
+    } as unknown as ImageBitmap;
+    vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue(bitmap));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      clearRect: vi.fn(),
+      drawImage: vi.fn(),
+      save: vi.fn(),
+      fillRect: vi.fn(),
+      restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+      (callback, type) =>
+        callback(new Blob(["resized pixels"], { type: type ?? "image/png" })),
     );
-    expect(
-      sent.metadata.custom.agentNativeRetryRequestAttachments,
-    ).toBeUndefined();
+    const uploadError = Object.assign(
+      new Error("agentChat.composer.uploadUnavailable"),
+      { code: "upload_unavailable", retryable: true },
+    );
+    chatMocks.control.uploadFiles
+      .mockRejectedValueOnce(uploadError)
+      .mockRejectedValueOnce(uploadError);
+    await mount(baseProps());
+    const file = new File([largePngBytes()], "reference.png", {
+      type: "image/png",
+    });
+
+    await expect(
+      chatMocks.composerProps.onSubmit("Use this reference", [file], [], {
+        intent: "immediate",
+      }),
+    ).rejects.toMatchObject({
+      message: "agentChat.composer.uploadUnavailable",
+      code: "upload_unavailable",
+      retryable: true,
+    });
+
+    expect(chatMocks.control.uploadFiles).toHaveBeenCalledTimes(2);
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
   });
 
   it("rejects oversized aggregate inline images before sending without storage", async () => {

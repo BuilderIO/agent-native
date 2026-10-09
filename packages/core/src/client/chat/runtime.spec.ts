@@ -2758,6 +2758,67 @@ describe("createAgentNativeChatRuntime", () => {
     expect(historyText).not.toContain(imageBytes);
   });
 
+  it("pins the first and latest prior asks across a long assistant tail", async () => {
+    const originalAsk =
+      "Create a LinkedIn ad at exactly 1200x627 with a fixed canvas.";
+    const latestPriorAsk = "Keep the format and make the headline more direct.";
+    const currentPrompt = "Use the shorter headline option.";
+    const assistantTail = Array.from({ length: 140 }, (_, index) => ({
+      id: `assistant-tail-${index}`,
+      role: "assistant" as const,
+      content: [
+        { type: "reasoning" as const, text: `Private scratch ${index}.` },
+        { type: "text" as const, text: `Working note ${index}.` },
+      ],
+    }));
+    const messages = [
+      {
+        id: "original-size-format-ask",
+        role: "user" as const,
+        content: [{ type: "text" as const, text: originalAsk }],
+      },
+      {
+        id: "latest-prior-ask",
+        role: "user" as const,
+        content: [{ type: "text" as const, text: latestPriorAsk }],
+      },
+      ...assistantTail,
+      {
+        id: "current-prompt",
+        role: "user" as const,
+        content: [{ type: "text" as const, text: currentPrompt }],
+      },
+    ];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-pin-latest-prior-ask",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({ prompt: currentPrompt, messages });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const structuredHistory = body.structuredHistory as Array<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const historyText = structuredHistory
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "text")
+      .map((part) => part.text ?? "")
+      .join("\n");
+
+    expect(historyText).toContain(originalAsk);
+    expect(historyText).toContain(latestPriorAsk);
+    expect(historyText).toContain("Working note 139.");
+    expect(historyText).not.toContain(currentPrompt);
+    expect(JSON.stringify(body)).not.toContain("Private scratch");
+  });
+
   it("omits oversized tool-call and result identifiers and names", async () => {
     const oversizedId = "i".repeat(64 * 1024 + 1);
     const oversizedName = "n".repeat(64 * 1024 + 1);

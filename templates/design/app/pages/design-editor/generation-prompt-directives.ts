@@ -1,6 +1,9 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import type { TweakDefinition } from "@shared/api";
-import { resolveCanvasIntent } from "@shared/canvas-dimensions";
+import {
+  requestedCanvasDeviceVariants,
+  resolveCanvasIntent,
+} from "@shared/canvas-dimensions";
 import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 import { hasSpecifiedDesignPrompt } from "@shared/specified-design-prompt";
 
@@ -168,12 +171,16 @@ export function designCanvasIntentDirectives(
     }
     if (intent.source === "explicit-dimensions" || intent.source === "preset") {
       return [
-        `Fixed canvas: ${canvas}. Pass \`devices: []\` to \`generate-design\`. Ignore model-suggested device variants and do not add responsive breakpoints.`,
+        `Fixed canvas: ${canvas}. Pass \`devices: []\` to \`generate-design\`. Ignore model-suggested device variants and do not add responsive breakpoints, even if the prompt mentions device versions.`,
         `After generation, ${screenshot}`,
       ];
     }
+    const requestedDevices = requestedCanvasDeviceVariants(prompt);
+    const deviceDirective = requestedDevices.length
+      ? `The user explicitly requested ${requestedDevices.join(" and ")} device variants. Pass \`devices: [${requestedDevices.map((device) => `"${device}"`).join(", ")}]\` to \`generate-design\` and honor only those requested variants.`
+      : "Pass `devices: []` to `generate-design` and do not add responsive breakpoints.";
     return [
-      `Fixed canvas: ${canvas}. Generate one artwork canvas and pass \`devices: []\` to \`generate-design\`. A fixed canvas never gets device breakpoints, so give any other requested size or version its own call at that exact size.`,
+      `Fixed canvas: ${canvas}. Generate one artwork canvas. ${deviceDirective} A fixed canvas never gets unrequested device breakpoints, so give any other requested size its own call at that exact size.`,
       `After generation, ${screenshot}`,
     ];
   }

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   explicitCanvasDimensionsFromPrompt,
   InvalidCanvasDimensionsError,
+  requestedCanvasDeviceVariants,
   resolveCanvasIntent,
 } from "./canvas-dimensions.js";
 import {
@@ -360,9 +361,9 @@ describe("resolveCanvasIntent", () => {
     ["Create a thumbnail for YouTube", "YouTube Thumbnail", 1280, 720],
     ["Create a display ad", "Medium Rectangle", 300, 250],
     ["Create a display leaderboard", "Leaderboard", 728, 90],
+    ["Create a leaderboard ad", "Leaderboard", 728, 90],
     ["Create a leaderboard banner", "Leaderboard", 728, 90],
     ["Create a mobile leaderboard ad", "Mobile Leaderboard", 320, 50],
-    ["Create a mobile leaderboard", "Mobile Leaderboard", 320, 50],
     ["Create an email header", "Email Header", 600, 200],
   ])("resolves %s to %s", (prompt, preset, width, height) => {
     expect(resolveCanvasIntent(prompt)).toEqual({
@@ -409,7 +410,10 @@ describe("resolveCanvasIntent", () => {
     "Design an ad campaign manager",
     "Create a sales leaderboard",
     "Create a mobile leaderboard app",
+    "Create a mobile leaderboard",
+    "Build a mobile leaderboard component",
     "Create a display leaderboard editor",
+    "Create a display leaderboard screen",
     "Design a Facebook ads reporting screen",
     "Design an ad performance report screen",
     "Design an ads manager",
@@ -427,11 +431,6 @@ describe("resolveCanvasIntent", () => {
     "Build a responsive landing page for our product",
     "Create a mobile app that manages ad campaigns",
     "Design a poster maker tool",
-    "Create a sales leaderboard",
-    "Design a Facebook ads reporting screen",
-    "Design an ad performance report screen",
-    "Design an ads manager",
-    "Build a social media scheduler",
     "Design a leaderboard page for our fitness app",
     "Design an email header editor",
     "Build a banner editor",
@@ -540,5 +539,27 @@ describe("resolveCanvasIntent", () => {
     expect(
       resolveCanvasIntent("Create a 1080x1080 poster and a 1200x628 banner"),
     ).toEqual({ kind: "fixed", source: "multiple-dimensions" });
+  });
+});
+
+describe("requestedCanvasDeviceVariants", () => {
+  it.each([
+    [
+      "Create a LinkedIn ad with desktop and mobile versions",
+      ["desktop", "mobile"],
+    ],
+    ["Make a mobile version of the existing ad", ["mobile"]],
+    [
+      "Create desktop, tablet, and mobile layouts",
+      ["desktop", "tablet", "mobile"],
+    ],
+  ] as const)("reads explicit variants from %s", (prompt, variants) => {
+    expect(requestedCanvasDeviceVariants(prompt)).toEqual(variants);
+  });
+
+  it("does not treat a device mention as a requested variant", () => {
+    expect(
+      requestedCanvasDeviceVariants("Create a mobile LinkedIn ad"),
+    ).toEqual([]);
   });
 });

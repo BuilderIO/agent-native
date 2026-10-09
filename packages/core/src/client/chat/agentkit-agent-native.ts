@@ -1374,7 +1374,26 @@ function assistantMessageIdsByRun(
 }
 
 function persistedFileUrl(url?: string): string | undefined {
-  return url && !/^\s*data:/i.test(url) ? url : undefined;
+  if (
+    !url ||
+    /[\u0000-\u0020\u007f]/.test(url) ||
+    /[?#]/.test(url) ||
+    !URL.canParse(url)
+  ) {
+    return undefined;
+  }
+  const parsed = new URL(url);
+  if (
+    parsed.protocol !== "https:" ||
+    !parsed.hostname ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    return undefined;
+  }
+  return parsed.href;
 }
 
 function persistedRetryRequestAttachments(value: unknown): Array<{
@@ -1394,27 +1413,28 @@ function persistedRetryRequestAttachments(value: unknown): Array<{
     ) {
       return [];
     }
-    const url = persistedFileUrl(
+    const primaryUrl = persistedFileUrl(
       typeof attachment.url === "string" ? attachment.url : undefined,
     );
+    const referenceUrl = persistedFileUrl(
+      typeof attachment.referenceUrl === "string"
+        ? attachment.referenceUrl
+        : undefined,
+    );
+    const url = primaryUrl ?? referenceUrl;
     if (!url) return [];
     const contentType =
       typeof attachment.contentType === "string" &&
       /^image\/[a-z0-9.+-]+$/i.test(attachment.contentType)
         ? attachment.contentType
         : undefined;
-    const referenceUrl = persistedFileUrl(
-      typeof attachment.referenceUrl === "string"
-        ? attachment.referenceUrl
-        : undefined,
-    );
     return [
       {
         type: "image",
         name: attachment.name,
         ...(contentType ? { contentType } : {}),
         url,
-        ...(referenceUrl ? { referenceUrl } : {}),
+        ...(referenceUrl && referenceUrl !== url ? { referenceUrl } : {}),
       },
     ];
   });

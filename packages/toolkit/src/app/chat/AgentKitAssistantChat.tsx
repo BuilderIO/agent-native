@@ -2676,45 +2676,42 @@ const AgentKitAssistantChatBody = forwardRef<
             !attachment.data && isDurableAttachmentUrl(attachment.url),
         );
         let retryAttachmentsUnavailable = false;
-        if (requestAttachments.some((attachment) => attachment.data)) {
-          if (!fileStorageConfigured) {
-            retryAttachmentsUnavailable = true;
-          } else {
-            try {
-              const durableAttachments = await uploadRequestAttachments(
-                control,
-                requestAttachments,
-              );
-              const inlineImageDataChars = requestAttachments.reduce(
-                (total, attachment) => total + (attachment.data?.length ?? 0),
-                0,
-              );
-              requestAttachments =
-                inlineImageDataChars > MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS
-                  ? durableAttachments
-                  : requestAttachments.map((attachment, index) => {
-                      const durable = durableAttachments[index];
-                      return attachment.data && durable?.url
-                        ? { ...attachment, url: durable.url }
-                        : attachment;
-                    });
-              retryRequestAttachments = durableAttachments.filter(
-                (attachment) =>
-                  !attachment.data && isDurableAttachmentUrl(attachment.url),
-              );
-              retryAttachmentsUnavailable =
-                retryRequestAttachments.length !== requestAttachments.length;
-            } catch {
-              retryAttachmentsUnavailable = true;
-            }
-          }
-        }
         const inlineImageDataChars = requestAttachments.reduce(
           (total, attachment) => total + (attachment.data?.length ?? 0),
           0,
         );
-        if (inlineImageDataChars > MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS) {
+        if (
+          inlineImageDataChars > MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS &&
+          !fileStorageConfigured
+        ) {
           throw new Error(t("agentChat.composer.requestTooLarge"));
+        }
+        if (requestAttachments.some((attachment) => attachment.data)) {
+          if (!fileStorageConfigured) {
+            throw Object.assign(new Error(t("onboarding.fileStorage.title")), {
+              code: "upload_storage_unavailable",
+              retryable: false,
+            });
+          }
+          const durableAttachments = await uploadRequestAttachments(
+            control,
+            requestAttachments,
+          );
+          requestAttachments =
+            inlineImageDataChars > MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS
+              ? durableAttachments
+              : requestAttachments.map((attachment, index) => {
+                  const durable = durableAttachments[index];
+                  return attachment.data && durable?.url
+                    ? { ...attachment, url: durable.url }
+                    : attachment;
+                });
+          retryRequestAttachments = durableAttachments.filter(
+            (attachment) =>
+              !attachment.data && isDurableAttachmentUrl(attachment.url),
+          );
+          retryAttachmentsUnavailable =
+            retryRequestAttachments.length !== requestAttachments.length;
         }
         // Readiness was gated before the upload; a provider status refresh during
         // it must not discard the upload, only a change of thread or scope.

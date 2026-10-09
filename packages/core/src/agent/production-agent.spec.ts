@@ -1087,13 +1087,24 @@ describe("serializeDurableDispatchPayload", () => {
             {
               type: "image",
               name: "inline-url.png",
-              [field]: "A".repeat(96),
+              [field]: "R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
             },
           ],
         }),
       ).toThrow(DurableAttachmentReferenceRequiredError);
     },
   );
+
+  it.each([
+    "https://files.example.test/reference.png?token=private",
+    "https://private-token@files.example.test/reference.png",
+  ])("rejects ephemeral attachment reference %s", (url) => {
+    expect(() =>
+      serializeDurableDispatchPayload({
+        attachments: [{ type: "image", name: "reference.png", url }],
+      }),
+    ).toThrow(DurableAttachmentReferenceRequiredError);
+  });
 });
 
 describe("queuedPromotionAttachments", () => {
@@ -1147,11 +1158,25 @@ describe("buildUserContentWithAttachments", () => {
     ["Mistral Small 3.2", "mistral-small-2506"],
     ["Cohere Command A Vision", "command-a-vision-07-2025"],
     ["Ollama Llama 3.2 Vision", "llama3.2-vision:90b"],
+    ["Ollama Gemma 3 4B", "gemma3:4b"],
     ["Ollama Gemma 3", "gemma3:12b"],
   ])(
     "recognizes vision support for %s despite provider defaults",
     (_label, model) => {
       expect(isAgentModelVisionCapable(model, false)).toBe(true);
+    },
+  );
+
+  it.each([
+    "gemma3:1b",
+    "ollama/gemma3:1b",
+    "google/gemma-3-1b-it",
+    "gemma3:270m",
+  ])(
+    "does not classify text-only Gemma models as vision-capable: %s",
+    (model) => {
+      expect(isAgentModelVisionCapable(model, false)).toBe(false);
+      expect(isAgentModelVisionCapable(model, true)).toBe(false);
     },
   );
 

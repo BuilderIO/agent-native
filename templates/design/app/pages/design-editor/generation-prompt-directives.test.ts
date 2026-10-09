@@ -220,7 +220,7 @@ describe("designCanvasIntentDirectives", () => {
     expect(text).not.toContain("After responsive app generation");
   });
 
-  it("sends extra artwork versions to their own exact-size calls instead of device frames", () => {
+  it("keeps exact-size artwork device-free even when the prompt names variants", () => {
     const text = designGenerationDirectives(
       "design-1",
       null,
@@ -228,8 +228,19 @@ describe("designCanvasIntentDirectives", () => {
       "Create a LinkedIn ad with desktop and mobile versions",
     ).join("\n");
     expect(text).toContain("Pass `devices: []` to `generate-design`");
-    expect(text).toContain("do not add responsive breakpoints");
-    expect(text).not.toContain("explicitly asks for device variants");
+    expect(text).toContain("even if the prompt mentions device versions");
+  });
+
+  it("uses only prompt-named variants for a weak fixed-artwork inference", () => {
+    const text = designGenerationDirectives(
+      "design-1",
+      null,
+      0,
+      "Create a promo banner with desktop and mobile versions",
+    ).join("\n");
+    expect(text).toContain('Pass `devices: ["desktop", "mobile"]`');
+    expect(text).toContain("user explicitly requested desktop and mobile");
+    expect(text).not.toContain("model-suggested");
   });
 
   it("keeps responsive screenshots for app UI even when it mentions advertising", () => {

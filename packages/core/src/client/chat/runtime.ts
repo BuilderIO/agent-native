@@ -1840,6 +1840,7 @@ const MAX_STRUCTURED_HISTORY_SOURCE_PARTS =
   MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS;
 const MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES = 1024;
 const MAX_PINNED_ATTACHMENT_PROMPTS = 32;
+const MAX_PINNED_PRIOR_USER_PROMPT_CHARS = 16 * 1024;
 /** Above every other candidate, so the byte budget drops pinned asks last. */
 const PINNED_USER_PROMPT_TEXT_PRIORITY = 4;
 const MAX_STRUCTURED_HISTORY_SOURCE_SCAN_STEPS =
@@ -2541,7 +2542,6 @@ function boundedStructuredHistorySources(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
   supplementalMessages: readonly AgentChatRuntimeMessage[],
-  preservePreviousUserPrompt = false,
 ): BoundedStructuredHistorySources {
   const historyMessages = messages ?? [];
   let currentPromptMessageIndex: number | undefined;
@@ -2603,17 +2603,23 @@ function boundedStructuredHistorySources(
   }
 
   let previousUserPromptMessageIndex: number | undefined;
-  if (preservePreviousUserPrompt) {
-    for (let index = historyMessages.length - 1; index >= 0; index--) {
-      if (index === currentPromptMessageIndex) continue;
-      if (isUserAsk(historyMessages[index]!)) {
-        previousUserPromptMessageIndex = index;
-        break;
-      }
+  const previousPromptScanStart = Math.max(
+    0,
+    historyMessages.length - MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES,
+  );
+  for (
+    let index = historyMessages.length - 1;
+    index >= previousPromptScanStart;
+    index--
+  ) {
+    if (index === currentPromptMessageIndex) continue;
+    if (isUserAsk(historyMessages[index]!)) {
+      previousUserPromptMessageIndex = index;
+      break;
     }
   }
-  // The first ask ("LinkedIn ad 1200x627 PNG") and every turn that attached a
-  // file stay in the window however long the agentic tail after them grows.
+  // The first ask, latest prior ask, and recent attachment turns stay in the
+  // window however long the agentic tail after them grows.
   // ponytail: only the newest 32 attachment turns are pinned; older ones fall
   // back to the newest-first window.
   const pinnedUserPromptMessageIndices = new Set(
@@ -2640,7 +2646,17 @@ function boundedStructuredHistorySources(
     messageIndex: number,
   ): void => {
     pinnedPromptsAdded.add(messageIndex);
-    const text = runtimeMessageText(historyMessages[messageIndex]!);
+    const message = historyMessages[messageIndex]!;
+    let text = runtimeMessageText(message);
+    if (
+      messageIndex === previousUserPromptMessageIndex &&
+      messageIndex !== firstUserPromptMessageIndex &&
+      !hasHistoryAttachment(message) &&
+      text.length > MAX_PINNED_PRIOR_USER_PROMPT_CHARS
+    ) {
+      omitted = true;
+      text = `${text.slice(0, MAX_PINNED_PRIOR_USER_PROMPT_CHARS)}\n[Earlier user message truncated in history.]`;
+    }
     if (!text.trim()) return;
     if (selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS) {
       omitted = true;

@@ -40,6 +40,7 @@ import {
 } from "../server/source-workspace.js";
 import {
   assertSingleCanvasOutput,
+  requestedCanvasDeviceVariants,
   resolveCanvasIntent,
 } from "../shared/canvas-dimensions.js";
 import {
@@ -170,30 +171,6 @@ function breakpointSetForDevices(devices: readonly GenerationViewport[]) {
         prefix: widthToPrefix(widthPx),
       };
     });
-}
-
-function requestedDeviceVariants(
-  prompt: string,
-  devices: readonly GenerationViewport[],
-): GenerationViewport[] {
-  const requested = new Set<GenerationViewport>();
-  const deviceGroup =
-    /\b(?:desktop|mobile|tablet)(?:\s*(?:[,/&]|\band\b)\s*(?:desktop|mobile|tablet))+\b/gi;
-  const namedVariant =
-    /\b(desktop|mobile|tablet)\s+(?:versions?|variants?|layouts?|breakpoints?)\b/gi;
-
-  for (const match of prompt.matchAll(deviceGroup)) {
-    for (const deviceMatch of match[0].matchAll(
-      /\b(desktop|mobile|tablet)\b/gi,
-    )) {
-      requested.add(deviceMatch[1]!.toLowerCase() as GenerationViewport);
-    }
-  }
-  for (const match of prompt.matchAll(namedVariant)) {
-    requested.add(match[1]!.toLowerCase() as GenerationViewport);
-  }
-
-  return devices.filter((device) => requested.has(device));
 }
 
 function isFixedArtworkCopyFollowUp(prompt: string): boolean {
@@ -524,12 +501,15 @@ const generateDesignAgentParameters = {
       type: "array",
       items: { type: "string", enum: ["mobile", "tablet", "desktop"] },
       description:
-        "Device set for responsive frames. Honor the devices the prompt " +
-        'explicitly names; omit to default to ["desktop","mobile"]. Pass [] ' +
-        "for static artwork and for follow-ups on an existing fixed canvas. " +
-        "Exact pixel dimensions or a platform preset in `prompt` make one fixed " +
-        "canvas and this field is ignored (the result lists `ignoredDevices`); " +
-        "give each other size or version its own call. " +
+        "Device set for responsive frames. Exact pixels or a platform preset " +
+        "in the original prompt always use no device breakpoints and ignore " +
+        "this field. For a fixed-artwork inference without exact pixels or a " +
+        "preset, honor variants explicitly named in the original prompt; omit " +
+        'to default to ["desktop","mobile"]. Pass [] for fixed artwork ' +
+        "without those named variants and for follow-ups on an existing " +
+        "fixed canvas. " +
+        "The result lists ignored model devices as `ignoredDevices`; give " +
+        "each other exact size its own call. " +
         "One exact canvas size per call; prompts with multiple distinct exact sizes are rejected. " +
         "The widest " +
         "device becomes the primary/base frame and the narrower devices become " +
@@ -563,15 +543,19 @@ const generateDesignAction = defineAction({
     "alone as enough design-system context. " +
     "Every app or website UI must be responsive unless the user requests a " +
     "fixed canvas. Static artwork such as ads, banners, social posts, flyers, " +
-    "and posters is one fixed canvas with no mobile or tablet frames. Exact " +
-    "pixel dimensions or a platform preset in `prompt` always set the screen's " +
-    "size with no breakpoints, whatever `devices` says. Use one exact canvas size per call; " +
-    "make separate calls for screens or versions with different exact sizes. This action adds responsive editor " +
-    "breakpoints by default: a Desktop 1440x900 base frame plus a Mobile " +
-    "breakpoint (no auto tablet, no duplicate desktop). Pass `devices` to honor " +
-    "the form factors the prompt explicitly names — the widest becomes the base " +
-    "frame and the narrower ones become breakpoint frames. Set `primaryViewport` " +
-    "for a mobile- or tablet-primary design when not passing `devices`. " +
+    "and posters is one fixed canvas by default. Exact pixel dimensions or a " +
+    "platform preset in `prompt` always pin the canvas size and ignore devices " +
+    "suggested by the model or named alongside those exact sizes. For a " +
+    "noun-only fixed-artwork inference, honor device variants explicitly named " +
+    "in the original prompt; model-suggested devices may override that weak " +
+    "inference. " +
+    "Use one exact canvas size per call; make separate calls for screens or " +
+    "artwork with different exact sizes. Responsive app screens default to a " +
+    "Desktop 1440x900 base frame plus a Mobile breakpoint (no auto tablet, no " +
+    "duplicate desktop). Pass `devices` to honor the form factors the prompt " +
+    "explicitly names — the widest becomes the base frame and the narrower " +
+    "ones become breakpoint frames. Set `primaryViewport` for a mobile- or " +
+    "tablet-primary design when not passing `devices`. " +
     "Do not report a design as ready until this action succeeds. " +
     "When adding multiple screens or states, pass canvasFrames with filenames " +
     "and numeric x/y/width/height so the new screens appear placed on the " +
@@ -718,9 +702,11 @@ const generateDesignAction = defineAction({
       .describe(
         "Explicit device set for responsive frames. Honor device variants the " +
           'prompt requests; omit to default to ["desktop","mobile"]. Pass [] for ' +
-          "static artwork and for follow-ups on an existing fixed canvas. " +
-          "Ignored when the prompt names exact pixel dimensions or a platform preset; " +
-          "give each other size its own call. " +
+          "static artwork without requested variants and for follow-ups on an existing fixed canvas. " +
+          "When exact dimensions or a platform preset appear in the prompt, " +
+          "the field is ignored even if the request mentions device variants. " +
+          "For a noun-only fixed-artwork inference, honor the variants named " +
+          "in the prompt. Give each other exact size its own call. " +
           "Widest " +
           "device = primary/base frame; narrower devices = breakpoint frames " +
           "(never the base width, never an auto tablet). One device = a single " +
@@ -1013,23 +999,30 @@ const generateDesignAction = defineAction({
       (canvasIntent.source === "explicit-dimensions" ||
         canvasIntent.source === "preset");
     const fixedCanvasIntent = canvasIntent.kind === "fixed";
+    const userRequestedDeviceVariants =
+      fixedCanvasIntent && !exactFixedCanvasOutput
+        ? requestedCanvasDeviceVariants(prompt)
+        : [];
     const fixedArtworkFollowUp =
       fixedCanvasIntent &&
-      promptCanvasDimensions === undefined &&
       existingFiles.some((existingFile) =>
         files.some((file) => file.filename === existingFile.filename),
       ) &&
       isFixedArtworkCopyFollowUp(prompt);
     const requestedDevices = exactFixedCanvasOutput
       ? []
-      : devices !== undefined && fixedArtworkFollowUp
-        ? requestedDeviceVariants(prompt, devices)
-        : devices;
+      : userRequestedDeviceVariants.length > 0
+        ? userRequestedDeviceVariants
+        : devices !== undefined && fixedArtworkFollowUp
+          ? []
+          : devices;
+    const ignoredModelDevices = exactFixedCanvasOutput ? (devices ?? []) : [];
     const explicitDeviceSelection =
       requestedDevices !== undefined && requestedDevices.length > 0;
     const explicitlyEmptyDeviceSelection =
       requestedDevices !== undefined && requestedDevices.length === 0;
-    const fixedCanvasOutput = fixedCanvasIntent && !explicitDeviceSelection;
+    const fixedCanvasOutput =
+      fixedCanvasIntent && (!explicitDeviceSelection || exactFixedCanvasOutput);
     const resolvedDevices =
       requestedDevices ??
       (fixedCanvasOutput ? [] : devicesForPrimaryViewport(primaryViewport));
@@ -1105,7 +1098,7 @@ const generateDesignAction = defineAction({
             ? Object.keys(prevData.canvasFrames as Record<string, unknown>)
             : [],
         );
-        if (explicitDeviceSelection) {
+        if (explicitDeviceSelection && !exactFixedCanvasOutput) {
           for (const file of savedFiles) {
             const source = files.find(
               (candidate) => candidate.filename === file.filename,
@@ -1177,9 +1170,29 @@ const generateDesignAction = defineAction({
             )
               ? metadata.breakpointWidths
               : undefined;
+          const previousFrame = (
+            prevData.canvasFrames as
+              | Record<string, { width?: number; height?: number }>
+              | undefined
+          )?.[file.id];
+          const existingWidth =
+            typeof metadata.width === "number" && metadata.width > 0
+              ? metadata.width
+              : previousFrame?.width;
+          const existingHeight =
+            typeof metadata.height === "number" && metadata.height > 0
+              ? metadata.height
+              : previousFrame?.height;
+          const sameFixedCanvasSize =
+            fixedArtworkFollowUp &&
+            (promptCanvasDimensions === undefined ||
+              (existingWidth === promptCanvasDimensions.width &&
+                existingHeight === promptCanvasDimensions.height));
           const breakpointWidths = explicitDeviceSelection
-            ? undefined
-            : fixedArtworkFollowUp
+            ? fixedCanvasOutput
+              ? generatedBreakpointSet.map((breakpoint) => breakpoint.widthPx)
+              : undefined
+            : sameFixedCanvasSize
               ? (existingBreakpointWidths ?? [])
               : fixedCanvasOutput || explicitlyEmptyDeviceSelection
                 ? []
@@ -1653,8 +1666,8 @@ const generateDesignAction = defineAction({
       savedFiles,
       placedFrames,
       fileCount: savedFiles.length,
-      ...(promptCanvasDimensions && devices?.length
-        ? { ignoredDevices: devices }
+      ...(ignoredModelDevices.length > 0
+        ? { ignoredDevices: ignoredModelDevices }
         : {}),
       ...(integrityWarnings.length > 0 ? { warnings: integrityWarnings } : {}),
       ...(fileErrors.length > 0 ? { fileErrors } : {}),

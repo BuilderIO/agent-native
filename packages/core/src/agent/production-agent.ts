@@ -2028,11 +2028,23 @@ function isDataUrlReference(value: unknown): boolean {
 }
 
 function hasDurableAttachmentUrl(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const normalized = value.trim();
+  if (
+    !normalized ||
+    isDataUrlReference(normalized) ||
+    isRawBase64Payload(normalized) ||
+    !URL.canParse(normalized)
+  ) {
+    return false;
+  }
+  const url = new URL(normalized);
   return (
-    typeof value === "string" &&
-    value.trim().length > 0 &&
-    !isDataUrlReference(value) &&
-    !isInlineBase64Payload(value)
+    url.protocol === "https:" &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash
   );
 }
 
@@ -2109,7 +2121,7 @@ function containsDurableAttachmentPayload(
     }
     return (
       DURABLE_ATTACHMENT_REFERENCE_FIELDS.test(fieldName ?? "") &&
-      (isDataUrlReference(value) || isInlineBase64Payload(value))
+      (isDataUrlReference(value) || isRawBase64Payload(value))
     );
   }
   if (!value || typeof value !== "object") return false;
@@ -2178,7 +2190,8 @@ function sanitizeDurableAttachment(
     ((attachmentPayloadField && isInlineAttachmentPayload(value)) ||
       (attachmentReferenceField &&
         typeof value === "string" &&
-        isInlineBase64Payload(value)))
+        (isInlineBase64Payload(value) ||
+          (value.trim().length > 0 && !hasDurableAttachmentUrl(value)))))
   ) {
     return OMIT_DURABLE_DISPATCH_VALUE;
   }
@@ -2215,8 +2228,12 @@ function sanitizeDurableAttachment(
       ? hasDurableAttachmentUrl(item.url)
       : hasDurableAttachmentUrl(item.url) ||
         hasDurableAttachmentUrl(item.referenceUrl);
-  const hasInlineReference =
-    isDataUrlReference(item.url) || isDataUrlReference(item.referenceUrl);
+  const hasInlineReference = [item.url, item.referenceUrl].some(
+    (reference) =>
+      typeof reference === "string" &&
+      reference.trim().length > 0 &&
+      !hasDurableAttachmentUrl(reference),
+  );
   if (
     (requiredAttachment || typedAttachment) &&
     (hasInlinePayload || hasInlineReference) &&
@@ -2531,12 +2548,21 @@ const MODEL_VISION_CAPABILITY_PATTERNS = [
   /(?:^|\/)(?:llama4|llama3\.2-vision|gemma3|gemma4|llava|llava-llama3|bakllava|moondream|qwen2\.5vl|qwen2\.5-vl|qwen3-vl|minicpm-v|mistral-small3\.[12])(?=[:/]|$)/,
 ];
 
+const MODEL_TEXT_ONLY_IMAGE_PATTERNS = [
+  /(?:^|\/)(?:gemma3(?::|\/)|gemma-3-)(?:270m|1b)(?:[-:]|$)/,
+];
+
 /** @internal exported for unit tests only */
 export function isAgentModelVisionCapable(
   model: string,
   engineVision: boolean,
 ): boolean {
   const normalized = model.trim().toLowerCase();
+  if (
+    MODEL_TEXT_ONLY_IMAGE_PATTERNS.some((pattern) => pattern.test(normalized))
+  ) {
+    return false;
+  }
   return (
     engineVision ||
     MODEL_VISION_CAPABILITY_PATTERNS.some((pattern) => pattern.test(normalized))
