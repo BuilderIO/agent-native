@@ -89,9 +89,7 @@ export function TemplatePreview({
     const frame = frameRef.current;
     if (!recordSessionReplay || !frame) return;
     const observer = new IntersectionObserver(([entry]) => {
-      setSessionReplayVisible(
-        entry.isIntersecting && entry.intersectionRatio > 0,
-      );
+      setSessionReplayVisible(entry.isIntersecting);
     });
     observer.observe(frame);
     return () => observer.disconnect();

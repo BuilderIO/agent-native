@@ -108,6 +108,18 @@ describe("template artboard preview", () => {
         [
           {
             isIntersecting: true,
+            intersectionRatio: 0,
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      ),
+    );
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(true);
+    act(() =>
+      intersectionObservers[0]!.callback(
+        [
+          {
+            isIntersecting: true,
             intersectionRatio: 1,
           } as IntersectionObserverEntry,
         ],
