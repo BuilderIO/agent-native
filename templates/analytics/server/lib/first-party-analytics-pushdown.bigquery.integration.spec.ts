@@ -80,6 +80,7 @@ it("preserves alert and panel results on seeded duplicate receipts", async () =>
             const properties = JSON.stringify({
               status_class: receipt ? "5xx" : "2xx",
               status: receipt ? "errored" : "completed",
+              deployment_environment: receipt ? "beta" : "production",
             });
             receipts.push(
               `('${id}', '${event}', DATE '${day}', TIMESTAMP '${day} 00:02:00+00', TIMESTAMP '${day} 00:02:0${receipt}+00', ${index === 7 ? "'other-org'" : "'synthetic-org'"}, 'synthetic@example.test', 'person@example.test', '${properties}', '${receipt ? "analytics" : "chat"}')`,
@@ -104,7 +105,10 @@ it("preserves alert and panel results on seeded duplicate receipts", async () =>
         {
           name: "terminal",
           eventName: "agent_run_terminal",
-          filters: [{ field: "properties.status", value: "errored" }],
+          filters: [
+            { field: "properties.status", value: "errored" },
+            { field: "properties.deployment_environment", value: "beta" },
+          ],
         },
         { name: "stuck", eventName: "agent_chat_stuck_detected", filters: [] },
       ].map((rule) => ({
