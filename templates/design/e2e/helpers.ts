@@ -486,9 +486,14 @@ export async function enterInteractView(
   await expect(previewIframe).toBeVisible();
   const previewIframeHandle = await previewIframe.elementHandle();
   if (!previewIframeHandle) throw new Error("screen preview iframe is missing");
+  // The frame's "Focus screen" button only selects the Screen and fits the
+  // camera to it; Interact is entered from the top bar for that focused Screen.
   await fullView.evaluate((element) => {
     (element as HTMLButtonElement).click();
   });
+  await page
+    .locator('[data-design-top-bar] [data-design-mode="interact"]')
+    .click();
   await expect(screenShell).toHaveAttribute(
     "data-screen-interact-mode",
     "true",
