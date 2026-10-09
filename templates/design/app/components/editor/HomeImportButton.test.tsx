@@ -6,7 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   readPendingDesignImport,
   clearPendingDesignImport,
+  claimFigImportToast,
   claimPendingDesignImport,
+  dismissFigImportToast,
   FIG_IMPORT_TOAST_ID,
   setPendingDesignImport,
 } from "@/lib/pending-import";
@@ -39,6 +41,7 @@ vi.mock("@agent-native/toolkit/app/shared", () => ({
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+  useFormatters: () => ({ formatNumber: String }),
 }));
 vi.mock("react-router", () => ({ useNavigate: () => mocks.navigate }));
 vi.mock("sonner", () => ({
@@ -141,26 +144,41 @@ afterEach(async () => {
 });
 
 describe("home Figma import", () => {
-  it("clears a handoff toast the editor never claimed, but not a running import", async () => {
+  it("drops abandoned handoffs on return home but leaves a running import's toast alone", async () => {
     const file = new File(["fig"], "Stale.fig");
-    setPendingDesignImport("file-design", { kind: "file", file });
-    await act(async () => root.unmount());
-    root = createRoot(container);
-    mocks.dismiss.mockClear();
-    await act(async () => root.render(<HomeImportButton />));
+    async function remountHome() {
+      await act(async () => root.unmount());
+      root = createRoot(container);
+      mocks.dismiss.mockClear();
+      await act(async () => root.render(<HomeImportButton />));
+    }
 
+    claimFigImportToast(true);
+    setPendingDesignImport("file-design", { kind: "file", file });
+    await remountHome();
     expect(mocks.dismiss).toHaveBeenCalledWith(FIG_IMPORT_TOAST_ID);
     expect(readPendingDesignImport("file-design")).toBeUndefined();
 
+    claimFigImportToast(true);
     setPendingDesignImport("file-design", { kind: "file", file });
     claimPendingDesignImport("file-design");
-    await act(async () => root.unmount());
-    root = createRoot(container);
-    mocks.dismiss.mockClear();
-    await act(async () => root.render(<HomeImportButton />));
-
+    const running = claimFigImportToast();
+    await remountHome();
     expect(mocks.dismiss).not.toHaveBeenCalled();
-    expect(readPendingDesignImport("file-design")?.file).toBe(file);
+    expect(readPendingDesignImport("file-design")).toBeUndefined();
+    dismissFigImportToast(running);
+    expect(mocks.dismiss).toHaveBeenCalledWith(FIG_IMPORT_TOAST_ID);
+  });
+
+  it("rejects files over the browser limit with the translated size message", async () => {
+    const huge = new File(["fig"], "Huge.fig");
+    Object.defineProperty(huge, "size", { value: 3 * 1024 ** 3 });
+    await chooseFile(huge);
+    expect(mocks.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.figFileTooLarge",
+    );
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.loading).not.toHaveBeenCalled();
   });
 
   it("opens import options from the whole button before launching the .fig picker", async () => {

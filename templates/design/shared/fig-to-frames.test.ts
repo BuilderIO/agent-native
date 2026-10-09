@@ -190,6 +190,50 @@ describe("single-pass .fig render", () => {
     ).toHaveLength(frames.length);
   });
 
+  it("yields to the event loop between slow frames instead of blocking", async () => {
+    const order: string[] = [];
+    const busy = (ms: number) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end);
+    };
+    const frames = ["A", "B", "C"].map((name) => ({
+      html: `<div>${name}</div>`,
+      htmlBytes: 12,
+      filename: `${name}.html`,
+      pageName: "Page",
+      frameName: name,
+    }));
+    setTimeout(() => order.push("timer"), 0);
+
+    await completeFigImport(
+      {
+        format: "kiwi",
+        pageCount: 1,
+        nodeCount: 3,
+        imageCount: 0,
+        approximatedNodeCount: 0,
+        unresolvedImageRefCount: 0,
+        frames,
+        imagePlaceholderPrefix: "__img_",
+        images: [],
+      },
+      {
+        originalName: "slow.fig",
+        ownerEmail: "",
+        uploader: vi.fn(),
+        normalizeHtml: (html) => {
+          busy(25);
+          order.push(html);
+          return html;
+        },
+        limits: BROWSER_FIG_LIMITS,
+      },
+    );
+
+    expect(order.indexOf("timer")).toBeGreaterThan(0);
+    expect(order.indexOf("timer")).toBeLessThan(order.length - 1);
+  });
+
   it("returns plain data a Worker can post", () => {
     const rendered = renderFigImport(
       decodedFig([frame(3, "Card", 0, "image-a")], ["image-a"]),

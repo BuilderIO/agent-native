@@ -20,6 +20,11 @@ import type { ImportedDesignFile } from "../server/lib/import-design-files.js";
 import { utf8ByteLength } from "./fig-bytes.js";
 
 const MAX_FRAME_HTML_BYTES = 4 * 1024 * 1024;
+const YIELD_AFTER_MS = 16;
+
+export function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 export const MAX_FIG_FRAME_HTML_BYTES = 2 * 1024 * 1024;
 const IMAGE_UPLOAD_CONCURRENCY = 4;
 const MAX_DURABLE_IMAGE_URL_CHARS = 2_048;
@@ -462,7 +467,15 @@ export async function completeFigImport(
 
     let rawHtmlBytes = 0;
     let totalHtmlBytes = 0;
-    const files = rendered.frames.map((frame) => {
+    const files: ImportedDesignFile[] = [];
+    let sliceStart = Date.now();
+    for (const frame of rendered.frames) {
+      // Browser imports run this on the main thread; yield between frames so
+      // hundreds of MB of HTML do not freeze the tab.
+      if (Date.now() - sliceStart > YIELD_AFTER_MS) {
+        await yieldToEventLoop();
+        sliceStart = Date.now();
+      }
       let html = frame.html;
       let htmlBytes = frame.htmlBytes;
       if (html.includes(rendered.imagePlaceholderPrefix)) {
@@ -499,7 +512,7 @@ export async function completeFigImport(
         maxFrameHtmlBytes,
         limits,
       );
-      return {
+      files.push({
         filename: frame.filename,
         fileType: "html" as const,
         content,
@@ -517,8 +530,8 @@ export async function completeFigImport(
           width: frame.width,
           height: frame.height,
         },
-      } satisfies ImportedDesignFile;
-    });
+      });
+    }
 
     return {
       files,

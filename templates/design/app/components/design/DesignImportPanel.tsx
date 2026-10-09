@@ -37,6 +37,8 @@ import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  MAX_BROWSER_FIG_BYTES,
+  MAX_BROWSER_FIG_MB,
   MAX_FIG_UPLOAD_BYTES,
   uploadDesignFile,
   validateFigUploadFile,
@@ -61,7 +63,10 @@ import {
   readPendingDesignImport,
   clearPendingDesignImport,
   claimPendingDesignImport,
-  FIG_IMPORT_TOAST_ID,
+  claimFigImportToast,
+  dismissFigImportToast,
+  updateFigImportToast,
+  type FigImportToastOwner,
 } from "@/lib/pending-import";
 import { cn } from "@/lib/utils";
 
@@ -78,6 +83,9 @@ type ImportMode =
   | "fig-upload"
   | "html"
   | "local-app";
+
+type FigUploadPhase = FigClientImportProgress["phase"] | "uploading";
+type FigSaveCount = { saved: number; total: number };
 
 type FigImportPreview = PreparedFigImport["summary"] & {
   fileName: string;
@@ -131,13 +139,9 @@ export const DesignImportPanel = forwardRef<
   const [figUploadProgress, setFigUploadProgress] = useState<number | null>(
     null,
   );
-  const [figUploadPhase, setFigUploadPhase] = useState<
-    FigClientImportProgress["phase"] | "uploading"
-  >("uploading");
-  const [figSaveCount, setFigSaveCount] = useState<{
-    saved: number;
-    total: number;
-  } | null>(null);
+  const [figUploadPhase, setFigUploadPhase] =
+    useState<FigUploadPhase>("uploading");
+  const [figSaveCount, setFigSaveCount] = useState<FigSaveCount | null>(null);
   const [figUploadBusy, setFigUploadBusy] = useState(false);
   const [figUploadStorageRequired, setFigUploadStorageRequired] =
     useState(false);
@@ -150,6 +154,11 @@ export const DesignImportPanel = forwardRef<
   );
   const pendingFigImportRef = useRef<PreparedFigImport | null>(null);
   const unmountedRef = useRef(false);
+  const figProgressRef = useRef<{
+    phase: FigUploadPhase;
+    progress: number | null;
+    saveCount: FigSaveCount | null;
+  }>({ phase: "uploading", progress: null, saveCount: null });
 
   const ensureStorageForFigFallback = useCallback(async () => {
     const status = fileUploadStatus.isSuccess
@@ -178,15 +187,70 @@ export const DesignImportPanel = forwardRef<
     };
   }, []);
 
-  const clearFigUploadState = useCallback(() => {
+  const clearFigUploadState = useCallback((owner?: FigImportToastOwner) => {
     setFigUploadBusy(false);
     setFigUploadName(null);
     setFigUploadProgress(null);
     setFigUploadPhase("uploading");
     setFigSaveCount(null);
     if (figFileInputRef.current) figFileInputRef.current.value = "";
-    toast.dismiss(FIG_IMPORT_TOAST_ID);
+    if (owner) dismissFigImportToast(owner);
   }, []);
+
+  const describeFigProgress = useCallback(
+    (
+      phase: FigUploadPhase,
+      progress: number | null,
+      saveCount: FigSaveCount | null,
+    ) =>
+      phase === "decoding"
+        ? t("designEditor.import.figImportAnalyzing")
+        : phase === "rendering" || progress === 100
+          ? t("designEditor.import.figUploadProcessing")
+          : saveCount
+            ? t("designEditor.import.figImportSaving", {
+                saved: formatNumber(saveCount.saved),
+                total: formatNumber(saveCount.total),
+              })
+            : t("designEditor.import.figUploadUploading", {
+                progress: progress ?? 0,
+              }),
+    [formatNumber, t],
+  );
+
+  // Progress is pushed to the toast from the import itself, not from a render
+  // effect, so it stays current after the panel unmounts mid-import.
+  const reportFigProgress = useCallback(
+    (
+      owner: FigImportToastOwner,
+      name: string,
+      update: {
+        phase?: FigUploadPhase;
+        progress?: number | null;
+        saveCount?: FigSaveCount | null;
+      },
+    ) => {
+      const current = figProgressRef.current;
+      const next = {
+        phase: update.phase ?? current.phase,
+        progress:
+          update.progress === undefined ? current.progress : update.progress,
+        saveCount:
+          update.saveCount === undefined ? current.saveCount : update.saveCount,
+      };
+      figProgressRef.current = next;
+      setFigUploadName(name);
+      setFigUploadPhase(next.phase);
+      setFigUploadProgress(next.progress);
+      setFigSaveCount(next.saveCount);
+      updateFigImportToast(
+        owner,
+        describeFigProgress(next.phase, next.progress, next.saveCount),
+        name,
+      );
+    },
+    [describeFigProgress],
+  );
 
   const finishImport = useCallback(
     async (result: ImportResult | undefined, fallback: string) => {
@@ -379,10 +443,17 @@ export const DesignImportPanel = forwardRef<
   );
 
   const runPreparedFigImport = useCallback(
-    async (prepared: PreparedFigImport, selection?: ReadonlySet<string>) => {
-      setFigUploadName(prepared.file.name);
-      setFigUploadProgress(0);
-      setFigUploadPhase("rendering");
+    async (
+      prepared: PreparedFigImport,
+      selection?: ReadonlySet<string>,
+      owner = claimFigImportToast(),
+    ) => {
+      const name = prepared.file.name;
+      reportFigProgress(owner, name, {
+        phase: "rendering",
+        progress: 0,
+        saveCount: null,
+      });
       setFigUploadBusy(true);
       try {
         let result: ImportResult;
@@ -395,13 +466,14 @@ export const DesignImportPanel = forwardRef<
             prepared,
             selection,
             onProgress: ({ phase, ratio, saved, total }) => {
-              setFigUploadPhase(phase);
-              setFigUploadProgress(Math.round((ratio ?? 0) * 90) + 5);
-              setFigSaveCount(
-                saved === undefined || total === undefined
-                  ? null
-                  : { saved, total },
-              );
+              reportFigProgress(owner, name, {
+                phase,
+                progress: Math.round((ratio ?? 0) * 90) + 5,
+                saveCount:
+                  saved === undefined || total === undefined
+                    ? null
+                    : { saved, total },
+              });
             },
           });
         } catch (localError) {
@@ -418,18 +490,19 @@ export const DesignImportPanel = forwardRef<
             localError,
           );
           if (!(await ensureStorageForFigFallback())) return;
-          setFigUploadPhase("uploading");
+          reportFigProgress(owner, name, { phase: "uploading" });
           result = await uploadDesignFile({
             designId: context.designId,
             file: prepared.file,
             fallbackErrorMessage: t("designEditor.import.errors.uploadFailed"),
-            onProgress: ({ percent }) => setFigUploadProgress(percent),
+            onProgress: ({ percent }) =>
+              reportFigProgress(owner, name, { progress: percent }),
           });
         }
         await finishImport(result, t("designEditor.import.uploadSuccess"));
         setFigmaRateLimitError(null);
       } finally {
-        clearFigUploadState();
+        clearFigUploadState(owner);
       }
     },
     [
@@ -437,6 +510,7 @@ export const DesignImportPanel = forwardRef<
       context.designId,
       ensureStorageForFigFallback,
       finishImport,
+      reportFigProgress,
       t,
     ],
   );
@@ -445,28 +519,40 @@ export const DesignImportPanel = forwardRef<
     async (file: File | undefined) => {
       if (!file) return;
       setActiveMode("fig-upload");
-      const validationError = validateFigUploadFile(file, { maxBytes: null });
-      if (validationError === "invalid-extension") {
+      const validationError = validateFigUploadFile(file, {
+        maxBytes: MAX_BROWSER_FIG_BYTES,
+      });
+      if (validationError) {
         toast.error(t("designEditor.import.errors.uploadFailed"), {
-          description: t("designEditor.import.errors.invalidFigFile"),
+          description:
+            validationError === "too-large"
+              ? t("designEditor.import.errors.figFileTooLarge", {
+                  max: formatNumber(MAX_BROWSER_FIG_MB),
+                })
+              : t("designEditor.import.errors.invalidFigFile"),
         });
         if (figFileInputRef.current) figFileInputRef.current.value = "";
         return;
       }
 
-      setFigUploadName(file.name);
-      setFigUploadProgress(0);
-      setFigUploadPhase("decoding");
+      const owner = claimFigImportToast();
+      reportFigProgress(owner, file.name, {
+        phase: "decoding",
+        progress: 0,
+        saveCount: null,
+      });
       setFigUploadBusy(true);
       try {
         let prepared: PreparedFigImport;
         try {
           const { prepareFigImport, shouldWarnForFigImport } =
             await import("@/lib/fig-client-import");
-          prepared = await prepareFigImport(file, ({ phase }) => {
-            setFigUploadPhase(phase);
-            setFigUploadProgress(phase === "decoding" ? 5 : 0);
-          });
+          prepared = await prepareFigImport(file, ({ phase }) =>
+            reportFigProgress(owner, file.name, {
+              phase,
+              progress: phase === "decoding" ? 5 : 0,
+            }),
+          );
           if (unmountedRef.current) {
             prepared.dispose();
             return;
@@ -495,25 +581,26 @@ export const DesignImportPanel = forwardRef<
             localError,
           );
           if (!(await ensureStorageForFigFallback())) return;
-          setFigUploadPhase("uploading");
+          reportFigProgress(owner, file.name, { phase: "uploading" });
           const result = await uploadDesignFile({
             designId: context.designId,
             file,
             fallbackErrorMessage: t("designEditor.import.errors.uploadFailed"),
-            onProgress: ({ percent }) => setFigUploadProgress(percent),
+            onProgress: ({ percent }) =>
+              reportFigProgress(owner, file.name, { progress: percent }),
           });
           await finishImport(result, t("designEditor.import.uploadSuccess"));
           setFigmaRateLimitError(null);
           return;
         }
-        await runPreparedFigImport(prepared);
+        await runPreparedFigImport(prepared, undefined, owner);
       } catch (error) {
         toast.error(t("designEditor.import.errors.uploadFailed"), {
           description:
             error instanceof Error ? error.message : t("common.genericError"),
         });
       } finally {
-        clearFigUploadState();
+        clearFigUploadState(owner);
       }
     },
     [
@@ -521,6 +608,8 @@ export const DesignImportPanel = forwardRef<
       context.designId,
       ensureStorageForFigFallback,
       finishImport,
+      formatNumber,
+      reportFigProgress,
       runPreparedFigImport,
       t,
     ],
@@ -587,29 +676,11 @@ export const DesignImportPanel = forwardRef<
     Boolean(figImportPreview) ||
     figmaConnectionBusy;
 
-  const figUploadStatus =
-    figUploadPhase === "decoding"
-      ? t("designEditor.import.figImportAnalyzing")
-      : figUploadPhase === "rendering" || figUploadProgress === 100
-        ? t("designEditor.import.figUploadProcessing")
-        : figSaveCount
-          ? t("designEditor.import.figImportSaving", {
-              saved: formatNumber(figSaveCount.saved),
-              total: formatNumber(figSaveCount.total),
-            })
-          : t("designEditor.import.figUploadUploading", {
-              progress: figUploadProgress ?? 0,
-            });
-
-  // This panel stays mounted but hidden when another left tab opens, so the
-  // toast is what keeps a long import visible.
-  useEffect(() => {
-    if (!figUploadBusy || !figUploadName) return;
-    toast.loading(figUploadStatus, {
-      id: FIG_IMPORT_TOAST_ID,
-      description: figUploadName,
-    });
-  }, [figUploadBusy, figUploadName, figUploadStatus]);
+  const figUploadStatus = describeFigProgress(
+    figUploadPhase,
+    figUploadProgress,
+    figSaveCount,
+  );
 
   const importReservedRef = useRef(false);
   useImperativeHandle(

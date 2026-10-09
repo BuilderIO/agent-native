@@ -2,7 +2,7 @@ import {
   actionErrorMessage,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { openAgentSettings } from "@agent-native/toolkit/app/shared";
 import { parseFigmaFileKey } from "@shared/figma-url";
 import { IconChevronDown, IconUpload } from "@tabler/icons-react";
@@ -25,17 +25,25 @@ import {
   PopoverAnchor,
   PopoverContent,
 } from "@/components/ui/popover";
-import { validateFigUploadFile } from "@/lib/design-file-upload";
+import {
+  MAX_BROWSER_FIG_BYTES,
+  MAX_BROWSER_FIG_MB,
+  validateFigUploadFile,
+} from "@/lib/design-file-upload";
 import { importResultNotification } from "@/lib/design-import";
 import { FIGMA_ACCESS_TOKEN_SECRET_KEY } from "@/lib/figma-connection";
 import {
-  discardUnclaimedPendingDesignImports,
+  claimFigImportToast,
+  discardPendingDesignImports,
   FIG_IMPORT_TOAST_ID,
+  releaseFigImportToast,
   setPendingDesignImport,
+  updateFigImportToast,
 } from "@/lib/pending-import";
 
 export function HomeImportButton() {
   const t = useT();
+  const formatters = useFormatters();
   const navigate = useNavigate();
   const create = useActionMutation("create-design");
   const importFrame = useActionMutation("import-figma-frame");
@@ -50,9 +58,7 @@ export function HomeImportButton() {
   const urlId = useId();
   const valid = Boolean(parseFigmaFileKey(url));
   useEffect(() => {
-    if (!discardUnclaimedPendingDesignImports()) {
-      toast.dismiss(FIG_IMPORT_TOAST_ID);
-    }
+    discardPendingDesignImports();
   }, []);
   const changeOpen = (next: boolean) => {
     if (!pending.current) setOpen(next);
@@ -64,16 +70,27 @@ export function HomeImportButton() {
   };
   const importFile = async (file: File | undefined) => {
     if (!file || pending.current) return;
-    if (validateFigUploadFile(file, { maxBytes: null })) {
-      toast.error(t("designEditor.import.errors.invalidFigFile"));
+    const validationError = validateFigUploadFile(file, {
+      maxBytes: MAX_BROWSER_FIG_BYTES,
+    });
+    if (validationError) {
+      toast.error(
+        validationError === "too-large"
+          ? t("designEditor.import.errors.figFileTooLarge", {
+              max: formatters.formatNumber(MAX_BROWSER_FIG_MB),
+            })
+          : t("designEditor.import.errors.invalidFigFile"),
+      );
       return;
     }
     pending.current = true;
     setBusy(true);
-    toast.loading(t("designEditor.import.figImportAnalyzing"), {
-      id: FIG_IMPORT_TOAST_ID,
-      description: file.name,
-    });
+    const toastOwner = claimFigImportToast(true);
+    updateFigImportToast(
+      toastOwner,
+      t("designEditor.import.figImportAnalyzing"),
+      file.name,
+    );
     try {
       const result = await create.mutateAsync({
         title: file.name.replace(/\.fig$/i, "") || t("home.untitledDesign"),
@@ -84,6 +101,7 @@ export function HomeImportButton() {
       setPendingDesignImport(result.id, { kind: "file", file });
       void navigate(`/design/${result.id}?panel=import`);
     } catch (cause) {
+      releaseFigImportToast(toastOwner);
       toast.error(actionErrorMessage(cause) ?? t("home.failedToCreateDesign"), {
         id: FIG_IMPORT_TOAST_ID,
         description: undefined,

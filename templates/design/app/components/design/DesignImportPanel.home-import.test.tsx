@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  claimFigImportToast,
   clearPendingDesignImport,
   readPendingDesignImport,
   setPendingDesignImport,
@@ -176,6 +177,45 @@ describe("home-picked .fig handoff", () => {
     await act(async () => finishDecode());
     await vi.waitFor(() => expect(mocks.onImport).toHaveBeenCalledOnce());
     expect(mocks.dismiss).toHaveBeenCalledWith("design-fig-import-progress");
+  });
+  it("keeps the toast current after the panel unmounts and never dismisses a newer import's toast", async () => {
+    let report!: (progress: Record<string, unknown>) => void;
+    let finishImport!: () => void;
+    mocks.import.mockImplementation(async ({ onProgress }) => {
+      report = onProgress;
+      await new Promise<void>((resolve) => (finishImport = resolve));
+      return { designId: "home-design", files: [] };
+    });
+    await render();
+    await vi.waitFor(() => expect(report).toBeTypeOf("function"));
+    await act(async () => root.unmount());
+
+    report({ phase: "saving", ratio: 0.5, saved: 2, total: 4 });
+    expect(mocks.loading).toHaveBeenLastCalledWith(
+      "designEditor.import.figImportSaving",
+      { id: "design-fig-import-progress", description: "picked.fig" },
+    );
+
+    claimFigImportToast();
+    mocks.loading.mockClear();
+    report({ phase: "saving", ratio: 0.9, saved: 4, total: 4 });
+    await act(async () => finishImport());
+    await vi.waitFor(() => expect(mocks.success).toHaveBeenCalled());
+    expect(mocks.loading).not.toHaveBeenCalled();
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+
+    root = createRoot(container);
+  });
+  it("rejects files over the browser limit before decoding with the translated size message", async () => {
+    const huge = new File(["fig"], "huge.fig");
+    Object.defineProperty(huge, "size", { value: 3 * 1024 ** 3 });
+    setPendingDesignImport("home-design", { kind: "file", file: huge });
+    await render();
+    expect(mocks.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.uploadFailed",
+      { description: "designEditor.import.errors.figFileTooLarge" },
+    );
+    expect(mocks.prepare).not.toHaveBeenCalled();
   });
   it("does not auto-repeat a failed import after rerender or remount and retries the same file only on request", async () => {
     mocks.import.mockRejectedValueOnce(
