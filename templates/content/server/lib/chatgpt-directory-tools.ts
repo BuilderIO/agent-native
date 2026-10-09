@@ -218,6 +218,9 @@ export const CHATGPT_DIRECTORY_PROFILE = {
     "list-resource-shares",
     "list-resource-suggestions",
   ],
+  // The collaborator list goes only to a ticket that can share the document;
+  // a read-only or database ticket never lists who has access.
+  widgetReadActionWriteGates: { "list-resource-shares": "share-resource" },
   widgetReadPrivateActions: [
     "get-content-navigation-context",
     "get-preview-document-draft",

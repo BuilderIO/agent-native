@@ -206,6 +206,12 @@ export interface MCPConfig {
     widgetReadPrivateActions?: readonly string[];
     /** Authenticated reads surfaced on other agent profiles, but only scoped here. */
     widgetReadAuthenticatedActions?: readonly string[];
+    /**
+     * Scoped reads minted only into a write capability, and only for a target
+     * that lists the mapped write action: `{ "list-resource-shares":
+     * "share-resource" }` keeps collaborator lists out of read-only tickets.
+     */
+    widgetReadActionWriteGates?: Record<string, string>;
     /** Omit the one shared resource title when tools have distinct invocation labels. */
     widgetResourceTitle?: string | false;
     keyToolNames?: readonly string[];
@@ -738,6 +744,19 @@ export function validateMcpDirectoryProfile(
     ) {
       throw new McpDirectoryProfileValidationError(
         `[agent-native] MCP directory widget read route "${name}" must be an explicitly scoped read-only GET action with valid resource arguments in the connector allowlist or hidden-read profiles.`,
+      );
+    }
+  }
+
+  for (const [readAction, writeAction] of Object.entries(
+    profile?.widgetReadActionWriteGates ?? {},
+  )) {
+    if (
+      !Object.hasOwn(profile?.widgetReadActionArguments ?? {}, readAction) ||
+      !Object.hasOwn(profile?.widgetWriteActionArguments ?? {}, writeAction)
+    ) {
+      throw new McpDirectoryProfileValidationError(
+        `[agent-native] MCP directory widget read "${readAction}" is gated on "${writeAction}", which must both be declared widget actions.`,
       );
     }
   }
@@ -1551,6 +1570,13 @@ async function mcpDirectoryWidgetCapabilityForTool(
     string,
     Record<string, McpDirectoryWidgetReadArgument>
   > = {};
+  const writeGatedReadArguments: Record<
+    string,
+    {
+      writeGate: string;
+      scopedArguments: Record<string, McpDirectoryWidgetReadArgument>;
+    }
+  > = {};
   for (const [actionName, argumentMap] of Object.entries(
     profile.widgetReadActionArguments ?? {},
   )) {
@@ -1599,7 +1625,12 @@ async function mcpDirectoryWidgetCapabilityForTool(
     if (
       Object.keys(scopedArguments).length === Object.keys(argumentMap).length
     ) {
-      actionArguments[actionName] = scopedArguments;
+      const writeGate = profile.widgetReadActionWriteGates?.[actionName];
+      if (writeGate === undefined) {
+        actionArguments[actionName] = scopedArguments;
+      } else if (target.writeActions?.includes(writeGate)) {
+        writeGatedReadArguments[actionName] = { writeGate, scopedArguments };
+      }
     }
   }
   const writeActionArguments: Record<
@@ -1696,7 +1727,19 @@ async function mcpDirectoryWidgetCapabilityForTool(
       ...(typeof requestOrgId === "string" ? { orgId: requestOrgId } : {}),
       expiresAtMs:
         Date.now() + MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS,
-      readActionArguments: actionArguments,
+      readActionArguments: {
+        ...actionArguments,
+        ...Object.fromEntries(
+          Object.entries(writeGatedReadArguments)
+            .filter(([, { writeGate }]) =>
+              Object.hasOwn(writeActionArguments, writeGate),
+            )
+            .map(([actionName, { scopedArguments }]) => [
+              actionName,
+              scopedArguments,
+            ]),
+        ),
+      },
       writeActionArguments,
     };
     return {
