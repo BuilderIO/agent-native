@@ -44,3 +44,5 @@ Associate tool receipts with their call IDs, retain ambiguous concurrent calls a
 Reject journal fingerprints that contradict their original arguments and require receipt arguments to agree with the matching call after byte stripping.
 
 Snapshot fresh tool arguments before queued journal writes, store separate original and persisted argument digests, preserve every own JSON property during byte stripping, and leave ambiguous identical invocations unknown.
+
+Keep start and completion journal events bound to the same pre-invocation arguments even when an action mutates its input.

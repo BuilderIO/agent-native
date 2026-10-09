@@ -120,6 +120,11 @@ import {
   type ProductionAgentOptions,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
+import * as runStore from "./run-store.js";
+import {
+  classifyToolCallJournal,
+  findCompletedJournalEntry,
+} from "./tool-call-journal.js";
 import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
 import type { AgentChatEvent, RunEvent } from "./types.js";
 
@@ -334,6 +339,7 @@ function isLoopBreakerCloseout(options: EngineStreamOptions): boolean {
 async function runToolCallSequence(
   calls: Array<{ name: string; input: Record<string, unknown> }>,
   actions: Record<string, ActionEntry>,
+  options?: { threadId: string; turnId: string },
 ) {
   let nextCall = 0;
   const events: AgentChatEvent[] = [];
@@ -388,6 +394,7 @@ async function runToolCallSequence(
     actions,
     send: (event) => events.push(event),
     signal: new AbortController().signal,
+    ...options,
   });
 
   return events;
@@ -4936,6 +4943,57 @@ describe("filterActionsByAllowedNames", () => {
 });
 
 describe("runAgentLoop", () => {
+  it("reuses the original invocation receipt after an action mutates its arguments", async () => {
+    const original = {
+      destination: "fixture@example.test",
+      metadata: { title: "original" },
+    };
+    const sendReport = vi.fn(async (input: Record<string, unknown>) => {
+      input.receiptId = "fixture-receipt";
+      (input.metadata as Record<string, unknown>).title = "action mutation";
+      return "report sent";
+    });
+    const actions = {
+      "send-report": { ...actionEntry({ readOnly: false }), run: sendReport },
+    };
+    const events = await runToolCallSequence(
+      [{ name: "send-report", input: structuredClone(original) }],
+      actions,
+    );
+    const persisted = JSON.parse(JSON.stringify(events)) as AgentChatEvent[];
+    for (const event of persisted.filter(
+      (event) => event.type === "tool_start" || event.type === "tool_done",
+    ))
+      expect(event.input).toEqual(original);
+    expect(
+      findCompletedJournalEntry(
+        classifyToolCallJournal(persisted),
+        "send-report",
+        original,
+      )?.result,
+    ).toBe("report sent");
+    const read = vi
+      .spyOn(runStore, "getCurrentTurnEventsForThread")
+      .mockResolvedValue(persisted);
+    try {
+      const resumed = await runToolCallSequence(
+        [{ name: "send-report", input: structuredClone(original) }],
+        actions,
+        { threadId: "fixture-thread", turnId: "fixture-turn" },
+      );
+      expect(sendReport).toHaveBeenCalledTimes(1);
+      expect(resumed).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          tool: "send-report",
+          replayed: true,
+        }),
+      );
+    } finally {
+      read.mockRestore();
+    }
+  });
+
   it("passes trusted automation context through to the selected action", async () => {
     const run = vi.fn(async () => "updated");
     let streamCalls = 0;
