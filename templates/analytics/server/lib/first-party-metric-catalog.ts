@@ -1057,7 +1057,7 @@ function buildOnboardingEventsCte(
   const dateRangeFilter =
     options.dateRangeFilter ?? DASHBOARD_TIME_RANGE_FILTER;
   const observationCutoffFilter = options.observationCutoffSql
-    ? `AND e.timestamp::timestamptz < ${options.observationCutoffSql}`
+    ? `\n      AND e.timestamp::timestamptz < ${options.observationCutoffSql}`
     : "";
   return `WITH auth_identity_bridge AS (
   SELECT linked_email, MIN(identities.auth_user_id) AS auth_user_id
@@ -1068,8 +1068,7 @@ function buildOnboardingEventsCte(
     )) AS linked_email,
     NULLIF(e.properties::jsonb ->> 'auth_user_id', '') AS auth_user_id
     FROM analytics_events e
-    WHERE ${dateRangeFilter}
-      ${observationCutoffFilter}
+    WHERE ${dateRangeFilter}${observationCutoffFilter}
       AND ${DASHBOARD_APP_FILTER}
       AND ${FIRST_PARTY_TEMPLATE_FILTER}
   ) AS identities
@@ -1096,8 +1095,7 @@ function buildOnboardingEventsCte(
     CASE WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key END,
     CASE WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id END
   ))
-  WHERE ${dateRangeFilter}
-    ${observationCutoffFilter}
+  WHERE ${dateRangeFilter}${observationCutoffFilter}
     AND ${DASHBOARD_APP_FILTER}
     AND ${FIRST_PARTY_TEMPLATE_FILTER}
 ), onboarding_events AS (
