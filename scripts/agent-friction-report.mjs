@@ -2284,12 +2284,15 @@ const FEEDBACK_REPLY_CONTEXT =
   /(?:reply|repl(?:y|ies)|respond(?:s|ed|ing)?|responses?|answer\s+(?:in|using)|feedback\s+(?:responses?|replies?|updates?))(?!\s+(?:feature|endpoint|api|tool|method|function|route|component|rate|rates|time|times|template|templates)\b)/i
     .source;
 const FEEDBACK_REPLY_DETAIL_ISSUE_BASE =
-  /(?:too\s+technical|overly\s+technical|excessively\s+technical|too\s+detailed|overly\s+detailed|excessively\s+detailed|too\s+jargon[- ]heavy|overly\s+jargon[- ]heavy|excessively\s+jargon[- ]heavy|too\s+much\s+jargon|too\s+much\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|too\s+many\s+commit\s+hashes?|less\s+technical|less\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|more\s+concise|more\s+succinct|succinct|briefer|shorter|shorten|trim|simplify|(?:should\s+not|shouldn't)\s+(?:(?:include|contain|have)\s+)?(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|should\s+(?:include|contain|have)\s+no\s+(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|(?:without|free\s+of)\s+(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information))/i
+  /(?:too\s+technical|overly\s+technical|excessively\s+technical|too\s+detailed|overly\s+detailed|excessively\s+detailed|too\s+jargon[- ]heavy|overly\s+jargon[- ]heavy|excessively\s+jargon[- ]heavy|too\s+much\s+jargon|too\s+much\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|too\s+many\s+commit\s+hashes?|less\s+technical|less\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|more\s+concise|more\s+succinct|succinct|briefer|shorter|(?:should\s+not|shouldn't)\s+(?:(?:include|contain|have)\s+)?(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|should\s+(?:include|contain|have)\s+no\s+(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|(?:without|free\s+of)\s+(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information))/i
+    .source;
+const FEEDBACK_REPLY_DETAIL_DIRECT_STYLE_ACTION =
+  /\b(?:shorten|trim|simplify)\s+(?:(?:the|a|an|my|your|our|these|those|this|that)\s+)?(?:repl(?:y|ies)|responses?|updates?)\b/i
     .source;
 const FEEDBACK_REPLY_DETAIL_KEEP_OUT_ISSUE =
   /keep\s+(?:(?:technical|implementation|internal|deployment|all|any|the)\s+){0,2}(?:details?|information)\s+out\s+of/i
     .source;
-const FEEDBACK_REPLY_DETAIL_ISSUE = `(?:${FEEDBACK_REPLY_DETAIL_ISSUE_BASE}|${FEEDBACK_REPLY_DETAIL_KEEP_OUT_ISSUE}|verbose|too\\s+(?:wordy|long)|less\\s+wordy)`;
+const FEEDBACK_REPLY_DETAIL_ISSUE = `(?:${FEEDBACK_REPLY_DETAIL_ISSUE_BASE}|${FEEDBACK_REPLY_DETAIL_DIRECT_STYLE_ACTION}|${FEEDBACK_REPLY_DETAIL_KEEP_OUT_ISSUE}|verbose|too\\s+(?:wordy|long)|less\\s+wordy)`;
 const FEEDBACK_REPLY_DETAIL_HIGH_LEVEL_REQUEST =
   "\\b(?:keep|make|write|use)\\s+(?:(?:the|a|an|my|your|our|these|those)\\s+)?(?:(?:(?:feedback\\s+)?(?:repl(?:y|ies)|responses?|updates?)\\s+(?:at\\s+(?:a\\s+)?)?high[- ]level)|(?:high[- ]level\\s+(?:feedback\\s+)?(?:repl(?:y|ies)|responses?|updates?)))(?:\\s+(?:like|as)\\s+(?:this|that|these|those|it))?\\b";
 const FEEDBACK_REPLY_DETAIL_TARGET =
@@ -2398,6 +2401,9 @@ const FEEDBACK_REPLY_DETAIL_NON_CORRECTION = [
     "\\b[^.!?;]{0,100}\\b" +
     FEEDBACK_REPLY_CONTEXT +
     "\\b",
+  "\\b(?:don['’]t|do not|shouldn['’]t|should not)\\s+(?:skip|omit|avoid|remove|leave\\s+out)\\b[^.!?;]{0,100}\\b" +
+    FEEDBACK_REPLY_DETAIL_TARGET +
+    "\\b",
   "\\b(?:don['’]t|do not|shouldn['’]t|should not)\\s+" +
     FEEDBACK_REPLY_DETAIL_KEEP_OUT_ISSUE +
     "\\b[^.!?;]{0,40}\\b" +
@@ -2414,6 +2420,7 @@ const FEEDBACK_REPLY_DETAIL_RE = new RegExp(
     FEEDBACK_REPLY_DETAIL_NON_CORRECTION_RE_SOURCE +
     "))[^.!?;,]*?(?:" +
     [
+      FEEDBACK_REPLY_DETAIL_DIRECT_STYLE_ACTION,
       "\\b" +
         FEEDBACK_REPLY_CONTEXT +
         "\\b[^.!?;,]{0,100}\\b" +
@@ -2896,6 +2903,20 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [true, "Reply after deployment; keep it concise."],
   [true, "Don't include commit hashes or CI results in replies."],
   [true, "Don't include commit hashes in feedback responses."],
+  [false, "Replies are great, but don't skip the CI results."],
+  [false, "Replies are good, but don't remove the commit hashes."],
+  [
+    true,
+    "Replies are great, but please remove the commit hashes from the reply.",
+  ],
+  [false, "Reply to the reporter and simplify the migration script."],
+  [
+    false,
+    "Please respond on the issue and trim the trailing whitespace in the README.",
+  ],
+  [true, "Please simplify the reply."],
+  [true, "Trim the response."],
+  [true, "Shorten your reply."],
   [false, "For example, don't include commit hashes in replies."],
   [false, "E.g., don't include commit hashes in replies."],
   [true, "Keep technical details out of the reply."],
