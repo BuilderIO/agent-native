@@ -14,6 +14,7 @@ import type { EditorContentAndComponents } from "../domains/use-editor-content-a
 import type { EditorCore } from "../domains/use-editor-core";
 import type { EditorHistory } from "../domains/use-editor-history";
 import type { EditorLiveEditsAndPresence } from "../domains/use-editor-live-edits-and-presence";
+import { shouldAutoOpenMobileInspector } from "../minimal-inspector";
 
 export function renderMobileInspectorSheet({
   editorCore,
@@ -33,8 +34,7 @@ export function renderMobileInspectorSheet({
     "width"
   >;
 }) {
-  const { hostOwnsChrome, mode, widgetEmbed, setSelectedElement, t } =
-    editorCore;
+  const { hostOwnsChrome, mode, setSelectedElement, t } = editorCore;
   const {
     minimalUi,
     isMobileViewport,
@@ -47,21 +47,23 @@ export function renderMobileInspectorSheet({
 
   return (
     <>
-      {/* Minimal UI on a phone opens the sheet itself on every selection. The
-          widget shares a pane with chat, so it opens on request instead, and
-          a frame selected by the route never covers the canvas on load. */}
+      {/* The inspector overlays the canvas in a narrow widget pane too. */}
       {!hostOwnsChrome &&
       !uiHidden &&
       !initialGenerationChromeLimited &&
       mode === "edit" ? (
         <Sheet
           open={
-            minimalUi && !widgetEmbed
-              ? isMobileViewport && minimalInspectorHasSelection
+            minimalUi
+              ? shouldAutoOpenMobileInspector({
+                  minimalUi,
+                  isMobileViewport,
+                  hasSelection: minimalInspectorHasSelection,
+                })
               : undefined
           }
           onOpenChange={
-            minimalUi && !widgetEmbed
+            minimalUi && isMobileViewport
               ? (nextOpen) => {
                   if (nextOpen) return;
                   setSelectedElement(null);
@@ -72,7 +74,7 @@ export function renderMobileInspectorSheet({
               : undefined
           }
         >
-          {!minimalUi || (widgetEmbed && minimalInspectorHasSelection) ? (
+          {!minimalUi ? (
             <SheetTrigger asChild>
               <Button
                 type="button"

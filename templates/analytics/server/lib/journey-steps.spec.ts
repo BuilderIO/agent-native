@@ -6,6 +6,7 @@ import {
   JOURNEY_COHORT_EVENT_NAMES,
   JOURNEY_STEP_EVENT_NAMES,
   normalizeJourneyPath,
+  projectSessionSteps,
   type JourneyEventRow,
 } from "./journey-steps";
 
@@ -423,6 +424,20 @@ describe("deriveJourneyStep", () => {
 });
 
 describe("buildSessionSteps", () => {
+  it("retains the terminal selected step key and timestamp for aggregation", () => {
+    const selected = projectSessionSteps([
+      row("signup", 100),
+      row("onboarding_step_viewed", 200, { stepId: "role" }),
+      row("onboarding_step_viewed", 250, { stepId: "role" }),
+    ]);
+
+    expect(selected[selected.length - 1]).toEqual({
+      key: "step:role",
+      label: "Onboarding step: role",
+      tsMs: 200,
+    });
+  });
+
   it("deduplicates legacy and canonical aliases and orders first-run Builder events", () => {
     const steps = buildSessionSteps([
       row("onboarding_method_outcome", 100, {

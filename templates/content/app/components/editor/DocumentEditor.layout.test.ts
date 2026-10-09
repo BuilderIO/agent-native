@@ -2958,7 +2958,16 @@ describe("document editor layout", () => {
     );
 
     expect(source).toContain("export function PageEditorSurface");
-    expect(source).toContain("document.canEdit === true");
+    expect(source).toContain(
+      'import { directoryWidgetEditability } from "./directory-widget-editability";',
+    );
+    expect(source).toContain(
+      "const widgetEditability = directoryWidgetEditability(document);",
+    );
+    expect(source).toContain(
+      "const canEdit = widgetEditability.canEditDocument;",
+    );
+    expect(source).toContain("<PageDraftRecovery");
     expect(source).toContain("flushAllBlockFieldSaveControllersForDocument");
     expect(source).toContain("flushDocumentPropertyWrites(documentId)");
     const navigationFlushStart = source.indexOf("const flushLatestPageEdits =");
@@ -3100,14 +3109,14 @@ describe("document editor layout", () => {
     );
 
     expect(documentEditorSource).toContain(
-      "!isLocalFileDocument ? documentId : null",
+      "collabEnabled &&\n    !creationAwaitingFirstRead &&\n    !holdCollaborationForCreationSave &&\n    !isDocumentCreationPending(queryClient, document)\n      ? documentId\n      : null",
     );
 
     expect(documentEditorSource).toContain(
       "canEdit &&\n                    !canEditWithoutCollaboration &&\n                    !collabSynced",
     );
     expect(documentEditorSource).toContain(
-      "(isLocalFileDocument || collabSynced || canEditWithoutCollaboration)",
+      "(isLocalFileDocument ||\n      mcpDirectoryWidgetReadOnly ||\n      collabSynced ||\n      canEditWithoutCollaboration)",
     );
     expect(documentEditorSource).toContain(
       "!canEdit ||\n      !hydrationContext?.sourceId",

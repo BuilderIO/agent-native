@@ -68,7 +68,7 @@ import {
   type StyleDiff,
 } from "./lib/metrics.ts";
 import { isRetryableInfraError } from "./retry-infra.ts";
-import { readValueOption } from "./run-options.ts";
+import { authoringFilterError, readValueOption } from "./run-options.ts";
 import {
   ActionTransportError,
   ActionRequestTimeoutError,
@@ -209,6 +209,11 @@ const authoringSourceFilter = opt("--authoring-source");
 const authoringFlowFilter = opt("--authoring-flow");
 const authoringCaseFilter = opt("--authoring-case");
 const authoringFlows = ["slash", "shortcut", "list", "paste"] as const;
+const incompatibleAuthoringFilters = authoringFilterError(
+  authoringSourceFilter,
+  authoringFlowFilter,
+);
+if (incompatibleAuthoringFilters) fatal(incompatibleAuthoringFilters);
 if ((authoringSourceFilter || authoringFlowFilter) && !authoringCorpusOnly) {
   fatal("--authoring-source and --authoring-flow require --authoring-corpus");
 }
@@ -4882,72 +4887,79 @@ async function runAuthoringCorpusQa(
     }
   }
 
-  if (authoringSourceFilter || authoringFlowFilter) return problems;
+  if (
+    authoringFlowFilter ||
+    (authoringSourceFilter && authoringSourceFilter !== "largest")
+  ) {
+    return problems;
+  }
 
-  let edgeDeckId: string | null = null;
-  const edgeSlideId = "authoring-slash-viewport-edge";
-  try {
-    await page.setViewportSize({ width: 800, height: 520 });
-    const edgeDeck = await action(page, "create-deck", {
-      title: `[edit-fidelity] slash viewport edge ${Date.now()}`,
-      slides: [
-        {
-          id: edgeSlideId,
-          content:
-            '<div class="fmd-slide" style="padding:0"><p style="position:absolute;right:8px;bottom:8px;margin:0;text-align:right;white-space:nowrap">Edge anchor&nbsp;</p></div>',
-        },
-      ],
-    });
-    edgeDeckId = String(edgeDeck.id ?? edgeDeck.deckId);
-    await openSlide(page, base, edgeDeckId, 0, edgeSlideId);
-    const [target] = await listTargets(page, edgeSlideId);
-    if (!target) throw new Error("viewport-edge slide has no text target");
-    if (!(await enterEdit(page, edgeSlideId, target.point, []))) {
-      throw new Error("could not edit the viewport-edge text target");
-    }
-    const editor = page.locator(selectorFor(edgeSlideId));
-    await editor.press(lineEndKey);
-    await editor.pressSequentially("/");
-    const listbox = await getSlashListbox(page, editor);
-    await listbox
-      .locator('[role="option"]')
-      .first()
-      .waitFor({ state: "visible" });
-    const geometry = await assertSlashPopoverGeometry(editor);
-    const horizontalCollision =
-      geometry.caret.left + geometry.popover.width + 8 >
-      geometry.viewport.width;
-    const verticalCollision =
-      geometry.viewport.height - geometry.caret.bottom <
-      geometry.popover.height + 12;
-    if (!horizontalCollision || !verticalCollision) {
-      throw new Error(
-        `viewport-edge fixture did not pressure both popover edges: ${JSON.stringify({ geometry, horizontalCollision, verticalCollision })}`,
-      );
-    }
-    if (
-      geometry.side !== "top" ||
-      geometry.popover.left >= geometry.caret.left ||
-      Math.abs(geometry.popover.right - (geometry.viewport.width - 8)) > 2
-    ) {
-      throw new Error(
-        `viewport-edge popover did not shift left and flip above the caret: ${JSON.stringify(geometry)}`,
-      );
-    }
-    await page.keyboard.press("Escape");
-    await listbox.waitFor({ state: "hidden" });
-    await exitEdit(page, edgeSlideId, "escape");
-  } catch (error) {
-    problems.push(`slash viewport-edge geometry: ${String(error)}`);
-  } finally {
-    if (edgeDeckId) {
-      try {
-        await action(page, "delete-deck", { id: edgeDeckId }, "DELETE");
-      } catch (error) {
-        problems.push(`slash viewport-edge cleanup failed: ${String(error)}`);
+  if (authoringSourceFilter !== "largest") {
+    let edgeDeckId: string | null = null;
+    const edgeSlideId = "authoring-slash-viewport-edge";
+    try {
+      await page.setViewportSize({ width: 800, height: 520 });
+      const edgeDeck = await action(page, "create-deck", {
+        title: `[edit-fidelity] slash viewport edge ${Date.now()}`,
+        slides: [
+          {
+            id: edgeSlideId,
+            content:
+              '<div class="fmd-slide" style="padding:0"><p style="position:absolute;right:8px;bottom:8px;margin:0;text-align:right;white-space:nowrap">Edge anchor&nbsp;</p></div>',
+          },
+        ],
+      });
+      edgeDeckId = String(edgeDeck.id ?? edgeDeck.deckId);
+      await openSlide(page, base, edgeDeckId, 0, edgeSlideId);
+      const [target] = await listTargets(page, edgeSlideId);
+      if (!target) throw new Error("viewport-edge slide has no text target");
+      if (!(await enterEdit(page, edgeSlideId, target.point, []))) {
+        throw new Error("could not edit the viewport-edge text target");
       }
+      const editor = page.locator(selectorFor(edgeSlideId));
+      await editor.press(lineEndKey);
+      await editor.pressSequentially("/");
+      const listbox = await getSlashListbox(page, editor);
+      await listbox
+        .locator('[role="option"]')
+        .first()
+        .waitFor({ state: "visible" });
+      const geometry = await assertSlashPopoverGeometry(editor);
+      const horizontalCollision =
+        geometry.caret.left + geometry.popover.width + 8 >
+        geometry.viewport.width;
+      const verticalCollision =
+        geometry.viewport.height - geometry.caret.bottom <
+        geometry.popover.height + 12;
+      if (!horizontalCollision || !verticalCollision) {
+        throw new Error(
+          `viewport-edge fixture did not pressure both popover edges: ${JSON.stringify({ geometry, horizontalCollision, verticalCollision })}`,
+        );
+      }
+      if (
+        geometry.side !== "top" ||
+        geometry.popover.left >= geometry.caret.left ||
+        Math.abs(geometry.popover.right - (geometry.viewport.width - 8)) > 2
+      ) {
+        throw new Error(
+          `viewport-edge popover did not shift left and flip above the caret: ${JSON.stringify(geometry)}`,
+        );
+      }
+      await page.keyboard.press("Escape");
+      await listbox.waitFor({ state: "hidden" });
+      await exitEdit(page, edgeSlideId, "escape");
+    } catch (error) {
+      problems.push(`slash viewport-edge geometry: ${String(error)}`);
+    } finally {
+      if (edgeDeckId) {
+        try {
+          await action(page, "delete-deck", { id: edgeDeckId }, "DELETE");
+        } catch (error) {
+          problems.push(`slash viewport-edge cleanup failed: ${String(error)}`);
+        }
+      }
+      await page.setViewportSize({ width: 1600, height: 1000 });
     }
-    await page.setViewportSize({ width: 1600, height: 1000 });
   }
 
   const largest = sources.find((source) => source.kind === "largest");

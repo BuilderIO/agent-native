@@ -269,7 +269,11 @@ function union(rects: Rect[]): Rect {
  */
 export function layoutJourney(
   nodes: readonly JourneyLayoutNode[],
-  options: { cardWidth: number; parentAlignment?: "center" | "top" },
+  options: {
+    cardWidth: number;
+    parentAlignment?: "center" | "top";
+    verticalLayout?: "subtree" | "depth";
+  },
 ): JourneyLayout {
   if (nodes.length === 0) {
     return {
@@ -305,10 +309,39 @@ export function layoutJourney(
     left += width + COLUMN_GAP;
   });
 
-  let top = 0;
-  for (const root of roots) {
-    place(root, top, columnX, options.parentAlignment ?? "center");
-    top += root.band + ROOT_GAP;
+  if (options.verticalLayout === "depth") {
+    const rootByEntry = new Map<Sized, string>();
+    const assignRoot = (entry: Sized, rootKey: string) => {
+      rootByEntry.set(entry, rootKey);
+      entry.children.forEach((child) => assignRoot(child, rootKey));
+    };
+    roots.forEach((root) => assignRoot(root, root.node.key));
+    const entriesByDepth = new Map<number, Sized[]>();
+    for (const entry of ordered) {
+      const level = entriesByDepth.get(entry.depth) ?? [];
+      level.push(entry);
+      entriesByDepth.set(entry.depth, level);
+    }
+    for (const [depth, entries] of entriesByDepth) {
+      let top = 0;
+      let previousRoot: string | undefined;
+      for (const entry of entries) {
+        const rootKey = rootByEntry.get(entry)!;
+        if (previousRoot !== undefined && rootKey !== previousRoot) {
+          top += ROOT_GAP;
+        }
+        entry.x = columnX[depth]!;
+        entry.y = top;
+        top += entry.height + ROW_GAP;
+        previousRoot = rootKey;
+      }
+    }
+  } else {
+    let top = 0;
+    for (const root of roots) {
+      place(root, top, columnX, options.parentAlignment ?? "center");
+      top += root.band + ROOT_GAP;
+    }
   }
 
   const placed: PlacedNode[] = sized.map((entry) => {
@@ -437,8 +470,9 @@ export function layoutJourneyAppBands(
 
   for (const band of bands) {
     const layout = layoutJourney(band.nodes, {
-      ...options,
+      cardWidth: options.cardWidth,
       parentAlignment: "top",
+      verticalLayout: "depth",
     });
     if (layout.nodes.length === 0) continue;
     const x = nextX - layout.bounds.x;

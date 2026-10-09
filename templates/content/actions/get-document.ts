@@ -41,6 +41,7 @@ import {
   documentHasInlineDatabase,
   hasSuggestionBodyTarget,
 } from "./_suggestion-eligibility.js";
+import { contentWidgetEditCapabilities } from "./_widget-edit-capabilities.js";
 
 function canEditRole(role: string) {
   return role === "owner" || role === "admin" || role === "editor";
@@ -251,12 +252,17 @@ export default defineAction({
             (row) => row.item.databaseId === selectedDatabaseId,
           )
         : databaseItems[0]) ?? null;
+    // The initial read wave proves the empty case; retain the resolver's
+    // existing selection behavior when memberships are present.
     const propertyDatabase = selectedDatabaseId
       ? (databaseMembership?.database ??
         (database?.id === selectedDatabaseId
           ? database
           : await getDatabaseById(selectedDatabaseId)))
-      : await resolvePropertyDatabaseForDocument(doc);
+      : (database ??
+        (databaseItems.length > 0
+          ? await resolvePropertyDatabaseForDocument(doc)
+          : null));
     const hasPropertyDatabaseAccess = Boolean(
       propertyDatabase && accessibleDatabases.has(propertyDatabase.documentId),
     );
@@ -338,6 +344,12 @@ export default defineAction({
       hasInlineDatabase,
     });
     const revision = documentRevisionToken(doc.bodyRevision, doc.content ?? "");
+    const widgetEditCapabilities = contentWidgetEditCapabilities(ctx, {
+      id: doc.id,
+      spaceId: doc.spaceId,
+      databaseId: database?.id,
+      databaseDocumentId: database?.documentId,
+    });
 
     track(
       "document_viewed",
@@ -383,6 +395,12 @@ export default defineAction({
       canManage: canManageRole(access.role),
       ...(ctx?.mcpDirectoryWidgetReadOnly
         ? { mcpDirectoryWidgetReadOnly: true as const }
+        : {}),
+      ...(widgetEditCapabilities.canEditDocument
+        ? { mcpDirectoryWidgetCanEditDocument: true as const }
+        : {}),
+      ...(widgetEditCapabilities.canEditDatabaseRows
+        ? { mcpDirectoryWidgetCanEditDatabaseRows: true as const }
         : {}),
       database: database
         ? serializeDatabase(database, doc.description)

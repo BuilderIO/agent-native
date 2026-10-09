@@ -913,6 +913,168 @@ describe("createDesignVersionSnapshot", () => {
     expect(captureMocks.revisions).toHaveLength(2);
   });
 
+  it("captures a pre-edit checkpoint for a scoped widget editor write", async () => {
+    const checkpoint = await snapshotDesignBeforeAgentEdit("design-1", {
+      caller: "mcp-widget-write",
+      actionName: "update-file",
+      mcpDirectoryWidgetWrite: {
+        appId: "design",
+        resourceIds: { designId: "design-1" },
+        actionNames: ["update-file"],
+      },
+    });
+
+    expect(checkpoint).not.toBeNull();
+    expect(checkpoint).not.toMatchObject({ skipped: true });
+    expect(captureMocks.revisions).toHaveLength(1);
+    expect(
+      JSON.parse(captureMocks.revisions[0]!.chatContext as string),
+    ).toMatchObject({
+      surface: "editor",
+      caller: "mcp-widget-write",
+      actionName: "update-file",
+    });
+  });
+
+  it("throttles repeated scoped widget editor saves within the five-minute window", async () => {
+    const context = {
+      caller: "mcp-widget-write" as const,
+      actionName: "update-file",
+      mcpDirectoryWidgetWrite: {
+        appId: "design",
+        resourceIds: { designId: "design-1" },
+        actionNames: ["update-file"],
+      },
+    };
+    const first = await snapshotDesignBeforeAgentEdit("design-1", context);
+
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "<main>changed inside the widget throttle window</main>",
+        },
+      ],
+    };
+    const second = await snapshotDesignBeforeAgentEdit("design-1", context);
+
+    expect(second).toEqual(first);
+    expect(captureMocks.buildDesignSnapshot).toHaveBeenCalledTimes(1);
+    expect(captureMocks.revisions).toHaveLength(1);
+  });
+
+  it("captures another scoped widget checkpoint after the five-minute window", async () => {
+    vi.useFakeTimers();
+    try {
+      const context = {
+        caller: "mcp-widget-write" as const,
+        actionName: "update-file",
+        mcpDirectoryWidgetWrite: {
+          appId: "design",
+          resourceIds: { designId: "design-1" },
+          actionNames: ["update-file"],
+        },
+      };
+      await snapshotDesignBeforeAgentEdit("design-1", context);
+
+      captureMocks.liveSnapshot = {
+        ...captureMocks.liveSnapshot,
+        files: [
+          {
+            ...captureMocks.liveSnapshot.files[0],
+            content: "<main>changed after the widget throttle window</main>",
+          },
+        ],
+      };
+      vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+
+      await snapshotDesignBeforeAgentEdit("design-1", context);
+
+      expect(captureMocks.buildDesignSnapshot).toHaveBeenCalledTimes(2);
+      expect(captureMocks.revisions).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["frontend", "mcp-widget-write"],
+    ["mcp-widget-write", "frontend"],
+  ] as const)(
+    "shares the editor checkpoint throttle between %s and %s saves",
+    async (firstCaller, secondCaller) => {
+      const snapshot = (caller: typeof firstCaller | typeof secondCaller) =>
+        caller === "mcp-widget-write"
+          ? snapshotDesignBeforeAgentEdit("design-1", {
+              caller,
+              actionName: "update-file",
+              mcpDirectoryWidgetWrite: {
+                appId: "design",
+                resourceIds: { designId: "design-1" },
+                actionNames: ["update-file"],
+              },
+            })
+          : snapshotDesignBeforeAgentEdit("design-1", {
+              caller,
+              actionName: "update-file",
+            });
+      const first = await snapshot(firstCaller);
+
+      captureMocks.liveSnapshot = {
+        ...captureMocks.liveSnapshot,
+        files: [
+          {
+            ...captureMocks.liveSnapshot.files[0],
+            content: "<main>changed between editor surfaces</main>",
+          },
+        ],
+      };
+      const second = await snapshot(secondCaller);
+
+      expect(second).toEqual(first);
+      expect(captureMocks.buildDesignSnapshot).toHaveBeenCalledTimes(1);
+      expect(captureMocks.revisions).toHaveLength(1);
+    },
+  );
+
+  it("shares the recent failed-checkpoint skip with scoped widget writes", async () => {
+    putPrivateBlob.mockResolvedValue(null);
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "x".repeat(300 * 1024),
+        },
+      ],
+    };
+    const context = {
+      caller: "mcp-widget-write" as const,
+      actionName: "update-file",
+      mcpDirectoryWidgetWrite: {
+        appId: "design",
+        resourceIds: { designId: "design-1" },
+        actionNames: ["update-file"],
+      },
+    };
+
+    const first = await snapshotDesignBeforeAgentEdit("design-1", context, {
+      allowCheckpointFailureSkip: true,
+    });
+    const second = await snapshotDesignBeforeAgentEdit("design-1", context, {
+      allowCheckpointFailureSkip: true,
+    });
+
+    expect(first).toEqual({
+      skipped: true,
+      reason: "blob-storage-unavailable",
+    });
+    expect(second).toEqual(first);
+    expect(captureMocks.buildDesignSnapshot).toHaveBeenCalledTimes(1);
+    expect(captureError).toHaveBeenCalledTimes(1);
+  });
+
   it("does not throttle a frontend save against a legacy editor checkpoint recorded before caller tracking existed", async () => {
     await snapshotDesignBeforeAgentEdit("design-1", {
       caller: "frontend",

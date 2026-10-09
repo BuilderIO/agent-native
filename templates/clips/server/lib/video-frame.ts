@@ -17,7 +17,9 @@ let activeMediaValidations = 0;
 const mediaValidationWaiters: Array<() => void> = [];
 
 export type VideoFrameExtractionErrorCode =
-  | "NO_VIDEO"
+  | "NO_VIDEO_TRACK"
+  | "EMPTY_MEDIA"
+  | "NO_FRAME_AT_TIMESTAMP"
   | "FFMPEG_UNAVAILABLE"
   | "EXTRACTION_FAILED";
 
@@ -74,7 +76,7 @@ function mapFfmpegError(err: unknown): VideoFrameExtractionError {
   }
   if (isMissingVideoTrack(stderr)) {
     return new VideoFrameExtractionError(
-      "NO_VIDEO",
+      "NO_VIDEO_TRACK",
       "This recording does not contain a video track.",
     );
   }
@@ -260,7 +262,7 @@ export async function extractJpegFrame({
 }): Promise<Uint8Array> {
   if (mediaBytes.byteLength === 0) {
     throw new VideoFrameExtractionError(
-      "NO_VIDEO",
+      "EMPTY_MEDIA",
       "Recording media is empty.",
     );
   }
@@ -285,7 +287,7 @@ export async function extractJpegFrameFromFile({
   const info = await stat(mediaPath);
   if (!info.size) {
     throw new VideoFrameExtractionError(
-      "NO_VIDEO",
+      "EMPTY_MEDIA",
       "Recording media is empty.",
     );
   }
@@ -323,13 +325,13 @@ export async function extractJpegFrameFromFile({
           err instanceof Error && "code" in err ? err.code : undefined;
         if (code !== "ENOENT") throw err;
         throw new VideoFrameExtractionError(
-          "NO_VIDEO",
+          "NO_FRAME_AT_TIMESTAMP",
           "No frame was available at that timestamp.",
         );
       }
       if (info.size === 0) {
         throw new VideoFrameExtractionError(
-          "NO_VIDEO",
+          "NO_FRAME_AT_TIMESTAMP",
           "No frame was available at that timestamp.",
         );
       }
