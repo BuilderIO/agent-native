@@ -217,7 +217,15 @@ async function focusCanvas(page: Page): Promise<void> {
   });
 }
 
-async function emptyBoardPoint(page: Page, offset = { x: 0, y: 0 }) {
+async function emptyBoardPoint(
+  page: Page,
+  options: {
+    offset?: { x: number; y: number };
+    dragSize?: { width: number; height: number };
+  } = {},
+) {
+  const offset = options.offset ?? { x: 0, y: 0 };
+  const dragSize = options.dragSize ?? { width: 0, height: 0 };
   const boardIframes = page.locator(
     "[data-board-surface-layer] iframe[data-design-preview-iframe]",
   );
@@ -246,33 +254,49 @@ async function emptyBoardPoint(page: Page, offset = { x: 0, y: 0 }) {
     }
   }
   const point = await page.evaluate(
-    ({ offsetX, offsetY, boardFrameBoxes }) => {
+    ({ offsetX, offsetY, dragWidth, dragHeight, boardFrameBoxes }) => {
       const world = document.querySelector("[data-multi-screen-canvas-world]");
       const surface = (world?.parentElement ?? world) as HTMLElement | null;
       if (!surface) return null;
       const r = surface.getBoundingClientRect();
-      const cards = Array.from(
-        document.querySelectorAll("[data-screen-iframe-id]"),
+      const screenFrames = Array.from(
+        document.querySelectorAll("[data-screen-shell][data-frame-id]"),
       ).map((el) => el.getBoundingClientRect());
-      for (let y = r.top + 60 + offsetY; y < r.bottom - 60; y += 40) {
-        for (let x = r.left + 60 + offsetX; x < r.right - 60; x += 40) {
+      const overlaps = (
+        left: number,
+        top: number,
+        right: number,
+        bottom: number,
+        rect: { left: number; top: number; right: number; bottom: number },
+      ) =>
+        right >= rect.left - 24 &&
+        left <= rect.right + 24 &&
+        bottom >= rect.top - 24 &&
+        top <= rect.bottom + 24;
+      for (
+        let y = r.top + 60 + offsetY;
+        y < r.bottom - 60 - dragHeight;
+        y += 40
+      ) {
+        for (
+          let x = r.left + 60 + offsetX;
+          x < r.right - 60 - dragWidth;
+          x += 40
+        ) {
+          const right = x + dragWidth;
+          const bottom = y + dragHeight;
           if (
-            cards.some(
-              (c) =>
-                x >= c.left - 24 &&
-                x <= c.right + 24 &&
-                y >= c.top - 24 &&
-                y <= c.bottom + 24,
-            )
+            screenFrames.some((frame) => overlaps(x, y, right, bottom, frame))
           )
             continue;
           if (
-            boardFrameBoxes.some(
-              (frame) =>
-                x >= frame.x - 24 &&
-                x <= frame.x + frame.width + 24 &&
-                y >= frame.y - 24 &&
-                y <= frame.y + frame.height + 24,
+            boardFrameBoxes.some((frame) =>
+              overlaps(x, y, right, bottom, {
+                left: frame.x,
+                top: frame.y,
+                right: frame.x + frame.width,
+                bottom: frame.y + frame.height,
+              }),
             )
           ) {
             continue;
@@ -286,6 +310,8 @@ async function emptyBoardPoint(page: Page, offset = { x: 0, y: 0 }) {
     {
       offsetX: offset.x,
       offsetY: offset.y,
+      dragWidth: dragSize.width,
+      dragHeight: dragSize.height,
       boardFrameBoxes,
     },
   );
@@ -338,17 +364,98 @@ async function drawBoardFrame(
   await page.mouse.down();
   await page.mouse.move(to.x, to.y, { steps: 16 });
   await page.mouse.up();
-  await expect
-    .poll(
-      async () =>
-        (
-          (await boardHtml(request, designId)).match(
-            /data-an-primitive="frame"/g,
-          ) ?? []
-        ).length,
-      { timeout: 10_000 },
-    )
-    .toBeGreaterThan(countBefore);
+  try {
+    await expect
+      .poll(
+        async () =>
+          (
+            (await boardHtml(request, designId)).match(
+              /data-an-primitive="frame"/g,
+            ) ?? []
+          ).length,
+        { timeout: 10_000 },
+      )
+      .toBeGreaterThan(countBefore);
+  } catch (error) {
+    const failure = error instanceof Error ? error.message : String(error);
+    let diagnostic: unknown;
+    try {
+      const browserState = await page.evaluate(
+        ({ from, to }) => {
+          const surface = document.querySelector(
+            "[data-multi-screen-canvas-world]",
+          )?.parentElement;
+          const rect = surface?.getBoundingClientRect();
+          const left = Math.min(from.x, to.x);
+          const top = Math.min(from.y, to.y);
+          const right = Math.max(from.x, to.x);
+          const bottom = Math.max(from.y, to.y);
+          const screens = Array.from(
+            document.querySelectorAll<HTMLElement>(
+              "[data-screen-shell][data-frame-id]",
+            ),
+          );
+          const target = (point: { x: number; y: number }) => {
+            const element = document.elementFromPoint(point.x, point.y);
+            return {
+              ...point,
+              tag: element?.tagName.toLowerCase() ?? null,
+              screen: element
+                ?.closest("[data-screen-shell][data-frame-id]")
+                ?.getAttribute("data-frame-id"),
+            };
+          };
+          return {
+            activeTool: document
+              .querySelector<HTMLElement>(
+                '[data-design-bottom-toolbar] button[aria-pressed="true"]',
+              )
+              ?.getAttribute("aria-label"),
+            viewport: [innerWidth, innerHeight],
+            surface: rect
+              ? [rect.left, rect.top, rect.right, rect.bottom]
+              : null,
+            targets: [target(from), target(to)],
+            intersectingScreens: screens
+              .filter((screen) => {
+                const screenRect = screen.getBoundingClientRect();
+                return (
+                  right >= screenRect.left &&
+                  left <= screenRect.right &&
+                  bottom >= screenRect.top &&
+                  top <= screenRect.bottom
+                );
+              })
+              .map((screen) => screen.getAttribute("data-frame-id")),
+          };
+        },
+        { from, to },
+      );
+      const countAfter = (
+        (await boardHtml(request, designId)).match(
+          /data-an-primitive="frame"/g,
+        ) ?? []
+      ).length;
+      diagnostic = {
+        from,
+        to,
+        countBefore,
+        countAfter,
+        ...browserState,
+        designTrace: await dump(page),
+      };
+    } catch (diagnosticError) {
+      diagnostic = {
+        diagnosticReadError:
+          diagnosticError instanceof Error
+            ? diagnosticError.message
+            : String(diagnosticError),
+      };
+    }
+    throw new Error(
+      `${failure}\nFrame draw context: ${JSON.stringify(diagnostic)}`,
+    );
+  }
 }
 
 test.describe("tutorial 8 — assemble your portfolio pages", () => {
@@ -388,12 +495,17 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       "Shift+S (standard's Section tool) should be a documented no-op, not silently switch tools",
     ).toBe(activeToolBefore);
 
-    const p1 = await emptyBoardPoint(page);
+    const p1 = await emptyBoardPoint(page, {
+      dragSize: { width: 120, height: 80 },
+    });
     await drawBoardFrame(page, request, designId, p1, {
       x: p1.x + 120,
       y: p1.y + 80,
     });
-    const p2 = await emptyBoardPoint(page, { x: 260, y: 0 });
+    const p2 = await emptyBoardPoint(page, {
+      offset: { x: 260, y: 0 },
+      dragSize: { width: 120, height: 80 },
+    });
     await drawBoardFrame(page, request, designId, p2, {
       x: p2.x + 120,
       y: p2.y + 80,
@@ -529,7 +641,9 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       { filename: "index.html", content: BLANK_SCREEN("Home") },
     ]));
     await gotoEditor(page, designId);
-    const p1 = await emptyBoardPoint(page);
+    const p1 = await emptyBoardPoint(page, {
+      dragSize: { width: 140, height: 100 },
+    });
     await drawBoardFrame(page, request, designId, p1, {
       x: p1.x + 140,
       y: p1.y + 100,

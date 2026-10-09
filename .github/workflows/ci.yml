@@ -294,6 +294,16 @@ jobs:
           )
           exit "$status"
 
+      - name: Run isolated Design HTML integrity performance checks
+        if: >-
+          matrix.lane == 'lane-1' &&
+          (needs.change-scope.outputs.full == 'true' ||
+           contains(needs.change-scope.outputs.test_workspace_filters, '{templates/design}'))
+        working-directory: templates/design
+        env:
+          VITEST_CONCURRENCY: "1"
+        run: pnpm exec vitest run shared/html-integrity.perf.spec.ts --maxWorkers=1 --no-file-parallelism
+
   test-targeted:
     name: Fast tests targeted ${{ matrix.lane }}
     needs: change-scope
@@ -409,6 +419,16 @@ jobs:
             node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(name + "\t" + shard)'
           )
           exit "$status"
+
+      - name: Run isolated Design HTML integrity performance checks
+        if: >-
+          matrix.lane == 'lane-1' &&
+          (needs.change-scope.outputs.full == 'true' ||
+           contains(needs.change-scope.outputs.test_workspace_filters, '{templates/design}'))
+        working-directory: templates/design
+        env:
+          VITEST_CONCURRENCY: "1"
+        run: pnpm exec vitest run shared/html-integrity.perf.spec.ts --maxWorkers=1 --no-file-parallelism
 
   design-canvas-interaction-acceptance:
     name: Design canvas interaction acceptance (${{ matrix.shard }})

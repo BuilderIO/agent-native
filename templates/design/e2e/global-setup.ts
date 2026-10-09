@@ -28,6 +28,14 @@ const E2E_DATABASE_URL =
   `pglite:${path.join(import.meta.dirname, "..", "data", "e2e-pglite")}`;
 const LOOPBACK_READINESS_TIMEOUT_MS = 10_000;
 const LOOPBACK_READINESS_RETRY_MS = 50;
+const LOOPBACK_STARTUP_OUTPUT_LIMIT = 2_000;
+
+function formatLoopbackStartupError(stderr: string): string {
+  const output = stderr.trim();
+  return output
+    ? `\nProvider startup stderr:\n${output}`
+    : "\nProvider startup stderr was empty.";
+}
 
 async function startLoopbackProvider(port: number): Promise<void> {
   const runRoot = designE2eRunRoot(path.resolve(import.meta.dirname, ".."));
@@ -42,7 +50,7 @@ async function startLoopbackProvider(port: number): Promise<void> {
     ],
     {
       detached: true,
-      stdio: "ignore",
+      stdio: ["ignore", "ignore", "pipe"],
       env: {
         ...process.env,
         E2E_LOOPBACK_PORT: String(port),
@@ -50,40 +58,88 @@ async function startLoopbackProvider(port: number): Promise<void> {
     },
   );
   let spawnError: Error | undefined;
+  let childExit:
+    | { code: number | null; signal: NodeJS.Signals | null }
+    | undefined;
+  let stderrTail = "";
+  let captureStartupStderr = true;
+  child.stderr?.on("data", (chunk: Buffer | string) => {
+    if (captureStartupStderr) {
+      stderrTail = `${stderrTail}${chunk.toString()}`.slice(
+        -LOOPBACK_STARTUP_OUTPUT_LIMIT,
+      );
+    }
+  });
   child.once("error", (error) => {
     spawnError = error;
   });
-  if (!child.pid) throw new Error("loopback provider did not start");
-  await mkdir(path.dirname(loopbackPidPath), { recursive: true });
-  await writeFile(loopbackPidPath, String(child.pid));
-  const deadline = Date.now() + LOOPBACK_READINESS_TIMEOUT_MS;
-  let lastError: unknown;
+  child.once("exit", (code, signal) => {
+    childExit = { code, signal };
+  });
+  if (!child.pid) {
+    throw new Error(
+      `loopback provider did not start${spawnError ? `: ${spawnError.message}` : ""}${formatLoopbackStartupError(stderrTail)}`,
+    );
+  }
+  const processExit = () =>
+    childExit ??
+    (child.exitCode !== null || child.signalCode !== null
+      ? { code: child.exitCode, signal: child.signalCode }
+      : undefined);
+  const assertChildRunning = () => {
+    if (spawnError) {
+      throw new Error(
+        `loopback provider spawn failed: ${spawnError.message}${formatLoopbackStartupError(stderrTail)}`,
+      );
+    }
+    const exit = processExit();
+    if (exit) {
+      throw new Error(
+        `loopback provider exited before readiness (code ${exit.code ?? "none"}, signal ${exit.signal ?? "none"}).${formatLoopbackStartupError(stderrTail)}`,
+      );
+    }
+  };
   try {
+    await mkdir(path.dirname(loopbackPidPath), { recursive: true });
+    await writeFile(loopbackPidPath, String(child.pid));
+    const deadline = Date.now() + LOOPBACK_READINESS_TIMEOUT_MS;
+    let readinessAttempts = 0;
+    let lastError = "no readiness response completed";
     while (Date.now() < deadline) {
-      if (spawnError) throw spawnError;
+      assertChildRunning();
+      readinessAttempts += 1;
       try {
         const response = await fetch(
           `http://127.0.0.1:${port}/v1/models` /* e2e-harness-ignore: allocated provider port, not Design base URL */,
-          {
-            signal: AbortSignal.timeout(250),
-          },
+          { signal: AbortSignal.timeout(250) },
         );
+        assertChildRunning();
         if (response.ok) {
+          captureStartupStderr = false;
+          const stderr = child.stderr as
+            | (NodeJS.ReadableStream & { unref?: () => void })
+            | null;
+          if (!stderr || typeof stderr.unref !== "function") {
+            throw new Error(
+              "loopback provider stderr pipe cannot be unreferenced",
+            );
+          }
+          stderr.unref();
           child.unref();
           return;
         }
-        lastError = new Error(`HTTP ${response.status}`);
+        lastError = `HTTP ${response.status}`;
       } catch (error) {
-        lastError = error;
+        assertChildRunning();
+        lastError = error instanceof Error ? error.message : String(error);
       }
       await new Promise((resolve) =>
         setTimeout(resolve, LOOPBACK_READINESS_RETRY_MS),
       );
     }
-    const detail =
-      lastError instanceof Error ? lastError.message : String(lastError);
+    assertChildRunning();
     throw new Error(
-      `loopback provider did not become ready on port ${port}: ${detail}`,
+      `loopback provider did not become ready on port ${port} after ${LOOPBACK_READINESS_TIMEOUT_MS} ms (${readinessAttempts} attempts): ${lastError}${formatLoopbackStartupError(stderrTail)}`,
     );
   } catch (error) {
     if (child.exitCode === null && child.signalCode === null) {

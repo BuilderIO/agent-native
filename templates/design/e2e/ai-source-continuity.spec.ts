@@ -298,7 +298,7 @@ test("AI-generated sidebar source keeps node IDs through bridge move, reparent, 
     await installBridge(page);
 
     const moveMessages = await dragCanvasByText(page, "Move me", 80, 40);
-    expect(moveMessages).toContain("visual-structure-change");
+    expect(moveMessages).toContain("visual-style-change");
     await expect
       .poll(() => readLayerSourceState(page, designId, moveSelector))
       .toMatchObject({ id: moveBefore.id });
