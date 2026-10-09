@@ -923,28 +923,40 @@ function readForwardedLastTouch(): LastTouchAttribution | null {
   return hasAttributionSource(forwarded) ? forwarded : null;
 }
 
-/**
- * The stored touch, or its cookie when storage is blocked or was cleared. The
- * cookie is what signup reads, so a touch that survives only there still
- * counts, and capture must not overwrite it as if this were a first visit.
- */
-function readStoredAttribution<T>(
-  storageKey: string,
-  cookieName: string,
-): T | null {
-  if (typeof window === "undefined") return null;
+function parseAttribution<T>(raw: string | null): T | null {
+  if (!raw) return null;
   try {
-    const cookie = readAttributionCookie(cookieName);
-    const raw =
-      safeStorageGet(storageKey) ||
-      (cookie ? decodeURIComponent(cookie) : null);
-    if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return null;
     }
     return parsed as T;
   } catch {
+    // coercion-ok: an unparseable value holds no touch; the caller tries the
+    // next source.
+    return null;
+  }
+}
+
+/**
+ * The stored touch, or its cookie when storage is blocked, cleared, or holds
+ * an unreadable value. The cookie is what signup reads, so a touch that
+ * survives only there still counts, and capture must not overwrite it as if
+ * this were a first visit.
+ */
+function readStoredAttribution<T>(
+  storageKey: string,
+  cookieName: string,
+): T | null {
+  if (typeof window === "undefined") return null;
+  const stored = parseAttribution<T>(safeStorageGet(storageKey));
+  if (stored) return stored;
+  const cookie = readAttributionCookie(cookieName);
+  if (!cookie) return null;
+  try {
+    return parseAttribution<T>(decodeURIComponent(cookie));
+  } catch {
+    // coercion-ok: a malformed cookie encoding holds no touch.
     return null;
   }
 }

@@ -513,6 +513,19 @@ describe("browser analytics pageviews", () => {
     expect(getFirstTouchAttribution()).toMatchObject({ gclid: "g-1" });
   });
 
+  it("reads the cookie when the stored first touch is unreadable", async () => {
+    const { cookieJson, localStorage, revisit } = installBrowser();
+    await revisit("https://plan.agent-native.com/?gclid=g-1&utm_source=google");
+    localStorage.setItem("an_attribution", "{not json");
+
+    await revisit("https://plan.agent-native.com/?utm_source=newsletter");
+
+    expect(cookieJson("an_ft")).toMatchObject({
+      gclid: "g-1",
+      utm_source: "google",
+    });
+  });
+
   it("keeps the first visit with a source and records later ones as last touch", async () => {
     const { cookieJson, revisit } = installBrowser();
     await revisit(
