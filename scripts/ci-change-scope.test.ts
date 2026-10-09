@@ -982,6 +982,18 @@ test("fast-tests gates the selected browser checks on their actual job results",
       ? undefined
       : fastTestsJobStart + 1 + nextJobIndex;
   const fastTestsJob = workflow.slice(fastTestsJobStart, fastTestsJobEnd);
+  assert.ok(workflow.includes("    name: Determine change scope\n"));
+  assert.ok(workflow.includes("    name: Docs checks\n"));
+  assert.ok(workflow.includes("    name: Fast tests ${{ matrix.lane }}\n"));
+  assert.ok(
+    workflow.includes("    name: Fast tests targeted ${{ matrix.lane }}\n"),
+  );
+  assert.ok(
+    workflow.includes(
+      "    name: Design canvas interaction acceptance (${{ matrix.shard }})\n",
+    ),
+  );
+  assert.ok(workflow.includes("    name: Pre-auth session replay smoke\n"));
   assert.ok(fastTestsJob.includes("    name: Fast tests\n"));
   assert.ok(fastTestsJob.includes("    if: always()\n"));
   const needsStart = fastTestsJob.indexOf("    needs:");
@@ -1003,13 +1015,23 @@ test("fast-tests gates the selected browser checks on their actual job results",
     fastTestsJob,
     /elif \[\[ "\$result" != "success" \]\]; then\s+record_failure "\$job" "did not succeed/,
   );
-  assert.match(
-    fastTestsJob,
-    /if \[\[ "\$DESIGN_CANVAS_E2E" == "true" \]\]; then\s+require_success "design-canvas-interaction-acceptance" "\$DESIGN_CANVAS_RESULT"/,
+  assert.ok(fastTestsJob.includes('require_success "Determine change scope"'));
+  assert.ok(fastTestsJob.includes('require_success "Docs checks"'));
+  assert.ok(
+    fastTestsJob.includes('require_success "Fast tests (test-rest matrix)"'),
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      'require_success "Fast tests targeted (test-targeted matrix)"',
+    ),
   );
   assert.match(
     fastTestsJob,
-    /elif \[\[ "\$DESIGN_CANVAS_RESULT" != "skipped" && "\$DESIGN_CANVAS_RESULT" != "success" \]\]; then\s+record_failure "design-canvas-interaction-acceptance"/,
+    /if \[\[ "\$DESIGN_CANVAS_E2E" == "true" \]\]; then\s+require_success "Design canvas interaction acceptance \(matrix jobs\)" "\$DESIGN_CANVAS_RESULT"/,
+  );
+  assert.match(
+    fastTestsJob,
+    /elif \[\[ "\$DESIGN_CANVAS_RESULT" != "skipped" && "\$DESIGN_CANVAS_RESULT" != "success" \]\]; then\s+record_failure "Design canvas interaction acceptance \(matrix jobs\)"/,
   );
   assert.ok(
     fastTestsJob.includes(
@@ -1018,11 +1040,11 @@ test("fast-tests gates the selected browser checks on their actual job results",
   );
   assert.match(
     fastTestsJob,
-    /if \[\[ "\$PRE_AUTH_REPLAY_E2E" == "true" \]\]; then\s+require_success "pre-auth-session-replay-smoke" "\$PRE_AUTH_REPLAY_RESULT"/,
+    /if \[\[ "\$PRE_AUTH_REPLAY_E2E" == "true" \]\]; then\s+require_success "Pre-auth session replay smoke" "\$PRE_AUTH_REPLAY_RESULT"/,
   );
   assert.match(
     fastTestsJob,
-    /elif \[\[ "\$PRE_AUTH_REPLAY_E2E" == "false" \]\]; then\s+if \[\[ "\$PRE_AUTH_REPLAY_RESULT" != "skipped" \]\]; then\s+record_failure "pre-auth-session-replay-smoke" "ran outside its selected paths \(expected skipped, received \$PRE_AUTH_REPLAY_RESULT\)"/,
+    /elif \[\[ "\$PRE_AUTH_REPLAY_E2E" == "false" \]\]; then\s+if \[\[ "\$PRE_AUTH_REPLAY_RESULT" != "skipped" \]\]; then\s+record_failure "Pre-auth session replay smoke" "ran outside its selected paths \(expected skipped, received \$PRE_AUTH_REPLAY_RESULT\)"/,
   );
   assert.ok(fastTestsJob.includes("This job summarizes upstream tests"));
   assert.ok(
