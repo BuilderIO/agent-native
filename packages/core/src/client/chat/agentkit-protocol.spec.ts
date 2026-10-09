@@ -3770,7 +3770,10 @@ describe("createAgentKitProtocolAdapter", () => {
       autoContinueOfRunId: "run-1",
       history: expect.arrayContaining([
         { role: "user", content: "Earlier project context" },
-        { role: "user", content: originalPrompt },
+        {
+          role: "user",
+          content: `${originalPrompt}\n[attached: instagram-reference.png image/png ${referenceUrl}]`,
+        },
       ]),
       attachments: [
         {
@@ -3790,7 +3793,12 @@ describe("createAgentKitProtocolAdapter", () => {
       structuredHistory: expect.arrayContaining([
         {
           role: "user",
-          content: [{ type: "text", text: originalPrompt }],
+          content: [
+            {
+              type: "text",
+              text: `${originalPrompt}\n[attached: instagram-reference.png image/png ${referenceUrl}]`,
+            },
+          ],
         },
       ]),
       metadata: { turnContextMarker: "preserved" },
