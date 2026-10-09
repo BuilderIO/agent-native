@@ -2290,6 +2290,11 @@ function moveSlideObjectTransform(
   // A canceled transition supplies the painted starting pose, but it must not
   // hide the animation track that continues underneath it.
   const activeFrameProperties = new Set(winningAnimatedProperties);
+  const sampledTransitionProperties = new Set(
+    [...activeFrameProperties].filter((property) =>
+      transitionedProperties.has(property),
+    ),
+  );
   // A transform keyframe that uses var(--x) must travel with the custom
   // property track that supplies it, including chained custom properties.
   const referencedCustomProperties = new Set<string>();
@@ -2384,7 +2389,13 @@ function moveSlideObjectTransform(
           ? painted.get(property)
           : underlayValues.get(property);
     if (value && value !== "none") {
-      frame.style.setProperty(property, value);
+      // A paused copied animation still beats normal inline values. Keep the
+      // transition's sampled pose above it until crop commit resumes the track.
+      frame.style.setProperty(
+        property,
+        value,
+        sampledTransitionProperties.has(property) ? "important" : "",
+      );
       moved = true;
     }
     source.style.setProperty(property, "none", "important");
@@ -2393,7 +2404,11 @@ function moveSlideObjectTransform(
     ? painted.get("transform-origin")
     : underlayValues.get("transform-origin");
   if (moved && origin && origin !== "50% 50%")
-    frame.style.setProperty("transform-origin", origin);
+    frame.style.setProperty(
+      "transform-origin",
+      origin,
+      sampledTransitionProperties.has("transform-origin") ? "important" : "",
+    );
   let style: HTMLStyleElement | null = null;
   if (moved && splitAnimations && cssRules.length > 0) {
     style = frame.ownerDocument.createElement("style");
@@ -2420,6 +2435,10 @@ function moveSlideObjectTransform(
       const resumeImage = pauseCssAnimations(source, imageRunning);
       const resumeFrame = pauseCssAnimations(frame, frameRunning);
       return () => {
+        for (const property of sampledTransitionProperties) {
+          const value = frame.style.getPropertyValue(property);
+          if (value) frame.style.setProperty(property, value);
+        }
         resumeImage();
         resumeFrame();
       };

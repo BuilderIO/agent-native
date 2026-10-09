@@ -1569,28 +1569,39 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
     }
   });
 
-  it("keeps a transform animation when an active transition masks it during crop", async () => {
+  it("holds the sampled transition pose over a divergent transform animation during crop", async () => {
     const css =
-      "@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } .ruled { transform: rotate(0deg); transition: transform 1s linear; } .moving { transform: rotate(90deg); } .animated { animation: spin 4s linear infinite; }";
+      "@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } .ruled { transform: rotate(0deg); } .animated { animation: spin 4s linear infinite; }";
     const page = await openPage(css, imageHtml());
     try {
-      await page.evaluate(() =>
-        document.getElementById("pic")!.classList.add("moving"),
-      );
-      await page.waitForTimeout(150);
       const started = await page.evaluate(() => {
         const image = document.getElementById("pic") as HTMLImageElement;
         image.classList.add("animated");
+        const cssAnimation = image
+          .getAnimations()
+          .find((animation) => "animationName" in animation) as
+          | CSSAnimation
+          | undefined;
+        if (cssAnimation) cssAnimation.currentTime = 600;
+        // Model a sampled CSSTransition pose independently from the underlying
+        // CSSAnimation. Crop hand-off detects transitionProperty and cancels it
+        // after sampling the painted value.
+        const transition = image.animate(
+          [{ transform: "rotate(0deg)" }, { transform: "rotate(90deg)" }],
+          { duration: 1000, easing: "linear", fill: "both" },
+        );
+        transition.currentTime = 150;
+        Object.defineProperty(transition, "transitionProperty", {
+          value: "transform",
+        });
         const animations = image.getAnimations();
-        const transition = animations.find(
-          (animation) => "transitionProperty" in animation,
-        ) as (Animation & { transitionProperty: string }) | undefined;
-        const cssAnimation = animations.find(
-          (animation) => "animationName" in animation,
-        ) as CSSAnimation | undefined;
-        if (transition && cssAnimation)
-          cssAnimation.currentTime = transition.currentTime;
         return {
+          animationTime: cssAnimation?.currentTime,
+          transitionTime: transition?.currentTime,
+          computedTransform: getComputedStyle(image).transform,
+          animationTransformAtCapturedTime: new DOMMatrix()
+            .rotate(54)
+            .toString(),
           animationNames: animations
             .filter((animation) => "animationName" in animation)
             .map((animation) => (animation as CSSAnimation).animationName),
@@ -1605,6 +1616,11 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       });
       expect(started.animationNames).toContain("spin");
       expect(started.transitionProperties).toContain("transform");
+      expect(started.animationTime).toBe(600);
+      expect(started.transitionTime).toBe(150);
+      expect(started.computedTransform).not.toBe(
+        started.animationTransformAtCapturedTime,
+      );
 
       const cropped = await page.evaluate(() => {
         const rect = (element: Element) => {
@@ -1621,10 +1637,19 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
         const frame = rect(wrapped.frame);
         const animationName = frameAnimation?.animationName;
         const pausedState = frameAnimation?.playState;
+        const frameTime = frameAnimation?.currentTime;
+        const frameTransform = getComputedStyle(wrapped.frame).transform;
+        const frameTransformPriority =
+          wrapped.frame.style.getPropertyPriority("transform");
         wrapped.resumeAnimations();
         return {
           painted,
           frame,
+          frameTime,
+          frameTransform,
+          frameTransformPriority,
+          resumedTransformPriority:
+            wrapped.frame.style.getPropertyPriority("transform"),
           animationName,
           resumedState: frameAnimation?.playState,
           markup: wrapped.frame.outerHTML,
@@ -1632,6 +1657,9 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
         };
       });
       expectSameHull(cropped.frame, cropped.painted, 1);
+      expect(cropped.frameTransform).toBe(started.computedTransform);
+      expect(cropped.frameTransformPriority).toBe("important");
+      expect(cropped.resumedTransformPriority).toBe("");
       expect(cropped.animationName).toMatch(/^fmd_crop_/);
       expect(cropped.pausedState).toBe("paused");
       expect(cropped.resumedState).toBe("running");
@@ -1639,13 +1667,10 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       const reopened = await openPage(css, cropped.markup);
       const reference = await openPage(css, imageHtml());
       try {
-        await reference.evaluate(() =>
-          document.getElementById("pic")!.classList.add("moving"),
-        );
-        await reference.waitForTimeout(150);
-        await reference.evaluate(() =>
-          document.getElementById("pic")!.classList.add("animated"),
-        );
+        await reference.evaluate(() => {
+          const image = document.getElementById("pic") as HTMLImageElement;
+          image.classList.add("animated");
+        });
         await reference.waitForTimeout(1000);
         for (const time of [0, 1000, 2000, 3000]) {
           expectSameHull(
