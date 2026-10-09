@@ -267,6 +267,7 @@ function TokenGroupSection({
 type ImportMode = "menu" | "text";
 
 const DEFAULT_TOKEN_VAR = "--my-token";
+// guard:allow-raw-color — default value for a new token input, not UI styling
 const DEFAULT_TOKEN_VALUE = "#000000";
 
 function HeaderIconPopover({
@@ -352,6 +353,7 @@ function AddTokenPopover({
             value={value}
             onChange={(e) => setValue(e.target.value)}
             className="h-6 font-mono !text-[11px] md:!text-[11px]"
+            // guard:allow-raw-color — example value in an input placeholder, not UI styling
             placeholder="#3B82F6"
           />
         </div>
