@@ -540,6 +540,36 @@ describe("dashboard report email", () => {
     expect(snapshot.panelIds).toEqual(["p1"]);
   });
 
+  it("reads multi-select filters the way the page does, so a cleared selection stays cleared", async () => {
+    mocks.getReportDashboard.mockResolvedValue(
+      dashboardWith(
+        [panel("p1")],
+        [
+          {
+            id: "plan",
+            label: "Plan",
+            type: "multi-select",
+            default: "free",
+            options: [{ value: "free", label: "Free" }],
+          },
+          {
+            id: "tier",
+            label: "Tier",
+            type: "multi-select",
+            options: [{ value: "pro", label: "Pro" }],
+          },
+        ],
+      ),
+    );
+
+    const snapshot = await collectReportSnapshot({
+      ...subscription(),
+      filters: { f_plan: "__empty__", f_tier: "pro,," },
+    });
+
+    expect(snapshot.filters).toEqual({ f_tier: "pro" });
+  });
+
   it("reads the dashboard under the subscription owner's access scope", async () => {
     await collectReportSnapshot(subscription());
 

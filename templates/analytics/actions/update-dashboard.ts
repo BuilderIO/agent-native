@@ -9,7 +9,10 @@ import {
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
-import { MULTI_SELECT_EMPTY } from "../app/pages/adhoc/sql-dashboard/filter-vars";
+import {
+  MULTI_SELECT_EMPTY,
+  normalizeMultiSelectValue,
+} from "../app/pages/adhoc/sql-dashboard/filter-vars";
 import {
   interpolate,
   interpolateDashboardPanelSql,
@@ -310,9 +313,14 @@ function collectDashboardConfigIssues(
             `config.filters[${i}].options[${badIndex}].value must be non-empty, cannot contain ",", and cannot be "${MULTI_SELECT_EMPTY}" in a multi-select filter`,
           );
         }
-        if (f.default === MULTI_SELECT_EMPTY) {
+        // A default that normalizes to nothing would show All while the query still gets a non-empty value.
+        if (
+          typeof f.default === "string" &&
+          f.default !== "" &&
+          normalizeMultiSelectValue(f.default) === ""
+        ) {
           return dashboardIssue(
-            `config.filters[${i}].default cannot be "${MULTI_SELECT_EMPTY}" in a multi-select filter`,
+            `config.filters[${i}].default must name at least one option value in a multi-select filter`,
           );
         }
       }

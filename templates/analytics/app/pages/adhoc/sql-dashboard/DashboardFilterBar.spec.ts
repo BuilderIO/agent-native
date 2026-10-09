@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { resolveFilterVars } from "./DashboardFilterBar";
+import { normalizeMultiSelectValue } from "./filter-vars";
 import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
 import type { DashboardFilter } from "./types";
 
@@ -413,6 +414,16 @@ describe("multi-select filters", () => {
     expect(interpolate("WHERE tier IN ({{tier:list}})", { tier: "" })).toBe(
       "WHERE tier IN (__empty_list_filter__)",
     );
+  });
+
+  it("drops empty tokens so a comma-only value reads as no selection", () => {
+    expect(normalizeMultiSelectValue(",")).toBe("");
+    expect(normalizeMultiSelectValue("free,,self_serve")).toBe(
+      "free,self_serve",
+    );
+    expect(
+      resolveFilterVars([{ ...tier, default: "," }], noParams).tier,
+    ).toBe("");
   });
 
   it("treats the empty marker as no selection even when a default is set", () => {

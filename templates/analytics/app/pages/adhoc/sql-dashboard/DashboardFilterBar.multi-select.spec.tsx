@@ -111,6 +111,15 @@ describe("multi-select dashboard filter", () => {
     expect(trigger().textContent).toContain("Free, Self-Serve");
   });
 
+  it("names the trigger after its filter label and current value", () => {
+    render();
+    const ids = trigger().getAttribute("aria-labelledby")?.split(" ") ?? [];
+    const names = ids.map((id) => document.getElementById(id)?.textContent);
+
+    expect(names[0]).toBe("Plan");
+    expect(names[1]).toContain("All");
+  });
+
   it("toggles an option when its label text is clicked", () => {
     render();
     act(() => trigger().click());

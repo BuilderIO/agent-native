@@ -190,13 +190,17 @@ describe("validateDashboardConfig multi-select options", () => {
     );
   });
 
-  it("rejects the reserved empty marker as a default", () => {
+  it("rejects a default that names no option value, such as the marker or a comma-only value", () => {
     const base = withOptions(["free"]);
-    const config = {
-      ...base,
-      filters: [{ ...base.filters[0], default: "__empty__" }],
-    };
-    expect(validateDashboardConfig(config)).toContain("default cannot be");
+    for (const value of ["__empty__", ","]) {
+      const config = {
+        ...base,
+        filters: [{ ...base.filters[0], default: value }],
+      };
+      expect(validateDashboardConfig(config)).toContain(
+        "must name at least one option value",
+      );
+    }
   });
 
   it("rejects the reserved empty marker as an option value", () => {

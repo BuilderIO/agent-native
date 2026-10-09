@@ -384,6 +384,8 @@ function FilterControl({
   setValue,
 }: FilterControlProps) {
   const t = useT();
+  const labelId = useId();
+  const triggerId = useId();
   if (filter.type === "date-range") {
     const startKey = `${filter.id}Start`;
     const endKey = `${filter.id}End`;
@@ -499,12 +501,17 @@ function FilterControl({
       );
     return (
       <div className="flex flex-col gap-1">
-        <label className="text-xs text-muted-foreground font-medium">
+        <label
+          id={labelId}
+          className="text-xs text-muted-foreground font-medium"
+        >
           {filter.label}
         </label>
         <Popover>
           <PopoverTrigger asChild>
             <Button
+              id={triggerId}
+              aria-labelledby={`${labelId} ${triggerId}`}
               variant="outline"
               size="sm"
               className="w-[160px] justify-start text-xs font-normal"

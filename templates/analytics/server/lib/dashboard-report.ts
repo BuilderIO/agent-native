@@ -1,5 +1,6 @@
 import { getAppProductionUrl, sendEmail } from "@agent-native/core/server";
 
+import { normalizeMultiSelectValue } from "../../app/pages/adhoc/sql-dashboard/filter-vars";
 import { listReportablePanelIds } from "../../app/pages/adhoc/sql-dashboard/report-panel-window";
 import type {
   DashboardFilter,
@@ -74,6 +75,23 @@ function defaultFilterValues(
   );
 }
 
+// The page reads multi-select values through normalizeMultiSelectValue, so a
+// report must too: a cleared or comma-only selection queries like the page.
+function normalizeReportFilters(
+  filters: DashboardFilter[] | undefined,
+  values: Record<string, string>,
+): Record<string, string> {
+  const out = { ...values };
+  for (const f of filters ?? []) {
+    if (f.type !== "multi-select") continue;
+    const key = `f_${f.id}`;
+    const normalized = normalizeMultiSelectValue(out[key] ?? "");
+    if (normalized) out[key] = normalized;
+    else delete out[key];
+  }
+  return out;
+}
+
 function dashboardConfigFromRecord(raw: Record<string, unknown>) {
   return {
     name:
@@ -135,10 +153,10 @@ export async function collectReportSnapshot(
   }
 
   const config = dashboardConfigFromRecord(dashboard.config);
-  const filters = {
+  const filters = normalizeReportFilters(config.filters, {
     ...defaultFilterValues(config),
     ...sub.filters,
-  };
+  });
 
   return {
     dashboardId: sub.dashboardId,
