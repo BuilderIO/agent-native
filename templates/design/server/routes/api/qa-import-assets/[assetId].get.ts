@@ -52,7 +52,7 @@ export default defineEventHandler(async (event) => {
     } catch (error) {
       const code =
         error instanceof Error && "code" in error ? error.code : undefined;
-      if (code !== "ENOENT") throw error;
+      if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
     }
   }
   if (!filepath) {

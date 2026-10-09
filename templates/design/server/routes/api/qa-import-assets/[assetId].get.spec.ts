@@ -163,6 +163,37 @@ describe("GET /api/qa-import-assets/:assetId", () => {
     expect(mockStreamFile).not.toHaveBeenCalled();
   });
 
+  it("falls back when the current asset path has a non-directory component", async () => {
+    const notDirectoryError = Object.assign(new Error("not a directory"), {
+      code: "ENOTDIR",
+    });
+    mockAssetPaths.mockReturnValue([
+      "/private/current/0f0f0f0f-1111-4222-8333-444444444444.png",
+      "/private/legacy/0f0f0f0f-1111-4222-8333-444444444444.png",
+    ]);
+    mockStat
+      .mockRejectedValueOnce(notDirectoryError)
+      .mockResolvedValueOnce({ isFile: () => true });
+    const event = makeEvent();
+
+    await expect(handler(event as never)).resolves.toEqual({
+      kind: "stream-response",
+    });
+
+    expect(event.status).toBe(200);
+    expect(mockStat).toHaveBeenNthCalledWith(
+      1,
+      "/private/current/0f0f0f0f-1111-4222-8333-444444444444.png",
+    );
+    expect(mockStat).toHaveBeenNthCalledWith(
+      2,
+      "/private/legacy/0f0f0f0f-1111-4222-8333-444444444444.png",
+    );
+    expect(mockCreateReadStream).toHaveBeenCalledWith(
+      "/private/legacy/0f0f0f0f-1111-4222-8333-444444444444.png",
+    );
+  });
+
   it("rejects traversal and malformed asset ids before touching the filesystem", async () => {
     const event = makeEvent("../private.png");
     mockAssetPaths.mockReturnValue([]);

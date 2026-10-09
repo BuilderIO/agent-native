@@ -11,7 +11,7 @@ different APIs and data, so their capabilities and limitations differ.
   action uses the saved, user-scoped `FIGMA_ACCESS_TOKEN` secret with
   `current_user:read` and `file_content:read`; do not put tokens in chat or
   source code. If no node id is supplied, the importer chooses the first
-  top-level frame.
+  `FRAME` node on the file's first page.
 - **Clipboard:** `import-figma-clipboard` uses selection metadata to identify
   nodes when the clipboard provides it. With a token, it can fetch those nodes
   through the REST path. Without a token, the local decoder supports a subset of

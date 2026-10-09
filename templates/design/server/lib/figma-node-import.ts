@@ -500,7 +500,9 @@ export async function resolveTargetNodeId(
 
   const document = await fetchFileStructure(fileKey, 2);
   const firstPage = document.children?.[0];
-  const firstFrame = firstPage?.children?.find((child) => Boolean(child?.id));
+  const firstFrame = firstPage?.children?.find(
+    (child) => child?.type === "FRAME" && Boolean(child.id),
+  );
   if (!firstFrame?.id) {
     failFigmaImport(
       "Could not find a frame to import. Pass a specific node-id or a Figma frame URL with ?node-id=.",

@@ -349,8 +349,8 @@ pnpm action import-figma-frame --fileKey "<fileKey>" --nodeId "12:34" --designId
 
 - Accepts a full Figma URL (design/file/proto share links, including
   `/branch/<key>/` branch URLs — the branch's own key is used automatically) or
-  an explicit `fileKey` + `nodeId`. If `nodeId` is omitted, the file's first
-  top-level frame is imported.
+  an explicit `fileKey` + `nodeId`. If `nodeId` is omitted, the first `FRAME`
+  node on the file's first page is imported.
 - Maps the node tree to real HTML/CSS: exact position/size, auto-layout as
   flexbox, text (font, line-height, letter-spacing, case, decoration, align),
   fills (solid/gradient/image, correctly layered and gradient-angle-derived,
