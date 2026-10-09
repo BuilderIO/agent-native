@@ -1783,6 +1783,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
       run: repairAnalyticsReplayLinkIndexes,
       sql: { postgres: "SELECT 1" },
     },
+    {
+      version: 165,
+      name: "dashboard-github-sync-state",
+      sql: `ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS github_sync_state TEXT`,
+    },
+    {
+      version: 166,
+      name: "dashboard-folder-github-sync",
+      sql: `ALTER TABLE dashboard_folders ADD COLUMN IF NOT EXISTS github_sync TEXT`,
+    },
   ],
   { table: "analytics_migrations" },
 );
