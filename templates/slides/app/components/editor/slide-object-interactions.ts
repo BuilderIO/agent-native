@@ -1630,7 +1630,7 @@ function authoredKeyframes(animation: CSSAnimation): AuthoredKeyframe[] {
       } else if ("cssRules" in rule) {
         try {
           visit((rule as CSSGroupingRule).cssRules);
-        } catch {
+        } catch { // coercion-ok: inaccessible grouping rules fall back to computed keyframes.
           // Cross-origin grouping rules cannot be inspected; use computed
           // keyframes as a fallback if the authored declaration is hidden.
         }
@@ -1641,7 +1641,7 @@ function authoredKeyframes(animation: CSSAnimation): AuthoredKeyframe[] {
   for (const sheet of Array.from(document.styleSheets)) {
     try {
       visit(sheet.cssRules);
-    } catch {
+    } catch { // coercion-ok: unreadable stylesheets fall back to computed keyframes.
       // Cross-origin stylesheets do not expose their rules.
     }
   }
