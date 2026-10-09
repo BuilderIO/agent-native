@@ -22,6 +22,10 @@ import setResourceVisibility from "../sharing/actions/set-resource-visibility.js
 import shareResource from "../sharing/actions/share-resource.js";
 import unshareResource from "../sharing/actions/unshare-resource.js";
 import {
+  isMcpDirectoryWidgetReadCapabilityScope,
+  isMcpDirectoryWidgetWriteCapabilityScope,
+} from "../shared/embed-auth.js";
+import {
   createMCPServerForRequest,
   selectMcpDirectoryWidgetReadActions,
   selectMcpDirectoryWidgetWriteActions,
@@ -658,9 +662,108 @@ async function mcpAppsAuthHeaders(
     resource:
       options.resource ?? "https://mail.agent-native.com/_agent-native/mcp",
     issuer: options.issuer ?? "https://mail.agent-native.com",
-    grantCreatedAtMs: options.grantCreatedAtMs ?? Date.now(),
+    // `null` signs the token the way builds before grant times did.
+    grantCreatedAtMs:
+      options.grantCreatedAtMs === null
+        ? undefined
+        : (options.grantCreatedAtMs ?? Date.now()),
   });
   return { authorization: `Bearer ${token}` };
+}
+
+const directoryWidgetTemplates = [
+  {
+    appId: "slides",
+    profile: slidesDirectoryProfile,
+    toolName: "create-deck",
+    result: { id: "deck-1" },
+  },
+  {
+    appId: "design",
+    profile: designDirectoryProfile,
+    toolName: "create-design",
+    result: { designId: "design-1" },
+  },
+  {
+    appId: "content",
+    profile: contentDirectoryProfile,
+    toolName: "create-document",
+    result: { id: "page-1", spaceId: "space-1" },
+  },
+] as const;
+
+/**
+ * One real template directory profile and its real widget metadata, with only
+ * the widget-bearing tool's `run` stubbed.
+ */
+async function directoryWidgetTemplateConfig(
+  template: (typeof directoryWidgetTemplates)[number],
+  authorizeWidgetWrite: () => Promise<boolean> = async () => true,
+) {
+  const { appId, profile, toolName, result } = template;
+  const repoRoot = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../../../",
+  );
+  const sharedActions =
+    appId === "content"
+      ? { "list-resource-suggestions": listResourceSuggestions }
+      : {};
+  const actionNames = [
+    ...new Set([
+      ...profile.connectorCatalog,
+      ...Object.keys(profile.widgetReadActionArguments ?? {}),
+      ...Object.keys(profile.widgetWriteActionArguments ?? {}),
+    ]),
+  ];
+  const modules = Object.fromEntries(
+    await Promise.all(
+      actionNames.map(async (name) => [
+        name,
+        Object.hasOwn(sharedActions, name)
+          ? sharedActions[name as keyof typeof sharedActions]
+          : await import(
+              pathToFileURL(
+                path.join(
+                  repoRoot,
+                  "templates",
+                  appId,
+                  "actions",
+                  `${name}.ts`,
+                ),
+              ).href + `?widgetTicket=${Date.now()}`
+            ),
+      ]),
+    ),
+  );
+  const loadedActions = loadActionsFromStaticRegistry(modules);
+  const actions = {
+    ...loadedActions,
+    [toolName]: { ...loadedActions[toolName], run: async () => result },
+  };
+  const directoryProfile = { ...profile, authorizeWidgetWrite };
+  return {
+    host: `${appId}.agent-native.com`,
+    config: {
+      ...config,
+      name: `agent-native-${appId}`,
+      appId,
+      catalogMode: "directory" as const,
+      widgetDomain: profile.widgetDomain,
+      actions,
+      productionActions: actions,
+      widgetReadActions: selectMcpDirectoryWidgetReadActions(
+        directoryProfile,
+        loadedActions,
+      ),
+      widgetWriteActions: selectMcpDirectoryWidgetWriteActions(
+        directoryProfile,
+        loadedActions,
+      ),
+      builtinCrossAppTools: false,
+      directoryProfile,
+    },
+  };
 }
 
 async function mcpAppsFullCatalogHeaders(
@@ -2357,6 +2460,113 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     ).toBeUndefined();
   });
 
+  describe.each(directoryWidgetTemplates)(
+    "$appId directory widget session ticket",
+    (template) => {
+      const callCreate = async (headers: Record<string, string>) => {
+        const { host, config: templateConfig } =
+          await directoryWidgetTemplateConfig(template);
+        return callWeb(
+          {
+            jsonrpc: "2.0",
+            id: 301,
+            method: "tools/call",
+            params: { name: template.toolName, arguments: {} },
+          },
+          {
+            headers: { ...headers, host },
+            config: templateConfig,
+            routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+          },
+        );
+      };
+      const resource = `https://${template.appId}.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`;
+      const issuer = `https://${template.appId}.agent-native.com`;
+
+      const mintedScope = () =>
+        embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]
+          ?.scope as string;
+
+      it("carries a write grant for a current OAuth token", async () => {
+        const created = await callCreate(
+          await mcpAppsAuthHeaders({ resource, issuer }),
+        );
+
+        expect(created.result.isError).not.toBe(true);
+        expect(created.result._meta["agent-native/widgetSource"]).toMatchObject(
+          {
+            toolName: template.toolName,
+            sourceTicket: "minted-picker-ticket",
+          },
+        );
+        expect(isMcpDirectoryWidgetWriteCapabilityScope(mintedScope())).toBe(
+          true,
+        );
+      });
+
+      it("degrades to a read-only ticket when the write grant cannot be minted", async () => {
+        const consoleError = vi
+          .spyOn(console, "error")
+          .mockImplementation(() => {});
+        try {
+          embedSessionMocks.createEmbedSessionTicket.mockRejectedValueOnce(
+            new Error("write grant rejected"),
+          );
+
+          const created = await callCreate(
+            await mcpAppsAuthHeaders({ resource, issuer }),
+          );
+
+          expect(created.result.isError).not.toBe(true);
+          expect(
+            created.result._meta["agent-native/widgetSource"],
+          ).toMatchObject({
+            toolName: template.toolName,
+            sourceTicket: "minted-picker-ticket",
+          });
+          expect(
+            embedSessionMocks.createEmbedSessionTicket,
+          ).toHaveBeenCalledTimes(2);
+          expect(isMcpDirectoryWidgetReadCapabilityScope(mintedScope())).toBe(
+            true,
+          );
+          expect(consoleError).toHaveBeenCalledWith(
+            expect.stringContaining("read-only widget session"),
+            expect.objectContaining({ message: "write grant rejected" }),
+          );
+        } finally {
+          consoleError.mockRestore();
+        }
+      });
+
+      it("is issued for an OAuth token signed before grant times existed", async () => {
+        const headers = await mcpAppsAuthHeaders({
+          resource,
+          issuer,
+          grantCreatedAtMs: null,
+        });
+        const credential = jose.decodeJwt(
+          headers.authorization.slice("Bearer ".length),
+        );
+        expect(credential.grant_created_at_ms).toBeUndefined();
+
+        const created = await callCreate(headers);
+
+        expect(created.result.isError).not.toBe(true);
+        expect(created.result._meta["agent-native/widgetSource"]).toMatchObject(
+          {
+            toolName: template.toolName,
+            sourceTicket: "minted-picker-ticket",
+          },
+        );
+        expect(
+          embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]
+            ?.revocationAnchorCreatedAtMs,
+        ).toBe((credential.iat as number) * 1000);
+      });
+    },
+  );
+
   it("issues Content database row write grants for resource-bound actions", async () => {
     const createDatabase = defineAction({
       description: "Create one Content database.",
@@ -2770,8 +2980,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     ).toBe(false);
   });
 
-  it("returns directory action results without a widget when OAuth has no signed grant time", async () => {
+  it("returns directory action results without a widget when OAuth has neither a grant time nor an issued-at", async () => {
     process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const resource = `https://design.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`;
     const issuer = "https://design.agent-native.com";
     const token = await new jose.SignJWT({
@@ -2786,12 +2997,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       .setIssuer(issuer)
       .setAudience(resource)
       .setJti("missing-issued-at")
-      .setIssuedAt()
       .setExpirationTime("30d")
       .sign(
         new TextEncoder().encode("oauth-secret-at-least-32-characters-long"),
       );
-    expect(typeof jose.decodeJwt(token).iat).toBe("number");
+    expect(jose.decodeJwt(token).iat).toBeUndefined();
     expect(jose.decodeJwt(token).grant_created_at_ms).toBeUndefined();
 
     const createDesignRun = vi.fn(async () => ({ designId: "design-42" }));
@@ -2901,6 +3111,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
     expect(called.result._meta?.["agent-native/embedStart"]).toBeUndefined();
     expect(embedSessionMocks.createEmbedSessionTicket).not.toHaveBeenCalled();
+    expect(consoleWarn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "create-design returned no widget session ticket: the credential carries no issue time",
+      ),
+    );
+    consoleWarn.mockRestore();
   });
 
   it("renews a scoped directory widget ticket after a saved-chat reload without embed metadata", async () => {
