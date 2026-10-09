@@ -1,14 +1,26 @@
 import { spawn } from "child_process";
+import fs from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
 
 import { tryForwardDbMigrateToDevServer } from "../scripts/db/dev-migrate-proxy.js";
 import { findBinUpwards } from "./react-router-command.js";
 
+const DEFAULT_CONFIG_FILES = [
+  "drizzle.config.ts",
+  "drizzle.config.js",
+  "drizzle.config.json",
+];
+
 export function parseDbMigrateConfigArg(
   args: string[],
 ): { config: string } | null {
-  if (args.length === 0) return { config: "drizzle.config.ts" };
+  if (args.length === 0) {
+    const config = DEFAULT_CONFIG_FILES.find((name) =>
+      fs.existsSync(path.resolve(process.cwd(), name)),
+    );
+    return config ? { config } : null;
+  }
   if (args.length === 2 && args[0] === "--config" && args[1]) {
     return { config: args[1] };
   }
@@ -58,7 +70,7 @@ export async function runDbMigrate(args: string[]): Promise<number> {
         typeof config.out === "string"
       ) {
         const forwarded = await tryForwardDbMigrateToDevServer({
-          dataDir: path.resolve(process.cwd(), url),
+          dataDir: url === "memory://" ? url : path.resolve(process.cwd(), url),
           migrationsFolder: config.out,
           ...(config.migrations?.table
             ? { migrationsTable: config.migrations.table }

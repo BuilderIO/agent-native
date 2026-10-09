@@ -30,10 +30,35 @@ const PGLITE_CONFIG = `export default {
 };`;
 
 describe("parseDbMigrateConfigArg", () => {
-  it("defaults to drizzle.config.ts with no args", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-db-migrate-parse-"));
+    vi.spyOn(process, "cwd").mockReturnValue(tmpDir);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("finds the default config in drizzle-kit's order with no args", () => {
+    fs.writeFileSync(path.join(tmpDir, "drizzle.config.json"), "{}");
+    expect(parseDbMigrateConfigArg([])).toEqual({
+      config: "drizzle.config.json",
+    });
+    fs.writeFileSync(path.join(tmpDir, "drizzle.config.js"), "");
+    expect(parseDbMigrateConfigArg([])).toEqual({
+      config: "drizzle.config.js",
+    });
+    fs.writeFileSync(path.join(tmpDir, "drizzle.config.ts"), "");
     expect(parseDbMigrateConfigArg([])).toEqual({
       config: "drizzle.config.ts",
     });
+  });
+
+  it("returns null with no args and no default config", () => {
+    expect(parseDbMigrateConfigArg([])).toBeNull();
   });
 
   it("reads --config in both forms", () => {
@@ -139,7 +164,36 @@ describe("runDbMigrate", () => {
     expect(mockSpawn).toHaveBeenCalled();
   });
 
+  it("forwards an in-memory PGlite URL without resolving it as a path", async () => {
+    writeConfig(
+      "drizzle.config.ts",
+      `export default {
+        out: "./m",
+        driver: "pglite",
+        dbCredentials: { url: "memory://" },
+      };`,
+    );
+    mockForward.mockResolvedValue(true);
+    await expect(runDbMigrate([])).resolves.toBe(0);
+    expect(mockForward).toHaveBeenCalledWith({
+      dataDir: "memory://",
+      migrationsFolder: "./m",
+    });
+  });
+
+  it("passes through to drizzle-kit when no default config exists", async () => {
+    mockSpawn.mockImplementation(() => fakeChild(1));
+    await expect(runDbMigrate([])).resolves.toBe(1);
+    expect(mockForward).not.toHaveBeenCalled();
+    expect(mockSpawn).toHaveBeenCalledWith(
+      expect.stringContaining("drizzle-kit"),
+      ["migrate"],
+      expect.objectContaining({ stdio: "inherit" }),
+    );
+  });
+
   it("exits 1 with the error when the config cannot be loaded", async () => {
+    writeConfig("drizzle.config.ts", "export default {");
     await expect(runDbMigrate([])).resolves.toBe(1);
     expect(console.error).toHaveBeenCalled();
     expect(mockForward).not.toHaveBeenCalled();
