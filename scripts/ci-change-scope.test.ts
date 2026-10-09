@@ -976,6 +976,20 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   assert.ok(
     fastTestsJob.includes('if [ "$DESIGN_CANVAS_RESULT" != "success" ]; then'),
   );
+  assert.ok(
+    fastTestsJob
+      .slice(needsStart, needsEnd)
+      .includes("pre-auth-session-replay-smoke"),
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      "PRE_AUTH_REPLAY_RESULT: ${{ needs.pre-auth-session-replay-smoke.result }}",
+    ),
+  );
+  assert.match(
+    fastTestsJob,
+    /if \[ "\$PRE_AUTH_REPLAY_E2E" = "true" \]; then\s+if \[ "\$PRE_AUTH_REPLAY_RESULT" != "success" \]; then\s+echo "::error::pre-auth session replay smoke did not succeed \(\$PRE_AUTH_REPLAY_RESULT\)"\s+exit 1\s+fi/,
+  );
   assert.match(
     fastTestsJob,
     /if \[ "\$DESIGN_CANVAS_E2E" = "true" \]; then\s+if \[ "\$DESIGN_CANVAS_RESULT" != "success" \]; then\s+echo "::error::Design canvas interaction acceptance did not succeed \(\$DESIGN_CANVAS_RESULT\)"\s+exit 1\s+fi/,
@@ -1227,11 +1241,16 @@ test("selects the pre-auth replay browser smoke for its runtime paths", () => {
     "packages/core/src/app-config/analytics.ts",
     "packages/core/src/client/analytics.ts",
     "packages/core/src/client/session-replay.ts",
+    "packages/core/src/shared/environment-lanes.ts",
     "packages/core/src/server/analytics.ts",
+    "packages/toolkit/src/app/auth/AuthPage.tsx",
     "packages/toolkit/src/app/auth/entry.tsx",
+    "templates/analytics/server/handlers/session-replay.ts",
     "templates/analytics/server/lib/session-replay.ts",
+    "templates/clips/server/plugins/config.ts",
     "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
     "templates/design/server/plugins/config.ts",
+    "templates/slides/server/plugins/config.ts",
   ]) {
     assert.equal(
       classifyChangedPaths([path]).checks.pre_auth_session_replay_e2e,

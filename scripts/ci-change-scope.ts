@@ -112,11 +112,16 @@ const PRE_AUTH_SESSION_REPLAY_E2E_FILES = new Set([
   "packages/core/src/app-config/analytics.ts",
   "packages/core/src/client/analytics.ts",
   "packages/core/src/client/session-replay.ts",
+  "packages/core/src/shared/environment-lanes.ts",
   "packages/core/src/server/analytics.ts",
+  "packages/toolkit/src/app/auth/AuthPage.tsx",
   "packages/toolkit/src/app/auth/entry.tsx",
+  "templates/analytics/server/handlers/session-replay.ts",
   "templates/analytics/server/lib/session-replay.ts",
+  "templates/clips/server/plugins/config.ts",
   "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
   "templates/design/server/plugins/config.ts",
+  "templates/slides/server/plugins/config.ts",
 ]);
 
 // The two-tab convergence lane also covers its own harness and the build it
