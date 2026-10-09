@@ -618,6 +618,16 @@ export function createAgentNativeBrowserSessionBridge(
     if (!request) return null;
 
     activeRequestCount++;
+    const expiryTimer = setTimeout(
+      () => {
+        requestPoll.onError(
+          new Error(
+            `Browser-session request "${request.id}" is still running after expiry`,
+          ),
+        );
+      },
+      Math.max(0, request.expiresAt - Date.now()),
+    );
     try {
       const result = await executeBrowserSessionRequest(request, options);
       await postJson(
@@ -636,6 +646,7 @@ export function createAgentNativeBrowserSessionBridge(
         { ok: false, error: messageError(error).message },
       ).catch(() => {});
     } finally {
+      clearTimeout(expiryTimer);
       activeRequestCount--;
     }
 

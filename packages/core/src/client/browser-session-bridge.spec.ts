@@ -610,6 +610,102 @@ describe("createAgentNativeBrowserSessionBridge", () => {
       await vi.advanceTimersByTimeAsync(0);
       bridge.stop();
       await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(onError).not.toHaveBeenCalled();
+    }
+  });
+
+  it("reports a claimed action that is still running after its request expires", async () => {
+    vi.useFakeTimers();
+    const onError = vi.fn();
+    let resolveAction: ((result: unknown) => void) | undefined;
+    const runAction = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveAction = resolve;
+        }),
+    );
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (
+        url === "/_agent-native/browser-sessions" &&
+        init?.method === "POST"
+      ) {
+        const body = JSON.parse(String(init.body));
+        return jsonResponse({
+          ok: true,
+          session: {
+            sessionId: body.sessionId,
+            session: body.session,
+            active: true,
+            actions: body.actions,
+          },
+        });
+      }
+      if (url.endsWith("/requests/claim")) {
+        return jsonResponse({
+          ok: true,
+          request: {
+            id: "req-stalled",
+            sessionId: "tab-1",
+            type: "run-action",
+            name: "stalled-action",
+            args: {},
+            status: "claimed",
+            createdAt: Date.now(),
+            expiresAt: Date.now() + 12_000,
+          },
+        });
+      }
+      if (url.endsWith("/requests/req-stalled/complete")) {
+        return jsonResponse({ ok: true, request: { id: "req-stalled" } });
+      }
+      if (init?.method === "DELETE") return jsonResponse({ ok: true });
+      throw new Error(`Unexpected fetch ${init?.method} ${url}`);
+    });
+    const bridge = createAgentNativeBrowserSessionBridge({
+      session: { id: "tab-1" },
+      sessionId: "tab-1",
+      getContext: () => ({}),
+      actions: [
+        {
+          name: "stalled-action",
+          description: "Never completes before its request expires",
+          schema: { type: "object" },
+          run: runAction,
+        },
+      ],
+      heartbeatMs: 100_000,
+      pollMs: 500,
+      fetch: fetchMock as unknown as typeof fetch,
+      onError,
+    });
+
+    bridge.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    try {
+      expect(runAction).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(onError).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message:
+            'Browser-session request "req-stalled" is still running after expiry',
+        }),
+        "poll",
+      );
+      expect(
+        fetchMock.mock.calls.filter(([url]) => url.endsWith("/requests/claim")),
+      ).toHaveLength(1);
+    } finally {
+      resolveAction?.({ completed: true });
+      await vi.advanceTimersByTimeAsync(0);
+      bridge.stop();
+      await vi.advanceTimersByTimeAsync(0);
     }
   });
 
