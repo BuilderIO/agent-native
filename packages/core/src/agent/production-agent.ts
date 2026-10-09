@@ -9957,6 +9957,7 @@ export function createProductionAgentHandler(
         throw error;
       }
     }
+    setupMark("aiGate");
     const contextPrefetchDeadlineAt = Date.now() + 1_300;
     const preparedRequest = await options.prepareRequest?.({
       event,
@@ -11715,6 +11716,11 @@ export function createProductionAgentHandler(
       ` total=${Date.now() - setupT0}` +
       (backgroundRuntimeDetail ? ` ${backgroundRuntimeDetail}` : "") +
       firstRequestPayloadDetail;
+    // Only slow setups are logged: the reported delay is seconds, and the
+    // marks show which step owns it.
+    if (Date.now() - setupT0 >= 1_000) {
+      console.warn(`[agent-chat] slow run setup runId=${runId} ${setupDetail}`);
+    }
 
     const isSynchronousSelfChainContinuation =
       isBackgroundWorker &&
