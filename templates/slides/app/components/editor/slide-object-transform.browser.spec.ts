@@ -371,6 +371,37 @@ describe("the rotation of a slide object in Chromium", () => {
     }
   });
 
+  it("settles a refused rotation before restoring authored transitions", async () => {
+    const page = await openPage(
+      '.object { transform: rotate(0deg); transition: transform 2s linear; } .object[style*="rotate(90deg)"] { transform: rotate(20deg) !important; }',
+      '<div id="object" class="object" style="transform: rotate(0deg)"></div>',
+    );
+    try {
+      const result = await page.evaluate(async () => {
+        const object = document.getElementById("object") as HTMLElement;
+        const before = window.slideObjects.readSlideObjectRotation(object);
+        const applied = window.slideObjects.setSlideObjectRotation(object, 90);
+        const immediate = window.slideObjects.readSlideObjectRotation(object);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return {
+          before,
+          applied,
+          immediate,
+          after: window.slideObjects.readSlideObjectRotation(object),
+        };
+      });
+
+      expect(result).toEqual({
+        before: 0,
+        applied: false,
+        immediate: 0,
+        after: 0,
+      });
+    } finally {
+      await page.close();
+    }
+  });
+
   it("ungroups a group a stylesheet rule rotates without moving its members", async () => {
     const page = await openPage(
       ".turned { transform: rotate(200deg); }",
@@ -1597,6 +1628,43 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
           () => getComputedStyle(document.getElementById("pic")!).transform,
         ),
       ).toBe("none");
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("restores the image transform before re-enabling transitions on crop cancel", async () => {
+    const css =
+      ".ruled { transform: rotate(0deg); transition: transform 1s linear; } .moving { transform: rotate(90deg); }";
+    const page = await openPage(css, imageHtml());
+    try {
+      const result = await page.evaluate(async () => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        image.classList.add("ruled", "moving");
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const attributes = Array.from(
+          image.attributes,
+          ({ name, value }) => [name, value] as const,
+        );
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.replaceWith(image);
+        for (const attribute of Array.from(image.attributes)) {
+          image.removeAttribute(attribute.name);
+        }
+        for (const [name, value] of attributes) {
+          image.setAttribute(name, value);
+        }
+        wrapped.restoreTransitions();
+        const immediate = window.slideObjects.readSlideObjectRotation(image);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return {
+          immediate,
+          after: window.slideObjects.readSlideObjectRotation(image),
+        };
+      });
+
+      expect(result.immediate).toBeCloseTo(90, 2);
+      expect(result.after).toBeCloseTo(90, 2);
     } finally {
       await page.close();
     }

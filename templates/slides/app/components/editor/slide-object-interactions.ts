@@ -1505,6 +1505,15 @@ function restoreInlineTransitions(
   }
 }
 
+function restoreInlineTransitionsAfterTransformSettles(
+  element: HTMLElement,
+  declarations: InlineStyleDeclaration[],
+): void {
+  element.style.setProperty("transition", "none", "important");
+  window.getComputedStyle(element).getPropertyValue("transform");
+  restoreInlineTransitions(element, declarations);
+}
+
 export function restoreSlideObjectTransformSnapshots(
   snapshots: readonly {
     element: HTMLElement;
@@ -2444,7 +2453,10 @@ function moveSlideObjectTransform(
       };
     },
     restoreTransitions: () =>
-      restoreInlineTransitions(source, originalTransitions),
+      restoreInlineTransitionsAfterTransformSettles(
+        source,
+        originalTransitions,
+      ),
   };
 }
 
@@ -4653,6 +4665,12 @@ export function setSlideObjectRotation(
   const { style } = element;
   const priority = style.getPropertyPriority("transform");
   const before = element.getAttribute("style");
+  const restoreOriginalStyle = () => {
+    restoreStyleAttribute(element, before);
+    style.setProperty("transition", "none", "important");
+    window.getComputedStyle(element).getPropertyValue("transform");
+    restoreStyleAttribute(element, before);
+  };
   const write = (value: string) => {
     const finalStyle = element.ownerDocument.createElement("div").style;
     if (before !== null) finalStyle.cssText = before;
@@ -4666,7 +4684,7 @@ export function setSlideObjectRotation(
     // already at its final value, so restoring the authored transitions cannot
     // start a transition from the original rotation.
     if (paints) element.setAttribute("style", finalStyle.cssText);
-    else restoreStyleAttribute(element, before);
+    else restoreOriginalStyle();
     return paints;
   };
 
