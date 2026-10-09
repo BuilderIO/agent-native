@@ -90,7 +90,7 @@ import type {
 import { fallbackChatTitle } from "./fallback-chat-title.js";
 
 type AgentActionScope = NonNullable<AgentChatMessage["actionScope"]>;
-let prefillContextSequence = 0;
+const PREFILL_CONTEXT_KEY = "agent-chat-prefill-context";
 
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -2146,7 +2146,7 @@ export function MultiTabAssistantChat({
       const prefillContext =
         context && !submit
           ? {
-              key: `agent-chat-prefill-context:${submitMessageId ?? `${Date.now()}-${++prefillContextSequence}`}`,
+              key: PREFILL_CONTEXT_KEY,
               title: translate("composer.activeAppContext"),
               context,
               ...(contextNamespace ? { contextNamespace } : {}),

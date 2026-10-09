@@ -667,13 +667,38 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     );
     expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
       expect.objectContaining({
-        key: expect.stringMatching(/^agent-chat-prefill-context:/),
+        key: "agent-chat-prefill-context",
         title: "Active app context",
         context: "Selected rows: a, b",
       }),
       { focus: false },
     );
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("replaces the staged context when prefilled again", () => {
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this before sending",
+        context: "Selected rows: a, b",
+        submit: false,
+        openSidebar: true,
+      });
+    });
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this before sending",
+        context: "Selected rows: c, d",
+        submit: false,
+        openSidebar: true,
+      });
+    });
+
+    const calls = chatHandleMocks.setComposerContextItem.mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.[0].key).toBe("agent-chat-prefill-context");
+    expect(calls[1]?.[0].key).toBe(calls[0]?.[0].key);
+    expect(calls[1]?.[0].context).toBe("Selected rows: c, d");
   });
 
   it("uses the current context namespace for a prefilled context", async () => {
