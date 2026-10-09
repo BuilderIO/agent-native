@@ -232,6 +232,7 @@ describe("createAgentNativeBrowserSessionBridge", () => {
   });
 
   it("aborts an in-flight polling claim when stopped", async () => {
+    const onError = vi.fn();
     let claimSignal: AbortSignal | undefined;
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (
@@ -275,13 +276,16 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     const bridge = createAgentNativeBrowserSessionBridge({
       session: { id: "tab-1" },
       fetch: fetchMock as unknown as typeof fetch,
+      onError,
     });
 
     bridge.start();
     await vi.waitFor(() => expect(claimSignal).toBeDefined());
     bridge.stop();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
 
     expect(claimSignal?.aborted).toBe(true);
+    expect(onError).not.toHaveBeenCalled();
   });
 
   it("aborts a polling claim while its response body is loading when stopped", async () => {
@@ -374,6 +378,117 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     });
 
     await expect(bridge.claimOnce()).rejects.toThrow("Invalid JSON");
+  });
+
+  it("preserves HTTP status when an error response has malformed JSON", async () => {
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: false,
+        status: 502,
+        json: async () => {
+          throw new SyntaxError("Unexpected token <");
+        },
+      } as Response;
+    });
+    const bridge = createAgentNativeBrowserSessionBridge({
+      sessionId: "tab-1",
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    await expect(bridge.claimOnce()).rejects.toThrow(
+      "Browser-session request failed (502)",
+    );
+  });
+
+  it("prefers the server error for a parseable error response", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ error: "Session service unavailable" }, { status: 503 }),
+    );
+    const bridge = createAgentNativeBrowserSessionBridge({
+      sessionId: "tab-1",
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    await expect(bridge.claimOnce()).rejects.toThrow(
+      "Session service unavailable",
+    );
+  });
+
+  it("reports background heartbeat and poll failures", async () => {
+    const onError = vi.fn();
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "DELETE") return jsonResponse({ ok: true });
+      return {
+        ok: false,
+        status: 503,
+        json: async () => {
+          throw new SyntaxError("Unexpected token <");
+        },
+      } as Response;
+    });
+    const bridge = createAgentNativeBrowserSessionBridge({
+      session: { id: "tab-1" },
+      sessionId: "tab-1",
+      heartbeatMs: 10_000,
+      pollMs: 10_000,
+      fetch: fetchMock as unknown as typeof fetch,
+      onError,
+    });
+
+    bridge.start();
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledTimes(2));
+    bridge.stop();
+
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Browser-session request failed (503)",
+      }),
+      "heartbeat",
+    );
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Browser-session request failed (503)",
+      }),
+      "poll",
+    );
+  });
+
+  it("logs background failures when no error callback is configured", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "DELETE") return jsonResponse({ ok: true });
+      return {
+        ok: false,
+        status: 503,
+        json: async () => {
+          throw new SyntaxError("Unexpected token <");
+        },
+      } as Response;
+    });
+    const bridge = createAgentNativeBrowserSessionBridge({
+      session: { id: "tab-1" },
+      sessionId: "tab-1",
+      heartbeatMs: 10_000,
+      pollMs: 10_000,
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    bridge.start();
+    await vi.waitFor(() => expect(errorSpy).toHaveBeenCalledTimes(2));
+    bridge.stop();
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[Agent-Native browser session] heartbeat failed:",
+      expect.objectContaining({
+        message: "Browser-session request failed (503)",
+      }),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[Agent-Native browser session] poll failed:",
+      expect.objectContaining({
+        message: "Browser-session request failed (503)",
+      }),
+    );
   });
 
   it("registers direct embedded context and actions without postMessage", async () => {

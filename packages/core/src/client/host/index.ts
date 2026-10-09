@@ -132,6 +132,7 @@ export {
   createAgentNativeBrowserSessionBridge,
   startAgentNativeBrowserSessionBridge,
   type AgentNativeBrowserSessionBridge,
+  type AgentNativeBrowserSessionBridgeErrorSource,
   type AgentNativeBrowserSessionBridgeOptions,
 } from "../browser-session-bridge.js";
 export type {

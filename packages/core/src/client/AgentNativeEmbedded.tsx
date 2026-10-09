@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import {
   createAgentNativeBrowserSessionBridge,
   type AgentNativeBrowserSessionBridge,
+  type AgentNativeBrowserSessionBridgeErrorSource,
 } from "./browser-session-bridge.js";
 import {
   readAgentNativeScreenContext,
@@ -36,6 +37,10 @@ export interface AgentNativeEmbeddedBrowserSessionOptions {
   pollMs?: number;
   ttlMs?: number;
   fetch?: typeof fetch;
+  onError?: (
+    error: unknown,
+    source: AgentNativeBrowserSessionBridgeErrorSource,
+  ) => void;
   onReady?: (bridge: AgentNativeBrowserSessionBridge) => void;
 }
 
@@ -188,6 +193,7 @@ export function useAgentNativeEmbeddedBrowserSession({
       pollMs: browserSession?.pollMs,
       ttlMs: browserSession?.ttlMs,
       fetch: browserSession?.fetch,
+      onError: browserSession?.onError,
       session,
       getContext: getMergedContext,
       actions,
@@ -204,6 +210,7 @@ export function useAgentNativeEmbeddedBrowserSession({
     browserSession?.heartbeatMs,
     browserSession?.label,
     browserSession?.onReady,
+    browserSession?.onError,
     browserSession?.pollMs,
     browserSession?.sessionId,
     browserSession?.ttlMs,

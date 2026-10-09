@@ -48,6 +48,7 @@ export function createPollEngine(
   let inFlight = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let activeController: AbortController | null = null;
+  let activeStopRequested = false;
 
   function clearTimer(): void {
     if (timer != null) {
@@ -74,6 +75,7 @@ export function createPollEngine(
     inFlight = true;
     const controller = new AbortController();
     activeController = controller;
+    activeStopRequested = false;
     const timeoutMs = getTimeoutMs();
     const abortTimer = setTimeout(() => controller.abort(), timeoutMs);
     maybeUnref(abortTimer);
@@ -97,17 +99,35 @@ export function createPollEngine(
       .then(() => attempt(controller.signal))
       .then(
         () => {},
-        (err: unknown) => report(err),
+        (err: unknown) => {
+          if (
+            activeStopRequested &&
+            typeof err === "object" &&
+            err !== null &&
+            "name" in err &&
+            err.name === "AbortError"
+          ) {
+            return;
+          }
+          report(err);
+        },
       );
 
     try {
       await Promise.race([
         settled,
-        new Promise<never>((_, reject) => {
+        new Promise<void>((resolve, reject) => {
           controller.signal.addEventListener(
             "abort",
-            () =>
-              reject(new Error(`poll attempt timed out after ${timeoutMs}ms`)),
+            () => {
+              if (activeStopRequested) {
+                resolve();
+              } else {
+                reject(
+                  new Error(`poll attempt timed out after ${timeoutMs}ms`),
+                );
+              }
+            },
             { once: true },
           );
         }),
@@ -136,6 +156,7 @@ export function createPollEngine(
       running = false;
       generation++;
       clearTimer();
+      activeStopRequested = true;
       activeController?.abort();
     },
     pollNow(): void {

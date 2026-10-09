@@ -197,6 +197,31 @@ describe("createPollEngine", () => {
     expect(seenSignal?.aborted).toBe(true);
   });
 
+  it("does not report the AbortError caused by stop()", async () => {
+    const onError = vi.fn();
+    const attempt = vi.fn(
+      (signal: AbortSignal) =>
+        new Promise<void>((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+    const engine = createPollEngine(attempt, {
+      intervalMs: 1000,
+      onError,
+    });
+
+    engine.start();
+    await vi.advanceTimersByTimeAsync(0);
+    engine.stop();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it("stays alive when start() lands while a stopped attempt is still settling", async () => {
     let resolveFirst: (() => void) | undefined;
     const attempt = vi

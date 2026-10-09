@@ -42,7 +42,13 @@ export interface AgentNativeBrowserSessionBridgeOptions extends AgentNativeHostR
   pollMs?: number;
   ttlMs?: number;
   fetch?: typeof fetch;
+  onError?: (
+    error: unknown,
+    source: AgentNativeBrowserSessionBridgeErrorSource,
+  ) => void;
 }
+
+export type AgentNativeBrowserSessionBridgeErrorSource = "heartbeat" | "poll";
 
 export interface AgentNativeBrowserSessionBridge {
   readonly sessionId: string | null;
@@ -98,6 +104,15 @@ function encodePathSegment(value: string): string {
   return encodeURIComponent(value);
 }
 
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    error.name === "AbortError"
+  );
+}
+
 function fetchImpl(
   options: AgentNativeBrowserSessionBridgeOptions,
 ): typeof fetch {
@@ -108,7 +123,15 @@ function fetchImpl(
 }
 
 async function readJsonResponse(response: Response): Promise<any> {
-  const body = await response.json();
+  let body: any;
+  try {
+    body = await response.json();
+  } catch (error) {
+    if (!response.ok && error instanceof SyntaxError) {
+      throw new Error(`Browser-session request failed (${response.status})`);
+    }
+    throw error;
+  }
   if (!response.ok || body?.ok === false) {
     throw new Error(
       typeof body?.error === "string"
@@ -624,28 +647,62 @@ export function createAgentNativeBrowserSessionBridge(
     return request;
   }
 
-  const heartbeatEngine = createPollEngine(
-    (signal) => refreshRegistration(signal).then(() => {}),
-    {
-      intervalMs: () => {
-        const base = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
-        return isDocumentHidden()
-          ? Math.max(base, HIDDEN_INTERVAL_FLOOR_MS)
-          : base;
+  function backgroundPoll(
+    source: AgentNativeBrowserSessionBridgeErrorSource,
+    attempt: (signal: AbortSignal) => Promise<unknown>,
+  ) {
+    let reportedFailure = false;
+    return {
+      attempt: async (signal: AbortSignal) => {
+        await attempt(signal);
+        reportedFailure = false;
       },
-    },
-  );
-  const pollEngine = createPollEngine(
-    (signal) => claimOnce(signal).then(() => {}),
-    {
-      intervalMs: () => {
-        const base = options.pollMs ?? DEFAULT_POLL_MS;
-        return isDocumentHidden()
-          ? Math.max(base, HIDDEN_INTERVAL_FLOOR_MS)
-          : base;
+      onError: (error: unknown) => {
+        if (isAbortError(error) || reportedFailure) return;
+        reportedFailure = true;
+        if (options.onError) {
+          try {
+            options.onError(error, source);
+          } catch (callbackError) {
+            console.error(
+              `[Agent-Native browser session] ${source} onError callback failed:`,
+              callbackError,
+            );
+          }
+        } else {
+          console.error(
+            `[Agent-Native browser session] ${source} failed:`,
+            error,
+          );
+        }
       },
-    },
+    };
+  }
+
+  const heartbeatPoll = backgroundPoll("heartbeat", (signal) =>
+    refreshRegistration(signal).then(() => {}),
   );
+  const heartbeatEngine = createPollEngine(heartbeatPoll.attempt, {
+    onError: heartbeatPoll.onError,
+    intervalMs: () => {
+      const base = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+      return isDocumentHidden()
+        ? Math.max(base, HIDDEN_INTERVAL_FLOOR_MS)
+        : base;
+    },
+  });
+  const requestPoll = backgroundPoll("poll", (signal) =>
+    claimOnce(signal).then(() => {}),
+  );
+  const pollEngine = createPollEngine(requestPoll.attempt, {
+    onError: requestPoll.onError,
+    intervalMs: () => {
+      const base = options.pollMs ?? DEFAULT_POLL_MS;
+      return isDocumentHidden()
+        ? Math.max(base, HIDDEN_INTERVAL_FLOOR_MS)
+        : base;
+    },
+  });
 
   const bridge: AgentNativeBrowserSessionBridge = {
     get sessionId() {
