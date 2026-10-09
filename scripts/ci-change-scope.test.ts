@@ -16,7 +16,7 @@ import {
   scriptTestsForPaths,
   workspaceFiltersForPaths,
 } from "./ci-change-scope.ts";
-import { resolveDesignE2ESpecs } from "./design-e2e-spec-selection.mjs";
+import { resolveDesignE2ESpecs } from "./design-e2e-spec-selection.ts";
 
 test("recognizes documentation surfaces and package metadata", () => {
   assert.equal(isDocsPath("packages/core/docs/content/actions.mdx"), true);
@@ -975,7 +975,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     changedSpecRegressions.includes(
-      'node ../../scripts/design-e2e-spec-selection.mjs > "$changed_specs_file"',
+      'node --experimental-strip-types ../../scripts/design-e2e-spec-selection.ts > "$changed_specs_file"',
     ),
     "changed-spec step must use the tested selector resolver",
   );

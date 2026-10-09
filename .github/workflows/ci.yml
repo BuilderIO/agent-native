@@ -533,7 +533,7 @@ jobs:
         run: |
           set -euo pipefail
           changed_specs_file="$RUNNER_TEMP/design-canvas-e2e-specs.nul"
-          node ../../scripts/design-e2e-spec-selection.mjs > "$changed_specs_file"
+          node --experimental-strip-types ../../scripts/design-e2e-spec-selection.ts > "$changed_specs_file"
           mapfile -d '' -t existing_changed_specs < "$changed_specs_file"
           if ((${#existing_changed_specs[@]} == 0)); then
             echo "No runnable changed Design E2E specs remain."

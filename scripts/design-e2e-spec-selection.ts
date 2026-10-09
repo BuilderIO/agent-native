@@ -4,23 +4,37 @@ import { fileURLToPath } from "node:url";
 
 const DESIGN_E2E_PREFIX = "templates/design/e2e/";
 
-function isRunnableSpec(specPath) {
+type IsFile = (specPath: string) => boolean;
+
+type ResolvedDesignE2ESpecs = {
+  existingSpecs: string[];
+  removedSpecs: string[];
+};
+
+function isRunnableSpec(specPath: string): boolean {
   try {
     const stats = statSync(specPath);
     if (!stats.isFile()) {
       throw new Error(`Changed Design E2E path is not a file: ${specPath}`);
     }
     return true;
-  } catch (error) {
-    if (error?.code === "ENOENT" || error?.code === "ENOTDIR") return false;
+  } catch (error: unknown) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error.code === "ENOENT" || error.code === "ENOTDIR")
+    ) {
+      return false;
+    }
     throw error;
   }
 }
 
 export function resolveDesignE2ESpecs(
-  rawSelector,
-  { isFile = isRunnableSpec } = {},
-) {
+  rawSelector: string | undefined,
+  { isFile = isRunnableSpec }: { isFile?: IsFile } = {},
+): ResolvedDesignE2ESpecs {
   let paths;
   try {
     paths = JSON.parse(rawSelector);
@@ -32,8 +46,8 @@ export function resolveDesignE2ESpecs(
     throw new Error("Expected a non-empty changed Design E2E spec selector");
   }
 
-  const existingSpecs = [];
-  const removedSpecs = [];
+  const existingSpecs: string[] = [];
+  const removedSpecs: string[] = [];
   for (const candidate of paths) {
     if (
       typeof candidate !== "string" ||
@@ -67,7 +81,7 @@ if (
       );
     }
     process.stdout.write(existingSpecs.map((spec) => `${spec}\0`).join(""));
-  } catch (error) {
+  } catch (error: unknown) {
     console.error(
       `::error::${error instanceof Error ? error.message : "Could not resolve changed Design E2E selector"}`,
     );
