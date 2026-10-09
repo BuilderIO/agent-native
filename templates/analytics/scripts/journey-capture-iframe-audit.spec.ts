@@ -1104,7 +1104,7 @@ describe("replay iframe audit", () => {
     ).toEqual({ visibleIframeCount: 0, unavailableIframeCount: 0 });
   });
 
-  it("treats an empty legacy clip as empty even when ancestor geometry is uncertain", () => {
+  it("treats an empty legacy clip with auto edges as empty when ancestor geometry is uncertain", () => {
     const replayFrame = appendFrame(
       document,
       { left: 0, top: 0, width: 100, height: 100 },
@@ -1113,10 +1113,30 @@ describe("replay iframe audit", () => {
     );
     const replayDocument = replayFrame.contentDocument!;
     const clipper = replayDocument.createElement("div");
-    clipper.style.cssText =
-      "position:absolute;clip:rect(0px, 0px, 0px, 0px);perspective:100px";
+    clipper.style.position = "absolute";
     replayDocument.body.append(clipper);
     setBox(clipper, { left: 10, top: 10, width: 20, height: 20 }, 20, 20);
+    const view = replayDocument.defaultView!;
+    const nativeGetComputedStyle = view.getComputedStyle.bind(view);
+    Object.defineProperty(view, "getComputedStyle", {
+      configurable: true,
+      value: (element: Element, pseudoElement?: string | null) => {
+        const styles = nativeGetComputedStyle(element, pseudoElement);
+        if (element !== clipper) return styles;
+        return new Proxy(styles, {
+          get(target, property, receiver) {
+            if (property === "perspective") return "100px";
+            if (property === "getPropertyValue") {
+              return (name: string) =>
+                name === "clip"
+                  ? "rect(auto, 10px, 0px, auto)"
+                  : target.getPropertyValue(name);
+            }
+            return Reflect.get(target, property, receiver);
+          },
+        });
+      },
+    });
     const frame = appendFrame(
       replayDocument,
       { left: 10, top: 10, width: 20, height: 20 },
@@ -1161,6 +1181,81 @@ describe("replay iframe audit", () => {
         recordedIframeParentIds: [1],
       }),
     ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 0 });
+  });
+
+  it("does not hide frames for opacity or filters on a boxless ancestor", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const boxless = replayDocument.createElement("div");
+    boxless.style.cssText = "display:contents;opacity:0;filter:opacity(0)";
+    replayDocument.body.append(boxless);
+    const frame = appendFrame(
+      replayDocument,
+      { left: 30, top: 30, width: 20, height: 20 },
+      20,
+      20,
+      boxless,
+    );
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    const audit = auditReplayIframeContent({
+      dimensions: { width: 100, height: 100 },
+      recordedIframeParentIds: [1],
+    });
+    expect(audit).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 0 });
+  });
+
+  it("does not apply clip-path or mask visibility to boxless ancestors", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const clipped = replayDocument.createElement("div");
+    clipped.style.cssText = "display:contents;clip-path:inset(40px)";
+    replayDocument.body.append(clipped);
+    const masked = replayDocument.createElement("div");
+    masked.style.display = "contents";
+    masked.style.setProperty(
+      "mask-image",
+      "linear-gradient(black, transparent)",
+    );
+    replayDocument.body.append(masked);
+    const clipPathFrame = appendFrame(
+      replayDocument,
+      { left: 10, top: 10, width: 20, height: 20 },
+      20,
+      20,
+      clipped,
+    );
+    const maskFrame = appendFrame(
+      replayDocument,
+      { left: 40, top: 40, width: 20, height: 20 },
+      20,
+      20,
+      masked,
+    );
+    installReplayState(
+      replayFrame,
+      new WeakMap([
+        [clipPathFrame, 1],
+        [maskFrame, 2],
+      ]),
+    );
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [1, 2],
+      }),
+    ).toEqual({ visibleIframeCount: 2, unavailableIframeCount: 0 });
   });
 
   it("fails closed when a legacy CSS clip rectangle has unsupported offsets", () => {
