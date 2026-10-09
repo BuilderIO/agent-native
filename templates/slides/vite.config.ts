@@ -70,6 +70,8 @@ export default defineConfig({
       "@agent-native/toolkit > qrcode.react",
       "@agent-native/toolkit > tiptap-markdown",
       "@agent-native/core > xlsx",
+      "axe-core",
+      "jszip",
     ],
   },
 });
