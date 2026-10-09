@@ -470,7 +470,7 @@ describe("Sessions empty states", () => {
     expect(container.textContent).toContain("sessions.frictionSignalCount");
   });
 
-  it("lists marked anonymous sessions without presenting the browser id as a person", async () => {
+  it("lists anonymous sessions without presenting the browser id as a person", async () => {
     mocks.total = 1;
     mocks.recordings = [
       {

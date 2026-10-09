@@ -42,7 +42,7 @@ async function withFriction(
 
 export default defineAction({
   description:
-    "List first-party Analytics session replay recordings accessible to the current user/org. `visitorType: anonymous` lists only playable recordings carrying the pre-auth capture marker and no signed-in user id. Anonymous ids are pseudonymous browser identifiers, not verified people. Returns summaries only, not raw replay chunks.",
+    "List first-party Analytics session replay recordings accessible to the current user/org. `visitorType: anonymous` explicitly includes playable recordings with no signed-in user id and a non-empty client-supplied anonymous id; it does not verify the page origin or a person's identity. Returns summaries only, not raw replay chunks.",
   schema: z.object({
     query: z
       .string()
@@ -96,7 +96,7 @@ export default defineAction({
       .enum(["internal", "work", "personal", "anonymous"])
       .optional()
       .describe(
-        "Use `anonymous` for playable sessions marked pre-auth that have no signed-in user id",
+        "Use `anonymous` to explicitly include playable client-submitted sessions with no signed-in user id and a non-empty anonymous id",
       ),
     emailDomain: z
       .string()

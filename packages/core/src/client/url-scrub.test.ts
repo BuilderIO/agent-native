@@ -33,6 +33,16 @@ describe("scrubUrl", () => {
     expect(scrubbed).not.toContain("secret");
   });
 
+  it("redacts sensitive parameters before a question mark in parameter fragments", () => {
+    const url =
+      "https://app.agent-native.com/auth#token=secret&return=/inbox?tab=1";
+
+    const scrubbed = scrubUrl(url);
+
+    expect(scrubbed).toContain("#token=%3Credacted%3E");
+    expect(scrubbed).not.toContain("token=secret");
+  });
+
   it("redacts Mail search terms from absolute and relative URLs", () => {
     const query = "private.sender@example.com";
     const absolute = scrubUrl(

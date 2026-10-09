@@ -288,7 +288,7 @@ describe("session replay list page", () => {
     expect(conditionText(orders[1])).toContain("nulls last");
   });
 
-  it("filters anonymous sessions to scoped pre-auth recordings", async () => {
+  it("filters explicit anonymous sessions without trusting capture claims", async () => {
     const conditions: unknown[] = [];
     const anonymousRecording = {
       id: "sr_pre_auth",
@@ -300,7 +300,8 @@ describe("session replay list page", () => {
       startedAt: "2026-10-08T00:00:00.000Z",
       chunkCount: 1,
       eventCount: 2,
-      metadata: '{"capture_context":"pre_auth"}',
+      metadata:
+        '{"route":"/signup","capture_context":"pre_auth","pre_auth_base_path":"/app"}',
       ownerEmail: "owner@example.test",
       orgId: "org_1",
       visibility: "org",
@@ -344,15 +345,16 @@ describe("session replay list page", () => {
         id: "sr_pre_auth",
         userId: null,
         anonymousId: "anon_1",
-        metadata: { capture_context: "pre_auth" },
+        metadata: { route: "/signup" },
       },
     ]);
-    expect(conditionText(conditions[0])).toContain("capture_context");
-    expect(conditionText(conditions[0])).toContain("pre_auth");
+    expect(conditionText(conditions[0])).not.toContain("capture_context");
+    expect(conditionText(conditions[0])).not.toContain("pre_auth");
     expect(conditionText(conditions[0])).toContain("anonymous_id");
     expect(conditionText(conditions[0])).toContain("owner_email");
     expect(conditionText(conditions[0])).toContain("org_id");
     expect(conditionText(conditions[0])).toContain("user_id");
+    expect(conditionText(conditions[0])).toContain("user_key");
   });
 });
 
@@ -813,7 +815,7 @@ describe("session replay ingest parsing", () => {
     expect(parsed.chunks).toHaveLength(1);
   });
 
-  it("recognizes pre-auth context only from replay properties", () => {
+  it("drops client auth-context claims from replay properties and metadata", () => {
     const parsed = parseSessionReplayIngestPayload({
       publicKey: "anpk_test",
       replayId: "recording_1",
@@ -824,7 +826,11 @@ describe("session replay ingest parsing", () => {
         capture_context: "pre_auth",
         pre_auth_base_path: "/app",
       },
-      metadata: { capture_context: "forged", retained: true },
+      metadata: {
+        capture_context: "forged",
+        pre_auth_base_path: "/forged",
+        retained: true,
+      },
       events: [{ type: 4, timestamp: 1 }],
     });
     const unmarked = parseSessionReplayIngestPayload({
@@ -833,15 +839,16 @@ describe("session replay ingest parsing", () => {
       sessionId: "session_2",
       anonymousId: "anon_2",
       sequence: 0,
+      properties: { capture_context: "pre_auth" },
       metadata: { capture_context: "pre_auth" },
       events: [{ type: 4, timestamp: 1 }],
     });
 
     expect(parsed.metadata).toEqual({ retained: true });
-    expect(parsed.preAuthCaptureContextRequested).toBe(true);
-    expect(parsed.preAuthBasePath).toBe("/app");
+    expect(parsed).not.toHaveProperty("preAuthCaptureContextRequested");
+    expect(parsed).not.toHaveProperty("preAuthBasePath");
     expect(unmarked.metadata).toEqual({});
-    expect(unmarked.preAuthCaptureContextRequested).toBeUndefined();
+    expect(unmarked).not.toHaveProperty("preAuthCaptureContextRequested");
   });
 
   it("rejects metadata-only recordings from direct summary reads", async () => {
@@ -874,7 +881,7 @@ describe("session replay ingest parsing", () => {
     });
   });
 
-  it("rejects anonymous recordings from direct summary reads", async () => {
+  it("rejects anonymous recordings without an anonymous id", async () => {
     resolveAccessMock.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -882,7 +889,7 @@ describe("session replay ingest parsing", () => {
         clientRecordingId: "recording_1",
         sessionId: "session_1",
         userId: null,
-        anonymousId: "anon_1",
+        anonymousId: null,
         userKey: "anon_1",
         startedAt: "2026-01-01T00:00:00.000Z",
         endedAt: null,
@@ -990,7 +997,7 @@ describe("session replay ingest parsing", () => {
     };
   }
 
-  it("returns marked anonymous recordings only through scoped detail access", async () => {
+  it("returns client-submitted anonymous recordings only through scoped detail access", async () => {
     resolveAccessMock.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -998,7 +1005,7 @@ describe("session replay ingest parsing", () => {
         userId: null,
         anonymousId: "anon_1",
         userKey: "anon_1",
-        metadata: '{"capture_context":"pre_auth"}',
+        metadata: "{}",
       },
     });
 
@@ -1012,6 +1019,7 @@ describe("session replay ingest parsing", () => {
       userId: null,
       anonymousId: "anon_1",
       role: "viewer",
+      metadata: {},
     });
     expect(resolveAccessMock).toHaveBeenCalledWith(
       "session-recording",
@@ -1020,7 +1028,26 @@ describe("session replay ingest parsing", () => {
     );
   });
 
-  it("resolves replay links for marked anonymous recordings within owner scope", async () => {
+  it("keeps anonymous read-by-id behind the existing resource ACL", async () => {
+    resolveAccessMock.mockResolvedValue(null);
+
+    await expect(
+      getSessionReplaySummary("sr_anonymous_outside_scope", {
+        userEmail: "viewer@example.test",
+        orgId: "org_1",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      message: "Session recording not found",
+    });
+    expect(resolveAccessMock).toHaveBeenCalledWith(
+      "session-recording",
+      "sr_anonymous_outside_scope",
+      { userEmail: "viewer@example.test", orgId: "org_1" },
+    );
+  });
+
+  it("resolves anonymous replay links within owner scope", async () => {
     const anonymousRecording = {
       id: "sr_pre_auth",
       startedAt: "2026-10-08T00:00:00.000Z",
@@ -1034,7 +1061,7 @@ describe("session replay ingest parsing", () => {
       userId: null,
       userKey: "anon_1",
       anonymousId: "anon_1",
-      metadata: '{"capture_context":"pre_auth"}',
+      metadata: "{}",
     };
     let selection: Record<string, unknown> | undefined;
     let condition: unknown;
@@ -2262,88 +2289,8 @@ describe("session replay ingest parsing", () => {
     });
   }
 
-  it.each([
-    {
-      name: "same-origin signup URL",
-      url: "https://app.example.com/signup?source=invite",
-      origin: "https://app.example.com",
-      accepted: true,
-    },
-    {
-      name: "mounted auth root uses the sender app base path",
-      url: "https://app.example.com/app/",
-      origin: "https://app.example.com",
-      analyticsBasePath: "/analytics",
-      senderBasePath: "/app",
-      accepted: true,
-    },
-    {
-      name: "Analytics base path does not identify the sender auth root",
-      url: "https://app.example.com/analytics/",
-      origin: "https://app.example.com",
-      analyticsBasePath: "/analytics",
-      accepted: false,
-    },
-    {
-      name: "same-origin non-auth URL",
-      url: "https://app.example.com/settings",
-      origin: "https://app.example.com",
-      accepted: false,
-    },
-    {
-      name: "same-origin legacy sign-in entry",
-      url: "https://app.example.com/_agent-native/sign-in",
-      origin: "https://app.example.com",
-      accepted: true,
-    },
-    {
-      name: "same-origin sign-in entry",
-      url: "https://app.example.com/sign-in",
-      origin: "https://app.example.com",
-      accepted: true,
-    },
-    {
-      name: "auth URL from a different origin",
-      url: "https://app.example.com/signup",
-      origin: "https://attacker.example.test",
-      accepted: false,
-    },
-    {
-      name: "malformed auth URL",
-      url: "https://[",
-      origin: "https://app.example.com",
-      accepted: false,
-    },
-    {
-      name: "auth URL containing callback material",
-      url: "https://app.example.com/signup?code=fake",
-      origin: "https://app.example.com",
-      accepted: false,
-    },
-    {
-      name: "auth URL containing normalized callback parameters",
-      url: "https://app.example.com/signup?access_token=fake&flow_id=fake",
-      origin: "https://app.example.com",
-      accepted: false,
-    },
-  ])("accepts pre-auth markers only for a $name", async (testCase) => {
-    const { url, origin, accepted } = testCase;
-    const analyticsBasePath =
-      "analyticsBasePath" in testCase ? testCase.analyticsBasePath : undefined;
-    const senderBasePath =
-      "senderBasePath" in testCase ? testCase.senderBasePath : undefined;
-    vi.stubEnv("APP_BASE_PATH", analyticsBasePath ?? "");
-    vi.stubEnv("VITE_APP_BASE_PATH", analyticsBasePath ?? "");
-    const results = replayIngestKeyDbResults(null) as unknown[][];
-    const returnedRecording = results[5]?.[0] as
-      | { metadata: string }
-      | undefined;
-    if (returnedRecording && accepted) {
-      returnedRecording.metadata = JSON.stringify({
-        capture_context: "pre_auth",
-      });
-    }
-    const { db, inserts } = createReplayDbMock(results);
+  it("does not persist caller auth-page context claims to replay metadata", async () => {
+    const { db, inserts } = createReplayDbMock(replayIngestKeyDbResults(null));
     const updateValues: Array<Record<string, unknown>> = [];
     const update = vi.fn(() => ({
       set: vi.fn((values: Record<string, unknown>) => {
@@ -2360,24 +2307,35 @@ describe("session replay ingest parsing", () => {
       sessionId: "session_1",
       anonymousId: "anon_1",
       sequence: 0,
-      url,
+      url: "https://app.example.com/signup?source=invite",
       properties: {
         capture_context: "pre_auth",
-        ...(senderBasePath ? { pre_auth_base_path: senderBasePath } : {}),
+        pre_auth_base_path: "/app",
+      },
+      metadata: {
+        capture_context: "pre_auth",
+        pre_auth_base_path: "/forged",
+        route: "/signup",
+        retained: true,
       },
       events: [{ type: 4, timestamp: 1 }],
     });
-    await recordSessionReplayChunks(input, { origin, requestBytes: 100 });
+    await recordSessionReplayChunks(input, {
+      origin: "https://app.example.com",
+      requestBytes: 100,
+    });
 
     const recordingInsert = inserts.find(
       (entry) => entry.table === schema.sessionRecordings,
     )?.values as { metadata: string } | undefined;
-    expect(JSON.parse(recordingInsert?.metadata ?? "{}").capture_context).toBe(
-      accepted ? "pre_auth" : undefined,
-    );
-    expect(
-      JSON.parse(String(updateValues[0]?.metadata ?? "{}")).capture_context,
-    ).toBe(accepted ? "pre_auth" : undefined);
+    expect(JSON.parse(recordingInsert?.metadata ?? "{}")).toEqual({
+      route: "/signup",
+      retained: true,
+    });
+    expect(JSON.parse(String(updateValues[0]?.metadata ?? "{}"))).toEqual({
+      route: "/signup",
+      retained: true,
+    });
   });
 
   it("does not promote an existing identified recording from an auth-page marker", async () => {
@@ -2860,26 +2818,30 @@ describe("replay viewport", () => {
     });
   });
 
-  it("keeps pre-auth context last in merged metadata across later uploads", () => {
+  it("drops client auth-context claims from merged metadata across later uploads", () => {
     const first = mergeReplayMetadata(
       {},
-      { capture_context: "pre_auth", route: "/signup" },
+      {
+        capture_context: "pre_auth",
+        pre_auth_base_path: "/app",
+        route: "/signup",
+      },
       {
         first: { width: 1440, height: 900 },
         last: { width: 1440, height: 900 },
       },
     );
     const second = mergeReplayMetadata(
-      first,
-      { route: "/signup/verify", app: "analytics" },
+      { ...first, capture_context: "pre_auth" },
+      {
+        capture_context: "forged",
+        pre_auth_base_path: "/other",
+        route: "/signup/verify",
+        app: "analytics",
+      },
       { first: null, last: { width: 390, height: 844 } },
     );
 
-    const metadataKeys = Object.keys(second);
-    expect(metadataKeys[metadataKeys.length - 1]).toBe("capture_context");
-    expect(
-      JSON.stringify(second).endsWith('"capture_context":"pre_auth"}'),
-    ).toBe(true);
     expect(second).toEqual({
       route: "/signup/verify",
       app: "analytics",
@@ -2887,7 +2849,6 @@ describe("replay viewport", () => {
         first: { width: 1440, height: 900 },
         last: { width: 390, height: 844 },
       },
-      capture_context: "pre_auth",
     });
   });
 
@@ -2952,11 +2913,7 @@ describe("replay viewport", () => {
       viewport,
     );
 
-    expect(merged).toMatchObject({
-      payload: metadata.payload,
-      viewport,
-      capture_context: "pre_auth",
-    });
+    expect(merged).toEqual({ payload: metadata.payload, viewport });
     expect(JSON.stringify(merged).length).toBeGreaterThan(maxBytes);
     expect(() =>
       mergeReplayMetadata({}, { payload: "x".repeat(maxBytes) }),

@@ -40,8 +40,13 @@ export function scrubUrl(
     }
     const hash = u.hash.slice(1);
     const hashRouteQueryIndex = hash.indexOf("?");
-    const hashQuery =
-      hashRouteQueryIndex === -1 ? hash : hash.slice(hashRouteQueryIndex + 1);
+    const hashRoutePrefix =
+      hashRouteQueryIndex === -1 ? "" : hash.slice(0, hashRouteQueryIndex);
+    const hashUsesRouteQuery =
+      hashRouteQueryIndex > 0 && !hashRoutePrefix.includes("=");
+    const hashQuery = hashUsesRouteQuery
+      ? hash.slice(hashRouteQueryIndex + 1)
+      : hash;
     if (hashQuery.includes("=")) {
       const hashParams = new URLSearchParams(hashQuery);
       let hashMutated = false;
@@ -58,10 +63,9 @@ export function scrubUrl(
         }
       }
       if (hashMutated) {
-        u.hash =
-          hashRouteQueryIndex === -1
-            ? hashParams.toString()
-            : `${hash.slice(0, hashRouteQueryIndex)}?${hashParams.toString()}`;
+        u.hash = hashUsesRouteQuery
+          ? `${hashRoutePrefix}?${hashParams.toString()}`
+          : hashParams.toString();
       }
     }
     if (!mutated) return url;

@@ -781,23 +781,25 @@ function persistReplaySequence(
   startedAtMs: number | null,
   sequence: number,
   linkBaseUrl?: string | null,
+  captureContext?: "pre_auth" | null,
+  suppressIdentityInProperties = false,
 ): void {
   const existing = readStoredReplaySession();
+  const isSameRecording =
+    existing?.sessionId === sessionId && existing.replayId === replayId;
+  const persistedLinkBaseUrl =
+    linkBaseUrl ?? (isSameRecording ? existing?.linkBaseUrl : undefined);
   writeStoredReplaySession({
     sessionId,
     replayId,
     startedAtMs: startedAtMs ?? Date.now(),
     sequence,
-    ...(linkBaseUrl || existing?.linkBaseUrl
-      ? { linkBaseUrl: linkBaseUrl ?? existing?.linkBaseUrl }
-      : {}),
-    ...(existing?.replayId === replayId && existing.analyticsEventCount
+    ...(persistedLinkBaseUrl ? { linkBaseUrl: persistedLinkBaseUrl } : {}),
+    ...(isSameRecording && existing.analyticsEventCount
       ? { analyticsEventCount: existing.analyticsEventCount }
       : {}),
-    ...(existing?.captureContext === "pre_auth"
-      ? { captureContext: "pre_auth" }
-      : {}),
-    ...(existing?.suppressIdentityInProperties === true
+    ...(captureContext ? { captureContext } : {}),
+    ...(suppressIdentityInProperties
       ? { suppressIdentityInProperties: true }
       : {}),
   });
@@ -1417,23 +1419,24 @@ function replayPropertiesForUpload(
   const properties = replayExtraProperties(options);
   if (replayUserEmail(properties)) {
     state.lastAuthenticatedProperties = properties ? { ...properties } : null;
-    return propertiesWithCaptureContext(state, properties);
+    return withoutReplayContextClaims(properties);
   }
   if (options.requireSignedInUser && state.lastAuthenticatedProperties) {
-    return propertiesWithCaptureContext(
-      state,
-      state.lastAuthenticatedProperties,
-    );
+    return withoutReplayContextClaims(state.lastAuthenticatedProperties);
   }
-  return propertiesWithCaptureContext(state, properties);
+  return withoutReplayContextClaims(properties);
 }
 
-function propertiesWithCaptureContext(
-  state: SessionReplayState,
+function withoutReplayContextClaims(
   properties: Record<string, unknown> | undefined,
 ): Record<string, unknown> | undefined {
-  if (state.captureContext !== "pre_auth") return properties;
-  return { ...properties, capture_context: "pre_auth" };
+  if (!properties) return properties;
+  const {
+    capture_context: _captureContext,
+    pre_auth_base_path: _preAuthBasePath,
+    ...safeProperties
+  } = properties;
+  return safeProperties;
 }
 
 const REPLAY_IDENTITY_PROPERTY_KEYS = new Set([
@@ -2174,6 +2177,8 @@ function advanceReplaySequence(
     state.startedAtMs,
     state.sequence,
     state.replayLinkBaseUrl,
+    state.captureContext,
+    state.suppressIdentityInProperties,
   );
 }
 
@@ -2190,6 +2195,8 @@ function rollbackReplaySequenceReservation(
     state.startedAtMs,
     state.sequence,
     state.replayLinkBaseUrl,
+    state.captureContext,
+    state.suppressIdentityInProperties,
   );
 }
 

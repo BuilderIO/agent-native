@@ -19,10 +19,6 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import {
-  SIGN_IN_ENTRY_PATH,
-  SIGN_IN_LEGACY_ENTRY_PATH,
-} from "@agent-native/core/shared";
-import {
   accessFilter,
   resolveAccess,
   roleSatisfies,
@@ -204,10 +200,6 @@ export interface ParsedSessionReplayIngest {
   privacyMode: string;
   status: "active" | "completed";
   metadata: Record<string, unknown>;
-  /** A client request that is trusted only for a same-origin auth-page upload. */
-  preAuthCaptureContextRequested?: boolean;
-  /** The sender app's mount path, supplied only with an auth-page capture marker. */
-  preAuthBasePath?: string;
   /** Derived from the upload's rrweb events; never taken from client metadata. */
   viewport?: RecordedReplayViewport | null;
   chunks: NormalizedSessionReplayChunk[];
@@ -346,32 +338,6 @@ const REPLAY_NEW_RECORDING_ADMISSION_RATIO = 0.85;
 const RETENTION_DELETE_BATCH_SIZE = 500;
 const REPLAY_PRIVATE_BLOB_REF_KIND = "agent-native.session-replay.private-blob";
 const REPLAY_PRIVATE_BLOB_REF_VERSION = 1;
-const PRE_AUTH_CAPTURE_CONTEXT = "pre_auth";
-const PRE_AUTH_CAPTURE_METADATA_SUFFIX = '"capture_context":"pre_auth"}';
-const PRE_AUTH_AUTH_PATH_SUFFIXES = [
-  "/login",
-  "/signup",
-  SIGN_IN_ENTRY_PATH,
-  SIGN_IN_LEGACY_ENTRY_PATH,
-];
-const PRE_AUTH_CALLBACK_QUERY_PARAMS = new Set([
-  "token",
-  "code",
-  "state",
-  "c",
-  "accesstoken",
-  "refreshtoken",
-  "idtoken",
-  "tokenhash",
-  "sessiontoken",
-  "authtoken",
-  "verificationtoken",
-  "otp",
-  "flowid",
-  "verifier",
-  "callbackurl",
-  "error",
-]);
 let inlineReplayFallbackWarned = false;
 
 function replayError(
@@ -437,65 +403,6 @@ function normalizeReplayOrigin(
   } catch {
     return null;
   }
-}
-
-function normalizePreAuthBasePath(value: string | undefined): string | null {
-  const trimmed = value?.trim() ?? "";
-  if (!trimmed || trimmed === "/") return "";
-  if (
-    !trimmed.startsWith("/") ||
-    trimmed.startsWith("//") ||
-    /[?#\\]/u.test(trimmed)
-  ) {
-    return null;
-  }
-
-  const path = trimmed.replace(/\/+$/, "");
-  const segments = path.slice(1).split("/");
-  if (
-    path.length > 256 ||
-    segments.some((segment) => !segment || segment === "." || segment === "..")
-  ) {
-    return null;
-  }
-  return path;
-}
-
-function isTrustedPreAuthReplayLocation(
-  url: string | null,
-  requestOrigin: string | null | undefined,
-  senderBasePath?: string,
-): boolean {
-  const origin = normalizeReplayOrigin(requestOrigin);
-  if (!origin || !url) return false;
-
-  const baseUrl = `${origin}/`;
-  if (!URL.canParse(url, baseUrl)) return false;
-  const pageUrl = new URL(url, baseUrl);
-  if (pageUrl.origin !== origin || pageUrl.hash) return false;
-
-  const appBasePath = normalizePreAuthBasePath(senderBasePath);
-  if (appBasePath === null) return false;
-  const mountedPathname = appBasePath
-    ? pageUrl.pathname === appBasePath
-      ? "/"
-      : pageUrl.pathname.startsWith(`${appBasePath}/`)
-        ? pageUrl.pathname.slice(appBasePath.length)
-        : null
-    : pageUrl.pathname;
-  if (mountedPathname === null) return false;
-  const pathname = mountedPathname.replace(/\/+$/, "") || "/";
-  const isAuthPath =
-    pathname === "/" ||
-    PRE_AUTH_AUTH_PATH_SUFFIXES.some(
-      (suffix) => pathname === suffix || pathname.endsWith(suffix),
-    );
-  if (!isAuthPath) return false;
-
-  return Array.from(pageUrl.searchParams.keys()).every((key) => {
-    const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "");
-    return !PRE_AUTH_CALLBACK_QUERY_PARAMS.has(normalized);
-  });
 }
 
 function parseAllowedReplayOrigins(value: unknown): string[] {
@@ -1271,26 +1178,26 @@ export function parseSessionReplayIngestPayload(
       400,
     );
   }
-  // The viewport is server-derived, and capture context is not read from
-  // arbitrary metadata.
+  // The viewport is server-derived. Auth-page context is not a trusted claim.
   const {
     viewport: _clientViewport,
     capture_context: _clientCaptureContext,
+    pre_auth_base_path: _clientPreAuthBasePath,
     ...metadata
   } = replayRecord(body.metadata);
 
+  const {
+    capture_context: _clientCaptureContextProperty,
+    pre_auth_base_path: _clientPreAuthBasePathProperty,
+    ...callerProperties
+  } = replayRecord(body.properties);
   const directApp = replayString(body.app);
   const directTemplate = replayString(body.template);
   const properties: Record<string, unknown> = {
-    ...replayRecord(body.properties),
+    ...callerProperties,
     ...(directApp ? { app: directApp } : {}),
     ...(directTemplate ? { template: directTemplate } : {}),
   };
-  const preAuthCaptureContextRequested =
-    properties.capture_context === PRE_AUTH_CAPTURE_CONTEXT;
-  const preAuthBasePath = preAuthCaptureContextRequested
-    ? replayString(properties.pre_auth_base_path) || undefined
-    : undefined;
   assertReplayMetadataCap(metadata);
   const context: Record<string, unknown> = replayRecord(body.context);
   const url =
@@ -1377,12 +1284,6 @@ export function parseSessionReplayIngestPayload(
     privacyMode: signals.privacyMode,
     status,
     metadata,
-    ...(preAuthCaptureContextRequested
-      ? {
-          preAuthCaptureContextRequested: true,
-          ...(preAuthBasePath ? { preAuthBasePath } : {}),
-        }
-      : {}),
     viewport: signals.viewport,
     chunks,
   };
@@ -1533,7 +1434,12 @@ async function resolveReplayPublicKey(publicKey: string): Promise<{
 
 function parseRecordingMetadata(row: any): Record<string, unknown> {
   try {
-    return replayRecord(JSON.parse(row.metadata ?? "{}"));
+    const {
+      capture_context: _legacyCaptureContext,
+      pre_auth_base_path: _legacyPreAuthBasePath,
+      ...metadata
+    } = replayRecord(JSON.parse(row.metadata ?? "{}"));
+    return metadata;
   } catch {
     return {};
   }
@@ -1590,12 +1496,12 @@ function hasVisibleSessionRecordingIdentity(row: any): boolean {
   return Boolean(replayEmail(row.userId) || replayEmail(row.userKey));
 }
 
-function hasPreAuthAnonymousSessionRecording(row: any): boolean {
+function hasAnonymousSessionRecording(row: any): boolean {
   return Boolean(
     row.userId == null &&
     typeof row.anonymousId === "string" &&
     row.anonymousId.trim() &&
-    parseRecordingMetadata(row).capture_context === PRE_AUTH_CAPTURE_CONTEXT,
+    !hasVisibleSessionRecordingIdentity(row),
   );
 }
 
@@ -1606,7 +1512,7 @@ function hasPlayableSessionRecordingEvents(row: any): boolean {
 function isVisibleSessionRecording(row: any): boolean {
   return (
     (hasVisibleSessionRecordingIdentity(row) ||
-      hasPreAuthAnonymousSessionRecording(row)) &&
+      hasAnonymousSessionRecording(row)) &&
     hasPlayableSessionRecordingEvents(row)
   );
 }
@@ -1618,27 +1524,20 @@ export function mergeReplayMetadata(
 ): Record<string, unknown> {
   const {
     viewport: stored,
-    capture_context: existingCaptureContext,
+    capture_context: _existingCaptureContext,
+    pre_auth_base_path: _existingPreAuthBasePath,
     ...existingMetadata
   } = existing;
-  const { capture_context: incomingCaptureContext, ...incomingMetadata } =
-    incoming;
+  const {
+    capture_context: _incomingCaptureContext,
+    pre_auth_base_path: _incomingPreAuthBasePath,
+    ...incomingMetadata
+  } = incoming;
   const merged = { ...existingMetadata, ...incomingMetadata };
-  const hasPreAuthContext =
-    existingCaptureContext === PRE_AUTH_CAPTURE_CONTEXT ||
-    incomingCaptureContext === PRE_AUTH_CAPTURE_CONTEXT;
   assertReplayMetadataCap(merged);
-  if (hasPreAuthContext) merged.capture_context = PRE_AUTH_CAPTURE_CONTEXT;
   // The cap bounds caller metadata; the server-owned viewport is a few bytes.
   const next = mergeReplayViewport(stored, viewport);
-  const result = next === undefined ? merged : { ...merged, viewport: next };
-  // The anonymous-session query matches this normalized suffix, so later
-  // chunks must preserve it as the final metadata field.
-  if (hasPreAuthContext) {
-    delete result.capture_context;
-    result.capture_context = PRE_AUTH_CAPTURE_CONTEXT;
-  }
-  return result;
+  return next === undefined ? merged : { ...merged, viewport: next };
 }
 
 function replayRecordingChangeScope(row: {
@@ -1686,16 +1585,12 @@ function replayVisibleIdentityCondition() {
   );
 }
 
-function replayPreAuthCaptureCondition() {
-  return sql`right(${schema.sessionRecordings.metadata}, ${PRE_AUTH_CAPTURE_METADATA_SUFFIX.length}) = ${PRE_AUTH_CAPTURE_METADATA_SUFFIX}`;
-}
-
-function replayPreAuthAnonymousCondition() {
+function replayAnonymousCondition() {
   return and(
-    replayPreAuthCaptureCondition(),
     isNull(schema.sessionRecordings.userId),
     isNotNull(schema.sessionRecordings.anonymousId),
     sql`length(btrim(${schema.sessionRecordings.anonymousId})) > 0`,
+    not(replayTextContains(schema.sessionRecordings.userKey, "@")),
   );
 }
 
@@ -1750,19 +1645,9 @@ export async function recordSessionReplayChunks(
   const db = getDb() as any;
   const ingestedAt = replayTimestamp(context.now) ?? replayNowIso();
   const timingClampedInput = clampReplayIngestTiming(input, ingestedAt);
-  const { capture_context: _callerCaptureContext, ...callerMetadata } =
-    timingClampedInput.metadata;
-  let clampedInput = {
+  const clampedInput = {
     ...timingClampedInput,
-    metadata: callerMetadata,
   };
-  const mayStartPreAuthRecording =
-    input.preAuthCaptureContextRequested === true &&
-    isTrustedPreAuthReplayLocation(
-      input.url,
-      context.origin,
-      input.preAuthBasePath,
-    );
 
   let [recording] = await db
     .select()
@@ -1777,16 +1662,6 @@ export async function recordSessionReplayChunks(
       ),
     )
     .limit(1);
-
-  if (!recording && mayStartPreAuthRecording) {
-    clampedInput = {
-      ...clampedInput,
-      metadata: {
-        ...clampedInput.metadata,
-        capture_context: PRE_AUTH_CAPTURE_CONTEXT,
-      },
-    };
-  }
 
   if (!recording) {
     await assertReplayDailyByteBudget(key, {
@@ -1849,15 +1724,6 @@ export async function recordSessionReplayChunks(
   }
 
   if (!recording) throw replayError("Unable to create replay recording", 500);
-  if (
-    clampedInput.metadata.capture_context === PRE_AUTH_CAPTURE_CONTEXT &&
-    parseRecordingMetadata(recording).capture_context !==
-      PRE_AUTH_CAPTURE_CONTEXT
-  ) {
-    const { capture_context: _unpersistedCaptureContext, ...metadata } =
-      clampedInput.metadata;
-    clampedInput = { ...clampedInput, metadata };
-  }
   if (
     recording.ownerEmail !== key.ownerEmail ||
     (recording.orgId ?? null) !== key.orgId
@@ -2123,7 +1989,7 @@ export async function listSessionRecordings(
       orgId: scope.orgId ?? undefined,
     }),
     filters.visitorType === "anonymous"
-      ? replayPreAuthAnonymousCondition()
+      ? replayAnonymousCondition()
       : replayVisibleIdentityCondition(),
     replayPlayableEventsCondition(),
   ];
@@ -2390,7 +2256,7 @@ export async function listSessionRecordingsPage(
       orgId: scope.orgId ?? undefined,
     }),
     filters.visitorType === "anonymous"
-      ? replayPreAuthAnonymousCondition()
+      ? replayAnonymousCondition()
       : replayVisibleIdentityCondition(),
     replayPlayableEventsCondition(),
   ];

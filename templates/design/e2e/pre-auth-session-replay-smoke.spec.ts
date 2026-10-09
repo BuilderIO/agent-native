@@ -9,6 +9,7 @@ interface ReplayPayload {
   sessionId?: string;
   userEmail?: string;
   userId?: string;
+  anonymousId?: string;
   properties?: Record<string, unknown>;
   events?: unknown[];
   [key: string]: unknown;
@@ -57,20 +58,35 @@ async function installReplaySink(context: BrowserContext, baseURL: string) {
   return { payloads, replayOrigins, replayRequestOrigins };
 }
 
+function isAnonymousPayload(payload: ReplayPayload): boolean {
+  return Boolean(payload.anonymousId) && !payload.userEmail && !payload.userId;
+}
+
 function watchPage(page: Page, baseURL: string) {
   const consoleErrors: string[] = [];
   const failedResponses: string[] = [];
   const requestFailures: string[] = [];
   const appOrigin = new URL(baseURL).origin;
   page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
+    const text = message.text();
+    if (message.type() === "error" && !text.includes("Outdated Optimize Dep")) {
+      consoleErrors.push(text);
+    }
   });
   page.on("pageerror", (error) => consoleErrors.push(error.message));
   page.on("response", (response) => {
     const { origin, pathname } = new URL(response.url());
     if (origin !== appOrigin) return;
-    if (response.status() >= 400)
+    // Vite can invalidate one lazy dependency while optimizing a cold dev server.
+    if (
+      response.status() >= 400 &&
+      !(
+        response.status() === 504 &&
+        response.statusText() === "Outdated Optimize Dep"
+      )
+    ) {
       failedResponses.push(`${response.status()} ${pathname}`);
+    }
   });
   page.on("requestfailed", (request) => {
     const { origin, pathname } = new URL(request.url());
@@ -105,7 +121,7 @@ test("pre-auth recording stays anonymous through signup and masks abandonment", 
     await installReplaySink(context, baseURL);
   const page = await context.newPage();
   const browserDiagnostics = watchPage(page, baseURL);
-  const email = `codex-auth-replay-smoke-${process.env.E2E_RUN_ID}@example.com`;
+  const email = `codex-auth-replay-smoke-${process.env.E2E_RUN_ID}-${testInfo.retry}@example.com`;
   const password = `FakeE2E-Password-${process.env.E2E_RUN_ID}!`;
 
   try {
@@ -124,16 +140,7 @@ test("pre-auth recording stays anonymous through signup and masks abandonment", 
 
     try {
       await expect
-        .poll(
-          () =>
-            payloads.some(
-              (payload) =>
-                payload.properties?.capture_context === "pre_auth" &&
-                !payload.userEmail &&
-                !payload.userId,
-            ),
-          { timeout: 15_000 },
-        )
+        .poll(() => payloads.some(isAnonymousPayload), { timeout: 15_000 })
         .toBe(true);
     } catch (error) {
       const redact = (value: string) =>
@@ -153,12 +160,7 @@ test("pre-auth recording stays anonymous through signup and masks abandonment", 
       throw error;
     }
 
-    const anonymousChunk = payloads.find(
-      (payload) =>
-        payload.properties?.capture_context === "pre_auth" &&
-        !payload.userEmail &&
-        !payload.userId,
-    );
+    const anonymousChunk = payloads.find(isAnonymousPayload);
     expect(anonymousChunk).toBeTruthy();
     expect(anonymousChunk?.replayId).toBeTruthy();
     expect(anonymousChunk?.sessionId).toBeTruthy();
@@ -194,8 +196,7 @@ test("pre-auth recording stays anonymous through signup and masks abandonment", 
             (payload) =>
               payload.sessionId === anonymousChunk?.sessionId &&
               payload.replayId !== anonymousChunk?.replayId &&
-              payload.userEmail === email &&
-              payload.properties?.capture_context !== "pre_auth",
+              payload.userEmail === email,
           ),
       )
       .toBe(true);
@@ -209,8 +210,7 @@ test("pre-auth recording stays anonymous through signup and masks abandonment", 
         (payload) =>
           payload.sessionId === anonymousChunk?.sessionId &&
           payload.replayId !== anonymousChunk?.replayId &&
-          payload.userEmail === email &&
-          payload.properties?.capture_context !== "pre_auth",
+          payload.userEmail === email,
       );
     expect(authenticatedChunk?.replayId).not.toBe(anonymousChunk?.replayId);
     expect(authenticatedChunk?.sessionId).toBe(anonymousChunk?.sessionId);
@@ -227,7 +227,7 @@ test("pre-auth recording stays anonymous through signup and masks abandonment", 
       anonymousPayloads.every(
         (payload) =>
           payload.sessionId === anonymousChunk?.sessionId &&
-          payload.properties?.capture_context === "pre_auth",
+          isAnonymousPayload(payload),
       ),
     ).toBe(true);
     expect(
@@ -257,7 +257,7 @@ test("pre-auth recording stays anonymous through signup and masks abandonment", 
     replayRequestOrigins: abandonmentRequestOrigins,
   } = await installReplaySink(abandonmentContext, baseURL);
   const abandonmentPage = await abandonmentContext.newPage();
-  const abandonmentEmail = `codex-abandonment-smoke-${process.env.E2E_RUN_ID}@example.com`;
+  const abandonmentEmail = `codex-abandonment-smoke-${process.env.E2E_RUN_ID}-${testInfo.retry}@example.com`;
 
   try {
     await abandonmentPage.goto(
@@ -272,14 +272,7 @@ test("pre-auth recording stays anonymous through signup and masks abandonment", 
       )
       .toBe(true);
     await expect
-      .poll(() =>
-        abandonmentPayloads.some(
-          (payload) =>
-            payload.properties?.capture_context === "pre_auth" &&
-            !payload.userEmail &&
-            !payload.userId,
-        ),
-      )
+      .poll(() => abandonmentPayloads.some(isAnonymousPayload))
       .toBe(true);
     const payloadCountBeforeInput = abandonmentPayloads.length;
     await abandonmentPage.locator("#s-email").fill(abandonmentEmail);
@@ -317,16 +310,7 @@ test("pre-auth recording stays anonymous through signup and masks abandonment", 
     await loginPage.goto(`${baseURL}/login`);
     await expect(loginPage.locator("#login-form")).toBeVisible();
     await expect
-      .poll(
-        () =>
-          loginPayloads.some(
-            (payload) =>
-              payload.properties?.capture_context === "pre_auth" &&
-              !payload.userEmail &&
-              !payload.userId,
-          ),
-        { timeout: 15_000 },
-      )
+      .poll(() => loginPayloads.some(isAnonymousPayload), { timeout: 15_000 })
       .toBe(true);
     expect(new Set(loginReplayOrigins)).toEqual(
       new Set([new URL(baseURL).origin]),
