@@ -1,5 +1,4 @@
 import {
-  WorkspaceAppMountResolutionError,
   agentNativePath,
   appMountedPath,
 } from "@agent-native/core/client/api-path";
@@ -85,6 +84,14 @@ function secretsUrl(): string {
 function providerStatusUrl(): string {
   return agentNativePath("/_agent-native/voice-providers/status");
 }
+
+function fetchResolvedPath(
+  resolvePath: () => string,
+  init?: RequestInit,
+): Promise<Response> {
+  return Promise.resolve().then(() => fetch(resolvePath(), init));
+}
+
 const DEFAULT_TRANSCRIPTION_MODE: TranscriptionMode = "batch";
 const DEFAULT_BATCH_PROVIDER: Provider = "auto";
 
@@ -159,6 +166,11 @@ export function VoiceTranscriptionSection({
   const [prefsRequest, setPrefsRequest] = useState(0);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [cleanupEnabled, setCleanupEnabled] = useState<boolean | null>(null);
+  const [cleanupLoadFailed, setCleanupLoadFailed] = useState(false);
+  const [cleanupRequest, setCleanupRequest] = useState(0);
+  const [providerStatusLoadFailed, setProviderStatusLoadFailed] =
+    useState(false);
+  const [providerStatusRequest, setProviderStatusRequest] = useState(0);
   const { status: builderStatus, refetch: refetchBuilderStatus } =
     useBuilderStatus();
   const builderConnect = useBuilderConnectFlow({
@@ -178,8 +190,11 @@ export function VoiceTranscriptionSection({
 
   useEffect(() => {
     let cancelled = false;
-    fetch(cleanupPrefsUrl())
-      .then((r) => (r.ok ? r.json() : null))
+    void fetchResolvedPath(cleanupPrefsUrl)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
       .then(
         (
           body:
@@ -188,6 +203,7 @@ export function VoiceTranscriptionSection({
             | null,
         ) => {
           if (cancelled) return;
+          setCleanupLoadFailed(false);
           const stored =
             (body as { enabled?: boolean } | null)?.enabled ??
             (body as { value?: { enabled?: boolean } } | null)?.value?.enabled;
@@ -195,25 +211,30 @@ export function VoiceTranscriptionSection({
           else setCleanupEnabled(null);
         },
       )
-      .catch(() => !cancelled && setCleanupEnabled(null));
+      .catch(() => {
+        if (!cancelled) {
+          setCleanupEnabled(null);
+          setCleanupLoadFailed(true);
+        }
+      });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [cleanupRequest]);
 
   useEffect(() => {
-    if (cleanupEnabled !== null) return;
+    if (cleanupEnabled !== null || cleanupLoadFailed) return;
     if (builderStatus?.configured !== undefined) {
       setCleanupEnabled(!!builderStatus.configured);
     }
-  }, [builderStatus?.configured, cleanupEnabled]);
+  }, [builderStatus?.configured, cleanupEnabled, cleanupLoadFailed]);
 
   const toggleCleanup = async (next: boolean) => {
-    const url = cleanupPrefsUrl();
     const previous = cleanupEnabled;
     setCleanupEnabled(next);
+    setSaveError(null);
     try {
-      const res = await fetch(url, {
+      const res = await fetchResolvedPath(cleanupPrefsUrl, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: next }),
@@ -223,12 +244,13 @@ export function VoiceTranscriptionSection({
       }
     } catch {
       setCleanupEnabled(previous);
+      setSaveError(t("agentChat.settingsShell.account.voiceSaveError"));
     }
   };
 
   useEffect(() => {
     let cancelled = false;
-    fetch(transcriptionPrefsUrl())
+    void fetchResolvedPath(transcriptionPrefsUrl)
       .then(async (r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         // A key that was never saved comes back as an empty 200.
@@ -237,6 +259,7 @@ export function VoiceTranscriptionSection({
       })
       .then((body: Prefs | { value?: Prefs } | null) => {
         if (cancelled) return;
+        setLoadFailed(false);
         const value =
           (body as { value?: Prefs } | null)?.value ?? (body as Prefs | null);
         const p = normalizeProvider(
@@ -261,7 +284,7 @@ export function VoiceTranscriptionSection({
       .catch(() => {
         if (!cancelled) {
           setLoadFailed(true);
-          setTranscriptionMode(DEFAULT_TRANSCRIPTION_MODE);
+          setTranscriptionMode(null);
           setProvider(DEFAULT_BATCH_PROVIDER);
         }
       });
@@ -272,7 +295,7 @@ export function VoiceTranscriptionSection({
 
   useEffect(() => {
     let cancelled = false;
-    fetch(providerStatusUrl())
+    void fetchResolvedPath(providerStatusUrl)
       .then((r) => (r.ok ? r.json() : null))
       .then((status: ProviderStatus | null) => {
         if (cancelled) return;
@@ -281,35 +304,40 @@ export function VoiceTranscriptionSection({
           setGeminiConfigured(status.gemini);
           setGroqConfigured(status.groq);
           setGoogleRealtimeConfigured(!!status.googleRealtime);
+          setProviderStatusLoadFailed(false);
           return;
         }
-        return fetch(secretsUrl())
-          .then((r) => (r.ok ? r.json() : []))
+        return fetchResolvedPath(secretsUrl)
+          .then((r) => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+          })
           .then((list: SecretStatus[]) => {
             if (cancelled) return;
-            const find = (key: string) =>
-              Array.isArray(list) ? list.find((s) => s.key === key) : null;
+            if (!Array.isArray(list)) throw new Error("Invalid secret status");
+            const find = (key: string) => list.find((s) => s.key === key);
             setOpenAiConfigured(find("OPENAI_API_KEY")?.status === "set");
             setGeminiConfigured(find(GEMINI_API_KEY)?.status === "set");
             setGroqConfigured(find("GROQ_API_KEY")?.status === "set");
             setGoogleRealtimeConfigured(
               find("GOOGLE_APPLICATION_CREDENTIALS")?.status === "set",
             );
+            setProviderStatusLoadFailed(false);
           });
       })
-      .catch((error) => {
-        if (error instanceof WorkspaceAppMountResolutionError) throw error;
+      .catch(() => {
         if (!cancelled) {
-          setOpenAiConfigured(false);
-          setGeminiConfigured(false);
-          setGroqConfigured(false);
-          setGoogleRealtimeConfigured(false);
+          setOpenAiConfigured(null);
+          setGeminiConfigured(null);
+          setGroqConfigured(null);
+          setGoogleRealtimeConfigured(null);
+          setProviderStatusLoadFailed(true);
         }
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [providerStatusRequest]);
 
   const persist = useCallback(
     async (
@@ -322,11 +350,10 @@ export function VoiceTranscriptionSection({
         instructions: string;
       },
     ) => {
-      const url = transcriptionPrefsUrl();
       setSaving(true);
       setSaveError(null);
       try {
-        const res = await fetch(url, {
+        const res = await fetchResolvedPath(transcriptionPrefsUrl, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -338,40 +365,63 @@ export function VoiceTranscriptionSection({
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
-      } catch (err) {
+      } catch {
         setTranscriptionMode(previous.transcriptionMode);
         setProvider(previous.provider);
         setInstructions(previous.instructions);
-        setSaveError(
-          `Couldn't save: ${(err as Error)?.message ?? "network error"}. Try again.`,
-        );
+        setSaveError(t("agentChat.settingsShell.account.voiceSaveError"));
       } finally {
         setSaving(false);
       }
     },
-    [],
+    [t],
   );
+
+  const retryTranscriptionPrefs = () => {
+    setLoadFailed(false);
+    setTranscriptionMode(null);
+    setPrefsRequest((request) => request + 1);
+  };
+
+  const retryCleanupPrefs = () => {
+    setCleanupLoadFailed(false);
+    setCleanupEnabled(null);
+    setCleanupRequest((request) => request + 1);
+  };
+
+  const retryProviderStatus = () => {
+    setProviderStatusLoadFailed(false);
+    setOpenAiConfigured(null);
+    setGeminiConfigured(null);
+    setGroqConfigured(null);
+    setGoogleRealtimeConfigured(null);
+    setProviderStatusRequest((request) => request + 1);
+  };
 
   const focusKey = (key: string) => {
     if (typeof window === "undefined") return;
-    window.history.pushState(
-      null,
-      "",
-      appMountedPath(
-        buildSettingsRoute("api-keys", undefined, {
-          anchor: `secrets:${key}`,
-        }),
-        STANDARD_APP_ROUTES.settings,
-      ),
-    );
-    window.dispatchEvent(new Event("popstate"));
+    try {
+      window.history.pushState(
+        null,
+        "",
+        appMountedPath(
+          buildSettingsRoute("api-keys", undefined, {
+            anchor: `secrets:${key}`,
+          }),
+          STANDARD_APP_ROUTES.settings,
+        ),
+      );
+      window.dispatchEvent(new Event("popstate"));
+    } catch {
+      setSaveError(t("agentChat.common.chunkLoadFailed"));
+    }
   };
 
   const chooseSource = (next: TranscriptionMode) => {
     if (next === transcriptionMode) return;
     if (next === "google-realtime" && !googleRealtimeReady) {
       setShowAdvanced(true);
-      if (!googleRealtimeConfigured) {
+      if (googleRealtimeConfigured === false) {
         focusKey("GOOGLE_APPLICATION_CREDENTIALS");
       }
       return;
@@ -407,12 +457,27 @@ export function VoiceTranscriptionSection({
         loadFailed={loadFailed}
         saveFailed={!!saveError && !saving}
         onChoose={chooseSource}
-        onRetry={() => {
-          setLoadFailed(false);
-          setTranscriptionMode(null);
-          setPrefsRequest((request) => request + 1);
-        }}
+        onRetry={retryTranscriptionPrefs}
       />
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <div
+        className="flex items-center gap-2 text-xs text-destructive"
+        role="alert"
+      >
+        <span>{t("agentChat.settingsShell.account.voiceLoadError")}</span>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={retryTranscriptionPrefs}
+        >
+          {t("agentChat.common.retry")}
+        </Button>
+      </div>
     );
   }
 
@@ -422,6 +487,38 @@ export function VoiceTranscriptionSection({
 
   return (
     <div className="space-y-2">
+      {providerStatusLoadFailed && (
+        <div
+          className="flex items-center gap-2 text-xs text-destructive"
+          role="alert"
+        >
+          <span>{t("agentChat.common.chunkLoadFailed")}</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={retryProviderStatus}
+          >
+            {t("agentChat.common.retry")}
+          </Button>
+        </div>
+      )}
+      {cleanupLoadFailed && (
+        <div
+          className="flex items-center gap-2 text-xs text-destructive"
+          role="alert"
+        >
+          <span>{t("agentChat.common.chunkLoadFailed")}</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={retryCleanupPrefs}
+          >
+            {t("agentChat.common.retry")}
+          </Button>
+        </div>
+      )}
       <div className="rounded-md border border-border bg-background p-2">
         <div className="mb-2 flex items-start justify-between gap-3 px-0.5">
           <div>
@@ -456,12 +553,14 @@ export function VoiceTranscriptionSection({
             subtitle={
               googleRealtimeReady
                 ? "BYOK only for v1. Streams live partials and finals through Google Speech-to-Text."
-                : googleRealtimeConfigured
-                  ? t("agentChat.voiceMode.googleRealtimeDescription")
-                  : "BYOK only for v1. Configure Google service account before selecting this source."
+                : googleRealtimeConfigured === null
+                  ? null
+                  : googleRealtimeConfigured
+                    ? t("agentChat.voiceMode.googleRealtimeDescription")
+                    : "BYOK only for v1. Configure Google service account before selecting this source."
             }
             rightSlot={
-              googleRealtimeReady ? (
+              googleRealtimeConfigured === null ? null : googleRealtimeReady ? (
                 <span className="flex items-center gap-1 text-[10px] text-green-500">
                   <IconCheck size={10} />
                   Ready
@@ -517,12 +616,15 @@ export function VoiceTranscriptionSection({
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
-          <Switch
-            checked={!!cleanupEnabled}
-            onChange={toggleCleanup}
-            aria-label="AI cleanup"
-            className="shrink-0"
-          />
+          {!cleanupLoadFailed && (
+            <Switch
+              checked={cleanupEnabled === true}
+              disabled={cleanupEnabled === null}
+              onChange={toggleCleanup}
+              aria-label="AI cleanup"
+              className="shrink-0"
+            />
+          )}
           {cleanupEnabled && (
             <span className="text-[10px] text-muted-foreground">
               {builderStatus?.configured
@@ -813,15 +915,15 @@ function CompactVoiceTranscriptionRow({
       label={label}
       description={description}
       control={
-        mode === null ? (
+        loadFailed ? (
+          <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+            {t("agentChat.common.retry")}
+          </Button>
+        ) : mode === null ? (
           <Skeleton
             className="h-8 w-44"
             aria-label={t("agentChat.common.loading")}
           />
-        ) : loadFailed ? (
-          <Button type="button" variant="outline" size="sm" onClick={onRetry}>
-            {t("agentChat.common.retry")}
-          </Button>
         ) : (
           <Select
             value={mode}

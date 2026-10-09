@@ -19,6 +19,8 @@ function workspaceAppMountConfigFromJson(
 
     const paths: string[] = [];
     let currentPath: string | undefined;
+    const hasWorkspaceAppId =
+      typeof workspaceAppId === "string" && workspaceAppId.trim().length > 0;
     for (const entry of entries) {
       if (!entry || typeof entry !== "object") continue;
       const record = entry as Record<string, unknown>;
@@ -31,7 +33,11 @@ function workspaceAppMountConfigFromJson(
             : undefined;
       const normalized = normalizeAppBasePath(rawPath);
       if (normalized) paths.push(normalized);
-      if (id === workspaceAppId && currentPath === undefined) {
+      if (
+        hasWorkspaceAppId &&
+        id === workspaceAppId &&
+        currentPath === undefined
+      ) {
         currentPath = normalized || (rawPath?.trim() ? "/" : undefined);
       }
     }

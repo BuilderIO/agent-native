@@ -2028,6 +2028,44 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     expect(html).toContain('"workspaceRuntime":true');
   });
 
+  it("keeps an idless non-root mount as a sibling in the worker shell config", async () => {
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ path: "/dispatch" }]),
+    );
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).toContain('"workspaceAppMountPaths":["/dispatch"]');
+    expect(html).not.toContain('"workspaceAppPath"');
+  });
+
+  it("does not select an idless root mount in the worker shell config", async () => {
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ path: "/" }]),
+    );
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).toContain('"workspaceRuntime":true');
+    expect(html).not.toContain('"workspaceAppPath"');
+  });
+
   it("projects the configured current mount when the worker manifest only lists siblings", async () => {
     const dir = makeTempDir();
     const configPath = path.join(dir, "mount-config.mjs");

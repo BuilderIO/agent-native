@@ -95,6 +95,33 @@ describe("app origin client config", () => {
     });
   });
 
+  it("keeps an idless non-root mount as a sibling without selecting it as current", () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify([
+      { path: "/dispatch" },
+    ]);
+
+    expect(resolvePublicAppOriginConfig()).toMatchObject({
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/dispatch"],
+    });
+    expect(resolvePublicAppOriginConfig()).not.toHaveProperty(
+      "workspaceAppPath",
+    );
+  });
+
+  it("does not select an idless root mount as the current workspace app", () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify([
+      { path: "/" },
+    ]);
+
+    expect(resolvePublicAppOriginConfig()).toMatchObject({
+      workspaceRuntime: true,
+    });
+    expect(resolvePublicAppOriginConfig()).not.toHaveProperty(
+      "workspaceAppPath",
+    );
+  });
+
   it("projects the configured current mount when the manifest only lists siblings", () => {
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify([
       { id: "diagrams", path: "/diagrams" },

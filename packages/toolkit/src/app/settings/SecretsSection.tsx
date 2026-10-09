@@ -53,6 +53,13 @@ function secretsEndpoint(): string {
   return agentNativePath("/_agent-native/secrets");
 }
 
+function fetchResolvedPath(
+  resolvePath: () => string,
+  init?: RequestInit,
+): Promise<Response> {
+  return Promise.resolve().then(() => fetch(resolvePath(), init));
+}
+
 function hasValueInEffect(secret: SecretStatus): boolean {
   return secret.status === "set" || secret.status === "invalid";
 }
@@ -378,8 +385,8 @@ function SecretCard({
     if (!value.trim() || busy) return;
     setBusy("save");
     try {
-      const res = await fetch(
-        `${secretsEndpoint()}/${encodeURIComponent(secret.key)}`,
+      const res = await fetchResolvedPath(
+        () => `${secretsEndpoint()}/${encodeURIComponent(secret.key)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -400,6 +407,8 @@ function SecretCard({
       setToastAndClear("ok", "Saved");
       notifySecretsChanged();
       onChanged();
+    } catch {
+      setToastAndClear("err", t("agentChat.common.chunkLoadFailed"));
     } finally {
       setBusy(null);
     }
@@ -409,8 +418,8 @@ function SecretCard({
     if (busy) return;
     setBusy("delete");
     try {
-      const res = await fetch(
-        `${secretsEndpoint()}/${encodeURIComponent(secret.key)}`,
+      const res = await fetchResolvedPath(
+        () => `${secretsEndpoint()}/${encodeURIComponent(secret.key)}`,
         {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
@@ -428,6 +437,8 @@ function SecretCard({
       setConfirmDelete(false);
       notifySecretsChanged();
       onChanged();
+    } catch {
+      setToastAndClear("err", t("agentChat.common.chunkLoadFailed"));
     } finally {
       setBusy(null);
     }
@@ -438,8 +449,8 @@ function SecretCard({
     const isCandidate = candidateValue !== undefined;
     setBusy(isCandidate ? "test-candidate" : "test");
     try {
-      const res = await fetch(
-        `${secretsEndpoint()}/${encodeURIComponent(secret.key)}/test`,
+      const res = await fetchResolvedPath(
+        () => `${secretsEndpoint()}/${encodeURIComponent(secret.key)}/test`,
         {
           method: "POST",
           ...(isCandidate
@@ -470,6 +481,8 @@ function SecretCard({
               : t("secrets.testFailed")),
         );
       }
+    } catch {
+      setToastAndClear("err", t("agentChat.common.chunkLoadFailed"));
     } finally {
       setBusy(null);
     }
@@ -874,6 +887,7 @@ function AdHocKeysSection({
   const t = useT();
   const [keys, setKeys] = useState<AdHocKey[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [formName, setFormName] = useState("");
   const [formValue, setFormValue] = useState("");
@@ -916,7 +930,8 @@ function AdHocKeysSection({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch(adHocSecretsEndpoint())
+    setLoadFailed(false);
+    void fetchResolvedPath(adHocSecretsEndpoint)
       .then(async (r) => {
         if (!r.ok) throw new Error(`Failed to load (${r.status})`);
         return (await r.json()) as AdHocKey[];
@@ -925,12 +940,13 @@ function AdHocKeysSection({
         if (!cancelled) {
           setKeys(data);
           setLoading(false);
+          setLoadFailed(false);
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setKeys([]);
           setLoading(false);
+          setLoadFailed(true);
         }
       });
     return () => {
@@ -951,11 +967,10 @@ function AdHocKeysSection({
     const name = formName.trim();
     const value = formValue.trim();
     if (!name || !value || !formScope || formBusy) return;
-    const endpoint = adHocSecretsEndpoint();
     setFormBusy(true);
     setFormError(null);
     try {
-      const res = await fetch(endpoint, {
+      const res = await fetchResolvedPath(adHocSecretsEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -977,8 +992,8 @@ function AdHocKeysSection({
       showToast("ok", "Key saved");
       notifySecretsChanged();
       reload();
-    } catch (err: any) {
-      setFormError(err?.message ?? "Failed to save");
+    } catch {
+      setFormError(t("agentChat.common.chunkLoadFailed"));
     } finally {
       setFormBusy(false);
     }
@@ -988,6 +1003,7 @@ function AdHocKeysSection({
     formDescription,
     formScope,
     formBusy,
+    t,
     resetForm,
     showToast,
     reload,
@@ -997,8 +1013,9 @@ function AdHocKeysSection({
     async (key: AdHocKey) => {
       setDeletingId(adHocKeyId(key));
       try {
-        const res = await fetch(
-          `${adHocSecretsEndpoint()}/${encodeURIComponent(key.name)}?scope=${key.scope}`,
+        const res = await fetchResolvedPath(
+          () =>
+            `${adHocSecretsEndpoint()}/${encodeURIComponent(key.name)}?scope=${key.scope}`,
           {
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
@@ -1022,11 +1039,13 @@ function AdHocKeysSection({
         setConfirmDeleteId(null);
         notifySecretsChanged();
         reload();
+      } catch {
+        showToast("err", t("agentChat.common.chunkLoadFailed"));
       } finally {
         setDeletingId(null);
       }
     },
-    [showToast, reload],
+    [showToast, reload, t],
   );
 
   return (
@@ -1105,15 +1124,41 @@ function AdHocKeysSection({
               )}
             </Button>
           </div>
-          {formError && <p className="text-[10px] text-red-500">{formError}</p>}
+          {formError && (
+            <p className="text-[10px] text-red-500" role="alert">
+              {formError}
+            </p>
+          )}
         </div>
       )}
 
-      {loading ? (
-        <SettingsSkeleton lines={2} />
-      ) : keys.length === 0 && !showForm && showEmptyState ? (
-        <p className="text-[10px] text-muted-foreground">No keys added yet.</p>
-      ) : keys.length > 0 ? (
+      {loading && keys.length === 0 && <SettingsSkeleton lines={2} />}
+      {loadFailed && (
+        <div
+          className="flex items-center gap-2 text-xs text-destructive"
+          role="alert"
+        >
+          <span>{t("agentChat.common.chunkLoadFailed")}</span>
+          <Button
+            type="button"
+            intent="neutral"
+            emphasis="outline"
+            onClick={reload}
+          >
+            {t("agentChat.common.retry")}
+          </Button>
+        </div>
+      )}
+      {!loading &&
+        !loadFailed &&
+        keys.length === 0 &&
+        !showForm &&
+        showEmptyState && (
+          <p className="text-[10px] text-muted-foreground">
+            No keys added yet.
+          </p>
+        )}
+      {keys.length > 0 && (
         <div className="overflow-hidden rounded-md border border-border">
           {keys.map((key) => (
             <div
@@ -1239,11 +1284,12 @@ function AdHocKeysSection({
             </div>
           ))}
         </div>
-      ) : null}
+      )}
 
       {toast && (
         <p
           className={`text-[10px] ${toast.kind === "ok" ? "text-green-500" : "text-red-500"}`}
+          role={toast.kind === "err" ? "alert" : undefined}
         >
           {toast.text}
         </p>

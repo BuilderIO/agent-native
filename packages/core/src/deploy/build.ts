@@ -1954,9 +1954,11 @@ function getAppOriginClientConfigScript() {
       const paths = Array.from(
         new Set(mounts.map((mount) => mount.path).filter((mount) => mount !== "/")),
       );
-      const currentPath = mounts.find(
-        (mount) => mount.id === appConfig.app.workspaceId,
-      )?.path;
+      const workspaceAppId = appConfig.app.workspaceId;
+      const currentPath =
+        typeof workspaceAppId === "string" && workspaceAppId.trim().length > 0
+          ? mounts.find((mount) => mount.id === workspaceAppId)?.path
+          : undefined;
       return paths.length || currentPath
         ? {
             ...(paths.length ? { paths } : {}),

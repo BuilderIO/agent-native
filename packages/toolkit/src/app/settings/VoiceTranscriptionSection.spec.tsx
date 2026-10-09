@@ -5,6 +5,19 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const { mountFailurePaths } = vi.hoisted(() => ({
+  mountFailurePaths: new Set<string>(),
+}));
+
+vi.mock("@agent-native/core/client/api-path", () => ({
+  agentNativePath: (path: string) => {
+    if (mountFailurePaths.has(path))
+      throw new Error("Workspace mount unavailable");
+    return path;
+  },
+  appMountedPath: (path: string) => path,
+}));
+
 // A native select stands in for the Radix one so the test can pick. The
 // options come from the SelectItems, the name from the SelectTrigger.
 vi.mock("@agent-native/toolkit/ui/select", () => {
@@ -104,6 +117,7 @@ describe("VoiceTranscriptionSection compact picker", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    mountFailurePaths.clear();
     puts.length = 0;
     prefsGet = () => json({ transcriptionMode: "mac-native" });
     prefsPut = (init) => {
@@ -139,17 +153,18 @@ describe("VoiceTranscriptionSection compact picker", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    mountFailurePaths.clear();
     vi.unstubAllGlobals();
   });
 
-  async function render() {
+  async function render(compact = true) {
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider
           catalog={toolkitI18nCatalog}
           persistPreference={false}
         >
-          <VoiceTranscriptionSection compact />
+          <VoiceTranscriptionSection compact={compact} />
         </AgentNativeI18nProvider>,
       );
     });
@@ -214,6 +229,144 @@ describe("VoiceTranscriptionSection compact picker", () => {
       "Could not load your voice transcription setting.",
     );
     expect(select()).toBeNull();
+  });
+
+  it("shows and retries a synchronous preference mount-resolution failure", async () => {
+    mountFailurePaths.add(
+      "/_agent-native/application-state/voice-transcription-prefs",
+    );
+
+    await render();
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Could not load your voice transcription setting.",
+    );
+    expect(select()).toBeNull();
+    expect(container.textContent).not.toContain("Batch");
+
+    mountFailurePaths.clear();
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("button")?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(select()?.value).toBe("mac-native");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("does not present the default mode as saved in full settings after a read failure", async () => {
+    mountFailurePaths.add(
+      "/_agent-native/application-state/voice-transcription-prefs",
+    );
+
+    await render(false);
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Could not load your voice transcription setting.",
+    );
+    expect(container.textContent).not.toContain("Batch");
+
+    mountFailurePaths.clear();
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("button")?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.textContent).toContain("Batch");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("shows provider-status mount failures and recovers on retry", async () => {
+    mountFailurePaths.add("/_agent-native/voice-providers/status");
+
+    await render(false);
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Couldn't load this. Please try again.",
+    );
+    expect(container.textContent).not.toContain("Configure");
+
+    mountFailurePaths.clear();
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("button")?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("shows and retries a synchronous cleanup preference mount failure", async () => {
+    mountFailurePaths.add(
+      "/_agent-native/application-state/voice-cleanup-prefs",
+    );
+
+    await render(false);
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Couldn't load this. Please try again.",
+    );
+
+    mountFailurePaths.clear();
+    const retry = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Retry",
+    );
+    await act(async () => {
+      retry?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelector('[aria-label="AI cleanup"]')).toBeTruthy();
+  });
+
+  it("rolls back and recovers when saving preferences hits a synchronous mount failure", async () => {
+    await render();
+    mountFailurePaths.add(
+      "/_agent-native/application-state/voice-transcription-prefs",
+    );
+
+    await choose("batch");
+
+    expect(select()?.value).toBe("mac-native");
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Could not save your voice transcription setting.",
+    );
+
+    mountFailurePaths.clear();
+    await choose("batch");
+
+    expect(select()?.value).toBe("batch");
+    expect(puts).toEqual([
+      { transcriptionMode: "batch", provider: "auto", instructions: "" },
+    ]);
+  });
+
+  it("rolls back and recovers when cleanup save hits a synchronous mount failure", async () => {
+    await render(false);
+    mountFailurePaths.add(
+      "/_agent-native/application-state/voice-cleanup-prefs",
+    );
+
+    const cleanupSwitch = container.querySelector<HTMLButtonElement>(
+      '[aria-label="AI cleanup"]',
+    );
+    expect(cleanupSwitch).toBeTruthy();
+    await act(async () => {
+      cleanupSwitch!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Could not save your voice transcription setting.",
+    );
+
+    mountFailurePaths.clear();
+    await act(async () => {
+      cleanupSwitch!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
   it.each([
