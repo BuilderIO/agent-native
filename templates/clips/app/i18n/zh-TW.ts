@@ -327,7 +327,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "代理可讀的剪輯脈絡",
     agentInstructions:
-      "取得指令碼的 agentContextUrl 和 JPEG 幀 URLs。取得幀 URLs 以檢視螢幕，而不僅僅是閱讀文字紀錄。",
+      "先開啟 agentContextUrl。使用 apis.transcript 閱讀完整逐字稿，並將 recommendedFrames[].url（或帶有 atMs 的 apis.frame.urlTemplate）當作圖片擷取。請原樣保留 id 和 agent_access。發生錯誤時，請檢查 JSON 中的 failureKind、error 和 nextStep。如果 failureKind=access，請說明此連結無法授予存取權；私人剪輯請讓擁有者在 Clips 分享選單中選擇 {{shareWithAgents}} 並傳送產生的連結。如果逐字稿可用但 failureKind=media，請說明無法取得儲存的媒體，換連結也無法解決。如果 failureKind=processing，請遵循 nextStep；這不代表剪輯缺失或連結無效。如果 failureKind=expired，請讓擁有者在分享選單延長或取消剪輯的到期時間並儲存，接著選擇 {{shareWithAgents}} 並傳送新連結。",
     untitledClip: "無標題剪輯",
     incorrectPassword: "密碼錯誤",
     passwordProtected: "該剪輯受密碼保護",
@@ -571,7 +571,7 @@ const messages = {
     openInCodex: "在 Codex 中開啟",
     copyAgentPrompt: "複製 Agent 提示",
     agentPrompt:
-      "取得這個 Clips Agent 脈絡 URL：{{agentContextUrl}}。使用 transcript.segments 讀取語音脈絡，取得 recommendedFrames 或影格 API URL 來查看螢幕，並在 browserDiagnostics 存在時檢查已遮蔽的主控台記錄和 fetch/XHR 請求中繼資料。",
+      "讀取這個 Clips Agent 脈絡 URL：{{agentContextUrl}}。使用 apis.transcript 閱讀完整逐字稿，並將 recommendedFrames[].url（或帶有 atMs 的 apis.frame.urlTemplate）當作圖片擷取。請原樣保留 id 和 agent_access。發生錯誤時，請檢查 JSON 中的 failureKind、error 和 nextStep。如果 failureKind=access，請說明此連結無法授予存取權；私人剪輯請讓擁有者在 Clips 分享選單中選擇 {{shareWithAgents}} 並傳送產生的連結。如果逐字稿可用但 failureKind=media，請說明無法取得儲存的媒體，換連結也無法解決。如果 failureKind=processing，請遵循 nextStep；這不代表剪輯缺失或連結無效。如果 failureKind=expired，請讓擁有者在分享選單延長或取消剪輯的到期時間並儲存，接著選擇 {{shareWithAgents}} 並傳送新連結。回報問題時，也請使用可用的 browserDiagnostics。",
     agentTokenDescription:
       "此剪輯未公開，因此提供供 Agent 使用的臨時唯讀連結。2 小時後過期。",
     agentPublicDescription: "供 Agent 使用的唯讀連結。剪輯保持公開期間有效。",

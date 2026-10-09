@@ -112,13 +112,24 @@ describe("SlideEditor inside an MCP App widget", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows only the slide: no toolbar row and no speaker-notes strip", () => {
+  it("shows the slide and editing toolbar without speaker notes in a writable widget", () => {
     widget.embed = true;
     const { container } = renderEditor();
 
     expect(container.querySelector(".slide-content")).not.toBeNull();
-    expect(container.querySelector("[data-slide-context-toolbar]")).toBeNull();
+    expect(
+      container.querySelector("[data-slide-context-toolbar]"),
+    ).not.toBeNull();
+    expect(container.querySelector("[data-editable='true']")).not.toBeNull();
     expect(screen.queryByText("raw.speakerNotes")).toBeNull();
+  });
+
+  it("keeps a read-only widget free of editing controls", () => {
+    widget.embed = true;
+    const { container } = renderEditor(true);
+
+    expect(container.querySelector("[data-slide-context-toolbar]")).toBeNull();
+    expect(container.querySelector("[data-editable='true']")).toBeNull();
   });
 
   it("keeps the toolbar and speaker notes outside a widget", () => {
@@ -130,17 +141,33 @@ describe("SlideEditor inside an MCP App widget", () => {
     expect(screen.getByText("raw.speakerNotes")).toBeTruthy();
   });
 
-  it("scales the slide up or down to span the pane width next to the rail", () => {
-    widget.embed = true;
-    stubViewport(1004, 860);
-    const wide = renderEditor(true);
-    expect(canvasWidth(wide.container)).toBe("1004px");
-    wide.unmount();
+  it.each([320, 524, 768, 1004])(
+    "scales the slide to a %s px widget pane",
+    (width) => {
+      widget.embed = true;
+      stubViewport(width, 860);
+      const { container } = renderEditor(true);
+      expect(canvasWidth(container)).toBe(`${width}px`);
+    },
+  );
 
-    stubViewport(524, 860);
-    const narrow = renderEditor(true);
-    expect(canvasWidth(narrow.container)).toBe("524px");
-  });
+  it.each([320, 524, 768, 1004])(
+    "keeps the writable editor and formatting toolbar available at %s px",
+    (width) => {
+      widget.embed = true;
+      stubViewport(width, 860);
+      const { container } = renderEditor();
+
+      const toolbar = container.querySelector<HTMLElement>(
+        "[data-slide-context-toolbar='true']",
+      );
+      expect(canvasWidth(container)).toBe(`${width}px`);
+      expect(container.querySelector("[data-editable='true']")).not.toBeNull();
+      expect(toolbar).not.toBeNull();
+      expect(toolbar?.className).toContain("overflow-x-auto");
+      expect(toolbar?.className).toContain("whitespace-nowrap");
+    },
+  );
 
   it("stacks the slides after the current one below it at the same width", () => {
     widget.embed = true;

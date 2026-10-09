@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 
-import { readValueOption } from "./run-options.ts";
+import { authoringFilterError, readValueOption } from "./run-options.ts";
 
 it("reads one value and ignores an absent option", () => {
   expect(readValueOption(["--seed", "2"], "--seed")).toBe("2");
@@ -17,4 +17,12 @@ it("rejects missing values and repeated value-taking options", () => {
   expect(() => readValueOption(["--seed", "--steps", "500"], "--seed")).toThrow(
     "--seed requires a value",
   );
+});
+
+it("rejects a flow filter for the largest-slide latency-only source", () => {
+  expect(authoringFilterError("largest", "slash")).toBe(
+    "--authoring-flow cannot be combined with --authoring-source largest",
+  );
+  expect(authoringFilterError("flex-grid", "slash")).toBeUndefined();
+  expect(authoringFilterError("largest")).toBeUndefined();
 });

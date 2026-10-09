@@ -120,7 +120,7 @@ export function startAgentNativeOtel(): AgentNativeOtelHandle | undefined {
 
   const resource = buildResource();
   // Serverless functions freeze between invocations, so a periodic reader
-  // never fires and core must flush on every response. A long-running server
+  // never fires and core flushes from the response hook. A long-running server
   // exports on the timer instead of once per request.
   const flushOnResponse = isServerlessRuntime();
   const provider: ObservabilityProvider = {};

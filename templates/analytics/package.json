@@ -8,6 +8,7 @@
     "build": "agent-native build && tsx scripts/emit-netlify-dashboard-report-cron.ts",
     "start": "agent-native start",
     "test": "vitest --run",
+    "test:bigquery-emulator": "vitest --run --config vitest.bigquery.config.ts",
     "format.fix": "oxfmt --write .",
     "typecheck": "agent-native typecheck",
     "migrate:production": "tsx scripts/migrate-production.ts",

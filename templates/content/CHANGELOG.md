@@ -3,14 +3,29 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-09
+
+### Improved
+
+- Format Content documents directly in ChatGPT widgets
+- Pages without a collection open faster.
+
+### Fixed
+
+- Content widget documents remain editable after reopening a chat.
+- Document icons save when edited from a ChatGPT widget.
+
 ## 2026-10-08
 
 ### Improved
 
+- The Content editor fits ChatGPT's panel sizes and supports direct edits to documents and database rows in the widget.
 - Edits an agent makes now show up in an open page about two seconds sooner when you aren't typing.
 
 ### Fixed
 
+- New blank documents open ready to edit without an unrelated collection prompt.
+- The sidebar hides empty Pinned sections and aligns the workspace selector and search with the navigation sections.
 - Unsaved edits stay attached to the latest title when another tab renames a page
 
 ## 2026-10-07
@@ -63,6 +78,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- A page opened from a link or a refresh starts loading sooner
 - On phones, a collection's sort and filter chips stay on one line you can swipe, so the table no longer jumps when they load
 - Commenting on text you suggested now replies on that suggestion instead of leaving a comment that loses its place.
 - Collection pages keep selected rows visible through failed refreshes, and review space stays in place while comments refresh.

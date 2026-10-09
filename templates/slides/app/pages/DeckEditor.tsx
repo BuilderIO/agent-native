@@ -23,6 +23,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   useIsMcpAppWidgetEmbed,
   useIsMcpDirectoryWidgetReadOnlyEmbed,
+  useIsMcpDirectoryWidgetWriteEmbed,
 } from "@agent-native/core/client/mcp-app-host";
 import { useOrg } from "@agent-native/core/client/org";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
@@ -693,6 +694,8 @@ export default function DeckEditor() {
   }
   const widgetEmbed = useIsMcpAppWidgetEmbed();
   const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();
+  const writeWidget = useIsMcpDirectoryWidgetWriteEmbed();
+  const directoryWidget = readOnlyWidget || writeWidget;
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
@@ -983,9 +986,15 @@ export default function DeckEditor() {
   const slideCount = deck?.slides.length ?? 0;
   const slideCountRef = useRef(slideCount);
   slideCountRef.current = slideCount;
-  const deckRole = useDeckRole(id, deck?.createdByMe === true);
+  const deckRole = useDeckRole(
+    id,
+    deck?.createdByMe === true,
+    deck?.widgetAccessRole,
+    directoryWidget,
+  );
   const canEdit = deckRole.canEdit && !readOnlyWidget;
-  const canComment = deckRole.canComment && !readOnlyWidget;
+  const canComment = deckRole.canComment && !readOnlyWidget && !widgetEmbed;
+  const showEditorToolbar = !widgetEmbed || canEdit;
   const generationContext =
     deck?.generationContext &&
     typeof deck.generationContext === "object" &&
@@ -4031,9 +4040,9 @@ export default function DeckEditor() {
       onDragOver={editorDragOver}
       onDrop={editorDrop}
     >
-      {/* The MCP App host pane owns the chrome, so the widget gets the slide
-       * rail and the slide with no title, share, present, or tool rows. */}
-      {!widgetEmbed && (
+      {/* Keep the host's navigation and chat chrome out of the widget while
+       * retaining the deck controls when this widget has write access. */}
+      {showEditorToolbar && (
         <EditorToolbar
           deck={deck}
           deckId={id}
@@ -4189,7 +4198,7 @@ export default function DeckEditor() {
 
       {/* Full-width host for the slide's contextual style toolbar: it spans the
        * slide rail as well as the canvas, matching the deck toolbar above it. */}
-      {!widgetEmbed && (
+      {showEditorToolbar && (
         <div
           ref={setContextToolbarSlot}
           data-context-toolbar-host="narrow"

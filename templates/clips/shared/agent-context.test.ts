@@ -6,12 +6,21 @@ import {
   buildAgentDiscoveryPayload,
   buildAgentHttpToolManifest,
   buildRecommendedFrames,
+  CLIPS_WEBMCP_TOOL_DEFINITIONS,
   formatAgentTimestamp,
   safeJsonForHtml,
   toAgentTranscriptSegments,
 } from "./agent-context";
 
 describe("agent clip context helpers", () => {
+  it("tells agents not to retry unsupported frame sources", () => {
+    const frameTool = CLIPS_WEBMCP_TOOL_DEFINITIONS.find(
+      (tool) => tool.name === "clips-get-frame",
+    );
+
+    expect(frameTool?.description).toContain("must not be retried");
+  });
+
   it("tells an agent to wait when a shared clip is still uploading", () => {
     const payload = buildAgentDiscoveryPayload({
       recordingId: "rec-1",
@@ -40,6 +49,25 @@ describe("agent clip context helpers", () => {
     ]);
   });
 
+  it("does not offer frame inspection for a failed recording", () => {
+    const payload = buildAgentDiscoveryPayload({
+      recordingId: "rec-1",
+      title: "Clip",
+      status: "failed",
+      agentContextUrl:
+        "https://clips.example.com/api/agent-context.json?id=rec-1",
+    });
+
+    expect(payload.agentReadiness).toMatchObject({
+      state: "failed",
+      instruction: expect.stringContaining("frames are unavailable"),
+    });
+    expect(payload.instructions).toContain("Do not request frame URLs again");
+    expect(
+      payload.http.tools.some((tool) => tool.name === "clips-get-frame"),
+    ).toBe(false);
+  });
+
   it("scopes private agent access tokens separately from media tokens", () => {
     expect(agentAccessTokenResourceId("rec-1")).toBe(
       "clip-agent-context:rec-1",
@@ -55,12 +83,19 @@ describe("agent clip context helpers", () => {
         "https://clips.example.com/api/agent-context.json?id=rec-1",
     });
 
-    expect(payload.instructions).toContain("this works without a browser");
+    expect(payload.instructions).toContain("Use apis.transcript");
+    expect(payload.instructions).toContain("keep the clip id");
+    expect(payload.instructions).toContain("For any non-2xx response");
+    expect(payload.instructions).toContain(
+      "fetch each recommendedFrames[].url",
+    );
+    expect(payload.instructions).toContain("choose Share with agents");
     expect(payload.webmcp.instructions).toContain(
       "For browser-independent access from any HTTP client",
     );
+    expect(payload.webmcp.instructions).toContain("For any non-2xx response");
     expect(payload.webmcp.instructions).toContain(
-      "For a complete transcript, use the HTTP apis.transcript URL",
+      "Read the complete transcript from apis.transcript",
     );
     expect(payload.webmcp.instructions).toContain("bounded read-only access");
     expect(payload.webmcp.instructions).toContain(
