@@ -48,6 +48,25 @@ const DEEP_SELECTION_FIXTURE = `<!doctype html><html><body style="margin:0">
   </div>
 </body></html>`;
 
+const LAYERED_SELECTION_FIXTURE = `<!doctype html><html><body style="margin:0">
+  <div data-agent-native-node-id="screen-root" data-agent-native-layer-name="Screen"
+       data-an-primitive="frame"
+       style="position:absolute;left:0;top:0;width:520px;height:420px;background:#111827">
+    <div data-agent-native-node-id="outer-frame" data-agent-native-layer-name="Outer"
+         data-an-primitive="frame"
+         style="position:absolute;left:40px;top:40px;width:320px;height:280px;background:#1f2937">
+      <div data-agent-native-node-id="middle-frame" data-agent-native-layer-name="Middle"
+           data-an-primitive="frame"
+           style="position:absolute;left:20px;top:20px;width:260px;height:220px;background:#374151">
+        <div data-agent-native-node-id="grandchild" data-agent-native-layer-name="Grandchild"
+             style="position:absolute;left:20px;top:20px;width:100px;height:80px;background:#3b82f6"></div>
+        <div data-agent-native-node-id="sibling" data-agent-native-layer-name="Sibling"
+             style="position:absolute;left:140px;top:20px;width:100px;height:80px;background:#ec4899"></div>
+      </div>
+    </div>
+  </div>
+</body></html>`;
+
 describe("container-first click selection", () => {
   it("clicking a child nested inside Card selects Card, not the child", async () => {
     const browser = await chromium.launch({ headless: true });
@@ -116,6 +135,116 @@ describe("container-first click selection", () => {
       expect(selected[selected.length - 1]).toBe("outer-frame");
       expect(selected).not.toContain("middle-frame");
       expect(selected).not.toContain("grandchild");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("keeps a host-selected nested leaf's sibling directly reachable", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(LAYERED_SELECTION_FIXTURE);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.evaluate(() => {
+        (window as any).__selectionIds = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__selectionIds.push(
+              event.data.payload?.sourceId ?? "",
+            );
+          }
+        });
+      });
+
+      await page.evaluate(() => {
+        const selector = '[data-agent-native-node-id="grandchild"]';
+        window.postMessage(
+          {
+            type: "select-element",
+            selector,
+            selectorCandidates: [selector],
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(() =>
+        (window as any).__selectionIds.includes("grandchild"),
+      );
+      await page.mouse.click(220, 100);
+      await page.waitForFunction(
+        () => (window as any).__selectionIds.length > 1,
+      );
+
+      const selectedIds = await page.evaluate(
+        () => (window as any).__selectionIds as string[],
+      );
+      expect(selectedIds.at(-1)).toBe("sibling");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("enters a host-selected container until Escape clears the selection", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(LAYERED_SELECTION_FIXTURE);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.evaluate(() => {
+        (window as any).__selectionIds = [];
+        (window as any).__hoverIds = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__selectionIds.push(
+              event.data.payload?.sourceId ?? "",
+            );
+          }
+          if (event.data?.type === "element-hover") {
+            (window as any).__hoverIds.push(event.data.payload?.sourceId ?? "");
+          }
+        });
+      });
+
+      await page.evaluate(() => {
+        const selector = '[data-agent-native-node-id="middle-frame"]';
+        window.postMessage(
+          {
+            type: "select-element",
+            selector,
+            selectorCandidates: [selector],
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(() =>
+        (window as any).__selectionIds.includes("middle-frame"),
+      );
+      await page.mouse.move(100, 100);
+      await page.waitForFunction(() => (window as any).__hoverIds.length > 0);
+      const hoveredIds = await page.evaluate(
+        () => (window as any).__hoverIds as string[],
+      );
+      expect(hoveredIds.at(-1)).toBe("grandchild");
+
+      await page.mouse.click(100, 100);
+      await page.waitForFunction(
+        () => (window as any).__selectionIds.length > 1,
+      );
+      await page.keyboard.press("Escape");
+      await page.mouse.click(100, 100);
+      await page.waitForFunction(
+        () => (window as any).__selectionIds.length > 2,
+      );
+
+      const selectedIds = await page.evaluate(
+        () => (window as any).__selectionIds as string[],
+      );
+      expect(selectedIds.slice(0, 3)).toEqual([
+        "middle-frame",
+        "grandchild",
+        "outer-frame",
+      ]);
     } finally {
       await browser.close();
     }
