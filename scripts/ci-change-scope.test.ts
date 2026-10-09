@@ -679,12 +679,12 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   assert.match(
     changedSpecRegressions,
     /^        timeout-minutes: 7$/m,
-    "the changed-spec step must fit inside the 9-minute acceptance job after setup",
+    "the changed-spec diagnostic step must fit inside its 9-minute job after setup",
   );
   assert.match(
     changedSpecRegressions,
-    /^        if: \$\{\{ startsWith\(matrix\.shard, 'changed-'\) && needs\.change-scope\.outputs\.design_canvas_e2e_specs != '\[\]' \}\}$/m,
-    "changed-spec tests run for every non-empty selector on dedicated shards",
+    /--shard="\$\{changed_shard\}\/48"/,
+    "changed-spec diagnostics must retain full coverage across 48 shards",
   );
   assert.match(
     screenSelectionRegressions,
@@ -693,8 +693,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     regressionCases,
-    /^        if: \$\{\{ !startsWith\(matrix\.shard, 'screen-history-'\) && !startsWith\(matrix\.shard, 'changed-'\) \}\}$/m,
-    "fixed Design regressions must not run on Screen-history or changed-spec shards",
+    /^        if: \$\{\{ !startsWith\(matrix\.shard, 'screen-history-'\) \}\}$/m,
+    "fixed Design regressions must not run on Screen-history shards",
   );
   assert.ok(
     screenSelectionRegressions.includes(
@@ -767,7 +767,10 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "  design-canvas-interaction-acceptance:\n",
   );
   assert.notEqual(designJobStart, -1);
-  const designJobEnd = workflow.indexOf("\n  fast-tests:", designJobStart);
+  const designJobEnd = workflow.indexOf(
+    "\n  design-canvas-changed-spec-diagnostics:",
+    designJobStart,
+  );
   const designJob = workflow.slice(
     designJobStart,
     designJobEnd === -1 ? undefined : designJobEnd,
@@ -783,17 +786,33 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'",
     "matrix filtering must stay out of the job-level condition",
   );
+  assert.doesNotMatch(
+    designJob,
+    /changed-\d+|design_canvas_e2e_specs/,
+    "the required Design lane must only run the bounded regression and history shards",
+  );
+  const diagnosticJobStart = workflow.indexOf(
+    "  design-canvas-changed-spec-diagnostics:\n",
+  );
+  assert.notEqual(diagnosticJobStart, -1);
+  const diagnosticJobEnd = workflow.indexOf(
+    "\n  pre-auth-session-replay-smoke:",
+    diagnosticJobStart,
+  );
+  const diagnosticJob = workflow.slice(
+    diagnosticJobStart,
+    diagnosticJobEnd === -1 ? undefined : diagnosticJobEnd,
+  );
+  assert.ok(diagnosticJob.includes("needs: change-scope"));
   assert.ok(
-    designJob.includes(
-      "needs.change-scope.outputs.design_canvas_e2e_specs != '[]'",
+    diagnosticJob.includes(
+      "if: needs.change-scope.outputs.design_canvas_e2e_specs != '[]'",
     ),
-    "changed-spec shards skip setup only when there are no changed specs",
+    "changed-spec diagnostics should run when selectors are present",
   );
   assert.ok(
-    designJob.includes(
-      "if: ${{ startsWith(matrix.shard, 'changed-') && needs.change-scope.outputs.design_canvas_e2e_specs != '[]' }}",
-    ),
-    "the changed-spec matrix must execute all changed selectors",
+    diagnosticJob.includes("Run changed Design E2E specs"),
+    "the changed spec suite must remain visible in CI diagnostics",
   );
   assert.doesNotMatch(
     workflow,
@@ -817,11 +836,18 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const changedSpecStepTimeout = Number(
     changedSpecRegressions.match(/^        timeout-minutes: (\d+)$/m)?.[1],
   );
+  const diagnosticJobTimeout = Number(
+    diagnosticJob.match(/^    timeout-minutes: (\d+)$/m)?.[1],
+  );
   assert.ok(
     Number.isInteger(jobTimeout) && jobTimeout === 9,
     `Design acceptance job must have the exact nine-minute cap (got ${jobTimeout})`,
   );
   assert.ok(jobTimeout < 10, "Design acceptance must stay below ten minutes");
+  assert.ok(
+    Number.isInteger(diagnosticJobTimeout) && diagnosticJobTimeout === 9,
+    `changed-spec diagnostics must have the exact nine-minute cap (got ${diagnosticJobTimeout})`,
+  );
   assert.ok(
     Number.isInteger(stepTimeout) &&
       stepTimeout === 4 &&
@@ -837,17 +863,16 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   assert.ok(
     Number.isInteger(changedSpecStepTimeout) &&
       changedSpecStepTimeout === 7 &&
-      jobTimeout >= changedSpecStepTimeout + 2,
-    `changed-spec tests need the exact seven-minute cap and two minutes for setup (job ${jobTimeout}, step ${changedSpecStepTimeout})`,
+      diagnosticJobTimeout >= changedSpecStepTimeout + 2,
+    `changed-spec diagnostics need the exact seven-minute cap and two minutes for setup (job ${diagnosticJobTimeout}, step ${changedSpecStepTimeout})`,
   );
   const shardEntries = [
     ...designJob.matchAll(
-      /^\s{12}((?:inspector|drag|position|changed|screen-history)-[^,\s)]+),?\s*$/gm,
+      /^\s{12}((?:inspector|drag|position|screen-history)-[^,\s)]+),?\s*$/gm,
     ),
   ].map(([, shard]) => shard);
   assert.deepEqual(shardEntries, [
     ...DESIGN_E2E_REGRESSION_SHARDS,
-    ...Array.from({ length: 48 }, (_, index) => `changed-${index + 1}`),
     "screen-history-1",
     "screen-history-2",
     "screen-history-3",
@@ -881,10 +906,22 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
 });
 
-test("splits every changed Design E2E spec across 48 bounded shards", () => {
+test("keeps every changed Design E2E spec in visible diagnostic shards", () => {
   const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+  const diagnosticJobStart = workflow.indexOf(
+    "  design-canvas-changed-spec-diagnostics:",
+  );
+  assert.notEqual(diagnosticJobStart, -1);
+  const diagnosticJobEnd = workflow.indexOf(
+    "\n  pre-auth-session-replay-smoke:",
+    diagnosticJobStart,
+  );
+  const diagnosticJob = workflow.slice(
+    diagnosticJobStart,
+    diagnosticJobEnd === -1 ? undefined : diagnosticJobEnd,
+  );
   const changedShardNumbers = [
-    ...workflow.matchAll(/^\s{12}changed-(\d+),?\s*$/gm),
+    ...diagnosticJob.matchAll(/^\s{12}changed-(\d+),?\s*$/gm),
   ].map(([, shard]) => Number(shard));
 
   assert.deepEqual(
@@ -893,9 +930,21 @@ test("splits every changed Design E2E spec across 48 bounded shards", () => {
     "all changed-spec shards must remain present and sequential",
   );
   assert.match(
-    workflow,
+    diagnosticJob,
     /--shard="\$\{changed_shard\}\/48"/,
     "changed specs must be fully covered across the same 48 shards",
+  );
+  const fastTestsStart = workflow.indexOf("  fast-tests:\n");
+  assert.notEqual(fastTestsStart, -1);
+  const fastTestsEnd = workflow.indexOf("\n  docs:", fastTestsStart);
+  const fastTestsJob = workflow.slice(
+    fastTestsStart,
+    fastTestsEnd === -1 ? undefined : fastTestsEnd,
+  );
+  assert.doesNotMatch(
+    fastTestsJob,
+    /design-canvas-changed-spec-diagnostics/,
+    "the broad diagnostic matrix must not extend the required Design lane",
   );
 });
 
@@ -971,7 +1020,6 @@ test("selects the pre-auth replay browser smoke for its runtime paths", () => {
     "templates/analytics/server/handlers/session-replay.ts",
     "templates/analytics/server/lib/session-replay.ts",
     "templates/clips/server/plugins/config.ts",
-    "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
     "templates/design/playwright.config.ts",
     "templates/design/server/plugins/config.ts",
     "templates/slides/server/plugins/config.ts",
@@ -1000,7 +1048,7 @@ test("selects the pre-auth replay browser smoke for its runtime paths", () => {
   ]);
   assert.deepEqual(smokeOnly.designCanvasE2eSpecs, []);
   assert.equal(smokeOnly.checks.design_canvas_interaction_e2e, false);
-  assert.equal(smokeOnly.checks.pre_auth_session_replay_e2e, true);
+  assert.equal(smokeOnly.checks.pre_auth_session_replay_e2e, false);
 });
 
 test("a deleted Design E2E path runs the focused interaction suite", () => {
