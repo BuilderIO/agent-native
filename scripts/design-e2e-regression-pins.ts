@@ -661,7 +661,17 @@ function inspectPinSuppressions(
   const testCalls = findRegistrationCalls(
     code,
     pairs,
-    /(?<![\w$.])test[\t\r\n ]*(?:\.[\t\r\n ]*(?<modifier>fail|fixme|only|skip))?[\t\r\n ]*\(/g,
+    /(?<![\w$.])test[\t\r\n ]*(?:(?:\?\.|[\t\r\n ]*\.)[\t\r\n ]*(?<modifier>fail|fixme|only|skip))?[\t\r\n ]*\(/g,
+  );
+  const testInfoModifierCalls = findRegistrationCalls(
+    code,
+    pairs,
+    /(?<![\w$.])testInfo[\t\r\n ]*\.[\t\r\n ]*(?<modifier>fail|fixme|skip)[\t\r\n ]*\(/g,
+  );
+  const testInfoAccessorModifierCalls = findRegistrationCalls(
+    code,
+    pairs,
+    /(?<![\w$.])test[\t\r\n ]*\.[\t\r\n ]*info[\t\r\n ]*\([\t\r\n ]*\)[\t\r\n ]*\.[\t\r\n ]*(?<modifier>fail|fixme|skip)[\t\r\n ]*\(/g,
   );
   const describeCalls = findRegistrationCalls(
     code,
@@ -723,15 +733,16 @@ function inspectPinSuppressions(
     ({ call }) => call.start === testOffset,
   )?.body;
 
-  for (const call of testCalls) {
+  for (const call of [
+    ...testCalls,
+    ...testInfoModifierCalls,
+    ...testInfoAccessorModifierCalls,
+  ]) {
     if (!["fail", "fixme", "skip"].includes(call.modifier ?? "")) {
       continue;
     }
     const arguments_ = findCallArguments(code, call, pairs);
     const firstArgument = arguments_[0];
-    const firstSource = firstArgument
-      ? source.slice(firstArgument.start, firstArgument.end).trimStart()
-      : "";
     const hasCallback = arguments_
       .slice(1)
       .some((argument) => findInlineCallbackBody(code, argument, pairs));
@@ -742,15 +753,6 @@ function inspectPinSuppressions(
       contains(body, call.start),
     );
     if (insideAnotherTestBody && !insidePinnedBody) continue;
-    if (firstSource.length > 0 && ['"', "'", "`"].includes(firstSource[0]!)) {
-      if (insidePinnedBody) {
-        throw new PinInspectionUnavailableError(
-          `Unable to inspect test.${call.modifier} string argument inside the pinned test body at line ${lineAt(source, call.start)}`,
-        );
-      }
-      continue;
-    }
-
     const containingSuites = suiteBodies.filter((body) =>
       contains(body, call.start),
     );

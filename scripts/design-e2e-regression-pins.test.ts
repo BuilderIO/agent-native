@@ -240,15 +240,22 @@ test("unrelated skipped suites and skipped sibling tests do not hide a pin", () 
 
 test("runtime skip, fixme, and fail annotations reject a pinned test body", () => {
   for (const modifier of ["skip", "fixme", "fail"]) {
-    assert.throws(
-      () =>
-        findDesignE2ETestLine(
-          `test("pinned behavior", () => { test.${modifier}(true, "runtime annotation"); });`,
-          "pinned behavior",
-        ),
-      /must run without/,
-      `test.${modifier} inside the pinned body must not mask its result`,
-    );
+    for (const annotation of [
+      `test.${modifier}(true, "runtime annotation");`,
+      `test?.${modifier}(true, "optional runtime annotation");`,
+      `testInfo.${modifier}(true, "TestInfo annotation");`,
+      `test.info().${modifier}(true, "test.info annotation");`,
+    ]) {
+      assert.throws(
+        () =>
+          findDesignE2ETestLine(
+            `test("pinned behavior", () => { ${annotation} });`,
+            "pinned behavior",
+          ),
+        /must run without/,
+        `${annotation} inside the pinned body must not mask its result`,
+      );
+    }
   }
   assert.throws(
     () =>
@@ -393,6 +400,17 @@ test("statically unconditional file and enclosing suite skips reject pins", () =
     () =>
       findDesignE2ETestLine(
         'test.skip(process.platform === "win32", "platform skip");\ntest("pinned behavior", () => {});',
+        "pinned behavior",
+      ),
+    /Unable to inspect conditional test\.skip/,
+  );
+});
+
+test("string-leading skip conditions fail closed", () => {
+  assert.throws(
+    () =>
+      findDesignE2ETestLine(
+        'test.skip("x" === "x", "disable suite");\ntest("pinned behavior", () => {});',
         "pinned behavior",
       ),
     /Unable to inspect conditional test\.skip/,
