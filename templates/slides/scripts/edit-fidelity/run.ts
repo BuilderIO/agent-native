@@ -28,7 +28,7 @@ import {
   formatAuthoringFuzzCleanupIssue,
   formatAuthoringFuzzUnavailable,
   lineNavigationKeys,
-  resolveAuthoringFuzzScratchDeck,
+  retryAuthoringFuzzScratchDeckLookup,
   runAuthoringFuzz,
   type AuthoringFuzzPersistence,
 } from "./authoring-fuzz.ts";
@@ -5302,22 +5302,22 @@ async function runAuthoringFuzzQa(
       try {
         if (createAttempted && !deckId) {
           try {
-            const lookupPage = await getCleanupPage();
-            const result = await action<{
-              decks?: Array<{ id?: string; title?: string }>;
-            }>(
-              lookupPage,
-              "list-decks",
-              {
-                createdBy: "me",
-                search: scratchTitle,
-                light: "true",
-                limit: "10",
+            // An ambiguous create may commit after the first list-decks read.
+            const recovery = await retryAuthoringFuzzScratchDeckLookup(
+              async () => {
+                const lookupPage = await getCleanupPage();
+                return action(
+                  lookupPage,
+                  "list-decks",
+                  {
+                    createdBy: "me",
+                    search: scratchTitle,
+                    light: "true",
+                    limit: "10",
+                  },
+                  "GET",
+                );
               },
-              "GET",
-            );
-            const recovery = resolveAuthoringFuzzScratchDeck(
-              result,
               scratchTitle,
             );
             if (recovery.status === "found") {

@@ -240,6 +240,44 @@ export function resolveAuthoringFuzzScratchDeck(
     : { status: "not-found" as const };
 }
 
+export async function retryAuthoringFuzzScratchDeckLookup(
+  lookup: () => Promise<{ decks?: Array<{ id?: string; title?: string }> }>,
+  title: string,
+  options: {
+    attempts?: number;
+    delayMs?: number;
+    wait?: (ms: number) => Promise<void>;
+  } = {},
+) {
+  const attempts = options.attempts ?? 5;
+  const delayMs = options.delayMs ?? 1000;
+  const wait =
+    options.wait ??
+    ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  let lastRecovery: ReturnType<typeof resolveAuthoringFuzzScratchDeck> | null =
+    null;
+  let lastError: unknown;
+  let lastAttemptFailed = false;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      lastRecovery = resolveAuthoringFuzzScratchDeck(await lookup(), title);
+      lastError = undefined;
+      lastAttemptFailed = false;
+      if (lastRecovery.status === "found") return lastRecovery;
+    } catch (error) {
+      lastError = error;
+      lastAttemptFailed = true;
+    }
+
+    if (attempt < attempts - 1) await wait(delayMs);
+  }
+
+  if (lastAttemptFailed) throw lastError;
+  if (lastRecovery) return lastRecovery;
+  throw lastError;
+}
+
 export function formatAuthoringFuzzCleanupIssue(
   label: string,
   deckId: string | null,

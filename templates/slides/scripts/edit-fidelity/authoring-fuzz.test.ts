@@ -15,6 +15,7 @@ import {
   formatAuthoringFuzzUnavailable,
   findAuthoringFuzzScratchDeckId,
   resolveAuthoringFuzzScratchDeck,
+  retryAuthoringFuzzScratchDeckLookup,
   formatAuthoringFuzzFailure,
   isConflictResourceConsoleError,
   isBrowserSessionPath,
@@ -355,6 +356,63 @@ it("distinguishes an absent deck list from a missing scratch deck", () => {
   expect(resolveAuthoringFuzzScratchDeck({}, title)).toEqual({
     status: "missing-decks",
   });
+});
+
+it("retries an ambiguous scratch-deck lookup until the created deck appears", async () => {
+  const title = "[edit-fidelity] authoring fuzz 1 unique-run-id";
+  let lookups = 0;
+  let waits = 0;
+
+  const recovery = await retryAuthoringFuzzScratchDeckLookup(
+    async () => {
+      lookups += 1;
+      if (lookups === 1) return { decks: [] };
+      if (lookups === 2) throw new Error("list-decks transport failure");
+      return { decks: [{ id: "scratch", title }] };
+    },
+    title,
+    { wait: async () => void (waits += 1) },
+  );
+
+  expect(recovery).toEqual({ status: "found", deckId: "scratch" });
+  expect(lookups).toBe(3);
+  expect(waits).toBe(2);
+});
+
+it("bounds scratch-deck recovery retries and returns the final lookup status", async () => {
+  let lookups = 0;
+  let waits = 0;
+
+  const recovery = await retryAuthoringFuzzScratchDeckLookup(
+    async () => {
+      lookups += 1;
+      return { decks: [] };
+    },
+    "missing scratch deck",
+    { attempts: 3, wait: async () => void (waits += 1) },
+  );
+
+  expect(recovery).toEqual({ status: "not-found" });
+  expect(lookups).toBe(3);
+  expect(waits).toBe(2);
+});
+
+it("preserves a final scratch-deck lookup error after a missing result", async () => {
+  const failure = new Error("list-decks request timed out");
+  let lookups = 0;
+
+  await expect(
+    retryAuthoringFuzzScratchDeckLookup(
+      async () => {
+        lookups += 1;
+        if (lookups === 1) return { decks: [] };
+        throw failure;
+      },
+      "missing scratch deck",
+      { attempts: 2, wait: async () => undefined },
+    ),
+  ).rejects.toBe(failure);
+  expect(lookups).toBe(2);
 });
 
 it("keeps the cleanup action and scratch deck id in failure diagnostics", () => {
