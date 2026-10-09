@@ -27,7 +27,6 @@ import {
   designSourceMutationLockKey,
   lockDesignFilesTable,
 } from "../server/source-workspace.js";
-import { isOverviewScreenFile } from "../shared/design-files.js";
 import { countLockedLayers } from "../shared/locked-layers.js";
 
 function drizzleSqlForAccess(statement: DbExecStatement) {
@@ -519,15 +518,6 @@ export default defineAction({
               );
             }
           }
-        }
-        const currentUserScreenCount =
-          currentFiles.filter(isOverviewScreenFile).length;
-        const deletingUserScreenCount =
-          currentTargetFiles.filter(isOverviewScreenFile).length;
-        if (currentUserScreenCount - deletingUserScreenCount <= 0) {
-          throw new Error(
-            "A design must keep at least one user screen. Delete another screen first.",
-          );
         }
         let data = parseDesignData(file.designId, design.data);
         const deletedFiles = currentTargetFiles.map((candidate) =>

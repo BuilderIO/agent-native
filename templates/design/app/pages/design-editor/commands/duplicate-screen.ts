@@ -345,6 +345,7 @@ export interface DuplicateScreenArgs {
   duplicateRecoveryRef: RefObject<Map<string, DuplicateScreenRecoveryEntry>>;
   displayedCanvasFrameGeometryById?: CanvasFrameGeometryById;
   files: DesignFile[];
+  getCurrentScreenContentForDuplicate?: (screenId: string) => string;
   focusCreatedScreen: (
     screenId: string,
     geometry: FrameGeometry,
@@ -391,6 +392,7 @@ export function runDuplicateScreen(
     duplicateRecoveryRef,
     displayedCanvasFrameGeometryById,
     files,
+    getCurrentScreenContentForDuplicate,
     focusCreatedScreen,
     id,
     liveFrameGeometryRef,
@@ -484,7 +486,10 @@ export function runDuplicateScreen(
   }
   duplicateInFlightRef.current.add(filename);
   const content =
-    recoveryState?.content ?? reassignDuplicatedNodeIds(source.content);
+    recoveryState?.content ??
+    reassignDuplicatedNodeIds(
+      getCurrentScreenContentForDuplicate?.(screenId) ?? source.content,
+    );
   const fileType =
     recoveryState?.fileType ?? normalizedDesignFileType(source.fileType);
   const sourceOverviewScreen = overviewScreens.find(

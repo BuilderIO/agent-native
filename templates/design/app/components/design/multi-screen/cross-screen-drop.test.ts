@@ -237,6 +237,25 @@ describe("getCrossScreenSourceGeometry", () => {
       persistedGeometry,
     );
   });
+
+  it("keeps the source bounds from drag start when live content expands", () => {
+    const dragStartGeometry = { ...persistedGeometry, height: 240 };
+    const expandedGeometry = { ...persistedGeometry, height: 560 };
+    const sourceGeometry = getCrossScreenSourceGeometry({
+      dragStartGeometry,
+      renderedGeometry: expandedGeometry,
+      persistedGeometry,
+    });
+
+    expect(sourceGeometry).toBe(dragStartGeometry);
+    expect(
+      getBoardDropRoute({
+        point: { x: 140, y: 500 },
+        viewportGeometry,
+        sourceScreenGeometry: sourceGeometry,
+      }),
+    ).toBe("board-root");
+  });
 });
 
 describe("cross-screen preview path release ordering", () => {

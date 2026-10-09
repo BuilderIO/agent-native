@@ -28,6 +28,10 @@ afterEach(() => {
 
 function renderUrlInspector(props: {
   onScreenUrlChange?: (screenId: string, url: string) => void;
+  onScreenSourceChange?: (
+    screenId: string,
+    next: { sourceType: "static" | "url"; url?: string; connectionId?: string },
+  ) => void;
 }) {
   act(() =>
     root.render(
@@ -110,4 +114,26 @@ it("keeps live URL controls disabled without the URL permission", () => {
       (button) => button.textContent === "editPanel.screenSource.update",
     )?.disabled,
   ).toBe(true);
+});
+
+it("activates the Static source tab only once for a pointer press", () => {
+  const onScreenSourceChange = vi.fn();
+  renderUrlInspector({ onScreenSourceChange });
+
+  const staticTab = Array.from(
+    container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+  ).find((tab) => tab.textContent === "editPanel.positionOptions.static");
+  expect(staticTab).toBeDefined();
+
+  act(() => {
+    staticTab!.dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true, button: 0 }),
+    );
+    staticTab!.focus();
+  });
+
+  expect(onScreenSourceChange).toHaveBeenCalledTimes(1);
+  expect(onScreenSourceChange).toHaveBeenCalledWith("screen-1", {
+    sourceType: "static",
+  });
 });

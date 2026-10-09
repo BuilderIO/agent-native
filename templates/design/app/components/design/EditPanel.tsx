@@ -1227,6 +1227,7 @@ function ScreenGeometryProperties({
           <SubsectionLabel>{t("editPanel.screenSource.title")}</SubsectionLabel>
           <Tabs
             value={sourceMode}
+            activationMode="manual"
             onValueChange={(value) => {
               const nextMode = value as "static" | "url";
               if (nextMode === "url") {

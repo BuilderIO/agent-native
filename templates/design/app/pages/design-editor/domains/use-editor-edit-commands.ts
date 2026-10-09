@@ -652,12 +652,9 @@ export function useEditorEditCommands({
         explicitlySelectedFiles.length > 0
           ? explicitlySelectedFiles
           : selectedFiles;
-      if (!filesToDelete.length || overviewScreens.length <= 1) return false;
+      if (!filesToDelete.length) return false;
 
-      const maxDeleteCount =
-        filesToDelete.length >= overviewScreens.length
-          ? Math.max(0, overviewScreens.length - 1)
-          : filesToDelete.length;
+      const maxDeleteCount = Math.max(1, overviewScreens.length - 1);
       const boundedFilesToDelete = filesToDelete.slice(0, maxDeleteCount);
       if (!boundedFilesToDelete.length) return false;
 

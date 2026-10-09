@@ -251,6 +251,72 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     }
   });
 
+  it("registers an inactive local preview without replacing runtime callbacks", async () => {
+    const windowGlobals = window as unknown as Record<string, unknown>;
+    const priorHandler = windowGlobals.__designCanvasSendStyleForScreen;
+    const activeRuntimeHandler = vi.fn();
+    windowGlobals.__designCanvasSendStyleForScreen = activeRuntimeHandler;
+    vi.spyOn(
+      externalPreview,
+      "getLocalNetworkAccessPermissionState",
+    ).mockResolvedValue("granted");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ bridgeInstanceId: "bridge-instance" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      await act(async () => {
+        root.render(
+          <DesignCanvas
+            content="http://localhost:5173/inactive"
+            contentKey="inactive-screen"
+            screenId="inactive-screen"
+            sourceType="localhost"
+            bridgeUrl="http://127.0.0.1:7331"
+            previewToken="preview-inactive-screen"
+            liveEditCapability="test-live-edit-capability"
+            zoom={100}
+            deviceFrame="none"
+            editMode
+            interactMode={false}
+            registerRuntimeBridge={false}
+            registerLiveEditPreview
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        );
+      });
+
+      await vi.waitFor(() => {
+        expect(
+          fetchMock.mock.calls.some(([input]) =>
+            requestInfoUrl(input).endsWith("/live-edit-bridge"),
+          ),
+        ).toBe(true);
+        expect(
+          container.querySelector<HTMLIFrameElement>(
+            "iframe[data-design-preview-iframe]",
+          )?.src,
+        ).toContain("/live-edit?");
+      });
+      expect(windowGlobals.__designCanvasSendStyleForScreen).toBe(
+        activeRuntimeHandler,
+      );
+    } finally {
+      await act(async () => root.render(null));
+      if (priorHandler === undefined) {
+        delete windowGlobals.__designCanvasSendStyleForScreen;
+      } else {
+        windowGlobals.__designCanvasSendStyleForScreen = priorHandler;
+      }
+    }
+  });
+
   it("aborts bridge registration when an overview screen deactivates or unmounts", async () => {
     const signals: AbortSignal[] = [];
     const fetchMock = vi.fn(

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
   resolveScope: vi.fn(),
+  eq: vi.fn(),
   connections: [] as Array<{
     id: string;
     previewToken: string;
@@ -17,7 +18,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: vi.fn(),
-  eq: vi.fn(),
+  eq: mocks.eq,
   inArray: vi.fn(),
   isNull: vi.fn(),
 }));
@@ -57,6 +58,7 @@ import action from "./refresh-localhost-preview-token.js";
 beforeEach(() => {
   mocks.assertAccess.mockReset();
   mocks.resolveScope.mockReset();
+  mocks.eq.mockReset();
   mocks.connections = [
     {
       id: "conn_2",
@@ -96,6 +98,20 @@ describe("refresh-localhost-preview-token", () => {
     expect(mocks.resolveScope).toHaveBeenCalledWith({
       designId: "design_1",
       allowPublicViewer: true,
+    });
+  });
+
+  it("refreshes only requested connections when stale metadata remains", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      connectionIds: ["conn_2"],
+    });
+
+    expect(result.connections).toEqual({
+      conn_2: {
+        previewToken: "preview",
+        bridgeUrl: "http://127.0.0.1:7331",
+      },
     });
   });
 
@@ -203,11 +219,58 @@ describe("refresh-localhost-preview-token", () => {
     );
   });
 
+  it("reads a shared editor's localhost connection in the design owner's scope", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "editor",
+      resource: {
+        ownerEmail: "design-owner@example.com",
+        orgId: "design-org",
+        visibility: "private",
+        data: JSON.stringify({
+          sourceType: "localhost",
+          connectionId: "conn_2",
+        }),
+      },
+    });
+    mocks.connections = [
+      {
+        id: "conn_2",
+        previewToken: "owner-preview",
+        bridgeUrl: "http://127.0.0.1:7331",
+      },
+    ];
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        connectionId: "conn_2",
+      }),
+    ).resolves.toMatchObject({ previewToken: "owner-preview" });
+
+    expect(mocks.eq).toHaveBeenCalledWith(
+      "ownerEmail",
+      "design-owner@example.com",
+    );
+    expect(mocks.eq).toHaveBeenCalledWith("orgId", "design-org");
+    expect(mocks.resolveScope).not.toHaveBeenCalled();
+  });
+
   it("rejects a connection that is not part of the design", async () => {
     await expect(
       action.run({
         designId: "design_1",
         connectionId: "other-connection",
+        publicVisualEdit: true,
+      }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mocks.resolveScope).not.toHaveBeenCalled();
+  });
+
+  it("rejects a requested connection set that contains an unbound connection", async () => {
+    await expect(
+      action.run({
+        designId: "design_1",
+        connectionIds: ["conn_2", "other-connection"],
         publicVisualEdit: true,
       }),
     ).rejects.toMatchObject({ statusCode: 403 });

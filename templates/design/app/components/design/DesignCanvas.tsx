@@ -838,6 +838,7 @@ interface DesignCanvasProps {
   hiddenSelectors?: string[];
   clearSelectionRequest?: number;
   registerRuntimeBridge?: boolean;
+  registerLiveEditPreview?: boolean;
   onExitPinMode?: () => void;
   designId?: string;
   reviewCanPost?: boolean;
@@ -1387,6 +1388,7 @@ export function DesignCanvas({
   hiddenSelectors = NO_SELECTORS,
   onExitPinMode,
   registerRuntimeBridge = true,
+  registerLiveEditPreview = registerRuntimeBridge,
   designId,
   publicVisualEdit = false,
   reviewCanPost = false,
@@ -2339,7 +2341,7 @@ export function DesignCanvas({
   }, [externalPreviewUrl, runtimeVerificationRequest]);
   const waitingForEditableExternalSnapshot = false;
   const waitingForLiveEditBridge =
-    registerRuntimeBridge &&
+    registerLiveEditPreview &&
     usesLiveEditInjectedBridge &&
     !liveEditBridgeRegistered;
   const showProactiveLocalNetworkAccessPrompt =
@@ -2491,7 +2493,7 @@ export function DesignCanvas({
   const attemptBridgeRegistration =
     useCallback(async (): Promise<BridgeRegistrationAttemptResult> => {
       if (
-        !registerRuntimeBridge ||
+        !registerLiveEditPreview ||
         !usesLiveEditInjectedBridge ||
         !bridgeUrl ||
         !effectivePreviewToken ||
@@ -2698,10 +2700,10 @@ export function DesignCanvas({
       connectionId,
       publicVisualEdit,
       screenId,
-      registerRuntimeBridge,
+      registerLiveEditPreview,
     ]);
   useEffect(() => {
-    if (!registerRuntimeBridge) {
+    if (!registerLiveEditPreview) {
       bridgeRegistrationAttemptGenerationRef.current += 1;
       bridgeRegistrationControllerRef.current?.abort();
       bridgeRegistrationControllerRef.current = null;
@@ -2764,7 +2766,7 @@ export function DesignCanvas({
     bridgeUrl,
     liveEditBridgeKey,
     effectivePreviewToken,
-    registerRuntimeBridge,
+    registerLiveEditPreview,
     scheduleBridgeRegistrationRetry,
     usesLiveEditInjectedBridge,
   ]);

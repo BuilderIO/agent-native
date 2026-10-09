@@ -6,12 +6,21 @@ const mocks = vi.hoisted(() => ({
   agentLeaveDocument: vi.fn(),
   agentUpdateSelection: vi.fn(),
   deleteComponentMainFromDesign: vi.fn(),
+  dbFile: null as null | {
+    id: string;
+    designId: string;
+    filename: string;
+    content: string;
+    updatedAt: string | null;
+  },
   readLiveSourceFile: vi.fn(),
+  prepareInlineSourceEdit: vi.fn(),
   resolveAccess: vi.fn(),
   resolveSourceWorkspace: vi.fn(),
   restoreComponentMainInDesign: vi.fn(),
   snapshotDesignBeforeAgentEdit: vi.fn(),
   sourceType: "inline" as string,
+  writeInlineSourceFile: vi.fn(),
   writeInlineSourceFilesBatch: vi.fn(),
 }));
 
@@ -40,8 +49,24 @@ vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: mocks.resolveAccess,
 }));
 
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
+  and: vi.fn((...conditions: unknown[]) => conditions),
+  eq: vi.fn((left: unknown, right: unknown) => ({ left, right })),
+}));
+
 vi.mock("../server/db/index.js", () => ({
-  getDb: () => ({}),
+  getDb: () => ({
+    select: () => ({
+      from: () => ({
+        innerJoin: () => ({
+          where: () => ({
+            limit: async () => (mocks.dbFile ? [mocks.dbFile] : []),
+          }),
+        }),
+      }),
+    }),
+  }),
   schema: {
     designFiles: {
       id: "designFiles.id",
@@ -61,8 +86,10 @@ vi.mock("../server/lib/design-versions.js", () => ({
 
 vi.mock("../server/source-workspace.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../server/source-workspace.js")>()),
+  prepareInlineSourceEdit: mocks.prepareInlineSourceEdit,
   readLiveSourceFile: mocks.readLiveSourceFile,
   resolveSourceWorkspace: mocks.resolveSourceWorkspace,
+  writeInlineSourceFile: mocks.writeInlineSourceFile,
   writeInlineSourceFilesBatch: mocks.writeInlineSourceFilesBatch,
 }));
 
@@ -196,8 +223,10 @@ function batchResult(files: Array<{ file: { id: string }; content: string }>) {
 describe("apply-component-prop-edit linked path", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.dbFile = null;
     mocks.deleteComponentMainFromDesign.mockReset();
     mocks.restoreComponentMainInDesign.mockReset();
+    mocks.writeInlineSourceFile.mockReset();
     mocks.sourceType = "inline";
     const files = liveFiles();
     mocks.resolveAccess.mockResolvedValue({
@@ -218,6 +247,7 @@ describe("apply-component-prop-edit linked path", () => {
       versionHash: sourceContentHash(file.content),
       language: "html",
     }));
+    mocks.prepareInlineSourceEdit.mockReset();
     mocks.writeInlineSourceFilesBatch.mockImplementation(
       async ({ files: batch }) => batchResult(batch),
     );
@@ -444,6 +474,77 @@ describe("apply-component-prop-edit linked path", () => {
       '"property":"attribute:data-agent-native-prop-variant"',
     );
   });
+
+  it.each([
+    { property: "disabled", current: "false", next: "true" },
+    { property: "variant", current: "primary", next: "secondary" },
+  ])(
+    "persists unlinked component $property prop edits through inline CAS",
+    async ({ property, current, next }) => {
+      const attribute = `data-agent-native-prop-${property}`;
+      const content =
+        `<button data-agent-native-node-id="standalone-root" data-agent-native-component="Button" ` +
+        `${attribute}="${current}">Continue</button>`;
+      const file = {
+        id: "standalone-file",
+        designId,
+        filename: "index.html",
+        fileType: "html",
+        content,
+        createdAt: null,
+        updatedAt: "standalone-v1",
+      };
+      mocks.dbFile = file;
+      mocks.resolveSourceWorkspace.mockResolvedValue({
+        designId,
+        sourceType: "inline",
+        canEdit: true,
+        files: [file],
+        boardFileId: null,
+      });
+      mocks.writeInlineSourceFile.mockResolvedValue({
+        versionHash: "saved-version",
+        changed: true,
+        updatedAt: "standalone-v2",
+      });
+      mocks.prepareInlineSourceEdit.mockResolvedValue({
+        content,
+        expectedVersionHash: sourceContentHash(content),
+      });
+
+      const result = await action.run({
+        designId,
+        fileId: file.id,
+        nodeId: "standalone-root",
+        edit: {
+          kind: "attribute",
+          attribute,
+          value: next,
+        },
+        source: {
+          currentContent: content,
+          revision: file.updatedAt,
+          expectedFiles: [
+            { fileId: file.id, versionHash: sourceContentHash(content) },
+          ],
+        },
+      });
+
+      expect(result).toMatchObject({
+        persisted: true,
+        ctaRequired: false,
+        editKind: "attribute",
+      });
+      expect(result.content).toContain(`${attribute}="${next}"`);
+      expect(mocks.writeInlineSourceFile).toHaveBeenCalledTimes(1);
+      expect(mocks.writeInlineSourceFile.mock.calls[0][0]).toMatchObject({
+        designId,
+        content: expect.stringContaining(`${attribute}="${next}"`),
+        expectedVersionHash: sourceContentHash(content),
+      });
+      expect(mocks.writeInlineSourceFilesBatch).not.toHaveBeenCalled();
+    },
+  );
 
   it("writes a multi-property inspector commit through one component action batch", async () => {
     const result = await action.run({

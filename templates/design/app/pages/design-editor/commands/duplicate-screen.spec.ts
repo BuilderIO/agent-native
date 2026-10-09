@@ -20,7 +20,7 @@ import {
 } from "./duplicate-screen";
 import { runUndo } from "./undo";
 
-// Figma uses 40px for duplication; Design keeps its board-wide 56px gap.
+// Keep screen copies spaced consistently across the board.
 const DESIGN_SCREEN_GAP = 56;
 
 const ref = <T>(current: T) => ({ current });
@@ -172,6 +172,36 @@ describe("getDuplicateScreenGeometry", () => {
 });
 
 describe("runDuplicateScreen", () => {
+  it("duplicates the freshest screen content instead of a stale file snapshot", async () => {
+    const createFileAsync = vi.fn().mockResolvedValue({ id: "copy" });
+    const args = duplicateArgs({
+      files: [
+        {
+          id: "source",
+          filename: "index.html",
+          fileType: "html",
+          content: '<main data-version="stale"><span>Old</span></main>',
+          createdAt: "",
+          updatedAt: "",
+        },
+      ],
+      createFileAsync,
+      getCurrentScreenContentForDuplicate: () =>
+        '<main data-version="live"><span data-agent-native-node-id="live-link">Link</span></main>',
+    });
+
+    await runDuplicateScreen(args, "source");
+
+    expect(createFileAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining('data-version="live"'),
+      }),
+    );
+    expect(createFileAsync.mock.calls[0]?.[0].content).not.toContain(
+      'data-version="stale"',
+    );
+  });
+
   it("keeps Cmd+D duplicates on the board's 56px spacing", async () => {
     const sourceGeometry = { x: 200, y: 720, width: 320, height: 240, z: 4 };
     const args = duplicateArgs({

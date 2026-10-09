@@ -21,7 +21,13 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Localhost connection ID. Omit to refresh all design connections.",
+        "Localhost connection ID. Omit both selectors to refresh all connections referenced by the design.",
+      ),
+    connectionIds: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Specific localhost connection IDs to refresh. Each ID must be referenced by the design. Use this instead of connectionId to refresh a subset.",
       ),
     publicVisualEdit: z
       .boolean()
@@ -34,7 +40,7 @@ export default defineAction({
   requiresAuth: false,
   http: { method: "GET" },
   capabilityScopes: ["visual-edit"],
-  run: async ({ designId, connectionId, publicVisualEdit }) => {
+  run: async ({ designId, connectionId, connectionIds, publicVisualEdit }) => {
     const access = await assertAccess("design", designId, "viewer");
     const designData = (access.resource as { data?: unknown }).data;
     const designConnectionIds = designConnectionIdsFromData(designData);
@@ -55,9 +61,14 @@ export default defineAction({
       error.statusCode = 403;
       throw error;
     }
+    if (connectionId && connectionIds) {
+      throw new Error("Provide connectionId or connectionIds, not both.");
+    }
     const requestedConnectionIds = connectionId
       ? [connectionId]
-      : designConnectionIds;
+      : connectionIds === undefined
+        ? designConnectionIds
+        : [...new Set(connectionIds)];
     if (requestedConnectionIds.length === 0) {
       const error = new Error(
         `Design "${designId}" has no localhost connections.`,
@@ -65,23 +76,40 @@ export default defineAction({
       error.statusCode = 403;
       throw error;
     }
-    if (connectionId && !designConnectionIds.includes(connectionId)) {
+    const unreferencedConnectionId = requestedConnectionIds.find(
+      (requestedId) => !designConnectionIds.includes(requestedId),
+    );
+    if (unreferencedConnectionId) {
       const error = new Error(
-        `Localhost connection "${connectionId}" is not part of design "${designId}".`,
+        `Localhost connection "${unreferencedConnectionId}" is not part of design "${designId}".`,
       ) as Error & { statusCode: number };
       error.statusCode = 403;
       throw error;
     }
-    const { ownerEmail, orgId } = await resolveLocalhostConnectionScope({
-      designId,
-      allowPublicViewer: publicVisualEdit === true,
-    });
     const canIssueLiveEditCapability =
       access.role === "owner" ||
       access.role === "admin" ||
       access.role === "editor";
     const canIssueRegistrationCapability =
       canIssueLiveEditCapability || publicVisualEdit === true;
+    const designOwner = access.resource as {
+      ownerEmail?: unknown;
+      orgId?: unknown;
+    };
+    const connectionScope =
+      canIssueLiveEditCapability &&
+      typeof designOwner.ownerEmail === "string" &&
+      designOwner.ownerEmail
+        ? {
+            ownerEmail: designOwner.ownerEmail,
+            orgId:
+              typeof designOwner.orgId === "string" ? designOwner.orgId : null,
+          }
+        : await resolveLocalhostConnectionScope({
+            designId,
+            allowPublicViewer: publicVisualEdit === true,
+          });
+    const { ownerEmail, orgId } = connectionScope;
     const connections = await getDb()
       .select({
         id: schema.designLocalhostConnections.id,

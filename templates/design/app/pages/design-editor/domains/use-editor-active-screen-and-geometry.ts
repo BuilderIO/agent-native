@@ -229,7 +229,7 @@ export function useEditorActiveScreenAndGeometry({
     boardFileId,
     overviewScreens,
     publicVisualEditConnectionIds,
-    publicVisualEditPreviewTokenQuery,
+    localhostPreviewTokenQuery,
   } = editorFilesAndSaving;
 
   const [screenZoom, setScreenZoom] = useState(FOCUSED_SCREEN_ZOOM);
@@ -1311,35 +1311,61 @@ export function useEditorActiveScreenAndGeometry({
     resolveOverviewScreenSourceType(activeOverviewScreen, designSourceType) ===
       "localhost",
   );
+  const activeLocalhostConnection = activeOverviewScreen?.connectionId
+    ? localhostPreviewTokenQuery.data?.connections?.[
+        activeOverviewScreen.connectionId
+      ]
+    : undefined;
+  const hasActiveLocalhostConnection = Boolean(
+    activeOverviewScreen?.connectionId &&
+    resolveOverviewScreenSourceType(activeOverviewScreen, designSourceType) ===
+      "localhost",
+  );
   const activeScreenBridgeUrl = activeScreenSnapshotOnly
     ? undefined
-    : activeOverviewScreen?.bridgeUrl;
+    : resolveOverviewScreenSourceType(
+          activeOverviewScreen,
+          designSourceType,
+        ) === "localhost"
+      ? (activeLocalhostConnection?.bridgeUrl ??
+        (hasActiveLocalhostConnection
+          ? undefined
+          : activeOverviewScreen?.bridgeUrl))
+      : activeOverviewScreen?.bridgeUrl;
   const activeScreenPreviewToken = activeScreenSnapshotOnly
     ? undefined
     : ((activeOverviewScreen?.id
         ? effectivePreviewTokensByScreenId[activeOverviewScreen.id]
         : undefined) ??
-      ("previewToken" in (activeOverviewScreen ?? {}) &&
-      typeof activeOverviewScreen?.previewToken === "string"
-        ? activeOverviewScreen.previewToken
-        : (publicVisualEditPreviewTokenQuery.data?.connections?.[
-            activeOverviewScreen?.connectionId ?? ""
-          ]?.previewToken ??
-          (activeOverviewScreen?.connectionId === publicVisualEditConnectionId
-            ? publicVisualEditPreviewTokenQuery.data?.previewToken
-            : undefined))));
+      (resolveOverviewScreenSourceType(
+        activeOverviewScreen,
+        designSourceType,
+      ) === "localhost"
+        ? activeLocalhostConnection?.previewToken
+        : undefined) ??
+      (hasActiveLocalhostConnection
+        ? undefined
+        : "previewToken" in (activeOverviewScreen ?? {}) &&
+            typeof activeOverviewScreen?.previewToken === "string"
+          ? activeOverviewScreen.previewToken
+          : (localhostPreviewTokenQuery.data?.connections?.[
+              activeOverviewScreen?.connectionId ?? ""
+            ]?.previewToken ??
+            (activeOverviewScreen?.connectionId === publicVisualEditConnectionId
+              ? localhostPreviewTokenQuery.data?.previewToken
+              : undefined))));
   const activeScreenLiveEditCapability = activeScreenSnapshotOnly
     ? undefined
     : ((activeOverviewScreen?.id
         ? effectiveLiveEditCapabilitiesByScreenId[activeOverviewScreen.id]
         : undefined) ??
       (activeOverviewScreen?.connectionId
-        ? publicVisualEditPreviewTokenQuery.data?.connections?.[
+        ? localhostPreviewTokenQuery.data?.connections?.[
             activeOverviewScreen.connectionId
           ]?.liveEditCapability
         : undefined) ??
       (activeOverviewScreen?.connectionId === publicVisualEditConnectionId
-        ? publicVisualEditPreviewTokenQuery.data?.liveEditCapability
+        ? localhostPreviewTokenQuery.data?.liveEditCapability
         : undefined));
   const overviewScreenIdList = useMemo(
     () => overviewScreens.map((screen) => screen.id),

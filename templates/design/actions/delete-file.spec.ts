@@ -851,7 +851,7 @@ describe("delete-file", () => {
     expect(mocks.tx.delete).not.toHaveBeenCalled();
   });
 
-  it("keeps the final user screen when the board file is also present", async () => {
+  it("deletes the final user screen while preserving the board file", async () => {
     mocks.fileSelectChain.limit.mockResolvedValue([
       {
         id: "file-b",
@@ -868,11 +868,11 @@ describe("delete-file", () => {
 
     await expect(
       action.run({ id: "file-b", allowLockedLayers: true }),
-    ).rejects.toThrow(/at least one user screen/i);
-    expect(mocks.tx.delete).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({ id: "file-b", deleted: true });
+    expect(mocks.tx.delete).toHaveBeenCalledTimes(1);
   });
 
-  it("serializes concurrent deletes so only one can remove the final screen", async () => {
+  it("serializes concurrent deletes of the last user screens", async () => {
     let currentFiles = [
       { id: "file-a", filename: "a.html", fileType: "html" },
       { id: "file-b", filename: "b.html", fileType: "html" },
@@ -924,12 +924,14 @@ describe("delete-file", () => {
     ]);
 
     expect(results.filter(({ status }) => status === "fulfilled")).toHaveLength(
-      1,
+      2,
     );
     expect(results.filter(({ status }) => status === "rejected")).toHaveLength(
-      1,
+      0,
     );
-    expect(currentFiles.filter((file) => file.id !== "board")).toHaveLength(1);
+    expect(currentFiles).toEqual([
+      { id: "board", filename: "__board__.html", fileType: "html" },
+    ]);
   });
 
   it("does not retain a checkpoint when the delete transaction rolls back", async () => {

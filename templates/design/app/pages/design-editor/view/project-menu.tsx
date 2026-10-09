@@ -181,9 +181,7 @@ export function renderProjectMenu({
                       selectedElement,
                       selectedLayerIds: selectedLayerIdsState,
                       fileIds: files.map((file) => file.id),
-                    }) &&
-                    (overviewScreens.length <= 1 ||
-                      overviewSelectedScreenIds.length === 0)
+                    }) && overviewSelectedScreenIds.length === 0
                   : !selectedElement && !activeFile
               }
             >

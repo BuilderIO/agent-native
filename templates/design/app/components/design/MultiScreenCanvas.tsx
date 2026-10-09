@@ -1428,6 +1428,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const crossScreenParentDragCleanupRef = useRef<(() => void) | null>(null);
   const crossScreenSourceFrameAtStartRef = useRef<{
     screenId: string;
+    x: number;
+    y: number;
     width: number;
     height: number;
     viewportW: number;
@@ -2996,6 +2998,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         ? { width: targetIframe.clientWidth, height: targetIframe.clientHeight }
         : getFrameViewportSize(targetScreen);
 
+    const getCrossScreenDragSourceGeometry = (sourceScreenId: string) => {
+      const dragStart = crossScreenSourceFrameAtStartRef.current;
+      return getCrossScreenSourceGeometry({
+        dragStartGeometry:
+          dragStart?.screenId === sourceScreenId
+            ? {
+                x: dragStart.x,
+                y: dragStart.y,
+                width: dragStart.width,
+                height: dragStart.height,
+              }
+            : undefined,
+        renderedGeometry: renderedFrameGeometryRef.current[sourceScreenId],
+        persistedGeometry: frameGeometryRef.current[sourceScreenId],
+      });
+    };
+
     const runHitTest = (
       candidate: CrossScreenDragTarget,
       boardPoint: Point,
@@ -3005,6 +3024,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         previewGeneration?: number;
         previewRequestSeq?: number;
         sourceScreenId?: string;
+        sourceScreenGeometry?: FrameGeometry;
         sourceElementSize?: { width: number; height: number };
         sourceGridSpan?: { columns: number; rows: number };
         onPreviewTimeout?: () => void;
@@ -3029,14 +3049,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           viewportGeometry: boardViewportGeometry,
           renderGeometry: boardSurfaceRenderGeometry,
           sourceScreenGeometry:
-            options.sourceScreenId && options.sourceScreenId !== boardFileId
-              ? getCrossScreenSourceGeometry({
-                  renderedGeometry:
-                    renderedFrameGeometryRef.current[options.sourceScreenId],
-                  persistedGeometry:
-                    frameGeometryRef.current[options.sourceScreenId],
-                })
-              : undefined,
+            options.sourceScreenGeometry ??
+            (options.sourceScreenId && options.sourceScreenId !== boardFileId
+              ? getCrossScreenDragSourceGeometry(options.sourceScreenId)
+              : undefined),
         }) !== "board-hit-test"
       ) {
         return Promise.resolve({});
@@ -3472,6 +3488,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const target = getFrameEntryAtPoint(boardPoint, {
         excludeId: sourceScreenId,
       });
+      const sourceScreenGeometry =
+        sourceScreenId === boardFileId
+          ? undefined
+          : getCrossScreenDragSourceGeometry(sourceScreenId);
       const boardDropRoute =
         (sourceScreenId !== boardFileId ||
           crossScreenDragMsgRef.current?.duplicate === true) &&
@@ -3481,15 +3501,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               point: boardPoint,
               viewportGeometry: boardViewportGeometry,
               renderGeometry: boardSurfaceRenderGeometry,
-              sourceScreenGeometry:
-                sourceScreenId === boardFileId
-                  ? undefined
-                  : getCrossScreenSourceGeometry({
-                      renderedGeometry:
-                        renderedFrameGeometryRef.current[sourceScreenId],
-                      persistedGeometry:
-                        frameGeometryRef.current[sourceScreenId],
-                    }),
+              sourceScreenGeometry,
             })
           : null;
       traceOnce(
@@ -3658,10 +3670,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         clearCurrentDrop();
         return;
       }
-      const sourceFrameGeometry = getCrossScreenSourceGeometry({
-        renderedGeometry: renderedFrameGeometryRef.current[sourceScreenId],
-        persistedGeometry: frameGeometryRef.current[sourceScreenId],
-      });
+      const sourceFrameGeometry =
+        getCrossScreenDragSourceGeometry(sourceScreenId);
       const boardDropRoute =
         boardFileId &&
         (sourceScreenId !== boardFileId || payload.duplicate) &&
@@ -3673,12 +3683,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               sourceScreenGeometry:
                 sourceScreenId === boardFileId
                   ? undefined
-                  : getCrossScreenSourceGeometry({
-                      renderedGeometry:
-                        renderedFrameGeometryRef.current[sourceScreenId],
-                      persistedGeometry:
-                        frameGeometryRef.current[sourceScreenId],
-                    }),
+                  : getCrossScreenDragSourceGeometry(sourceScreenId),
             })
           : null;
       const boardCanvasHit = boardDropRoute !== null;
@@ -3739,6 +3744,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         void runHitTest(targetCandidate, lastBoardPoint, {
           timeoutMs: HIT_TEST_COMMIT_TIMEOUT_MS,
           sourceScreenId,
+          sourceScreenGeometry:
+            sourceScreenId === boardFileId ? undefined : sourceFrameGeometry,
           sourceElementSize: payload.sourceElementSize,
           sourceGridSpan: payload.sourceGridSpan,
           modifiers: payload.modifiers,
@@ -4245,6 +4252,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           Number.isFinite(msg.viewportH)
             ? {
                 screenId: sourceScreenId,
+                x: startFrame.x,
+                y: startFrame.y,
                 width: startFrame.width,
                 height: startFrame.height,
                 viewportW: msg.viewportW!,
@@ -5561,205 +5570,222 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   finishDragRef.current = finishDrag;
 
   // oxfmt-ignore
-  const cancelActiveDrag = useCallback((pressedAt?: number) => {
-    let cancelled = false;
-    const state = dragState.current;
+  const cancelActiveDrag = useCallback(
+    (pressedAt?: number) => {
+      let cancelled = false;
+      const state = dragState.current;
 
-    const restoreImperativeMoveDom = (
-      originById: Record<string, FrameGeometry | DraftPrimitive>,
-      targetIds: string[],
-      kind: "frame" | "draft",
-    ) => {
-      const originGeometries: FrameGeometry[] = [];
-      targetIds.forEach((targetId) => {
-        const origin = originById[targetId];
-        const geometry =
-          origin && "geometry" in origin ? origin.geometry : origin;
-        if (!geometry) return;
-        originGeometries.push(geometry);
-        const selector =
-          kind === "frame"
-            ? `[data-frame-id="${CSS.escape(targetId)}"]`
-            : `[data-draft-id="${CSS.escape(targetId)}"]`;
-        const element =
-          surfaceRef.current?.querySelector<HTMLElement>(selector);
-        if (!element) return;
-        const labelHeight =
-          kind === "frame"
-            ? FRAME_LABEL_HEIGHT * chromeScaleFromZoom(zoomRef.current)
-            : 0;
-        const position = frameStyleLeftTop(geometry, labelHeight);
-        element.style.left = `${position.left}px`;
-        element.style.top = `${position.top}px`;
-        if (kind !== "frame") {
-          if ("kind" in origin) {
-            applyDraftPrimitiveToDom(element, origin);
+      const restoreImperativeMoveDom = (
+        originById: Record<string, FrameGeometry | DraftPrimitive>,
+        targetIds: string[],
+        kind: "frame" | "draft",
+      ) => {
+        const originGeometries: FrameGeometry[] = [];
+        targetIds.forEach((targetId) => {
+          const origin = originById[targetId];
+          const geometry =
+            origin && "geometry" in origin ? origin.geometry : origin;
+          if (!geometry) return;
+          originGeometries.push(geometry);
+          const selector =
+            kind === "frame"
+              ? `[data-frame-id="${CSS.escape(targetId)}"]`
+              : `[data-draft-id="${CSS.escape(targetId)}"]`;
+          const element =
+            surfaceRef.current?.querySelector<HTMLElement>(selector);
+          if (!element) return;
+          const labelHeight =
+            kind === "frame"
+              ? FRAME_LABEL_HEIGHT * chromeScaleFromZoom(zoomRef.current)
+              : 0;
+          const position = frameStyleLeftTop(geometry, labelHeight);
+          element.style.left = `${position.left}px`;
+          element.style.top = `${position.top}px`;
+          if (kind !== "frame") {
+            if ("kind" in origin) {
+              applyDraftPrimitiveToDom(element, origin);
+            }
+            return;
           }
-          return;
-        }
-        element.style.width = `${geometry.width}px`;
-        element.style.transform = geometry.rotation
-          ? `rotate(${geometry.rotation}deg)`
-          : "";
-        element.style.transformOrigin = `${geometry.width / 2}px ${
-          labelHeight + geometry.height / 2
-        }px`;
-        const cardEl = element.querySelector<HTMLElement>("[data-screen-card]");
-        if (cardEl) {
-          cardEl.style.width = `${geometry.width}px`;
-          cardEl.style.height = `${geometry.height}px`;
-        }
-        const iframeEl = element.querySelector<HTMLIFrameElement>(
-          `[data-screen-iframe-id="${CSS.escape(targetId)}"]`,
-        );
-        const screen = screensRef.current.find((s) => s.id === targetId);
-        if (iframeEl && screen) {
-          const viewport = getScreenPreviewViewport(
-            getResolvedMetadata(screen),
-            geometry,
+          element.style.width = `${geometry.width}px`;
+          element.style.transform = geometry.rotation
+            ? `rotate(${geometry.rotation}deg)`
+            : "";
+          element.style.transformOrigin = `${geometry.width / 2}px ${
+            labelHeight + geometry.height / 2
+          }px`;
+          const cardEl =
+            element.querySelector<HTMLElement>("[data-screen-card]");
+          if (cardEl) {
+            cardEl.style.width = `${geometry.width}px`;
+            cardEl.style.height = `${geometry.height}px`;
+          }
+          const iframeEl = element.querySelector<HTMLIFrameElement>(
+            `[data-screen-iframe-id="${CSS.escape(targetId)}"]`,
           );
-          iframeEl.style.width = `${viewport.viewportWidth}px`;
-          iframeEl.style.height = `${viewport.viewportHeight}px`;
-          iframeEl.style.transform =
-            viewport.scale === 1 ? "" : `scale(${viewport.scale})`;
+          const screen = screensRef.current.find((s) => s.id === targetId);
+          if (iframeEl && screen) {
+            const viewport = getScreenPreviewViewport(
+              getResolvedMetadata(screen),
+              geometry,
+            );
+            iframeEl.style.width = `${viewport.viewportWidth}px`;
+            iframeEl.style.height = `${viewport.viewportHeight}px`;
+            iframeEl.style.transform =
+              viewport.scale === 1 ? "" : `scale(${viewport.scale})`;
+          }
+        });
+
+        const selectionBox = surfaceRef.current?.querySelector<HTMLElement>(
+          "[data-frame-selection-box]",
+        );
+        if (!selectionBox || originGeometries.length === 0) return;
+        const bounds =
+          originGeometries.length === 1
+            ? originGeometries[0]
+            : (() => {
+                const group = getFrameGroupBounds(
+                  originGeometries.map((geometry) => ({ id: "", geometry })),
+                );
+                return group
+                  ? {
+                      x: group.left,
+                      y: group.top,
+                      width: group.width,
+                      height: group.height,
+                    }
+                  : null;
+              })();
+        if (!bounds) return;
+        const position = frameStyleLeftTop(bounds);
+        selectionBox.style.left = `${position.left}px`;
+        selectionBox.style.top = `${position.top}px`;
+        selectionBox.style.width = `${bounds.width}px`;
+        selectionBox.style.height = `${bounds.height}px`;
+        const boxRotation =
+          originGeometries.length === 1
+            ? (originGeometries[0].rotation ?? 0)
+            : 0;
+        selectionBox.style.transform = boxRotation
+          ? `rotate(${boxRotation}deg)`
+          : "";
+        selectionBox.style.transformOrigin = `${bounds.width / 2}px ${bounds.height / 2}px`;
+      };
+
+      if (state) {
+        cancelled = true;
+        if (state.type === "resize" && state.scaleContents) {
+          state.targetIds.forEach((screenId) => {
+            scaleScreenContents(screenId, 1, "cancel");
+          });
         }
-      });
-
-      const selectionBox = surfaceRef.current?.querySelector<HTMLElement>(
-        "[data-frame-selection-box]",
-      );
-      if (!selectionBox || originGeometries.length === 0) return;
-      const bounds =
-        originGeometries.length === 1
-          ? originGeometries[0]
-          : (() => {
-              const group = getFrameGroupBounds(
-                originGeometries.map((geometry) => ({ id: "", geometry })),
-              );
-              return group
-                ? {
-                    x: group.left,
-                    y: group.top,
-                    width: group.width,
-                    height: group.height,
-                  }
-                : null;
-            })();
-      if (!bounds) return;
-      const position = frameStyleLeftTop(bounds);
-      selectionBox.style.left = `${position.left}px`;
-      selectionBox.style.top = `${position.top}px`;
-      selectionBox.style.width = `${bounds.width}px`;
-      selectionBox.style.height = `${bounds.height}px`;
-      const boxRotation =
-        originGeometries.length === 1 ? (originGeometries[0].rotation ?? 0) : 0;
-      selectionBox.style.transform = boxRotation
-        ? `rotate(${boxRotation}deg)`
-        : "";
-      selectionBox.style.transformOrigin = `${bounds.width / 2}px ${bounds.height / 2}px`;
-    };
-
-    if (state) {
-      cancelled = true;
-      if (state.type === "resize" && state.scaleContents) {
-        state.targetIds.forEach((screenId) => {
-          scaleScreenContents(screenId, 1, "cancel");
-        });
+        if (
+          state.type === "move" ||
+          state.type === "resize" ||
+          state.type === "group-rotate"
+        ) {
+          restoreImperativeMoveDom(
+            state.originFrames,
+            state.targetIds,
+            "frame",
+          );
+          updateFrameGeometry((current) =>
+            frameGeometryWithOverrides(current, state.originFrames),
+          );
+        } else if (state.type === "rotate") {
+          restoreImperativeMoveDom(
+            { [state.frameId]: state.originFrame },
+            [state.frameId],
+            "frame",
+          );
+          updateFrameGeometry((current) => ({
+            ...current,
+            [state.frameId]: { ...state.originFrame },
+          }));
+        } else if (
+          state.type === "draft-move" ||
+          state.type === "draft-resize"
+        ) {
+          restoreImperativeMoveDom(
+            state.originDrafts,
+            state.targetIds,
+            "draft",
+          );
+          updateDraftPrimitives((current) =>
+            current.map((draft) => {
+              const origin = state.originDrafts[draft.id];
+              return origin ? cloneDraftPrimitive(origin) : draft;
+            }),
+          );
+        } else if (state.type === "pan") {
+          panRef.current = { ...state.originPan };
+          setPan(panRef.current);
+          applyViewToDomRef.current();
+          recomputePenPointerForViewChangeRef.current();
+        } else if (state.type === "marquee") {
+          marqueeLifecycleRef.current += 1;
+          onLayerMarqueeSelectionChange?.([], {
+            source: "marquee",
+            cancelled: true,
+            restoreHostSelection: true,
+          });
+          updateSelectedIds(() => state.baseSelectedIds, {
+            source: "marquee",
+            additive: state.additive,
+            shiftKey: state.additive,
+            metaKey: state.metaKey,
+            ctrlKey: state.ctrlKey,
+            cancelled: true,
+          });
+          updateSelectedDraftIds(() => state.baseSelectedDraftIds);
+        } else if (state.type === "pen-node") {
+          const restoredPath = state.pathBefore
+            ? clonePenPath(state.pathBefore)
+            : null;
+          activePenPathRef.current = restoredPath;
+          setActivePenPath(restoredPath);
+          setPenGesturePreview(null);
+          setPenPointer(null);
+          setPenCloseHover(false);
+        } else if (
+          state.type === "vector-anchor" ||
+          state.type === "vector-handle" ||
+          state.type === "vector-segment"
+        ) {
+          vectorEdit?.onChange(clonePenPath(state.pathBefore), "commit");
+        }
       }
-      if (
-        state.type === "move" ||
-        state.type === "resize" ||
-        state.type === "group-rotate"
-      ) {
-        restoreImperativeMoveDom(state.originFrames, state.targetIds, "frame");
-        updateFrameGeometry((current) =>
-          frameGeometryWithOverrides(current, state.originFrames),
-        );
-      } else if (state.type === "rotate") {
-        restoreImperativeMoveDom(
-          { [state.frameId]: state.originFrame },
-          [state.frameId],
-          "frame",
-        );
-        updateFrameGeometry((current) => ({
-          ...current,
-          [state.frameId]: { ...state.originFrame },
-        }));
-      } else if (state.type === "draft-move" || state.type === "draft-resize") {
-        restoreImperativeMoveDom(state.originDrafts, state.targetIds, "draft");
-        updateDraftPrimitives((current) =>
-          current.map((draft) => {
-            const origin = state.originDrafts[draft.id];
-            return origin ? cloneDraftPrimitive(origin) : draft;
-          }),
-        );
-      } else if (state.type === "pan") {
-        panRef.current = { ...state.originPan };
-        setPan(panRef.current);
-        applyViewToDomRef.current();
-        recomputePenPointerForViewChangeRef.current();
-      } else if (state.type === "marquee") {
-        marqueeLifecycleRef.current += 1;
-        onLayerMarqueeSelectionChange?.([], {
-          source: "marquee",
-          cancelled: true,
-          restoreHostSelection: true,
-        });
-        updateSelectedIds(() => state.baseSelectedIds, {
-          source: "marquee",
-          additive: state.additive,
-          shiftKey: state.additive,
-          metaKey: state.metaKey,
-          ctrlKey: state.ctrlKey,
-          cancelled: true,
-        });
-        updateSelectedDraftIds(() => state.baseSelectedDraftIds);
-      } else if (state.type === "pen-node") {
-        const restoredPath = state.pathBefore
-          ? clonePenPath(state.pathBefore)
-          : null;
-        activePenPathRef.current = restoredPath;
-        setActivePenPath(restoredPath);
-        setPenGesturePreview(null);
-        setPenPointer(null);
-        setPenCloseHover(false);
-      } else if (
-        state.type === "vector-anchor" ||
-        state.type === "vector-handle" ||
-        state.type === "vector-segment"
-      ) {
-        vectorEdit?.onChange(clonePenPath(state.pathBefore), "commit");
+
+      if (duplicateCleanup.current) {
+        cancelled = true;
+        duplicateCleanup.current();
       }
-    }
 
-    if (duplicateCleanup.current) {
-      cancelled = true;
-      duplicateCleanup.current();
-    }
+      if (!cancelled && boardElementResizeCancel.current) {
+        cancelled = true;
+        boardElementResizeCancel.current(
+          pressedAt ?? performance.timeOrigin + performance.now(),
+        );
+      }
 
-    if (!cancelled && boardElementResizeCancel.current) {
-      cancelled = true;
-      boardElementResizeCancel.current(
-        pressedAt ?? performance.timeOrigin + performance.now(),
-      );
-    }
-
-    if (cancelled || dragCleanup.current) {
-      finishDrag();
-      return true;
-    }
-    return false;
-  }, [
-    finishDrag,
-    getResolvedMetadata,
-    scaleScreenContents,
-    onLayerMarqueeSelectionChange,
-    updateDraftPrimitives,
-    updateFrameGeometry,
-    updateSelectedDraftIds,
-    updateSelectedIds,
-    vectorEdit,
-  ]);
+      if (cancelled || dragCleanup.current) {
+        finishDrag();
+        return true;
+      }
+      return false;
+    },
+    [
+      finishDrag,
+      getResolvedMetadata,
+      scaleScreenContents,
+      onLayerMarqueeSelectionChange,
+      updateDraftPrimitives,
+      updateFrameGeometry,
+      updateSelectedDraftIds,
+      updateSelectedIds,
+      vectorEdit,
+    ],
+  );
 
   useEffect(() => {
     const hostUsesSForIgnoreAutoLayout = () => !isApplePlatform();

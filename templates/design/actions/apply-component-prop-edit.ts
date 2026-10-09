@@ -1191,13 +1191,23 @@ export default defineAction({
             : edit.kind === "structure"
               ? (edit as ComponentStructureEdit)
               : { kind: "resetOverrides" };
-      return persistLinkedComponentEdit({
+      const linkedResult = await persistLinkedComponentEdit({
         designId,
         nodeId,
         fileId,
         edit: linkedEdit,
         expectedFiles: source.expectedFiles,
       });
+      if (
+        !isLinkedComponentAttributeEdit ||
+        linkedResult.transformStatus !== "not-linked"
+      ) {
+        return linkedResult;
+      }
+      // The linked transformer checked the current workspace and exact source
+      // versions. For an unlinked component root, continue through the normal
+      // inline source CAS path below instead of treating the prefix as proof of
+      // a component link.
     }
 
     const conditions = [

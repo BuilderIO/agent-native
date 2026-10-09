@@ -1740,10 +1740,7 @@ export function runUndo({
         if (metadataRestore.skippedVariantMemberships) {
           toast.info(t("designEditor.toasts.undoSkippedConcurrentEdit"));
         }
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "get-design"],
-        });
-
+        // A refetch here can overwrite restored geometry before its queued save finishes.
         const firstRestoredId = recreatedEntry.files[0]?.id;
         if (firstRestoredId) {
           setActiveFileId(firstRestoredId);

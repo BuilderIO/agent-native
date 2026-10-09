@@ -1752,12 +1752,6 @@ test.describe("groups", () => {
       await page
         .locator("iframe[data-design-preview-iframe]")
         .first()
-        .contentFrame()
-        .locator("body")
-        .click({ position: { x: 600, y: 500 } });
-      await page
-        .locator("iframe[data-design-preview-iframe]")
-        .first()
         .screenshot({
           path: testInfo.outputPath("group-fill-text-rendered.png"),
         });
