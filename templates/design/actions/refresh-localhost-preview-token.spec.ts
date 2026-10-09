@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
     id: string;
     previewToken?: string | null;
     bridgeToken?: string | null;
-    bridgeUrl: string;
+    bridgeUrl?: string | null;
   }>,
 }));
 
@@ -579,6 +579,71 @@ describe("refresh-localhost-preview-token", () => {
         },
       },
     });
+  });
+
+  it("rejects a single refresh when the connection has no bridge URL", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("editor@example.com");
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "editor",
+      resource: {
+        visibility: "private",
+        data: JSON.stringify({
+          sourceType: "localhost",
+          connectionId: "conn_2",
+        }),
+      },
+    });
+    mocks.connections = [
+      {
+        id: "conn_2",
+        previewToken: "editor-preview",
+        bridgeUrl: null,
+      },
+    ];
+
+    await expect(
+      action.run({ designId: "design_1", connectionId: "conn_2" }),
+    ).rejects.toMatchObject({
+      errorCode: "localhost_preview_credentials_unavailable",
+      statusCode: 424,
+    });
+  });
+
+  it("marks a bulk refresh unavailable when a token has no bridge URL", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("editor@example.com");
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "editor",
+      resource: {
+        visibility: "private",
+        data: JSON.stringify({
+          sourceType: "localhost",
+          connectionId: "conn_2",
+        }),
+      },
+    });
+    mocks.connections = [
+      {
+        id: "conn_2",
+        previewToken: "editor-preview",
+        bridgeUrl: null,
+      },
+    ];
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionIds: ["conn_2"],
+    });
+
+    expect(result).toEqual({
+      connections: {
+        conn_2: {
+          status: "unavailable",
+          errorCode: "localhost_preview_credentials_unavailable",
+        },
+      },
+    });
+    expect(result.connections?.conn_2).not.toHaveProperty("previewToken");
+    expect(result.connections?.conn_2).not.toHaveProperty("bridgeUrl");
   });
 
   it("rejects a connection that is not part of the design", async () => {

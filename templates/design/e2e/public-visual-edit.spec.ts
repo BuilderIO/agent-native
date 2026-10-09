@@ -945,7 +945,9 @@ test.describe.serial("public visual edit", () => {
       const unavailableAlert = signedOut.page.getByRole("alert").filter({
         hasText: "Localhost previews are not shared with public viewers.",
       });
-      await expect(unavailableAlert).toBeVisible();
+      await expect(unavailableAlert).toHaveCount(2);
+      await expect(unavailableAlert.first()).toBeVisible();
+      await expect(unavailableAlert.nth(1)).toBeVisible();
       await expect(
         unavailableAlert.getByRole("button", { name: /retry/i }),
       ).toHaveCount(0);

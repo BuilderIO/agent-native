@@ -53,7 +53,7 @@ describe("reconciled frame geometry save recovery", () => {
       },
     );
 
-    expect(persisted).toBe(true);
+    expect(persisted).toEqual({ status: "saved" });
     expect(events).toEqual([
       "journal",
       "save",
@@ -63,8 +63,9 @@ describe("reconciled frame geometry save recovery", () => {
     ]);
   });
 
-  it("keeps the current design cache when the reconciled save is still pending", async () => {
+  it("preserves the retry error and current design cache when save is pending", async () => {
     const events: string[] = [];
+    const error = new Error("temporary save failure");
     const persisted = await persistReconciledFrameGeometryEntry(
       createReconciledGeometryEntry(),
       {
@@ -73,7 +74,7 @@ describe("reconciled frame geometry save recovery", () => {
         },
         save: async () => {
           events.push("save");
-          throw new Error("temporary save failure");
+          throw error;
         },
         acknowledge: async () => {
           events.push("acknowledge");
@@ -83,7 +84,7 @@ describe("reconciled frame geometry save recovery", () => {
       },
     );
 
-    expect(persisted).toBe(false);
+    expect(persisted).toEqual({ status: "retry", error });
     expect(events).toEqual(["journal", "save"]);
   });
 });

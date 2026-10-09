@@ -153,6 +153,10 @@ export function createFrameGeometryDataSavePayload(input: {
   };
 }
 
+export type ReconciledFrameGeometrySaveResult =
+  | { status: "saved" }
+  | { status: "retry"; error: unknown };
+
 export async function persistReconciledFrameGeometryEntry(
   entry: DesignSaveOutboxEntry,
   actions: {
@@ -162,17 +166,17 @@ export async function persistReconciledFrameGeometryEntry(
     onSaved: () => void;
     invalidate: () => void;
   },
-): Promise<boolean> {
+): Promise<ReconciledFrameGeometrySaveResult> {
   await actions.journal(entry);
   try {
     await actions.save(entry.payload);
     await actions.acknowledge(entry);
-  } catch {
-    return false;
+  } catch (error: unknown) {
+    return { status: "retry", error };
   }
   actions.onSaved();
   actions.invalidate();
-  return true;
+  return { status: "saved" };
 }
 
 export interface PendingFrameGeometryRestoreClaim {
@@ -637,6 +641,10 @@ export function useEditorActiveScreenAndGeometry({
             );
             let reconciledEntryOwnsInvalidation = false;
             let reconciledEntryWasSaved = false;
+            let reconciledEntryRetryFailure: Extract<
+              ReconciledFrameGeometrySaveResult,
+              { status: "retry" }
+            > | null = null;
             if (
               outboxEntry &&
               rejectedClaims.length > 0 &&
@@ -689,8 +697,9 @@ export function useEditorActiveScreenAndGeometry({
                 pendingOperations;
               if (reconciledEntry) {
                 reconciledEntryOwnsInvalidation = true;
-                reconciledEntryWasSaved =
-                  await persistReconciledFrameGeometryEntry(reconciledEntry, {
+                const saveResult = await persistReconciledFrameGeometryEntry(
+                  reconciledEntry,
+                  {
                     journal: journalOutboxEntry,
                     save: (payload) =>
                       saveDesignDataAsync(
@@ -709,7 +718,12 @@ export function useEditorActiveScreenAndGeometry({
                         queryKey: ["action", "get-design"],
                       });
                     },
-                  });
+                  },
+                );
+                reconciledEntryWasSaved = saveResult.status === "saved";
+                if (saveResult.status === "retry") {
+                  reconciledEntryRetryFailure = saveResult;
+                }
               } else {
                 await acknowledgeFrameGeometryOutboxEntry(outboxEntry);
               }
@@ -719,7 +733,15 @@ export function useEditorActiveScreenAndGeometry({
                 queryKey: ["action", "get-design"],
               });
             }
-            if (!reconciledEntryWasSaved) warnChangesWillRetry();
+            if (!reconciledEntryWasSaved) {
+              if (reconciledEntryRetryFailure) {
+                console.warn(
+                  "Reconciled frame geometry save remains queued for retry.",
+                  reconciledEntryRetryFailure.error,
+                );
+              }
+              warnChangesWillRetry();
+            }
           }
         });
       frameGeometryMutationChainRef.current = current;

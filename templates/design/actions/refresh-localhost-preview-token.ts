@@ -151,9 +151,13 @@ export default defineAction({
 
     const previewTokenForRequest = previewTokenFor;
 
+    const hasRefreshablePreviewCredentials = (
+      connection: (typeof connections)[number],
+    ) => Boolean(previewTokenForRequest(connection) && connection.bridgeUrl);
+
     const credentialsFor = (connection: (typeof connections)[number]) => {
       const previewToken = previewTokenForRequest(connection);
-      if (!previewToken) {
+      if (!previewToken || !connection.bridgeUrl) {
         fail(
           "Read-only public preview credentials are unavailable. Reconnect this Screen, then retry.",
           {
@@ -191,7 +195,7 @@ export default defineAction({
 
     if (connectionId) {
       const connection = connectionById.get(connectionId);
-      if (!connection || !previewTokenForRequest(connection)) {
+      if (!connection || !hasRefreshablePreviewCredentials(connection)) {
         fail(
           "Preview credentials are unavailable for this connection. Reconnect this Screen, then retry.",
           {
@@ -207,7 +211,7 @@ export default defineAction({
       connections: Object.fromEntries(
         requestedConnectionIds.map((requestedId) => {
           const connection = connectionById.get(requestedId);
-          if (!connection || !previewTokenForRequest(connection)) {
+          if (!connection || !hasRefreshablePreviewCredentials(connection)) {
             return [
               requestedId,
               {
