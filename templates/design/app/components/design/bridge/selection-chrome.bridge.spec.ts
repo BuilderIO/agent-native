@@ -512,6 +512,128 @@ describe("editor chrome selection overlays", () => {
     }
   });
 
+  it("refreshes Alt measurements after a selected ancestor moves", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1000, height: 800 },
+      });
+      await page.setContent(`<!doctype html><html><head><style>
+        #selected-grandparent { position:absolute; left:0; top:0; }
+        #selected-grandparent.shifted { left:10px; }
+        #selected-parent { position:relative; width:1000px; height:800px; }
+        #selected { position:absolute; left:200px; top:200px; width:200px; height:120px; background:#d4d4d8; }
+        #hover-parent { position:absolute; left:519px; top:400px; width:200px; }
+        #hovered { width:200px; height:120px; background:#ccc; }
+      </style></head><body style="margin:0">
+        <div id="selected-grandparent">
+          <div id="selected-parent">
+            <div id="selected" data-agent-native-node-id="selected"></div>
+          </div>
+        </div>
+        <div id="hover-parent">
+          <div id="hovered" data-agent-native-node-id="hovered"></div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await select(page, "#selected");
+      await page.keyboard.down("Alt");
+      await page.mouse.move(530, 410, { steps: 3 });
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector(
+          "[data-agent-native-measurement-overlay]",
+        );
+        const labels = [...(overlay?.children ?? [])]
+          .map((node) => node.textContent)
+          .filter(Boolean)
+          .sort();
+        return labels.join(",") === "119,80";
+      });
+
+      await page.locator("#selected-grandparent").evaluate((element) => {
+        element.classList.add("shifted");
+      });
+      await page.waitForFunction(
+        () => {
+          const overlay = document.querySelector(
+            "[data-agent-native-measurement-overlay]",
+          );
+          const labels = [...(overlay?.children ?? [])]
+            .map((node) => node.textContent)
+            .filter(Boolean)
+            .sort();
+          return labels.join(",") === "109,80";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      await page.keyboard.up("Alt");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("refreshes Alt measurements after a nested sibling changes in a distant layout root", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1000, height: 800 },
+      });
+      await page.setContent(`<!doctype html><html><head><style>
+        #layout-root { position:relative; box-sizing:border-box; width:1000px; height:800px; padding-top:20px; display:flex; flex-direction:column; align-items:flex-start; }
+        #selected { position:absolute; left:200px; top:200px; width:200px; height:120px; background:#d4d4d8; }
+        #layout-sibling { display:flow-root; }
+        #layout-content { height:380px; }
+        #layout-content.expanded { height:400px; }
+        #hover-branch { display:flow-root; }
+        #hovered { width:200px; height:120px; margin-left:519px; background:#ccc; }
+      </style></head><body style="margin:0">
+        <div id="layout-root">
+          <div id="selected" data-agent-native-node-id="selected"></div>
+          <div id="layout-sibling"><div id="layout-content"></div></div>
+          <div id="hover-branch">
+            <div id="hovered" data-agent-native-node-id="hovered"></div>
+          </div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await select(page, "#selected");
+      await page.keyboard.down("Alt");
+      await page.mouse.move(520, 410, { steps: 3 });
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector(
+          "[data-agent-native-measurement-overlay]",
+        );
+        const labels = [...(overlay?.children ?? [])]
+          .map((node) => node.textContent)
+          .filter(Boolean)
+          .sort();
+        return labels.join(",") === "119,80";
+      });
+
+      await page.locator("#layout-content").evaluate((element) => {
+        element.classList.add("expanded");
+      });
+      await page.waitForFunction(
+        () => {
+          const overlay = document.querySelector(
+            "[data-agent-native-measurement-overlay]",
+          );
+          const labels = [...(overlay?.children ?? [])]
+            .map((node) => node.textContent)
+            .filter(Boolean)
+            .sort();
+          return labels.join(",") === "100,119";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      await page.keyboard.up("Alt");
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("refreshes Alt measurements when a nested sibling changes in a shared parent", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

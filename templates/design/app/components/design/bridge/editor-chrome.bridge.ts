@@ -12391,15 +12391,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   var overlayResizeObserver: ResizeObserver | null = null;
   var overlayMutationObserver: MutationObserver | null = null;
-  var measurementAncestorMutationObserver: MutationObserver | null = null;
   var observedResizeEls: Element[] = [];
   var observedMutationRoot: Element | null = null;
   var observedMutationTarget: Element | null = null;
   var observedMutationMeasurementTarget: Element | null = null;
   var observedMutationMeasurementParent: Element | null = null;
+  var observedMutationLayoutRoot: Element | null = null;
+  var observedMutationLayoutAncestors: Element[] = [];
   var observedMutationPaintServers: Element[] = [];
   var observedMutationPaintParents: Element[] = [];
-  var observedMeasurementAncestors: Element[] = [];
 
   function ensureOverlayObservers(): void {
     if (!overlayResizeObserver && typeof ResizeObserver !== "undefined") {
@@ -12413,18 +12413,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           scheduleRefreshOverlays();
         }
       });
-    }
-    if (
-      !measurementAncestorMutationObserver &&
-      typeof MutationObserver !== "undefined"
-    ) {
-      measurementAncestorMutationObserver = new MutationObserver(
-        function (records) {
-          if (records.some(overlayMutationRequiresRefresh)) {
-            scheduleRefreshOverlays();
-          }
-        },
-      );
     }
   }
 
@@ -12445,33 +12433,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return true;
   }
 
-  function measurementAncestorMutationTargets(
-    measurementParent: Element | null,
-    documentElement: Element | null,
-  ): Element[] {
-    var ancestors: Element[] = [];
-    if (!measurementParent) return ancestors;
-    var ancestor = measurementParent.parentElement;
+  function measurementLayoutRoot(
+    selected: Element | null,
+    target: Element | null,
+  ): Element | null {
+    if (!selected || !target) return null;
+    var ancestor: Element | null = target;
     while (ancestor) {
-      ancestors.push(ancestor);
-      if (ancestor === documentElement) break;
+      if (ancestor.contains(selected)) return ancestor;
       ancestor = ancestor.parentElement;
     }
-    return ancestors;
+    return null;
   }
 
-  function observeMeasurementAncestorChain(
-    observer: MutationObserver,
-    ancestors: Element[],
-  ): Element[] {
-    ancestors.forEach(function (ancestor) {
-      observer.observe(ancestor, {
-        attributes: true,
-        attributeFilter: ["class", "style"],
-        childList: true,
-        subtree: false,
-      });
-    });
+  function measurementLayoutAncestors(root: Element | null): Element[] {
+    var ancestors: Element[] = [];
+    var ancestor = root ? root.parentElement : null;
+    while (ancestor) {
+      ancestors.push(ancestor);
+      if (ancestor === document.documentElement) break;
+      ancestor = ancestor.parentElement;
+    }
     return ancestors;
   }
 
@@ -12513,6 +12495,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var nextMeasurementParent = nextMeasurementTarget
       ? nextMeasurementTarget.parentElement
       : null;
+    var nextLayoutRoot = measurementLayoutRoot(
+      selectedEl && document.documentElement.contains(selectedEl)
+        ? selectedEl
+        : null,
+      nextMeasurementTarget,
+    );
+    var nextLayoutAncestors = measurementLayoutAncestors(nextLayoutRoot);
     if (overlayMutationObserver) {
       var nextRoot: Element | null =
         selectedEl && document.documentElement.contains(selectedEl)
@@ -12552,6 +12541,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         nextTarget !== observedMutationTarget ||
         nextMeasurementTarget !== observedMutationMeasurementTarget ||
         nextMeasurementParent !== observedMutationMeasurementParent ||
+        nextLayoutRoot !== observedMutationLayoutRoot ||
+        nextLayoutAncestors.length !== observedMutationLayoutAncestors.length ||
+        nextLayoutAncestors.some(function (ancestor, index) {
+          return observedMutationLayoutAncestors[index] !== ancestor;
+        }) ||
         paintServersChanged ||
         paintParentsChanged
       ) {
@@ -12609,31 +12603,29 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             subtree: true,
           });
         }
+        nextLayoutAncestors.forEach(function (ancestor) {
+          overlayMutationObserver!.observe(ancestor, {
+            attributes: true,
+            attributeFilter: ["class", "style"],
+            childList: true,
+          });
+        });
+        if (nextLayoutRoot) {
+          overlayMutationObserver.observe(nextLayoutRoot, {
+            attributes: true,
+            attributeFilter: ["class", "style"],
+            childList: true,
+            subtree: true,
+          });
+        }
         observedMutationRoot = nextRoot;
         observedMutationTarget = nextTarget;
         observedMutationMeasurementTarget = nextMeasurementTarget;
         observedMutationMeasurementParent = nextMeasurementParent;
+        observedMutationLayoutRoot = nextLayoutRoot;
+        observedMutationLayoutAncestors = nextLayoutAncestors;
         observedMutationPaintServers = nextPaintServers;
         observedMutationPaintParents = nextPaintParents;
-      }
-    }
-    if (measurementAncestorMutationObserver) {
-      var nextMeasurementAncestors = measurementAncestorMutationTargets(
-        nextMeasurementParent,
-        document.documentElement,
-      );
-      var measurementAncestorsChanged =
-        nextMeasurementAncestors.length !==
-          observedMeasurementAncestors.length ||
-        nextMeasurementAncestors.some(function (ancestor, index) {
-          return observedMeasurementAncestors[index] !== ancestor;
-        });
-      if (measurementAncestorsChanged) {
-        measurementAncestorMutationObserver.disconnect();
-        observedMeasurementAncestors = observeMeasurementAncestorChain(
-          measurementAncestorMutationObserver,
-          nextMeasurementAncestors,
-        );
       }
     }
   }

@@ -9910,15 +9910,15 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var overlayResizeObserver = null;
     var overlayMutationObserver = null;
-    var measurementAncestorMutationObserver = null;
     var observedResizeEls = [];
     var observedMutationRoot = null;
     var observedMutationTarget = null;
     var observedMutationMeasurementTarget = null;
     var observedMutationMeasurementParent = null;
+    var observedMutationLayoutRoot = null;
+    var observedMutationLayoutAncestors = [];
     var observedMutationPaintServers = [];
     var observedMutationPaintParents = [];
-    var observedMeasurementAncestors = [];
     function ensureOverlayObservers() {
       if (!overlayResizeObserver && typeof ResizeObserver !== "undefined") {
         overlayResizeObserver = new ResizeObserver(function() {
@@ -9931,15 +9931,6 @@ export const editorChromeBridgeScript: string = `"use strict";
             scheduleRefreshOverlays();
           }
         });
-      }
-      if (!measurementAncestorMutationObserver && typeof MutationObserver !== "undefined") {
-        measurementAncestorMutationObserver = new MutationObserver(
-          function(records) {
-            if (records.some(overlayMutationRequiresRefresh)) {
-              scheduleRefreshOverlays();
-            }
-          }
-        );
       }
     }
     function overlayMutationRequiresRefresh(record) {
@@ -9955,26 +9946,23 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return true;
     }
-    function measurementAncestorMutationTargets(measurementParent, documentElement) {
-      var ancestors = [];
-      if (!measurementParent) return ancestors;
-      var ancestor = measurementParent.parentElement;
+    function measurementLayoutRoot(selected, target) {
+      if (!selected || !target) return null;
+      var ancestor = target;
       while (ancestor) {
-        ancestors.push(ancestor);
-        if (ancestor === documentElement) break;
+        if (ancestor.contains(selected)) return ancestor;
         ancestor = ancestor.parentElement;
       }
-      return ancestors;
+      return null;
     }
-    function observeMeasurementAncestorChain(observer, ancestors) {
-      ancestors.forEach(function(ancestor) {
-        observer.observe(ancestor, {
-          attributes: true,
-          attributeFilter: ["class", "style"],
-          childList: true,
-          subtree: false
-        });
-      });
+    function measurementLayoutAncestors(root) {
+      var ancestors = [];
+      var ancestor = root ? root.parentElement : null;
+      while (ancestor) {
+        ancestors.push(ancestor);
+        if (ancestor === document.documentElement) break;
+        ancestor = ancestor.parentElement;
+      }
       return ancestors;
     }
     function syncOverlayObservers() {
@@ -10002,6 +9990,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var nextMeasurementTarget = measurementModifierActive && measurementTargetEl && document.documentElement.contains(measurementTargetEl) ? measurementTargetEl : null;
       var nextMeasurementParent = nextMeasurementTarget ? nextMeasurementTarget.parentElement : null;
+      var nextLayoutRoot = measurementLayoutRoot(
+        selectedEl && document.documentElement.contains(selectedEl) ? selectedEl : null,
+        nextMeasurementTarget
+      );
+      var nextLayoutAncestors = measurementLayoutAncestors(nextLayoutRoot);
       if (overlayMutationObserver) {
         var nextRoot = selectedEl && document.documentElement.contains(selectedEl) ? selectedEl.parentElement || selectedEl : null;
         var nextTarget = selectedEl && document.documentElement.contains(selectedEl) ? selectedEl : null;
@@ -10019,7 +10012,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         var paintParentsChanged = nextPaintParents.length !== observedMutationPaintParents.length || nextPaintParents.some(function(parent, index) {
           return observedMutationPaintParents[index] !== parent;
         });
-        if (nextRoot !== observedMutationRoot || nextTarget !== observedMutationTarget || nextMeasurementTarget !== observedMutationMeasurementTarget || nextMeasurementParent !== observedMutationMeasurementParent || paintServersChanged || paintParentsChanged) {
+        if (nextRoot !== observedMutationRoot || nextTarget !== observedMutationTarget || nextMeasurementTarget !== observedMutationMeasurementTarget || nextMeasurementParent !== observedMutationMeasurementParent || nextLayoutRoot !== observedMutationLayoutRoot || nextLayoutAncestors.length !== observedMutationLayoutAncestors.length || nextLayoutAncestors.some(function(ancestor, index) {
+          return observedMutationLayoutAncestors[index] !== ancestor;
+        }) || paintServersChanged || paintParentsChanged) {
           overlayMutationObserver.disconnect();
           if (nextRoot) {
             overlayMutationObserver.observe(nextRoot, {
@@ -10063,28 +10058,29 @@ export const editorChromeBridgeScript: string = `"use strict";
               subtree: true
             });
           }
+          nextLayoutAncestors.forEach(function(ancestor) {
+            overlayMutationObserver.observe(ancestor, {
+              attributes: true,
+              attributeFilter: ["class", "style"],
+              childList: true
+            });
+          });
+          if (nextLayoutRoot) {
+            overlayMutationObserver.observe(nextLayoutRoot, {
+              attributes: true,
+              attributeFilter: ["class", "style"],
+              childList: true,
+              subtree: true
+            });
+          }
           observedMutationRoot = nextRoot;
           observedMutationTarget = nextTarget;
           observedMutationMeasurementTarget = nextMeasurementTarget;
           observedMutationMeasurementParent = nextMeasurementParent;
+          observedMutationLayoutRoot = nextLayoutRoot;
+          observedMutationLayoutAncestors = nextLayoutAncestors;
           observedMutationPaintServers = nextPaintServers;
           observedMutationPaintParents = nextPaintParents;
-        }
-      }
-      if (measurementAncestorMutationObserver) {
-        var nextMeasurementAncestors = measurementAncestorMutationTargets(
-          nextMeasurementParent,
-          document.documentElement
-        );
-        var measurementAncestorsChanged = nextMeasurementAncestors.length !== observedMeasurementAncestors.length || nextMeasurementAncestors.some(function(ancestor, index) {
-          return observedMeasurementAncestors[index] !== ancestor;
-        });
-        if (measurementAncestorsChanged) {
-          measurementAncestorMutationObserver.disconnect();
-          observedMeasurementAncestors = observeMeasurementAncestorChain(
-            measurementAncestorMutationObserver,
-            nextMeasurementAncestors
-          );
         }
       }
     }

@@ -952,7 +952,12 @@ function VectorStrokeProperties({
     element.inlineStyles?.["--an-vector-stroke-gradient"] ||
     styles["--an-vector-stroke-gradient"];
   const width = styles.strokeWidth || "0px";
-  const isMixed = [styles.stroke, styles.strokeWidth].some(isMixedValue);
+  const isMixed = [
+    styles.stroke,
+    styles.strokeWidth,
+    element.inlineStyles?.["--an-vector-stroke-gradient"],
+    styles["--an-vector-stroke-gradient"],
+  ].some(isMixedValue);
   const strokeExists = vectorStrokeExists(stroke);
   const visible = strokeGradient
     ? cssLengthNumber(width) > 0 && stroke !== "transparent"

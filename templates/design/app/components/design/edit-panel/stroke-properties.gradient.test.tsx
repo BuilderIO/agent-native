@@ -83,6 +83,67 @@ describe("vector stroke gradient inspector", () => {
     );
   });
 
+  it.each(["inlineStyles", "computedStyles"] as const)(
+    "shows the mixed-content state when selected vectors have differing gradient metadata in %s",
+    (gradientSource) => {
+      const gradientProperty = "--an-vector-stroke-gradient";
+      const makeVector = (
+        tagName: "path" | "rect",
+        primitiveKind: "path" | "rect",
+        gradient: string,
+        x: number,
+      ) =>
+        ({
+          tagName,
+          primitiveKind,
+          classes: [],
+          computedStyles: {
+            stroke: "#111827",
+            strokeWidth: "2px",
+            ...(gradientSource === "computedStyles"
+              ? { [gradientProperty]: gradient }
+              : {}),
+          },
+          ...(gradientSource === "inlineStyles"
+            ? { inlineStyles: { [gradientProperty]: gradient } }
+            : {}),
+          boundingRect: { x, y: 0, width: 80, height: 60 },
+          isFlexChild: false,
+          isFlexContainer: false,
+        }) as ElementInfo;
+      const selected = mixedElementFromSelection([
+        makeVector(
+          "path",
+          "path",
+          "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+          0,
+        ),
+        makeVector(
+          "rect",
+          "rect",
+          "linear-gradient(90deg, #00ff00 0%, #0000ff 100%)",
+          100,
+        ),
+      ]);
+      const selectedGradient =
+        gradientSource === "inlineStyles"
+          ? selected?.inlineStyles?.[gradientProperty]
+          : selected?.computedStyles[gradientProperty];
+      const markup = renderToStaticMarkup(
+        createElement(StrokeProperties, {
+          element: selected!,
+          onStyleChange: vi.fn(),
+        }),
+      );
+
+      expect(selected?.computedStyles.stroke).toBe("#111827");
+      expect(selected?.computedStyles.strokeWidth).toBe("2px");
+      expect(selectedGradient).toBe("Mixed");
+      expect(markup).toContain("Click + to replace mixed content");
+      expect(markup).not.toContain('data-testid="vector-stroke-paint"');
+    },
+  );
+
   it("adds SVG stroke styles to a mixed selection of vector shape tags", async () => {
     const selected = mixedElementFromSelection([
       {
@@ -139,7 +200,12 @@ describe("vector stroke gradient inspector", () => {
       {
         tagName: "div",
         classes: [],
-        computedStyles: { borderWidth: "0px", borderStyle: "none" },
+        computedStyles: {
+          borderWidth: "0px",
+          borderStyle: "none",
+          stroke: "#111827",
+          strokeWidth: "2px",
+        },
         boundingRect: { x: 0, y: 0, width: 80, height: 60 },
         isFlexChild: false,
         isFlexContainer: false,
@@ -148,12 +214,24 @@ describe("vector stroke gradient inspector", () => {
         tagName: "path",
         primitiveKind: "path",
         classes: [],
-        computedStyles: { borderWidth: "0px", borderStyle: "none" },
+        computedStyles: {
+          borderWidth: "0px",
+          borderStyle: "none",
+          stroke: "#111827",
+          strokeWidth: "2px",
+        },
+        inlineStyles: {
+          "--an-vector-stroke-gradient":
+            "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+        },
         boundingRect: { x: 100, y: 0, width: 80, height: 60 },
         isFlexChild: false,
         isFlexContainer: false,
       } as ElementInfo,
     ]);
+    expect(selected?.inlineStyles?.["--an-vector-stroke-gradient"]).toBe(
+      "Mixed",
+    );
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
