@@ -22,7 +22,7 @@ export const APP_BAND_GAP = 160;
 export const APP_BAND_HEADER_HEIGHT = 40;
 export const APP_BAND_TOP = 64;
 export const ELBOW_OFFSET = 48;
-export const LABEL_WIDTH = 60;
+export const LABEL_WIDTH = 112;
 export const LABEL_HEIGHT = 22;
 
 export interface Rect {
