@@ -142,8 +142,9 @@ function replayEndpointFromAnalyticsEndpoint(
     let url: URL;
     try {
       url = new URL(endpoint);
-    } catch {
-      return undefined;
+    } catch (error) {
+      if (error instanceof TypeError) return undefined;
+      throw error;
     }
     if (url.pathname.endsWith("/api/analytics/track")) {
       url.pathname = url.pathname.replace(
