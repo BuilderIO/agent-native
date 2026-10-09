@@ -4,6 +4,8 @@ export interface JourneyCanvasMessages {
   sessionsOfAppRoot: string;
   sessionsOfPrevious: string;
   sessionsOfParent: string;
+  observedContinuation: string;
+  observedBranchLabel: string;
   sessionsOfStep: string;
   partialSample: string;
   continuedOnUnpictured: string;
@@ -46,6 +48,9 @@ export interface JourneyCanvasMessages {
   replayDetails: string;
   sourceApp: string;
   route: string;
+  routeUnavailable: string;
+  captureSourceFingerprint: string;
+  captureSourceUnavailable: string;
   recordingStarted: string;
   appBandHeading: string;
   journeyTitleSummary: string;
@@ -62,6 +67,8 @@ export const enUSJourneyCanvasMessages: JourneyCanvasMessages = {
     "{count} sessions · {percent} of {app} cohort (n={rootCount})",
   sessionsOfPrevious: "{count} sessions · {percent} of previous",
   sessionsOfParent: "{count} sessions · {percent} of {label}",
+  observedContinuation: "Same recording",
+  observedBranchLabel: "{label} · {percent}",
   sessionsOfStep: "{count} sessions · {percent} of this step",
   partialSample: "partial sample",
   continuedOnUnpictured:
@@ -105,7 +112,10 @@ export const enUSJourneyCanvasMessages: JourneyCanvasMessages = {
   actorUnavailable: "Actor unavailable",
   replayDetails: "Replay and source details",
   sourceApp: "Source app",
-  route: "Captured route",
+  route: "Current route at capture",
+  routeUnavailable: "not verified in replay",
+  captureSourceFingerprint: "Capture-source fingerprint",
+  captureSourceUnavailable: "not recorded",
   recordingStarted: "Recording started",
   appBandHeading: "{app} · {count} sessions",
   journeyTitleSummary: "{app} · {from} to {to} · {count} sessions{partial}",

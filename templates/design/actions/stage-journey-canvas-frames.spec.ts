@@ -106,7 +106,11 @@ const pngHeader = (width: number, height: number) => {
   return header;
 };
 
-function input(image = png(4, 3)) {
+function input(
+  image = png(4, 3),
+  route: string | null = "/home",
+  captureSourceFingerprint: string | null = null,
+) {
   return {
     designId: "design-1",
     importId: "import-1",
@@ -116,7 +120,8 @@ function input(image = png(4, 3)) {
         frameKey: "node-1\u00000",
         replayId: "replay-1",
         app: "slides",
-        route: "/home",
+        route,
+        captureSourceFingerprint,
         offsetMs: 1200,
         width: 4,
         height: 3,
@@ -133,6 +138,7 @@ function stagedRow(sizeBytes: number, boardFileId: string) {
     boardFileId,
     app: "journey-canvas-stage:v2:existing-marker",
     route: "/home",
+    captureSourceFingerprint: null,
     replayId: "existing-replay",
     capturedAt: "2026-10-08T12:00:00.000Z",
     offsetMs: 1_000,
@@ -285,9 +291,48 @@ describe("stage-journey-canvas-frames", () => {
     expect(result.stagedFrames[0]?.stagedFrameId).toMatch(/^jcu_/);
     expect(result.stagedFrames[0]?.frameKey).toBe("node-1\u00000");
     expect(mocks.row?.route).toBe("/home");
+    expect(mocks.row?.captureSourceFingerprint).toBeNull();
     expect(mocks.row?.blobHandle).toContain("private-blob-1");
     expect(JSON.stringify(mocks.row)).not.toContain("node-1");
     expect(mocks.blobWriteInDesignMutation).toBe(false);
+  });
+
+  it("stages an unknown current route and source fingerprint as explicit nulls", async () => {
+    const result = (await run(input(png(4, 3), null, null))) as {
+      stagedFrames: Array<{
+        route: string | null;
+        captureSourceFingerprint: string | null;
+      }>;
+    };
+
+    expect(mocks.row?.route).toBeNull();
+    expect(mocks.row?.captureSourceFingerprint).toBeNull();
+    expect(result.stagedFrames[0]).toMatchObject({
+      route: null,
+      captureSourceFingerprint: null,
+    });
+    expect(
+      (action as any).schema.safeParse({
+        ...input(),
+        frames: [
+          {
+            ...input().frames[0],
+            captureSourceFingerprint: "not-a-sha256",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a retry that changes the capture-source fingerprint", async () => {
+    await run(input(png(4, 3), "/home", "a".repeat(64)));
+
+    await expect(
+      run(input(png(4, 3), "/home", "b".repeat(64))),
+    ).rejects.toMatchObject({
+      errorCode: "journey_frame_idempotency_conflict",
+      statusCode: 409,
+    });
   });
 
   it("returns the same staged id without another blob write on an identical retry", async () => {

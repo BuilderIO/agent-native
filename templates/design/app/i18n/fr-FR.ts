@@ -6,6 +6,8 @@ export default {
       "{count} sessions · {percent} de la cohorte {app} (n={rootCount})",
     sessionsOfPrevious: "{count} sessions · {percent} de l’étape précédente",
     sessionsOfParent: "{count} sessions · {percent} de {label}",
+    observedContinuation: "Même enregistrement",
+    observedBranchLabel: "{label} · {percent}",
     sessionsOfStep: "{count} sessions · {percent} de cette étape",
     partialSample: "échantillon partiel",
     continuedOnUnpictured:
@@ -49,7 +51,10 @@ export default {
     actorUnavailable: "Acteur indisponible",
     replayDetails: "Détails de relecture et de source",
     sourceApp: "Application source",
-    route: "Route capturée",
+    route: "Route actuelle lors de la capture",
+    routeUnavailable: "non vérifiée dans la relecture",
+    captureSourceFingerprint: "Empreinte de la source de capture",
+    captureSourceUnavailable: "non enregistrée",
     recordingStarted: "Début de l’enregistrement",
     appBandHeading: "{app} · {count} sessions",
     journeyTitleSummary:

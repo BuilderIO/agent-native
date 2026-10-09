@@ -6,6 +6,8 @@ export default {
       "{count} セッション · {app} コホートの {percent}（n={rootCount}）",
     sessionsOfPrevious: "{count} セッション · 前のステップの {percent}",
     sessionsOfParent: "{count} セッション · {label} の {percent}",
+    observedContinuation: "同じ録画",
+    observedBranchLabel: "{label} · {percent}",
     sessionsOfStep: "{count} セッション · このステップの {percent}",
     partialSample: "一部のサンプル",
     continuedOnUnpictured:
@@ -48,7 +50,10 @@ export default {
     actorUnavailable: "実行者情報なし",
     replayDetails: "リプレイとソースの詳細",
     sourceApp: "ソースアプリ",
-    route: "キャプチャ時のルート",
+    route: "キャプチャ時の現在のルート",
+    routeUnavailable: "リプレイで未検証",
+    captureSourceFingerprint: "キャプチャ元のフィンガープリント",
+    captureSourceUnavailable: "記録なし",
     recordingStarted: "録画開始時刻",
     appBandHeading: "{app} · {count} セッション",
     journeyTitleSummary:

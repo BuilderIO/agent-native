@@ -26,8 +26,12 @@ sizes and persists the whole tree in one transaction.
    `screenshotOffsetMs` when known; replay observation time is derived only from
    those exact recording values. Analytics `example.offsetMs` includes a settle
    interval and is shown as a nominal checkpoint seek target, never used to
-   infer recording start or replay observation time. Pass the actual replay
-   `route` for staged frames; do not derive it from the journey node key.
+   infer recording start or replay observation time. For staged frames, pass
+   `route` as the verified current route or explicit `null` when the replay
+   export does not establish it. Never substitute the initial Meta href or
+   derive the route from the journey node key. Pass `captureSourceFingerprint`
+   when available and explicit `null` when it was not captured; its absence
+   does not block an otherwise valid private screenshot.
    When a frame has reviewed context, add it to that frame's `caption`
    (`observedState` for the UI actually visible, `outputTitle`, recorded `actor`
    and `actorSource`, `dateLabel`,
@@ -45,6 +49,16 @@ sizes and persists the whole tree in one transaction.
    edge percentages, and drop-off stub are suppressed. Keep examples and frames
    paired by `exampleIndex` so chronological screenshots retain their event,
    recording, replay-offset, and capture-time provenance.
+   To label observed order between two frames, use `observedContinuations` only
+   for a direct parent edge whose destination is reference-only. The source may
+   be a canonical cohort node only when `fromExampleIndex` selects that exact
+   node example; this anchors the observed replay sequence without changing
+   cohort counts or adding a cohort transition. Otherwise the source is also a
+   reference-only node. Both private frames must bind to their selected examples
+   from the same session and recording, with the same recording start and
+   strictly increasing actual screenshot seek offsets. The dashed edge reads
+   “Same recording” and has no cohort percentage. It describes replay order,
+   not a causal transition.
    For large native-PNG imports, create the Design once, then call
    `stage-journey-canvas-frames` with a stable `importId` and batches of up to
    eight frames. Use the same stable `frameKey` (`nodeKey`, NUL, `exampleIndex`)
