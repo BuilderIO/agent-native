@@ -533,7 +533,9 @@ test("stylesheet-backed Fill stays editable after Layers reselection and undo", 
     await expect(selected).toBeVisible();
     const fillHeading = page.getByRole("heading", { name: /^Fill$/i });
     const fill = page.locator("section").filter({ has: fillHeading }).first();
-    await expect(fill).toContainText("0F766E");
+    await expect(
+      fill.getByRole("textbox", { name: "Color", exact: true }),
+    ).toHaveValue("0F766E");
     await fill.getByRole("button", { name: "Open color picker" }).click();
     const hex = page.getByRole("textbox", { name: "Hex", exact: true });
     await expect(hex).toHaveValue("0F766E");

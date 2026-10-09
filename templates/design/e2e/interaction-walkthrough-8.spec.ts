@@ -6,6 +6,7 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { buildCodeLayerProjection } from "../shared/code-layer";
 import { e2eBaseURL } from "./base-url";
 import { expandAllLayers, gotoEditor } from "./helpers";
 
@@ -217,32 +218,77 @@ async function focusCanvas(page: Page): Promise<void> {
 }
 
 async function emptyBoardPoint(page: Page, offset = { x: 0, y: 0 }) {
-  const point = await page.evaluate((off) => {
-    const world = document.querySelector("[data-multi-screen-canvas-world]");
-    const surface = (world?.parentElement ?? world) as HTMLElement | null;
-    if (!surface) return null;
-    const r = surface.getBoundingClientRect();
-    const cards = Array.from(
-      document.querySelectorAll("[data-screen-iframe-id]"),
-    ).map((el) => el.getBoundingClientRect());
-    for (let y = r.top + 60 + off.y; y < r.bottom - 60; y += 40) {
-      for (let x = r.left + 60 + off.x; x < r.right - 60; x += 40) {
-        if (
-          cards.some(
-            (c) =>
-              x >= c.left - 24 &&
-              x <= c.right + 24 &&
-              y >= c.top - 24 &&
-              y <= c.bottom + 24,
-          )
-        )
-          continue;
-        const hit = document.elementFromPoint(x, y);
-        if (hit && surface.contains(hit)) return { x, y };
-      }
+  const boardIframes = page.locator(
+    "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+  );
+  const boardFrameBoxes: Array<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }> = [];
+  for (
+    let iframeIndex = 0;
+    iframeIndex < (await boardIframes.count());
+    iframeIndex += 1
+  ) {
+    const frames = boardIframes
+      .nth(iframeIndex)
+      .contentFrame()
+      .locator('[data-an-primitive="frame"]');
+    for (
+      let frameIndex = 0;
+      frameIndex < (await frames.count());
+      frameIndex += 1
+    ) {
+      const box = await frames.nth(frameIndex).boundingBox();
+      if (box) boardFrameBoxes.push(box);
     }
-    return null;
-  }, offset);
+  }
+  const point = await page.evaluate(
+    ({ offsetX, offsetY, boardFrameBoxes }) => {
+      const world = document.querySelector("[data-multi-screen-canvas-world]");
+      const surface = (world?.parentElement ?? world) as HTMLElement | null;
+      if (!surface) return null;
+      const r = surface.getBoundingClientRect();
+      const cards = Array.from(
+        document.querySelectorAll("[data-screen-iframe-id]"),
+      ).map((el) => el.getBoundingClientRect());
+      for (let y = r.top + 60 + offsetY; y < r.bottom - 60; y += 40) {
+        for (let x = r.left + 60 + offsetX; x < r.right - 60; x += 40) {
+          if (
+            cards.some(
+              (c) =>
+                x >= c.left - 24 &&
+                x <= c.right + 24 &&
+                y >= c.top - 24 &&
+                y <= c.bottom + 24,
+            )
+          )
+            continue;
+          if (
+            boardFrameBoxes.some(
+              (frame) =>
+                x >= frame.x - 24 &&
+                x <= frame.x + frame.width + 24 &&
+                y >= frame.y - 24 &&
+                y <= frame.y + frame.height + 24,
+            )
+          ) {
+            continue;
+          }
+          const hit = document.elementFromPoint(x, y);
+          if (hit && surface.contains(hit)) return { x, y };
+        }
+      }
+      return null;
+    },
+    {
+      offsetX: offset.x,
+      offsetY: offset.y,
+      boardFrameBoxes,
+    },
+  );
   if (!point) throw new Error("no empty canvas point found at this viewport");
   return point;
 }
@@ -261,6 +307,19 @@ async function pickFrameMode(page: Page, mode: "Frame" | "Screen") {
 
 async function boardHtml(request: APIRequestContext, designId: string) {
   return fileContent(request, designId, "__board__.html");
+}
+
+async function boardSourceFile(request: APIRequestContext, designId: string) {
+  const record = await designRecord(request, designId);
+  const file = record.files?.find(
+    (candidate: { filename: string }) =>
+      candidate.filename === "__board__.html",
+  );
+  if (!file) throw new Error(`no board file in design ${designId}`);
+  if (typeof file.id !== "string" || typeof file.content !== "string") {
+    throw new Error(`board file in design ${designId} is incomplete`);
+  }
+  return { fileId: file.id, content: file.content };
 }
 
 async function drawBoardFrame(
@@ -301,7 +360,7 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     designId = "";
   });
 
-  test("steps 1-2 [overview, outside any screen]: Section tool has no equivalent; Frame Selection is the closest wrap-and-rename primitive but is coded to code-layer nodes, not board objects", async ({
+  test("Frame Selection wraps independent board frames and supports undo/redo", async ({
     page,
     request,
   }) => {
@@ -339,11 +398,26 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       x: p2.x + 120,
       y: p2.y + 80,
     });
-    const boardBefore = await boardHtml(request, designId);
+    const boardBefore = await boardSourceFile(request, designId);
     const frameCountBefore = (
-      boardBefore.match(/data-an-primitive="frame"/g) ?? []
+      boardBefore.content.match(/data-an-primitive="frame"/g) ?? []
     ).length;
     expect(frameCountBefore).toBe(2);
+    const source = {
+      kind: "design-file" as const,
+      fileId: boardBefore.fileId,
+    };
+    const frameNodesBefore = buildCodeLayerProjection(boardBefore.content, {
+      source,
+    }).nodes.filter(
+      (node) => node.dataAttributes["data-an-primitive"] === "frame",
+    );
+    expect(frameNodesBefore).toHaveLength(2);
+    const originalParentId = frameNodesBefore[0]?.parentId;
+    expect(
+      frameNodesBefore[1]?.parentId,
+      `expected independent board frame siblings: ${JSON.stringify(frameNodesBefore.map(({ id, parentId, path }) => ({ id, parentId, path })))}`,
+    ).toBe(originalParentId);
 
     await page
       .locator('[data-design-bottom-toolbar] button[aria-label="Move"]')
@@ -369,17 +443,82 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     await page.waitForTimeout(400);
     await page.evaluate(() => (window as any).__designTrace?.clear?.());
     await page.keyboard.press(`${MOD}+Alt+g`);
-    await page.waitForTimeout(600);
+    await expect
+      .poll(
+        async () =>
+          (await boardHtml(request, designId)).match(
+            /data-an-primitive="frame"/g,
+          )?.length ?? 0,
+      )
+      .toBe(frameCountBefore + 1);
 
-    const boardAfter = await boardHtml(request, designId);
-    const frameCountAfter = (
-      boardAfter.match(/data-an-primitive="frame"/g) ?? []
-    ).length;
-    expect(
-      frameCountAfter,
-      `Frame Selection (⌥⌘G) over two free-floating board frames should add one wrapping frame like it does for code-layer siblings — trace: ${JSON.stringify(await dump(page))}. ` +
-        `before=${frameCountBefore} after=${frameCountAfter}`,
-    ).toBe(frameCountBefore + 1);
+    const boardAfter = await boardSourceFile(request, designId);
+    const frameNodesAfter = buildCodeLayerProjection(boardAfter.content, {
+      source,
+    }).nodes.filter(
+      (node) => node.dataAttributes["data-an-primitive"] === "frame",
+    );
+    expect(frameNodesAfter).toHaveLength(frameCountBefore + 1);
+    const wrappers = frameNodesAfter.filter(
+      (candidate) =>
+        frameNodesAfter.filter((child) => child.parentId === candidate.id)
+          .length === 2,
+    );
+    expect(wrappers).toHaveLength(1);
+    const wrapper = wrappers[0];
+    expect(wrapper).toBeDefined();
+    if (!wrapper) throw new Error("Frame Selection did not persist a wrapper");
+    expect(wrapper.parentId).toBe(originalParentId);
+
+    await focusCanvas(page);
+    await page.keyboard.press(`${MOD}+z`);
+    await expect
+      .poll(
+        async () =>
+          (await boardHtml(request, designId)).match(
+            /data-an-primitive="frame"/g,
+          )?.length ?? 0,
+      )
+      .toBe(frameCountBefore);
+    const boardAfterUndo = await boardSourceFile(request, designId);
+    const frameNodesAfterUndo = buildCodeLayerProjection(
+      boardAfterUndo.content,
+      { source },
+    ).nodes.filter(
+      (node) => node.dataAttributes["data-an-primitive"] === "frame",
+    );
+    expect(frameNodesAfterUndo).toHaveLength(2);
+    expect(frameNodesAfterUndo[0]?.parentId).toBe(originalParentId);
+    expect(frameNodesAfterUndo[1]?.parentId).toBe(originalParentId);
+
+    await focusCanvas(page);
+    await page.keyboard.press(`${MOD}+Shift+z`);
+    await expect
+      .poll(
+        async () =>
+          (await boardHtml(request, designId)).match(
+            /data-an-primitive="frame"/g,
+          )?.length ?? 0,
+      )
+      .toBe(frameCountBefore + 1);
+    const boardAfterRedo = await boardSourceFile(request, designId);
+    const frameNodesAfterRedo = buildCodeLayerProjection(
+      boardAfterRedo.content,
+      { source },
+    ).nodes.filter(
+      (node) => node.dataAttributes["data-an-primitive"] === "frame",
+    );
+    expect(frameNodesAfterRedo).toHaveLength(frameCountBefore + 1);
+    const redoneWrappers = frameNodesAfterRedo.filter(
+      (candidate) =>
+        frameNodesAfterRedo.filter((child) => child.parentId === candidate.id)
+          .length === 2,
+    );
+    expect(redoneWrappers).toHaveLength(1);
+    const redoneWrapper = redoneWrappers[0];
+    expect(redoneWrapper).toBeDefined();
+    if (!redoneWrapper) throw new Error("Redo did not restore the wrapper");
+    expect(redoneWrapper.parentId).toBe(originalParentId);
   });
 
   test("step 3 [overview, outside any screen]: stripping a board component's white fill via the inspector (peer-owned)", async ({
