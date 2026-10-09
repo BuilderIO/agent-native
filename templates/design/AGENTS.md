@@ -5,7 +5,7 @@ actions against shared SQL state.
 
 ## Skills
 
-Read guides first:
+Read the guide that matches the task before deeper work:
 - `.agents/skills/design-generation/SKILL.md` — for generation, adaptation, and readiness checks.
 - `.agents/skills/design-templates/SKILL.md` — when reusing existing Design work.
 - `.agents/skills/responsive-breakpoints/SKILL.md` — for breakpoint editing.
