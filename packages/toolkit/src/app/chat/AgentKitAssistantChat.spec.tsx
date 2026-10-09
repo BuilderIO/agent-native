@@ -333,6 +333,7 @@ vi.mock("@agent-native/toolkit/composer", async () => {
     readAgentPromptAttachment: promptAttachments.readAgentPromptAttachment,
     snapshotComposerContextItems: contextItems.snapshotComposerContextItems,
     composerContextFits: contextItems.composerContextFits,
+    isCapturedContextItem: contextItems.isCapturedContextItem,
     AgentSuggestionBar: (props: any) => {
       chatMocks.suggestionBarProps = props;
       if (chatMocks.realComposerController) {

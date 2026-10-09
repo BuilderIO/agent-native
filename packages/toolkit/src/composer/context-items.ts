@@ -91,3 +91,18 @@ export function composerContextFits(
     throw error;
   }
 }
+
+// The items one submission captured, matched by key, context and staging time.
+// A newer item that reuses a key (a replacement prefill) is a different item
+// and must survive the submission's cleanup.
+export function isCapturedContextItem(
+  item: AgentChatContextItem,
+  captured: readonly AgentChatContextItem[],
+): boolean {
+  return captured.some(
+    (candidate) =>
+      candidate.key === item.key &&
+      candidate.context === item.context &&
+      candidate.stagedAt === item.stagedAt,
+  );
+}

@@ -89,6 +89,7 @@ import {
   AgentSuggestionBar,
   agentSuggestionPrompt,
   composerContextFits,
+  isCapturedContextItem,
   snapshotComposerContextItems,
   type PromptComposerFile,
   type PromptComposerSubmitOptions,
@@ -2352,20 +2353,18 @@ const AgentKitAssistantChatBody = forwardRef<
         ) {
           requestPendingSelectionClear();
         }
-        const usedKeys = new Set(contextItems.map((item) => item.key));
-        // Composer-only items never live in the shared store, so their keys must not remove a shared item.
-        const usedSharedKeys = new Set(
-          contextItems
-            .filter((item) => !item.composerOnly)
-            .map((item) => item.key),
+        // Cleanup runs after awaits, so it matches the captured items themselves: a
+        // replacement staged under the same key meanwhile must not be removed.
+        const capturedShared = contextItems.filter(
+          (item) => !item.composerOnly,
         );
         publishAgentChatContextItems(
           getAgentChatContextState().items.filter(
-            (item) => !usedSharedKeys.has(item.key),
+            (item) => !isCapturedContextItem(item, capturedShared),
           ),
         );
         setContextItems((items) =>
-          items.filter((item) => !usedKeys.has(item.key)),
+          items.filter((item) => !isCapturedContextItem(item, contextItems)),
         );
       } catch (error) {
         localSubmissionRef.current = false;
@@ -2523,23 +2522,20 @@ const AgentKitAssistantChatBody = forwardRef<
             reportAgentChatSubmitResult(submitMessageId, true);
             if (!options.recoveryAction) {
               // The queued text already carries this context; clear it so the next send does not repeat it.
-              const consumedKeys = new Set(
-                (submittedComposerOptions.contextItems ?? contextItems).map(
-                  (item) => item.key,
-                ),
-              );
-              const consumedSharedKeys = new Set(
-                (submittedComposerOptions.contextItems ?? contextItems)
-                  .filter((item) => !item.composerOnly)
-                  .map((item) => item.key),
+              const consumedItems =
+                submittedComposerOptions.contextItems ?? contextItems;
+              const consumedShared = consumedItems.filter(
+                (item) => !item.composerOnly,
               );
               publishAgentChatContextItems(
                 getAgentChatContextState().items.filter(
-                  (item) => !consumedSharedKeys.has(item.key),
+                  (item) => !isCapturedContextItem(item, consumedShared),
                 ),
               );
               setContextItems((items) =>
-                items.filter((item) => !consumedKeys.has(item.key)),
+                items.filter(
+                  (item) => !isCapturedContextItem(item, consumedItems),
+                ),
               );
             }
             return { status: "submitted" };
