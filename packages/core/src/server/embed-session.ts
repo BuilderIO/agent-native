@@ -810,9 +810,18 @@ export async function createEmbedSessionTicket(
   const widgetCapability = isMcpDirectoryWidgetCapabilityScope(
     input.scope ?? undefined,
   );
+  if (
+    widgetCapability &&
+    (input.revocationAnchorCreatedAtMs === undefined ||
+      !Number.isSafeInteger(input.revocationAnchorCreatedAtMs))
+  ) {
+    throw new Error(
+      "Directory widget ticket requires a trusted revocation anchor.",
+    );
+  }
   const checksOwnerRevocation =
     !capabilityScope ||
-    isMcpDirectoryWidgetWriteCapabilityScope(input.scope ?? undefined) ||
+    widgetCapability ||
     input.revocationAnchorCreatedAtMs !== undefined;
   if (
     input.revocationAnchorCreatedAtMs !== undefined &&
@@ -952,9 +961,15 @@ export async function resolveEmbedSessionTokenForHost(
     return null;
   }
   const scope = verified.claims.scope;
-  const revokesWithOwner =
-    !isEmbedCapabilityScope(scope) ||
-    isMcpDirectoryWidgetWriteCapabilityScope(scope);
+  const widgetCapability = isMcpDirectoryWidgetCapabilityScope(scope);
+  if (
+    widgetCapability &&
+    (typeof verified.claims.ticketCreatedAtMs !== "number" ||
+      !Number.isSafeInteger(verified.claims.ticketCreatedAtMs))
+  ) {
+    return null;
+  }
+  const revokesWithOwner = !isEmbedCapabilityScope(scope) || widgetCapability;
   if (
     revokesWithOwner &&
     (await embedSessionIsRevoked(
@@ -1038,8 +1053,8 @@ export async function consumeEmbedSessionTicket(
   const orgId = stringOrUndefined(row.org_id ?? row.orgId);
   const ticketOrgKey = redactedIdentifier(orgId);
   const capabilityScope = isEmbedCapabilityScope(scope);
-  const revokesWithOwner =
-    !capabilityScope || isMcpDirectoryWidgetWriteCapabilityScope(scope);
+  const widgetCapability = isMcpDirectoryWidgetCapabilityScope(scope);
+  const revokesWithOwner = !capabilityScope || widgetCapability;
   if (!ownerEmail || createdAt === null || expiresAt === null) {
     options.onResult?.({
       outcome: "invalid-row",
@@ -1213,6 +1228,15 @@ export function signEmbedSessionToken(input: {
   ttlSeconds?: number;
 }): string {
   const targetPath = normalizeEmbedTargetPath(input.targetPath) ?? "/";
+  if (
+    isMcpDirectoryWidgetCapabilityScope(input.scope ?? undefined) &&
+    (input.ticketCreatedAtMs === undefined ||
+      !Number.isSafeInteger(input.ticketCreatedAtMs))
+  ) {
+    throw new Error(
+      "Directory widget token requires its ticket creation time.",
+    );
+  }
   const issuedAtMs = Date.now();
   const now = Math.floor(issuedAtMs / 1000);
   const ttl = Math.max(1, input.ttlSeconds ?? DEFAULT_TOKEN_TTL_SECONDS);

@@ -2225,6 +2225,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       resource: `https://design.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
       issuer: "https://design.agent-native.com",
     });
+    const credentialIssuedAtMs =
+      (jose.decodeJwt(headers.authorization.slice("Bearer ".length))
+        .iat as number) * 1000;
 
     const created = await callWeb(
       {
@@ -2244,6 +2247,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(created.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl: expect.stringContaining("minted-picker-ticket"),
     });
+    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        revocationAnchorCreatedAtMs: credentialIssuedAtMs,
+      }),
+    );
     const scope =
       embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]?.scope;
     const { getMcpDirectoryWidgetWriteCapabilityGrant } =
@@ -2258,6 +2266,225 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       resourceIds: { designId: "design-1" },
       actionNames: ["update-file"],
     });
+  });
+
+  it("issues Content database row write grants for resource-bound actions", async () => {
+    const createDatabase = defineAction({
+      description: "Create one Content database.",
+      parameters: {},
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://content/database/shell-v1",
+          title: "Database",
+          html: "<!doctype html><html><body>Database</body></html>",
+        },
+      },
+      run: async () => ({
+        database: {
+          id: "database-1",
+          documentId: "database-page-1",
+          spaceId: "space-1",
+        },
+      }),
+    });
+    const addDatabaseItem = defineAction({
+      description: "Add one database row.",
+      schema: z.object({ target: z.unknown() }),
+      http: { method: "POST" },
+      requiresAuth: true,
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => ({ created: true }),
+    });
+    const updateDatabaseItem = defineAction({
+      description: "Update one database row.",
+      schema: z.object({ target: z.unknown() }),
+      http: { method: "POST" },
+      requiresAuth: true,
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => ({ updated: true }),
+    });
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      appId: "content",
+      directoryProfile: {
+        connectorCatalog: ["create-content-database"],
+        widgetDomain: "https://content.agent-native.com",
+        widgetTargets: {
+          "create-content-database": (_args: unknown, result: unknown) => {
+            const database = (result as { database?: Record<string, unknown> })
+              .database;
+            return database?.id && database.documentId
+              ? {
+                  targetPath: `/page/${database.documentId}`,
+                  resourceIds: {
+                    databaseId: String(database.id),
+                    documentId: String(database.documentId),
+                  },
+                  writeActions: ["add-database-item", "update-database-item"],
+                }
+              : null;
+          },
+        },
+        widgetWriteActionArguments: {
+          "add-database-item":
+            contentDirectoryProfile.widgetWriteActionArguments[
+              "add-database-item"
+            ],
+          "update-database-item":
+            contentDirectoryProfile.widgetWriteActionArguments[
+              "update-database-item"
+            ],
+        },
+      },
+      actions: { "create-content-database": createDatabase },
+      widgetWriteActions: {
+        "add-database-item": addDatabaseItem,
+        "update-database-item": updateDatabaseItem,
+      },
+    };
+    const headers = await mcpAppsAuthHeaders({
+      resource: `https://content.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+      issuer: "https://content.agent-native.com",
+    });
+
+    const created = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 149,
+        method: "tools/call",
+        params: { name: "create-content-database", arguments: {} },
+      },
+      {
+        headers: { ...headers, host: "content.agent-native.com" },
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+
+    expect(created.result.isError).not.toBe(true);
+    const scope =
+      embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]?.scope;
+    const { getMcpDirectoryWidgetWriteCapabilityGrant } =
+      await import("../shared/embed-auth.js");
+    expect(
+      getMcpDirectoryWidgetWriteCapabilityGrant(scope, {
+        appId: "content",
+        resourceUri: "ui://content/shell-v69",
+        userEmail: "oauth@example.com",
+      }),
+    ).toEqual({
+      resourceIds: {
+        databaseId: "database-1",
+        documentId: "database-page-1",
+      },
+      actionNames: ["add-database-item", "update-database-item"],
+    });
+  });
+
+  it("fails closed when a directory widget credential has no signed issue time", async () => {
+    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
+    const resource = `https://design.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`;
+    const issuer = "https://design.agent-native.com";
+    const token = await new jose.SignJWT({
+      typ: "agent-native-mcp-oauth",
+      credential_version: 2,
+      sub: "oauth@example.com",
+      scope: "mcp:read mcp:write mcp:apps",
+      client_id: "client-123",
+      resource,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer(issuer)
+      .setAudience(resource)
+      .setJti("missing-issued-at")
+      .setExpirationTime("30d")
+      .sign(
+        new TextEncoder().encode("oauth-secret-at-least-32-characters-long"),
+      );
+    expect(jose.decodeJwt(token).iat).toBeUndefined();
+
+    const getDesign = defineAction({
+      description: "Read one design.",
+      parameters: {
+        type: "object",
+        properties: { designId: { type: "string" } },
+        required: ["designId"],
+      },
+      readOnly: true,
+      http: { method: "GET" },
+      requiresAuth: true,
+      mcpAnnotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://design/shell-v69",
+          title: "Design",
+          html: "<!doctype html><html><body>Design</body></html>",
+        },
+      },
+      run: async (args: Record<string, unknown>) => ({
+        designId: args.designId,
+      }),
+    });
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      appId: "design",
+      directoryProfile: {
+        connectorCatalog: ["get-design"],
+        widgetDomain: "https://design.agent-native.com",
+        widgetTargets: {
+          "get-design": () => ({
+            targetPath: "/design/design-42",
+            resourceIds: { designId: "design-42" },
+          }),
+        },
+        widgetReadActionArguments: {
+          "get-design": { designId: "designId" },
+        },
+      },
+      actions: { "get-design": getDesign },
+    };
+
+    const called = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 148,
+        method: "tools/call",
+        params: {
+          name: "get-design",
+          arguments: { designId: "design-42" },
+        },
+      },
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          host: "design.agent-native.com",
+        },
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+
+    expect(called.result.isError).toBe(true);
+    expect(embedSessionMocks.createEmbedSessionTicket).not.toHaveBeenCalled();
   });
 
   it("renews a scoped directory widget ticket after a saved-chat reload without embed metadata", async () => {
@@ -2421,7 +2648,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "shell-v68",
     );
     embedSessionMocks.renewalTickets.set(sourceTicket, originalTicket);
-    originalTicket.renewalExpiresAtMs = Date.now() + 7 * 24 * 60 * 60 * 1000;
+    originalTicket.renewalExpiresAtMs = Date.now() + 60 * 1000;
     embedSessionMocks.renewalTickets.set("foreign-user-ticket", {
       ...originalTicket,
       ownerEmail: "another@example.com",
@@ -2479,7 +2706,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         scope: expect.stringContaining(
           "capability:mcp-directory-widget-write:",
         ),
-        ttlSeconds: 900,
+        ttlSeconds: expect.any(Number),
         renewalExpiresAtMs: originalTicket.renewalExpiresAtMs,
         revocationAnchorCreatedAtMs: originalTicket.createdAtMs,
       },
@@ -2512,7 +2739,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
     const expiresAt = getMcpDirectoryWidgetWriteCapabilityExpiresAt(writeScope);
     expect(expiresAt).toBeGreaterThan(Date.now());
+    expect(expiresAt).toBeLessThanOrEqual(originalTicket.renewalExpiresAtMs);
     expect(expiresAt).toBeLessThanOrEqual(Date.now() + 15 * 60 * 1000);
+    expect(
+      embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]
+        ?.ttlSeconds,
+    ).toBeLessThanOrEqual(60);
 
     const readOnlyHeaders = await mcpAppsAuthHeaders({
       scope: "mcp:read mcp:apps",
@@ -2548,7 +2780,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledTimes(3);
 
     const noReadHeaders = await mcpAppsAuthHeaders({
-      scope: "mcp:apps",
+      scope: "mcp:write mcp:apps",
       resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
     });
     const noReadRenewal = await callWeb(
@@ -2770,6 +3002,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       resource: `https://design.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
       issuer: "https://design.agent-native.com",
     });
+    const credentialIssuedAtMs =
+      (jose.decodeJwt(headers.authorization.slice("Bearer ".length))
+        .iat as number) * 1000;
     const requestHeaders = { ...headers, host: "design.agent-native.com" };
     const listed = await callWeb(
       { jsonrpc: "2.0", id: 145, method: "tools/list", params: {} },
@@ -2810,6 +3045,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(originalCall.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl: expect.stringContaining("minted-picker-ticket"),
     });
+    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        revocationAnchorCreatedAtMs: credentialIssuedAtMs,
+      }),
+    );
+    const originalTicket = {
+      ...embedSessionMocks.renewalTickets.get("minted-picker-ticket"),
+    };
 
     const savedMetadata = { ...originalCall.result._meta };
     delete savedMetadata["agent-native/embedStart"];
@@ -2848,6 +3091,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         scope: expect.stringContaining("capability:mcp-directory-widget-read:"),
         ttlSeconds: 900,
         renewalExpiresAtMs: expect.any(Number),
+        revocationAnchorCreatedAtMs: originalTicket.createdAtMs,
       },
     );
     const { allowsMcpDirectoryWidgetReadAction } =

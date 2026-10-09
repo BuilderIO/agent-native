@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   broadGenerating: true,
   showInlineEditTrigger: false,
   readOnlyWidget: false,
+  writeWidget: false,
   widgetEmbed: false,
   guidedQuestionFlowOptions: [] as unknown[],
   guidedQuestionQuestions: [] as Array<{ id: string; question: string }>,
@@ -252,6 +253,7 @@ vi.mock("@agent-native/core/client/org", () => ({
 vi.mock("@agent-native/core/client/mcp-app-host", () => ({
   useIsMcpAppWidgetEmbed: () => mocks.widgetEmbed,
   useIsMcpDirectoryWidgetReadOnlyEmbed: () => mocks.readOnlyWidget,
+  useIsMcpDirectoryWidgetWriteEmbed: () => mocks.writeWidget,
 }));
 
 const resetDeckAccessRequest = vi.hoisted(() => vi.fn());
@@ -437,6 +439,7 @@ describe("DeckEditor generation signal wiring", () => {
       broadGenerating: true,
       showInlineEditTrigger: false,
       readOnlyWidget: false,
+      writeWidget: false,
       widgetEmbed: false,
       guidedQuestionFlowOptions: [],
       guidedQuestionQuestions: [],

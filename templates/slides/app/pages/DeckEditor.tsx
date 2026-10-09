@@ -23,6 +23,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   useIsMcpAppWidgetEmbed,
   useIsMcpDirectoryWidgetReadOnlyEmbed,
+  useIsMcpDirectoryWidgetWriteEmbed,
 } from "@agent-native/core/client/mcp-app-host";
 import { useOrg } from "@agent-native/core/client/org";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
@@ -693,6 +694,8 @@ export default function DeckEditor() {
   }
   const widgetEmbed = useIsMcpAppWidgetEmbed();
   const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();
+  const writeWidget = useIsMcpDirectoryWidgetWriteEmbed();
+  const directoryWidget = readOnlyWidget || writeWidget;
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
@@ -987,6 +990,7 @@ export default function DeckEditor() {
     id,
     deck?.createdByMe === true,
     deck?.widgetAccessRole,
+    directoryWidget,
   );
   const canEdit = deckRole.canEdit && !readOnlyWidget;
   const canComment = deckRole.canComment && !readOnlyWidget && !widgetEmbed;

@@ -201,18 +201,19 @@ describe("get-deck", () => {
   });
 
   it.each([
-    ["owner", true],
-    ["editor", true],
-    ["viewer", false],
+    ["mcp-widget", "owner", true],
+    ["mcp-widget", "editor", true],
+    ["mcp-widget", "viewer", false],
+    ["mcp-widget-write", "owner", true],
+    ["mcp-widget-write", "editor", true],
+    ["mcp-widget-write", "admin", true],
+    ["mcp-widget-write", "viewer", false],
   ] as const)(
-    "returns only the current deck's %s role to a widget read",
-    async (role, canEdit) => {
+    "returns only the current deck's %s-scoped %s role",
+    async (caller, role, canEdit) => {
       currentAccessRole = role;
 
-      const result = (await action.run(
-        { id: "deck-1" },
-        { caller: "mcp-widget" },
-      )) as any;
+      const result = (await action.run({ id: "deck-1" }, { caller })) as any;
 
       expect(result.widgetAccessRole).toBe(role);
       expect(
@@ -225,6 +226,17 @@ describe("get-deck", () => {
       expect(result).not.toHaveProperty("shares");
     },
   );
+
+  it("includes the scoped role in compact widget reads", async () => {
+    currentAccessRole = "editor";
+
+    const result = (await action.run(
+      { id: "deck-1", compact: "true" },
+      { caller: "mcp-widget-write" },
+    )) as any;
+
+    expect(result.widgetAccessRole).toBe("editor");
+  });
 
   it("does not expose widget access role to ordinary tool calls", async () => {
     currentAccessRole = "editor";

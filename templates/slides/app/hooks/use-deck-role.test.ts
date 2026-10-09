@@ -34,7 +34,7 @@ describe("useDeckRole", () => {
     },
   );
 
-  it("prefers the current share response over the widget fallback", () => {
+  it("prefers the scoped widget role over share details", () => {
     mocks.useActionQuery.mockReturnValue({
       data: { role: "viewer" },
       isLoading: false,
@@ -42,7 +42,42 @@ describe("useDeckRole", () => {
 
     const { result } = renderHook(() => useDeckRole("deck-1", false, "editor"));
 
-    expect(result.current.role).toBe("viewer");
+    expect(result.current.role).toBe("editor");
+    expect(result.current.canEdit).toBe(true);
+  });
+
+  it("keeps ordinary editor role resolution on the share response", () => {
+    mocks.useActionQuery.mockReturnValue({
+      data: { role: "editor" },
+      isLoading: false,
+    });
+
+    const { result } = renderHook(() => useDeckRole("deck-1"));
+
+    expect(result.current.role).toBe("editor");
+    expect(result.current.canEdit).toBe(true);
+  });
+
+  it("uses the scoped role without querying resource shares in a directory widget", () => {
+    const { result } = renderHook(() =>
+      useDeckRole("deck-1", true, "editor", true),
+    );
+
+    expect(result.current.canEdit).toBe(true);
+    expect(mocks.useActionQuery).toHaveBeenCalledWith(
+      "list-resource-shares",
+      { resourceType: "deck", resourceId: "deck-1" },
+      { enabled: false },
+    );
+  });
+
+  it("fails closed while a directory widget has no scoped role", () => {
+    const { result } = renderHook(() =>
+      useDeckRole("deck-1", true, undefined, true),
+    );
+
     expect(result.current.canEdit).toBe(false);
+    expect(result.current.canComment).toBe(false);
+    expect(result.current.isLoading).toBe(false);
   });
 });

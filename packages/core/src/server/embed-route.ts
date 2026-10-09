@@ -13,7 +13,6 @@ import {
   EMBED_START_PATH,
   EMBED_TOKEN_QUERY_PARAM,
   isMcpDirectoryWidgetCapabilityScope,
-  isMcpDirectoryWidgetWriteCapabilityScope,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
   MCP_DIRECTORY_WIDGET_QUERY_PARAM,
 } from "../shared/embed-auth.js";
@@ -367,7 +366,7 @@ export function createEmbedStartRouteHandler(
       scope: consumed.scope,
       ...(consumed.ticketCreatedAtMs != null &&
       (!isEmbedCapabilityScope(consumed.scope) ||
-        isMcpDirectoryWidgetWriteCapabilityScope(consumed.scope))
+        isMcpDirectoryWidgetCapabilityScope(consumed.scope))
         ? { ticketCreatedAtMs: consumed.ticketCreatedAtMs }
         : {}),
       ...(isEmbedCapabilityScope(consumed.scope)

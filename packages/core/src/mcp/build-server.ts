@@ -74,7 +74,6 @@ import {
   MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
   type McpDirectoryWidgetReadArgument,
-  isMcpDirectoryWidgetWriteCapabilityScope,
   renewMcpDirectoryWidgetCapabilityScope,
 } from "../shared/embed-auth.js";
 import {
@@ -223,6 +222,8 @@ export interface McpDirectoryWidgetTarget {
 export interface MCPCallerIdentity {
   userEmail: string | undefined;
   identityAssurance?: "user" | "organization" | "service";
+  /** Issue time, in milliseconds, from a verified app-issued MCP credential. */
+  mcpCredentialIssuedAtMs?: number;
   orgId?: string | null;
   orgDomain: string | undefined;
   oauthScopes?: string[];
@@ -1447,6 +1448,21 @@ async function withServerMintedMcpAppEmbedStart(
     );
   }
 
+  const revocationAnchorCandidate = ctx?.mcpCredentialIssuedAtMs;
+  const revocationAnchorCreatedAtMs =
+    typeof revocationAnchorCandidate === "number" &&
+    Number.isSafeInteger(revocationAnchorCandidate)
+      ? revocationAnchorCandidate
+      : undefined;
+  if (
+    restrictDirectoryWidgetCapability &&
+    revocationAnchorCreatedAtMs === undefined
+  ) {
+    throw new Error(
+      "Directory widget sessions require a trusted MCP credential issue time.",
+    );
+  }
+
   const ticket = await createEmbedSessionTicket({
     ownerEmail,
     orgId: ctx?.orgId,
@@ -1454,6 +1470,9 @@ async function withServerMintedMcpAppEmbedStart(
     scope,
     ...(directoryWidget?.capability.mode === "write"
       ? { ttlSeconds: 15 * 60 }
+      : {}),
+    ...(restrictDirectoryWidgetCapability
+      ? { revocationAnchorCreatedAtMs }
       : {}),
   });
   const startPath = buildEmbedStartPath(ticket.ticket);
@@ -1757,9 +1776,7 @@ async function renewMcpDirectoryWidgetEmbedSession(
       Math.ceil((capabilityExpiresAtMs - renewalNow) / 1000),
     ),
     renewalExpiresAtMs: originalTicket.renewalExpiresAtMs,
-    ...(isMcpDirectoryWidgetWriteCapabilityScope(originalTicket.scope)
-      ? { revocationAnchorCreatedAtMs: originalTicket.createdAtMs }
-      : {}),
+    revocationAnchorCreatedAtMs: originalTicket.createdAtMs,
   });
   const startPath = buildEmbedStartPath(ticket.ticket);
   return {
@@ -2758,6 +2775,8 @@ export async function createMCPServerForRequest(
           : {}),
         ...(requestMeta?.origin ? { requestOrigin: requestMeta.origin } : {}),
         ...(mcpRequestId ? { mcpRequestId } : {}),
+        mcpCredentialIssuedAtMs:
+          effectiveIdentity?.mcpCredentialIssuedAtMs ?? null,
       },
       fn,
     ) as Promise<T>;
@@ -4076,12 +4095,25 @@ async function admitIssuedMcpCredential(
   }
   const orgId =
     credential.orgId !== undefined ? credential.orgId : stored?.orgId;
+  const credentialIssuedAtMs =
+    typeof credential.issuedAt === "number" &&
+    Number.isSafeInteger(credential.issuedAt)
+      ? credential.issuedAt * 1000
+      : undefined;
+  const mcpCredentialIssuedAtMs =
+    credentialIssuedAtMs !== undefined &&
+    Number.isSafeInteger(credentialIssuedAtMs)
+      ? credentialIssuedAtMs
+      : undefined;
   const admitted = await admitIssuedCredential(
     {
       authed: true,
       identity: {
         userEmail: credential.userEmail,
         identityAssurance: stored?.kind === "service" ? "service" : "user",
+        ...(mcpCredentialIssuedAtMs !== undefined
+          ? { mcpCredentialIssuedAtMs }
+          : {}),
         ...(orgId !== undefined ? { orgId } : {}),
         orgDomain: credential.orgDomain,
         ...(credential.oauthScopes

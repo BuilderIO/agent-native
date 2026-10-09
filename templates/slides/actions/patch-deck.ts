@@ -337,16 +337,14 @@ export const OperationSchema = z.discriminatedUnion("op", [
 ]);
 
 export type Operation = z.infer<typeof OperationSchema>;
+type PatchSlideOperation = Extract<Operation, { op: "patch-slide" }>;
 
 const MCP_WIDGET_PATCH_SLIDE_FIELDS = new Set([
   "content",
   "notes",
   "background",
   "layout",
-  "layoutWarningDismissed",
   "imageUrl",
-  "imageLoading",
-  "imagePrompt",
   "excalidrawData",
   "transition",
   "animations",
@@ -359,10 +357,7 @@ const MCP_WIDGET_ADD_SLIDE_FIELDS = new Set([
   "notes",
   "background",
   "layout",
-  "layoutFitRevision",
-  "layoutWarningDismissed",
   "imageUrl",
-  "imagePrompt",
   "excalidrawData",
   "transition",
   "animations",
@@ -375,61 +370,153 @@ function hasOnlyMcpWidgetSlideFields(
   allowedFields: Set<string>,
 ): boolean {
   const names = Object.keys(fields);
-  return names.length > 0 && names.every((name) => allowedFields.has(name));
+  return (
+    names.length > 0 &&
+    names.every((name) => allowedFields.has(name)) &&
+    Object.values(fields).every((value) => value !== undefined)
+  );
+}
+
+function hasOnlyMcpWidgetOperationKeys(
+  operation: object,
+  allowedKeys: readonly string[],
+  requiredKeys: readonly string[],
+): boolean {
+  const keys = Object.keys(operation);
+  return (
+    keys.every((key) => allowedKeys.includes(key)) &&
+    requiredKeys.every((key) => Object.hasOwn(operation, key))
+  );
+}
+
+function hasExactMcpWidgetFieldBaselines(
+  fields: object,
+  baseFields: PatchSlideOperation["baseFields"],
+): boolean {
+  const fieldsByName = fields as Record<string, unknown>;
+  const changedFields = Object.keys(fields).filter(
+    (field) => field !== "content" && fieldsByName[field] !== undefined,
+  );
+  if (changedFields.length === 0) return baseFields === undefined;
+  if (!baseFields) return false;
+
+  const baselineFields = Object.keys(baseFields);
+  return (
+    baselineFields.length === changedFields.length &&
+    baselineFields.every((field) => {
+      const baseline = baseFields[field];
+      if (!changedFields.includes(field) || !baseline) return false;
+      const baselineKeys = Object.keys(baseline);
+      return baseline.present === false
+        ? baselineKeys.length === 1 && baselineKeys[0] === "present"
+        : baselineKeys.length === 2 &&
+            baselineKeys.includes("present") &&
+            baselineKeys.includes("value");
+    })
+  );
 }
 
 export function isMcpWidgetPatchAllowed(
   caller: string | undefined,
   operations: Operation[],
-  options?: { rewriteSource?: boolean; hasCreativeContext?: boolean },
+  options?: {
+    rewriteSource?: boolean;
+    hasCreativeContext?: boolean;
+    requireAllSourceSlides?: boolean;
+  },
 ): boolean {
   if (caller !== "mcp-widget-write") return true;
-  if (options?.rewriteSource || options?.hasCreativeContext) return false;
+  if (
+    operations.length === 0 ||
+    options?.rewriteSource ||
+    options?.hasCreativeContext ||
+    options?.requireAllSourceSlides
+  ) {
+    return false;
+  }
 
   return operations.every((operation) => {
     if (operation.op === "patch-deck-fields") {
       return (
+        hasOnlyMcpWidgetOperationKeys(
+          operation,
+          ["op", "fields"],
+          ["op", "fields"],
+        ) &&
         Object.keys(operation.fields).length === 1 &&
         typeof operation.fields.title === "string"
       );
     }
 
     if (operation.op === "patch-slide") {
-      const touchedBaselineFields = Object.keys(operation.fields).filter(
-        (field) =>
-          field !== "content" &&
-          operation.fields[field as keyof typeof operation.fields] !==
-            undefined,
-      );
-      const baselineFields = Object.keys(operation.baseFields ?? {});
-      const validBaseFields =
-        operation.baseFields === undefined ||
-        (touchedBaselineFields.length > 0 &&
-          baselineFields.length === touchedBaselineFields.length &&
-          baselineFields.every((field) =>
-            touchedBaselineFields.includes(field),
-          ));
+      const hasContent = operation.fields.content !== undefined;
       return (
+        hasOnlyMcpWidgetOperationKeys(
+          operation,
+          [
+            "op",
+            "slideId",
+            "fields",
+            "baseContentHash",
+            "baseFields",
+            "preserveSource",
+          ],
+          ["op", "slideId", "fields"],
+        ) &&
         hasOnlyMcpWidgetSlideFields(
           operation.fields,
           MCP_WIDGET_PATCH_SLIDE_FIELDS,
         ) &&
-        validBaseFields &&
-        (operation.fields.content === undefined ||
-          (typeof operation.baseContentHash === "string" &&
-            operation.baseContentHash.length > 0)) &&
+        Object.values(operation.fields).every((value) => value !== undefined) &&
+        hasExactMcpWidgetFieldBaselines(
+          operation.fields,
+          operation.baseFields,
+        ) &&
+        (hasContent
+          ? typeof operation.fields.content === "string" &&
+            typeof operation.baseContentHash === "string" &&
+            operation.baseContentHash.length > 0
+          : operation.baseContentHash === undefined) &&
         operation.preserveSource !== false
       );
     }
 
     if (operation.op === "add-slide") {
-      return hasOnlyMcpWidgetSlideFields(
-        operation.fields,
-        MCP_WIDGET_ADD_SLIDE_FIELDS,
+      return (
+        hasOnlyMcpWidgetOperationKeys(
+          operation,
+          ["op", "slideId", "afterSlideId", "fields"],
+          ["op", "slideId", "fields"],
+        ) &&
+        typeof operation.fields.content === "string" &&
+        hasOnlyMcpWidgetSlideFields(
+          operation.fields,
+          MCP_WIDGET_ADD_SLIDE_FIELDS,
+        )
       );
     }
 
-    return operation.op === "delete-slide" || operation.op === "reorder-slides";
+    if (operation.op === "delete-slide") {
+      return (
+        hasOnlyMcpWidgetOperationKeys(
+          operation,
+          ["op", "slideId", "allowEmpty"],
+          ["op", "slideId"],
+        ) && operation.allowEmpty !== true
+      );
+    }
+
+    if (operation.op === "reorder-slides") {
+      return (
+        hasOnlyMcpWidgetOperationKeys(
+          operation,
+          ["op", "orderedIds"],
+          ["op", "orderedIds"],
+        ) && operation.orderedIds.length > 0
+      );
+    }
+
+    return false;
   });
 }
 
@@ -1080,6 +1167,7 @@ export default defineAction({
       !isMcpWidgetPatchAllowed(ctx?.caller, operations, {
         rewriteSource,
         hasCreativeContext: creativeContext !== undefined,
+        requireAllSourceSlides,
       })
     ) {
       fail(
@@ -1089,6 +1177,16 @@ export default defineAction({
           statusCode: 403,
         },
       );
+    }
+
+    if (
+      ctx?.caller === "mcp-widget-write" &&
+      clientWrite?.expectedUpdatedAt === undefined
+    ) {
+      fail("The Slides widget needs the current deck revision before saving.", {
+        errorCode: "mcp_widget_write_revision_required",
+        statusCode: 409,
+      });
     }
 
     await assertAccess("deck", deckId, "editor");

@@ -447,6 +447,8 @@ export default defineAction({
     openWorldHint: false,
   },
   run: async (args, ctx) => {
+    const isWidgetCaller =
+      ctx?.caller === "mcp-widget" || ctx?.caller === "mcp-widget-write";
     const deckId = args.deckId ?? args.id;
     if (!deckId) {
       fail("Pass the deck id as `id` or `deckId`.", {
@@ -532,6 +534,7 @@ export default defineAction({
         id: row.id,
         title: row.title || data?.title,
         visibility: row.visibility,
+        ...(isWidgetCaller ? { widgetAccessRole: accessRole } : {}),
         designSystemId: linkedDesignSystemId,
         designSystem,
         ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),
@@ -601,7 +604,7 @@ export default defineAction({
       createdByMe:
         normalizedOwnerEmail !== null &&
         normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
-      ...(ctx?.caller === "mcp-widget" ? { widgetAccessRole: accessRole } : {}),
+      ...(isWidgetCaller ? { widgetAccessRole: accessRole } : {}),
       designSystemId: linkedDesignSystemId,
       designSystem,
       ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),
