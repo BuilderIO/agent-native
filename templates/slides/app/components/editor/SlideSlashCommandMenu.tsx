@@ -55,6 +55,7 @@ const BLOCK_TAGS = new Set([
 
 const ZERO_WIDTH_SPACE = "\u200b";
 const NO_MATCH_CLOSE_LENGTH = 3;
+const PENDING_SLASH_FRAME_RETRIES = 3;
 
 const COMMANDS: {
   kind: InPlaceTextAuthoringCommand;
@@ -289,6 +290,7 @@ export function SlideSlashCommandMenu({
   const menuRef = useRef(menu);
   menuRef.current = menu;
   const pendingSlash = useRef(false);
+  const pendingSlashRetries = useRef(0);
   const [popoverContent, setPopoverContent] = useState<HTMLDivElement | null>(
     null,
   );
@@ -324,6 +326,7 @@ export function SlideSlashCommandMenu({
     textSession?.commands.applyAuthoringCommand(kind, range);
     menuRef.current = null;
     pendingSlash.current = false;
+    pendingSlashRetries.current = 0;
     setMenu(null);
   };
   const matches = useMemo(() => {
@@ -361,6 +364,7 @@ export function SlideSlashCommandMenu({
     if (!editingEl || !textSession?.isActive) {
       menuRef.current = null;
       pendingSlash.current = false;
+      pendingSlashRetries.current = 0;
       setMenu(null);
       return;
     }
@@ -400,6 +404,7 @@ export function SlideSlashCommandMenu({
       const next = findMenu(editingEl);
       if (!next) return false;
       pendingSlash.current = false;
+      pendingSlashRetries.current = 0;
       menuRef.current = next;
       setMenu(next);
       return true;
@@ -409,8 +414,13 @@ export function SlideSlashCommandMenu({
       pendingSlashFrame = window.requestAnimationFrame(() => {
         pendingSlashFrame = null;
         if (!pendingSlash.current) return;
-        publishPendingSlash();
-        pendingSlash.current = false;
+        if (publishPendingSlash()) return;
+        pendingSlashRetries.current -= 1;
+        if (pendingSlashRetries.current > 0) {
+          retryPendingSlashOnNextFrame();
+        } else {
+          pendingSlash.current = false;
+        }
       });
     };
     const onBeforeInput = (event: Event) => {
@@ -420,7 +430,10 @@ export function SlideSlashCommandMenu({
         input.data === "/" &&
         !input.isComposing &&
         canStartSlash(editingEl);
-      if (startsSlash) pendingSlash.current = true;
+      if (startsSlash) {
+        pendingSlash.current = true;
+        pendingSlashRetries.current = PENDING_SLASH_FRAME_RETRIES;
+      }
       if (startsSlash) {
         window.setTimeout(() => {
           if (!publishPendingSlash()) retryPendingSlashOnNextFrame();
@@ -450,6 +463,7 @@ export function SlideSlashCommandMenu({
     window.addEventListener("resize", refreshGeometry);
     return () => {
       pendingSlash.current = false;
+      pendingSlashRetries.current = 0;
       if (pendingSlashFrame !== null) {
         window.cancelAnimationFrame(pendingSlashFrame);
       }
@@ -573,6 +587,7 @@ export function SlideSlashCommandMenu({
         event.preventDefault();
         event.stopImmediatePropagation();
         pendingSlash.current = false;
+        pendingSlashRetries.current = 0;
         menuRef.current = null;
         setMenu(null);
       }
