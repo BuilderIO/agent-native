@@ -252,12 +252,17 @@ export default defineAction({
             (row) => row.item.databaseId === selectedDatabaseId,
           )
         : databaseItems[0]) ?? null;
+    // The initial read wave proves the empty case; retain the resolver's
+    // existing selection behavior when memberships are present.
     const propertyDatabase = selectedDatabaseId
       ? (databaseMembership?.database ??
         (database?.id === selectedDatabaseId
           ? database
           : await getDatabaseById(selectedDatabaseId)))
-      : await resolvePropertyDatabaseForDocument(doc);
+      : (database ??
+        (databaseItems.length > 0
+          ? await resolvePropertyDatabaseForDocument(doc)
+          : null));
     const hasPropertyDatabaseAccess = Boolean(
       propertyDatabase && accessibleDatabases.has(propertyDatabase.documentId),
     );

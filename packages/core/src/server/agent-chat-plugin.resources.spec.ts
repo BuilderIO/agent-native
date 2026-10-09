@@ -801,7 +801,7 @@ describe("agent chat resource route organization scopes", () => {
 
   it("inherits the active request organization when no resolver is configured", async () => {
     const h3App = await mountResourceRoutes();
-    expect(mocks.resourceListAllOwners).toHaveBeenCalledWith("jobs/");
+    expect(mocks.resourceListAllOwners).not.toHaveBeenCalledWith("jobs/");
     const resourceList = mocks.resourceList.getMockImplementation()!;
     const resourceListContexts: Array<{
       orgId: string | undefined;

@@ -16,7 +16,8 @@ different APIs and data, so their capabilities and limitations differ.
   nodes when the clipboard provides it. With a token, it can fetch those nodes
   through the REST path. Without a token, the local decoder supports a subset of
   geometry, text, and styles; image references can remain unresolved until the
-  user supplies a token or the source file.
+  user supplies a token or the source file, or uploads the image itself
+  (`fill-figma-paste-image` fills that placeholder in place).
 - **`.fig` upload:** the local decoder handles supported file variants without
   a REST request. It is best-effort input; uploads are capped at 50 MiB and
   decompressed data at 96 MiB.
