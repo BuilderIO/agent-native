@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   verifyArtifactAccess: vi.fn(),
   getGeneration: vi.fn(),
   recordGeneration: vi.fn(),
+  recordGenerationFromSnapshot: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -30,6 +31,8 @@ vi.mock("../server/generation-artifact-access.js", () => ({
 vi.mock("../store/generation.js", () => ({
   getGenerationCreativeContext: mocks.getGeneration,
   recordGenerationCreativeContext: mocks.recordGeneration,
+  recordGenerationCreativeContextFromSnapshot:
+    mocks.recordGenerationFromSnapshot,
 }));
 
 import action from "./creative-context-a2a.js";
@@ -54,6 +57,16 @@ describe("creative-context-a2a receiver action", () => {
     mocks.verifyArtifactAccess.mockResolvedValue({ verified: true });
     mocks.getGeneration.mockResolvedValue(null);
     mocks.recordGeneration.mockResolvedValue({
+      id: "record-1",
+      appId: "slides",
+      artifactType: "deck",
+      artifactId: "deck-1",
+      contextMode: "auto",
+      contextPackId: null,
+      elementProvenance: [],
+      createdAt: "2026-07-16T00:00:00.000Z",
+    });
+    mocks.recordGenerationFromSnapshot.mockResolvedValue({
       id: "record-1",
       appId: "slides",
       artifactType: "deck",
@@ -157,6 +170,31 @@ describe("creative-context-a2a receiver action", () => {
     await expect(action.run({ requestToken: "request-token" })).rejects.toThrow(
       /invalid generation artifact access capability/i,
     );
+    expect(mocks.recordGeneration).not.toHaveBeenCalled();
+  });
+
+  it("records replayed provenance from a validated snapshot", async () => {
+    const record = {
+      appId: "slides",
+      artifactType: "deck",
+      artifactId: "deck-1",
+      contextMode: "auto",
+      contextPackId: null,
+      reuseLabels: [],
+      onlyIfMissing: true,
+    };
+    mocks.decodeRequest.mockReturnValue({
+      protocol: "creative-context-a2a-v1",
+      requestId: "87f466ae-32f4-4d0f-9de7-96f955e69f7b",
+      operation: "record",
+      payload: { ...record, persistedSnapshot: true },
+    });
+
+    await action.run({ requestToken: "request-token" });
+
+    expect(mocks.recordGenerationFromSnapshot).toHaveBeenCalledWith(record, {
+      artifactAccess: undefined,
+    });
     expect(mocks.recordGeneration).not.toHaveBeenCalled();
   });
 });
