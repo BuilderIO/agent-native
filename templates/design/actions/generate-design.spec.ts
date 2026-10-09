@@ -339,6 +339,9 @@ describe("generate-design action tool schema", () => {
     expect(parameters.properties?.canvasFrames?.type).toBe("string");
     expect(parameters.properties?.reuseLabels?.type).toBe("string");
     expect(parameters.properties?.contextModeOverride?.type).toBe("string");
+    expect(parameters.properties?.devices?.description).toContain(
+      "Preserve exactly the explicitly requested device frames",
+    );
 
     const parsed = (action as any).schema.safeParse({
       designId: "design_123",
@@ -1488,7 +1491,19 @@ describe("generate-design: new-file creation path", () => {
     expect(data.breakpointSet).toBeUndefined();
   });
 
-  it("preserves explicitly requested devices and exact canvas size", async () => {
+  it("preserves explicitly requested devices and exact canvas size on existing screens", async () => {
+    setExistingFile("<!doctype html><html><body>Old ad</body></html>", {
+      filename: "ad.html",
+    });
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 600, height: 300, z: 0 },
+      },
+      screenMetadata: {
+        "file-1": { width: 600, height: 300, breakpointWidths: [] },
+      },
+    });
+
     const result = await action.run({
       designId: "design-1",
       prompt: "Create a LinkedIn ad at 1200x627 pixels for desktop and mobile",
@@ -1506,12 +1521,16 @@ describe("generate-design: new-file creation path", () => {
     expect(data.breakpointSet).toMatchObject({
       breakpoints: [expect.objectContaining({ widthPx: 390 })],
     });
+    expect(data.canvasFrames).toMatchObject({
+      "file-1": { width: 1200, height: 627 },
+    });
     expect(data.screenMetadata).toMatchObject({
-      [result.savedFiles[0]!.id]: expect.objectContaining({
+      "file-1": expect.objectContaining({
         width: 1200,
         height: 627,
       }),
     });
+    expect(result.savedFiles[0]!.id).toBe("file-1");
   });
 
   it("derives the base frame and breakpoint set from an explicit devices list", async () => {

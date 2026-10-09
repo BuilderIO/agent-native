@@ -20,7 +20,7 @@ const FORMAT_CONTEXT_BEFORE =
 const FORMAT_CONTEXT_AFTER =
   /^\s*(?:(?:for|as|in)\s+(?:an?\s+)?)?(?:(?:linkedin|meta|facebook|instagram|twitter|x|youtube|google)\s+)?(?:(?:single[\s-]?image|feed|social(?:\s+media)?)\s+)?(?:ads?|advertisements?|banner|leaderboard|rectangle|skyscraper|billboard|cover|favicon|logo|avatar|post|story|thumbnail|email\s+header|email|newsletter|print|flyer|poster|screenshot)\b/i;
 const OUTPUT_FORMAT_CONTEXT_BEFORE_AT =
-  /\b(?:ads?|advertisements?|banners?|leaderboards?|rectangles?|skyscrapers?|billboards?|covers?|social\s+posts?|posts?|stories|thumbnails?|email\s+headers?|flyers?|posters?|screenshots?)\b[\s\S]{0,32}\bat\s*$/i;
+  /\b(?:ads?|advertisements?|banners?|leaderboards?|rectangles?|skyscrapers?|billboards?|covers?|social\s+posts?|posts?|stories|thumbnails?|email\s+headers?|flyers?|posters?|screenshots?|promo(?:tional)?\s+(?:graphics?|images?|posts?))\b[\s\S]{0,32}\bat\s*$/i;
 const LAYOUT_COUNT_CONTEXT_AFTER =
   /^\s*(?:(?:card\s+)?(?:grid|matrix|layout)|columns?|rows?)\b/i;
 const ASPECT_RATIO_CONTEXT_AFTER = /^\s*(?:aspect\s+ratio|ratio)\b/i;
@@ -165,7 +165,7 @@ const OUTPUT_VERB =
 const OUTPUT_RELATION_BOUNDARY =
   /\b(?:for|with|using|including|featuring|showing|based\s+on|inspired\s+by|announcing|promoting|about|on|that|which)\b/i;
 const PRODUCT_SURFACE_OUTPUT =
-  /\b(?:(?:[\w-]+\s+){0,5}(?:tools?|editors?|makers?|generators?|builders?|creators?)|dashboard|dashboards|manager|management\s+(?:tool|app|platform)|(?:web|mobile|desktop)\s+apps?|applications?|website|web\s+site|landing\s+page|pricing\s+page|settings\s+page|login\s+screen|web\s+page|product\s+interface|portal|platform|crm|workspace|admin\s+(?:panel|dashboard)|prototype|site|form)\b/i;
+  /\b(?:(?:[\w-]+\s+){0,5}(?:tools?|editors?|makers?|generators?|builders?|creators?|apps?|pages?)|dashboard|dashboards|manager|management\s+(?:tool|app|platform)|(?:web|mobile|desktop)\s+apps?|applications?|website|web\s+site|landing\s+page|pricing\s+page|settings\s+page|login\s+screen|web\s+page|product\s+interface|portal|platform|crm|workspace|admin\s+(?:panel|dashboard)|prototype|site|form)\b/i;
 const FIXED_ARTWORK_OUTPUT =
   /\b(?:ads?|advertisements?|banners?|leaderboards?|skyscrapers?|billboards?|anzeige(?:n)?|annonce(?:s)?|publicit[ée]|an[uú]ncio(?:s)?|publicidade|social(?:\s+media)?\s+(?:posts?|stor(?:y|ies))|instagram\s+(?:posts?|stor(?:y|ies))|email\s+headers?|newsletter\s+(?:headers?|graphics?)|flyers?|posters?|brochures?|infographics?|cover\s+art|favicons?|logos?|avatars?|thumbnails?|promo(?:tional)?\s+(?:graphics?|images?|posts?)|open\s+graph\s+(?:preview\s+)?images?|og\s+images?)\b/i;
 

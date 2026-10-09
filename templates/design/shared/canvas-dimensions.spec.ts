@@ -392,6 +392,8 @@ describe("resolveCanvasIntent", () => {
     "Build a Google Ads dashboard",
     "Build a Google Ads reporting tool",
     "Design an ad campaign manager",
+    "Create a leaderboard page for our game",
+    "Create a social post scheduler app",
     "Create a settings page with an avatar upload",
     "Create a login screen with a logo",
     "Create a pricing page with a logo cloud",
@@ -422,6 +424,16 @@ describe("resolveCanvasIntent", () => {
       kind: "fixed",
       source: "explicit-dimensions",
       dimensions: { width: 500, height: 200 },
+    });
+  });
+
+  it("uses exact dimensions for an X promo graphic before its preset", () => {
+    expect(
+      resolveCanvasIntent("Create a Twitter/X promo graphic at 1000x400"),
+    ).toEqual({
+      kind: "fixed",
+      source: "explicit-dimensions",
+      dimensions: { width: 1000, height: 400 },
     });
   });
 

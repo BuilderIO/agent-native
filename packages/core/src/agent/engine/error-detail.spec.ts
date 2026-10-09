@@ -268,6 +268,15 @@ describe("isProviderConnectionErrorMessage", () => {
     [400, "Function tools with reasoning_effort are not supported."],
     [400, "Image generation is not supported for this model."],
     [413, "The file is too large for this request."],
+    [400, "Invalid file path: /workspace/docs/report.pdf"],
+    [
+      422,
+      "Prompt length exceeds the limit for a request with an attached file.",
+    ],
+    [
+      422,
+      "Prompt is too long for this model; the attached image exceeds the input token limit.",
+    ],
   ])(
     "leaves unrelated provider status %i errors outside attachment classification",
     (statusCode, message) => {

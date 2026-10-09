@@ -129,7 +129,7 @@ export interface ProviderErrorClassification {
 const MAX_RETRY_AFTER_MS = 60_000;
 
 const PROVIDER_ATTACHMENT_FIELD_PATTERN =
-  /\b(?:files?|attachments?)\b|\b(?:images?|files?|attachments?|media)[_-](?:url|data|source|type|format|size|input)\b|\b(?:images?|files?|attachments?|media)\b.{0,40}\b(?:url|data|source|type|format|size|input|content)\b|\b(?:url|data|source|type|format|size|input|content)\b.{0,40}\b(?:images?|files?|attachments?|media)\b|\bmime[\s_-]?type\b/gi;
+  /\b(?:images?|files?|attachments?|media)[_-](?:url|data|source|type|format|size|input|content)\b|\b(?:images?|files?)\s+(?:url|data|source|type|format|size|content)\b|\b(?:url|data|source|type|format|size|input|content)\b.{0,40}\b(?:images?|files?|attachments?|media)\b|\bmime[\s_-]?type\b/gi;
 const PROVIDER_ATTACHMENT_REJECTION_PATTERN =
   /\b(?:invalid|unsupported|not supported|does not support|too large|too big|too long|exceeds?|over(?:sized|size| the)? limit|maximum (?:allowed )?(?:size|length)|(?:size|length) limit|malformed)\b/i;
 

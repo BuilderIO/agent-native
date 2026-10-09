@@ -482,9 +482,11 @@ const generateDesignAgentParameters = {
       description:
         "Device set for responsive frames. Honor the devices the prompt " +
         'explicitly names; omit to default to ["desktop","mobile"]. Use [] ' +
-        "for an exact-size static screen so no mobile or tablet frame is added. " +
+        "for an exact-size static screen when no device variants are requested. " +
         "One exact canvas size per call; prompts with multiple distinct exact sizes are rejected. " +
-        "Exact pixel dimensions in the prompt always take precedence and suppress extra device frames. The widest " +
+        "Exact pixel dimensions set the canvas size. Preserve exactly the " +
+        "explicitly requested device frames when the prompt also requests " +
+        "device variants; otherwise suppress default device frames. The widest " +
         "device becomes the primary/base frame and the narrower devices become " +
         "breakpoint frames — never a duplicate of the base width and never an " +
         "auto-added tablet. A single device yields one frame with no breakpoints. " +
@@ -518,8 +520,9 @@ const generateDesignAction = defineAction({
     "fixed canvas. Static artwork such as ads, banners, social posts, flyers, " +
     "and posters has no mobile breakpoint unless the user explicitly asks for " +
     "separate versions. " +
-    "For exact pixel dimensions, use those values for the screen's canvas frame " +
-    "and do not add mobile or tablet frames. Use one exact canvas size per call; " +
+    "For exact pixel dimensions, use those values for the screen's canvas frame. " +
+    "Do not add mobile or tablet frames unless the prompt explicitly requests " +
+    "those device variants. Use one exact canvas size per call; " +
     "make separate calls for screens with different exact sizes. This action adds responsive editor " +
     "breakpoints by default: a Desktop 1440x900 base frame plus a Mobile " +
     "breakpoint (no auto tablet, no duplicate desktop). Pass `devices` to honor " +
@@ -1038,7 +1041,7 @@ const generateDesignAction = defineAction({
             ? Object.keys(prevData.canvasFrames as Record<string, unknown>)
             : [],
         );
-        if (explicitDeviceSelection) {
+        if (explicitDeviceSelection && !promptCanvasDimensions) {
           for (const file of savedFiles) {
             const source = files.find(
               (candidate) => candidate.filename === file.filename,
