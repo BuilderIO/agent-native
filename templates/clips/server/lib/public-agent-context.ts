@@ -97,9 +97,10 @@ export function describeAgentAccessFailure(
     return {
       status: 404,
       body: {
+        failureKind: "access",
         error: "This clip is unavailable from this link.",
         nextStep:
-          "If it is private or password protected, ask the owner to open the Clips Share menu, choose Share with agents, and send the generated link.",
+          "If this clip is private or password protected, ask the owner to open the Clips Share menu, choose Share with agents, and send the generated link.",
       },
     };
   }
@@ -109,6 +110,7 @@ export function describeAgentAccessFailure(
       status: failure.status,
       body: {
         ...failure.body,
+        failureKind: "access",
         error: "This clip requires additional share access.",
         nextStep:
           "Ask the owner to open the Clips Share menu, choose Share with agents, and send the generated link.",
@@ -121,9 +123,10 @@ export function describeAgentAccessFailure(
       status: failure.status,
       body: {
         ...failure.body,
+        failureKind: "expired",
         error: "This clip share link has expired.",
         nextStep:
-          "Ask the owner to create a new link from the Clips Share menu with Share with agents.",
+          "Ask the owner to open the Clips Share menu, extend or remove the clip's expiry, save it, then choose Share with agents and send the new link.",
       },
     };
   }
@@ -132,6 +135,7 @@ export function describeAgentAccessFailure(
     return {
       status: failure.status,
       body: {
+        failureKind: "request",
         error: "The clip id is missing.",
         nextStep:
           "Use the complete agentContextUrl from the share page and keep its query parameters, including agent_access when present.",
@@ -812,7 +816,7 @@ export function buildPublicAgentContext({
           ? [
               "This clip is readable as both text (transcript) and images (JPEG frames) — you can hear AND see it.",
               "To SEE the screen, GET apis.frame.urlTemplate with atMs (returns image/jpeg). Start with recommendedFrames, then fetch additional frames around transcript timestamps that matter for the task.",
-              "If a frame request returns 401 or 404, explain that this link does not grant access. For a private clip, ask the owner to open the Clips Share menu, choose Share with agents, and send the generated link. Keep the exact id and any agent_access query parameter from each supplied URL. If frames still cannot be loaded after access is confirmed, say that visual inspection is unavailable and report the failing frame URL without its agent_access value.",
+              "Keep the exact id and any agent_access query parameter from each supplied URL. For a 401 or 404 response, read the JSON failureKind and error. If a context or transcript request has failureKind=access, explain that this link does not grant access; for a private clip, ask the owner to open the Clips Share menu, choose Share with agents, and send the generated link. If a frame request has failureKind=media while the context or transcript still works, explain that the stored video is unavailable and another share link will not fix it. If a request has failureKind=expired or returns 410, ask the owner to extend or remove the clip's expiry in the Share menu, save it, then create and send a new Share with agents link. Report the failing frame URL without its agent_access value.",
             ]
           : []),
   ];

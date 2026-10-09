@@ -356,20 +356,21 @@ describe("agent-frame.jpg route", () => {
     );
   });
 
-  it("returns media fetch status when recording bytes cannot be loaded", async () => {
+  it("marks a missing stored video as a media failure", async () => {
     mockLoadRecordingMediaFile.mockRejectedValue(
       new RecordingMediaFetchError(
-        "Recording media could not be fetched.",
-        502,
+        "Recording media fetch failed: HTTP 404 Not Found",
+        404,
       ),
     );
 
     const event = makeEvent({ id: "rec-1", atMs: "1000" });
     const result = await handler(event as any);
 
-    expect(event.status).toBe(502);
+    expect(event.status).toBe(404);
     expect(result).toEqual({
-      error: "Recording media could not be fetched.",
+      failureKind: "media",
+      error: "Recording media fetch failed: HTTP 404 Not Found",
     });
     expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
   });

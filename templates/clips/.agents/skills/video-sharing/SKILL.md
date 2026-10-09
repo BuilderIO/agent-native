@@ -202,10 +202,16 @@ context instead of stopping at the share page or transcript preview:
    `recommendedFrames[].url` as an image and inspect the returned pixels; when
    more visual context is needed, request `apis.frame.urlTemplate` with an
    `atMs` timestamp.
-3. If an endpoint returns 401 or 404, explain that the supplied link does not
-   grant access. For a private clip, ask its owner to open the Clips Share menu,
-   choose **Share with agents**, and send the generated link. Never claim to
-   have seen frames that were not returned as images.
+3. On an error, inspect the JSON `failureKind`, `error`, and `nextStep`. If a
+   context or transcript request has `failureKind: access`, explain that the
+   link does not grant access. For a private clip, ask its owner to open the
+   Clips Share menu, choose **Share with agents**, and send the generated link.
+   If a frame request has `failureKind: media` while the transcript works,
+   report that the stored video is unavailable; another link will not fix it.
+   If `failureKind: expired` or HTTP 410, ask the owner to extend or remove the
+   clip expiry in the Share menu, save, then create and send a new
+   **Share with agents** link. Never claim to have seen frames that were not
+   returned as images.
 
 The JSON discovery payload and HTTP endpoints work without browser tools. A
 WebMCP-capable browser is optional; its frame tool returns a URL, so the agent

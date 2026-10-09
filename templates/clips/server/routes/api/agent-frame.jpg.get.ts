@@ -341,6 +341,7 @@ export default defineEventHandler(async (event: H3Event) => {
     setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
     return {
+      failureKind: "media",
       error: isFrameError
         ? err.message
         : err instanceof Error

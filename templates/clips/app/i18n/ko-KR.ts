@@ -340,7 +340,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "에이전트가 읽을 수 있는 클립 컨텍스트",
     agentInstructions:
-      "먼저 agentContextUrl을 여세요. 전체 transcript는 apis.transcript를 사용하고, 영상을 확인하도록 각 recommendedFrames[].url(또는 atMs가 포함된 apis.frame.urlTemplate)을 이미지로 가져오세요. URL에 있는 id와 agent_access 매개변수는 그대로 유지하세요. 요청이 401 또는 404를 반환하면 이 링크로는 접근할 수 없다고 설명하세요. 비공개 클립은 소유자에게 Clips 공유 메뉴에서 {{shareWithAgents}}를 선택하고 생성된 링크를 보내 달라고 요청하세요.",
+      "먼저 agentContextUrl을 여세요. apis.transcript에서 전체 transcript를 읽고 영상을 확인하도록 recommendedFrames[].url(또는 atMs가 포함된 apis.frame.urlTemplate)을 이미지로 가져오세요. id와 agent_access를 제공된 그대로 유지하세요. 오류가 발생하면 JSON 응답의 failureKind, error, nextStep를 확인하세요. failureKind=access이면 이 링크로는 접근할 수 없다고 설명하고, 비공개 클립은 소유자에게 Clips 공유 메뉴에서 {{shareWithAgents}}를 선택해 생성된 링크를 보내 달라고 요청하세요. transcript는 작동하는데 failureKind=media이면 저장된 동영상을 사용할 수 없으며 새 링크로 해결되지 않는다고 설명하세요. failureKind=expired 또는 HTTP 410이면 소유자에게 공유 메뉴에서 클립 만료를 연장하거나 해제하고 저장한 뒤 {{shareWithAgents}}를 선택해 새 링크를 보내 달라고 요청하세요.",
     untitledClip: "제목 없는 클립",
     incorrectPassword: "잘못된 비밀번호",
     passwordProtected: "이 클립은 비밀번호로 보호되어 있습니다",
@@ -598,7 +598,7 @@ const messages = {
     openInCodex: "Codex에서 열기",
     copyAgentPrompt: "에이전트 프롬프트 복사",
     agentPrompt:
-      "이 Clips 에이전트 컨텍스트 URL을 읽으세요: {{agentContextUrl}}. 전체 transcript는 apis.transcript를 사용하고, 영상을 확인하도록 각 recommendedFrames[].url(또는 atMs가 포함된 apis.frame.urlTemplate)을 이미지로 가져오세요. URL에 있는 id와 agent_access 매개변수는 그대로 유지하세요. 요청이 401 또는 404를 반환하면 이 링크로는 접근할 수 없다고 설명하세요. 비공개 클립은 소유자에게 Clips 공유 메뉴에서 {{shareWithAgents}}를 선택하고 생성된 링크를 보내 달라고 요청하세요. 버그를 보고할 때 browserDiagnostics가 있으면 함께 확인하세요.",
+      "이 Clips 에이전트 컨텍스트 URL을 읽으세요: {{agentContextUrl}}. apis.transcript에서 전체 transcript를 읽고 영상을 확인하도록 recommendedFrames[].url(또는 atMs가 포함된 apis.frame.urlTemplate)을 이미지로 가져오세요. id와 agent_access를 제공된 그대로 유지하세요. 오류가 발생하면 JSON 응답의 failureKind, error, nextStep를 확인하세요. failureKind=access이면 이 링크로는 접근할 수 없다고 설명하고, 비공개 클립은 소유자에게 Clips 공유 메뉴에서 {{shareWithAgents}}를 선택해 생성된 링크를 보내 달라고 요청하세요. transcript는 작동하는데 failureKind=media이면 저장된 동영상을 사용할 수 없으며 새 링크로 해결되지 않는다고 설명하세요. failureKind=expired 또는 HTTP 410이면 소유자에게 공유 메뉴에서 클립 만료를 연장하거나 해제하고 저장한 뒤 {{shareWithAgents}}를 선택해 새 링크를 보내 달라고 요청하세요. 버그를 보고할 때 browserDiagnostics가 있으면 함께 확인하세요.",
     agentTokenDescription:
       "이 클립은 공개 상태가 아니므로 에이전트용 임시 읽기 전용 링크입니다. 2시간 후 만료됩니다.",
     agentPublicDescription:

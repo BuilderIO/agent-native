@@ -126,6 +126,7 @@ describe("Clip WebMCP tools", () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(
         {
+          failureKind: "access",
           error: "This clip is unavailable from this link.",
           nextStep:
             "Ask the owner to open the Clips Share menu and choose Share with agents.",
@@ -140,7 +141,7 @@ describe("Clip WebMCP tools", () => {
     await expect(
       contextTool.execute({}, { signal: new AbortController().signal }),
     ).rejects.toThrow(
-      "Next step: Ask the owner to open the Clips Share menu and choose Share with agents.",
+      "Clip agent request failed (access): This clip is unavailable from this link. Next step: Ask the owner to open the Clips Share menu and choose Share with agents.",
     );
   });
 

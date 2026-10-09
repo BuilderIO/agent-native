@@ -334,7 +334,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "एजेंट-पठनीय क्लिप संदर्भ",
     agentInstructions:
-      "पहले agentContextUrl खोलें। पूरा ट्रांसक्रिप्ट पाने के लिए apis.transcript का उपयोग करें और वीडियो देखने के लिए हर recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access पैरामीटर को URL में जैसा दिया गया है वैसा ही रखें। अनुरोध पर 401 या 404 मिले तो बताएं कि यह लिंक पहुंच नहीं देता। निजी क्लिप के लिए मालिक से Clips के Share मेनू में {{shareWithAgents}} चुनने और बनाया गया लिंक भेजने को कहें।",
+      "पहले agentContextUrl खोलें। apis.transcript से पूरा ट्रांसक्रिप्ट पढ़ें और recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access को जैसा दिया गया है वैसा ही रखें। हर त्रुटि पर JSON उत्तर में failureKind, error और nextStep देखें। यदि failureKind=access है, बताएं कि लिंक से पहुंच नहीं मिलती; निजी क्लिप के लिए मालिक से Clips Share मेनू में {{shareWithAgents}} चुनकर बनाया गया लिंक भेजने को कहें। यदि failureKind=media है और ट्रांसक्रिप्ट काम कर रहा है, बताएं कि सहेजा गया वीडियो उपलब्ध नहीं है; नया लिंक इसका समाधान नहीं करेगा। यदि failureKind=expired या HTTP 410 है, मालिक से Share मेनू में क्लिप की expiry बढ़ाने या हटाने, बदलाव सहेजने, फिर {{shareWithAgents}} चुनकर नया लिंक भेजने को कहें।",
     untitledClip: "शीर्षक रहित क्लिप",
     incorrectPassword: "गलत पासवर्ड",
     passwordProtected: "यह क्लिप पासवर्ड से सुरक्षित है",
@@ -590,7 +590,7 @@ const messages = {
     openInCodex: "Codex में खोलें",
     copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
     agentPrompt:
-      "यह Clips एजेंट संदर्भ URL पढ़ें: {{agentContextUrl}}। पूरा ट्रांसक्रिप्ट पाने के लिए apis.transcript का उपयोग करें और वीडियो देखने के लिए हर recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access पैरामीटर को URL में जैसा दिया गया है वैसा ही रखें। अनुरोध पर 401 या 404 मिले तो बताएं कि यह लिंक पहुंच नहीं देता। निजी क्लिप के लिए मालिक से Clips के Share मेनू में {{shareWithAgents}} चुनने और बनाया गया लिंक भेजने को कहें। बग रिपोर्ट में उपलब्ध होने पर browserDiagnostics भी देखें।",
+      "यह Clips एजेंट संदर्भ URL पढ़ें: {{agentContextUrl}}। apis.transcript से पूरा ट्रांसक्रिप्ट पढ़ें और recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access को जैसा दिया गया है वैसा ही रखें। हर त्रुटि पर JSON उत्तर में failureKind, error और nextStep देखें। यदि failureKind=access है, बताएं कि लिंक से पहुंच नहीं मिलती; निजी क्लिप के लिए मालिक से Clips Share मेनू में {{shareWithAgents}} चुनकर बनाया गया लिंक भेजने को कहें। यदि failureKind=media है और ट्रांसक्रिप्ट काम कर रहा है, बताएं कि सहेजा गया वीडियो उपलब्ध नहीं है; नया लिंक इसका समाधान नहीं करेगा। यदि failureKind=expired या HTTP 410 है, मालिक से Share मेनू में क्लिप की expiry बढ़ाने या हटाने, बदलाव सहेजने, फिर {{shareWithAgents}} चुनकर नया लिंक भेजने को कहें। बग रिपोर्ट में उपलब्ध होने पर browserDiagnostics भी देखें।",
     agentTokenDescription:
       "यह क्लिप सार्वजनिक नहीं है, इसलिए एजेंटों के लिए अस्थायी रीड-ओनली लिंक। 2 घंटे में समाप्त।",
     agentPublicDescription:

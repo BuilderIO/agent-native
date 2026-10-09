@@ -347,7 +347,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "Contexto de clipe legível pelo agente",
     agentInstructions:
-      "Abra agentContextUrl primeiro. Use apis.transcript para obter a transcrição completa e busque cada recommendedFrames[].url (ou apis.frame.urlTemplate com atMs) como imagem para analisar o vídeo. Preserve id e qualquer parâmetro agent_access exatamente como estão na URL. Se uma solicitação retornar 401 ou 404, explique que este link não concede acesso. Para um clipe privado, peça ao proprietário que escolha {{shareWithAgents}} no menu de compartilhamento do Clips e envie o link gerado.",
+      "Abra agentContextUrl primeiro. Leia a transcrição completa em apis.transcript e busque recommendedFrames[].url (ou apis.frame.urlTemplate com atMs) como imagens. Preserve id e agent_access exatamente como fornecidos. Em qualquer erro, confira failureKind, error e nextStep no JSON. Se failureKind=access, explique que o link não dá acesso; para um clipe privado, peça ao proprietário que escolha {{shareWithAgents}} no menu Compartilhar do Clips e envie o link gerado. Se failureKind=media enquanto a transcrição funciona, explique que o vídeo armazenado está indisponível e outro link não resolverá. Se failureKind=expired ou HTTP 410, peça ao proprietário que amplie ou remova a expiração do clipe no menu Compartilhar, salve e então escolha {{shareWithAgents}} e envie o novo link.",
     untitledClip: "Clipe sem título",
     incorrectPassword: "Senha incorreta",
     passwordProtected: "Este clipe é protegido por senha",
@@ -611,7 +611,7 @@ const messages = {
     openInCodex: "Abrir no Codex",
     copyAgentPrompt: "Copiar prompt para agente",
     agentPrompt:
-      "Leia esta URL de contexto para agentes do Clips: {{agentContextUrl}}. Busque apis.transcript para obter a transcrição completa e cada recommendedFrames[].url (ou apis.frame.urlTemplate com atMs) como imagem para analisar o vídeo. Preserve id e qualquer parâmetro agent_access exatamente como estão na URL. Se uma solicitação retornar 401 ou 404, explique que este link não concede acesso. Para um clipe privado, peça ao proprietário que escolha {{shareWithAgents}} no menu de compartilhamento do Clips e envie o link gerado. Use browserDiagnostics quando disponível para relatar um problema.",
+      "Leia esta URL de contexto para agentes do Clips: {{agentContextUrl}}. Leia a transcrição completa em apis.transcript e busque recommendedFrames[].url (ou apis.frame.urlTemplate com atMs) como imagens. Preserve id e agent_access exatamente como fornecidos. Em qualquer erro, confira failureKind, error e nextStep no JSON. Se failureKind=access, explique que o link não dá acesso; para um clipe privado, peça ao proprietário que escolha {{shareWithAgents}} no menu Compartilhar do Clips e envie o link gerado. Se failureKind=media enquanto a transcrição funciona, explique que o vídeo armazenado está indisponível e outro link não resolverá. Se failureKind=expired ou HTTP 410, peça ao proprietário que amplie ou remova a expiração do clipe no menu Compartilhar, salve e então escolha {{shareWithAgents}} e envie o novo link. Use browserDiagnostics quando disponível para relatar um problema.",
     agentTokenDescription:
       "Link temporário somente leitura para agentes, porque este clipe não é público. Expira em 2 horas.",
     agentPublicDescription:

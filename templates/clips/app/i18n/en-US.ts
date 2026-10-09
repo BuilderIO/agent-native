@@ -281,7 +281,7 @@ const messages = {
       "The owner is making changes to this clip. The link will start working again when they have finished.",
     agentReadableContext: "Agent-readable clip context",
     agentInstructions:
-      "Open agentContextUrl first. Use apis.transcript for the complete transcript and fetch each recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as an image to inspect the video. Keep id and any agent_access query parameter exactly as provided. If a request returns 401 or 404, explain that this link does not grant access. For a private clip, ask the owner to choose {{shareWithAgents}} in the Clips Share menu and send the generated link.",
+      "Open agentContextUrl first. Read the complete transcript from apis.transcript and fetch recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as images. Keep id and agent_access exactly as provided. For any error, inspect the JSON failureKind, error, and nextStep. If failureKind=access, explain that the link does not grant access; for a private clip, ask the owner to choose {{shareWithAgents}} in the Clips Share menu and send the generated link. If failureKind=media while the transcript works, explain that the stored video is unavailable; another link will not fix it. If failureKind=expired or HTTP 410, ask the owner to extend or remove the clip expiry in the Clips Share menu, save, then choose {{shareWithAgents}} and send the new link.",
     untitledClip: "Untitled Clip",
     incorrectPassword: "Incorrect password",
     passwordProtected: "This clip is password-protected",
@@ -535,7 +535,7 @@ const messages = {
     openInCodex: "Open in Codex",
     copyAgentPrompt: "Copy agent prompt",
     agentPrompt:
-      "Read this Clips agent context URL: {{agentContextUrl}}. Fetch apis.transcript for the complete transcript and fetch each recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as an image so you can inspect the video. Keep id and any agent_access query parameter exactly as provided. If a request returns 401 or 404, explain that this link does not grant access. For a private clip, ask the owner to choose {{shareWithAgents}} in the Clips Share menu and send the generated link. Also use browserDiagnostics when present for a bug report.",
+      "Read this Clips agent context URL: {{agentContextUrl}}. Read the complete transcript from apis.transcript and fetch recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as images. Keep id and agent_access exactly as provided. For any error, inspect the JSON failureKind, error, and nextStep. If failureKind=access, explain that the link does not grant access; for a private clip, ask the owner to choose {{shareWithAgents}} in the Clips Share menu and send the generated link. If failureKind=media while the transcript works, explain that the stored video is unavailable; another link will not fix it. If failureKind=expired or HTTP 410, ask the owner to extend or remove the clip expiry in the Clips Share menu, save, then choose {{shareWithAgents}} and send the new link. Also use browserDiagnostics when present for a bug report.",
     agentTokenDescription:
       "Temporary read-only link for agents, since this clip is not public. Expires in 2 hours.",
     agentPublicDescription:
