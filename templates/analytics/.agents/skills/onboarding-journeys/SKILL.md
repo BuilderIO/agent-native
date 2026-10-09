@@ -21,7 +21,9 @@ The pipeline runs without a UI. Codex does all four steps from the terminal:
 3. Call Design's `create-journey-canvas` with
    `{ title, tree, frames: [{ nodeKey, exampleIndex, imageUrl?, attachmentRef?, width, height, capturedAt }], designId? }`
    -> `{ designId, url, nodeCount, frameCount }`. Build `frames` from
-   `frames/manifest.json`.
+   `frames/manifest.json`. Design reads event timestamps and replay offsets from
+   `tree`; keep `sourceEventAt`, `replayAt`, and `capturedAt` in the capture
+   manifest.
 4. Lay out and review the canvas.
 
 ## The tree
@@ -114,6 +116,19 @@ and `manifest.json` with `frames`, `failures` (explicit, with a reason), and
 bounded batches only through the requested offsets and validates every fetched
 chunk. Fix failures or report them; do not paint over a missing frame.
 
+`sourceEventAt` preserves the JourneyTree example's original event timestamp;
+`replayAt` is `startedAt + offsetMs`, and `capturedAt` is when the CLI rendered
+the PNG. Every visible iframe must have a corresponding recorded child document
+by the requested replay time. If the child document is missing, the frame is
+listed as a failure with code `replay_iframe_content_unavailable` and counts in
+`diagnostics`. If unsupported 3D projection, rounded ancestor clipping, CSS
+clip paths, masks, or visibility-altering filters prevent the audit from
+verifying visibility, the frame is listed with code
+`replay_iframe_visibility_unverifiable`; do not treat uncertainty as either
+missing content or a successful audit. The check covers every visible iframe
+because replay can omit its original source attribute while rebuilding an
+isolated frame.
+
 Authenticate to the deployed app, never a local database: run
 `npx -y @agent-native/core@latest connect https://analytics.agent-native.com --client codex`
 (the CLI reads the bearer it writes to `~/.codex/config.toml`), or pass
@@ -126,6 +141,9 @@ remote images and fonts are not fetched. The output manifest marks this as
 `remoteAssets: "not-fetched"`. Keep recorded URLs and CSS intact for rrweb
 playback; network controls belong at the capture boundary. `--upload` stores
 PNGs through the private upload action, which checks recording access again.
+Design's own sandboxed template previews opt into the cooperative iframe
+recorder, so their child DOM can be replayed without granting the parent access
+to the preview document or credentials.
 
 Viewport comes from the recording's first rrweb Meta event, stored by replay
 ingest in `session_recordings.metadata.viewport` (`first` and `last`). Older
