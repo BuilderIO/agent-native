@@ -2650,7 +2650,7 @@ export async function runAuthoringFuzz(
   };
   const assertSlashMenuStaysHidden = async () => {
     const menuOpened = await page.evaluate(
-      (selector: string, durationMs: number) => {
+      ({ selector, durationMs }: { selector: string; durationMs: number }) => {
         const editingEl = document.querySelector<HTMLElement>(selector);
         if (!editingEl) throw new Error("slash menu editor is unavailable");
         const isControlledListboxVisible = () => {
@@ -2696,8 +2696,7 @@ export async function runAuthoringFuzz(
           check();
         });
       },
-      editorSelector,
-      1_500,
+      { selector: editorSelector, durationMs: 1_500 },
     );
     if (menuOpened)
       throw new Error("slash menu opened for a slash within text or a URL");
