@@ -82,6 +82,25 @@ export function actionQueryCacheScope(
   ]);
 }
 
+// The record's timestamp is re-stamped on every write, so it only bounds the
+// last write. Each query's own data age has to be checked here, or results
+// written an hour after they were fetched would restore as fresh.
+function withinMaxAge(
+  stored: PersistedClient | undefined,
+): PersistedClient | undefined {
+  if (!stored) return undefined;
+  const cutoff = Date.now() - ACTION_QUERY_CACHE_MAX_AGE_MS;
+  return {
+    ...stored,
+    clientState: {
+      ...stored.clientState,
+      queries: stored.clientState.queries.filter(
+        (query) => query.state.dataUpdatedAt >= cutoff,
+      ),
+    },
+  };
+}
+
 interface ScopedPersister extends Persister {
   /** Drops a write still waiting on the debounce, then deletes the record. */
   discard(): void;
@@ -117,7 +136,7 @@ function scopedPersister(scope: string): ScopedPersister {
       const stored = await storage.get(scope);
       // Closed while the read was in flight: the record belongs to a scope the
       // page has left, so it must not be hydrated into this client.
-      return open ? stored : undefined;
+      return open ? withinMaxAge(stored) : undefined;
     },
     removeClient() {
       return storage.del(scope);

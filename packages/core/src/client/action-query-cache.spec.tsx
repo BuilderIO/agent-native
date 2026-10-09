@@ -440,4 +440,32 @@ describe("ActionQueryCacheGate", () => {
     expect(titles).not.toContain("over-an-hour-old");
     expect(records.has(ALICE_SCOPE)).toBe(false);
   });
+
+  it("does not hydrate a query fetched over an hour ago from a record stamped now", async () => {
+    const { storage, records } = memoryStorage();
+    setActionQueryCacheStorage(storage);
+    const stale = new QueryClient();
+    stale.setQueryData<Designs>(["action", "list-designs", undefined], {
+      designs: [{ title: "fetched-two-hours-ago" }],
+    });
+    const clientState = dehydrate(stale);
+    for (const query of clientState.queries) {
+      query.state.dataUpdatedAt = Date.now() - 2 * 60 * 60 * 1000;
+    }
+    records.set(ALICE_SCOPE, {
+      timestamp: Date.now(),
+      buster: "action-query-cache-v1",
+      clientState,
+    });
+
+    const titles: Array<string | undefined> = [];
+    stubFetch(() => new Promise<Response>(() => {}));
+    await mount(
+      new QueryClient(),
+      <Designs onRender={(title) => titles.push(title)} />,
+    );
+    await settle(50);
+
+    expect(titles).not.toContain("fetched-two-hours-ago");
+  });
 });
