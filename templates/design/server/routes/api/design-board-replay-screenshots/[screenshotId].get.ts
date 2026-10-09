@@ -4,7 +4,7 @@ import {
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import {
   createError,
@@ -97,11 +97,21 @@ export default defineEventHandler(async (event) => {
       }
 
       const staged = screenshot.id.startsWith(JOURNEY_STAGED_REPLAY_ROW_PREFIX);
-      await assertAccess(
-        "design",
-        screenshot.designId,
-        staged ? "editor" : "viewer",
-      );
+      try {
+        await assertAccess(
+          "design",
+          screenshot.designId,
+          staged ? "editor" : "viewer",
+        );
+      } catch (error) {
+        if (error instanceof ForbiddenError) {
+          throw createError({
+            statusCode: 403,
+            statusMessage: "Forbidden",
+          });
+        }
+        throw error;
+      }
       if (staged) {
         const createdAtMs = screenshot.createdAt
           ? Date.parse(screenshot.createdAt)

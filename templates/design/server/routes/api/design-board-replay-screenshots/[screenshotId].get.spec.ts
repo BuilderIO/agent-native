@@ -7,6 +7,9 @@ const mocks = vi.hoisted(() => ({
   getRouterParam: vi.fn(),
   getSession: vi.fn(),
   readPrivateBlob: vi.fn(),
+  ForbiddenError: class extends Error {
+    statusCode = 403;
+  },
   row: undefined as
     | {
         id: string;
@@ -34,6 +37,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
+  ForbiddenError: mocks.ForbiddenError,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -67,6 +71,8 @@ vi.mock("../../../db/index.js", () => ({
     },
   },
 }));
+
+import { ForbiddenError } from "@agent-native/core/sharing";
 
 import handler from "./[screenshotId].get.js";
 
@@ -160,12 +166,7 @@ describe("GET /api/design-board-replay-screenshots/:screenshotId", () => {
   });
 
   it("keeps the same-origin resource policy and does not read a screenshot when viewer access is denied", async () => {
-    mocks.assertAccess.mockRejectedValue(
-      Object.assign(new Error("Forbidden"), {
-        statusCode: 403,
-        statusMessage: "Forbidden",
-      }),
-    );
+    mocks.assertAccess.mockRejectedValue(new ForbiddenError("No access"));
 
     await expect(handler(makeEvent() as never)).rejects.toMatchObject({
       statusCode: 403,
