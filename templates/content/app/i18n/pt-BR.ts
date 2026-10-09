@@ -1518,6 +1518,11 @@ const overrides = {
     resize: "Redimensionar barra lateral",
     expand: "Expandir barra lateral",
     failedCreatePage: "Falha ao criar página",
+    failedCreatePageDraftDescription:
+      "Seu rascunho está salvo neste navegador. Você pode tentar criar a página novamente ou descartar o rascunho.",
+    discardFailedCreatePageQuestion: "Descartar esta página?",
+    discardFailedCreatePageDescription:
+      "Isso remove a página e o rascunho não salvo deste navegador. Esta ação não pode ser desfeita.",
     failedDeletePage: "Falha ao excluir página",
     failedPermanentDeletePage: "Falha ao excluir a página permanentemente",
     failedRestorePage: "Falha ao restaurar a página",

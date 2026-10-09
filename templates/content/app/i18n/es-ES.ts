@@ -1771,6 +1771,11 @@ const overrides = {
     resize: "Cambiar ancho de la barra lateral",
     expand: "Expandir barra lateral",
     failedCreatePage: "No se pudo crear la página",
+    failedCreatePageDraftDescription:
+      "Tu borrador está guardado en este navegador. Puedes volver a intentar crear la página o descartar el borrador.",
+    discardFailedCreatePageQuestion: "¿Descartar esta página?",
+    discardFailedCreatePageDescription:
+      "Esto quitará la página y su borrador sin guardar de este navegador. Esta acción no se puede deshacer.",
     failedDeletePage: "No se pudo eliminar la página",
     failedPermanentDeletePage: "No se pudo eliminar la página permanentemente",
     failedRestorePage: "No se pudo restaurar la página",

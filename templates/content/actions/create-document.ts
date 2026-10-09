@@ -23,6 +23,7 @@ import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
   recordGenerationCreativeContext,
+  recordGenerationCreativeContextFromSnapshot,
   validateGenerationCreativeContext,
 } from "@agent-native/creative-context/server";
 import type {
@@ -137,6 +138,27 @@ type DocumentCreationProvenance = {
   reuseLabels: CreativeContextReuseLabel[];
 };
 
+function documentCreationElementProvenance(
+  documentId: string,
+  provenance: DocumentCreationProvenance,
+): CreativeContextElementProvenance[] {
+  return provenance.reuseLabels.length
+    ? provenance.reuseLabels.map((label) => ({
+        elementId: label.elementId ?? documentId,
+        influence: label.influence ?? "reference-conditioned",
+        ...(label.itemId ? { itemId: label.itemId } : {}),
+        ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
+        label: label.label,
+      }))
+    : [
+        {
+          elementId: documentId,
+          influence: "generated",
+          label: "Net-new document",
+        },
+      ];
+}
+
 async function recordDocumentCreationContextIfMissing(input: {
   artifactId: string;
   contextMode: DocumentCreationProvenance["contextMode"];
@@ -158,6 +180,8 @@ async function recordDocumentCreationContextIfMissing(input: {
 
 async function repairDocumentCreationContextProjection(input: {
   artifactId: string;
+  provenance: DocumentCreationProvenance | null;
+  provenanceRequired: boolean;
   reuseLabels: CreativeContextReuseLabel[];
   contextModeOverride?: "off";
 }): Promise<DocumentCreationProvenance | null> {
@@ -166,10 +190,42 @@ async function repairDocumentCreationContextProjection(input: {
     artifactType: "document",
     artifactId: input.artifactId,
   };
+  if (input.provenance) {
+    const persisted = await recordGenerationCreativeContextFromSnapshot({
+      ...identity,
+      ...input.provenance,
+      elementProvenance: documentCreationElementProvenance(
+        input.artifactId,
+        input.provenance,
+      ),
+      onlyIfMissing: true,
+    });
+    if (!persisted) return input.provenance;
+    return {
+      contextMode: persisted.contextMode,
+      contextPackId: persisted.contextPackId,
+      reuseLabels: input.provenance.reuseLabels.map((label) => ({
+        ...label,
+        influence: label.influence ?? "reference-conditioned",
+      })),
+    };
+  }
+
   const readOptions =
     input.contextModeOverride === "off" ? { localOnly: true } : undefined;
   const existing = await getGenerationCreativeContext(identity, readOptions);
-  if (!existing) return null;
+  if (!existing) {
+    if (input.provenanceRequired) {
+      throw new ActionContractError(
+        "The committed document is missing its validated Creative Context snapshot; provenance cannot be reconstructed safely.",
+        {
+          errorCode: "CREATIVE_CONTEXT_PROVENANCE_MISSING",
+          statusCode: 500,
+        },
+      );
+    }
+    return null;
+  }
 
   // Keep the retry on the same local or isolated storage path as the persisted record.
   const repaired = await recordGenerationCreativeContext({
@@ -257,6 +313,31 @@ const reuseLabelSchema = z
       });
     }
   });
+
+const documentCreationProvenanceSchema = z
+  .object({
+    contextMode: z.enum(["off", "auto", "pinned"]),
+    contextPackId: z.string().nullable(),
+    reuseLabels: z.array(reuseLabelSchema),
+  })
+  .strict();
+
+function parseDocumentCreationProvenance(
+  serialized: string | null | undefined,
+): DocumentCreationProvenance | null {
+  if (!serialized) return null;
+  try {
+    return documentCreationProvenanceSchema.parse(JSON.parse(serialized));
+  } catch {
+    throw new ActionContractError(
+      "The committed document has unreadable Creative Context provenance.",
+      {
+        errorCode: "CREATIVE_CONTEXT_PROVENANCE_UNREADABLE",
+        statusCode: 500,
+      },
+    );
+  }
+}
 
 export default defineAction({
   description:
@@ -388,6 +469,11 @@ export default defineAction({
           reuseLabels: args.reuseLabels ?? [],
         })
       : null;
+    const hasCreativeContextInput = Boolean(
+      args.contextPackId ||
+      args.contextModeOverride ||
+      args.reuseLabels.length > 0,
+    );
     const db = getDb();
 
     let existingAccess: Awaited<ReturnType<typeof assertAccess>> | undefined;
@@ -415,9 +501,34 @@ export default defineAction({
     }
 
     if (existingAccess) {
+      const storedProvenance = parseDocumentCreationProvenance(
+        (existingAccess.resource as typeof schema.documents.$inferSelect)
+          .creationCreativeContext,
+      );
+      const explicitOffProvenance =
+        !storedProvenance &&
+        args.contextModeOverride === "off" &&
+        !args.contextPackId &&
+        args.reuseLabels.every(
+          (label) =>
+            label.influence === "generated" &&
+            !label.itemId &&
+            !label.itemVersionId,
+        )
+          ? {
+              contextMode: "off" as const,
+              contextPackId: null,
+              reuseLabels: args.reuseLabels.map((label) => ({
+                ...label,
+                influence: "generated" as const,
+              })),
+            }
+          : null;
       const persistedCreativeContext =
         await repairDocumentCreationContextProjection({
           artifactId: id,
+          provenance: storedProvenance ?? explicitOffProvenance,
+          provenanceRequired: hasCreativeContextInput,
           reuseLabels: args.reuseLabels,
           contextModeOverride: args.contextModeOverride,
         });
@@ -429,11 +540,6 @@ export default defineAction({
       );
     }
 
-    const hasCreativeContextInput = Boolean(
-      args.contextPackId ||
-      args.contextModeOverride ||
-      args.reuseLabels.length > 0,
-    );
     const validatedCreativeContext = hasCreativeContextInput
       ? await validateGenerationCreativeContext({
           contextPackId: args.contextPackId,
@@ -448,25 +554,6 @@ export default defineAction({
           reuseLabels: validatedCreativeContext.reuseLabels,
         }
       : null;
-    const elementProvenanceFor = (documentId: string) =>
-      creativeContextProvenance?.reuseLabels.length
-        ? creativeContextProvenance.reuseLabels.map((label) => ({
-            elementId: label.elementId ?? documentId,
-            influence: label.influence ?? ("reference-conditioned" as const),
-            ...(label.itemId ? { itemId: label.itemId } : {}),
-            ...(label.itemVersionId
-              ? { itemVersionId: label.itemVersionId }
-              : {}),
-            label: label.label,
-          }))
-        : [
-            {
-              elementId: documentId,
-              influence: "generated" as const,
-              label: "Net-new document",
-            },
-          ];
-
     let ownerEmail = currentUserEmail;
     let orgId = getRequestOrgId() ?? null;
     let visibility: "private" | "org" | "public" = "private";
@@ -640,6 +727,9 @@ export default defineAction({
               hideFromSearch,
               visibility,
               creationRequestDigest: requestDigest,
+              creationCreativeContext: creativeContextProvenance
+                ? JSON.stringify(creativeContextProvenance)
+                : null,
               ...documentCreationAttribution(actor),
               createdAt: now,
               updatedAt: now,
@@ -733,7 +823,10 @@ export default defineAction({
       await recordDocumentCreationContextIfMissing({
         artifactId: doc.id,
         ...creativeContextProvenance,
-        elementProvenance: elementProvenanceFor(doc.id),
+        elementProvenance: documentCreationElementProvenance(
+          doc.id,
+          creativeContextProvenance,
+        ),
       });
     }
 

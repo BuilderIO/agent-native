@@ -1472,6 +1472,11 @@ const overrides = {
     resize: "تغيير حجم الشريط الجانبي",
     expand: "توسيع الشريط الجانبي",
     failedCreatePage: "فشل إنشاء الصفحة",
+    failedCreatePageDraftDescription:
+      "تم حفظ مسودتك في هذا المتصفح. يمكنك إعادة محاولة إنشاء الصفحة أو حذف المسودة.",
+    discardFailedCreatePageQuestion: "هل تريد حذف هذه الصفحة؟",
+    discardFailedCreatePageDescription:
+      "سيؤدي ذلك إلى إزالة الصفحة ومسودتها غير المحفوظة من هذا المتصفح. لا يمكن التراجع عن هذا الإجراء.",
     failedDeletePage: "فشل حذف الصفحة",
     failedPermanentDeletePage: "فشل حذف الصفحة نهائيًا",
     failedRestorePage: "فشل استعادة الصفحة",

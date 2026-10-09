@@ -1427,6 +1427,11 @@ export const runContentMigrations = runMigrations(
       name: "content-document-create-request-digest",
       sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS creation_request_digest TEXT`,
     },
+    {
+      version: 119,
+      name: "content-document-create-context-snapshot",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS creation_creative_context TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );

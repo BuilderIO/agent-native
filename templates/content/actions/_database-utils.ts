@@ -238,6 +238,7 @@ type DocumentListRow = Omit<
   | "createdBy"
   | "updatedBy"
   | "creationRequestDigest"
+  | "creationCreativeContext"
 >;
 
 export const contentDatabaseListDocumentSelection = {

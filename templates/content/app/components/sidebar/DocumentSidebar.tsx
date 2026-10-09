@@ -52,6 +52,7 @@ import {
 } from "@/components/editor/database/sidebar";
 import {
   clearPageDraftJournal,
+  listPageDraftJournal,
   PageDraftJournalError,
   readPageDraftJournal,
   writePageDraftJournal,
@@ -165,9 +166,13 @@ import {
   markDocumentCreationPending,
   readDocumentCreateIntents,
   isDocumentCreateInFlight,
+  shouldAutoRetryDocumentCreate,
   shouldCreateDocumentOptimistically,
   withDocumentCreateInFlight,
+  writeDocumentCreateIntent,
   writeDocumentCreateIntentBestEffort,
+  type DocumentCreateIntent,
+  type DocumentCreateIntentScope,
 } from "@/lib/optimistic-document";
 import {
   readSidebarLayoutHint,
@@ -1182,6 +1187,7 @@ export function DocumentSidebar({
   const documentsQuery = useDocuments({ enabled: localFileMode });
   const { data: documents = [] } = documentsQuery;
   const createDocument = useCreateDocument();
+  const createDocumentAsync = createDocument.mutateAsync;
   const createDatabase = useCreateContentDatabase(null, {
     skipListDocumentsInvalidation: true,
   });
@@ -1193,6 +1199,7 @@ export function DocumentSidebar({
   const restoreContentDatabase = useRestoreContentDatabase();
   const { isCodeMode } = useCodeMode();
   const updateDocument = useUpdateDocument();
+  const updateDocumentAsync = updateDocument.mutateAsync;
   const ensureContentSpaces = useEnsureContentSpaces();
   const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
   const lastSyncedSpaceIdRef = useRef<string | null>(null);
@@ -1632,6 +1639,10 @@ export function DocumentSidebar({
     id: string;
     title: string;
   } | null>(null);
+  const [pendingCreateDiscard, setPendingCreateDiscard] = useState<{
+    scope: DocumentCreateIntentScope;
+    intent: DocumentCreateIntent;
+  } | null>(null);
   const confirmedDeleteIdRef = useRef<string | null>(null);
   const pendingOptimisticCreationIdsRef = useRef(new Set<string>());
   const restoredCreateIntentsRef = useRef(new Set<string>());
@@ -1646,6 +1657,99 @@ export function DocumentSidebar({
     },
     [localFileMode, queryClient],
   );
+  const discardPendingCreate = useCallback(() => {
+    if (!pendingCreateDiscard) return;
+    const { intent, scope } = pendingCreateDiscard;
+    const draftScope = {
+      accountId: scope.accountId,
+      orgId: scope.orgId,
+      documentId: intent.id,
+    };
+    let drafts: ReturnType<typeof listPageDraftJournal>;
+    try {
+      drafts = listPageDraftJournal(draftScope);
+    } catch (error) {
+      toast.error(t("sidebar.failedCreatePage"), {
+        description:
+          error instanceof Error ? error.message : t("empty.genericError"),
+      });
+      return;
+    }
+
+    let intentCleared = false;
+    const clearedDrafts: typeof drafts = [];
+    try {
+      intentCleared = clearDocumentCreateIntent(scope, intent.id);
+      for (const draft of drafts) {
+        if (!clearPageDraftJournal(draft.scope, draft.snapshot)) {
+          throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
+        }
+        clearedDrafts.push(draft);
+      }
+    } catch (error) {
+      for (const draft of clearedDrafts) {
+        try {
+          writePageDraftJournal({
+            scope: draft.scope,
+            snapshot: draft.snapshot,
+          });
+        } catch (restoreError) {
+          console.error(
+            "Could not restore a discarded page draft.",
+            restoreError,
+          );
+        }
+      }
+      if (intentCleared) {
+        try {
+          writeDocumentCreateIntent(scope, intent);
+        } catch (restoreError) {
+          console.error(
+            "Could not restore a pending page creation.",
+            restoreError,
+          );
+        }
+      }
+      toast.error(t("sidebar.failedCreatePage"), {
+        description:
+          error instanceof Error ? error.message : t("empty.genericError"),
+      });
+      return;
+    }
+
+    clearDocumentCreationPending(queryClient, { id: intent.id });
+    queryClient.removeQueries(documentQueryFilter(intent.id));
+    removeCreatedDocumentNavigation(queryClient, intent);
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) => {
+      const docs: Document[] =
+        (old as { documents?: Document[] })?.documents ??
+        (Array.isArray(old) ? old : []);
+      return withDocumentsCacheShape(
+        old,
+        docs.filter((document) => document.id !== intent.id),
+      );
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ["action", "list-documents"],
+    });
+    if (intent.filesDatabaseId) {
+      void queryClient.invalidateQueries({
+        queryKey: contentDatabaseByIdQueryKey(intent.filesDatabaseId),
+      });
+    }
+    settleOptimisticListRefresh(intent.id);
+    toast.dismiss(`create-page-retry-${intent.id}`);
+    if (locationRef.current.pathname === `/page/${intent.id}`) {
+      void navigate("/home", { replace: true, flushSync: true });
+    }
+    setPendingCreateDiscard(null);
+  }, [
+    navigate,
+    pendingCreateDiscard,
+    queryClient,
+    settleOptimisticListRefresh,
+    t,
+  ]);
   const sidebarActiveDocumentId = location.pathname.startsWith("/trash")
     ? null
     : activeDocumentId;
@@ -1825,6 +1929,7 @@ export function DocumentSidebar({
     } catch (error) {
       console.error("Could not read pending Content page creations.", error);
       toast.error(t("sidebar.failedCreatePage"), {
+        id: "pending-create-intents-read",
         description:
           error instanceof Error ? error.message : t("empty.genericError"),
       });
@@ -1909,18 +2014,30 @@ export function DocumentSidebar({
 
       const retryToastId = "create-page-retry-" + intent.id;
       let retrying = false;
-      const showRetry = (error?: unknown) => {
+      const showRetry = (
+        error?: unknown,
+        draftPreserved = Boolean(journal),
+      ) => {
+        const errorDescription = error
+          ? error instanceof PageDraftJournalError ||
+            !(error instanceof Error && error.message)
+            ? t("editor.pageSaveBeforeNavigationFailed")
+            : error instanceof Error
+              ? error.message
+              : t("empty.genericError")
+          : null;
         toast.error(t("sidebar.failedCreatePage"), {
           id: retryToastId,
-          ...(error
+          ...(errorDescription || draftPreserved
             ? {
-                description:
-                  error instanceof PageDraftJournalError ||
-                  !(error instanceof Error && error.message)
-                    ? t("editor.pageSaveBeforeNavigationFailed")
-                    : error instanceof Error
-                      ? error.message
-                      : t("empty.genericError"),
+                description: [
+                  errorDescription,
+                  draftPreserved
+                    ? t("sidebar.failedCreatePageDraftDescription")
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" "),
               }
             : {}),
           duration: Infinity,
@@ -1928,16 +2045,21 @@ export function DocumentSidebar({
             label: t("root.searchRetry"),
             onClick: () => void retry(),
           },
+          cancel: {
+            label: t("editor.discardSuggestionDraft"),
+            onClick: () => setPendingCreateDiscard({ scope, intent }),
+          },
         });
       };
       const retry = async () => {
         if (retrying) return;
         retrying = true;
         try {
+          writeDocumentCreateIntent(scope, { ...intent, status: "pending" });
           const read = () => readPageDraftJournal(draftScope);
           const { created, draft } = await retryCreateAfterDraftRead(read, () =>
             withDocumentCreateInFlight(intent.id, () =>
-              createDocument.mutateAsync({
+              createDocumentAsync({
                 id: intent.id,
                 title: "",
                 parentId: intent.parentId ?? undefined,
@@ -1969,9 +2091,7 @@ export function DocumentSidebar({
                   snapshot: current.snapshot,
                 });
                 if (finalReplay) {
-                  const result = await updateDocument.mutateAsync(
-                    finalReplay.request,
-                  );
+                  const result = await updateDocumentAsync(finalReplay.request);
                   if (
                     isDocumentUpdateConflict(result) ||
                     isDocumentUpdatePreservationRequired(result) ||
@@ -2084,23 +2204,36 @@ export function DocumentSidebar({
             if (pendingDocument)
               queryClient.setQueryData(documentQueryKey, pendingDocument);
           }
-          showRetry(error);
+          try {
+            writeDocumentCreateIntent(scope, { ...intent, status: "failed" });
+          } catch (statusError) {
+            console.error(
+              "Could not save the failed Content create state.",
+              statusError,
+            );
+          }
+          showRetry(error, Boolean(preserved));
         } finally {
           retrying = false;
         }
       };
-      showRetry(
-        journalRead.kind === "unreadable" ? journalRead.error : undefined,
-      );
+      if (shouldAutoRetryDocumentCreate(intent)) {
+        void retry();
+      } else {
+        showRetry(
+          journalRead.kind === "unreadable" ? journalRead.error : undefined,
+          Boolean(journal),
+        );
+      }
     }
   }, [
-    createDocument,
+    createDocumentAsync,
     queryClient,
     session?.email,
     session?.orgId,
     settleOptimisticListRefresh,
     t,
-    updateDocument,
+    updateDocumentAsync,
   ]);
 
   const handleCreatePage = useCallback(
@@ -2145,6 +2278,18 @@ export function DocumentSidebar({
 
       const id = optimisticId ?? nanoid();
       const now = new Date().toISOString();
+      const createIntentScope = session?.email
+        ? { accountId: session.email, orgId: session.orgId ?? null }
+        : null;
+      const createIntent: DocumentCreateIntent = {
+        id,
+        parentId: parentId ?? null,
+        spaceId: parentId ? null : (rootSpaceId ?? null),
+        ...(rootFilesDatabaseId
+          ? { filesDatabaseId: rootFilesDatabaseId }
+          : {}),
+        createdAt: now,
+      };
       const tempDoc = markDocumentCreationPending(queryClient, {
         id,
         parentId: parentId ?? null,
@@ -2193,19 +2338,11 @@ export function DocumentSidebar({
       onNavigate?.();
 
       const persistCreatedPage = async () => {
-        if (session?.email) {
-          writeDocumentCreateIntentBestEffort(
-            { accountId: session.email, orgId: session.orgId ?? null },
-            {
-              id,
-              parentId: parentId ?? null,
-              spaceId: parentId ? null : (rootSpaceId ?? null),
-              ...(rootFilesDatabaseId
-                ? { filesDatabaseId: rootFilesDatabaseId }
-                : {}),
-              createdAt: now,
-            },
-          );
+        if (createIntentScope) {
+          writeDocumentCreateIntentBestEffort(createIntentScope, {
+            ...createIntent,
+            status: "pending",
+          });
         }
         const created = await withDocumentCreateInFlight(id, () =>
           createDocument.mutateAsync({
@@ -2217,12 +2354,9 @@ export function DocumentSidebar({
         );
         const nextId = created?.id || id;
         const confirmed = markDocumentCreationConfirmed(queryClient, created);
-        if (session?.email) {
+        if (createIntentScope) {
           try {
-            clearDocumentCreateIntent(
-              { accountId: session.email, orgId: session.orgId ?? null },
-              id,
-            );
+            clearDocumentCreateIntent(createIntentScope, id);
           } catch (error) {
             console.error(
               "Could not clear the confirmed Content create intent.",
@@ -2252,10 +2386,40 @@ export function DocumentSidebar({
       const retryToastId = `create-page-retry-${id}`;
       let retrying = false;
       function showCreatePageRetry(err: unknown) {
+        const recoveryDraft = createIntentScope
+          ? readCreateRecoveryDraft(() =>
+              readPageDraftJournal({
+                accountId: createIntentScope.accountId,
+                orgId: createIntentScope.orgId,
+                documentId: id,
+              }),
+            )
+          : null;
+        const draftPreserved =
+          recoveryDraft?.kind === "readable" && recoveryDraft.entry !== null;
+        if (createIntentScope) {
+          try {
+            writeDocumentCreateIntent(createIntentScope, {
+              ...createIntent,
+              status: "failed",
+            });
+          } catch (statusError) {
+            console.error(
+              "Could not save the failed Content create state.",
+              statusError,
+            );
+          }
+        }
         toast.error(t("sidebar.failedCreatePage"), {
           id: retryToastId,
-          description:
+          description: [
             err instanceof Error ? err.message : t("empty.genericError"),
+            draftPreserved
+              ? t("sidebar.failedCreatePageDraftDescription")
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" "),
           duration: Infinity,
           action: {
             label: t("root.searchRetry"),
@@ -2263,6 +2427,18 @@ export function DocumentSidebar({
               void retryCreatedPage();
             },
           },
+          ...(createIntentScope
+            ? {
+                cancel: {
+                  label: t("editor.discardSuggestionDraft"),
+                  onClick: () =>
+                    setPendingCreateDiscard({
+                      scope: createIntentScope,
+                      intent: createIntent,
+                    }),
+                },
+              }
+            : {}),
         });
       }
       async function retryCreatedPage() {
@@ -3314,6 +3490,35 @@ export function DocumentSidebar({
     );
   };
 
+  const createDiscardDialog = (
+    <AlertDialog
+      open={pendingCreateDiscard !== null}
+      onOpenChange={(open) => {
+        if (!open) setPendingCreateDiscard(null);
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {t("sidebar.discardFailedCreatePageQuestion")}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {t("sidebar.discardFailedCreatePageDescription")}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t("comments.cancel")}</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={discardPendingCreate}
+          >
+            {t("editor.discardSuggestionDraft")}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
   if (collapsed) {
     return (
       <div className="agent-layout-left-drawer flex h-full w-14 flex-col items-center border-e border-border bg-sidebar transition-[width] duration-200 ease-out">
@@ -3348,6 +3553,7 @@ export function DocumentSidebar({
             }
           />
         </div>
+        {createDiscardDialog}
       </div>
     );
   }
@@ -3529,6 +3735,8 @@ export function DocumentSidebar({
         }}
         onMove={handleMovePage}
       />
+
+      {createDiscardDialog}
 
       {/* Resize handle */}
       {onResize && width !== undefined && (

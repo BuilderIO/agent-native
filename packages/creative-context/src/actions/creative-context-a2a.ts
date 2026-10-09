@@ -60,7 +60,10 @@ export default defineAction({
       case "record": {
         const { recordGenerationCreativeContext } =
           await import("../store/generation.js");
-        const { artifactAccessCapability, ...record } = request.payload;
+        const { recordGenerationCreativeContextFromSnapshot } =
+          await import("../store/generation.js");
+        const { artifactAccessCapability, persistedSnapshot, ...record } =
+          request.payload;
         const artifactAccess = artifactAccessCapability
           ? await verifyGenerationArtifactAccessCapability(
               artifactAccessCapability,
@@ -68,9 +71,11 @@ export default defineAction({
               "record",
             )
           : undefined;
-        result = await recordGenerationCreativeContext(record, {
-          artifactAccess,
-        });
+        result = persistedSnapshot
+          ? await recordGenerationCreativeContextFromSnapshot(record, {
+              artifactAccess,
+            })
+          : await recordGenerationCreativeContext(record, { artifactAccess });
         break;
       }
     }

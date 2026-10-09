@@ -25,6 +25,7 @@ export type DocumentCreateIntent = {
   spaceId: string | null;
   filesDatabaseId?: string;
   createdAt: string;
+  status?: "pending" | "failed";
 };
 
 export class DocumentCreateIntentStorageError extends Error {
@@ -102,9 +103,14 @@ function isDocumentCreateIntent(value: unknown): value is DocumentCreateIntent {
   const keys = Object.keys(intent);
   return Boolean(
     keys.every((key) =>
-      ["id", "parentId", "spaceId", "filesDatabaseId", "createdAt"].includes(
-        key,
-      ),
+      [
+        "id",
+        "parentId",
+        "spaceId",
+        "filesDatabaseId",
+        "createdAt",
+        "status",
+      ].includes(key),
     ) &&
     typeof intent.id === "string" &&
     intent.id.trim() &&
@@ -115,6 +121,9 @@ function isDocumentCreateIntent(value: unknown): value is DocumentCreateIntent {
     (intent.filesDatabaseId === undefined ||
       (typeof intent.filesDatabaseId === "string" &&
         intent.filesDatabaseId.trim())) &&
+    (intent.status === undefined ||
+      intent.status === "pending" ||
+      intent.status === "failed") &&
     typeof intent.createdAt === "string" &&
     Number.isFinite(Date.parse(intent.createdAt)),
   );
@@ -134,7 +143,14 @@ function normalizeDocumentCreateIntent(
       ? { filesDatabaseId: intent.filesDatabaseId }
       : {}),
     createdAt: intent.createdAt,
+    ...(intent.status ? { status: intent.status } : {}),
   };
+}
+
+export function shouldAutoRetryDocumentCreate(
+  intent: Pick<DocumentCreateIntent, "status">,
+): boolean {
+  return intent.status !== "failed";
 }
 
 function quarantineDocumentCreateIntentValue(

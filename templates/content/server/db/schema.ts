@@ -30,6 +30,7 @@ export const documents = table("documents", {
   sourceRootPath: text("source_root_path"),
   sourceUpdatedAt: text("source_updated_at"),
   creationRequestDigest: text("creation_request_digest"),
+  creationCreativeContext: text("creation_creative_context"),
   trashedAt: text("trashed_at"),
   trashRootId: text("trash_root_id"),
   trashedBy: text("trashed_by"),

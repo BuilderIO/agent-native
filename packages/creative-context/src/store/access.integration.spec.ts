@@ -641,6 +641,48 @@ describe("creative context access and revocation", () => {
     expect(stored.rows[0]?.id).toBe(records[0]?.id);
   });
 
+  it("records a validated provenance snapshot after its context pack is revoked", async () => {
+    const { runWithRequestContext, store } = await setup();
+    const input = {
+      appId: "content",
+      artifactType: "document",
+      artifactId: "snapshot-after-pack-revocation",
+      contextMode: "pinned" as const,
+      contextPackId: "pack-that-is-no-longer-accessible",
+      reuseLabels: [
+        {
+          itemId: "historical-item",
+          itemVersionId: "historical-item-version",
+          kind: "brand-voice",
+          label: "Saved voice",
+          dataRole: "untrusted-reference" as const,
+          influence: "reference-conditioned" as const,
+        },
+      ],
+      elementProvenance: [
+        {
+          elementId: "snapshot-after-pack-revocation",
+          influence: "reference-conditioned" as const,
+          itemId: "historical-item",
+          itemVersionId: "historical-item-version",
+          label: "Saved voice",
+        },
+      ],
+      onlyIfMissing: true,
+    };
+
+    await expect(
+      runWithRequestContext({ userEmail: "alice@example.test" }, () =>
+        store.recordGenerationCreativeContextFromSnapshot(input),
+      ),
+    ).resolves.toMatchObject({
+      artifactId: input.artifactId,
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+      elementProvenance: input.elementProvenance,
+    });
+  });
+
   it("repairs a missing generation projection when onlyIfMissing is retried", async () => {
     const { runWithRequestContext, store } = await setup();
     const server = await import("../server/index.js");

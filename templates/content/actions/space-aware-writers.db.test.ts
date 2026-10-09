@@ -5,7 +5,15 @@ import { join } from "node:path";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const actionEffects = vi.hoisted(() => ({
   generationContexts: new Map<string, Record<string, unknown>>(),
@@ -31,6 +39,10 @@ const actionEffects = vi.hoisted(() => ({
       actionEffects.generationContexts.set(input.artifactId, input);
       return input;
     },
+  ),
+  recordGenerationCreativeContextFromSnapshot: vi.fn(
+    async (input: { artifactId: string } & Record<string, unknown>) =>
+      actionEffects.recordGenerationCreativeContext(input),
   ),
   validateGenerationCreativeContext: vi.fn(async () => ({
     contextMode: "off" as const,
@@ -61,6 +73,8 @@ vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   getGenerationCreativeContext: actionEffects.getGenerationCreativeContext,
   recordGenerationCreativeContext:
     actionEffects.recordGenerationCreativeContext,
+  recordGenerationCreativeContextFromSnapshot:
+    actionEffects.recordGenerationCreativeContextFromSnapshot,
   validateGenerationCreativeContext:
     actionEffects.validateGenerationCreativeContext,
 }));
@@ -117,6 +131,10 @@ beforeAll(async () => {
 
 afterAll(() => {
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
+});
+
+afterEach(() => {
+  actionEffects.savedCreativeContextMode = "off";
 });
 
 async function addOrganizationMember(args: {
@@ -310,7 +328,13 @@ describe("space-aware document writers", () => {
         contextMode: "off",
         contextPackId: null,
         reuseLabels: [],
-        elementProvenance: [],
+        elementProvenance: [
+          {
+            elementId: input.id,
+            influence: "generated",
+            label: "Net-new document",
+          },
+        ],
         onlyIfMissing: true,
       }),
     );
@@ -357,6 +381,7 @@ describe("space-aware document writers", () => {
     actionEffects.generationContexts.delete(input.id);
     actionEffects.getGenerationCreativeContext.mockClear();
     actionEffects.recordGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContextFromSnapshot.mockClear();
     actionEffects.validateGenerationCreativeContext.mockClear();
     actionEffects.track.mockClear();
     actionEffects.writeAppState.mockClear();
@@ -386,7 +411,10 @@ describe("space-aware document writers", () => {
     expect(
       actionEffects.validateGenerationCreativeContext,
     ).not.toHaveBeenCalled();
-    expect(actionEffects.getGenerationCreativeContext).toHaveBeenCalledTimes(1);
+    expect(actionEffects.getGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(
+      actionEffects.recordGenerationCreativeContextFromSnapshot,
+    ).toHaveBeenCalledTimes(1);
     expect(actionEffects.recordGenerationCreativeContext).toHaveBeenCalledTimes(
       2,
     );
@@ -402,7 +430,13 @@ describe("space-aware document writers", () => {
         contextMode: "off",
         contextPackId: null,
         reuseLabels: [],
-        elementProvenance: [],
+        elementProvenance: [
+          {
+            elementId: input.id,
+            influence: "generated",
+            label: "Net-new document",
+          },
+        ],
         onlyIfMissing: true,
       }),
     );
@@ -416,6 +450,157 @@ describe("space-aware document writers", () => {
     ).resolves.toHaveLength(1);
   });
 
+  it("restores missing provenance from the committed creation snapshot", async () => {
+    const input = {
+      id: "optimistic-create-missing-context-row",
+      title: "Context row retry",
+      contextPackId: "pack-revoked-after-create",
+      reuseLabels: [
+        {
+          itemId: "brand-voice-item",
+          itemVersionId: "brand-voice-version",
+          kind: "brand-voice",
+          label: "Brand voice",
+          dataRole: "untrusted-reference" as const,
+          influence: "reference-conditioned" as const,
+        },
+      ],
+    };
+    const validated = {
+      contextMode: "pinned" as const,
+      contextPackId: input.contextPackId,
+      reuseLabels: input.reuseLabels,
+      results: [],
+    };
+    actionEffects.generationContexts.delete(input.id);
+    actionEffects.getGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContextFromSnapshot.mockClear();
+    actionEffects.validateGenerationCreativeContext.mockResolvedValueOnce(
+      validated,
+    );
+    actionEffects.track.mockClear();
+    actionEffects.writeAppState.mockClear();
+    actionEffects.recordGenerationCreativeContext.mockImplementationOnce(
+      async () => {
+        throw new Error("generation row was not inserted");
+      },
+    );
+
+    const create = () =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        createDocument.run(input),
+      );
+    await expect(create()).rejects.toThrow("generation row was not inserted");
+
+    const [createdRow] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, input.id));
+    expect(JSON.parse(createdRow?.creationCreativeContext ?? "null")).toEqual({
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+      reuseLabels: input.reuseLabels,
+    });
+    expect(actionEffects.generationContexts.has(input.id)).toBe(false);
+
+    actionEffects.validateGenerationCreativeContext.mockImplementationOnce(
+      () => {
+        throw new Error("current context pack access was revoked");
+      },
+    );
+    const replayed = await create();
+
+    expect(replayed).toMatchObject({
+      id: input.id,
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+    });
+    expect(
+      actionEffects.validateGenerationCreativeContext,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      actionEffects.recordGenerationCreativeContextFromSnapshot,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      actionEffects.recordGenerationCreativeContextFromSnapshot,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "content",
+        artifactType: "document",
+        artifactId: input.id,
+        contextMode: "pinned",
+        contextPackId: input.contextPackId,
+        onlyIfMissing: true,
+      }),
+    );
+    expect(actionEffects.generationContexts.get(input.id)).toMatchObject({
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+      elementProvenance: [
+        expect.objectContaining({
+          elementId: input.id,
+          influence: "reference-conditioned",
+          itemId: "brand-voice-item",
+          itemVersionId: "brand-voice-version",
+        }),
+      ],
+    });
+    expect(actionEffects.track).toHaveBeenCalledTimes(1);
+    actionEffects.validateGenerationCreativeContext.mockReset();
+    actionEffects.validateGenerationCreativeContext.mockImplementation(
+      async () => ({
+        contextMode: "off",
+        contextPackId: null,
+        reuseLabels: [],
+        results: [],
+      }),
+    );
+  });
+
+  it("returns an off snapshot when the Creative Context Lab disables recording", async () => {
+    const input = {
+      id: "optimistic-create-context-off-lab-disabled",
+      title: "Context disabled retry",
+      contextModeOverride: "off" as const,
+    };
+    actionEffects.generationContexts.delete(input.id);
+    actionEffects.getGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContextFromSnapshot.mockClear();
+    actionEffects.validateGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContext.mockImplementationOnce(
+      async () => null as never,
+    );
+    actionEffects.recordGenerationCreativeContextFromSnapshot.mockImplementationOnce(
+      async () => null as never,
+    );
+
+    const create = () =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        createDocument.run(input),
+      );
+
+    await expect(create()).resolves.toMatchObject({
+      id: input.id,
+      contextMode: "off",
+      contextPackId: null,
+    });
+    expect(actionEffects.generationContexts.has(input.id)).toBe(false);
+
+    await expect(create()).resolves.toMatchObject({
+      id: input.id,
+      contextMode: "off",
+      contextPackId: null,
+    });
+    expect(
+      actionEffects.recordGenerationCreativeContextFromSnapshot,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      actionEffects.validateGenerationCreativeContext,
+    ).toHaveBeenCalledTimes(1);
+  });
+
   it("repairs explicit off provenance locally after the saved mode changes", async () => {
     const input = {
       id: "optimistic-create-context-off-local-replay",
@@ -426,6 +611,7 @@ describe("space-aware document writers", () => {
     actionEffects.generationContexts.delete(input.id);
     actionEffects.getGenerationCreativeContext.mockClear();
     actionEffects.recordGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContextFromSnapshot.mockClear();
     actionEffects.validateGenerationCreativeContext.mockClear();
     const recordGeneration =
       actionEffects.recordGenerationCreativeContext.getMockImplementation();
@@ -452,9 +638,15 @@ describe("space-aware document writers", () => {
         contextMode: "off",
         contextPackId: null,
       });
-      expect(actionEffects.getGenerationCreativeContext).toHaveBeenCalledWith(
-        expect.objectContaining({ artifactId: input.id }),
-        { localOnly: true },
+      expect(actionEffects.getGenerationCreativeContext).not.toHaveBeenCalled();
+      expect(
+        actionEffects.recordGenerationCreativeContextFromSnapshot,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          artifactId: input.id,
+          contextMode: "off",
+          onlyIfMissing: true,
+        }),
       );
       expect(
         actionEffects.recordGenerationCreativeContext,
@@ -473,7 +665,7 @@ describe("space-aware document writers", () => {
     }
   });
 
-  it("uses persisted Creative Context when settings or pack access change before replay", async () => {
+  it("replays the validated Creative Context snapshot after settings or pack access change", async () => {
     const input = {
       id: "optimistic-create-context-access-replay",
       title: "Context access retry",
@@ -501,6 +693,7 @@ describe("space-aware document writers", () => {
       runWithRequestContext({ userEmail: OWNER }, () =>
         createDocument.run(input),
       );
+    actionEffects.savedCreativeContextMode = "auto";
     await expect(create()).resolves.toMatchObject({
       id: input.id,
       contextMode: "pinned",
@@ -510,6 +703,9 @@ describe("space-aware document writers", () => {
       actionEffects.validateGenerationCreativeContext,
     ).toHaveBeenCalledTimes(1);
 
+    actionEffects.savedCreativeContextMode = "off";
+    actionEffects.getGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContextFromSnapshot.mockClear();
     const persistedContext = actionEffects.generationContexts.get(input.id);
     expect(persistedContext).toMatchObject({
       contextMode: "pinned",
@@ -528,6 +724,16 @@ describe("space-aware document writers", () => {
     expect(
       actionEffects.validateGenerationCreativeContext,
     ).not.toHaveBeenCalled();
+    expect(actionEffects.getGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(
+      actionEffects.recordGenerationCreativeContextFromSnapshot,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextMode: "pinned",
+        contextPackId: input.contextPackId,
+        onlyIfMissing: true,
+      }),
+    );
     expect(actionEffects.generationContexts.get(input.id)).toMatchObject({
       contextMode: "pinned",
       contextPackId: input.contextPackId,
@@ -539,10 +745,8 @@ describe("space-aware document writers", () => {
       actionEffects.recordGenerationCreativeContext,
     ).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        contextMode: "auto",
-        contextPackId: null,
-        reuseLabels: [],
-        elementProvenance: [],
+        contextMode: "pinned",
+        contextPackId: input.contextPackId,
         onlyIfMissing: true,
       }),
     );

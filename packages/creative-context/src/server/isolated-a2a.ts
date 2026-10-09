@@ -57,6 +57,7 @@ const generationRecordInputSchema = generationIdentitySchema
     reuseLabels: z.array(reuseLabelSchema).max(100),
     elementProvenance: z.array(elementProvenanceSchema).max(500).optional(),
     onlyIfMissing: z.boolean().optional(),
+    persistedSnapshot: z.literal(true).optional(),
   })
   .strict();
 const artifactAccessCapabilitySchema = z.string().min(1).max(8_192);
@@ -414,5 +415,6 @@ export type IsolatedRecordPayload = {
   reuseLabels: CreativeContextReuseLabel[];
   elementProvenance?: CreativeContextElementProvenance[];
   onlyIfMissing?: boolean;
+  persistedSnapshot?: true;
   artifactAccessCapability?: string;
 };

@@ -1459,6 +1459,11 @@ const overrides = {
     resize: "साइडबार का आकार बदलें",
     expand: "साइडबार फैलाएं",
     failedCreatePage: "पेज नहीं बन सका",
+    failedCreatePageDraftDescription:
+      "आपका ड्राफ़्ट इस ब्राउज़र में सेव है। आप पेज बनाने की फिर कोशिश कर सकते हैं या ड्राफ़्ट हटा सकते हैं।",
+    discardFailedCreatePageQuestion: "यह पेज हटाएँ?",
+    discardFailedCreatePageDescription:
+      "इससे यह पेज और इसका सेव न किया गया ड्राफ़्ट इस ब्राउज़र से हट जाएगा। इसे वापस नहीं किया जा सकता।",
     failedDeletePage: "पेज हटाया नहीं जा सका",
     failedPermanentDeletePage: "पेज को स्थायी रूप से हटाया नहीं जा सका",
     failedRestorePage: "पेज पुनर्स्थापित नहीं किया जा सका",

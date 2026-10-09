@@ -79,6 +79,7 @@ vi.mock("./generation-artifact-access.js", () => ({
 import {
   getGenerationCreativeContext,
   recordGenerationCreativeContext,
+  recordGenerationCreativeContextFromSnapshot,
   resolveGenerationCreativeContext,
   validateGenerationCreativeContext,
 } from "./generation-context.js";
@@ -160,6 +161,45 @@ describe("generation context isolated A2A routing", () => {
     });
     expect(mocks.recordLocal).not.toHaveBeenCalled();
     expect(mocks.getLocal).not.toHaveBeenCalled();
+  });
+
+  it("routes persisted provenance snapshots without reading mutable settings", async () => {
+    const input = {
+      appId: "content",
+      artifactType: "document",
+      artifactId: "document-1",
+      contextMode: "pinned" as const,
+      contextPackId: "revoked-pack",
+      reuseLabels: [
+        {
+          itemId: "item-1",
+          itemVersionId: "item-version-1",
+          kind: "brand-voice",
+          label: "Brand voice",
+          dataRole: "untrusted-reference" as const,
+        },
+      ],
+      elementProvenance: [
+        {
+          elementId: "document-1",
+          influence: "reference-conditioned" as const,
+          itemId: "item-1",
+          itemVersionId: "item-version-1",
+          label: "Brand voice",
+        },
+      ],
+      onlyIfMissing: true,
+    };
+
+    await recordGenerationCreativeContextFromSnapshot(input);
+
+    expect(mocks.readAppState).not.toHaveBeenCalled();
+    expect(mocks.callA2A).toHaveBeenCalledWith("record", {
+      ...input,
+      persistedSnapshot: true,
+      artifactAccessCapability: "cap-record",
+    });
+    expect(mocks.recordLocal).not.toHaveBeenCalled();
   });
 
   it("keeps an explicit local read local when saved mode is auto", async () => {

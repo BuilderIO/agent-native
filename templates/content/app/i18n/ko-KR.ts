@@ -1471,6 +1471,11 @@ const overrides = {
     resize: "사이드바 너비 조절",
     expand: "사이드바 펼치기",
     failedCreatePage: "페이지를 만들지 못했습니다",
+    failedCreatePageDraftDescription:
+      "초안이 이 브라우저에 저장되어 있습니다. 페이지 생성을 다시 시도하거나 초안을 삭제할 수 있습니다.",
+    discardFailedCreatePageQuestion: "이 페이지를 삭제할까요?",
+    discardFailedCreatePageDescription:
+      "이 브라우저에서 페이지와 저장되지 않은 초안을 삭제합니다. 이 작업은 되돌릴 수 없습니다.",
     failedDeletePage: "페이지를 삭제하지 못했습니다",
     failedPermanentDeletePage: "페이지를 영구적으로 삭제하지 못했습니다",
     failedRestorePage: "페이지를 복원하지 못했습니다",

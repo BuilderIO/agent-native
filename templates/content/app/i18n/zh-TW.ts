@@ -1768,6 +1768,11 @@ const overrides = {
     removeLocalFilesFromSidebar: "從側邊欄移除",
     removeLocalFilesQuestion: "要從側邊欄移除本機檔案嗎？",
     failedCreatePage: "建立頁面失敗",
+    failedCreatePageDraftDescription:
+      "草稿已儲存在此瀏覽器中。你可以重試建立頁面，或捨棄草稿。",
+    discardFailedCreatePageQuestion: "捨棄此頁面？",
+    discardFailedCreatePageDescription:
+      "這會從此瀏覽器中移除頁面及其未儲存的草稿。此操作無法復原。",
     failedDeletePage: "刪除頁面失敗",
     failedPermanentDeleteDatabase: "永久刪除集合失敗",
     failedPermanentDeletePage: "永久刪除頁面失敗",

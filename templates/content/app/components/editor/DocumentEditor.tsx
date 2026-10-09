@@ -262,6 +262,7 @@ import {
   savePageWithRecovery,
   type PageSaveResult as DocumentSaveResult,
 } from "./pageSession";
+import { trackPendingDocumentPersistence } from "./pending-document-persistence";
 import {
   createSuggestionAutosave,
   markSuggestionAutosaveSaved,
@@ -3530,9 +3531,7 @@ function PageEditorSessionBody({
     }
   }, [document, isLinkedLocalSourceDocument, localTitle, localContent]);
 
-  const pendingPersistenceRef = useRef(
-    new Set<Promise<Document | DocumentUpdateResult>>(),
-  );
+  const pendingPersistenceRef = useRef(new Set<Promise<unknown>>());
   const persistenceErrorsRef = useRef(
     new Map<keyof DocumentUpdates, unknown>(),
   );
@@ -3739,8 +3738,9 @@ function PageEditorSessionBody({
     (updates: DocumentUpdates, options: DocumentSaveOptions = {}) => {
       const fields = Object.keys(updates) as (keyof DocumentUpdates)[];
       const request = persistDocumentUpdatesUntracked(updates, options);
-      pendingPersistenceRef.current.add(request);
-      void request.then(
+      trackPendingDocumentPersistence(
+        pendingPersistenceRef.current,
+        request,
         (result) => {
           if (isDocumentUpdateSuperseded(result)) {
             return;
@@ -3791,17 +3791,13 @@ function PageEditorSessionBody({
               persistenceErrorsRef.current.delete(field);
             }
           }
-          pendingPersistenceRef.current.delete(request);
         },
         (error) => {
-          if (error instanceof AbandonedPageSaveError) {
-            pendingPersistenceRef.current.delete(request);
-            return;
+          if (!(error instanceof AbandonedPageSaveError)) {
+            for (const field of fields) {
+              persistenceErrorsRef.current.set(field, error);
+            }
           }
-          for (const field of fields) {
-            persistenceErrorsRef.current.set(field, error);
-          }
-          pendingPersistenceRef.current.delete(request);
         },
       );
       return request;

@@ -15,6 +15,7 @@ import {
   markDocumentCreationPending,
   readDocumentCreateIntents,
   shouldCreateDocumentOptimistically,
+  shouldAutoRetryDocumentCreate,
   writeDocumentCreateIntent,
   withDocumentCreateInFlight,
 } from "./optimistic-document";
@@ -85,6 +86,24 @@ describe("optimistic document creation", () => {
     expect(readDocumentCreateIntents(actor)).toEqual([intent]);
     expect(readDocumentCreateIntents(otherActor)).toEqual([]);
     expect(window.localStorage.length).toBe(1);
+  });
+
+  it("does not automatically retry a create after a recorded failure", () => {
+    expect(shouldAutoRetryDocumentCreate({})).toBe(true);
+    expect(shouldAutoRetryDocumentCreate({ status: "pending" })).toBe(true);
+    expect(shouldAutoRetryDocumentCreate({ status: "failed" })).toBe(false);
+
+    const actor = { accountId: "writer@example.com", orgId: null };
+    const failedIntent = {
+      id: "page-failed",
+      parentId: "missing-parent",
+      spaceId: null,
+      createdAt: "2026-10-08T12:00:00.000Z",
+      status: "failed" as const,
+    };
+    writeDocumentCreateIntent(actor, failedIntent);
+
+    expect(readDocumentCreateIntents(actor)).toEqual([failedIntent]);
   });
 
   it("keeps concurrent creates in flight until each request settles", async () => {

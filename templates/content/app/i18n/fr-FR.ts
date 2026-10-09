@@ -1526,6 +1526,11 @@ const overrides = {
     resize: "Redimensionner la barre latérale",
     expand: "Développer la barre latérale",
     failedCreatePage: "Échec de la création de la page",
+    failedCreatePageDraftDescription:
+      "Votre brouillon est enregistré dans ce navigateur. Vous pouvez réessayer de créer la page ou supprimer le brouillon.",
+    discardFailedCreatePageQuestion: "Supprimer cette page ?",
+    discardFailedCreatePageDescription:
+      "Cette action supprime la page et son brouillon non enregistré de ce navigateur. Elle est irréversible.",
     failedDeletePage: "Échec de la suppression de la page",
     failedPermanentDeletePage: "Échec de la suppression définitive de la page",
     failedRestorePage: "Échec de la restauration de la page",

@@ -1486,6 +1486,11 @@ const overrides = {
     resize: "サイドバーの幅を変更",
     expand: "サイドバーを展開",
     failedCreatePage: "ページを作成できませんでした",
+    failedCreatePageDraftDescription:
+      "下書きはこのブラウザーに保存されています。ページの作成を再試行するか、下書きを破棄できます。",
+    discardFailedCreatePageQuestion: "このページを破棄しますか？",
+    discardFailedCreatePageDescription:
+      "このブラウザーからページと未保存の下書きを削除します。この操作は元に戻せません。",
     failedDeletePage: "ページを削除できませんでした",
     failedPermanentDeletePage: "ページを完全に削除できませんでした",
     failedRestorePage: "ページを復元できませんでした",

@@ -1547,6 +1547,11 @@ const overrides = {
     resize: "调整侧边栏宽度",
     expand: "展开侧边栏",
     failedCreatePage: "创建页面失败",
+    failedCreatePageDraftDescription:
+      "草稿已保存在此浏览器中。你可以重试创建页面，或丢弃草稿。",
+    discardFailedCreatePageQuestion: "丢弃此页面？",
+    discardFailedCreatePageDescription:
+      "这会从此浏览器中移除页面及其未保存的草稿。此操作无法撤销。",
     failedDeletePage: "删除页面失败",
     failedPermanentDeletePage: "永久删除页面失败",
     failedRestorePage: "恢复页面失败",

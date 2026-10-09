@@ -1647,6 +1647,11 @@ const enUS = {
     deletePermanently: "Delete permanently",
     failedCreateDatabase: "Failed to create collection",
     failedCreatePage: "Failed to create page",
+    failedCreatePageDraftDescription:
+      "Your draft is saved in this browser. You can retry page creation or discard the draft.",
+    discardFailedCreatePageQuestion: "Discard this page?",
+    discardFailedCreatePageDescription:
+      "This removes the page and its unsaved draft from this browser. This cannot be undone.",
     failedCreateWorkspace: "Failed to create workspace",
     failedDeletePage: "Failed to delete page",
     failedPermanentDeleteDatabase: "Failed to permanently delete collection",

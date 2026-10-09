@@ -85,6 +85,48 @@ export async function recordGenerationCreativeContext(
     artifactAccess?: GenerationArtifactAccessProof;
   } = {},
 ): Promise<CreativeContextGenerationRecord> {
+  return recordGenerationCreativeContextInternal(input, options, false);
+}
+
+export async function recordGenerationCreativeContextFromSnapshot(
+  input: {
+    appId: string;
+    artifactType: string;
+    artifactId: string;
+    contextMode: "off" | "auto" | "pinned";
+    contextPackId: string | null;
+    reuseLabels: CreativeContextReuseLabel[];
+    elementProvenance?: CreativeContextElementProvenance[];
+    onlyIfMissing?: boolean;
+  },
+  options: {
+    db?: any;
+    artifactAccess?: GenerationArtifactAccessProof;
+  } = {},
+): Promise<CreativeContextGenerationRecord> {
+  if (!input.onlyIfMissing) {
+    throw new Error("Creative Context snapshots must be recorded idempotently");
+  }
+  return recordGenerationCreativeContextInternal(input, options, true);
+}
+
+async function recordGenerationCreativeContextInternal(
+  input: {
+    appId: string;
+    artifactType: string;
+    artifactId: string;
+    contextMode: "off" | "auto" | "pinned";
+    contextPackId: string | null;
+    reuseLabels: CreativeContextReuseLabel[];
+    elementProvenance?: CreativeContextElementProvenance[];
+    onlyIfMissing?: boolean;
+  },
+  options: {
+    db?: any;
+    artifactAccess?: GenerationArtifactAccessProof;
+  },
+  fromValidatedSnapshot: boolean,
+): Promise<CreativeContextGenerationRecord> {
   const elementProvenance =
     input.elementProvenance ??
     input.reuseLabels.map((label, index) => ({
@@ -100,7 +142,7 @@ export async function recordGenerationCreativeContext(
     reuseLabels: input.reuseLabels,
     elementProvenance,
   });
-  if (input.contextPackId) {
+  if (input.contextPackId && !fromValidatedSnapshot) {
     await assertAccess(
       "creative-context-pack",
       input.contextPackId,
@@ -109,7 +151,7 @@ export async function recordGenerationCreativeContext(
       { skipResourceBody: true },
     );
   }
-  if (input.contextPackId) {
+  if (input.contextPackId && !fromValidatedSnapshot) {
     const { getDb, schema } = getCreativeContext();
     const db = options.db ?? getDb();
     const members = await db

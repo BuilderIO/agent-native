@@ -7,6 +7,7 @@ import {
 import {
   getGenerationCreativeContext as getGenerationCreativeContextLocal,
   recordGenerationCreativeContext as recordGenerationCreativeContextLocal,
+  recordGenerationCreativeContextFromSnapshot as recordGenerationCreativeContextFromSnapshotLocal,
 } from "../store/generation.js";
 import {
   createContextPack,
@@ -612,6 +613,52 @@ export async function recordGenerationCreativeContext(
       )
     : undefined;
   return recordGenerationCreativeContextLocal(input, {
+    db: options.db,
+    artifactAccess,
+  });
+}
+
+export async function recordGenerationCreativeContextFromSnapshot(
+  input: Omit<
+    IsolatedRecordPayload,
+    "artifactAccessCapability" | "persistedSnapshot"
+  >,
+  options: { db?: any; artifactAccess?: GenerationArtifactAccessTarget } = {},
+) {
+  if (!input.onlyIfMissing) {
+    throw new Error("Creative Context snapshots must be recorded idempotently");
+  }
+  if (!(await creativeContextLabEnabled())) return null;
+  const artifactAccessTarget = collaborativeArtifactTarget(
+    input,
+    options.artifactAccess,
+  );
+  if (
+    input.contextMode !== "off" &&
+    !options.db &&
+    hasIsolatedCreativeContextA2A()
+  ) {
+    const artifactAccessCapability = artifactAccessTarget
+      ? await createGenerationArtifactAccessCapability(
+          input,
+          artifactAccessTarget,
+          "record",
+        )
+      : undefined;
+    return callIsolatedCreativeContextA2A("record", {
+      ...input,
+      persistedSnapshot: true,
+      artifactAccessCapability,
+    });
+  }
+  const artifactAccess = artifactAccessTarget
+    ? await assertGenerationArtifactAccess(
+        input,
+        artifactAccessTarget,
+        "record",
+      )
+    : undefined;
+  return recordGenerationCreativeContextFromSnapshotLocal(input, {
     db: options.db,
     artifactAccess,
   });
