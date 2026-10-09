@@ -1294,7 +1294,7 @@ const TRANSFORM_TRANSITION_PROPERTIES = new Set([
   ...TRANSFORM_PROPERTIES,
   "transform-origin",
 ]);
-const CSS_VAR_REFERENCE = /var\(\s*(--(?:[\w-]|[^\u0000-\u007f])+)/gu;
+const CSS_VAR_REFERENCE = /var\(\s*(--(?:[\w-]|[^\u0000-\u007f])+)/giu;
 
 // A value that reads the element's own cascade (a custom property its class
 // defines, a length against its font size) means something else on a frame.
@@ -1557,6 +1557,15 @@ function transformCustomPropertyReferences(
   authoredByPlan: Map<SplitCssAnimation, AuthoredKeyframe[]>,
 ): Map<string, Set<string>> {
   const references = new Map<string, Set<string>>();
+  const customPropertyDependencies = new Map<string, Set<string>>();
+  const cascadeElements: HTMLElement[] = [];
+  for (
+    let element: HTMLElement | null = source;
+    element;
+    element = element.parentElement
+  ) {
+    cascadeElements.push(element);
+  }
   const addReferences = (property: string, value: string) => {
     const properties = references.get(property) ?? new Set<string>();
     for (const match of value.matchAll(CSS_VAR_REFERENCE)) {
@@ -1564,23 +1573,70 @@ function transformCustomPropertyReferences(
     }
     if (properties.size > 0) references.set(property, properties);
   };
+  const addCustomPropertyDependencies = (property: string, value: string) => {
+    const dependencies = customPropertyDependencies.get(property) ?? new Set();
+    for (const match of value.matchAll(CSS_VAR_REFERENCE)) {
+      dependencies.add(match[1]);
+    }
+    if (dependencies.size > 0) {
+      customPropertyDependencies.set(property, dependencies);
+    }
+  };
   for (const property of [...TRANSFORM_PROPERTIES, "transform-origin"]) {
     addReferences(property, source.style.getPropertyValue(property));
+  }
+  for (const element of cascadeElements) {
+    for (let index = 0; index < element.style.length; index += 1) {
+      const property = element.style.item(index);
+      if (property.startsWith("--")) {
+        addCustomPropertyDependencies(
+          property,
+          element.style.getPropertyValue(property),
+        );
+      }
+    }
   }
   visitActiveCssRules(
     source.ownerDocument,
     (rule, activity) => {
       if (rule.type !== CSSRule.STYLE_RULE || activity !== true) return;
       const styleRule = rule as CSSStyleRule;
-      if (!source.matches(styleRule.selectorText)) return;
-      for (const property of [...TRANSFORM_PROPERTIES, "transform-origin"]) {
-        addReferences(property, styleRule.style.getPropertyValue(property));
+      if (source.matches(styleRule.selectorText)) {
+        for (const property of [...TRANSFORM_PROPERTIES, "transform-origin"]) {
+          addReferences(property, styleRule.style.getPropertyValue(property));
+        }
+      }
+      if (
+        !cascadeElements.some((element) =>
+          element.matches(styleRule.selectorText),
+        )
+      ) {
+        return;
+      }
+      for (let index = 0; index < styleRule.style.length; index += 1) {
+        const property = styleRule.style.item(index);
+        if (property.startsWith("--")) {
+          addCustomPropertyDependencies(
+            property,
+            styleRule.style.getPropertyValue(property),
+          );
+        }
       }
     },
     () => {},
   );
   for (const plan of plans) {
     const properties = keyframes.get(plan)!;
+    for (const property of properties) {
+      if (!property.startsWith("--")) continue;
+      for (const value of animationKeyframeValues(
+        plan.animation,
+        property,
+        authoredByPlan.get(plan)!,
+      )) {
+        addCustomPropertyDependencies(property, value);
+      }
+    }
     for (const property of [...TRANSFORM_PROPERTIES, "transform-origin"]) {
       if (!properties.has(property)) continue;
       for (const value of animationKeyframeValues(
@@ -1589,6 +1645,17 @@ function transformCustomPropertyReferences(
         authoredByPlan.get(plan)!,
       )) {
         addReferences(property, value);
+      }
+    }
+  }
+  for (const properties of references.values()) {
+    const pending = [...properties];
+    for (let index = 0; index < pending.length; index += 1) {
+      for (const dependency of customPropertyDependencies.get(pending[index]) ??
+        []) {
+        if (properties.has(dependency)) continue;
+        properties.add(dependency);
+        pending.push(dependency);
       }
     }
   }

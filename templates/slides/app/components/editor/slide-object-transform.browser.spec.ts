@@ -1718,9 +1718,9 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
     }
   });
 
-  it("samples a registered custom-property transition that drives the transform", async () => {
+  it("samples chained custom-property transitions with case-insensitive var()", async () => {
     const css =
-      '@property --angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; } .ruled { --angle: 0deg; transform: rotate(var(--angle)); transition: --angle 1s linear; } .moving { --angle: 90deg; }';
+      '@property --angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; } .ruled { --angle: 0deg; --turn: VAR(--angle); transform: rotate(VAR(--turn)); transition: --angle 1s linear; } .moving { --angle: 90deg; }';
     const page = await openPage(css, imageHtml());
     try {
       await page.evaluate(() => {
