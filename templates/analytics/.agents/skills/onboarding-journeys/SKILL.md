@@ -33,7 +33,7 @@ window, `app`, `maxDepth`, `minNodeSessions` (small branches merge into an
 
 ```ts
 type JourneyExample = { sessionId: string; recordingId: string | null; ts: string; offsetMs: number | null; viewport: { width: number; height: number } | null; viewportReason?: string; replayUrl?: string };
-type JourneyNode = { key: string; label: string; parentKey: string | null; depth: number; kind: "step" | "other"; n: number; pctOfRoot: number; pctOfParent: number; dropoffN: number; dropoffPct: number; examples: JourneyExample[] };
+type JourneyNode = { key: string; label: string; parentKey: string | null; depth: number; kind: "step" | "other"; n: number; pctOfRoot: number; pctOfParent: number; dropoffN: number; dropoffPct: number; deeperN: number; examples: JourneyExample[] };
 type JourneyTree = { window: { from: string; to: string }; app: string; rootN: number; coverage: { sessionsWithEvents: number; sessionsWithReplay: number; truncated: boolean }; nodes: JourneyNode[]; notes?: string[] };
 ```
 
@@ -41,14 +41,30 @@ type JourneyTree = { window: { from: string; to: string }; app: string; rootN: n
   `pctOf*` are percents (0-100). `dropoffN` / `dropoffPct` count sessions
   whose last observed step is this node; they do not establish that a user
   exited.
-- `dropoffN` is sessions whose last observed step is that node. It is not a
-  confirmed exit: a blocked tracker or an event outside the window reads the
-  same. A node at `maxDepth` where `n - dropoffN - sum(children n)` is above
-  zero has sessions that carried on.
+- For each node, `n = dropoffN + sum(returned child n) + deeperN`. `dropoffN`
+  is sessions whose last observed step is that node; it is not a confirmed
+  exit: a blocked tracker or an event outside the window reads the same.
+  `deeperN` counts sessions with a later observed step that is not represented
+  as a child, including paths past `maxDepth` or a node-list cap.
+- `maxDepth` defaults to 8 and is bounded at 40. Request `maxDepth: 40` for a
+  deeper pass. When sessions continue past the requested depth,
+  `coverage.truncated` is true and the boundary node's `deeperN` says how many
+  continuations were omitted; the summary outline calls this out explicitly.
+  `maxNodes` can also remove child branches, so read `coverage.truncated` and
+  `notes` before interpreting `deeperN` as depth-only continuation.
+- `pctOfRoot` uses the returned app's `rootN`; query each app separately when
+  comparing conversion. An `app: "all"` result has one combined denominator
+  and must not be used as an individual app's percentage base.
+- Builder connection lifecycle events accept canonical and legacy event-name
+  aliases and collapse duplicate aliases in a row sequence. Custom-key setup
+  includes first-run `credential_validated` / `credential_saved` outcomes and
+  the bounded provider validation/save events. Unrecognized flow or outcome
+  values remain `unknown`; they are not counted as failures.
 - A session is an analytics session id. One that began before `dateFrom`
   starts mid-journey, so start the window a day early.
 - Read `coverage` before using the numbers. `truncated: true` means the event
-  read hit `maxEventRows` or the node list hit `maxNodes`; `notes` says which.
+  read hit `maxEventRows`, a session went past `maxDepth`, or the node list hit
+  `maxNodes`; `notes` says which.
   Never report a truncated tree as the whole window.
 - An example with `recordingId: null` has no replay the caller can open, and
   `viewportReason` says why the viewport is unknown (`no_recording`,

@@ -60,6 +60,7 @@ function eventRow(
     event_name: eventName,
     path: null,
     flow: null,
+    source: null,
     step_id: null,
     step_index: null,
     method_id: null,
@@ -188,6 +189,7 @@ describe("getOnboardingJourney", () => {
     );
     for (const node of tree.nodes) {
       expect(Object.keys(node).sort()).toEqual([
+        "deeperN",
         "depth",
         "dropoffN",
         "dropoffPct",
@@ -345,6 +347,7 @@ describe("getOnboardingJourney", () => {
     ]);
     expect(tree.coverage.truncated).toBe(true);
     expect(tree.notes?.join(" ")).toMatch(/cut to the 2 largest of 3/);
+    expect(tree.nodes[1]).toMatchObject({ deeperN: 1 });
   });
 
   it("fails loudly when recordings are unreadable or incomplete for a tree", async () => {
@@ -402,6 +405,7 @@ describe("summary format", () => {
     })) as JourneySummary;
     expect(summary.format).toBe("summary");
     expect(summary.coverage.sessionsWithReplay).toBe(2);
+    expect(summary.coverage.truncated).toBe(false);
     expect(summary.outline.split("\n")).toEqual([
       "Signed up - n=3 (100% of all, 100% of parent), dropoff 1 (33.33%)",
       "  Onboarding step: role - n=2 (66.67% of all, 66.67% of parent), dropoff 1 (50%)",
@@ -425,6 +429,24 @@ describe("summary format", () => {
     log.mockRestore();
   });
 
+  it("labels continuation omitted by the node cap without adding it to drop-off", async () => {
+    mocks.queryFirstPartyAnalytics.mockResolvedValue({
+      rows: journeyRows(),
+      schema: [],
+    });
+    const summary = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      format: "summary",
+      maxNodes: 2,
+    })) as JourneySummary;
+
+    expect(summary.coverage.truncated).toBe(true);
+    expect(summary.outline.split("\n")).toEqual([
+      "Signed up - n=3 (100% of all, 100% of parent), dropoff 1 (33.33%)",
+      "  Onboarding step: role - n=2 (66.67% of all, 66.67% of parent), dropoff 1 (50%), deeperN=1 continue below this node",
+    ]);
+  });
+
   it("says how many sessions carried on past the depth cap", async () => {
     mocks.queryFirstPartyAnalytics.mockResolvedValue({
       rows: journeyRows(),
@@ -439,6 +461,8 @@ describe("summary format", () => {
       "Signed up - n=3 (100% of all, 100% of parent), dropoff 1 (33.33%)",
       "  Onboarding step: role - n=2 (66.67% of all, 66.67% of parent), dropoff 1 (50%), 1 continue past depth 2",
     ]);
+    expect(summary.coverage.truncated).toBe(true);
+    expect(summary.notes?.join(" ")).toMatch(/maxDepth=2.*deeperN/);
   });
 
   it("formats an empty tree as an empty outline", () => {

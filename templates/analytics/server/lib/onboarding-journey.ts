@@ -11,6 +11,7 @@ import {
 import { buildSessionSteps, type JourneyEventRow } from "./journey-steps.js";
 import {
   buildJourneyTree,
+  addDeeperCounts,
   type JourneyNode,
   type JourneyRecording,
   type JourneySession,
@@ -122,6 +123,7 @@ export function parseJourneyEventRow(
     eventName,
     path: text(raw.path),
     flow: text(raw.flow),
+    source: text(raw.source),
     stepId: text(raw.step_id),
     stepIndex: integer(raw.step_index),
     methodId: text(raw.method_id),
@@ -273,7 +275,7 @@ function capNodes(
       .map((node) => node.key),
   );
   return {
-    nodes: nodes.filter((node) => keep.has(node.key)),
+    nodes: addDeeperCounts(nodes.filter((node) => keep.has(node.key))),
     dropped: nodes.length - maxNodes,
   };
 }
@@ -289,14 +291,12 @@ export function formatJourneyOutline(
 ): string {
   return nodes
     .map((node) => {
-      const branched = nodes
-        .filter((candidate) => candidate.parentKey === node.key)
-        .reduce((sum, candidate) => sum + candidate.n, 0);
-      const carriedOn = node.n - node.dropoffN - branched;
       const tail =
-        node.depth === maxDepth && carriedOn > 0
-          ? `, ${carriedOn} continue past depth ${maxDepth}`
-          : "";
+        node.deeperN === 0
+          ? ""
+          : node.depth === maxDepth
+            ? `, ${node.deeperN} continue past depth ${maxDepth}`
+            : `, deeperN=${node.deeperN} continue below this node`;
       return `${"  ".repeat(node.depth - 1)}${node.label} - n=${node.n} (${node.pctOfRoot}% of all, ${node.pctOfParent}% of parent), dropoff ${node.dropoffN} (${node.dropoffPct}%)${tail}`;
     })
     .join("\n");
@@ -309,6 +309,9 @@ export async function getOnboardingJourney(
   const read = await readJourneyEvents(scope, args, args.maxEventRows);
   const { sessions, sessionsWithoutSteps } = groupSessions(read.rows);
   const sessionIds = sessions.map((session) => session.sessionId);
+  const depthTruncated = sessions.some(
+    (session) => session.steps.length > args.maxDepth,
+  );
 
   let recordings: JourneyRecording[] | null;
   try {
@@ -345,6 +348,11 @@ export async function getOnboardingJourney(
       `Event read stopped at maxEventRows=${args.maxEventRows}; counts are a partial sample${read.lastSessionDropped ? " and the last session read was left out" : ""}.`,
     );
   }
+  if (depthTruncated) {
+    notes.push(
+      `Some sessions continue beyond maxDepth=${args.maxDepth}; deeperN counts observed continuation omitted below each returned node.`,
+    );
+  }
   if (read.pages > 1 && args.dateTo >= new Date().toISOString().slice(0, 10)) {
     // Pages are OFFSET reads of a table that is still receiving events.
     notes.push(
@@ -372,7 +380,7 @@ export async function getOnboardingJourney(
     rootN: built.rootN,
     ...(notes.length ? { notes } : {}),
   };
-  const truncated = read.truncated || capped.dropped > 0;
+  const truncated = read.truncated || depthTruncated || capped.dropped > 0;
   if (args.format === "summary") {
     return {
       format: "summary",

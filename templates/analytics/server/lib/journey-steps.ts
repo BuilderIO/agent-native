@@ -16,6 +16,7 @@ export interface JourneyEventRow {
   eventName: string;
   path: string | null;
   flow: string | null;
+  source: string | null;
   stepId: string | null;
   stepIndex: number | null;
   methodId: string | null;
@@ -45,6 +46,64 @@ const ONBOARDING_STEP_EVENT_NAMES = new Set([
   "onboarding_step_skipped",
 ]);
 
+const BUILDER_CONNECTION_EVENT_ALIASES: Readonly<Record<string, string>> = {
+  builder_connect_clicked: "builder_connect_clicked",
+  "builder connect clicked": "builder_connect_clicked",
+  builder_connect_popup_blocked: "builder_connect_popup_blocked",
+  "builder connect popup blocked": "builder_connect_popup_blocked",
+  builder_connect_started: "builder_connect_started",
+  "builder connect started": "builder_connect_started",
+  builder_connect_succeeded: "builder_connect_succeeded",
+  "builder connect succeeded": "builder_connect_succeeded",
+  builder_connect_failed: "builder_connect_failed",
+  "builder connect failed": "builder_connect_failed",
+};
+
+const BUILDER_CONNECTION_STEPS: Record<string, { key: string; label: string }> =
+  {
+    builder_connect_clicked: {
+      key: "builder:connect:clicked",
+      label: "Builder connection CTA clicked",
+    },
+    builder_connect_popup_blocked: {
+      key: "builder:connect:popup_blocked",
+      label: "Builder connection popup blocked",
+    },
+    builder_connect_started: {
+      key: "builder:connect:started",
+      label: "Builder connection started",
+    },
+    builder_connect_succeeded: {
+      key: "builder:connect:succeeded",
+      label: "Builder connected",
+    },
+    builder_connect_failed: {
+      key: "builder:connect:failed",
+      label: "Builder connection failed",
+    },
+  };
+
+const PROVIDER_SETUP_EVENT_NAMES = [
+  "integration_key_entry_started",
+  "integration_key_validation_outcome",
+  "integration_key_save_outcome",
+] as const;
+
+const PROVIDER_SETUP_OUTCOME_LABELS: Record<string, string> = {
+  started: "started",
+  accepted: "accepted",
+  rejected: "rejected",
+  missing_key: "key missing",
+  invalid_endpoint: "endpoint invalid",
+  unreachable: "unreachable",
+  provider_error: "provider error",
+  error: "error",
+  saved: "saved",
+  failed: "failed",
+};
+
+const PROVIDER_SETUP_FLOWS = new Set(["chat_setup", "settings"]);
+
 /** Events that put a session in the onboarding cohort at all. */
 export const JOURNEY_COHORT_EVENT_NAMES: readonly string[] = [
   "signup",
@@ -66,6 +125,7 @@ export const JOURNEY_STEP_EVENT_NAMES: readonly string[] = [
   "onboarding_step_viewed",
   "onboarding_step_skipped",
   "onboarding_method_clicked",
+  "onboarding_method_started",
   "onboarding_method_outcome",
   "onboarding_abandoned",
   "onboarding_completed",
@@ -77,6 +137,8 @@ export const JOURNEY_STEP_EVENT_NAMES: readonly string[] = [
   "design_output_created",
   "recording_started",
   "recording_ready",
+  ...Object.keys(BUILDER_CONNECTION_EVENT_ALIASES),
+  ...PROVIDER_SETUP_EVENT_NAMES,
 ];
 
 // Events sharing a millisecond order by where they sit in the journey, so a
@@ -91,17 +153,26 @@ const TIE_RANK: Record<string, number> = {
   onboarding_step_viewed: 4,
   onboarding_step_skipped: 5,
   onboarding_method_clicked: 6,
-  onboarding_method_outcome: 7,
-  onboarding_abandoned: 8,
-  onboarding_completed: 9,
-  onboarding_app_entered: 10,
-  app_entered: 10,
-  "app.first_action": 11,
-  generation_started: 12,
-  recording_started: 12,
-  generation_completed: 13,
-  recording_ready: 13,
-  design_output_created: 14,
+  onboarding_method_started: 7,
+  onboarding_method_outcome: 9,
+  onboarding_abandoned: 10,
+  onboarding_completed: 11,
+  onboarding_app_entered: 12,
+  app_entered: 12,
+  "app.first_action": 13,
+  integration_key_entry_started: 14,
+  integration_key_validation_outcome: 15,
+  integration_key_save_outcome: 16,
+  builder_connect_clicked: 14,
+  builder_connect_popup_blocked: 15,
+  builder_connect_started: 16,
+  builder_connect_succeeded: 17,
+  builder_connect_failed: 17,
+  generation_started: 18,
+  recording_started: 18,
+  generation_completed: 19,
+  recording_ready: 19,
+  design_output_created: 20,
 };
 
 function clean(value: string | null): string {
@@ -112,9 +183,52 @@ function methodLabel(methodId: string): string {
   return METHOD_LABELS[methodId] ?? methodId;
 }
 
+function eventRank(row: JourneyEventRow): number {
+  const builderEvent = BUILDER_CONNECTION_EVENT_ALIASES[row.eventName];
+  if (builderEvent) {
+    const firstRun =
+      row.flow?.trim().toLowerCase() === "first_run" ||
+      row.source?.trim().toLowerCase() === "first_run_onboarding";
+    if (firstRun) {
+      switch (builderEvent) {
+        case "builder_connect_clicked":
+          return 7.5;
+        case "builder_connect_popup_blocked":
+          return 8;
+        case "builder_connect_started":
+          return 8.5;
+        case "builder_connect_succeeded":
+        case "builder_connect_failed":
+          return 8.75;
+      }
+    }
+    return TIE_RANK[builderEvent] ?? 99;
+  }
+  return TIE_RANK[row.eventName] ?? 99;
+}
+
+function providerSetupFlow(flow: string | null): string {
+  const normalized = clean(flow);
+  return PROVIDER_SETUP_FLOWS.has(normalized) ? normalized : "unknown";
+}
+
+function providerSetupOutcome(outcome: string | null): {
+  key: string;
+  label: string;
+} {
+  const normalized = clean(outcome);
+  const label = PROVIDER_SETUP_OUTCOME_LABELS[normalized];
+  return label
+    ? { key: normalized, label }
+    : { key: "unknown", label: "unknown" };
+}
+
 export function deriveJourneyStep(
   row: JourneyEventRow,
 ): { key: string; label: string } | null {
+  const builderEvent = BUILDER_CONNECTION_EVENT_ALIASES[row.eventName];
+  if (builderEvent) return BUILDER_CONNECTION_STEPS[builderEvent] ?? null;
+
   switch (row.eventName) {
     case "pageview": {
       const path = normalizeJourneyPath(row.path);
@@ -142,12 +256,42 @@ export function deriveJourneyStep(
       const id = clean(row.methodId);
       return { key: `method:${id}`, label: `Chose: ${methodLabel(id)}` };
     }
+    case "onboarding_method_started": {
+      const id = clean(row.methodId);
+      return {
+        key: `method:${id}:started`,
+        label: `${methodLabel(id)}: setup started`,
+      };
+    }
     case "onboarding_method_outcome": {
       const id = clean(row.methodId);
       const outcome = clean(row.outcome);
       return {
         key: `outcome:${id}:${outcome}`,
         label: `${methodLabel(id)}: ${outcome}`,
+      };
+    }
+    case "integration_key_entry_started": {
+      const flow = providerSetupFlow(row.flow);
+      return {
+        key: `custom_key:${flow}:entry_started`,
+        label: `Custom key entry started (${flow})`,
+      };
+    }
+    case "integration_key_validation_outcome": {
+      const flow = providerSetupFlow(row.flow);
+      const outcome = providerSetupOutcome(row.outcome);
+      return {
+        key: `custom_key:${flow}:validation:${outcome.key}`,
+        label: `Custom key validation (${flow}): ${outcome.label}`,
+      };
+    }
+    case "integration_key_save_outcome": {
+      const flow = providerSetupFlow(row.flow);
+      const outcome = providerSetupOutcome(row.outcome);
+      return {
+        key: `custom_key:${flow}:save:${outcome.key}`,
+        label: `Custom key save (${flow}): ${outcome.label}`,
       };
     }
     case "signup":
@@ -202,8 +346,8 @@ export function buildSessionSteps(
   rows: readonly JourneyEventRow[],
 ): JourneyStep[] {
   const ordered = [...rows].sort((a, b) => {
-    const aRank = TIE_RANK[a.eventName] ?? 99;
-    const bRank = TIE_RANK[b.eventName] ?? 99;
+    const aRank = eventRank(a);
+    const bRank = eventRank(b);
     const aIsOnboardingStep = ONBOARDING_STEP_EVENT_NAMES.has(a.eventName);
     const bIsOnboardingStep = ONBOARDING_STEP_EVENT_NAMES.has(b.eventName);
     const aPositionRank = aIsOnboardingStep

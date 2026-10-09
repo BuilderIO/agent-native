@@ -82,11 +82,13 @@ export interface JourneyNode {
   pctOfParent: number;
   /**
    * Sessions whose last observed step is this node (for `other`, anywhere in
-   * the merged branches). Sessions cut off at `maxDepth` are not drop-off:
-   * `n - dropoffN - sum(children n)` is how many continued.
+   * the merged branches). This never includes sessions with an unrepresented
+   * next step.
    */
   dropoffN: number;
   dropoffPct: number;
+  /** Sessions with a later observed step that is not represented as a child. */
+  deeperN: number;
   examples: JourneyExample[];
 }
 
@@ -356,6 +358,7 @@ export function buildJourneyTree(
         pctOfParent: pct(node.n, parent.n),
         dropoffN: node.ends,
         dropoffPct: pct(node.ends, node.n),
+        deeperN: 0,
         examples: pickExamples(node.refs, recordings, options),
       });
       emitChildren(node);
@@ -375,10 +378,27 @@ export function buildJourneyTree(
         pctOfParent: pct(n, parent.n),
         dropoffN,
         dropoffPct: pct(dropoffN, n),
+        deeperN: 0,
         examples: [],
       });
     }
   };
   emitChildren(root);
-  return { rootN: root.n, nodes };
+  return { rootN: root.n, nodes: addDeeperCounts(nodes) };
+}
+
+/** Counts continuation that the returned children do not represent. */
+export function addDeeperCounts(nodes: JourneyNode[]): JourneyNode[] {
+  const childCounts = new Map<string, number>();
+  for (const node of nodes) {
+    if (!node.parentKey) continue;
+    childCounts.set(
+      node.parentKey,
+      (childCounts.get(node.parentKey) ?? 0) + node.n,
+    );
+  }
+  return nodes.map((node) => ({
+    ...node,
+    deeperN: node.n - node.dropoffN - (childCounts.get(node.key) ?? 0),
+  }));
 }

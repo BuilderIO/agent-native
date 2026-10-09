@@ -1368,7 +1368,14 @@ const ONBOARDING_JOURNEY_EVENTS_SQL = `${ONBOARDING_EVENTS_CTE}, identified_even
   WHERE c.event_name IN (${sqlNameList(JOURNEY_COHORT_EVENT_NAMES)})
 )
 SELECT e.id, e.session_id, e.timestamp::text AS timestamp, e.event_name, e.path,
-  NULLIF(e.properties::jsonb ->> 'flow', '') AS flow,
+  COALESCE(
+    NULLIF(e.properties::jsonb ->> 'flow', ''),
+    NULLIF(e.properties::jsonb ->> 'agent_native_flow', '')
+  ) AS flow,
+  COALESCE(
+    NULLIF(e.properties::jsonb ->> 'source', ''),
+    NULLIF(e.properties::jsonb ->> 'agent_native_connect_source', '')
+  ) AS source,
   NULLIF(e.properties::jsonb ->> 'step_id', '') AS step_id,
   NULLIF(e.properties::jsonb ->> 'step_index', '') AS step_index,
   NULLIF(e.properties::jsonb ->> 'method_id', '') AS method_id,
