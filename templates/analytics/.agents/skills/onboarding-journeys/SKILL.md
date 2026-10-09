@@ -85,12 +85,12 @@ chunk. Fix failures or report them; do not paint over a missing frame.
 the PNG. Every visible iframe must have a corresponding recorded child document
 by the requested replay time. If the child document is missing, the frame is
 listed as a failure with code `replay_iframe_content_unavailable` and counts in
-`diagnostics`. If unsupported 3D projection or rounded ancestor clipping
-prevents the audit from verifying visibility, the frame is listed with code
-`replay_iframe_visibility_unverifiable`; do not treat uncertainty as either
-missing content or a successful audit. The check covers every visible iframe
-because replay can omit its original source attribute while rebuilding an
-isolated frame.
+`diagnostics`. If unsupported 3D projection, rounded ancestor clipping, CSS
+clip paths, or masks prevent the audit from verifying visibility, the frame is
+listed with code `replay_iframe_visibility_unverifiable`; do not treat
+uncertainty as either missing content or a successful audit. The check covers
+every visible iframe because replay can omit its original source attribute
+while rebuilding an isolated frame.
 
 Authenticate to the deployed app, never a local database: run
 `npx -y @agent-native/core@latest connect https://analytics.agent-native.com --client codex`

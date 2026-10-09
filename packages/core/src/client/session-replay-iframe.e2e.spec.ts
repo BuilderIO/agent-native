@@ -681,6 +681,204 @@ describe("session replay iframe recording", () => {
     await page.close();
   }, 30_000);
 
+  it("ignores transforms on non-replaced inline ancestors", async () => {
+    const page = await browser.newPage();
+    await page.setContent(
+      '<!doctype html><iframe id="replay" style="width:100px;height:100px;border:0"></iframe>',
+    );
+    await page.locator("#replay").evaluate((replayFrame) => {
+      const replayDocument = replayFrame.contentDocument!;
+      replayDocument.body.style.cssText = "margin:0;position:relative";
+
+      const inline = replayDocument.createElement("span");
+      inline.id = "inline-transform";
+      inline.style.cssText = "display:inline;transform:rotate(90deg)";
+
+      const outer = replayDocument.createElement("iframe");
+      outer.id = "partially-visible-frame";
+      outer.style.cssText =
+        "position:absolute;left:90px;top:40px;width:20px;height:20px;border:0";
+      outer.srcdoc = `<!doctype html><html><body style="margin:0"><iframe id="nested" style="position:absolute;left:2px;top:12px;width:6px;height:6px;border:0" srcdoc="<!doctype html><html><body>nested</body></html>"></iframe></body></html>`;
+      inline.append(outer);
+      replayDocument.body.append(inline);
+    });
+    await page.waitForFunction(() => {
+      const replayDocument = (
+        document.querySelector("#replay") as HTMLIFrameElement
+      )?.contentDocument;
+      const outer = replayDocument?.querySelector(
+        "#partially-visible-frame",
+      ) as HTMLIFrameElement | null;
+      const nested = outer?.contentDocument?.querySelector(
+        "#nested",
+      ) as HTMLIFrameElement | null;
+      return (
+        outer?.contentDocument?.readyState === "complete" &&
+        nested?.contentDocument?.readyState === "complete"
+      );
+    });
+
+    const result = await page.evaluate((auditSource) => {
+      const replayFrame = document.querySelector(
+        "#replay",
+      ) as HTMLIFrameElement;
+      const replayDocument = replayFrame.contentDocument!;
+      const outer = replayDocument.querySelector(
+        "#partially-visible-frame",
+      ) as HTMLIFrameElement;
+      const nested = outer.contentDocument!.querySelector(
+        "#nested",
+      ) as HTMLIFrameElement;
+      const ids = new Map<Element, number>([
+        [outer, 1],
+        [nested, 2],
+      ]);
+      (
+        window as typeof window & { __anJourneyCapture?: unknown }
+      ).__anJourneyCapture = {
+        replayer: {
+          getMirror: () => ({ getId: (element: Element) => ids.get(element) }),
+          iframe: replayFrame,
+        },
+      };
+      const audit = new Function(`return (${auditSource})`)() as (
+        input: unknown,
+      ) => unknown;
+      return {
+        bounds: outer.getBoundingClientRect().toJSON(),
+        computedTransform: replayDocument.defaultView!.getComputedStyle(
+          replayDocument.querySelector("#inline-transform")!,
+        ).transform,
+        hitTest: replayDocument.elementsFromPoint(95, 50).includes(outer),
+        audit: audit({
+          dimensions: { width: 100, height: 100 },
+          recordedIframeParentIds: [1, 2],
+        }),
+      };
+    }, serializedAuditSource());
+
+    expect(result.bounds.left).toBe(90);
+    expect(result.bounds.right).toBe(110);
+    expect(result.computedTransform).not.toBe("none");
+    expect(result.hitTest).toBe(true);
+    expect(result.audit).toEqual({
+      visibleIframeCount: 2,
+      unavailableIframeCount: 0,
+    });
+    await page.close();
+  }, 30_000);
+
+  it("fails closed when clip paths or masks may hide an iframe", async () => {
+    const page = await browser.newPage();
+    await page.setContent(
+      '<!doctype html><iframe id="replay" style="width:300px;height:200px;border:0"></iframe>',
+    );
+    await page.locator("#replay").evaluate((replayFrame) => {
+      const replayDocument = replayFrame.contentDocument!;
+      replayDocument.body.style.cssText = "margin:0;position:relative";
+
+      const clipped = replayDocument.createElement("iframe");
+      clipped.id = "clip-path-frame";
+      clipped.style.cssText =
+        "position:absolute;left:30px;top:30px;width:20px;height:20px;border:0;clip-path:circle(25%)";
+      clipped.srcdoc = `<!doctype html><html><body style="margin:0"><iframe id="nested-clip" style="position:absolute;left:2px;top:2px;width:6px;height:6px;border:0" srcdoc="<!doctype html><html><body>nested</body></html>"></iframe></body></html>`;
+
+      const masked = replayDocument.createElement("div");
+      masked.id = "mask-container";
+      masked.style.cssText =
+        "position:absolute;left:80px;top:30px;width:20px;height:20px;mask-image:linear-gradient(to right, black, transparent)";
+      const maskedFrame = replayDocument.createElement("iframe");
+      maskedFrame.id = "masked-frame";
+      maskedFrame.style.cssText =
+        "position:absolute;left:0;top:0;width:20px;height:20px;border:0";
+      maskedFrame.srcdoc = `<!doctype html><html><body style="margin:0"><iframe id="nested-mask" style="position:absolute;left:2px;top:2px;width:6px;height:6px;border:0" srcdoc="<!doctype html><html><body>nested</body></html>"></iframe></body></html>`;
+      masked.append(maskedFrame);
+      replayDocument.body.append(clipped, masked);
+    });
+    await page.waitForFunction(() => {
+      const replayDocument = (
+        document.querySelector("#replay") as HTMLIFrameElement
+      )?.contentDocument;
+      const frames = Array.from(
+        replayDocument?.querySelectorAll("iframe") ?? [],
+      );
+      const nestedFrames = frames.flatMap((frame) =>
+        Array.from(
+          (frame as HTMLIFrameElement).contentDocument?.querySelectorAll(
+            "iframe",
+          ) ?? [],
+        ),
+      );
+      return (
+        frames.length === 2 &&
+        nestedFrames.length === 2 &&
+        [...frames, ...nestedFrames].every(
+          (frame) =>
+            (frame as HTMLIFrameElement).contentDocument?.readyState ===
+            "complete",
+        )
+      );
+    });
+
+    const result = await page.evaluate((auditSource) => {
+      const replayFrame = document.querySelector(
+        "#replay",
+      ) as HTMLIFrameElement;
+      const replayDocument = replayFrame.contentDocument!;
+      const clipped = replayDocument.querySelector(
+        "#clip-path-frame",
+      ) as HTMLIFrameElement;
+      const nestedClip = clipped.contentDocument!.querySelector(
+        "#nested-clip",
+      ) as HTMLIFrameElement;
+      const masked = replayDocument.querySelector(
+        "#masked-frame",
+      ) as HTMLIFrameElement;
+      const nestedMask = masked.contentDocument!.querySelector(
+        "#nested-mask",
+      ) as HTMLIFrameElement;
+      const ids = new Map<Element, number>([
+        [clipped, 1],
+        [nestedClip, 2],
+        [masked, 3],
+        [nestedMask, 4],
+      ]);
+      (
+        window as typeof window & { __anJourneyCapture?: unknown }
+      ).__anJourneyCapture = {
+        replayer: {
+          getMirror: () => ({ getId: (element: Element) => ids.get(element) }),
+          iframe: replayFrame,
+        },
+      };
+      const audit = new Function(`return (${auditSource})`)() as (
+        input: unknown,
+      ) => unknown;
+      return {
+        clipPath:
+          replayDocument.defaultView!.getComputedStyle(clipped).clipPath,
+        maskImage: replayDocument
+          .defaultView!.getComputedStyle(
+            replayDocument.querySelector("#mask-container")!,
+          )
+          .getPropertyValue("mask-image"),
+        audit: audit({
+          dimensions: { width: 300, height: 200 },
+          recordedIframeParentIds: [1, 2, 3, 4],
+        }),
+      };
+    }, serializedAuditSource());
+
+    expect(result.clipPath).not.toBe("none");
+    expect(result.maskImage).not.toBe("none");
+    expect(result.audit).toEqual({
+      visibleIframeCount: 0,
+      unavailableIframeCount: 0,
+      unverifiableIframeCount: 2,
+    });
+    await page.close();
+  }, 30_000);
+
   it("does not treat an empty backface hit-test grid as proof", async () => {
     const page = await browser.newPage();
     await page.setContent(

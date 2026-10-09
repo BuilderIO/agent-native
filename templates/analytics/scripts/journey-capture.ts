@@ -1037,7 +1037,7 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
         );
         if ((iframeAudit.unverifiableIframeCount ?? 0) > 0) {
           fail(
-            "Iframe visibility could not be verified for unsupported projection or rounded clipping.",
+            "Iframe visibility could not be verified because projection, rounded clipping, CSS clip paths, or masks could hide it.",
             {
               code: "replay_iframe_visibility_unverifiable",
               diagnostics: iframeAudit,

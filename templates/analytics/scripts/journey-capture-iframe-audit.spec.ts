@@ -416,7 +416,7 @@ describe("replay iframe audit", () => {
     ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 1 });
   });
 
-  it("treats a size query container as an absolute containing block", () => {
+  it("does not clip an iframe outside a container-type ancestor", () => {
     const replayFrame = appendFrame(
       document,
       { left: 0, top: 0, width: 100, height: 100 },
@@ -444,7 +444,7 @@ describe("replay iframe audit", () => {
         dimensions: { width: 100, height: 100 },
         recordedIframeParentIds: [],
       }),
-    ).toEqual({ visibleIframeCount: 0, unavailableIframeCount: 0 });
+    ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 1 });
   });
 
   it("ignores transforms on non-replaced inline ancestors", () => {
@@ -747,7 +747,7 @@ describe("replay iframe audit", () => {
     replayDocument.body.append(contained);
     setBox(
       contained,
-      { left: 50, top: 50, width: 160, height: 160 },
+      { left: -60, top: 0, width: 160, height: 160 },
       140,
       140,
       10,
@@ -755,7 +755,7 @@ describe("replay iframe audit", () => {
     );
     const frame = appendFrame(
       replayDocument,
-      { left: 55, top: 70, width: 5, height: 20 },
+      { left: 91, top: 50, width: 5, height: 20 },
       5,
       20,
       contained,

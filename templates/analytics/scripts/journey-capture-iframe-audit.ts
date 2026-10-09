@@ -60,6 +60,20 @@ export function auditReplayIframeContent({
     },
   ];
 
+  // Replaced inline elements and SVG can transform; non-replaced HTML inline boxes cannot.
+  const [isNonTransformableInlineAncestor]: [
+    (
+      element: Element,
+      subject: Element,
+      styles: CSSStyleDeclaration,
+    ) => boolean,
+  ] = [
+    (element, subject, styles) =>
+      element !== subject &&
+      element.namespaceURI === "http://www.w3.org/1999/xhtml" &&
+      styles.display === "inline",
+  ];
+
   const [rotation]: [(value: string) => LinearTransform | null] = [
     (value) => {
       if (!value || value === "none") return { a: 1, b: 0, c: 0, d: 1 };
@@ -114,11 +128,9 @@ export function auditReplayIframeContent({
         current = parentElement(current)
       ) {
         const styles = view.getComputedStyle(current);
-        // Transforms do not apply to non-replaced inline ancestors. The iframe
-        // itself is replaced and remains transformable even with inline display.
         if (
           styles.display === "contents" ||
-          (current !== element && styles.display === "inline")
+          isNonTransformableInlineAncestor(current, element, styles)
         ) {
           continue;
         }
@@ -558,53 +570,35 @@ export function auditReplayIframeContent({
           const styles = view.getComputedStyle(current);
           let establishesContainingBlock = false;
           if (styles.display !== "none" && styles.display !== "contents") {
-            const containment = styles.contain.split(/\s+/);
-            const containerType = styles.getPropertyValue("container-type");
-            const transformProperties = [
-              "transform",
-              "perspective",
-              "translate",
-              "rotate",
-              "scale",
-            ];
-            const hasContainingBlockProperty = containingBlockProperties.some(
-              (property) => {
-                const value = styles.getPropertyValue(property);
-                return (
-                  value !== "" &&
-                  value !== "none" &&
-                  !(
-                    styles.display === "inline" &&
-                    transformProperties.includes(property)
-                  )
-                );
-              },
+            const transformable = !isNonTransformableInlineAncestor(
+              current,
+              frame,
+              styles,
             );
+            const containment = styles.contain.split(/\s+/);
+            const hasContainingBlockProperty =
+              transformable &&
+              containingBlockProperties.some((property) => {
+                const value = styles.getPropertyValue(property);
+                return value !== "" && value !== "none";
+              });
             const willChange = styles.willChange.split(/\s*,\s*/);
             establishesContainingBlock =
               (position === "absolute" &&
                 styles.position !== "" &&
                 styles.position !== "static") ||
-              ["inline-size", "size"].includes(containerType) ||
               containment.some((value) =>
                 ["layout", "paint", "strict", "content"].includes(value),
               ) ||
               styles.contentVisibility === "auto" ||
               hasContainingBlockProperty ||
               (position === "absolute" && willChange.includes("position")) ||
+              (transformable &&
+                willChange.some((property) =>
+                  containingBlockProperties.includes(property),
+                )) ||
               willChange.some((property) => {
-                if (
-                  styles.display === "inline" &&
-                  transformProperties.includes(property)
-                ) {
-                  return false;
-                }
-                return [
-                  ...containingBlockProperties,
-                  "contain",
-                  "container-type",
-                  "content-visibility",
-                ].includes(property);
+                return ["contain", "content-visibility"].includes(property);
               });
           }
           if (establishesContainingBlock) {
