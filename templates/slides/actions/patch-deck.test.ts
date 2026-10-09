@@ -26,6 +26,11 @@ vi.mock("../app/lib/normalize-slide-padding.js", () => ({
 
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
+const mockTrack = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
+}));
 
 let mockDeckRow: Record<string, unknown> | undefined;
 let lastUpdatedDeckData: string | undefined;
@@ -4836,5 +4841,105 @@ describe("run() — deck history", () => {
       chatContext: { runId: "run-1", turnId: "turn-1" },
     });
     expect(JSON.parse(mockDeckRow!.data as string).slides).toHaveLength(6);
+  });
+});
+
+describe("run() — tracking", () => {
+  const ctx = { caller: "frontend" } as never;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    nextDeckWriteMiss = undefined;
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        generationContext: { generationAttemptId: "attempt-1" },
+        slides: [
+          { id: "slide-1", content: "<div>One</div>" },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+  });
+
+  function trackedNames() {
+    return mockTrack.mock.calls.map(([name]) => name);
+  }
+
+  it("emits deck_edited once for a slide content patch", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Updated</div>" },
+          },
+          { op: "reorder-slides", orderedIds: ["slide-2", "slide-1"] },
+        ],
+      },
+      ctx,
+    );
+
+    expect(trackedNames()).toEqual(["deck_edited"]);
+    expect(mockTrack.mock.calls[0]?.[1]).toMatchObject({
+      caller: "frontend",
+      output_id: "deck-1",
+      edit_mode: "patch_deck",
+      change_kinds: ["content", "reorder"],
+      slides_changed: 2,
+      slide_count: 2,
+      generation_attempt_id: "attempt-1",
+    });
+  });
+
+  it("emits nothing for a title-only patch", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          { op: "patch-deck-fields", fields: { title: "Renamed deck" } },
+        ],
+      },
+      ctx,
+    );
+
+    expect(lastUpdatedDeckData).toBeDefined();
+    expect(mockTrack).not.toHaveBeenCalled();
+  });
+
+  it("emits deck_creation_started when a new generation attempt is persisted", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: {
+              generationContext: {
+                originalPrompt: "Board update",
+                files: [],
+                mode: "new",
+                generationAttemptId: "attempt-2",
+              },
+            },
+          },
+        ],
+      },
+      ctx,
+    );
+
+    expect(trackedNames()).toEqual(["deck_creation_started"]);
+    expect(mockTrack.mock.calls[0]?.[1]).toMatchObject({
+      generation_attempt_id: "attempt-2",
+      is_retry: true,
+    });
   });
 });

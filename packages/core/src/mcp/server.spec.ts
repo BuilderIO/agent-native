@@ -398,6 +398,12 @@ const sharedDirectoryActionsByApp: Record<string, Record<string, unknown>> = {
     "unshare-resource": unshareResource,
     "set-resource-visibility": setResourceVisibility,
   },
+  design: {
+    "list-resource-shares": listResourceShares,
+    "share-resource": shareResource,
+    "unshare-resource": unshareResource,
+    "set-resource-visibility": setResourceVisibility,
+  },
   slides: {
     "list-resource-shares": listResourceShares,
     "share-resource": shareResource,

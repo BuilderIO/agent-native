@@ -35,6 +35,7 @@ import type { EditorHistory } from "../domains/use-editor-history";
 import type { EditorLayoutAndStructure } from "../domains/use-editor-layout-and-structure";
 import type { EditorLiveEditsAndPresence } from "../domains/use-editor-live-edits-and-presence";
 import type { EditorSourceAndSync } from "../domains/use-editor-source-and-sync";
+import { shouldShowFullDesignProjectMenu } from "../mcp-widget-write-capabilities";
 import { clearPendingEditSessionMarker } from "../pending-edit-session-marker";
 import type { DesignData } from "../types";
 import { ExportSubmenuContent } from "./export-submenu-content";
@@ -51,6 +52,7 @@ interface ProjectTitleControlProps {
   editorExportAndHandoff: EditorExportAndHandoff;
   editorSourceAndSync: EditorSourceAndSync;
   design: DesignData;
+  widgetEmbed: boolean;
 }
 
 function ProjectTitleControl({
@@ -65,6 +67,7 @@ function ProjectTitleControl({
   editorExportAndHandoff,
   editorSourceAndSync,
   design,
+  widgetEmbed,
 }: ProjectTitleControlProps) {
   const { t, id, queryClient } = editorCore;
   const { canEditDesign, canShareDesign, duplicateDesignMutation } =
@@ -201,45 +204,51 @@ function ProjectTitleControl({
           >
             {t("designEditor.fileMenu.rename")}
           </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={handleDuplicateDesign}
-            disabled={duplicateDesignMutation.isPending}
-          >
-            {t("designEditor.fileMenu.duplicate")}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => setHistoryOpen(true)}>
-            {t("designEditor.fileMenu.versionHistory")}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => setSaveTemplateOpen(true)}
-            disabled={files.length === 0}
-          >
-            {t("designEditor.saveAsTemplate")}
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => importFileInputRef.current?.click()}>
-            {t("designEditor.fileMenu.import")}
-          </DropdownMenuItem>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              {t("designEditor.export")}
-            </DropdownMenuSubTrigger>
-            <ExportSubmenuContent
-              editorCore={editorCore}
-              editorGenerationAndAccess={editorGenerationAndAccess}
-              editorFilesAndSaving={editorFilesAndSaving}
-              editorActiveScreenAndGeometry={editorActiveScreenAndGeometry}
-              editorExportAndHandoff={editorExportAndHandoff}
-            />
-          </DropdownMenuSub>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            className="text-destructive focus:text-destructive"
-            onClick={() => setTrashDialogOpen(true)}
-            disabled={!canShareDesign}
-          >
-            {t("designEditor.fileMenu.delete")}
-          </DropdownMenuItem>
+          {shouldShowFullDesignProjectMenu(widgetEmbed) ? (
+            <>
+              <DropdownMenuItem
+                onClick={handleDuplicateDesign}
+                disabled={duplicateDesignMutation.isPending}
+              >
+                {t("designEditor.fileMenu.duplicate")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setHistoryOpen(true)}>
+                {t("designEditor.fileMenu.versionHistory")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setSaveTemplateOpen(true)}
+                disabled={files.length === 0}
+              >
+                {t("designEditor.saveAsTemplate")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => importFileInputRef.current?.click()}
+              >
+                {t("designEditor.fileMenu.import")}
+              </DropdownMenuItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  {t("designEditor.export")}
+                </DropdownMenuSubTrigger>
+                <ExportSubmenuContent
+                  editorCore={editorCore}
+                  editorGenerationAndAccess={editorGenerationAndAccess}
+                  editorFilesAndSaving={editorFilesAndSaving}
+                  editorActiveScreenAndGeometry={editorActiveScreenAndGeometry}
+                  editorExportAndHandoff={editorExportAndHandoff}
+                />
+              </DropdownMenuSub>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={() => setTrashDialogOpen(true)}
+                disabled={!canShareDesign}
+              >
+                {t("designEditor.fileMenu.delete")}
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
       <input

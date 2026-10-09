@@ -1,5 +1,6 @@
 import { gzipSync } from "node:zlib";
 
+import { getTableConfig } from "drizzle-orm/pg-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
@@ -3097,6 +3098,47 @@ describe("session replay ingest parsing", () => {
     expect((recordingInsert?.values as { startedAt: string }).startedAt).toBe(
       "2026-07-01T13:00:00.000Z",
     );
+    expect(
+      (recordingInsert?.values as { clientStartedAt: string }).clientStartedAt,
+    ).toBe("2026-07-05T12:00:00.000Z");
+  });
+
+  it("stores client start times in the same canonical form used by journey links", async () => {
+    putPrivateBlobMock.mockResolvedValue(null);
+    const { db, inserts } = createReplayDbMock(replayIngestKeyDbResults(null));
+    const update = vi.fn(() => ({
+      set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+    }));
+    getDbMock.mockReturnValue({ ...db, update });
+    await recordSessionReplayChunks(
+      parseSessionReplayIngestPayload({
+        publicKey: "anpk_test",
+        replayId: "recording_1",
+        sessionId: "session_1",
+        userId: null,
+        anonymousId: "anon_1",
+        sequence: 0,
+        startedAt: "2026-10-01T14:00:00+02",
+        events: [{ type: 4, timestamp: 1 }],
+      }),
+      {
+        origin: "https://app.example.com",
+        requestBytes: 100,
+        now: new Date("2026-10-01T13:00:00.000Z"),
+      },
+    );
+
+    const recordingInsert = inserts.find(
+      (entry) =>
+        typeof (entry.values as { clientRecordingId?: unknown })
+          ?.clientRecordingId === "string",
+    );
+    expect((recordingInsert?.values as { startedAt: string }).startedAt).toBe(
+      "2026-10-01T12:00:00.000Z",
+    );
+    expect(
+      (recordingInsert?.values as { clientStartedAt: string }).clientStartedAt,
+    ).toBe("2026-10-01T12:00:00.000Z");
   });
 
   it("uploads replay chunks in the public key owner's org scope (anonymous ingest)", async () => {
@@ -3616,13 +3658,25 @@ describe("listJourneyRecordings", () => {
   const row = (id: string) => ({
     id,
     sessionId: "s1",
+    clientRecordingId: `client-${id}`,
+    clientStartedAt: null,
     startedAt: "2026-10-01T12:00:00.000Z",
     endedAt: "2026-10-01T12:01:00.000Z",
     durationMs: 60_000,
     metadata: "{}",
   });
-  const readWith = async (rows: unknown[]) => {
+  const readWith = async (
+    rows: unknown[],
+    sessionIds: string[] = ["s1"],
+    replayLinks: Array<{
+      sessionId: string;
+      clientRecordingId: string;
+      startedAt: string;
+    }> = [],
+    queryResults?: unknown[][],
+  ) => {
     const limits: number[] = [];
+    let queryIndex = 0;
     let condition: unknown;
     const query = {
       where: vi.fn((where: unknown) => {
@@ -3632,24 +3686,31 @@ describe("listJourneyRecordings", () => {
       orderBy: vi.fn(() => ({
         limit: vi.fn(async (n: number) => {
           limits.push(n);
-          return rows.slice(0, n);
+          const result = queryResults?.[queryIndex++] ?? rows;
+          return result.slice(0, n);
         }),
       })),
     };
+    const from = {
+      leftJoin: vi.fn(() => query),
+      where: vi.fn((where: unknown) => {
+        condition = where;
+        return query;
+      }),
+    };
     getDbMock.mockReturnValue({
       select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          leftJoin: vi.fn(() => query),
-        })),
+        from: vi.fn(() => from),
       })),
     });
     const read = await listJourneyRecordings(
       { userEmail: "owner@example.com", orgId: null },
-      ["s1"],
+      sessionIds,
       {
         fromIso: "2026-09-30T00:00:00.000Z",
         toIso: "2026-10-03T00:00:00.000Z",
       },
+      replayLinks,
     );
     return { read, limits, condition };
   };
@@ -3680,5 +3741,206 @@ describe("listJourneyRecordings", () => {
     const { read } = await readWith(six);
     expect(read.complete).toBe(false);
     expect(read.recordings).toHaveLength(5);
+  });
+
+  it("uses an exact replay ID and start when the event and replay sessions differ", async () => {
+    const recording = {
+      ...row("exact"),
+      sessionId: "replay-session",
+      clientRecordingId: "client-replay-test",
+    };
+    const { read, condition, limits } = await readWith(
+      [recording],
+      [],
+      [
+        {
+          sessionId: "event-session",
+          clientRecordingId: recording.clientRecordingId,
+          startedAt: "2026-10-01T14:00:00+02",
+        },
+      ],
+    );
+
+    expect(read.complete).toBe(true);
+    expect(read.recordings).toMatchObject([
+      { id: "exact", sessionId: "event-session" },
+    ]);
+    expect(limits).toEqual([2]);
+    const where = conditionText(condition);
+    expect(where).toContain("client_recording_id");
+    expect(where).toContain("started_at");
+    expect(where).toContain("owner_email");
+  });
+
+  it("rejects impossible dates instead of matching a rollover date", async () => {
+    const recording = {
+      ...row("rolled-date"),
+      clientRecordingId: "client-rolled-date",
+      clientStartedAt: "2026-03-02T12:00:00.000Z",
+    };
+    const { read, limits } = await readWith(
+      [recording],
+      [],
+      [
+        {
+          sessionId: "event-session",
+          clientRecordingId: recording.clientRecordingId,
+          startedAt: "2026-02-30T12:00:00.000Z",
+        },
+      ],
+    );
+
+    expect(read.complete).toBe(false);
+    expect(read.recordings).toEqual([]);
+    expect(limits).toEqual([]);
+  });
+
+  it("matches the preserved client start when ingest clamps the stored start", async () => {
+    const recording = {
+      ...row("clamped-start"),
+      clientRecordingId: "client-clamped",
+      clientStartedAt: "2099-10-09T18:00:00.000Z",
+      startedAt: "2026-10-09T12:00:00.000Z",
+    };
+    const { read, condition } = await readWith(
+      [recording],
+      [],
+      [
+        {
+          sessionId: "event-session",
+          clientRecordingId: recording.clientRecordingId,
+          startedAt: "2099-10-09T18:00:00+00:00",
+        },
+      ],
+    );
+
+    expect(read.complete).toBe(true);
+    expect(read.recordings).toMatchObject([
+      { id: "clamped-start", sessionId: "event-session" },
+    ]);
+    expect(conditionText(condition)).toContain("client_started_at");
+  });
+
+  it("declares a non-unique composite index for exact replay lookups", () => {
+    const index = getTableConfig(schema.sessionRecordings).indexes.find(
+      (candidate) =>
+        candidate.config.name === "session_recordings_client_started_idx",
+    );
+
+    expect(index?.config.unique).toBe(false);
+    expect(
+      index?.config.columns.map((column) =>
+        "name" in column ? column.name : null,
+      ),
+    ).toEqual(["client_recording_id", "started_at"]);
+  });
+
+  it("indexes the preserved client start used by exact replay links", () => {
+    const index = getTableConfig(schema.sessionRecordings).indexes.find(
+      (candidate) =>
+        candidate.config.name === "session_recordings_client_started_at_idx",
+    );
+
+    expect(index?.config.unique).toBe(false);
+    expect(
+      index?.config.columns.map((column) =>
+        "name" in column ? column.name : null,
+      ),
+    ).toEqual(["client_recording_id", "client_started_at"]);
+  });
+
+  it("keeps duplicate exact replay matches unknown instead of choosing one", async () => {
+    const first = {
+      ...row("duplicate-a"),
+      clientRecordingId: "client-replay-test",
+    };
+    const second = {
+      ...row("duplicate-b"),
+      clientRecordingId: "client-replay-test",
+    };
+    const { read } = await readWith(
+      [first, second],
+      [],
+      [
+        {
+          sessionId: "event-session",
+          clientRecordingId: first.clientRecordingId,
+          startedAt: first.startedAt,
+        },
+      ],
+    );
+
+    expect(read.complete).toBe(false);
+    expect(read.recordings).toEqual([]);
+  });
+
+  it("keeps valid exact links when a neighboring pair has duplicate matches", async () => {
+    const first = {
+      ...row("duplicate-a"),
+      clientRecordingId: "client-duplicate",
+    };
+    const second = {
+      ...row("duplicate-b"),
+      clientRecordingId: "client-duplicate",
+    };
+    const valid = {
+      ...row("exact-valid"),
+      clientRecordingId: "client-valid",
+    };
+    const { read, limits } = await readWith(
+      [],
+      [],
+      [
+        {
+          sessionId: "duplicate-event-session",
+          clientRecordingId: first.clientRecordingId,
+          startedAt: first.startedAt,
+        },
+        {
+          sessionId: "valid-event-session",
+          clientRecordingId: valid.clientRecordingId,
+          startedAt: valid.startedAt,
+        },
+      ],
+      [[first, second, valid], [first, second], [valid]],
+    );
+
+    expect(read.complete).toBe(false);
+    expect(read.recordings).toMatchObject([
+      { id: "exact-valid", sessionId: "valid-event-session" },
+    ]);
+    expect(limits).toEqual([3, 2, 2]);
+  });
+
+  it("keeps valid neighbors when an exact replay link has no visible match", async () => {
+    const clamped = {
+      ...row("clamped-start"),
+      clientRecordingId: "client-clamped",
+    };
+    const valid = {
+      ...row("exact-valid"),
+      clientRecordingId: "client-valid",
+    };
+    const { read } = await readWith(
+      [clamped, valid],
+      [],
+      [
+        {
+          sessionId: "clamped-event-session",
+          clientRecordingId: clamped.clientRecordingId,
+          startedAt: "2099-10-09T18:00:00.000Z",
+        },
+        {
+          sessionId: "valid-event-session",
+          clientRecordingId: valid.clientRecordingId,
+          startedAt: valid.startedAt,
+        },
+      ],
+    );
+
+    expect(read.complete).toBe(true);
+    expect(read.recordings).toMatchObject([
+      { id: "exact-valid", sessionId: "valid-event-session" },
+    ]);
   });
 });

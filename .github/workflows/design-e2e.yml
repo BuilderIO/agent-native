@@ -30,6 +30,9 @@ jobs:
   e2e:
     name: ${{ matrix.shard == 'runtime-budget' && 'Runtime budget' || github.event_name == 'pull_request' && 'Design PR E2E' || format('Shard {0}/8', matrix.shard) }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     # Reserve time after the shard timeout for setup and report upload.
     timeout-minutes: 55
     strategy:
@@ -42,9 +45,10 @@ jobs:
           - shard: runtime-budget
     services:
       postgres:
-        # Docker Official Image mirror; this OCI digest matches postgres:17-alpine.
-        # https://gallery.ecr.aws/docker/library/postgres and https://hub.docker.com/_/postgres
-        image: public.ecr.aws/docker/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         env:
           POSTGRES_DB: design_e2e
           POSTGRES_HOST_AUTH_METHOD: trust

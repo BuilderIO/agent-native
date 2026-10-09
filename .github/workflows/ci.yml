@@ -785,11 +785,15 @@ jobs:
     if: needs.change-scope.outputs.content == 'true' || needs.change-scope.outputs.content_convergence == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     services:
       postgres:
-        # Docker Official Image mirror; this OCI digest matches postgres:17-alpine.
-        # https://gallery.ecr.aws/docker/library/postgres and https://hub.docker.com/_/postgres
-        image: public.ecr.aws/docker/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         env:
           POSTGRES_DB: content_migration_test
           POSTGRES_HOST_AUTH_METHOD: trust
@@ -1148,13 +1152,17 @@ jobs:
     if: needs.change-scope.result == 'success' && (needs.change-scope.outputs.docs_only == 'true' || needs.change-scope.outputs.build == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     env:
       DATABASE_URL: postgresql://postgres@127.0.0.1:5432/agent_native_build
     services:
       postgres:
-        # Docker Official Image mirror; this OCI digest matches postgres:17-alpine.
-        # https://gallery.ecr.aws/docker/library/postgres and https://hub.docker.com/_/postgres
-        image: public.ecr.aws/docker/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         env:
           POSTGRES_DB: agent_native_build
           POSTGRES_HOST_AUTH_METHOD: trust
@@ -1314,9 +1322,15 @@ jobs:
     if: needs.change-scope.outputs.neon_connection_budget == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
     services:
       postgres:
-        image: postgres:18-alpine
+        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:18-alpine
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         env:
           POSTGRES_PASSWORD: neon-budget
           POSTGRES_DB: neon_budget
