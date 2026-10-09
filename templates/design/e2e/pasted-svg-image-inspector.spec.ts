@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import {
   appPath,
@@ -256,7 +256,7 @@ async function recolorNestedPath(page: Page, screenId: string) {
     // Layers are stacked in reverse SVG document order.
     .nth(1);
   await expect(pathRow).toBeVisible();
-  await pathRow.click();
+  await pathRow.locator("[data-layer-row-button]").click();
   await expect(pathRow).toHaveAttribute("aria-selected", "true");
   const fill = page
     .getByRole("heading", { name: "Fill", exact: true })
@@ -483,8 +483,7 @@ test("pasted SVG is an editable sized layer and image scale mode writes object-f
       .getByRole("treeitem", { level: 4 })
       .filter({ has: page.getByRole("button", { name: "PATH", exact: true }) });
     await expect(pathRow).toBeVisible();
-    await pathRow.locator("[data-layer-row-button]").click();
-    await expect(pathRow).toHaveAttribute("aria-selected", "true");
+    await clickLayerRowAndAssertSelected(pathRow);
     const fillSection = page
       .getByRole("heading", { name: "Fill", exact: true })
       .locator("xpath=ancestor::section");
@@ -1238,3 +1237,8 @@ test("clipboard SVG File paste from the board iframe targets the selected Screen
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }
 });
+
+async function clickLayerRowAndAssertSelected(row: Locator): Promise<void> {
+  await row.locator("[data-layer-row-button]").click();
+  await expect(row).toHaveAttribute("aria-selected", "true");
+}
