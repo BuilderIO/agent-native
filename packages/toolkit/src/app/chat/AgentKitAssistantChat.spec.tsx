@@ -1156,7 +1156,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).toBeNull();
   });
 
-  it("shows and copies the active run ID as soon as it becomes available", async () => {
+  it("copies the active run ID from its action menu", async () => {
     const props = baseProps();
     await mount(props);
 
@@ -1167,22 +1167,72 @@ describe("AgentKitAssistantChat host behavior", () => {
     chatMocks.thread = { ...chatMocks.thread, activeRunIds: ["run-active"] };
     await act(async () => root.render(<AgentKitAssistantChat {...props} />));
 
-    const copyRequestIdButton = container.querySelector(
-      '[data-agentkit-active-run-id-copy] button[aria-label="agentChat.message.copyRequestId"]',
+    const actions = container.querySelector(
+      "[data-agentkit-active-run-id-copy]",
     );
-    expect(copyRequestIdButton).toBeTruthy();
+    const actionsTrigger = actions?.querySelector(
+      'button[aria-label="agentChat.message.actions"]',
+    );
+    expect(actionsTrigger).toBeTruthy();
+    expect(actionsTrigger?.getAttribute("aria-haspopup")).toBe("menu");
+    expect(
+      actions?.querySelector(
+        'button[aria-label="agentChat.message.copyRequestId"]',
+      ),
+    ).toBeNull();
 
     await act(async () => {
-      copyRequestIdButton?.click();
+      actionsTrigger?.focus();
+      actionsTrigger?.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown" }),
+      );
+      await Promise.resolve();
+    });
+
+    const menuItems = Array.from(
+      document.body.querySelectorAll('[role="menuitem"]'),
+    );
+    expect(menuItems.map((item) => item.textContent?.trim())).toEqual([
+      "agentChat.message.copyRequestId",
+    ]);
+
+    await act(async () => {
+      menuItems[0]?.click();
       await Promise.resolve();
     });
 
     expect(chatMocks.writeClipboardText).toHaveBeenCalledWith("run-active");
+    const copiedFeedback = container.querySelector(
+      '[data-agentkit-active-run-id-copy] [role="status"]',
+    );
+    expect(copiedFeedback?.textContent).toContain("agentChat.common.copied");
+    expect(copiedFeedback?.classList.contains("sr-only")).toBe(false);
+
+    chatMocks.writeClipboardText.mockResolvedValueOnce(false);
+    await act(async () => {
+      actionsTrigger?.focus();
+      actionsTrigger?.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown" }),
+      );
+      await Promise.resolve();
+    });
+    const retryMenuItem = document.body.querySelector('[role="menuitem"]');
+    await act(async () => {
+      retryMenuItem?.click();
+      await Promise.resolve();
+    });
+    const failedFeedback = container.querySelector(
+      '[data-agentkit-active-run-id-copy] [role="alert"]',
+    );
+    expect(failedFeedback?.textContent).toContain(
+      "agentChat.recovery.copyFailed",
+    );
+    expect(failedFeedback?.classList.contains("sr-only")).toBe(false);
     expect(
-      container.querySelector(
-        '[data-agentkit-active-run-id-copy] button[aria-label="agentChat.common.copied"]',
+      failedFeedback?.classList.contains(
+        "agentkit-active-run-actions-feedback-error",
       ),
-    ).toBeTruthy();
+    ).toBe(true);
   });
 
   it("does not duplicate Thinking after the run becomes active", async () => {
