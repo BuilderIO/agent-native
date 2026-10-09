@@ -1341,10 +1341,9 @@ Respond to the event.`,
             payload: {},
           });
         } else {
-          const handler = subscribeMock.mock.calls.find(
-            ([name]) => name === "manual.then.event",
-          )?.[1];
+          const handler = subscribeAllMock.mock.calls.at(-1)?.[0];
           await handler(
+            "manual.then.event",
             {},
             {
               owner: stored.owner,
@@ -1418,10 +1417,9 @@ Respond to the event.`,
           }),
         ).toBe("retry");
       } else {
-        const handler = subscribeMock.mock.calls.find(
-          ([name]) => name === "scheduled.before.trigger",
-        )?.[1];
+        const handler = subscribeAllMock.mock.calls.at(-1)?.[0];
         await handler(
+          "scheduled.before.trigger",
           {},
           {
             owner: stored.owner,
