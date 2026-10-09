@@ -171,6 +171,47 @@ describe("create-journey-canvas input", () => {
     expect(problems(withStagedFrame)).toEqual([]);
   });
 
+  it("requires and carries sourceApp for private frames in an all-app tree", () => {
+    const base = rawInput();
+    const withSourceApp = rawInput({
+      tree: { ...base.tree, app: "all" },
+      frames: [
+        frame("signup", 0, {
+          imageUrl: undefined,
+          attachmentRef: "ref-opaque-1",
+          sourceApp: "chat",
+        }),
+      ],
+    });
+    expect(problems(withSourceApp)).toEqual([]);
+    expect(
+      planJourneyCanvas(parse(withSourceApp), "design-1").screens[0]?.attachment
+        ?.sourceApp,
+    ).toBe("chat");
+
+    const missingSourceApp = rawInput({
+      tree: { ...base.tree, app: "all" },
+      frames: [
+        frame("signup", 0, {
+          imageUrl: undefined,
+          attachmentRef: "ref-opaque-1",
+        }),
+      ],
+    });
+    expect(problems(missingSourceApp).join("\n")).toMatch(/sourceApp/);
+
+    const mismatchedSourceApp = rawInput({
+      frames: [
+        frame("signup", 0, {
+          imageUrl: undefined,
+          attachmentRef: "ref-opaque-1",
+          sourceApp: "chat",
+        }),
+      ],
+    });
+    expect(problems(mismatchedSourceApp).join("\n")).toMatch(/sourceApp/);
+  });
+
   it("rejects data: and non-https image URLs with a clear message", () => {
     const dataUrl = problems(
       rawInput({

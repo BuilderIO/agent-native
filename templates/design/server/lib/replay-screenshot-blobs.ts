@@ -79,6 +79,53 @@ export function detectImageMimeType(
   return null;
 }
 
+export function validateReplayScreenshotBytes(
+  data: Uint8Array,
+): ReplayScreenshotMimeType {
+  const mimeType = detectImageMimeType(data);
+  if (!mimeType) {
+    fail("Screenshot bytes must be a PNG, JPEG, or WebP image.", {
+      errorCode: "invalid_replay_screenshot_image",
+      statusCode: 400,
+    });
+  }
+  if (data.byteLength === 0 || data.byteLength > MAX_REPLAY_SCREENSHOT_BYTES) {
+    fail("Each replay screenshot must be 10 MiB or smaller.", {
+      errorCode: "replay_screenshot_too_large",
+      statusCode: 413,
+    });
+  }
+  return mimeType;
+}
+
+export async function resolveAttachmentScreenshotBytes(args: {
+  attachmentRef: string;
+  requesterEmail: string;
+}): Promise<Uint8Array> {
+  const resolved = await resolveAttachment(args.attachmentRef, {
+    ownerEmail: args.requesterEmail,
+    orgId: null,
+  });
+  if (resolved.status !== "ok") {
+    fail(attachmentFailureMessage(resolved.status), {
+      errorCode: `attachment_${resolved.status}`,
+      statusCode:
+        resolved.status === "forbiddenScope"
+          ? 403
+          : resolved.status === "storageUnavailable"
+            ? 503
+            : 400,
+      details: {
+        attachmentStatus: resolved.status,
+        reason: resolved.reason,
+        retryable: resolved.status === "storageUnavailable",
+      },
+    });
+  }
+  validateReplayScreenshotBytes(resolved.file.data);
+  return resolved.file.data;
+}
+
 export function attachmentFailureMessage(status: string): string {
   if (status === "forbiddenScope") {
     return "Screenshot attachments must be personal files owned by the current user.";
@@ -97,20 +144,8 @@ export async function storeReplayScreenshotBytesAsPrivateBlob(args: {
   designId: string;
   replayId: string;
 }): Promise<StoredReplayScreenshotBlob> {
-  const mimeType = detectImageMimeType(args.data);
-  if (!mimeType) {
-    fail("Screenshot bytes must be a PNG, JPEG, or WebP image.", {
-      errorCode: "invalid_replay_screenshot_image",
-      statusCode: 400,
-    });
-  }
+  const mimeType = validateReplayScreenshotBytes(args.data);
   const sizeBytes = args.data.byteLength;
-  if (sizeBytes === 0 || sizeBytes > MAX_REPLAY_SCREENSHOT_BYTES) {
-    fail("Each replay screenshot must be 10 MiB or smaller.", {
-      errorCode: "replay_screenshot_too_large",
-      statusCode: 413,
-    });
-  }
   const blobHandle = await putPrivateBlob({
     data: args.data,
     filename: `session-replay-${args.rowId}.${mimeType === "image/jpeg" ? "jpg" : mimeType.slice(6)}`,
@@ -151,28 +186,11 @@ export async function storeAttachmentAsPrivateBlob(args: {
   designId: string;
   replayId: string;
 }): Promise<StoredReplayScreenshotBlob> {
-  const resolved = await resolveAttachment(args.attachmentRef, {
-    ownerEmail: args.requesterEmail,
-    orgId: null,
-  });
-  if (resolved.status !== "ok") {
-    fail(attachmentFailureMessage(resolved.status), {
-      errorCode: `attachment_${resolved.status}`,
-      statusCode:
-        resolved.status === "forbiddenScope"
-          ? 403
-          : resolved.status === "storageUnavailable"
-            ? 503
-            : 400,
-      details: {
-        attachmentStatus: resolved.status,
-        reason: resolved.reason,
-        retryable: resolved.status === "storageUnavailable",
-      },
-    });
-  }
   return storeReplayScreenshotBytesAsPrivateBlob({
-    data: resolved.file.data,
+    data: await resolveAttachmentScreenshotBytes({
+      attachmentRef: args.attachmentRef,
+      requesterEmail: args.requesterEmail,
+    }),
     blobOwnerEmail: args.blobOwnerEmail,
     providerId: args.providerId,
     rowId: args.rowId,

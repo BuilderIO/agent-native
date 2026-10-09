@@ -85,6 +85,10 @@ function digest(value: string | Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function utcTimestamp(value: string): string {
+  return new Date(Date.parse(value)).toISOString();
+}
+
 function decodePng(frame: StageFrame): Uint8Array {
   if (
     !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
@@ -219,6 +223,7 @@ export default defineAction({
       const results = await Promise.allSettled(
         batch.map(async (frame) => {
           const data = decodePng(frame);
+          const capturedAt = utcTimestamp(frame.capturedAt);
           const id = stageRowId(input.designId, input.importId, frame.frameKey);
           const marker = stageMarker(frame, input.importId, data);
           const [existing] = await db
@@ -250,7 +255,7 @@ export default defineAction({
               existing.app !== marker ||
               existing.route !== frame.route ||
               existing.replayId !== frame.replayId ||
-              existing.capturedAt !== frame.capturedAt ||
+              existing.capturedAt !== capturedAt ||
               existing.offsetMs !== frame.offsetMs ||
               existing.viewportWidth !== frame.width ||
               existing.viewportHeight !== frame.height ||
@@ -294,7 +299,7 @@ export default defineAction({
                 designId: input.designId,
                 boardFileId: `journey-canvas-stage:${input.importId}`,
                 replayId: frame.replayId,
-                capturedAt: frame.capturedAt,
+                capturedAt,
                 app: marker,
                 route: frame.route,
                 offsetMs: frame.offsetMs,
@@ -368,7 +373,7 @@ export default defineAction({
             persisted.app !== marker ||
             persisted.route !== frame.route ||
             persisted.replayId !== frame.replayId ||
-            persisted.capturedAt !== frame.capturedAt ||
+            persisted.capturedAt !== capturedAt ||
             persisted.offsetMs !== frame.offsetMs ||
             persisted.viewportWidth !== frame.width ||
             persisted.viewportHeight !== frame.height ||

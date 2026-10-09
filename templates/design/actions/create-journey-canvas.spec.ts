@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => {
     landedSelects: [] as unknown[][],
     selectQueue: [] as unknown[][],
     stagedRows: [] as unknown[][],
+    preflightStagedRows: [] as unknown[],
+    preflightPromotedRows: [] as unknown[],
     inserts: [] as Array<{ table: string; rows: Array<Record<string, any>> }>,
     deletes: [] as Array<{ table: string; where: unknown }>,
     boardWrites: [] as Array<{ fileId: string; content: string }>,
@@ -273,6 +275,8 @@ beforeEach(() => {
   state.landedSelects = [];
   state.selectQueue = [];
   state.stagedRows = [];
+  state.preflightStagedRows = [];
+  state.preflightPromotedRows = [];
   state.inserts = [];
   state.deletes = [];
   state.boardWrites = [];
@@ -298,6 +302,12 @@ beforeEach(() => {
       const fields = Object.keys(projection);
       if (fields.includes("app") && fields.includes("replayId")) {
         return mocks.chain(state.stagedRows.shift() ?? []);
+      }
+      if (fields.includes("sourceStageId") && fields.includes("sizeBytes")) {
+        return mocks.chain(state.preflightPromotedRows);
+      }
+      if (fields.includes("id") && fields.includes("sizeBytes")) {
+        return mocks.chain(state.preflightStagedRows);
       }
       return dbSelects++ === 0
         ? mocks.chain([{ ...BOARD_FILE, content: state.boardContent }])
@@ -432,15 +442,12 @@ describe("create-journey-canvas run", () => {
   });
 
   it("copies attachmentRef screenshots into private blobs and serves them through the authenticated route", async () => {
-    await action.run(
-      parsed(
-        rawInput([
-          frame("a", { attachmentRef: "ref-a" }),
-          frame("b", { attachmentRef: "ref-b" }),
-        ]),
-      ),
-      {} as any,
-    );
+    const input = rawInput([
+      frame("a", { attachmentRef: "ref-a", sourceApp: "chat" }),
+      frame("b", { attachmentRef: "ref-b", sourceApp: "chat" }),
+    ]);
+    input.tree.app = "all";
+    await action.run(parsed(input), {} as any);
 
     expect(mocks.resolveAttachment).toHaveBeenCalledWith("ref-a", {
       ownerEmail: "designer@example.test",
@@ -467,7 +474,7 @@ describe("create-journey-canvas run", () => {
       expect(row).toMatchObject({
         designId: "generated-1",
         mimeType: "image/png",
-        app: "design",
+        app: "chat",
       });
       expect(
         files.some((file) =>
@@ -504,11 +511,13 @@ describe("create-journey-canvas run", () => {
         },
       ],
     ];
+    mocks.state.preflightStagedRows = [{ id: stageFrameId, sizeBytes: 24 }];
     const input = parsed({
       ...rawInput([
         frame("a", {
           stagedFrameId: stageFrameId,
           screenshotOffsetMs: 2_600,
+          capturedAt: "2026-10-08T02:30:00.000-07:00",
         }),
       ]),
       designId: "design-1",
@@ -555,6 +564,13 @@ describe("create-journey-canvas run", () => {
     });
     const finalRowId = planJourneyCanvas(input, "design-1").screens[0]!
       .attachment!.rowId;
+    mocks.state.preflightPromotedRows = [
+      {
+        id: finalRowId,
+        sizeBytes: 24,
+        sourceStageId: stageFrameId,
+      },
+    ];
     mocks.state.stagedRows = [
       [],
       [
@@ -824,6 +840,42 @@ describe("create-journey-canvas run", () => {
     );
     expect(result.designId).toBe("generated-1");
   });
+
+  it("checks the aggregate screenshot size before writing any private blobs", async () => {
+    const input = rawInput([]);
+    const templateNode = input.tree.nodes[0]!;
+    const count = 26;
+    input.tree.nodes = Array.from({ length: count }, (_, index) => ({
+      ...templateNode,
+      key: `step-${index}`,
+      label: `Step ${index}`,
+      examples: [
+        {
+          ...templateNode.examples[0]!,
+          sessionId: `session-${index}`,
+          recordingId: `recording-${index}`,
+        },
+      ],
+    }));
+    input.frames = Array.from({ length: count }, (_, index) =>
+      frame(`step-${index}`, {
+        attachmentRef: `ref-${index}`,
+      }),
+    );
+    const oversizedBatchImage = Buffer.alloc(10 * 1024 * 1024);
+    oversizedBatchImage.set([0xff, 0xd8, 0xff]);
+    mocks.resolveAttachment.mockResolvedValue({
+      status: "ok",
+      file: { data: oversizedBatchImage },
+    });
+
+    await expect(action.run(parsed(input), {} as any)).rejects.toMatchObject({
+      errorCode: "journey_screenshots_too_large",
+      statusCode: 413,
+    });
+
+    expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
+  });
 });
 
 describe("create-journey-canvas exposure", () => {
@@ -909,7 +961,7 @@ describe("create-journey-canvas failures", () => {
     expect(mocks.isPrivateBlobConfiguredForRequest).not.toHaveBeenCalled();
   });
 
-  it("discards blobs it already stored, and deletes a design it created, when a later attachment fails", async () => {
+  it("preflights every attachment before storing any blobs when a later attachment fails", async () => {
     mocks.resolveAttachment
       .mockResolvedValueOnce({ status: "ok", file: { data: PNG } })
       .mockResolvedValueOnce({ status: "notFound", reason: "expired" });
@@ -925,7 +977,8 @@ describe("create-journey-canvas failures", () => {
       ),
     ).rejects.toMatchObject({ errorCode: "attachment_notFound" });
     expect(mocks.mutateDesignData).not.toHaveBeenCalled();
-    expect(mocks.deletePrivateBlob).toHaveBeenCalledTimes(1);
+    expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
+    expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
     expect(mocks.createDesign).not.toHaveBeenCalled();
   });
 

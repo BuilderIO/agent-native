@@ -179,6 +179,14 @@ export function imageUrlProblem(value: string): string | null {
 export const journeyFrameSchema = z
   .object({
     nodeKey: z.string().min(1).max(2_048),
+    sourceApp: z
+      .string()
+      .trim()
+      .regex(/^[a-z][a-z0-9-]{0,127}$/)
+      .optional()
+      .describe(
+        "Source template for this frame when tree.app is all or the node key does not include an app prefix.",
+      ),
     route: z.string().min(1).max(2_048).optional(),
     exampleIndex: z.number().int().min(0).max(999),
     imageUrl: z.string().max(MAX_IMAGE_URL_CHARS).optional(),
@@ -238,6 +246,26 @@ export const journeyFrameSchema = z
       });
     }
   });
+
+export function journeyFrameSourceApp(
+  nodeKey: string,
+  treeApp: string,
+  explicitSourceApp?: string,
+): string | null {
+  const nodeSourceApp = /^([a-z][a-z0-9-]{0,127})::/.exec(nodeKey)?.[1];
+  const sourceApp =
+    explicitSourceApp ?? nodeSourceApp ?? (treeApp !== "all" ? treeApp : null);
+  if (
+    !sourceApp ||
+    sourceApp === "all" ||
+    !/^[a-z][a-z0-9-]{0,127}$/.test(sourceApp) ||
+    (nodeSourceApp !== undefined && nodeSourceApp !== sourceApp) ||
+    (treeApp !== "all" && treeApp !== sourceApp)
+  ) {
+    return null;
+  }
+  return sourceApp;
+}
 
 export const createJourneyCanvasInputSchema = z
   .object({
@@ -349,6 +377,22 @@ export const createJourneyCanvasInputSchema = z
         issue(
           ["frames", index, "exampleIndex"],
           `Node "${frame.nodeKey}" has ${examples} example(s); exampleIndex ${frame.exampleIndex} is out of range.`,
+        );
+      }
+      const sourceApp = journeyFrameSourceApp(
+        frame.nodeKey,
+        input.tree.app,
+        frame.sourceApp,
+      );
+      if (
+        ((frame.attachmentRef !== undefined ||
+          frame.stagedFrameId !== undefined) &&
+          sourceApp === null) ||
+        (frame.sourceApp !== undefined && sourceApp === null)
+      ) {
+        issue(
+          ["frames", index, "sourceApp"],
+          "Pass a valid sourceApp for private screenshots when tree.app is all, and keep it consistent with the node key and tree app.",
         );
       }
       const id = `${frame.nodeKey}\u0000${frame.exampleIndex}`;
@@ -492,6 +536,7 @@ export interface PlannedScreen {
   attachment?: {
     ref?: string;
     stagedFrameId?: string;
+    sourceApp?: string;
     rowId: string;
     replayId: string;
     capturedAt: string;
@@ -1069,6 +1114,9 @@ export function planJourneyCanvas(
       fileType: "html",
       filename,
     });
+    const sourceApp = frame
+      ? journeyFrameSourceApp(entry.node.key, input.tree.app, frame.sourceApp)
+      : null;
     screens.push({
       fileId,
       filename,
@@ -1085,6 +1133,7 @@ export function planJourneyCanvas(
               ...(frame.stagedFrameId
                 ? { stagedFrameId: frame.stagedFrameId }
                 : {}),
+              ...(sourceApp ? { sourceApp } : {}),
               rowId,
               replayId:
                 example?.recordingId ?? example?.sessionId ?? entry.node.key,

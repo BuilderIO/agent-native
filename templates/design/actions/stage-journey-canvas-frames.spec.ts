@@ -206,6 +206,15 @@ describe("stage-journey-canvas-frames", () => {
     expect(mocks.resolveStorage).toHaveBeenCalledTimes(1);
   });
 
+  it("stores equivalent capture timestamps in canonical UTC form", async () => {
+    const value = input();
+    value.frames[0]!.capturedAt = "2026-10-08T05:00:00.000-07:00";
+
+    await run(value);
+
+    expect(mocks.row?.capturedAt).toBe("2026-10-08T12:00:00.000Z");
+  });
+
   it("keeps a blob when post-insert verification cannot confirm its committed row", async () => {
     mocks.verificationMismatch = true;
 

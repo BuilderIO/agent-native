@@ -18,8 +18,10 @@ import { designChangeResource } from "../server/lib/design-change-resource.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import {
   discardPrivateBlobs,
+  MAX_REPLAY_SCREENSHOT_BYTES,
   resolveReplayScreenshotStorage,
-  storeAttachmentAsPrivateBlob,
+  resolveAttachmentScreenshotBytes,
+  storeReplayScreenshotBytesAsPrivateBlob,
   type StoredReplayScreenshotBlob,
 } from "../server/lib/replay-screenshot-blobs.js";
 import { isValidReplayScreenshotBlobHandle } from "../server/lib/replay-screenshot-private-blob.js";
@@ -44,6 +46,7 @@ import {
   JOURNEY_STAGED_REPLAY_ROW_PREFIX,
   type CreateJourneyCanvasInput,
   createJourneyCanvasInputSchema,
+  journeyFrameSourceApp,
   planJourneyCanvas,
   replaceJourneyBoardObjects,
 } from "../shared/journey-canvas.js";
@@ -166,12 +169,6 @@ function parseStageMarker(value: string): {
   }
 }
 
-function sourceAppFromNodeKey(nodeKey: string, treeApp: string): string | null {
-  const sourceApp = /^([a-z][a-z0-9-]{0,127})::/.exec(nodeKey)?.[1];
-  if (sourceApp) return sourceApp;
-  return /^(clips|design|slides)$/.test(treeApp) ? treeApp : null;
-}
-
 function designDeepLink(designId: string): string {
   return buildDeepLink({
     app: "design",
@@ -185,7 +182,7 @@ export default defineAction({
   description:
     "Create or refresh an onboarding-journey storyboard on a Design canvas in one call: a left-to-right tree of step cards with real session screenshots, arrows between them, cohort percentage labels on forks, and a 'No later step observed' stub for sessions whose last observed step was a node. These counts do not prove that a session exited. " +
     "For a separately observed visual-reference chain, mark each step node `referenceOnly: true` and omit cohort fields (`n`, `pctOfRoot`, `pctOfParent`, `dropoffN`, `dropoffPct`). Its card is labeled 'Observed session reference'; cohort counts, percentages and drop-off stubs are not shown for those nodes, and incoming edge percentages are suppressed. Keep each frame's `exampleIndex` matched to its example so event, recording, replay-offset, and screenshot-capture provenance stays attached. " +
-    "Pass the journey tree from Analytics `get-onboarding-journey` as `tree` and one captured frame per example as `frames` ({ nodeKey, exampleIndex, width, height, capturedAt } plus exactly one of `imageUrl` (https only; data: URLs are rejected), `attachmentRef` (a personal private attachment), or `stagedFrameId` (a PNG staged in this Design with `stage-journey-canvas-frames`; consumed without copying its blob)). Private blob providers are used by default; set `allowEncryptedPublicUploadFallback: true` only when this call is approved to use the configured encrypted public-upload fallback. " +
+    "Pass the journey tree from Analytics `get-onboarding-journey` as `tree` and one captured frame per example as `frames` ({ nodeKey, exampleIndex, width, height, capturedAt } plus exactly one of `imageUrl` (https only; data: URLs are rejected), `attachmentRef` (a personal private attachment), or `stagedFrameId` (a PNG staged in this Design with `stage-journey-canvas-frames`; consumed without copying its blob)). When `tree.app` is `all`, set each private frame's `sourceApp` to the source template; app-prefixed node keys can supply it. Private blob providers are used by default; set `allowEncryptedPublicUploadFallback: true` only when this call is approved to use the configured encrypted public-upload fallback. " +
     "Each card shows the exact UTC event or replay-observation timestamp, recording id, actual screenshot seek offset, and screenshot capture date. For staged frames, pass the captured `route`; pass `recordingStartedAt` with `screenshotOffsetMs` to show the exact replay observation time. The Analytics example offset is only a nominal checkpoint target because it includes settling time. A frame may include `caption` metadata (`observedState`, `outputTitle`, recorded `actor` and `actorSource`, `dateLabel`, `evidenceStatus`, optional `evidenceAt` for a distinct source event timestamp, `prompt`, optional `promptTranslation`/`promptSource`, or `promptUnavailableReason`); it is displayed with that frame, and a full prompt can be opened from its caption. Use the actor identity from the recording, never the storage owner. " +
     "Pass `locale` to translate the standalone card labels; it defaults to `en-US`. " +
     "When a node has multiple frames, the card includes accessible numbered controls to switch examples in place; all example screenshots remain private attachments. " +
@@ -249,12 +246,130 @@ export default defineAction({
     try {
       const blobOwnerEmail =
         existingAccess?.resource.ownerEmail ?? requesterEmail;
+      const db = getDb();
+      let totalImageBytes = 0;
+      if (stagedScreens.length > 0) {
+        const stagedFrameIds = stagedScreens.map(
+          ({ attachment }) => attachment!.stagedFrameId!,
+        );
+        const finalFrameIds = stagedScreens.map(
+          ({ attachment }) => attachment!.rowId,
+        );
+        const [stagedRows, promotedRows] = await Promise.all([
+          db
+            .select({
+              id: schema.designBoardReplayScreenshots.id,
+              sizeBytes: schema.designBoardReplayScreenshots.sizeBytes,
+            })
+            .from(schema.designBoardReplayScreenshots)
+            .where(
+              and(
+                eq(schema.designBoardReplayScreenshots.designId, designId),
+                inArray(schema.designBoardReplayScreenshots.id, stagedFrameIds),
+                like(
+                  schema.designBoardReplayScreenshots.id,
+                  likePrefix(JOURNEY_STAGED_REPLAY_ROW_PREFIX),
+                ),
+              ),
+            ),
+          db
+            .select({
+              id: schema.designBoardReplayScreenshots.id,
+              sizeBytes: schema.designBoardReplayScreenshots.sizeBytes,
+              sourceStageId: schema.designBoardReplayScreenshots.sourceStageId,
+            })
+            .from(schema.designBoardReplayScreenshots)
+            .where(
+              and(
+                eq(schema.designBoardReplayScreenshots.designId, designId),
+                inArray(schema.designBoardReplayScreenshots.id, finalFrameIds),
+                like(
+                  schema.designBoardReplayScreenshots.id,
+                  likePrefix(JOURNEY_REPLAY_ROW_PREFIX),
+                ),
+              ),
+            ),
+        ]);
+        const stagedById = new Map(stagedRows.map((row) => [row.id, row]));
+        const promotedById = new Map(promotedRows.map((row) => [row.id, row]));
+        for (const { attachment } of stagedScreens) {
+          const stagedFrameId = attachment!.stagedFrameId!;
+          const staged = stagedById.get(stagedFrameId);
+          const promoted = promotedById.get(attachment!.rowId);
+          const reusable =
+            staged ??
+            (promoted?.sourceStageId === stagedFrameId ? promoted : undefined);
+          if (
+            !reusable ||
+            !Number.isInteger(reusable.sizeBytes) ||
+            reusable.sizeBytes < 1 ||
+            reusable.sizeBytes > MAX_REPLAY_SCREENSHOT_BYTES
+          ) {
+            fail(
+              "A staged screenshot is missing or its stored size is invalid. Restage the frame in this Design and retry.",
+              {
+                errorCode: "journey_staged_frame_not_found",
+                statusCode: 404,
+              },
+            );
+          }
+          totalImageBytes += reusable.sizeBytes;
+        }
+      }
+      if (totalImageBytes > MAX_TOTAL_IMAGE_BYTES) {
+        fail("The journey screenshots exceed 256 MiB in total.", {
+          errorCode: "journey_screenshots_too_large",
+          statusCode: 413,
+        });
+      }
+      const resolvedSourceAttachments = new Map<string, Uint8Array>();
+      for (let index = 0; index < sourceAttachmentScreens.length; ) {
+        const remainingImageBytes = MAX_TOTAL_IMAGE_BYTES - totalImageBytes;
+        const batchSize = Math.max(
+          1,
+          Math.min(
+            UPLOAD_CONCURRENCY,
+            Math.floor(remainingImageBytes / MAX_REPLAY_SCREENSHOT_BYTES),
+          ),
+        );
+        const batch = sourceAttachmentScreens.slice(index, index + batchSize);
+        const resolved = await Promise.all(
+          batch.map(async ({ attachment }) => ({
+            rowId: attachment!.rowId,
+            data: await resolveAttachmentScreenshotBytes({
+              attachmentRef: attachment!.ref!,
+              requesterEmail,
+            }),
+          })),
+        );
+        const batchBytes = resolved.reduce(
+          (total, frame) => total + frame.data.byteLength,
+          0,
+        );
+        if (totalImageBytes + batchBytes > MAX_TOTAL_IMAGE_BYTES) {
+          fail("The journey screenshots exceed 256 MiB in total.", {
+            errorCode: "journey_screenshots_too_large",
+            statusCode: 413,
+          });
+        }
+        for (const frame of resolved) {
+          resolvedSourceAttachments.set(frame.rowId, frame.data);
+        }
+        totalImageBytes += batchBytes;
+        index += batch.length;
+      }
       for (const batch of chunks(sourceAttachmentScreens, UPLOAD_CONCURRENCY)) {
         const results = await Promise.allSettled(
           batch.map(async ({ attachment }) => {
-            const blob = await storeAttachmentAsPrivateBlob({
-              attachmentRef: attachment!.ref!,
-              requesterEmail,
+            const data = resolvedSourceAttachments.get(attachment!.rowId);
+            if (!data) {
+              fail("A screenshot attachment was not verified before storage.", {
+                errorCode: "journey_attachment_preflight_failed",
+                statusCode: 503,
+              });
+            }
+            const blob = await storeReplayScreenshotBytesAsPrivateBlob({
+              data,
               blobOwnerEmail,
               providerId:
                 storage?.kind === "private-provider"
@@ -271,8 +386,6 @@ export default defineAction({
         const rejected = results.find((result) => result.status === "rejected");
         if (rejected) throw rejected.reason;
       }
-
-      const db = getDb();
 
       if (!input.designId) {
         const created = await createDesign.run(
@@ -497,9 +610,10 @@ export default defineAction({
               const stagedFrameId = attachment.stagedFrameId!;
               const stagedRow = stagedById.get(stagedFrameId);
               const row = stagedRow ?? promotedById.get(attachment.rowId);
-              const expectedApp = sourceAppFromNodeKey(
+              const expectedApp = journeyFrameSourceApp(
                 screen.nodeKey,
                 input.tree.app,
+                attachment.sourceApp,
               );
               if (!row || !expectedApp) {
                 fail(
@@ -663,6 +777,7 @@ export default defineAction({
                   capturedAt: attachment!.capturedAt,
                   app:
                     stagedSourceAppByRowId.get(attachment!.rowId) ??
+                    attachment!.sourceApp ??
                     input.tree.app,
                   route: attachment!.route,
                   offsetMs: attachment!.offsetMs,
