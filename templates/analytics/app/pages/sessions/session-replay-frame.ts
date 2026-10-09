@@ -17,6 +17,11 @@ const MAX_USER_MESSAGE_COUNT = 12;
 const MAX_USER_MESSAGE_CANDIDATES = 200;
 const MAX_USER_MESSAGE_CHARS = 2_000;
 const MAX_USER_MESSAGE_TOTAL_CHARS = 8_000;
+const MAX_REPLAY_DOM_NODES = 8_192;
+const MAX_REPLAY_OCCLUSIONS = 64;
+const MAX_REPLAY_DOM_ANCESTOR_DEPTH = 128;
+const MAX_USER_MESSAGE_SCAN_NODES = 1_024;
+const MAX_USER_MESSAGE_SCAN_CHARS = 32_000;
 const NON_MESSAGE_TEXT_SELECTOR =
   'button, input, textarea, select, [contenteditable], [hidden], [aria-hidden="true"], script, style, template';
 
@@ -30,6 +35,158 @@ type ReplayTextRect = {
   right: number;
   bottom: number;
 };
+
+type ReplayTextOcclusion = { element: Element; rect: ReplayTextRect };
+type ReplayTextScanBudget = {
+  characters: number;
+  exhausted: boolean;
+  nodes: number;
+};
+
+function replayTextColorIsTransparent(color: string): boolean {
+  const normalized = color.trim().toLowerCase();
+  if (normalized === "transparent") return true;
+  const slashAlpha = /\/\s*([\d.]+)%?\s*\)$/.exec(normalized)?.[1];
+  if (slashAlpha !== undefined) return Number(slashAlpha) === 0;
+  if (/^(?:rgba|hsla)\(/.test(normalized)) {
+    const components = normalized
+      .slice(normalized.indexOf("(") + 1, -1)
+      .split(",");
+    const alpha = components[components.length - 1]?.trim();
+    return alpha !== undefined && Number.parseFloat(alpha) === 0;
+  }
+  return false;
+}
+
+function replayTextLayoutIsHidden(style: CSSStyleDeclaration): boolean {
+  const blurredText = Array.from(
+    style.filter.matchAll(/blur\(([^)]*)\)/gi),
+  ).some(
+    ([, radius]) =>
+      !/^0(?:\.0+)?(?:px|rem|em|in|cm|mm|pt|pc|vh|vw)?$/i.test(
+        (radius ?? "").trim(),
+      ),
+  );
+  return (
+    style.display === "none" ||
+    style.visibility === "hidden" ||
+    style.visibility === "collapse" ||
+    style.contentVisibility === "hidden" ||
+    (style.opacity !== "" && Number(style.opacity) === 0) ||
+    /opacity\(\s*0(?:\.0+)?%?\s*\)/i.test(style.filter) ||
+    blurredText
+  );
+}
+
+function replayTextStyleIsHidden(style: CSSStyleDeclaration): boolean {
+  return (
+    replayTextLayoutIsHidden(style) ||
+    replayTextColorIsTransparent(style.color) ||
+    replayTextColorIsTransparent(
+      style.getPropertyValue("-webkit-text-fill-color"),
+    ) ||
+    !["", "none"].includes(
+      style.getPropertyValue("-webkit-text-security").trim(),
+    )
+  );
+}
+
+function replayUserMessageElements(document: Document): {
+  elements: HTMLElement[];
+  truncated: boolean;
+} {
+  const view = document.defaultView;
+  if (!view) throw new Error("replay_text_geometry_unavailable");
+  const walker = document.createTreeWalker(
+    document.documentElement,
+    view.NodeFilter.SHOW_ALL,
+  );
+  const elements: HTMLElement[] = [];
+  const nodeDepths = new WeakMap<Node, number>();
+  let scannedNodes = 0;
+  let current = walker.nextNode();
+  while (current) {
+    if (++scannedNodes > MAX_REPLAY_DOM_NODES) {
+      throw new Error("replay_text_dom_limit_exceeded");
+    }
+    const parentDepth =
+      current.parentNode === document.documentElement
+        ? 0
+        : nodeDepths.get(current.parentNode!);
+    if (
+      parentDepth === undefined ||
+      parentDepth >= MAX_REPLAY_DOM_ANCESTOR_DEPTH
+    ) {
+      throw new Error("replay_text_dom_limit_exceeded");
+    }
+    nodeDepths.set(current, parentDepth + 1);
+    if (
+      current.nodeType === 1 &&
+      (current as HTMLElement).matches(USER_MESSAGE_SELECTOR)
+    ) {
+      if (elements.length >= MAX_USER_MESSAGE_CANDIDATES) {
+        return { elements, truncated: true };
+      }
+      elements.push(current as HTMLElement);
+    }
+    current = walker.nextNode();
+  }
+  return { elements, truncated: false };
+}
+
+function replayTextHasPositionedPseudoOverlay(
+  element: HTMLElement,
+  document: Document,
+  checkedPseudoOverlays: WeakMap<Element, boolean>,
+): boolean {
+  const view = document.defaultView;
+  if (!view) throw new Error("replay_text_occlusion_unverifiable");
+  let depth = 0;
+  for (
+    let current: Element | null = element;
+    current;
+    current = current.parentElement
+  ) {
+    if (++depth > MAX_REPLAY_DOM_ANCESTOR_DEPTH) {
+      throw new Error("replay_text_dom_limit_exceeded");
+    }
+    const cached = checkedPseudoOverlays.get(current);
+    if (cached !== undefined) {
+      if (cached) return true;
+      continue;
+    }
+    let hasOverlay = false;
+    for (const pseudo of ["::before", "::after"]) {
+      let style: CSSStyleDeclaration;
+      try {
+        style = view.getComputedStyle(current, pseudo);
+      } catch {
+        throw new Error("replay_text_occlusion_unverifiable");
+      }
+      const content = style.content.trim();
+      if (
+        !content ||
+        content === "none" ||
+        content === "normal" ||
+        replayTextLayoutIsHidden(style)
+      ) {
+        continue;
+      }
+      if (
+        style.pointerEvents === "none" ||
+        style.position !== "static" ||
+        style.transform !== "none" ||
+        style.zIndex !== "auto"
+      ) {
+        hasOverlay = true;
+        break;
+      }
+    }
+    checkedPseudoOverlays.set(current, hasOverlay);
+    if (hasOverlay) return true;
+  }
+  return false;
+}
 
 function intersectReplayRects(
   first: ReplayTextRect,
@@ -67,11 +224,15 @@ function replayTextClipRect(
     bottom: viewportHeight,
   };
 
+  let depth = 0;
   for (
     let current: Element | null = element;
     current && current !== document.documentElement;
     current = current.parentElement
   ) {
+    if (++depth > MAX_REPLAY_DOM_ANCESTOR_DEPTH) {
+      throw new Error("replay_text_dom_limit_exceeded");
+    }
     const style = view.getComputedStyle(current);
     const transform = style.transform;
     if (
@@ -90,11 +251,7 @@ function replayTextClipRect(
     }
     if (
       current.matches('[hidden], [aria-hidden="true"]') ||
-      style.display === "none" ||
-      style.visibility === "hidden" ||
-      style.visibility === "collapse" ||
-      style.contentVisibility === "hidden" ||
-      (style.opacity !== "" && Number(style.opacity) === 0)
+      replayTextStyleIsHidden(style)
     ) {
       return null;
     }
@@ -140,9 +297,147 @@ function replayTextClipRect(
   return clip;
 }
 
+function replayTextOcclusionRects(document: Document): ReplayTextOcclusion[] {
+  const view = document.defaultView;
+  if (!view || typeof document.elementFromPoint !== "function") {
+    throw new Error("replay_text_occlusion_unverifiable");
+  }
+  const walker = document.createTreeWalker(
+    document.documentElement,
+    view.NodeFilter.SHOW_ALL,
+  );
+  const elements: HTMLElement[] = [];
+  const textAncestors = new WeakSet<Element>();
+  const nodeDepths = new WeakMap<Node, number>();
+  let scannedNodes = 0;
+  let current = walker.nextNode();
+  while (current) {
+    if (++scannedNodes > MAX_REPLAY_DOM_NODES) {
+      throw new Error("replay_text_occlusion_limit_exceeded");
+    }
+    const parentDepth =
+      current.parentNode === document.documentElement
+        ? 0
+        : nodeDepths.get(current.parentNode!);
+    if (
+      parentDepth === undefined ||
+      parentDepth >= MAX_REPLAY_DOM_ANCESTOR_DEPTH
+    ) {
+      throw new Error("replay_text_dom_limit_exceeded");
+    }
+    nodeDepths.set(current, parentDepth + 1);
+    if (current.nodeType === 1) {
+      elements.push(current as HTMLElement);
+    } else if (current.nodeType === 3) {
+      let depth = 0;
+      for (
+        let parent = current.parentElement;
+        parent && parent !== document.documentElement;
+        parent = parent.parentElement
+      ) {
+        if (++depth > MAX_REPLAY_DOM_ANCESTOR_DEPTH) {
+          throw new Error("replay_text_dom_limit_exceeded");
+        }
+        textAncestors.add(parent);
+      }
+    }
+    current = walker.nextNode();
+  }
+
+  const occlusionRects: ReplayTextOcclusion[] = [];
+  for (const element of elements) {
+    const style = view.getComputedStyle(element);
+    const pointerTransparent = style.pointerEvents === "none";
+    const positioned =
+      style.position !== "static" ||
+      style.transform !== "none" ||
+      style.zIndex !== "auto";
+    const painted =
+      style.backgroundImage !== "none" ||
+      element.matches("img, video, canvas, iframe, object, embed, svg") ||
+      (style.backgroundColor !== "" &&
+        !replayTextColorIsTransparent(style.backgroundColor)) ||
+      (style.boxShadow !== "" && style.boxShadow !== "none");
+    if (
+      // elementFromPoint misses transparent layers and samples can miss thin overlays.
+      (pointerTransparent ||
+        (positioned && (painted || textAncestors.has(element)))) &&
+      !replayTextLayoutIsHidden(style)
+    ) {
+      const rect = element.getBoundingClientRect();
+      if (
+        ![rect.left, rect.top, rect.right, rect.bottom].every(Number.isFinite)
+      ) {
+        throw new Error("replay_text_occlusion_unverifiable");
+      }
+      if (rect.right > rect.left && rect.bottom > rect.top) {
+        if (occlusionRects.length >= MAX_REPLAY_OCCLUSIONS) {
+          throw new Error("replay_text_occlusion_limit_exceeded");
+        }
+        occlusionRects.push({
+          element,
+          rect: {
+            left: rect.left,
+            top: rect.top,
+            right: rect.right,
+            bottom: rect.bottom,
+          },
+        });
+      }
+    }
+  }
+  return occlusionRects;
+}
+
+function replayTextIsUnobscured(
+  node: Node,
+  rect: DOMRect,
+  clip: ReplayTextRect,
+  document: Document,
+  pointerTransparentOcclusions: ReplayTextOcclusion[],
+): boolean {
+  const visibleRect = intersectReplayRects(clip, rect);
+  if (!visibleRect) return false;
+  if (
+    pointerTransparentOcclusions.some(
+      ({ element: occlusionElement, rect: occlusionRect }) =>
+        !occlusionElement.contains(node) &&
+        intersectReplayRects(visibleRect, occlusionRect) !== null,
+    )
+  ) {
+    return false;
+  }
+  const samplePoints = [
+    [0.5, 0.5],
+    [0.25, 0.25],
+    [0.75, 0.25],
+    [0.25, 0.75],
+    [0.75, 0.75],
+  ] as const;
+  try {
+    return samplePoints.every(([xRatio, yRatio]) => {
+      const pointX =
+        visibleRect.left + (visibleRect.right - visibleRect.left) * xRatio;
+      const pointY =
+        visibleRect.top + (visibleRect.bottom - visibleRect.top) * yRatio;
+      const hit = document.elementFromPoint(pointX, pointY);
+      if (!hit) throw new Error("replay_text_occlusion_unverifiable");
+      if (hit === node.parentElement) return true;
+      if (hit.contains(node)) {
+        throw new Error("replay_text_occlusion_unverifiable");
+      }
+      return false;
+    });
+  } catch {
+    throw new Error("replay_text_occlusion_unverifiable");
+  }
+}
+
 function visibleTextForMessage(
   element: HTMLElement,
   document: Document,
+  pointerTransparentOcclusions: ReplayTextOcclusion[],
+  scanBudget: ReplayTextScanBudget,
 ): { text: string; truncated: boolean } {
   const view = document.defaultView;
   if (!view) throw new Error("replay_text_geometry_unavailable");
@@ -151,6 +446,7 @@ function visibleTextForMessage(
     view.NodeFilter.SHOW_TEXT,
   );
   const range = document.createRange();
+  const checkedPseudoOverlays = new WeakMap<Element, boolean>();
   if (typeof range.getClientRects !== "function") {
     throw new Error("replay_text_geometry_unavailable");
   }
@@ -159,32 +455,50 @@ function visibleTextForMessage(
   let truncated = false;
   let node = textWalker.nextNode();
   while (node) {
+    const currentNode = node;
+    const text = currentNode.textContent ?? "";
+    if (
+      ++scanBudget.nodes > MAX_USER_MESSAGE_SCAN_NODES ||
+      scanBudget.characters + text.length > MAX_USER_MESSAGE_SCAN_CHARS
+    ) {
+      scanBudget.exhausted = true;
+      truncated = true;
+      break;
+    }
+    scanBudget.characters += text.length;
     let included = true;
+    let depth = 0;
     for (
-      let parent = node.parentElement;
+      let parent = currentNode.parentElement;
       parent;
       parent = parent.parentElement
     ) {
+      if (++depth > MAX_REPLAY_DOM_ANCESTOR_DEPTH) {
+        throw new Error("replay_text_dom_limit_exceeded");
+      }
       if (parent.matches(NON_MESSAGE_TEXT_SELECTOR)) {
         included = false;
         break;
       }
       const style = view.getComputedStyle(parent);
-      if (
-        style.display === "none" ||
-        style.visibility === "hidden" ||
-        style.visibility === "collapse" ||
-        style.contentVisibility === "hidden" ||
-        (style.opacity !== "" && Number(style.opacity) === 0)
-      ) {
+      if (replayTextStyleIsHidden(style)) {
         included = false;
         break;
       }
     }
+    if (
+      included &&
+      replayTextHasPositionedPseudoOverlay(
+        currentNode.parentElement ?? element,
+        document,
+        checkedPseudoOverlays,
+      )
+    ) {
+      throw new Error("replay_text_occlusion_unverifiable");
+    }
     const clip = included
-      ? replayTextClipRect(node.parentElement ?? element, document)
+      ? replayTextClipRect(currentNode.parentElement ?? element, document)
       : null;
-    const text = node.textContent ?? "";
     let offset = 0;
     while (included && clip && offset < text.length) {
       if (scannedCharacters >= MAX_USER_MESSAGE_CHARS + 1) {
@@ -193,15 +507,25 @@ function visibleTextForMessage(
       }
       const codePoint = text.codePointAt(offset)!;
       const nextOffset = offset + (codePoint > 0xffff ? 2 : 1);
-      range.setStart(node, offset);
-      range.setEnd(node, nextOffset);
-      const hasVisibleRect = Array.from(range.getClientRects()).some(
+      range.setStart(currentNode, offset);
+      range.setEnd(currentNode, nextOffset);
+      const rangeRects = range.getClientRects();
+      if (rangeRects.length > 16) {
+        throw new Error("replay_text_geometry_unverifiable");
+      }
+      const hasVisibleRect = Array.from(rangeRects).some(
         (rect) =>
           Number.isFinite(rect.left) &&
           Number.isFinite(rect.top) &&
           rect.right > rect.left &&
           rect.bottom > rect.top &&
-          intersectReplayRects(clip, rect)?.right !== undefined,
+          replayTextIsUnobscured(
+            currentNode,
+            rect,
+            clip,
+            document,
+            pointerTransparentOcclusions,
+          ),
       );
       if (hasVisibleRect) visibleText.push(text.slice(offset, nextOffset));
       offset = nextOffset;
@@ -266,19 +590,15 @@ export type ReplayFrameUserMessageSnapshot = {
 
 function isVisibleMessageElement(element: HTMLElement, document: Document) {
   const view = document.defaultView;
+  let depth = 0;
   for (let current: Element | null = element; current; ) {
+    if (++depth > MAX_REPLAY_DOM_ANCESTOR_DEPTH) {
+      throw new Error("replay_text_dom_limit_exceeded");
+    }
     if (current.matches('[hidden], [aria-hidden="true"]')) return false;
     if (view) {
       const style = view.getComputedStyle(current);
-      if (
-        style.display === "none" ||
-        style.visibility === "hidden" ||
-        style.visibility === "collapse" ||
-        style.contentVisibility === "hidden" ||
-        (style.opacity !== "" && Number(style.opacity) === 0)
-      ) {
-        return false;
-      }
+      if (replayTextStyleIsHidden(style)) return false;
     }
     current = current.parentElement;
   }
@@ -363,23 +683,30 @@ export function extractVisibleReplayUserMessages(
   }
   if (!document) throw new Error("replay_document_unavailable");
 
-  const elements = Array.from(
-    document.querySelectorAll<HTMLElement>(USER_MESSAGE_SELECTOR),
-  );
+  const { elements, truncated: truncatedCandidateElements } =
+    replayUserMessageElements(document);
+  const pointerTransparentOcclusions =
+    elements.length > 0 ? replayTextOcclusionRects(document) : [];
   const messages: ReplayFrameUserMessage[] = [];
   let totalCharacters = 0;
   let truncatedCharacters = false;
-  let scannedCandidates = 0;
-  let truncatedMessages = false;
+  const scanBudget = { characters: 0, exhausted: false, nodes: 0 };
+  let truncatedMessages = truncatedCandidateElements;
   for (const element of elements) {
-    if (++scannedCandidates > MAX_USER_MESSAGE_CANDIDATES) {
-      truncatedMessages = true;
-      break;
-    }
     if (!isVisibleMessageElement(element, document)) continue;
-    const visibleText = visibleTextForMessage(element, document);
+    const visibleText = visibleTextForMessage(
+      element,
+      document,
+      pointerTransparentOcclusions,
+      scanBudget,
+    );
+    truncatedCharacters ||= visibleText.truncated;
+    if (scanBudget.exhausted) truncatedMessages = true;
     const normalized = visibleText.text.replace(/\s+/g, " ").trim();
-    if (!normalized) continue;
+    if (!normalized) {
+      if (scanBudget.exhausted) break;
+      continue;
+    }
     if (messages.length >= MAX_USER_MESSAGE_COUNT) {
       truncatedMessages = true;
       break;
@@ -388,7 +715,7 @@ export function extractVisibleReplayUserMessages(
       normalized,
       MAX_USER_MESSAGE_CHARS,
     );
-    truncatedCharacters ||= visibleText.truncated || boundedMessage.truncated;
+    truncatedCharacters ||= boundedMessage.truncated;
     const remaining = MAX_USER_MESSAGE_TOTAL_CHARS - totalCharacters;
     if (remaining <= 0) {
       truncatedCharacters = true;
@@ -399,6 +726,7 @@ export function extractVisibleReplayUserMessages(
     truncatedCharacters ||= boundedTotal.truncated;
     messages.push({ role: "user", text: boundedTotal.text });
     totalCharacters += boundedTotal.characters;
+    if (scanBudget.exhausted) break;
   }
 
   return {

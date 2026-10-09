@@ -190,6 +190,20 @@ describe("sanitizePromptProvenanceCandidates", () => {
     );
   });
 
+  it("redacts credential assignment keys wrapped in inline markup", () => {
+    const result = sanitizePromptProvenanceCandidates([
+      { role: "user", text: "`password`: fake-markup-password-value" },
+      { role: "user", text: "**api_key**=fake-markup-api-key-value" },
+    ]);
+
+    expect(result.messages.map(({ text }) => text)).toEqual([
+      "`password`: [REDACTED]",
+      "**api_key**=[REDACTED]",
+    ]);
+    expect(JSON.stringify(result)).not.toContain("fake-markup-password-value");
+    expect(JSON.stringify(result)).not.toContain("fake-markup-api-key-value");
+  });
+
   it("redacts provider-shaped API tokens without a key label", () => {
     const githubTokenPlaceholder = [
       "ghp",

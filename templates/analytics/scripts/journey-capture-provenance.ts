@@ -6,6 +6,8 @@ const AUTHORIZATION_ASSIGNMENT =
   /(["']?)(authorization|proxy-authorization|cookie2?|set-cookie)\1(\s*[:=]\s*)(?:"((?:\\.|[^"\\\r\n])*)"|'((?:\\.|[^'\\\r\n])*)'|([^\r\n]*))/gi;
 const ASSIGNMENT =
   /(["']?)([a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)*)\1(\s*[:=]\s*)(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\r\n]*))/gi;
+const MARKUP_ASSIGNMENT =
+  /(`{1,3}|\*{1,2}|_{1,2})([a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)*)\1(\s*[:=]\s*)(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\r\n]*))/gi;
 const SPACE_SEPARATED_CREDENTIAL_FORMS = [
   /(?:^|\s)--?([a-z][a-z0-9_.-]*)[ \t]+\S/gim,
   /\bexport[ \t]+([a-z][a-z0-9_.-]*)[ \t]+\S/gi,
@@ -131,6 +133,19 @@ function redactCredentials(text: string): string {
   if (hasSpaceSeparatedCredential(text)) return "[REDACTED]";
 
   return text
+    .replace(
+      MARKUP_ASSIGNMENT,
+      (match, markup, key, delimiter, doubleQuoted, singleQuoted) => {
+        if (!isCredentialKey(key)) return match;
+        const valueQuote =
+          doubleQuoted !== undefined
+            ? '"'
+            : singleQuoted !== undefined
+              ? "'"
+              : "";
+        return `${markup}${key}${markup}${delimiter}${valueQuote}[REDACTED]${valueQuote}`;
+      },
+    )
     .replace(
       AUTHORIZATION_ASSIGNMENT,
       (_match, keyQuote, key, delimiter, doubleQuoted, singleQuoted) => {

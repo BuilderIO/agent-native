@@ -34,6 +34,11 @@ function mockReplayGeometry(document: Document): () => void {
   const view = document.defaultView!;
   const width = Object.getOwnPropertyDescriptor(view, "innerWidth");
   const height = Object.getOwnPropertyDescriptor(view, "innerHeight");
+  const elementFromPoint = Object.getOwnPropertyDescriptor(
+    document,
+    "elementFromPoint",
+  );
+  let activeTextNode: Node | null = null;
   Object.defineProperty(view, "innerWidth", {
     configurable: true,
     value: 100,
@@ -45,6 +50,14 @@ function mockReplayGeometry(document: Document): () => void {
   const bounds = vi
     .spyOn(view.HTMLElement.prototype, "getBoundingClientRect")
     .mockImplementation(function (this: HTMLElement) {
+      if (this.hasAttribute("data-occlusion-box")) {
+        return replayRect(
+          Number(this.dataset.left ?? 0),
+          Number(this.dataset.top ?? 0),
+          Number(this.dataset.width ?? 0),
+          Number(this.dataset.height ?? 0),
+        );
+      }
       if (!this.hasAttribute("data-clip-box")) {
         return replayRect(0, 0, 0, 0);
       }
@@ -58,6 +71,7 @@ function mockReplayGeometry(document: Document): () => void {
   const textBounds = vi
     .spyOn(view.Range.prototype, "getClientRects")
     .mockImplementation(function (this: Range) {
+      activeTextNode = this.startContainer;
       const textElement =
         this.startContainer.parentElement?.closest<HTMLElement>(
           "[data-layout]",
@@ -69,9 +83,35 @@ function mockReplayGeometry(document: Document): () => void {
       const top = Number(textElement.dataset.top ?? 10);
       return [replayRect(left, top, 4, 10)] as unknown as DOMRectList;
     });
+  Object.defineProperty(document, "elementFromPoint", {
+    configurable: true,
+    value: (x: number, y: number) => {
+      const target = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-occlusion-box]"),
+      ).find((overlay) => {
+        if (view.getComputedStyle(overlay).pointerEvents === "none") {
+          return false;
+        }
+        const rect = overlay.getBoundingClientRect();
+        return (
+          x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+        );
+      });
+      if (target) return target;
+      return (
+        activeTextNode?.parentElement?.closest<HTMLElement>("[data-layout]") ??
+        document.body
+      );
+    },
+  });
   return () => {
     bounds.mockRestore();
     textBounds.mockRestore();
+    if (elementFromPoint) {
+      Object.defineProperty(document, "elementFromPoint", elementFromPoint);
+    } else {
+      Reflect.deleteProperty(document, "elementFromPoint");
+    }
     if (width) Object.defineProperty(view, "innerWidth", width);
     else Reflect.deleteProperty(view, "innerWidth");
     if (height) Object.defineProperty(view, "innerHeight", height);
@@ -271,6 +311,176 @@ describe("extractVisibleReplayUserMessages", () => {
         "now",
       );
       expect(result.messages).toEqual([{ role: "user", text: "cde" }]);
+    } finally {
+      restoreGeometry();
+    }
+  });
+
+  it("omits text covered by paint layers that hit testing can miss", () => {
+    const overlays = [
+      "position: fixed; pointer-events: auto; background-color: rgba(0, 0, 0, 0.8)",
+      "position: relative; transform: translateX(0); pointer-events: none; background-image: linear-gradient(#000, #000)",
+    ];
+    for (const overlayStyle of overlays) {
+      const replayDocument = document;
+      const restoreGeometry = mockReplayGeometry(replayDocument);
+      replayDocument.body.innerHTML = `
+        <article class="agentkit-message" data-role="user"><div class="agentkit-user-message-text-content" data-layout>covered request</div></article>
+        <div data-occlusion-box data-left="0" data-top="0" data-width="100" data-height="100" style="${overlayStyle}"></div>
+      `;
+
+      try {
+        const result = extractVisibleReplayUserMessages(
+          replayDocument,
+          100,
+          100,
+          "now",
+        );
+        expect(result.messages).toEqual([]);
+      } finally {
+        restoreGeometry();
+      }
+    }
+  });
+
+  it("fails closed when a positioned pseudo-element may paint over message text", () => {
+    const replayDocument = document;
+    const restoreGeometry = mockReplayGeometry(replayDocument);
+    replayDocument.body.innerHTML = `
+      <article class="agentkit-message" data-role="user"><div class="agentkit-user-message-text-content" data-layout><span class="message-overlay">covered request</span></div></article>
+    `;
+    const view = replayDocument.defaultView!;
+    const nativeGetComputedStyle = view.getComputedStyle.bind(view);
+    const computedStyle = vi
+      .spyOn(view, "getComputedStyle")
+      .mockImplementation((element, pseudo) => {
+        const style = nativeGetComputedStyle(element, pseudo);
+        if (pseudo !== "::after" || !element.matches(".message-overlay")) {
+          return style;
+        }
+        return new Proxy(style, {
+          get(target, property) {
+            if (property === "content") return '""';
+            if (property === "position") return "fixed";
+            return Reflect.get(target, property, target);
+          },
+        }) as CSSStyleDeclaration;
+      });
+
+    try {
+      expect(() =>
+        extractVisibleReplayUserMessages(replayDocument, 100, 100, "now"),
+      ).toThrow("replay_text_occlusion_unverifiable");
+    } finally {
+      computedStyle.mockRestore();
+      restoreGeometry();
+    }
+  });
+
+  it("omits text hidden by opacity, blur, transparency, and text masking", () => {
+    const replayDocument = document;
+    const restoreGeometry = mockReplayGeometry(replayDocument);
+    replayDocument.body.innerHTML = `
+      <article class="agentkit-message" data-role="user"><div class="agentkit-user-message-text-content" data-layout style="filter: opacity(0)">filtered request</div></article>
+      <article class="agentkit-message" data-role="user"><div class="agentkit-user-message-text-content" data-layout style="filter: blur(2px)">blurred request</div></article>
+      <article class="agentkit-message" data-role="user"><div class="agentkit-user-message-text-content" data-layout style="-webkit-text-fill-color: transparent">transparent request</div></article>
+      <article class="agentkit-message" data-role="user"><div class="agentkit-user-message-text-content" data-layout style="-webkit-text-security: disc">masked request</div></article>
+    `;
+
+    try {
+      expect(
+        extractVisibleReplayUserMessages(replayDocument, 100, 100, "now")
+          .messages,
+      ).toEqual([]);
+    } finally {
+      restoreGeometry();
+    }
+  });
+
+  it("bounds hidden DOM text scanning and reports truncated coverage", () => {
+    const replayDocument = document;
+    const restoreGeometry = mockReplayGeometry(replayDocument);
+    replayDocument.body.innerHTML = `
+      <article class="agentkit-message" data-role="user"><div class="agentkit-user-message-text-content"><span style="display: none">${"x".repeat(32_001)}</span><span data-layout>visible request after hidden text</span></div></article>
+    `;
+
+    try {
+      const result = extractVisibleReplayUserMessages(
+        replayDocument,
+        100,
+        100,
+        "now",
+      );
+      expect(result.messages).toEqual([]);
+      expect(result.truncatedCharacters).toBe(true);
+      expect(result.truncatedMessages).toBe(true);
+    } finally {
+      restoreGeometry();
+    }
+  });
+
+  it("bounds traversal across text nodes as well as elements", () => {
+    const replayDocument = document;
+    const restoreGeometry = mockReplayGeometry(replayDocument);
+    const manyTextNodes = Array.from(
+      { length: 4_200 },
+      () => "<span>x</span>",
+    ).join("");
+    replayDocument.body.innerHTML = `
+      <article class="agentkit-message" data-role="user"><div class="agentkit-user-message-text-content">${manyTextNodes}</div></article>
+    `;
+
+    try {
+      expect(() =>
+        extractVisibleReplayUserMessages(replayDocument, 100, 100, "now"),
+      ).toThrow("replay_text_dom_limit_exceeded");
+    } finally {
+      restoreGeometry();
+    }
+  });
+
+  it("bounds deeply nested replay DOM before walking ancestors", () => {
+    const replayDocument = document;
+    const restoreGeometry = mockReplayGeometry(replayDocument);
+    const article = replayDocument.createElement("article");
+    article.className = "agentkit-message";
+    article.dataset.role = "user";
+    const content = replayDocument.createElement("div");
+    content.className = "agentkit-user-message-text-content";
+    let parent: HTMLElement = content;
+    for (let depth = 0; depth < 130; depth++) {
+      const child = replayDocument.createElement("span");
+      parent.append(child);
+      parent = child;
+    }
+    parent.textContent = "deep request";
+    article.append(content);
+    replayDocument.body.replaceChildren(article);
+
+    try {
+      expect(() =>
+        extractVisibleReplayUserMessages(replayDocument, 100, 100, "now"),
+      ).toThrow("replay_text_dom_limit_exceeded");
+    } finally {
+      restoreGeometry();
+    }
+  });
+
+  it("fails closed when replay text hit testing is unavailable", () => {
+    const replayDocument = document;
+    const restoreGeometry = mockReplayGeometry(replayDocument);
+    replayDocument.body.innerHTML = `
+      <article class="agentkit-message" data-role="user"><div class="agentkit-user-message-text-content" data-layout>visible request</div></article>
+    `;
+    Object.defineProperty(replayDocument, "elementFromPoint", {
+      configurable: true,
+      value: undefined,
+    });
+
+    try {
+      expect(() =>
+        extractVisibleReplayUserMessages(replayDocument, 100, 100, "now"),
+      ).toThrow("replay_text_occlusion_unverifiable");
     } finally {
       restoreGeometry();
     }
