@@ -11,6 +11,21 @@ type InlineStyleDeclaration = {
   priority: string;
 };
 
+type CropTransitionInlineStyleOverride = {
+  property: string;
+  originalValue: string;
+  originalPriority: string;
+  temporaryValue: string;
+  temporaryPriority: string;
+  active: boolean;
+};
+
+// A replaced slide can inherit a live WAAPI copy and its temporary inline fallback.
+const cropTransitionInlineStyleOverrides = new WeakMap<
+  HTMLElement,
+  Map<string, CropTransitionInlineStyleOverride>
+>();
+
 function withCssTransitionsDisabled<T>(
   element: HTMLElement,
   update: () => T,
@@ -38,6 +53,125 @@ function withCssTransitionsDisabled<T>(
     element.style.removeProperty("transition");
     for (const { property, value, priority } of declarations) {
       element.style.setProperty(property, value, priority);
+    }
+  }
+}
+
+function writeInlineStyleDeclaration(
+  element: HTMLElement,
+  property: string,
+  value: string,
+  priority: string,
+): void {
+  if (value) element.style.setProperty(property, value, priority);
+  else element.style.removeProperty(property);
+}
+
+export function registerCropTransitionInlineStyleOverride(
+  element: HTMLElement,
+  property: string,
+  originalValue: string,
+  originalPriority: string,
+  temporaryValue: string,
+  temporaryPriority: string,
+): () => void {
+  let overrides = cropTransitionInlineStyleOverrides.get(element);
+  if (!overrides) {
+    overrides = new Map();
+    cropTransitionInlineStyleOverrides.set(element, overrides);
+  }
+
+  const previous = overrides.get(property);
+  if (previous?.active) {
+    const stillTemporary =
+      element.style.getPropertyValue(property) === previous.temporaryValue &&
+      element.style.getPropertyPriority(property) ===
+        previous.temporaryPriority;
+    if (stillTemporary) {
+      originalValue = previous.originalValue;
+      originalPriority = previous.originalPriority;
+    }
+    previous.active = false;
+  }
+  if (
+    !previous &&
+    originalValue === temporaryValue &&
+    originalPriority === temporaryPriority
+  ) {
+    return () => {};
+  }
+
+  const override: CropTransitionInlineStyleOverride = {
+    property,
+    originalValue,
+    originalPriority,
+    temporaryValue,
+    temporaryPriority,
+    active: true,
+  };
+  overrides.set(property, override);
+
+  return () => {
+    if (!override.active) return;
+    override.active = false;
+    if (overrides?.get(property) === override) overrides.delete(property);
+    if (
+      element.style.getPropertyValue(property) === temporaryValue &&
+      element.style.getPropertyPriority(property) === temporaryPriority
+    ) {
+      withCssTransitionsDisabled(element, () =>
+        writeInlineStyleDeclaration(
+          element,
+          property,
+          originalValue,
+          originalPriority,
+        ),
+      );
+    }
+  };
+}
+
+export function serializeWithRestoredCropTransitionInlineOverrides<T>(
+  element: HTMLElement,
+  serialize: () => T,
+): T {
+  const active = [
+    ...(cropTransitionInlineStyleOverrides.get(element)?.values() ?? []),
+  ].filter(
+    (override) =>
+      override.active &&
+      element.style.getPropertyValue(override.property) ===
+        override.temporaryValue &&
+      element.style.getPropertyPriority(override.property) ===
+        override.temporaryPriority,
+  );
+  if (active.length === 0) return serialize();
+  for (const override of active) {
+    writeInlineStyleDeclaration(
+      element,
+      override.property,
+      override.originalValue,
+      override.originalPriority,
+    );
+  }
+  try {
+    return serialize();
+  } finally {
+    for (const override of active) {
+      if (
+        override.active &&
+        element.style.getPropertyValue(override.property) ===
+          override.originalValue &&
+        element.style.getPropertyPriority(override.property) ===
+          override.originalPriority
+      ) {
+        writeInlineStyleDeclaration(
+          element,
+          override.property,
+          override.temporaryValue,
+          override.temporaryPriority,
+        );
+      }
     }
   }
 }
@@ -219,6 +353,14 @@ export function restoreCropTransitionAnimations(
         : originalPriority === "important"
           ? ""
           : originalPriority;
+    const restoreStyle = registerCropTransitionInlineStyleOverride(
+      styleTarget,
+      transfer.property,
+      originalValue,
+      originalPriority,
+      temporaryValue,
+      temporaryPriority,
+    );
     if (originalValue || temporaryValue) {
       withCssTransitionsDisabled(styleTarget, () => {
         styleTarget.style.setProperty(
@@ -228,28 +370,6 @@ export function restoreCropTransitionAnimations(
         );
       });
     }
-
-    const restoreStyle = () => {
-      if (
-        styleTarget.style.getPropertyValue(transfer.property) !==
-          temporaryValue ||
-        styleTarget.style.getPropertyPriority(transfer.property) !==
-          temporaryPriority
-      ) {
-        return;
-      }
-      withCssTransitionsDisabled(styleTarget, () => {
-        if (originalValue) {
-          styleTarget.style.setProperty(
-            transfer.property,
-            originalValue,
-            originalPriority,
-          );
-        } else {
-          styleTarget.style.removeProperty(transfer.property);
-        }
-      });
-    };
 
     try {
       const animation = target.animate(transfer.keyframes, transfer.timing);

@@ -7,6 +7,7 @@ import {
 import {
   CROP_CSS_ANIMATION_NAME_PREFIX,
   CROP_TRANSITION_ANIMATION_ID_PREFIX,
+  serializeWithRestoredCropTransitionInlineOverrides,
 } from "@/lib/slide-image-replacement";
 import { stripSourceStamps } from "@/lib/slide-source-map";
 
@@ -1808,9 +1809,8 @@ function hasMatchingImportantStyleRule(
       unreadable = true;
     },
   );
-  // An unreadable sheet may contain a matching !important declaration. Move
-  // the opacity transition to the frame in that case so the rule cannot hide
-  // its WAAPI copy on the image.
+  // An unreadable sheet may contain a matching !important declaration, which
+  // would outrank a copied animation on the frame.
   return found || unreadable;
 }
 
@@ -2894,6 +2894,16 @@ function moveSlideObjectTransform(
         ).some((value) => LINE_HEIGHT_RELATIVE_LENGTH.test(value)),
     );
   });
+  const fontSizeAnimationPaints =
+    frameUsesFontRelativeLength &&
+    keyframedProperties.has("font-size") &&
+    source.style.getPropertyPriority("font-size") !== "important" &&
+    !hasMatchingImportantStyleRule(source, "font-size");
+  const lineHeightAnimationPaints =
+    frameUsesLineHeightRelativeLength &&
+    keyframedProperties.has("line-height") &&
+    source.style.getPropertyPriority("line-height") !== "important" &&
+    !hasMatchingImportantStyleRule(source, "line-height");
   const cssRules: string[] = [];
   if (splitAnimations) {
     copyAnimationEnvironment(source, frame, referencedCustomProperties);
@@ -2921,10 +2931,18 @@ function moveSlideObjectTransform(
       for (const property of referencedCustomProperties) {
         if (properties.has(property)) frameProperties.add(property);
       }
-      if (frameUsesFontRelativeLength && properties.has("font-size")) {
+      if (
+        frameUsesFontRelativeLength &&
+        fontSizeAnimationPaints &&
+        properties.has("font-size")
+      ) {
         frameProperties.add("font-size");
       }
-      if (frameUsesLineHeightRelativeLength && properties.has("line-height")) {
+      if (
+        frameUsesLineHeightRelativeLength &&
+        lineHeightAnimationPaints &&
+        properties.has("line-height")
+      ) {
         frameProperties.add("line-height");
       }
       if (imageProperties.size > 0) {
@@ -3000,9 +3018,11 @@ function moveSlideObjectTransform(
     resumeCopiedTransitionOverrides: (element) =>
       reapplyTemporaryInlineStyleOverrides(temporaryStyleOverrides, element),
     serializeWithoutCopiedTransitionOverrides: (serialize) =>
-      serializeWithRestoredInlineStyleOverrides(
-        temporaryStyleOverrides,
-        serialize,
+      serializeWithRestoredCropTransitionInlineOverrides(source, () =>
+        serializeWithRestoredInlineStyleOverrides(
+          temporaryStyleOverrides,
+          serialize,
+        ),
       ),
     activateAnimations: () => {
       if (!splitAnimations) return () => {};

@@ -1886,6 +1886,64 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
     }
   });
 
+  it("does not serialize a transferred opacity override during a second crop", async () => {
+    const css =
+      ".base { opacity: 0.2 !important; transform: rotate(0deg); transition: transform 1s linear, opacity 2s linear; } .moving { opacity: 0.8 !important; transform: rotate(90deg); }";
+    const page = await openPage(
+      css,
+      imageHtml().replace('class="ruled"', 'class="base"'),
+    );
+    try {
+      await page.evaluate(() =>
+        document.getElementById("pic")!.classList.add("moving"),
+      );
+      await page.waitForTimeout(600);
+      const result = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.restoreTransitions();
+        const frameId = wrapped.frame.getAttribute("data-slide-object-id")!;
+        const serialized =
+          wrapped.serializeWithoutCopiedTransitionOverrides(
+            () => wrapped.frame.outerHTML,
+          ) ?? "";
+        const stage = document.querySelector(".stage") as HTMLElement;
+        const transitions =
+          window.slideObjects.captureCropTransitionAnimations(stage);
+        stage.innerHTML = serialized;
+        const replacementFrame = Array.from(
+          stage.querySelectorAll<HTMLElement>(
+            ".fmd-pptx-image[data-slide-object-id]",
+          ),
+        ).find(
+          (candidate) =>
+            candidate.getAttribute("data-slide-object-id") === frameId,
+        )!;
+        window.slideObjects.restoreCropTransitionAnimations(stage, transitions);
+
+        const replacementImage = replacementFrame.querySelector("img")!;
+        const secondCrop =
+          window.slideObjects.wrapImageInCropFrame(replacementImage)!;
+        secondCrop.restoreTransitions();
+        const serializedStyle =
+          secondCrop.serializeWithoutCopiedTransitionOverrides(() =>
+            replacementImage.getAttribute("style"),
+          ) ?? "";
+        return {
+          serializedStyle,
+          liveOpacity: replacementImage.style.getPropertyValue("opacity"),
+          livePriority: replacementImage.style.getPropertyPriority("opacity"),
+        };
+      });
+
+      expect(result.serializedStyle).not.toMatch(/opacity\s*:/i);
+      expect(result.liveOpacity).toBe("1");
+      expect(result.livePriority).toBe("important");
+    } finally {
+      await page.close();
+    }
+  });
+
   it("transfers generated crop animation time and play state across slide HTML replacement", async () => {
     const css = `${SPIN} @keyframes fade { from { opacity: 0.2; } to { opacity: 1; } } .ruled { animation: fade 2s linear infinite, spin 4s linear infinite; }`;
     const page = await openPage(css, imageHtml());
@@ -2338,6 +2396,54 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
 
       expect(result.frameHasFontSizeTrack).toBe(true);
       expect(result.frameFontSize).toBe(result.referenceFontSize);
+      expect(result.frameTransform).toBe(result.referenceTransform);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("does not move a blocked font-size animation onto the crop frame", async () => {
+    const css =
+      "@keyframes grow-and-shift { from { font-size: 10px; transform: translateX(0em); } to { font-size: 30px; transform: translateX(1em); } } .ruled { animation: grow-and-shift 4s linear infinite; }";
+    const body = `${imageHtml()} ${imageHtml().replace('id="pic"', 'id="reference"')}`;
+    const page = await openPage(css, body);
+    try {
+      const result = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        const reference = document.getElementById(
+          "reference",
+        ) as HTMLImageElement;
+        image.style.setProperty("font-size", "40px", "important");
+        reference.style.setProperty("font-size", "40px", "important");
+        const animationFor = (element: Element) =>
+          element
+            .getAnimations()
+            .find((animation) => "animationName" in animation)!;
+        const sourceAnimation = animationFor(image);
+        const referenceAnimation = animationFor(reference);
+        sourceAnimation.currentTime = 1000;
+        referenceAnimation.currentTime = 1000;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        const frameAnimation = animationFor(wrapped.frame);
+        wrapped.resumeAnimations();
+        frameAnimation.currentTime = 2000;
+        referenceAnimation.currentTime = 2000;
+        return {
+          frameFontSize: getComputedStyle(wrapped.frame).fontSize,
+          referenceFontSize: getComputedStyle(reference).fontSize,
+          frameTransform: getComputedStyle(wrapped.frame).transform,
+          referenceTransform: getComputedStyle(reference).transform,
+          frameHasFontSizeTrack:
+            frameAnimation.effect instanceof KeyframeEffect &&
+            frameAnimation.effect
+              .getKeyframes()
+              .some((keyframe) => "fontSize" in keyframe),
+        };
+      });
+
+      expect(result.frameHasFontSizeTrack).toBe(false);
+      expect(result.frameFontSize).toBe("40px");
+      expect(result.referenceFontSize).toBe("40px");
       expect(result.frameTransform).toBe(result.referenceTransform);
     } finally {
       await page.close();
