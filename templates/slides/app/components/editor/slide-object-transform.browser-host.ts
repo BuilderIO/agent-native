@@ -1,6 +1,11 @@
 export { writeImageCropPercentGeometry } from "./ImageCropOverlay";
 export {
+  captureCropTransitionAnimations,
+  restoreCropTransitionAnimations,
+} from "@/lib/slide-image-replacement";
+export {
   captureSlideObjectAnimationState,
+  pauseCssAnimations,
   readEditableSlideObjectRotation,
   readSlideObjectRotation,
   readSlideObjectTransformSnapshot,

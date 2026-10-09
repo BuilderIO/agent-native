@@ -24,6 +24,8 @@ import {
   sanitizeSlideUrl,
 } from "@/lib/sanitize-slide-html";
 import {
+  captureCropTransitionAnimations,
+  restoreCropTransitionAnimations,
   swapImageSourcesInPlace,
   takeSlideImageUploadProvenance,
   updateLiveImagesUnderEdit,
@@ -1022,7 +1024,9 @@ function RawSlideHtmlContent({
         return;
       }
       if (!swapImageSourcesInPlace(root, renderedHtmlRef.current, html)) {
+        const cropTransitions = captureCropTransitionAnimations(root);
         root.innerHTML = html;
+        restoreCropTransitionAnimations(root, cropTransitions);
       }
       renderedHtmlRef.current = html;
     }

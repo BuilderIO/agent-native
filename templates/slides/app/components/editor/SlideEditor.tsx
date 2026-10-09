@@ -1701,7 +1701,11 @@ type ActiveImageCrop = {
   restoreChrome: () => void;
   resumeAnimations: () => void;
   restoreTransitions: () => void;
-  cancelCopiedTransitions: () => void;
+  cancelCopiedTransitions: (preserveOn?: HTMLElement) => void;
+  resumeCopiedTransitionOverrides: (element: HTMLElement) => void;
+  serializeWithoutCopiedTransitionOverrides: (
+    serialize: () => string | null,
+  ) => string | null;
   restoreAnimations: () => void;
   hasChanges: () => boolean;
   cancel: () => HTMLElement | null;
@@ -2428,7 +2432,9 @@ export default function SlideEditor({
       preserveSlideObjectLayoutSpacer(crop.frame);
       crop.resumeAnimations();
       crop.restoreTransitions();
-      const html = readCurrentSlideContentHtmlRef.current();
+      const html = crop.serializeWithoutCopiedTransitionOverrides(() =>
+        readCurrentSlideContentHtmlRef.current(),
+      );
       if (html !== null) {
         if (crop.frozen.restoreMarkdownTree) {
           removeSlideObjectLayoutSpacer(crop.frame);
@@ -8723,7 +8729,11 @@ export default function SlideEditor({
       let frame: HTMLElement = frameIsPersistedImage ? existingFrame! : target;
       let resumeCropAnimations = () => {};
       let restoreCropTransitions = () => {};
-      let cancelCropCopiedTransitions = () => {};
+      let cancelCropCopiedTransitions = (_preserveOn?: HTMLElement) => {};
+      let resumeCropCopiedTransitionOverrides = (_element: HTMLElement) => {};
+      let serializeWithoutCopiedTransitionOverrides = (
+        serialize: () => string | null,
+      ) => serialize();
       const frozen = freezeElementForFreeformSelection(frame);
       if (!frozen) return;
 
@@ -8781,6 +8791,10 @@ export default function SlideEditor({
         resumeCropAnimations = wrapped.resumeAnimations;
         restoreCropTransitions = wrapped.restoreTransitions;
         cancelCropCopiedTransitions = wrapped.cancelCopiedTransitions;
+        resumeCropCopiedTransitionOverrides =
+          wrapped.resumeCopiedTransitionOverrides;
+        serializeWithoutCopiedTransitionOverrides =
+          wrapped.serializeWithoutCopiedTransitionOverrides;
         frame.setAttribute("data-builder-id", ensureBuilderId(frame));
       }
 
@@ -8832,6 +8846,13 @@ export default function SlideEditor({
         if (originalStyle) image.setAttribute("style", originalStyle[1]);
         else image.removeAttribute("style");
       };
+      const restoreOriginalImageStyleAndTransitions = () => {
+        restoreOriginalImageStyleAttribute();
+        image.style.setProperty("transition", "none", "important");
+        window.getComputedStyle(image).getPropertyValue("transform");
+        restoreCropTransitions();
+        restoreOriginalImageStyleAttribute();
+      };
       const activeCrop: ActiveImageCrop = {
         slideId: slide.id,
         content: slide.content,
@@ -8854,6 +8875,8 @@ export default function SlideEditor({
         resumeAnimations: resumeCropAnimations,
         restoreTransitions: restoreCropTransitions,
         cancelCopiedTransitions: cancelCropCopiedTransitions,
+        resumeCopiedTransitionOverrides: resumeCropCopiedTransitionOverrides,
+        serializeWithoutCopiedTransitionOverrides,
         restoreAnimations: () =>
           restoreSlideObjectAnimationState(
             frameIsPersistedImage ? originalFrame! : image,
@@ -8871,7 +8894,7 @@ export default function SlideEditor({
             [image.offsetHeight, cropStartGeometry.image.height],
           ].some(([current, initial]) => Math.abs(current! - initial!) >= 0.5),
         cancel: () => {
-          activeCrop.cancelCopiedTransitions();
+          activeCrop.cancelCopiedTransitions(image);
           removeSlideObjectLayoutSpacer(frame, slideContent);
           if (frozen.restoreMarkdownTree) {
             if (frameIsPersistedImage) frame.replaceWith(originalFrame!);
@@ -8885,9 +8908,8 @@ export default function SlideEditor({
               }
             }
             frozen.restoreMarkdownTree();
-            restoreOriginalImageStyleAttribute();
-            restoreCropTransitions();
-            restoreOriginalImageStyleAttribute();
+            restoreOriginalImageStyleAndTransitions();
+            activeCrop.resumeCopiedTransitionOverrides(image);
             activeCrop.restoreAnimations();
             return frameIsPersistedImage ? originalFrame : image;
           }
@@ -8905,9 +8927,8 @@ export default function SlideEditor({
               image.setAttribute(name, value);
             }
           }
-          restoreOriginalImageStyleAttribute();
-          restoreCropTransitions();
-          restoreOriginalImageStyleAttribute();
+          restoreOriginalImageStyleAndTransitions();
+          activeCrop.resumeCopiedTransitionOverrides(image);
           activeCrop.restoreAnimations();
           return image;
         },

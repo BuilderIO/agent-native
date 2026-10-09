@@ -2,6 +2,202 @@ import { SOURCE_STAMP_ATTR } from "./slide-source-map";
 
 const PLACEHOLDER_TARGET_PREFIX = "placeholder:";
 const MAX_PENDING_SLIDE_IMAGE_UPLOADS = 16;
+export const CROP_TRANSITION_ANIMATION_ID_PREFIX = "fmd-crop-transition:";
+
+type InlineStyleDeclaration = {
+  property: string;
+  value: string;
+  priority: string;
+};
+
+function withCssTransitionsDisabled<T>(
+  element: HTMLElement,
+  update: () => T,
+): T {
+  const declarations: InlineStyleDeclaration[] = [];
+  for (const property of Array.from(
+    { length: element.style.length },
+    (_, index) => element.style.item(index),
+  )) {
+    if (!/^transition(?:-|$)/.test(property)) continue;
+    declarations.push({
+      property,
+      value: element.style.getPropertyValue(property),
+      priority: element.style.getPropertyPriority(property),
+    });
+    element.style.removeProperty(property);
+  }
+
+  element.style.setProperty("transition", "none", "important");
+  getComputedStyle(element).getPropertyValue("transition");
+  try {
+    return update();
+  } finally {
+    getComputedStyle(element).getPropertyValue("opacity");
+    element.style.removeProperty("transition");
+    for (const { property, value, priority } of declarations) {
+      element.style.setProperty(property, value, priority);
+    }
+  }
+}
+
+type CropTransitionAnimationTransfer = {
+  animation: Animation;
+  animationId: string;
+  objectId: string;
+  targetKind: "frame" | "image";
+  property: string;
+  keyframes: Keyframe[];
+  timing: EffectTiming;
+  currentTime: CSSNumberish;
+  playbackRate: number;
+  playState: AnimationPlayState;
+};
+
+export function captureCropTransitionAnimations(
+  root: HTMLElement,
+): CropTransitionAnimationTransfer[] {
+  const transfers: CropTransitionAnimationTransfer[] = [];
+  const elements = [
+    root,
+    ...Array.from(root.querySelectorAll<HTMLElement>("*")),
+  ];
+  for (const element of elements) {
+    for (const animation of element.getAnimations()) {
+      if (
+        !animation.id.startsWith(CROP_TRANSITION_ANIMATION_ID_PREFIX) ||
+        animation.playState === "finished" ||
+        animation.currentTime === null ||
+        !(animation.effect instanceof KeyframeEffect)
+      ) {
+        continue;
+      }
+      const frame = element.matches(".fmd-pptx-image")
+        ? element
+        : element.closest<HTMLElement>(".fmd-pptx-image[data-slide-object-id]");
+      const objectId = frame?.getAttribute("data-slide-object-id");
+      if (!frame || !objectId) continue;
+      const property = animation.id.slice(
+        CROP_TRANSITION_ANIMATION_ID_PREFIX.length,
+      );
+      if (!property) continue;
+      transfers.push({
+        animation,
+        animationId: animation.id,
+        objectId,
+        targetKind: element === frame ? "frame" : "image",
+        property,
+        keyframes: animation.effect.getKeyframes(),
+        timing: animation.effect.getTiming(),
+        currentTime: animation.currentTime,
+        playbackRate: animation.playbackRate,
+        playState: animation.playState,
+      });
+    }
+  }
+  return transfers;
+}
+
+export function restoreCropTransitionAnimations(
+  root: HTMLElement,
+  transfers: CropTransitionAnimationTransfer[],
+): void {
+  for (const transfer of transfers) {
+    const frame = Array.from(
+      root.querySelectorAll<HTMLElement>(
+        ".fmd-pptx-image[data-slide-object-id]",
+      ),
+    ).find(
+      (candidate) =>
+        candidate.getAttribute("data-slide-object-id") === transfer.objectId,
+    );
+    const target =
+      transfer.targetKind === "frame"
+        ? frame
+        : frame?.querySelector<HTMLImageElement>("img");
+    const image =
+      transfer.targetKind === "frame"
+        ? frame?.querySelector<HTMLImageElement>("img")
+        : (target as HTMLImageElement | null | undefined);
+    if (!frame || !(target instanceof HTMLElement)) {
+      transfer.animation.cancel();
+      continue;
+    }
+
+    const styleTarget =
+      transfer.targetKind === "frame" &&
+      transfer.property === "opacity" &&
+      image
+        ? image
+        : target;
+    const originalValue = styleTarget.style.getPropertyValue(transfer.property);
+    const originalPriority = styleTarget.style.getPropertyPriority(
+      transfer.property,
+    );
+    const temporaryValue =
+      styleTarget === image &&
+      transfer.targetKind === "frame" &&
+      transfer.property === "opacity"
+        ? "1"
+        : originalValue;
+    const temporaryPriority =
+      temporaryValue === "1" &&
+      styleTarget === image &&
+      transfer.targetKind === "frame" &&
+      transfer.property === "opacity"
+        ? "important"
+        : originalPriority === "important"
+          ? ""
+          : originalPriority;
+    if (originalValue || temporaryValue) {
+      withCssTransitionsDisabled(styleTarget, () => {
+        styleTarget.style.setProperty(
+          transfer.property,
+          temporaryValue,
+          temporaryPriority,
+        );
+      });
+    }
+
+    const restoreStyle = () => {
+      if (
+        styleTarget.style.getPropertyValue(transfer.property) !==
+          temporaryValue ||
+        styleTarget.style.getPropertyPriority(transfer.property) !==
+          temporaryPriority
+      ) {
+        return;
+      }
+      withCssTransitionsDisabled(styleTarget, () => {
+        if (originalValue) {
+          styleTarget.style.setProperty(
+            transfer.property,
+            originalValue,
+            originalPriority,
+          );
+        } else {
+          styleTarget.style.removeProperty(transfer.property);
+        }
+      });
+    };
+
+    try {
+      const animation = target.animate(transfer.keyframes, transfer.timing);
+      animation.id = transfer.animationId;
+      animation.playbackRate = transfer.playbackRate;
+      animation.currentTime = transfer.currentTime;
+      if (transfer.playState === "paused") animation.pause();
+      void animation.finished.then(() => {
+        animation.cancel();
+        restoreStyle();
+      }, restoreStyle);
+    } catch {
+      restoreStyle();
+    } finally {
+      transfer.animation.cancel();
+    }
+  }
+}
 
 interface ReplaceOptions {
   alt?: string;
