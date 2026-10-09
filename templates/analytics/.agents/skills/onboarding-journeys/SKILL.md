@@ -153,11 +153,13 @@ playhead for seeking, viewport, and route evaluation while preserving the
 original offset in frame metadata. If the target precedes the first replay
 event, report a frame failure instead of clamping the seek to zero. The CLI
 uses a native browser screenshot so dialogs and other top-layer content remain
-visible. The token and replay events stay in memory; the CLI writes only PNGs
-and `manifest.json` with `frames`, `failures` (explicit, with a reason), and
-`skipped`. Manifest chunk counts and ordering must be complete; the CLI reads
-bounded batches only through the requested offsets and validates every fetched
-chunk. Fix failures or report them; do not paint over a missing frame.
+visible. The token and replay events stay in memory; the CLI writes PNGs and
+`manifest.json` with `frames`, `failures` (explicit, with a reason), and
+`skipped`. With `--extract-prompts`, it also writes the private local
+`prompt-provenance.json` sidecar. Manifest chunk counts and ordering must be
+complete; the CLI reads bounded batches only through the requested offsets and
+validates every fetched chunk. Fix failures or report them; do not paint over a
+missing frame.
 
 `sourceEventAt` preserves the JourneyTree example's original event timestamp;
 `replayAt` is `startedAt + offsetMs`, and `capturedAt` is when the CLI rendered
