@@ -15,6 +15,10 @@ import {
   ACTION_BROWSER_PERSIST_ALLOW,
   ACTION_BROWSER_PERSIST_HEADER,
 } from "../shared/action-browser-persist.js";
+import {
+  ACTION_CHANGE_MARKER_FAILED,
+  ACTION_CHANGE_MARKER_HEADER,
+} from "../shared/action-change-marker-header.js";
 import { SLOW_ACTION_RESPONSE_MS } from "../shared/analytics-events.js";
 import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
 import {
@@ -1225,11 +1229,30 @@ export function useActionMutation<
 
   return useMutation<D, Error, V>({
     ...restOptions,
-    mutationFn: (params) =>
-      actionFetch<D>(actionName, method, params as Record<string, any>, {
-        timeoutMs,
-        headers: typeof headers === "function" ? headers(params) : headers,
-      }),
+    mutationFn: async (params) => {
+      let markerFailed = false;
+      const data = await actionFetch<D>(
+        actionName,
+        method,
+        params as Record<string, any>,
+        {
+          timeoutMs,
+          headers: typeof headers === "function" ? headers(params) : headers,
+          onResponse: (response) => {
+            markerFailed =
+              response.headers.get(ACTION_CHANGE_MARKER_HEADER) ===
+              ACTION_CHANGE_MARKER_FAILED;
+          },
+        },
+      );
+      // A normal success already refreshes these queries in onSuccess. A skip
+      // caller manages its own cache, so the failed marker is the only signal
+      // that polling did not see this write.
+      if (markerFailed && skipActionQueryInvalidation) {
+        void queryClient.invalidateQueries(actionQueryInvalidation(resources));
+      }
+      return data;
+    },
     onSuccess: (...args: [any, any, any]) => {
       // A write that succeeded may have fixed whatever was failing reads.
       resetActionFailureCircuits();
