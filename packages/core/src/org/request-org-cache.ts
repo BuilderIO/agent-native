@@ -62,6 +62,7 @@ const processMemberships = createTtlCache<unknown[]>({
   ttlMs: MEMBER_ORGS_TTL_MS,
   maxEntries: 2_048,
 });
+let membershipGeneration = 0;
 
 export async function cachedMemberships<T>(
   email: string,
@@ -70,8 +71,9 @@ export async function cachedMemberships<T>(
   const key = email.trim().toLowerCase();
   const hit = processMemberships.get(key);
   if (hit) return hit as T[];
+  const generation = membershipGeneration;
   const rows = await load();
-  if (rows !== null && rows.length > 0) {
+  if (generation === membershipGeneration && rows !== null && rows.length > 0) {
     processMemberships.set(key, rows as unknown[]);
   }
   return rows;
@@ -114,6 +116,7 @@ export function rememberWorkspaceAccess(
 
 export function invalidateMemberOrgCaches(): void {
   cacheForRequest(false)?.clear();
+  membershipGeneration += 1;
   processMemberships.clear();
   workspaceAccessGeneration += 1;
   processWorkspaceAccess.clear();
