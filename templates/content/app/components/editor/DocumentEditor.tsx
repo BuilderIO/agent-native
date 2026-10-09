@@ -147,6 +147,7 @@ import {
   refreshLandingTitleHintCache,
 } from "@/hooks/use-optimistic-document-title";
 import { rememberContentLandingDocument } from "@/lib/content-landing";
+import { withContentSaveOrigin } from "@/lib/content-save-telemetry";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
 import { rememberLandingTitleHint } from "@/lib/document-title-hint";
@@ -1920,6 +1921,7 @@ type PendingDocumentSave = {
 };
 
 type DocumentSaveOptions = {
+  telemetryOrigin?: "recovery";
   historySessionId?: string;
   editorSessionId?: string;
   allowQueuedSave?: boolean;
@@ -3681,49 +3683,57 @@ function PageEditorSessionBody({
           updates.content !== undefined
             ? (options.contentBase ?? lastSavedContentRef.current).revision
             : undefined;
-        return await updateDocument.mutateAsync({
-          id: documentId,
-          loadedUpdatedAt: loadedUpdatedAtForSave(
-            options.contentBase,
-            documentUpdatedAtRef.current,
+        return await updateDocument.mutateAsync(
+          withContentSaveOrigin(
+            {
+              id: documentId,
+              loadedUpdatedAt: loadedUpdatedAtForSave(
+                options.contentBase,
+                documentUpdatedAtRef.current,
+              ),
+              loadedContentWasEmpty:
+                updates.content !== undefined
+                  ? isEffectivelyEmptyDocumentContent(
+                      (options.contentBase ?? lastSavedContentRef.current)
+                        .content,
+                    )
+                  : undefined,
+              ...updates,
+              historySessionId:
+                options.historySessionId ??
+                historySessionRef.current.activity(documentId),
+              editorSessionId: options.editorSessionId,
+              editorEditGeneration: options.editGeneration,
+              browserSaveAttemptId: options.saveAttemptId,
+              ...(updates.content !== undefined &&
+              options.authoredContentIntent?.baseRevision &&
+              authoredCandidateMatchesContent(
+                updates.content,
+                options.authoredContentIntent.candidateContent,
+              )
+                ? {
+                    authoredBaseRevision:
+                      options.authoredContentIntent.baseRevision,
+                    authoredBaseContent:
+                      options.authoredContentIntent.baseContent,
+                    authoredCandidateContent:
+                      options.authoredContentIntent.candidateContent,
+                  }
+                : {}),
+              editorSnapshotTitle: options.editorSnapshotTitle,
+              editorSnapshotContent: options.editorSnapshotContent,
+              ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
+              ...(baseRevision !== undefined ? { baseRevision } : {}),
+              ...(updates.title !== undefined
+                ? {
+                    baseTitle:
+                      options.titleBase ?? lastSavedTitleRef.current.title,
+                  }
+                : {}),
+            },
+            options.telemetryOrigin,
           ),
-          loadedContentWasEmpty:
-            updates.content !== undefined
-              ? isEffectivelyEmptyDocumentContent(
-                  (options.contentBase ?? lastSavedContentRef.current).content,
-                )
-              : undefined,
-          ...updates,
-          historySessionId:
-            options.historySessionId ??
-            historySessionRef.current.activity(documentId),
-          editorSessionId: options.editorSessionId,
-          editorEditGeneration: options.editGeneration,
-          browserSaveAttemptId: options.saveAttemptId,
-          ...(updates.content !== undefined &&
-          options.authoredContentIntent?.baseRevision &&
-          authoredCandidateMatchesContent(
-            updates.content,
-            options.authoredContentIntent.candidateContent,
-          )
-            ? {
-                authoredBaseRevision:
-                  options.authoredContentIntent.baseRevision,
-                authoredBaseContent: options.authoredContentIntent.baseContent,
-                authoredCandidateContent:
-                  options.authoredContentIntent.candidateContent,
-              }
-            : {}),
-          editorSnapshotTitle: options.editorSnapshotTitle,
-          editorSnapshotContent: options.editorSnapshotContent,
-          ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
-          ...(baseRevision !== undefined ? { baseRevision } : {}),
-          ...(updates.title !== undefined
-            ? {
-                baseTitle: options.titleBase ?? lastSavedTitleRef.current.title,
-              }
-            : {}),
-        });
+        );
       } catch (error) {
         if (updates.title !== undefined) {
           patchDocumentCaches(queryClient, documentId, {
@@ -6789,6 +6799,7 @@ function PageEditorSessionBody({
     async (
       recovery: ReconcileRecoveryDraft,
       reconcileBase?: ReconcileSaveBase,
+      telemetryOrigin?: "recovery",
     ) => {
       if (!editorCanEdit) return false;
       contentEditVersionRef.current += 1;
@@ -6834,6 +6845,7 @@ function PageEditorSessionBody({
           contentBase,
           titleBase: reconcileBase?.title,
           saveAttemptId,
+          telemetryOrigin,
         },
       );
       return result.contentPersisted;
@@ -6845,7 +6857,8 @@ function PageEditorSessionBody({
       queueDocumentSave,
     ],
   );
-  reconcileSaveRef.current = handleContentSaveNow;
+  reconcileSaveRef.current = (draft, base) =>
+    handleContentSaveNow(draft, base, "recovery");
   reconcileRetainRef.current = ({ localTitle, localDraft }) =>
     queueRecoveryDraftRetention(
       localTitle,
@@ -9149,6 +9162,14 @@ function PageEditorSessionBody({
                             action="VisualEditor"
                           >
                             <VisualEditor
+                              visitKey={location.key}
+                              editorMountMode={
+                                isSuggesting
+                                  ? "suggesting"
+                                  : canEdit
+                                    ? "editing"
+                                    : "readonly"
+                              }
                               onEscape={handleEditorEscape}
                               acceptedDecisionReadback={
                                 !isSuggesting &&

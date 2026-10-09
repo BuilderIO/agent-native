@@ -38,6 +38,7 @@ import {
   createCapabilityUnavailableError,
   createCapabilityUnsupportedError,
   inferAgentActivityKind,
+  isInlineDataUrl,
   negotiateAgentKitProtocolVersion,
   resumeEntryFromApproval,
   resumeOptionId,
@@ -4044,10 +4045,14 @@ export function createAgentKitProtocolAdapter(
           { code: CONTINUE_UNAVAILABLE_CODE, retryable: false },
         );
       }
+      const attachments = (input.attachments ?? [])
+        .filter((part) => !isInlineDataUrl(part.url))
+        .map(runtimeAttachmentFromFilePart);
       const turn = await session.continueTurn({
         turnId: state.turnId,
         prompt: AUTO_CONTINUE_PROMPT,
         metadata: { [CONTINUE_OF_RUN_METADATA_KEY]: state.runId },
+        ...(attachments.length ? { attachments } : {}),
         abortSignal: readers.signal,
       });
       const runId = await openStartedRun(
