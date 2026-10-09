@@ -802,6 +802,31 @@ describe("preUploadAttachments", () => {
     expect(att.url).toBe("https://cdn.example.com/notes.txt");
   });
 
+  it("does not fetch a text attachment that already has readable extracted text", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const att = makeFileAtt({
+      data: undefined,
+      name: "notes.txt",
+      contentType: "text/plain",
+      text: "Readable extracted text",
+      url: "https://storage.example.test/notes.txt",
+    });
+
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+      includeFiles: true,
+    });
+
+    expect(findOwnedProviderMock).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.readFailures).toEqual([]);
+    expect(att.text).toBe("Readable extracted text");
+    expect(result.injectedText).toContain("<chat-file-attachment");
+    expect(result.injectedText).not.toContain("<chat-attachment-read-error");
+  });
+
   it("does not crash when uploadFile throws; keeps bytes only for this turn", async () => {
     uploadFileMock.mockRejectedValue(new Error("network error"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

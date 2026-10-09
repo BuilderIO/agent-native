@@ -527,10 +527,13 @@ export function parseFilePart(value: unknown, path = "file"): FilePart {
 function parseAgentRequestAttachments(
   value: unknown,
   path: string,
-  options: { allowInlineData: boolean },
+  options: { allowInlineData: boolean; allowLegacyQueueCount?: boolean },
 ): AgentRequestAttachment[] {
   const attachments = array(value, path);
-  if (attachments.length > MAX_AGENT_REQUEST_ATTACHMENTS) {
+  if (
+    !options.allowLegacyQueueCount &&
+    attachments.length > MAX_AGENT_REQUEST_ATTACHMENTS
+  ) {
     throw new AgentProtocolValidationError(
       path,
       `expected at most ${MAX_AGENT_REQUEST_ATTACHMENTS} attachments`,
@@ -587,9 +590,16 @@ function parseAgentRequestAttachments(
   });
 }
 
-function parseQueueFileAttachments(value: unknown, path: string): FilePart[] {
+function parseQueueFileAttachments(
+  value: unknown,
+  path: string,
+  options: { allowLegacyQueueCount?: boolean } = {},
+): FilePart[] {
   const attachments = array(value, path);
-  if (attachments.length > MAX_AGENT_REQUEST_ATTACHMENTS) {
+  if (
+    !options.allowLegacyQueueCount &&
+    attachments.length > MAX_AGENT_REQUEST_ATTACHMENTS
+  ) {
     throw new AgentProtocolValidationError(
       path,
       `expected at most ${MAX_AGENT_REQUEST_ATTACHMENTS} attachments`,
@@ -641,13 +651,15 @@ export function parseAgentQueuedMessage(
   }
   timestamp(message.createdAt, `${path}.createdAt`);
   if (message.attachments !== undefined) {
-    parseQueueFileAttachments(message.attachments, `${path}.attachments`);
+    parseQueueFileAttachments(message.attachments, `${path}.attachments`, {
+      allowLegacyQueueCount: true,
+    });
   }
   if (message.requestAttachments !== undefined) {
     parseAgentRequestAttachments(
       message.requestAttachments,
       `${path}.requestAttachments`,
-      { allowInlineData: false },
+      { allowInlineData: false, allowLegacyQueueCount: true },
     );
   }
   optionalMetadata(message.metadata, `${path}.metadata`);
@@ -2797,19 +2809,27 @@ export function parseForkThreadInput(
 export function parseQueueMessageInput(
   value: unknown,
   path = "queueMessage",
+  options: { allowLegacyQueueCount?: boolean } = {},
 ): QueueMessageInput {
   const input = record(parseThreadIdInput(value, path), path);
   if (typeof input.text !== "string") {
     throw new AgentProtocolValidationError(`${path}.text`, "expected a string");
   }
   if (input.attachments !== undefined) {
-    parseQueueFileAttachments(input.attachments, `${path}.attachments`);
+    parseQueueFileAttachments(
+      input.attachments,
+      `${path}.attachments`,
+      options,
+    );
   }
   if (input.requestAttachments !== undefined) {
     parseAgentRequestAttachments(
       input.requestAttachments,
       `${path}.requestAttachments`,
-      { allowInlineData: false },
+      {
+        allowInlineData: false,
+        allowLegacyQueueCount: options.allowLegacyQueueCount,
+      },
     );
   }
   optionalMetadata(input.metadata, `${path}.metadata`);

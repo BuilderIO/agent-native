@@ -395,7 +395,7 @@ export async function preUploadAttachments(opts: {
         isFile && includeFiles && !isReferenceOnlySvg
           ? readableDocumentMediaType(att)
           : undefined;
-      if (fileMediaType && !parseBase64DataUrl(att.data ?? "")) {
+      if (fileMediaType && !parseBase64DataUrl(data ?? "")) {
         let hydration:
           | Awaited<ReturnType<typeof hydrateOwnedFileUrl>>
           | { kind: "failed"; code: "request-candidate-limit" };

@@ -1,3 +1,4 @@
+import { MAX_AGENT_REQUEST_ATTACHMENTS } from "@agent-native/agentkit/protocol";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -63,6 +64,29 @@ describe("AgentKit thread history", () => {
       id: "queued-data-url",
       requestAttachments: [{ url: "https://files.example.test/screen.png" }],
     });
+  });
+
+  it("preserves legacy queued rows with more attachments than new writes allow", () => {
+    const attachments = Array.from(
+      { length: MAX_AGENT_REQUEST_ATTACHMENTS + 1 },
+      (_, index) => ({
+        type: "file",
+        name: `file-${index}.pdf`,
+        url: `https://files.example.test/file-${index}.pdf`,
+      }),
+    );
+
+    expect(
+      parseQueuedMessageForThread(
+        {
+          id: "queued-legacy-many-attachments",
+          threadId: "thread-1",
+          text: "Read these files",
+          attachments,
+        },
+        "thread-1",
+      )?.attachments,
+    ).toHaveLength(MAX_AGENT_REQUEST_ATTACHMENTS + 1);
   });
 
   it("deduplicates plain replies across thread snapshot saves", () => {

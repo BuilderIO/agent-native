@@ -442,4 +442,10 @@ describe("resolveCanvasIntent", () => {
       source: "fixed-output",
     });
   });
+
+  it("keeps multiple exact-size outputs fixed without throwing during intake", () => {
+    expect(
+      resolveCanvasIntent("Create a 1080x1080 poster and a 1200x628 banner"),
+    ).toEqual({ kind: "fixed", source: "multiple-dimensions" });
+  });
 });

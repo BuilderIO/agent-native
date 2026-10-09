@@ -986,12 +986,7 @@ export const AgentKitAssistantChat = forwardRef<
                 : undefined;
         const message = messageKey
           ? translatorRef.current(messageKey)
-          : [
-              translatorRef.current("agentChat.composer.uploadFailed"),
-              translatorRef.current(
-                "agentChat.onboarding.fileStorage.description",
-              ),
-            ].join(" ");
+          : translatorRef.current("agentChat.composer.uploadFailed");
         const error = new Error(message);
         Object.assign(error, {
           code:

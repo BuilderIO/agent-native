@@ -698,7 +698,9 @@ export function parseQueuedMessageForThread(
     return null;
   }
   try {
-    parseQueueMessageInput({ ...queued, threadId }, "queuedMessage");
+    parseQueueMessageInput({ ...queued, threadId }, "queuedMessage", {
+      allowLegacyQueueCount: true,
+    });
   } catch (error) {
     if (error instanceof AgentProtocolValidationError) return null;
     throw error;

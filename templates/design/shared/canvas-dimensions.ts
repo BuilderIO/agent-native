@@ -78,10 +78,16 @@ export type CanvasIntent =
   | { kind: "responsive" }
   | {
       kind: "fixed";
-      source: "explicit-dimensions" | "preset" | "fixed-output";
+      source:
+        | "explicit-dimensions"
+        | "multiple-dimensions"
+        | "preset"
+        | "fixed-output";
       preset?: string;
       dimensions?: CanvasDimensions;
     };
+
+class MultipleCanvasDimensionsError extends Error {}
 
 interface CanvasPresetAlias {
   preset: string;
@@ -191,7 +197,15 @@ export function resolveCanvasIntent(prompt?: string): CanvasIntent {
   const value = prompt?.trim();
   if (!value) return { kind: "responsive" };
 
-  const exactDimensions = explicitCanvasDimensionsFromPrompt(value);
+  let exactDimensions: CanvasDimensions | undefined;
+  try {
+    exactDimensions = explicitCanvasDimensionsFromPrompt(value);
+  } catch (error) {
+    if (error instanceof MultipleCanvasDimensionsError) {
+      return { kind: "fixed", source: "multiple-dimensions" };
+    }
+    throw error;
+  }
   if (exactDimensions) {
     return {
       kind: "fixed",
@@ -376,7 +390,7 @@ export function explicitCanvasDimensionsFromPrompt(
     const requested = [...outputDimensionsByKey.values()]
       .map(({ width, height }) => `${width}×${height}`)
       .join(", ");
-    throw new Error(
+    throw new MultipleCanvasDimensionsError(
       `Found multiple exact canvas sizes (${requested}). Use one exact canvas size per Design action call, with each prompt scoped to one screen.`,
     );
   }

@@ -3358,7 +3358,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       {
         error: "Storage provider is unavailable. Check File uploads settings.",
       },
-      "agentChat.composer.uploadFailed agentChat.onboarding.fileStorage.description",
+      "agentChat.composer.uploadFailed",
       "upload_http_503",
     ],
   ] as const)(

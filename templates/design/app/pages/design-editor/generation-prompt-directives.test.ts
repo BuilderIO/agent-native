@@ -11,6 +11,7 @@ import {
 import { designFinalResponseGuard } from "../../../server/lib/design-response-guard";
 import {
   builderDesignEmbedSubmitData,
+  designCanvasIntentDirectives,
   designGenerationDirectives,
   designIntakeQuestionDirectives,
   designTemplateRefinementDirectives,
@@ -194,6 +195,17 @@ describe("DESIGN_MUTATION_REQUIRED_DIRECTIVE", () => {
 });
 
 describe("designCanvasIntentDirectives", () => {
+  it("keeps multiple exact-size outputs fixed during client intake", () => {
+    expect(
+      designCanvasIntentDirectives(
+        "Create a 1080x1080 poster and a 1200x628 banner",
+      ),
+    ).toEqual([
+      "The user requested separate exact-size outputs. Generate each output as its own fixed canvas, using its exact dimensions from the request and passing `devices: []`; do not combine them into responsive breakpoints or add mobile variants.",
+      "After generating each output, run `take-design-screenshot` once at that output's exact dimensions.",
+    ]);
+  });
+
   it("uses one exact-size screenshot for fixed artwork without requested variants", () => {
     const text = designGenerationDirectives(
       "design-1",

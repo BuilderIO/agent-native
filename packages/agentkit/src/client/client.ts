@@ -44,6 +44,7 @@ import {
   createRequestAbortedError,
   createAgentKitProtocolVersionOffer,
   parseAgentEvent,
+  parseStartRunInput,
   projectAgentCapabilities,
   resumeEntryFromApproval,
 } from "../protocol/index.js";
@@ -3160,6 +3161,11 @@ export class AgentKitClient implements AgentKitController {
     context: AgentRequestContext,
   ): Promise<AgentRequestAttachment[] | undefined> {
     if (!attachments?.length) return undefined;
+    parseStartRunInput({
+      threadId,
+      messages: [],
+      requestAttachments: attachments,
+    });
     const uploads = attachments.map(requestAttachmentFile);
     if (!uploads.some(Boolean)) return attachments;
     const uploaded = await this.uploadFiles(

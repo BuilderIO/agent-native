@@ -137,6 +137,12 @@ export interface IntakeQuestionContextHint {
 export function designCanvasIntentDirectives(prompt?: string): string[] {
   const intent = resolveCanvasIntent(prompt);
   if (intent.kind === "fixed") {
+    if (intent.source === "multiple-dimensions") {
+      return [
+        "The user requested separate exact-size outputs. Generate each output as its own fixed canvas, using its exact dimensions from the request and passing `devices: []`; do not combine them into responsive breakpoints or add mobile variants.",
+        "After generating each output, run `take-design-screenshot` once at that output's exact dimensions.",
+      ];
+    }
     const canvas = intent.dimensions
       ? `${intent.preset ? `${intent.preset}, ` : ""}${intent.dimensions.width}×${intent.dimensions.height}px`
       : "one static canvas sized for the requested artwork";

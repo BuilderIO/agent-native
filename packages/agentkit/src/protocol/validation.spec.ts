@@ -548,6 +548,34 @@ describe("AgentKit protocol validation", () => {
     ).toThrow("aggregate inline image data exceeds");
   });
 
+  it("keeps reading legacy queued messages with more attachments than current writes allow", () => {
+    const attachments = Array.from(
+      { length: MAX_AGENT_REQUEST_ATTACHMENTS + 1 },
+      (_, index) => ({
+        type: "file",
+        name: `file-${index}.pdf`,
+        url: `https://files.example.test/file-${index}.pdf`,
+      }),
+    );
+    const queued = {
+      id: "queued-legacy-many-attachments",
+      threadId: "thread-1",
+      text: "Read these files",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      attachments,
+      requestAttachments: attachments.map((attachment) => ({
+        type: "image",
+        name: attachment.name,
+        url: attachment.url,
+      })),
+    };
+
+    expect(parseAgentQueuedMessage(queued).attachments).toHaveLength(
+      MAX_AGENT_REQUEST_ATTACHMENTS + 1,
+    );
+    expect(() => parseQueueMessageInput(queued)).toThrow("expected at most");
+  });
+
   it("validates optional feedback trace identifiers and sequence numbers", () => {
     expect(
       parseSubmitFeedbackInput({

@@ -722,6 +722,78 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("validates queued image size limits before decoding inline bytes", async () => {
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>();
+    const upload = vi.fn(async () => undefined);
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { attachments: true, messageQueue: true, uploads: true },
+        queueMessage,
+      },
+      upload,
+    });
+    const atobMock = vi.spyOn(globalThis, "atob");
+
+    try {
+      await expect(
+        client.queueMessage({
+          threadId: "thread-1",
+          text: "Describe this",
+          requestAttachments: [
+            {
+              type: "image",
+              name: "oversized.png",
+              data: `data:image/png;base64,${"A".repeat(3_000_000)}`,
+            },
+          ],
+        }),
+      ).rejects.toThrow("bounded base64 raster image data URL");
+
+      expect(atobMock).not.toHaveBeenCalled();
+      expect(upload).not.toHaveBeenCalled();
+      expect(queueMessage).not.toHaveBeenCalled();
+    } finally {
+      atobMock.mockRestore();
+      await client.shutdown();
+    }
+  });
+
+  it("validates aggregate queued image bytes before decoding any attachment", async () => {
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>();
+    const upload = vi.fn(async () => undefined);
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { attachments: true, messageQueue: true, uploads: true },
+        queueMessage,
+      },
+      upload,
+    });
+    const atobMock = vi.spyOn(globalThis, "atob");
+
+    try {
+      await expect(
+        client.queueMessage({
+          threadId: "thread-1",
+          text: "Describe these",
+          requestAttachments: Array.from({ length: 3 }, (_, index) => ({
+            type: "image" as const,
+            name: `image-${index}.png`,
+            data: `data:image/png;base64,${"A".repeat(2_000_000)}`,
+          })),
+        }),
+      ).rejects.toThrow("aggregate inline image data exceeds");
+
+      expect(atobMock).not.toHaveBeenCalled();
+      expect(upload).not.toHaveBeenCalled();
+      expect(queueMessage).not.toHaveBeenCalled();
+    } finally {
+      atobMock.mockRestore();
+      await client.shutdown();
+    }
+  });
+
   it("reserves queue order before uploading a queued image", async () => {
     const uploadStarted = Promise.withResolvers<void>();
     const finishUpload = Promise.withResolvers<void>();
