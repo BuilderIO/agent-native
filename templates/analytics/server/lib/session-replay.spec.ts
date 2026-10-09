@@ -1,6 +1,6 @@
 import { gzipSync } from "node:zlib";
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
 const putPrivateBlobMock = vi.hoisted(() => vi.fn());
@@ -498,6 +498,8 @@ describe("session replay agent summaries", () => {
 });
 
 describe("session replay ingest parsing", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   beforeEach(() => {
     getDbMock.mockReset();
     putPrivateBlobMock.mockReset();
@@ -2264,6 +2266,13 @@ describe("session replay ingest parsing", () => {
       accepted: true,
     },
     {
+      name: "same-origin mounted auth root",
+      url: "https://app.example.com/app/",
+      origin: "https://app.example.com",
+      basePath: "/app",
+      accepted: true,
+    },
+    {
       name: "same-origin non-auth URL",
       url: "https://app.example.com/settings",
       origin: "https://app.example.com",
@@ -2299,52 +2308,59 @@ describe("session replay ingest parsing", () => {
       origin: "https://app.example.com",
       accepted: false,
     },
-  ])(
-    "accepts pre-auth markers only for a $name",
-    async ({ url, origin, accepted }) => {
-      const results = replayIngestKeyDbResults(null) as unknown[][];
-      const returnedRecording = results[5]?.[0] as
-        | { metadata: string }
-        | undefined;
-      if (returnedRecording && accepted) {
-        returnedRecording.metadata = JSON.stringify({
-          capture_context: "pre_auth",
-        });
-      }
-      const { db, inserts } = createReplayDbMock(results);
-      const updateValues: Array<Record<string, unknown>> = [];
-      const update = vi.fn(() => ({
-        set: vi.fn((values: Record<string, unknown>) => {
-          updateValues.push(values);
-          return { where: vi.fn(async () => undefined) };
-        }),
-      }));
-      getDbMock.mockReturnValue({ ...db, update });
-      putPrivateBlobMock.mockResolvedValue(null);
-
-      const input = parseSessionReplayIngestPayload({
-        publicKey: "anpk_test",
-        replayId: "recording_1",
-        sessionId: "session_1",
-        anonymousId: "anon_1",
-        sequence: 0,
-        url,
-        properties: { capture_context: "pre_auth" },
-        events: [{ type: 4, timestamp: 1 }],
-      });
-      await recordSessionReplayChunks(input, { origin, requestBytes: 100 });
-
-      const recordingInsert = inserts.find(
-        (entry) => entry.table === schema.sessionRecordings,
-      )?.values as { metadata: string } | undefined;
-      expect(
-        JSON.parse(recordingInsert?.metadata ?? "{}").capture_context,
-      ).toBe(accepted ? "pre_auth" : undefined);
-      expect(
-        JSON.parse(String(updateValues[0]?.metadata ?? "{}")).capture_context,
-      ).toBe(accepted ? "pre_auth" : undefined);
+    {
+      name: "auth URL containing normalized callback parameters",
+      url: "https://app.example.com/signup?access_token=fake&flow_id=fake",
+      origin: "https://app.example.com",
+      accepted: false,
     },
-  );
+  ])("accepts pre-auth markers only for a $name", async (testCase) => {
+    const { url, origin, accepted } = testCase;
+    const basePath = "basePath" in testCase ? testCase.basePath : undefined;
+    vi.stubEnv("APP_BASE_PATH", basePath ?? "");
+    vi.stubEnv("VITE_APP_BASE_PATH", basePath ?? "");
+    const results = replayIngestKeyDbResults(null) as unknown[][];
+    const returnedRecording = results[5]?.[0] as
+      | { metadata: string }
+      | undefined;
+    if (returnedRecording && accepted) {
+      returnedRecording.metadata = JSON.stringify({
+        capture_context: "pre_auth",
+      });
+    }
+    const { db, inserts } = createReplayDbMock(results);
+    const updateValues: Array<Record<string, unknown>> = [];
+    const update = vi.fn(() => ({
+      set: vi.fn((values: Record<string, unknown>) => {
+        updateValues.push(values);
+        return { where: vi.fn(async () => undefined) };
+      }),
+    }));
+    getDbMock.mockReturnValue({ ...db, update });
+    putPrivateBlobMock.mockResolvedValue(null);
+
+    const input = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      anonymousId: "anon_1",
+      sequence: 0,
+      url,
+      properties: { capture_context: "pre_auth" },
+      events: [{ type: 4, timestamp: 1 }],
+    });
+    await recordSessionReplayChunks(input, { origin, requestBytes: 100 });
+
+    const recordingInsert = inserts.find(
+      (entry) => entry.table === schema.sessionRecordings,
+    )?.values as { metadata: string } | undefined;
+    expect(JSON.parse(recordingInsert?.metadata ?? "{}").capture_context).toBe(
+      accepted ? "pre_auth" : undefined,
+    );
+    expect(
+      JSON.parse(String(updateValues[0]?.metadata ?? "{}")).capture_context,
+    ).toBe(accepted ? "pre_auth" : undefined);
+  });
 
   it("does not promote an existing identified recording from an auth-page marker", async () => {
     const existingRecording = {

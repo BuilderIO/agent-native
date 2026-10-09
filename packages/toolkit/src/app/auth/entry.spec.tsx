@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   authSessionReplayOptions,
@@ -120,19 +120,24 @@ describe("auth session replay gate", () => {
     expect(options?.endpoint).toBe("/api/analytics/replay");
   });
 
-  it("surfaces malformed absolute Analytics endpoints", () => {
-    expect(() =>
-      authSessionReplayOptions(
-        {
-          agentNativeAnalyticsPublicKey: "anpk_test",
-          agentNativeAnalyticsEndpoint: "https://[",
-          authSessionReplay: true,
-        },
-        "/signup",
-        "",
-        "clips.agent-native.com",
-      ),
-    ).toThrow();
+  it("skips invalid optional replay without blocking auth hydration", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const options = authSessionReplayOptions(
+      {
+        agentNativeAnalyticsPublicKey: "anpk_test",
+        agentNativeAnalyticsEndpoint: "https://[",
+        authSessionReplay: true,
+      },
+      "/signup",
+      "",
+      "clips.agent-native.com",
+    );
+
+    expect(options).toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      "Skipping optional auth session replay because the configured Analytics endpoint is invalid.",
+    );
+    warn.mockRestore();
   });
 
   it("does not start on auth callback material or a hash", () => {

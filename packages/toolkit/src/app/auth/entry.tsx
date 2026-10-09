@@ -139,6 +139,7 @@ function replayEndpointFromAnalyticsEndpoint(
   endpoint: string,
 ): string | undefined {
   if (/^[a-z][a-z\d+.-]*:\/\//i.test(endpoint)) {
+    if (!URL.canParse(endpoint)) return undefined;
     const url = new URL(endpoint);
     if (url.pathname.endsWith("/api/analytics/track")) {
       url.pathname = url.pathname.replace(
@@ -192,6 +193,12 @@ export function authSessionReplayOptions(
   const replayEndpoint = configuredEndpoint
     ? replayEndpointFromAnalyticsEndpoint(configuredEndpoint)
     : undefined;
+  if (configuredEndpoint && !replayEndpoint) {
+    console.warn(
+      "Skipping optional auth session replay because the configured Analytics endpoint is invalid.",
+    );
+    return null;
+  }
 
   return {
     publicKey,

@@ -14,6 +14,7 @@ import {
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
 import {
+  getAppBasePath,
   isTestIdentity,
   recordChange,
   runWithRequestContext,
@@ -357,15 +358,15 @@ const PRE_AUTH_CALLBACK_QUERY_PARAMS = new Set([
   "code",
   "state",
   "c",
-  "access_token",
-  "refresh_token",
-  "id_token",
-  "token_hash",
-  "session_token",
-  "auth_token",
-  "verification_token",
+  "accesstoken",
+  "refreshtoken",
+  "idtoken",
+  "tokenhash",
+  "sessiontoken",
+  "authtoken",
+  "verificationtoken",
   "otp",
-  "flow_id",
+  "flowid",
   "verifier",
   "callbackurl",
   "error",
@@ -449,7 +450,16 @@ function isTrustedPreAuthReplayLocation(
   const pageUrl = new URL(url, baseUrl);
   if (pageUrl.origin !== origin || pageUrl.hash) return false;
 
-  const pathname = pageUrl.pathname.replace(/\/+$/, "") || "/";
+  const appBasePath = getAppBasePath();
+  const mountedPathname = appBasePath
+    ? pageUrl.pathname === appBasePath
+      ? "/"
+      : pageUrl.pathname.startsWith(`${appBasePath}/`)
+        ? pageUrl.pathname.slice(appBasePath.length)
+        : null
+    : pageUrl.pathname;
+  if (mountedPathname === null) return false;
+  const pathname = mountedPathname.replace(/\/+$/, "") || "/";
   const isAuthPath =
     pathname === "/" ||
     PRE_AUTH_AUTH_PATH_SUFFIXES.some(
