@@ -1,5 +1,6 @@
 ---
+"@agent-native/core": patch
 "@agent-native/toolkit": patch
 ---
 
-Move active request ID copying into the chat actions menu with visible copy feedback.
+Keep active request copying in the chat actions menu with visible feedback, and route subjective UX proposals to human review.
