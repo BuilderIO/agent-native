@@ -779,4 +779,125 @@ describe("editor chrome selection overlays", () => {
       await browser.close();
     }
   });
+
+  it("does not restore measurements after a hide followed by an overlay refresh", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1000, height: 800 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="selected" data-agent-native-node-id="selected" style="position:absolute;left:200px;top:200px;width:200px;height:120px;background:#d4d4d8"></div>
+        <div id="hovered" data-agent-native-node-id="hovered" style="position:absolute;left:519px;top:400px;width:200px;height:120px;background:#ccc"></div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await select(page, "#selected");
+      await page.keyboard.down("Alt");
+      await page.mouse.move(520, 410, { steps: 3 });
+      await page.waitForFunction(
+        () =>
+          document.querySelector<HTMLElement>(
+            "[data-agent-native-measurement-overlay]",
+          )?.style.display === "block",
+      );
+
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "hover-element", selectorCandidates: [] },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () =>
+          document.querySelector<HTMLElement>(
+            "[data-agent-native-measurement-overlay]",
+          )?.style.display === "none",
+      );
+      await page.evaluate(() => window.dispatchEvent(new Event("resize")));
+      await page.waitForTimeout(100);
+
+      const display = await page
+        .locator("[data-agent-native-measurement-overlay]")
+        .evaluate((overlay) => (overlay as HTMLElement).style.display);
+      expect(display).toBe("none");
+      await page.keyboard.up("Alt");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("preserves SVG descendant observation when the layout root is selected", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1000, height: 800 },
+      });
+      await page.setContent(`<!doctype html><html><head><style>
+        #selected { position:absolute; left:200px; top:200px; box-sizing:border-box; width:200px; height:120px; display:flex; flex-direction:column; align-items:flex-start; overflow:visible; background:#d4d4d8; }
+        #layout-svg { display:block; flex:none; }
+        #layout-svg.taller { height:220px; }
+        #hovered { flex:none; width:200px; height:120px; margin-left:319px; background:#ccc; }
+      </style></head><body style="margin:0">
+        <div id="selected" data-agent-native-node-id="selected">
+          <svg id="layout-svg" width="200" height="180" aria-hidden="true"></svg>
+          <div id="hovered" data-agent-native-node-id="hovered"></div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await select(page, "#selected");
+      await page.keyboard.down("Alt");
+      await page.mouse.move(520, 410, { steps: 3 });
+      const readLabels = () =>
+        page
+          .locator("[data-agent-native-measurement-overlay]")
+          .evaluate((overlay) =>
+            [...overlay.children]
+              .map((node) => node.textContent)
+              .filter(Boolean)
+              .sort(),
+          );
+      await page.waitForTimeout(100);
+      expect(await readLabels()).toEqual(["119", "60"]);
+
+      await page.locator("#layout-svg").evaluate((element) => {
+        element.setAttribute("height", "200");
+      });
+      await page.waitForFunction(
+        () => {
+          const overlay = document.querySelector(
+            "[data-agent-native-measurement-overlay]",
+          );
+          const labels = [...(overlay?.children ?? [])]
+            .map((node) => node.textContent)
+            .filter(Boolean)
+            .sort();
+          return labels.join(",") === "119,80";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+
+      await page.locator("#layout-svg").evaluate((element) => {
+        element.classList.add("taller");
+      });
+      await page.waitForFunction(
+        () => {
+          const overlay = document.querySelector(
+            "[data-agent-native-measurement-overlay]",
+          );
+          const labels = [...(overlay?.children ?? [])]
+            .map((node) => node.textContent)
+            .filter(Boolean)
+            .sort();
+          return labels.join(",") === "100,119";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      expect(await readLabels()).toEqual(["100", "119"]);
+      await page.keyboard.up("Alt");
+    } finally {
+      await browser.close();
+    }
+  }, 10_000);
 });

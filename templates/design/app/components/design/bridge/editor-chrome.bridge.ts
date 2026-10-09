@@ -12550,14 +12550,65 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         paintParentsChanged
       ) {
         overlayMutationObserver.disconnect();
+        var mutationObservations: Array<{
+          element: Element;
+          options: MutationObserverInit;
+        }> = [];
+        function observeMutationTarget(
+          element: Element,
+          options: MutationObserverInit,
+        ): void {
+          var existing = mutationObservations.find(function (observation) {
+            return observation.element === element;
+          });
+          if (!existing) {
+            mutationObservations.push({
+              element: element,
+              options: Object.assign({}, options, {
+                attributeFilter: options.attributeFilter
+                  ? options.attributeFilter.slice()
+                  : undefined,
+              }),
+            });
+            return;
+          }
+          var observesAllAttributes = Boolean(
+            (existing.options.attributes &&
+              !existing.options.attributeFilter) ||
+            (options.attributes && !options.attributeFilter),
+          );
+          var attributeFilter = observesAllAttributes
+            ? undefined
+            : Array.from(
+                new Set(
+                  (existing.options.attributeFilter || []).concat(
+                    options.attributeFilter || [],
+                  ),
+                ),
+              );
+          existing.options = {
+            attributes: Boolean(
+              existing.options.attributes || options.attributes,
+            ),
+            attributeFilter:
+              attributeFilter && attributeFilter.length > 0
+                ? attributeFilter
+                : undefined,
+            childList: Boolean(existing.options.childList || options.childList),
+            characterData: Boolean(
+              existing.options.characterData || options.characterData,
+            ),
+            subtree: Boolean(existing.options.subtree || options.subtree),
+          };
+        }
         if (nextRoot) {
-          overlayMutationObserver.observe(nextRoot, {
+          observeMutationTarget(nextRoot, {
             attributes: true,
             childList: true,
             subtree: nextMeasurementParent === nextRoot,
           });
           if (nextRoot !== selectedEl && selectedEl) {
-            overlayMutationObserver.observe(selectedEl, {
+            observeMutationTarget(selectedEl, {
               attributes: true,
               childList: true,
               subtree:
@@ -12571,13 +12622,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           nextMeasurementTarget !== nextRoot &&
           nextMeasurementTarget !== nextTarget
         ) {
-          overlayMutationObserver.observe(nextMeasurementTarget, {
+          observeMutationTarget(nextMeasurementTarget, {
             attributes: true,
           });
         }
         nextPaintServers.forEach(function (server) {
           if (server !== nextRoot && server !== nextTarget) {
-            overlayMutationObserver!.observe(server, {
+            observeMutationTarget(server, {
               attributes: true,
               childList: true,
               subtree: true,
@@ -12585,7 +12636,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           }
         });
         nextPaintParents.forEach(function (parent) {
-          overlayMutationObserver!.observe(parent, {
+          observeMutationTarget(parent, {
             attributes: true,
             childList: true,
             subtree: false,
@@ -12597,27 +12648,33 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           nextMeasurementParent !== nextTarget &&
           nextMeasurementParent !== nextMeasurementTarget
         ) {
-          overlayMutationObserver.observe(nextMeasurementParent, {
+          observeMutationTarget(nextMeasurementParent, {
             attributes: true,
             childList: true,
             subtree: true,
           });
         }
         nextLayoutAncestors.forEach(function (ancestor) {
-          overlayMutationObserver!.observe(ancestor, {
+          observeMutationTarget(ancestor, {
             attributes: true,
             attributeFilter: ["class", "style"],
             childList: true,
           });
         });
         if (nextLayoutRoot) {
-          overlayMutationObserver.observe(nextLayoutRoot, {
+          observeMutationTarget(nextLayoutRoot, {
             attributes: true,
             attributeFilter: ["class", "style"],
             childList: true,
             subtree: true,
           });
         }
+        mutationObservations.forEach(function (observation) {
+          overlayMutationObserver!.observe(
+            observation.element,
+            observation.options,
+          );
+        });
         observedMutationRoot = nextRoot;
         observedMutationTarget = nextTarget;
         observedMutationMeasurementTarget = nextMeasurementTarget;
@@ -12690,6 +12747,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
 
   function hideMeasurements(): void {
+    measurementTargetEl = null;
     measurementOverlay.style.display = "none";
     measurementOverlay.innerHTML = "";
   }

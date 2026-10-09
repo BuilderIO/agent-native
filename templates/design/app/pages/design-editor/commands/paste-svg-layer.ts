@@ -11,6 +11,8 @@ import {
   type ComponentCloneBatchContext,
 } from "@/pages/design-editor/clone-and-pen-edit";
 import type { SelectedLayerTarget } from "@/pages/design-editor/code-layer-state";
+import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/commands/apply-file-content-update";
+import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
 import { getOverviewCanvasCenter } from "@/pages/design-editor/commands/pasted-image-files";
 import { parsePastedSvg } from "@/pages/design-editor/commands/pasted-svg";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
@@ -31,11 +33,11 @@ export interface PastedSvgLayerArgs {
     fileId: string,
     nextContent: string,
     options?: { forcePreviewFullDocument?: boolean },
-  ) => unknown;
+  ) => ApplyFileContentUpdateResult;
   applyLocalContentUpdate: (
     nextContent: string,
     options?: { forcePreviewFullDocument?: boolean },
-  ) => unknown;
+  ) => ApplyLocalContentUpdateResult;
   boardFileId: string | undefined;
   canEditDesign: boolean;
   canvasContainerRef: RefObject<HTMLDivElement | null>;
@@ -289,16 +291,21 @@ export function runPastedSvgLayer(
     return true;
   }
   const nextContent = insertion.content;
+  let publication: ApplyFileContentUpdateResult | ApplyLocalContentUpdateResult;
   if (targetFileId === args.activeFileId) {
-    args.replacePreviewContent(nextContent, null, { forceFullDocument: true });
-    args.applyLocalContentUpdate(nextContent, {
+    publication = args.applyLocalContentUpdate(nextContent, {
       forcePreviewFullDocument: true,
     });
   } else {
-    args.applyFileContentUpdate(targetFileId, nextContent, {
+    publication = args.applyFileContentUpdate(targetFileId, nextContent, {
       forcePreviewFullDocument: true,
     });
   }
-  args.selectInsertedLayers(targetFileId, nextContent, insertion.rootNodeIds);
+  if (publication.status !== "accepted") return true;
+  args.selectInsertedLayers(
+    targetFileId,
+    publication.content,
+    insertion.rootNodeIds,
+  );
   return true;
 }

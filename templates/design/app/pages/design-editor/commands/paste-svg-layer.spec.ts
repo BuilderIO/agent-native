@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ElementInfo } from "@/components/design/types";
 import type { SelectedLayerTarget } from "@/pages/design-editor/code-layer-state";
+import type { PastedSvgLayerArgs } from "@/pages/design-editor/commands/paste-svg-layer";
 
 import {
   resolvePastedSvgInsertionOptions,
@@ -96,6 +97,20 @@ function stubDomParser() {
 
 function pastedSvgArgs() {
   const applyLinkedComponentEdit = vi.fn();
+  const applyFileContentUpdate = vi.fn<
+    PastedSvgLayerArgs["applyFileContentUpdate"]
+  >(() => ({
+    status: "accepted",
+    content: "accepted",
+    nodeIdMap: new Map(),
+  }));
+  const applyLocalContentUpdate = vi.fn<
+    PastedSvgLayerArgs["applyLocalContentUpdate"]
+  >(() => ({
+    status: "accepted",
+    content: "accepted",
+    nodeIdMap: new Map(),
+  }));
   const selectionBefore = {
     overviewSelectedScreenIds: [],
     selectedLayerIds: [],
@@ -105,8 +120,8 @@ function pastedSvgArgs() {
     args: {
       activeFileId: "screen-1",
       applyLinkedComponentEdit,
-      applyFileContentUpdate: vi.fn(),
-      applyLocalContentUpdate: vi.fn(),
+      applyFileContentUpdate,
+      applyLocalContentUpdate,
       boardFileId: "board",
       canEditDesign: true,
       canvasContainerRef: { current: null },
@@ -244,6 +259,154 @@ describe("resolvePastedSvgInsertionOptions", () => {
 });
 
 describe("runPastedSvgLayer", () => {
+  it("consumes an active SVG without preview or selection when its write is refused", () => {
+    stubDomParser();
+    const fixture = pastedSvgArgs();
+    insertClonedHtmlLayersMock.mockReturnValue({
+      content: "unaccepted",
+      rootNodeIds: ["pasted-svg"],
+      nodeIdMap: new Map(),
+    });
+    fixture.args.applyLocalContentUpdate.mockReturnValue({
+      status: "refused",
+    });
+
+    expect(
+      runPastedSvgLayer(fixture.args, '<svg width="10" height="12"></svg>'),
+    ).toBe(true);
+
+    expect(fixture.args.replacePreviewContent).not.toHaveBeenCalled();
+    expect(fixture.args.selectInsertedLayers).not.toHaveBeenCalled();
+  });
+
+  it("consumes an SVG without selection when a non-active screen write is refused", () => {
+    stubDomParser();
+    const fixture = pastedSvgArgs();
+    fixture.args.files = [
+      ...fixture.args.files,
+      {
+        id: "screen-2",
+        filename: "screen-2.html",
+        fileType: "html",
+        content: FRAME_CONTENT,
+        createdAt: "",
+        updatedAt: "",
+      },
+    ];
+    insertClonedHtmlLayersMock.mockReturnValue({
+      content: "unaccepted",
+      rootNodeIds: ["pasted-svg"],
+      nodeIdMap: new Map(),
+    });
+    fixture.args.applyFileContentUpdate.mockReturnValue({
+      status: "refused",
+    });
+
+    expect(
+      runPastedSvgLayer(
+        fixture.args,
+        '<svg width="10" height="12"></svg>',
+        "screen-2",
+      ),
+    ).toBe(true);
+
+    expect(fixture.args.selectInsertedLayers).not.toHaveBeenCalled();
+  });
+
+  it("selects a non-active screen from the accepted file publication", () => {
+    stubDomParser();
+    const fixture = pastedSvgArgs();
+    fixture.args.files = [
+      ...fixture.args.files,
+      {
+        id: "screen-2",
+        filename: "screen-2.html",
+        fileType: "html",
+        content: FRAME_CONTENT,
+        createdAt: "",
+        updatedAt: "",
+      },
+    ];
+    insertClonedHtmlLayersMock.mockReturnValue({
+      content: "submitted",
+      rootNodeIds: ["pasted-svg"],
+      nodeIdMap: new Map(),
+    });
+    fixture.args.applyFileContentUpdate.mockReturnValue({
+      status: "accepted",
+      content: "accepted screen content",
+      nodeIdMap: new Map(),
+    });
+
+    expect(
+      runPastedSvgLayer(
+        fixture.args,
+        '<svg width="10" height="12"></svg>',
+        "screen-2",
+      ),
+    ).toBe(true);
+
+    expect(fixture.args.applyFileContentUpdate).toHaveBeenCalledWith(
+      "screen-2",
+      "submitted",
+      { forcePreviewFullDocument: true },
+    );
+    expect(fixture.args.selectInsertedLayers).toHaveBeenCalledWith(
+      "screen-2",
+      "accepted screen content",
+      ["pasted-svg"],
+    );
+  });
+
+  it("selects the accepted content only after the active-file write succeeds", () => {
+    stubDomParser();
+    const fixture = pastedSvgArgs();
+    const effects: string[] = [];
+    insertClonedHtmlLayersMock.mockReturnValue({
+      content: "submitted",
+      rootNodeIds: ["pasted-svg"],
+      nodeIdMap: new Map(),
+    });
+    fixture.args.replacePreviewContent.mockImplementation(() => {
+      effects.push("preview");
+      return "applied";
+    });
+    fixture.args.applyLocalContentUpdate.mockImplementation(() => {
+      effects.push("write");
+      fixture.args.replacePreviewContent("accepted content", null, {
+        forceFullDocument: true,
+      });
+      return {
+        status: "accepted",
+        content: "accepted content",
+        nodeIdMap: new Map(),
+      };
+    });
+    fixture.args.selectInsertedLayers.mockImplementation(() => {
+      effects.push("selection");
+    });
+
+    expect(
+      runPastedSvgLayer(fixture.args, '<svg width="10" height="12"></svg>'),
+    ).toBe(true);
+
+    expect(fixture.args.applyLocalContentUpdate).toHaveBeenCalledWith(
+      "submitted",
+      { forcePreviewFullDocument: true },
+    );
+    expect(fixture.args.replacePreviewContent).toHaveBeenCalledWith(
+      "accepted content",
+      null,
+      { forceFullDocument: true },
+    );
+    expect(fixture.args.selectInsertedLayers).toHaveBeenCalledWith(
+      "screen-1",
+      "accepted content",
+      ["pasted-svg"],
+    );
+    expect(effects).toEqual(["write", "preview", "selection"]);
+  });
+
   it("routes insertion into a canonical component through linked structure editing", () => {
     stubDomParser();
     const fixture = pastedSvgArgs();
