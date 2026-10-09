@@ -13,8 +13,6 @@ import { cn } from "@/lib/utils";
 
 import { templatePreviewDocument } from "./template-preview-document";
 
-const SESSION_REPLAY_OFFSCREEN_STOP_DELAY_MS = 750;
-
 export function TemplatePreview({
   html,
   title,
@@ -109,7 +107,6 @@ export function TemplatePreview({
   useEffect(() => {
     const frame = frameRef.current;
     if (!recordSessionReplay || !frame) return;
-    let stopTimer: number | null = null;
     const observer = new IntersectionObserver(
       ([entry]) => {
         const hasVisibleArea =
@@ -117,35 +114,17 @@ export function TemplatePreview({
           entry.intersectionRatio > 0 &&
           entry.intersectionRect.width > 0 &&
           entry.intersectionRect.height > 0;
-        if (hasVisibleArea) {
-          if (stopTimer !== null) window.clearTimeout(stopTimer);
-          stopTimer = null;
-          setSessionReplayVisibility({
-            enabled: recordSessionReplay,
-            html,
-            visible: true,
-          });
-        } else if (
-          stopTimer === null &&
-          frame.hasAttribute(SESSION_REPLAY_IFRAME_ATTRIBUTE)
-        ) {
-          stopTimer = window.setTimeout(() => {
-            stopTimer = null;
-            setSessionReplayVisibility({
-              enabled: recordSessionReplay,
-              html,
-              visible: false,
-            });
-          }, SESSION_REPLAY_OFFSCREEN_STOP_DELAY_MS);
-        }
+        if (!hasVisibleArea) return;
+        setSessionReplayVisibility({
+          enabled: recordSessionReplay,
+          html,
+          visible: true,
+        });
       },
       { threshold: [0, Number.MIN_VALUE] },
     );
     observer.observe(frame);
-    return () => {
-      observer.disconnect();
-      if (stopTimer !== null) window.clearTimeout(stopTimer);
-    };
+    return () => observer.disconnect();
   }, [html, recordSessionReplay]);
 
   if (!html) {

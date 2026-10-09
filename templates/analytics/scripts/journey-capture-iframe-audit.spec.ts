@@ -98,6 +98,31 @@ afterEach(() => {
 });
 
 describe("replay iframe audit", () => {
+  it("handles accessible child documents without an HTML body", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const frame = appendFrame(
+      replayDocument,
+      { left: 10, top: 10, width: 40, height: 40 },
+      40,
+      40,
+    );
+    frame.contentDocument!.body?.remove();
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [1],
+      }),
+    ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 0 });
+  });
+
   it("checks visible nested frames in their child documents", () => {
     const replayFrame = appendFrame(
       document,

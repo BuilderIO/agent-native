@@ -138,10 +138,11 @@ export function auditReplayIframeContent({
       let reachedContainingBlock = !positioned;
       const rootElement = owner.documentElement;
       const rootStyle = view.getComputedStyle(rootElement);
-      const bodyStyle = view.getComputedStyle(owner.body);
+      const bodyStyle = owner.body ? view.getComputedStyle(owner.body) : null;
       const rootOverflowX = rootStyle.overflowX || rootStyle.overflow;
       const rootOverflowY = rootStyle.overflowY || rootStyle.overflow;
       const bodyOverflowPropagatesToViewport =
+        bodyStyle !== null &&
         rootOverflowX === "visible" &&
         rootOverflowY === "visible" &&
         rootStyle.contain === "none" &&

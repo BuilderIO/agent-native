@@ -243,16 +243,29 @@ describe("session replay iframe recording", () => {
     ).toBe(600);
     await page.evaluate(() => window.scrollTo(0, 1200));
     await page.waitForFunction(
-      (attribute) => !document.querySelector(`iframe[${attribute}]`),
-      SESSION_REPLAY_IFRAME_ATTRIBUTE,
+      () => {
+        const frame = document.querySelector("iframe");
+        if (!frame) return false;
+        const bounds = frame.getBoundingClientRect();
+        return bounds.bottom <= 0 || bounds.top >= window.innerHeight;
+      },
+      undefined,
       { timeout: 5_000 },
     );
+    await page.waitForTimeout(900);
+    expect(await iframe.getAttribute(SESSION_REPLAY_IFRAME_ATTRIBUTE)).toBe("");
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.waitForFunction(
-      (attribute) => document.querySelector(`iframe[${attribute}]`),
-      SESSION_REPLAY_IFRAME_ATTRIBUTE,
+      () => {
+        const frame = document.querySelector("iframe");
+        if (!frame) return false;
+        const bounds = frame.getBoundingClientRect();
+        return bounds.bottom > 0 && bounds.top < window.innerHeight;
+      },
+      undefined,
       { timeout: 5_000 },
     );
+    expect(await iframe.getAttribute(SESSION_REPLAY_IFRAME_ATTRIBUTE)).toBe("");
     await page
       .frameLocator("iframe")
       .locator("h1.title")
