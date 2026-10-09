@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Use recovery nonces in the SSR cache key so retries can fetch a fresh page shell.
+Use a fixed recovery path variant and keep caller-controlled values out of the SSR cache key.

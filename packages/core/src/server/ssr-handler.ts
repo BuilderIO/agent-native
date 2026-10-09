@@ -9,6 +9,7 @@ import {
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
+import { CHUNK_RECOVERY_PATH_SUFFIX } from "../shared/route-chunk-recovery-bootstrap.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
@@ -54,6 +55,17 @@ function getAppBasePath(): string {
 
 function stripAppBasePath(pathname: string): string {
   return canonicalStripAppBasePath(pathname, getAppBasePath());
+}
+
+function stripChunkRecoveryPathSuffix(pathname: string): string {
+  const suffixWithTrailingSlash = `${CHUNK_RECOVERY_PATH_SUFFIX}/`;
+  if (pathname.endsWith(suffixWithTrailingSlash)) {
+    const routePath = pathname.slice(0, -suffixWithTrailingSlash.length);
+    return routePath ? `${routePath}/` : "/";
+  }
+  if (!pathname.endsWith(CHUNK_RECOVERY_PATH_SUFFIX)) return pathname;
+  const routePath = pathname.slice(0, -CHUNK_RECOVERY_PATH_SUFFIX.length);
+  return routePath || "/";
 }
 
 function stripBasePath(pathname: string, basePath: string): string {
@@ -248,9 +260,10 @@ function isSsrHtmlOrDataResponse(
  * │ HOW LONG the shell is cached is deployment-wide and configurable through   │
  * │ AGENT_NATIVE_SSR_CACHE (see `resolveSsrCacheHeaders`), for hosts that do   │
  * │ not purge their CDN on deploy. What remains forbidden is PER-REQUEST /     │
- * │ PER-USER variation — no `private`, no `Vary: Cookie`, no per-route escape  │
- * │ hatch — because that is what poisons a shared CDN cache key. A value fixed │
- * │ for the whole deployment cannot.                                           │
+ * │ PER-USER response variation — no `private`, no `Vary: Cookie`, and no     │
+ * │ request-specific content. The reserved recovery suffix adds one path key  │
+ * │ for the same shell; strip it before rendering and never vary on nonce or  │
+ * │ arbitrary query values.                                                    │
  * └──────────────────────────────────────────────────────────────────────────┘
  *
  * The same sharing rule governs any DIAGNOSTIC header on this response. A
@@ -428,7 +441,9 @@ export function createH3SSRHandler(getBuild: () => unknown) {
   const handler = createRequestHandler(getBuild as any);
   return defineEventHandler(async (event) => {
     const basePath = getAppBasePath();
-    const p = stripAppBasePath(event.url.pathname);
+    const p = stripChunkRecoveryPathSuffix(
+      stripAppBasePath(event.url.pathname),
+    );
     if (isFrameworkOrAssetPath(p)) {
       return new Response(null, { status: 404 });
     }

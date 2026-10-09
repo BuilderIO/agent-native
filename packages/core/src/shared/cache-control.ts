@@ -1,5 +1,3 @@
-import { CHUNK_RECOVERY_QUERY_PARAM } from "./route-chunk-recovery-bootstrap.js";
-
 export const DEFAULT_PUBLIC_CACHE_CONTROL =
   "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600";
 
@@ -136,7 +134,7 @@ export function resolveSsrCacheHeaders(
 
 export function resolveSsrNetlifyQueryVary(varyByQuery = false): string {
   if (varyByQuery) return "query";
-  return `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`;
+  return "query=_routes|index";
 }
 
 export function resolveSsrCacheKeyHeaders(
@@ -152,7 +150,7 @@ export function resolveSsrCacheKeyHeaders(
   const none: Readonly<Record<string, string>> = Object.freeze({});
   if (!onNetlify) return none;
   return Object.freeze({
-    // guard:allow-ssr-shell-exception — one fixed, public recovery cache-key variant
+    // guard:allow-ssr-shell-exception — bounded public React Router query keys
     "netlify-vary": resolveSsrNetlifyQueryVary(options.varyByQuery),
   });
 }

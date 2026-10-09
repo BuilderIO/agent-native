@@ -11,9 +11,8 @@ import {
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
 import {
-  CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
+  CHUNK_RECOVERY_PATH_SUFFIX,
   CHUNK_RECOVERY_QUERY_PARAM,
-  CHUNK_RECOVERY_QUERY_VALUE,
 } from "../shared/route-chunk-recovery-bootstrap.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
@@ -346,18 +345,17 @@ describe("createH3SSRHandler", () => {
 
     const response = await handler(createEvent("/"));
 
-    expect(response.headers.get("netlify-vary")).toBe(
-      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
-    );
+    expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
   });
 
-  it("keeps recovery responses on the bounded Netlify query allowlist", async () => {
+  it("normalizes recovery paths and excludes caller-controlled recovery queries from the cache key", async () => {
     process.env.SITE_ID = "site-test";
     const handler = createH3SSRHandler(() => ({})) as any;
     const recoveryUrls = [
-      `/?${CHUNK_RECOVERY_QUERY_PARAM}=${CHUNK_RECOVERY_QUERY_VALUE}&${CHUNK_RECOVERY_CACHE_BUSTER_PARAM}=first&tab=one`,
-      `/?${CHUNK_RECOVERY_QUERY_PARAM}=${CHUNK_RECOVERY_QUERY_VALUE}&${CHUNK_RECOVERY_CACHE_BUSTER_PARAM}=second&tab=two`,
-      `/?${CHUNK_RECOVERY_QUERY_PARAM}=arbitrary&${CHUNK_RECOVERY_CACHE_BUSTER_PARAM}=third&tab=three`,
+      `/page${CHUNK_RECOVERY_PATH_SUFFIX}?${CHUNK_RECOVERY_QUERY_PARAM}=first&tab=one`,
+      `/page${CHUNK_RECOVERY_PATH_SUFFIX}?${CHUNK_RECOVERY_QUERY_PARAM}=second&tab=two`,
+      `/page${CHUNK_RECOVERY_PATH_SUFFIX}/?${CHUNK_RECOVERY_QUERY_PARAM}=last&tab=four`,
+      `/?${CHUNK_RECOVERY_QUERY_PARAM}=arbitrary&tab=three`,
     ];
 
     for (const recoveryUrl of recoveryUrls) {
@@ -377,10 +375,12 @@ describe("createH3SSRHandler", () => {
       expect(response.headers.get("netlify-cdn-cache-control")).toBe(
         DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
       );
-      expect(response.headers.get("netlify-vary")).toBe(
-        `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
-      );
+      expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
     }
+
+    expect(mocks.requestHandler.mock.calls[0]?.[0].url).toContain("/page?");
+    expect(mocks.requestHandler.mock.calls[1]?.[0].url).toContain("/page?");
+    expect(mocks.requestHandler.mock.calls[2]?.[0].url).toContain("/page/?");
   });
 
   it("preserves full Netlify query variation for marked public redirects", async () => {

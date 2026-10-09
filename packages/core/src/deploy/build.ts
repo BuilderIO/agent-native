@@ -63,6 +63,7 @@ import {
   toPublicFrameworkPath,
 } from "../shared/framework-route-prefix.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
+import { CHUNK_RECOVERY_PATH_SUFFIX } from "../shared/route-chunk-recovery-bootstrap.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
@@ -1609,6 +1610,17 @@ function stripAppBasePath(pathname) {
   return pathname;
 }
 
+function stripChunkRecoveryPathSuffix(pathname) {
+  const suffixWithTrailingSlash = CHUNK_RECOVERY_PATH_SUFFIX + "/";
+  if (pathname.endsWith(suffixWithTrailingSlash)) {
+    const routePath = pathname.slice(0, -suffixWithTrailingSlash.length);
+    return routePath ? routePath + "/" : "/";
+  }
+  if (!pathname.endsWith(CHUNK_RECOVERY_PATH_SUFFIX)) return pathname;
+  const routePath = pathname.slice(0, -CHUNK_RECOVERY_PATH_SUFFIX.length);
+  return routePath || "/";
+}
+
 function parseActionSearchParams(searchParams) {
   const params = {};
   for (const [rawKey, value] of searchParams.entries()) {
@@ -2007,6 +2019,7 @@ function injectHeadScript(html, script) {
 const SSR_CACHE_HEADERS = ${JSON.stringify(ssrCacheHeaders)};
 const SSR_CACHE_KEY_HEADERS = ${JSON.stringify(ssrCacheKeyHeaders)};
 const SSR_QUERY_CACHE_KEY_HEADER = ${JSON.stringify(SSR_QUERY_CACHE_KEY_HEADER)};
+const CHUNK_RECOVERY_PATH_SUFFIX = ${JSON.stringify(CHUNK_RECOVERY_PATH_SUFFIX)};
 const SSR_AUTH_REDIRECT_COOKIE_NAME = ${JSON.stringify(ssrAuthRedirectCookieName)};
 const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
@@ -2237,7 +2250,9 @@ function requestForAnonymousSsr(request) {
 
 function isStaticAppShellRequest(request) {
   if (request.method !== "GET" && request.method !== "HEAD") return false;
-  const p = stripAppBasePath(new URL(request.url).pathname);
+  const p = stripChunkRecoveryPathSuffix(
+    stripAppBasePath(new URL(request.url).pathname)
+  );
   if (
     p.startsWith("/.well-known/") ||
     isFrameworkPath(p) ||
@@ -2254,7 +2269,9 @@ function isStaticAppShellRequest(request) {
 async function fetchStaticAppShell(request, env) {
   if (!env?.ASSETS || !isStaticAppShellRequest(request)) return null;
   const basePath = getAppBasePath();
-  const p = stripAppBasePath(new URL(request.url).pathname);
+  const p = stripChunkRecoveryPathSuffix(
+    stripAppBasePath(new URL(request.url).pathname)
+  );
   const shellRequest = requestWithPathname(
     requestWithMethod(request, "GET"),
     "/index.html",
@@ -2363,7 +2380,9 @@ ${
   const rrHandler = createRequestHandler(() => serverBuild);
   app.all("/**", defineEventHandler(async (event) => {
     const basePath = getAppBasePath();
-    const p = stripAppBasePath(new URL(event.req.url).pathname);
+    const p = stripChunkRecoveryPathSuffix(
+      stripAppBasePath(new URL(event.req.url).pathname)
+    );
     if (
       p.startsWith("/.well-known/") ||
       isFrameworkPath(p) ||
