@@ -81,7 +81,6 @@ function click(element: HTMLElement) {
   });
 }
 
-// The chooser is a lazy chunk; a cold CI runner can take longer than any fixed sleep to load it.
 async function finishLazyLoad(text: string) {
   await vi.waitFor(async () => {
     await act(async () => {});
