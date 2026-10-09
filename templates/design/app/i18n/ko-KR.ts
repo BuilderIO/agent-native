@@ -944,6 +944,8 @@ export default {
       "파일을 만들기 전에 생성이 중지되었습니다. 같은 프롬프트에서 계속하려면 다시 시도하세요.",
     generationStoppedCheckAgent:
       "파일을 만들기 전에 생성이 중지되었습니다. 에이전트 메시지를 확인하거나 다시 시도하세요.",
+    invalidCanvasDimensions:
+      "요청한 캔버스 크기는 지원되지 않습니다. 편집기 제한 내의 양수 픽셀 크기를 사용하세요.",
     notFound: "디자인을 찾을 수 없음",
     backToDesigns: "디자인으로 돌아가기",
     designNotFoundDescription: "이 디자인은 존재하지 않거나 삭제되었습니다.",

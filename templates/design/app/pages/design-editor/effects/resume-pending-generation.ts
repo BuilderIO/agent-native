@@ -1,6 +1,7 @@
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
 import { readCreativeContextState } from "@agent-native/creative-context/client";
 import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
+import { InvalidCanvasDimensionsError } from "@shared/canvas-dimensions";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import {
@@ -8,6 +9,7 @@ import {
   hasComposerSystemContext,
 } from "@/lib/composer-context";
 import {
+  clearPendingGeneration,
   failPendingGenerationForMissingImagePayload,
   isPendingGenerationStale,
   patchPendingGeneration,
@@ -49,6 +51,7 @@ export interface ResumePendingGenerationArgs {
     effort?: PromptComposerSubmitOptions["effort"];
   } | null>;
   imageAttachmentUnavailableMessage: string;
+  invalidCanvasDimensionsMessage: string;
   id: string | undefined;
   markGenerationStale: () => void;
   setGenerationChatTabId: Dispatch<SetStateAction<string | null>>;
@@ -67,6 +70,7 @@ export function runResumePendingGeneration({
   files,
   generationModelRef,
   imageAttachmentUnavailableMessage,
+  invalidCanvasDimensionsMessage,
   id,
   markGenerationStale,
   setGenerationChatTabId,
@@ -164,19 +168,9 @@ export function runResumePendingGeneration({
     const shouldSkipQuestions =
       explicitSkip ||
       (intake ? allIntakeTopicsCovered(intake.coverage) : false);
-    const context = [
-      sourceContext,
-      `Design id: "${id}"`,
-      `Design title: "${design.title}"`,
-      `User request: "${prompt}"`,
-      pendingDesignSystemId
-        ? `Design system id: "${pendingDesignSystemId}"`
-        : "",
-      designSystemContext,
-      formatComposerContext(pending.contextItems),
-      fileContext,
-      "",
-      ...(pending.templateId
+    let generationDirectives: string[];
+    try {
+      generationDirectives = pending.templateId
         ? designTemplateRefinementDirectives(
             id,
             pending.templateId,
@@ -214,7 +208,27 @@ export function runResumePendingGeneration({
                     }
                   : undefined,
                 prompt,
-              )),
+              );
+    } catch (error) {
+      if (!(error instanceof InvalidCanvasDimensionsError)) throw error;
+      clearPendingGeneration(id);
+      setGenerationIssue(invalidCanvasDimensionsMessage);
+      setHasPendingGeneration(false);
+      return;
+    }
+    const context = [
+      sourceContext,
+      `Design id: "${id}"`,
+      `Design title: "${design.title}"`,
+      `User request: "${prompt}"`,
+      pendingDesignSystemId
+        ? `Design system id: "${pendingDesignSystemId}"`
+        : "",
+      designSystemContext,
+      formatComposerContext(pending.contextItems),
+      fileContext,
+      "",
+      ...generationDirectives,
     ].join("\n");
 
     clearGenerationCompleteTimer();

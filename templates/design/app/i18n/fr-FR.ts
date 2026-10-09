@@ -962,6 +962,8 @@ export default {
       "La génération s’est arrêtée avant de créer des fichiers. Réessayez pour continuer depuis le même prompt.",
     generationStoppedCheckAgent:
       "La génération s’est arrêtée avant de créer des fichiers. Consultez le message de l’agent ou réessayez.",
+    invalidCanvasDimensions:
+      "La taille de canevas demandée n’est pas prise en charge. Utilisez des dimensions en pixels positives dans les limites de l’éditeur.",
     notFound: "Design introuvable",
     backToDesigns: "Retour aux designs",
     designNotFoundDescription:

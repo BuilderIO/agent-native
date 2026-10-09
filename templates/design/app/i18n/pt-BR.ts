@@ -954,6 +954,8 @@ export default {
       "A geração parou antes de criar arquivos. Tente novamente para continuar do mesmo prompt.",
     generationStoppedCheckAgent:
       "A geração parou antes de criar arquivos. Confira a mensagem do agente ou tente novamente.",
+    invalidCanvasDimensions:
+      "O tamanho de tela solicitado não é compatível. Use dimensões em pixels positivas dentro dos limites do editor.",
     notFound: "Design não encontrado",
     backToDesigns: "Voltar aos designs",
     designNotFoundDescription: "Este design não existe ou foi excluído.",

@@ -2301,7 +2301,7 @@ const AgentKitAssistantChatBody = forwardRef<
             storageUnavailableMessage: t("onboarding.fileStorage.title"),
           });
       const fileParts = uploadedAttachments.fileParts;
-      const requestAttachments =
+      let requestAttachments =
         options.deferredRequestAttachments ??
         uploadedAttachments.requestAttachments;
       let retryRequestAttachments = requestAttachments.filter(
@@ -2317,6 +2317,12 @@ const AgentKitAssistantChatBody = forwardRef<
               control,
               requestAttachments,
             );
+            requestAttachments = requestAttachments.map((attachment, index) => {
+              const durable = durableAttachments[index];
+              return attachment.data && durable?.url
+                ? { ...attachment, url: durable.url }
+                : attachment;
+            });
             retryRequestAttachments = durableAttachments.filter(
               (attachment) => !attachment.data && attachment.url,
             );

@@ -3557,6 +3557,77 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
+  it("keeps optimized durable URLs beside inline pixels and original references", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const startTurn = vi.fn(async (_input: AgentChatRuntimeTurnInput) => ({
+      id: "turn-resized-image",
+      runId: "run-resized-image",
+      sessionId: "thread-1",
+      events: events(),
+    }));
+    const runtime = createRuntime(events, {
+      async createSession() {
+        return {
+          id: "thread-1",
+          runtimeId: "runtime-test",
+          startTurn,
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const originalUrl = "https://files.example.test/reference-original.png";
+    const resizedUrl = "https://files.example.test/reference-resized.jpg";
+
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [
+        {
+          ...userMessage("Use this reference"),
+          parts: [
+            { type: "text", text: "Use this reference" },
+            {
+              type: "file",
+              name: "reference-original.png",
+              mediaType: "image/png",
+              url: originalUrl,
+            },
+          ],
+        },
+      ],
+      requestAttachments: [
+        {
+          type: "image",
+          name: "reference-original.png",
+          contentType: "image/jpeg",
+          data: "data:image/jpeg;base64,UkVTSVpFRA==",
+          url: resizedUrl,
+          referenceUrl: originalUrl,
+        },
+      ],
+    });
+
+    expect(startTurn).toHaveBeenCalledOnce();
+    expect(startTurn.mock.calls[0]?.[0].attachments).toEqual([
+      {
+        type: "file",
+        name: "reference-original.png",
+        contentType: "image/png",
+        url: originalUrl,
+        referenceOnly: true,
+      },
+      {
+        type: "image",
+        name: "reference-original.png",
+        contentType: "image/jpeg",
+        data: "data:image/jpeg;base64,UkVTSVpFRA==",
+        url: resizedUrl,
+      },
+    ]);
+    await transport.dispose();
+  });
+
   it("preserves turn context through client time-limit continuation", async () => {
     const sseResponse = (events: unknown[], runId: string) =>
       new Response(

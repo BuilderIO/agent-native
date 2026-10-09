@@ -289,15 +289,35 @@ function runtimeRequestAttachments(args: {
       ? attachments.findIndex((attachment) => attachment.url === originalUrl)
       : -1;
     if (typeof requestAttachment.data === "string") {
+      const imageUrl = requestAttachment.url ?? originalUrl;
+      const keepsOriginalReference =
+        originalUrl !== undefined &&
+        imageUrl !== undefined &&
+        originalUrl !== imageUrl;
+      if (keepsOriginalReference) {
+        const original = originalIndex >= 0 ? attachments[originalIndex] : null;
+        const reference = {
+          type: "file",
+          name: original?.name || requestAttachment.name,
+          contentType: original?.contentType || requestAttachment.contentType,
+          url: originalUrl,
+          referenceOnly: true,
+        };
+        if (originalIndex >= 0) attachments.splice(originalIndex, 1, reference);
+        else attachments.push(reference);
+      }
       const image = {
         type: "image",
         name: requestAttachment.name,
         contentType: requestAttachment.contentType,
         data: requestAttachment.data,
-        ...(originalUrl ? { url: originalUrl } : {}),
+        ...(imageUrl ? { url: imageUrl } : {}),
       };
-      if (originalIndex >= 0) attachments.splice(originalIndex, 1, image);
-      else attachments.push(image);
+      if (originalIndex >= 0 && !keepsOriginalReference) {
+        attachments.splice(originalIndex, 1, image);
+      } else {
+        attachments.push(image);
+      }
       continue;
     }
 

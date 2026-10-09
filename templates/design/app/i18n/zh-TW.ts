@@ -1071,6 +1071,8 @@ export default {
     generationMayHaveStoppedToast: "生成可能在建立檔案前停止。",
     generationStoppedRetry: "生成在建立檔案前停止。請重試以從同一提示繼續。",
     generationStoppedCheckAgent: "生成在建立檔案前停止。請檢視代理訊息或重試。",
+    invalidCanvasDimensions:
+      "不支援所要求的畫布尺寸。請使用編輯器限制範圍內的正像素尺寸。",
     notFound: "未找到設計",
     backToDesigns: "返回設計",
     fileMenu: {

@@ -956,6 +956,8 @@ export default {
       "La generación se detuvo antes de crear archivos. Inténtalo de nuevo para continuar desde el mismo prompt.",
     generationStoppedCheckAgent:
       "La generación se detuvo antes de crear archivos. Revisa el mensaje del agente o inténtalo de nuevo.",
+    invalidCanvasDimensions:
+      "El tamaño de lienzo solicitado no es compatible. Usa dimensiones en píxeles positivas dentro de los límites del editor.",
     notFound: "Diseño no encontrado",
     backToDesigns: "Volver a diseños",
     designNotFoundDescription: "Este diseño no existe o se ha eliminado.",

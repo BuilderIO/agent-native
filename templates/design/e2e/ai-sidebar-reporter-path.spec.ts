@@ -186,7 +186,11 @@ async function readProviderProof(page: Page): Promise<ProviderProof> {
   return (await response.json()) as ProviderProof;
 }
 
-async function routeImageAsOwnedStorageUrl(page: Page, name: string) {
+async function routeImageAsOwnedStorageUrl(
+  page: Page,
+  name: string,
+  options: { useOriginalReference?: boolean } = {},
+) {
   let rewrittenRequests = 0;
   await page.route(/\/_agent-native\/agent-chat$/, async (route) => {
     const request = route.request();
@@ -207,7 +211,17 @@ async function routeImageAsOwnedStorageUrl(page: Page, name: string) {
       await route.continue();
       return;
     }
-    const url = attachment.url ?? attachment.referenceUrl;
+    const originalFile = options.useOriginalReference
+      ? body.attachments?.find(
+          (candidate) =>
+            candidate.type === "file" &&
+            candidate.name === name &&
+            typeof candidate.url === "string",
+        )
+      : undefined;
+    const url = options.useOriginalReference
+      ? (originalFile?.url ?? attachment.referenceUrl ?? attachment.url)
+      : (attachment.url ?? attachment.referenceUrl);
     if (typeof url !== "string" || !url.startsWith("https://")) {
       throw new Error(`${name} has no owned HTTPS reference URL.`);
     }
@@ -225,7 +239,12 @@ async function openSidebarComposer(
   designId: string,
   fileId: string,
 ) {
-  await gotoEditor(page, designId);
+  await page.goto(appPath(`/design/${designId}`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(
+    page.getByRole("button", { name: "Move", exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
   await page.getByRole("button", { name: "Agent", exact: true }).click();
   await expect(
     page.locator(`iframe[data-screen-iframe-id="${fileId}"]`),
@@ -404,6 +423,81 @@ test("Design editor sidebar sends uploaded PNG bytes to model vision input", asy
   ).toBe(true);
 });
 
+// oracle: none — verifies invalid exact dimensions are shown in the real editor before a run starts.
+test("Design editor shows an error for invalid exact canvas dimensions", async ({
+  page,
+}) => {
+  const created = await action(page, "create-design", {
+    title: `Invalid canvas dimensions ${Date.now()}`,
+    projectType: "prototype",
+  });
+  const designId = created.id ?? created.data?.id ?? created.design?.id;
+  if (typeof designId !== "string")
+    throw new Error(`create-design returned no id: ${JSON.stringify(created)}`);
+  const imagePath = path.resolve(
+    import.meta.dirname,
+    "fixtures",
+    "responsive-card-art-photo.png",
+  );
+  const dataUrl = `data:image/png;base64,${(await readFile(imagePath)).toString("base64")}`;
+  await page.addInitScript(
+    ({ id, imageDataUrl }) => {
+      sessionStorage.setItem(
+        `design.pending-generation.${id}`,
+        JSON.stringify({
+          createdAt: Date.now(),
+          autoGenerate: true,
+          skipQuestions: true,
+          prompt: "Create a LinkedIn ad at exactly 0x600 pixels",
+          files: [
+            {
+              path: "/uploads/reference.png",
+              originalName: "reference.png",
+              filename: "reference.png",
+              type: "image/png",
+              size: 128,
+              dataUrl: imageDataUrl,
+            },
+          ],
+        }),
+      );
+    },
+    { id: designId, imageDataUrl: dataUrl },
+  );
+
+  let agentChatRequests = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.endsWith("/_agent-native/agent-chat")) {
+      agentChatRequests += 1;
+    }
+  });
+  await page.goto(appPath(`/design/${designId}`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(
+    page.getByRole("button", { name: "Move", exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(
+    page.getByText(
+      "The requested canvas size isn't supported. Use positive pixel dimensions within the editor limits.",
+      { exact: true },
+    ),
+  ).toBeVisible({ timeout: 30_000 });
+  expect(agentChatRequests).toBe(0);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        (id) => sessionStorage.getItem(`design.pending-generation.${id}`),
+        designId,
+      ),
+    )
+    .toBeNull();
+  await page.screenshot({
+    path: test.info().outputPath("invalid-canvas-dimensions.png"),
+    fullPage: true,
+  });
+});
+
 // oracle: none — verifies owned HTTPS image hydration to model input, not visual/Figma parity.
 test("Design chat hydrates a 2.3 MB HTTPS upload into model vision input", async ({
   page,
@@ -439,6 +533,7 @@ test("Design chat hydrates a 2.3 MB HTTPS upload into model vision input", async
   const rewrittenRequests = await routeImageAsOwnedStorageUrl(
     page,
     "responsive-card-art-photo.png",
+    { useOriginalReference: true },
   );
   await sidebarPrompt.fill(IMAGE_PROMPT);
   await sidebarPrompt.press("Enter");
@@ -501,6 +596,124 @@ test("Design chat hydrates a 2.3 MB HTTPS upload into model vision input", async
       (read) =>
         read.id === upload?.id &&
         read.sha256 === image.sha256 &&
+        !(read.userAgent ?? "").toLowerCase().includes("mozilla"),
+    ),
+  ).toBe(true);
+});
+
+// oracle: none — verifies durable resized-image hydration and model transport, not visual/Figma parity.
+test("Design editor hydrates a 6 MB PNG's resized durable URL into model vision input", async ({
+  page,
+}) => {
+  test
+    .info()
+    .skip(
+      process.env.E2E_AI_SIDEBAR_LOOPBACK !== "1",
+      "requires E2E_AI_SIDEBAR_LOOPBACK=1",
+    );
+  await page.context().addInitScript(() => {
+    if (location.origin === "null") return;
+    const selection = JSON.stringify({
+      model: "agentkit-loopback",
+      engine: "ai-sdk:openai",
+      effort: "medium",
+    });
+    localStorage.setItem(
+      "agent-native:chat-models:selection:design",
+      selection,
+    );
+    localStorage.setItem("agent-native:chat-models:selection", selection);
+  });
+
+  const { designId, fileId } = await createDesign(page);
+  await configureProvider(page, designId, fileId, "observe");
+  const { sidebarComposer, sidebarPrompt } = await openSidebarComposer(
+    page,
+    designId,
+    fileId,
+  );
+  const original = await uploadImage(page, sidebarComposer, 6_000_000);
+  const rewrittenRequests = await routeImageAsOwnedStorageUrl(
+    page,
+    "responsive-card-art-photo.png",
+  );
+  await sidebarPrompt.fill(IMAGE_PROMPT);
+  await sidebarPrompt.press("Enter");
+
+  await expect
+    .poll(async () => (await readProviderProof(page)).imageSha256Seen, {
+      timeout: 45_000,
+      intervals: [250, 500, 1_000],
+    })
+    .toHaveLength(1);
+  expect(rewrittenRequests()).toBe(1);
+
+  const providerPort = test.info().config.metadata
+    .sidebarLoopbackPort as number;
+  const providerResponse = await page.request.get(
+    `http://127.0.0.1:${providerPort}/__state`, // e2e-harness-ignore: read full model input from the separate loopback provider.
+  );
+  const providerState = (await providerResponse.json()) as {
+    imageDataUrlsSeen: string[];
+    imageSha256Seen: string[];
+    requestSummaries: Array<{ userMessages: string[] }>;
+  };
+  expect(providerState.imageDataUrlsSeen).toHaveLength(1);
+  const [imageHeader, imageBase64] = providerState.imageDataUrlsSeen[0]!.split(
+    ",",
+    2,
+  );
+  expect(imageHeader).toMatch(/^data:image\/(?:png|jpeg);base64$/);
+  const resizedBytes = Buffer.from(imageBase64!, "base64");
+  const resizedSha256 = createHash("sha256").update(resizedBytes).digest("hex");
+  expect(providerState.imageSha256Seen).toEqual([resizedSha256]);
+  expect(resizedSha256).not.toBe(original.sha256);
+  const resizedDimensions = await page.evaluate(async (dataUrl) => {
+    const bitmap = await createImageBitmap(await (await fetch(dataUrl)).blob());
+    const dimensions = { width: bitmap.width, height: bitmap.height };
+    bitmap.close();
+    return dimensions;
+  }, providerState.imageDataUrlsSeen[0]!);
+  expect(Math.max(resizedDimensions.width, resizedDimensions.height)).toBe(
+    2048,
+  );
+
+  const providerText = providerState.requestSummaries
+    .flatMap((summary) => summary.userMessages)
+    .join("\n");
+  expect(providerText).not.toContain("<chat-attachment-read-error");
+  expect(providerText).not.toContain("<chat-attachment-processing-error");
+
+  const storagePort = test.info().config.metadata
+    .attachmentStorageControlPort as number;
+  const storageResponse = await page.request.get(
+    `http://127.0.0.1:${storagePort}/__state`, // e2e-harness-ignore: read state from this E2E's HTTPS storage stub.
+  );
+  const storageState = (await storageResponse.json()) as {
+    uploads: Array<{ id: string; size: number; sha256: string }>;
+    reads: Array<{
+      id: string;
+      size: number;
+      sha256: string;
+      userAgent?: string;
+    }>;
+  };
+  const originalUpload = storageState.uploads.find(
+    (upload) => upload.sha256 === original.sha256,
+  );
+  const resizedUpload = storageState.uploads.find(
+    (upload) => upload.sha256 === resizedSha256,
+  );
+  expect(originalUpload).toMatchObject({ sha256: original.sha256 });
+  expect(resizedUpload).toMatchObject({
+    size: resizedBytes.byteLength,
+    sha256: resizedSha256,
+  });
+  expect(
+    storageState.reads.some(
+      (read) =>
+        read.id === resizedUpload?.id &&
+        read.sha256 === resizedSha256 &&
         !(read.userAgent ?? "").toLowerCase().includes("mozilla"),
     ),
   ).toBe(true);
@@ -701,13 +914,15 @@ test("Design editor downscales a 6 MB PNG for vision and retains the original up
       userAgent?: string;
     }>;
   };
-  const originalUpload = storageState.uploads.find(
+  const originalUploads = storageState.uploads.filter(
     (upload) => upload.sha256 === original.sha256,
   );
-  expect(originalUpload).toMatchObject({
-    size: original.bytes.byteLength,
-    sha256: original.sha256,
-  });
+  expect(originalUploads.length).toBeGreaterThan(0);
+  expect(
+    originalUploads.every(
+      (upload) => upload.size === original.bytes.byteLength,
+    ),
+  ).toBe(true);
   const servedBaseUrl =
     test.info().project.use.baseURL ?? process.env.E2E_BASE_URL;
   expect(servedBaseUrl).toBeDefined();
@@ -716,12 +931,16 @@ test("Design editor downscales a 6 MB PNG for vision and retains the original up
   storageObjectUrl.port = String(
     test.info().config.metadata.attachmentStorageHttpsPort,
   );
-  storageObjectUrl.pathname = `/objects/${originalUpload!.id}`;
-  expect(providerText).toContain(storageObjectUrl.toString());
+  expect(
+    originalUploads.some((upload) => {
+      storageObjectUrl.pathname = `/objects/${upload.id}`;
+      return providerText.includes(storageObjectUrl.toString());
+    }),
+  ).toBe(true);
   expect(
     storageState.reads.some(
       (read) =>
-        read.id === originalUpload?.id &&
+        originalUploads.some((upload) => upload.id === read.id) &&
         !(read.userAgent ?? "").toLowerCase().includes("mozilla"),
     ),
   ).toBe(false);

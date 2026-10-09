@@ -87,6 +87,13 @@ export type CanvasIntent =
       dimensions?: CanvasDimensions;
     };
 
+export class InvalidCanvasDimensionsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidCanvasDimensionsError";
+  }
+}
+
 class MultipleCanvasDimensionsError extends Error {}
 
 interface CanvasPresetAlias {
@@ -378,18 +385,18 @@ export function explicitCanvasDimensionsFromPrompt(
       width > MAX_SANE_FRAME_DIMENSION_PX ||
       height > MAX_SANE_FRAME_DIMENSION_PX
     ) {
-      throw new Error(
+      throw new InvalidCanvasDimensionsError(
         `Exact canvas dimensions ${rawWidth}×${rawHeight} exceed the Design editor limit of ${MAX_SANE_FRAME_DIMENSION_PX} px per dimension. Choose smaller exact dimensions.`,
       );
     }
     if (width <= 0 || height <= 0) {
-      throw new Error(
+      throw new InvalidCanvasDimensionsError(
         `Exact canvas dimensions ${rawWidth}×${rawHeight} must be greater than zero. Choose positive exact dimensions.`,
       );
     }
     const aspectRatio = Math.max(width / height, height / width);
     if (aspectRatio > MAX_SANE_FRAME_ASPECT_RATIO) {
-      throw new Error(
+      throw new InvalidCanvasDimensionsError(
         `Exact canvas dimensions ${rawWidth}×${rawHeight} exceed the Design editor limit of ${MAX_SANE_FRAME_ASPECT_RATIO}:1. Choose supported exact dimensions.`,
       );
     }

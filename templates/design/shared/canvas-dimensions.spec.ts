@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   explicitCanvasDimensionsFromPrompt,
+  InvalidCanvasDimensionsError,
   resolveCanvasIntent,
 } from "./canvas-dimensions.js";
 import {
@@ -318,16 +319,22 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
       explicitCanvasDimensionsFromPrompt(
         "Create an image exactly 0x600 pixels",
       ),
-    ).toThrow("must be greater than zero");
+    ).toThrow(InvalidCanvasDimensionsError);
     expect(() =>
       explicitCanvasDimensionsFromPrompt(
         "Create an image exactly -300x250 pixels",
       ),
-    ).toThrow("must be greater than zero");
+    ).toThrow(InvalidCanvasDimensionsError);
   });
 });
 
 describe("resolveCanvasIntent", () => {
+  it("types invalid exact sizes so the editor can report them before generation", () => {
+    expect(() =>
+      resolveCanvasIntent("Create a LinkedIn ad at exactly 0x600 pixels"),
+    ).toThrow(InvalidCanvasDimensionsError);
+  });
+
   it.each([
     [
       "Create a LinkedIn single-image ad",

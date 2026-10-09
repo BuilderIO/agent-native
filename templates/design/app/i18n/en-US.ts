@@ -949,6 +949,8 @@ export default {
       "Generation stopped before creating files. Try again to continue from the same prompt.",
     generationStoppedCheckAgent:
       "Generation stopped before creating files. Check the agent message or try again.",
+    invalidCanvasDimensions:
+      "The requested canvas size isn't supported. Use positive pixel dimensions within the editor limits.",
     notFound: "Design not found",
     backToDesigns: "Back to designs",
     designNotFoundDescription:

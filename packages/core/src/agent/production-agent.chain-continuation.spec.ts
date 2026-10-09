@@ -218,7 +218,8 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
             type: "image",
             name: "screen.png",
             data: "data:image/png;base64,INLINE_CONTINUATION_IMAGE_BYTES",
-            url: "https://files.example.test/screen.png",
+            url: "https://files.example.test/screen-resized.png",
+            referenceUrl: "https://files.example.test/screen-original.png",
           },
         ],
         requestAttachments: [
@@ -226,7 +227,8 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
             type: "image",
             name: "reference.png",
             data: "data:image/png;base64,INLINE_PROTOCOL_IMAGE_BYTES",
-            referenceUrl: "https://files.example.test/reference.png",
+            url: "https://files.example.test/reference-resized.png",
+            referenceUrl: "https://files.example.test/reference-original.png",
           },
         ],
         structuredHistory: [
@@ -259,12 +261,19 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     expect(payload.internalContinuation).toBe(true);
     expect(payload.message).toBe("a very large user message");
     expect(insertOptions.dispatchPayload).not.toContain("INLINE_");
-    expect(payload.attachments[0]).toMatchObject({
+    expect(payload.attachments[0]).toEqual({
+      type: "image",
       name: "screen.png",
-      url: "https://files.example.test/screen.png",
+      url: "https://files.example.test/screen-resized.png",
+      referenceUrl: "https://files.example.test/screen-original.png",
     });
     expect(payload.attachments[0].data).toBeUndefined();
-    expect(payload.requestAttachments[0].data).toBeUndefined();
+    expect(payload.requestAttachments[0]).toEqual({
+      type: "image",
+      name: "reference.png",
+      url: "https://files.example.test/reference-resized.png",
+      referenceUrl: "https://files.example.test/reference-original.png",
+    });
     expect(payload.structuredHistory[0].parts[0].data).toBeUndefined();
     expect(payload[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toBeUndefined();
     expect(payload[AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD]).toBe(

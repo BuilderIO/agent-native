@@ -3055,6 +3055,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         type: "image",
         name: "reference.png",
         contentType: "image/png",
+        url: resized.url,
         referenceUrl: original.url,
       },
     ]);
@@ -3125,6 +3126,7 @@ describe("AgentKitAssistantChat host behavior", () => {
           name: "reference.png",
           contentType: "image/png",
           data: "data:image/png;base64,cmVzaXplZCBwaXhlbHM=",
+          url: resized.url,
         },
       ]);
       expect(sent.queuedWhileRunActive).toBe(intent === "queued");
