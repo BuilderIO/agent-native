@@ -19,16 +19,43 @@ const SENSITIVE_QUERY_PARAMS = new Set([
   AGENT_ACCESS_PARAM,
 ]);
 
+const MAX_QUERY_DECODE_DEPTH = 8;
+const ENCODED_QUERY_DELIMITER = /%(?:25)*(?:3f|23)/i;
+
+function normalizeQueryParamName(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+const SENSITIVE_QUERY_PARAM_NAMES = new Set(
+  Array.from(SENSITIVE_QUERY_PARAMS, normalizeQueryParamName),
+);
+
 function isSensitiveQueryParam(
   key: string,
   additionalSensitiveParams: readonly string[],
 ): boolean {
-  return (
-    SENSITIVE_QUERY_PARAMS.has(key.toLowerCase()) ||
-    additionalSensitiveParams.some(
-      (param) => param.toLowerCase() === key.toLowerCase(),
-    )
+  const additionalParams = new Set(
+    additionalSensitiveParams.map(normalizeQueryParamName),
   );
+  let candidate = key;
+  for (let depth = 0; depth <= MAX_QUERY_DECODE_DEPTH; depth += 1) {
+    const normalized = normalizeQueryParamName(candidate);
+    if (
+      SENSITIVE_QUERY_PARAM_NAMES.has(normalized) ||
+      additionalParams.has(normalized)
+    ) {
+      return true;
+    }
+    if (!candidate.includes("%")) return false;
+    try {
+      const decoded = decodeURIComponent(candidate);
+      if (decoded === candidate) return false;
+      candidate = decoded;
+    } catch {
+      return true;
+    }
+  }
+  return /%[0-9a-f]{2}/i.test(candidate);
 }
 
 function hasSensitiveNestedQuery(
@@ -36,7 +63,7 @@ function hasSensitiveNestedQuery(
   additionalSensitiveParams: readonly string[],
   depth = 0,
 ): boolean {
-  if (depth >= 8) return true;
+  if (depth >= MAX_QUERY_DECODE_DEPTH) return true;
 
   for (const delimiter of ["?", "#"]) {
     const index = value.indexOf(delimiter);
@@ -62,6 +89,19 @@ function hasSensitiveNestedQuery(
       ) {
         return true;
       }
+    }
+  }
+  if (ENCODED_QUERY_DELIMITER.test(value)) {
+    try {
+      const decoded = decodeURIComponent(value);
+      if (
+        decoded !== value &&
+        hasSensitiveNestedQuery(decoded, additionalSensitiveParams, depth + 1)
+      ) {
+        return true;
+      }
+    } catch {
+      return true;
     }
   }
   return false;
@@ -119,18 +159,44 @@ export function scrubUrl(
     const hashQuery = hashUsesRouteQuery
       ? hash.slice(hashRouteQueryIndex + 1)
       : hash;
+    let scrubbedHashRoutePrefix = hashRoutePrefix;
+    let hashRoutePrefixMutated = false;
+    if (hashUsesRouteQuery) {
+      const routePrefixParamsIndex = hashRoutePrefix.indexOf("&");
+      if (routePrefixParamsIndex !== -1) {
+        const routePrefixPath = hashRoutePrefix.slice(
+          0,
+          routePrefixParamsIndex,
+        );
+        const routePrefixParams = new URLSearchParams(
+          hashRoutePrefix.slice(routePrefixParamsIndex + 1),
+        );
+        if (
+          redactSensitiveQueryParams(
+            routePrefixParams,
+            additionalSensitiveParams,
+          )
+        ) {
+          mutated = true;
+          hashRoutePrefixMutated = true;
+          scrubbedHashRoutePrefix = `${routePrefixPath}&${routePrefixParams.toString()}`;
+        }
+      }
+    }
+    let scrubbedHashQuery = hashQuery;
+    let hashQueryMutated = false;
     if (hashQuery.includes("=")) {
       const hashParams = new URLSearchParams(hashQuery);
-      const hashMutated = redactSensitiveQueryParams(
-        hashParams,
-        additionalSensitiveParams,
-      );
-      if (hashMutated) {
+      if (redactSensitiveQueryParams(hashParams, additionalSensitiveParams)) {
         mutated = true;
-        u.hash = hashUsesRouteQuery
-          ? `${hashRoutePrefix}?${hashParams.toString()}`
-          : hashParams.toString();
+        hashQueryMutated = true;
+        scrubbedHashQuery = hashParams.toString();
       }
+    }
+    if (hashUsesRouteQuery && (hashRoutePrefixMutated || hashQueryMutated)) {
+      u.hash = `${scrubbedHashRoutePrefix}?${scrubbedHashQuery}`;
+    } else if (!hashUsesRouteQuery && hashQueryMutated) {
+      u.hash = scrubbedHashQuery;
     }
     if (!mutated) return url;
     if (u.origin === "http://placeholder.local") {
