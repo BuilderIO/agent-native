@@ -64,6 +64,12 @@ function rendered(
     imageCount: images.length,
     approximatedNodeCount: 0,
     unresolvedImageRefCount: 0,
+    skipCounts: {
+      unresolvedOverrideCount: 0,
+      unresolvedVariableAliasCount: 0,
+      missingComponentCount: 0,
+      skippedNodeTypeCount: 0,
+    },
     imagePlaceholderPrefix: PLACEHOLDER_PREFIX,
     images,
     frames: frames.map((frame, index) => {

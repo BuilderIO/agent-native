@@ -48,6 +48,7 @@ import {
 } from "../code-layer-state";
 import type { CanvasLayerClipboardEntry } from "../command-types";
 import { runCopySelection } from "../commands/copy-selection";
+import { runCutSelection } from "../commands/cut-selection";
 import { runDeleteSelection } from "../commands/delete-selection";
 import { runDuplicateSelection } from "../commands/duplicate-selection";
 import { runEditorPaste } from "../commands/editor-paste";
@@ -152,11 +153,13 @@ export function useEditorClipboard({
     latestClipboardMutationContentRef,
     clipboardPasteUndoStackRef,
     clipboardPasteRedoStackRef,
+    selectedLayerIdsStateRef,
+    overviewSelectedScreenIdsRef,
+    explicitOverviewScreenSelectionRef,
     activeBreakpointWidthState,
     activeBreakpointWidthStateRef,
     undoManagerRef,
     contentUndoStackRef,
-    explicitOverviewScreenSelectionRef,
     historyOrderRef,
     clearRedoStacks,
     captureCurrentSelection,
@@ -1399,10 +1402,24 @@ export function useEditorClipboard({
   );
 
   const handleCutSelection = useCallback(async () => {
-    const copied = await handleCopySelection();
-    if (!copied) return;
-    handleDeleteSelection();
-  }, [handleCopySelection, handleDeleteSelection]);
+    await runCutSelection({
+      copySelection: handleCopySelection,
+      deleteSelection: handleDeleteSelection,
+      getSelectedLayerIds: () => [
+        ...selectedLayerIdsStateRef.current.map((id) => `layer:${id}`),
+        ...overviewSelectedScreenIdsRef.current.map((id) => `screen:${id}`),
+        ...explicitOverviewScreenSelectionRef.current.map(
+          (id) => `explicit-screen:${id}`,
+        ),
+      ],
+    });
+  }, [
+    explicitOverviewScreenSelectionRef,
+    handleCopySelection,
+    handleDeleteSelection,
+    overviewSelectedScreenIdsRef,
+    selectedLayerIdsStateRef,
+  ]);
 
   const handleZoomToSelectionFit = useCallback(() => {
     const allFrames = withMeasuredFrameHeights(
