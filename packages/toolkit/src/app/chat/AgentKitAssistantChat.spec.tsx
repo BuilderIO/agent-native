@@ -3884,6 +3884,23 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).resolves.toEqual([submission]);
   });
 
+  it("rejects raw image bytes under a deferred dataURL field", async () => {
+    const threadId = "thread-deferred-dataurl";
+    const submission = {
+      id: "deferred-dataurl",
+      threadId,
+      text: "Describe this image",
+      fileParts: [],
+      references: [],
+      composerOptions: {},
+      options: { image: { dataURL: "A".repeat(128) } },
+    };
+
+    await expect(
+      updateDeferredProviderSubmissions(threadId, () => [submission]),
+    ).rejects.toThrow("inline image bytes cannot be persisted");
+  });
+
   it("cleans legacy deferred image bytes and surfaces a reattach action", async () => {
     const threadId = chatMocks.threadId;
     const encodedThreadId = Array.from(threadId, (character) =>
@@ -3948,6 +3965,118 @@ describe("AgentKitAssistantChat host behavior", () => {
       ),
     ).toBe(false);
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("marks a legacy inline reference lost when only an unrelated file remains", async () => {
+    const threadId = chatMocks.threadId;
+    const encodedThreadId = Array.from(threadId, (character) =>
+      character.codePointAt(0)!.toString(16),
+    ).join("-");
+    const stateKey = `agentkit-deferred-provider-submissions:${encodedThreadId}`;
+    const inlineImageUrl = "data:image/png;base64,LEGACY_REFERENCE_IMAGE_BYTES";
+    chatMocks.appState.set(stateKey, {
+      version: 1,
+      threadId,
+      submissions: [
+        {
+          id: "legacy-reference-with-unrelated-file",
+          threadId,
+          text: "Describe this reference",
+          fileParts: [
+            {
+              type: "file",
+              name: "notes.txt",
+              mediaType: "text/plain",
+              url: "https://files.example.test/notes.txt",
+            },
+          ],
+          requestAttachments: [],
+          references: [
+            {
+              type: "file",
+              path: "/reference.png",
+              name: "reference.png",
+              source: "resource",
+              metadata: { preview: inlineImageUrl },
+            },
+          ],
+          composerOptions: {},
+          options: {},
+        },
+      ],
+    });
+
+    await mount(baseProps());
+    await flush();
+
+    expect(chatMocks.appState.get(stateKey)).toMatchObject({
+      submissions: [
+        {
+          failed: true,
+          attachmentRestoreRequired: true,
+          fileParts: [{ name: "notes.txt" }],
+        },
+      ],
+    });
+    expect(JSON.stringify(chatMocks.appState.get(stateKey))).not.toContain(
+      "data:image",
+    );
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("keeps a legacy inline reference when its matching durable image remains", async () => {
+    const threadId = chatMocks.threadId;
+    const encodedThreadId = Array.from(threadId, (character) =>
+      character.codePointAt(0)!.toString(16),
+    ).join("-");
+    const stateKey = `agentkit-deferred-provider-submissions:${encodedThreadId}`;
+    const inlineImageUrl = "data:image/png;base64,LEGACY_REFERENCE_IMAGE_BYTES";
+    const referenceUrl = "https://files.example.test/reference.png";
+    chatMocks.appState.set(stateKey, {
+      version: 1,
+      threadId,
+      submissions: [
+        {
+          id: "legacy-reference-with-durable-image",
+          threadId,
+          text: "Describe this reference",
+          fileParts: [
+            {
+              type: "file",
+              name: "reference.png",
+              mediaType: "image/png",
+              url: referenceUrl,
+            },
+          ],
+          requestAttachments: [],
+          references: [
+            {
+              type: "file",
+              path: "/reference.png",
+              name: "reference.png",
+              source: "resource",
+              metadata: { preview: inlineImageUrl },
+            },
+          ],
+          composerOptions: {},
+          options: {},
+        },
+      ],
+    });
+
+    await mount(baseProps());
+    await flush();
+
+    expect(chatMocks.appState.has(stateKey)).toBe(false);
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(
+      chatMocks.control.sendMessage.mock.calls[0]?.[0].attachments,
+    ).toContainEqual({
+      type: "file",
+      name: "reference.png",
+      mediaType: "image/png",
+      url: referenceUrl,
+    });
   });
 
   it("keeps a failed deferred send visible until the user retries or dismisses it", async () => {

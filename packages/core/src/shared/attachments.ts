@@ -37,9 +37,31 @@ function isBase64Payload(value: unknown): value is string {
 }
 
 function hasInlineDataUrl(value: unknown): value is string {
+  return typeof value === "string" && /^data:[^\s,]+,/i.test(value.trimStart());
+}
+
+function isInlineReferencePayload(value: unknown): boolean {
+  return hasInlineDataUrl(value) || isBase64Payload(value);
+}
+
+function isByteArray(value: unknown): boolean {
   return (
-    typeof value === "string" &&
-    value.trimStart().toLowerCase().startsWith("data:")
+    (Array.isArray(value) &&
+      value.length > 0 &&
+      value.every(
+        (entry) =>
+          typeof entry === "number" &&
+          Number.isInteger(entry) &&
+          entry >= 0 &&
+          entry <= 255,
+      )) ||
+    ArrayBuffer.isView(value)
+  );
+}
+
+function isInlineAttachmentPayload(value: unknown): boolean {
+  return (
+    hasInlineDataUrl(value) || isBase64Payload(value) || isByteArray(value)
   );
 }
 
@@ -70,22 +92,24 @@ export function stripInlineAttachmentPayloads(
     const normalizedKey = key.toLowerCase();
     const childAttachmentContext =
       isAttachmentRecord || ATTACHMENT_CONTEXT_FIELDS.has(normalizedKey);
-    if (isAttachmentRecord && ATTACHMENT_BODY_FIELDS.has(normalizedKey)) {
+    if (
+      isAttachmentRecord &&
+      ATTACHMENT_BODY_FIELDS.has(normalizedKey) &&
+      isInlineAttachmentPayload(entry)
+    ) {
       continue;
     }
     if (
       isAttachmentRecord &&
       INLINE_REFERENCE_FIELDS.has(normalizedKey) &&
-      hasInlineDataUrl(entry)
+      isInlineReferencePayload(entry)
     ) {
       continue;
     }
     if (
       isAttachmentRecord &&
       normalizedKey === "image" &&
-      (hasInlineDataUrl(entry) ||
-        ArrayBuffer.isView(entry) ||
-        (Array.isArray(entry) && entry.every(Number.isInteger)))
+      isInlineAttachmentPayload(entry)
     ) {
       continue;
     }

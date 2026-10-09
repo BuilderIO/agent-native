@@ -3161,6 +3161,72 @@ describe("createAgentNativeAgentKitTransport", () => {
       await transport.dispose();
     });
 
+    it("persists only durable retry image fields needed by Continue after reload", async () => {
+      const threadId = "thread-continue-resized-image";
+      const transport = threadServer({}, threadId);
+      const userMessage = {
+        id: "user-resized-image",
+        role: "user" as const,
+        parts: [{ type: "text" as const, text: "Continue with this image" }],
+        metadata: {
+          custom: {
+            agentNativeRetryRequestAttachments: [
+              {
+                type: "image",
+                name: "reference.png",
+                contentType: "image/png",
+                url: "https://files.example.test/reference-resized.png",
+                referenceUrl:
+                  "https://files.example.test/reference-original.png",
+                data: "data:image/png;base64,inline-pixels-must-not-persist",
+                ignoredField: "drop this field",
+              },
+              {
+                type: "image",
+                name: "inline-only.png",
+                contentType: "image/png",
+                url: "data:image/png;base64,inline-url-must-not-persist",
+              },
+            ],
+          },
+        },
+      };
+
+      await transport.persistThreadSnapshot?.({
+        threadId,
+        snapshot: {
+          id: threadId,
+          createdAt: "2026-10-01T00:00:00.000Z",
+          updatedAt: "2026-10-01T00:00:01.000Z",
+          messages: [userMessage],
+        },
+      });
+      const reloaded = await transport.getThreadSnapshot?.({ threadId });
+      const serializedReload = JSON.stringify(reloaded);
+
+      expect(reloaded?.messages[0]?.metadata).toEqual({
+        custom: {
+          agentNativeRetryRequestAttachments: [
+            {
+              type: "image",
+              name: "reference.png",
+              contentType: "image/png",
+              url: "https://files.example.test/reference-resized.png",
+              referenceUrl: "https://files.example.test/reference-original.png",
+            },
+          ],
+        },
+      });
+      expect(serializedReload).toContain(
+        "https://files.example.test/reference-resized.png",
+      );
+      expect(serializedReload).not.toContain("inline-pixels-must-not-persist");
+      expect(serializedReload).not.toContain("inline-url-must-not-persist");
+      expect(serializedReload).not.toContain("data:image");
+      expect(serializedReload).not.toContain("ignoredField");
+      await transport.dispose();
+    });
+
     it("keeps its marker and retry context when the client saves the loaded thread and reloads", async () => {
       const transport = threadServer(serverRefusal());
       const loaded = await transport.getThreadSnapshot?.({

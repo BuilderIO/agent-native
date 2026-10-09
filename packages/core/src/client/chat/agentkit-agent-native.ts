@@ -1373,6 +1373,49 @@ function persistedFileUrl(url?: string): string | undefined {
   return url && !/^\s*data:/i.test(url) ? url : undefined;
 }
 
+function persistedRetryRequestAttachments(value: unknown): Array<{
+  type: "image";
+  name: string;
+  contentType?: string;
+  url: string;
+  referenceUrl?: string;
+}> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((candidate) => {
+    const attachment = asRecord(candidate);
+    if (
+      attachment?.type !== "image" ||
+      typeof attachment.name !== "string" ||
+      !attachment.name.trim()
+    ) {
+      return [];
+    }
+    const url = persistedFileUrl(
+      typeof attachment.url === "string" ? attachment.url : undefined,
+    );
+    if (!url) return [];
+    const contentType =
+      typeof attachment.contentType === "string" &&
+      /^image\/[a-z0-9.+-]+$/i.test(attachment.contentType)
+        ? attachment.contentType
+        : undefined;
+    const referenceUrl = persistedFileUrl(
+      typeof attachment.referenceUrl === "string"
+        ? attachment.referenceUrl
+        : undefined,
+    );
+    return [
+      {
+        type: "image",
+        name: attachment.name,
+        ...(contentType ? { contentType } : {}),
+        url,
+        ...(referenceUrl ? { referenceUrl } : {}),
+      },
+    ];
+  });
+}
+
 function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
   const sequenceByRun = new Map<string, number>();
   return events.flatMap((event): AgentEvent[] => {
@@ -1520,10 +1563,18 @@ function persistedMessageMetadata(
         ),
       )
     : {};
+  const retryRequestAttachments = persistedRetryRequestAttachments(
+    custom?.agentNativeRetryRequestAttachments,
+  );
   const keptCustom = {
     ...refusedCustom,
     ...(typeof answeredRunId === "string" && answeredRunId
       ? { agentNativeRecoveryOfRunId: answeredRunId }
+      : {}),
+    ...(retryRequestAttachments.length > 0
+      ? {
+          agentNativeRetryRequestAttachments: retryRequestAttachments,
+        }
       : {}),
   };
   const selectionValue = (candidate: unknown): string | undefined => {

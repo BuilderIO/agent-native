@@ -4348,6 +4348,27 @@ describe("upsertUserMessage", () => {
       containsInlineAttachmentPayload({
         type: "image",
         name: "reference.png",
+        dataURL: "data:image/png;base64,INLINE_BYTES",
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        dataURL: "A".repeat(128),
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        url: "A".repeat(128),
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
         metadata: { preview: `data:image/png;base64,${"A".repeat(128)}` },
       }),
     ).toBe(true);

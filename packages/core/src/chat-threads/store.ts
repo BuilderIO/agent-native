@@ -1037,12 +1037,17 @@ export async function forkThread(
     return null;
   }
   const id = opts?.id ?? generateId();
-  const threadData = forkThreadData(
+  const copiedThreadData = forkThreadData(
     source.threadData,
     id,
     snapshot?.fromMessageId,
   );
-  if (containsInlineAttachmentPayload(JSON.parse(threadData))) return null;
+  const threadData = JSON.stringify(
+    stripInlineAttachmentPayloads(JSON.parse(copiedThreadData)),
+  );
+  if (containsInlineAttachmentPayload(JSON.parse(threadData))) {
+    throw new InlineAttachmentDataNotPersistableError();
+  }
   const now = Date.now();
   const title = source.title ? `${source.title} (fork)` : "";
   const client = getDbExec();

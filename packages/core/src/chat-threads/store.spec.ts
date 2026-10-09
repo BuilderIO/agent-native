@@ -2961,6 +2961,76 @@ describe("chat thread store", () => {
       JSON.parse(rows.get("thread-forked-stale")!.thread_data).messages,
     ).toHaveLength(2);
   });
+
+  it("strips legacy inline image bytes before inserting a fork", async () => {
+    const inlineImageUrl = "data:image/png;base64,LEGACY_FORK_IMAGE_BYTES";
+    const inlineImageBase64 = "A".repeat(128);
+    const sourceRow: ChatThreadRow = {
+      id: "thread-with-legacy-image",
+      owner_email: "user@example.com",
+      title: "Thread",
+      preview: "Describe this image",
+      thread_data: JSON.stringify({
+        messages: [
+          {
+            message: {
+              id: "legacy-image-user",
+              role: "user",
+              content: [
+                { type: "text", text: "Describe this image" },
+                {
+                  type: "image",
+                  name: "reference.png",
+                  data: inlineImageUrl,
+                  base64: inlineImageBase64,
+                  url: inlineImageUrl,
+                },
+              ],
+            },
+            parentId: null,
+          },
+        ],
+      }),
+      message_count: 1,
+      created_at: 1,
+      updated_at: 1,
+    };
+    let insertedThreadData: string | undefined;
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      const args = typeof query === "string" ? [] : query.args;
+      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, owner_email/i.test(sql)) {
+        return {
+          rows: args[0] === sourceRow.id ? [sourceRow] : [],
+          rowsAffected: 0,
+        };
+      }
+      if (/INSERT INTO chat_threads/i.test(sql)) {
+        insertedThreadData = args[4];
+        return { rows: [], rowsAffected: 1 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    const forked = await forkThread(sourceRow.id, "user@example.com", {
+      id: "thread-forked-legacy-image",
+    });
+
+    expect(forked?.id).toBe("thread-forked-legacy-image");
+    expect(insertedThreadData).toBeDefined();
+    expect(insertedThreadData).not.toContain("data:image/");
+    expect(insertedThreadData).not.toContain("LEGACY_FORK_IMAGE_BYTES");
+    expect(insertedThreadData).not.toContain(inlineImageBase64);
+    expect(JSON.parse(insertedThreadData!).messages[0].message.content).toEqual(
+      [
+        { type: "text", text: "Describe this image" },
+        { type: "image", name: "reference.png" },
+      ],
+    );
+  });
 });
 
 describe("resolveRunThreadScope", () => {

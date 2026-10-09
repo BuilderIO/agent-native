@@ -88,7 +88,7 @@ export function containsInlineAttachmentPayload(value: unknown): boolean {
         item >= 0 &&
         item <= 255,
     );
-  const payloadField = /^(?:base64|bytes|body|data|image|payload)$/i;
+  const payloadField = /^(?:base64|bytes|body|data|dataurl|image|payload)$/i;
   const referenceField = /^(?:preview|referenceUrl|src|thumbnail|url)$/i;
   const visit = (
     entry: unknown,
@@ -103,7 +103,8 @@ export function containsInlineAttachmentPayload(value: unknown): boolean {
       if (
         (isAttachmentField && /\bdata:[^\s,]+,/i.test(entry)) ||
         (attachmentContext &&
-          payloadField.test(fieldName ?? "") &&
+          (payloadField.test(fieldName ?? "") ||
+            referenceField.test(fieldName ?? "")) &&
           isBase64Payload(entry))
       ) {
         return true;

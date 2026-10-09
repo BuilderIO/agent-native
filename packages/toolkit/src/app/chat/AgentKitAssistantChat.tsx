@@ -385,7 +385,10 @@ function assertNoInlineAttachmentPayload(
   fieldName = "",
 ): void {
   if (typeof value === "string") {
-    const payloadField = /^(?:base64|bytes|data|image|payload)$/i.test(
+    const payloadField = /^(?:base64|bytes|data|dataurl|image|payload)$/i.test(
+      fieldName,
+    );
+    const referenceField = /^(?:preview|referenceUrl|src|thumbnail|url)$/i.test(
       fieldName,
     );
     if (
@@ -400,8 +403,7 @@ function assertNoInlineAttachmentPayload(
       );
     }
     if (
-      (payloadField ||
-        (imageContext && /^(?:preview|thumbnail)$/i.test(fieldName))) &&
+      (payloadField || (imageContext && referenceField)) &&
       (imageContext || fieldName === "base64") &&
       isBase64Payload(value)
     ) {
@@ -706,6 +708,61 @@ function containsDeferredInlinePayload(value: unknown): boolean {
   }
 }
 
+function hasDurableReferenceRecovery(
+  reference: unknown,
+  retainedAttachments: unknown[],
+): boolean {
+  const record = asRecord(reference);
+  if (!record) return false;
+  const metadata = asRecord(record.metadata);
+  if (
+    [
+      record.url,
+      record.referenceUrl,
+      metadata?.url,
+      metadata?.referenceUrl,
+    ].some(isDurableAttachmentUrl)
+  ) {
+    return true;
+  }
+
+  const name = typeof record.name === "string" ? record.name.trim() : "";
+  if (!name) return false;
+  return retainedAttachments.some((value) => {
+    const attachment = asRecord(value);
+    if (
+      !attachment ||
+      typeof attachment.name !== "string" ||
+      attachment.name.trim().toLowerCase() !== name.toLowerCase()
+    ) {
+      return false;
+    }
+    const isImage =
+      attachment.type === "image" ||
+      [attachment.mediaType, attachment.contentType, attachment.mimeType].some(
+        (type) => typeof type === "string" && /^image\//i.test(type),
+      );
+    const hasDurableLocation =
+      isDurableAttachmentUrl(attachment.url) ||
+      (typeof attachment.fileId === "string" &&
+        attachment.fileId.trim().length > 0 &&
+        !isInlineDataUrl(attachment.fileId));
+    return isImage && hasDurableLocation;
+  });
+}
+
+function hasLostInlineReferencePayload(
+  value: unknown,
+  retainedAttachments: unknown[],
+): boolean {
+  const references = Array.isArray(value) ? value : [value];
+  return references.some(
+    (reference) =>
+      containsDeferredInlinePayload(reference) &&
+      !hasDurableReferenceRecovery(reference, retainedAttachments),
+  );
+}
+
 function sanitizeLegacyDeferredProviderState(
   value: unknown,
   threadId: string,
@@ -776,24 +833,26 @@ function sanitizeLegacyDeferredProviderState(
           containsDeferredInlinePayload(part) &&
           legacyDurableFileParts([part]).length === 0,
       );
-    const retainedAttachmentCount =
-      fileParts.length +
-      requestAttachments.length +
-      ((Array.isArray(options.deferredFileParts)
-        ? options.deferredFileParts.length
-        : 0) ?? 0) +
-      ((Array.isArray(options.deferredRequestAttachments)
-        ? options.deferredRequestAttachments.length
-        : 0) ?? 0);
-    const lostReferencePayload =
-      containsDeferredInlinePayload(submission.references) &&
-      retainedAttachmentCount === 0;
-    const lostComposerPayload =
-      containsDeferredInlinePayload(submission.composerOptions) &&
-      retainedAttachmentCount === 0;
-    const lostOtherOptionsPayload =
-      containsDeferredInlinePayload(submission.options) &&
-      retainedAttachmentCount === 0;
+    const retainedAttachments = [
+      ...fileParts,
+      ...requestAttachments,
+      ...(Array.isArray(options.deferredFileParts)
+        ? options.deferredFileParts
+        : []),
+      ...(Array.isArray(options.deferredRequestAttachments)
+        ? options.deferredRequestAttachments
+        : []),
+    ];
+    const lostReferencePayload = hasLostInlineReferencePayload(
+      submission.references,
+      retainedAttachments,
+    );
+    const lostComposerPayload = containsDeferredInlinePayload(
+      submission.composerOptions,
+    );
+    const lostOtherOptionsPayload = containsDeferredInlinePayload(
+      submission.options,
+    );
     const { claim: _claim, ...withoutClaim } = cleaned;
     return {
       ...withoutClaim,
