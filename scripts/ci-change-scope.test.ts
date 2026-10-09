@@ -1020,6 +1020,7 @@ test("selects the pre-auth replay browser smoke for its runtime paths", () => {
     "templates/analytics/server/handlers/session-replay.ts",
     "templates/analytics/server/lib/session-replay.ts",
     "templates/clips/server/plugins/config.ts",
+    "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
     "templates/design/playwright.config.ts",
     "templates/design/server/plugins/config.ts",
     "templates/slides/server/plugins/config.ts",
@@ -1048,7 +1049,7 @@ test("selects the pre-auth replay browser smoke for its runtime paths", () => {
   ]);
   assert.deepEqual(smokeOnly.designCanvasE2eSpecs, []);
   assert.equal(smokeOnly.checks.design_canvas_interaction_e2e, false);
-  assert.equal(smokeOnly.checks.pre_auth_session_replay_e2e, false);
+  assert.equal(smokeOnly.checks.pre_auth_session_replay_e2e, true);
 });
 
 test("a deleted Design E2E path runs the focused interaction suite", () => {

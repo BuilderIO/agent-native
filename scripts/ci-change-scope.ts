@@ -118,6 +118,7 @@ const PRE_AUTH_SESSION_REPLAY_E2E_FILES = new Set([
   "templates/analytics/server/handlers/session-replay.ts",
   "templates/analytics/server/lib/session-replay.ts",
   "templates/clips/server/plugins/config.ts",
+  "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
   "templates/design/playwright.config.ts",
   "templates/design/server/plugins/config.ts",
   "templates/slides/server/plugins/config.ts",
