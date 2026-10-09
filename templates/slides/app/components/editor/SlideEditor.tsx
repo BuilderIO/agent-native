@@ -1695,6 +1695,7 @@ type ActiveImageCrop = {
   publishSelection: (element: HTMLElement) => void;
   restorePreviewStyles: () => void;
   restoreChrome: () => void;
+  resumeAnimations: () => void;
   hasChanges: () => boolean;
   cancel: () => HTMLElement | null;
 };
@@ -2418,6 +2419,7 @@ export default function SlideEditor({
       crop.restoreChrome();
       writeImageCropPercentGeometry(crop.image, crop.viewport);
       preserveSlideObjectLayoutSpacer(crop.frame);
+      crop.resumeAnimations();
       const html = readCurrentSlideContentHtmlRef.current();
       if (html !== null) {
         if (crop.frozen.restoreMarkdownTree) {
@@ -5097,7 +5099,7 @@ export default function SlideEditor({
       element: HTMLElement,
       { rotation, ...patch }: SlideStylePatch,
       range: Range | null = null,
-    ): Range | null => {
+    ): { styledRange: Range | null; rotationApplied: boolean } => {
       const inlinePatch = inlineInspectorStylePatch(patch);
       const hasInlinePatch = Object.keys(inlinePatch).length > 0;
       let styledRange: Range | null = null;
@@ -5122,12 +5124,15 @@ export default function SlideEditor({
         }
       }
 
+      let rotationApplied = rotation === undefined;
       const applyToElement = () => {
         if (!styledRange && hasInlinePatch) {
           applyDescendantTextStyle(element, inlinePatch);
         }
 
-        if (rotation !== undefined) setSlideObjectRotation(element, rotation);
+        if (rotation !== undefined) {
+          rotationApplied = setSlideObjectRotation(element, rotation);
+        }
         for (const [property, value] of Object.entries(patch)) {
           if (value === undefined) continue;
           if (
@@ -5158,7 +5163,7 @@ export default function SlideEditor({
       if (session) session.apply(applyToElement);
       else applyToElement();
 
-      return styledRange;
+      return { styledRange, rotationApplied };
     },
     [],
   );
@@ -5186,7 +5191,7 @@ export default function SlideEditor({
         snapshotEditableTextRange(editingSurface ?? editing))
       : null;
     const nextRange = editing
-      ? applyStylePatchToElement(editing, copied, savedRange)
+      ? applyStylePatchToElement(editing, copied, savedRange).styledRange
       : null;
     if (editing && nextRange) richTextSelectionRef.current = nextRange;
 
@@ -6657,7 +6662,11 @@ export default function SlideEditor({
                   startHeight: member.start.height,
                 });
                 if (plan.transform !== undefined) {
-                  member.element.style.transform = plan.transform;
+                  member.element.style.setProperty(
+                    "transform",
+                    plan.transform,
+                    member.element.style.getPropertyPriority("transform"),
+                  );
                 }
                 if (plan.transformOrigin !== undefined) {
                   member.element.style.transformOrigin = plan.transformOrigin;
@@ -7375,7 +7384,11 @@ export default function SlideEditor({
           member.element,
           planSlideObjectGeometry(member.element, next.geometry),
         );
-        member.element.style.transform = next.transform;
+        member.element.style.setProperty(
+          "transform",
+          next.transform,
+          member.element.style.getPropertyPriority("transform"),
+        );
       }
 
       if (multiSelection.size > 0) {
@@ -7540,7 +7553,11 @@ export default function SlideEditor({
             member.element,
             planSlideObjectGeometry(member.element, next.geometry),
           );
-          member.element.style.transform = next.transform;
+          member.element.style.setProperty(
+            "transform",
+            next.transform,
+            member.element.style.getPropertyPriority("transform"),
+          );
         }
         changed = Math.abs(deltaDegrees) > 0.01;
         if (multiSelection.size > 0) {
@@ -8660,6 +8677,7 @@ export default function SlideEditor({
         : null;
 
       let frame: HTMLElement = frameIsPersistedImage ? existingFrame! : target;
+      let resumeCropAnimations = () => {};
       const frozen = freezeElementForFreeformSelection(frame);
       if (!frozen) return;
 
@@ -8714,6 +8732,7 @@ export default function SlideEditor({
         if (!wrapped) return;
         frame = wrapped.frame;
         viewport = wrapped.viewport;
+        resumeCropAnimations = wrapped.resumeAnimations;
         frame.setAttribute("data-builder-id", ensureBuilderId(frame));
       }
 
@@ -8776,6 +8795,7 @@ export default function SlideEditor({
           if (originalZIndex) frame.style.zIndex = originalZIndex;
           else frame.style.removeProperty("z-index");
         },
+        resumeAnimations: resumeCropAnimations,
         hasChanges: () =>
           [
             [frame.offsetLeft, cropStartGeometry.frame.x],
@@ -9285,8 +9305,33 @@ export default function SlideEditor({
         );
         if (!currentSnapshot) return;
 
+        const originalTransforms =
+          patch.rotation === undefined
+            ? null
+            : new Map(
+                targets.map((target) => [
+                  target,
+                  [
+                    target.style.getPropertyValue("transform"),
+                    target.style.getPropertyPriority("transform"),
+                  ] as const,
+                ]),
+              );
+        let rotationApplied = true;
         for (const target of targets) {
-          applyStylePatchToElement(target, patch);
+          const result = applyStylePatchToElement(target, patch);
+          rotationApplied &&= result.rotationApplied;
+        }
+        if (patch.rotation !== undefined) {
+          rotationApplied &&= targets.every((target) =>
+            slideObjectPaintsRotation(target, patch.rotation!),
+          );
+          if (!rotationApplied && originalTransforms) {
+            for (const [target, [value, priority]] of originalTransforms) {
+              if (value) target.style.setProperty("transform", value, priority);
+              else target.style.removeProperty("transform");
+            }
+          }
         }
         const html = readCurrentSlideContentHtml();
         if (html !== null) {
@@ -9297,7 +9342,7 @@ export default function SlideEditor({
         setSelectedStyleSnapshot(
           mergeSlideStyleSnapshots(targets.map(styleSnapshotForElement)),
         );
-        return;
+        return rotationApplied;
       }
 
       const editing = editingElRef.current;
@@ -9315,7 +9360,8 @@ export default function SlideEditor({
         (editing
           ? snapshotEditableTextRange(getRichTextEditorSurface() ?? editing)
           : null);
-      const nextRange = applyStylePatchToElement(element, patch, savedRange);
+      const result = applyStylePatchToElement(element, patch, savedRange);
+      const nextRange = result.styledRange;
       if (editing && nextRange) {
         richTextSelectionRef.current = nextRange.cloneRange();
       }
@@ -9351,7 +9397,8 @@ export default function SlideEditor({
       // field that asked for it has to show what the object paints.
       return (
         patch.rotation === undefined ||
-        slideObjectPaintsRotation(element, patch.rotation)
+        (result.rotationApplied &&
+          slideObjectPaintsRotation(element, patch.rotation))
       );
     },
     [

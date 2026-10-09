@@ -1304,6 +1304,10 @@ const ANIMATION_LONGHANDS = [
   "animation-direction",
   "animation-fill-mode",
   "animation-play-state",
+  "animation-composition",
+  "animation-timeline",
+  "animation-range-start",
+  "animation-range-end",
 ];
 
 // Valid and unlike anything an author writes, so a plain inline write of one
@@ -1313,6 +1317,7 @@ const TRANSFORM_PROBES: Record<string, string> = {
   translate: "0.37px 0.53px",
   rotate: "0.37deg",
   scale: "1.37",
+  "transform-origin": "37% 53%",
 };
 
 /**
@@ -1386,102 +1391,173 @@ function animatedTransformProperties(animations: CSSAnimation[]): string[] {
 }
 
 function hasTransformAnimation(element: HTMLElement): boolean {
-  return animatedTransformProperties(readCssAnimations(element)).length > 0;
+  const animations = readCssAnimations(element);
+  return animatedTransformProperties(animations).some(
+    (property) => element.style.getPropertyPriority(property) !== "important",
+  );
 }
 
 interface RunningAnimation {
   name: string;
   currentTime: CSSNumberish | null;
+  resume: boolean;
 }
 
-/**
- * Hands the transform that paints `source` to `frame`, which takes its place at
- * the same box, and switches it off on `source` so it applies once. The cascade
- * decides what paints: an inline value moves as authored when it is what
- * paints and does not read the element's own cascade, and anything else moves
- * as the browser resolved it. When a CSS animation paints a transform property
- * the whole animation list moves, so the frame plays what the image played; the
- * animations to hold on the frame, once it is in the document, are returned.
- */
-function moveSlideObjectTransform(
-  source: HTMLElement,
-  frame: HTMLElement,
-): RunningAnimation[] {
-  const computed = window.getComputedStyle(source);
-  const animations = readCssAnimations(source);
-  const keyframed = animatedTransformProperties(animations);
-  const savedStyle = source.getAttribute("style");
-  const playing = ANIMATION_LONGHANDS.map((property) =>
-    computed.getPropertyValue(property),
-  );
-  const running = animations.map(({ animationName, currentTime }) => ({
-    name: animationName,
-    currentTime,
-  }));
-  if (keyframed.length > 0) {
-    // Only the name: the `animation` shorthand serializes with `auto` as its
-    // duration, which an engine without it drops whole.
-    source.style.setProperty("animation-name", "none", "important");
-  }
-  // Read before anything below writes: what paints without the animation, and
-  // before a probe starts a transition that would answer for the old value.
-  const painted = TRANSFORM_PROPERTIES.map((property) =>
-    computed.getPropertyValue(property),
-  );
-  // An animation paints a property it keyframes unless an !important
-  // declaration beats it, and with the animation off that is all a plain inline
-  // write can lose to. Moved onto the frame, which no such declaration matches,
-  // a beaten animation would start to paint.
-  const animated = keyframed.some(
-    (property) =>
-      source.style.getPropertyPriority(property) !== "important" &&
-      inlineValuePaints(source, property, TRANSFORM_PROBES[property]),
-  );
-  if (animated) {
-    ANIMATION_LONGHANDS.forEach((property, index) => {
-      frame.style.setProperty(property, playing[index]);
-    });
-  } else {
-    restoreStyleAttribute(source, savedStyle);
-  }
-  const { transformOrigin } = readSlideObjectTransformSnapshot(source);
-  let moved = animated;
-  TRANSFORM_PROPERTIES.forEach((property, index) => {
-    const authored = source.style.getPropertyValue(property);
-    const value =
-      authored &&
-      !READS_OWN_CASCADE.test(authored) &&
-      inlineValuePaints(source, property)
-        ? authored
-        : painted[index];
-    if (value && value !== "none") {
-      frame.style.setProperty(property, value);
-      moved = true;
+interface SplitCssAnimation {
+  animation: CSSAnimation;
+  index: number;
+  currentTime: CSSNumberish | null;
+  resume: boolean;
+  imageName?: string;
+  frameName?: string;
+}
+
+let cropAnimationId = 0;
+
+function splitCssList(value: string): string[] {
+  const items: string[] = [];
+  let start = 0;
+  let depth = 0;
+  let quote = "";
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (quote) {
+      if (character === "\\") index += 1;
+      else if (character === quote) quote = "";
+      continue;
     }
-    // Off even when nothing moved, so a rule that matches later or an
-    // animation the image replays once it moves cannot paint the image a second
-    // time inside the frame. Important, because a stylesheet !important
-    // declaration beats a plain one.
-    source.style.setProperty(property, "none", "important");
-  });
-  if (moved && transformOrigin !== "50% 50%") {
-    frame.style.transformOrigin = transformOrigin;
+    if (character === '"' || character === "'") quote = character;
+    else if (character === "(") depth += 1;
+    else if (character === ")") depth = Math.max(0, depth - 1);
+    else if (character === "," && depth === 0) {
+      items.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
   }
-  return animated ? running : [];
+  const last = value.slice(start).trim();
+  if (last) items.push(last);
+  return items;
 }
 
-/**
- * Seeks the animations `frame` took from the image to where the image's were
- * and holds them there, so the frame paints what the image painted for as long
- * as the crop is edited. One the image no longer had had finished without
- * filling, and replaying it would flash the frame.
- */
-function holdMovedAnimations(
-  frame: HTMLElement,
+function cssAnimationName(value: string): string {
+  const trimmed = value.trim();
+  if (
+    trimmed.length >= 2 &&
+    ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'")))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function keyframeProperties(animation: CSSAnimation): Set<string> {
+  const properties = new Set<string>();
+  const effect = animation.effect;
+  if (!(effect instanceof KeyframeEffect)) return properties;
+  for (const frame of effect.getKeyframes()) {
+    for (const property of Object.keys(frame)) {
+      if (
+        ["offset", "computedOffset", "easing", "composite"].includes(property)
+      )
+        continue;
+      properties.add(
+        property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`),
+      );
+    }
+  }
+  return properties;
+}
+
+function keyframeValue(frame: Keyframe, property: string): string | null {
+  const record = frame as Record<string, unknown>;
+  const camel = property.replace(/-([a-z])/g, (_match, letter: string) =>
+    letter.toUpperCase(),
+  );
+  const value = record[property] ?? record[camel];
+  if (typeof value === "string" || typeof value === "number") {
+    // Prevent raw-text HTML from ending an enclosing serialized style element.
+    return String(value).replace(/</g, "\\3c ");
+  }
+  return null;
+}
+
+function serializeKeyframes(
+  name: string,
+  animation: CSSAnimation,
+  properties: Set<string>,
+): string | null {
+  const effect = animation.effect;
+  if (!(effect instanceof KeyframeEffect) || properties.size === 0) return null;
+  const frames = effect.getKeyframes();
+  const rules = frames.flatMap((frame) => {
+    const record = frame as Keyframe & { computedOffset?: number };
+    const offset =
+      typeof record.offset === "number"
+        ? record.offset
+        : typeof record.computedOffset === "number"
+          ? record.computedOffset
+          : null;
+    if (offset === null) return [];
+    const declarations = [...properties].flatMap((property) => {
+      const value = keyframeValue(frame, property);
+      return value === null ? [] : [`${property}: ${value};`];
+    });
+    if (frame.easing && frame.easing !== "linear") {
+      declarations.push(`animation-timing-function: ${frame.easing};`);
+    }
+    if (declarations.length === 0) return [];
+    return [
+      `${Number((offset * 100).toFixed(4))}% { ${declarations.join(" ")} }`,
+    ];
+  });
+  return rules.length ? `@keyframes ${name} { ${rules.join(" ")} }` : null;
+}
+
+function nextCropAnimationName(): string {
+  cropAnimationId += 1;
+  return `fmd_crop_${Date.now().toString(36)}_${cropAnimationId.toString(36)}`;
+}
+
+function setAnimationList(
+  element: HTMLElement,
+  animations: SplitCssAnimation[],
+  nameFor: (animation: SplitCssAnimation) => string | undefined,
+  computedValues: Map<string, string[]>,
+): RunningAnimation[] {
+  const selected = animations.flatMap((animation) => {
+    const name = nameFor(animation);
+    return name ? [{ animation, name }] : [];
+  });
+  element.style.setProperty(
+    "animation-name",
+    selected.length ? selected.map(({ name }) => name).join(", ") : "none",
+    "important",
+  );
+  for (const property of ANIMATION_LONGHANDS.slice(1)) {
+    const values = computedValues.get(property) ?? [];
+    if (selected.length === 0 || values.length === 0) continue;
+    element.style.setProperty(
+      property,
+      selected
+        .map(({ animation }) => values[animation.index % values.length])
+        .join(", "),
+      "important",
+    );
+  }
+  return selected.map(({ animation, name }) => ({
+    name,
+    currentTime: animation.currentTime,
+    resume: animation.resume,
+  }));
+}
+
+function pauseCssAnimations(
+  element: HTMLElement,
   running: RunningAnimation[],
-): void {
+): () => void {
   const pending = [...running];
-  for (const animation of readCssAnimations(frame)) {
+  for (const animation of readCssAnimations(element)) {
     const index = pending.findIndex(
       ({ name }) => name === animation.animationName,
     );
@@ -1490,12 +1566,319 @@ function holdMovedAnimations(
       animation.cancel();
       continue;
     }
-    // Paused before it is set, so it freezes at that time and not a frame on.
     animation.pause();
-    if (reached.currentTime !== null) {
+    if (reached.currentTime !== null)
       animation.currentTime = reached.currentTime;
+  }
+  return () => {
+    for (const animation of readCssAnimations(element)) {
+      if (
+        running.some(
+          ({ name, resume }) => name === animation.animationName && resume,
+        )
+      ) {
+        animation.play();
+      }
+    }
+  };
+}
+
+function restoreCssAnimationTimes(
+  element: HTMLElement,
+  plans: SplitCssAnimation[],
+): void {
+  const usedNames = new Map<string, number>();
+  const current = readCssAnimations(element);
+  for (const plan of plans) {
+    const name = plan.animation.animationName;
+    const occurrence = usedNames.get(name) ?? 0;
+    usedNames.set(name, occurrence + 1);
+    const animation = current.filter((item) => item.animationName === name)[
+      occurrence
+    ];
+    if (animation && plan.currentTime !== null) {
+      animation.currentTime = plan.currentTime;
     }
   }
+}
+
+function copyAnimationEnvironment(
+  source: HTMLElement,
+  frame: HTMLElement,
+): void {
+  const computed = window.getComputedStyle(source);
+  for (let index = 0; index < computed.length; index += 1) {
+    const property = computed.item(index);
+    if (property.startsWith("--")) {
+      frame.style.setProperty(property, computed.getPropertyValue(property));
+    }
+  }
+  for (const property of [
+    "color",
+    "font-family",
+    "font-size",
+    "font-stretch",
+    "font-style",
+    "font-variant",
+    "font-weight",
+    "line-height",
+    "transform-box",
+  ]) {
+    const value = computed.getPropertyValue(property);
+    if (value) frame.style.setProperty(property, value);
+  }
+}
+
+interface CropTransformHandoff {
+  style: HTMLStyleElement | null;
+  activateAnimations: () => () => void;
+}
+
+/**
+ * Hands the painted transform to the crop frame. CSS animation keyframes are
+ * split into frame transform tracks and image visual tracks, so opacity and
+ * other image-only effects stay on the image. The generated keyframes are
+ * stored with the frame so the split survives save and reopen.
+ */
+function moveSlideObjectTransform(
+  source: HTMLElement,
+  frame: HTMLElement,
+): CropTransformHandoff {
+  const computed = window.getComputedStyle(source);
+  const animations = readCssAnimations(source);
+  const savedStyle = source.getAttribute("style");
+  const values = new Map<string, string[]>();
+  for (const property of ANIMATION_LONGHANDS) {
+    values.set(property, splitCssList(computed.getPropertyValue(property)));
+  }
+  const names = values.get("animation-name") ?? [];
+  const usedNames = new Map<string, number>();
+  const plans: SplitCssAnimation[] = animations.map(
+    (animation, fallbackIndex) => {
+      const name = animation.animationName;
+      const occurrence = usedNames.get(name) ?? 0;
+      usedNames.set(name, occurrence + 1);
+      const matches = names.flatMap((candidate, index) =>
+        cssAnimationName(candidate) === name ? [index] : [],
+      );
+      const index =
+        matches[occurrence] ?? Math.min(fallbackIndex, names.length - 1);
+      return {
+        animation,
+        index: Math.max(index, 0),
+        currentTime: animation.currentTime,
+        resume: animation.playState === "running",
+      };
+    },
+  );
+  const keyframes = new Map(
+    plans.map((plan) => [plan, keyframeProperties(plan.animation)]),
+  );
+  const cropAnimatedProperties = [...TRANSFORM_PROPERTIES, "transform-origin"];
+  const keyframedProperties = new Set(
+    [...keyframes.values()].flatMap((properties) => [...properties]),
+  );
+  const candidateAnimatedProperties = cropAnimatedProperties.filter(
+    (property) => keyframedProperties.has(property),
+  );
+  const painted = new Map(
+    cropAnimatedProperties.map((property) => [
+      property,
+      computed.getPropertyValue(property),
+    ]),
+  );
+
+  // A transition takes precedence over CSS animations and even important
+  // declarations. Sample it first, then stop it before suppressing the image's
+  // transform so it cannot continue to paint inside the new crop frame.
+  const transitions =
+    typeof source.getAnimations === "function"
+      ? source.getAnimations().filter((animation) => {
+          const property = (
+            animation as Animation & { transitionProperty?: string }
+          ).transitionProperty;
+          return cropAnimatedProperties.includes(property ?? "");
+        })
+      : [];
+  const transitionedProperties = new Set(
+    transitions.map(
+      (animation) =>
+        (animation as Animation & { transitionProperty: string })
+          .transitionProperty,
+    ),
+  );
+  source.style.setProperty("transition", "none", "important");
+  for (const transition of transitions) transition.cancel();
+
+  const possibleAnimatedProperties = candidateAnimatedProperties.filter(
+    (property) => source.style.getPropertyPriority(property) !== "important",
+  );
+  let splitAnimations = possibleAnimatedProperties.length > 0;
+  if (splitAnimations) {
+    // Disable originals before reading the underneath values. Their current
+    // times and keyframes were captured above and are reapplied to split copies.
+    source.style.setProperty("animation-name", "none", "important");
+  }
+  const underlay = window.getComputedStyle(source);
+  const winningAnimatedProperties = possibleAnimatedProperties.filter(
+    (property) =>
+      inlineValuePaints(source, property, TRANSFORM_PROBES[property]),
+  );
+  if (splitAnimations && winningAnimatedProperties.length === 0) {
+    // A stylesheet !important declaration can beat the animation too. In
+    // that case leave the authored animations on the image and move only the
+    // transform value that actually paints.
+    restoreStyleAttribute(source, savedStyle);
+    source.style.setProperty("transition", "none", "important");
+    restoreCssAnimationTimes(source, plans);
+    splitAnimations = false;
+  }
+  const underlayValues = new Map(
+    cropAnimatedProperties.map((property) => [
+      property,
+      underlay.getPropertyValue(property),
+    ]),
+  );
+
+  const activeFrameProperties = new Set(
+    winningAnimatedProperties.filter(
+      (property) => !transitionedProperties.has(property),
+    ),
+  );
+  // A transform keyframe that uses var(--x) must travel with the custom
+  // property track that supplies it, including chained custom properties.
+  const referencedCustomProperties = new Set<string>();
+  const varPattern = /var\(\s*(--[\w-]+)/g;
+  for (const plan of plans) {
+    const properties = keyframes.get(plan)!;
+    for (const property of activeFrameProperties) {
+      if (!properties.has(property)) continue;
+      for (const keyframe of plan.animation.effect instanceof KeyframeEffect
+        ? plan.animation.effect.getKeyframes()
+        : []) {
+        const value = keyframeValue(keyframe, property);
+        if (!value) continue;
+        for (const match of value.matchAll(varPattern)) {
+          referencedCustomProperties.add(match[1]);
+        }
+      }
+    }
+  }
+  let foundCustomProperty = true;
+  while (foundCustomProperty) {
+    foundCustomProperty = false;
+    for (const plan of plans) {
+      const properties = keyframes.get(plan)!;
+      for (const property of referencedCustomProperties) {
+        if (!properties.has(property)) continue;
+        for (const keyframe of plan.animation.effect instanceof KeyframeEffect
+          ? plan.animation.effect.getKeyframes()
+          : []) {
+          const value = keyframeValue(keyframe, property);
+          if (!value) continue;
+          for (const match of value.matchAll(varPattern)) {
+            if (!referencedCustomProperties.has(match[1])) {
+              referencedCustomProperties.add(match[1]);
+              foundCustomProperty = true;
+            }
+          }
+        }
+      }
+    }
+  }
+  const cssRules: string[] = [];
+  if (splitAnimations) {
+    for (const plan of plans) {
+      const properties = keyframes.get(plan)!;
+      const imageProperties = new Set(
+        [...properties].filter(
+          (property) => !cropAnimatedProperties.includes(property),
+        ),
+      );
+      const frameProperties = new Set(
+        [...properties].filter((property) =>
+          activeFrameProperties.has(property),
+        ),
+      );
+      for (const property of referencedCustomProperties) {
+        if (properties.has(property)) frameProperties.add(property);
+      }
+      if (imageProperties.size > 0) {
+        plan.imageName = nextCropAnimationName();
+        const rule = serializeKeyframes(
+          plan.imageName,
+          plan.animation,
+          imageProperties,
+        );
+        if (rule) cssRules.push(rule);
+      }
+      if (frameProperties.size > 0) {
+        plan.frameName = nextCropAnimationName();
+        const rule = serializeKeyframes(
+          plan.frameName,
+          plan.animation,
+          frameProperties,
+        );
+        if (rule) cssRules.push(rule);
+      }
+    }
+    copyAnimationEnvironment(source, frame);
+  }
+
+  let moved = false;
+  for (const property of TRANSFORM_PROPERTIES) {
+    const authored = source.style.getPropertyValue(property);
+    const value =
+      authored &&
+      !READS_OWN_CASCADE.test(authored) &&
+      inlineValuePaints(source, property)
+        ? authored
+        : transitionedProperties.has(property)
+          ? painted.get(property)
+          : underlayValues.get(property);
+    if (value && value !== "none") {
+      frame.style.setProperty(property, value);
+      moved = true;
+    }
+    source.style.setProperty(property, "none", "important");
+  }
+  const origin = transitionedProperties.has("transform-origin")
+    ? painted.get("transform-origin")
+    : underlayValues.get("transform-origin");
+  if (moved && origin && origin !== "50% 50%")
+    frame.style.setProperty("transform-origin", origin);
+  moved ||= activeFrameProperties.size > 0;
+  let style: HTMLStyleElement | null = null;
+  if (moved && splitAnimations && cssRules.length > 0) {
+    style = frame.ownerDocument.createElement("style");
+    style.setAttribute("data-fmd-crop-keyframes", "");
+    style.textContent = cssRules.join("\n");
+  }
+
+  return {
+    style,
+    activateAnimations: () => {
+      if (!splitAnimations) return () => {};
+      const imageRunning = setAnimationList(
+        source,
+        plans,
+        (plan) => plan.imageName,
+        values,
+      );
+      const frameRunning = setAnimationList(
+        frame,
+        plans,
+        (plan) => plan.frameName,
+        values,
+      );
+      const resumeImage = pauseCssAnimations(source, imageRunning);
+      const resumeFrame = pauseCssAnimations(frame, frameRunning);
+      return () => {
+        resumeImage();
+        resumeFrame();
+      };
+    },
+  };
 }
 
 /**
@@ -1503,9 +1886,11 @@ function holdMovedAnimations(
  * place, box and transform inside its parent, and the image moves into the
  * frame's clipping viewport. Null when the image has no parent to wrap it in.
  */
-export function wrapImageInCropFrame(
-  image: HTMLImageElement,
-): { frame: HTMLElement; viewport: HTMLElement } | null {
+export function wrapImageInCropFrame(image: HTMLImageElement): {
+  frame: HTMLElement;
+  viewport: HTMLElement;
+  resumeAnimations: () => void;
+} | null {
   const parent = image.parentElement;
   if (!parent) return null;
   const imageWidth = image.offsetWidth;
@@ -1533,7 +1918,7 @@ export function wrapImageInCropFrame(
   }
   const zIndex = imageStyle.zIndex || window.getComputedStyle(image).zIndex;
   if (zIndex && zIndex !== "auto") frame.style.zIndex = zIndex;
-  const running = moveSlideObjectTransform(image, frame);
+  const animationHandoff = moveSlideObjectTransform(image, frame);
   frame.style.position ||= "absolute";
   frame.style.display = "block";
   frame.style.left ||= `${imageLeft}px`;
@@ -1570,8 +1955,9 @@ export function wrapImageInCropFrame(
     maxHeight: "none",
     margin: "0",
   });
-  holdMovedAnimations(frame, running);
-  return { frame, viewport };
+  if (animationHandoff.style) frame.appendChild(animationHandoff.style);
+  const resumeAnimations = animationHandoff.activateAnimations();
+  return { frame, viewport, resumeAnimations };
 }
 
 export function resolveSlideClipboardElement(
@@ -3047,7 +3433,13 @@ export function ungroupSlideObject(
         height: geometry.height,
       }),
     );
-    if (transform) element.style.transform = transform.nextTransform;
+    if (transform) {
+      element.style.setProperty(
+        "transform",
+        transform.nextTransform,
+        element.style.getPropertyPriority("transform"),
+      );
+    }
   }
   group.remove();
   return childGeometries.map(({ element }) => element);
@@ -3616,10 +4008,13 @@ export function slideObjectPaintsRotation(
  * that is running or still to start on a transform property.
  */
 function inlineTransformPaints(element: HTMLElement): boolean {
-  return (
-    !hasTransformAnimation(element) &&
-    inlineValuePaints(element, "transform", TRANSFORM_PROBES.transform)
-  );
+  if (hasTransformAnimation(element)) return false;
+  // An inline important transform beats its own CSS animation. A plain probe
+  // would incorrectly treat that animation as the winner.
+  if (element.style.getPropertyPriority("transform") === "important") {
+    return true;
+  }
+  return inlineValuePaints(element, "transform", TRANSFORM_PROBES.transform);
 }
 
 /**

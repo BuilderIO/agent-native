@@ -1238,7 +1238,7 @@ describe("starting to crop an image", () => {
           ).toBe("none");
           expect(image.style.getPropertyPriority(property)).toBe("important");
           expect(frame!.style.transformOrigin).toBe(
-            property === "transform" ? "0% 0%" : "",
+            property === "transform" ? "top left" : "",
           );
         });
       },

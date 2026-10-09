@@ -101,23 +101,24 @@ rotation comes from a stylesheet, or the list does not paint the requested
 rotation once edited, the effective matrix is written instead, and a pure
 rotation is written back as `rotate(Xdeg)`. A plain inline `transform` loses to
 a stylesheet `!important` transform (`none`, `initial` and `unset` included: an
-object they keep flat reads 0°) and to a CSS animation on a transform property,
-so the setter reads the painted rotation back and, when it is not the one asked
-for, restores the inline style and returns false rather than reporting an edit
-that paints nothing. An object with such an animation, running or still waiting
-out its delay, is refused outright, because a rotation read at one instant is
-not the one it keeps. The inspector field starts over from the painted value,
-the rotate handle and shortcut plan no rotation for that object, and ungroup
-(which writes its members' turned transform inline) does nothing. The read-back
-runs with transitions off, so an object with a transition on its transform
-still turns at once; the transition is left as authored and does not play the
-turn. Deviation: such an object can be moved and resized but not rotated;
-Google has no equivalent. Limits: switching transitions off for that instant,
-which the handle and ungroup checks also do, ends any transition running on the
-object (it jumps to its end value); an object whose inline `transform` is
-`!important` and also beaten by a stylesheet `!important` one turns from the
-inspector, which keeps the inline priority, but not from the handle or ungroup,
-which write a plain value.
+object they keep flat reads 0°) and to a CSS animation on a transform property
+when that animation wins the cascade. The setter reads the painted rotation
+back and, when it is not the one asked for, restores the inline style and
+returns false rather than reporting an edit that paints nothing. An animation
+that wins on `transform`, `translate`, `rotate` or `scale`, running or still
+waiting out its delay, makes the rotation unavailable because a rotation read
+at one instant is not the one it keeps. An inline `transform: ... !important`
+beats a transform animation on that same property, so it remains editable;
+animation on a separate longhand such as `rotate` still blocks the edit. The
+inspector field starts over from the painted value when an edit is refused, and
+the rotate handle, shortcut, and ungroup plan preserve an existing inline
+important priority when they write. The read-back runs with transitions off,
+so an object with a transition on its transform still turns at once; the
+transition is left as authored and does not play the turn. Deviation: an object
+whose transform is held by a stylesheet `!important` rule can be moved and
+resized but not rotated; Google has no equivalent. Limits: switching
+transitions off for that instant, which the handle and ungroup checks also do,
+ends any transition running on the object (it jumps to its end value).
 
 Starting a crop on a bare image hands its transform to the new crop frame and
 turns it off on the image, with `none !important` so a stylesheet `!important`
@@ -131,29 +132,26 @@ frame keeps the value that painted at the instant the crop started, including
 any `:hover` or media-query state (a crop starts under the pointer, so an
 `!important` `:hover` transform that beats an inline one is the one that moves);
 it does not follow the rule afterwards.
-A CSS animation that is running, paused or filling on a transform property
-moves with it: the image's animation list is copied to the frame and switched
-off on the image, and the frame's animations are seeked to where the image's
-were and held there while the crop is edited, so the frame paints what the image
-painted with no jump or restart and the saved frame plays what the image
-played. Whether the animation paints is decided by the cascade, not by its
-keyframes or the value it ends on: with the animation off, a plain inline write
-of the property must paint, so an animation an `!important` declaration (inline
-or in a stylesheet) beats stays on the image, where it paints nothing, instead
-of starting to paint on a frame that declaration cannot match. If one animation
-list holds both a beaten and a painting transform animation the whole list
-moves, and the beaten one paints on the frame. An animation that finished
-without filling paints nothing at that instant and is not carried, and an
-animation that does not touch a transform property stays on the image, which
-restarts it when it moves into the frame (and again if the crop is cancelled)
-like any element that moves in the document. Cropping an image that already has
-a frame does not hold the frame's animation while the crop is edited.
-Script-created animations and CSS transitions are not carried: a running
-transition is sampled like a `:hover` state.
+A CSS animation that wins on a transform property moves with the crop frame.
+The original animation tracks are split: transform tracks and any referenced
+custom-property tracks run on the frame, while opacity and other image effects
+run on the image. The frame inherits the image's computed custom properties and
+font context, and the generated keyframes are stored with the frame so they
+survive save and reopen. Both sets of animations are paused at the source's
+current time while the crop is edited, then resume on commit. This keeps mixed
+transform/opacity animations from applying opacity to both parent and child,
+and keeps image-only keyframes such as `object-position` on the image. An
+animation beaten by an inline `!important` transform is not restarted on the
+frame; the value that actually paints moves as a static transform. CSS
+transitions do not move to the frame: an active transform transition is sampled
+and cancelled, and the frame holds its pose while the crop is edited. Cropping
+an image that already has a frame does not hold that frame's animation while
+the crop is edited. Script-created animations are sampled but not carried.
 
 Evidence: the reader, the writer, the crop-frame hand-off (including a
-stylesheet `!important` transform over an inline one, and a CSS animation
-moved to the frame and replayed from the saved markup) and the inspector's
+stylesheet `!important` transform over an inline one, split transform and
+opacity animation tracks, a custom-property transform animation, a running
+transition, and playback from saved markup) and the inspector's
 refused-rotation field are exercised in headless Chromium
 (`slide-object-transform.browser.spec.ts`, which runs in the fast lanes) and in
 the happy-dom editor tests, not yet through the live editor UI.
