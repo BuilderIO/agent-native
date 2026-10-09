@@ -8,7 +8,6 @@ import {
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { initializeAgentNativeClient } from "./client-bootstrap.js";
-import { routeTemplateForPath } from "./route-template.js";
 
 export function frameworkRoutePrefix(): string {
   const configured = injectedAgentNativeConfig().runtime?.frameworkRoutePrefix;
@@ -126,31 +125,6 @@ function routerContextBasePath(): string {
   return typeof basename === "string" ? normalizeBasePath(basename) : "";
 }
 
-function workspaceAppIdentityBasePath(): string {
-  if (typeof window === "undefined") return "";
-  const browserConfig = (
-    window as Window & {
-      __AGENT_NATIVE_CONFIG__?: {
-        workspaceAppId?: unknown;
-        workspaceAppPath?: unknown;
-      };
-    }
-  ).__AGENT_NATIVE_CONFIG__;
-  if (
-    typeof browserConfig?.workspaceAppPath === "string" &&
-    browserConfig.workspaceAppPath.trim()
-  ) {
-    return normalizeBasePath(browserConfig.workspaceAppPath);
-  }
-  const injectedIdentity = browserConfig?.workspaceAppId;
-  const configuredIdentity = clientEnv()?.VITE_AGENT_NATIVE_WORKSPACE_APP_ID;
-  const identity =
-    typeof configuredIdentity === "string" && configuredIdentity.trim()
-      ? configuredIdentity
-      : injectedIdentity;
-  return typeof identity === "string" ? normalizeBasePath(identity) : "";
-}
-
 function workspaceAppConfiguredPath(): string {
   if (typeof window === "undefined") return "";
   const configuredPath = (
@@ -161,23 +135,6 @@ function workspaceAppConfiguredPath(): string {
   return typeof configuredPath === "string"
     ? normalizeBasePath(configuredPath)
     : "";
-}
-
-function isStaticRouteTemplate(template: string | null): boolean {
-  return Boolean(
-    template &&
-    template !== "/" &&
-    template
-      .split("/")
-      .slice(1)
-      .every(
-        (segment) => segment && segment !== "*" && !segment.startsWith(":"),
-      ),
-  );
-}
-
-function hasDynamicLeadingRouteSegment(template: string | null): boolean {
-  return Boolean(template?.split("/")[1]?.startsWith(":"));
 }
 
 export function isWorkspaceRuntime(): boolean {
@@ -214,46 +171,13 @@ function workspacePathBasePath(): string {
   }
   const segment = pathname.split("/").find(Boolean);
   if (!segment || isFrameworkSegment(segment) || segment === "api") return "";
-  const basePath = normalizeBasePath(segment);
   const mounts = workspaceAppMountPaths();
-  if (mounts && !mounts.has(basePath)) {
-    const routes = (
-      window as Window & {
-        __reactRouterManifest?: {
-          routes?: Record<
-            string,
-            { id: string; parentId?: string; path?: string; index?: boolean }
-          >;
-        };
-      }
-    ).__reactRouterManifest?.routes;
-    const localPathname = pathname.slice(basePath.length) || "/";
-    const routeForFullPath = routeTemplateForPath(pathname, routes);
-    const routeForLocalPath = routeTemplateForPath(localPathname, routes);
-    const mountRootMatchedByRootParam =
-      normalizeBasePath(pathname) === basePath &&
-      localPathname === "/" &&
-      routeForLocalPath === "/" &&
-      routeForFullPath !== null &&
-      /^\/:[^/]+$/.test(routeForFullPath);
-    const localStaticRouteMatchedByRootSplat =
-      routeForFullPath === "/*" && isStaticRouteTemplate(routeForLocalPath);
-    const localStaticRouteMatchedByDynamicPrefix =
-      hasDynamicLeadingRouteSegment(routeForFullPath) &&
-      isStaticRouteTemplate(routeForLocalPath);
-    if (
-      routeForLocalPath &&
-      (!routeForFullPath ||
-        mountRootMatchedByRootParam ||
-        localStaticRouteMatchedByRootSplat ||
-        localStaticRouteMatchedByDynamicPrefix) &&
-      workspaceAppIdentityBasePath() === basePath
-    ) {
-      return basePath;
-    }
-    return "";
-  }
-  return basePath;
+  if (!mounts) return "";
+  return (
+    [...mounts]
+      .filter((mount) => pathMatchesBasePath(pathname, mount))
+      .sort((a, b) => b.length - a.length)[0] ?? ""
+  );
 }
 
 function externalEmbedTargetBasePath(): string {
@@ -298,20 +222,24 @@ export function appBasePath(): string {
 }
 
 function workspaceAppMountPaths(): Set<string> | null {
-  const raw = clientEnv()?.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
-  if (typeof raw !== "string" || !raw.trim()) {
-    const projected = (
-      window as Window & {
-        __AGENT_NATIVE_CONFIG__?: { workspaceAppMountPaths?: unknown };
-      }
-    ).__AGENT_NATIVE_CONFIG__?.workspaceAppMountPaths;
-    if (!Array.isArray(projected)) return null;
+  const projected =
+    typeof window === "undefined"
+      ? undefined
+      : (
+          window as Window & {
+            __AGENT_NATIVE_CONFIG__?: { workspaceAppMountPaths?: unknown };
+          }
+        ).__AGENT_NATIVE_CONFIG__?.workspaceAppMountPaths;
+  if (Array.isArray(projected)) {
     const paths = projected
       .filter((value): value is string => typeof value === "string")
       .map(normalizeBasePath)
       .filter(Boolean);
-    return paths.length ? new Set(paths) : null;
+    if (paths.length) return new Set(paths);
   }
+
+  const raw = clientEnv()?.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
+  if (typeof raw !== "string" || !raw.trim()) return null;
 
   try {
     const parsed: unknown = JSON.parse(raw);

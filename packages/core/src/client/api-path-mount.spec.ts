@@ -25,7 +25,7 @@ describe("appMountPath", () => {
     );
   });
 
-  it("restores an omitted live mount from the app route manifest", () => {
+  it("restores an omitted live mount from explicit app mount config", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
       "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
@@ -33,7 +33,10 @@ describe("appMountPath", () => {
     );
     vi.stubGlobal("window", {
       location: { pathname: "/dispatch/home" },
-      __AGENT_NATIVE_CONFIG__: { workspaceAppId: "dispatch" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceAppId: "dispatch",
+        workspaceAppPath: "/dispatch",
+      },
       __reactRouterManifest: {
         routes: {
           root: { id: "root", path: "/" },
@@ -187,7 +190,7 @@ describe("appMountPath", () => {
     expect(appBasePath()).toBe("/dispatch");
   });
 
-  it("uses the workspace app identity when a root splat masks a static local route", () => {
+  it("uses the explicit app path when a root splat masks a static local route", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
       "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
@@ -195,7 +198,10 @@ describe("appMountPath", () => {
     );
     vi.stubGlobal("window", {
       location: { pathname: "/dispatch/home" },
-      __AGENT_NATIVE_CONFIG__: { workspaceAppId: "dispatch" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceAppId: "dispatch",
+        workspaceAppPath: "/dispatch",
+      },
       __reactRouterManifest: {
         routes: {
           root: { id: "root", path: "/" },
@@ -208,13 +214,16 @@ describe("appMountPath", () => {
     expect(appBasePath()).toBe("/dispatch");
   });
 
-  it("uses the configured app mount when its id differs from its path", () => {
+  it("uses a declared mount path when its app id differs from its path", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "clips", path: "/clips" }]),
+    );
     vi.stubGlobal("window", {
       location: { pathname: "/recordings/home" },
       __AGENT_NATIVE_CONFIG__: {
         workspaceAppId: "clips",
-        workspaceAppPath: "/recordings",
         workspaceAppMountPaths: ["/recordings", "/content"],
       },
       __reactRouterManifest: {
@@ -228,7 +237,7 @@ describe("appMountPath", () => {
     expect(appBasePath()).toBe("/recordings");
   });
 
-  it("lets a concrete local route beat a dynamic full-path match for the app mount", () => {
+  it("uses explicit app mount config when a dynamic route also matches the full path", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
       "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
@@ -236,7 +245,10 @@ describe("appMountPath", () => {
     );
     vi.stubGlobal("window", {
       location: { pathname: "/dispatch/home" },
-      __AGENT_NATIVE_CONFIG__: { workspaceAppId: "dispatch" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceAppId: "dispatch",
+        workspaceAppPath: "/dispatch",
+      },
       __reactRouterManifest: {
         routes: {
           root: { id: "root", path: "/" },
@@ -254,7 +266,7 @@ describe("appMountPath", () => {
   });
 
   it.each(["/dispatch", "/dispatch/"])(
-    "uses the workspace app identity when a root parameter route masks %s",
+    "uses explicit app mount config when a root parameter route masks %s",
     (pathname) => {
       vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
       vi.stubEnv(
@@ -263,7 +275,10 @@ describe("appMountPath", () => {
       );
       vi.stubGlobal("window", {
         location: { pathname },
-        __AGENT_NATIVE_CONFIG__: { workspaceAppId: "dispatch" },
+        __AGENT_NATIVE_CONFIG__: {
+          workspaceAppId: "dispatch",
+          workspaceAppPath: "/dispatch",
+        },
         __reactRouterManifest: {
           routes: {
             root: { id: "root", path: "/" },
