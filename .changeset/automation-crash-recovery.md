@@ -36,3 +36,5 @@ Durably settle malformed no-op evidence as an explicit unknown-delivery error, r
 Use the resource-scoped automation history ownership helper for atomic admission and recovery, preserving personal history when execution carries an organization context.
 
 Settle ambiguous legacy firing markers as explicit unknown-evidence errors without choosing, finishing, or replaying either history, while retaining transient history-read failures for retry.
+
+Preserve original tool argument identity with a SHA-256 fingerprint before stripping inline attachment bytes, fail closed for legacy redacted inputs without that identity, and include predecessor-confirmed work when settling resumed automation outcomes.

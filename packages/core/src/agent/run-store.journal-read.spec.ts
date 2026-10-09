@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getCurrentTurnEventsForThread,
   getCurrentTurnRunEventsForThread,
+  insertRunEvent,
 } from "./run-store.js";
+import {
+  classifyToolCallJournal,
+  findCompletedJournalEntry,
+} from "./tool-call-journal.js";
 
 const mocks = vi.hoisted(() => ({
   events: [] as unknown[],
@@ -102,6 +107,12 @@ describe.each([
       { type: "tool_done", tool: "send-message" },
       { type: "tool_done", tool: " ", result: "sent" },
       { type: "tool_done", tool: "send-message", id: "", result: "sent" },
+      ...[null, 1, "short", "x".repeat(64)].map((inputFingerprint) => ({
+        type: "tool_done",
+        tool: "send-message",
+        result: "sent",
+        inputFingerprint,
+      })),
       {
         type: "tool_done",
         tool: "send-message",
@@ -205,3 +216,98 @@ it.each([
     expect.objectContaining({ args: ["thread", turnId] }),
   );
 });
+
+it("matches original attachment inputs after SQL byte stripping without conflating payloads", async () => {
+  const input = {
+    destination: "example",
+    attachments: [{ type: "file", name: "report.txt", data: "QQ==" }],
+  };
+  const other = {
+    ...input,
+    attachments: [{ ...input.attachments[0], data: "Qg==" }],
+  };
+  const events = [
+    { type: "tool_start", tool: "send-report", input },
+    { type: "tool_start", tool: "send-report", input: other },
+    {
+      type: "tool_done",
+      tool: "send-report",
+      input: other,
+      result: "second sent",
+      completedSideEffect: true,
+    },
+    {
+      type: "tool_done",
+      tool: "send-report",
+      input,
+      result: "first sent",
+      completedSideEffect: true,
+    },
+  ];
+  mocks.execute.mockImplementation(async (statement) => {
+    if (statement.sql.includes("INSERT INTO agent_run_events")) {
+      mocks.events.push({
+        run_id: statement.args[0],
+        seq: statement.args[1],
+        event_data: statement.args[3],
+      });
+    }
+    return {
+      rows: statement.sql.includes("SELECT e.run_id AS run_id")
+        ? mocks.events
+        : [],
+      rowsAffected: 0,
+    };
+  });
+  for (const [seq, event] of events.entries())
+    await insertRunEvent("run-first", seq, JSON.stringify(event));
+  expect(JSON.stringify(mocks.events)).not.toContain("QQ==");
+  expect(JSON.stringify(mocks.events)).not.toContain("Qg==");
+  const journal = classifyToolCallJournal(
+    await getCurrentTurnEventsForThread("thread", "turn"),
+  );
+  const consumed = new Set<string>();
+  expect(
+    findCompletedJournalEntry(journal, "send-report", {
+      ...input,
+      attachments: [{ ...input.attachments[0], data: "Qw==" }],
+    }),
+  ).toBeUndefined();
+  expect(
+    findCompletedJournalEntry(
+      journal,
+      "send-report",
+      { attachments: input.attachments, destination: "example" },
+      consumed,
+    )?.result,
+  ).toBe("first sent");
+  expect(
+    findCompletedJournalEntry(journal, "send-report", input, consumed),
+  ).toBeUndefined();
+  expect(
+    findCompletedJournalEntry(journal, "send-report", other, consumed)?.result,
+  ).toBe("second sent");
+});
+
+it.each([
+  { attachments: [{ type: "file", omitted: "inline-bytes" }] },
+  { body: "[inline text/plain data omitted]" },
+])(
+  "fails closed for legacy stripped arguments without original identity: %j",
+  async (input) => {
+    mocks.events = [
+      {
+        ...start,
+        event_data: JSON.stringify({
+          type: "tool_start",
+          tool: "send-report",
+          input,
+        }),
+      },
+      done,
+    ];
+    await expect(
+      getCurrentTurnEventsForThread("thread", "turn"),
+    ).rejects.toMatchObject({ errorCode: "tool_call_journal_unreadable" });
+  },
+);

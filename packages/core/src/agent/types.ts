@@ -393,12 +393,19 @@ export type AgentChatEvent =
         | "stop_sequence"
         | "error";
     }
-  | { type: "tool_start"; tool: string; id?: string; input: AgentToolInput }
+  | {
+      type: "tool_start";
+      tool: string;
+      id?: string;
+      input: AgentToolInput;
+      inputFingerprint?: string;
+    }
   | {
       type: "tool_done";
       tool: string;
       id?: string;
       input?: AgentToolInput;
+      inputFingerprint?: string;
       result: string;
       isError?: boolean;
       errorCode?: string;

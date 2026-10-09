@@ -56,6 +56,7 @@ import {
   buildResumeJournalNote,
 } from "../agent/tool-call-journal.js";
 import { attachToolSearch } from "../agent/tool-search.js";
+import type { AgentChatEvent } from "../agent/types.js";
 import {
   lookupOwnerAccount,
   resolveAutomationExecutionIdentity,
@@ -854,9 +855,10 @@ async function confirmAutomationWork(
   responseText: string,
   actions: Record<string, ActionEntry>,
   noOpReason: string | undefined,
+  priorEvents: readonly AgentChatEvent[],
 ): Promise<{ status: "success" } | { status: "skipped"; reason: string }> {
   const evidence = inspectAutomationWork(
-    (run.events ?? []).map(({ event }) => event),
+    [...priorEvents, ...(run.events ?? []).map(({ event }) => event)],
     {
       noOpReason,
       confirmsWork: (tool) => actions[tool]?.confirmsAutomationWork !== false,
@@ -1108,6 +1110,7 @@ async function executeBackgroundAutomation(
       let engineMessages: EngineMessage[] = [
         { role: "user", content: [{ type: "text", text: executionPrompt }] },
       ];
+      let priorEvents: AgentChatEvent[] = [];
       if (options.resume) {
         const saved = JSON.parse(
           "threadData" in thread ? thread.threadData || "{}" : "{}",
@@ -1135,6 +1138,7 @@ async function executeBackgroundAutomation(
           thread.id,
           turnId,
         );
+        priorEvents = events.map(({ event }) => event);
         const partial = buildAssistantMessage(
           events,
           options.resume.previousRunId,
@@ -1342,6 +1346,7 @@ async function executeBackgroundAutomation(
                     responseText,
                     actions,
                     noOpReason,
+                    priorEvents,
                   );
                 } catch (error) {
                   const failure = classifyAutomationFailure(error);

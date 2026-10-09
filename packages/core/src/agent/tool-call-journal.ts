@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { ActionChatUIConfig } from "../action-ui.js";
 import {
   isArtifactReceipt,
@@ -9,6 +11,7 @@ export interface ToolCallJournalEntry {
   key: string;
   tool: string;
   input?: AgentToolInput;
+  inputFingerprint?: string;
   order: number;
   result?: string;
   artifacts?: ArtifactReceipt[];
@@ -34,6 +37,18 @@ function inputSignature(input: unknown): string {
   } catch {
     return String(input);
   }
+}
+
+export function toolCallInputFingerprint(input: unknown): string {
+  return createHash("sha256").update(inputSignature(input)).digest("hex");
+}
+
+export function isRedactedToolCallInput(input: unknown): boolean {
+  if (typeof input === "string")
+    return /\[inline [^\]]+ data omitted\]/.test(input);
+  if (!input || typeof input !== "object") return false;
+  if ("omitted" in input && input.omitted === "inline-bytes") return true;
+  return Object.values(input).some(isRedactedToolCallInput);
 }
 
 function canonicalizeForSignature(
@@ -99,6 +114,9 @@ export function classifyToolCallJournal(
         key: `${tool}#${order}:${displayInputSignature(input)}`,
         tool,
         ...(input ? { input } : {}),
+        ...(event.inputFingerprint
+          ? { inputFingerprint: event.inputFingerprint }
+          : {}),
         order,
       };
       order += 1;
@@ -149,6 +167,14 @@ function takeMatchingOpenEntry(
   event: Extract<AgentChatEvent, { type: "tool_done" }>,
 ): ToolCallJournalEntry | undefined {
   if (!queue || queue.length === 0) return undefined;
+  if (event.inputFingerprint) {
+    const index = queue.findIndex(
+      (entry) =>
+        (entry.inputFingerprint ?? toolCallInputFingerprint(entry.input)) ===
+        event.inputFingerprint,
+    );
+    return index >= 0 ? queue.splice(index, 1)[0] : undefined;
+  }
   if (event.input !== undefined) {
     const doneSig = inputSignature(event.input);
     const index = queue.findIndex(
@@ -193,9 +219,16 @@ export function findCompletedJournalEntry(
   consumedKeys?: Set<string>,
 ): ToolCallJournalEntry | undefined {
   const wantSig = inputSignature(input);
+  let wantFingerprint: string | undefined;
   for (const entry of journal.completed) {
     if (entry.tool !== toolName) continue;
-    if (inputSignature(entry.input) !== wantSig) continue;
+    if (
+      entry.inputFingerprint
+        ? entry.inputFingerprint !==
+          (wantFingerprint ??= toolCallInputFingerprint(input))
+        : inputSignature(entry.input) !== wantSig
+    )
+      continue;
     if (consumedKeys?.has(entry.key)) continue;
     consumedKeys?.add(entry.key);
     return entry;

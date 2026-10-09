@@ -213,6 +213,113 @@ describe("runBackgroundAutomation — confirmed work", () => {
     model: "test-model",
   };
 
+  it.each(["summary", "no-op", "progress-only"])(
+    "includes predecessor work when recovery ends with %s",
+    async (scenario) => {
+      const runStore = await import("../agent/run-store.js");
+      const history = await import("./run-history.js");
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      const automation = precondition(`prior-work-${scenario}`);
+      const threadId = `thread-prior-${scenario}`;
+      const turnId = `turn-prior-${scenario}`;
+      const historyId = await history.startAutomationRun({
+        owner: automation.resource.owner,
+        automation: automation.name,
+        path: automation.resource.path,
+      });
+      getThreadMock.mockResolvedValueOnce({
+        id: threadId,
+        title: "Interrupted",
+        preview: "",
+        messageCount: 1,
+        threadData: JSON.stringify({
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "Send the report." }],
+              metadata: { custom: { submittedTurnId: turnId } },
+            },
+          ],
+        }),
+      });
+      const journal = vi
+        .spyOn(runStore, "getCurrentTurnRunEventsForThread")
+        .mockResolvedValue([
+          {
+            runId: "prior",
+            seq: 0,
+            event: { type: "tool_start", tool: "prior-action", input: {} },
+          },
+          {
+            runId: "prior",
+            seq: 1,
+            event: {
+              type: "tool_done",
+              tool: "prior-action",
+              result: "Sent",
+              completedSideEffect: true,
+            },
+          },
+        ]);
+      const claim = vi
+        .spyOn(runStore, "tryClaimRunSlot")
+        .mockImplementation(async (id, runId, _staleMs, options) => {
+          await runStore.insertRun(runId, id, options!.turnId!, {
+            dispatchMode: "background",
+            afterInsert: options!.afterInsert,
+          });
+          return { claimed: true, activeRunId: null };
+        });
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+        async (opts) => {
+          if (scenario === "no-op")
+            await opts.actions["automation-no-op"].run({
+              reason: "No remaining work.",
+            });
+          opts.send({ type: "text", text: "The prior send is complete." });
+          return usage;
+        },
+      );
+      try {
+        const promise = runBackgroundAutomation(
+          runOptions(automation, {
+            historyId,
+            resume: {
+              historyId,
+              threadId,
+              turnId,
+              previousRunId: "prior",
+              hardDeadlineAt: Date.now() + 60_000,
+            },
+          }),
+          {
+            ...standardDeps,
+            getActions: () => ({
+              "prior-action": {
+                run: vi.fn(),
+                confirmsAutomationWork: scenario !== "progress-only",
+              },
+            }),
+          },
+        );
+        if (scenario === "progress-only")
+          await expect(promise).rejects.toMatchObject({
+            errorCode: "automation_no_confirmed_work",
+          });
+        else {
+          await expect(promise).resolves.toMatchObject({ status: "success" });
+          expect(await history.getAutomationRun(historyId)).toMatchObject({
+            status: "success",
+          });
+        }
+      } finally {
+        journal.mockRestore();
+        claim.mockRestore();
+      }
+    },
+  );
+
   it.each(["nothing-needed", "journal-no-op", "failed-send", "confirmed-work"])(
     "settles a declared no-op: %s",
     async (scenario) => {

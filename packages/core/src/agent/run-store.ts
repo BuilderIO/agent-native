@@ -32,6 +32,10 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./engine/credential-errors.js";
+import {
+  isRedactedToolCallInput,
+  toolCallInputFingerprint,
+} from "./tool-call-journal.js";
 import { CONTINUATION_REASONS, isContinuationTerminalReason } from "./types.js";
 import type { AgentChatEvent, ContinuationReason, RunEvent } from "./types.js";
 
@@ -2364,6 +2368,23 @@ export async function getRunAbortState(
   };
 }
 
+function persistedRunEventData(eventData: string): string {
+  const stripped = stripInlineBytesFromJson(eventData, "placeholder");
+  if (stripped === eventData) return eventData;
+  const original = JSON.parse(eventData);
+  if (
+    (original.type !== "tool_start" && original.type !== "tool_done") ||
+    original.input === undefined ||
+    isRedactedToolCallInput(original.input)
+  )
+    return stripped;
+  // Replay identity must survive removal of the attachment bytes from SQL.
+  return JSON.stringify({
+    ...JSON.parse(stripped),
+    inputFingerprint: toolCallInputFingerprint(original.input),
+  });
+}
+
 export async function insertRunEvent(
   runId: string,
   seq: number,
@@ -2379,13 +2400,7 @@ export async function insertRunEvent(
         WHERE id = ? AND status <> 'running'
       )
       ON CONFLICT (run_id, seq) DO NOTHING`,
-    args: [
-      runId,
-      seq,
-      Date.now(),
-      stripInlineBytesFromJson(eventData, "placeholder"),
-      runId,
-    ],
+    args: [runId, seq, Date.now(), persistedRunEventData(eventData), runId],
   });
 }
 
@@ -2836,6 +2851,11 @@ function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
         (value.tool as string).trim().length > 0 &&
         (value.id === undefined ||
           (typeof value.id === "string" && value.id.trim().length > 0)) &&
+        (value.inputFingerprint === undefined ||
+          (typeof value.inputFingerprint === "string" &&
+            /^[a-f0-9]{64}$/.test(value.inputFingerprint))) &&
+        (!isRedactedToolCallInput(value.input) ||
+          value.inputFingerprint !== undefined) &&
         (type === "tool_start"
           ? isJournalObject(value.input)
           : (value.input === undefined || isJournalObject(value.input)) &&
