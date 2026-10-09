@@ -2034,8 +2034,9 @@ describe("document editor layout", () => {
     expect(
       documentEditorLoadState({
         documentId: "document-a",
-        admittedDocumentId: null,
+        admittedDocumentId: "document-a",
         hasDocument: true,
+        isDocumentCreationConfirmed: true,
         isDocumentCreationPending: false,
         isFetchedAfterMount: true,
         isFetching: false,

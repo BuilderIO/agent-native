@@ -95,7 +95,7 @@ describe("app layout", () => {
     );
   });
 
-  it("uses pending document navigation for immediate sidebar and editor feedback", () => {
+  it("uses pending document navigation for immediate sidebar and created-page editor feedback", () => {
     const source = readLayoutSource();
 
     expect(source).toContain("useNavigation()");
@@ -105,8 +105,11 @@ describe("app layout", () => {
       "const activeDocumentId = pendingDocumentId ?? currentDocumentId",
     );
     expect(source).toContain("const showPendingDocumentSkeleton =");
+    expect(source).toContain("const showPendingDocumentEditor = Boolean(");
+    expect(source).toContain("const LazyDocumentEditor = lazy(");
+    expect(source).toContain("<PendingDocumentTransition");
     expect(source).toMatch(
-      /<DocumentEditorSkeleton\s+title=\{pendingDocumentTitle\}\s+iconRow=\{readPageIconRowHint\(pendingDocumentId\)\}\s+shape=\{readPageShapeHint\(pendingDocumentId\)\}/,
+      /<DocumentEditorSkeleton\s+title=\{title\}\s+iconRow=\{readPageIconRowHint\(documentId\)\}\s+shape=\{readPageShapeHint\(documentId\)\}/,
     );
   });
 

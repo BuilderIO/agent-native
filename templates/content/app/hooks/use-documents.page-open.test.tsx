@@ -74,7 +74,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-import { markDocumentCreationPending } from "../lib/optimistic-document";
+import {
+  clearDocumentCreationConfirmed,
+  markDocumentCreationConfirmed,
+  markDocumentCreationPending,
+} from "../lib/optimistic-document";
 import { PAGE_OPEN_READ_TTL_MS } from "../lib/page-open-reads";
 import { useContentSpaces } from "./use-content-spaces";
 import { contentSyncInvalidatePredicate } from "./use-db-sync";
@@ -176,6 +180,36 @@ describe("page open document reads", () => {
     expect(
       queryClient.getQueryData(["action", "get-document", { id: "doc-1" }]),
     ).not.toHaveProperty("previewDraft");
+  });
+
+  it("waits for a pending page create before fetching its document", async () => {
+    const id = "new-page";
+    const queryKey = ["action", "get-document", { id }];
+    queryClient.setQueryData(
+      queryKey,
+      markDocumentCreationPending({ id, title: "" } as Document),
+    );
+
+    await mount(id);
+
+    expect(reads("get-document")).toBe(0);
+
+    const created = markDocumentCreationConfirmed({
+      id,
+      title: "",
+    } as Document);
+    await act(async () => {
+      queryClient.setQueryData(queryKey, created);
+    });
+    await vi.waitFor(() => expect(reads("get-document")).toBe(1));
+    await vi.waitFor(() =>
+      expect(queryClient.getQueryData(queryKey)).toMatchObject({
+        id,
+        title: "Plan",
+      }),
+    );
+
+    clearDocumentCreationConfirmed(created);
   });
 
   it("boots the /page/:id reads under a ChatGPT widget scope", async () => {
@@ -655,6 +689,27 @@ describe("page open document reads", () => {
     startPageOpenDocumentReads(queryClient, "new-page");
 
     expect(server.calls).toEqual([]);
+  });
+
+  it("does not read a draft that cannot exist before a newly created page opens", () => {
+    const created = markDocumentCreationConfirmed({
+      id: "newly-created-page",
+      title: "",
+      canEdit: true,
+    } as Document);
+    queryClient.setQueryData(
+      ["action", "get-document", { id: created.id }],
+      created,
+    );
+
+    startPageOpenDocumentReads(queryClient, created.id);
+
+    expect(reads("get-document")).toBe(1);
+    expect(
+      server.calls.find((call) => call.name === "get-document")?.params,
+    ).not.toHaveProperty("includePreviewDraft");
+    expect(reads("get-preview-document-draft")).toBe(0);
+    clearDocumentCreationConfirmed(created);
   });
 
   it("reads the page in the collection its URL names, with its review", () => {

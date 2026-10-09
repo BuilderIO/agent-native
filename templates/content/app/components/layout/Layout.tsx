@@ -20,8 +20,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   type CSSProperties,
   ReactNode,
+  Suspense,
   useCallback,
   useEffect,
+  lazy,
   useMemo,
   useRef,
   useState,
@@ -42,6 +44,11 @@ import {
   applyRegisteredDocumentHistoryRestore,
   prepareRegisteredDocumentHistoryRestore,
 } from "@/lib/document-history-restore-controller";
+import { documentQueryFilter } from "@/lib/document-query";
+import {
+  isDocumentCreationConfirmed,
+  isDocumentCreationPending,
+} from "@/lib/optimistic-document";
 import { retirePageOpenReads } from "@/lib/page-open-reads";
 import {
   readPageIconRowHint,
@@ -83,6 +90,45 @@ export function documentPageIdFromPathname(pathname: string) {
   return pathname.match(/^\/page\/(.+)/)?.[1] ?? null;
 }
 
+const LazyDocumentEditor = lazy(async () => {
+  const { DocumentEditor } = await import("@/components/editor/DocumentEditor");
+  return { default: DocumentEditor };
+});
+
+function PendingDocumentTransition({
+  created,
+  documentId,
+  search,
+  title,
+}: {
+  created: boolean;
+  documentId: string;
+  search: string;
+  title: string | null | undefined;
+}) {
+  const params = new URLSearchParams(search);
+  const fallback = (
+    <DocumentEditorSkeleton
+      title={title}
+      iconRow={readPageIconRowHint(documentId)}
+      shape={readPageShapeHint(documentId)}
+    />
+  );
+  if (!created) return fallback;
+
+  return (
+    <Suspense fallback={fallback}>
+      <LazyDocumentEditor
+        documentId={documentId}
+        databaseId={params.get("databaseId")}
+        databaseDocumentId={params.get("databaseDocumentId")}
+        viewId={params.get("viewId")}
+        foreground
+      />
+    </Suspense>
+  );
+}
+
 interface LayoutProps {
   children: ReactNode;
 }
@@ -109,6 +155,16 @@ export function Layout({ children }: LayoutProps) {
   });
   const queryClient = useQueryClient();
   const pendingSearch = navigation.location?.search ?? "";
+  const pendingCreatedDocument = pendingDocumentId
+    ? queryClient
+        .getQueriesData<Document>(documentQueryFilter(pendingDocumentId))
+        .find(([, document]) => document?.id === pendingDocumentId)?.[1]
+    : undefined;
+  const showPendingDocumentEditor = Boolean(
+    pendingCreatedDocument &&
+    (isDocumentCreationPending(pendingCreatedDocument) ||
+      isDocumentCreationConfirmed(pendingCreatedDocument)),
+  );
   useEffect(() => {
     if (!showPendingDocumentSkeleton || !pendingDocumentId) return;
     const search = new URLSearchParams(pendingSearch);
@@ -332,10 +388,11 @@ export function Layout({ children }: LayoutProps) {
           >
             <SidebarTriggerContext.Provider value={null}>
               {showPendingDocumentSkeleton && pendingDocumentId ? (
-                <DocumentEditorSkeleton
+                <PendingDocumentTransition
+                  created={showPendingDocumentEditor}
+                  documentId={pendingDocumentId}
+                  search={pendingSearch}
                   title={pendingDocumentTitle}
-                  iconRow={readPageIconRowHint(pendingDocumentId)}
-                  shape={readPageShapeHint(pendingDocumentId)}
                 />
               ) : (
                 children
@@ -420,10 +477,11 @@ export function Layout({ children }: LayoutProps) {
                 />
                 <SidebarTriggerContext.Provider value={mobileSidebarTrigger}>
                   {showPendingDocumentSkeleton && pendingDocumentId ? (
-                    <DocumentEditorSkeleton
+                    <PendingDocumentTransition
+                      created={showPendingDocumentEditor}
+                      documentId={pendingDocumentId}
+                      search={pendingSearch}
                       title={pendingDocumentTitle}
-                      iconRow={readPageIconRowHint(pendingDocumentId)}
-                      shape={readPageShapeHint(pendingDocumentId)}
                     />
                   ) : (
                     children

@@ -54,7 +54,10 @@ import {
   documentScopedReadRetryOptions,
   isWithinCreateSettlingWindow,
 } from "../lib/document-scoped-read-retry";
-import { isDocumentCreationPending } from "../lib/optimistic-document";
+import {
+  isDocumentCreationConfirmed,
+  isDocumentCreationPending,
+} from "../lib/optimistic-document";
 import {
   adoptPageOpenRead,
   claimPageOpenRead,
@@ -786,13 +789,13 @@ function documentReadParams(id: string, context: DocumentQueryContext) {
 export function useDocument(
   id: string | null,
   context: DocumentQueryContext = {},
-  options: { refetchOnMount?: false } = {},
+  options: { enabled?: boolean; refetchOnMount?: false } = {},
 ) {
   return useActionQuery<Document>(
     "get-document",
     id ? documentReadParams(id, context) : undefined,
     {
-      enabled: !!id,
+      enabled: !!id && options.enabled !== false,
       ...DOCUMENT_QUERY_FRESHNESS_OPTIONS,
       ...options,
     },
@@ -824,11 +827,11 @@ export function usePageOpenDocument(
   }
   const claim = claimRef.current;
   const { adoption } = claim;
-  const query = useDocument(
-    documentId,
-    context,
-    adoption === "fresh" ? { refetchOnMount: false } : {},
-  );
+  const cachedDocument = queryClient.getQueryData<Document>(queryKey);
+  const query = useDocument(documentId, context, {
+    enabled: !(cachedDocument && isDocumentCreationPending(cachedDocument)),
+    ...(adoption === "fresh" ? { refetchOnMount: false } : {}),
+  });
   // Runs after the query's own subscription, so from here on sync reaches
   // this read as a mounted query.
   useEffect(() => {
@@ -1023,6 +1026,7 @@ function previewDocumentDraftIsRead(known?: Document) {
   return !(
     known &&
     (isDocumentCreationPending(known) ||
+      isDocumentCreationConfirmed(known) ||
       known.canEdit === false ||
       known.source?.mode === "local-files")
   );

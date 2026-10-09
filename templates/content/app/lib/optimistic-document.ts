@@ -11,7 +11,10 @@ export function markDocumentCreationPending(document: Document): Document {
 }
 
 export function isDocumentCreationPending(document: Document): boolean {
-  return (document as PendingDocument)[pendingDocumentCreation] === true;
+  return (
+    (document as PendingDocument)[pendingDocumentCreation] === true &&
+    !confirmedDocumentCreations.has(document.id)
+  );
 }
 
 export function markDocumentCreationConfirmed(document: Document): Document {
@@ -23,7 +26,9 @@ export function isDocumentCreationConfirmed(document: Document): boolean {
   return confirmedDocumentCreations.has(document.id);
 }
 
-export function clearDocumentCreationConfirmed(document: Document): Document {
+export function clearDocumentCreationConfirmed<T extends Pick<Document, "id">>(
+  document: T,
+): T {
   confirmedDocumentCreations.delete(document.id);
   return document;
 }

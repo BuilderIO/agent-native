@@ -21,7 +21,10 @@ import {
   useUpdateDocument,
   useUpdatePreviewDocumentDraft,
 } from "@/hooks/use-documents";
-import { isDocumentCreationPending } from "@/lib/optimistic-document";
+import {
+  isDocumentCreationConfirmed,
+  isDocumentCreationPending,
+} from "@/lib/optimistic-document";
 import {
   readDocumentShapeHint,
   readPageIconRowHint,
@@ -76,8 +79,16 @@ export function PageDraftRecovery({
     : null;
   const queryClient = useQueryClient();
   const creationPending = isDocumentCreationPending(document);
+  const skipCreationDraftRecoveryRef = useRef(
+    creationPending || isDocumentCreationConfirmed(document),
+  );
+  if (creationPending || isDocumentCreationConfirmed(document)) {
+    skipCreationDraftRecoveryRef.current = true;
+  }
+  const skipCreationDraftRecovery = skipCreationDraftRecoveryRef.current;
   const drafts = usePreviewDocumentDraft(document.id, {
-    enabled: !creationPending && !skipDraftRecovery,
+    enabled:
+      !creationPending && !skipDraftRecovery && !skipCreationDraftRecovery,
     createdAt: document.createdAt,
   });
   const update = useUpdateDocument();
@@ -728,7 +739,7 @@ export function PageDraftRecovery({
   );
   // Scoped widget tickets identify the document, not a cookie session whose
   // private draft journal can be verified.
-  if (skipDraftRecovery) return withNotice(null);
+  if (skipDraftRecovery || skipCreationDraftRecovery) return withNotice(null);
   if (editorReleased) return withNotice(null);
   if (drafts.isError)
     return (

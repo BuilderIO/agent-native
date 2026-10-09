@@ -54,6 +54,12 @@ vi.mock("@/hooks/use-documents", () => ({
 vi.mock("./DocumentEditorSkeleton", () => ({
   DocumentEditorSkeleton: () => <div data-testid="editor-skeleton" />,
 }));
+import {
+  clearDocumentCreationConfirmed,
+  markDocumentCreationConfirmed,
+  markDocumentCreationPending,
+} from "@/lib/optimistic-document";
+
 import { PageDraftRecovery } from "./PageDraftRecovery";
 
 describe("Page draft recovery during the creation window", () => {
@@ -82,6 +88,7 @@ describe("Page draft recovery during the creation window", () => {
   });
 
   afterEach(() => {
+    clearDocumentCreationConfirmed({ id: "fresh-page" });
     act(() => root.unmount());
     container.remove();
   });
@@ -95,6 +102,44 @@ describe("Page draft recovery during the creation window", () => {
     ).not.toBeNull();
     expect(container.textContent).not.toContain("empty.genericError");
     expect(container.textContent).not.toContain("database.retry");
+  });
+
+  it("keeps a new page editable while creation settles and after its response", () => {
+    state.draftQuery = { data: undefined, isError: true, isFetching: false };
+    const pending = markDocumentCreationPending({
+      ...page,
+      id: "fresh-page",
+    });
+    const created = markDocumentCreationConfirmed({
+      ...page,
+      id: "fresh-page",
+    });
+
+    act(() =>
+      root.render(
+        <PageDraftRecovery document={pending}>
+          <textarea defaultValue="Live editor" />
+        </PageDraftRecovery>,
+      ),
+    );
+    expect(container.querySelector("textarea")).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="editor-skeleton"]'),
+    ).toBeNull();
+    expect(container.textContent).not.toContain("empty.genericError");
+
+    act(() =>
+      root.render(
+        <PageDraftRecovery document={created}>
+          <textarea defaultValue="Live editor" />
+        </PageDraftRecovery>,
+      ),
+    );
+    expect(container.querySelector("textarea")).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="editor-skeleton"]'),
+    ).toBeNull();
+    expect(container.textContent).not.toContain("empty.genericError");
   });
 
   it("mounts the editor once the created row answers", async () => {

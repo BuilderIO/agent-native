@@ -41,9 +41,9 @@ describe("optimistic document creation", () => {
 
     expect(confirmed).toBe(persisted);
     expect(isDocumentCreationConfirmed(confirmed)).toBe(true);
-    expect(
-      isDocumentCreationConfirmed(clearDocumentCreationConfirmed(confirmed)),
-    ).toBe(false);
+    const cleared = clearDocumentCreationConfirmed(confirmed);
+    expect(cleared).toBe(confirmed);
+    expect(isDocumentCreationConfirmed(cleared)).toBe(false);
     expect(isDocumentCreationConfirmed(persisted)).toBe(false);
   });
 
@@ -59,8 +59,39 @@ describe("optimistic document creation", () => {
     const cached = queryClient.getQueryData<Document>(queryKey);
     expect(cached).toBeDefined();
     expect(isDocumentCreationConfirmed(cached!)).toBe(true);
+    expect(isDocumentCreationPending(cached!)).toBe(false);
 
     clearDocumentCreationConfirmed(cached!);
+    queryClient.clear();
+  });
+
+  it("clears create confirmation without replacing a failed query result", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const queryKey = ["action", "get-document", { id: "page-1" }];
+    const created = markDocumentCreationConfirmed(document());
+    queryClient.setQueryData(queryKey, created);
+
+    await expect(
+      queryClient.fetchQuery({
+        queryKey,
+        queryFn: async () => {
+          throw Object.assign(new Error("forbidden"), { status: 403 });
+        },
+        retry: false,
+      }),
+    ).rejects.toThrow("forbidden");
+
+    const cached = queryClient.getQueryData<Document>(queryKey);
+    expect(cached).toBe(created);
+    clearDocumentCreationConfirmed(cached!);
+    expect(queryClient.getQueryData(queryKey)).toBe(cached);
+    expect(queryClient.getQueryState(queryKey)?.status).toBe("error");
+    expect(queryClient.getQueryState(queryKey)?.error).toMatchObject({
+      status: 403,
+    });
+
     queryClient.clear();
   });
 

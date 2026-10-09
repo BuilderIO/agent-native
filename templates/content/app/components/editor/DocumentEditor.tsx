@@ -1398,26 +1398,12 @@ export function PageEditorSurface({
   });
   admittedDocumentIdRef.current = loadState.admittedDocumentId;
 
-  useEffect(() => {
-    if (
-      !document ||
-      !fetchedForThisOpen ||
-      !isDocumentCreationConfirmed(document)
-    ) {
-      return;
-    }
-    queryClient.setQueryData<Document>(documentQueryKeyValue, (cached) =>
-      cached?.id === documentId
-        ? clearDocumentCreationConfirmed(cached)
-        : cached,
-    );
-  }, [
-    document,
-    documentId,
-    documentQueryKeyValue,
-    fetchedForThisOpen,
-    queryClient,
-  ]);
+  useEffect(
+    () => () => {
+      clearDocumentCreationConfirmed({ id: documentId });
+    },
+    [documentId],
+  );
 
   useRecordContentVisit(
     { documentId },
