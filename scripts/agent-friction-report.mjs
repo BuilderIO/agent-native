@@ -2287,7 +2287,7 @@ const FEEDBACK_REPLY_DETAIL_ISSUE_BASE =
   /(?:too\s+technical|overly\s+technical|excessively\s+technical|too\s+detailed|overly\s+detailed|excessively\s+detailed|too\s+jargon[- ]heavy|overly\s+jargon[- ]heavy|excessively\s+jargon[- ]heavy|too\s+much\s+jargon|too\s+much\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|too\s+many\s+commit\s+hashes?|less\s+technical|less\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|more\s+concise|more\s+succinct|succinct|briefer|shorter|(?:should\s+not|shouldn't)\s+(?:(?:include|contain|have)\s+)?(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|should\s+(?:include|contain|have)\s+no\s+(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|(?:without|free\s+of)\s+(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information))/i
     .source;
 const FEEDBACK_REPLY_DETAIL_DIRECT_STYLE_ACTION =
-  /\b(?:shorten|trim|simplify)\s+(?:(?:the|a|an|my|your|our|these|those|this|that)\s+)?(?:repl(?:y|ies)|responses?|updates?)\b/i
+  /\b(?:shorten|trim|simplify)\s+(?:(?:the|a|an|my|your|our|these|those|this|that)\s+)?(?:(?:feedback)\s+)?(?:repl(?:y|ies)|responses?|updates?)\b/i
     .source;
 const FEEDBACK_REPLY_DETAIL_KEEP_OUT_ISSUE =
   /keep\s+(?:(?:technical|implementation|internal|deployment|all|any|the)\s+){0,2}(?:details?|information)\s+out\s+of/i
@@ -2303,8 +2303,10 @@ const FEEDBACK_REPLY_DETAIL_OTHER_SURFACE =
 const FEEDBACK_REPLY_DETAIL_OMISSION =
   /(?:(?:don['’]t|do not|shouldn['’]t|should not)\s+(?:include|mention|say|write|share|post|list|describe|cover|discuss|add|use|quote|give|put|provide)|(?:avoid|skip|omit|remove)(?:\s+(?:including|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using|giving|putting|providing))?|leave out|stop\s+(?:including|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using|giving|putting|providing))/i
     .source;
+const FEEDBACK_REPLY_DETAIL_EXAMPLE_PREFIX =
+  "(?:\\b(?:for\\s+(?:example|instance|illustration)|as\\s+an?\\s+(?:example|illustration)|such\\s+as)|\\b(?:examples?|samples?|illustrations?)(?:\\s+(?:instruction|request|sentence|reply|response|correction))?\\s*:|\\be\\.g\\.)[^.!?;]{0,100}\\b";
 const FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION =
-  "(?:\\b(?:for\\s+(?:example|instance|illustration)|as\\s+an?\\s+(?:example|illustration)|such\\s+as)|\\b(?:examples?|samples?|illustrations?)(?:\\s+(?:instruction|request|sentence|reply|response|correction))?\\s*:|\\be\\.g\\.)[^.!?;]{0,100}\\b" +
+  FEEDBACK_REPLY_DETAIL_EXAMPLE_PREFIX +
   FEEDBACK_REPLY_DETAIL_OMISSION +
   "\\b\\s+(?:(?:all|any|these|those|the|some|more|additional|extra|unnecessary)\\s+){0,3}" +
   FEEDBACK_REPLY_DETAIL_TARGET +
@@ -2314,6 +2316,17 @@ const FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION =
 const FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION_RE = new RegExp(
   FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION,
   "i",
+);
+const FEEDBACK_REPLY_DETAIL_EXAMPLE_DIRECT_STYLE_ACTION =
+  FEEDBACK_REPLY_DETAIL_EXAMPLE_PREFIX +
+  FEEDBACK_REPLY_DETAIL_DIRECT_STYLE_ACTION;
+const FEEDBACK_REPLY_DETAIL_EXAMPLE_CORRECTION_SCAN_RE = new RegExp(
+  `(?:${FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION}|${FEEDBACK_REPLY_DETAIL_EXAMPLE_DIRECT_STYLE_ACTION})`,
+  "gi",
+);
+const FEEDBACK_REPLY_DETAIL_NON_FEEDBACK_RESPONSE_FOLLOWUP_RE = new RegExp(
+  "\\b(?:api|server|http|endpoint|webhook|provider)\\s+responses?\\b[^.!?;]{0,100}[.!?]\\s*(?:please\\s+)?\\b(?:shorten|trim|simplify)\\s+(?:(?:the|a|an|my|your|our|these|those|this|that)\\s+)?responses?\\b",
+  "gi",
 );
 const FEEDBACK_REPLY_DETAIL_CROSS_CLAUSE_OMISSION_RE = new RegExp(
   "\\b" +
@@ -2535,10 +2548,6 @@ const FEEDBACK_REPLY_DETAIL_CANDIDATE_SCAN_RE = new RegExp(
   FEEDBACK_REPLY_DETAIL_CANDIDATE_RE.source,
   "gi",
 );
-const FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION_SCAN_RE = new RegExp(
-  FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION,
-  "gi",
-);
 const FEEDBACK_REPLY_DETAIL_NON_CORRECTION_SCAN_RE = new RegExp(
   `(?=(?:${FEEDBACK_REPLY_DETAIL_NON_CORRECTION_RE_SOURCE}))`,
   "gi",
@@ -2591,8 +2600,11 @@ function hasFeedbackReplyDetailCorrection(message) {
   const candidates = [
     ...input.matchAll(FEEDBACK_REPLY_DETAIL_CANDIDATE_SCAN_RE),
   ];
-  const exampleOmissions = [
-    ...input.matchAll(FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION_SCAN_RE),
+  const exampleCorrections = [
+    ...input.matchAll(FEEDBACK_REPLY_DETAIL_EXAMPLE_CORRECTION_SCAN_RE),
+  ];
+  const nonFeedbackResponseFollowups = [
+    ...input.matchAll(FEEDBACK_REPLY_DETAIL_NON_FEEDBACK_RESPONSE_FOLLOWUP_RE),
   ];
   const boundaries = [
     ...input.matchAll(FEEDBACK_REPLY_DETAIL_BOUNDARY_SCAN_RE),
@@ -2616,7 +2628,8 @@ function hasFeedbackReplyDetailCorrection(message) {
   let boundaryIndex = 0;
   let endIndex = 0;
   let nonCorrectionIndex = 0;
-  let exampleOmissionIndex = 0;
+  let exampleCorrectionIndex = 0;
+  let nonFeedbackResponseFollowupIndex = 0;
   let styleRetractionIndex = 0;
   let sentenceEndIndex = 0;
   let sentenceButRetractionIndex = 0;
@@ -2624,14 +2637,29 @@ function hasFeedbackReplyDetailCorrection(message) {
   let lastScannedBoundary = -1;
   for (const candidate of candidates) {
     while (
-      exampleOmissionIndex < exampleOmissions.length &&
-      exampleOmissions[exampleOmissionIndex].index +
-        exampleOmissions[exampleOmissionIndex][0].length <=
+      exampleCorrectionIndex < exampleCorrections.length &&
+      exampleCorrections[exampleCorrectionIndex].index +
+        exampleCorrections[exampleCorrectionIndex][0].length <=
         candidate.index
     ) {
-      exampleOmissionIndex += 1;
+      exampleCorrectionIndex += 1;
     }
-    if (exampleOmissions[exampleOmissionIndex]?.index <= candidate.index) {
+    if (exampleCorrections[exampleCorrectionIndex]?.index <= candidate.index) {
+      continue;
+    }
+    while (
+      nonFeedbackResponseFollowupIndex < nonFeedbackResponseFollowups.length &&
+      nonFeedbackResponseFollowups[nonFeedbackResponseFollowupIndex].index +
+        nonFeedbackResponseFollowups[nonFeedbackResponseFollowupIndex][0]
+          .length <=
+        candidate.index
+    ) {
+      nonFeedbackResponseFollowupIndex += 1;
+    }
+    if (
+      nonFeedbackResponseFollowups[nonFeedbackResponseFollowupIndex]?.index <=
+      candidate.index
+    ) {
       continue;
     }
     while (
@@ -2853,6 +2881,11 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
     "Replies are too technical. But don't make replies less technical. Please remove commit hashes.",
   ],
   [false, "The API response is too verbose; trim the JSON payload."],
+  [false, "The API response is too verbose. Please shorten the response."],
+  [
+    true,
+    "The feedback response is too verbose. Please shorten the feedback response.",
+  ],
   [false, "This answer key is too long."],
   [false, "Our response times are too long."],
   [true, "Please keep feedback updates short and non-technical."],
@@ -2929,6 +2962,12 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [true, "Please simplify the reply."],
   [true, "Trim the response."],
   [true, "Shorten your reply."],
+  [true, "Please shorten the feedback reply."],
+  [true, "Trim the feedback response."],
+  [true, "Simplify our feedback replies."],
+  [false, "For example, shorten the reply."],
+  [false, "Example instruction: trim the response."],
+  [false, "E.g., simplify a feedback reply."],
   [false, "For example, don't include commit hashes in replies."],
   [
     false,
