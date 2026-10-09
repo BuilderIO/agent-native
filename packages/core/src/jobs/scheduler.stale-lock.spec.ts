@@ -814,6 +814,81 @@ describe("stale automation run-lock recovery across trigger types", () => {
     },
   );
 
+  it.each(["read", "write"])(
+    "reconciles committed success after a temporary outcome resource %s failure",
+    async (failureAt) => {
+      const fixture = interruptedScheduledJob();
+      fixture.resource.content = fixture.resource.content.replace(
+        "enabled: true",
+        "enabled: true\nconsecutiveFailures: 2\nlastErrorCode: http_502",
+      );
+      resourcePutMock.mockImplementation(async (_owner, _path, content) => {
+        fixture.resource.content = content;
+      });
+      vi.mocked(getThread).mockResolvedValueOnce({
+        id: "thread-1",
+        threadData: JSON.stringify({
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "Send an email, then open a ticket." },
+              ],
+              metadata: { custom: { submittedTurnId: "killed-worker" } },
+            },
+          ],
+        }),
+      } as any);
+      runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+        send({
+          type: "tool_done",
+          tool: "open-test-ticket",
+          result: "Ticket created",
+          completedSideEffect: true,
+        });
+        return { inputTokens: 100, outputTokens: 25, model: "test-model" };
+      });
+      const finish = vi
+        .spyOn(runHistory, "finishAutomationRun")
+        .mockImplementation(async (_id, status) => {
+          Object.assign(fixture.history, { status, finishedAt: Date.now() });
+          const error = new Error("outcome resource temporarily unavailable");
+          if (failureAt === "read")
+            resourceGetByPathMock.mockRejectedValueOnce(error);
+          else resourcePutIfCurrentMock.mockRejectedValueOnce(error);
+        });
+      try {
+        await processRecurringJobs(recoveryDeps);
+        expect(fixture.history.status).toBe("success");
+        expect(parseJobResource(fixture.resource.content).meta).toMatchObject({
+          lastStatus: "running",
+          lastHistoryId: fixture.history.id,
+          consecutiveFailures: 2,
+        });
+        expect(fixture.resource.content).not.toContain(
+          "No delivery was confirmed",
+        );
+        expect(runAgentLoopMock).toHaveBeenCalledOnce();
+        await processRecurringJobs(recoveryDeps);
+        expect(parseJobResource(fixture.resource.content).meta).toMatchObject({
+          lastStatus: "success",
+          lastHistoryId: fixture.history.id,
+        });
+        expect(
+          parseJobResource(fixture.resource.content).meta.consecutiveFailures,
+        ).toBeUndefined();
+        expect(fixture.resource.content).not.toContain(
+          "No delivery was confirmed",
+        );
+        expect(runAgentLoopMock).toHaveBeenCalledOnce();
+        expect(finish).toHaveBeenCalledOnce();
+      } finally {
+        finish.mockRestore();
+        fixture.restore();
+      }
+    },
+  );
+
   it("retains a firing marker when its history lookup is temporarily unavailable", async () => {
     const fixture = interruptedScheduledJob();
     vi.mocked(runHistory.getAutomationRun).mockRejectedValue(

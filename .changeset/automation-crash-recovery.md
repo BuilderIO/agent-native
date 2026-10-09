@@ -56,3 +56,5 @@ Apply worker-identity fences to every runner outcome and permanent recovery reje
 Accept terminal history retries only when their stored outcome and delivery evidence agree, preserving canonical delivery truth when competing handlers settle the same worker.
 
 Keep interrupted firings retryable when recovery context, journal, delivery-evidence or worker-admission storage is temporarily unavailable, while settling permanently corrupt or missing evidence explicitly.
+
+Reconcile durably finished history on a later scheduler tick when projecting its final resource status fails, without reporting successful work as an execution error.

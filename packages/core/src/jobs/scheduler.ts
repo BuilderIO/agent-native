@@ -49,6 +49,7 @@ import {
   startBackgroundAutomationHistory,
   type BackgroundAutomationContext,
   type BackgroundAutomationDeps,
+  type BackgroundAutomationRunResult,
 } from "./background-automation-runner.js";
 import {
   nextOccurrence,
@@ -1365,8 +1366,9 @@ async function executeJob(
         }
       : undefined;
 
+  let result: BackgroundAutomationRunResult;
   try {
-    const result = await runBackgroundAutomation(
+    result = await runBackgroundAutomation(
       {
         automation: jobContext,
         ownerEmail: jobUserEmail,
@@ -1396,26 +1398,6 @@ async function executeJob(
       },
       deps,
     );
-
-    await recordExecutionOutcome(
-      resource,
-      {
-        lastRun: meta.lastRun,
-        lastStatus: result.status,
-        lastError: result.status === "skipped" ? result.reason : undefined,
-        advanceSchedule: options.advanceSchedule,
-        expectedLastRun: meta.lastRun,
-        expectedHistoryId: meta.lastHistoryId,
-      },
-      undefined,
-      options.assertCanStart,
-    );
-    console.log(`[recurring-jobs] Job "${jobName}" ${result.status}.`);
-    return {
-      status: result.status,
-      runId: result.runId,
-      ...(result.status === "skipped" ? { error: result.reason } : {}),
-    };
   } catch (err) {
     const failure = classifyAutomationFailure(err);
     if (err instanceof AutomationSchedulerLeaseLostError) throw err;
@@ -1447,6 +1429,25 @@ async function executeJob(
     );
     return { status: "error", error: reportedError };
   }
+  await recordExecutionOutcome(
+    resource,
+    {
+      lastRun: meta.lastRun,
+      lastStatus: result.status,
+      lastError: result.status === "skipped" ? result.reason : undefined,
+      advanceSchedule: options.advanceSchedule,
+      expectedLastRun: meta.lastRun,
+      expectedHistoryId: meta.lastHistoryId,
+    },
+    undefined,
+    options.assertCanStart,
+  );
+  console.log(`[recurring-jobs] Job "${jobName}" ${result.status}.`);
+  return {
+    status: result.status,
+    runId: result.runId,
+    ...(result.status === "skipped" ? { error: result.reason } : {}),
+  };
 }
 
 export async function runJobNow(
