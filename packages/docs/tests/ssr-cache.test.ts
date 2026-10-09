@@ -39,9 +39,7 @@ describe("Docs SSR cache key wrapper", () => {
 
     applyDocsSsrCacheKeyHeaders(headers);
 
-    expect(headers.get("netlify-vary")).toBe(
-      "query=_routes|index|__agentNativeChunkRecovery",
-    );
+    expect(headers.get("netlify-vary")).toBe("query=_routes|index");
   });
 
   it("preserves full-query variation for query-sensitive docs responses", () => {
@@ -54,15 +52,13 @@ describe("Docs SSR cache key wrapper", () => {
     expect(headers.get("netlify-vary")).toBe("query");
   });
 
-  it("includes the fixed recovery dimension in the docs cache key", () => {
+  it("does not vary on a recovery nonce now that recovery uses a path alias", () => {
     vi.stubEnv("NETLIFY", "true");
     const headers = new Headers();
 
     applyDocsSsrCacheKeyHeaders(headers);
 
-    expect(headers.get("netlify-vary")).toBe(
-      "query=_routes|index|__agentNativeChunkRecovery",
-    );
+    expect(headers.get("netlify-vary")).toBe("query=_routes|index");
   });
 
   it("recognizes the cloud tab URL with a trailing slash or data suffix", () => {
