@@ -186,7 +186,7 @@ Combiner ceci avec l'exemple `askUserQuestion()` ci-dessus complète le gestionn
 
 ## sendToAgentChat(opts) {#sendtoagentchat}
 
-Envoie un message au chat de l'agent via `postMessage`. C'est la primitive de plus bas niveau que `useAgentChatGenerating()` ci-dessus enveloppe, utile lorsqu'une interaction UI n'a pas besoin de son propre suivi d'état de chargement. Transmettez `context` pour un détail supplémentaire que le modèle doit voir mais pas l'utilisateur. Il est ajouté au message envoyé à l'agent, entouré de balises `<context>`, puis retiré avant que le message ne s'affiche dans l'interface de chat. Transmettez `submit: true` pour envoyer immédiatement, ou `submit: false` pour pré-remplir un brouillon que l'utilisateur examine d'abord. Avec `submit: false`, `context` n'est pas écrit dans le brouillon : il est joint au prochain envoi et affiché sous forme de puce libellée `contextLabel`, ou joint sans puce lorsque `contextLabel` est omis.
+Envoie un message au chat de l'agent via `postMessage`. C'est la primitive de plus bas niveau que `useAgentChatGenerating()` ci-dessus enveloppe, utile lorsqu'une interaction UI n'a pas besoin de son propre suivi d'état de chargement. Transmettez `context` pour un détail supplémentaire que le modèle doit voir mais pas l'utilisateur. Il est ajouté au message envoyé à l'agent, entouré de balises `<context>`, puis retiré avant que le message ne s'affiche dans l'interface de chat. Transmettez `submit: true` pour envoyer immédiatement, ou `submit: false` pour pré-remplir un brouillon que l'utilisateur examine d'abord. Avec `submit: false`, `context` n'est pas écrit dans le brouillon : il est joint au prochain envoi et affiché sous forme de puce libellée `contextLabel`. Sans `contextLabel`, il est joint sans puce lorsque `message` contient du texte, et affiché sous forme de puce générique lorsque `message` est vide.
 
 ```ts
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
@@ -207,14 +207,14 @@ sendToAgentChat({
 
 ### AgentChatMessage {#agentchatmessage}
 
-| Option         | Type       | Description                                                                                                   |
-| -------------- | ---------- | ------------------------------------------------------------------------------------------------------------- |
-| `message`      | `string`   | Le prompt envoyé au chat, et la seule partie affichée dans l'interface de chat                                |
-| `context`      | `string?`  | Contexte visible par le modèle, ajouté au message avant l'envoi. Retiré de l'affichage de l'interface de chat |
-| `contextLabel` | `string?`  | Libellé de la puce pour `context` avec `submit: false`. Omettre pour ne pas afficher de puce                  |
-| `submit`       | `boolean?` | true = envoi automatique, false = préremplissage uniquement                                                   |
-| `newTab`       | `boolean?` | Crée un fil de discussion distinct pour ce prompt                                                             |
-| `openSidebar`  | `boolean?` | Définir sur false pour envoyer/préremplir sans ouvrir la barre latérale                                       |
+| Option         | Type       | Description                                                                                                                   |
+| -------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `message`      | `string`   | Le prompt envoyé au chat, et la seule partie affichée dans l'interface de chat                                                |
+| `context`      | `string?`  | Contexte visible par le modèle, ajouté au message avant l'envoi. Retiré de l'affichage de l'interface de chat                 |
+| `contextLabel` | `string?`  | Libellé de la puce pour `context` avec `submit: false`. Omettre pour le joindre sans puce lorsque `message` contient du texte |
+| `submit`       | `boolean?` | true = envoi automatique, false = préremplissage uniquement                                                                   |
+| `newTab`       | `boolean?` | Crée un fil de discussion distinct pour ce prompt                                                                             |
+| `openSidebar`  | `boolean?` | Définir sur false pour envoyer/préremplir sans ouvrir la barre latérale                                                       |
 
 Exécuter ceci depuis l'intérieur d'une intégration MCP App, ou mettre l'exécution en arrière-plan sans ouvrir la barre latérale, sont tous les deux couverts dans [Avancé](/docs/client-advanced#background-send).
 

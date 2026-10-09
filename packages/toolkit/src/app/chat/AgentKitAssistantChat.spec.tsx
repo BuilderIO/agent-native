@@ -706,6 +706,7 @@ import {
   AGENT_CHAT_SUBMIT_RESULT_EVENT,
   appendAgentChatContextToMessage,
   createAgentNativeAgentKitTransport,
+  publishAgentChatContextItems,
 } from "@agent-native/core/client/agent-chat";
 import {
   deleteClientAppState,
@@ -1873,6 +1874,36 @@ describe("AgentKitAssistantChat host behavior", () => {
     );
     expect(chatMocks.history.beginSubmission).toHaveBeenCalledOnce();
     expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("keeps hidden prefill context out of the shared context store", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    const hidden = {
+      key: "prefill-context-hidden",
+      title: "prefill-context-hidden",
+      context: "Cast: Tom Holland, Sadie Sink",
+      hidden: true,
+    };
+    await act(async () =>
+      ref.current!.setComposerContextItem(hidden, { focus: false }),
+    );
+    expect(chatMocks.composerProps.contextItems).toEqual([
+      expect.objectContaining({ key: "prefill-context-hidden", hidden: true }),
+    ]);
+    const published = vi
+      .mocked(publishAgentChatContextItems)
+      .mock.calls.flatMap(([items]) => items);
+    expect(published).not.toContainEqual(
+      expect.objectContaining({ key: "prefill-context-hidden" }),
+    );
+    // Hidden context is restored per scope on mount; clear it so later mounts start empty.
+    for (let i = window.localStorage.length - 1; i >= 0; i--) {
+      const storageKey = window.localStorage.key(i);
+      if (storageKey?.startsWith("agent-chat-composer-hidden-context:")) {
+        window.localStorage.removeItem(storageKey);
+      }
+    }
   });
 
   it("revalidates captured app context separately from ambient context and acknowledges only accepted sends", async () => {

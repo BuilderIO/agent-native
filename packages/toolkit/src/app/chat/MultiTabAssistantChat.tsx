@@ -2149,13 +2149,22 @@ export function MultiTabAssistantChat({
           ? appendAgentChatContextToMessage(message, context)
           : message;
       const prefillKey = `prefill-context-${submitMessageId ?? Date.now()}`;
+      // Unlabeled context stays unseen only when there is prompt text to send
+      // with it; an empty prefill would otherwise leave nothing to act on.
+      const hasPromptText = message.trim().length > 0;
       const prefillContext: AgentChatContextItem | undefined =
         !submit && context
           ? {
               key: prefillKey,
-              title: contextLabel ?? prefillKey,
+              title:
+                contextLabel ??
+                (hasPromptText
+                  ? prefillKey
+                  : translate("agentChat.composer.activeAppContext", {
+                      defaultValue: "Active app context",
+                    })),
               context,
-              ...(contextLabel ? {} : { hidden: true }),
+              ...(!contextLabel && hasPromptText ? { hidden: true } : {}),
             }
           : undefined;
 
@@ -2308,6 +2317,7 @@ export function MultiTabAssistantChat({
     setContextInTab,
     switchThread,
     switchThreadState,
+    translate,
     writeThreadUrl,
   ]);
 

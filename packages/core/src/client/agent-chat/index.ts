@@ -330,9 +330,12 @@ export {
 export {
   readAssistantChatComposerContextDraft,
   readAssistantChatComposerDraft,
+  readAssistantChatHiddenContext,
   writeAssistantChatComposerContextDraft,
   writeAssistantChatComposerDraft,
+  writeAssistantChatHiddenContext,
   type AssistantChatComposerContextDraft,
+  type AssistantChatHiddenContextItem,
 } from "../chat/composer-draft.js";
 export type {
   AgentKitCapabilityCatalog,

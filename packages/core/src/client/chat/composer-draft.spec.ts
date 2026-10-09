@@ -8,7 +8,9 @@ import {
   readAssistantChatComposerDraft,
   writeAssistantChatComposerDraft,
   readAssistantChatComposerContextDraft,
+  readAssistantChatHiddenContext,
   writeAssistantChatComposerContextDraft,
+  writeAssistantChatHiddenContext,
 } from "./composer-draft.js";
 
 describe("assistant chat composer drafts", () => {
@@ -125,5 +127,24 @@ describe("assistant chat composer drafts", () => {
         })),
       }),
     ).toThrow("size limit");
+  });
+});
+
+describe("hidden composer context", () => {
+  it("keeps hidden context per scope and removes it when cleared", () => {
+    const item = {
+      key: "prefill-context-1",
+      title: "prefill-context-1",
+      context: "Cast: Tom Holland, Sadie Sink",
+    };
+    writeAssistantChatHiddenContext("thread-a", [item]);
+
+    expect(readAssistantChatHiddenContext("thread-a")).toEqual([
+      { ...item, hidden: true },
+    ]);
+    expect(readAssistantChatHiddenContext("thread-b")).toEqual([]);
+
+    writeAssistantChatHiddenContext("thread-a", []);
+    expect(readAssistantChatHiddenContext("thread-a")).toEqual([]);
   });
 });

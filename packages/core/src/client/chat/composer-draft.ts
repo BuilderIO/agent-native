@@ -125,3 +125,80 @@ export function clearAssistantChatComposerDraft(scope?: string | null): void {
     // The live editor remains the source of truth when browser storage is unavailable.
   }
 }
+
+const ASSISTANT_CHAT_HIDDEN_CONTEXT_PREFIX =
+  "agent-chat-composer-hidden-context:";
+
+const hiddenContextEnvelopeSchema = z.object({
+  version: z.literal(1),
+  items: z.array(
+    z.object({
+      key: z.string().min(1).max(200),
+      title: z.string().max(2048),
+      context: z.string().min(1),
+    }),
+  ),
+});
+
+export interface AssistantChatHiddenContextItem {
+  key: string;
+  title: string;
+  context: string;
+  hidden: true;
+}
+
+function assistantChatHiddenContextKey(scope?: string | null): string | null {
+  const normalizedScope = scope?.trim();
+  return normalizedScope
+    ? `${ASSISTANT_CHAT_HIDDEN_CONTEXT_PREFIX}${encodeURIComponent(normalizedScope)}`
+    : null;
+}
+
+// Hidden prefill context is kept per composer scope, with the draft text, and
+// never in the shared context store: that store reaches every open composer.
+export function readAssistantChatHiddenContext(
+  scope?: string | null,
+): AssistantChatHiddenContextItem[] {
+  const key = assistantChatHiddenContextKey(scope);
+  const storage = getComposerDraftStorage();
+  if (!key || !storage) return [];
+  let stored: string | null;
+  try {
+    stored = storage.getItem(key);
+  } catch {
+    // coercion-ok: browser storage may be unavailable; treat it as absent.
+    return [];
+  }
+  if (stored === null) return [];
+  return hiddenContextEnvelopeSchema
+    .parse(JSON.parse(stored))
+    .items.map((item) => ({ ...item, hidden: true as const }));
+}
+
+export function writeAssistantChatHiddenContext(
+  scope: string | null | undefined,
+  items: readonly { key: string; title: string; context: string }[],
+): void {
+  const key = assistantChatHiddenContextKey(scope);
+  const storage = getComposerDraftStorage();
+  if (!key || !storage) return;
+  try {
+    if (items.length === 0) {
+      storage.removeItem(key);
+    } else {
+      storage.setItem(
+        key,
+        JSON.stringify({
+          version: 1,
+          items: items.map(({ key, title, context }) => ({
+            key,
+            title,
+            context,
+          })),
+        }),
+      );
+    }
+  } catch {
+    // coercion-ok: browser storage may be unavailable or full; hidden context then lasts for this page load only.
+  }
+}

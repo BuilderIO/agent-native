@@ -45,7 +45,9 @@ import type { CreateAgentNativeAgentKitTransportOptions } from "@agent-native/co
 import { AGENT_NATIVE_PROTOCOL_METADATA_KEY } from "@agent-native/core/client/agent-chat";
 import {
   readAssistantChatComposerDraft,
+  readAssistantChatHiddenContext,
   writeAssistantChatComposerDraft,
+  writeAssistantChatHiddenContext,
 } from "@agent-native/core/client/agent-chat";
 import { createAgentNativeChatRuntime } from "@agent-native/core/client/agent-chat";
 import type { CreateAgentNativeChatRuntimeOptions } from "@agent-native/core/client/agent-chat";
@@ -1471,7 +1473,9 @@ const AgentKitAssistantChatBody = forwardRef<
   );
   const [setupBouncePulse, setSetupBouncePulse] = useState(0);
   const previousPrefillRevisionRef = useRef(prefillRevision);
-  const [contextItems, setContextItems] = useState<AgentChatContextItem[]>([]);
+  const [contextItems, setContextItems] = useState<AgentChatContextItem[]>(() =>
+    readAssistantChatHiddenContext(props.tabId ?? threadId),
+  );
   const [pendingSelection, setPendingSelection] =
     useState<PendingSelectionContext | null>(null);
   const pendingSelectionRef = useRef<PendingSelectionContext | null>(null);
@@ -1841,17 +1845,25 @@ const AgentKitAssistantChatBody = forwardRef<
     const apply = () => {
       if (!props.isActiveComposer && props.isActiveComposer !== undefined)
         return;
-      setContextItems(
-        filterAgentChatContextItems(
+      setContextItems((items) => [
+        ...filterAgentChatContextItems(
           getAgentChatContextState().items,
           props.contextNamespace,
         ),
-      );
+        ...items.filter((item) => item.hidden),
+      ]);
     };
     apply();
     void refreshAgentChatContext().then(apply);
     return subscribeAgentChatContext(apply);
   }, [props.contextNamespace, props.isActiveComposer]);
+
+  useEffect(() => {
+    writeAssistantChatHiddenContext(
+      props.tabId ?? threadId,
+      contextItems.filter((item) => item.hidden),
+    );
+  }, [contextItems, props.tabId, threadId]);
 
   useEffect(() => {
     if (seenEventsRef.current.threadId !== threadId) {
@@ -2968,14 +2980,23 @@ const AgentKitAssistantChatBody = forwardRef<
     (rawItem: AgentChatContextItem, focus = true) => {
       const item = normalizeAgentChatContextItem(rawItem);
       if (!item) return;
-      const current = getAgentChatContextState().items;
-      const next = current
-        .filter((candidate) => candidate.key !== item.key)
-        .concat(item);
-      publishAgentChatContextItems(next);
-      setContextItems(
-        filterAgentChatContextItems(next, props.contextNamespace),
-      );
+      if (item.hidden) {
+        // Publishing would make hidden context reachable from every open composer.
+        setContextItems((items) => [
+          ...items.filter((candidate) => candidate.key !== item.key),
+          item,
+        ]);
+      } else {
+        const current = getAgentChatContextState().items;
+        const next = current
+          .filter((candidate) => candidate.key !== item.key)
+          .concat(item);
+        publishAgentChatContextItems(next);
+        setContextItems((items) => [
+          ...filterAgentChatContextItems(next, props.contextNamespace),
+          ...items.filter((candidate) => candidate.hidden),
+        ]);
+      }
       if (focus) requestComposerFocus(threadId);
     },
     [props.contextNamespace, requestComposerFocus, threadId],
@@ -2986,9 +3007,10 @@ const AgentKitAssistantChatBody = forwardRef<
         (item) => item.key !== key,
       );
       publishAgentChatContextItems(next);
-      setContextItems(
-        filterAgentChatContextItems(next, props.contextNamespace),
-      );
+      setContextItems((items) => [
+        ...filterAgentChatContextItems(next, props.contextNamespace),
+        ...items.filter((item) => item.hidden && item.key !== key),
+      ]);
     },
     [props.contextNamespace],
   );

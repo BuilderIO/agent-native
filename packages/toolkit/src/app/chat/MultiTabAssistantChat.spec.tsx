@@ -693,6 +693,23 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });
 
+  it("shows a visible fallback chip when a prefill has no prompt text", () => {
+    act(() => {
+      dispatchSubmitChat({
+        message: "   ",
+        context: "Selected rows: a, b",
+        submit: false,
+        openSidebar: true,
+      });
+    });
+
+    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith({
+      key: expect.stringMatching(/^prefill-context-/),
+      title: "Active app context",
+      context: "Selected rows: a, b",
+    });
+  });
+
   it("reports a rejected queued submission instead of leaving it unhandled", async () => {
     const results: unknown[] = [];
     const onResult = (event: Event) =>
