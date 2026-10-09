@@ -505,6 +505,14 @@ async function emitTelemetry(
 
 type WaitUntil = (promise: Promise<unknown>) => void;
 
+const NETLIFY_CONTEXT_STORE_KEY = Symbol.for(
+  "@netlify/functions/request-context-store",
+);
+
+type NetlifyContextStore = {
+  getStore?: () => { context?: { waitUntil?: unknown } } | undefined;
+};
+
 // h3 holds the Response until the response hook settles, so awaiting the
 // export here delays every reply by up to the flush timeout.
 function responseWaitUntil(event: H3Event): WaitUntil | undefined {
@@ -512,11 +520,13 @@ function responseWaitUntil(event: H3Event): WaitUntil | undefined {
   if (typeof req?.waitUntil === "function") {
     return req.waitUntil.bind(req) as WaitUntil;
   }
-  // Nitro's Netlify entry drops the function context; Netlify exposes the
-  // current invocation's context on this global instead.
-  const netlifyContext = (
-    globalThis as { Netlify?: { context?: { waitUntil?: unknown } | null } }
-  ).Netlify?.context;
+  // Nitro's Netlify entry drops the function context. The Netlify runtime
+  // still keeps it in the AsyncLocalStorage that `getContext()` from
+  // `@netlify/functions` reads, registered under this global symbol.
+  const store = (globalThis as Record<symbol, unknown>)[
+    NETLIFY_CONTEXT_STORE_KEY
+  ] as NetlifyContextStore | undefined;
+  const netlifyContext = store?.getStore?.()?.context;
   if (typeof netlifyContext?.waitUntil === "function") {
     return netlifyContext.waitUntil.bind(netlifyContext) as WaitUntil;
   }

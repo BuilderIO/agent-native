@@ -298,6 +298,9 @@ function flushErrorType(error: unknown): string {
 type TelemetrySignal = "metrics" | "traces";
 
 const FLUSH_FAILURE_LOG_EVENT = "agent-native.telemetry_flush_failed";
+// Error names come from arbitrary exporters; cap distinct kinds so a provider
+// minting varied names cannot grow this set or the log without bound.
+const MAX_LOGGED_FLUSH_FAILURE_KINDS = 8;
 const loggedFlushFailures = new Set<string>();
 
 function recordFlushFailure(signal: TelemetrySignal, errorType: string): void {
@@ -308,7 +311,12 @@ function recordFlushFailure(signal: TelemetrySignal, errorType: string): void {
   // The counter rides the export that just failed, so a collector that keeps
   // timing out never delivers it. The function log does not depend on OTLP.
   const key = `${signal}:${errorType}`;
-  if (loggedFlushFailures.has(key)) return;
+  if (
+    loggedFlushFailures.has(key) ||
+    loggedFlushFailures.size >= MAX_LOGGED_FLUSH_FAILURE_KINDS
+  ) {
+    return;
+  }
   loggedFlushFailures.add(key);
   console.warn(
     JSON.stringify({

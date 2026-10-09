@@ -355,6 +355,26 @@ describe("flushObservability", () => {
     warn.mockRestore();
   });
 
+  it("caps distinct flush-failure kinds it logs per process", async () => {
+    __resetFlushFailureLogForTests();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    let attempt = 0;
+    const meterProvider = createTestMeterProvider(async () => {
+      const error = new Error("export failed");
+      error.name = `ExportError${attempt++}`;
+      throw error;
+    });
+    register({ meterProvider });
+
+    for (let i = 0; i < 20; i++) await flushObservability();
+
+    const lines = warn.mock.calls.filter((call) =>
+      String(call[0]).includes("agent-native.telemetry_flush_failed"),
+    );
+    expect(lines).toHaveLength(8);
+    warn.mockRestore();
+  });
+
   it("counts a flush whose timer fired long after its deadline as suspended", async () => {
     vi.useFakeTimers();
     const meterProvider = createTestMeterProvider(

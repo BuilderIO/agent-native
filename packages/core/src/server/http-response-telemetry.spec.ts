@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { withDbTimeout } from "../db/client.js";
@@ -549,7 +551,11 @@ describe("http response telemetry", () => {
   });
 
   describe("flush handoff", () => {
+    const netlifyStoreKey = Symbol.for(
+      "@netlify/functions/request-context-store",
+    );
     let releaseFlush: () => void = () => undefined;
+    let forceFlush: ReturnType<typeof vi.fn>;
     let unregister: () => void = () => undefined;
 
     beforeEach(() => {
@@ -557,13 +563,14 @@ describe("http response telemetry", () => {
       const pending = new Promise<void>((resolve) => {
         releaseFlush = resolve;
       });
+      forceFlush = vi.fn(() => pending);
       unregister = registerObservabilityProvider({
         meterProvider: {
           getMeter: () => ({
             createHistogram: () => ({ record() {} }),
             createCounter: () => ({ add() {} }),
           }),
-          forceFlush: () => pending,
+          forceFlush,
         },
       });
     });
@@ -571,20 +578,37 @@ describe("http response telemetry", () => {
     afterEach(() => {
       releaseFlush();
       unregister();
-      delete (globalThis as { Netlify?: unknown }).Netlify;
+      delete (globalThis as Record<symbol, unknown>)[netlifyStoreKey];
     });
 
-    async function respond(event: ReturnType<typeof eventFor>) {
+    async function respond(
+      event: ReturnType<typeof eventFor>,
+      run: <T>(fn: () => T) => T = (fn) => fn(),
+    ) {
       const { requestHooks, responseHooks } = createHooks();
       await requestHooks[0](event);
       let settled = false;
-      const hook = Promise.resolve(
-        responseHooks[0](new Response("ok"), event),
+      const hook = run(() =>
+        Promise.resolve(responseHooks[0](new Response("ok"), event)),
       ).then(() => {
         settled = true;
       });
       await new Promise((resolve) => setTimeout(resolve, 20));
       return { hook, settled: () => settled };
+    }
+
+    async function expectHandedOffExport(handedOff: Promise<unknown>[]) {
+      expect(handedOff).toHaveLength(1);
+      expect(forceFlush).toHaveBeenCalledOnce();
+      let exported = false;
+      void handedOff[0].then(() => {
+        exported = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(exported).toBe(false);
+      releaseFlush();
+      await handedOff[0];
+      expect(exported).toBe(true);
     }
 
     it("returns before the export finishes when the request carries waitUntil", async () => {
@@ -597,23 +621,27 @@ describe("http response telemetry", () => {
       const { settled } = await respond(event);
 
       expect(settled()).toBe(true);
-      expect(handedOff).toHaveLength(1);
+      await expectHandedOffExport(handedOff);
     });
 
-    it("uses the Netlify invocation context when the request has no waitUntil", async () => {
+    it("uses the Netlify request context store when the request has no waitUntil", async () => {
       const handedOff: Promise<unknown>[] = [];
-      Object.assign(globalThis, {
-        Netlify: {
-          context: {
-            waitUntil: (promise: Promise<unknown>) => handedOff.push(promise),
-          },
+      const store = new AsyncLocalStorage<{
+        context: { waitUntil: (promise: Promise<unknown>) => void };
+      }>();
+      (globalThis as Record<symbol, unknown>)[netlifyStoreKey] = store;
+      const context = {
+        waitUntil: (promise: Promise<unknown>) => {
+          handedOff.push(promise);
         },
-      });
+      };
 
-      const { settled } = await respond(eventFor("/some/page"));
+      const { settled } = await respond(eventFor("/some/page"), (fn) =>
+        store.run({ context }, fn),
+      );
 
       expect(settled()).toBe(true);
-      expect(handedOff).toHaveLength(1);
+      await expectHandedOffExport(handedOff);
     });
 
     it("waits for the export inline when no waitUntil exists", async () => {
