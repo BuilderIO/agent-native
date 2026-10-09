@@ -235,7 +235,7 @@ export function authSessionReplayOptions(
   };
 }
 
-function startAuthSessionReplay(
+export function startAuthSessionReplay(
   config: AnalyticsBrowserConfig | undefined,
   props: Pick<AuthPageProps, "appBasePath" | "workspaceRuntime">,
 ): void {
@@ -256,7 +256,9 @@ function startAuthSessionReplay(
 
   void import("@agent-native/core/client/analytics")
     .then(({ startSessionReplay }) => startSessionReplay(options))
-    .catch(() => undefined);
+    .catch((error) => {
+      console.warn("Optional auth session replay failed to start.", error);
+    });
 }
 
 const root = document.getElementById("agent-native-auth-root");

@@ -6,7 +6,16 @@ import { resolveAuthPageBasePath } from "./AuthPage.js";
 import {
   authSessionReplayOptions,
   isAuthSessionReplayPathname,
+  startAuthSessionReplay,
 } from "./entry.js";
+
+const { startSessionReplayMock } = vi.hoisted(() => ({
+  startSessionReplayMock: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/analytics", () => ({
+  startSessionReplay: startSessionReplayMock,
+}));
 
 describe("auth session replay gate", () => {
   it("matches only exact signup and login shell paths under the app base path", () => {
@@ -163,6 +172,29 @@ describe("auth session replay gate", () => {
     expect(options).toBeNull();
     expect(warn).toHaveBeenCalledWith(
       "Skipping optional auth session replay because the configured Analytics endpoint is invalid.",
+    );
+    warn.mockRestore();
+  });
+
+  it("warns when optional replay fails to start without blocking auth", async () => {
+    const error = new Error("replay startup failed");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    window.history.replaceState({}, "", "/signup");
+    startSessionReplayMock.mockRejectedValueOnce(error);
+
+    startAuthSessionReplay(
+      {
+        agentNativeAnalyticsPublicKey: "anpk_test",
+        authSessionReplay: true,
+      },
+      { appBasePath: "", workspaceRuntime: false },
+    );
+
+    await vi.waitFor(() =>
+      expect(warn).toHaveBeenCalledWith(
+        "Optional auth session replay failed to start.",
+        error,
+      ),
     );
     warn.mockRestore();
   });
