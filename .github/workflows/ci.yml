@@ -1113,6 +1113,10 @@ jobs:
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
 
+      - name: Check mobile PowerPoint import pending status
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --mobile-import-status
+
       - name: Check typing fidelity across Slides text surfaces in Chromium
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
