@@ -61,7 +61,7 @@
     "generic-mcp"
   ],
   "chatgpt": {
-    "version": "1.0.2",
+    "version": "1.0.3",
     "interface": {
       "displayName": "Agent-Native Content",
       "shortDescription": "Draft and organize content",
