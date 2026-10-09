@@ -6705,3 +6705,107 @@ describe("mountWebMcpActionRoutes", () => {
     expect(mutationRun).not.toHaveBeenCalled();
   });
 });
+
+describe("get-actions-batch through mounted action routes", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("runs each item through its own route and keeps item failures isolated", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { default: batchAction } = await import("./get-actions-batch.js");
+    const routes = new Map<string, any>();
+    const listRun = vi.fn(async () => ({ designs: [{ id: "d1" }] }));
+    const saveRun = vi.fn(async () => ({ saved: true }));
+    const deckRun = vi.fn(async () => {
+      throw Object.assign(new Error("Not allowed for this deck"), {
+        statusCode: 403,
+        errorCode: "forbidden",
+      });
+    });
+    const nitroApp: any = {
+      use: (path: string, handler: any) => routes.set(path, handler),
+    };
+    nitroApp.fetch = async (request: Request): Promise<Response> => {
+      const handler = routes.get(new URL(request.url).pathname);
+      if (!handler) {
+        return new Response(JSON.stringify({ error: "Not found" }), {
+          status: 404,
+        });
+      }
+      const event: any = {
+        _method: request.method,
+        _headers: Object.fromEntries(request.headers),
+        headers: request.headers,
+        _query: {},
+        req: request,
+      };
+      let body: unknown;
+      try {
+        body = await handler(event);
+      } catch (error) {
+        event._status = (error as { statusCode?: number }).statusCode ?? 500;
+        body = { error: (error as Error).message };
+      }
+      return new Response(JSON.stringify(body ?? null), {
+        status: event._status ?? 200,
+        headers: {
+          "Content-Type": "application/json",
+          ...(event._responseHeaders ?? {}),
+        },
+      });
+    };
+
+    mountActionRoutes(nitroApp, {
+      "list-designs": {
+        http: { method: "GET" },
+        requiresAuth: false,
+        run: listRun,
+      },
+      "save-deck": {
+        http: { method: "POST" },
+        requiresAuth: false,
+        run: saveRun,
+      },
+      "get-deck": {
+        http: { method: "GET" },
+        requiresAuth: false,
+        run: deckRun,
+      },
+      "get-actions-batch": batchAction,
+    } as any);
+
+    const response = await nitroApp.fetch(
+      new Request("http://app.test/_agent-native/actions/get-actions-batch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Agent-Native-Frontend": "1",
+        },
+        body: JSON.stringify({
+          requests: [
+            { action: "list-designs", query: "limit=5" },
+            { action: "save-deck", query: "" },
+            { action: "get-deck", query: "" },
+          ],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const { results } = await response.json();
+    expect(results[0]).toMatchObject({
+      status: 200,
+      body: { designs: [{ id: "d1" }] },
+    });
+    expect(results[1]).toMatchObject({ status: 405 });
+    expect(results[2]).toEqual({
+      status: 403,
+      error: { error: "Not allowed for this deck", errorCode: "forbidden" },
+      headers: {},
+    });
+    expect(listRun).toHaveBeenCalledTimes(1);
+    expect(saveRun).not.toHaveBeenCalled();
+    expect(deckRun).toHaveBeenCalledTimes(1);
+  });
+});
