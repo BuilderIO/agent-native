@@ -2364,9 +2364,7 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     expect(response.headers.get("set-cookie")).toBeNull();
 
     const recoveryResponse = await worker.fetch(
-      new Request(
-        `https://app.test/docs/inbox${CHUNK_RECOVERY_PATH_SUFFIX}`,
-      ),
+      new Request(`https://app.test/docs/inbox${CHUNK_RECOVERY_PATH_SUFFIX}`),
       { APP_BASE_PATH: "/docs" },
       {},
     );

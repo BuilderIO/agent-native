@@ -136,8 +136,10 @@ export function resolveSsrCacheHeaders(
 }
 
 export function resolveChunkRecoveryCacheControl(
-  cacheHeaders: Pick<SsrCacheHeaders, "cache-control"> =
-    resolveSsrCacheHeaders(),
+  cacheHeaders: Pick<
+    SsrCacheHeaders,
+    "cache-control"
+  > = resolveSsrCacheHeaders(),
 ): string {
   return cacheHeaders["cache-control"] === DISABLED_SSR_CACHE_CONTROL
     ? DISABLED_SSR_CACHE_CONTROL
