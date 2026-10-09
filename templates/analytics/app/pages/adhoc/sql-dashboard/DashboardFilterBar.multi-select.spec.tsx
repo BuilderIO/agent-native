@@ -246,15 +246,24 @@ describe("multi-select dashboard filter", () => {
   it("searches option labels and reports when there are no matches", () => {
     render();
     act(() => trigger().click());
+    const status = popover().querySelector('[role="status"]');
+    expect(status?.getAttribute("aria-live")).toBe("polite");
+    expect(status?.getAttribute("aria-atomic")).toBe("true");
+    expect(status?.closest("ul")).toBeNull();
+
     setSearchQuery("self");
 
     expect(optionLabel("Self-Serve")).toBeTruthy();
     expect(() => optionLabel("Free")).toThrow("option Free not rendered");
+    expect(popover().querySelector('[role="status"]')).toBe(status);
+    expect(status?.textContent).toBe("");
 
     setSearchQuery("not a value");
     expect(popover().textContent).toContain("No values found");
-    const status = popover().querySelector('[role="status"]');
-    expect(status?.tagName).toBe("DIV");
-    expect(status?.closest("ul")).toBeNull();
+    expect(popover().querySelector('[role="status"]')).toBe(status);
+    expect(status?.textContent).toBe("No values found");
+    expect(popoverButton("Select all").disabled).toBe(true);
+    act(() => popoverButton("Select all").click());
+    expect(new URLSearchParams(search).has("f_plan")).toBe(false);
   });
 });

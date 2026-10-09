@@ -425,8 +425,9 @@ function MultiSelectFilter({
           option.value.toLocaleLowerCase().includes(normalizedQuery),
       )
     : options;
+  const noFilteredOptions = filteredOptions.length === 0;
   const allFilteredOptionsSelected =
-    filteredOptions.length > 0 &&
+    !noFilteredOptions &&
     filteredOptions.every((option) => selectedSet.has(option.value));
 
   const setSelected = (next: string[]) =>
@@ -491,7 +492,7 @@ function MultiSelectFilter({
               type="button"
               variant="ghost"
               size="xs"
-              disabled={allFilteredOptionsSelected}
+              disabled={noFilteredOptions || allFilteredOptionsSelected}
               onClick={selectAllFiltered}
             >
               {t("sqlDashboard.selectAll")}
@@ -509,7 +510,7 @@ function MultiSelectFilter({
             )}
           </div>
           <div id={optionsListId}>
-            {filteredOptions.length > 0 ? (
+            {!noFilteredOptions && (
               <ul
                 aria-label={filter.label}
                 className="max-h-60 list-none overflow-y-auto p-1"
@@ -528,14 +529,19 @@ function MultiSelectFilter({
                   />
                 ))}
               </ul>
-            ) : (
-              <div
-                role="status"
-                className="px-2 py-4 text-center text-xs text-muted-foreground"
-              >
-                {t("sqlDashboard.noValuesFound")}
-              </div>
             )}
+            <div
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              className={
+                noFilteredOptions
+                  ? "px-2 py-4 text-center text-xs text-muted-foreground"
+                  : "sr-only"
+              }
+            >
+              {noFilteredOptions ? t("sqlDashboard.noValuesFound") : ""}
+            </div>
           </div>
         </PopoverContent>
       </Popover>
