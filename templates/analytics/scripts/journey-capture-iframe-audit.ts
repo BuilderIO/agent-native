@@ -927,11 +927,6 @@ export function auditReplayIframeContent({
       }
 
       visibleIframeCount += 1;
-      if (depth >= MAX_REPLAY_IFRAME_DEPTH) {
-        unavailableIframeCount += 1;
-        continue;
-      }
-
       const id = mirror?.getId?.(frame);
       let unavailable = !Number.isSafeInteger(id) || !recordedParents.has(id);
       let child: Document | null = null;
@@ -942,7 +937,7 @@ export function auditReplayIframeContent({
       }
       if (!child?.documentElement) {
         unavailable = true;
-      } else {
+      } else if (!unavailable) {
         const childView = child.defaultView;
         const width =
           childView?.innerWidth || child.documentElement.clientWidth;
@@ -978,6 +973,8 @@ export function auditReplayIframeContent({
           });
           if (!hasVisibleArea(childClip)) {
             unavailable = true;
+          } else if (depth >= MAX_REPLAY_IFRAME_DEPTH) {
+            unverifiableIframeCount += 1;
           } else {
             documents.push({ owner: child, clip: childClip, depth: depth + 1 });
           }

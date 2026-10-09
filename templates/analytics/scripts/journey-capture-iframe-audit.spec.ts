@@ -157,6 +157,86 @@ describe("replay iframe audit", () => {
     ).toEqual({ visibleIframeCount: 2, unavailableIframeCount: 1 });
   });
 
+  it("reports depth-limited frames as unverifiable after checking their content", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const frames: HTMLIFrameElement[] = [];
+    let owner = replayFrame.contentDocument!;
+    for (let depth = 0; depth <= 8; depth += 1) {
+      const frame = appendFrame(
+        owner,
+        {
+          left: depth === 0 ? 10 : 0,
+          top: depth === 0 ? 10 : 0,
+          width: 20,
+          height: 20,
+        },
+        20,
+        20,
+      );
+      frames.push(frame);
+      owner = frame.contentDocument!;
+    }
+    const ids = new WeakMap<Element, number>(
+      frames.map((frame, index) => [frame, index + 1]),
+    );
+    installReplayState(replayFrame, ids);
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: frames.map((_, index) => index + 1),
+      }),
+    ).toEqual({
+      visibleIframeCount: 9,
+      unavailableIframeCount: 0,
+      unverifiableIframeCount: 1,
+    });
+  });
+
+  it("still reports missing content on a frame at the traversal depth limit", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const frames: HTMLIFrameElement[] = [];
+    let owner = replayFrame.contentDocument!;
+    for (let depth = 0; depth <= 8; depth += 1) {
+      const frame = appendFrame(
+        owner,
+        {
+          left: depth === 0 ? 10 : 0,
+          top: depth === 0 ? 10 : 0,
+          width: 20,
+          height: 20,
+        },
+        20,
+        20,
+      );
+      frames.push(frame);
+      owner = frame.contentDocument!;
+    }
+    const ids = new WeakMap<Element, number>(
+      frames.map((frame, index) => [frame, index + 1]),
+    );
+    installReplayState(replayFrame, ids);
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: frames
+          .slice(0, -1)
+          .map((_, index) => index + 1),
+      }),
+    ).toEqual({ visibleIframeCount: 9, unavailableIframeCount: 1 });
+  });
+
   it("does not count a nested frame outside its parent's visible bounds", () => {
     const replayFrame = appendFrame(
       document,
