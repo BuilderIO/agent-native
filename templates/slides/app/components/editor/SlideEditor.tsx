@@ -302,6 +302,7 @@ import {
 } from "./slide-pointer-target";
 import { getPassiveSlidePresenceUsers } from "./slide-presence";
 import {
+  haveSameSlideStyleControls,
   mergeSlideStyleSnapshots,
   type SlideStylePatch,
   type SlideStyleSnapshot,
@@ -3404,7 +3405,9 @@ export default function SlideEditor({
         selector,
         getInlineTextStyleSnapshot(editingSurface, selection),
       );
-      setSelectedStyleSnapshot(snapshot);
+      setSelectedStyleSnapshot((current) =>
+        haveSameSlideStyleControls(current, snapshot) ? current : snapshot,
+      );
       syncSelectionToAppState(
         buildSelectionState("editing", [
           selectionItemForElement(
