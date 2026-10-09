@@ -517,7 +517,7 @@ describe("analytics query catalog", () => {
     expect(results).toEqual([]);
   });
 
-  it("ranks certified dashboards ahead of more relevant ordinary panels", () => {
+  it("ranks exact runnable panels ahead of partial certified panels", () => {
     const certification = {
       status: "certified" as const,
       certifiedAt: "2026-08-28T00:00:00.000Z",
@@ -565,12 +565,12 @@ describe("analytics query catalog", () => {
     });
 
     expect(results[0]).toMatchObject({
-      dashboardId: "certified-revenue",
-      dashboardCertified: true,
-    });
-    expect(results[1]).toMatchObject({
       dashboardId: "ordinary-revenue-growth",
       dashboardCertified: false,
+    });
+    expect(results[1]).toMatchObject({
+      dashboardId: "certified-revenue",
+      dashboardCertified: true,
     });
   });
 
@@ -782,6 +782,51 @@ describe("analytics query catalog", () => {
     expect(results[0]).toMatchObject({
       kind: "dashboard-panel",
       panelId: "mau-by-region",
+    });
+  });
+
+  it("keeps partial approved definitions ahead of partial certified panels", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "monthly active users by region",
+      limit: 6,
+      dashboards: [
+        {
+          id: "certified-usage",
+          title: "Product Usage",
+          origin: "saved-dashboard",
+          certification: {
+            status: "certified",
+            certifiedAt: "2026-10-01T00:00:00.000Z",
+            certifiedBy: "reviewer@example.com",
+            certifiedForUpdatedAt: "v1",
+          },
+          updatedAt: "v1",
+          config: {
+            panels: [
+              {
+                id: "active-users-by-region",
+                title: "Active Users by Region",
+                source: "bigquery",
+                sql: "SELECT region, COUNT(DISTINCT user_id) FROM usage GROUP BY 1",
+              },
+            ],
+          },
+        },
+      ],
+      dictionaryEntries: [
+        {
+          id: "monthly-active-users",
+          metric: "Monthly Active Users",
+          definition: "Distinct users active in a month",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      kind: "data-dictionary",
+      id: "monthly-active-users",
+      approved: true,
     });
   });
 

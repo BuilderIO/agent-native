@@ -632,9 +632,8 @@ export function rankAnalyticsQueryCatalogPage(args: {
       hasFullQueryCoverage(candidate)
         ? 2
         : candidate.kind === "dashboard-panel" &&
-            (candidate.dashboardCertified ||
-              (candidateIsRunnable(candidate) &&
-                hasFullQueryCoverage(candidate)))
+            hasFullQueryCoverage(candidate) &&
+            (candidate.dashboardCertified || candidateIsRunnable(candidate))
           ? 1
           : 0,
     coverage:
