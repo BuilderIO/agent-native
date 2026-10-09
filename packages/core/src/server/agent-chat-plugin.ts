@@ -6919,8 +6919,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const threadRouteHandler = withTransientDatabaseFallback(
         `${routePath}/threads`,
         async (event) => {
-          const owner = await getOwnerFromEvent(event);
-          const orgId = await getOrgIdFromEvent(event);
+          const ownerContext = await resolveOwnerContext(event);
+          const owner = ownerContext.owner;
+          const orgId = await resolveAgentRunOrgId({
+            event,
+            ownerContext,
+            resolveOrgId: options?.resolveOrgId,
+          });
           const method = getMethod(event);
 
           const { threadId, tail: threadTail } = parseThreadRoute(event);
@@ -7228,7 +7233,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "Invalid queue mutation" };
               }
-              if (mutation.type === "append" || mutation.type === "moveToTop") {
+              if (
+                !ownerContext.anonymous &&
+                (mutation.type === "append" || mutation.type === "moveToTop")
+              ) {
                 await runWithRequestContext({ userEmail: owner, orgId }, () =>
                   requireAgentChatAiSetup(),
                 );

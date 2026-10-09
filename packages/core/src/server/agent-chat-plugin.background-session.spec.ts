@@ -1,8 +1,17 @@
 import { createApp } from "h3";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const harness = vi.hoisted(() => ({
   initPromises: [] as Promise<void>[],
+  requireAgentChatAiSetup: vi.fn(async () => {}),
 }));
 
 // The real shim also bootstraps every default plugin. This keeps its routing
@@ -86,7 +95,7 @@ vi.mock("./social-og-image.js", () => ({
 // needs no credential.
 vi.mock("./agent-chat-ai-setup.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./agent-chat-ai-setup.js")>()),
-  requireAgentChatAiSetup: vi.fn(async () => {}),
+  requireAgentChatAiSetup: harness.requireAgentChatAiSetup,
 }));
 
 import {
@@ -99,6 +108,7 @@ import {
   getThread,
   mutateThreadQueuedMessages,
 } from "../chat-threads/store.js";
+import { resetAgentEngineReadinessForTests } from "../client/agent-engine-readiness.js";
 import { startBackgroundAgentSession } from "../client/background-agent-session.js";
 import { createAgentChatPlugin } from "./agent-chat-plugin.js";
 import { seedAgentRunOwnerContext } from "./agent-run-context.js";
@@ -187,9 +197,10 @@ beforeAll(async () => {
   // Stands in for the session middleware: the browser request arrives
   // authenticated as OWNER.
   h3App.use((event) => {
+    const anonymous = event.req.headers.get("x-test-anonymous") === "1";
     seedAgentRunOwnerContext(event, {
-      owner: OWNER,
-      anonymous: false,
+      owner: anonymous ? "anonymous-owner@example.com" : OWNER,
+      anonymous,
       orgId: null,
     });
   });
@@ -200,6 +211,7 @@ beforeAll(async () => {
     frameworkTools: "minimal",
     leanPrompt: true,
     mcp: { enabled: false },
+    anonymousOwner: async () => "anonymous-owner@example.com",
   })({
     h3App,
     hooks: {
@@ -226,6 +238,9 @@ beforeAll(async () => {
         return realFetch(input, init);
       }
       const url = new URL(raw, ORIGIN);
+      if (url.pathname === "/_agent-native/agent-engine/status") {
+        return Response.json({ configured: true, chatEligible: true });
+      }
       const headers = new Headers(init?.headers);
       headers.set("user-agent", BROWSER_USER_AGENT);
       const response = await h3App.fetch(
@@ -249,6 +264,11 @@ beforeAll(async () => {
   );
   // Plugin init imports the whole server graph.
 }, 60_000);
+
+beforeEach(() => {
+  resetAgentEngineReadinessForTests();
+  harness.requireAgentChatAiSetup.mockClear();
+});
 
 afterAll(async () => {
   vi.unstubAllGlobals();
@@ -358,5 +378,42 @@ describe("background agent sessions through the agent-chat plugin", () => {
     expect(repo.queuedMessages).toEqual([
       expect.objectContaining({ id: queuedId }),
     ]);
+  });
+
+  it("allows an anonymous read-only visitor to queue a prompt without a user AI identity", async () => {
+    const threadId = "anonymous-queued-thread";
+    await createThread("anonymous-owner@example.com", { id: threadId });
+
+    const response = await fetch(
+      `/_agent-native/agent-chat/threads/${threadId}/queued`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-anonymous": "1",
+        },
+        body: JSON.stringify({
+          mutation: {
+            type: "append",
+            message: {
+              id: "anonymous-queued-prompt",
+              threadId,
+              text: "Summarize this public page",
+            },
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(harness.requireAgentChatAiSetup).not.toHaveBeenCalled();
+    expect(await response.json()).toMatchObject({
+      queuedMessages: [
+        expect.objectContaining({
+          id: "anonymous-queued-prompt",
+          text: "Summarize this public page",
+        }),
+      ],
+    });
   });
 });
