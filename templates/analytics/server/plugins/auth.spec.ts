@@ -79,5 +79,17 @@ describe("Analytics session replay auth paths", () => {
       await expect(guard(event)).resolves.toEqual({ error: "Unauthorized" });
       expect(event.res.status).toBe(401);
     }
+
+    for (const path of [
+      "/api/session-replay/recordings/sr_1/manifest",
+      "/api/session-replay/recordings/sr_1/chunks/0",
+      "/api/session-replay/recordings/sr_1/chunks",
+    ]) {
+      const event = new H3Event(
+        new Request(`https://analytics.example.test${path}`),
+      );
+      await expect(guard(event)).resolves.toEqual({ error: "Unauthorized" });
+      expect(event.res.status).toBe(401);
+    }
   });
 });

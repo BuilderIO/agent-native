@@ -3623,6 +3623,61 @@ describe("server/auth", () => {
       expect(event.res.status).toBe(503);
     });
 
+    it("requires workspace app access for session fallbacks on query-token paths", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_DISABLED", "0");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
+      const checkAppAccess = vi.fn(async () => false);
+      vi.doMock("../org/workspace-app-access.js", () => ({
+        isWorkspaceAppAccessAllowed: checkAppAccess,
+        WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
+        WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
+          "Workspace app access is temporarily unavailable.",
+      }));
+      const getSession = vi.fn(async () => ({
+        email: "member@example.com",
+        orgId: "org-1",
+      }));
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession,
+        publicPathsWithQueryToken: [
+          {
+            path: "/api/session-replay/recordings/:recordingId/chunks",
+            queryParam: "agent_access",
+          },
+        ],
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((handler: unknown) => typeof handler === "function");
+      const sessionFallback = createMockEvent({
+        path: "/api/session-replay/recordings/sr_1/chunks",
+        query: { seqs: "0" },
+      });
+      await expect(guard(sessionFallback)).resolves.toEqual({
+        error: "You do not have access to this workspace app.",
+      });
+      expect(sessionFallback.res.status).toBe(403);
+      expect(checkAppAccess).toHaveBeenCalledWith("analytics", {
+        email: "member@example.com",
+        orgId: "org-1",
+      });
+
+      const scopedTokenRequest = createMockEvent({
+        path: "/api/session-replay/recordings/sr_1/chunks",
+        query: { seqs: "0", agent_access: "scoped-token" },
+      });
+      await expect(guard(scopedTokenRequest)).resolves.toBeUndefined();
+      expect(scopedTokenRequest.res.status).toBe(200);
+      expect(getSession).toHaveBeenCalledTimes(1);
+      expect(checkAppAccess).toHaveBeenCalledTimes(1);
+    });
+
     it("keeps org access recovery controls reachable for a disabled app", async () => {
       vi.stubEnv("NODE_ENV", "production");
       defineAppConfig({
