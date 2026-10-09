@@ -151,6 +151,7 @@ function bigQueryProviderDetailFromResponse(body: string): string | null {
         ?.message;
     return typeof detail === "string" ? detail.trim().slice(0, 4_000) : null;
   } catch {
+    // coercion-ok: provider detail is optional; backend status and reason remain typed.
     return null;
   }
 }
