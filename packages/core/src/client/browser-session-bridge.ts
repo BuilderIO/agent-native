@@ -104,15 +104,6 @@ function encodePathSegment(value: string): string {
   return encodeURIComponent(value);
 }
 
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "name" in error &&
-    error.name === "AbortError"
-  );
-}
-
 function fetchImpl(
   options: AgentNativeBrowserSessionBridgeOptions,
 ): typeof fetch {
@@ -658,7 +649,7 @@ export function createAgentNativeBrowserSessionBridge(
         reportedFailure = false;
       },
       onError: (error: unknown) => {
-        if (isAbortError(error) || reportedFailure) return;
+        if (reportedFailure) return;
         reportedFailure = true;
         if (options.onError) {
           try {

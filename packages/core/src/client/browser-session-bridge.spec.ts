@@ -133,6 +133,7 @@ function jsonResponse(body: unknown, init?: ResponseInit): Response {
 describe("createAgentNativeBrowserSessionBridge", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it("registers host context and actions with the server", async () => {
@@ -489,6 +490,47 @@ describe("createAgentNativeBrowserSessionBridge", () => {
         message: "Browser-session request failed (503)",
       }),
     );
+  });
+
+  it("reports request timeouts while the heartbeat engine is still active", async () => {
+    vi.useFakeTimers();
+    const onError = vi.fn();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith("/requests/claim")) {
+        return Promise.resolve(jsonResponse({ ok: true, request: null }));
+      }
+      if (
+        url === "/_agent-native/browser-sessions" &&
+        init?.method === "POST"
+      ) {
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      }
+      if (init?.method === "DELETE") {
+        return Promise.resolve(jsonResponse({ ok: true }));
+      }
+      throw new Error(`Unexpected fetch ${init?.method} ${url}`);
+    });
+    const bridge = createAgentNativeBrowserSessionBridge({
+      session: { id: "tab-1" },
+      sessionId: "tab-1",
+      heartbeatMs: 5000,
+      pollMs: 1000,
+      fetch: fetchMock as unknown as typeof fetch,
+      onError,
+    });
+
+    bridge.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(10_000);
+    bridge.stop();
+
+    expect(onError).toHaveBeenCalledWith(expect.any(DOMException), "heartbeat");
   });
 
   it("registers direct embedded context and actions without postMessage", async () => {
