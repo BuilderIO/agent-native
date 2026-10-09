@@ -5,6 +5,11 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-10-09
 
+### Added
+
+- Compare later onboarding activity across first-party sessions and apps, with unknown identities and incomplete observation windows called out.
+- Dashboards can filter by several values at once with multi-select filters.
+
 ### Improved
 
 - Onboarding journeys include Builder connection and custom-key outcomes through deeper paths
@@ -13,6 +18,8 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Existing chat threads keep the composer anchored at the bottom while their messages load.
+- Journey screenshots account for legacy clipping when checking embedded replay content.
 - Journey captures now flag visible previews missing from the recording instead of saving blank screenshots
 - Journey recordings flag iframe content when clipping, masks, or filters make its visibility uncertain.
 - Onboarding journeys count saved clips and completed deck generations as outputs while showing Slides attempt outcomes separately

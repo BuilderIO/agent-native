@@ -1348,7 +1348,7 @@ export function useChatThreads(
         messageCount?: number;
         titleSource?: ThreadTitleSource;
       },
-    ) => {
+    ): Promise<boolean> => {
       const scopeEpoch = scopeMutationsRef.current.get(id) ?? 0;
       try {
         const { titleSource, ...threadDataPayload } = data;
@@ -1389,7 +1389,7 @@ export function useChatThreads(
               }),
             },
           );
-          if (!created.ok && created.status !== 409) return;
+          if (!created.ok && created.status !== 409) return false;
           response = await putThread();
         }
         for (
@@ -1404,7 +1404,7 @@ export function useChatThreads(
           );
           response = await putThread();
         }
-        if (!response.ok) return;
+        if (!response.ok) return false;
         const reportedScope = savedThreadScope(
           // coercion-ok: a save response without a readable body carries no scope, and the local scope stays as it was.
           await response.json().catch(() => null),
@@ -1473,7 +1473,11 @@ export function useChatThreads(
             ...prev,
           ]);
         });
-      } catch {}
+        return true;
+      } catch {
+        // coercion-ok: false is the explicit save-failure result consumed by the draft-state caller.
+        return false;
+      }
     },
     [apiUrl, historyScope, readKnownThreadScope],
   );

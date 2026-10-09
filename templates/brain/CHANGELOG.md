@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Brain are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-07
+
+### Added
+
+- Zoom sources can import AI Companion meeting summaries, so meetings that were never recorded still reach Brain.
+
 ## 2026-10-06
 
 ### Added

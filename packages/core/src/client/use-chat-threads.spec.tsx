@@ -17,6 +17,24 @@ function jsonResponse(data: unknown) {
   });
 }
 
+function ensureLocalStorage(): void {
+  if (window.localStorage) return;
+  const values = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      get length() {
+        return values.size;
+      },
+      clear: () => values.clear(),
+      getItem: (key: string) => values.get(key) ?? null,
+      key: (index: number) => Array.from(values.keys())[index] ?? null,
+      removeItem: (key: string) => values.delete(key),
+      setItem: (key: string, value: string) => values.set(key, String(value)),
+    } satisfies Storage,
+  });
+}
+
 describe("useChatThreads", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -24,6 +42,7 @@ describe("useChatThreads", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("crypto", { randomUUID: () => "forked-thread" });
+    ensureLocalStorage();
     window.localStorage.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -676,8 +695,9 @@ describe("useChatThreads", () => {
       await Promise.resolve();
     });
 
+    let saved: boolean | undefined;
     await act(async () => {
-      await hook!.saveThreadData("retry-thread", {
+      saved = await hook!.saveThreadData("retry-thread", {
         threadData: "{}",
         title: "Saved after retry",
         preview: "new",
@@ -686,6 +706,54 @@ describe("useChatThreads", () => {
     });
 
     expect(putCount).toBe(2);
+    expect(saved).toBe(true);
+  });
+
+  it("reports when a thread save fails", async () => {
+    let putStatus = 500;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      if (
+        url === "/chat/threads/save-result-thread" &&
+        init?.method === "PUT"
+      ) {
+        return new Response(null, { status: putStatus });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "save-result", null, {
+        autoCreate: false,
+        restoreActiveThread: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const data = {
+      threadData: "{}",
+      title: "Save result",
+      preview: "verify persistence",
+      messageCount: 1,
+    };
+    await expect(
+      hook!.saveThreadData("save-result-thread", data),
+    ).resolves.toBe(false);
+
+    putStatus = 200;
+    await expect(
+      hook!.saveThreadData("save-result-thread", data),
+    ).resolves.toBe(true);
   });
 
   it("loads older chat history pages into All Chats", async () => {

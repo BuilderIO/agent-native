@@ -7,11 +7,13 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- The Slides widget in ChatGPT and Codex now has the editor's deck title, Share button and slide style toolbar, and they fit narrow panels.
 - Slide text editing keeps formatting controls responsive while you type.
 - The Slides chat stays responsive while you type on a slide.
 
 ### Fixed
 
+- Slides keep generating when image search is unavailable.
 - Crop animations respect active container-query styles
 - Crop edits preserve in-progress transitions and keep transforms aligned with animated font sizes.
 - Deck style tweaks save when edited from a ChatGPT widget.

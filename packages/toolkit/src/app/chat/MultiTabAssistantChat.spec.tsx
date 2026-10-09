@@ -2054,12 +2054,8 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(headerProps?.tabs.map((tab) => tab.id)).toEqual(["thread-clear"]);
   });
 
-  it("distinguishes persisted threads from a new chat in header state", async () => {
+  it("keeps route-backed drafts out of persisted-thread header state until save succeeds", async () => {
     let headerProps: MultiTabAssistantChatHeaderProps | null = null;
-    let threadNew = false;
-    threadMocks.isNewThread.mockImplementation(
-      (id) => id === "thread-new" && threadNew,
-    );
 
     await act(async () => {
       root.render(
@@ -2078,7 +2074,6 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
     expect(headerProps?.activeTabIsPersisted).toBe(true);
 
-    threadNew = true;
     threadMocks.createThread.mockImplementationOnce(async () => {
       const id = "thread-new";
       threadMocks.activeThreadId = id;
@@ -2105,7 +2100,44 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(headerProps?.activeTabId).toBe("thread-new");
     expect(headerProps?.activeTabIsPersisted).toBe(false);
 
-    threadNew = false;
+    threadMocks.saveThreadData.mockResolvedValueOnce(false);
+    await act(async () => {
+      assistantChatMockState.onSaveThread?.("thread-new", {
+        threadData: "{}",
+        title: "Draft thread",
+        preview: "first message",
+        messageCount: 0,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+
+    expect(headerProps?.activeTabIsPersisted).toBe(false);
+
+    threadMocks.saveThreadData.mockResolvedValueOnce(true);
+    await act(async () => {
+      assistantChatMockState.onSaveThread?.("thread-new", {
+        threadData: "{}",
+        title: "Draft thread",
+        preview: "first message",
+        messageCount: 0,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
     await act(async () => {
       root.render(
         <MultiTabAssistantChat

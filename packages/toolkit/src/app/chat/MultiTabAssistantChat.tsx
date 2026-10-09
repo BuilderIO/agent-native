@@ -2848,6 +2848,14 @@ export function MultiTabAssistantChat({
     };
   }, [chatCommandVersion, switchThread]);
 
+  const saveThreadDataForTab = useCallback(
+    async (threadId: string, data: Parameters<typeof saveThreadData>[1]) => {
+      const saved = await saveThreadData(threadId, data);
+      if (saved) newThreadIds.current.delete(threadId);
+    },
+    [saveThreadData],
+  );
+
   const handleGenerateTitle = useCallback(
     (
       threadId: string,
@@ -2857,7 +2865,7 @@ export function MultiTabAssistantChat({
       void generateTitle(threadId, message, selection).then((title) => {
         const resolvedTitle = title ?? fallbackChatTitle(message);
         if (!resolvedTitle) return;
-        void saveThreadData(threadId, {
+        void saveThreadDataForTab(threadId, {
           threadData: "",
           title: resolvedTitle,
           preview: message.slice(0, 120),
@@ -2865,7 +2873,7 @@ export function MultiTabAssistantChat({
         });
       });
     },
-    [generateTitle, saveThreadData],
+    [generateTitle, saveThreadDataForTab],
   );
 
   const handleSaveThread = useCallback(
@@ -2879,7 +2887,7 @@ export function MultiTabAssistantChat({
         titleSource?: "fallback";
       },
     ) => {
-      void saveThreadData(threadId, {
+      void saveThreadDataForTab(threadId, {
         ...data,
         threadData: "",
       });
@@ -2891,7 +2899,7 @@ export function MultiTabAssistantChat({
         writeThreadUrl(threadId);
       }
     },
-    [saveThreadData, writeThreadUrl],
+    [saveThreadDataForTab, writeThreadUrl],
   );
 
   // ─── Slash command handler ──────────────────────────────────────────
@@ -3065,7 +3073,9 @@ export function MultiTabAssistantChat({
       ? (messageCounts[activeThreadId] ?? 0)
       : 0,
     activeTabIsPersisted: Boolean(
-      activeThreadId && !isNewThread(activeThreadId),
+      activeThreadId &&
+      !newThreadIds.current.has(activeThreadId) &&
+      !isNewThread(activeThreadId),
     ),
     setActiveTabId: switchThread,
     addTab,
