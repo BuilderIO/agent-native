@@ -92,8 +92,10 @@ describe("createPollEngine", () => {
     const onTimeout = vi.fn();
     const attempt = vi.fn(
       (signal: AbortSignal) =>
-        new Promise<void>((resolve) => {
-          signal.addEventListener("abort", () => resolve(), { once: true });
+        new Promise<void>((_, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
         }),
     );
     const engine = createPollEngine(attempt, {

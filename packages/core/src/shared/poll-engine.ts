@@ -114,7 +114,7 @@ export function createPollEngine(
       .then(
         () => {},
         (err: unknown) => {
-          if (activeStopRequested) return;
+          if (activeStopRequested || controller.signal.aborted) return;
           report(err);
         },
       );
