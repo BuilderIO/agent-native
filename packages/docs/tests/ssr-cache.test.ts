@@ -5,6 +5,7 @@ import path from "node:path";
 import { resolveSsrCacheHeaders } from "@agent-native/core/server/ssr-handler";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { CHUNK_RECOVERY_BROWSER_CACHE_CONTROL } from "../../core/src/shared/cache-control.js";
 import { CHUNK_RECOVERY_PATH_SUFFIX } from "../../core/src/shared/route-chunk-recovery-bootstrap.js";
 import {
   renderNetlifyHeaders,
@@ -112,6 +113,7 @@ describe("Docs SSR cache key wrapper", () => {
 
     const recoveryHeaders = new Headers({
       ...resolveSsrCacheHeaders({}),
+      "cache-control": CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
       "content-type": "text/html; charset=utf-8",
     });
     applyCommunityAppSsrCacheHeaders(
@@ -119,6 +121,9 @@ describe("Docs SSR cache key wrapper", () => {
       `/apps/community/foo${CHUNK_RECOVERY_PATH_SUFFIX}/`,
     );
     expect(recoveryHeaders.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(recoveryHeaders.get("cdn-cache-control")).toBe(
       "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600",
     );
     expect(recoveryHeaders.get("netlify-cdn-cache-control")).toBe(
@@ -153,6 +158,20 @@ describe("Docs SSR cache key wrapper", () => {
     expect(disabledHeaders.get("cache-control")).toBe("no-store");
     expect(disabledHeaders.get("cdn-cache-control")).toBe("no-store");
     expect(disabledHeaders.get("netlify-cdn-cache-control")).toBe("no-store");
+
+    const disabledRecoveryHeaders = new Headers({
+      ...resolveSsrCacheHeaders(),
+      "content-type": "text/html; charset=utf-8",
+    });
+    applyCommunityAppSsrCacheHeaders(
+      disabledRecoveryHeaders,
+      `/apps/community/foo${CHUNK_RECOVERY_PATH_SUFFIX}`,
+    );
+    expect(disabledRecoveryHeaders.get("cache-control")).toBe("no-store");
+    expect(disabledRecoveryHeaders.get("cdn-cache-control")).toBe("no-store");
+    expect(disabledRecoveryHeaders.get("netlify-cdn-cache-control")).toBe(
+      "no-store",
+    );
   });
 
   it("does not cache auth-shaped or non-SSR community responses", () => {
