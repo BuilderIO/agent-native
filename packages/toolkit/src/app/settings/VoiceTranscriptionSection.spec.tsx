@@ -5,8 +5,21 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mountFailurePaths } = vi.hoisted(() => ({
+const { mountFailurePaths, builderStatusMock } = vi.hoisted(() => ({
   mountFailurePaths: new Set<string>(),
+  builderStatusMock: {
+    status: {
+      configured: false,
+      privateKeyConfigured: false,
+      publicKeyConfigured: false,
+    } as {
+      configured: boolean;
+      privateKeyConfigured: boolean;
+      publicKeyConfigured: boolean;
+    } | null,
+    error: null as string | null,
+    refetch: vi.fn(),
+  },
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
@@ -79,12 +92,9 @@ vi.mock("@agent-native/toolkit/ui/select", () => {
 
 vi.mock("./useBuilderStatus.js", () => ({
   useBuilderStatus: () => ({
-    status: {
-      configured: false,
-      privateKeyConfigured: false,
-      publicKeyConfigured: false,
-    },
-    refetch: vi.fn(),
+    status: builderStatusMock.status,
+    error: builderStatusMock.error,
+    refetch: builderStatusMock.refetch,
   }),
   useBuilderConnectFlow: () => ({ start: vi.fn() }),
 }));
@@ -119,6 +129,13 @@ describe("VoiceTranscriptionSection compact picker", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mountFailurePaths.clear();
+    builderStatusMock.status = {
+      configured: false,
+      privateKeyConfigured: false,
+      publicKeyConfigured: false,
+    };
+    builderStatusMock.error = null;
+    builderStatusMock.refetch.mockClear();
     puts.length = 0;
     prefsGet = () => json({ transcriptionMode: "mac-native" });
     cleanupPrefsGet = () => json(null);
@@ -328,6 +345,28 @@ describe("VoiceTranscriptionSection compact picker", () => {
 
     expect(container.querySelector('[role="alert"]')).toBeNull();
     expect(container.querySelector('[aria-label="AI cleanup"]')).toBeTruthy();
+  });
+
+  it("offers a retry when Builder status fails before cleanup can default", async () => {
+    builderStatusMock.status = null;
+    builderStatusMock.error = "Builder status unavailable";
+
+    await render(false);
+
+    const alert = container.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain(
+      "Couldn't load this. Please try again.",
+    );
+    const retry = Array.from(alert?.querySelectorAll("button") ?? []).find(
+      (button) => button.textContent?.trim() === "Retry",
+    );
+    expect(retry).toBeTruthy();
+
+    await act(async () => {
+      retry?.click();
+    });
+
+    expect(builderStatusMock.refetch).toHaveBeenCalledTimes(1);
   });
 
   it("rolls back and recovers when saving preferences hits a synchronous mount failure", async () => {

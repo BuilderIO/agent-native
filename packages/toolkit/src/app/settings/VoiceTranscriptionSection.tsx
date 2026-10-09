@@ -171,8 +171,11 @@ export function VoiceTranscriptionSection({
   const [providerStatusLoadFailed, setProviderStatusLoadFailed] =
     useState(false);
   const [providerStatusRequest, setProviderStatusRequest] = useState(0);
-  const { status: builderStatus, refetch: refetchBuilderStatus } =
-    useBuilderStatus();
+  const {
+    status: builderStatus,
+    error: builderStatusError,
+    refetch: refetchBuilderStatus,
+  } = useBuilderStatus();
   const builderConnect = useBuilderConnectFlow({
     popupUrl: builderStatus?.connectUrl,
     provisionAccount: true,
@@ -185,6 +188,7 @@ export function VoiceTranscriptionSection({
   const builderRealtimeReady =
     !!builderStatus?.privateKeyConfigured &&
     !!builderStatus?.publicKeyConfigured;
+  const builderStatusLoadFailed = !!builderStatusError && !builderStatus;
   const googleRealtimeReady =
     !!googleRealtimeConfigured && builderRealtimeReady;
 
@@ -615,6 +619,24 @@ export function VoiceTranscriptionSection({
             after capture. Builder Gemini is tried first; BYOK Gemini is the
             fallback.
           </p>
+          {builderStatusLoadFailed &&
+          cleanupEnabled === null &&
+          !cleanupLoadFailed ? (
+            <div
+              className="mt-1 flex flex-wrap items-center gap-2 text-xs text-destructive"
+              role="alert"
+            >
+              <span>{t("agentChat.common.chunkLoadFailed")}</span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void refetchBuilderStatus()}
+              >
+                {t("agentChat.common.retry")}
+              </Button>
+            </div>
+          ) : null}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           {!cleanupLoadFailed && (
