@@ -3059,11 +3059,17 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     const originalTicket = embedSessionMocks.renewalTickets.get(sourceTicket);
     expect(originalTicket).toBeDefined();
-    expect(originalTicket.scope).toContain("shell-v69");
-    originalTicket.scope = originalTicket.scope.replace(
-      "shell-v69",
-      "shell-v68",
-    );
+    const scopePrefix = "capability:mcp-directory-widget-write:";
+    const scopeJson = (scope: string) =>
+      Buffer.from(scope.slice(scopePrefix.length), "base64url").toString(
+        "utf8",
+      );
+    expect(scopeJson(originalTicket.scope)).toContain("shell-v69");
+    originalTicket.scope =
+      scopePrefix +
+      Buffer.from(
+        scopeJson(originalTicket.scope).replace("shell-v69", "shell-v68"),
+      ).toString("base64url");
     embedSessionMocks.renewalTickets.set(sourceTicket, originalTicket);
     originalTicket.renewalExpiresAtMs = Date.now() + 60 * 1000;
     embedSessionMocks.renewalTickets.set("foreign-user-ticket", {
@@ -3195,8 +3201,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       ownerEmail: "oauth@example.com",
       orgId: undefined,
       expectedScope: originalTicket.scope,
-      renewedScope: expect.stringContaining("shell-v69"),
+      renewedScope: expect.any(String),
     });
+    expect(
+      scopeJson(
+        embedSessionMocks.renewMcpDirectoryWidgetSession.mock.lastCall?.[0]
+          .renewedScope,
+      ),
+    ).toContain("shell-v69");
     expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledTimes(2);
 
     const readOnlyHeaders = await mcpAppsAuthHeaders({
