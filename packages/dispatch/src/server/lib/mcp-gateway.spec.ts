@@ -2056,6 +2056,66 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     );
   });
 
+  it("retries unauthenticated MCP tool errors with the org-scoped token", async () => {
+    vi.stubEnv("A2A_SECRET", "shared-secret");
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+    mocks.signA2AOrganizationToken.mockResolvedValueOnce("org-signed-token");
+    mocks.signA2AToken.mockResolvedValueOnce("global-signed-token");
+    mocks.managerCallTool
+      .mockResolvedValueOnce({
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: "Error: create_embed_session requires an authenticated MCP caller.",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        structuredContent: {
+          startUrl:
+            "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+        },
+      });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "analytics",
+          path: "/dashboards",
+        }),
+    );
+
+    expect(result).toMatchObject({ app: "analytics" });
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
+    expect(mocks.managerConstructor).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        servers: {
+          target: expect.objectContaining({
+            headers: { Authorization: "Bearer global-signed-token" },
+          }),
+        },
+      }),
+    );
+    expect(mocks.managerConstructor).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        servers: {
+          target: expect.objectContaining({
+            headers: { Authorization: "Bearer org-signed-token" },
+          }),
+        },
+      }),
+    );
+  });
+
   it("falls back to the shared A2A secret when no org secret is available", async () => {
     mocks.getOrgDomain.mockResolvedValue("builder.io");
     mocks.getOrgA2ASecret.mockResolvedValue(null);

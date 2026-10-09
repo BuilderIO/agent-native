@@ -1092,7 +1092,7 @@ function isTargetMcpAuthError(error: unknown): boolean {
       : typeof error === "string"
         ? error
         : safeJson(error);
-  return /\b401\b|\b403\b|unauthorized|forbidden|invalid(?: or expired)? (?:a2a )?token|authentication required/i.test(
+  return /\b401\b|\b403\b|unauthorized|forbidden|invalid(?: or expired)? (?:a2a )?token|authentication required|create_embed_session requires an authenticated MCP caller/i.test(
     message,
   );
 }
