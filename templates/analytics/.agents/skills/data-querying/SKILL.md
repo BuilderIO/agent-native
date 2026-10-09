@@ -19,6 +19,8 @@ The analytics app connects to multiple data sources. This skill covers general p
 5. **Write ad-hoc scripts** — if no existing script covers the question, create one in `actions/`
 6. **Present data in chat** — don't just say "check the dashboard" — actually query, get the data, and present it. Only present numbers you actually retrieved; never report a value you did not query.
 
+For a question naming a dbt metric, call `query-dbt-semantic-metric` with its exact dbt name. Use dbt as the metric-definition and grain source; Sigma and Amplitude are examples or cross-checks. If the metric is not defined or its deployment is not ready, report that state and use a verified warehouse path only when it answers the same definition.
+
 For events recorded by the analytics template itself via its `/track` endpoint, use `pnpm action query-agent-native-analytics --sql "SELECT ... FROM analytics_events ..."`. This includes pageviews, site/app traffic, template usage, app usage, and event counts collected by this analytics app. Pageviews and traffic can also live in GA4, BigQuery/warehouse tables, Mixpanel, PostHog, Amplitude, or another configured provider, so choose the source from the user's wording, connected-source status, existing dashboards, data dictionary, and user/org resources. Ask one concise clarification if multiple configured sources are plausible. Do not use `db-query` for data-source analysis; `db-query` is only for internal app tables and will confuse analytics questions. The shipped `agent-native-templates-first-party` SQL dashboard is the template engagement dashboard for the first-party collector source.
 
 For first-party counts, active-user, and retention questions, prefer the compact

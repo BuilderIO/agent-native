@@ -12,6 +12,7 @@ export const INITIAL_TOOL_NAMES = [
   "mutate-dashboard",
   "inspect-dashboard-panel",
   "find-data",
+  "query-dbt-semantic-metric",
   "search-dashboard-references",
   "query-agent-native-analytics",
   "bigquery",

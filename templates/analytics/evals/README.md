@@ -6,18 +6,18 @@ Run the Analytics eval suite with an explicit caller identity:
 pnpm exec agent-native eval --owner-email person@example.com --org-id org_example --json
 ```
 
-The runner requires an adapter that invokes the mounted production chat handler
-and returns a bounded setup receipt for request preparation, assembled prompt,
-prefetch status, final guard, identity, and read-only action surface. Identity
+The Analytics adapter assembles the production framework prompt, Analytics
+instructions, initial tools, read-only action registry, and request-time catalog
+prefetch. It invokes the shared production `runAgentLoop` with the real Analytics
+final-response guard, caller email, organization id, abort signal, and usage
+capture. The runner checks a bounded receipt for those conditions and rejects
+failed or timed-out prefetch, missing guard/usage, skipped cases, or cancellation.
+
+This exercises the shared production agent-loop boundary; it does not dispatch
+through the mounted HTTP chat handler or its thread/run persistence path. The
+CLI passes `persist: false`, so it does not write eval-result rows. Identity
 must come from these CLI flags or an explicitly injected resolver; it is never
-read from environment variables or app configuration. Results are not persisted.
+read from environment variables or app configuration.
 
-The current `production-context.ts` exports the Analytics guard, prompt rules,
-and static read-only actions, but it cannot invoke the production HTTP handler.
-That handler owns `prepareRequest`, request-time prefetch, and dynamic prompt/tool
-assembly inside its plugin closure. The eval command therefore fails closed
-until a safe test adapter for that path is exposed. Direct-loop results are not
-accepted as production-path eval evidence.
-
-If either identity value or the adapter is missing, the command exits with an
-error before running or scoring any case.
+If either identity value or the production adapter is missing, the command
+exits with an error before running or scoring any case.

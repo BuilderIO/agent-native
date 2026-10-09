@@ -3,6 +3,7 @@ import {
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useOrgRole } from "@agent-native/core/client/org";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
 import {
   IconBook2,
@@ -81,15 +82,17 @@ interface DictionaryEntry {
   updatedAt?: string;
 }
 
-interface SourceIndexStatus {
-  status: "available" | "not-configured" | "unavailable" | "invalid";
-  entryCount?: number;
-  generatedAt?: string;
-  sources?: Array<{ id: string; revision?: string }>;
-  ageDays?: number;
-  staleAfterDays?: number;
-  stale?: boolean;
-}
+type SourceIndexStatus =
+  | {
+      status: "available";
+      entryCount: number;
+      generatedAt: string;
+      sources: Array<{ id: string; revision?: string }>;
+      ageDays: number;
+      staleAfterDays: number;
+      stale: boolean;
+    }
+  | { status: "not-configured" | "unavailable" | "invalid" };
 
 interface PendingSourceIndex {
   fileName: string;
@@ -176,6 +179,7 @@ function DictionaryBadge({
 
 export default function DataDictionary() {
   const t = useT();
+  const { canManageOrg } = useOrgRole();
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Partial<DictionaryEntry> | null>(null);
   const [toDelete, setToDelete] = useState<DictionaryEntry | null>(null);
@@ -270,21 +274,16 @@ export default function DataDictionary() {
 
   useSetHeaderActions(
     <div className="flex items-center gap-2">
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={() => indexFileInput.current?.click()}
-      >
-        <IconUpload className="h-4 w-4 mr-1" />
-        {t("dataDictionary.importIndex")}
-      </Button>
-      <input
-        ref={indexFileInput}
-        type="file"
-        accept="application/json,.json"
-        onChange={chooseSourceIndex}
-        className="hidden"
-      />
+      {canManageOrg ? (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => indexFileInput.current?.click()}
+        >
+          <IconUpload className="h-4 w-4 mr-1" />
+          {t("dataDictionary.importIndex")}
+        </Button>
+      ) : null}
       <Button size="sm" onClick={() => setEditing({ ...EMPTY_ENTRY })}>
         <IconPlus className="h-4 w-4 mr-1" />
         {t("dataDictionary.newDictionaryEntry")}
@@ -298,44 +297,64 @@ export default function DataDictionary() {
         {t("dataDictionary.intro")}
       </p>
 
-      <div className="text-xs text-muted-foreground" aria-live="polite">
-        {indexStatus?.status === "available" ? (
-          <>
-            {t("dataDictionary.indexReady", {
-              count: indexStatus.entryCount ?? 0,
-              date: indexStatus.generatedAt
-                ? new Date(indexStatus.generatedAt).toLocaleDateString()
-                : "",
-            })}
-            {indexStatus.sources?.length
-              ? ` · ${indexStatus.sources
-                  .map((source) =>
-                    source.revision
-                      ? `${source.id}@${source.revision}`
-                      : source.id,
-                  )
-                  .join(", ")}`
-              : ""}
-          </>
-        ) : indexStatus?.status === "invalid" ? (
-          t("dataDictionary.indexUnreadable")
-        ) : indexStatus?.status === "unavailable" ? (
-          t("dataDictionary.indexReadFailed")
-        ) : (
-          t("dataDictionary.indexNotImported")
-        )}
-        {indexStatus?.status === "available" && indexStatus.stale ? (
-          <span className="ml-2 text-amber-700 dark:text-amber-400">
-            {t("dataDictionary.indexStale", {
-              days: indexStatus.staleAfterDays ?? 90,
-            })}
-          </span>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="text-xs text-muted-foreground" aria-live="polite">
+          {indexStatus?.status === "available" ? (
+            <>
+              {t("dataDictionary.indexReady", {
+                count: indexStatus.entryCount ?? 0,
+                date: indexStatus.generatedAt
+                  ? new Date(indexStatus.generatedAt).toLocaleDateString()
+                  : "",
+              })}
+              {indexStatus.sources?.length
+                ? ` · ${indexStatus.sources
+                    .map((source) =>
+                      source.revision
+                        ? `${source.id}@${source.revision}`
+                        : source.id,
+                    )
+                    .join(", ")}`
+                : ""}
+            </>
+          ) : indexStatus?.status === "invalid" ? (
+            t("dataDictionary.indexUnreadable")
+          ) : indexStatus?.status === "unavailable" ? (
+            t("dataDictionary.indexReadFailed")
+          ) : (
+            t("dataDictionary.indexNotImported")
+          )}
+          {indexStatus?.status === "available" && indexStatus.stale ? (
+            <span className="ms-2 text-amber-700 dark:text-amber-400">
+              {t("dataDictionary.indexStale", {
+                days: indexStatus.ageDays,
+              })}
+            </span>
+          ) : null}
+          {indexError ? (
+            <span role="alert" className="ms-2 text-destructive">
+              {indexError}
+            </span>
+          ) : null}
+        </div>
+        {canManageOrg ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="md:hidden"
+            onClick={() => indexFileInput.current?.click()}
+          >
+            <IconUpload className="me-1 h-4 w-4" />
+            {t("dataDictionary.importIndex")}
+          </Button>
         ) : null}
-        {indexError ? (
-          <span role="alert" className="ml-2 text-destructive">
-            {indexError}
-          </span>
-        ) : null}
+        <input
+          ref={indexFileInput}
+          type="file"
+          accept="application/json,.json"
+          onChange={chooseSourceIndex}
+          className="hidden"
+        />
       </div>
 
       <div className="relative max-w-md">

@@ -79,7 +79,13 @@ export interface SourceIndexEntry {
   definition: string;
   source: string;
   sourceKind?: "dbt" | "code" | "sigma";
+  entryType?: "model" | "event" | "semantic_model" | "metric";
   semanticScope?: SemanticScope;
+  owner?: string;
+  grain?: string;
+  primaryEntity?: string;
+  timeDimension?: string;
+  semanticModel?: string;
   table?: string;
   columnsUsed?: string;
   dependencies?: string;
@@ -138,13 +144,32 @@ interface ColumnDoc {
   name: string;
   description?: string;
   dataType?: string;
+  entityName?: string;
+  entityType?: string;
+  dimensionType?: string;
+  granularity?: string;
   tests: Set<string>;
+}
+
+interface EmbeddedMetricDoc {
+  name: string;
+  type?: string;
+  description?: string;
+  label?: string;
+  agg?: string;
+  expr?: string;
+  aggTimeDimension?: string;
 }
 
 interface ModelDoc {
   name: string;
   sourcePath?: string;
   description?: string;
+  semanticModelEnabled?: boolean;
+  semanticModelName?: string;
+  group?: string;
+  aggTimeDimension?: string;
+  embeddedMetrics?: EmbeddedMetricDoc[];
   columns: Map<string, ColumnDoc>;
   tests: Set<string>;
   dependencies: Set<string>;
@@ -156,10 +181,30 @@ interface DbEntryContext {
   itemIndent: number;
   columnsIndent: number | null;
   column: ColumnDoc | null;
+  entityIndent: number | null;
+  dimensionIndent: number | null;
   testsIndent: number | null;
   testsOwner: ModelDoc | ColumnDoc | null;
+  metricsIndent: number | null;
   grainListIndent: number | null;
   grainColumns: string[] | null;
+}
+
+interface DbtYamlItem {
+  section: "semantic_models" | "metrics" | "groups";
+  itemIndent: number;
+  sourcePath?: string;
+  values: Record<string, string>;
+  nested: Record<string, string>;
+  children: Map<string, Array<Record<string, string>>>;
+  ownerName?: string;
+}
+
+interface DbtYamlMultiline {
+  target: Record<string, string>;
+  key: string;
+  indent: number;
+  lines: string[];
 }
 
 interface CodeEvent {
@@ -716,8 +761,11 @@ function parseSchemaYaml(
       itemIndent: indent,
       columnsIndent: null,
       column: null,
+      entityIndent: null,
+      dimensionIndent: null,
       testsIndent: null,
       testsOwner: null,
+      metricsIndent: null,
       grainListIndent: null,
       grainColumns: null,
     };
@@ -785,6 +833,8 @@ function parseSchemaYaml(
         const column: ColumnDoc = { name, tests: new Set() };
         context.model.columns.set(name, column);
         context.column = column;
+        context.entityIndent = null;
+        context.dimensionIndent = null;
         context.testsIndent = null;
         context.testsOwner = null;
         context.grainListIndent = null;
@@ -800,6 +850,24 @@ function parseSchemaYaml(
     if (simpleKey) {
       const [, key, rawValue] = simpleKey as [string, string, string];
       const value = yamlScalar(rawValue);
+
+      if (
+        context.columnsIndent !== null &&
+        indent <= context.columnsIndent &&
+        key !== "columns"
+      ) {
+        context.columnsIndent = null;
+        context.column = null;
+        context.entityIndent = null;
+        context.dimensionIndent = null;
+      }
+      if (
+        context.metricsIndent !== null &&
+        indent <= context.metricsIndent &&
+        key !== "metrics"
+      ) {
+        context.metricsIndent = null;
+      }
 
       if (context.testsIndent !== null && indent <= context.testsIndent) {
         context.testsIndent = null;
@@ -817,6 +885,17 @@ function parseSchemaYaml(
       if (key === "columns" && indent > context.itemIndent) {
         context.columnsIndent = indent;
         context.column = null;
+        continue;
+      }
+      if (key === "metrics" && indent > context.itemIndent) {
+        context.metricsIndent = indent;
+        continue;
+      }
+      if (
+        context.metricsIndent !== null &&
+        indent > context.metricsIndent &&
+        key === "description"
+      ) {
         continue;
       }
       if (
@@ -851,6 +930,35 @@ function parseSchemaYaml(
         addGrainHint(context.model, columns);
         continue;
       }
+      if (
+        context.column &&
+        context.columnsIndent !== null &&
+        indent > context.columnsIndent &&
+        key === "entity"
+      ) {
+        context.entityIndent = indent;
+        context.dimensionIndent = null;
+        continue;
+      }
+      if (
+        context.column &&
+        context.columnsIndent !== null &&
+        indent > context.columnsIndent &&
+        key === "dimension"
+      ) {
+        context.dimensionIndent = indent;
+        context.entityIndent = null;
+        continue;
+      }
+      if (context.entityIndent !== null && indent <= context.entityIndent) {
+        context.entityIndent = null;
+      }
+      if (
+        context.dimensionIndent !== null &&
+        indent <= context.dimensionIndent
+      ) {
+        context.dimensionIndent = null;
+      }
       if (key === "description") {
         const target =
           context.column &&
@@ -871,7 +979,12 @@ function parseSchemaYaml(
         context.columnsIndent !== null &&
         indent > context.columnsIndent
       ) {
-        if (key === "data_type" || key === "type") {
+        if (
+          key === "data_type" ||
+          (key === "type" &&
+            context.entityIndent === null &&
+            context.dimensionIndent === null)
+        ) {
           if (/^[A-Za-z][A-Za-z0-9_(), ]{0,79}$/.test(value)) {
             context.column.dataType = value;
           }
@@ -947,9 +1060,733 @@ function parseSchemaYaml(
   return models;
 }
 
+function parseEmbeddedSemanticYaml(
+  raw: string,
+  sourcePath: string | undefined,
+): ModelDoc[] {
+  const models: ModelDoc[] = [];
+  let modelsIndent: number | null = null;
+  let modelItemIndent: number | null = null;
+  let current: ModelDoc | null = null;
+  let listKind: "columns" | "metrics" | null = null;
+  let listIndent: number | null = null;
+  let columnItemIndent: number | null = null;
+  let metricItemIndent: number | null = null;
+  let currentColumn: ColumnDoc | null = null;
+  let currentMetric: EmbeddedMetricDoc | null = null;
+  let entityIndent: number | null = null;
+  let dimensionIndent: number | null = null;
+  let configIndent: number | null = null;
+  let semanticModelIndent: number | null = null;
+
+  const createModel = (nameValue: string, indent: number): ModelDoc | null => {
+    modelItemIndent = indent;
+    const name = safeIdentifier(yamlScalar(nameValue));
+    if (!name) return null;
+    const model: ModelDoc = {
+      name,
+      ...(sourcePath ? { sourcePath } : {}),
+      columns: new Map(),
+      tests: new Set(),
+      dependencies: new Set(),
+      grainHints: [],
+      embeddedMetrics: [],
+    };
+    models.push(model);
+    listKind = null;
+    listIndent = null;
+    columnItemIndent = null;
+    metricItemIndent = null;
+    currentColumn = null;
+    currentMetric = null;
+    entityIndent = null;
+    dimensionIndent = null;
+    configIndent = null;
+    semanticModelIndent = null;
+    return model;
+  };
+
+  const finishMetric = () => {
+    if (current && currentMetric?.name) {
+      current.embeddedMetrics ??= [];
+      current.embeddedMetrics.push(currentMetric);
+    }
+    currentMetric = null;
+    metricItemIndent = null;
+  };
+
+  for (const original of raw.split(/\r?\n/)) {
+    const line = yamlCommentFree(original);
+    if (!line.trim() || /^\s*---\s*$/.test(line)) continue;
+    const indent = line.match(/^ */)![0].length;
+    const content = line.slice(indent).trim();
+
+    if (/^models\s*:\s*(?:#.*)?$/.test(content) && modelsIndent === null) {
+      modelsIndent = indent;
+      modelItemIndent = null;
+      continue;
+    }
+    if (modelsIndent === null) continue;
+    if (indent <= modelsIndent && !/^models\s*:/.test(content)) {
+      finishMetric();
+      modelsIndent = null;
+      modelItemIndent = null;
+      current = null;
+      listKind = null;
+      continue;
+    }
+
+    const nameItem = content.match(/^[-]\s+name\s*:\s*(.*?)\s*$/);
+    if (nameItem && indent > modelsIndent) {
+      if (modelItemIndent === null || indent === modelItemIndent) {
+        finishMetric();
+        current = createModel(nameItem[1]!, indent);
+        continue;
+      }
+      if (current && listKind && listIndent !== null && indent > listIndent) {
+        if (listKind === "columns") {
+          const name = safeIdentifier(yamlScalar(nameItem[1]!));
+          currentColumn = name ? { name, tests: new Set() } : null;
+          if (currentColumn) {
+            current.columns.set(name!, currentColumn);
+            columnItemIndent = indent;
+            entityIndent = null;
+            dimensionIndent = null;
+          }
+        } else {
+          finishMetric();
+          currentMetric = { name: yamlScalar(nameItem[1]!) };
+          metricItemIndent = indent;
+        }
+        continue;
+      }
+    }
+    if (!current || modelItemIndent === null) continue;
+
+    const simpleKey = content.match(/^([A-Za-z_][A-Za-z0-9_.-]*)\s*:\s*(.*)$/);
+    if (!simpleKey) continue;
+    const [, key, rawValue] = simpleKey as [string, string, string];
+    const value = yamlScalar(rawValue);
+    const modelKeyIndent = modelItemIndent + 2;
+
+    if (indent === modelKeyIndent) {
+      finishMetric();
+      currentColumn = null;
+      columnItemIndent = null;
+      entityIndent = null;
+      dimensionIndent = null;
+      listKind = null;
+      listIndent = null;
+      configIndent = null;
+      semanticModelIndent = null;
+      if (key === "columns" || key === "metrics") {
+        listKind = key;
+        listIndent = indent;
+      } else if (key === "config") {
+        configIndent = indent;
+      } else if (key === "semantic_model") {
+        semanticModelIndent = indent;
+      } else if (key === "agg_time_dimension") {
+        current.aggTimeDimension = value;
+      }
+      continue;
+    }
+
+    if (configIndent !== null && indent > configIndent && key === "group") {
+      current.group = value;
+      continue;
+    }
+    if (semanticModelIndent !== null && indent > semanticModelIndent) {
+      if (key === "enabled") {
+        current.semanticModelEnabled = value.toLowerCase() === "true";
+      } else if (key === "name") {
+        current.semanticModelName = value;
+      }
+      continue;
+    }
+
+    if (currentMetric && metricItemIndent !== null) {
+      if (indent <= metricItemIndent) {
+        finishMetric();
+      } else if (indent === metricItemIndent + 2) {
+        if (key === "type") currentMetric.type = value;
+        else if (key === "description") currentMetric.description = value;
+        else if (key === "label") currentMetric.label = value;
+        else if (key === "agg") currentMetric.agg = value;
+        else if (key === "expr") currentMetric.expr = value;
+        else if (key === "agg_time_dimension")
+          currentMetric.aggTimeDimension = value;
+        continue;
+      }
+    }
+
+    if (currentColumn && columnItemIndent !== null) {
+      if (indent <= columnItemIndent) {
+        currentColumn = null;
+        entityIndent = null;
+        dimensionIndent = null;
+      } else if (indent === columnItemIndent + 2) {
+        if (key === "entity") {
+          entityIndent = indent;
+          dimensionIndent = null;
+        } else if (key === "dimension") {
+          dimensionIndent = indent;
+          entityIndent = null;
+        } else if (key === "granularity") {
+          currentColumn.granularity = value;
+        }
+      } else if (entityIndent !== null && indent > entityIndent) {
+        if (key === "name") currentColumn.entityName = value;
+        else if (key === "type") currentColumn.entityType = value;
+      } else if (dimensionIndent !== null && indent > dimensionIndent) {
+        if (key === "type") currentColumn.dimensionType = value;
+      }
+    }
+  }
+  finishMetric();
+  return models;
+}
+
+function parseSemanticYamlItems(
+  raw: string,
+  sourcePath: string | undefined,
+  scanSummary: SourceIndexScanSummary,
+): DbtYamlItem[] {
+  const items: DbtYamlItem[] = [];
+  let section: DbtYamlItem["section"] | null = null;
+  let sectionIndent = -1;
+  let itemIndent: number | null = null;
+  let current: DbtYamlItem | null = null;
+  let currentChild: {
+    indent: number;
+    fields: Record<string, string>;
+  } | null = null;
+  let stack: Array<{ indent: number; key: string }> = [];
+  let multiline: DbtYamlMultiline | null = null;
+
+  const startItem = (
+    indent: number,
+    nameValue: string,
+    activeSection: DbtYamlItem["section"],
+  ) => {
+    current = {
+      section: activeSection,
+      itemIndent: indent,
+      ...(sourcePath ? { sourcePath } : {}),
+      values: { name: yamlScalar(nameValue) },
+      nested: {},
+      children: new Map(),
+    };
+    items.push(current);
+    itemIndent = indent;
+    currentChild = null;
+    stack = [];
+  };
+
+  for (const original of raw.split(/\r?\n/)) {
+    const line = yamlCommentFree(original);
+    if (!line.trim() || /^\s*---\s*$/.test(line)) continue;
+    const indent = line.match(/^ */)![0].length;
+    const content = line.slice(indent).trim();
+
+    if (multiline && indent > multiline.indent) {
+      multiline.lines.push(content);
+      continue;
+    }
+    if (multiline) {
+      multiline.target[multiline.key] = multiline.lines.join(" ");
+      multiline = null;
+    }
+
+    if (indent === 0) {
+      const sectionHeader = content.match(
+        /^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.*)$/,
+      );
+      if (sectionHeader) {
+        const name = sectionHeader[1];
+        section =
+          name === "semantic_models" || name === "metrics" || name === "groups"
+            ? name
+            : null;
+        sectionIndent = indent;
+        itemIndent = null;
+        current = null;
+        currentChild = null;
+        stack = [];
+        continue;
+      }
+    }
+    const activeSection = section;
+    if (!activeSection) continue;
+
+    const mainItem = content.match(/^[-]\s+name\s*:\s*(.*?)\s*$/);
+    if (
+      mainItem &&
+      (itemIndent === null || indent === itemIndent) &&
+      indent > sectionIndent
+    ) {
+      startItem(indent, mainItem[1]!, activeSection);
+      continue;
+    }
+    const currentItem = current as DbtYamlItem | null;
+    if (!currentItem || itemIndent === null) continue;
+    if (indent <= itemIndent) {
+      current = null;
+      currentChild = null;
+      stack = [];
+      continue;
+    }
+
+    const listItem = content.match(/^[-]\s*(.*?)\s*$/);
+    if (listItem && indent > itemIndent) {
+      while (stack.length && stack[stack.length - 1]!.indent >= indent) {
+        stack.pop();
+      }
+      const parent = stack[stack.length - 1]?.key;
+      if (!parent) continue;
+      const fields: Record<string, string> = {};
+      const childName = listItem[1]!.match(/^name\s*:\s*(.*?)\s*$/);
+      if (childName) fields.name = yamlScalar(childName[1]!);
+      const children = currentItem.children.get(parent) ?? [];
+      children.push(fields);
+      currentItem.children.set(parent, children);
+      currentChild = { indent, fields };
+      continue;
+    }
+
+    const simpleKey = content.match(/^([A-Za-z_][A-Za-z0-9_.-]*)\s*:\s*(.*)$/);
+    const activeChild = currentChild as {
+      indent: number;
+      fields: Record<string, string>;
+    } | null;
+    if (!simpleKey) {
+      if (activeChild && indent > activeChild.indent) {
+        scanSummary.unsafeFieldsOmitted += 1;
+      }
+      continue;
+    }
+
+    const [, key, rawValue] = simpleKey as [string, string, string];
+    while (stack.length && stack[stack.length - 1]!.indent >= indent) {
+      stack.pop();
+    }
+    if (activeChild && indent <= activeChild.indent) currentChild = null;
+    const parentPath = stack.map(({ key: parentKey }) => parentKey);
+    const isBlock = [">", ">-", ">+", "|", "|-", "|+"].includes(
+      rawValue.trim(),
+    );
+
+    if (activeChild && indent > activeChild.indent) {
+      const target = activeChild.fields;
+      const targetKey = [...parentPath.slice(1), key].join(".");
+      if (isBlock) multiline = { target, key: targetKey, indent, lines: [] };
+      else target[targetKey] = yamlScalar(rawValue);
+      if (!rawValue.trim()) stack.push({ indent, key });
+      continue;
+    }
+
+    if (parentPath[0] === "owner" && key === "name") {
+      currentItem.ownerName = yamlScalar(rawValue);
+      continue;
+    }
+    if (indent === itemIndent + 2 && parentPath.length === 0) {
+      if (isBlock)
+        multiline = { target: currentItem.values, key, indent, lines: [] };
+      else currentItem.values[key] = yamlScalar(rawValue);
+    } else if (parentPath.length > 0) {
+      currentItem.nested[[...parentPath, key].join(".")] = yamlScalar(rawValue);
+    } else {
+      currentItem.values[key] = yamlScalar(rawValue);
+    }
+    if (!rawValue.trim()) stack.push({ indent, key });
+  }
+
+  if (multiline) multiline.target[multiline.key] = multiline.lines.join(" ");
+  return items;
+}
+
+function safeOwnerName(
+  value: string | undefined,
+  scanSummary: SourceIndexScanSummary,
+): string | undefined {
+  if (!value?.trim()) return undefined;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (SENSITIVE_TEXT.test(normalized)) {
+    scanSummary.unsafeFieldsOmitted += 1;
+    return undefined;
+  }
+  if (normalized.length > 160) {
+    scanSummary.truncatedFields += 1;
+    return boundedExcerpt(normalized, 160);
+  }
+  return normalized;
+}
+
+interface SemanticModelContext {
+  name: string;
+  owner?: string;
+  grain?: string;
+  primaryEntity?: string;
+  timeDimension?: string;
+  entry: SourceIndexEntry;
+  item?: DbtYamlItem;
+  modelDoc?: ModelDoc;
+}
+
+function semanticModelEntries(
+  root: RootContext,
+  yamlItems: DbtYamlItem[],
+  models: ModelDoc[],
+  scanSummary: SourceIndexScanSummary,
+): SourceIndexEntry[] {
+  const groups = new Map<string, string>();
+  for (const item of yamlItems.filter(({ section }) => section === "groups")) {
+    const name = safeIdentifier(item.values.name ?? "");
+    const owner = safeOwnerName(
+      item.ownerName ?? item.values.owner,
+      scanSummary,
+    );
+    if (name && owner) groups.set(name, owner);
+  }
+
+  const docs = yamlItems.filter(({ section }) => section === "semantic_models");
+  const semanticModels: SemanticModelContext[] = docs.flatMap((item) => {
+    const name = safeIdentifier(item.values.name ?? "");
+    if (!name) {
+      scanSummary.unsafeEntriesOmitted += 1;
+      return [];
+    }
+    const modelReference = item.values.model?.match(
+      /(?:ref|source)\s*\(\s*['"]([A-Za-z_][A-Za-z0-9_-]{0,99})['"]/,
+    )?.[1];
+    const modelName = modelReference ? safeIdentifier(modelReference) : null;
+    const primary = (item.children.get("entities") ?? []).find(
+      (entity) => entity.type?.toLowerCase() === "primary",
+    );
+    const primaryEntity =
+      safeIdentifier(primary?.expr ?? primary?.name ?? "") ?? undefined;
+    const timeDimension =
+      safeIdentifier(item.nested["defaults.agg_time_dimension"] ?? "") ??
+      (item.children.get("dimensions") ?? [])
+        .filter((dimension) => dimension.type?.toLowerCase() === "time")
+        .map((dimension) => safeIdentifier(dimension.name ?? ""))
+        .find((value): value is string => Boolean(value));
+    const modelDoc = modelName
+      ? models.find((model) => model.name === modelName)
+      : undefined;
+    const uniqueGrain = modelDoc?.grainHints[0];
+    const explicitGrain = safeDescription(item.values.grain ?? "", scanSummary);
+    const grain =
+      explicitGrain ??
+      (uniqueGrain?.length
+        ? `Unique key: ${uniqueGrain.join(", ")}`
+        : primaryEntity
+          ? `Primary entity: ${primaryEntity}`
+          : undefined);
+    const group = safeIdentifier(item.values.group ?? "");
+    const owner =
+      safeOwnerName(item.ownerName ?? item.values.owner, scanSummary) ??
+      (group ? groups.get(group) : undefined);
+    const description = safeDescription(
+      item.values.description ?? "",
+      scanSummary,
+    );
+    const definition = boundedExcerpt(
+      [
+        description ?? `dbt semantic model ${name}`,
+        ...(modelName ? [`Model: ${modelName}`] : []),
+        ...(primaryEntity ? [`Primary entity: ${primaryEntity}`] : []),
+        ...(timeDimension ? [`Time dimension: ${timeDimension}`] : []),
+      ].join(". "),
+      5_000,
+    );
+    const entry: SourceIndexEntry = {
+      id: entryId(root.id, "semantic-model", name),
+      metric: `semantic_model:${name}`,
+      definition,
+      source: root.id,
+      sourceKind: "dbt",
+      entryType: "semantic_model",
+      ...(modelName ? { table: modelName } : {}),
+      ...(owner ? { owner } : {}),
+      ...(grain ? { grain } : {}),
+      ...(primaryEntity ? { primaryEntity } : {}),
+      ...(timeDimension ? { timeDimension } : {}),
+      ...(item.values.description
+        ? { commonQuestions: `semantic model ${name}` }
+        : {}),
+      ...(item.sourcePath ? { sourcePath: item.sourcePath } : {}),
+      ...(root.revision ? { sourceRevision: root.revision } : {}),
+      semanticScope: inferSemanticScope(`${name} ${modelName ?? ""}`),
+    };
+    return [{ name, owner, grain, primaryEntity, timeDimension, entry, item }];
+  });
+
+  const embeddedSemanticModels: SemanticModelContext[] = models.flatMap(
+    (modelDoc) => {
+      if (!modelDoc.semanticModelEnabled) return [];
+      const name = safeIdentifier(modelDoc.semanticModelName ?? modelDoc.name);
+      if (!name) {
+        scanSummary.unsafeEntriesOmitted += 1;
+        return [];
+      }
+      const primaryColumn = [...modelDoc.columns.values()].find((column) =>
+        ["primary", "natural"].includes(
+          (column.entityType ?? "").toLowerCase(),
+        ),
+      );
+      const primaryEntity = primaryColumn
+        ? (safeIdentifier(primaryColumn.entityName ?? "") ??
+          safeIdentifier(primaryColumn.name) ??
+          undefined)
+        : undefined;
+      const timeDimension =
+        safeIdentifier(modelDoc.aggTimeDimension ?? "") ??
+        [...modelDoc.columns.values()]
+          .filter((column) => column.dimensionType?.toLowerCase() === "time")
+          .map((column) => safeIdentifier(column.name ?? ""))
+          .find((value): value is string => Boolean(value));
+      const uniqueGrain = modelDoc.grainHints[0];
+      const grain = uniqueGrain?.length
+        ? `Unique key: ${uniqueGrain.join(", ")}`
+        : primaryEntity
+          ? `Primary entity: ${primaryEntity}`
+          : undefined;
+      const group = safeIdentifier(modelDoc.group ?? "");
+      const owner = group ? groups.get(group) : undefined;
+      const description = safeDescription(
+        modelDoc.description ?? "",
+        scanSummary,
+      );
+      const entities = [...modelDoc.columns.values()].flatMap((column) => {
+        const type = safeIdentifier(column.entityType ?? "");
+        const entity = safeIdentifier(column.entityName ?? column.name);
+        return type && entity ? [`${column.name} (${type} ${entity})`] : [];
+      });
+      const dimensions = [...modelDoc.columns.values()].flatMap((column) => {
+        const type = safeIdentifier(column.dimensionType ?? "");
+        const granularity = safeIdentifier(column.granularity ?? "");
+        return type
+          ? [`${column.name} (${type}${granularity ? `, ${granularity}` : ""})`]
+          : [];
+      });
+      const definition = boundedExcerpt(
+        [
+          description ?? `dbt semantic model ${name}`,
+          `Model: ${modelDoc.name}`,
+          ...(primaryEntity
+            ? [
+                `Primary entity: ${primaryEntity}${primaryColumn && primaryColumn.name !== primaryEntity ? ` (column ${primaryColumn.name})` : ""}`,
+              ]
+            : []),
+          ...(timeDimension ? [`Time dimension: ${timeDimension}`] : []),
+          ...(entities.length
+            ? [`Entity columns: ${entities.join("; ")}`]
+            : []),
+          ...(dimensions.length
+            ? [`Dimensions: ${dimensions.join("; ")}`]
+            : []),
+        ].join(". "),
+        5_000,
+      );
+      const entry: SourceIndexEntry = {
+        id: entryId(root.id, "semantic-model", name),
+        metric: `semantic_model:${name}`,
+        definition,
+        source: root.id,
+        sourceKind: "dbt",
+        entryType: "semantic_model",
+        table: modelDoc.name,
+        ...(owner ? { owner } : {}),
+        ...(grain ? { grain } : {}),
+        ...(primaryEntity ? { primaryEntity } : {}),
+        ...(timeDimension ? { timeDimension } : {}),
+        ...(description ? { commonQuestions: `semantic model ${name}` } : {}),
+        ...(modelDoc.sourcePath ? { sourcePath: modelDoc.sourcePath } : {}),
+        ...(root.revision ? { sourceRevision: root.revision } : {}),
+        semanticScope: inferSemanticScope(`${name} ${modelDoc.name}`),
+      };
+      return [
+        {
+          name,
+          owner,
+          grain,
+          primaryEntity,
+          timeDimension,
+          entry,
+          modelDoc,
+        },
+      ];
+    },
+  );
+  semanticModels.push(...embeddedSemanticModels);
+
+  const semanticMeasures = new Map<string, (typeof semanticModels)[number]>();
+  for (const semanticModel of semanticModels) {
+    for (const measure of semanticModel.item?.children.get("measures") ?? []) {
+      const measureName = safeIdentifier(measure.name ?? "");
+      if (measureName) semanticMeasures.set(measureName, semanticModel);
+    }
+  }
+
+  const metricEntries = yamlItems
+    .filter(({ section }) => section === "metrics")
+    .flatMap((item) => {
+      const name = safeIdentifier(item.values.name ?? "");
+      if (!name) {
+        scanSummary.unsafeEntriesOmitted += 1;
+        return [];
+      }
+      const measure = safeIdentifier(item.nested["type_params.measure"] ?? "");
+      const referencedModel = safeIdentifier(
+        item.values.semantic_model ?? item.values.semanticModel ?? "",
+      );
+      const semanticModel = referencedModel
+        ? semanticModels.find((candidate) => candidate.name === referencedModel)
+        : measure
+          ? semanticMeasures.get(measure)
+          : undefined;
+      const group = safeIdentifier(item.values.group ?? "");
+      const owner =
+        safeOwnerName(item.ownerName ?? item.values.owner, scanSummary) ??
+        (group ? groups.get(group) : undefined) ??
+        semanticModel?.owner;
+      const explicitGrain = safeDescription(
+        item.values.grain ?? "",
+        scanSummary,
+      );
+      const grain = explicitGrain ?? semanticModel?.grain;
+      const description = safeDescription(
+        item.values.description ?? "",
+        scanSummary,
+      );
+      const metricType = safeIdentifier(item.values.type ?? "");
+      const label = safeDescription(item.values.label ?? "", scanSummary);
+      const definition = boundedExcerpt(
+        [
+          description ?? label ?? `dbt metric ${name}`,
+          ...(metricType ? [`Type: ${metricType}`] : []),
+          ...(measure ? [`Measure: ${measure}`] : []),
+          ...(semanticModel ? [`Semantic model: ${semanticModel.name}`] : []),
+        ].join(". "),
+        5_000,
+      );
+      return [
+        {
+          id: entryId(root.id, "metric", name),
+          metric: `metric:${name}`,
+          definition,
+          source: root.id,
+          sourceKind: "dbt" as const,
+          entryType: "metric" as const,
+          ...(owner ? { owner } : {}),
+          ...(grain ? { grain } : {}),
+          ...(semanticModel
+            ? { semanticModel: semanticModel.name }
+            : referencedModel
+              ? { semanticModel: referencedModel }
+              : {}),
+          ...(semanticModel?.primaryEntity
+            ? { primaryEntity: semanticModel.primaryEntity }
+            : {}),
+          ...(semanticModel?.timeDimension
+            ? { timeDimension: semanticModel.timeDimension }
+            : {}),
+          ...(semanticModel?.entry.table
+            ? { table: semanticModel.entry.table }
+            : {}),
+          ...(item.sourcePath ? { sourcePath: item.sourcePath } : {}),
+          ...(item.values.description
+            ? { commonQuestions: `metric ${name}` }
+            : {}),
+          ...(root.revision ? { sourceRevision: root.revision } : {}),
+          semanticScope: inferSemanticScope(
+            `${name} ${semanticModel?.name ?? ""} ${semanticModel?.entry.table ?? ""}`,
+          ),
+        },
+      ];
+    });
+
+  const embeddedMetricEntries = semanticModels.flatMap((semanticModel) => {
+    const modelDoc = semanticModel.modelDoc;
+    if (!modelDoc) return [];
+    return (modelDoc.embeddedMetrics ?? []).flatMap((metric) => {
+      if (metric.type?.toLowerCase() !== "simple") return [];
+      const name = safeIdentifier(metric.name);
+      if (!name) {
+        scanSummary.unsafeEntriesOmitted += 1;
+        return [];
+      }
+      const description = safeDescription(
+        metric.description ?? "",
+        scanSummary,
+      );
+      const label = safeDescription(metric.label ?? "", scanSummary);
+      const aggregation = safeIdentifier(metric.agg ?? "");
+      const expression = safeDescription(metric.expr ?? "", scanSummary);
+      const timeDimension =
+        safeIdentifier(metric.aggTimeDimension ?? "") ??
+        semanticModel.timeDimension;
+      const definition = boundedExcerpt(
+        [
+          description ?? label ?? `dbt simple metric ${name}`,
+          "Type: simple",
+          ...(aggregation ? [`Aggregation: ${aggregation}`] : []),
+          ...(expression ? [`Expression: ${expression}`] : []),
+          `Semantic model: ${semanticModel.name}`,
+        ].join(". "),
+        5_000,
+      );
+      return [
+        {
+          id: entryId(root.id, "metric", name),
+          metric: `metric:${name}`,
+          definition,
+          source: root.id,
+          sourceKind: "dbt" as const,
+          entryType: "metric" as const,
+          ...(semanticModel.owner ? { owner: semanticModel.owner } : {}),
+          ...(semanticModel.grain ? { grain: semanticModel.grain } : {}),
+          semanticModel: semanticModel.name,
+          ...(semanticModel.primaryEntity
+            ? { primaryEntity: semanticModel.primaryEntity }
+            : {}),
+          ...(timeDimension ? { timeDimension } : {}),
+          table: modelDoc.name,
+          ...(modelDoc.sourcePath ? { sourcePath: modelDoc.sourcePath } : {}),
+          ...(description ? { commonQuestions: `metric ${name}` } : {}),
+          ...(root.revision ? { sourceRevision: root.revision } : {}),
+          semanticScope: inferSemanticScope(
+            `${name} ${semanticModel.name} ${modelDoc.name}`,
+          ),
+        },
+      ];
+    });
+  });
+
+  return [
+    ...semanticModels.map(({ entry }) => entry),
+    ...metricEntries,
+    ...embeddedMetricEntries,
+  ];
+}
+
 function mergeModel(target: ModelDoc, source: ModelDoc): void {
   target.sourcePath ??= source.sourcePath;
   target.description ??= source.description;
+  target.semanticModelEnabled ??= source.semanticModelEnabled;
+  target.semanticModelName ??= source.semanticModelName;
+  target.group ??= source.group;
+  target.aggTimeDimension ??= source.aggTimeDimension;
+  if (source.embeddedMetrics?.length) {
+    target.embeddedMetrics ??= [];
+    const metricNames = new Set(target.embeddedMetrics.map(({ name }) => name));
+    for (const metric of source.embeddedMetrics) {
+      if (metricNames.has(metric.name)) continue;
+      target.embeddedMetrics.push(metric);
+      metricNames.add(metric.name);
+    }
+  }
   for (const test of source.tests) target.tests.add(test);
   for (const dependency of source.dependencies)
     target.dependencies.add(dependency);
@@ -962,6 +1799,10 @@ function mergeModel(target: ModelDoc, source: ModelDoc): void {
     }
     current.description ??= incoming.description;
     current.dataType ??= incoming.dataType;
+    current.entityName ??= incoming.entityName;
+    current.entityType ??= incoming.entityType;
+    current.dimensionType ??= incoming.dimensionType;
+    current.granularity ??= incoming.granularity;
     for (const test of incoming.tests) current.tests.add(test);
   }
 }
@@ -1508,6 +2349,8 @@ function modelEntries(root: RootContext, model: ModelDoc): SourceIndexEntry[] {
       metric: capString(`model:${model.name}`, 200),
       definition,
       source: root.id,
+      sourceKind: "dbt",
+      entryType: "model",
       semanticScope: inferSemanticScope(
         `${model.name} ${model.description ?? ""}`,
       ),
@@ -1527,6 +2370,7 @@ function modelEntries(root: RootContext, model: ModelDoc): SourceIndexEntry[] {
 async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
   const files = await listFiles(root.absolutePath);
   const docs: ModelDoc[] = [];
+  const semanticYamlItems: DbtYamlItem[] = [];
   const sqlModels: ModelDoc[] = [];
   const sqlTests: SourceIndexEntry[] = [];
   const fingerprint = createHash("sha256");
@@ -1543,6 +2387,10 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
       const docsRaw = await readSourceFile(file, budget);
       hashFile(fingerprint, file, docsRaw);
       docs.push(...parseSchemaYaml(docsRaw, relativePath, scanSummary));
+      docs.push(...parseEmbeddedSemanticYaml(docsRaw, relativePath));
+      semanticYamlItems.push(
+        ...parseSemanticYamlItems(docsRaw, relativePath, scanSummary),
+      );
       continue;
     }
     if (extension !== ".sql") continue;
@@ -1594,10 +2442,15 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
     };
     sqlModels.push(model);
   }
+  const mergedModels = mergeModels(root, docs, sqlModels);
   return {
     entries: [
-      ...mergeModels(root, docs, sqlModels).flatMap((model) =>
-        modelEntries(root, model),
+      ...mergedModels.flatMap((model) => modelEntries(root, model)),
+      ...semanticModelEntries(
+        root,
+        semanticYamlItems,
+        mergedModels,
+        scanSummary,
       ),
       ...sqlTests.sort((a, b) => a.id.localeCompare(b.id)),
     ],
@@ -1653,6 +2506,8 @@ async function readCodeRoot(root: RootContext): Promise<RootScanResult> {
             5_000,
           ),
           source: root.id,
+          sourceKind: "code",
+          entryType: "event",
           semanticScope: inferSemanticScope(event.name),
           ...(properties.length
             ? {
@@ -1813,10 +2668,6 @@ export async function compileSourceIndex(
       context: sourceContext(root, `code-${index + 1}`),
     })),
   ];
-  const generatedAt =
-    options.generatedAt ??
-    generatedAtFromDbtCommits(dbtRoots) ??
-    new Date().toISOString();
   if (roots.length + (options.sigmaReviewedManifest ? 1 : 0) > MAX_SOURCES) {
     codedError(
       "source_limit_exceeded",
@@ -1873,6 +2724,14 @@ export async function compileSourceIndex(
     scanSummary.unsafeFieldsOmitted += sigma.scanSummary.unsafeFieldsOmitted;
     scanSummary.truncatedFields += sigma.scanSummary.truncatedFields;
     scanSummary.unsafeEntriesOmitted += sigma.scanSummary.unsafeEntriesOmitted;
+  }
+  const generatedAt =
+    options.generatedAt ?? generatedAtFromDbtCommits(dbtRoots);
+  if (!generatedAt) {
+    codedError(
+      "dbt_commit_metadata_required",
+      "Each dbt root must have Git commit metadata so generatedAt is reproducible.",
+    );
   }
   entries.sort((a, b) => a.id.localeCompare(b.id));
   const bundle: SourceIndexBundle = {

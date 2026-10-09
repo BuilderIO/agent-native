@@ -4,6 +4,12 @@ const SAFE_ID = /^[a-z0-9][a-z0-9_-]{0,119}$/;
 const SAFE_SOURCE = /^[a-z0-9][a-z0-9_-]{0,79}$/;
 const GIT_REVISION = /^[a-f0-9]{7,64}$/i;
 export const SOURCE_INDEX_KINDS = ["dbt", "code", "sigma"] as const;
+export const SOURCE_INDEX_ENTRY_TYPES = [
+  "model",
+  "event",
+  "semantic_model",
+  "metric",
+] as const;
 const SENSITIVE_TEXT =
   /(?:[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|https?:\/\/|\{\{|\}\}|\b(?:bearer|api[_ -]?key|secret|password|token)\s*[:=]\s*\S+|\b\d{3}[-.\s)]?\d{3}[-.\s]?\d{4}\b|\b\d{13,19}\b)/i;
 const SENSITIVE_TEXT_FIELDS = [
@@ -17,6 +23,11 @@ const SENSITIVE_TEXT_FIELDS = [
   "knownGotchas",
   "updateFrequency",
   "sourcePath",
+  "owner",
+  "grain",
+  "primaryEntity",
+  "timeDimension",
+  "semanticModel",
 ] as const;
 const sourceIndexSourceSchema = z
   .object({
@@ -51,7 +62,13 @@ export const sourceIndexEntrySchema = z
     definition: z.string().trim().min(1).max(5_000),
     source: z.string().regex(SAFE_SOURCE),
     sourceKind: z.enum(SOURCE_INDEX_KINDS).optional(),
+    entryType: z.enum(SOURCE_INDEX_ENTRY_TYPES).optional(),
     semanticScope: z.enum(SOURCE_INDEX_SCOPES).optional(),
+    owner: z.string().trim().min(1).max(160).optional(),
+    grain: z.string().trim().min(1).max(500).optional(),
+    primaryEntity: z.string().trim().min(1).max(160).optional(),
+    timeDimension: z.string().trim().min(1).max(160).optional(),
+    semanticModel: z.string().trim().min(1).max(160).optional(),
     table: z.string().trim().max(600).optional(),
     columnsUsed: z.string().trim().max(10_000).optional(),
     dependencies: z.string().trim().max(4_000).optional(),

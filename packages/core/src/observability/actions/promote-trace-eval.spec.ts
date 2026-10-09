@@ -36,8 +36,11 @@ vi.mock("../../chat-threads/store.js", () => ({
 const promoteTraceEval = (await import("./promote-trace-eval.js")).default;
 const { promoteTraceEvalFromStore, PROMOTE_RUN_EVENT_LIMIT } =
   await import("./promote-trace-eval.js");
-const { promotedDatasetIdempotencyKey, PROMOTED_EVAL_PRIVACY_VERSION } =
-  await import("../../eval/from-trace.js");
+const {
+  promotedDatasetDescription,
+  promotedDatasetIdempotencyKey,
+  PROMOTED_EVAL_PRIVACY_VERSION,
+} = await import("../../eval/from-trace.js");
 const { ActionContractError } = await import("../../action.js");
 
 function completedRun() {
@@ -140,6 +143,7 @@ describe("promote-trace-eval", () => {
     expect(dataset.idempotencyKey).toBe(
       promotedDatasetIdempotencyKey("run-1", "alice@example.com"),
     );
+    expect(JSON.stringify(dataset)).not.toContain("run-1");
     expect(dataset.entries).toHaveLength(1);
     expect(dataset.entries[0]?.input).toBe("show active users daily");
     expect(JSON.stringify(dataset)).not.toContain("Search the docs");
@@ -198,7 +202,7 @@ describe("promote-trace-eval", () => {
     store.findPromotedEvalDataset.mockResolvedValue({
       id: "ds-existing",
       name: "from-trace:run-1",
-      description: "Promoted from production run run-1 (privacy v4)",
+      description: promotedDatasetDescription("run-1"),
       entries: [
         {
           input: "show active users daily",
@@ -230,7 +234,7 @@ describe("promote-trace-eval", () => {
         "run-1",
         "alice@example.com",
       ),
-      description: "Promoted from production run run-1 (privacy v4)",
+      description: promotedDatasetDescription("run-1"),
       userId: "alice@example.com",
     });
     expect(runStore.getRunEventsSince).not.toHaveBeenCalled();

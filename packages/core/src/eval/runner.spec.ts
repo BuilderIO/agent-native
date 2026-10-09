@@ -778,6 +778,72 @@ describe("persistence to the observability store", () => {
 });
 
 describe("runEvalSuite runner creation", () => {
+  it("rejects custom callbacks in a production-required suite before invoking them", async () => {
+    const productionChatPath = testProductionChatPath();
+    const adapterRun = vi.spyOn(productionChatPath, "run");
+    const customRun = vi.fn(async () => ({
+      text: "fabricated production answer",
+      toolCalls: [],
+      ok: true,
+      runId: "eval:fake",
+      durationMs: 1,
+    }));
+    const evalCase = defineEval({
+      name: "custom-production-bypass",
+      input: { prompt: "find active users" },
+      run: customRun,
+      scorers: [contains("fabricated")],
+    });
+
+    await expect(
+      runEvalSuite({
+        evals: [evalCase],
+        productionContext: {
+          ...testProductionContext(),
+          productionChatPath,
+        },
+        requireProductionChatPath: true,
+        persist: false,
+      }),
+    ).rejects.toThrow("cannot define custom run callbacks");
+
+    expect(customRun).not.toHaveBeenCalled();
+    expect(adapterRun).not.toHaveBeenCalled();
+    expect(engineMod.resolveEngine).not.toHaveBeenCalled();
+    expect(productionMod.runAgentLoop).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, { receipt: {} }])(
+    "reports missing production adapter output as a receipt error (%s)",
+    async (result) => {
+      const evalCase = defineEval({
+        name: "production-adapter-output",
+        input: { prompt: "find active users" },
+        scorers: [contains("active users")],
+      });
+      const productionContext = {
+        ...testProductionContext(),
+        productionChatPath: {
+          async run() {
+            return result as never;
+          },
+        },
+      };
+
+      const suite = await runEvalSuite({
+        evals: [evalCase],
+        productionContext,
+        requireProductionChatPath: true,
+        persist: false,
+      });
+
+      expect(suite.report.results[0]).toMatchObject({
+        status: "failed",
+        error: "Production chat eval adapter returned no run output.",
+      });
+    },
+  );
+
   it("persists eval results by default", async () => {
     const e = defineEval({
       name: "local-only",

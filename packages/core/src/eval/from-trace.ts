@@ -7,6 +7,9 @@
  * file.
  */
 
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
+
 import { isToolDoneFailure } from "../agent/tool-done-error.js";
 import { redactCapturedString } from "../observability/trace-redaction.js";
 import type { EvalDataset } from "../observability/types.js";
@@ -20,9 +23,10 @@ const MAX_REVIEWED_PROMPT_LENGTH = 3_000;
 const MAX_REVIEWED_HISTORY_TURNS = 16;
 const MAX_REVIEWED_HISTORY_TEXT_LENGTH = 1_000;
 const MAX_MUST_CONTAIN_LENGTH = 500;
+const MAX_DATASET_NAME_LENGTH = 120;
 const DEFAULT_THRESHOLD = 0.5;
-const RUN_ID_NAME_PREFIX = 8;
-export const PROMOTED_EVAL_PRIVACY_VERSION = 4;
+export const PROMOTED_EVAL_PRIVACY_VERSION = 6;
+const PROMOTED_TRACE_REFERENCE_PATTERN = /^trace-sha256:[0-9a-f]{64}$/;
 const REDACTED_PROMPT_PLACEHOLDER = "[redacted production prompt]";
 export const PROMOTED_EVAL_REVIEW_LIMITS = {
   promptLength: MAX_REVIEWED_PROMPT_LENGTH,
@@ -33,10 +37,12 @@ export const PROMOTED_EVAL_REVIEW_LIMITS = {
 
 const EMAIL_PATTERN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
 const OPAQUE_ID_PATTERN = /\b(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{16,}\b/g;
+const IDENTIFIER_SHAPED_NUMBER_PATTERN =
+  /\b(?:\d{5,}(?:[-_]\d+)*|\d+(?:[-_]\d+)+|(?=[A-Za-z0-9_-]{6,}\b)(?=[A-Za-z0-9_-]*[A-Za-z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]+)\b/;
 const URL_PATTERN = /\b(?:https?:\/\/|www\.)[^\s<>\"'`]+/gi;
 const PHONE_LIKE_PATTERN = /\+?\d[\d ().-]{5,}\d/g;
 const REVIEWED_TEXT_WORDS = new Set(
-  `a account active an and are as at average be been before between by call compare compared conversion count created current daily data day days distinct does each done event events every find for found from funnel group groups has have how id in inactive is it last least list many median member members metric metrics most new number of on or organization organizations org over per previous production product prompt query queries rate recent redacted retention result results search session sessions should show signup signups since source sources table tables team teams the this today total trend under unique usage use user users was week weeks what when where which with without workspace workspaces year years yesterday yearly weekly monthly`.split(
+  `a account active an analytics and are as at average be been before between by call case cases compare compared conversion count created current daily data dataset datasets day days distinct does each eval evaluation example examples done event events every find for found from funnel group groups has have how id in inactive is it last least list many median member members metric metrics most my new number of on or organization organizations org over per previous production product prompt query queries rate recent redacted retention result results search session sessions set should show signup signups since source sources table tables team teams test tests the this today total trend under unique usage use user users was week weeks what when where which with without workspace workspaces year years yesterday yearly weekly monthly`.split(
     /\s+/,
   ),
 );
@@ -67,16 +73,38 @@ const REVIEWED_TEXT_PLACEHOLDERS = new Set([
   "[redacted]",
 ]);
 
-/** Stable per-owner identity for one promoted run. Encoded so the parts cannot collide. */
+function digestPromotedTraceValue(value: unknown): string {
+  return bytesToHex(
+    sha256(
+      new TextEncoder().encode(
+        JSON.stringify(["agent-native:promoted-eval:v6", value]),
+      ),
+    ),
+  );
+}
+
+/** Stable, non-reversible reference safe for persisted eval metadata and fixtures. */
+export function promotedTraceReference(runId: string): string {
+  return `trace-sha256:${digestPromotedTraceValue(runId)}`;
+}
+
+function asPromotedTraceReference(runIdOrReference: string): string {
+  return PROMOTED_TRACE_REFERENCE_PATTERN.test(runIdOrReference)
+    ? runIdOrReference
+    : promotedTraceReference(runIdOrReference);
+}
+
+/** Stable per-owner identity for one promoted run without embedding either identifier. */
 export function promotedDatasetIdempotencyKey(
   runId: string,
   userId?: string | null,
 ): string {
-  return `from-trace:v${PROMOTED_EVAL_PRIVACY_VERSION}:${encodeURIComponent(userId ?? "")}:${encodeURIComponent(runId)}`;
+  const traceReference = asPromotedTraceReference(runId);
+  return `from-trace:v${PROMOTED_EVAL_PRIVACY_VERSION}:${digestPromotedTraceValue([userId ?? "", traceReference])}`;
 }
 
 export function promotedDatasetDescription(runId: string): string {
-  return `Promoted from production run ${runId} (privacy v${PROMOTED_EVAL_PRIVACY_VERSION})`;
+  return `Promoted from production run ${asPromotedTraceReference(runId)} (privacy v${PROMOTED_EVAL_PRIVACY_VERSION})`;
 }
 
 export type PromoteTraceError =
@@ -98,7 +126,7 @@ export interface PromoteTraceOptions {
   reviewedHistory?: Array<{ role: "user" | "assistant"; text: string }>;
   /** Caller-reviewed expected substring; scrubbed and bounded before persistence. */
   mustContain?: string;
-  /** Accepted for compatibility; generated dataset names never copy caller text. */
+  /** Optional generic label, privacy-screened before persistence. */
   datasetName?: string;
   /** Owner of the dataset row. Scoped the same way trace reads filter user_id. */
   userId?: string | null;
@@ -128,6 +156,7 @@ export interface PromotedEvalSpec {
   name: string;
   input: EvalInput;
   threshold: number;
+  /** Stable, non-reversible reference to the source production run. */
   source: { kind: "trace"; runId: string };
   scorers: PromotedEvalScorerSpec[];
 }
@@ -246,6 +275,9 @@ function sanitizeReviewedText(
     )
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
     .trim();
+  if (IDENTIFIER_SHAPED_NUMBER_PATTERN.test(sanitized)) {
+    return { ok: false, error: "unsafe_reviewed_text" };
+  }
   const tokens = sanitized.match(/\[[A-Za-z_]+\]|[\p{L}]+/gu) ?? [];
   for (const token of tokens) {
     const normalized = token.toLowerCase();
@@ -608,18 +640,20 @@ export function promotedEvalSpecFromDataset(
   dataset: EvalDataset,
   runId: string,
 ): PromotedEvalSpec | null {
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(runId)) return null;
+  if (
+    !PROMOTED_TRACE_REFERENCE_PATTERN.test(runId) &&
+    !/^[A-Za-z0-9_-]{1,128}$/.test(runId)
+  ) {
+    return null;
+  }
+  const traceReference = asPromotedTraceReference(runId);
   const entry = dataset.entries[0];
   if (!entry || typeof entry.input !== "string" || entry.input.length === 0) {
     return null;
   }
   const context = entry.context ?? {};
   if (context.privacyVersion !== PROMOTED_EVAL_PRIVACY_VERSION) return null;
-  if (
-    typeof context.runId === "string" &&
-    context.runId.length > 0 &&
-    context.runId !== runId
-  ) {
+  if (context.runId !== traceReference && context.runId !== runId) {
     return null;
   }
   const history = historyFromDatasetContext(context.history);
@@ -640,7 +674,7 @@ export function promotedEvalSpecFromDataset(
     ...toolNames.map((toolName) => ({ type: "usesTool" as const, toolName })),
     ...(needle.length > 0 ? [{ type: "contains" as const, needle }] : []),
   ];
-  const name = `from-trace:${runId.slice(0, RUN_ID_NAME_PREFIX)}`;
+  const name = `from-trace:${traceReference}`;
   if (
     !entry.input.trim() ||
     entry.input.trim().toLowerCase() === REDACTED_PROMPT_PLACEHOLDER
@@ -661,7 +695,7 @@ export function promotedEvalSpecFromDataset(
             prompt: prompt.text,
           },
     threshold: DEFAULT_THRESHOLD,
-    source: { kind: "trace", runId },
+    source: { kind: "trace", runId: traceReference },
     scorers,
   };
 }
@@ -671,7 +705,13 @@ export function sanitizedPromotedDatasetFromDataset(
   dataset: EvalDataset,
   runId: string,
 ): EvalDataset | null {
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(runId)) return null;
+  if (
+    !PROMOTED_TRACE_REFERENCE_PATTERN.test(runId) &&
+    !/^[A-Za-z0-9_-]{1,128}$/.test(runId)
+  ) {
+    return null;
+  }
+  const traceReference = asPromotedTraceReference(runId);
   const spec = promotedEvalSpecFromDataset(dataset, runId);
   if (!spec) return null;
   const toolNames = spec.scorers
@@ -688,22 +728,32 @@ export function sanitizedPromotedDatasetFromDataset(
   const updatedAt = Number.isFinite(dataset.updatedAt)
     ? dataset.updatedAt
     : createdAt;
+  const defaultName = `from-trace:${traceReference}`;
+  const safeName =
+    dataset.name === defaultName
+      ? { ok: true as const, text: defaultName }
+      : dataset.name === `from-trace:${runId}` &&
+          dataset.entries[0]?.context?.runId === runId &&
+          !PROMOTED_TRACE_REFERENCE_PATTERN.test(runId)
+        ? { ok: true as const, text: defaultName }
+        : sanitizeReviewedText(dataset.name, MAX_DATASET_NAME_LENGTH);
+  if (!safeName.ok || !safeName.text) return null;
 
   return {
     id: dataset.id,
-    name: `from-trace:${runId}`,
+    name: safeName.text,
     description: promotedDatasetDescription(runId),
     entries: [
       {
         input: spec.input.prompt,
         ...(needle ? { expectedOutput: needle } : {}),
         context: {
-          runId,
+          runId: traceReference,
           history: spec.input.history ?? [],
           tools: toolNames,
           privacyVersion: PROMOTED_EVAL_PRIVACY_VERSION,
         },
-        tags: ["from-trace", runId],
+        tags: ["from-trace", traceReference],
       },
     ],
     createdAt,
@@ -889,24 +939,39 @@ export function promoteTraceToEval(
       : contains(spec.needle),
   );
 
-  const name = `from-trace:${runId.slice(0, RUN_ID_NAME_PREFIX)}`;
+  const traceReference = promotedTraceReference(runId);
+  const name = `from-trace:${traceReference}`;
   const spec: PromotedEvalSpec = {
     name,
     input: safeInput,
     threshold: DEFAULT_THRESHOLD,
-    source: { kind: "trace", runId },
+    source: { kind: "trace", runId: traceReference },
     scorers: scorerSpecs,
   };
   const evalCase = defineEval({
     name,
     input: safeInput,
     threshold: DEFAULT_THRESHOLD,
-    source: { kind: "trace", runId },
+    source: { kind: "trace", runId: traceReference },
     scorers,
   });
 
   const now = Date.now();
-  const datasetName = `from-trace:${runId}`;
+  let datasetName = `from-trace:${traceReference}`;
+  if (input.options?.datasetName !== undefined) {
+    if (typeof input.options.datasetName !== "string") {
+      return { ok: false, error: "unsafe_reviewed_text" };
+    }
+    const reviewedDatasetName = sanitizeReviewedText(
+      input.options.datasetName,
+      MAX_DATASET_NAME_LENGTH,
+    );
+    if (!reviewedDatasetName.ok) return reviewedDatasetName;
+    if (!reviewedDatasetName.text) {
+      return { ok: false, error: "unsafe_reviewed_text" };
+    }
+    datasetName = reviewedDatasetName.text;
+  }
   const dataset: EvalDataset = {
     // Node 22.22+ exposes Web Crypto on globalThis. Do not import node:crypto.
     id: globalThis.crypto.randomUUID(),
@@ -921,12 +986,12 @@ export function promoteTraceToEval(
         input: safeInput.prompt,
         ...(mustContain ? { expectedOutput: mustContain } : {}),
         context: {
-          runId,
+          runId: traceReference,
           history: safeInput.history ?? [],
           tools: toolNames,
           privacyVersion: PROMOTED_EVAL_PRIVACY_VERSION,
         },
-        tags: ["from-trace", runId],
+        tags: ["from-trace", traceReference],
       },
     ],
     createdAt: now,

@@ -8,6 +8,7 @@ export default {
     overview: "Vue d'ensemble",
     dashboard: "Tableau de bord",
     dataSources: "Sources de données",
+    sourceStatus: "État des sources",
     dataDictionary: "Dictionnaire de données",
     sessions: "Sessions",
     monitoring: "Monitoring",
@@ -533,6 +534,34 @@ export default {
       resourcesSubmitted: "{{count}} ressources envoyées.",
     },
   },
+  dataStatus: {
+    sources: "Sources",
+    index: "Index",
+    connected: "Connecté",
+    notConnected: "Non connecté",
+    needsReauth: "Réauthentification requise",
+    error: "Erreur",
+    loadingSources: "Chargement de l’état des sources",
+    indexNotImported: "Aucun index généré n’a été importé.",
+    indexUnreadable:
+      "Impossible de lire l’index enregistré. Importez un index valide.",
+    indexReadFailed: "Impossible de charger l’état de l’index.",
+    lastBuilt: "Dernière génération",
+    freshness: "Fraîcheur",
+    fresh: "À jour · {{age}}",
+    stale: "Obsolète · {{age}}",
+    generatedUnapproved: "Généré · non approuvé",
+    entriesBySource: "{{count}} entrées par source",
+    noSourceEntries: "Aucun comptage par source disponible.",
+    countUnavailable: "Indisponible",
+    adminUpload: "Import administrateur",
+    exportDictionary: "Exporter le dictionnaire",
+    exportingDictionary: "Export du dictionnaire…",
+    exportFailed: "Échec de l’export du dictionnaire. Réessayez.",
+    exportEmpty: "Aucune entrée du dictionnaire à exporter.",
+    exportLimitReached:
+      "Le dictionnaire dépasse la limite d’export. Contactez un administrateur.",
+  },
   dataDictionary: {
     intro:
       "Catalogue de métriques, de tableaux et de définitions métiers que l'agent d'analyse utilise lors de la création de tableaux de bord à partir d'invites. Gardez les entrées exactes et l’agent cessera de deviner vos données.",
@@ -654,6 +683,10 @@ export default {
       "Utilisation des informations d'identification enregistrées dans cette application. Pour une réutilisation dans plusieurs applications, connectez-vous et accordez ce fournisseur dans Dispatch.",
     sharedFallback:
       "Connectez ou accordez ce fournisseur dans Dispatch pour le réutiliser dans toutes les applications, ou enregistrez les informations d'identification locales ci-dessous.",
+    sharedNeedsReauth:
+      "Cette connexion partagée doit être réautorisée. Reconnectez-la dans Dispatch.",
+    sharedError:
+      "Cette connexion partagée a signalé une erreur. Ouvrez Dispatch pour l'examiner et la réparer.",
     workspaceReadyDescription:
       "Cette source est prête via une connexion à un espace de travail partagé. Gérez l'accès partagé dans Dispatch ou ajoutez des informations d'identification locales pour cette application uniquement.",
     testing: "Essai...",
@@ -1029,6 +1062,7 @@ export default {
     dashboard: "Tableau de bord - Analytics",
     dataDictionary: "Dictionnaire de données - Analytics",
     dataSources: "Sources de données - Analytics",
+    sourceStatus: "État des sources - Analytics",
     sessions: "Liste des sessions - Analytics",
     eventCatalog: "Catalogue d'événements - Analytics",
     routePerformance: "Performances par route - Analytics",

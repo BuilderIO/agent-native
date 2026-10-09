@@ -38,6 +38,7 @@ export type WorkspaceConnectionProviderId =
   | "sentry"
   | "granola"
   | "clips"
+  | "dbt"
   | "sigma"
   | "anthropic-managed-agents"
   | "generic";
@@ -49,11 +50,20 @@ export interface WorkspaceConnectionCredentialKey {
   required?: boolean;
 }
 
+export interface WorkspaceConnectionConfigurationField {
+  key: string;
+  label: string;
+  description?: string;
+  required?: boolean;
+  defaultValue?: string;
+}
+
 export interface WorkspaceConnectionProvider {
   id: WorkspaceConnectionProviderId;
   label: string;
   description: string;
   credentialKeys: readonly WorkspaceConnectionCredentialKey[];
+  configurationFields?: readonly WorkspaceConnectionConfigurationField[];
   capabilities: readonly WorkspaceConnectionCapability[];
   recommendedTemplateUses: readonly WorkspaceConnectionTemplateUse[];
   oauth?: {
@@ -462,6 +472,41 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
         description:
           "Optional cloud-region API origin. Defaults to the AWS API origin.",
         required: false,
+      },
+    ],
+    capabilities: ["search"],
+    recommendedTemplateUses: ["analytics"],
+  }),
+  defineWorkspaceConnectionProvider({
+    id: "dbt",
+    label: "dbt Semantic Layer",
+    description:
+      "Owner-defined dbt metrics and semantic models for governed Analytics queries.",
+    credentialKeys: [
+      {
+        key: "DBT_SEMANTIC_LAYER_TOKEN",
+        label: "dbt Semantic Layer token",
+        description:
+          "Optional read-only service token with Semantic Layer Only and Metadata Only permissions. Store the one-time token in the workspace vault.",
+        required: false,
+      },
+    ],
+    configurationFields: [
+      {
+        key: "semanticLayerBaseUrl",
+        label: "dbt Semantic Layer URL",
+        description:
+          "HTTPS GraphQL endpoint for this dbt account. The host must belong to dbt.com or getdbt.com.",
+        required: true,
+        defaultValue: "https://wg204.semantic-layer.us1.dbt.com/api/graphql",
+      },
+      {
+        key: "semanticLayerEnvironmentId",
+        label: "dbt environment ID",
+        description:
+          "Environment that contains the approved Semantic Layer definitions.",
+        required: true,
+        defaultValue: "166567",
       },
     ],
     capabilities: ["search"],

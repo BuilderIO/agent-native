@@ -29,6 +29,7 @@
         "sentry",
         "granola",
         "clips",
+        "dbt",
         "anthropic-managed-agents",
         "generic"
       ],
@@ -51,6 +52,7 @@
         "clay",
         "commonroom",
         "dataforseo",
+        "dbt",
         "ga4",
         "gcloud",
         "github",

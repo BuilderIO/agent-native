@@ -8,6 +8,7 @@ export default {
     overview: "Resumen",
     dashboard: "Panel",
     dataSources: "Fuentes de datos",
+    sourceStatus: "Estado de las fuentes",
     dataDictionary: "Diccionario de datos",
     sessions: "Sesiones",
     monitoring: "Monitoring",
@@ -523,6 +524,34 @@ export default {
       resourcesSubmitted: "{{count}} recursos enviados.",
     },
   },
+  dataStatus: {
+    sources: "Fuentes",
+    index: "Índice",
+    connected: "Conectado",
+    notConnected: "No conectado",
+    needsReauth: "Requiere reautenticación",
+    error: "Error",
+    loadingSources: "Cargando el estado de las fuentes",
+    indexNotImported: "No se ha importado ningún índice generado.",
+    indexUnreadable:
+      "No se pudo leer el índice guardado. Sube un índice válido.",
+    indexReadFailed: "No se pudo cargar el estado del índice.",
+    lastBuilt: "Última generación",
+    freshness: "Actualidad",
+    fresh: "Actual · {{age}}",
+    stale: "Desactualizado · {{age}}",
+    generatedUnapproved: "Generado · sin aprobar",
+    entriesBySource: "{{count}} entradas por fuente",
+    noSourceEntries: "No hay recuentos por fuente disponibles.",
+    countUnavailable: "No disponible",
+    adminUpload: "Carga de administrador",
+    exportDictionary: "Exportar diccionario",
+    exportingDictionary: "Exportando diccionario…",
+    exportFailed: "No se pudo exportar el diccionario. Inténtalo de nuevo.",
+    exportEmpty: "No hay entradas del diccionario para exportar.",
+    exportLimitReached:
+      "El diccionario supera el límite de exportación. Contacta con un administrador.",
+  },
   dataDictionary: {
     intro:
       "El catálogo de métricas, tablas y definiciones comerciales que utiliza el agente de análisis al crear paneles a partir de solicitudes. Mantenga las entradas precisas y el agente dejará de adivinar sus datos.",
@@ -644,6 +673,10 @@ export default {
       "Usando credenciales guardadas en esta aplicación. Para reutilizar entre aplicaciones, conéctese y otorgue este proveedor en Dispatch.",
     sharedFallback:
       "Conecte u otorgue este proveedor en Dispatch para reutilizarlo en todas las aplicaciones, o guarde las credenciales locales a continuación.",
+    sharedNeedsReauth:
+      "Esta conexión compartida necesita volver a autorizarse. Vuelve a conectarla en Dispatch.",
+    sharedError:
+      "Esta conexión compartida informó de un error. Abre Dispatch para revisarla y repararla.",
     workspaceReadyDescription:
       "Esta fuente está lista a través de una conexión de espacio de trabajo compartido. Administre el acceso compartido en Dispatch o agregue credenciales locales solo para esta aplicación.",
     testing: "Pruebas...",
@@ -1021,6 +1054,7 @@ export default {
     dashboard: "Panel de control - Analytics",
     dataDictionary: "Diccionario de datos - Analytics",
     dataSources: "Fuentes de datos - Analytics",
+    sourceStatus: "Estado de las fuentes - Analytics",
     sessions: "Sesiones - Analytics",
     eventCatalog: "Catálogo de eventos - Analytics",
     routePerformance: "Rendimiento por ruta - Analytics",

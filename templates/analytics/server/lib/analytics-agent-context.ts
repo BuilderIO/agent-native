@@ -401,19 +401,22 @@ async function rankWithEmbeddings(
       candidate,
       similarity: scores[index]!,
       lexicalScore: candidate.score,
+      scope: candidateScopeCompatibility(candidate, request),
+      trust: candidateTrustTier(candidate),
+      name: candidateName(candidate),
     }))
-    .sort(
-      (left, right) =>
-        candidateScopeCompatibility(right.candidate, request) -
-          candidateScopeCompatibility(left.candidate, request) ||
-        candidateTrustTier(right.candidate) -
-          candidateTrustTier(left.candidate) ||
+    .sort((left, right) => {
+      const sameKind = left.candidate.kind === right.candidate.kind;
+      const trustDifference = right.trust - left.trust;
+      return (
+        right.scope - left.scope ||
+        (sameKind ? trustDifference : 0) ||
         right.similarity - left.similarity ||
         right.lexicalScore - left.lexicalScore ||
-        candidateName(left.candidate).localeCompare(
-          candidateName(right.candidate),
-        ),
-    );
+        trustDifference ||
+        left.name.localeCompare(right.name)
+      );
+    });
 }
 
 function jevDescription(

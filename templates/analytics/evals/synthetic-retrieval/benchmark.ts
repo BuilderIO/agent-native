@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { rankAnalyticsQueryCatalog } from "../../server/lib/analytics-query-catalog";
 
 export const BENCHMARK_TITLE = "SYNTHETIC: Analytics retrieval benchmark";
-export const BASELINE_REVISION = "f2c69d7718a9204f707bef6257045a71b78be457";
+export const BASELINE_REVISION = "70bf54c17404fa0993b248154bf95ef70d216a3f";
 export const CSV_PATH = fileURLToPath(
   new URL("./SYNTHETIC-analytics-retrieval.csv", import.meta.url),
 );
@@ -148,7 +148,8 @@ const CASES: SyntheticCase[] = [
   },
 ];
 
-const BASELINE_RANKINGS: Record<string, string[]> = {
+// Re-measured from the exact origin/main implementation at BASELINE_REVISION.
+const MEASURED_ORIGIN_MAIN_RANKINGS: Record<string, string[]> = {
   "dictionary-alias-mrr": ["dictionary:synthetic-monthly-recurring-revenue"],
   "panel-sql-only-term": ["dashboard:synthetic-runtime-overview:slow-path"],
   "semantic-scope-membership": [
@@ -161,7 +162,7 @@ const BASELINE_RANKINGS: Record<string, string[]> = {
 };
 
 function baselineCandidateIds(testCase: SyntheticCase): string[] {
-  const candidates = BASELINE_RANKINGS[testCase.id];
+  const candidates = MEASURED_ORIGIN_MAIN_RANKINGS[testCase.id];
   if (!candidates) {
     throw new Error(
       `Missing baseline ranking for synthetic case ${testCase.id}.`,

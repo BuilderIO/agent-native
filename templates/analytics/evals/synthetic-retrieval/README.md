@@ -1,16 +1,18 @@
 # SYNTHETIC: Analytics retrieval benchmark
 
-This deterministic benchmark compares a synthetic ranking snapshot from the
-previous production catalog at revision `f2c69d7718a9204f707bef6257045a71b78be457`
-with the current shared Analytics query-catalog matcher and ranker. All names,
-definitions, SQL fragments, and cases are invented. These rows are not
-historical chats, production data, or production end-to-end results.
+This deterministic benchmark compares the current shared Analytics
+query-catalog matcher and ranker with the implementation in `origin/main` at
+revision `70bf54c17404fa0993b248154bf95ef70d216a3f`. All names, definitions,
+SQL fragments, and cases are invented. These rows are not historical chats,
+production data, or production end-to-end results.
 
-The baseline candidate order was measured by running the exact previous
-`rankAnalyticsQueryCatalog` implementation against these same synthetic
-fixtures. The CSV records its revision and full candidate order so the
-comparison is auditable and does not pretend a simplified lexical search is
-the old production behavior.
+The baseline candidate order was measured by importing the exact
+`rankAnalyticsQueryCatalog` implementation from that `origin/main` revision
+and running it against these same fixtures. `benchmark.ts` stores the measured
+candidate order and the CSV records the source revision, so the comparison
+does not substitute a simplified lexical search for the previous ranker.
+Re-measure the baseline when changing the comparison base; do not update the
+revision without running the fixtures against that commit.
 
 The after results call `rankAnalyticsQueryCatalog` directly with fixed
 fixtures. The four cases cover a built-in dictionary alias (`MRR`), a term

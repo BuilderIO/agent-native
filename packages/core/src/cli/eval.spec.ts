@@ -46,18 +46,28 @@ vi.mock("../scripts/utils.js", () => ({
   loadEnv: vi.fn(),
 }));
 
-import { PROMOTED_EVAL_PRIVACY_VERSION } from "../eval/from-trace.js";
+import {
+  PROMOTED_EVAL_PRIVACY_VERSION,
+  promotedDatasetDescription,
+  promotedTraceReference,
+} from "../eval/from-trace.js";
 import { parseEvalArgs, runEval } from "./eval.js";
 
 const promoted = {
   promotion: {
     sourceRunId: "run-1",
-    dataset: { id: "ds-1", name: "from-trace:run-1" },
+    dataset: {
+      id: "ds-1",
+      name: `from-trace:${promotedTraceReference("run-1")}`,
+    },
     eval: {
-      name: "from-trace:run-1",
+      name: `from-trace:${promotedTraceReference("run-1")}`,
       input: { prompt: "hello" },
       threshold: 0.5,
-      source: { kind: "trace" as const, runId: "run-1" },
+      source: {
+        kind: "trace" as const,
+        runId: promotedTraceReference("run-1"),
+      },
       scorers: [{ type: "usesTool" as const, toolName: "search-docs" }],
     },
   },
@@ -134,6 +144,8 @@ describe("parseEvalArgs", () => {
         "--json",
         "--must-contain",
         "30 days",
+        "--dataset-name",
+        "weekly analytics dataset",
       ]),
     ).toEqual({
       command: "promote",
@@ -142,6 +154,7 @@ describe("parseEvalArgs", () => {
       write: "evals/from-trace.eval.ts",
       json: true,
       mustContain: "30 days",
+      datasetName: "weekly analytics dataset",
     });
   });
 
@@ -311,6 +324,8 @@ describe("runPromote", () => {
         "show active users daily",
         "--write",
         "evals/from-trace.eval.ts",
+        "--dataset-name",
+        "weekly analytics dataset",
       ]),
     ).rejects.toThrow("process.exit(0)");
 
@@ -320,7 +335,7 @@ describe("runPromote", () => {
         runId: "run-1",
         reviewedPrompt: "show active users daily",
         mustContain: undefined,
-        datasetName: undefined,
+        datasetName: "weekly analytics dataset",
       },
       { userId: "alice@example.com" },
     );
@@ -332,6 +347,7 @@ describe("runPromote", () => {
       encoding: "utf8",
       flag: "wx",
     });
+    expect(String(fsMock.writeFile.mock.calls[0]?.[1])).not.toContain("run-1");
     expect(target).toMatch(/from-trace\.eval\.ts$/);
   });
 
@@ -423,14 +439,14 @@ describe("runPromote", () => {
   it("rewrites the fixture from the dataset that won the save", async () => {
     promotion.persistPromotedEvalDataset.mockResolvedValue({
       id: "ds-winner",
-      name: "from-trace:run-1",
-      description: "Promoted from production run run-1 (privacy v4)",
+      name: `from-trace:${promotedTraceReference("run-1")}`,
+      description: promotedDatasetDescription("run-1"),
       entries: [
         {
           input: "active users",
           expectedOutput: "active users",
           context: {
-            runId: "run-1",
+            runId: promotedTraceReference("run-1"),
             history: [],
             tools: ["search-docs"],
             privacyVersion: PROMOTED_EVAL_PRIVACY_VERSION,

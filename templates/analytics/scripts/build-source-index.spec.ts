@@ -72,6 +72,169 @@ describe("parseSourceIndexArgs", () => {
 });
 
 describe("compileSourceIndex", () => {
+  it("indexes dbt semantic models and metrics with declared grain and group owner", async () => {
+    const root = await temporaryDirectory();
+    const dbtRoot = path.join(root, "dbt");
+    await mkdir(path.join(dbtRoot, "models"), { recursive: true });
+    await writeFile(
+      path.join(dbtRoot, "models", "semantic.yml"),
+      [
+        "version: 2",
+        "groups:",
+        "  - name: product_analytics",
+        "    owner:",
+        "      name: Product Analytics",
+        "      email: private@example.com",
+        "semantic_models:",
+        "  - name: workspaces",
+        "    model: ref('dim_workspaces')",
+        "    description: Workspace entity model.",
+        "    group: product_analytics",
+        "    defaults:",
+        "      agg_time_dimension: created_at",
+        "    entities:",
+        "      - name: workspace",
+        "        type: primary",
+        "        expr: workspace_id",
+        "    measures:",
+        "      - name: workspace_count",
+        "        agg: count",
+        "metrics:",
+        "  - name: active_workspaces",
+        "    label: Active workspaces",
+        "    description: Number of active workspaces.",
+        "    type: simple",
+        "    type_params:",
+        "      measure: workspace_count",
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "dim_workspaces.sql"),
+      "{{ config(materialized='incremental', unique_key='workspace_id') }}\nselect 1 as workspace_id",
+    );
+
+    const bundle = await compileSourceIndex({
+      dbtRoots: [dbtRoot],
+      generatedAt: "2026-10-09T12:00:00.000Z",
+    });
+    const semanticModel = bundle.entries.find(
+      (entry) => entry.entryType === "semantic_model",
+    );
+    const metric = bundle.entries.find((entry) => entry.entryType === "metric");
+
+    expect(semanticModel).toMatchObject({
+      metric: "semantic_model:workspaces",
+      owner: "Product Analytics",
+      grain: "Unique key: workspace_id",
+      primaryEntity: "workspace_id",
+      timeDimension: "created_at",
+      table: "dim_workspaces",
+    });
+    expect(metric).toMatchObject({
+      metric: "metric:active_workspaces",
+      owner: "Product Analytics",
+      grain: "Unique key: workspace_id",
+      primaryEntity: "workspace_id",
+      timeDimension: "created_at",
+      semanticModel: "workspaces",
+    });
+    expect(JSON.stringify([semanticModel, metric])).not.toContain(
+      "private@example.com",
+    );
+  });
+
+  it("indexes model-embedded semantic metadata, simple metrics, and inherited group owners", async () => {
+    const root = await temporaryDirectory();
+    const dbtRoot = path.join(root, "dbt");
+    await mkdir(path.join(dbtRoot, "models"), { recursive: true });
+    await writeFile(
+      path.join(dbtRoot, "models", "fct_orders.yml"),
+      [
+        "version: 2",
+        "groups:",
+        "  - name: revenue_analytics",
+        "    owner:",
+        "      name: Revenue Analytics",
+        "models:",
+        "  - name: fct_orders",
+        "    description: Order facts for business reporting.",
+        "    config:",
+        "      group: revenue_analytics",
+        "    semantic_model:",
+        "      enabled: true",
+        "      name: orders",
+        "    agg_time_dimension: ordered_at",
+        "    columns:",
+        "      - name: order_id",
+        "        entity:",
+        "          type: primary",
+        "          name: order",
+        "      - name: customer_id",
+        "        entity:",
+        "          type: foreign",
+        "          name: customer",
+        "      - name: ordered_at",
+        "        granularity: day",
+        "        dimension:",
+        "          type: time",
+        "      - name: order_status",
+        "        dimension:",
+        "          type: categorical",
+        "    metrics:",
+        "      - name: order_total",
+        "        description: Total order amount.",
+        "        type: simple",
+        "        agg: sum",
+        "        expr: amount",
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "fct_orders.sql"),
+      "select 1 as order_id, 2 as customer_id, current_date as ordered_at, 'paid' as order_status, 10 as amount",
+    );
+
+    const bundle = await compileSourceIndex({
+      dbtRoots: [dbtRoot],
+      generatedAt: "2026-10-09T12:00:00.000Z",
+    });
+    const semanticModel = bundle.entries.find(
+      (entry) => entry.metric === "semantic_model:orders",
+    );
+    const metric = bundle.entries.find(
+      (entry) => entry.metric === "metric:order_total",
+    );
+    const model = bundle.entries.find(
+      (entry) => entry.metric === "model:fct_orders",
+    );
+
+    expect(semanticModel).toMatchObject({
+      owner: "Revenue Analytics",
+      grain: "Primary entity: order",
+      primaryEntity: "order",
+      timeDimension: "ordered_at",
+      table: "fct_orders",
+    });
+    expect(semanticModel?.definition).toContain(
+      "Entity columns: order_id (primary order); customer_id (foreign customer)",
+    );
+    expect(semanticModel?.definition).toContain(
+      "Dimensions: ordered_at (time, day); order_status (categorical)",
+    );
+    expect(metric).toMatchObject({
+      metric: "metric:order_total",
+      owner: "Revenue Analytics",
+      grain: "Primary entity: order",
+      primaryEntity: "order",
+      timeDimension: "ordered_at",
+      semanticModel: "orders",
+      table: "fct_orders",
+    });
+    expect(metric?.definition).toContain("Aggregation: sum");
+    expect(metric?.definition).toContain("Expression: amount");
+    expect(model?.definition).toContain("Order facts for business reporting.");
+    expect(model?.definition).not.toContain("order_id (primary)");
+  });
+
   it("preserves multiline descriptions and reports omitted or truncated metadata", async () => {
     const root = await temporaryDirectory();
     const dbtRoot = path.join(root, "dbt");
@@ -506,6 +669,19 @@ describe("compileSourceIndex", () => {
     );
   });
 
+  it("requires dbt commit metadata instead of using a wall-clock timestamp", async () => {
+    const root = await temporaryDirectory();
+    const dbtRoot = path.join(root, "dbt");
+    await mkdir(path.join(dbtRoot, "models"), { recursive: true });
+    await writeFile(path.join(dbtRoot, "models", "example.sql"), "SELECT 1");
+
+    await expect(
+      compileSourceIndex({ dbtRoots: [dbtRoot] }),
+    ).rejects.toMatchObject({
+      code: "dbt_commit_metadata_required",
+    });
+  });
+
   it("does not turn a malformed model name into a nested column model", async () => {
     const root = await temporaryDirectory();
     const dbtRoot = path.join(root, "dbt");
@@ -524,7 +700,10 @@ describe("compileSourceIndex", () => {
       ].join("\n"),
     );
 
-    const bundle = await compileSourceIndex({ dbtRoots: [dbtRoot] });
+    const bundle = await compileSourceIndex({
+      dbtRoots: [dbtRoot],
+      generatedAt: "2026-10-09T12:00:00.000Z",
+    });
     expect(bundle.entries.map((entry) => entry.table)).toEqual(["valid_model"]);
   });
 
@@ -534,6 +713,22 @@ describe("compileSourceIndex", () => {
     const out = path.join(root, ".tmp", "source-index.json");
     await mkdir(path.join(dbtRoot, "models"), { recursive: true });
     await writeFile(path.join(dbtRoot, "models", "example.sql"), "SELECT 1");
+    execFileSync("git", ["init", "-q"], { cwd: dbtRoot });
+    execFileSync("git", ["config", "user.name", "Source Index Test"], {
+      cwd: dbtRoot,
+    });
+    execFileSync("git", ["config", "user.email", "source-index@example.test"], {
+      cwd: dbtRoot,
+    });
+    execFileSync("git", ["add", "models/example.sql"], { cwd: dbtRoot });
+    execFileSync("git", ["commit", "-q", "-m", "Add synthetic model"], {
+      cwd: dbtRoot,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_DATE: "2024-02-03T04:05:06Z",
+        GIT_COMMITTER_DATE: "2024-02-03T04:05:06Z",
+      },
+    });
 
     const first = await writeSourceIndex({ dbtRoots: [dbtRoot], out });
     const written = JSON.parse(await readFile(out, "utf8"));

@@ -32,6 +32,7 @@ export const providerApiOverrides: ProviderApiConfig[] = [
   provider("clay"),
   provider("commonroom"),
   provider("dataforseo"),
+  provider("dbt"),
   provider("ga4"),
   provider("gcloud"),
   provider("github"),

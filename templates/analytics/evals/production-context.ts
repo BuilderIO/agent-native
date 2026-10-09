@@ -28,6 +28,7 @@ import {
 
 const REQUIRED_ANALYTICS_QUERY_ACTIONS = [
   "find-data",
+  "query-dbt-semantic-metric",
   "bigquery",
   "search-bigquery-schema",
 ] as const;

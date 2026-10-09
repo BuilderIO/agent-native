@@ -266,6 +266,15 @@ export async function runEvalSuite(
     evals = loaded.evals;
   }
 
+  if (
+    opts.requireProductionChatPath &&
+    evals.some((evalCase) => evalCase.run)
+  ) {
+    throw new Error(
+      "Production-path evals cannot define custom run callbacks; every case must use the production chat adapter.",
+    );
+  }
+
   let runner = opts.runner;
   if (opts.requireProductionChatPath) {
     const productionContext =
@@ -283,14 +292,16 @@ export async function runEvalSuite(
     if (evals.some((evalCase) => evalCase.skipReason)) {
       throw new Error("Production-path evals cannot contain skipped cases.");
     }
-    runner = await createAgentRunner({ productionContext });
+    runner = await createAgentRunner({
+      productionContext: guardProductionEvalOutput(productionContext),
+    });
   } else {
     const needsRunner = evals.some((evalCase) => !evalCase.skipReason);
     if (!runner && needsRunner) {
       if (opts.productionContext) {
         requireProductionChatPath(opts.productionContext);
         runner = await createAgentRunner({
-          productionContext: opts.productionContext,
+          productionContext: guardProductionEvalOutput(opts.productionContext),
         });
       } else {
         runner = await createAgentRunner({
@@ -307,6 +318,28 @@ export async function runEvalSuite(
     persist: opts.persist ?? true,
   });
   return { report, files };
+}
+
+function guardProductionEvalOutput(
+  context: EvalProductionContext,
+): EvalProductionContext {
+  const productionChatPath = context.productionChatPath;
+  if (!productionChatPath) return context;
+  return {
+    ...context,
+    productionChatPath: {
+      ...productionChatPath,
+      async run(args) {
+        const result = await productionChatPath.run(args);
+        if (!result?.output) {
+          throw new Error(
+            "Production chat eval adapter returned no run output.",
+          );
+        }
+        return result;
+      },
+    },
+  };
 }
 
 export async function loadProductionEvalContext(

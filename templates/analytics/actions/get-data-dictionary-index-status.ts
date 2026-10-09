@@ -27,11 +27,22 @@ export default defineAction({
     const result = await readSourceIndex(getRequestOrgId() || null);
     if (result.status !== "available") return { status: result.status };
     const freshness = sourceIndexFreshness(result.bundle.generatedAt);
+    const entryCountsBySource = new Map<string, number>();
+    for (const entry of result.bundle.entries) {
+      entryCountsBySource.set(
+        entry.source,
+        (entryCountsBySource.get(entry.source) ?? 0) + 1,
+      );
+    }
     return {
       status: result.status,
       generatedAt: result.bundle.generatedAt,
       entryCount: result.bundle.entries.length,
       sources: result.bundle.sources,
+      sourceCounts: result.bundle.sources.map(({ id }) => ({
+        source: id,
+        entryCount: entryCountsBySource.get(id) ?? 0,
+      })),
       ...freshness,
     };
   },

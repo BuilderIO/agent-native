@@ -722,6 +722,7 @@ describe("Analytics agent Plan mode policy", () => {
         "inspect-dashboard-panel",
         "search-dashboard-references",
         "find-data",
+        "query-dbt-semantic-metric",
         "query-agent-native-analytics",
         "bigquery",
         "search-bigquery-schema",

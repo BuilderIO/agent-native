@@ -71,6 +71,7 @@ export const PROVIDER_API_IDS = [
   "clay",
   "commonroom",
   "dataforseo",
+  "dbt",
   "ga4",
   "gcloud",
   "github",
@@ -377,6 +378,8 @@ export interface ProviderApiConfig {
   defaultBaseUrl: string;
   requiresConnectionId?: boolean;
   baseUrlCredentialKey?: string;
+  baseUrlConnectionConfigKey?: string;
+  baseUrlMustMatchAllowedHost?: boolean;
   auth: ProviderApiAuthKind;
   credentialKeys: readonly string[];
   docsUrls: readonly string[];
@@ -627,6 +630,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     label: "Sigma REST API",
     defaultBaseUrl: "https://aws-api.sigmacomputing.com",
     baseUrlCredentialKey: "SIGMA_BASE_URL",
+    baseUrlMustMatchAllowedHost: true,
     requiresConnectionId: true,
     requireHttps: true,
     auth: {
@@ -815,6 +819,38 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
           { keyword: "builder.io", location_code: 2840, language_code: "en" },
         ],
       },
+    ],
+  },
+  dbt: {
+    id: "dbt",
+    label: "dbt Semantic Layer",
+    defaultBaseUrl: "https://wg204.semantic-layer.us1.dbt.com/api/graphql",
+    baseUrlConnectionConfigKey: "semanticLayerBaseUrl",
+    baseUrlMustMatchAllowedHost: true,
+    requiresConnectionId: true,
+    requireHttps: true,
+    auth: {
+      type: "bearer",
+      keys: ["DBT_SEMANTIC_LAYER_TOKEN"],
+      workspaceProvider: "dbt",
+    },
+    credentialKeys: ["DBT_SEMANTIC_LAYER_TOKEN"],
+    docsUrls: ["https://docs.getdbt.com/docs/dbt-apis/sl-graphql"],
+    allowedHostSuffixes: ["dbt.com", "getdbt.com"],
+    templateUses: ["analytics"],
+    examples: [
+      {
+        label: "List metric metadata",
+        method: "POST",
+        path: "/api/graphql",
+        body: {
+          query:
+            "query Metrics($environmentId: BigInt!, $search: String) { metricsPaginated(environmentId: $environmentId, search: $search, pageNum: 1, pageSize: 20) { items { name description type dimensions { name description type } queryableGranularities } totalItems totalPages } }",
+        },
+      },
+    ],
+    notes: [
+      "Use the Semantic Layer only for owner-defined dbt metrics. Sigma and Amplitude are examples and cross-checks, not metric definitions.",
     ],
   },
   ga4: {
@@ -3443,16 +3479,62 @@ async function resolveBaseUrl(
     args,
   );
   if (oauthEndpoint) return oauthEndpoint;
+  if (config.baseUrlConnectionConfigKey) {
+    const auth = config.auth;
+    const workspaceProvider =
+      "workspaceProvider" in auth ? auth.workspaceProvider : undefined;
+    if (!workspaceProvider) {
+      throw new Error(
+        `${config.label} connection URL configuration requires a workspace provider.`,
+      );
+    }
+    const resolved = await resolveWorkspaceConnectionForApp({
+      appId: runtime.appId,
+      provider: workspaceProvider,
+      connectionId: args.connectionId ?? undefined,
+      requireConnected: true,
+    });
+    if (!resolved.available || !resolved.connection) {
+      throw new Error(
+        `${config.label} requires an available workspace connection.`,
+      );
+    }
+    const configured =
+      resolved.connection.config[config.baseUrlConnectionConfigKey];
+    const value =
+      typeof configured === "string" && configured.trim()
+        ? configured.trim()
+        : config.defaultBaseUrl;
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new Error(`${config.label} connection URL is invalid.`);
+    }
+    if (
+      (config.requireHttps && url.protocol !== "https:") ||
+      url.username ||
+      url.password ||
+      url.port ||
+      url.search ||
+      url.hash ||
+      url.pathname !== "/api/graphql" ||
+      (config.baseUrlMustMatchAllowedHost &&
+        !isAllowedProviderHost(url.hostname, config))
+    ) {
+      throw new Error(
+        `${config.label} requests must use the HTTPS /api/graphql endpoint on a registered provider host suffix.`,
+      );
+    }
+    return {
+      url: value.replace(/\/+$/, ""),
+      owner: workspaceConnectionEndpointOwner(resolved.connection),
+    };
+  }
   if (!config.baseUrlCredentialKey) return { url: config.defaultBaseUrl };
   const auth = config.auth;
   const workspaceProvider =
-    auth.type === "oauth-bearer" ||
-    auth.type === "oauth-client-credentials" ||
-    auth.type === "oauth-bearer-or-api-key-header" ||
-    auth.type === "oauth-bearer-or-bearer-key" ||
-    auth.type === "oauth-bearer-or-basic"
-      ? auth.workspaceProvider
-      : undefined;
+    "workspaceProvider" in auth ? auth.workspaceProvider : undefined;
   const configured = await resolveCredentialResult({
     config,
     runtime,
@@ -3461,8 +3543,17 @@ async function resolveBaseUrl(
     args,
     workspaceProvider,
   });
+  const url = (configured?.value || config.defaultBaseUrl).replace(/\/+$/, "");
+  if (
+    config.baseUrlMustMatchAllowedHost &&
+    !isAllowedProviderHost(new URL(url).hostname, config)
+  ) {
+    throw new Error(
+      `${config.label} API requests must stay on the configured provider host or registered provider host suffix.`,
+    );
+  }
   return {
-    url: (configured?.value || config.defaultBaseUrl).replace(/\/+$/, ""),
+    url,
     ...(configured
       ? {
           owner: {
@@ -3684,15 +3775,20 @@ function isAllowedProviderUrl(
 ): boolean {
   if (url.protocol !== "https:" && url.protocol !== "http:") return false;
   if (config.requireHttps && url.protocol !== "https:") return false;
-  const host = url.hostname.toLowerCase();
-  const allowedHostSuffixes = config.allowedHostSuffixes ?? [];
-  if (allowedHostSuffixes.length > 0) {
-    return allowedHostSuffixes.some((suffix) => {
-      const normalized = suffix.toLowerCase().replace(/^\./, "");
-      return host === normalized || host.endsWith(`.${normalized}`);
-    });
-  }
-  return url.origin === base.origin;
+  return (
+    url.origin === base.origin || isAllowedProviderHost(url.hostname, config)
+  );
+}
+
+function isAllowedProviderHost(
+  hostname: string,
+  config: ProviderApiConfig,
+): boolean {
+  const host = hostname.toLowerCase();
+  return (config.allowedHostSuffixes ?? []).some((suffix) => {
+    const normalized = suffix.toLowerCase().replace(/^\./, "");
+    return host === normalized || host.endsWith(`.${normalized}`);
+  });
 }
 
 function queryEntries(value: unknown): Array<[string, string]> {

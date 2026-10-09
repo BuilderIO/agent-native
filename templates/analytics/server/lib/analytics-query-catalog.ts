@@ -56,6 +56,17 @@ function sourceKind(value: unknown): SourceKind | undefined {
     : undefined;
 }
 
+function sourceEntryType(
+  value: unknown,
+): "model" | "event" | "semantic_model" | "metric" | undefined {
+  return value === "model" ||
+    value === "event" ||
+    value === "semantic_model" ||
+    value === "metric"
+    ? value
+    : undefined;
+}
+
 function isRetiredCatalogReference(value: Record<string, unknown>): boolean {
   if (value.deprecated === true) return true;
   return [value.status, value.lifecycle, value.state].some(
@@ -109,6 +120,11 @@ export type AnalyticsQueryCatalogCandidate =
       approved?: boolean;
       aiGenerated?: boolean;
       sourceKind?: "dbt" | "code" | "sigma";
+      entryType?: "model" | "event" | "semantic_model" | "metric";
+      grain?: string;
+      primaryEntity?: string;
+      timeDimension?: string;
+      semanticModel?: string;
       sourceUrl?: string;
       semanticScope?: string;
       sourcePath?: string;
@@ -406,6 +422,11 @@ function dictionaryCandidates(
       { value: entry.source, weight: 5 },
       { value: entry.action, weight: 5 },
       { value: entry.knownGotchas, weight: 2 },
+      { value: entry.grain, weight: 10 },
+      { value: entry.primaryEntity, weight: 7 },
+      { value: entry.timeDimension, weight: 5 },
+      { value: entry.semanticModel, weight: 8 },
+      { value: entry.owner, weight: 3 },
     ]);
     if (!rawScore) return [];
     const isSourceIndex = entry.sourceIndex === true;
@@ -419,6 +440,7 @@ function dictionaryCandidates(
               .join(" "),
           );
     const entrySourceKind = sourceKind(entry.sourceKind);
+    const entryType = sourceEntryType(entry.entryType);
     const score = rawScore;
     if (!score) return [];
 
@@ -475,6 +497,17 @@ function dictionaryCandidates(
           ? { aiGenerated: entry.aiGenerated }
           : {}),
         ...(entrySourceKind ? { sourceKind: entrySourceKind } : {}),
+        ...(entryType ? { entryType } : {}),
+        ...(text(entry.grain) ? { grain: text(entry.grain) } : {}),
+        ...(text(entry.primaryEntity)
+          ? { primaryEntity: text(entry.primaryEntity) }
+          : {}),
+        ...(text(entry.timeDimension)
+          ? { timeDimension: text(entry.timeDimension) }
+          : {}),
+        ...(text(entry.semanticModel)
+          ? { semanticModel: text(entry.semanticModel) }
+          : {}),
         ...(text(entry.sourceUrl) ? { sourceUrl: text(entry.sourceUrl) } : {}),
         ...(semanticScope !== "unknown" ? { semanticScope } : {}),
         ...(text(entry.sourcePath)
@@ -577,45 +610,51 @@ export function rankAnalyticsQueryCatalogPage(args: {
     ...dictionaryCandidates(args.dictionaryEntries, args.search),
   ];
 
+  const requestedScope = requestedSemanticScope(args.search);
+  const rankedCandidates = candidates.map((candidate) => ({
+    candidate,
+    scope:
+      requestedScope === "unknown"
+        ? 1
+        : semanticScopeCompatibility(
+            candidateSemanticScope(candidate),
+            requestedScope,
+          ),
+    trust: candidateTrustTier(candidate),
+    runnable: candidateIsRunnable(candidate),
+    tieBreak: JSON.stringify(candidate),
+  }));
   const strongestScopeMatch = Math.max(
-    ...candidates.map((candidate) =>
-      candidateScopeCompatibility(candidate, args.search),
-    ),
+    ...rankedCandidates.map(({ scope }) => scope),
     0,
   );
-  const bestScopeTrust = Math.max(
-    ...candidates
-      .filter(
-        (candidate) =>
-          candidateScopeCompatibility(candidate, args.search) === 2,
-      )
-      .map(candidateTrustTier),
+  const bestScopeTrust = rankedCandidates.reduce(
+    (strongest, candidate) =>
+      candidate.scope === 2 ? Math.max(strongest, candidate.trust) : strongest,
     0,
   );
   const scopeFiltered =
     strongestScopeMatch === 2
-      ? candidates.filter(
-          (candidate) =>
-            candidateScopeCompatibility(candidate, args.search) === 2 ||
-            candidateTrustTier(candidate) > bestScopeTrust,
+      ? rankedCandidates.filter(
+          ({ scope, trust }) => scope === 2 || trust > bestScopeTrust,
         )
-      : candidates;
-  const ranked = scopeFiltered.sort((a, b) => {
-    if (a.kind === b.kind) {
-      const aTrustTier = candidateTrustTier(a);
-      const bTrustTier = candidateTrustTier(b);
-      if (bTrustTier !== aTrustTier) return bTrustTier - aTrustTier;
-    }
-    const aScope = candidateScopeCompatibility(a, args.search);
-    const bScope = candidateScopeCompatibility(b, args.search);
-    if (bScope !== aScope) return bScope - aScope;
-    if (b.score !== a.score) return b.score - a.score;
-    const aRunnable = candidateIsRunnable(a);
-    const bRunnable = candidateIsRunnable(b);
-    if (aRunnable !== bRunnable) return aRunnable ? -1 : 1;
-    if (a.kind !== b.kind) return a.kind === "data-dictionary" ? -1 : 1;
-    return JSON.stringify(a).localeCompare(JSON.stringify(b));
-  });
+      : rankedCandidates;
+  const ranked = scopeFiltered
+    .sort((a, b) => {
+      if (a.candidate.kind === b.candidate.kind) {
+        if (b.trust !== a.trust) return b.trust - a.trust;
+      }
+      if (b.scope !== a.scope) return b.scope - a.scope;
+      if (b.candidate.score !== a.candidate.score) {
+        return b.candidate.score - a.candidate.score;
+      }
+      if (a.runnable !== b.runnable) return a.runnable ? -1 : 1;
+      if (a.candidate.kind !== b.candidate.kind) {
+        return a.candidate.kind === "data-dictionary" ? -1 : 1;
+      }
+      return a.tieBreak.localeCompare(b.tieBreak);
+    })
+    .map(({ candidate }) => candidate);
 
   const seen = new Set<string>();
   const deduped: AnalyticsQueryCatalogCandidate[] = [];

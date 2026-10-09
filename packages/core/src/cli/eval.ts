@@ -97,7 +97,8 @@ Options:
   --reviewed-prompt  Required manually reviewed prompt; production prompt text
                      is never copied.
   --must-contain txt Optional contains() needle for the promoted case.
-  --dataset-name n   Optional EvalDataset name (defaults to from-trace:<runId>).
+  --dataset-name n   Optional privacy-screened EvalDataset name
+                     (defaults to from-trace:<opaque reference>).
   -h, --help         Show this help.
 
 Authoring (evals/example.eval.ts):

@@ -18,12 +18,13 @@ The compiler scans schema descriptions, SQL structure, and static tracking
 calls. It records source revisions and content fingerprints, and omits raw
 query text and row values. For Git-backed dbt roots, `generatedAt` uses the
 latest root's commit committer time in UTC, so the same dbt commits produce the
-same timestamp. Fingerprints still change when indexed files differ from the
-commit. If a dbt root has no Git commit, generation uses the current time.
+same timestamp. Generation fails if any dbt root lacks Git commit metadata.
+Fingerprints still change when indexed files differ from the commit.
 Keep the generated JSON outside Git because it can contain internal table,
 event, and column names. CI tests revisions, fingerprints, commit-time
-generation, and the 90-day stale signal against temporary synthetic
-repositories; it never checks out or reads private source repositories. The
+generation, missing-commit failure, and the 90-day stale signal against
+temporary synthetic repositories in the existing Analytics fast-test lane; it
+never checks out or reads private source repositories. The
 90-day UI signal asks an admin to rebuild and compare current source revisions;
 it does not claim to detect a change in a private repository automatically.
 

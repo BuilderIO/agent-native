@@ -140,9 +140,9 @@ export interface Eval {
   scorers: Scorer<any, any>[];
   threshold?: number;
   /**
-   * Provenance for a case promoted from a production run. Ignored by
-   * threshold math; surfaced in `--json` reports so a CI failure can point
-   * back at the trace.
+   * Provenance for a case promoted from a production run. `runId` is a stable,
+   * non-reversible reference, not the production run identifier. Ignored by
+   * threshold math and surfaced in `--json` reports.
    */
   source?: { kind: "trace"; runId: string };
 }

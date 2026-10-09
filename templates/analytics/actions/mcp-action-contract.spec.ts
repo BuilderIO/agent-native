@@ -40,6 +40,7 @@ const DIRECT_MCP_READS = [
   "builder-blog-articles",
   "data-source-status",
   "find-data",
+  "query-dbt-semantic-metric",
   "get-analysis",
   "get-data-program",
   "get-error-issue",

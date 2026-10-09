@@ -150,6 +150,7 @@ export default {
     overview: "Overview",
     dashboard: "Dashboard",
     dataSources: "Data Sources",
+    sourceStatus: "Source Status",
     dataDictionary: "Data Dictionary",
     sessions: "Sessions",
     monitoring: "Monitoring",
@@ -552,6 +553,7 @@ export default {
     dashboard: "Dashboard - Analytics",
     dataDictionary: "Data Dictionary - Analytics",
     dataSources: "Data Sources - Analytics",
+    sourceStatus: "Source Status - Analytics",
     sessions: "Sessions - Analytics",
     eventCatalog: "Event Catalog - Analytics",
     routePerformance: "Route Performance - Analytics",
@@ -961,6 +963,33 @@ export default {
     analysis: "Analysis",
     byAuthor: "by {{author}}",
   },
+  dataStatus: {
+    sources: "Sources",
+    index: "Index",
+    connected: "Connected",
+    notConnected: "Not connected",
+    needsReauth: "Needs reauth",
+    error: "Error",
+    loadingSources: "Loading source health",
+    indexNotImported: "No generated index has been imported.",
+    indexUnreadable: "The saved index could not be read. Upload a valid index.",
+    indexReadFailed: "Index status could not be loaded.",
+    lastBuilt: "Last built",
+    freshness: "Freshness",
+    fresh: "Fresh · {{age}}",
+    stale: "Stale · {{age}}",
+    generatedUnapproved: "Generated · unapproved",
+    entriesBySource: "{{count}} entries by source",
+    noSourceEntries: "No source counts are available.",
+    countUnavailable: "Unavailable",
+    adminUpload: "Admin upload",
+    exportDictionary: "Export dictionary",
+    exportingDictionary: "Exporting dictionary…",
+    exportFailed: "Dictionary export failed. Try again.",
+    exportEmpty: "There are no dictionary entries to export.",
+    exportLimitReached:
+      "The dictionary exceeds the export limit. Contact an administrator.",
+  },
   dataDictionary: {
     intro:
       "The catalog of metrics, tables, and business definitions the analytics agent uses when building dashboards from prompts. Keep entries accurate and the agent will stop guessing about your data.",
@@ -1077,6 +1106,10 @@ export default {
       "Using credentials saved in this app. For reuse across apps, connect and grant this provider in Dispatch.",
     sharedFallback:
       "Connect or grant this provider in Dispatch to reuse it across apps, or save local credentials below.",
+    sharedNeedsReauth:
+      "This shared connection needs to be reauthorized. Reconnect it in Dispatch.",
+    sharedError:
+      "This shared connection reported an error. Open Dispatch to review and repair it.",
     workspaceReadyDescription:
       "This source is ready through a shared workspace connection. Manage shared access in Dispatch, or add local credentials for this app only.",
     testing: "Testing...",

@@ -5,7 +5,9 @@ import {
   promoteTraceToEval,
   promotedDatasetIdempotencyKey,
   promotedEvalSpecFromDataset,
+  promotedTraceReference,
   PROMOTED_EVAL_PRIVACY_VERSION,
+  sanitizedPromotedDatasetFromDataset,
   type PromoteTraceEvent,
   type PromoteTraceSpan,
 } from "./from-trace.js";
@@ -42,12 +44,13 @@ describe("promoteTraceToEval", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.eval.name).toBe("from-trace:run-abcd");
+    const traceReference = promotedTraceReference("run-abcdef123456");
+    expect(result.value.eval.name).toBe(`from-trace:${traceReference}`);
     expect(result.value.eval.input.prompt).toBe("show active users daily");
     expect(result.value.eval.threshold).toBe(0.5);
     expect(result.value.eval.source).toEqual({
       kind: "trace",
-      runId: "run-abcdef123456",
+      runId: traceReference,
     });
     expect(result.value.eval.scorers.map((s) => s.name)).toEqual([
       "uses_tool_success:search-docs",
@@ -59,11 +62,14 @@ describe("promoteTraceToEval", () => {
     ]);
     expect(result.value.dataset.entries[0]?.tags).toEqual([
       "from-trace",
-      "run-abcdef123456",
+      traceReference,
     ]);
-    expect(result.value.dataset.name).toBe("from-trace:run-abcdef123456");
+    expect(result.value.dataset.name).toBe(`from-trace:${traceReference}`);
     expect(result.value.dataset.idempotencyKey).toBe(
-      "from-trace:v4::run-abcdef123456",
+      promotedDatasetIdempotencyKey("run-abcdef123456"),
+    );
+    expect(JSON.stringify(result.value.dataset)).not.toContain(
+      "run-abcdef123456",
     );
     expect(result.value.dataset.entries[0]?.context).toMatchObject({
       privacyVersion: PROMOTED_EVAL_PRIVACY_VERSION,
@@ -181,6 +187,40 @@ describe("promoteTraceToEval", () => {
       { type: "contains", needle: "30 days" },
     ]);
     expect(result.value.eval.scorers[0]?.name).toBe("contains");
+  });
+
+  it("honors a safe dataset name and rejects identity-bearing names", () => {
+    const result = promoteTraceToEval({
+      runId: "run-named-dataset",
+      run: { status: "completed" },
+      events: events({ type: "user-message", text: "production prompt" }),
+      spans: [
+        { spanType: "tool_call", name: "search-docs", status: "success" },
+      ],
+      options: {
+        reviewedPrompt: "show active users daily",
+        datasetName: "weekly analytics dataset",
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.dataset.name).toBe("weekly analytics dataset");
+
+    expect(
+      promoteTraceToEval({
+        runId: "run-unsafe-dataset-name",
+        run: { status: "completed" },
+        events: events({ type: "user-message", text: "production prompt" }),
+        spans: [
+          { spanType: "tool_call", name: "search-docs", status: "success" },
+        ],
+        options: {
+          reviewedPrompt: "show active users daily",
+          datasetName: "Brent's Builder data",
+        },
+      }),
+    ).toEqual({ ok: false, error: "unsafe_reviewed_text" });
   });
 
   it("returns no_signal when there are neither tools nor mustContain", () => {
@@ -479,6 +519,103 @@ describe("promoteTraceToEval", () => {
     ]);
   });
 
+  it.each(["48213", "user_123456", "654321", "12-3456", "123-456"])(
+    "rejects identifier-shaped number %s in reviewed text",
+    (identifier) => {
+      const common = {
+        runId: "run-reviewed-identifiers",
+        run: { status: "completed" },
+        events: events({ type: "user-message", text: "production prompt" }),
+        spans: [
+          { spanType: "tool_call", name: "search-docs", status: "success" },
+        ],
+      } as const;
+      const options = { reviewedPrompt: "show active users daily" };
+
+      expect(
+        promoteTraceToEval({
+          ...common,
+          options: { ...options, reviewedPrompt: `find account ${identifier}` },
+        }),
+      ).toEqual({ ok: false, error: "unsafe_reviewed_text" });
+      expect(
+        promoteTraceToEval({
+          ...common,
+          options: {
+            ...options,
+            reviewedHistory: [
+              { role: "user", text: `find account ${identifier}` },
+            ],
+          },
+        }),
+      ).toEqual({ ok: false, error: "unsafe_reviewed_text" });
+      expect(
+        promoteTraceToEval({
+          ...common,
+          options: { ...options, mustContain: `account ${identifier}` },
+        }),
+      ).toEqual({ ok: false, error: "unsafe_reviewed_text" });
+      expect(
+        promoteTraceToEval({
+          ...common,
+          options: { ...options, datasetName: `account ${identifier}` },
+        }),
+      ).toEqual({ ok: false, error: "unsafe_reviewed_text" });
+    },
+  );
+
+  it("keeps a privacy-screened custom dataset name on stored reconstruction", () => {
+    const result = promoteTraceToEval({
+      runId: "run-custom-dataset-name",
+      run: { status: "completed" },
+      events: events({ type: "user-message", text: "production prompt" }),
+      spans: [
+        { spanType: "tool_call", name: "search-docs", status: "success" },
+      ],
+      options: {
+        reviewedPrompt: "show active users daily",
+        datasetName: "weekly analytics dataset",
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const reconstructed = sanitizedPromotedDatasetFromDataset(
+      result.value.dataset,
+      "run-custom-dataset-name",
+    );
+    expect(reconstructed?.name).toBe("weekly analytics dataset");
+    expect(reconstructed?.entries[0]?.context?.runId).toBe(
+      promotedTraceReference("run-custom-dataset-name"),
+    );
+  });
+
+  it("stores only a stable non-reversible run reference in promoted metadata", () => {
+    const runId = "48213";
+    const result = promoteTraceToEval({
+      runId,
+      run: { status: "completed" },
+      events: events({ type: "user-message", text: "production prompt" }),
+      spans: [
+        { spanType: "tool_call", name: "search-docs", status: "success" },
+      ],
+      options: { reviewedPrompt: "show active users daily" },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const persisted = JSON.stringify({
+      dataset: result.value.dataset,
+      spec: result.value.spec,
+      fixture: generateEvalModuleSource(result.value.spec),
+    });
+    expect(persisted).not.toContain(runId);
+    expect(result.value.spec.source.runId).toBe(promotedTraceReference(runId));
+    expect(result.value.dataset.entries[0]?.context?.runId).toBe(
+      promotedTraceReference(runId),
+    );
+  });
+
   it("rejects excess history turns and text instead of truncating", () => {
     const common = {
       runId: "run-reviewed-history-limit",
@@ -605,12 +742,12 @@ describe("promoteTraceToEval", () => {
           id: "placeholder",
           name: "from-trace:run-placeholder",
           description: "legacy placeholder",
-          idempotencyKey: "from-trace:v4::run-placeholder",
+          idempotencyKey: promotedDatasetIdempotencyKey("run-placeholder"),
           entries: [
             {
               input: "[redacted production prompt]",
               context: {
-                runId: "run-placeholder",
+                runId: promotedTraceReference("run-placeholder"),
                 history: [],
                 tools: ["search-docs"],
                 privacyVersion: PROMOTED_EVAL_PRIVACY_VERSION,
@@ -628,21 +765,22 @@ describe("promoteTraceToEval", () => {
 
   it("rejects oversized stored prompt, history, and expected text", () => {
     const runId = "run-oversized-stored-text";
+    const traceReference = promotedTraceReference(runId);
     const dataset = (
       input: string,
       history: unknown,
       expectedOutput?: string,
     ): Parameters<typeof promotedEvalSpecFromDataset>[0] => ({
       id: "oversized",
-      name: `from-trace:${runId}`,
+      name: `from-trace:${traceReference}`,
       description: "oversized text",
-      idempotencyKey: `from-trace:v${PROMOTED_EVAL_PRIVACY_VERSION}::${runId}`,
+      idempotencyKey: promotedDatasetIdempotencyKey(runId),
       entries: [
         {
           input,
           ...(expectedOutput === undefined ? {} : { expectedOutput }),
           context: {
-            runId,
+            runId: traceReference,
             history,
             tools: ["search-docs"],
             privacyVersion: PROMOTED_EVAL_PRIVACY_VERSION,
@@ -807,6 +945,8 @@ describe("promoteTraceToEval", () => {
     expect(source).toContain("call.isError !== true");
     expect(source).not.toContain("usesTool(");
     expect(source).toContain('contains("found it")');
-    expect(source).toContain('source: { kind: "trace", runId: "run-write" }');
+    expect(source).toContain(
+      `source: { kind: "trace", runId: "${promotedTraceReference("run-write")}" }`,
+    );
   });
 });

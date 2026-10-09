@@ -33,6 +33,7 @@ describe("workspace connection provider catalog", () => {
       "granola",
       "clips",
       "sigma",
+      "dbt",
       "anthropic-managed-agents",
       "generic",
     ]);
@@ -136,6 +137,31 @@ describe("workspace connection provider catalog", () => {
       ),
     ).toContain("sigma");
     expect(getWorkspaceConnectionProvider("sigma")?.oauth).toBeUndefined();
+  });
+
+  it("registers dbt's token and non-secret Semantic Layer connection settings", () => {
+    expect(getWorkspaceConnectionProvider("dbt")).toMatchObject({
+      id: "dbt",
+      recommendedTemplateUses: ["analytics"],
+      credentialKeys: [{ key: "DBT_SEMANTIC_LAYER_TOKEN", required: false }],
+      configurationFields: [
+        {
+          key: "semanticLayerBaseUrl",
+          required: true,
+          defaultValue: "https://wg204.semantic-layer.us1.dbt.com/api/graphql",
+        },
+        {
+          key: "semanticLayerEnvironmentId",
+          required: true,
+          defaultValue: "166567",
+        },
+      ],
+    });
+    expect(
+      listWorkspaceConnectionProvidersForTemplate("analytics").map(
+        (provider) => provider.id,
+      ),
+    ).toContain("dbt");
   });
 
   it("replaces one provider definition without dropping the rest", () => {

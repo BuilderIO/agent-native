@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 import {
+  BASELINE_REVISION,
   CSV_PATH,
   computeSyntheticBenchmark,
   renderSyntheticBenchmarkCsv,
@@ -48,9 +49,9 @@ describe("SYNTHETIC Analytics retrieval benchmark", () => {
     });
   });
 
-  it("records the previous production catalog revision with every baseline row", () => {
+  it("records the measured origin/main revision with every baseline row", () => {
     expect(
       new Set(computeSyntheticBenchmark().map((row) => row.baselineRevision)),
-    ).toEqual(new Set(["f2c69d7718a9204f707bef6257045a71b78be457"]));
+    ).toEqual(new Set([BASELINE_REVISION]));
   });
 });
