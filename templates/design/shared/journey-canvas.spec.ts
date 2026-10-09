@@ -564,7 +564,7 @@ describe("create-journey-canvas input", () => {
       frame(observed.key, 0, {
         imageUrl: undefined,
         attachmentRef: "private-observed-frame",
-        recordingStartedAt,
+        recordingStartedAt: "2026-10-01T07:59:56.000-04:00",
         screenshotOffsetMs: 2_000,
       }),
     ];
@@ -592,7 +592,15 @@ describe("create-journey-canvas input", () => {
     );
 
     expect(problems(raw)).toEqual([]);
-    expect(continuationLabel).toContain(">Same recording</div>");
+    expect(continuationLabel).toContain(
+      ">Same recording · example 1 → example 1</div>",
+    );
+    expect(continuationLabel).toContain(
+      'title="Same recording · example 1 → example 1"',
+    );
+    expect(continuationLabel).toContain(
+      'aria-label="Same recording · example 1 → example 1"',
+    );
     expect(continuationLabel).not.toContain("%");
     expect(parsed.tree.nodes[0]).toMatchObject({
       key: canonical.key,
@@ -625,6 +633,115 @@ describe("create-journey-canvas input", () => {
     expect(problems(wrongRecordingMember).join("\n")).toContain(
       "same session and recording",
     );
+    const wrongRecordingStart = {
+      ...raw,
+      frames: frames.map((candidate, index) =>
+        index === 1
+          ? {
+              ...candidate,
+              recordingStartedAt: "2026-10-01T08:59:56.000-04:00",
+            }
+          : candidate,
+      ),
+    };
+    expect(problems(wrongRecordingStart).join("\n")).toContain(
+      "same session and recording",
+    );
+  });
+
+  it("keeps and labels exact high-index examples selected by a continuation", () => {
+    const canonicalExamples = Array.from({ length: 8 }, (_, index) =>
+      example(`canonical-${index}`),
+    );
+    canonicalExamples[5] = example("shared-session");
+    const observedExamples = Array.from({ length: 8 }, (_, index) =>
+      example(`observed-${index}`),
+    );
+    observedExamples[7] = example("shared-session");
+    const canonical = node("clips::choice", null, 500, {
+      examples: canonicalExamples,
+    });
+    const observed = referenceNode(
+      "clips::choice > observed:/home",
+      canonical.key,
+      2,
+      observedExamples,
+    );
+    const tree: RawInput["tree"] = {
+      window: { from: "2026-10-01", to: "2026-10-07" },
+      app: "clips",
+      rootN: 1000,
+      coverage: {
+        sessionsWithEvents: 1000,
+        sessionsWithReplay: 2,
+        truncated: false,
+      },
+      nodes: [canonical, observed],
+    };
+    const frames = [
+      ...[0, 1, 2].map((index) => frame(canonical.key, index)),
+      frame(canonical.key, 5, {
+        imageUrl: undefined,
+        attachmentRef: "private-canonical-example-six",
+        recordingStartedAt: "2026-10-01T12:00:00.000Z",
+        screenshotOffsetMs: 47_271,
+      }),
+      ...[0, 1, 2].map((index) => frame(observed.key, index)),
+      frame(observed.key, 7, {
+        imageUrl: undefined,
+        attachmentRef: "private-reference-example-eight",
+        recordingStartedAt: "2026-10-01T08:00:00.000-04:00",
+        screenshotOffsetMs: 60_000,
+      }),
+    ];
+    const raw = rawInput({
+      tree,
+      frames,
+      maxExamplesPerNode: 3,
+      observedContinuations: [
+        {
+          fromNodeKey: canonical.key,
+          fromExampleIndex: 5,
+          toNodeKey: observed.key,
+          toExampleIndex: 7,
+        },
+      ],
+    });
+    const result = plan(raw);
+    const board = result.boardFragments({ x: 0, y: 0 }).join("\n");
+    const continuationLabel = board.match(
+      /<div[^>]*data-agent-native-layer-name="Observed same-recording continuation"[^>]*>.*?<\/div>/,
+    )?.[0];
+
+    expect(problems(raw)).toEqual([]);
+    expect(
+      result.screens.some(
+        (screen) =>
+          screen.nodeKey === canonical.key && screen.exampleIndex === 5,
+      ),
+    ).toBe(true);
+    expect(
+      result.screens.some(
+        (screen) =>
+          screen.nodeKey === observed.key && screen.exampleIndex === 7,
+      ),
+    ).toBe(true);
+    expect(
+      result.screens.find(
+        (screen) =>
+          screen.nodeKey === canonical.key && screen.exampleIndex === 0,
+      )?.html,
+    ).toContain('aria-label="Show source example 6"');
+    expect(
+      result.screens.find(
+        (screen) =>
+          screen.nodeKey === observed.key && screen.exampleIndex === 0,
+      )?.html,
+    ).toContain('aria-label="Show source example 8"');
+    expect(continuationLabel).toContain(
+      ">Same recording · example 6 → example 8</div>",
+    );
+    expect(continuationLabel).not.toContain("%");
   });
 
   it("keeps a screenshotless method name on a reattached cohort fork", () => {
@@ -664,6 +781,36 @@ describe("create-journey-canvas input", () => {
 
     expect(homeScreen.html).toContain("250 sessions · 50% of Custom keys");
     expect(board).toContain("Custom keys · 50%");
+  });
+
+  it("truncates long edge labels visually while preserving their full accessible text", () => {
+    const longLabel = `Custom method ${"very-long-name ".repeat(12)}`.trim();
+    const base = rawInput();
+    const nodes = base.tree.nodes.map((candidate) =>
+      candidate.key === "signup > skip"
+        ? { ...candidate, label: longLabel }
+        : candidate,
+    );
+    const board = plan({
+      ...base,
+      tree: { ...base.tree, nodes },
+    })
+      .boardFragments({ x: 0, y: 0 })
+      .join("\n");
+    const label = board
+      .split("\n")
+      .find(
+        (fragment) =>
+          fragment.includes(
+            'data-agent-native-layer-name="Journey edge label"',
+          ) && fragment.includes(longLabel),
+      );
+
+    expect(label).toContain(`title="${longLabel} · 63%"`);
+    expect(label).toContain(`aria-label="${longLabel} · 63%"`);
+    expect(label).toContain(
+      "overflow:hidden;white-space:nowrap;text-overflow:ellipsis",
+    );
   });
 
   it("rejects trees and frames that do not hang together", () => {
@@ -1304,12 +1451,14 @@ describe("planJourneyCanvas", () => {
     expect(screens[0]?.html).toContain("Example 1 of 2");
     expect(screens[0]?.html).toContain("Example 2 of 2");
     expect(screens[0]?.html).toMatch(
-      /aria-label="Show example 1 of 2" checked/,
+      /aria-label="Show source example 1" checked/,
     );
     expect(screens[0]?.html).toContain("/api/design-board-replay-screenshots/");
-    expect(screens[0]?.html).toMatch(/aria-label="Show example 2 of 2"[^>]*>/);
+    expect(screens[0]?.html).toMatch(
+      /aria-label="Show source example 2"[^>]*>/,
+    );
     expect(screens[1]?.html).toMatch(
-      /aria-label="Show example 2 of 2" checked/,
+      /aria-label="Show source example 2" checked/,
     );
     expect(screens[0]?.html).not.toContain("storageOwnerEmail");
     expect(screens[0]?.provenance?.screenshotCapturedAt).toBe(
@@ -1523,17 +1672,27 @@ describe("planJourneyCanvas", () => {
     expect(behind.frame.z).toBeLessThan(front.frame.z);
   });
 
-  it("ignores frames beyond maxExamplesPerNode and says so for nodes left empty", () => {
-    const result = plan(rawInput({ maxExamplesPerNode: 1 }));
-    expect(result.screens.filter((s) => s.nodeKey === "signup")).toHaveLength(
-      1,
+  it("limits ordinary screenshots by count instead of example index", () => {
+    const limited = plan(
+      rawInput({
+        maxExamplesPerNode: 1,
+        frames: [frame("signup", 0), frame("signup", 1)],
+      }),
     );
-    const onlyLate = plan(
+    expect(
+      limited.screens
+        .filter((screen) => screen.nodeKey === "signup")
+        .map((screen) => screen.exampleIndex),
+    ).toEqual([0]);
+
+    const onlyLateIndex = plan(
       rawInput({ maxExamplesPerNode: 1, frames: [frame("signup", 1)] }),
     );
     expect(
-      onlyLate.skippedNodes.find((s) => s.key === "signup")?.reason,
-    ).toMatch(/maxExamplesPerNode \(1\)/);
+      onlyLateIndex.screens
+        .filter((screen) => screen.nodeKey === "signup")
+        .map((screen) => screen.exampleIndex),
+    ).toEqual([1]);
   });
 
   it("re-attaches the children of a skipped node to the nearest rendered ancestor", () => {

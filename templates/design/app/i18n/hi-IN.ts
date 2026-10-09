@@ -5,7 +5,8 @@ export default {
     sessionsOfAppRoot: "{count} सत्र · {app} समूह का {percent} (n={rootCount})",
     sessionsOfPrevious: "{count} सत्र · पिछले चरण का {percent}",
     sessionsOfParent: "{count} सत्र · {label} का {percent}",
-    observedContinuation: "वही रिकॉर्डिंग",
+    observedContinuation:
+      "वही रिकॉर्डिंग · उदाहरण {fromExample} → उदाहरण {toExample}",
     observedBranchLabel: "{label} · {percent}",
     sessionsOfStep: "{count} सत्र · इस चरण का {percent}",
     partialSample: "आंशिक नमूना",
@@ -13,7 +14,7 @@ export default {
       "न दिखाए गए रास्तों पर जारी: {count} · इस चरण का {percent}",
     noLaterStepObserved: "इसके बाद कोई चरण नहीं देखा गया",
     examplePosition: "उदाहरण {current}/{total}",
-    showExample: "उदाहरण {current}/{total} दिखाएँ",
+    showExample: "स्रोत उदाहरण {current} दिखाएँ",
     screenshotExamples: "स्क्रीनशॉट उदाहरण",
     screenshotAlt: "{label}, उदाहरण {current}/{total}, कैप्चर की तारीख {date}",
     screenshotMissing: "कोई स्क्रीनशॉट कैप्चर नहीं हुआ",

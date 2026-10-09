@@ -6,7 +6,8 @@ export default {
       "{count} sesiones · {percent} de la cohorte de {app} (n={rootCount})",
     sessionsOfPrevious: "{count} sesiones · {percent} del paso anterior",
     sessionsOfParent: "{count} sesiones · {percent} de {label}",
-    observedContinuation: "Misma grabación",
+    observedContinuation:
+      "Misma grabación · ejemplo {fromExample} → ejemplo {toExample}",
     observedBranchLabel: "{label} · {percent}",
     sessionsOfStep: "{count} sesiones · {percent} de este paso",
     partialSample: "muestra parcial",
@@ -14,7 +15,7 @@ export default {
       "Continuaron por rutas no mostradas: {count} · {percent} de este paso",
     noLaterStepObserved: "No se observó ningún paso posterior",
     examplePosition: "Ejemplo {current} de {total}",
-    showExample: "Mostrar ejemplo {current} de {total}",
+    showExample: "Mostrar ejemplo de origen {current}",
     screenshotExamples: "Ejemplos de capturas",
     screenshotAlt: "{label}, ejemplo {current} de {total}, capturado el {date}",
     screenshotMissing: "No se capturó ninguna captura",

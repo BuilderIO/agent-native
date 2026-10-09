@@ -349,7 +349,10 @@ export const createJourneyCanvasInputSchema = z
       .min(1)
       .max(MAX_EXAMPLES_PER_NODE)
       .optional()
-      .default(3),
+      .default(3)
+      .describe(
+        "Maximum ordinary screenshots shown per node; frames selected by observedContinuations are kept in addition to this limit.",
+      ),
     includeScreenshotless: z.boolean().optional().default(false),
     allowEncryptedPublicUploadFallback: z
       .boolean()
@@ -567,14 +570,20 @@ export const createJourneyCanvasInputSchema = z
       }
       const fromExample = fromNode.examples[continuation.fromExampleIndex];
       const toExample = toNode.examples[continuation.toExampleIndex];
+      const fromStartedAt = fromFrame.recordingStartedAt
+        ? Date.parse(fromFrame.recordingStartedAt)
+        : Number.NaN;
+      const toStartedAt = toFrame.recordingStartedAt
+        ? Date.parse(toFrame.recordingStartedAt)
+        : Number.NaN;
       if (
         !fromExample ||
         !toExample ||
         fromExample.sessionId !== toExample.sessionId ||
         !fromExample.recordingId ||
         fromExample.recordingId !== toExample.recordingId ||
-        !fromFrame.recordingStartedAt ||
-        fromFrame.recordingStartedAt !== toFrame.recordingStartedAt ||
+        !Number.isFinite(fromStartedAt) ||
+        fromStartedAt !== toStartedAt ||
         fromFrame.screenshotOffsetMs === undefined ||
         toFrame.screenshotOffsetMs === undefined ||
         fromFrame.screenshotOffsetMs >= toFrame.screenshotOffsetMs ||
@@ -1002,6 +1011,7 @@ function orderAppBandComponents(
 interface ExampleGalleryItem {
   selectorId: string;
   index: number;
+  sourceExampleIndex: number;
   src: string;
   alt: string;
   external: boolean;
@@ -1022,7 +1032,7 @@ function exampleSwitchMarkup(
   const labels = items
     .map(
       (item) =>
-        `<label for="${item.selectorId}" title="${escapeHtml(interpolateJourneyCanvasMessage(messages.showExample, { current: formatInt(item.index + 1, messages.htmlLanguage), total: formatInt(items.length, messages.htmlLanguage) }))}">${formatInt(item.index + 1, messages.htmlLanguage)}</label>`,
+        `<label for="${item.selectorId}" title="${escapeHtml(interpolateJourneyCanvasMessage(messages.showExample, { current: formatInt(item.sourceExampleIndex + 1, messages.htmlLanguage), total: formatInt(items.length, messages.htmlLanguage) }))}">${formatInt(item.sourceExampleIndex + 1, messages.htmlLanguage)}</label>`,
     )
     .join("");
   return `<div class="example-switcher" role="group" aria-label="${escapeHtml(messages.screenshotExamples)}">${positions}${labels}</div>`;
@@ -1037,7 +1047,7 @@ function exampleSelectorsMarkup(
   return items
     .map(
       (item) =>
-        `<input class="example-selector" type="radio" name="journey-example" id="${item.selectorId}" aria-label="${escapeHtml(interpolateJourneyCanvasMessage(messages.showExample, { current: formatInt(item.index + 1, messages.htmlLanguage), total: formatInt(items.length, messages.htmlLanguage) }))}"${item.index === activeIndex ? " checked" : ""}>`,
+        `<input class="example-selector" type="radio" name="journey-example" id="${item.selectorId}" aria-label="${escapeHtml(interpolateJourneyCanvasMessage(messages.showExample, { current: formatInt(item.sourceExampleIndex + 1, messages.htmlLanguage), total: formatInt(items.length, messages.htmlLanguage) }))}"${item.index === activeIndex ? " checked" : ""}>`,
     )
     .join("");
 }
@@ -1147,8 +1157,14 @@ function boardDiv(args: {
   rect: { x: number; y: number; width: number; height: number };
   style: string;
   html: string;
+  title?: string;
+  ariaLabel?: string;
 }): string {
-  return `<div data-agent-native-node-id="${escapeHtml(args.id)}" data-agent-native-layer-name="${escapeHtml(args.name)}" data-an-primitive="${args.primitive}" style="${absolute(args.rect)};${args.style}">${args.html}</div>`;
+  const title = args.title ? ` title="${escapeHtml(args.title)}"` : "";
+  const ariaLabel = args.ariaLabel
+    ? ` role="img" aria-label="${escapeHtml(args.ariaLabel)}"`
+    : "";
+  return `<div data-agent-native-node-id="${escapeHtml(args.id)}" data-agent-native-layer-name="${escapeHtml(args.name)}" data-an-primitive="${args.primitive}"${title}${ariaLabel} style="${absolute(args.rect)};${args.style}">${args.html}</div>`;
 }
 
 function arrowFragment(
@@ -1195,15 +1211,37 @@ export function planJourneyCanvas(
 ): JourneyCanvasPlan {
   const { tree, cardWidth, maxExamplesPerNode, includeScreenshotless } = input;
   const nodeIndex = new Map(tree.nodes.map((node, index) => [node.key, index]));
+  const continuationExamplesByNode = new Map<string, Set<number>>();
+  for (const continuation of input.observedContinuations) {
+    const from =
+      continuationExamplesByNode.get(continuation.fromNodeKey) ??
+      new Set<number>();
+    from.add(continuation.fromExampleIndex);
+    continuationExamplesByNode.set(continuation.fromNodeKey, from);
+    const to =
+      continuationExamplesByNode.get(continuation.toNodeKey) ??
+      new Set<number>();
+    to.add(continuation.toExampleIndex);
+    continuationExamplesByNode.set(continuation.toNodeKey, to);
+  }
   const framesByNode = new Map<string, JourneyFrame[]>();
   for (const frame of input.frames) {
-    if (frame.exampleIndex >= maxExamplesPerNode) continue;
     const list = framesByNode.get(frame.nodeKey) ?? [];
     list.push(frame);
     framesByNode.set(frame.nodeKey, list);
   }
   for (const list of framesByNode.values()) {
     list.sort((a, b) => a.exampleIndex - b.exampleIndex);
+  }
+  for (const [nodeKey, list] of framesByNode) {
+    const selected = continuationExamplesByNode.get(nodeKey) ?? new Set();
+    framesByNode.set(
+      nodeKey,
+      list.filter(
+        (frame, index) =>
+          index < maxExamplesPerNode || selected.has(frame.exampleIndex),
+      ),
+    );
   }
 
   const skippedNodes: Array<{ key: string; reason: string }> = [];
@@ -1227,14 +1265,9 @@ export function planJourneyCanvas(
         layoutId: `c${index}`,
       });
     } else {
-      const outOfRange = input.frames.some(
-        (frame) => frame.nodeKey === node.key,
-      );
       skippedNodes.push({
         key: node.key,
-        reason: outOfRange
-          ? `No frame within maxExamplesPerNode (${maxExamplesPerNode}).`
-          : "No screenshot captured.",
+        reason: "No screenshot captured.",
       });
     }
   });
@@ -1455,6 +1488,7 @@ export function planJourneyCanvas(
       return {
         selectorId: `journey-example-${hashId(`${designId}\u0000${entry.node.key}`)}-${index}`,
         index,
+        sourceExampleIndex: candidate.exampleIndex,
         src:
           candidate.attachmentRef || candidate.stagedFrameId
             ? replayImageSrc(candidateRowId)
@@ -1605,22 +1639,40 @@ export function planJourneyCanvas(
   });
 
   const byLayoutId = new Map(ordered.map((entry) => [entry.layoutId, entry]));
-  const observedContinuationNodePairs = new Set(
-    input.observedContinuations.map(
-      ({ fromNodeKey, toNodeKey }) => `${fromNodeKey}\u0000${toNodeKey}`,
-    ),
+  const observedContinuationsByNodePair = new Map(
+    input.observedContinuations.map((continuation) => [
+      `${continuation.fromNodeKey}\u0000${continuation.toNodeKey}`,
+      continuation,
+    ]),
   );
-  const isObservedContinuation = (edge: PlacedEdge): boolean => {
+  const observedContinuationForEdge = (
+    edge: PlacedEdge,
+  ): (typeof input.observedContinuations)[number] | undefined => {
     const from = byLayoutId.get(edge.fromKey);
     const to = byLayoutId.get(edge.toKey);
-    return Boolean(
-      from &&
-      to &&
-      observedContinuationNodePairs.has(`${from.node.key}\u0000${to.node.key}`),
-    );
+    return from && to
+      ? observedContinuationsByNodePair.get(
+          `${from.node.key}\u0000${to.node.key}`,
+        )
+      : undefined;
+  };
+  const isObservedContinuation = (edge: PlacedEdge): boolean => {
+    return observedContinuationForEdge(edge) !== undefined;
   };
   const labelText = (edge: PlacedEdge): string | null => {
-    if (isObservedContinuation(edge)) return messages.observedContinuation;
+    const continuation = observedContinuationForEdge(edge);
+    if (continuation) {
+      return interpolateJourneyCanvasMessage(messages.observedContinuation, {
+        fromExample: formatInt(
+          continuation.fromExampleIndex + 1,
+          messages.htmlLanguage,
+        ),
+        toExample: formatInt(
+          continuation.toExampleIndex + 1,
+          messages.htmlLanguage,
+        ),
+      });
+    }
     const child = byLayoutId.get(edge.toKey);
     if (!child || child.kind !== "card" || !hasCohortMetrics(child.node))
       return null;
@@ -1738,6 +1790,7 @@ export function planJourneyCanvas(
       );
       const text = labelText(edge);
       if (text) {
+        const continuation = observedContinuationForEdge(edge);
         fragments.push(
           boardDiv({
             id: `${id}-label`,
@@ -1746,8 +1799,10 @@ export function planJourneyCanvas(
               : "Journey edge label",
             primitive: "text",
             rect: at(edge.labelRect),
-            style: `background:${SURFACE};border:1px solid ${BORDER};border-radius:11px;text-align:center;font:600 10px/20px system-ui,sans-serif;color:${INK}`,
+            style: `background:${SURFACE};border:1px solid ${BORDER};border-radius:11px;text-align:center;font:600 10px/20px system-ui,sans-serif;color:${INK};overflow:hidden;white-space:nowrap;text-overflow:ellipsis`,
             html: escapeHtml(text),
+            title: text,
+            ariaLabel: text,
           }),
         );
       }

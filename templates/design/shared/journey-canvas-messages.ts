@@ -67,7 +67,8 @@ export const enUSJourneyCanvasMessages: JourneyCanvasMessages = {
     "{count} sessions · {percent} of {app} cohort (n={rootCount})",
   sessionsOfPrevious: "{count} sessions · {percent} of previous",
   sessionsOfParent: "{count} sessions · {percent} of {label}",
-  observedContinuation: "Same recording",
+  observedContinuation:
+    "Same recording · example {fromExample} → example {toExample}",
   observedBranchLabel: "{label} · {percent}",
   sessionsOfStep: "{count} sessions · {percent} of this step",
   partialSample: "partial sample",
@@ -75,7 +76,7 @@ export const enUSJourneyCanvasMessages: JourneyCanvasMessages = {
     "{count} continued on unpictured paths · {percent} of this step",
   noLaterStepObserved: "No later step observed",
   examplePosition: "Example {current} of {total}",
-  showExample: "Show example {current} of {total}",
+  showExample: "Show source example {current}",
   screenshotExamples: "Screenshot examples",
   screenshotAlt: "{label}, example {current} of {total}, captured {date}",
   screenshotMissing: "No screenshot captured",

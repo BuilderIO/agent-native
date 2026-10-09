@@ -6,7 +6,8 @@ export default {
       "\u200f{count} جلسة · {percent} من مجموعة {app} (n={rootCount})",
     sessionsOfPrevious: "\u200f{count} جلسة · {percent} من الخطوة السابقة",
     sessionsOfParent: "\u200f{count} جلسة · {percent} من {label}",
-    observedContinuation: "التسجيل نفسه",
+    observedContinuation:
+      "التسجيل نفسه · المثال {fromExample} ← المثال {toExample}",
     observedBranchLabel: "{label} · {percent}",
     sessionsOfStep: "\u200f{count} جلسة · {percent} من هذه الخطوة",
     partialSample: "عينة جزئية",
@@ -14,7 +15,7 @@ export default {
       "المتابعة في مسارات غير معروضة: {count} · {percent} من هذه الخطوة",
     noLaterStepObserved: "لم تُرصد خطوة لاحقة",
     examplePosition: "مثال {current} من {total}",
-    showExample: "عرض المثال {current} من {total}",
+    showExample: "عرض مثال المصدر {current}",
     screenshotExamples: "أمثلة لقطات الشاشة",
     screenshotAlt: "{label}، المثال {current} من {total}، تاريخ الالتقاط {date}",
     screenshotMissing: "لم تُلتقط لقطة شاشة",
