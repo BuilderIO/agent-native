@@ -1142,6 +1142,7 @@ function ScreenGeometryProperties({
   const [sourceMode, setSourceMode] = useState<"static" | "url">(
     persistedSourceType,
   );
+  const staticSourceTransitionInFlightRef = useRef(false);
   const [sourceUrlDraft, setSourceUrlDraft] = useState(
     selectedScreenSource?.url ?? "",
   );
@@ -1159,6 +1160,12 @@ function ScreenGeometryProperties({
     selectedScreenSource?.connectionId,
     selectedScreenSource?.url,
   ]);
+
+  useEffect(() => {
+    if (!screenSourcePending || persistedSourceType === "static") {
+      staticSourceTransitionInFlightRef.current = false;
+    }
+  }, [persistedSourceType, screen.id, screenSourcePending]);
 
   const commitUrl = useCallback(
     (nextConnectionId = connectionDraft) => {
@@ -1237,6 +1244,13 @@ function ScreenGeometryProperties({
                 setSourceMode("static");
                 return;
               }
+              if (
+                screenSourcePending ||
+                staticSourceTransitionInFlightRef.current
+              ) {
+                return;
+              }
+              staticSourceTransitionInFlightRef.current = true;
               setSourceMode("url");
               onScreenSourceChange?.(screen.id, { sourceType: "static" });
             }}
