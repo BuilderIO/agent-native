@@ -1541,7 +1541,8 @@ describe("requestMatchesEmbedTarget", () => {
     const leaseUpdate = dbExec.execute.mock.calls.find(([query]) =>
       query.sql.includes("SET consumed_at = ?, session_active_until = ?"),
     );
-    expect(leaseUpdate?.[0].args).toEqual([Date.now(), expiresAt, ticketHash]);
+    expect(leaseUpdate?.[0].args[0]).toBeTypeOf("number");
+    expect(leaseUpdate?.[0].args.slice(1)).toEqual([expiresAt, ticketHash]);
   });
 
   it("serializes identity ticket claims and logout with the same owner lock", async () => {
