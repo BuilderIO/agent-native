@@ -792,11 +792,11 @@ describe("session replay screenshot asset checks", () => {
 
     try {
       const pending = assertReplayFontsReady(document);
-      const rejection = expect(pending).rejects.toBeInstanceOf(
-        ReplayScreenshotAssetError,
-      );
+      const rejection = pending.catch((error: unknown) => error);
       await vi.advanceTimersByTimeAsync(8_000);
-      await rejection;
+      const error = await rejection;
+      expect(error).toBeInstanceOf(ReplayScreenshotAssetError);
+      expect(error).toMatchObject({ reason: "fontReadiness" });
     } finally {
       if (fontsDescriptor) {
         Object.defineProperty(document, "fonts", fontsDescriptor);
@@ -972,9 +972,11 @@ describe("session replay screenshot asset checks", () => {
     );
     const decode = vi.mocked(globalThis.createImageBitmap);
 
-    await expect(assertRemoteImagesCapturable(document)).rejects.toBeInstanceOf(
-      ReplayScreenshotAssetError,
+    const error = await assertRemoteImagesCapturable(document).catch(
+      (caught: unknown) => caught,
     );
+    expect(error).toBeInstanceOf(ReplayScreenshotAssetError);
+    expect(error).toMatchObject({ reason: "unsupportedAsset" });
     expect(decode).not.toHaveBeenCalled();
 
     image.remove();
@@ -1356,6 +1358,21 @@ describe("session replay screenshot asset checks", () => {
       "data:image/png;base64,aW1hZ2U=",
     );
     expect(clonedHelper.hasAttribute("data-replay-screenshot-map")).toBe(false);
+  });
+
+  it("reports a missing cloned document with its specific reason", () => {
+    const original = document.implementation.createHTMLDocument("original");
+    const cloned = document.implementation.createHTMLDocument("cloned");
+    let error: unknown;
+
+    try {
+      inlineReplayAssets(original, cloned, new Map(), "replay-missing-clone");
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(ReplayScreenshotAssetError);
+    expect(error).toMatchObject({ reason: "cloneDocument" });
   });
 
   it("ignores source helper nodes added after the replay element snapshot", () => {
