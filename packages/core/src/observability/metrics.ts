@@ -12,6 +12,7 @@ import {
   getRegisteredObservabilityProvider,
   type ObservabilityMeterProvider,
 } from "./otel-provider.js";
+import { trackingIdentityProperties } from "./tracking-identity.js";
 
 const METER_NAME = "@agent-native/core";
 
@@ -296,11 +297,32 @@ function flushErrorType(error: unknown): string {
 
 type TelemetrySignal = "metrics" | "traces";
 
+const FLUSH_FAILURE_LOG_EVENT = "agent-native.telemetry_flush_failed";
+const loggedFlushFailures = new Set<string>();
+
 function recordFlushFailure(signal: TelemetrySignal, errorType: string): void {
   instruments()?.flushFailures.add(1, {
     "agent_native.telemetry.signal": signal,
     "error.type": errorType,
   });
+  // The counter rides the export that just failed, so a collector that keeps
+  // timing out never delivers it. The function log does not depend on OTLP.
+  const key = `${signal}:${errorType}`;
+  if (loggedFlushFailures.has(key)) return;
+  loggedFlushFailures.add(key);
+  console.warn(
+    JSON.stringify({
+      event: FLUSH_FAILURE_LOG_EVENT,
+      ...trackingIdentityProperties(),
+      signal,
+      error_type: errorType,
+      timeout_ms: OBSERVABILITY_FLUSH_TIMEOUT_MS,
+    }),
+  );
+}
+
+export function __resetFlushFailureLogForTests(): void {
+  loggedFlushFailures.clear();
 }
 
 /**

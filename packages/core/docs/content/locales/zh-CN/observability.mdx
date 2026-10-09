@@ -401,9 +401,9 @@ interface ObservabilityMeterProvider {
 
 ### 在无服务器环境中刷新 {#otel-flush}
 
-无服务器函数在两次调用之间会被冻结，因此 SDK 的导出定时器可能永远不会触发。当已注册的提供程序实现了 `forceFlush()` 时，Core 会在每个请求之后从响应钩子中调用它并等待完成。每次刷新都与同一个共享的 2 秒超时竞速，因此遥测占用响应的时间绝不会超过这个上限。
+无服务器函数在两次调用之间会被冻结，因此 SDK 的导出定时器可能永远不会触发。当已注册的提供程序实现了 `forceFlush()` 时，Core 会在每个请求之后从响应钩子中调用它并等待完成。每次刷新都与同一个共享的 2 秒超时竞速，因此遥测占用响应的时间绝不会超过这个上限。当平台提供 `waitUntil`（Cloudflare，或 Netlify 的调用上下文）时，Core 会把刷新交给它，先发送响应而不是等待。
 
-刷新失败或超时后，Core 会停止等待它，并给 `agent_native.telemetry.flush_failures` 加 1，下一次刷新会导出该计数。超时的导出会继续运行，只要运行时没有先冻结进程，它仍可能送达。该失败的 `error.type` 为 `timeout`，运行时在刷新中途冻结进程时为 `suspended`，否则为错误名称。
+刷新失败或超时后，Core 会停止等待它，并给 `agent_native.telemetry.flush_failures` 加 1，下一次刷新会导出该计数。超时的导出会继续运行，只要运行时没有先冻结进程，它仍可能送达。该失败的 `error.type` 为 `timeout`，运行时在刷新中途冻结进程时为 `suspended`，否则为错误名称。由于持续超时的采集器永远收不到该计数，Core 还会在每个进程中按信号和错误类型，向函数日志写入一行 `agent-native.telemetry_flush_failed`。
 
 在长期运行的服务器上，每次响应后都刷新意味着每个请求导出一次。在这类环境中，请注册不带 `forceFlush()` 的提供程序，让 SDK 自己的定时器负责导出。`@agent-native/core/server` 中的 `isServerlessRuntime()` 可以区分这两种情况。它在 Netlify、Vercel、AWS Lambda 和 Cloudflare 上为 true。
 

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   OBSERVABILITY_FLUSH_TIMEOUT_MS,
+  __resetFlushFailureLogForTests,
   flushObservability,
   recordAgentRun,
   recordAgentToolCall,
@@ -324,6 +325,34 @@ describe("flushObservability", () => {
         "error.type": "timeout",
       },
     });
+  });
+
+  it("logs a timed-out flush once per process, outside the OTLP export", async () => {
+    vi.useFakeTimers();
+    __resetFlushFailureLogForTests();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const meterProvider = createTestMeterProvider(
+      () => new Promise<void>(() => undefined),
+    );
+    register({ meterProvider });
+
+    for (let i = 0; i < 2; i++) {
+      const flushed = flushObservability();
+      await vi.advanceTimersByTimeAsync(OBSERVABILITY_FLUSH_TIMEOUT_MS);
+      await flushed;
+    }
+
+    const lines = warn.mock.calls
+      .map((call) => String(call[0]))
+      .filter((line) => line.includes("agent-native.telemetry_flush_failed"))
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      signal: "metrics",
+      error_type: "timeout",
+      timeout_ms: OBSERVABILITY_FLUSH_TIMEOUT_MS,
+    });
+    warn.mockRestore();
   });
 
   it("counts a flush whose timer fired long after its deadline as suspended", async () => {
