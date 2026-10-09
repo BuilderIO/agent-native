@@ -383,7 +383,7 @@ function parseDocumentCreationProvenance(
 
 export default defineAction({
   description:
-    "Create and persist a new Markdown document in Content. Use parentId to nest it, or spaceId/spaceName to choose the workspace for a top-level page; with none of them the page is created in the caller's Personal workspace. Returns the stable document ID and resolved spaceId. If creativeContextProjectionStatus is pending, the document is committed; retry the same arguments with the returned id to repair its projection without creating a duplicate.",
+    "Create and persist a new Markdown document in Content. Use parentId to nest it, or spaceId/spaceName to choose the workspace for a top-level page; with none of them the page is created in the caller's Personal workspace. Returns the stable document ID and resolved spaceId for subsequent get-document or edit-document calls. If creativeContextProjectionStatus is pending, the document is committed; retry the same arguments with the returned id to repair its projection without creating a duplicate.",
   deferLoading: false,
   mcpTool: true,
   schema: z.object({
