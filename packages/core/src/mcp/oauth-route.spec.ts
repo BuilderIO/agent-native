@@ -137,7 +137,7 @@ vi.mock("./oauth-store.js", () => ({
       code: `code-${++counter}`,
       ...params,
       issuedForEmail: params.ownerEmail,
-      createdAt: Date.now(),
+      grantCreatedAtMs: params.grantCreatedAtMs,
       expiresAt: Date.now() + 600_000,
       consumedAt: null,
     };
@@ -2228,6 +2228,61 @@ describe("MCP OAuth grant validation", () => {
         email: "steve@example.com",
         requestOrigin: "https://mail.agent-native.com",
       });
+  });
+
+  it("keeps the original grant anchor across code exchange and refresh after logout", async () => {
+    const { clientId, code } = await authorizedCode();
+    const grantCreatedAtMs = Date.now() - 120_000;
+    codes.get(code).createdAt = grantCreatedAtMs;
+
+    const firstResponse = await exchange(clientId, code);
+    expect(firstResponse.status).toBe(200);
+    const first = await firstResponse.json();
+    const firstClaims = await verifyMcpOAuthAccessToken(
+      first.access_token,
+      "https://mail.agent-native.com/mcp",
+    );
+    expect(firstClaims?.grantCreatedAtMs).toBe(grantCreatedAtMs);
+    expect(refreshRows.get(first.refresh_token)?.grantCreatedAtMs).toBe(
+      grantCreatedAtMs,
+    );
+
+    const logoutAtMs = Date.now();
+    const refreshedResponse = await refresh(clientId, first.refresh_token);
+    expect(refreshedResponse.status).toBe(200);
+    const refreshed = await refreshedResponse.json();
+    const refreshedClaims = await verifyMcpOAuthAccessToken(
+      refreshed.access_token,
+      "https://mail.agent-native.com/mcp",
+    );
+
+    expect(refreshedClaims?.issuedAt).toBeGreaterThanOrEqual(
+      Math.floor((logoutAtMs - 1000) / 1000),
+    );
+    expect(refreshedClaims?.issuedAt).toBeLessThanOrEqual(
+      Math.floor((Date.now() + 1000) / 1000),
+    );
+    expect(refreshedClaims?.grantCreatedAtMs).toBe(grantCreatedAtMs);
+    expect(refreshedClaims!.grantCreatedAtMs!).toBeLessThan(logoutAtMs);
+    expect(refreshRows.get(first.refresh_token)?.grantCreatedAtMs).toBe(
+      grantCreatedAtMs,
+    );
+  });
+
+  it("keeps legacy grants usable for MCP when their persisted issue time is absent", async () => {
+    const { clientId, code } = await authorizedCode();
+    codes.get(code).createdAt = null;
+
+    const response = await exchange(clientId, code);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const token = await verifyMcpOAuthAccessToken(
+      body.access_token,
+      "https://mail.agent-native.com/mcp",
+    );
+    expect(token).not.toBeNull();
+    expect(token?.grantCreatedAtMs).toBeUndefined();
+    expect(refreshRows.get(body.refresh_token)?.grantCreatedAtMs).toBeNull();
   });
 
   it("renews and signs refresh access inside the shared issuance transaction", async () => {

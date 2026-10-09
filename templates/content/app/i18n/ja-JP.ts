@@ -449,7 +449,6 @@ const editor = {
   pageBodySyncing: "このページのコンテンツはまだ同期中です",
   pageBodySyncingDescription:
     "既存のコンテンツを上書きしないよう、ページ本文の同期が完了するまで編集は一時停止されます。",
-  createCollection: "コレクションを作成",
   creatingDatabase: "インラインコレクションを作成しています...",
   databaseCreated: "コレクションが作成されました",
   emptyBlockPlaceholder: "「/」でコマンドを表示",
@@ -802,10 +801,12 @@ const editor = {
     linkToNotionPage: "Notionページへのリンク",
     localFile: "ローカルファイル",
     morePageActions: "その他のページアクション",
+    formatting: "書式",
     noPagesFound: "ページが見つかりませんでした",
     notifications: "通知",
     notionSync: "Notionの同期",
     openInNotion: "概念で開く",
+    openInAgentNative: "Agent-Native で開く",
     orgCanFindAndView: "組織内の誰でも検索して表示できます",
     orgLinkCanView: "組織内のリンクを知っている人は誰でも閲覧できます",
     pin: "固定",
@@ -1489,6 +1490,11 @@ const overrides = {
     resize: "サイドバーの幅を変更",
     expand: "サイドバーを展開",
     failedCreatePage: "ページを作成できませんでした",
+    failedCreatePageDraftDescription:
+      "下書きはこのブラウザーに保存されています。ページの作成を再試行するか、下書きを破棄できます。",
+    discardFailedCreatePageQuestion: "作成待ちを破棄しますか？",
+    discardFailedCreatePageDescription:
+      "保留中の作成と未保存の下書きを消去します。ページがすでに保存されている場合は、ワークスペースに残ります。",
     failedDeletePage: "ページを削除できませんでした",
     failedPermanentDeletePage: "ページを完全に削除できませんでした",
     failedRestorePage: "ページを復元できませんでした",

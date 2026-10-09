@@ -157,3 +157,105 @@ describe("validateDashboardConfig ratchet", () => {
     expect(isAgentCaller(undefined)).toBe(false);
   });
 });
+
+describe("validateDashboardConfig multi-select options", () => {
+  const withOptions = (values: string[]) => ({
+    name: "Plans",
+    filters: [
+      {
+        id: "plan",
+        label: "Plan",
+        type: "multi-select",
+        options: values.map((value) => ({ value, label: value })),
+      },
+    ],
+    panels: [],
+  });
+
+  it("accepts plain option values", () => {
+    expect(
+      validateDashboardConfig(withOptions(["free", "self_serve"])),
+    ).toBeNull();
+  });
+
+  it("rejects an option value containing a comma, which would split in the URL", () => {
+    expect(validateDashboardConfig(withOptions(["north,west"]))).toContain(
+      'cannot contain ","',
+    );
+  });
+
+  it("rejects an empty option value, which the URL cannot represent", () => {
+    expect(validateDashboardConfig(withOptions([""]))).toContain(
+      "must be non-empty",
+    );
+  });
+
+  it("rejects an option entry that is not an object with string value and label", () => {
+    const malformed = [null, { value: 1, label: "One" }, { value: "a" }];
+    for (const option of malformed) {
+      const config = {
+        name: "Plans",
+        filters: [
+          {
+            id: "plan",
+            label: "Plan",
+            type: "multi-select",
+            options: [option],
+          },
+        ],
+        panels: [],
+      };
+      expect(validateDashboardConfig(config)).toContain(
+        "must be an object with string value and label",
+      );
+    }
+  });
+
+  it("rejects a default token that is not one of the configured options", () => {
+    const base = withOptions(["free"]);
+    const config = {
+      ...base,
+      filters: [{ ...base.filters[0], default: "free,legacy" }],
+    };
+    expect(validateDashboardConfig(config)).toContain('"legacy"');
+  });
+
+  it("rejects a non-empty default when the filter has no options", () => {
+    const config = {
+      name: "Plans",
+      filters: [
+        { id: "plan", label: "Plan", type: "multi-select", default: "free" },
+      ],
+      panels: [],
+    };
+    expect(validateDashboardConfig(config)).toContain('"free"');
+  });
+
+  it("accepts a default made of configured options", () => {
+    const base = withOptions(["free", "self_serve"]);
+    const config = {
+      ...base,
+      filters: [{ ...base.filters[0], default: "free,self_serve" }],
+    };
+    expect(validateDashboardConfig(config)).toBeNull();
+  });
+
+  it("rejects a default that names no option value, such as the marker or a comma-only value", () => {
+    const base = withOptions(["free"]);
+    for (const value of ["__empty__", ","]) {
+      const config = {
+        ...base,
+        filters: [{ ...base.filters[0], default: value }],
+      };
+      expect(validateDashboardConfig(config)).toContain(
+        "must name at least one option value",
+      );
+    }
+  });
+
+  it("rejects the reserved empty marker as an option value", () => {
+    expect(validateDashboardConfig(withOptions(["__empty__"]))).toContain(
+      "__empty__",
+    );
+  });
+});

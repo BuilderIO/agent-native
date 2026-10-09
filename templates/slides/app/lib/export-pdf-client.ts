@@ -5,6 +5,7 @@ import {
   type SlidesPdfSidecar,
   type SlidesPdfSidecarSlide,
 } from "@shared/pdf-sidecar";
+import { materializeSlideNumberTokens } from "@shared/slide-number";
 
 import { type AspectRatio, getAspectRatioDims } from "./aspect-ratios";
 import { importExportModule } from "./dynamic-import";
@@ -562,6 +563,13 @@ export async function exportDeckAsPdf(
           // guard:allow-raw-color — a PDF page has no theme to follow.
           backgroundColor: "#000000",
           quality: 0.92,
+          // modern-screenshot strips counter() from copied pseudo-element
+          // content, so the slide-number tokens would rasterise blank.
+          onCloneNode: (cloned) => {
+            if (cloned instanceof HTMLElement) {
+              materializeSlideNumberTokens(cloned);
+            }
+          },
           // Pair with the in-DOM CORS preload above. modern-screenshot's
           // internal image fetcher needs no-cache so re-issued requests don't
           // get served the original tainted (no-CORS) response from the HTTP

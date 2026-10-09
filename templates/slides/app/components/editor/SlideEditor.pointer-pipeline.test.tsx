@@ -52,7 +52,7 @@ const CLIP_SLIDE = `
   </div>`;
 
 const GROUP_SLIDE = `
-  <div class="fmd-slide" style="position:relative">
+  <div id="slide" class="fmd-slide" style="position:relative">
     <div id="group" class="fmd-slide-group" data-slide-group="true" data-slide-object-id="group-1" style="position:absolute;left:100px;top:100px;width:400px;height:120px">
       <div id="memberA" class="fmd-text-box" data-slide-object-id="member-a" style="position:absolute;left:0;top:0;width:180px;font-size:24px">First member</div>
       <div id="memberB" class="fmd-text-box" data-slide-object-id="member-b" style="position:absolute;left:200px;top:0;width:180px;font-size:24px">Second member</div>
@@ -67,6 +67,11 @@ const GROUP_IMAGE_SLIDE = `
       <img id="memberImg" data-slide-object-id="member-img" src="x.png" style="position:absolute;left:0;top:0;width:100px;height:100px">
       <div id="memberC" class="fmd-text-box" data-slide-object-id="member-c" style="position:absolute;left:200px;top:0;width:180px;font-size:24px">Third member</div>
     </div>
+  </div>`;
+
+const ROTATING_TRANSITION_SLIDE = `
+  <div id="slide" class="fmd-slide" style="position:relative">
+    <div id="rotating" class="fmd-text-box" data-slide-object-id="rotating-1" style="position:absolute;left:600px;top:100px;width:100px;height:40px;font-size:24px;transform:rotate(20deg);transition:transform 1s linear">Rotating object</div>
   </div>`;
 
 const TABLE_SLIDE = `
@@ -126,6 +131,7 @@ const BOX_RECTS: Record<string, Rect> = {
   imgGroup: { left: 100, top: 300, right: 500, bottom: 420 },
   memberImg: { left: 100, top: 300, right: 200, bottom: 400 },
   memberC: { left: 300, top: 300, right: 480, bottom: 340 },
+  rotating: { left: 600, top: 100, right: 700, bottom: 140 },
   container: { left: 60, top: 120, right: 960, bottom: 520 },
   left: { left: 60, top: 140, right: 460, bottom: 520 },
   chart: { left: 480, top: 140, right: 960, bottom: 520 },
@@ -332,9 +338,13 @@ async function mountEditor(
     if (!outline) return null;
     const top = Number.parseFloat(outline.style.top) + 2;
     const left = Number.parseFloat(outline.style.left) + 2;
+    const height = Number.parseFloat(outline.style.height) - 4;
     return (
       Object.entries(BOX_RECTS).find(
-        ([, rect]) => rect.top === top && rect.left === left,
+        ([, rect]) =>
+          rect.top === top &&
+          rect.left === left &&
+          rect.bottom - rect.top === height,
       )?.[0] ?? null
     );
   };
@@ -1017,6 +1027,302 @@ describe("SlideEditor pointer pipeline selection and press fixes", () => {
     editor.click("card", { x: 85, y: 300 });
     expect(editor.lastSelected()).toBe(editor.el("card"));
   });
+
+  describe("when the release after Escape never arrives", () => {
+    const cancelDrag = async (beforeEscape?: () => void) => {
+      const editor = await mountEditor(CLIP_SLIDE);
+      beforeEscape?.();
+      editor.press("card", { x: 85, y: 300 });
+      fireEvent.pointerMove(window, {
+        clientX: 125,
+        clientY: 330,
+        pointerId: 1,
+      });
+      fireEvent.keyDown(window, { key: "Escape" });
+      vi.mocked(enterSelectionMode).mockClear();
+      return editor;
+    };
+
+    it("lets the next press click-select", async () => {
+      const editor = await cancelDrag();
+
+      editor.click("card", { x: 85, y: 300 });
+      expect(editor.lastSelected()).toBe(editor.el("card"));
+    });
+
+    it("lets a click through once the window lost focus", async () => {
+      const editor = await cancelDrag();
+
+      fireEvent.blur(window);
+      fireEvent.click(editor.el("card"), { clientX: 85, clientY: 300 });
+      expect(editor.lastSelected()).toBe(editor.el("card"));
+    });
+
+    it("stops swallowing clicks after a timeout once no button is down", async () => {
+      // Fake timers go in after mounting, which waits on real ones.
+      const editor = await cancelDrag(() => vi.useFakeTimers());
+      try {
+        act(() => vi.advanceTimersByTime(5000));
+        fireEvent.pointerMove(window, {
+          clientX: 125,
+          clientY: 330,
+          pointerId: 1,
+          buttons: 0,
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+      fireEvent.click(editor.el("card"), { clientX: 85, clientY: 300 });
+      expect(editor.lastSelected()).toBe(editor.el("card"));
+    });
+
+    it("keeps swallowing the release click while the button is held past the timeout", async () => {
+      const editor = await cancelDrag(() => vi.useFakeTimers());
+      try {
+        act(() => vi.advanceTimersByTime(5000));
+        fireEvent.pointerMove(window, {
+          clientX: 130,
+          clientY: 335,
+          pointerId: 1,
+          buttons: 1,
+        });
+        act(() => vi.advanceTimersByTime(5000));
+        editor.release("card", { x: 130, y: 335 });
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(enterSelectionMode).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("when a second pointer is active after Escape cancels a drag", () => {
+    const HELD = 7;
+    const OTHER = 2;
+    const tick = () =>
+      act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    const cancelHeldDrag = async (beforeEscape?: () => void) => {
+      const editor = await mountEditor(CLIP_SLIDE);
+      beforeEscape?.();
+      editor.press("card", { x: 85, y: 300 }, { pointerId: HELD });
+      fireEvent.pointerMove(window, {
+        clientX: 125,
+        clientY: 330,
+        pointerId: HELD,
+        buttons: 1,
+      });
+      fireEvent.keyDown(window, { key: "Escape" });
+      vi.mocked(enterSelectionMode).mockClear();
+      return editor;
+    };
+    const expectReleaseClickSwallowed = async (
+      editor: Awaited<ReturnType<typeof mountEditor>>,
+    ) => {
+      editor.release("card", { x: 125, y: 330 }, { pointerId: HELD });
+      expect(editor.hasSelection()).toBe(false);
+      expect(enterSelectionMode).not.toHaveBeenCalled();
+      // The suppression is spent: the next click selects normally.
+      await tick();
+      editor.click("card", { x: 85, y: 300 }, { pointerId: HELD });
+      expect(editor.lastSelected()).toBe(editor.el("card"));
+    };
+
+    it("swallows the release click of the pointer that held the drag, whatever its id", async () => {
+      const editor = await cancelHeldDrag();
+
+      await expectReleaseClickSwallowed(editor);
+    });
+
+    it.each([
+      ["pointerup", () => fireEvent.pointerUp(window, { pointerId: OTHER })],
+      [
+        "pointercancel",
+        () => fireEvent.pointerCancel(window, { pointerId: OTHER }),
+      ],
+    ])(
+      "keeps swallowing the held pointer's release click after an unrelated %s",
+      async (_name, unrelated) => {
+        const editor = await cancelHeldDrag();
+
+        unrelated();
+        await tick();
+
+        await expectReleaseClickSwallowed(editor);
+      },
+    );
+
+    it("keeps swallowing the held pointer's release click after an unrelated pointerdown", async () => {
+      const editor = await cancelHeldDrag();
+
+      fireEvent.pointerDown(window, { pointerId: OTHER, button: 0 });
+      await tick();
+
+      await expectReleaseClickSwallowed(editor);
+    });
+
+    it("keeps swallowing past the timeout while only an unrelated pointer reports no button", async () => {
+      const editor = await cancelHeldDrag(() => vi.useFakeTimers());
+      try {
+        act(() => vi.advanceTimersByTime(5000));
+        fireEvent.pointerMove(window, {
+          clientX: 300,
+          clientY: 300,
+          pointerId: OTHER,
+          buttons: 0,
+        });
+        act(() => vi.advanceTimersByTime(5000));
+        editor.release("card", { x: 125, y: 330 }, { pointerId: HELD });
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(enterSelectionMode).not.toHaveBeenCalled();
+    });
+
+    it("releases on a pointerdown of the held pointer itself", async () => {
+      const editor = await cancelHeldDrag();
+
+      editor.click("card", { x: 85, y: 300 }, { pointerId: HELD });
+      expect(editor.lastSelected()).toBe(editor.el("card"));
+    });
+
+    it("releases once the window loses focus while an unrelated pointer is down", async () => {
+      const editor = await cancelHeldDrag();
+
+      fireEvent.pointerDown(window, { pointerId: OTHER, button: 0 });
+      fireEvent.blur(window);
+      fireEvent.click(editor.el("card"), { clientX: 85, clientY: 300 });
+      expect(editor.lastSelected()).toBe(editor.el("card"));
+    });
+
+    it("releases on the held pointer's move without a button after the timeout", async () => {
+      const editor = await cancelHeldDrag(() => vi.useFakeTimers());
+      try {
+        act(() => vi.advanceTimersByTime(5000));
+        fireEvent.pointerMove(window, {
+          clientX: 125,
+          clientY: 330,
+          pointerId: HELD,
+          buttons: 0,
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+      fireEvent.click(editor.el("card"), { clientX: 85, clientY: 300 });
+      expect(editor.lastSelected()).toBe(editor.el("card"));
+    });
+
+    // A browser's click is a PointerEvent carrying the pointer that made it.
+    const pointerClick = (
+      editor: Awaited<ReturnType<typeof mountEditor>>,
+      id: string,
+      point: { x: number; y: number },
+      pointerId: number,
+    ) => {
+      stack = editor.chainOf(id);
+      fireEvent(
+        editor.el(id),
+        new PointerEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          pointerId,
+          clientX: point.x,
+          clientY: point.y,
+          detail: 1,
+        }),
+      );
+    };
+    const tap = (
+      editor: Awaited<ReturnType<typeof mountEditor>>,
+      id: string,
+      point: { x: number; y: number },
+      pointerId: number,
+    ) => {
+      editor.press(id, point, { pointerId });
+      fireEvent.pointerUp(editor.el(id), editor.init(point, { pointerId }));
+      pointerClick(editor, id, point, pointerId);
+    };
+    const releaseHeld = (editor: Awaited<ReturnType<typeof mountEditor>>) => {
+      fireEvent.pointerUp(window, {
+        clientX: 125,
+        clientY: 330,
+        pointerId: HELD,
+      });
+      pointerClick(editor, "card", { x: 125, y: 330 }, HELD);
+    };
+    const CALLOUT = { x: 90, y: 240 };
+
+    it("selects what an unrelated pointer taps and still swallows the held pointer's release click", async () => {
+      const editor = await cancelHeldDrag();
+
+      tap(editor, "callout", CALLOUT, OTHER);
+      expect(editor.lastSelected()).toBe(editor.el("callout"));
+
+      vi.mocked(enterSelectionMode).mockClear();
+      releaseHeld(editor);
+      await tick();
+      expect(enterSelectionMode).not.toHaveBeenCalled();
+    });
+
+    it("keeps swallowing the held pointer's release click after an unrelated pointer's drag ends", async () => {
+      const editor = await cancelHeldDrag();
+
+      editor.press("callout", CALLOUT, { pointerId: OTHER });
+      fireEvent.pointerMove(window, {
+        clientX: 130,
+        clientY: 290,
+        pointerId: OTHER,
+        buttons: 1,
+      });
+      fireEvent.pointerUp(window, {
+        clientX: 130,
+        clientY: 290,
+        pointerId: OTHER,
+      });
+      await tick();
+      vi.mocked(enterSelectionMode).mockClear();
+
+      releaseHeld(editor);
+      await tick();
+      expect(enterSelectionMode).not.toHaveBeenCalled();
+    });
+
+    it("swallows the release click of every pointer whose drag Escape cancelled", async () => {
+      const editor = await cancelHeldDrag();
+      editor.press("callout", CALLOUT, { pointerId: OTHER });
+      fireEvent.pointerMove(window, {
+        clientX: 130,
+        clientY: 290,
+        pointerId: OTHER,
+        buttons: 1,
+      });
+      fireEvent.keyDown(window, { key: "Escape" });
+      vi.mocked(enterSelectionMode).mockClear();
+
+      fireEvent.pointerUp(window, {
+        clientX: 130,
+        clientY: 290,
+        pointerId: OTHER,
+      });
+      pointerClick(editor, "callout", { x: 130, y: 290 }, OTHER);
+      releaseHeld(editor);
+      await tick();
+
+      expect(enterSelectionMode).not.toHaveBeenCalled();
+      expect(editor.hasSelection()).toBe(false);
+    });
+
+    it("does not let a release that never arrives swallow another pointer's tap", async () => {
+      const editor = await cancelHeldDrag(() => vi.useFakeTimers());
+      try {
+        act(() => vi.advanceTimersByTime(60_000));
+        tap(editor, "callout", CALLOUT, OTHER);
+      } finally {
+        vi.useRealTimers();
+      }
+
+      expect(editor.lastSelected()).toBe(editor.el("callout"));
+    });
+  });
 });
 
 describe("SlideEditor pointer pipeline on groups", () => {
@@ -1041,5 +1347,354 @@ describe("SlideEditor pointer pipeline on groups", () => {
     });
     expect(editor.isEditing("memberB")).toBe(true);
     expect(editor.isEditing("group")).toBe(false);
+  });
+
+  it("selects the group from just outside a text-box member, then drills to that member", async () => {
+    const editor = await mountEditor(GROUP_SLIDE);
+
+    // 4 px left of memberA, outside the group's bounds.
+    editor.hover("slide", { x: 96, y: 120 });
+    expect(editor.canvas.style.cursor).toBe("move");
+    expect(editor.hoverOutlineOwner()).toBe("group");
+
+    editor.click("slide", { x: 96, y: 120 });
+    expect(editor.lastSelected()).toBe(editor.el("group"));
+
+    editor.click("slide", { x: 96, y: 120 });
+    expect(editor.lastSelected()).toBe(editor.el("memberA"));
+
+    // 4 px right of memberA, in the gap inside the group's bounds.
+    fireEvent.keyDown(window, { key: "Escape" });
+    editor.click("slide", { x: 284, y: 120 });
+    expect(editor.lastSelected()).toBe(editor.el("group"));
+    editor.click("slide", { x: 284, y: 120 });
+    expect(editor.lastSelected()).toBe(editor.el("memberA"));
+  });
+
+  it("selects nothing from 6 px outside a text-box member", async () => {
+    const editor = await mountEditor(GROUP_SLIDE);
+
+    editor.hover("slide", { x: 94, y: 120 });
+    expect(editor.canvas.style.cursor).toBe("");
+    expect(editor.hoverOutlineOwner()).toBeNull();
+
+    editor.click("slide", { x: 94, y: 120 });
+    expect(editor.hasSelection()).toBe(false);
+  });
+});
+
+describe("SlideEditor rotate handle with transform transitions", () => {
+  it("settles preview and cancellation transforms while restoring the transition", async () => {
+    const editor = await mountEditor(ROTATING_TRANSITION_SLIDE);
+    const object = editor.el("rotating");
+    Object.defineProperty(object, "offsetWidth", {
+      configurable: true,
+      value: 100,
+    });
+    Object.defineProperty(object, "offsetHeight", {
+      configurable: true,
+      value: 40,
+    });
+    const originalTransform = object.style.getPropertyValue("transform");
+    const originalTransition = object.style.getPropertyValue("transition");
+    const setProperty = vi.spyOn(object.style, "setProperty");
+
+    editor.click("rotating", { x: 620, y: 110 });
+    const handle = document.querySelector<HTMLElement>(
+      "[data-slide-rotate-handle]",
+    );
+    expect(handle).not.toBeNull();
+
+    fireEvent.pointerDown(handle!, editor.init({ x: 650, y: 60 }));
+    fireEvent.pointerMove(window, editor.init({ x: 710, y: 120 }));
+
+    const previewTransform = object.style.getPropertyValue("transform");
+    expect(previewTransform).not.toBe(originalTransform);
+    const previewWrites = setProperty.mock.calls;
+    const previewSuppression = previewWrites.findIndex(
+      ([property, value, priority]) =>
+        property === "transition" &&
+        value === "none" &&
+        priority === "important",
+    );
+    const previewTransformWrite = previewWrites.findIndex(
+      ([property, value]) =>
+        property === "transform" && value === previewTransform,
+    );
+    expect(previewSuppression).toBeGreaterThanOrEqual(0);
+    expect(previewSuppression).toBeLessThan(previewTransformWrite);
+    expect(object.style.getPropertyValue("transition")).toBe(
+      originalTransition,
+    );
+
+    const cancelStart = setProperty.mock.calls.length;
+    fireEvent.pointerCancel(window, { pointerId: 1 });
+
+    expect(object.style.getPropertyValue("transform")).toBe(originalTransform);
+    expect(object.style.getPropertyValue("transition")).toBe(
+      originalTransition,
+    );
+    const cancelWrites = setProperty.mock.calls.slice(cancelStart);
+    const cancelSuppression = cancelWrites.findIndex(
+      ([property, value, priority]) =>
+        property === "transition" &&
+        value === "none" &&
+        priority === "important",
+    );
+    const cancelTransformWrite = cancelWrites.findIndex(
+      ([property, value]) =>
+        property === "transform" && value === originalTransform,
+    );
+    expect(cancelSuppression).toBeGreaterThanOrEqual(0);
+    expect(cancelSuppression).toBeLessThan(cancelTransformWrite);
+  });
+
+  it("rolls back when a newly matching important rule hides the preview rotation", async () => {
+    const onUpdateSlide = vi.fn();
+    const editor = await mountEditor(ROTATING_TRANSITION_SLIDE, {
+      onUpdateSlide,
+    });
+    const object = editor.el("rotating");
+    Object.defineProperty(object, "offsetWidth", {
+      configurable: true,
+      value: 100,
+    });
+    Object.defineProperty(object, "offsetHeight", {
+      configurable: true,
+      value: 40,
+    });
+    const originalStyle = Array.from(
+      { length: object.style.length },
+      (_, index) => {
+        const property = object.style.item(index);
+        return [
+          property,
+          object.style.getPropertyValue(property),
+          object.style.getPropertyPriority(property),
+        ];
+      },
+    );
+    const style = object.ownerDocument.createElement("style");
+    style.textContent =
+      '[style*="rotate("]:not([style*="rotate(20deg)"]) { transform: rotate(20deg) !important; }';
+    object.ownerDocument.head.append(style);
+
+    try {
+      editor.click("rotating", { x: 620, y: 110 });
+      const handle = document.querySelector<HTMLElement>(
+        "[data-slide-rotate-handle]",
+      );
+      expect(handle).not.toBeNull();
+
+      fireEvent.pointerDown(handle!, editor.init({ x: 650, y: 60 }));
+      fireEvent.pointerMove(window, editor.init({ x: 710, y: 120 }));
+      fireEvent.pointerUp(window, editor.init({ x: 710, y: 120 }));
+
+      expect(
+        Array.from({ length: object.style.length }, (_, index) => {
+          const property = object.style.item(index);
+          return [
+            property,
+            object.style.getPropertyValue(property),
+            object.style.getPropertyPriority(property),
+          ];
+        }),
+      ).toEqual(originalStyle);
+      expect(onUpdateSlide).not.toHaveBeenCalled();
+    } finally {
+      style.remove();
+    }
+  });
+});
+
+describe("SlideEditor pointer pipeline Alt-drag of a multi-selection", () => {
+  const mountSelectedPair = async () => {
+    const updates: string[] = [];
+    const editor = await mountEditor(CLIP_SLIDE, {
+      onUpdateSlide: (update) => {
+        if (typeof update.content === "string") updates.push(update.content);
+      },
+    });
+    editor.click("callout", { x: 85, y: 262 });
+    editor.click("card", { x: 85, y: 300 }, { shiftKey: true });
+    return { editor, updates };
+  };
+  const dragTo = (x: number, y: number, extra: Record<string, unknown> = {}) =>
+    fireEvent.pointerMove(window, {
+      clientX: x,
+      clientY: y,
+      pointerId: 1,
+      ...extra,
+    });
+  const dropAt = (x: number, y: number, extra: Record<string, unknown> = {}) =>
+    fireEvent.pointerUp(window, {
+      clientX: x,
+      clientY: y,
+      pointerId: 1,
+      ...extra,
+    });
+  /** Object id -> left/top of every absolutely positioned object in html. */
+  const placements = (html: string) => {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    return Array.from(
+      doc.querySelectorAll<HTMLElement>("[data-slide-object-id]"),
+    ).map((node) => ({
+      id: node.getAttribute("data-slide-object-id"),
+      text: (node.textContent ?? "").trim().slice(0, 12),
+      left: node.style.left,
+      top: node.style.top,
+    }));
+  };
+
+  it("leaves the originals and drops selected copies at the drag delta", async () => {
+    const { editor, updates } = await mountSelectedPair();
+
+    editor.press("callout", { x: 85, y: 262 }, { altKey: true });
+    dragTo(125, 292, { altKey: true });
+    expect(editor.el("callout").style.left).toBe("80px");
+    expect(editor.el("card").style.top).toBe("290px");
+    dropAt(125, 292, { altKey: true });
+
+    expect(updates).toHaveLength(1);
+    const objects = placements(updates[0]);
+    expect(objects).toHaveLength(4);
+    expect(new Set(objects.map((object) => object.id)).size).toBe(4);
+    // Snapping may trim the delta, but it trims it for both copies alike.
+    const copyOffset = (text: string, originalTop: number) => {
+      const [original, copy] = objects
+        .filter((object) => object.text.startsWith(text))
+        .sort((a, b) => Number.parseFloat(a.left) - Number.parseFloat(b.left));
+      expect(original).toMatchObject({ left: "80px", top: `${originalTop}px` });
+      expect(copy.left).toBe("120px");
+      return Number.parseFloat(copy.top) - originalTop;
+    };
+    const calloutDy = copyOffset("Eruption", 235);
+    expect(copyOffset("Stat", 290)).toBe(calloutDy);
+    expect(calloutDy).toBeGreaterThan(20);
+  });
+
+  it("moves the originals when Alt is released before the drop", async () => {
+    const { editor, updates } = await mountSelectedPair();
+
+    editor.press("callout", { x: 85, y: 262 }, { altKey: true });
+    dragTo(125, 292, { altKey: true });
+    dragTo(125, 292);
+    dropAt(125, 292);
+
+    expect(updates).toHaveLength(1);
+    const objects = placements(updates[0]);
+    expect(objects).toHaveLength(2);
+    expect(objects[0]).toMatchObject({ left: "120px", top: "265px" });
+    expect(objects[1]).toMatchObject({ left: "120px", top: "320px" });
+  });
+
+  it("moves the originals when Alt is released on the drop itself", async () => {
+    const { editor, updates } = await mountSelectedPair();
+
+    editor.press("callout", { x: 85, y: 262 }, { altKey: true });
+    dragTo(125, 292, { altKey: true });
+    dropAt(125, 292);
+
+    const objects = placements(updates[0]);
+    expect(objects).toHaveLength(2);
+    expect(objects[0]).toMatchObject({ left: "120px", top: "265px" });
+  });
+
+  it("removes the copies and persists nothing when Escape cancels", async () => {
+    const { editor, updates } = await mountSelectedPair();
+
+    editor.press("callout", { x: 85, y: 262 }, { altKey: true });
+    dragTo(125, 292, { altKey: true });
+    fireEvent.keyDown(window, { key: "Escape" });
+    dropAt(125, 292, { altKey: true });
+
+    expect(updates).toHaveLength(0);
+    expect(
+      editor.container.querySelectorAll("[data-slide-object-id]"),
+    ).toHaveLength(0);
+    expect(editor.el("callout").style.position).toBe("");
+    expect(editor.hasSelection()).toBe(false);
+  });
+
+  it("recreates the copies when Alt is pressed again after a release", async () => {
+    const { editor, updates } = await mountSelectedPair();
+
+    editor.press("callout", { x: 85, y: 262 }, { altKey: true });
+    dragTo(125, 292, { altKey: true });
+    dragTo(125, 292);
+    expect(
+      editor.container.querySelectorAll("[data-slide-object-id]"),
+    ).toHaveLength(2);
+    dragTo(135, 302, { altKey: true });
+    dropAt(135, 302, { altKey: true });
+
+    const objects = placements(updates[0]);
+    expect(objects).toHaveLength(4);
+    expect(objects.filter((object) => object.left === "80px")).toHaveLength(2);
+  });
+
+  it("appends the copies after their siblings so child-index paths hold", async () => {
+    const { editor, updates } = await mountSelectedPair();
+
+    editor.press("callout", { x: 85, y: 262 }, { altKey: true });
+    dragTo(125, 292, { altKey: true });
+    dropAt(125, 292, { altKey: true });
+
+    const doc = new DOMParser().parseFromString(updates[0], "text/html");
+    const children = Array.from(doc.querySelector(".fmd-slide")!.children);
+    // The original wrapper keeps index 0 (animations address it by path) and
+    // both copies trail it.
+    expect(children[0].id).toBe("container");
+    expect(children).toHaveLength(3);
+    expect(
+      children.slice(1).map((copy) => copy.textContent?.trim().slice(0, 4)),
+    ).toEqual(["Erup", "Stat"]);
+  });
+
+  it("keeps the preserved flow spacers on the originals, not the copies", async () => {
+    const { editor, updates } = await mountSelectedPair();
+
+    editor.press("callout", { x: 85, y: 262 }, { altKey: true });
+    dragTo(125, 292, { altKey: true });
+    dropAt(125, 292, { altKey: true });
+
+    const doc = new DOMParser().parseFromString(updates[0], "text/html");
+    const originalIds = ["callout", "card"].map(
+      (id) => doc.getElementById(id)!.getAttribute("data-slide-object-id")!,
+    );
+    const spacerOwners = Array.from(
+      doc.querySelectorAll("[data-slide-layout-spacer-for]"),
+    ).map((spacer) => spacer.getAttribute("data-slide-layout-spacer-for"));
+    expect(spacerOwners.sort()).toEqual([...originalIds].sort());
+  });
+
+  it("keeps the selection outline when a pointercancel follows a move within a frame", async () => {
+    const { editor, updates } = await mountSelectedPair();
+    const outline = () =>
+      document.querySelector("[data-slide-selection-outline='true']");
+
+    editor.press("callout", { x: 85, y: 262 }, { altKey: true });
+    dragTo(125, 292, { altKey: true });
+    fireEvent.pointerCancel(window, { pointerId: 1 });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+
+    expect(updates).toHaveLength(0);
+    expect(
+      editor.container.querySelectorAll("[data-slide-object-id]"),
+    ).toHaveLength(0);
+    expect(outline()).not.toBeNull();
+  });
+
+  it("persists nothing for an Alt press that never crosses the drag threshold", async () => {
+    const { editor, updates } = await mountSelectedPair();
+
+    editor.press("callout", { x: 85, y: 262 }, { altKey: true });
+    dragTo(86, 262, { altKey: true });
+    dropAt(86, 262, { altKey: true });
+
+    expect(updates).toHaveLength(0);
+    expect(
+      editor.container.querySelectorAll("[data-slide-object-id]"),
+    ).toHaveLength(0);
   });
 });

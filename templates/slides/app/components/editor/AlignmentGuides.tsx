@@ -28,22 +28,28 @@ export function AlignmentGuides({
     viewport.canvas.height > 0
       ? viewport.rect.height / viewport.canvas.height
       : 1;
-  const lineStyle: CSSProperties = {
+  const lineStyleFor = (guide: SlideAlignmentGuide): CSSProperties => ({
     position: "fixed",
     pointerEvents: "none",
     zIndex: 70,
-    // guard:allow-raw-color — Google Slides guides are literal #ff0000, theme-independent (interaction-oracle.md 9.2)
-    backgroundColor: "#ff0000",
-  };
+    backgroundColor: guide.equalSpacing
+      ? // guard:allow-raw-color — Google Slides equal-spacing guides are literal #009ef5, theme-independent (gs-truth-selection 9.4)
+        "#009ef5"
+      : // guard:allow-raw-color — Google Slides guides are literal #ff0000, theme-independent (interaction-oracle.md 9.2)
+        "#ff0000",
+  });
 
   return createPortal(
     <div data-slide-alignment-guides aria-hidden="true">
       {guides.map((guide, index) => {
+        const lineStyle = lineStyleFor(guide);
+        const kind = guide.equalSpacing ? "equal-spacing" : undefined;
         if (guide.orientation === "vertical") {
           return (
             <div
               key={`vertical-${guide.position}-${index}`}
               data-slide-alignment-guide="vertical"
+              data-slide-guide-kind={kind}
               style={{
                 ...lineStyle,
                 left: viewport.rect.left + guide.position * scaleX,
@@ -59,6 +65,7 @@ export function AlignmentGuides({
           <div
             key={`horizontal-${guide.position}-${index}`}
             data-slide-alignment-guide="horizontal"
+            data-slide-guide-kind={kind}
             style={{
               ...lineStyle,
               left: viewport.rect.left + guide.start * scaleX,

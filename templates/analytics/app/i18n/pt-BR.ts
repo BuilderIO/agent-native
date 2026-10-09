@@ -692,6 +692,19 @@ export default {
     copied: "Copiado",
     copy: "Cópia",
     keyActions: "Principais ações {{name}}",
+    manageReplayOrigins: "Gerenciar origens de reprodução",
+    replayOriginsDescription:
+      "Adicione origens HTTPS exatas, uma por linha. As origens existentes serão mantidas.",
+    currentReplayOrigins: "Origens permitidas atuais",
+    anyReplayOriginAllowed:
+      "No momento, qualquer origem é permitida. Ao adicionar origens, a reprodução ficará limitada à lista; inclua todos os apps que usam esta chave.",
+    originsToAdd: "Origens para adicionar",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "Adicionar origens",
+    addingReplayOrigins: "Adicionando origens…",
+    replayOriginsUpdateFailed:
+      "Não foi possível atualizar as origens permitidas.",
+    cancel: "Cancelar",
     lastUsed: "último {{date}} usado",
     neverUsed: "nunca usado",
     revoking: "Revogando...",
@@ -1092,6 +1105,7 @@ export default {
   },
   sqlDashboard: {
     customRange: "Intervalo personalizado",
+    allValues: "Todos",
     untitledDashboard: "Painel sem título",
     dashboardFallback: "painel",
     viewOnly: "Você tem acesso somente visualização a este painel.",
@@ -1510,6 +1524,8 @@ export default {
     replayLoading: "Carregando replay...",
     replayLoadingProgress:
       "{{loaded}} de {{total}} blocos de replay carregados",
+    replayTargetFallback:
+      "O ponto solicitado ({{requested}}) não está disponível; exibindo o quadro de replay mais próximo em {{available}}.",
     replayUnavailable: "Nenhum bloco de replay para esta sessão",
     replayUnavailableDescription:
       "A sessão tem eventos de analytics, mas nenhum evento de bloco rrweb foi encontrado.",

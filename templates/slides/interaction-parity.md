@@ -57,6 +57,105 @@ all: OS cursor glyphs, Firefox/WebKit, touch, Retina, zoom-in, AutoFit scale
 below 1, rotation, Shift/Alt resize. Slide-number tokens and translate-based
 moves are also deferred.
 
+### Edge slop by object kind (2026-10-08)
+
+The 5 px edge band (`SLIDE_POINTER_EDGE_SLOP`) belongs only to objects Google
+Slides hit-tests by outline (oracle 1.5, 2.13, 7.9-7.11): `.fmd-text-box`,
+`<hr>` and `data-slide-shape="line"` always, and any other absolutely
+positioned object with no fill and no image, video, canvas, iframe or table
+inside. Filled shapes, images and tables have none. Group members keep their
+own slop, and a slop press resolves exactly like a direct press on that member
+(the group while unselected, the member once the group is selected or a
+sibling is drilled). Deviations: a filled text block without the
+`.fmd-text-box` marker (an imported PPTX text box with a fill, a filled card
+with text) cannot be told from a filled shape and gets no slop; inline `svg`
+content is not treated as an image; a selected group's own edge bands take
+presses on its outer edge before the resolver does, so drilling by slop works
+inside the group and in its gaps but not on its outer edge.
+
+### Rotation range and unreadable rotation (2026-10-08)
+
+Every reader of an object's rotation (the inspector field, the rotate handle,
+group rotation, ungroup) takes one number from one place: the angle of the
+effective painted matrix, in clockwise degrees in [0, 360). A browser reports
+every painted transform as a matrix, so an authored `rotate(200deg)` and
+`rotate(-160deg)` are the same rotation by the time they are read, and so are
+the same angle from an inline `transform`, the `rotate` property or a
+stylesheet rule. The rotation field has no bounds: an entry is wrapped into the
+range it reads in (-30 becomes 330, 370 becomes 10, 450 becomes 90, 360 becomes
+0), and stepping or scrubbing crosses 359 to 0 in either direction. The oracle
+did not measure Google's Size & rotation panel (10.7 records only that the
+handle follows the pointer), so [0, 360) is the least surprising range and an
+unmeasured assumption, not a parity claim. Deviation: an object whose
+transform has no planar rotation (a 3D transform, `rotate: x 20deg`, an
+unreadable `translate`/`scale`) or collapses the object (`scale(0)`) shows
+"Mixed" in a disabled rotation field and is never written as 0°; Google has no
+equivalent. A mirrored object reads its rotation about the mirrored x axis (a
+horizontal mirror reads 0, a vertical one 180), so editing the rotation turns
+it and never swaps the axis it is mirrored on. Setting the rotation edits only
+the rotational part of the effective transform, so scale, skew and translation
+from an inline transform, a longhand or a stylesheet rule stay. A transform
+list the author wrote keeps its own units: only its `rotate()` is replaced, so a
+centring `translate(-50%, -50%)` still follows the object's size. When the
+rotation comes from a stylesheet, or the list does not paint the requested
+rotation once edited, the effective matrix is written instead, and a pure
+rotation is written back as `rotate(Xdeg)`. A plain inline `transform` loses to
+a stylesheet `!important` transform (`none`, `initial` and `unset` included: an
+object they keep flat reads 0°) and to a CSS animation on a transform property
+when that animation wins the cascade. The setter reads the painted rotation
+back and, when it is not the one asked for, restores the inline style and
+returns false rather than reporting an edit that paints nothing. An animation
+that wins on `transform`, `translate`, `rotate` or `scale`, running or still
+waiting out its delay, makes the rotation unavailable because a rotation read
+at one instant is not the one it keeps. An inline `transform: ... !important`
+beats a transform animation on that same property, so it remains editable;
+animation on a separate longhand such as `rotate` still blocks the edit. The
+inspector field starts over from the painted value when an edit is refused, and
+the rotate handle, shortcut, and ungroup plan preserve an existing inline
+important priority when they write. The read-back runs with transitions off,
+so an object with a transition on its transform still turns at once; the
+transition is left as authored and does not play the turn. Deviation: an object
+whose transform is held by a stylesheet `!important` rule can be moved and
+resized but not rotated; Google has no equivalent. Limits: switching
+transitions off for that instant, which the handle and ungroup checks also do,
+ends any transition running on the object (it jumps to its end value).
+
+Starting a crop on a bare image hands its transform to the new crop frame and
+turns it off on the image, with `none !important` so a stylesheet `!important`
+rule cannot paint it a second time inside the frame. The frame takes an inline
+value as authored only when that value is what paints (a stylesheet
+`!important` declaration beats a plain inline one, so this is probed, not
+assumed) and it does not read the image's own cascade (`var()`, an `em`
+length); anything else, and the transform origin the same way, is the value the
+browser resolved. A stylesheet rule cannot match the new frame element, so the
+frame keeps the value that painted at the instant the crop started, including
+any `:hover` or media-query state (a crop starts under the pointer, so an
+`!important` `:hover` transform that beats an inline one is the one that moves);
+it does not follow the rule afterwards.
+A CSS animation that wins on a transform property moves with the crop frame.
+The original animation tracks are split: transform tracks and any referenced
+custom-property tracks run on the frame, while opacity and other image effects
+run on the image. The frame inherits the image's computed custom properties and
+font context, and the generated keyframes are stored with the frame so they
+survive save and reopen. Both sets of animations are paused at the source's
+current time while the crop is edited, then resume on commit. This keeps mixed
+transform/opacity animations from applying opacity to both parent and child,
+and keeps image-only keyframes such as `object-position` on the image. An
+animation beaten by an inline `!important` transform is not restarted on the
+frame; the value that actually paints moves as a static transform. CSS
+transitions do not move to the frame: an active transform transition is sampled
+and cancelled, and the frame holds its pose while the crop is edited. Cropping
+an image that already has a frame does not hold that frame's animation while
+the crop is edited. Script-created animations are sampled but not carried.
+
+Evidence: the reader, the writer, the crop-frame hand-off (including a
+stylesheet `!important` transform over an inline one, split transform and
+opacity animation tracks, a custom-property transform animation, a running
+transition, and playback from saved markup) and the inspector's
+refused-rotation field are exercised in headless Chromium
+(`slide-object-transform.browser.spec.ts`, which runs in the fast lanes) and in
+the happy-dom editor tests, not yet through the live editor UI.
+
 ## Google Help references
 
 Consulted on 2026-09-13 as authoritative desktop workflow references; they

@@ -13,6 +13,7 @@ const SLIDE_PREVIEW_ROOT_MARGIN = "800px 0px";
 const FollowingSlideButton = memo(function FollowingSlideButton({
   slide,
   number,
+  count,
   width,
   height,
   aspectRatio,
@@ -22,6 +23,7 @@ const FollowingSlideButton = memo(function FollowingSlideButton({
 }: {
   slide: Slide;
   number: number;
+  count: number;
   width: number;
   height: number;
   aspectRatio?: AspectRatio;
@@ -50,6 +52,7 @@ const FollowingSlideButton = memo(function FollowingSlideButton({
           slide={slide}
           aspectRatio={aspectRatio}
           designSystem={designSystem}
+          slidePosition={{ number, count }}
           className="pointer-events-none rounded-none!"
         />
       ) : null}
@@ -134,6 +137,7 @@ export const FollowingSlideStack = memo(function FollowingSlideStack({
           key={slide.id}
           slide={slide}
           number={currentIndex + offset + 2}
+          count={slides.length}
           width={width}
           height={height}
           aspectRatio={aspectRatio}

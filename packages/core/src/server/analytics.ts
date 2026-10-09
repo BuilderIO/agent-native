@@ -69,6 +69,7 @@ export function getAgentNativeAnalyticsConfigScript(): string | null {
     JSON.stringify({
       agentNativeAnalyticsPublicKey: publicKey,
       agentNativeAnalyticsEndpoint: getAgentNativeAnalyticsEndpoint(),
+      authSessionReplay: getAppConfig().analytics.authSessionReplay,
     }),
     ");</script>",
   ].join("");

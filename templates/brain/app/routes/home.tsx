@@ -3,7 +3,6 @@ import { useT } from "@agent-native/core/client/i18n";
 import { AgentChatHome } from "@agent-native/toolkit/app/chat";
 import { useEffect } from "react";
 
-import { shouldEnableBrainProviderStatusChecks } from "@/lib/brain-chat-readiness";
 import { TAB_ID } from "@/lib/tab-id";
 
 const SEO_TITLE = "Brain - Open Source company knowledge base for AI agents";
@@ -53,7 +52,6 @@ export default function AskRoute() {
       centerComposerWhenEmpty
       composerLayoutVariant="hero"
       composerPlaceholder={t("ask.composerPlaceholder")}
-      providerStatusChecksEnabled={shouldEnableBrainProviderStatusChecks()}
       homeIntroSlot={
         <div className="brain-chat-intro">
           <h1>{t("ask.heroTitle")}</h1>

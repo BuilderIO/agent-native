@@ -61,6 +61,18 @@
   .slides-home-mobile-toolbar .slides-home-import-label {
     display: none;
   }
+
+  .slides-home-mobile-toolbar .slides-home-import-status:not(:empty) {
+    display: inline;
+    position: static;
+    width: auto;
+    height: auto;
+    padding: 0;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
+  }
 }
 
 .deck-template-preview-frame {
@@ -372,6 +384,14 @@ button[title="Open agent sidebar"] {
   --slides-editor-surface: hsl(var(--background));
 }
 
+.deck-editor-shell[data-slides-widget="true"] .deck-editor-toolbar,
+.deck-editor-shell[data-slides-widget="true"]
+  .deck-editor-context-toolbar-host {
+  min-width: 0;
+  max-width: 100%;
+  overscroll-behavior-inline: contain;
+}
+
 .deck-editor-context-toolbar-host {
   min-width: 0;
   overflow: auto;
@@ -391,6 +411,40 @@ button[title="Open agent sidebar"] {
   min-width: 0;
   width: 100%;
   flex: 1 1 auto;
+}
+
+@container deck-editor (max-width: 36rem) {
+  .deck-editor-shell[data-slides-widget="true"] .deck-editor-toolbar,
+  .deck-editor-shell[data-slides-widget="true"] .slide-context-toolbar {
+    padding-inline: 0.375rem;
+  }
+}
+
+/* A narrow widget pane keeps the New slide icon and drops its label. */
+@container deck-editor (max-width: 46rem) {
+  .deck-editor-shell[data-slides-widget="true"] [data-compact-label] {
+    display: none;
+  }
+}
+
+/* The widget's toolbars get touch-sized targets in a phone-width pane and on
+ * any touch screen, where the app's 28px desktop buttons are too small. */
+@container deck-editor (max-width: 46rem) {
+  .deck-editor-shell[data-slides-widget="true"]
+    :is(.deck-editor-toolbar, .slide-context-toolbar)
+    :is(button, input, [role="combobox"]) {
+    min-width: 2.5rem;
+    min-height: 2.5rem;
+  }
+}
+
+@media (pointer: coarse) {
+  .deck-editor-shell[data-slides-widget="true"]
+    :is(.deck-editor-toolbar, .slide-context-toolbar)
+    :is(button, input, [role="combobox"]) {
+    min-width: 2.5rem;
+    min-height: 2.5rem;
+  }
 }
 
 @container (max-width: 36rem) {
@@ -1128,6 +1182,29 @@ button[title="Open agent sidebar"] {
 .slide-content[data-slide-content-scope] :is(ul, ol) {
   font-size: inherit;
   line-height: inherit;
+}
+
+/* Slide-number tokens (`<span data-slide-number></span>`). Must stay equal to
+   SLIDE_NUMBER_CSS in shared/slide-number.ts, which the HTML export inlines. */
+[data-slide-count] {
+  counter-set: slide-number var(--slide-index) slide-total var(--slide-count);
+}
+[data-slide-count] [data-slide-number]::before {
+  content: counter(slide-number);
+}
+[data-slide-count] [data-slide-number="pad"]::before {
+  content: counter(slide-number, decimal-leading-zero);
+}
+[data-slide-count] [data-slide-total]::before {
+  content: counter(slide-total);
+}
+[data-slide-count] [data-slide-total="pad"]::before {
+  content: counter(slide-total, decimal-leading-zero);
+}
+/* Editor only: a token is one unit under Delete/Backspace. Left editable,
+   Delete before it also removes the character after it. */
+[data-slide-count] :is([data-slide-number], [data-slide-total]) {
+  -webkit-user-modify: read-only;
 }
 
 .slide-content[data-slide-content-scope]

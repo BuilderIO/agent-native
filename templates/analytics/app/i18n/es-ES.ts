@@ -693,6 +693,19 @@ export default {
     copied: "copiado",
     copy: "Copiar",
     keyActions: "Acciones clave {{name}}",
+    manageReplayOrigins: "Administrar orígenes de reproducción",
+    replayOriginsDescription:
+      "Añade orígenes HTTPS exactos, uno por línea. Se conservarán los existentes.",
+    currentReplayOrigins: "Orígenes permitidos actuales",
+    anyReplayOriginAllowed:
+      "Actualmente se permite cualquier origen. Al añadir orígenes, la reproducción se limitará a la lista; incluye todas las aplicaciones que usan esta clave.",
+    originsToAdd: "Orígenes para añadir",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "Añadir orígenes",
+    addingReplayOrigins: "Añadiendo orígenes…",
+    replayOriginsUpdateFailed:
+      "No se pudieron actualizar los orígenes permitidos.",
+    cancel: "Cancelar",
     lastUsed: "último usado {{date}}",
     neverUsed: "nunca usado",
     revoking: "Revocando...",
@@ -1097,6 +1110,7 @@ export default {
   },
   sqlDashboard: {
     customRange: "Rango personalizado",
+    allValues: "Todos",
     untitledDashboard: "Panel de control sin título",
     dashboardFallback: "panel",
     viewOnly: "Tiene acceso de solo lectura a este panel.",
@@ -1514,6 +1528,8 @@ export default {
     replayLoading: "Cargando reproducción...",
     replayLoadingProgress:
       "{{loaded}} de {{total}} fragmentos de reproducción cargados",
+    replayTargetFallback:
+      "El desplazamiento solicitado ({{requested}}) no está disponible; se muestra el fotograma de reproducción más cercano en {{available}}.",
     replayUnavailable: "Esta sesión no tiene fragmentos de reproducción",
     replayUnavailableDescription:
       "La sesión tiene eventos de analítica, pero no se encontraron eventos de fragmentos rrweb.",

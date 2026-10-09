@@ -148,7 +148,7 @@ export interface ComposerRuntimeAdapters {
     };
     fetchAgentEngineConfiguredState?: (
       enabled: boolean,
-      options: { timeoutMs: number },
+      options: { fresh?: boolean; timeoutMs?: number },
     ) => Promise<ComposerAgentEngineState>;
     BuilderSetupCard?: ComponentType<any>;
     BuilderSetupContent?: ComponentType<any>;
@@ -238,9 +238,9 @@ const fallbackModels = {
   }),
   useAgentEngineConfigured: () => ({
     missing: false,
-    state: "configured" as const,
+    state: "unknown" as const,
   }),
-  fetchAgentEngineConfiguredState: async () => "configured" as const,
+  fetchAgentEngineConfiguredState: async () => "unavailable" as const,
 };
 const FragmentBoundary: ComponentType<{ children?: ReactNode }> = ({
   children,

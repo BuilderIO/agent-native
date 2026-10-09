@@ -108,7 +108,7 @@ export function FactoryAutomationFields({
     isDestinationReady(form.source, connections, form.slackWorkspace);
   const destinationLocked = disabled || (form.enabled && !destinationReady);
   const workspaceIntegrationsHref =
-    workspaceIntegrationsHrefProp ?? "/dispatch/admin/integrations";
+    workspaceIntegrationsHrefProp ?? "/dispatch/settings/integrations";
   const showIdentity =
     Boolean(sourcePicker) || (showSource && Boolean(form.source));
   const showRun =

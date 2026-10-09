@@ -624,6 +624,12 @@ export function useEditorClipboard({
     ],
   );
 
+  const getScreenContentRef = useRef(getScreenContent);
+  getScreenContentRef.current = getScreenContent;
+  const uploadImageFileForHtmlRef = useRef<(file: File) => Promise<string>>(
+    async () => "",
+  );
+
   const showPastedImagesNotice = useCallback(
     ({ count, fileIds }: { count: number; fileIds: string[] }) => {
       if (figmaPasteImageNoticeDismissed()) return;
@@ -633,6 +639,8 @@ export function useEditorClipboard({
             count={count}
             designId={id ?? ""}
             fileIds={fileIds}
+            getScreenContent={(fileId) => getScreenContentRef.current(fileId)}
+            uploadImage={(file) => uploadImageFileForHtmlRef.current(file)}
             onConnect={() => {
               setFigmaHydrationFileIds(fileIds);
               setFigmaHydrationOpen(true);
@@ -864,7 +872,10 @@ export function useEditorClipboard({
         return "";
       }
       const dataUrl = await readFileAsDataUrl(file);
-      if (!dataUrl) return "";
+      if (!dataUrl) {
+        toast.error(t("designEditor.import.errors.uploadFailed"));
+        return "";
+      }
       const result = (await callAction("upload-image", {
         data: dataUrl,
         filename: file.name,
@@ -877,8 +888,9 @@ export function useEditorClipboard({
       });
       return "";
     },
-    [canUploadDesignMedia, readFileAsDataUrl, requestFileStorageSetup],
+    [canUploadDesignMedia, readFileAsDataUrl, requestFileStorageSetup, t],
   );
+  uploadImageFileForHtmlRef.current = uploadImageFileForHtml;
 
   const uploadMediaFileForHtml = useCallback(
     (file: File) =>

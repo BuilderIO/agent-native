@@ -8,6 +8,7 @@ import { SlidesComposerContextProvider } from "@/components/editor/SlidesCompose
 import {
   buildSlidesAgentContext,
   getSlidesAgentScopeLabel,
+  haveSameSlidesAgentScope,
   readPublishedSlidesSelection,
   SLIDES_SELECTION_CHANGED_EVENT,
   type SlidesAgentSelection,
@@ -76,8 +77,12 @@ export default function ChatRoute() {
 
   useEffect(() => {
     const onSelectionChanged = (event: Event) => {
-      setSlidesSelection(
-        (event as CustomEvent<SlidesAgentSelection | null>).detail ?? null,
+      const nextSelection =
+        (event as CustomEvent<SlidesAgentSelection | null>).detail ?? null;
+      setSlidesSelection((current) =>
+        haveSameSlidesAgentScope(current, nextSelection)
+          ? current
+          : nextSelection,
       );
     };
     window.addEventListener(SLIDES_SELECTION_CHANGED_EVENT, onSelectionChanged);

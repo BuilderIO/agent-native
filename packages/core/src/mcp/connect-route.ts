@@ -302,6 +302,7 @@ async function signConnectToken(params: {
     scope: MCP_OAUTH_DEFAULT_SCOPE,
     resource: mcpResourceUrl(params.issuer),
     issuer: params.issuer,
+    grantCreatedAtMs: Date.now(),
     jti: params.jti,
     expiresIn: params.expiresIn,
     ...(params.catalogScope === "full" ? { catalogScope: "full" } : {}),
@@ -1602,7 +1603,7 @@ export async function handleMcpConnect(
       const row = await createDeviceCode(
         body.fullCatalog === true ? "full" : null,
       );
-      const verificationUri = `${appUrl}${MCP_PUBLIC_ROUTE_PREFIX}/connect`;
+      const verificationUri = `${issuer}${MCP_PUBLIC_ROUTE_PREFIX}/connect`;
       return json({
         device_code: row.deviceCode,
         user_code: row.userCode,

@@ -1,4 +1,7 @@
+import { enUSJourneyCanvasMessages } from "../../shared/journey-canvas-messages.js";
+
 export default {
+  journeyCanvas: enUSJourneyCanvasMessages,
   composer: { menu: { integrations: "Integrations" } },
   creativeContext: {
     title: "Library",
@@ -222,6 +225,18 @@ export default {
       exportSvg: "Export SVG",
       actionsPrefill: "Review, then send",
       retry: "Retry",
+      currentDesign: "the current Design",
+      chooseDesign: "a Design (ask me which Design to use if needed)",
+      importFramePrompt:
+        "Import this Figma frame into {{destination}} and identify any content the importer could not carry over: {{url}}",
+      importFilePrompt:
+        "Open this Figma file, list its top-level frames, and ask me which frame to import: {{url}}",
+      inspectFramePrompt:
+        "Inspect this Figma frame and summarize its structure, components, styles, and reusable tokens: {{url}}",
+      inspectFilePrompt:
+        "Inspect this Figma file and summarize its structure, components, styles, and reusable tokens: {{url}}",
+      exportSvgPrompt:
+        "Export the current Design screen as SVG for use in Figma and identify which parts become static SVG content.",
     },
   },
   common: {
@@ -689,12 +704,15 @@ export default {
     },
     leftRail: {
       file: "File",
-      agent: "Agent",
+      agent: "Agents",
       assets: "Assets",
       import: "Import",
       tools: "Tools",
       tokens: "Tokens",
       label: "Design workspace",
+      account: "Account",
+      collapse: "Collapse sidebar",
+      expand: "Expand sidebar",
     },
     breakpointBar: {
       base: "Base",
@@ -785,12 +803,10 @@ export default {
       "{{path}} changed on disk since it was opened. Reload the screen and try again.",
     applyToSourceError: "Couldn't save to source: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "Import tokens",
       importTitle: "Import tokens",
       importHint:
@@ -802,6 +818,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "Import pasted tokens",
       importedCount: "Imported {{count}} tokens",
+      count: "{{count}} tokens",
+      search: "Search tokens",
+      noMatches: "No matching tokens",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -848,6 +867,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} image{{plural}} need Figma access to load.",
       figmaPasteImagesDontShowAgain: "Don't show again",
+      figmaPasteUploadImage: "Upload image",
+      figmaPasteUploadImageFor: "Upload “{{name}}”",
+      figmaPasteImageFallbackName: "Image {{index}}",
+      figmaPasteUploadImageSuccess: "Image filled in",
+      figmaPasteUploadImageInvalid:
+        "Choose an image file, like SVG, PNG, or JPG.",
+      figmaPasteUploadImageError: "Couldn't fill in that image",
       figmaHydrationDialogTitle: "Fill in the missing images",
       figmaHydrationDialogDescription:
         "{{count}} image{{plural}} in the imported screen{{screensPlural}} couldn't come through the paste — Figma's clipboard leaves image data out. Fill from the original .fig, or fetch the exact images from the copied frame.",
@@ -949,6 +975,8 @@ export default {
       "Generation stopped before creating files. Try again to continue from the same prompt.",
     generationStoppedCheckAgent:
       "Generation stopped before creating files. Check the agent message or try again.",
+    invalidCanvasDimensions:
+      "The requested canvas size isn't supported. Use positive pixel dimensions within the editor limits.",
     notFound: "Design not found",
     backToDesigns: "Back to designs",
     designNotFoundDescription:
@@ -1510,6 +1538,13 @@ export default {
       permissionPromptSettingsInstructions:
         "Click the site controls icon to the left of the address bar, open Site settings, then set Local network to Allow.",
       permissionPromptRetry: "Retry connection",
+      previewCredentialsUnavailableTitle:
+        "Local preview credentials are unavailable",
+      previewCredentialsUnavailableDescription:
+        "Reconnect this Screen's localhost connection in the inspector, then retry.",
+      publicPreviewUnavailableDescription:
+        "Localhost previews are not shared with public viewers. Open this Design as a collaborator to view this Screen.",
+      previewCredentialsRetry: "Retry credentials",
       confirmationRetryExhausted:
         "Live editor bridge did not confirm after several attempts.",
       connectionNotConfirmed:
@@ -1524,6 +1559,7 @@ export default {
     fork: "Fork",
     fullView: "Full view",
     preview: "Preview",
+    focusScreen: "Focus screen",
     openAndDuplicate: "Select {{display}}. Use Interact for focused scrolling.",
     openAndPreview: "Select {{display}}. Use Interact for focused scrolling.",
     doubleClickToEdit: "Use Interact for focused scrolling",

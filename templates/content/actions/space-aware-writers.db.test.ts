@@ -5,7 +5,79 @@ import { join } from "node:path";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+const actionEffects = vi.hoisted(() => ({
+  generationContexts: new Map<string, Record<string, unknown>>(),
+  savedCreativeContextMode: "off" as "off" | "auto",
+  getGenerationCreativeContext: vi.fn(
+    async (
+      { artifactId }: { artifactId: string },
+      options?: { localOnly?: boolean },
+    ) => {
+      if (
+        actionEffects.savedCreativeContextMode === "auto" &&
+        !options?.localOnly
+      ) {
+        return null;
+      }
+      return actionEffects.generationContexts.get(artifactId) ?? null;
+    },
+  ),
+  recordGenerationCreativeContext: vi.fn(
+    async (input: { artifactId: string } & Record<string, unknown>) => {
+      const existing = actionEffects.generationContexts.get(input.artifactId);
+      if (input.onlyIfMissing && existing) return existing;
+      actionEffects.generationContexts.set(input.artifactId, input);
+      return input;
+    },
+  ),
+  recordGenerationCreativeContextFromSnapshot: vi.fn(
+    async (input: { artifactId: string } & Record<string, unknown>) =>
+      actionEffects.recordGenerationCreativeContext(input),
+  ),
+  validateGenerationCreativeContext: vi.fn(async () => ({
+    contextMode: "off" as const,
+    contextPackId: null,
+    reuseLabels: [],
+    results: [],
+  })),
+  track: vi.fn(),
+  writeAppState: vi.fn(async () => undefined),
+}));
+
+vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/application-state")
+  >()),
+  writeAppState: actionEffects.writeAppState,
+}));
+
+vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/tracking")>()),
+  track: actionEffects.track,
+}));
+
+vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/creative-context/server")
+  >()),
+  getGenerationCreativeContext: actionEffects.getGenerationCreativeContext,
+  recordGenerationCreativeContext:
+    actionEffects.recordGenerationCreativeContext,
+  recordGenerationCreativeContextFromSnapshot:
+    actionEffects.recordGenerationCreativeContextFromSnapshot,
+  validateGenerationCreativeContext:
+    actionEffects.validateGenerationCreativeContext,
+}));
 
 vi.mock("./_local-file-documents.js", async (importOriginal) => {
   const original =
@@ -59,6 +131,10 @@ beforeAll(async () => {
 
 afterAll(() => {
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
+});
+
+afterEach(() => {
+  actionEffects.savedCreativeContextMode = "off";
 });
 
 async function addOrganizationMember(args: {
@@ -144,6 +220,673 @@ describe("space-aware document writers", () => {
         }),
       ),
     ).rejects.toThrow("parent Content space");
+  });
+
+  it("replays a committed optimistic page create without duplicating creation effects", async () => {
+    const parent = await runWithRequestContext({ userEmail: OWNER }, () =>
+      createDocument.run({ title: "Retry parent" }),
+    );
+    await getDb().insert(schema.documentShares).values({
+      id: "retry-parent-member-share",
+      resourceId: parent.id,
+      principalType: "user",
+      principalId: MEMBER,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+
+    const input = {
+      id: "optimistic-create-retry",
+      title: "Original title",
+      content: "Original body",
+      description: "Original description",
+      parentId: parent.id,
+      contextModeOverride: "off" as const,
+    };
+    actionEffects.recordGenerationCreativeContext.mockClear();
+    actionEffects.track.mockClear();
+    actionEffects.writeAppState.mockClear();
+    actionEffects.writeAppState.mockRejectedValueOnce(
+      new Error("refresh signal unavailable"),
+    );
+
+    const create = () =>
+      runWithRequestContext({ userEmail: MEMBER }, () =>
+        createDocument.run(input),
+      );
+    await expect(create()).rejects.toThrow("refresh signal unavailable");
+
+    const [createdRow] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, input.id));
+    expect(createdRow).toMatchObject({
+      id: input.id,
+      title: input.title,
+      content: input.content,
+      ownerEmail: OWNER,
+      parentId: parent.id,
+      createdBy: MEMBER,
+      creationRequestDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "Edited title", content: "Typed after create" })
+      .where(eq(schema.documents.id, input.id));
+
+    await getDb()
+      .update(schema.documentShares)
+      .set({ role: "viewer" })
+      .where(
+        and(
+          eq(schema.documentShares.resourceId, parent.id),
+          eq(schema.documentShares.principalId, MEMBER),
+        ),
+      );
+    await getDb()
+      .update(schema.documentShares)
+      .set({ role: "viewer" })
+      .where(
+        and(
+          eq(schema.documentShares.resourceId, input.id),
+          eq(schema.documentShares.principalId, MEMBER),
+        ),
+      );
+
+    const replayed = await create();
+    expect(replayed).toMatchObject({
+      id: input.id,
+      title: "Edited title",
+      content: "Typed after create",
+      accessRole: "viewer",
+      canEdit: false,
+      canManage: false,
+    });
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, input.id)),
+    ).resolves.toHaveLength(1);
+    await expect(filesMemberships(input.id)).resolves.toHaveLength(1);
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documentShares)
+        .where(eq(schema.documentShares.resourceId, input.id)),
+    ).resolves.toHaveLength(1);
+    expect(actionEffects.writeAppState).toHaveBeenCalledTimes(2);
+    expect(actionEffects.recordGenerationCreativeContext).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(
+      actionEffects.recordGenerationCreativeContext,
+    ).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        contextMode: "off",
+        contextPackId: null,
+        reuseLabels: [],
+        elementProvenance: [
+          {
+            elementId: input.id,
+            influence: "generated",
+            label: "Net-new document",
+          },
+        ],
+        onlyIfMissing: true,
+      }),
+    );
+    expect(actionEffects.track).toHaveBeenCalledTimes(1);
+    expect(
+      actionEffects.validateGenerationCreativeContext,
+    ).toHaveBeenCalledTimes(1);
+
+    const conflicts = [
+      () =>
+        runWithRequestContext({ userEmail: MEMBER }, () =>
+          createDocument.run({ ...input, title: "Different original title" }),
+        ),
+      () =>
+        runWithRequestContext({ userEmail: MEMBER }, () =>
+          createDocument.run({ ...input, spaceId: "different-space" }),
+        ),
+      () =>
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          createDocument.run(input),
+        ),
+    ];
+    for (const conflict of conflicts) {
+      await expect(conflict()).rejects.toMatchObject({
+        errorCode: "DOCUMENT_ID_CONFLICT",
+        statusCode: 409,
+        message: "This document ID is already in use.",
+      });
+    }
+    expect(actionEffects.writeAppState).toHaveBeenCalledTimes(2);
+    expect(actionEffects.recordGenerationCreativeContext).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(actionEffects.track).toHaveBeenCalledTimes(1);
+  });
+
+  it("repairs a committed creation provenance projection on replay", async () => {
+    const input = {
+      id: "optimistic-create-provenance-retry",
+      title: "Provenance retry",
+      content: "Body",
+      contextModeOverride: "off" as const,
+    };
+    actionEffects.generationContexts.delete(input.id);
+    actionEffects.getGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContextFromSnapshot.mockClear();
+    actionEffects.validateGenerationCreativeContext.mockClear();
+    actionEffects.track.mockClear();
+    actionEffects.writeAppState.mockClear();
+    const recordGeneration =
+      actionEffects.recordGenerationCreativeContext.getMockImplementation();
+    actionEffects.recordGenerationCreativeContext.mockImplementationOnce(
+      async (record) => {
+        await recordGeneration?.(record);
+        throw new Error("projection store unavailable");
+      },
+    );
+
+    const create = () =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        createDocument.run(input),
+      );
+
+    const first = await create();
+    expect(first).toMatchObject({
+      id: input.id,
+      creativeContextProjectionStatus: "pending",
+    });
+    expect(actionEffects.generationContexts.get(input.id)).toMatchObject({
+      contextMode: "off",
+      contextPackId: null,
+    });
+
+    actionEffects.validateGenerationCreativeContext.mockClear();
+    const replayed = await create();
+    expect(replayed).toMatchObject({ id: input.id, title: input.title });
+    expect(
+      actionEffects.validateGenerationCreativeContext,
+    ).not.toHaveBeenCalled();
+    expect(actionEffects.getGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(
+      actionEffects.recordGenerationCreativeContextFromSnapshot,
+    ).toHaveBeenCalledTimes(1);
+    expect(actionEffects.recordGenerationCreativeContext).toHaveBeenCalledTimes(
+      2,
+    );
+    expect(
+      actionEffects.recordGenerationCreativeContext,
+    ).toHaveBeenLastCalledWith(
+      expect.objectContaining({ onlyIfMissing: true }),
+    );
+    expect(
+      actionEffects.recordGenerationCreativeContext,
+    ).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        contextMode: "off",
+        contextPackId: null,
+        reuseLabels: [],
+        elementProvenance: [
+          {
+            elementId: input.id,
+            influence: "generated",
+            label: "Net-new document",
+          },
+        ],
+        onlyIfMissing: true,
+      }),
+    );
+    expect(actionEffects.generationContexts.has(input.id)).toBe(true);
+    expect(actionEffects.track).toHaveBeenCalledTimes(1);
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, input.id)),
+    ).resolves.toHaveLength(1);
+  });
+
+  it("returns the committed id for an id-less create with a pending projection", async () => {
+    const input = {
+      title: "Id-less provenance retry",
+      content: "Body",
+      contextModeOverride: "off" as const,
+    };
+    actionEffects.recordGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContextFromSnapshot.mockClear();
+    actionEffects.recordGenerationCreativeContext.mockImplementationOnce(
+      async () => {
+        throw new Error("generation row unavailable");
+      },
+    );
+
+    const create = (args: typeof input & { id?: string }) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        createDocument.run(args),
+      );
+
+    const first = await create(input);
+    expect(first).toMatchObject({
+      title: input.title,
+      creativeContextProjectionStatus: "pending",
+    });
+    expect(first.id).toEqual(expect.any(String));
+
+    const [createdRow] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, first.id));
+    expect(createdRow?.creationRequestDigest).toMatch(/^[a-f0-9]{64}$/);
+
+    const replayed = await create({ ...input, id: first.id });
+    expect(replayed).toMatchObject({
+      id: first.id,
+      title: input.title,
+      contextMode: "off",
+      contextPackId: null,
+    });
+    expect(replayed.creativeContextProjectionStatus).toBeUndefined();
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, first.id)),
+    ).resolves.toHaveLength(1);
+    expect(
+      actionEffects.recordGenerationCreativeContextFromSnapshot,
+    ).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores missing provenance from the committed creation snapshot", async () => {
+    const input = {
+      id: "optimistic-create-missing-context-row",
+      title: "Context row retry",
+      contextPackId: "pack-revoked-after-create",
+      reuseLabels: [
+        {
+          itemId: "brand-voice-item",
+          itemVersionId: "brand-voice-version",
+          kind: "brand-voice",
+          label: "Brand voice",
+          dataRole: "untrusted-reference" as const,
+          influence: "reference-conditioned" as const,
+        },
+      ],
+    };
+    const validated = {
+      contextMode: "pinned" as const,
+      contextPackId: input.contextPackId,
+      reuseLabels: input.reuseLabels,
+      results: [],
+    };
+    actionEffects.generationContexts.delete(input.id);
+    actionEffects.getGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContextFromSnapshot.mockClear();
+    actionEffects.validateGenerationCreativeContext.mockClear();
+    actionEffects.validateGenerationCreativeContext.mockResolvedValueOnce(
+      validated,
+    );
+    actionEffects.track.mockClear();
+    actionEffects.writeAppState.mockClear();
+    actionEffects.recordGenerationCreativeContext.mockImplementationOnce(
+      async () => {
+        throw new Error("generation row was not inserted");
+      },
+    );
+
+    const create = () =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        createDocument.run(input),
+      );
+    const first = await create();
+    expect(first).toMatchObject({
+      id: input.id,
+      creativeContextProjectionStatus: "pending",
+    });
+
+    const [createdRow] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, input.id));
+    expect(JSON.parse(createdRow?.creationCreativeContext ?? "null")).toEqual({
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+      reuseLabels: input.reuseLabels,
+    });
+    expect(actionEffects.generationContexts.has(input.id)).toBe(false);
+
+    actionEffects.validateGenerationCreativeContext.mockClear();
+    const replayed = await create();
+
+    expect(replayed).toMatchObject({
+      id: input.id,
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+    });
+    expect(
+      actionEffects.validateGenerationCreativeContext,
+    ).not.toHaveBeenCalled();
+    expect(
+      actionEffects.recordGenerationCreativeContextFromSnapshot,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      actionEffects.recordGenerationCreativeContextFromSnapshot,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "content",
+        artifactType: "document",
+        artifactId: input.id,
+        contextMode: "pinned",
+        contextPackId: input.contextPackId,
+        onlyIfMissing: true,
+      }),
+    );
+    expect(actionEffects.generationContexts.get(input.id)).toMatchObject({
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+      elementProvenance: [
+        expect.objectContaining({
+          elementId: input.id,
+          influence: "reference-conditioned",
+          itemId: "brand-voice-item",
+          itemVersionId: "brand-voice-version",
+        }),
+      ],
+    });
+    expect(actionEffects.track).toHaveBeenCalledTimes(1);
+    actionEffects.validateGenerationCreativeContext.mockReset();
+    actionEffects.validateGenerationCreativeContext.mockImplementation(
+      async () => ({
+        contextMode: "off",
+        contextPackId: null,
+        reuseLabels: [],
+        results: [],
+      }),
+    );
+  });
+
+  it("replays an organization document to a viewer without repairing Creative Context", async () => {
+    const orgId = "org-create-retry-viewer-context";
+    await addOrganizationMember({ orgId, email: OWNER });
+    const input = {
+      id: "optimistic-create-org-viewer-context",
+      title: "Organization context retry",
+      spaceId: organizationContentSpaceId(orgId),
+      contextPackId: "creative-context-pack",
+      reuseLabels: [
+        {
+          itemId: "brand-voice-item",
+          itemVersionId: "brand-voice-version",
+          kind: "brand-voice",
+          label: "Brand voice",
+          dataRole: "untrusted-reference" as const,
+          influence: "reference-conditioned" as const,
+        },
+      ],
+    };
+    const validated = {
+      contextMode: "pinned" as const,
+      contextPackId: input.contextPackId,
+      reuseLabels: input.reuseLabels,
+      results: [],
+    };
+    actionEffects.generationContexts.delete(input.id);
+    actionEffects.validateGenerationCreativeContext.mockResolvedValueOnce(
+      validated,
+    );
+    const create = () =>
+      runWithRequestContext({ userEmail: OWNER, orgId }, () =>
+        createDocument.run(input),
+      );
+
+    await expect(create()).resolves.toMatchObject({
+      id: input.id,
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+    });
+    await getDb()
+      .update(schema.documents)
+      .set({ ownerEmail: OUTSIDER })
+      .where(eq(schema.documents.id, input.id));
+    actionEffects.generationContexts.delete(input.id);
+    actionEffects.getGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContextFromSnapshot.mockClear();
+    actionEffects.validateGenerationCreativeContext.mockClear();
+
+    await expect(create()).resolves.toMatchObject({
+      id: input.id,
+      accessRole: "viewer",
+      canEdit: false,
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+    });
+    expect(
+      actionEffects.validateGenerationCreativeContext,
+    ).not.toHaveBeenCalled();
+    expect(actionEffects.getGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(
+      actionEffects.recordGenerationCreativeContextFromSnapshot,
+    ).not.toHaveBeenCalled();
+    expect(
+      actionEffects.recordGenerationCreativeContext,
+    ).not.toHaveBeenCalled();
+    expect(actionEffects.generationContexts.has(input.id)).toBe(false);
+  });
+
+  it("returns an off snapshot when the Creative Context Lab disables recording", async () => {
+    const input = {
+      id: "optimistic-create-context-off-lab-disabled",
+      title: "Context disabled retry",
+      contextModeOverride: "off" as const,
+    };
+    actionEffects.generationContexts.delete(input.id);
+    actionEffects.getGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContextFromSnapshot.mockClear();
+    actionEffects.validateGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContext.mockImplementationOnce(
+      async () => null as never,
+    );
+    actionEffects.recordGenerationCreativeContextFromSnapshot.mockImplementationOnce(
+      async () => null as never,
+    );
+
+    const create = () =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        createDocument.run(input),
+      );
+
+    await expect(create()).resolves.toMatchObject({
+      id: input.id,
+      contextMode: "off",
+      contextPackId: null,
+    });
+    expect(actionEffects.generationContexts.has(input.id)).toBe(false);
+
+    await expect(create()).resolves.toMatchObject({
+      id: input.id,
+      contextMode: "off",
+      contextPackId: null,
+    });
+    expect(
+      actionEffects.recordGenerationCreativeContextFromSnapshot,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      actionEffects.validateGenerationCreativeContext,
+    ).toHaveBeenCalledTimes(1);
+  });
+
+  it("repairs explicit off provenance locally after the saved mode changes", async () => {
+    const input = {
+      id: "optimistic-create-context-off-local-replay",
+      title: "Local context repair",
+      contextModeOverride: "off" as const,
+    };
+    actionEffects.savedCreativeContextMode = "auto";
+    actionEffects.generationContexts.delete(input.id);
+    actionEffects.getGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContextFromSnapshot.mockClear();
+    actionEffects.validateGenerationCreativeContext.mockClear();
+    const recordGeneration =
+      actionEffects.recordGenerationCreativeContext.getMockImplementation();
+    actionEffects.recordGenerationCreativeContext.mockImplementationOnce(
+      async (record) => {
+        await recordGeneration?.(record);
+        throw new Error("projection store unavailable");
+      },
+    );
+
+    const create = () =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        createDocument.run(input),
+      );
+
+    try {
+      await expect(create()).resolves.toMatchObject({
+        id: input.id,
+        creativeContextProjectionStatus: "pending",
+      });
+      actionEffects.getGenerationCreativeContext.mockClear();
+      actionEffects.recordGenerationCreativeContext.mockClear();
+      actionEffects.validateGenerationCreativeContext.mockClear();
+
+      await expect(create()).resolves.toMatchObject({
+        id: input.id,
+        contextMode: "off",
+        contextPackId: null,
+      });
+      expect(actionEffects.getGenerationCreativeContext).not.toHaveBeenCalled();
+      expect(
+        actionEffects.recordGenerationCreativeContextFromSnapshot,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          artifactId: input.id,
+          contextMode: "off",
+          onlyIfMissing: true,
+        }),
+      );
+      expect(
+        actionEffects.recordGenerationCreativeContext,
+      ).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          contextMode: "off",
+          contextPackId: null,
+          onlyIfMissing: true,
+        }),
+      );
+      expect(
+        actionEffects.validateGenerationCreativeContext,
+      ).not.toHaveBeenCalled();
+    } finally {
+      actionEffects.savedCreativeContextMode = "off";
+    }
+  });
+
+  it("replays the validated Creative Context snapshot after settings or pack access change", async () => {
+    const input = {
+      id: "optimistic-create-context-access-replay",
+      title: "Context access retry",
+      contextPackId: "context-pack-revoked-after-create",
+    };
+    const reuseLabel = {
+      itemId: "context-item",
+      itemVersionId: "context-item-version",
+      kind: "brand-voice",
+      label: "Brand voice",
+      dataRole: "untrusted-reference" as const,
+      influence: "reference-conditioned" as const,
+    };
+    actionEffects.generationContexts.delete(input.id);
+    actionEffects.getGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContext.mockClear();
+    actionEffects.validateGenerationCreativeContext.mockResolvedValueOnce({
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+      reuseLabels: [reuseLabel],
+      results: [],
+    });
+
+    const create = () =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        createDocument.run(input),
+      );
+    actionEffects.savedCreativeContextMode = "auto";
+    await expect(create()).resolves.toMatchObject({
+      id: input.id,
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+    });
+    expect(
+      actionEffects.validateGenerationCreativeContext,
+    ).toHaveBeenCalledTimes(1);
+
+    actionEffects.savedCreativeContextMode = "off";
+    actionEffects.getGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContextFromSnapshot.mockClear();
+    const persistedContext = actionEffects.generationContexts.get(input.id);
+    expect(persistedContext).toMatchObject({
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+    });
+
+    actionEffects.validateGenerationCreativeContext.mockClear();
+    actionEffects.validateGenerationCreativeContext.mockImplementation(() => {
+      throw new Error("current pack access was revoked");
+    });
+    await expect(create()).resolves.toMatchObject({
+      id: input.id,
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+    });
+    expect(
+      actionEffects.validateGenerationCreativeContext,
+    ).not.toHaveBeenCalled();
+    expect(actionEffects.getGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(
+      actionEffects.recordGenerationCreativeContextFromSnapshot,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextMode: "pinned",
+        contextPackId: input.contextPackId,
+        onlyIfMissing: true,
+      }),
+    );
+    expect(actionEffects.generationContexts.get(input.id)).toMatchObject({
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+    });
+    expect(actionEffects.recordGenerationCreativeContext).toHaveBeenCalledTimes(
+      2,
+    );
+    expect(
+      actionEffects.recordGenerationCreativeContext,
+    ).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        contextMode: "pinned",
+        contextPackId: input.contextPackId,
+        onlyIfMissing: true,
+      }),
+    );
+
+    actionEffects.validateGenerationCreativeContext.mockImplementation(
+      async () => ({
+        contextMode: "off",
+        contextPackId: null,
+        reuseLabels: [],
+        results: [],
+      }),
+    );
   });
 
   it("lets ordinary organization members create root pages and databases while guests remain read-only", async () => {

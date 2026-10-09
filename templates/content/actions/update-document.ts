@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { ActionContractError } from "@agent-native/core";
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import {
@@ -75,6 +75,12 @@ import {
   favoritesSystemIds,
   setFavoriteMembership,
 } from "./_content-favorites.js";
+import {
+  contentSaveOutcome,
+  contentSaveAuditOutcome,
+  observeDocumentUpdateOutcome,
+  scopeContentSaveAudit,
+} from "./_content-save-outcomes.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
 import {
@@ -197,6 +203,38 @@ function isFavoriteOnlyUpdate(args: {
     args.description === undefined &&
     args.icon === undefined
   );
+}
+
+function isScopedWidgetDocumentWriter(
+  ctx: ActionRunContext | undefined,
+  documentId: string,
+) {
+  const grant = ctx?.mcpDirectoryWidgetWrite;
+  return (
+    ctx?.caller === "mcp-widget-write" &&
+    grant?.appId === "content" &&
+    Array.isArray(grant.actionNames) &&
+    grant.actionNames.includes("update-document") &&
+    grant.resourceIds?.documentId === documentId
+  );
+}
+
+function assertWidgetDocumentWriteScope(
+  ctx: ActionRunContext | undefined,
+  documentId: string,
+) {
+  if (
+    ctx?.caller === "mcp-widget-write" &&
+    !isScopedWidgetDocumentWriter(ctx, documentId)
+  ) {
+    throw new ActionContractError(
+      "This Content widget write capability is missing or scoped to a different document or action.",
+      {
+        errorCode: "mcp_widget_write_scope_mismatch",
+        statusCode: 403,
+      },
+    );
+  }
 }
 
 const reuseLabelSchema = z.object({
@@ -383,7 +421,13 @@ export function isEffectivelyEmptyDocumentContent(
   content: string | null | undefined,
 ) {
   const normalized = (content ?? "").trim();
-  return normalized === "" || normalized === "<empty-block/>";
+  return (
+    normalized === "" ||
+    normalized.split(/\r?\n/).every((line) => {
+      const trimmed = line.trim();
+      return trimmed === "" || /^<empty-block\b[^>]*\/>$/.test(trimmed);
+    })
+  );
 }
 
 export function shouldRejectStaleEmptyBodySave(args: {
@@ -442,7 +486,9 @@ export function isStaleBuilderImageSourceComponentSave(args: {
   );
 }
 
-export default defineAction({
+const saveObservationTimestampSchema = z.iso.datetime({ offset: true });
+
+const updateDocumentAction = defineAction({
   description:
     "Update an existing document's metadata or browser-owned content. Agents must use get-document followed by edit-document with baseRevision and idempotencyKey for body changes.",
   deferLoading: false,
@@ -571,22 +617,14 @@ export default defineAction({
       };
     },
     summary: (args, result) =>
-      (result as DocumentUpdateConflictResponse | null)?.conflict
-        ? `Document update conflicted for ${args.id}`
-        : `Updated document ${args.id}`,
+      `update-document outcome=${contentSaveOutcome(result) ?? contentSaveAuditOutcome() ?? "refused"} document=${args.id}`,
   },
   changeResource: (input) => documentChangeResource(input.id),
-  run: async (
-    args,
-    ctx,
-  ): Promise<
-    | BrowserDocumentUpdateResponse
-    | DocumentUpdateConflictResponse
-    | DocumentUpdateSupersededResponse
-    | DocumentUpdatePreservationResponse
-  > => {
+  run: observeDocumentUpdateOutcome(async (args, ctx, measurement) => {
+    measurement.record = !isFavoriteOnlyUpdate(args);
     const id = args.id;
     if (!id) throw new Error("--id is required");
+    assertWidgetDocumentWriteScope(ctx, id);
     if (
       (args.editorSessionId === undefined) !==
       (args.editorEditGeneration === undefined)
@@ -665,7 +703,7 @@ export default defineAction({
       ctx?.caller === "a2a";
     if (
       args.browserSaveAttemptId !== undefined &&
-      (ctx?.caller !== "frontend" ||
+      ((ctx?.caller !== "frontend" && !isScopedWidgetDocumentWriter(ctx, id)) ||
         (args.title === undefined && args.content === undefined))
     ) {
       throw new ActionContractError(
@@ -692,6 +730,51 @@ export default defineAction({
       : await assertDocumentMutationAccess(id, "editor", "id");
     const existing = access.resource;
     const ownerEmail = existing.ownerEmail as string;
+
+    const observeSaveBase = (snapshot: {
+      bodyRevision: number;
+      content: string;
+      title: string;
+      updatedAt: string;
+    }) => {
+      const observedBaseRevision =
+        args.authoredBaseRevision ?? args.baseRevision;
+      const bodyBaseStale =
+        observedBaseRevision !== undefined &&
+        observedBaseRevision !==
+          documentRevisionToken(snapshot.bodyRevision, snapshot.content);
+      const snapshotTime = Date.parse(snapshot.updatedAt);
+      const compareTimestampKey = (timestamp: string | undefined) => {
+        const parsed = saveObservationTimestampSchema.safeParse(timestamp);
+        return parsed.success ? [parsed.data !== snapshot.updatedAt] : [];
+      };
+      const compareLoadedTimestamp = (timestamp: string | undefined) => {
+        const parsed = saveObservationTimestampSchema.safeParse(timestamp);
+        const baseTime = parsed.success ? Date.parse(parsed.data) : NaN;
+        return Number.isFinite(baseTime) && Number.isFinite(snapshotTime)
+          ? [baseTime !== snapshotTime]
+          : [];
+      };
+      const staleComparisons = [
+        ...(observedBaseRevision &&
+        parseDocumentRevisionToken(observedBaseRevision)
+          ? [bodyBaseStale]
+          : compareTimestampKey(args.baseUpdatedAt)),
+        ...(args.baseTitle !== undefined
+          ? [args.baseTitle !== snapshot.title]
+          : []),
+        ...compareTimestampKey(args.recoveryExpectedUpdatedAt),
+        ...compareLoadedTimestamp(args.loadedUpdatedAt),
+      ];
+      measurement.stale_base =
+        staleComparisons.length === 0
+          ? "unknown"
+          : staleComparisons.some(Boolean)
+            ? "true"
+            : "false";
+      return bodyBaseStale;
+    };
+    observeSaveBase(existing);
 
     const db = getDb();
     const requestUserEmail = getRequestUserEmail();
@@ -742,6 +825,7 @@ export default defineAction({
         attemptId: args.browserSaveAttemptId,
       });
       if (stored) {
+        measurement.outcome = "replayed";
         const receipt = readBrowserSaveAttempt(stored, browserSavePayload);
         const [current] = await db
           .select()
@@ -832,6 +916,7 @@ export default defineAction({
           })
         ) {
           browserSaveContentRejected = true;
+          measurement.reason_code = "stale_builder_image";
           content = existing.content;
         }
       }
@@ -845,10 +930,13 @@ export default defineAction({
         })
       ) {
         browserSaveContentRejected = true;
+        measurement.stale_base = "true";
+        measurement.reason_code = "stale_empty_body";
         content = existing.content;
       }
     }
     if (browserSaveContentRejected && args.browserSaveAttemptId) {
+      measurement.outcome = "conflict";
       return scopeDocumentAudit(
         documentConflictResponse(existing, access.role, currentFavorite),
         ownerEmail,
@@ -911,6 +999,8 @@ export default defineAction({
       let committedEditorSnapshot: { title: string; content: string } | null =
         null;
       const mutate = async (tx: any) => {
+        measurement.outcome = "unchanged";
+        measurement.history_effect = "none";
         await tx
           .select({ id: schema.documents.id })
           .from(schema.documents)
@@ -925,6 +1015,7 @@ export default defineAction({
             attemptId: args.browserSaveAttemptId,
           });
           if (stored) {
+            measurement.outcome = "replayed";
             const receipt = readBrowserSaveAttempt(stored, browserSavePayload);
             if ("kind" in receipt) {
               preservationRequired = {
@@ -960,6 +1051,7 @@ export default defineAction({
             (args.editorEditGeneration as number) <= discardedGeneration
           ) {
             discardedEditorGeneration = discardedGeneration;
+            measurement.outcome = "superseded";
             return;
           }
         }
@@ -975,10 +1067,23 @@ export default defineAction({
           .from(schema.documents)
           .where(eq(schema.documents.id, id))
           .limit(1);
+        const bodyBaseStale = observeSaveBase(historyBefore);
+        if (
+          isScopedWidgetDocumentWriter(ctx, id) &&
+          args.content !== undefined &&
+          args.baseRevision === undefined &&
+          args.baseUpdatedAt === undefined &&
+          args.recoveryExpectedUpdatedAt === undefined &&
+          !authoredBase
+        ) {
+          contentCasConflict = true;
+          return;
+        }
         if (
           args.recoveryExpectedUpdatedAt !== undefined &&
           historyBefore.updatedAt !== args.recoveryExpectedUpdatedAt
         ) {
+          measurement.reason_code = "recovery_base_changed";
           contentCasConflict = true;
           return;
         }
@@ -1054,6 +1159,9 @@ export default defineAction({
             now: nextDocumentUpdatedAt(historyBefore.updatedAt),
           });
           preservationRequired = { reason, checkpointId };
+          measurement.outcome = "preserved_to_history";
+          measurement.history_effect = "preservation";
+          measurement.reason_code = reason;
           if (args.browserSaveAttemptId && browserSavePayload) {
             await tx.insert(schema.documentBrowserSaveAttempts).values({
               id: randomUUID(),
@@ -1107,6 +1215,7 @@ export default defineAction({
                   displacedCheckpointId: prior.displacedCheckpointId,
                 }
               : { status: "applied" };
+            measurement.outcome = "replayed";
             await confirmBrowserSave(historyBefore, historyBefore.updatedAt);
             return;
           }
@@ -1190,6 +1299,7 @@ export default defineAction({
               historyBefore.content,
             )
         ) {
+          measurement.reason_code = "body_base_changed";
           contentCasConflict = true;
           return;
         }
@@ -1198,6 +1308,7 @@ export default defineAction({
           args.baseTitle !== undefined &&
           historyBefore.title !== args.baseTitle
         ) {
+          measurement.reason_code = "title_base_changed";
           contentCasConflict = true;
           return;
         }
@@ -1282,6 +1393,10 @@ export default defineAction({
           },
         });
         if (!applied) {
+          measurement.reason_code =
+            intentMerge || parsedBaseRevision
+              ? "body_revision_cas_conflict"
+              : "timestamp_cas_conflict";
           contentCasConflict = true;
           return;
         }
@@ -1312,6 +1427,11 @@ export default defineAction({
           );
         }
         committedContentChanged = lockedContentChanged;
+        measurement.outcome = lockedDocumentFieldsChanged
+          ? intentMerge && bodyBaseStale && lockedContentChanged
+            ? "merged"
+            : "written"
+          : "unchanged";
         committedContentBefore = historyBefore.content;
 
         if (lockedTitleChanged && args.title !== undefined) {
@@ -1349,6 +1469,7 @@ export default defineAction({
             },
             now: updatedAt,
           });
+          measurement.history_effect = "transition";
         }
         if (intentMerge && authoredBase) {
           const intent = {
@@ -1370,6 +1491,13 @@ export default defineAction({
                 now: updatedAt,
               })
             : undefined;
+          if (displacedCheckpointId) {
+            measurement.outcome = "merged_with_displaced_text";
+            measurement.history_effect =
+              measurement.history_effect === "transition"
+                ? "transition_and_preservation"
+                : "preservation";
+          }
           await recordDocumentBodyIntent({
             db: tx as ReturnType<typeof getDb>,
             ownerEmail,
@@ -1429,6 +1557,10 @@ export default defineAction({
           favorite: args.isFavorite as boolean,
           now: nextDocumentUpdatedAt(existing.updatedAt),
         });
+        measurement.outcome =
+          favoriteChanged || args.isFavorite === false
+            ? "written"
+            : "unchanged";
       } else {
         try {
           await db.transaction(mutate);
@@ -1443,6 +1575,10 @@ export default defineAction({
           });
           if (!stored) throw error;
           const receipt = readBrowserSaveAttempt(stored, browserSavePayload);
+          measurement.outcome = "replayed";
+          measurement.history_effect = "none";
+          measurement.stale_base = "unknown";
+          delete measurement.reason_code;
           if ("kind" in receipt) {
             preservationRequired = {
               reason: receipt.reason,
@@ -1453,6 +1589,10 @@ export default defineAction({
           }
         }
       }
+
+      if (contentCasConflict && measurement.outcome !== "replayed")
+        measurement.outcome = "conflict";
+      measurement.settled = true;
 
       if (discardedEditorGeneration !== undefined) {
         const [current] = await db
@@ -1561,6 +1701,7 @@ export default defineAction({
       }
     }
 
+    measurement.settled = true;
     const [doc] = await db
       .select()
       .from(schema.documents)
@@ -1606,5 +1747,10 @@ export default defineAction({
       } satisfies BrowserDocumentUpdateResponse,
       ownerEmail,
     );
-  },
+  }),
 });
+
+export default {
+  ...updateDocumentAction,
+  run: scopeContentSaveAudit(updateDocumentAction.run),
+};

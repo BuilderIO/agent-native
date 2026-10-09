@@ -33,6 +33,23 @@ describe("dispatchApplicationStatePath", () => {
 });
 
 describe("buildDispatchNavigationState", () => {
+  it("keeps Admin integrations as the integrations view", () => {
+    expect(buildDispatchNavigationState("/admin/integrations")).toEqual({
+      view: "integrations",
+      path: "/admin/integrations",
+    });
+    expect(
+      buildDispatchNavigationState("/admin/integrations/provider-settings"),
+    ).toEqual({
+      view: "integrations",
+      path: "/admin/integrations/provider-settings",
+    });
+    expect(buildDispatchNavigationState("/integrations")).toEqual({
+      view: "overview",
+      path: "/integrations",
+    });
+  });
+
   it("recognizes the full-page chat route", () => {
     expect(buildDispatchNavigationState("/chat")).toEqual({
       view: "chat",

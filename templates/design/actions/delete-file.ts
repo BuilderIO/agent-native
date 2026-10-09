@@ -10,6 +10,7 @@ import {
   currentAccess,
 } from "@agent-native/core/sharing";
 import { and, eq, inArray, like, sql } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -18,6 +19,7 @@ import {
   snapshotDesignBeforeAgentEditInVersionLock,
   withDesignVersionLock,
 } from "../server/lib/design-versions.js";
+import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
 import {
   deleteVisualEditSnapshotBlobs,
   queueVisualEditSnapshotBlobCleanupInTransaction,
@@ -27,7 +29,6 @@ import {
   designSourceMutationLockKey,
   lockDesignFilesTable,
 } from "../server/source-workspace.js";
-import { isOverviewScreenFile } from "../shared/design-files.js";
 import { countLockedLayers } from "../shared/locked-layers.js";
 
 function drizzleSqlForAccess(statement: DbExecStatement) {
@@ -159,6 +160,8 @@ interface DeletedFileSnapshot {
   geometry?: Record<string, unknown>;
   screenMetadata?: Record<string, unknown>;
   localhostScreen?: Record<string, unknown>;
+  restoreClaimId?: string;
+  restoreSourceFileId?: string;
   variantMemberships?: {
     setId: string;
     set: Record<string, unknown>;
@@ -249,6 +252,45 @@ function snapshotDeletedFile(
     createdAt: file.createdAt ?? "",
     updatedAt: file.updatedAt ?? "",
     ...deletedFileMetadataSnapshot(data, file.id),
+  };
+}
+
+function hasConnectionId(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.connectionId === "string" &&
+    value.connectionId.length > 0
+  );
+}
+
+function screenRestoreClaimSnapshot(
+  snapshot: DeletedFileSnapshot,
+):
+  | (Pick<
+      DeletedFileSnapshot,
+      "filename" | "fileType" | "screenMetadata" | "localhostScreen"
+    > & { contentHashes: string[] })
+  | null {
+  if (
+    !hasConnectionId(snapshot.screenMetadata) &&
+    !hasConnectionId(snapshot.localhostScreen)
+  ) {
+    return null;
+  }
+
+  return {
+    filename: snapshot.filename,
+    fileType: snapshot.fileType,
+    contentHashes: screenRestoreContentHashes(
+      snapshot.content,
+      snapshot.fileType,
+    ),
+    ...(snapshot.screenMetadata
+      ? { screenMetadata: { ...snapshot.screenMetadata } }
+      : {}),
+    ...(snapshot.localhostScreen
+      ? { localhostScreen: { ...snapshot.localhostScreen } }
+      : {}),
   };
 }
 
@@ -520,19 +562,23 @@ export default defineAction({
             }
           }
         }
-        const currentUserScreenCount =
-          currentFiles.filter(isOverviewScreenFile).length;
-        const deletingUserScreenCount =
-          currentTargetFiles.filter(isOverviewScreenFile).length;
-        if (currentUserScreenCount - deletingUserScreenCount <= 0) {
-          throw new Error(
-            "A design must keep at least one user screen. Delete another screen first.",
-          );
-        }
         let data = parseDesignData(file.designId, design.data);
         const deletedFiles = currentTargetFiles.map((candidate) =>
           snapshotDeletedFile(candidate, data),
         );
+        for (const deletedFile of deletedFiles) {
+          const trustedSnapshot = screenRestoreClaimSnapshot(deletedFile);
+          if (!trustedSnapshot) continue;
+          const restoreClaimId = nanoid();
+          await tx.insert(schema.designScreenRestoreClaims).values({
+            id: restoreClaimId,
+            designId: file.designId,
+            sourceFileId: deletedFile.id,
+            snapshot: JSON.stringify(trustedSnapshot),
+          });
+          deletedFile.restoreClaimId = restoreClaimId;
+          deletedFile.restoreSourceFileId = deletedFile.id;
+        }
         await snapshotDesignBeforeAgentEditInVersionLock(
           file.designId,
           context,

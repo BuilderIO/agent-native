@@ -272,6 +272,7 @@ const {
   RUN_STALE_MS,
   resolveErroredRunTerminalEvent,
 } = await import("./run-store.js");
+const { assertNoInlineImageBytes } = await import("../shared/inline-bytes.js");
 
 let ledgerRows: Array<{
   result_summary: string;
@@ -520,6 +521,28 @@ describe("run store", () => {
       '{"type":"thinking","text":"zombie"}',
       "run-terminal",
     ]);
+  });
+
+  it("stores run events without inline image bytes", async () => {
+    await insertRunEvent(
+      "run-image",
+      2,
+      JSON.stringify({
+        type: "tool_done",
+        result: "saved data:image/png;base64,iVBORw0KGgo=",
+        images: [{ data: "aW1hZ2U=", mediaType: "image/png", label: "shot" }],
+      }),
+    );
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    const stored = insert?.args[3] as string;
+    assertNoInlineImageBytes(stored, "event_data");
+    expect(JSON.parse(stored)).toMatchObject({
+      result: "saved [inline image/png data omitted]",
+      images: [{ label: "shot", omitted: "inline-bytes" }],
+    });
   });
 
   it("never lets an older progress write move the stored timestamp backward", async () => {

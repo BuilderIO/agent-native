@@ -30,6 +30,7 @@ import {
   boundedText,
 } from "./indexed-text.js";
 import { recordSessionEventFriction } from "./session-friction.js";
+import { sessionRecordingAssociationsReady } from "./session-recording-associations.js";
 
 /**
  * Session event index.
@@ -459,8 +460,8 @@ export function hasSessionEventFilters(filters: SessionEventFilters): boolean {
 
 /**
  * Conditions on `session_recordings` for did/didn't event filters. Each lookup
- * is correlated to the recording's own tenant and session, so it can never
- * widen the recording access filter it is combined with.
+ * is correlated to the recording's own tenant and an exact observed session
+ * association, so it can never widen the recording access filter it is combined with.
  */
 export async function sessionEventFilterConditions(
   scope: SessionEventScope,
@@ -469,35 +470,155 @@ export async function sessionEventFilterConditions(
   const didEvents = normalizeSessionEventNames(filters.didEvents);
   const didNotEvents = normalizeSessionEventNames(filters.didNotEvents);
   if (!didEvents.length && !didNotEvents.length) return [];
-  if (!(await sessionEventIndexReady(getDb()))) return [sql`false`];
+  const db = getDb();
+  if (!(await sessionEventIndexReady(db))) return [sql`false`];
+  const associationsReady = await sessionRecordingAssociationsReady(db);
 
   const r = schema.sessionRecordings;
   const sibling = alias(schema.sessionRecordings, "session_event_sibling");
+  const association = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_event_association",
+  );
+  const associationPresence = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_event_association_presence",
+  );
+  const siblingAssociation = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_event_sibling_association",
+  );
+  const siblingAssociationPresence = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_event_sibling_association_presence",
+  );
+  const excludedEventAssociation = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_event_excluded_association",
+  );
+  const excludedEventAssociationPresence = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_event_excluded_association_presence",
+  );
+  const completeAssociation = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_event_complete_association",
+  );
   const se = schema.analyticsSessionEvents;
   const coverage = schema.analyticsSessionEventCoverage;
   const gaps = schema.analyticsSessionEventGaps;
   const recordingTenant = recordingTenantSql(r);
   const coverageStart = sql`(select ${coverage.startedAt} from ${coverage} where ${coverage.tenantKey} = ${recordingTenant})`;
-  const sessionIndexed = (eventName?: string) =>
-    sql`exists (select 1 from ${se} where ${se.tenantKey} = ${recordingTenant} and ${se.sessionId} = ${r.sessionId}${eventName === undefined ? sql`` : sql` and ${se.eventName} = ${eventName}`})`;
+  const sessionIndexed = (sessionId: AnyColumn, eventName?: string) =>
+    sql`exists (select 1 from ${se} where ${se.tenantKey} = ${recordingTenant} and ${se.sessionId} = ${sessionId}${eventName === undefined ? sql`` : sql` and ${se.eventName} = ${eventName}`})`;
+  const sessionCoverageConditions = (sessionId: AnyColumn) => [
+    // One analytics session can span tabs, each with its own recording. A
+    // session that had a recording before coverage began may have events the
+    // index never saw.
+    ...(associationsReady
+      ? [
+          sql`not exists (
+            select 1 from ${r} as ${sibling}
+            where ${recordingTenantSql(sibling)} = ${recordingTenant}
+              and ${sibling.startedAt} < ${coverageStart}
+              and exists (
+                select 1 from ${schema.sessionRecordingSessionAssociations} as ${siblingAssociation}
+                where ${siblingAssociation.recordingId} = ${sibling.id}
+                  and ${siblingAssociation.sessionId} = ${sessionId}
+              )
+          )`,
+          sql`not exists (
+            select 1 from ${r} as ${sibling}
+            where ${sibling.sessionId} = ${sessionId}
+              and ${recordingTenantSql(sibling)} = ${recordingTenant}
+              and ${sibling.startedAt} < ${coverageStart}
+              and not exists (
+                select 1 from ${schema.sessionRecordingSessionAssociations} as ${siblingAssociationPresence}
+                where ${siblingAssociationPresence.recordingId} = ${sibling.id}
+              )
+          )`,
+        ]
+      : [
+          sql`not exists (
+            select 1 from ${r} as ${sibling}
+            where ${sibling.sessionId} = ${sessionId}
+              and ${recordingTenantSql(sibling)} = ${recordingTenant}
+              and ${sibling.startedAt} < ${coverageStart}
+          )`,
+        ]),
+    // Every session in a "didn't" filter must have complete index coverage;
+    // failed or pruned writes cannot read as the event's absence.
+    ...(didNotEvents.length
+      ? [
+          sessionIndexed(sessionId),
+          sql`not exists (select 1 from ${gaps} where ${gaps.tenantKey} = ${recordingTenant} and ${gaps.sessionId} = ${sessionId})`,
+        ]
+      : []),
+  ];
+  const sessionConditions = (sessionId: AnyColumn) => [
+    ...sessionCoverageConditions(sessionId),
+    ...didEvents.map((eventName) => sessionIndexed(sessionId, eventName)),
+  ];
+
+  const sessionMatch = associationsReady
+    ? sql`(
+        exists (
+          select 1 from ${schema.sessionRecordingSessionAssociations} as ${association}
+          where ${association.recordingId} = ${r.id}
+            and ${and(...sessionConditions(association.sessionId))}
+        )
+        or (
+          not exists (
+            select 1 from ${schema.sessionRecordingSessionAssociations} as ${associationPresence}
+            where ${associationPresence.recordingId} = ${r.id}
+          )
+          and ${and(...sessionConditions(r.sessionId))}
+        )
+      )`
+    : and(...sessionConditions(r.sessionId));
+
+  const didNotEventConditions = didNotEvents.map((eventName) =>
+    associationsReady
+      ? sql`not exists (
+          select 1 from ${schema.sessionRecordingSessionAssociations} as ${excludedEventAssociation}
+          where ${excludedEventAssociation.recordingId} = ${r.id}
+            and exists (
+              select 1 from ${se}
+              where ${se.tenantKey} = ${recordingTenant}
+                and ${se.sessionId} = ${excludedEventAssociation.sessionId}
+                and ${se.eventName} = ${eventName}
+            )
+        )
+        and (
+          exists (
+            select 1 from ${schema.sessionRecordingSessionAssociations} as ${excludedEventAssociationPresence}
+            where ${excludedEventAssociationPresence.recordingId} = ${r.id}
+          )
+          or not exists (
+            select 1 from ${se}
+            where ${se.tenantKey} = ${recordingTenant}
+              and ${se.sessionId} = ${r.sessionId}
+              and ${se.eventName} = ${eventName}
+          )
+        )`
+      : sql`not ${sessionIndexed(r.sessionId, eventName)}`,
+  );
+  const allAssociatedSessionsCovered = didNotEvents.length
+    ? associationsReady
+      ? sql`not exists (
+          select 1 from ${schema.sessionRecordingSessionAssociations} as ${completeAssociation}
+          where ${completeAssociation.recordingId} = ${r.id}
+            and not (${and(...sessionCoverageConditions(completeAssociation.sessionId))})
+        )`
+      : and(...sessionCoverageConditions(r.sessionId))
+    : undefined;
 
   return [
     viewerReadsRecordingEventsSql(r, scope),
     sql`${r.startedAt} >= ${coverageStart}`,
-    // One analytics session can span tabs, each with its own recording. A
-    // session that had a recording before coverage began may have events the
-    // index never saw.
-    sql`not exists (select 1 from ${r} as ${sibling} where ${sibling.sessionId} = ${r.sessionId} and ${recordingTenantSql(sibling)} = ${recordingTenant} and ${sibling.startedAt} < ${coverageStart})`,
-    ...didEvents.map((eventName) => sessionIndexed(eventName)),
-    // "Didn't" needs a session the index saw completely, so a failed or
-    // pruned index write never reads as the event's absence.
-    ...(didNotEvents.length
-      ? [
-          sessionIndexed(),
-          sql`not exists (select 1 from ${gaps} where ${gaps.tenantKey} = ${recordingTenant} and ${gaps.sessionId} = ${r.sessionId})`,
-        ]
-      : []),
-    ...didNotEvents.map((eventName) => sql`not ${sessionIndexed(eventName)}`),
+    sessionMatch,
+    ...(allAssociatedSessionsCovered ? [allAssociatedSessionsCovered] : []),
+    ...didNotEventConditions,
   ];
 }
 

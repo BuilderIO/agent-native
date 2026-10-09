@@ -33,6 +33,7 @@ Use `tool-search` for the full surface, including screen-memory.
 | --- | --- |
 | `view-screen` / `navigate` | Read context or open a surface |
 | `list-recordings` / `search-recordings` / `get-recording-player-data` | Find authorized clips; read transcript, chapters, diagnostics |
+| `create-recording-agent-link` | Make a temporary scoped link for an authorized private clip |
 | `create-recording` / `finalize-recording` / `import-loom-recording` | Create, upload, or import a recording |
 | `request-transcript` / `cleanup-transcript` / `regenerate-title` / `regenerate-summary` / `regenerate-chapters` | Transcription and metadata |
 | `trim-recording` / `split-recording` / `remove-silences` / `remove-filler-words` | Edit video |

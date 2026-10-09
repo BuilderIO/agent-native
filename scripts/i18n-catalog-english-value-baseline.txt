@@ -603,7 +603,6 @@ templates/design/app/i18n/ar-SA|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/ar-SA|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/ar-SA|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/ar-SA|designEditor.tokens.newToken|New token
-templates/design/app/i18n/ar-SA|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/de-DE|designEditor.askAgent|Ask agent
 templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
@@ -628,7 +627,6 @@ templates/design/app/i18n/de-DE|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/de-DE|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/de-DE|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/de-DE|designEditor.tokens.newToken|New token
-templates/design/app/i18n/de-DE|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/es-ES|designEditor.askAgent|Ask agent
 templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
@@ -653,7 +651,6 @@ templates/design/app/i18n/es-ES|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/es-ES|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/es-ES|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/es-ES|designEditor.tokens.newToken|New token
-templates/design/app/i18n/es-ES|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/fr-FR|designEditor.askAgent|Ask agent
 templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
@@ -678,7 +675,6 @@ templates/design/app/i18n/fr-FR|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/fr-FR|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/fr-FR|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/fr-FR|designEditor.tokens.newToken|New token
-templates/design/app/i18n/fr-FR|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/hi-IN|designEditor.askAgent|Ask agent
 templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
@@ -703,7 +699,6 @@ templates/design/app/i18n/hi-IN|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/hi-IN|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/hi-IN|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/hi-IN|designEditor.tokens.newToken|New token
-templates/design/app/i18n/hi-IN|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/ja-JP|designEditor.askAgent|Ask agent
 templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
@@ -728,7 +723,6 @@ templates/design/app/i18n/ja-JP|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/ja-JP|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/ja-JP|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/ja-JP|designEditor.tokens.newToken|New token
-templates/design/app/i18n/ja-JP|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/ko-KR|designEditor.askAgent|Ask agent
 templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
@@ -753,7 +747,6 @@ templates/design/app/i18n/ko-KR|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/ko-KR|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/ko-KR|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/ko-KR|designEditor.tokens.newToken|New token
-templates/design/app/i18n/ko-KR|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/pt-BR|designEditor.askAgent|Ask agent
 templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
@@ -778,7 +771,6 @@ templates/design/app/i18n/pt-BR|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/pt-BR|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/pt-BR|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/pt-BR|designEditor.tokens.newToken|New token
-templates/design/app/i18n/pt-BR|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/zh-CN|designEditor.askAgent|Ask agent
 templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
@@ -803,7 +795,6 @@ templates/design/app/i18n/zh-CN|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/zh-CN|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/zh-CN|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/zh-CN|designEditor.tokens.newToken|New token
-templates/design/app/i18n/zh-CN|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/zh-TW|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/zh-TW|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/zh-TW|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.

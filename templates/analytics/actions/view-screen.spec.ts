@@ -341,6 +341,29 @@ describe("view-screen Sessions context", () => {
     );
   });
 
+  it("preserves the anonymous visitor filter in the bounded session view", async () => {
+    setScreen(
+      { view: "sessions" },
+      {
+        pathname: "/sessions",
+        searchParams: { visitorType: "anonymous" },
+      },
+    );
+
+    const out = await runScreen();
+
+    expect(listSessionRecordingsPage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ visitorType: "anonymous" }),
+    );
+    expect(out.sessionReplayPage).toMatchObject({
+      filters: { visitorType: "anonymous" },
+      fullPageAction: {
+        args: { visitorType: "anonymous" },
+      },
+    });
+  });
+
   it("keeps the UI page offset, filters, and full-page retrieval scope", async () => {
     setScreen(
       { view: "sessions" },

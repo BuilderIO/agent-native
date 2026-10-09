@@ -24,6 +24,7 @@ export type ActionCaller =
   | "http"
   | "frontend"
   | "mcp-widget"
+  | "mcp-widget-write"
   | "cli"
   | "mcp"
   | "webmcp"
@@ -65,6 +66,14 @@ export interface ActionRunContext {
   actionName?: string;
   /** Present only on frontend GETs authorized by a scoped directory-widget read capability. */
   mcpDirectoryWidgetReadOnly?: true;
+  /** Present only on frontend calls authorized by a scoped directory-widget capability: the resource IDs it is bound to. */
+  mcpDirectoryWidgetResourceIds?: Record<string, string>;
+  /** Present only on frontend mutations authorized by a scoped directory-widget write capability. */
+  mcpDirectoryWidgetWrite?: {
+    appId: string;
+    resourceIds: Record<string, string>;
+    actionNames: readonly string[];
+  };
   threadId?: string;
   runId?: string;
   turnId?: string;

@@ -18,8 +18,14 @@ import {
 
 const tmpRoots: string[] = [];
 const originalHome = process.env.HOME;
+const unexpectedFetch = vi.fn();
 
 beforeEach(() => {
+  unexpectedFetch.mockClear();
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (...args) => {
+    unexpectedFetch(...args);
+    throw new Error("connect tests must supply fetchImpl");
+  });
   process.exitCode = undefined;
   process.env.HOME = tmpDir();
   // os.homedir() reads USERPROFILE on Windows, not HOME. Without this pin the
@@ -45,6 +51,7 @@ afterEach(() => {
   }
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+  expect(unexpectedFetch).not.toHaveBeenCalled();
 });
 
 function tmpDir(): string {
@@ -797,15 +804,18 @@ describe("runConnect", () => {
     process.chdir(root);
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-    await runConnect([
-      "https://mail.agent-native.com",
-      "--client",
-      "claude-code",
-      "--scope",
-      "project",
-      "--token",
-      "tok-fallback",
-    ]);
+    await runConnect(
+      [
+        "https://mail.agent-native.com",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+        "--token",
+        "tok-fallback",
+      ],
+      { fetchImpl: makeFetch([]) },
+    );
 
     expect(process.exitCode).toBeFalsy();
     const cfg = JSON.parse(
@@ -1270,15 +1280,18 @@ describe("runConnect", () => {
     const root = tmpDir();
     process.chdir(root);
 
-    await runConnect([
-      "https://plan.agent-native.com",
-      "--client",
-      "codex",
-      "--scope",
-      "project",
-      "--token",
-      "tok-plan-publish",
-    ]);
+    await runConnect(
+      [
+        "https://plan.agent-native.com",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--token",
+        "tok-plan-publish",
+      ],
+      { fetchImpl: makeFetch([]) },
+    );
 
     expect(process.exitCode).toBeFalsy();
     const canonical = JSON.parse(fs.readFileSync(planPublishPath, "utf-8"));
@@ -1297,15 +1310,18 @@ describe("runConnect", () => {
     // ~/.agent-native/plan-publish.json. If it did, `connect --all` (which
     // iterates apps in arbitrary order) could silently replace the canonical
     // Plans token with the wrong URL+token, breaking publish-visual-plan.
-    await runConnect([
-      "https://mail.agent-native.com",
-      "--client",
-      "codex",
-      "--scope",
-      "project",
-      "--token",
-      "tok-mail",
-    ]);
+    await runConnect(
+      [
+        "https://mail.agent-native.com",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--token",
+        "tok-mail",
+      ],
+      { fetchImpl: makeFetch([]) },
+    );
 
     expect(fs.existsSync(planPublishPath)).toBe(false);
   });
@@ -1319,15 +1335,18 @@ describe("runConnect", () => {
       JSON.stringify({ keepMe: "yes", token: "stale", url: "https://old" }),
     );
 
-    await runConnect([
-      "https://plan.agent-native.com",
-      "--client",
-      "codex",
-      "--scope",
-      "project",
-      "--token",
-      "tok-new",
-    ]);
+    await runConnect(
+      [
+        "https://plan.agent-native.com",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--token",
+        "tok-new",
+      ],
+      { fetchImpl: makeFetch([]) },
+    );
 
     const canonical = JSON.parse(fs.readFileSync(planPublishPath, "utf-8"));
     expect(canonical.keepMe).toBe("yes");
@@ -1339,15 +1358,18 @@ describe("runConnect", () => {
     const root = tmpDir();
     process.chdir(root);
 
-    await runConnect([
-      "https://my-app.ngrok-free.dev",
-      "--client",
-      "codex",
-      "--scope",
-      "project",
-      "--token",
-      "tok-custom",
-    ]);
+    await runConnect(
+      [
+        "https://my-app.ngrok-free.dev",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--token",
+        "tok-custom",
+      ],
+      { fetchImpl: makeFetch([]) },
+    );
 
     expect(fs.existsSync(planPublishPath)).toBe(false);
   });
@@ -1921,6 +1943,7 @@ describe("runConnect", () => {
           isInteractive: () => true,
           promptClients,
           preferencesFile,
+          fetchImpl: makeFetch([]),
         },
       );
 
@@ -1975,6 +1998,7 @@ describe("runConnect", () => {
           isInteractive: () => true,
           promptClients,
           preferencesFile,
+          fetchImpl: makeFetch([]),
         },
       );
 
@@ -2015,6 +2039,7 @@ describe("runConnect", () => {
         isInteractive: () => true,
         promptClients,
         preferencesFile,
+        fetchImpl: makeFetch([]),
       },
     );
 
@@ -2043,6 +2068,7 @@ describe("runConnect", () => {
       {
         isInteractive: () => true,
         promptHostedApps,
+        fetchImpl: makeFetch([]),
       },
     );
 

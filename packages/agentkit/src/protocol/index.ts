@@ -95,6 +95,41 @@ export interface FilePart {
   mediaType?: string;
   url?: string;
   fileId?: string;
+  /**
+   * The inline bytes were dropped before the part was stored and no durable
+   * copy exists, so history still names the file without carrying its body.
+   */
+  omitted?: "inline-bytes";
+}
+
+export function isInlineDataUrl(value: unknown): value is string {
+  return typeof value === "string" && /^\s*data:/i.test(value);
+}
+
+/** The storable form of a file part: a durable reference, never inline bytes. */
+export function persistableFilePart(part: FilePart): FilePart {
+  if (!isInlineDataUrl(part.url)) return part;
+  return {
+    type: "file",
+    name: part.name,
+    ...(part.mediaType ? { mediaType: part.mediaType } : {}),
+    ...(part.fileId
+      ? { fileId: part.fileId }
+      : { omitted: "inline-bytes" as const }),
+  };
+}
+
+/** Request-only image bytes paired with a durable reference when available. */
+export interface AgentRequestAttachment {
+  type: "image";
+  name: string;
+  contentType?: string;
+  /** A bounded data URL sent only with a new run, never stored in thread history. */
+  data?: string;
+  /** The resized image URL used when a request is queued for later execution. */
+  url?: string;
+  /** The user's original upload URL, retained for embedding or reference. */
+  referenceUrl?: string;
 }
 
 export interface AgentWidgetAction {
@@ -973,6 +1008,7 @@ export interface AgentQueuedMessage {
   text: string;
   createdAt: string;
   attachments?: FilePart[];
+  requestAttachments?: AgentRequestAttachment[];
   metadata?: AgentProtocolMetadata;
   options?: AgentRunOptions;
 }
@@ -1023,6 +1059,7 @@ export interface QueueMessageInput {
   id?: string;
   text: string;
   attachments?: FilePart[];
+  requestAttachments?: AgentRequestAttachment[];
   metadata?: AgentProtocolMetadata;
   options?: AgentRunOptions;
 }
@@ -1096,6 +1133,11 @@ export interface AgentTransportThreadOperations {
 export interface AgentTransport extends AgentTransportThreadOperations {
   dispose?(): void | Promise<void>;
   capabilities?: AgentCapabilities;
+  /** Checks whether a new user-initiated chat dispatch is allowed to start. */
+  assertAiSetupReady?(
+    input: { engine?: string; threadId?: ThreadId },
+    context?: AgentRequestContext,
+  ): Promise<void>;
   discoverCapabilities?(
     input: DiscoverCapabilitiesInput,
     context?: AgentRequestContext,
@@ -1163,6 +1205,7 @@ export interface AgentTransport extends AgentTransportThreadOperations {
 export interface StartRunInput {
   threadId: ThreadId;
   messages: AgentMessage[];
+  requestAttachments?: AgentRequestAttachment[];
   options?: AgentRunOptions;
   resume?: AgentResumeEntry[];
   metadata?: AgentProtocolMetadata;
@@ -1190,6 +1233,8 @@ export interface ContinueRunInput {
   threadId: ThreadId;
   /** The stopped run to continue. */
   runId: RunId;
+  /** Durable references to the turn's attachments; never inline bytes. */
+  attachments?: FilePart[];
 }
 
 export interface StartRunResult {

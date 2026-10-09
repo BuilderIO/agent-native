@@ -515,6 +515,196 @@ describe("resolveSlidePointerTarget freeform objects", () => {
   });
 });
 
+describe("resolveSlidePointerTarget edge slop by object kind", () => {
+  function mountSlop() {
+    const root = document.createElement("div");
+    root.className = "slide-content";
+    root.innerHTML = `
+      <div class="fmd-slide" id="slide">
+        <div id="textGroup" class="fmd-slide-group" data-slide-group="true" data-slide-object-id="g1" style="position:absolute">
+          <div id="ta" class="fmd-text-box" data-slide-object-id="ta1" style="position:absolute">Alpha</div>
+          <div id="tb" class="fmd-text-box" data-slide-object-id="tb1" style="position:absolute">Beta</div>
+        </div>
+        <div id="shapeGroup" class="fmd-slide-group" data-slide-group="true" data-slide-object-id="g2" style="position:absolute">
+          <div id="sa" data-slide-shape="rectangle" data-slide-object-id="sa1" style="position:absolute;background-color:#123456;border:2px solid #123456"></div>
+          <div id="sb" data-slide-shape="rectangle" data-slide-object-id="sb1" style="position:absolute;background-color:#123456;border:2px solid #123456"></div>
+        </div>
+        <div id="filled" data-slide-shape="rectangle" data-slide-object-id="f1" style="position:absolute;background-color:#123456"></div>
+        <div id="filledText" data-slide-object-id="f2" style="position:absolute;background-color:#123456">Label</div>
+        <div id="filledBox" class="fmd-text-box" data-slide-object-id="f3" style="position:absolute;background-color:#fde68a">Note</div>
+        <div id="loose" data-slide-object-id="l1" style="position:absolute">Loose text</div>
+        <div id="outlined" data-slide-shape="rectangle" data-slide-object-id="o1" style="position:absolute;border:2px solid #333333"></div>
+        <div id="hollow" data-slide-shape="rectangle" data-slide-object-id="h1" style="position:absolute"></div>
+        <div id="rule" data-slide-shape="line" data-slide-object-id="r1" style="position:absolute;background-color:#333333"></div>
+        <hr id="hr" data-slide-object-id="r2" style="position:absolute">
+        <div id="photo" class="fmd-pptx-image" data-slide-object-id="i1" style="position:absolute"><img src="x.png"></div>
+        <div id="grid" class="fmd-pptx-table" data-slide-object-id="t1" style="position:absolute"><table><tbody><tr><td>Cell</td></tr></tbody></table></div>
+      </div>
+    `;
+    document.body.append(root);
+    const byId = (id: string) => root.querySelector<HTMLElement>(`#${id}`)!;
+    // Two stacked members per group: a 60 px gap whose midpoint is 30 px from both.
+    const bounds = new Map<HTMLElement, Rect>([
+      [byId("textGroup"), rect(100, 100, 280, 240)],
+      [byId("ta"), rect(100, 100, 280, 140)],
+      [byId("tb"), rect(100, 200, 280, 240)],
+      [byId("shapeGroup"), rect(400, 100, 500, 240)],
+      [byId("sa"), rect(400, 100, 500, 140)],
+      [byId("sb"), rect(400, 200, 500, 240)],
+      [byId("filled"), rect(600, 100, 700, 140)],
+      [byId("filledText"), rect(600, 200, 700, 240)],
+      [byId("filledBox"), rect(600, 300, 700, 340)],
+      [byId("loose"), rect(800, 100, 900, 140)],
+      [byId("outlined"), rect(800, 200, 900, 240)],
+      [byId("hollow"), rect(800, 300, 900, 340)],
+      [byId("rule"), rect(100, 400, 300, 402)],
+      [byId("hr"), rect(100, 500, 300, 500)],
+      [byId("photo"), rect(400, 400, 500, 440)],
+      [byId("grid"), rect(600, 400, 700, 440)],
+    ]);
+    const measure = {
+      textRects: () => [],
+      boundingRect: (el: HTMLElement) => bounds.get(el) ?? rect(0, 0, 0, 0),
+    };
+    const press = (
+      x: number,
+      y: number,
+      extra: Partial<SlidePointerTargetInput> = {},
+    ) =>
+      resolveSlidePointerTarget({
+        root,
+        point: { x, y },
+        stack: [byId("slide"), root],
+        measure,
+        ...extra,
+      });
+    return { byId, press };
+  }
+
+  const whitespace = { kind: "whitespace", cursor: "default" };
+
+  it("grabs the group from 4 px outside a text-box member on every side, not from 6", () => {
+    const { byId, press } = mountSlop();
+    for (const [x, y] of [
+      [96, 120],
+      [284, 120],
+      [190, 96],
+      [190, 244],
+    ]) {
+      expect(objectOf(press(x, y)), `${x},${y}`).toMatchObject({
+        object: byId("textGroup"),
+        hit: "body",
+        textRoot: null,
+        cursor: "move",
+        grab: "move",
+        hoverOutline: byId("textGroup"),
+      });
+    }
+    for (const [x, y] of [
+      [94, 120],
+      [286, 120],
+      [190, 94],
+      [190, 246],
+    ]) {
+      expect(press(x, y), `${x},${y}`).toEqual(whitespace);
+    }
+  });
+
+  it("grabs the group from 4 px off a member inside the gap, but not the gap's midpoint", () => {
+    const { byId, press } = mountSlop();
+    expect(objectOf(press(190, 144)).object).toBe(byId("textGroup"));
+    expect(objectOf(press(190, 196)).object).toBe(byId("textGroup"));
+    expect(press(190, 146)).toEqual(whitespace);
+    expect(press(190, 170)).toEqual(whitespace);
+  });
+
+  it("drills a slop press to the nearest member once the group is selected", () => {
+    const { byId, press } = mountSlop();
+    const selected = byId("textGroup");
+    expect(objectOf(press(96, 120, { selected }))).toMatchObject({
+      object: byId("ta"),
+      hit: "body",
+      hoverOutline: byId("ta"),
+    });
+    expect(objectOf(press(190, 196, { selected })).object).toBe(byId("tb"));
+    expect(press(94, 120, { selected })).toEqual(whitespace);
+  });
+
+  it("lets a drilled member's slop press reach the neighbouring member", () => {
+    const { byId, press } = mountSlop();
+    const selected = byId("ta");
+    expect(objectOf(press(96, 220, { selected })).object).toBe(byId("tb"));
+    expect(objectOf(press(96, 120, { selected }))).toMatchObject({
+      object: byId("ta"),
+      hoverOutline: null,
+    });
+    expect(press(94, 220, { selected })).toEqual(whitespace);
+  });
+
+  it("gives a group of only filled shapes no slop outside it or in its gap", () => {
+    const { press } = mountSlop();
+    for (const [x, y] of [
+      [396, 120],
+      [504, 120],
+      [450, 96],
+      [450, 144],
+      [450, 196],
+    ]) {
+      expect(press(x, y), `${x},${y}`).toEqual(whitespace);
+    }
+  });
+
+  it("gives filled shapes, images and tables no slop at 4 px", () => {
+    const { press } = mountSlop();
+    for (const [label, x, y] of [
+      ["filled shape", 596, 120],
+      ["filled shape with text", 596, 220],
+      ["image", 396, 420],
+      ["table", 596, 420],
+    ] as const) {
+      expect(press(x, y), label).toEqual(whitespace);
+    }
+  });
+
+  it("keeps the slop on a text box whatever its fill", () => {
+    const { byId, press } = mountSlop();
+    expect(objectOf(press(596, 320)).object).toBe(byId("filledBox"));
+    expect(press(594, 320)).toEqual(whitespace);
+  });
+
+  it("gives unfilled text, bordered and empty shapes the slop at 4 px, not 6", () => {
+    const { byId, press } = mountSlop();
+    for (const [id, x, y] of [
+      ["loose", 796, 120],
+      ["outlined", 796, 220],
+      ["hollow", 796, 320],
+    ] as const) {
+      expect(objectOf(press(x, y)).object, id).toBe(byId(id));
+      expect(press(x - 2, y), id).toEqual(whitespace);
+    }
+  });
+
+  it("gives a line the slop perpendicular to it", () => {
+    const { byId, press } = mountSlop();
+    expect(objectOf(press(200, 396)).object).toBe(byId("rule"));
+    expect(objectOf(press(200, 406)).object).toBe(byId("rule"));
+    expect(press(200, 394)).toEqual(whitespace);
+    expect(objectOf(press(200, 496)).object).toBe(byId("hr"));
+    expect(objectOf(press(200, 504)).object).toBe(byId("hr"));
+    expect(press(200, 494)).toEqual(whitespace);
+  });
+
+  it("shows the move cursor and outline in the slop band only for outline-hit objects", () => {
+    const { byId, press } = mountSlop();
+    expect(objectOf(press(796, 120))).toMatchObject({
+      cursor: "move",
+      hoverOutline: byId("loose"),
+    });
+    expect(press(794, 120)).toEqual(whitespace);
+    expect(press(596, 120)).toEqual(whitespace);
+  });
+});
+
 describe("resolveSlidePointerTarget special elements", () => {
   it("treats a full-slide painted backdrop as empty slide", () => {
     const root = document.createElement("div");
@@ -733,5 +923,26 @@ describe("clampSelectionToTextRoot", () => {
     expect(selection.anchorOffset).toBe(4);
     expect(b.contains(selection.focusNode)).toBe(true);
     expect(selection.toString()).toBe("Beta");
+  });
+});
+
+describe("resolveSlidePointerTarget on slide-number digits", () => {
+  it("counts the digits drawn by a token as text, not as the footer's body", () => {
+    const root = document.createElement("div");
+    root.className = "slide-content";
+    root.innerHTML = `<div class="fmd-slide"><p id="footer">Page <span id="n" data-slide-number></span></p></div>`;
+    document.body.append(root);
+    const token = root.querySelector<HTMLElement>("#n")!;
+    const footer = root.querySelector<HTMLElement>("#footer")!;
+    token.getClientRects = () =>
+      [
+        { left: 100, top: 10, right: 112, bottom: 30, width: 12, height: 20 },
+      ] as unknown as DOMRectList;
+    const target = resolveSlidePointerTarget({
+      root,
+      point: { x: 106, y: 20 },
+      stack: [token, footer, root],
+    });
+    expect(target).toMatchObject({ hit: "text", textRoot: footer });
   });
 });

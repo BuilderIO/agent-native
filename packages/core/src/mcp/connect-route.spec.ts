@@ -819,6 +819,28 @@ describe("handleMcpConnect", () => {
       expect(data.expires_in).toBe(600);
     });
 
+    it.each(["APP_URL", "WORKSPACE_OAUTH_ORIGIN"])(
+      "device/start uses %s behind an internal proxy host",
+      async (originSetting) => {
+        vi.stubEnv("APP_URL", undefined);
+        vi.stubEnv("WORKSPACE_OAUTH_ORIGIN", undefined);
+        vi.stubEnv(originSetting, "https://mail.example.com");
+        vi.stubEnv("APP_BASE_PATH", "/mail");
+        const res = await handleMcpConnect(
+          ev({ method: "POST", host: "mail-internal:3000" }),
+          "/device/start",
+        );
+        expect(res.status).toBe(200);
+        const data = await res.json();
+        expect(data.verification_uri).toBe(
+          "https://mail.example.com/mail/mcp/connect",
+        );
+        expect(data.verification_uri_complete).toBe(
+          `https://mail.example.com/mail/mcp/connect?user_code=${data.user_code}`,
+        );
+      },
+    );
+
     it("persists requested full catalog scope and rejects non-boolean values", async () => {
       const res = await handleMcpConnect(
         ev({ method: "POST", body: { fullCatalog: true } }),

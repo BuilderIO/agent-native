@@ -1,5 +1,52 @@
 # @agent-native/toolkit
 
+## 0.206.0
+
+### Minor Changes
+
+- 58b7507: Refresh Builder and BYOK model catalogs, including Claude Haiku 5.5, current provider IDs, and model picker options.
+
+### Patch Changes
+
+- e88f35c: Prevent new AI chat work from dispatching without an eligible provider, and provide a consistent Connect AI flow.
+
+  `createProductionAgentHandler` now requires the `assertAiSetupReady` callback. Existing callers must provide a readiness assertion before upgrading; refusals can use the existing `onRunNotStarted` callback to retain the user's prompt and retry context.
+
+  AgentKit transports must provide `assertAiSetupReady`, or clients for transports where shared Agent-Native provider setup does not apply must set `aiSetupReadiness: "not-applicable"` explicitly.
+
+- 80e66f8: Persist a sanitized first-prompt title for chat threads without replacing an existing title, hide prompt context from extracted previews, match context tags by exact name, and remove unused browser-installer dependencies from serverless functions.
+- 58b7507: Show custom-agent model choices using the active engine's supported models and label Builder fallbacks clearly.
+- 0889356: Redirect the deprecated Dispatch integrations route into Settings and preserve mounted OAuth return paths.
+- 3f0fe0f: Let an app open the extension iframe's `img-src` and `media-src` to remote origins.
+
+  The sandboxed extension iframe shipped `img-src 'self' data: blob:` and `media-src 'self' data: blob:`, so an extension could not show a product photo, avatar, or CDN asset without proxying the bytes through the app. `extensions.iframeImageSources` and `extensions.iframeMediaSources` (env `AGENT_NATIVE_EXTENSION_IFRAME_IMAGE_SOURCES` / `AGENT_NATIVE_EXTENSION_IFRAME_MEDIA_SOURCES`) now replace those two lists, comma-separated, defaulting to the previous values. Each entry is validated as a single CSP source expression, so a configured value cannot terminate the directive and append a new one. `connect-src` stays `'self'`. A remote image or media origin is an explicit egress permission: the browser requests that URL, so it can carry data out of the sandbox. API calls still go through the permission-gated host bridge.
+
+  The configured lists reach every extension frame: the server render route, and the client-rendered `srcDoc` frames in `ExtensionViewer` and `InlineExtensionFrame`, which read them from the authenticated `/_agent-native/extensions/iframe/display-sources` endpoint. The lists are validated again wherever the policy is built, so a resolved config mutated after validation cannot inject a directive, and a client that cannot load valid lists falls back to the default policy.
+
+- e174642: `ExtensionViewer` and `ExtensionViewerPage` accept optional `headerActions` for the toolbar's trailing controls, so an app can show its notifications bell on extension pages. The default is still the agent toggle.
+- d6f1e18: Downscale large chat images for vision and preserve a URL-backed copy for retries.
+- Release all public npm packages with a patch version bump.
+- 792ba44: Mask run failure messages and diagnostic details in session replays, preserving the default privacy marker with app-specific text selectors.
+- 8f0ffa5: Preserve browser session correlation across signup and same-origin agent chat, resolve onboarding identity before handoff, keep credential and local endpoint outcomes accurate through dismissals and pending saves, and preserve attempts across idle session rotation.
+- d6f1e18: Hydrate readable images and documents from owned storage URLs into model requests and report attachment processing failures to the model.
+  Send resized image payloads through their durable URLs so multiple references stay within the request's inline data limit.
+- d6f1e18: Preserve image MIME types through shared chat attachments, report active engine configuration errors instead of treating them as missing provider credentials, validate queued image sizes before decoding, keep legacy queued messages readable, and avoid misleading storage setup guidance for generic upload failures.
+- be0d784: Add opt-in, privacy-masked session replay for signup and login pages.
+- 68deb1e: Show known-new chat homes immediately while chat history loads.
+- af7acb9: Open the Agent runs popover next to its button instead of the top-left corner of the window.
+- 217260d: Start a signed-in visitor's early session read from the top of `<head>`, before the page's stylesheets and module preloads, instead of from the body after them, where it waited for every stylesheet to load. `AppProviders` reports the read during the server render, so pages that skip the session check still start none.
+
+  Toolkit now requires `@agent-native/core` 0.205.1 or later, the first release that exports `@agent-native/core/shared/ssr-session-bootstrap-slot`, which `AppProviders` imports.
+
+- 6e9fccf: Improve onboarding telemetry attribution and setup completion redirects.
+- Updated dependencies [e88f35c]
+- Updated dependencies [d6f1e18]
+- Updated dependencies [80e66f8]
+- Updated dependencies
+- Updated dependencies [d6f1e18]
+- Updated dependencies [f3d2b81]
+  - @agent-native/agentkit@0.206.0
+
 ## 0.205.0
 
 ### Patch Changes
@@ -783,8 +830,8 @@
   election, so a viewer could win it and then apply nothing at all, leaving a session where every editor's work was dropped.
 - c595519: Adds a shared `afterBodyPointerUnlock` helper (`@agent-native/toolkit/ui/pointer-lock`) that defers opening a follow-up Dialog/Sheet/AlertDialog until `document.body.style.pointerEvents` is confirmed unlocked, avoiding the Radix dismissable-layer race where a new modal mounts before a closing one (with a nested Select) finishes unregistering and leaves the page permanently unclickable.
 - 9735e4d: Fix the desktop agent picker readiness, tooltip stacking, and terminal mode control.
-- 15b86eb: `VisualScrubInput` keeps focus on Enter instead of blurring, and selects the
-  committed value the way Figma's inspector fields do. Blurring handed the next
+- 15b86eb: `VisualScrubInput` keeps focus on Enter instead of blurring and selects the
+  committed value so editing can continue in the field. Blurring handed the next
   keystroke to whatever global shortcut owned that key, so typing a value and
   continuing to type could fire a canvas command (a zoom jump, in the report that
   found this) while the user believed they were still editing the field.
@@ -1105,17 +1152,5 @@
 ### Patch Changes
 
 - 14818b6: Allow the first local edit in a newly synced empty collaborative document to reach the host application's canonical save path.
-
-## 0.10.7
-
-### Patch Changes
-
-- 52cce19: Stop the agent composer from locking into a silently dead state. An
-  engine-readiness check that timed out or failed is now kept distinct from a
-  confirmed "no provider configured": it leaves the composer usable instead of
-  disabling it, and retries on a backoff instead of latching until reload. The
-  2.5s client budget that a single warm-server status probe routinely lost is
-  now a 15s abort ceiling rather than a deadline the probes race. A composer is
-  only ever disabled when the "Connect AI" affordance renders alongside it.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
