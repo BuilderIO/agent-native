@@ -9569,7 +9569,14 @@ export function createProductionAgentHandler(
         typeof promotionOptions.model === "string"
           ? promotionOptions.model
           : undefined;
-      requestEngine = undefined;
+      const promotionOptionMetadata = queuedPromotionRecord(
+        promotionOptions.metadata,
+      );
+      const promotionEngine =
+        admittedQueuedMessage.metadata?.engine ??
+        promotionOptionMetadata?.engine;
+      requestEngine =
+        typeof promotionEngine === "string" ? promotionEngine : undefined;
       requestEffort = isReasoningEffort(promotionOptions.reasoningEffort)
         ? promotionOptions.reasoningEffort
         : undefined;
@@ -9587,7 +9594,11 @@ export function createProductionAgentHandler(
       delete mutableBody.structuredHistory;
       mutableBody.metadata = requestMetadata;
       mutableBody.model = requestModel;
-      delete mutableBody.engine;
+      if (requestEngine === undefined) {
+        delete mutableBody.engine;
+      } else {
+        mutableBody.engine = requestEngine;
+      }
       mutableBody.effort = requestEffort;
       mutableBody.mode = requestMode;
       delete mutableBody.internalContinuation;

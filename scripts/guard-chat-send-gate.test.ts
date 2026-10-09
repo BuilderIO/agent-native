@@ -237,6 +237,7 @@ test("gates new sends and queue appends while constraining Continue to an admitt
     this.transport.queueMessage();
   }
   async continueRun(threadId: string, runId: string) {
+    await this.assertAiSetupReady({ threadId });
     this.transport.continueRun({ threadId, runId });
   }
 }`;
@@ -260,8 +261,17 @@ test("gates new sends and queue appends while constraining Continue to an admitt
     "AgentKitClient.queueMessage must await assertAiSetupReady before setThread",
   ]);
 
+  const ungatedContinue = gated.replace(
+    "    await this.assertAiSetupReady({ threadId });\n",
+    "",
+  );
+  assert.deepEqual(violations(file, ungatedContinue), [
+    "AgentKitClient.continueRun must await assertAiSetupReady before resuming an admitted thread and run id",
+  ]);
+
   const promptContinuation = gated.replace(
     `async continueRun(threadId: string, runId: string) {
+    await this.assertAiSetupReady({ threadId });
     this.transport.continueRun({ threadId, runId });
   }`,
     `async continueRun(threadId: string, prompt: string) {
@@ -269,7 +279,7 @@ test("gates new sends and queue appends while constraining Continue to an admitt
   }`,
   );
   assert.deepEqual(violations(file, promptContinuation), [
-    "AgentKitClient.continueRun may only resume a server-admitted thread and run id",
+    "AgentKitClient.continueRun must await assertAiSetupReady before resuming an admitted thread and run id",
   ]);
 
   const silentFallback = gated.replace(

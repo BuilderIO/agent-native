@@ -686,6 +686,7 @@ function admittedContinuationViolation(
   const body = method?.body;
   const continuationAliases = new Set<string>();
   let resumesRecordedRun = false;
+  let continuationDispatchPosition: number | undefined;
   if (body) {
     const visit = (node: ts.Node) => {
       if (
@@ -705,31 +706,44 @@ function admittedContinuationViolation(
           node.expression.expression.getText(sourceFile) ===
             "this.transport") ||
           (ts.isIdentifier(node.expression) &&
-            continuationAliases.has(node.expression.text))) &&
-        node.arguments[0] &&
-        ts.isObjectLiteralExpression(node.arguments[0])
+            continuationAliases.has(node.expression.text)))
       ) {
-        const fields = new Set(
-          node.arguments[0].properties.flatMap((property) => {
-            if (ts.isShorthandPropertyAssignment(property)) {
-              return [property.name.text];
-            }
-            return ts.isPropertyAssignment(property)
-              ? [propertyName(property.name)]
-              : [];
-          }),
+        continuationDispatchPosition = Math.min(
+          continuationDispatchPosition ?? Infinity,
+          node.getStart(sourceFile),
         );
-        resumesRecordedRun = fields.has("threadId") && fields.has("runId");
+        if (
+          node.arguments[0] &&
+          ts.isObjectLiteralExpression(node.arguments[0])
+        ) {
+          const fields = new Set(
+            node.arguments[0].properties.flatMap((property) => {
+              if (ts.isShorthandPropertyAssignment(property)) {
+                return [property.name.text];
+              }
+              return ts.isPropertyAssignment(property)
+                ? [propertyName(property.name)]
+                : [];
+            }),
+          );
+          resumesRecordedRun = fields.has("threadId") && fields.has("runId");
+        }
       }
       if (!resumesRecordedRun) ts.forEachChild(node, visit);
     };
     visit(body);
   }
+  const readinessGatePosition = body
+    ? awaitedMemberCallPosition(body, "assertAiSetupReady", sourceFile)
+    : undefined;
   if (
     method &&
     parameters?.[0] === "threadId" &&
     parameters[1] === "runId" &&
-    resumesRecordedRun
+    resumesRecordedRun &&
+    readinessGatePosition !== undefined &&
+    continuationDispatchPosition !== undefined &&
+    readinessGatePosition < continuationDispatchPosition
   ) {
     return undefined;
   }
@@ -740,7 +754,7 @@ function admittedContinuationViolation(
     startLine: range?.start ?? 1,
     endLine: range?.end ?? 1,
     reason:
-      "AgentKitClient.continueRun may only resume a server-admitted thread and run id",
+      "AgentKitClient.continueRun must await assertAiSetupReady before resuming an admitted thread and run id",
   };
 }
 

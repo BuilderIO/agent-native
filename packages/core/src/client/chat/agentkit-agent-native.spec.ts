@@ -130,6 +130,57 @@ describe("createAgentNativeAgentKitTransport", () => {
     resetAgentEngineReadinessForTests();
   });
 
+  it("starts the send deadline before resolving async auth headers and recovers", async () => {
+    vi.useFakeTimers();
+    resetAgentEngineReadinessForTests();
+    let resolveHeaders!: (value: HeadersInit) => void;
+    const pendingHeaders = new Promise<HeadersInit>((resolve) => {
+      resolveHeaders = resolve;
+    });
+    const headers = vi.fn(() => pendingHeaders);
+    let resolveFetchStarted!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      resolveFetchStarted = resolve;
+    });
+    const fetcher = vi.fn(async () => {
+      resolveFetchStarted();
+      return json({ configured: true, chatEligible: true });
+    });
+    const transport = createAgentNativeAgentKitTransportImplementation({
+      apiUrl: "https://headers.example.test/_agent-native/agent-chat",
+      engine: "openai",
+      fetch: fetcher as typeof fetch,
+      headers,
+    });
+
+    try {
+      const firstCheck = transport.assertAiSetupReady?.({
+        threadId: "thread-header-timeout",
+      });
+      const timedOutCheck = expect(firstCheck).rejects.toMatchObject({
+        name: AgentChatAiSetupRequiredError.name,
+        state: "unavailable",
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      await timedOutCheck;
+      expect(headers).toHaveBeenCalledOnce();
+      expect(fetcher).not.toHaveBeenCalled();
+
+      resolveHeaders({ Authorization: "Bearer test" });
+      await fetchStarted;
+      await expect(
+        transport.assertAiSetupReady?.({
+          threadId: "thread-header-timeout",
+        }),
+      ).resolves.toBeUndefined();
+      expect(headers).toHaveBeenCalledOnce();
+      expect(fetcher).toHaveBeenCalledOnce();
+    } finally {
+      resetAgentEngineReadinessForTests();
+      vi.useRealTimers();
+    }
+  });
+
   it("creates a missing thread when its first snapshot races the user-message save", async () => {
     const requests: Array<{ url: string; method: string; body?: string }> = [];
     let created = false;

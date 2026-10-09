@@ -91,6 +91,7 @@ interface SnapshotAnnotationConflict {
 
 const RUN_SLOT_POLL_INTERVAL_MS = 150;
 const RUN_SLOT_STABLE_POLLS = 2;
+const MAX_READINESS_SOURCES = 128;
 const MAX_THREAD_SNAPSHOT_REQUEST_BYTES = 4 * 1024 * 1024;
 const MAX_THREAD_SNAPSHOT_RETRIES = 2;
 const MAX_THREAD_SNAPSHOT_ANNOTATION_REPLACEMENT_BYTES = 64 * 1024;
@@ -1926,6 +1927,14 @@ export function createAgentNativeAgentKitTransport(
   const promotionClaimIds = new Map<string, string>();
   const durableAssistantMessageIdsByRun = new Map<string, string | null>();
   const assistantHistoryMessageIdsByRun = new Map<string, string>();
+  const readinessSourcesBySession = new Map<
+    string,
+    {
+      statusUrl: string;
+      fetch: typeof fetch;
+      headers: () => Promise<Headers>;
+    }
+  >();
   let transport: AgentKitProtocolAdapter;
 
   function promotionClaimId(threadId: string, messageId: string): string {
@@ -1950,15 +1959,26 @@ export function createAgentNativeAgentKitTransport(
     input: { engine?: string; threadId?: string },
     _context?: AgentRequestContext,
   ): Promise<void> {
-    return requireAgentEngineConfiguredForDispatch({
-      engine: input.engine ?? options.engine,
-      source: {
+    const sessionId = input.threadId ?? options.threadId;
+    const sessionKey = sessionId ?? "";
+    let source = readinessSourcesBySession.get(sessionKey);
+    if (!source) {
+      if (readinessSourcesBySession.size >= MAX_READINESS_SOURCES) {
+        const oldestSession = readinessSourcesBySession.keys().next().value;
+        if (oldestSession !== undefined) {
+          readinessSourcesBySession.delete(oldestSession);
+        }
+      }
+      source = {
         statusUrl: agentEngineStatusUrlForChatApi(apiUrl),
         fetch: fetcher,
-        headers: await headers({
-          sessionId: input.threadId ?? options.threadId,
-        }),
-      },
+        headers: () => headers({ sessionId }),
+      };
+      readinessSourcesBySession.set(sessionKey, source);
+    }
+    return requireAgentEngineConfiguredForDispatch({
+      engine: input.engine ?? options.engine,
+      source,
     });
   }
 

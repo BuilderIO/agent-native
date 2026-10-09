@@ -2456,6 +2456,99 @@ describe("createProductionAgentHandler", () => {
     }
   });
 
+  it("uses the persisted engine when promoting a queued message", async () => {
+    const { registerAgentEngine, unregisterAgentEngine } =
+      await import("./engine/registry.js");
+    const selectedEngineName = "queue-promotion-test-engine";
+    const selectedEngine = {
+      ...engineWithUncalledStream(),
+      name: selectedEngineName,
+      label: "Queue promotion test",
+      defaultModel: "queued-model",
+      supportedModels: ["queued-model"],
+    };
+    const defaultEngine = {
+      ...engineWithUncalledStream(),
+      name: "default-test-engine",
+      label: "Default test engine",
+    };
+    registerAgentEngine({
+      name: selectedEngineName,
+      label: selectedEngine.label,
+      description: "Queue promotion test engine",
+      capabilities: selectedEngine.capabilities,
+      defaultModel: selectedEngine.defaultModel,
+      supportedModels: selectedEngine.supportedModels,
+      requiredEnvVars: [],
+      create: () => selectedEngine,
+    });
+
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-queue-engine",
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: "queued-engine-message",
+              text: "Use the saved engine",
+              metadata: { engine: selectedEngineName },
+              options: {
+                model: "queued-model",
+                metadata: { engine: selectedEngineName },
+              },
+              promotionClaim: {
+                id: "queue-engine-claim",
+                expiresAt: Date.now() + 60_000,
+              },
+            },
+          ],
+        }),
+      } as never);
+    const stopAfterEngineResolution = new Error("stop after engine resolution");
+    const onEngineResolved = vi.fn(() => {
+      throw stopAfterEngineResolution;
+    });
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: defaultEngine,
+      actions: {},
+      onEngineResolved,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Use the saved engine",
+          threadId: "thread-queue-engine",
+          queuedMessageId: "queued-engine-message",
+          queuedMessageClaimId: "queue-engine-claim",
+          engine: "forged-engine",
+          model: "forged-model",
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).rejects.toBe(stopAfterEngineResolution);
+
+      expect(onEngineResolved).toHaveBeenCalledWith(
+        selectedEngine,
+        "queued-model",
+      );
+      expect(selectedEngine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+      unregisterAgentEngine(selectedEngineName);
+    }
+  });
+
   it.each([
     {
       name: "a mismatched claim ID",

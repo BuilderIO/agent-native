@@ -888,13 +888,11 @@ describe("createAgentNativeChatRuntime", () => {
   });
 
   it("bounds asynchronous auth-header resolution and permits a later retry", async () => {
-    let resolveHeaders = false;
-    const headers = vi.fn(async () => {
-      if (!resolveHeaders) {
-        return new Promise<HeadersInit>(() => {});
-      }
-      return { Authorization: "Bearer test" };
+    let resolvePendingHeaders!: (value: HeadersInit) => void;
+    const pendingHeaders = new Promise<HeadersInit>((resolve) => {
+      resolvePendingHeaders = resolve;
     });
+    const headers = vi.fn(() => pendingHeaders);
     const fetchMock = vi.fn(async () =>
       jsonResponse({ configured: true, chatEligible: true }),
     );
@@ -912,9 +910,9 @@ describe("createAgentNativeChatRuntime", () => {
     });
     expect(fetchMock).not.toHaveBeenCalled();
 
-    resolveHeaders = true;
+    resolvePendingHeaders({ Authorization: "Bearer test" });
     await requireAgentEngineConfiguredForDispatch({ source, timeoutMs: 100 });
-    expect(headers).toHaveBeenCalledTimes(2);
+    expect(headers).toHaveBeenCalledOnce();
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 

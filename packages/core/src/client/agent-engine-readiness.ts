@@ -42,6 +42,7 @@ const LOCAL_RUNTIME_ENGINES = new Set<string>(LOCAL_RUNTIME_ENGINE_IDS);
 const AGENT_ENGINE_STATUS_PATH = "/_agent-native/agent-engine/status";
 const CHAT_API_PATH_SUFFIX = "/_agent-native/agent-chat";
 const AGENT_ENGINE_READINESS_TTL_MS = 10_000;
+const AGENT_ENGINE_READINESS_PROBE_TIMEOUT_MS = 15_000;
 const MAX_READINESS_STORES = 128;
 const sourceIdentityTokens = new WeakMap<object, number>();
 let nextSourceIdentityToken = 1;
@@ -476,6 +477,20 @@ async function ensureStoreReadiness(
   options?: { fresh?: boolean; timeoutMs?: number },
 ): Promise<AgentEngineConfiguredState> {
   const fresh = options?.fresh === true;
+  const callerTimeoutMs =
+    typeof options?.timeoutMs === "number" && options.timeoutMs > 0
+      ? options.timeoutMs
+      : undefined;
+  const callerDeadline =
+    callerTimeoutMs === undefined ? undefined : Date.now() + callerTimeoutMs;
+
+  const waitForCaller = async (
+    request: Promise<AgentEngineConfiguredState>,
+  ): Promise<AgentEngineConfiguredState> => {
+    const result = await waitForReadinessDeadline(request, callerDeadline);
+    return result === READINESS_DEADLINE_REACHED ? "unavailable" : result;
+  };
+
   if (
     !fresh &&
     (store.state === "configured" || store.state === "missing") &&
@@ -483,19 +498,15 @@ async function ensureStoreReadiness(
   ) {
     return store.state;
   }
-  if (store.inFlight) return store.inFlight;
+  if (store.inFlight) return waitForCaller(store.inFlight);
 
   const requestRevision = store.revision;
-  const timeoutMs =
-    typeof options?.timeoutMs === "number" && options.timeoutMs > 0
-      ? options.timeoutMs
-      : undefined;
-  const deadline = timeoutMs === undefined ? undefined : Date.now() + timeoutMs;
-  const request = readStoreReadiness(store, deadline, fresh)
+  const probeDeadline = Date.now() + AGENT_ENGINE_READINESS_PROBE_TIMEOUT_MS;
+  const request = readStoreReadiness(store, probeDeadline, fresh)
     .catch(() => "unavailable" as const)
     .then((nextState) => {
       if (requestRevision !== store.revision) {
-        return ensureStoreReadiness(store, { timeoutMs });
+        return "unavailable" as const;
       }
       store.resolvedAt = Date.now();
       publish(store, nextState);
@@ -505,7 +516,7 @@ async function ensureStoreReadiness(
       if (store.inFlight === request) store.inFlight = null;
     });
   store.inFlight = request;
-  return request;
+  return waitForCaller(request);
 }
 
 export async function ensureAgentEngineReadiness(options?: {

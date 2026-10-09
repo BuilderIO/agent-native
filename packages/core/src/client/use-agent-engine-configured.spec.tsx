@@ -662,7 +662,7 @@ describe("useAgentEngineConfigured", () => {
     await expect(status).resolves.toBe("unavailable");
   });
 
-  it("starts a fresh request after a timed-out shared probe", async () => {
+  it("releases a hung shared probe at its deadline and allows retry", async () => {
     vi.useFakeTimers();
     let requestCount = 0;
     vi.stubGlobal(
@@ -679,6 +679,11 @@ describe("useAgentEngineConfigured", () => {
     const first = fetchAgentEngineConfiguredState(true, { timeoutMs: 25 });
     await vi.advanceTimersByTimeAsync(50);
     await expect(first).resolves.toBe("unavailable");
+
+    // A caller's shorter deadline does not cancel the shared probe. The
+    // shared probe itself has a hard bound so a hung request cannot block
+    // later callers forever.
+    await vi.advanceTimersByTimeAsync(15_000);
 
     await expect(
       fetchAgentEngineConfiguredState(true, { timeoutMs: 25 }),
@@ -716,6 +721,43 @@ describe("useAgentEngineConfigured", () => {
     });
 
     expect(container.textContent).toBe("configured");
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("applies a send deadline when joining a passive probe, then reuses its answer", async () => {
+    vi.useFakeTimers();
+    let resolveStatus!: (response: Response) => void;
+    const fetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveStatus = resolve;
+        }),
+    );
+    const source = {
+      statusUrl:
+        "https://passive-probe.example.test/_agent-native/agent-engine/status",
+      fetch: fetch as typeof globalThis.fetch,
+    };
+    const passiveProbe = ensureAgentEngineReadiness({ source });
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    const sendReadiness = requireAgentEngineConfiguredForDispatch({
+      source,
+      timeoutMs: 25,
+    });
+    const timedOutSend = expect(sendReadiness).rejects.toMatchObject({
+      name: AgentChatAiSetupRequiredError.name,
+      state: "unavailable",
+    });
+    await vi.advanceTimersByTimeAsync(25);
+    await timedOutSend;
+    expect(fetch).toHaveBeenCalledOnce();
+
+    resolveStatus(jsonResponse({ configured: true, chatEligible: true }));
+    await expect(passiveProbe).resolves.toBe("configured");
+    await expect(
+      requireAgentEngineConfiguredForDispatch({ source }),
+    ).resolves.toBeUndefined();
     expect(fetch).toHaveBeenCalledOnce();
   });
 

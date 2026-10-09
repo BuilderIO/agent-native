@@ -44,6 +44,7 @@ import {
   resolvePreferredAgentModel,
   type ComposerTerminalModeControl,
   type PromptComposerFile,
+  type PromptComposerProps,
   type SlashCommand,
   type TiptapComposerHandle,
 } from "@agent-native/toolkit/app/chat/composer";
@@ -105,6 +106,8 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
+
+import { createCodeAgentAiReadinessGate } from "./ai-readiness.js";
 
 const SCHEDULED_CHAT_PROMPT_EVENT = "agent-native:scheduled-chat-prompt";
 
@@ -3141,6 +3144,7 @@ export default function CodeAgentsApp({
                                   : newSessionExtensionComposerState.showModelSelector
                               }
                               onPromptChange={setNewPrompt}
+                              getHostMetadata={host.getHostMetadata}
                               onPermissionModeChange={setNewRunPermissionMode}
                               onModelSelectionChange={setModelSelection}
                               onSlashCommand={
@@ -3890,6 +3894,7 @@ function NewSessionComposer({
   onConnectProvider,
   onConnectLocalRuntime,
   onDisabledClick,
+  getHostMetadata,
 }: {
   prompt: string;
   promptSeed: number;
@@ -3916,6 +3921,7 @@ function NewSessionComposer({
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
   onDisabledClick?: () => void;
+  getHostMetadata?: CodeAgentsHost["getHostMetadata"];
 }) {
   return (
     <CodeAgentComposer
@@ -3943,6 +3949,7 @@ function NewSessionComposer({
       onConnectProvider={onConnectProvider}
       onConnectLocalRuntime={onConnectLocalRuntime}
       onDisabledClick={onDisabledClick}
+      getHostMetadata={getHostMetadata}
     />
   );
 }
@@ -3970,6 +3977,7 @@ function CodeAgentComposer({
   onConnectProvider,
   onConnectLocalRuntime,
   onDisabledClick,
+  getHostMetadata,
   modeControl: modeControlOverride,
   useDefaultModeControl = true,
   showModelSelector = true,
@@ -4004,6 +4012,7 @@ function CodeAgentComposer({
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
   onDisabledClick?: () => void;
+  getHostMetadata?: CodeAgentsHost["getHostMetadata"];
   modeControl?: React.ReactNode;
   useDefaultModeControl?: boolean;
   showModelSelector?: boolean;
@@ -4057,9 +4066,31 @@ function CodeAgentComposer({
       </button>
     ) : undefined;
 
+  const onBeforeSubmit = useMemo<
+    NonNullable<PromptComposerProps["onBeforeSubmit"]>
+  >(
+    () =>
+      createCodeAgentAiReadinessGate(
+        getHostMetadata,
+        normalizedModel.engine,
+        (readiness) => {
+          if (readiness === "missing") onDisabledClick?.();
+          toast(
+            readiness === "missing"
+              ? "Connect AI before sending."
+              : "Could not verify the AI connection. Try again.",
+            { duration: 3200 },
+          );
+        },
+      ),
+    [getHostMetadata, normalizedModel.engine, onDisabledClick],
+  );
+
   return (
     <PromptComposer
-      requireAgentEngine
+      // Desktop renders from file://; its host metadata IPC is the readiness
+      // source, while the main-process dispatch still enforces provider setup.
+      onBeforeSubmit={onBeforeSubmit}
       className="code-agents-standard-composer code-agents-composer-shell"
       style={codeAgentComposerAreaStyle}
       rootStyle={codeAgentComposerRootStyle}
@@ -5671,6 +5702,7 @@ function TranscriptPanel({
       onForkChat,
       chatBlocked,
       onDisabledClick,
+      getHostMetadata: host.getHostMetadata,
     }),
     [
       modelOptions,
@@ -5684,6 +5716,7 @@ function TranscriptPanel({
       onStop,
       permissionMode,
       chatBlocked,
+      host.getHostMetadata,
       runIsActive,
     ],
   );
@@ -5825,6 +5858,7 @@ interface CodeAgentChatContextValue {
   onConnectLocalRuntime?: (engine: string) => void;
   chatBlocked: boolean;
   onDisabledClick?: () => void;
+  getHostMetadata?: CodeAgentsHost["getHostMetadata"];
   onForkChat?: () => void;
 }
 
@@ -5862,6 +5896,7 @@ function CodeAgentKitComposerSlot({ threadId }: { threadId: string }) {
       stopActive={chat.runIsActive}
       disabled={chat.chatBlocked}
       onPromptChange={() => undefined}
+      getHostMetadata={chat.getHostMetadata}
       onPermissionModeChange={chat.onPermissionModeChange}
       onModelSelectionChange={chat.onModelSelectionChange}
       onSubmit={async (prompt, attachments, followUpMode) => {
