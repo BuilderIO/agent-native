@@ -563,13 +563,13 @@ const formatInt = (value: number, locale = "en-US") =>
   value.toLocaleString(locale);
 
 function appDisplayName(value: string): string {
-  const knownApps: Record<string, string> = {
-    clips: "Clips",
-    design: "Design",
-    slides: "Slides",
-  };
+  const knownApps = new Map([
+    ["clips", "Clips"],
+    ["design", "Design"],
+    ["slides", "Slides"],
+  ]);
   return (
-    knownApps[value] ??
+    knownApps.get(value) ??
     value.replace(/-/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
   );
 }
@@ -779,7 +779,7 @@ function cardProvenanceMarkup(
       : "",
     evidenceText ? `<p>${escapeHtml(evidenceText)}</p>` : "",
   ].join("");
-  return `<section class="example-provenance" data-index="${index}"><p class="provenance date-line" title="${escapeHtml(`${messages.utcTimestamp}: ${utcTimestamp(displayedTimestamp)}`)}">${escapeHtml(utcDate(displayedTimestamp))}</p><p class="provenance actor-line" title="${escapeHtml(`${messages.actorRecording}: ${actor} (${messages.actorSource}: ${actorSource})`)}">${escapeHtml(messages.actorRecording)}: ${escapeHtml(actor)}</p>${captionMarkup}<details class="provenance-details" name="journey-card-details"><summary title="${escapeHtml(messages.replayDetails)}">${escapeHtml(messages.replayDetails)}</summary><div class="provenance-body">${technicalRows}</div></details></section>`;
+  return `<section class="example-provenance" data-index="${index}"><p class="provenance date-line" title="${escapeHtml(`${provenance.dateLabel}: ${utcTimestamp(displayedTimestamp)}`)}"><time datetime="${escapeHtml(utcTimestamp(displayedTimestamp))}">${escapeHtml(utcDate(displayedTimestamp))}</time><span class="date-kind">${escapeHtml(provenance.dateLabel)}</span></p><p class="provenance actor-line" title="${escapeHtml(`${messages.actorRecording}: ${actor} (${messages.actorSource}: ${actorSource})`)}">${escapeHtml(messages.actorRecording)}: ${escapeHtml(actor)}</p>${captionMarkup}<details class="provenance-details" name="journey-card-details"><summary title="${escapeHtml(messages.replayDetails)}">${escapeHtml(messages.replayDetails)}</summary><div class="provenance-body">${technicalRows}</div></details></section>`;
 }
 
 function promptExcerpt(value: string): string {
@@ -997,6 +997,8 @@ header .coverage-note{font-size:10px;line-height:12px;overflow:hidden;text-overf
 header .provenance{font-size:9px;line-height:12px}
 header .example-provenance{display:block}
 header .date-line,header .actor-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header .date-line{display:flex;gap:5px;align-items:baseline}
+header .date-kind{font-size:9px;opacity:.8}
 header .caption-line{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:10px;line-height:12px;white-space:normal;overflow-wrap:anywhere}
 header .prompt summary{font-size:10px;line-height:12px}
 header details{margin:0;color:${MUTED};font-size:10px;line-height:12px}
