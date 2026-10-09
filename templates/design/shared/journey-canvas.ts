@@ -740,6 +740,9 @@ function cardHtml(args: {
   headerHeight: number;
   messages: JourneyCanvasMessages;
 }): string {
+  const direction = args.messages.htmlLanguage.startsWith("ar-")
+    ? "rtl"
+    : "ltr";
   const body = args.examples.length
     ? exampleGalleryMarkup(args.examples)
     : `<p>${escapeHtml(args.placeholder)}</p>`;
@@ -749,7 +752,7 @@ function cardHtml(args: {
     )
     .join("");
   return `<!DOCTYPE html>
-<html lang="${escapeHtml(args.messages.htmlLanguage)}">
+<html lang="${escapeHtml(args.messages.htmlLanguage)}" dir="${direction}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">

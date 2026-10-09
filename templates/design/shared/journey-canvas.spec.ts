@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { toJSONSchema, type z } from "zod";
 
+import arSA from "../app/i18n/ar-SA.js";
 import { emptyBoardHtml } from "./board-file.js";
 import {
   JOURNEY_BOARD_ID_PREFIX,
@@ -388,6 +389,17 @@ describe("create-journey-canvas input", () => {
     expect(
       problems(rawInput({ frames: [frame("signup", 0, { width: 0 })] })).length,
     ).toBeGreaterThan(0);
+  });
+});
+
+describe("journey canvas direction", () => {
+  it("marks Arabic cards as right-to-left documents", () => {
+    const input = parse(rawInput({ locale: "ar-SA" }));
+    const result = planJourneyCanvas(input, "design-1", arSA.journeyCanvas);
+
+    expect(result.screens[0]?.html).toMatch(
+      /<html lang="ar-SA" dir="rtl"(?:\s|>)/,
+    );
   });
 });
 
