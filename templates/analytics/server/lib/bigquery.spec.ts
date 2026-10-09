@@ -19,7 +19,9 @@ vi.mock("./credentials", () => ({ resolveCredential }));
 vi.mock("./gcloud", () => ({ getAccessToken }));
 
 const {
+  BigQueryBackendError,
   BigQueryMaximumBytesBilledError,
+  BigQueryQueryTimeoutError,
   dryRunQuery,
   dryRunQuerySchema,
   runQuery,
@@ -407,6 +409,40 @@ describe("runQuery cancellation", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("returns only an allowlisted reason for backend query errors", async () => {
+    const fetchMock = vi.fn<typeof globalThis.fetch>().mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () =>
+        JSON.stringify({
+          error: {
+            errors: [
+              {
+                reason: "invalidQuery",
+                message: "Invalid query contains private customer SQL",
+              },
+            ],
+          },
+        }),
+    } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    let failure: unknown;
+    try {
+      await runQuery("SELECT 1 AS safe_query");
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(BigQueryBackendError);
+    expect(failure).toMatchObject({
+      operation: "submit",
+      backendStatus: 400,
+      backendReason: "invalid_query",
+    });
+    expect((failure as Error).message).not.toContain("private customer SQL");
+  });
+
   it("cancels a submitted job when the caller aborts before the response arrives", async () => {
     const controller = new AbortController();
     let jobId = "";
@@ -449,6 +485,9 @@ describe("runQuery cancellation", () => {
       expect.any(AbortSignal),
     );
     expect(fetchMock.mock.calls[0]?.[1]?.signal).not.toBe(controller.signal);
+    expect((fetchMock.mock.calls[0]?.[1]?.signal as AbortSignal).aborted).toBe(
+      true,
+    );
     expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
       `https://bigquery.googleapis.com/bigquery/v2/projects/test-project/jobs/${jobId}/cancel?location=US`,
     );
@@ -499,17 +538,19 @@ describe("runQuery cancellation", () => {
 
     const pending = runQuery("SELECT 1 AS stalled_job_submission_test");
     await submissionStarted;
+    const submissionSignal = fetchMock.mock.calls[0]?.[1]
+      ?.signal as AbortSignal;
     expect(fetchMock).toHaveBeenLastCalledWith(
       expect.stringContaining("/jobs"),
-      expect.objectContaining({
-        signal: submissionTimeoutController.signal,
-        method: "POST",
-      }),
+      expect.objectContaining({ method: "POST" }),
     );
+    expect(submissionSignal).toBe(submissionTimeoutController.signal);
+    expect(submissionSignal.aborted).toBe(false);
     expect([...cache.values()][0]?.refreshInProgress).toBe(true);
 
     submissionTimeoutController.abort();
-    await expect(pending).rejects.toThrow("job submission timed out");
+    expect(submissionSignal.aborted).toBe(true);
+    await expect(pending).rejects.toBeInstanceOf(BigQueryQueryTimeoutError);
 
     const cancellationRequest = fetchMock.mock.calls.find(([input]) =>
       String(input).includes("/cancel"),
@@ -546,7 +587,7 @@ describe("runQuery cancellation", () => {
 
     const pending = runQuery("SELECT 1");
     const rejection = expect(pending).rejects.toThrow(
-      "BigQuery query timed out after 60 seconds",
+      "BigQuery query timed out",
     );
 
     await vi.advanceTimersByTimeAsync(0);
@@ -582,7 +623,7 @@ describe("runQuery cancellation", () => {
 
     const pending = runQuery("SELECT 2");
     const rejection = expect(pending).rejects.toThrow(
-      "BigQuery query timed out after 60 seconds",
+      "BigQuery query timed out",
     );
 
     await vi.advanceTimersByTimeAsync(0);
@@ -889,9 +930,12 @@ describe("runQuery cancellation", () => {
     );
 
     cancellationTimeoutController.abort();
-    await expect(pending).rejects.toThrow(
-      "BigQuery poll error 503: BigQuery poll unavailable",
-    );
+    await expect(pending).rejects.toMatchObject({
+      name: "BigQueryBackendError",
+      operation: "poll",
+      backendStatus: 503,
+      backendReason: "other",
+    });
     expect([...cache.values()][0]?.refreshInProgress).toBe(false);
     expect(timeout).toHaveBeenCalledWith(5_000);
   });

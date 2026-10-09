@@ -1643,6 +1643,21 @@ function validateObservationWindow(
   }
 }
 
+export function onboardingJourneyEventDateRange(
+  filters: OnboardingJourneyEventsFilters,
+  observation: OnboardingJourneyObservationWindow,
+): { startDate: string; endDate: string } {
+  validateOnboardingJourneyFilters(filters);
+  validateObservationWindow(observation);
+  return {
+    startDate: filters.dateFrom,
+    endDate:
+      filters.dateTo < observation.observationDate
+        ? filters.dateTo
+        : observation.observationDate,
+  };
+}
+
 function fillOnboardingJourneySql(
   sql: string,
   values: Record<string, string>,
@@ -1724,7 +1739,7 @@ export function buildOnboardingJourneyFollowupSql(
     throw new Error("A follow-up query requires terminal onboarding steps");
   }
   const terminalRows = terminalSteps
-    .map((terminal) => {
+    .map((terminal, index) => {
       if (
         !terminal.sessionId ||
         !terminal.stepKey ||
@@ -1732,7 +1747,13 @@ export function buildOnboardingJourneyFollowupSql(
       ) {
         throw new Error("Invalid onboarding terminal step");
       }
-      return `SELECT ${sqlStringLiteral(terminal.sessionId)} AS session_id, ${sqlStringLiteral(terminal.stepKey)} AS terminal_step_key, NULLIF('${new Date(terminal.tsMs).toISOString()}', '')::timestamptz AS terminal_at`;
+      const values = [
+        sqlStringLiteral(terminal.sessionId),
+        sqlStringLiteral(terminal.stepKey),
+        sqlStringLiteral(new Date(terminal.tsMs).toISOString()),
+      ];
+      const columns = ["session_id", "terminal_step_key", "terminal_at_text"];
+      return `SELECT ${values.map((value, column) => (index === 0 ? `${value} AS ${columns[column]}` : value)).join(", ")}`;
     })
     .join(" UNION ALL ");
   const baseCte = buildOnboardingEventsCte({
@@ -1745,7 +1766,11 @@ export function buildOnboardingJourneyFollowupSql(
   JOIN scoped_onboarding_events c ON c.session_id = i.session_id
   WHERE c.event_name IN (${sqlNameList(JOURNEY_COHORT_EVENT_NAMES)})
 ), terminal_steps AS (
-  {{terminalRows}}
+  SELECT terminal_row.session_id, terminal_row.terminal_step_key,
+    terminal_row.terminal_at_text::timestamptz AS terminal_at
+  FROM (
+    {{terminalRows}}
+  ) terminal_row
 ), eligible_terminal_steps AS (
   SELECT terminal.*
   FROM terminal_steps terminal
@@ -1781,6 +1806,40 @@ ORDER BY terminal_step_key`;
 export const ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS = 30;
 export const MAX_ONBOARDING_PERSON_FOLLOWUP_MEMBERS = 1_000;
 
+export function onboardingJourneyPersonFollowupDateRange(
+  filters: OnboardingJourneyEventsFilters,
+  members: readonly OnboardingJourneyPersonMember[],
+  observation: OnboardingJourneyObservationWindow,
+): {
+  startAt: string;
+  startDate: string;
+  endAt: string;
+  endDate: string;
+} {
+  validateOnboardingJourneyFilters(filters);
+  validateObservationWindow(observation);
+  if (!members.length || !observation.observationWatermark) {
+    throw new Error(
+      "Person follow-up requires members and an observation watermark",
+    );
+  }
+  const horizonMs = ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS * DAY_MS;
+  const activityStartMs = Math.min(
+    Date.parse(`${filters.dateFrom}T00:00:00.000Z`),
+    ...members.map((member) => member.tsMs),
+  );
+  const activityEndMs = Math.min(
+    Date.parse(observation.observationWatermark),
+    Math.max(...members.map((member) => member.tsMs + horizonMs)),
+  );
+  return {
+    startAt: new Date(activityStartMs).toISOString(),
+    startDate: new Date(activityStartMs).toISOString().slice(0, 10),
+    endAt: new Date(activityEndMs).toISOString(),
+    endDate: new Date(activityEndMs).toISOString().slice(0, 10),
+  };
+}
+
 /** Cross-session person follow-up uses direct auth IDs and returns aggregates only. */
 export function buildOnboardingJourneyPersonFollowupSql(
   filters: OnboardingJourneyEventsFilters,
@@ -1815,34 +1874,47 @@ export function buildOnboardingJourneyPersonFollowupSql(
       ) {
         throw new Error("Invalid onboarding person follow-up member");
       }
-      const identityStatus = authUserId ? "identified" : "unavailable";
-      const personId = authUserId ? sqlStringLiteral(authUserId) : "NULL::text";
-      return `SELECT ${index} AS member_id, ${sqlStringLiteral(member.sessionId)} AS session_id, ${sqlStringLiteral(member.stepKey)} AS terminal_step_key, ${sqlStringLiteral(app)} AS terminal_app, NULLIF('${new Date(member.tsMs).toISOString()}', '')::timestamptz AS terminal_at, ${personId} AS auth_user_id, '${identityStatus}' AS identity_status`;
+      const payload = sqlStringLiteral(
+        JSON.stringify({
+          sessionId: member.sessionId,
+          stepKey: member.stepKey,
+          app,
+          timestamp: new Date(member.tsMs).toISOString(),
+          authUserId,
+        }),
+      );
+      return `SELECT ${payload}${index === 0 ? " AS member_payload" : ""}`;
     })
     .join(" UNION ALL ");
 
-  const watermarkMs = Date.parse(watermark);
-  const horizonMs = ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS * DAY_MS;
-  const activityStartMs = Math.min(
-    Date.parse(`${filters.dateFrom}T00:00:00.000Z`),
-    ...members.map((member) => member.tsMs),
+  const dateRange = onboardingJourneyPersonFollowupDateRange(
+    filters,
+    members,
+    observation,
   );
-  const activityEndMs = Math.min(
-    watermarkMs,
-    Math.max(...members.map((member) => member.tsMs + horizonMs)),
-  );
-  const activityStartDate = new Date(activityStartMs)
-    .toISOString()
-    .slice(0, 10);
-  const activityEndDate = new Date(activityEndMs).toISOString().slice(0, 10);
-  const activityStart = new Date(activityStartMs).toISOString();
-  const activityEnd = new Date(activityEndMs).toISOString();
+  const activityStartDate = dateRange.startDate;
+  const activityEndDate = dateRange.endDate;
+  const activityStart = dateRange.startAt;
+  const activityEnd = dateRange.endAt;
   const appExpression = TEMPLATE_EXPR.replace(/\btemplate\b/g, "e.template")
     .replace(/\bproperties\b/g, "e.properties")
     .replace(/\bapp\b/g, "e.app");
 
   const query = `WITH terminal_members AS (
+  SELECT ROW_NUMBER() OVER (
+      ORDER BY terminal_row.member_payload::jsonb ->> 'timestamp',
+        terminal_row.member_payload::jsonb ->> 'sessionId',
+        terminal_row.member_payload::jsonb ->> 'stepKey'
+    ) AS member_id,
+    terminal_row.member_payload::jsonb ->> 'sessionId' AS session_id,
+    terminal_row.member_payload::jsonb ->> 'stepKey' AS terminal_step_key,
+    terminal_row.member_payload::jsonb ->> 'app' AS terminal_app,
+    (terminal_row.member_payload::jsonb ->> 'timestamp')::timestamptz AS terminal_at,
+    terminal_row.member_payload::jsonb ->> 'authUserId' AS auth_user_id,
+    CASE WHEN terminal_row.member_payload::jsonb ->> 'authUserId' IS NULL THEN 'unavailable' ELSE 'identified' END AS identity_status
+  FROM (
   {{terminalRows}}
+  ) terminal_row
 ), activity_events AS (
   SELECT e.session_id, e.timestamp::timestamptz AS event_at,
     lower(${appExpression}) AS activity_app,

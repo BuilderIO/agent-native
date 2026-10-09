@@ -10,6 +10,7 @@ import { getDbExec } from "@agent-native/core/db";
 import { getOrgSetting } from "@agent-native/core/settings";
 
 import {
+  BigQueryQueryTimeoutError,
   getBigQueryProjectId,
   runQuery,
   type BigQueryTableRef,
@@ -1259,9 +1260,31 @@ function qualifyQuerySources(sql: string, table: BigQueryTableRef): string {
   });
 }
 
+function onboardingEventDatePredicates(eventDateRange?: {
+  startDate: string;
+  endDate: string;
+}): string[] {
+  if (!eventDateRange) return [];
+  for (const value of [eventDateRange.startDate, eventDateRange.endDate]) {
+    const timestamp = Date.parse(`${value}T00:00:00.000Z`);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
+      Number.isNaN(timestamp) ||
+      new Date(timestamp).toISOString().slice(0, 10) !== value
+    ) {
+      throw new Error("First-party event date bounds must be calendar dates");
+    }
+  }
+  return [
+    `event_date >= DATE '${eventDateRange.startDate}'`,
+    `event_date <= DATE '${eventDateRange.endDate}'`,
+  ];
+}
+
 function addPartitionPrunedEventDeduplication(
   sql: string,
   table: BigQueryTableRef,
+  eventDateRange?: { startDate: string; endDate: string },
 ): string {
   const quote = String.fromCharCode(96);
   const source =
@@ -1303,7 +1326,15 @@ function addPartitionPrunedEventDeduplication(
     }
     // ponytail: insertAll is at-least-once; staging + MERGE is the upgrade path
     // for physical exactly-once if the warehouse contract requires it.
-    const predicates = firstPartyEventPushdownPredicates(sql, sourceIndex);
+    const predicates = [
+      ...onboardingEventDatePredicates(eventDateRange),
+      ...firstPartyEventPushdownPredicates(sql, sourceIndex),
+    ].filter(
+      (predicate, index, all) =>
+        all.findIndex(
+          (candidate) => candidate.toLowerCase() === predicate.toLowerCase(),
+        ) === index,
+    );
     result +=
       sql.slice(cursor, predicateEnd) +
       predicates.map((predicate) => ` AND (${predicate})`).join("") +
@@ -1323,6 +1354,7 @@ export function renderFirstPartyAnalyticsBigQuerySql(
   scopedSql: string,
   args: Array<string | null>,
   table: BigQueryTableRef,
+  options: { eventDateRange?: { startDate: string; endDate: string } } = {},
 ): string {
   // The Postgres scope builder uses a text fallback for nullable event
   // dates. BigQuery's event_date is a DATE, and the fallback is unnecessary
@@ -1337,7 +1369,7 @@ export function renderFirstPartyAnalyticsBigQuerySql(
   const translated =
     translateFirstPartyAnalyticsBigQuerySql(normalizedScopeSql);
   const bound = bindSqlArguments(translated, args);
-  assertBigQuerySourceProvenance(translated, bound);
+  assertBigQuerySourceProvenance(scopedSql, bound);
   validateAnalyticsSqlFunctions(
     readAgentSqlQuery(bound, { dialect: "bigquery" }),
     "bigquery",
@@ -1345,6 +1377,7 @@ export function renderFirstPartyAnalyticsBigQuerySql(
   return addPartitionPrunedEventDeduplication(
     coerceDateComparisonOperands(qualifyQuerySources(bound, table)),
     table,
+    options.eventDateRange,
   );
 }
 
@@ -1352,16 +1385,40 @@ export async function queryFirstPartyAnalyticsInBigQuery(
   scopedSql: string,
   args: Array<string | null>,
   table: BigQueryTableRef,
-  options: { maxBytesBilled?: number } = {},
+  options: {
+    eventDateRange?: { startDate: string; endDate: string };
+    maxBytesBilled?: number;
+    timeoutMs?: number;
+  } = {},
 ): Promise<{
   rows: Record<string, unknown>[];
   schema: { name: string; type: string }[];
   truncated?: boolean;
 }> {
-  const result = await runQuery(
-    `SELECT * FROM (${renderFirstPartyAnalyticsBigQuerySql(scopedSql, args, table)}) AS first_party_analytics_query LIMIT 5000`,
-    { maxBytesBilled: options.maxBytesBilled },
-  );
+  const timeoutMs = options.timeoutMs;
+  if (
+    timeoutMs !== undefined &&
+    (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000)
+  ) {
+    throw new Error(
+      "First-party BigQuery timeout is outside the allowed range",
+    );
+  }
+  const timeoutSignal =
+    timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs);
+  let result: Awaited<ReturnType<typeof runQuery>>;
+  try {
+    result = await runQuery(
+      `SELECT * FROM (${renderFirstPartyAnalyticsBigQuerySql(scopedSql, args, table, { eventDateRange: options.eventDateRange })}) AS first_party_analytics_query LIMIT 5000`,
+      {
+        maxBytesBilled: options.maxBytesBilled,
+        ...(timeoutSignal ? { signal: timeoutSignal } : {}),
+      },
+    );
+  } catch (error) {
+    if (timeoutSignal?.aborted) throw new BigQueryQueryTimeoutError();
+    throw error;
+  }
   return {
     rows: result.rows,
     schema: result.schema,

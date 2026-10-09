@@ -1,7 +1,12 @@
 import { lexAgentSql } from "@agent-native/core/agent-sql";
 import { getAppBasePath, getRequestContext } from "@agent-native/core/server";
 
-import { BigQueryMaximumBytesBilledError } from "./bigquery.js";
+import {
+  BigQueryBackendError,
+  BigQueryMaximumBytesBilledError,
+  BigQueryQueryTimeoutError,
+  type BigQueryBackendReason,
+} from "./bigquery.js";
 import {
   queryFirstPartyAnalytics,
   type AnalyticsScope,
@@ -11,6 +16,8 @@ import {
   buildOnboardingJourneyEventsSql,
   buildOnboardingJourneyFollowupSql,
   buildOnboardingJourneyPersonFollowupSql,
+  onboardingJourneyEventDateRange,
+  onboardingJourneyPersonFollowupDateRange,
   MAX_ONBOARDING_PERSON_FOLLOWUP_MEMBERS,
   ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS,
   type OnboardingJourneyEventsFilters,
@@ -41,9 +48,75 @@ import {
 // Both backends cap a query result at 5,000 rows; stay under it so a full page
 // is never mistaken for a cut one.
 const EVENT_PAGE_ROWS = 4_000;
+const MAX_ONBOARDING_JOURNEY_FOLLOWUP_TERMINALS = 2_000;
 const MAX_FOLLOWUP_QUERY_CHARS = 800_000;
 const MAX_FOLLOWUP_QUERY_TOKENS = 50_000;
+const ONBOARDING_QUERY_TIMEOUT_MS = 20_000;
+const ONBOARDING_EVENTS_MAX_BYTES_BILLED = 25_000_000_000;
+const ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED = 10_000_000_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+export type OnboardingJourneyReadFailureKind =
+  | "backend_error"
+  | "query_timeout"
+  | "cost_limited"
+  | "query_error";
+
+export class OnboardingJourneyReadError extends Error {
+  readonly stage = "journey_events" as const;
+  readonly failureKind: OnboardingJourneyReadFailureKind;
+  readonly backendStatus: number | null;
+  readonly backendReason: BigQueryBackendReason | null;
+  readonly backendOperation: BigQueryBackendError["operation"] | null;
+
+  constructor(error: unknown) {
+    const failure = onboardingJourneyFailureDetails(error);
+    super("The scoped onboarding journey event query failed");
+    this.name = "OnboardingJourneyReadError";
+    this.failureKind = failure.kind;
+    this.backendStatus = failure.backendStatus;
+    this.backendReason = failure.backendReason;
+    this.backendOperation = failure.backendOperation;
+  }
+}
+
+function onboardingJourneyFailureDetails(error: unknown): {
+  kind: OnboardingJourneyReadFailureKind;
+  backendStatus: number | null;
+  backendReason: BigQueryBackendReason | null;
+  backendOperation: BigQueryBackendError["operation"] | null;
+} {
+  if (error instanceof BigQueryMaximumBytesBilledError) {
+    return {
+      kind: "cost_limited",
+      backendStatus: error.backendStatus,
+      backendReason: error.backendReason,
+      backendOperation: null,
+    };
+  }
+  if (error instanceof BigQueryQueryTimeoutError) {
+    return {
+      kind: "query_timeout",
+      backendStatus: error.backendStatus,
+      backendReason: error.backendReason,
+      backendOperation: null,
+    };
+  }
+  if (error instanceof BigQueryBackendError) {
+    return {
+      kind: "backend_error",
+      backendStatus: error.backendStatus,
+      backendReason: error.backendReason,
+      backendOperation: error.operation,
+    };
+  }
+  return {
+    kind: "query_error",
+    backendStatus: null,
+    backendReason: null,
+    backendOperation: null,
+  };
+}
 
 export interface OnboardingJourneyArgs extends OnboardingJourneyEventsFilters {
   format: "tree" | "summary";
@@ -124,6 +197,9 @@ export interface JourneyFollowup {
     | "terminal_cohort_query_too_large"
     | "followup_aggregate_truncated"
     | "followup_aggregate_invalid"
+    | "followup_aggregate_cost_limited"
+    | "followup_aggregate_query_timeout"
+    | "followup_aggregate_query_failed"
     | "terminal_cohort_mismatch";
   observationCutoff: string;
   observationFollowupDurationMs: {
@@ -143,6 +219,10 @@ export interface JourneyFollowup {
       rows: number | null;
       queries: number;
       truncated: boolean;
+      status?: "incomplete";
+      backendStatus?: number | null;
+      backendReason?: BigQueryBackendReason | null;
+      backendOperation?: BigQueryBackendError["operation"] | null;
     };
     cohortSessions: number | null;
   };
@@ -186,6 +266,8 @@ export interface JourneyPersonFollowup {
     | "terminal_cohort_invalid"
     | "person_followup_aggregate_truncated"
     | "person_followup_query_cost_limited"
+    | "person_followup_query_timeout"
+    | "person_followup_query_failed"
     | "person_followup_aggregate_invalid"
     | "person_followup_terminal_cohort_mismatch";
   horizonDays: typeof ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS;
@@ -208,6 +290,9 @@ export interface JourneyPersonFollowup {
       rows: number | null;
       queries: number;
       truncated: boolean;
+      backendStatus?: number | null;
+      backendReason?: BigQueryBackendReason | null;
+      backendOperation?: BigQueryBackendError["operation"] | null;
     };
     terminalSessions: number | null;
     sessionsWithoutSelectedStep: number | null;
@@ -356,7 +441,12 @@ async function readJourneyEvents(
         { freezeReceivedAt },
       ),
       scope,
-      { cache: true },
+      {
+        cache: true,
+        timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
+        maxBytesBilled: ONBOARDING_EVENTS_MAX_BYTES_BILLED,
+        eventDateRange: onboardingJourneyEventDateRange(filters, observation),
+      },
     );
     pages += 1;
     raw.push(...page.rows);
@@ -494,6 +584,9 @@ function incompleteFollowup(
     rows?: number | null;
     queries?: number;
     truncated?: boolean;
+    backendStatus?: number | null;
+    backendReason?: BigQueryBackendReason | null;
+    backendOperation?: BigQueryBackendError["operation"] | null;
   } = {},
 ): JourneyFollowup {
   return {
@@ -513,6 +606,16 @@ function incompleteFollowup(
         rows: options.rows ?? null,
         queries: options.queries ?? 0,
         truncated: options.truncated ?? false,
+        ...(options.queries ? { status: "incomplete" as const } : {}),
+        ...(options.backendStatus !== undefined
+          ? { backendStatus: options.backendStatus }
+          : {}),
+        ...(options.backendReason !== undefined
+          ? { backendReason: options.backendReason }
+          : {}),
+        ...(options.backendOperation !== undefined
+          ? { backendOperation: options.backendOperation }
+          : {}),
       },
       cohortSessions: null,
     },
@@ -569,6 +672,13 @@ async function readFollowup(
       },
     };
   }
+  if (terminals.length > MAX_ONBOARDING_JOURNEY_FOLLOWUP_TERMINALS) {
+    return incompleteFollowup(
+      observation,
+      read,
+      "terminal_cohort_query_too_large",
+    );
+  }
   const sql = buildOnboardingJourneyFollowupSql(
     filters,
     terminals,
@@ -584,7 +694,29 @@ async function readFollowup(
       "terminal_cohort_query_too_large",
     );
   }
-  const result = await queryFirstPartyAnalytics(sql, scope, { cache: true });
+  let result: Awaited<ReturnType<typeof queryFirstPartyAnalytics>>;
+  try {
+    result = await queryFirstPartyAnalytics(sql, scope, {
+      cache: true,
+      timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
+      maxBytesBilled: ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED,
+      eventDateRange: onboardingJourneyEventDateRange(filters, observation),
+    });
+  } catch (error) {
+    const failure = onboardingJourneyFailureDetails(error);
+    const reason =
+      failure.kind === "cost_limited"
+        ? "followup_aggregate_cost_limited"
+        : failure.kind === "query_timeout"
+          ? "followup_aggregate_query_timeout"
+          : "followup_aggregate_query_failed";
+    return incompleteFollowup(observation, read, reason, {
+      queries: 1,
+      backendStatus: failure.backendStatus,
+      backendReason: failure.backendReason,
+      backendOperation: failure.backendOperation,
+    });
+  }
   if (result.truncated) {
     return incompleteFollowup(
       observation,
@@ -816,6 +948,9 @@ async function readPersonFollowup(
       rows?: number | null;
       queries?: number;
       truncated?: boolean;
+      backendStatus?: number | null;
+      backendReason?: BigQueryBackendReason | null;
+      backendOperation?: BigQueryBackendError["operation"] | null;
       terminalSessions?: number | null;
       sessionsWithoutSelectedStep?: number | null;
       identityJoin?: JourneyPersonFollowup["coverage"]["identityJoin"];
@@ -834,6 +969,15 @@ async function readPersonFollowup(
         rows: options.rows ?? null,
         queries: options.queries ?? 0,
         truncated: options.truncated ?? false,
+        ...(options.backendStatus !== undefined
+          ? { backendStatus: options.backendStatus }
+          : {}),
+        ...(options.backendReason !== undefined
+          ? { backendReason: options.backendReason }
+          : {}),
+        ...(options.backendOperation !== undefined
+          ? { backendOperation: options.backendOperation }
+          : {}),
       },
       terminalSessions: options.terminalSessions ?? null,
       sessionsWithoutSelectedStep: options.sessionsWithoutSelectedStep ?? null,
@@ -1007,6 +1151,11 @@ async function readPersonFollowup(
     members,
     observation,
   );
+  const eventDateRange = onboardingJourneyPersonFollowupDateRange(
+    filters,
+    members,
+    observation,
+  );
   if (
     sql.length > MAX_FOLLOWUP_QUERY_CHARS ||
     lexAgentSql(sql, { dialect: "postgres" }).length > MAX_FOLLOWUP_QUERY_TOKENS
@@ -1017,15 +1166,25 @@ async function readPersonFollowup(
   try {
     result = await queryFirstPartyAnalytics(sql, scope, {
       cache: true,
-      timeoutMs: 20_000,
-      maxBytesBilled: 10_000_000_000,
+      timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
+      maxBytesBilled: ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED,
+      eventDateRange,
     });
   } catch (error) {
-    if (!(error instanceof BigQueryMaximumBytesBilledError)) throw error;
-    return incomplete("person_followup_query_cost_limited", {
+    const failure = onboardingJourneyFailureDetails(error);
+    const reason =
+      failure.kind === "cost_limited"
+        ? "person_followup_query_cost_limited"
+        : failure.kind === "query_timeout"
+          ? "person_followup_query_timeout"
+          : "person_followup_query_failed";
+    return incomplete(reason, {
       aggregateStatus: "incomplete",
       queries: 1,
       ...baseCoverage,
+      backendStatus: failure.backendStatus,
+      backendReason: failure.backendReason,
+      backendOperation: failure.backendOperation,
     });
   }
   if (result.truncated) {
@@ -1278,13 +1437,18 @@ export async function getOnboardingJourney(
   args: OnboardingJourneyArgs,
 ): Promise<JourneyTree | JourneySummary> {
   const observation = freezeObservationWindow(args);
-  const read = await readJourneyEvents(
-    scope,
-    args,
-    args.maxEventRows,
-    observation,
-    args.followUpMode === "person",
-  );
+  let read: EventRead;
+  try {
+    read = await readJourneyEvents(
+      scope,
+      args,
+      args.maxEventRows,
+      observation,
+      args.followUpMode === "person",
+    );
+  } catch (error) {
+    throw new OnboardingJourneyReadError(error);
+  }
   const { sessions, terminalSteps, sessionsWithoutSteps } = groupSessions(
     read.rows.filter((row) => row.journeyKind === "onboarding"),
   );

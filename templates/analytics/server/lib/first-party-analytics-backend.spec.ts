@@ -147,6 +147,40 @@ describe("event predicate pushdown", () => {
     expect(inner).toContain("AND (event_name = 'http.response')");
     expect(inner).toContain("AND (event_date >= DATE '2026-10-09')");
   });
+  it("pushes the frozen onboarding date window into every raw source before deduplication", () => {
+    const query = `SELECT COUNT(*) AS n FROM (
+      SELECT * FROM analytics_events WHERE org_id = 'org' AND event_date <= DATE '2026-10-08'
+      UNION ALL
+      SELECT * FROM analytics_events WHERE org_id IS NULL AND owner_email = 'owner@example.test' AND event_date <= DATE '2026-10-08'
+    ) AS analytics_events WHERE event_date >= DATE '2026-10-08' AND event_date <= DATE '2026-10-08'`;
+
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(query, [], table, {
+      eventDateRange: { startDate: "2026-10-08", endDate: "2026-10-08" },
+    });
+    const sources = [
+      ...rendered.matchAll(
+        /SELECT \* FROM `example-project\.analytics\.events` WHERE([\s\S]*?) QUALIFY ROW_NUMBER\(\)/g,
+      ),
+    ];
+
+    expect(sources).toHaveLength(2);
+    for (const source of sources) {
+      expect(source[1]).toContain("event_date >= DATE '2026-10-08'");
+      expect(source[1]).toContain("event_date <= DATE '2026-10-08'");
+    }
+    expect(rendered.match(/QUALIFY ROW_NUMBER\(\)/g)).toHaveLength(2);
+  });
+  it("rejects impossible calendar dates before sending the query", () => {
+    expect(() =>
+      renderFirstPartyAnalyticsBigQuerySql(
+        `SELECT id FROM ${source} WHERE event_name = 'signup'`,
+        [],
+        table,
+        { eventDateRange: { startDate: "2026-02-31", endDate: "2026-03-01" } },
+      ),
+    ).toThrow("First-party event date bounds must be calendar dates");
+    expect(runQuery).not.toHaveBeenCalled();
+  });
 });
 
 describe("first-party BigQuery backend", () => {

@@ -27,7 +27,7 @@ function extractBigQueryMessage(message: string): string {
   }
 
   return message
-    .replace(/^BigQuery (API|poll) error \d+:\s*/i, "")
+    .replace(/^BigQuery (API|poll|job) error(?: \d+)?:\s*/i, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -172,7 +172,7 @@ export default defineAction({
           hint: "The SQL was valid but exceeded the 60-second warehouse budget. Do NOT inspect the schema and do NOT rerun this query as-is. Make it cheaper: narrow the date range, add a LIMIT, aggregate in SQL instead of returning raw rows, or filter on a partition/cluster column. If the full scan is genuinely required, run it through run-code with background: true instead of retrying here.",
         };
       }
-      if (/BigQuery (API|poll) error/i.test(msg)) {
+      if (/BigQuery (API|poll|job) error/i.test(msg)) {
         const message = extractBigQueryMessage(msg);
         const recovery = await recoverFromSchemaMiss(
           args.sql,

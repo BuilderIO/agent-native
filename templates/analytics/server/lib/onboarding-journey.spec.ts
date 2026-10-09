@@ -1,7 +1,10 @@
 import { lexAgentSql } from "@agent-native/core/agent-sql";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { BigQueryMaximumBytesBilledError } from "./bigquery.js";
+import {
+  BigQueryBackendError,
+  BigQueryMaximumBytesBilledError,
+} from "./bigquery.js";
 
 const mocks = vi.hoisted(() => ({
   queryFirstPartyAnalytics: vi.fn(),
@@ -22,11 +25,13 @@ vi.mock("@agent-native/core/server", () => ({
 
 import {
   buildOnboardingJourneyFollowupSql,
+  onboardingJourneyEventDateRange,
   type OnboardingJourneyEventsFilters,
 } from "./first-party-metric-catalog";
 import {
   formatJourneyOutline,
   getOnboardingJourney,
+  OnboardingJourneyReadError,
   JourneyRecordingsError,
   parseJourneyEventRow,
   parseJourneyTimestampMs,
@@ -474,7 +479,7 @@ describe("getOnboardingJourney", () => {
       "'onboarding:completed' AS terminal_step_key",
     );
     expect(followupSql).toContain(
-      "NULLIF('2026-10-01T12:00:10.000Z', '')::timestamptz",
+      "'2026-10-01T12:00:10.000Z' AS terminal_at_text",
     );
     now.mockRestore();
   });
@@ -606,7 +611,8 @@ describe("getOnboardingJourney", () => {
     const journeySql = mocks.queryFirstPartyAnalytics.mock.calls[0]![0];
     const personSql = mocks.queryFirstPartyAnalytics.mock.calls[2]![0];
     expect(journeySql).toContain("received_at::timestamptz <");
-    expect(personSql).toContain("'person-1' AS auth_user_id");
+    expect(personSql).toContain('"authUserId":"person-1"');
+    expect(personSql).toContain("->> 'authUserId' AS auth_user_id");
     expect(personSql).toContain("e.received_at::timestamptz <");
     expect(personSql).toContain("'30 days'");
     now.mockRestore();
@@ -777,10 +783,132 @@ describe("getOnboardingJourney", () => {
       rows: null,
       queries: 1,
       truncated: true,
+      status: "incomplete",
     });
     expect(tree.followUp.coverage.cohortSessions).toBeNull();
     expect(tree.followUp.laterRecordedActivityWithinWindow.total).toBeNull();
     expect(tree.followUp.noLaterRecordedActivityWithinWindow.total).toBeNull();
+  });
+
+  it("keeps journey counts and exposes safe backend coverage when session follow-up fails", async () => {
+    const now = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(Date.parse("2026-10-09T12:00:00.000Z"));
+    const backendFailure = new BigQueryBackendError(
+      "submit",
+      400,
+      "invalid_query",
+    );
+    mocks.queryFirstPartyAnalytics
+      .mockResolvedValueOnce({ rows: journeyRows(), schema: [] })
+      .mockRejectedValueOnce(backendFailure);
+
+    try {
+      const tree = (await getOnboardingJourney(scope, {
+        ...ARGS,
+        format: "summary",
+      })) as JourneySummary;
+
+      expect(tree.rootN).toBe(3);
+      expect(tree.outline).toMatch(/n=3/);
+      expect(tree.followUp).toMatchObject({
+        status: "incomplete",
+        incompleteReason: "followup_aggregate_query_failed",
+        coverage: {
+          followupAggregateRead: {
+            status: "incomplete",
+            rows: null,
+            queries: 1,
+            truncated: false,
+            backendStatus: 400,
+            backendReason: "invalid_query",
+            backendOperation: "submit",
+          },
+          cohortSessions: null,
+        },
+        laterRecordedActivityWithinWindow: {
+          total: null,
+          byTerminalStepKey: null,
+        },
+        noLaterRecordedActivityWithinWindow: {
+          total: null,
+          byTerminalStepKey: null,
+        },
+      });
+      expect(mocks.queryFirstPartyAnalytics.mock.calls).toHaveLength(2);
+      expect(mocks.queryFirstPartyAnalytics.mock.calls[0]?.[2]).toMatchObject({
+        eventDateRange: { startDate: "2026-10-01", endDate: "2026-10-02" },
+        maxBytesBilled: 25_000_000_000,
+      });
+      expect(mocks.queryFirstPartyAnalytics.mock.calls[1]?.[2]).toMatchObject({
+        eventDateRange: { startDate: "2026-10-01", endDate: "2026-10-02" },
+        maxBytesBilled: 10_000_000_000,
+      });
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("keeps journey counts when the session follow-up reaches its BigQuery byte cap", async () => {
+    const now = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(Date.parse("2026-10-09T12:00:00.000Z"));
+    mocks.queryFirstPartyAnalytics
+      .mockResolvedValueOnce({ rows: journeyRows(), schema: [] })
+      .mockRejectedValueOnce(new BigQueryMaximumBytesBilledError(400));
+
+    try {
+      const tree = (await getOnboardingJourney(scope, {
+        ...ARGS,
+        format: "summary",
+      })) as JourneySummary;
+
+      expect(tree.rootN).toBe(3);
+      expect(tree.outline).toMatch(/n=3/);
+      expect(tree.followUp).toMatchObject({
+        status: "incomplete",
+        incompleteReason: "followup_aggregate_cost_limited",
+        coverage: {
+          followupAggregateRead: {
+            status: "incomplete",
+            rows: null,
+            queries: 1,
+            truncated: false,
+            backendStatus: 400,
+            backendReason: "quota_exceeded",
+            backendOperation: null,
+          },
+          cohortSessions: null,
+        },
+        laterRecordedActivityWithinWindow: {
+          total: null,
+          byTerminalStepKey: null,
+        },
+        noLaterRecordedActivityWithinWindow: {
+          total: null,
+          byTerminalStepKey: null,
+        },
+      });
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("clamps the BigQuery event-date range to the frozen observation date", () => {
+    const filters: OnboardingJourneyEventsFilters = {
+      dateFrom: "2026-10-08",
+      dateTo: "2026-10-11",
+      app: "all",
+      emailFilter: "exclude_builder",
+    };
+
+    expect(
+      onboardingJourneyEventDateRange(filters, {
+        observationCutoff: "2026-10-09T12:00:00.000Z",
+        observationDate: "2026-10-09",
+        observationWatermark: "2026-10-09T11:55:00.000Z",
+      }),
+    ).toEqual({ startDate: "2026-10-08", endDate: "2026-10-09" });
   });
 
   it("marks multi-page offset reads incomplete while preserving the tree", async () => {
@@ -795,12 +923,11 @@ describe("getOnboardingJourney", () => {
     mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
       querySql.push(sql);
       if (sql.includes("terminal_steps AS (")) {
-        const cohortSessions = sql.match(/ AS session_id/g)?.length ?? 0;
         return {
           rows: [
             {
               terminal_step_key: "signup",
-              cohort_sessions: cohortSessions,
+              cohort_sessions: 0,
               later_recorded_activity: 0,
             },
           ],
@@ -868,12 +995,11 @@ describe("getOnboardingJourney", () => {
     mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
       querySql.push(sql);
       if (sql.includes("terminal_steps AS (")) {
-        const cohortSessions = sql.match(/ AS session_id/g)?.length ?? 0;
         return {
           rows: [
             {
               terminal_step_key: "signup",
-              cohort_sessions: cohortSessions,
+              cohort_sessions: rows.length,
               later_recorded_activity: 0,
             },
           ],
@@ -897,8 +1023,10 @@ describe("getOnboardingJourney", () => {
 
     expect(eventSql).toHaveLength(1);
     expect(followupSql).toHaveLength(1);
+    expect(followupSql[0]?.match(/'cohort-\d{4}'/g)).toHaveLength(rows.length);
     expect(querySql.every((sql) => sql.includes(cutoff))).toBe(true);
     expect(tree.rootN).toBe(1001);
+    expect(tree.followUp.incompleteReason).toBeUndefined();
     expect(tree.followUp).toMatchObject({
       status: "complete",
       observationCutoff: cutoff,
@@ -963,7 +1091,7 @@ describe("getOnboardingJourney", () => {
 
   it("returns an incomplete follow-up when valid terminal rows exceed the SQL text cap", async () => {
     const terminals = Array.from({ length: 2200 }, (_, index) => ({
-      sessionId: `${String(index).padStart(4, "0")}-${"x".repeat(248)}`,
+      sessionId: `${String(index).padStart(4, "0")}-${"x".repeat(300)}`,
       stepKey: "signup",
       tsMs: T0,
     }));
@@ -1391,10 +1519,27 @@ describe("getOnboardingJourney", () => {
   });
 
   it("does not turn an unreadable event store into an empty tree", async () => {
-    mocks.queryFirstPartyAnalytics.mockRejectedValue(new Error("bq timeout"));
-    await expect(getOnboardingJourney(scope, ARGS)).rejects.toThrow(
-      "bq timeout",
+    const backendFailure = new BigQueryBackendError(
+      "submit",
+      400,
+      "invalid_query",
     );
+    mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(backendFailure);
+    let failure: unknown;
+    try {
+      await getOnboardingJourney(scope, ARGS);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(OnboardingJourneyReadError);
+    expect(failure).toMatchObject({
+      name: "OnboardingJourneyReadError",
+      stage: "journey_events",
+      failureKind: "backend_error",
+      backendStatus: 400,
+      backendReason: "invalid_query",
+      backendOperation: "submit",
+    });
   });
 
   it("gives an empty window an empty tree with zero coverage", async () => {

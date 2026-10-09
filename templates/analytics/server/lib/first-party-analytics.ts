@@ -100,6 +100,7 @@ export interface AnalyticsQueryOptions {
   cache?: boolean;
   timeoutMs?: number;
   maxBytesBilled?: number;
+  eventDateRange?: { startDate: string; endDate: string };
   /** Debugging only: metrics exclude test identities by default. */
   includeTestIdentities?: boolean;
 }
@@ -1059,6 +1060,8 @@ const TEST_IDENTITY_COLUMNS: Record<string, string> = {
   session_recordings: "user_id",
 };
 
+const SCOPED_ANALYTICS_EVENTS_CTE = "agent_native_scoped_analytics_events";
+
 function scopedTableSource(
   tableName: string,
   scope: AnalyticsScope,
@@ -1257,8 +1260,32 @@ export function scopedAnalyticsSql(
   const args: Array<string | null> = [];
   const configuredSql = withConfiguredTestIdentities(sql);
   const query = validateFirstPartyAnalyticsSqlShape(configuredSql);
+  const hasRawEvents = query.sources.some(
+    (source) => !source.cte && source.name === "analytics_events",
+  );
+  if (
+    hasRawEvents &&
+    query.ctes.some(
+      (cte) => cte.name.toLowerCase() === SCOPED_ANALYTICS_EVENTS_CTE,
+    )
+  ) {
+    throw new Error("Query uses a reserved first-party analytics CTE name");
+  }
+  const scopedEvents = hasRawEvents
+    ? scopedTableSource(
+        "analytics_events",
+        scope,
+        today,
+        args.length,
+        includeTestIdentities,
+      )
+    : null;
+  if (scopedEvents) args.push(...scopedEvents.args);
   const rewritten = rewriteAgentSqlQuerySources(query, (source) => {
     if (source.cte) return configuredSql.slice(source.start, source.end);
+    if (source.name === "analytics_events") {
+      return `${SCOPED_ANALYTICS_EVENTS_CTE}${source.alias ? "" : ` AS ${source.name}`}`;
+    }
     const scopedSource = scopedTableSource(
       source.name,
       scope,
@@ -1269,7 +1296,28 @@ export function scopedAnalyticsSql(
     args.push(...scopedSource.args);
     return scopedSource.sql + (source.alias ? "" : ` AS ${source.name}`);
   });
-  return { sql: rewritten, args };
+  if (!scopedEvents) return { sql: rewritten, args };
+
+  const rewrittenQuery = readAgentSqlQuery(rewritten, { dialect: "postgres" });
+  const firstToken = rewrittenQuery.tokens[0];
+  if (!firstToken) throw new Error("First-party analytics query is empty");
+  const withToken =
+    firstToken.kind === "word" && firstToken.value === "with"
+      ? firstToken
+      : null;
+  const recursiveToken =
+    withToken &&
+    rewrittenQuery.tokens[1]?.kind === "word" &&
+    rewrittenQuery.tokens[1].value === "recursive"
+      ? rewrittenQuery.tokens[1]
+      : null;
+  const prefixEnd = recursiveToken?.end ?? withToken?.end;
+  const scopedCte = `${SCOPED_ANALYTICS_EVENTS_CTE} AS ${scopedEvents.sql}`;
+  const resultSql =
+    prefixEnd !== undefined
+      ? `${rewritten.slice(0, prefixEnd)} ${scopedCte},${rewritten.slice(prefixEnd)}`
+      : `${rewritten.slice(0, firstToken.start)}WITH ${scopedCte} ${rewritten.slice(firstToken.start)}`;
+  return { sql: resultSql, args };
 }
 
 function valueType(value: unknown): string {
@@ -1380,6 +1428,7 @@ export async function queryFirstPartyAnalytics(
   const scopeOptions = {
     includeTestIdentities: options.includeTestIdentities === true,
   };
+  const queryClass = classifyFirstPartyAnalyticsQuery(sql);
   if (firstPartyAnalyticsQueryTarget(sql, backend.sink) === "bigquery") {
     validateAnalyticsSqlFunctions(
       validateFirstPartyAnalyticsSqlShape(sql),
@@ -1387,9 +1436,40 @@ export async function queryFirstPartyAnalytics(
     );
     const table = await getFirstPartyAnalyticsTable(backend.table);
     const scoped = scopedAnalyticsSql(sql, scope, undefined, scopeOptions);
-    return queryFirstPartyAnalyticsInBigQuery(scoped.sql, scoped.args, table, {
-      maxBytesBilled: options.maxBytesBilled,
-    });
+    const startedAt = Date.now();
+    const recordBigQueryPressure = async (
+      outcome: ReturnType<typeof queryOutcomeFromError> | "success",
+    ) => {
+      try {
+        await recordFirstPartyAnalyticsQueryPressure(scope, {
+          durationMs: Date.now() - startedAt,
+          outcome,
+          queryClass,
+        });
+      } catch (error) {
+        console.warn(
+          "[first-party-analytics] Query pressure recording failed:",
+          { errorType: error instanceof Error ? error.name : "non_error" },
+        );
+      }
+    };
+    try {
+      const result = await queryFirstPartyAnalyticsInBigQuery(
+        scoped.sql,
+        scoped.args,
+        table,
+        {
+          maxBytesBilled: options.maxBytesBilled,
+          timeoutMs: options.timeoutMs,
+          eventDateRange: options.eventDateRange,
+        },
+      );
+      await recordBigQueryPressure("success");
+      return result;
+    } catch (error) {
+      await recordBigQueryPressure(queryOutcomeFromError(error));
+      throw error;
+    }
   }
   validateAnalyticsSqlFunctions(validateFirstPartyAnalyticsSqlShape(sql));
   const scoped = scopedAnalyticsSql(sql, scope, undefined, scopeOptions);
@@ -1402,7 +1482,6 @@ export async function queryFirstPartyAnalytics(
   );
   const deadlineAt = Date.now() + timeoutMs;
   const cacheKey = firstPartyCacheKey(wrappedSql, scoped.args, scope);
-  const queryClass = classifyFirstPartyAnalyticsQuery(sql);
   const compute = async (
     queryTimeoutMs = timeoutMs,
   ): Promise<AnalyticsQueryResult> => {
@@ -1422,7 +1501,7 @@ export async function queryFirstPartyAnalytics(
       }).catch((error) => {
         console.warn(
           "[first-party-analytics] Query pressure recording failed:",
-          error,
+          { errorType: error instanceof Error ? error.name : "non_error" },
         );
       });
       const resultRows = result.rows as Record<string, unknown>[];
@@ -1441,7 +1520,12 @@ export async function queryFirstPartyAnalytics(
       }).catch((recordingError) => {
         console.warn(
           "[first-party-analytics] Query pressure recording failed:",
-          recordingError,
+          {
+            errorType:
+              recordingError instanceof Error
+                ? recordingError.name
+                : "non_error",
+          },
         );
       });
       throw error;
