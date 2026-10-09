@@ -397,14 +397,14 @@ async function expectLayerSelectedByName(
   ).toHaveAttribute("aria-selected", "true");
 }
 
-test.describe("interaction: guided walkthrough - interactive button component (in-screen build)", () => {
-  test("step 1a: Frame tool draws a nested frame with standard defaults (white fill, clips content)", async ({
+test.describe("interaction: in-screen button component", () => {
+  test("step 1a: Frame tool draws a nested frame with white fill and clipped content", async ({
     page,
     request,
   }) => {
     currentDesignId = await createFixtureDesign(
       page,
-      "E2E Tutorial 5 Icon Frame",
+      "In-screen icon frame",
     );
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
@@ -449,11 +449,11 @@ test.describe("interaction: guided walkthrough - interactive button component (i
       /fff|white|rgb\(\s*255,\s*255,\s*255\s*\)/i.test(
         style["background"] ?? style["background-color"] ?? "",
       ),
-      `standard's Frame tool gives a fresh frame a white fill; got background="${style["background"]}" background-color="${style["background-color"]}"`,
+      `the Frame tool should give a fresh frame a white fill; got background="${style["background"]}" background-color="${style["background-color"]}"`,
     ).toBe(true);
     expect(
       style["overflow"],
-      "standard's Frame tool turns clip content ON by default",
+      "the Frame tool should turn clip content ON by default",
     ).toBe("hidden");
   });
 
@@ -463,7 +463,7 @@ test.describe("interaction: guided walkthrough - interactive button component (i
   }) => {
     currentDesignId = await createFixtureDesign(
       page,
-      "E2E Tutorial 5 Rect In Frame",
+      "Rectangle in frame",
     );
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
@@ -531,7 +531,7 @@ test.describe("interaction: guided walkthrough - interactive button component (i
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(page, "E2E Tutorial 5 Shift X");
+    currentDesignId = await createFixtureDesign(page, "Fill and stroke swap");
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -565,7 +565,7 @@ test.describe("interaction: guided walkthrough - interactive button component (i
   }) => {
     currentDesignId = await createFixtureDesign(
       page,
-      "E2E Tutorial 5 Vector Edit",
+      "Vector edit",
     );
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
@@ -585,13 +585,13 @@ test.describe("interaction: guided walkthrough - interactive button component (i
     expect(await fileContent(page, "index.html")).toBe(before);
   });
 
-  test("step 2b: Cmd+Opt+K annotates a frame as a component (closest equivalent; no component/variant system)", async ({
+  test("Cmd+Opt+K annotates a frame as a component", async ({
     page,
     request,
   }) => {
     currentDesignId = await createFixtureDesign(
       page,
-      "E2E Tutorial 5 Frame Component",
+      "Frame component",
     );
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
@@ -647,32 +647,13 @@ test.describe("interaction: guided walkthrough - interactive button component (i
     ).toBe(true);
   });
 
-  test("step 3 (no equivalent): no 'Create variant' affordance exists for an annotated component", async ({
-    page,
-    request,
-  }) => {
-    currentDesignId = await createFixtureDesign(
-      page,
-      "E2E Tutorial 5 No Variant Affordance",
-    );
-    await gotoEditor(page, currentDesignId);
-    await installBridge(page);
-
-    await selectByText(page, "Variant CTA");
-    await page.waitForTimeout(300);
-    const createVariant = page.getByRole("button", { name: /create variant/i });
-    const addVariant = page.getByRole("menuitem", { name: /add variant/i });
-    expect(await createVariant.count()).toBe(0);
-    expect(await addVariant.count()).toBe(0);
-  });
-
   test("step 4: rename supports a slash-delimited component-style name (button/default/unsaved)", async ({
     page,
     request,
   }) => {
     currentDesignId = await createFixtureDesign(
       page,
-      "E2E Tutorial 5 Slash Rename",
+      "Slash-delimited layer rename",
     );
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
@@ -725,7 +706,7 @@ test.describe("interaction: guided walkthrough - interactive button component (i
   }) => {
     currentDesignId = await createFixtureDesign(
       page,
-      "E2E Tutorial 5 Alt Drag Icon",
+      "Alt-drag icon frame",
     );
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
@@ -911,78 +892,11 @@ test.describe("interaction: guided walkthrough - interactive button component (i
     ).toBe(true);
   });
 
-  test("step 6 (no equivalent): no boolean component-property affordance ('Show label'/'Show icon')", async ({
+  test("Interact view opens the screen preview iframe", async ({
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(
-      page,
-      "E2E Tutorial 5 No Boolean Props",
-    );
-    await gotoEditor(page, currentDesignId);
-    await installBridge(page);
-
-    await selectByText(page, "Variant CTA");
-    await page.waitForTimeout(300);
-    const addProperty = page.getByRole("button", {
-      name: /add.*propert(y|ies)/i,
-    });
-    expect(await addProperty.count()).toBe(0);
-  });
-
-  test("step 7 (no equivalent): no 'Add variant' state x status grid exists", async ({
-    page,
-    request,
-  }) => {
-    currentDesignId = await createFixtureDesign(
-      page,
-      "E2E Tutorial 5 No Variant Grid",
-    );
-    await gotoEditor(page, currentDesignId);
-    await installBridge(page);
-
-    await selectByText(page, "Variant CTA");
-    await page.waitForTimeout(300);
-    const target = designFrame(page)
-      .locator(`[data-agent-native-node-id="e2e-component-button"]`)
-      .first();
-    await expect(
-      target,
-      "e2e-component-button must be rendered to right-click it",
-    ).toBeVisible({
-      timeout: 10_000,
-    });
-    await target.click({ force: true, button: "right" });
-    const menuItem = page.getByRole("menuitem", { name: /variant/i });
-    expect(await menuItem.count()).toBe(0);
-  });
-
-  test("step 8 (no equivalent): no Prototype tab / interaction-trigger UI exists", async ({
-    page,
-    request,
-  }) => {
-    currentDesignId = await createFixtureDesign(
-      page,
-      "E2E Tutorial 5 No Prototype Tab",
-    );
-    await gotoEditor(page, currentDesignId);
-    await installBridge(page);
-
-    await selectByText(page, "Variant CTA");
-    const prototypeTab = page.getByRole("tab", { name: /prototype/i });
-    const smartAnimate = page.getByText(/smart animate/i);
-    expect(await prototypeTab.count()).toBe(0);
-    expect(await smartAnimate.count()).toBe(0);
-  });
-
-  test("step 9: Interact view is the closest equivalent to standard's Preview (Shift+Space)", async ({
-    page,
-    request,
-  }) => {
-    currentDesignId = await createFixtureDesign(
-      page,
-      "E2E Tutorial 5 Interact Preview",
-    );
+    currentDesignId = await createFixtureDesign(page, "Interact view preview");
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -999,14 +913,14 @@ test.describe("interaction: guided walkthrough - interactive button component (i
   });
 });
 
-test.describe("interaction: Tutorial 5 - overview canvas (outside any screen) and cross-boundary", () => {
+test.describe("interaction: overview canvas and cross-boundary", () => {
   test("Frame tool on empty overview canvas creates a board-object frame with the same white-fill default", async ({
     page,
     request,
   }) => {
     currentDesignId = await createFixtureDesign(
       page,
-      "E2E Tutorial 5 Board Frame",
+      "Overview board frame",
     );
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
@@ -1054,7 +968,7 @@ test.describe("interaction: Tutorial 5 - overview canvas (outside any screen) an
   }) => {
     currentDesignId = await createFixtureDesign(
       page,
-      "E2E Tutorial 5 Board Alt Drag",
+      "Overview frame duplicate",
     );
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
@@ -1118,7 +1032,7 @@ test.describe("interaction: Tutorial 5 - overview canvas (outside any screen) an
   }) => {
     currentDesignId = await createFixtureDesign(
       page,
-      "E2E Tutorial 5 Button Cross Boundary",
+      "Button frame cross-boundary move",
     );
     await gotoEditor(page, currentDesignId);
     await installBridge(page);

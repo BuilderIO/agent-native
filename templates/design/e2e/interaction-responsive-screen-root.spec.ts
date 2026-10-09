@@ -147,8 +147,8 @@ function hmrSignals(page: Page) {
   return (page as Page & { hmrUpdates: HmrSignal[] }).hmrUpdates;
 }
 
-function reportTutorialCheckpoint(page: Page, label: string) {
-  console.log("tutorial-checkpoint", {
+function reportWorkflowCheckpoint(page: Page, label: string) {
+  console.log("workflow-checkpoint", {
     label,
     at: Date.now(),
     hmrUpdates: [...hmrSignals(page)],
@@ -175,7 +175,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }) => {
-  expect(hmrSignals(page), "No Vite HMR during the UI tutorial proof").toEqual(
+  expect(hmrSignals(page), "No Vite HMR during the UI workflow proof").toEqual(
     [],
   );
 });
@@ -259,7 +259,7 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
         ];
       })
       .toEqual([360, 315, 360, 315]);
-    reportTutorialCheckpoint(page, "screen-size-360x315");
+    reportWorkflowCheckpoint(page, "screen-size-360x315");
 
     await page.keyboard.press("Shift+a");
     const layoutHeading = page.getByRole("heading", {
@@ -296,7 +296,7 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
       "after-screen-layout",
       await screenCheckpoint(page, designId, screenId),
     );
-    reportTutorialCheckpoint(page, "screen-auto-layout-padding-gap");
+    reportWorkflowCheckpoint(page, "screen-auto-layout-padding-gap");
 
     const body = designFrame(page, screenId).locator("body");
     const bodyBox = await body.boundingBox();
@@ -415,7 +415,7 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
       .setInputFiles(
         path.resolve(
           import.meta.dirname,
-          "fixtures/responsive-card-art-photo.png",
+          "fixtures/card-art-photo.png",
         ),
       );
     await page.keyboard.press("Escape");
@@ -435,7 +435,7 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
         return content.includes("/api/qa-import-assets/");
       })
       .toBe(true);
-    reportTutorialCheckpoint(page, "album-art-uploaded");
+    reportWorkflowCheckpoint(page, "album-art-uploaded");
     await cdpScreenshot(
       page,
       test.info().outputPath("screen-root-responsive-card-stage1.png"),
@@ -488,7 +488,7 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
       await screenCheckpoint(page, designId, screenId),
       await readScreenHtml(page, designId, screenId),
     );
-    reportTutorialCheckpoint(page, "title-and-creator-created");
+    reportWorkflowCheckpoint(page, "title-and-creator-created");
 
     const layerRows = page.getByRole("tree", { name: "Layers" });
     const textRow = (name: string) =>
@@ -579,7 +579,7 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
           };
         }),
     );
-    reportTutorialCheckpoint(page, "metadata-flow-fill");
+    reportWorkflowCheckpoint(page, "metadata-flow-fill");
 
     const setFontFamily = async (text: string) => {
       const frameRow = layerRows.getByRole("treeitem", { name: /Frame/ });
@@ -605,7 +605,7 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
         return /font-family:\s*['"]?Lato/i.test(html);
       })
       .toBe(true);
-    reportTutorialCheckpoint(page, "title-font-lato");
+    reportWorkflowCheckpoint(page, "title-font-lato");
     console.log(
       "after-title-font-family",
       await designFrame(page, screenId)

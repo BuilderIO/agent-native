@@ -164,7 +164,7 @@ async function toastMessages(page: Page): Promise<string[]> {
     .evaluateAll((nodes) => nodes.map((n) => (n.textContent ?? "").trim()));
 }
 
-test.describe("standard interaction — layers panel", () => {
+test.describe("interaction: layers panel", () => {
   let designId: string;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -375,7 +375,7 @@ test.describe("standard interaction — layers panel", () => {
     );
   });
 
-  test("Cmd+R opens the rename editor for the selection (spec §15)", async ({
+  test("Cmd+R opens the rename editor for the selection", async ({
     page,
   }) => {
     await clickLayerRow(page, "Loose Card");
@@ -586,7 +586,7 @@ async function previewWindowMarkerSurvived(page: Page): Promise<boolean> {
     );
 }
 
-test.describe("standard interaction — layers panel sibling reorder / preview sync", () => {
+test.describe("interaction: layers panel sibling reorder and preview sync", () => {
   let siblingDesignId: string;
 
   test.beforeEach(async ({ page }) => {

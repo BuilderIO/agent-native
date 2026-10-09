@@ -895,7 +895,7 @@ async function createPodcastCard(
   await setFillImage(
     page,
     `${cardName} artwork`,
-    path.resolve(import.meta.dirname, "fixtures/responsive-card-art-photo.png"),
+    path.resolve(import.meta.dirname, "fixtures/card-art-photo.png"),
   );
   await addNativeArtworkGradient(page, `${cardName} artwork`);
   await setCornerRadius(page, 4);
@@ -934,7 +934,7 @@ async function createPodcastCard(
   await setFillImage(
     page,
     `${cardName} play button`,
-    path.resolve(import.meta.dirname, "fixtures/sonora-play-button.svg"),
+    path.resolve(import.meta.dirname, "fixtures/play-button-icon.svg"),
   );
 
   await drawInScreen(
@@ -1875,7 +1875,7 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
       });
     }
   });
-  await test.info().attach("tutorial-identities-design", {
+  await test.info().attach("workflow-identities-design", {
     body: JSON.stringify({ designId, screenIds: [] }, null, 2),
     contentType: "application/json",
   });
@@ -2001,7 +2001,7 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   expect(screenIframeId).toBe(screenId);
   expect(screenSelection?.designId).toBe(designId);
   expect(screenSelection?.selectedScreenIds).toContain(screenId);
-  await test.info().attach("tutorial-identities-desktop", {
+  await test.info().attach("workflow-identities-desktop", {
     body: JSON.stringify(
       {
         designId,
@@ -2386,14 +2386,14 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     const previewDocument = designFrame(page, screenId).locator("html");
     const previewDocumentToken = await previewDocument.evaluate(() => {
       const token = crypto.randomUUID();
-      (window as any).__musicTutorialLayerMoveDocumentToken = token;
+      (window as any).__musicWorkflowLayerMoveDocumentToken = token;
       return token;
     });
     await previewIframeHandle.evaluate((iframe) => {
       const host = window as any;
-      host.__musicTutorialLayerMoveLoadCount = 0;
+      host.__musicWorkflowLayerMoveLoadCount = 0;
       iframe.addEventListener("load", () => {
-        host.__musicTutorialLayerMoveLoadCount += 1;
+        host.__musicWorkflowLayerMoveLoadCount += 1;
       });
     });
     const consoleMessages: Array<{ type: string; text: string }> = [];
@@ -2479,12 +2479,12 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
       );
       expect(
         await previewDocument.evaluate(
-          () => (window as any).__musicTutorialLayerMoveDocumentToken ?? null,
+          () => (window as any).__musicWorkflowLayerMoveDocumentToken ?? null,
         ),
       ).toBe(previewDocumentToken);
       expect(
         await page.evaluate(
-          () => (window as any).__musicTutorialLayerMoveLoadCount ?? -1,
+          () => (window as any).__musicWorkflowLayerMoveLoadCount ?? -1,
         ),
       ).toBe(0);
       expect(frameNavigations).toEqual([]);
@@ -2528,12 +2528,12 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
       };
       expect(
         await previewDocument.evaluate(
-          () => (window as any).__musicTutorialLayerMoveDocumentToken ?? null,
+          () => (window as any).__musicWorkflowLayerMoveDocumentToken ?? null,
         ),
       ).toBe(previewDocumentToken);
       expect(
         await page.evaluate(
-          () => (window as any).__musicTutorialLayerMoveLoadCount ?? -1,
+          () => (window as any).__musicWorkflowLayerMoveLoadCount ?? -1,
         ),
       ).toBe(0);
       expect(frameNavigations).toEqual([]);
@@ -2557,11 +2557,11 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
       proof.previewDocumentTokenPreserved =
         (await previewDocument
           .evaluate(
-            () => (window as any).__musicTutorialLayerMoveDocumentToken ?? null,
+            () => (window as any).__musicWorkflowLayerMoveDocumentToken ?? null,
           )
           .catch(() => null)) === previewDocumentToken;
       proof.previewLoadEvents = await page
-        .evaluate(() => (window as any).__musicTutorialLayerMoveLoadCount ?? -1)
+        .evaluate(() => (window as any).__musicWorkflowLayerMoveLoadCount ?? -1)
         .catch(() => -1);
     }
 
@@ -2817,7 +2817,7 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     content,
     "Podcast card B",
   );
-  await test.info().attach("tutorial-measurements-desktop", {
+  await test.info().attach("workflow-measurements-desktop", {
     body: JSON.stringify(
       {
         designId,
@@ -2873,7 +2873,7 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     screenId,
     "music-app-desktop-screen.png",
   );
-  await test.info().attach("tutorial-screen-screenshot-desktop", {
+  await test.info().attach("workflow-screen-screenshot-desktop", {
     body: JSON.stringify(desktopScreenCapture, null, 2),
     contentType: "application/json",
   });
@@ -2903,7 +2903,7 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
       return added.id;
     })
     .not.toBeNull();
-  await test.info().attach("tutorial-identities-desktop-mobile", {
+  await test.info().attach("workflow-identities-desktop-mobile", {
     body: JSON.stringify(
       { designId, screenIds: [screenId, mobileScreenId] },
       null,
@@ -3353,7 +3353,7 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     mobileSource,
     "Mobile Podcast card artwork",
   );
-  await test.info().attach("tutorial-measurements-mobile", {
+  await test.info().attach("workflow-measurements-mobile", {
     body: JSON.stringify(
       {
         designId,
@@ -3368,7 +3368,7 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
         playButton: mobilePlayButtonMetrics,
         player: mobilePlayerMetrics,
         playButtonAdaptation:
-          "Frame with the reference SVG image; the local design uses a component instance",
+          "Frame with the bundled play-button asset; the local design uses a component instance",
       },
       null,
       2,
@@ -3395,7 +3395,7 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     mobileScreenId,
     "music-app-mobile-screen.png",
   );
-  await test.info().attach("tutorial-screen-screenshot-mobile", {
+  await test.info().attach("workflow-screen-screenshot-mobile", {
     body: JSON.stringify(mobileScreenCapture, null, 2),
     contentType: "application/json",
   });
@@ -3418,7 +3418,7 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
       return duplicate.id;
     })
     .not.toBeNull();
-  await test.info().attach("tutorial-identities-all-screens", {
+  await test.info().attach("workflow-identities-all-screens", {
     body: JSON.stringify(
       { designId, screenIds: [screenId, mobileScreenId, tabletScreenId] },
       null,
@@ -3534,7 +3534,7 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     "Recent card B",
   );
   const tabletGeometry = designData(tabletSaved).canvasFrames?.[tabletScreenId];
-  await test.info().attach("tutorial-measurements-tablet", {
+  await test.info().attach("workflow-measurements-tablet", {
     body: JSON.stringify(
       {
         designId,
@@ -3579,7 +3579,7 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     tabletScreenId,
     "music-app-tablet-screen.png",
   );
-  await test.info().attach("tutorial-screen-screenshot-tablet", {
+  await test.info().attach("workflow-screen-screenshot-tablet", {
     body: JSON.stringify(tabletScreenCapture, null, 2),
     contentType: "application/json",
   });
@@ -3653,11 +3653,11 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   expect(afterReloadMetrics.mobileArtwork.backgroundImage).toContain(
     "linear-gradient",
   );
-  await test.info().attach("tutorial-source-and-render-after-reload", {
+  await test.info().attach("workflow-source-and-render-after-reload", {
     body: JSON.stringify({ persistence, afterReloadMetrics }, null, 2),
     contentType: "application/json",
   });
-  await test.info().attach("tutorial-chat-thread-404s", {
+  await test.info().attach("workflow-chat-thread-404s", {
     body: JSON.stringify(
       { count: chatThread404s.length, responses: chatThread404s },
       null,

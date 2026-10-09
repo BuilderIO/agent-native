@@ -124,7 +124,7 @@ async function clickLayerRow(page: Page, name: string): Promise<void> {
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
-test.describe("tutorial #3 — card component: structure, duplicate, rename, reorder, group", () => {
+test.describe("card component: structure, duplicate, rename, reorder, group", () => {
   test("Cmd+D duplicates the Card: same name, same position, inserted directly above, selection moves to the copy", async ({
     page,
     request,
@@ -391,8 +391,8 @@ async function openOverview(page: Page, designId: string, screens: number) {
   await stableBox(page.locator("[data-screen-card]").first());
 }
 
-test.describe("tutorial #6 — overview canvas: multi-select, marquee enclosure, pan/zoom", () => {
-  test("shift-clicking the label of each icon screen selects all three together (moonlearning tip 4's multi-select, minus Smart Selection which has no equivalent)", async ({
+test.describe("overview canvas: multi-select, marquee enclosure, pan/zoom", () => {
+  test("shift-clicking the label of each icon screen selects all three together", async ({
     page,
     request,
   }) => {
@@ -430,7 +430,7 @@ test.describe("tutorial #6 — overview canvas: multi-select, marquee enclosure,
       } else {
         test.skip(
           true,
-          "no discoverable per-label selected attribute — see finding yt6-1",
+          "no discoverable per-label selected attribute",
         );
       }
     } finally {

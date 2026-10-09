@@ -10,7 +10,7 @@ import { e2eBaseURL } from "./base-url";
 import { expandAllLayers, gotoEditor } from "./helpers";
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
-// standard uses 40px; Design keeps its 56px board gap for Cmd+D.
+// Design keeps a 56px board gap for Cmd+D.
 const DESIGN_SCREEN_GAP = 56;
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 
@@ -51,7 +51,7 @@ async function newDesign(
   files: Array<{ filename: string; content: string }>,
 ): Promise<{ designId: string }> {
   const created = await action(request, "create-design", {
-    title: `Tutorial 8 portfolio ${Date.now()}`,
+    title: `Portfolio build ${Date.now()}`,
     projectType: "prototype",
   });
   const designId = created?.id ?? created?.data?.id ?? created?.design?.id;
@@ -292,7 +292,7 @@ async function drawBoardFrame(
     .toBeGreaterThan(countBefore);
 }
 
-test.describe("tutorial 8 — assemble your portfolio pages", () => {
+test.describe("assemble portfolio pages", () => {
   let designId = "";
 
   test.afterEach(async ({ request }) => {
@@ -301,7 +301,7 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     designId = "";
   });
 
-  test("steps 1-2 [overview, outside any screen]: Section tool has no equivalent; Frame Selection is the closest wrap-and-rename primitive but is coded to code-layer nodes, not board objects", async ({
+  test("Frame Selection wraps and renames board frames; Shift+S does not change the active tool", async ({
     page,
     request,
   }) => {
@@ -326,7 +326,7 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       .getAttribute("aria-label");
     expect(
       activeToolAfter,
-      "Shift+S (standard's Section tool) should be a documented no-op, not silently switch tools",
+      "Shift+S is unassigned and should not silently switch tools",
     ).toBe(activeToolBefore);
 
     const p1 = await emptyBoardPoint(page);
@@ -709,12 +709,11 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         neighborZ: 2,
         fartherZ: 3,
       });
-    // standard selects the new copy after Cmd+D.
     await expect
       .poll(async () => (await selectionContext(request)).selectedScreenIds, {
         timeout: 10_000,
         message:
-          "Cmd+D should select the new copy (standard interaction) once its history entry lands",
+          "Cmd+D should select the new copy once its history entry lands",
       })
       .toEqual([dup1Id]);
     await expect(
@@ -774,7 +773,7 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       .poll(async () => (await selectionContext(request)).selectedScreenIds, {
         timeout: 10_000,
         message:
-          "the second Cmd+D should select its own copy too (standard interaction)",
+          "the second Cmd+D should select its own copy too",
       })
       .toEqual([dup2Id]);
     const dup2Content = await fileContent(request, designId, dup2!);
@@ -1084,7 +1083,7 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 
-  test("step 7: 'Go to main component' exists but means something different — it jumps to real app source, not a standard-style shared symbol; on a static prototype instance it degrades to an 'unavailable' toast instead of a crash", async ({
+  test("'Go to main component' jumps to app source; on a static prototype instance it shows an unavailable toast instead of crashing", async ({
     page,
     request,
   }) => {
