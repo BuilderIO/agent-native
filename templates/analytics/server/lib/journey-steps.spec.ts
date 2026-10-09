@@ -21,7 +21,9 @@ function row(
     tsMs,
     eventName,
     path: null,
+    flow: null,
     stepId: null,
+    stepIndex: null,
     methodId: null,
     outcome: null,
     action: null,
@@ -80,6 +82,16 @@ describe("deriveJourneyStep", () => {
         "Chose: Use Builder.io",
       ],
       [
+        row("onboarding_step_skipped", 1, { stepId: "private-step-name" }),
+        "onboarding:step_skipped",
+        "Onboarding step skipped",
+      ],
+      [
+        row("onboarding_abandoned", 1, { stepId: "private-step-name" }),
+        "onboarding:abandoned",
+        "Onboarding abandoned",
+      ],
+      [
         row("onboarding_method_outcome", 1, {
           methodId: "custom_keys",
           outcome: "settings_opened",
@@ -103,6 +115,11 @@ describe("deriveJourneyStep", () => {
         row("generation_completed", 1),
         "output:generation_completed",
         "Generation completed",
+      ],
+      [
+        row("design_output_created", 1),
+        "output:design_output_created",
+        "Design output created",
       ],
       [row("recording_ready", 1), "output:recording_ready", "Recording ready"],
     ];
@@ -144,6 +161,25 @@ describe("deriveJourneyStep", () => {
       expect(JOURNEY_STEP_EVENT_NAMES, name).toContain(name);
     }
   });
+
+  it("uses bounded labels for skipped and abandoned events", () => {
+    expect(
+      deriveJourneyStep(
+        row("onboarding_step_skipped", 1, { stepId: "a-user-defined-step" }),
+      ),
+    ).toEqual({
+      key: "onboarding:step_skipped",
+      label: "Onboarding step skipped",
+    });
+    expect(
+      deriveJourneyStep(
+        row("onboarding_abandoned", 1, { stepId: "a-user-defined-step" }),
+      ),
+    ).toEqual({
+      key: "onboarding:abandoned",
+      label: "Onboarding abandoned",
+    });
+  });
 });
 
 describe("buildSessionSteps", () => {
@@ -160,6 +196,138 @@ describe("buildSessionSteps", () => {
     ]);
   });
 
+  it("keeps skip and abandonment in the observed sequence", () => {
+    const steps = buildSessionSteps([
+      row("onboarding_step_viewed", 100, { stepId: "role" }),
+      row("onboarding_step_skipped", 110, { stepId: "role" }),
+      row("onboarding_step_viewed", 120, { stepId: "choice" }),
+      row("onboarding_abandoned", 130, { stepId: "choice" }),
+    ]);
+    expect(steps.map((step) => step.key)).toEqual([
+      "step:role",
+      "onboarding:step_skipped",
+      "step:choice",
+      "onboarding:abandoned",
+    ]);
+  });
+
+  it("orders equal-timestamp skip events between the skipped and next steps", () => {
+    const steps = buildSessionSteps([
+      row("onboarding_step_viewed", 100, {
+        id: "z-current-view",
+        flow: "first_run",
+        stepId: "choice",
+        stepIndex: 1,
+      }),
+      row("onboarding_step_skipped", 100, {
+        id: "a-current-skip",
+        flow: "first_run",
+        stepId: "choice",
+        stepIndex: 1,
+      }),
+      row("onboarding_step_viewed", 100, {
+        id: "m-next-view",
+        flow: "first_run",
+        stepId: "connecting",
+        stepIndex: 2,
+      }),
+    ]);
+
+    expect(steps.map((step) => step.key)).toEqual([
+      "step:choice",
+      "onboarding:step_skipped:1:flow:first_run",
+      "step:connecting",
+    ]);
+  });
+
+  it("keeps consecutive skipped steps with distinct indices", () => {
+    const steps = buildSessionSteps([
+      row("onboarding_step_skipped", 100, {
+        flow: "first_run",
+        stepId: "role",
+        stepIndex: 0,
+      }),
+      row("onboarding_step_skipped", 110, {
+        flow: "first_run",
+        stepId: "choice",
+        stepIndex: 1,
+      }),
+    ]);
+
+    expect(steps.map((step) => step.key)).toEqual([
+      "onboarding:step_skipped:0:flow:first_run",
+      "onboarding:step_skipped:1:flow:first_run",
+    ]);
+    expect(steps.map((step) => step.label)).toEqual([
+      "Onboarding step skipped",
+      "Onboarding step skipped",
+    ]);
+  });
+
+  it("uses a total order for indexed steps across onboarding flows", () => {
+    const rows = [
+      row("onboarding_step_viewed", 100, {
+        id: "z-first-flow-step-1",
+        flow: "first_run",
+        stepId: "first",
+        stepIndex: 1,
+      }),
+      row("onboarding_step_skipped", 100, {
+        id: "b-first-flow-skip",
+        flow: "first_run",
+        stepId: "first",
+        stepIndex: 1,
+      }),
+      row("onboarding_step_viewed", 100, {
+        id: "a-first-flow-step-2",
+        flow: "first_run",
+        stepId: "second",
+        stepIndex: 2,
+      }),
+      row("onboarding_step_viewed", 100, {
+        id: "m-second-flow-step-1",
+        flow: "chat_setup",
+        stepId: "other",
+        stepIndex: 1,
+      }),
+    ];
+    const expected = [
+      "step:other",
+      "step:first",
+      "onboarding:step_skipped:1:flow:first_run",
+      "step:second",
+    ];
+
+    expect(buildSessionSteps(rows).map((step) => step.key)).toEqual(expected);
+    expect(
+      buildSessionSteps([...rows].reverse()).map((step) => step.key),
+    ).toEqual(expected);
+  });
+
+  it("keeps consecutive skips from different flows with the same index", () => {
+    const steps = buildSessionSteps([
+      row("onboarding_step_skipped", 100, {
+        flow: "first_run",
+        stepId: "role",
+        stepIndex: 0,
+      }),
+      row("onboarding_step_skipped", 110, {
+        flow: "chat_setup",
+        stepId: "connect_ai",
+        stepIndex: 0,
+      }),
+    ]);
+
+    expect(steps.map((step) => step.key)).toEqual([
+      "onboarding:step_skipped:0:flow:first_run",
+      "onboarding:step_skipped:0:flow:chat_setup",
+    ]);
+    expect(steps.map((step) => step.label)).toEqual([
+      "Onboarding step skipped",
+      "Onboarding step skipped",
+    ]);
+  });
+
   it("collapses consecutive repeats into the first and keeps its timestamp", () => {
     const steps = buildSessionSteps([
       row("pageview", 100, { path: "/home" }),
@@ -171,6 +339,19 @@ describe("buildSessionSteps", () => {
       ["page:/home", 100],
       ["app:entered", 160],
       ["page:/home", 170],
+    ]);
+  });
+
+  it("orders a renderable design output after generation activity", () => {
+    const steps = buildSessionSteps([
+      row("design_output_created", 110),
+      row("generation_started", 100),
+      row("design_output_created", 120),
+    ]);
+
+    expect(steps.map((step) => [step.key, step.tsMs])).toEqual([
+      ["output:generation_started", 100],
+      ["output:design_output_created", 110],
     ]);
   });
 

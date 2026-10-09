@@ -1,8 +1,10 @@
 import {
   createCanvasGestureController,
   createCanvasInteractionCore,
+  type CanvasGesture,
   type CanvasGestureAdapter,
   type CanvasInteractionAdapter,
+  type CanvasPoint,
 } from "@agent-native/toolkit/canvas-interactions";
 
 import { MIN_SLIDE_OBJECT_SIZE } from "../slide-object-interactions";
@@ -70,12 +72,30 @@ export function resolveSlidesCanvasRotation(
   return input.key === "ArrowLeft" ? -amount : amount;
 }
 
-export function createSlidesCanvasGestureController(
-  adapter: SlidesCanvasGestureAdapter,
-) {
+/**
+ * `toLocalDelta` maps the controller's `canvasDelta` into the containing
+ * block's own axes. A rotated block needs it because the controller only
+ * scales by width and height; the editor then begins gestures with a unit
+ * viewport so `canvasDelta` arrives as the raw screen delta.
+ */
+export function createSlidesCanvasGestureController({
+  toLocalDelta,
+  ...adapter
+}: SlidesCanvasGestureAdapter & {
+  toLocalDelta?: (delta: CanvasPoint) => CanvasPoint;
+}) {
+  const local = (gesture: CanvasGesture<string>): CanvasGesture<string> =>
+    toLocalDelta
+      ? { ...gesture, canvasDelta: toLocalDelta(gesture.canvasDelta) }
+      : gesture;
   return createCanvasGestureController({
     ...slidesCanvasInteractionConfig,
-    adapter,
+    adapter: {
+      preview:
+        adapter.preview && ((gesture) => adapter.preview!(local(gesture))),
+      commit: (gesture) => adapter.commit(local(gesture)),
+      cancel: adapter.cancel && ((gesture) => adapter.cancel!(local(gesture))),
+    },
   });
 }
 

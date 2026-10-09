@@ -25,6 +25,8 @@ const authPlugin = createToolkitAuthPlugin({
     SESSION_REPLAY_AGENT_CONTEXT_ENDPOINT,
     SESSION_REPLAY_AGENT_EVENTS_ENDPOINT,
     SESSION_REPLAY_AGENT_DIAGNOSTICS_ENDPOINT,
+    "/api/session-replay/recordings/:recordingId/manifest",
+    "/api/session-replay/recordings/:recordingId/chunks/:seq",
     "/track",
     "/api/analytics/track",
     "/api/analytics/replay",

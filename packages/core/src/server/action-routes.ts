@@ -121,6 +121,7 @@ function currentBuildId(): string {
 import { isLoopbackRequest, registerAuthPublicPaths } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
 import {
+  getVerifiedServiceIdentityFromEvent,
   getRequestIdentityAuthenticatedAtMs,
   getRequestIdentitySessionToken,
   hasExplicitPersonalOrgScope,
@@ -959,10 +960,18 @@ function mountActionRoutesInternal(
         const identitySessionToken = userEmail
           ? getRequestIdentitySessionToken(event, userEmail)
           : undefined;
+        const verifiedServiceIdentity =
+          getVerifiedServiceIdentityFromEvent(event);
 
         return runWithRequestContext(
           {
             userEmail,
+            ...(verifiedServiceIdentity &&
+            verifiedServiceIdentity.userEmail.trim().toLowerCase() ===
+              userEmail?.trim().toLowerCase() &&
+            verifiedServiceIdentity.orgId === orgId
+              ? { verifiedServiceIdentity }
+              : {}),
             ...(identityAuthenticatedAtMs !== undefined
               ? { identityAuthenticatedAtMs }
               : {}),
