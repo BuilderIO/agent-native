@@ -2289,19 +2289,20 @@ const FEEDBACK_REPLY_DETAIL_ISSUE_BASE =
 const FEEDBACK_REPLY_DETAIL_DIRECT_STYLE_ACTION =
   /\b(?:shorten|trim|simplify)\s+(?:(?:the|a|an|my|your|our|these|those|this|that)\s+)?(?:feedback\s+(?:repl(?:y|ies)|responses?|updates?)|(?:repl(?:y|ies)|responses?|updates?)\s+(?:to|about|for)\s+(?:(?:the|a|an|my|your|our|these|those|this|that)\s+)?(?:(?:customer|user|reporter)\s+)?feedback)\b/i
     .source;
-const FEEDBACK_REPLY_DETAIL_KEEP_OUT_ISSUE =
-  /keep\s+(?:(?:technical|implementation|internal|deployment|all|any|the)\s+){0,2}(?:details?|information)\s+out\s+of/i
-    .source;
-const FEEDBACK_REPLY_DETAIL_ISSUE = `(?:${FEEDBACK_REPLY_DETAIL_ISSUE_BASE}|${FEEDBACK_REPLY_DETAIL_DIRECT_STYLE_ACTION}|${FEEDBACK_REPLY_DETAIL_KEEP_OUT_ISSUE}|verbose|too\\s+(?:wordy|long)|less\\s+wordy)`;
-const FEEDBACK_REPLY_DETAIL_HIGH_LEVEL_REQUEST =
-  "\\b(?:keep|make|write|use)\\s+(?:(?:the|a|an|my|your|our|these|those)\\s+)?(?:(?:(?:feedback\\s+)?(?:repl(?:y|ies)|responses?|updates?)\\s+(?:at\\s+(?:a\\s+)?)?high[- ]level)|(?:high[- ]level\\s+(?:feedback\\s+)?(?:repl(?:y|ies)|responses?|updates?)))(?:\\s+(?:like|as)\\s+(?:this|that|these|those|it))?\\b";
 const FEEDBACK_REPLY_DETAIL_TARGET =
   /(?:(?:technical|implementation|internal|deployment)\s+(?:details?|information)|(?:commit|branch|ci|publisher|deployment|run|workflow)(?:\s+(?:details?|hash(?:es)?|results?|mentions?|status|ids?|names?))?|jargon(?:[- ]heavy)?|hash(?:es)?|results?)/i
     .source;
+const FEEDBACK_REPLY_DETAIL_KEEP_OUT_ISSUE =
+  "\\bkeep\\s+(?:(?:technical|implementation|internal|deployment|all|any|the|these|those|more|additional|extra|unnecessary)\\s+){0,3}\\b(?:" +
+  FEEDBACK_REPLY_DETAIL_TARGET +
+  ")\\b\\s+out\\s+of";
+const FEEDBACK_REPLY_DETAIL_ISSUE = `(?:${FEEDBACK_REPLY_DETAIL_ISSUE_BASE}|${FEEDBACK_REPLY_DETAIL_DIRECT_STYLE_ACTION}|${FEEDBACK_REPLY_DETAIL_KEEP_OUT_ISSUE}|verbose|too\\s+(?:wordy|long)|less\\s+wordy)`;
+const FEEDBACK_REPLY_DETAIL_HIGH_LEVEL_REQUEST =
+  "\\b(?:keep|make|write|use)\\s+(?:(?:the|a|an|my|your|our|these|those)\\s+)?(?:(?:(?:feedback\\s+)?(?:repl(?:y|ies)|responses?|updates?)\\s+(?:at\\s+(?:a\\s+)?)?high[- ]level)|(?:high[- ]level\\s+(?:feedback\\s+)?(?:repl(?:y|ies)|responses?|updates?)))(?:\\s+(?:like|as)\\s+(?:this|that|these|those|it))?\\b";
 const FEEDBACK_REPLY_DETAIL_OTHER_SURFACE =
   "(?![^.!?;]{0,80}\\b(?:in|on|for|to)\\s+(?:(?:the|a|an)\\s+)?(?:dashboard|pr\\s+description|release\\s+notes?|changelog|readme|docs?|documentation)\\b)";
 const FEEDBACK_REPLY_DETAIL_OMISSION =
-  /(?:(?:don['’]t|do not|shouldn['’]t|should not)\s+(?:include|mention|say|write|share|post|list|describe|cover|discuss|add|use|quote|give|put|provide)|(?:never|must\s+not|mustn['’]t|cannot|can['’]t|could\s+not|couldn['’]t|may\s+not|will\s+not|won['’]t|shall\s+not)\s+(?:include|mention|say|write|share|post|list|describe|cover|discuss|add|use|quote|give|put|provide)|(?:avoid|skip|omit|remove)(?:\s+(?:including|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using|giving|putting|providing))?|leave out|stop\s+(?:including|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using|giving|putting|providing))/i
+  /(?:(?:don['’]t|do not|shouldn['’]t|should not)\s+(?:include|contain|mention|say|write|share|post|list|describe|cover|discuss|add|use|quote|give|put|provide)|(?:never|must\s+not|mustn['’]t|cannot|can['’]t|could\s+not|couldn['’]t|may\s+not|will\s+not|won['’]t|shall\s+not)\s+(?:include|contain|mention|say|write|share|post|list|describe|cover|discuss|add|use|quote|give|put|provide)|(?:avoid|skip|omit|remove)(?:\s+(?:including|containing|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using|giving|putting|providing))?|leave out|stop\s+(?:including|containing|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using|giving|putting|providing))/i
     .source;
 const FEEDBACK_REPLY_DETAIL_EXAMPLE_PREFIX =
   "(?:\\b(?:for\\s+(?:example|instance|illustration)|as\\s+an?\\s+(?:example|illustration)|such\\s+as)(?:\\s*[, :]\\s*)?|\\b(?:examples?|samples?|illustrations?)(?:\\s+(?:instruction|request|sentence|reply|response|correction))?\\s*:|\\be\\.g\\.\\s*,?\\s*)[^.!?;,]{0,100}\\b";
@@ -2545,7 +2546,7 @@ const FEEDBACK_REPLY_DETAIL_CONTEXT_RE = new RegExp(
   "i",
 );
 const FEEDBACK_REPLY_DETAIL_CANDIDATE_RE =
-  /\b(?:too|overly|excessively|less|should(?:n['’]t|\s+not)?|do\s+not|don['’]t|never|must|mustn['’]t|cannot|can['’]t|could|may|will|won['’]t|shall|avoid|skip|omit|remove|leave\s+out|stop|keep|no|without|free\s+of|concise|succinct|briefer|brief|short|shorten|shorter|trim|simplify|verbose|wordy|long|non[- ]?technical|plain\s+(?:english|language)|jargon(?:[- ]heavy)?|high[- ]level)\b/i;
+  /\b(?:too|overly|excessively|less|should(?:n['’]t|\s+not)?|do\s+not|don['’]t|never|must|mustn['’]t|cannot|can['’]t|could|may|will|won['’]t|shall|avoid|skip|omit|remove|leave\s+out|stop|keep|contain|no|without|free\s+of|concise|succinct|briefer|brief|short|shorten|shorter|trim|simplify|verbose|wordy|long|non[- ]?technical|plain\s+(?:english|language)|jargon(?:[- ]heavy)?|high[- ]level)\b/i;
 const FEEDBACK_REPLY_DETAIL_SIGNAL_RE =
   /\b(?:technical|implementation|internal|deployment|detailed|details?|information|jargon|commit|branch|ci|publisher|run|workflow|hash(?:es)?|results?|verbose|wordy|long|shorten|shorter|trim|simplify|succinct|briefer|concise|brief|short|non[- ]?technical|plain\s+(?:english|language)|high[- ]level)\b/i;
 const FEEDBACK_REPLY_DETAIL_SCAN_BUCKET_SIZE = 256;
@@ -2584,6 +2585,34 @@ function isCrossClauseExampleOmission(input, match) {
   return example !== null && example.index < match[0].length;
 }
 
+function hasFeedbackReplyDetailFollowup(input, followupPattern) {
+  if (!followupPattern.test(input)) return false;
+  const followupMatches = input.matchAll(
+    new RegExp(followupPattern.source, `${followupPattern.flags}g`),
+  );
+  for (const match of followupMatches) {
+    const prefix = input.slice(0, match.index);
+    const precedingSentenceEnds = [
+      ...prefix.matchAll(FEEDBACK_REPLY_DETAIL_SENTENCE_END_SCAN_RE),
+    ];
+    const lastSentenceEnd = precedingSentenceEnds.at(-1);
+    const sentenceStart = lastSentenceEnd
+      ? lastSentenceEnd.index + lastSentenceEnd[0].length
+      : 0;
+    const remaining = input.slice(match.index);
+    const nextSentenceEnd = remaining.search(
+      FEEDBACK_REPLY_DETAIL_SENTENCE_END_SCAN_RE,
+    );
+    const sentenceEnd =
+      nextSentenceEnd === -1 ? input.length : match.index + nextSentenceEnd;
+    const sentence = input.slice(sentenceStart, sentenceEnd);
+    if (!FEEDBACK_REPLY_DETAIL_NON_FEEDBACK_RESPONSE_RE.test(sentence)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function hasFeedbackReplyDetailCorrection(message) {
   const input = textForPattern(message, true);
   if (!FEEDBACK_REPLY_DETAIL_CANDIDATE_RE.test(input)) return false;
@@ -2600,14 +2629,18 @@ function hasFeedbackReplyDetailCorrection(message) {
     return true;
   }
   if (
-    !FEEDBACK_REPLY_DETAIL_NON_FEEDBACK_RESPONSE_RE.test(input) &&
-    FEEDBACK_REPLY_DETAIL_AFFIRMATIVE_FOLLOWUP_RE.test(input)
+    hasFeedbackReplyDetailFollowup(
+      input,
+      FEEDBACK_REPLY_DETAIL_AFFIRMATIVE_FOLLOWUP_RE,
+    )
   ) {
     return true;
   }
   if (
-    !FEEDBACK_REPLY_DETAIL_NON_FEEDBACK_RESPONSE_RE.test(input) &&
-    FEEDBACK_REPLY_DETAIL_PRONOUN_FOLLOWUP_RE.test(input)
+    hasFeedbackReplyDetailFollowup(
+      input,
+      FEEDBACK_REPLY_DETAIL_PRONOUN_FOLLOWUP_RE,
+    )
   ) {
     return true;
   }
@@ -2955,6 +2988,10 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
     true,
     "API responses are not too verbose. The feedback reply is too technical.",
   ],
+  [
+    true,
+    "Replies are not too technical. Actually, they are too technical. API responses are fine.",
+  ],
   [true, "Replies are not too technical. Yes, they are too verbose."],
   [true, "Don't include commit hashes, or CI results, in replies."],
   [true, "Don't include commit hashes, nor branch details, in replies."],
@@ -3058,7 +3095,10 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [true, "Omit publisher from replies."],
   [true, "Remove publisher from replies."],
   [true, "Replies should not contain technical details."],
+  [true, "Replies must not contain commit hashes."],
   [true, "Replies should contain no technical details."],
+  [true, "Keep commit hashes out of replies."],
+  [false, "Don't keep commit hashes out of replies."],
   [true, "Replies should not include commit hashes."],
   [true, "Keep replies without technical details."],
   [true, "Replies should be free of technical details."],
