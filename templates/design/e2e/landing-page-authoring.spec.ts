@@ -689,7 +689,6 @@ test("4:39 — aligning a multi-selection moves every selected layer", async ({
   ).toBe(1);
 });
 
-// Checks deletion of a selected screen from the saved design.
 test("deleting a selected screen removes it from the saved design", async ({
   page,
 }) => {

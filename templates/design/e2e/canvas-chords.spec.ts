@@ -247,7 +247,6 @@ test.describe("canvas chords", () => {
     designId = "";
   });
 
-  // Checks this editor's shortcut and persisted node placement.
   test("Shift+A wraps one rectangle where it stands, not at the frame origin", async ({
     page,
     request,

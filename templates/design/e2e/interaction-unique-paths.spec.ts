@@ -419,7 +419,6 @@ test.describe.serial("rare-but-real unique paths", () => {
     ).toBe(true);
   });
 
-  // Checks the overlay behavior between two nearby objects.
   test("Alt-hovering another object while one is selected shows a measurement overlay between them", async ({
     page,
   }) => {
@@ -606,7 +605,6 @@ test.describe.serial("rare-but-real unique paths", () => {
       .toMatchObject({ valid: true, outside: true });
   });
 
-  // Checks that the editor shortcut copies style while preserving geometry.
   test("paste-properties (Cmd+Opt+C / Cmd+Opt+V) copies style only, leaving position and size alone", async ({
     page,
   }) => {
