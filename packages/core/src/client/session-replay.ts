@@ -2724,23 +2724,17 @@ function installSessionReplayIframeBridge(
     if (!recordingFrames.delete(iframe)) return;
     postSessionReplayIframeMessage(iframe, stopMessage);
   };
-  const markedFramesIn = (node: Node): HTMLIFrameElement[] => {
+  const iframesIn = (node: Node): HTMLIFrameElement[] => {
     if (node.nodeType !== 1 && node.nodeType !== 11) return [];
     const element = node as Element;
     const frames: HTMLIFrameElement[] = [];
-    if (
-      element.nodeType === 1 &&
-      element.localName === "iframe" &&
-      element.hasAttribute(SESSION_REPLAY_IFRAME_ATTRIBUTE)
-    ) {
+    if (element.nodeType === 1 && element.localName === "iframe") {
       frames.push(element as HTMLIFrameElement);
     }
     if (typeof (element as ParentNode).querySelectorAll === "function") {
       frames.push(
         ...Array.from(
-          (element as ParentNode).querySelectorAll<HTMLIFrameElement>(
-            `iframe[${SESSION_REPLAY_IFRAME_ATTRIBUTE}]`,
-          ),
+          (element as ParentNode).querySelectorAll<HTMLIFrameElement>("iframe"),
         ),
       );
     }
@@ -2777,10 +2771,10 @@ function installSessionReplayIframeBridge(
               continue;
             }
             for (const removed of Array.from(record.removedNodes)) {
-              for (const iframe of markedFramesIn(removed)) stopFrame(iframe);
+              for (const iframe of iframesIn(removed)) stopFrame(iframe);
             }
             for (const added of Array.from(record.addedNodes)) {
-              for (const iframe of markedFramesIn(added)) startFrame(iframe);
+              for (const iframe of iframesIn(added)) startFrame(iframe);
             }
           }
         });

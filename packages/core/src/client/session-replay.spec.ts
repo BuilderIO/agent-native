@@ -2010,6 +2010,80 @@ describe("session replay", () => {
     expect(childWindow.postMessage).toHaveBeenCalledTimes(1);
   });
 
+  it("stops a tracked iframe removed after its marker is cleared", async () => {
+    installBrowser();
+    const childWindow = { postMessage: vi.fn() };
+    let marked = false;
+    const iframe = {
+      localName: "iframe",
+      nodeType: 1,
+      hasAttribute: (name: string) =>
+        name === SESSION_REPLAY_IFRAME_ATTRIBUTE && marked,
+      contentWindow: childWindow,
+      querySelectorAll: vi.fn(() => []),
+    } as unknown as HTMLIFrameElement;
+    const wrapper = {
+      localName: "div",
+      nodeType: 1,
+      querySelectorAll: vi.fn(() => [iframe]),
+    } as unknown as Element;
+    let onMutation: MutationCallback | undefined;
+    class FakeMutationObserver {
+      constructor(callback: MutationCallback) {
+        onMutation = callback;
+      }
+      observe = vi.fn();
+      disconnect = vi.fn();
+    }
+    vi.stubGlobal("MutationObserver", FakeMutationObserver);
+    Object.assign(document, {
+      documentElement: {},
+      querySelectorAll: vi.fn(() => (marked ? [iframe] : [])),
+    });
+    recordMock.mockImplementation(() => vi.fn());
+    const replay = await freshSessionReplay();
+
+    await replay.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+    });
+    marked = true;
+    onMutation?.(
+      [
+        {
+          type: "attributes",
+          target: iframe,
+          attributeName: SESSION_REPLAY_IFRAME_ATTRIBUTE,
+        } as MutationRecord,
+      ],
+      {} as MutationObserver,
+    );
+    expect(childWindow.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: SESSION_REPLAY_IFRAME_START }),
+      "*",
+    );
+
+    childWindow.postMessage.mockClear();
+    marked = false;
+    onMutation?.(
+      [
+        {
+          type: "childList",
+          target: document.documentElement,
+          removedNodes: [wrapper] as unknown as NodeList,
+          addedNodes: [] as unknown as NodeList,
+        } as MutationRecord,
+      ],
+      {} as MutationObserver,
+    );
+    expect(childWindow.postMessage).toHaveBeenCalledWith(
+      { type: SESSION_REPLAY_IFRAME_STOP },
+      "*",
+    );
+
+    await replay.stopSessionReplay();
+  });
+
   it("preserves signed DOM resources without leaking navigation secrets", async () => {
     const { fetchMock } = installBrowser();
     let recordOptions: any;
