@@ -1,9 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  parseCssColor,
-  rgbaToCss,
-  withColorOpacity,
-} from "@shared/color-utils";
+import { withCssColorOpacity } from "@shared/color-utils";
 import {
   isVectorEndpointStyle,
   isVectorEndpointPrimitiveKind,
@@ -35,6 +31,7 @@ import {
 } from "@/components/ui/select";
 
 import { ScrubInput } from "../inspector";
+import { parseVarReference } from "../inspector/color-picker-tokens";
 import type { DesignPaintType } from "../inspector/DesignColorPicker";
 import type { ElementInfo } from "../types";
 import { isTextElement, isVectorShapeElement } from "./element-classification";
@@ -196,6 +193,11 @@ function StrokeLayerControl({
             supportedPaintTypes={
               supportsGradient ? CSS_BORDER_PAINT_TYPES : SOLID_ONLY_PAINT_TYPES
             }
+            bindTokens
+            boundToken={
+              parseVarReference(element?.inlineStyles?.[`${prefix}Color`] ?? "")
+                ?.name
+            }
           />
         </InspectorGridCell>
         <InspectorGridCell span={4} className="flex justify-center">
@@ -214,12 +216,9 @@ function StrokeLayerControl({
                 return;
               }
               if (visible) {
-                const parsed = parseCssColor(color);
                 onStyleChange(
                   `${prefix}Color`,
-                  parsed
-                    ? rgbaToCss(withColorOpacity(parsed, 0))
-                    : "transparent",
+                  withCssColorOpacity(color, 0) ?? "transparent",
                 );
                 return;
               }
@@ -479,11 +478,9 @@ export function StrokeProperties({
     }
     if (!borderVisible) {
       const existingBorderColor = styles.borderColor || styles.color;
-      const existingParsed = parseCssColor(existingBorderColor || "");
       const borderColor = cssColorOrFallback(
-        existingParsed
-          ? rgbaToCss(withColorOpacity(existingParsed, 100))
-          : existingBorderColor,
+        withCssColorOpacity(existingBorderColor || "", 100) ??
+          existingBorderColor,
         DEFAULT_STROKE_COLOR,
       );
       commitStylePatch(
@@ -691,19 +688,15 @@ function TextStrokeProperties({
                     : t("editPanel.labels.showLayer")
                 }
                 onClick={() => {
-                  const parsed = parseCssColor(color);
                   if (visible) {
                     onStyleChange(
                       "-webkit-text-stroke-color",
-                      parsed
-                        ? rgbaToCss(withColorOpacity(parsed, 0))
-                        : "transparent",
+                      withCssColorOpacity(color, 0) ?? "transparent",
                     );
                     return;
                   }
-                  const restoredColor = parsed
-                    ? rgbaToCss(withColorOpacity(parsed, 100))
-                    : DEFAULT_STROKE_COLOR;
+                  const restoredColor =
+                    withCssColorOpacity(color, 100) ?? DEFAULT_STROKE_COLOR;
                   commitStylePatch(
                     {
                       "-webkit-text-stroke-color": restoredColor,
@@ -1044,21 +1037,18 @@ function VectorStrokeProperties({
                     );
                     return;
                   }
-                  const parsed = parseCssColor(stroke);
                   if (visible) {
                     onStyleChange(
                       "stroke",
-                      parsed
-                        ? rgbaToCss(withColorOpacity(parsed, 0))
-                        : "transparent",
+                      withCssColorOpacity(stroke, 0) ?? "transparent",
                     );
                     return;
                   }
                   commitStylePatch(
                     {
-                      stroke: parsed
-                        ? rgbaToCss(withColorOpacity(parsed, 100))
-                        : DEFAULT_STROKE_COLOR,
+                      stroke:
+                        withCssColorOpacity(stroke, 100) ??
+                        DEFAULT_STROKE_COLOR,
                       strokeWidth: cssLengthNumber(width) > 0 ? width : "1px",
                     },
                     onStyleChange,

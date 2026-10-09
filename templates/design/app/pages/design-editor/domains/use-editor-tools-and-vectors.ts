@@ -142,8 +142,6 @@ export function useEditorToolsAndVectors({
     setActiveFileId,
   } = editorCore;
   const {
-    activeInspectorTab,
-    setActiveInspectorTab,
     activeLeftPanel,
     setActiveLeftPanel,
     selectedLayerIdsState,
@@ -202,6 +200,9 @@ export function useEditorToolsAndVectors({
     activeFile,
     handleBreakpointBarSelect,
     overviewCanvasZoom,
+    interactDeviceName,
+    interactDeviceSize,
+    interactTheme,
     setCameraCommand,
     cameraCommandNonceRef,
     exportCanvasFrameGeometryById,
@@ -376,7 +377,6 @@ export function useEditorToolsAndVectors({
         setSelectedLayerIdsState(boardTarget ? [] : [targetId]);
         setMode("edit");
       }
-      setActiveInspectorTab("comments");
       reviewFocusNonceRef.current += 1;
       setReviewFocusRequest({
         nonce: reviewFocusNonceRef.current,
@@ -1291,7 +1291,6 @@ export function useEditorToolsAndVectors({
         activeBreakpointWidthState,
         activeCodeFile,
         activeFile,
-        activeInspectorTab,
         activeLeftPanel,
         activeTool,
         design,
@@ -1301,6 +1300,12 @@ export function useEditorToolsAndVectors({
         files,
         hoveredElement,
         id,
+        interactDevice: {
+          name: interactDeviceName,
+          width: interactDeviceSize.width,
+          height: interactDeviceSize.height,
+        },
+        interactTheme,
         isSignedIn,
         mode,
         motionDockOpen,
@@ -1325,7 +1330,6 @@ export function useEditorToolsAndVectors({
       hoveredElement,
       mode,
       activeTool,
-      activeInspectorTab,
       activeLeftPanel,
       activeCodeFile,
       overviewSelectedScreenIds,
@@ -1338,6 +1342,10 @@ export function useEditorToolsAndVectors({
       layoutGrids,
       selectedStateId,
       isSignedIn,
+      interactDeviceName,
+      interactDeviceSize.width,
+      interactDeviceSize.height,
+      interactTheme,
     ],
   );
 

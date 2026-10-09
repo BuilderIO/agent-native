@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { canvasZoom } from "./helpers";
+import { canvasZoom, selectTool, type ToolbarMenuTool } from "./helpers";
 
 const PAGE_W = 1440;
 const PAGE_H = 900;
@@ -342,8 +342,12 @@ async function toScreenPoint(page: Page, x: number, y: number) {
   };
 }
 
-async function drawWith(page: Page, tool: string, rect: Rect): Promise<void> {
-  await toolbar(page).locator(`button[aria-label="${tool}"]`).click();
+async function drawWith(
+  page: Page,
+  tool: ToolbarMenuTool,
+  rect: Rect,
+): Promise<void> {
+  await selectTool(page, tool);
   await page.waitForTimeout(250);
   const a = await toScreenPoint(page, rect.left, rect.top);
   const b = await toScreenPoint(
@@ -737,7 +741,7 @@ test.describe("auto layout", () => {
 });
 
 test.describe("drawing fidelity", () => {
-  for (const tool of ["Rectangle", "Frame"]) {
+  for (const tool of ["Rectangle", "Frame"] as const) {
     test(`${tool} commits the exact rect you dragged`, async ({ page }) => {
       const id = await newDesign(page, BLANK_PAGE);
       await openEditor(page, id);

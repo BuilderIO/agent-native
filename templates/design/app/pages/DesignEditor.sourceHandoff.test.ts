@@ -35,7 +35,7 @@ describe("DesignEditor pending source handoff", () => {
     const chatState = source.slice(
       source.indexOf('if (data.type === "design:chatState")'),
       source.indexOf(
-        "useEffect(() => {\n    if (hasSelectedElement) focusDesignInspectorForSelection();",
+        "const selectionUndoStackRef = useRef<SelectionHistoryEntry[]>([]);",
       ),
     );
     expect(chatState).toContain('stagedSourceHandoffRef.current = "running";');

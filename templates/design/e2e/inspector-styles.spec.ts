@@ -20,7 +20,6 @@ test.beforeAll(async () => {
 
 test.beforeEach(async ({ page }) => {
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
 });
 
 function inspectorSection(page: Page, title: RegExp | string): Locator {
@@ -311,6 +310,7 @@ test("selection hide and Appearance visibility stay in sync with opacity", async
     .toBe(false);
 });
 
+// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
 test("text gradient apply and removal survive reselection; box gradient editor persists", async ({
   page,
 }) => {
@@ -329,7 +329,7 @@ test("text gradient apply and removal survive reselection; box gradient editor p
   );
   const textFillSection = inspectorSection(page, /^Fill$/i);
   await openColorPicker(textFillSection);
-  await choosePaintType(page, "Linear");
+  await choosePaintType(page, "Gradient");
 
   await expect
     .poll(() => selectedElementStyle(page, headingText, "background-image"))
@@ -371,11 +371,9 @@ test("text gradient apply and removal survive reselection; box gradient editor p
     .poll(() => selectedElementStyle(page, headingText, "background-image"))
     .toContain("linear-gradient(");
   await expect(
-    textFillSection.getByRole("button", { name: "Linear gradient 1" }),
+    textFillSection.getByRole("button", { name: /^Linear/ }),
   ).toBeVisible();
-  await textFillSection
-    .getByRole("button", { name: "Linear gradient 1" })
-    .click();
+  await textFillSection.getByRole("button", { name: /^Linear/ }).click();
   await expect(
     page.locator('input[aria-label="Gradient angle"]'),
   ).toBeVisible();
@@ -398,7 +396,7 @@ test("text gradient apply and removal survive reselection; box gradient editor p
   await selectByText(page, boxText);
   const boxFillSection = inspectorSection(page, /^Fill$/i);
   await openColorPicker(boxFillSection);
-  await choosePaintType(page, "Linear");
+  await choosePaintType(page, "Gradient");
 
   await expect
     .poll(() => selectedElementStyle(page, boxText, "background-image"))
@@ -413,11 +411,9 @@ test("text gradient apply and removal survive reselection; box gradient editor p
   );
   await selectLayerFromTree(page, boxText);
   await expect(
-    boxFillSection.getByRole("button", { name: "Linear gradient 1" }),
+    boxFillSection.getByRole("button", { name: /^Linear/ }),
   ).toBeVisible();
-  await boxFillSection
-    .getByRole("button", { name: "Linear gradient 1" })
-    .click();
+  await boxFillSection.getByRole("button", { name: /^Linear/ }).click();
   await expect(
     page.locator('input[aria-label="Gradient angle"]'),
   ).toBeVisible();

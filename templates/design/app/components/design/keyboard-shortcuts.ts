@@ -563,6 +563,38 @@ const KEY_LABELS: Record<string, string> = {
   tab: "Tab",
 };
 
+const UNAVAILABLE_SHORTCUT_IDS = {
+  annotate: ["draw-tool"],
+  comment: ["comment-tool", "toggle-comments"],
+} as const;
+
+const unavailableShortcutIdCache = new Map<string, readonly string[]>();
+
+/**
+ * Ids of the shortcuts the dialog should not list because their tool is not
+ * available: Draw without the Annotate lab, the comment shortcuts while the
+ * Comment tool is hidden. Equal inputs return the same array, so the dialog's
+ * memoized sections are not rebuilt on every editor render.
+ */
+export function getUnavailableShortcutIds({
+  annotateEnabled,
+  commentEnabled,
+}: {
+  annotateEnabled: boolean;
+  commentEnabled: boolean;
+}): readonly string[] {
+  const cacheKey = `${annotateEnabled}:${commentEnabled}`;
+  let ids = unavailableShortcutIdCache.get(cacheKey);
+  if (!ids) {
+    ids = [
+      ...(annotateEnabled ? [] : UNAVAILABLE_SHORTCUT_IDS.annotate),
+      ...(commentEnabled ? [] : UNAVAILABLE_SHORTCUT_IDS.comment),
+    ];
+    unavailableShortcutIdCache.set(cacheKey, ids);
+  }
+  return ids;
+}
+
 export function formatShortcutKeycaps(
   binding: string,
   applePlatform: boolean,

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { isTopBarVisible, minimalUiBarTopPaddingPx } from "./top-bar";
+import {
+  getTopBarModes,
+  isTopBarVisible,
+  minimalUiBarTopPaddingPx,
+} from "./top-bar";
 
 const docked = {
   embedded: false,
@@ -49,5 +53,31 @@ describe("minimalUiBarTopPaddingPx", () => {
 
   it("keeps the regular minimal toolbar's existing offset", () => {
     expect(minimalUiBarTopPaddingPx(false)).toBe(12);
+  });
+});
+
+describe("getTopBarModes", () => {
+  it("offers Annotate only while its lab is on", () => {
+    expect(getTopBarModes({ showsModes: true, annotateLab: "on" })).toEqual([
+      "interact",
+      "edit",
+      "annotate",
+    ]);
+    expect(getTopBarModes({ showsModes: true, annotateLab: "off" })).toEqual([
+      "interact",
+      "edit",
+    ]);
+  });
+
+  it("keeps Annotate hidden until the lab answers", () => {
+    expect(
+      getTopBarModes({ showsModes: true, annotateLab: "loading" }),
+    ).toEqual(["interact", "edit"]);
+  });
+
+  it("offers no switch when the shell does not show one", () => {
+    expect(getTopBarModes({ showsModes: false, annotateLab: "on" })).toEqual(
+      [],
+    );
   });
 });

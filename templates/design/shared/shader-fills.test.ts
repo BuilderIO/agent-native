@@ -16,10 +16,12 @@ import {
   parseShaderBlockBody,
   pruneUnusedShaders,
   removeShaderFromHtml,
+  removeShaderFill,
   removeShaderFromNode,
   sanitizeShaderFallbackColor,
   serializeManifestComment,
   serializeShaderScriptBlock,
+  shaderUniformLabel,
   SHADER_BUILTIN_UNIFORMS,
   SHADER_EFFECT_ATTR,
   SHADER_FILL_ATTR,
@@ -602,6 +604,138 @@ describe("applyShaderToHtml", () => {
     expect(listShadersInHtml(removed.html)).toHaveLength(0);
   });
 
+  it("removing the last shader leaves no runtime, definition or reference behind", () => {
+    const applied = applyShaderToHtml(DOC, {
+      nodeId: "hero",
+      def: makeDef(),
+      fallbackColor: "#334455",
+    });
+    expect(applied.html).toContain(SHADER_RUNTIME_ATTR);
+
+    const removed = removeShaderFromNode(applied.html, "hero", "fill");
+
+    expect(removed.errors).toEqual([]);
+    expect(removed.html).not.toContain(SHADER_RUNTIME_ATTR);
+    expect(removed.html).not.toContain(SHADER_SCRIPT_TYPE);
+    expect(removed.html).not.toContain(SHADER_FILL_ATTR);
+    expect(htmlHasShaderReferences(removed.html)).toBe(false);
+    // Back to a solid fill: the static fallback stays on the element.
+    expect(removed.html).toContain("background: #334455");
+  });
+
+  it("keeps the runtime while another node still has a shader", () => {
+    const first = applyShaderToHtml(DOC, { nodeId: "hero", def: makeDef() });
+    const both = applyShaderToHtml(first.html, {
+      nodeId: "card",
+      def: makeDef({ id: "an-shader-test0002", name: "Second" }),
+    });
+
+    const removed = removeShaderFromNode(both.html, "hero", "fill");
+
+    expect(removed.html).toContain(SHADER_RUNTIME_ATTR);
+    expect(listShaderMounts(removed.html).map((mount) => mount.nodeId)).toEqual(
+      ["card"],
+    );
+  });
+
+  it("removeShaderFill takes the shader and its fallback background, and nothing else", () => {
+    const applied = applyShaderToHtml(DOC, {
+      nodeId: "hero",
+      def: makeDef(),
+      fallbackColor: "#334455",
+    });
+    expect(applied.html).toContain("background: #334455");
+
+    const removed = removeShaderFill(applied.html, "hero");
+
+    expect(removed.errors).toEqual([]);
+    expect(removed.html).not.toContain(SHADER_RUNTIME_ATTR);
+    expect(removed.html).not.toContain(SHADER_SCRIPT_TYPE);
+    expect(removed.html).not.toContain("background");
+    // The element's own declarations stay.
+    expect(removed.html).toContain('style="color: red"');
+  });
+
+  it("removeShaderFill also drops the background-color the fallback was covering, and keeps image layers", () => {
+    const doc = DOC.replace(
+      'style="color: red"',
+      'style="background-color: #ffffff; background-image: url(a.png); color: red"',
+    );
+    const applied = applyShaderToHtml(doc, {
+      nodeId: "hero",
+      def: makeDef(),
+      fallbackColor: "#334455",
+    });
+
+    const removed = removeShaderFill(applied.html, "hero");
+
+    expect(removed.html).not.toContain("background-color");
+    expect(removed.html).not.toContain("background:");
+    expect(removed.html).toContain("background-image: url(a.png)");
+    expect(removed.html).toContain("color: red");
+  });
+
+  it("removeShaderFill leaves no empty style attribute and reports a missing node", () => {
+    const applied = applyShaderToHtml(DOC, {
+      nodeId: "card",
+      def: makeDef(),
+      fallbackColor: "#334455",
+    });
+    const removed = removeShaderFill(applied.html, "card");
+    expect(removed.html).toContain(
+      '<section data-agent-native-node-id="card">',
+    );
+    expect(removed.html).not.toContain('style=""');
+
+    const missing = removeShaderFill(DOC, "nope");
+    expect(missing.changed).toBe(false);
+    expect(missing.errors).toEqual([
+      'no element with data-agent-native-node-id="nope" found',
+    ]);
+  });
+
+  it("clearBackgroundLayers drops the node's gradient and image layers in the same write, and keeps the rest", () => {
+    const doc = DOC.replace(
+      'style="color: red"',
+      'style="background-color: transparent; background-image: linear-gradient(90deg, #ff0000 0%, #0000ff 100%); background-size: auto; background-repeat: no-repeat; background-position: 0% 0%; color: red"',
+    );
+
+    const applied = applyShaderToHtml(doc, {
+      nodeId: "hero",
+      def: makeDef(),
+      fallbackColor: "#334455",
+      clearBackgroundLayers: true,
+    });
+
+    expect(applied.errors).toEqual([]);
+    expect(listShaderMounts(applied.html)).toHaveLength(1);
+    expect(applied.html).toContain("background: #334455");
+    expect(applied.html).not.toContain("background-image");
+    expect(applied.html).not.toContain("background-size");
+    expect(applied.html).not.toContain("background-repeat");
+    expect(applied.html).not.toContain("background-position");
+    expect(applied.html).toContain("color: red");
+
+    const kept = applyShaderToHtml(doc, {
+      nodeId: "hero",
+      def: makeDef(),
+      fallbackColor: "#334455",
+    });
+    expect(kept.html).toContain("background-image: linear-gradient");
+  });
+
+  it("clearBackgroundLayers leaves a node that has no layers as it was", () => {
+    const applied = applyShaderToHtml(DOC, {
+      nodeId: "hero",
+      def: makeDef(),
+      fallbackColor: "#334455",
+      clearBackgroundLayers: true,
+    });
+    expect(applied.errors).toEqual([]);
+    expect(applied.html).toContain("color: red");
+    expect(applied.html).toContain("background: #334455");
+  });
+
   it("pruneUnusedShaders keeps referenced defs", () => {
     const def = makeDef();
     const applied = applyShaderToHtml(DOC, { nodeId: "hero", def });
@@ -623,6 +757,54 @@ describe("misc helpers", () => {
       u_speed: 1,
       u_tint: "#3366ff",
       u_center: [0.5, 0.5],
+    });
+  });
+
+  it("shaderUniformLabel prefers the declared label, else reads the name as words", () => {
+    const float = { type: "float" as const, value: 0 };
+    expect(shaderUniformLabel("u_drift", { ...float, label: "Drift" })).toBe(
+      "Drift",
+    );
+    expect(shaderUniformLabel("u_drift", float)).toBe("Drift");
+    expect(shaderUniformLabel("uDrift", float)).toBe("Drift");
+    expect(shaderUniformLabel("u_glow_amount", float)).toBe("Glow amount");
+    expect(shaderUniformLabel("uGlowAmount", float)).toBe("Glow amount");
+    expect(shaderUniformLabel("tint", float)).toBe("Tint");
+  });
+});
+
+describe("element overrides the agent wrote by hand", () => {
+  // The skill documents the overrides in single quotes: the JSON holds double quotes.
+  const single = (attrs: string) =>
+    `<div data-agent-native-node-id="hero" ${attrs}></div>`;
+
+  it("listShaderMounts reads the values from a single-quoted attribute", () => {
+    const mounts = listShaderMounts(
+      single(
+        `data-an-shader-fill="an-shader-a" data-an-shader-uniforms='{"u_speed":0.5,"u_tint":"#ff0000"}'`,
+      ),
+    );
+
+    expect(mounts).toEqual([
+      {
+        nodeId: "hero",
+        shaderId: "an-shader-a",
+        mode: "fill",
+        values: { u_speed: 0.5, u_tint: "#ff0000" },
+      },
+    ]);
+  });
+
+  it("listShaderMounts reads an effect's single-quoted values from its own attribute", () => {
+    const mounts = listShaderMounts(
+      single(
+        `data-an-shader-effect="an-shader-b" data-an-shader-effect-uniforms='{"u_intensity":0.2}'`,
+      ),
+    );
+
+    expect(mounts[0]).toMatchObject({
+      mode: "effect",
+      values: { u_intensity: 0.2 },
     });
   });
 });

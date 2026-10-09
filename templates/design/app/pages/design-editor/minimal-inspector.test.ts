@@ -4,6 +4,7 @@ import {
   DOCKED_RIGHT_INSPECTOR_CLASSNAME,
   FLOATING_RIGHT_INSPECTOR_CLASSNAME,
   hasMinimalInspectorSelection,
+  isRightInspectorVisible,
   rightInspectorCanvasInset,
   rightInspectorPanelClassName,
   shouldAutoOpenMobileInspector,
@@ -51,6 +52,85 @@ describe("rightInspectorCanvasInset", () => {
         minimalUi: true,
       }),
     ).toBe(0);
+  });
+});
+
+describe("isRightInspectorVisible", () => {
+  const docked = {
+    hostOwnsChrome: false,
+    isMobileViewport: false,
+    uiHidden: false,
+    initialGenerationChromeLimited: false,
+    responsiveInteractActive: false,
+    minimalUi: false,
+    minimalInspectorHasSelection: false,
+    topBarVisible: true,
+    mode: "edit" as const,
+    canEdit: true,
+  };
+
+  it("shows in Design for someone who can edit", () => {
+    expect(isRightInspectorVisible(docked)).toBe(true);
+  });
+
+  it("is hidden in Interact", () => {
+    expect(
+      isRightInspectorVisible({
+        ...docked,
+        mode: "interact",
+        responsiveInteractActive: true,
+      }),
+    ).toBe(false);
+    expect(isRightInspectorVisible({ ...docked, mode: "interact" })).toBe(
+      false,
+    );
+  });
+
+  it("is hidden in Annotate rather than left as an empty column", () => {
+    expect(isRightInspectorVisible({ ...docked, mode: "annotate" })).toBe(
+      false,
+    );
+  });
+
+  it("is hidden for someone who cannot edit: Code and Comments tabs no longer give them one", () => {
+    expect(isRightInspectorVisible({ ...docked, canEdit: false })).toBe(false);
+  });
+
+  it("keeps the rail outside Design where the top bar is absent, because it carries the share controls", () => {
+    const withoutTopBar = { ...docked, topBarVisible: false };
+    expect(
+      isRightInspectorVisible({ ...withoutTopBar, mode: "annotate" }),
+    ).toBe(true);
+    expect(isRightInspectorVisible({ ...withoutTopBar, canEdit: false })).toBe(
+      true,
+    );
+  });
+
+  it("stays hidden when the host owns the chrome, on a phone, and with the UI hidden", () => {
+    expect(isRightInspectorVisible({ ...docked, hostOwnsChrome: true })).toBe(
+      false,
+    );
+    expect(isRightInspectorVisible({ ...docked, isMobileViewport: true })).toBe(
+      false,
+    );
+    expect(isRightInspectorVisible({ ...docked, uiHidden: true })).toBe(false);
+    expect(
+      isRightInspectorVisible({
+        ...docked,
+        initialGenerationChromeLimited: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("opens in minimal UI only for a selection", () => {
+    expect(isRightInspectorVisible({ ...docked, minimalUi: true })).toBe(false);
+    expect(
+      isRightInspectorVisible({
+        ...docked,
+        minimalUi: true,
+        minimalInspectorHasSelection: true,
+      }),
+    ).toBe(true);
   });
 });
 
@@ -204,9 +284,6 @@ describe("DesignEditor minimal inspector wiring", () => {
   it("opens the inspector from selection in minimal mode", () => {
     expect(editorSource).toContain("hasMinimalInspectorSelection");
     expect(editorSource).toContain("minimalInspectorHasSelection");
-    expect(editorSource).toContain(
-      "(!minimalUi || minimalInspectorHasSelection)",
-    );
   });
 
   it("renders the floating inspector card class in minimal mode", () => {

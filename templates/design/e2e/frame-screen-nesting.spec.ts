@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
+import { selectTool, type ToolbarMenuTool } from "./helpers";
 
 const BLANK = `<!doctype html>
 <html lang="en">
@@ -163,13 +164,11 @@ async function drawFrameTool(
 
 async function drawWith(
   page: Page,
-  tool: string,
+  tool: ToolbarMenuTool,
   from: { x: number; y: number },
   to: { x: number; y: number },
 ) {
-  await page
-    .locator(`[data-design-bottom-toolbar] button[aria-label="${tool}"]`)
-    .click();
+  await selectTool(page, tool);
   await page.waitForTimeout(500);
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();

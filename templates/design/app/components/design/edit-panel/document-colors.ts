@@ -9,7 +9,15 @@ import {
   type CodeLayerNode,
   wrapBareTextLeavesInHtml,
 } from "@shared/code-layer";
-import { parseCssColor, rgbaToCss, rgbaToHex } from "@shared/color-utils";
+import { gamutOf, parseWideColor } from "@shared/color-spaces";
+import {
+  isWideGamutNotation,
+  normalizeCssColor,
+  parseCssColor,
+  rgbaToCss,
+  rgbaToHex,
+  withCssColorAlpha,
+} from "@shared/color-utils";
 import {
   gradientStopWithFillOpacity,
   readGradientFillOpacity,
@@ -31,8 +39,10 @@ export interface DocumentColorSourceFile {
   content: string;
 }
 
+// oklch() and color(display-p3|srgb ...) are matched only when they hold no
+// nested parentheses, so a relative color or var() is never cut in half.
 const CSS_COLOR_TOKEN_PATTERN =
-  /#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})\b|(?:rgb|hsl)a?\([^)]*\)/gi;
+  /#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})\b|(?:rgb|hsl)a?\([^)]*\)|\boklch\([^()]*\)|\bcolor\(\s*(?:display-p3|srgb)\s[^()]*\)/gi;
 
 interface ColorTokenSpan {
   value: string;
@@ -847,11 +857,25 @@ export function documentFileColorCounts(
 
 const documentColorHexByToken = new Map<string, string | null>();
 
+/**
+ * A palette entry for a color token: sRGB colors as #RRGGBB, and a color
+ * outside sRGB as authored, so it is never flattened into its sRGB fallback.
+ */
+export function paletteColorValue(value: string): string | null {
+  const wide = parseWideColor(value.trim());
+  if (wide?.kind === "ok" && gamutOf(wide.color.linear) !== "srgb") {
+    return normalizeCssColor(value);
+  }
+  const parsed = parseCssColor(value);
+  return parsed ? rgbaToHex(parsed) : null;
+}
+
 function documentColorHex(token: string): string | null {
   let hex = documentColorHexByToken.get(token);
   if (hex === undefined) {
     const parsed = parseCssColor(token);
-    hex = parsed && parsed.a !== 0 ? rgbaToHex(parsed).toUpperCase() : null;
+    hex = parsed && parsed.a !== 0 ? paletteColorValue(token) : null;
+    if (hex && !isWideGamutNotation(hex)) hex = hex.toUpperCase();
     if (documentColorHexByToken.size >= 4096) documentColorHexByToken.clear();
     documentColorHexByToken.set(token, hex);
   }
@@ -984,6 +1008,10 @@ function cssColorTokens(value: string): string[] {
 }
 
 function colorKey(value: string): string {
+  // Two wide colors can share an sRGB fallback; they are still two colors.
+  if (isWideGamutNotation(value)) {
+    return (normalizeCssColor(value) ?? value).toLowerCase();
+  }
   const parsed = parseCssColor(value);
   return parsed
     ? rgbaToHex(parsed, true).toUpperCase()
@@ -1415,9 +1443,11 @@ export function selectionFillAddedStyles(
     };
   }
 
-  const recent = mostRecentFillColor && parseCssColor(mostRecentFillColor);
+  const recent = mostRecentFillColor
+    ? normalizeCssColor(mostRecentFillColor)
+    : null;
   // guard:allow-raw-color - New artwork starts with white paint when no recent paint exists.
-  const color = recent ? rgbaToCss(recent) : "#ffffff";
+  const color = recent ?? "#ffffff";
   const paint = solidFillPaint(color, "backgroundColor");
   if (!paint) throw new Error("The default fill color is invalid.");
   return {
@@ -1716,19 +1746,20 @@ function inspectorSolidPaintValue(paint: SelectionFillPaint): string {
   const color = parseCssColor(paint.value);
   if (!color) return paint.source;
   const opacity = paint.opacity ?? 100;
-  if (opacity === 0) return rgbaToCss({ ...color, a: 0 });
-  return rgbaToCss({ ...color, a: (opacity / 100) * color.a });
+  const alpha = opacity === 0 ? 0 : (opacity / 100) * color.a;
+  return withCssColorAlpha(paint.value, alpha) ?? paint.source;
 }
 
 function inspectorImagePaintValue(paint: SelectionFillPaint): string {
   if (paint.kind === "solid") {
     const base = parseCssColor(paint.value);
-    const color = base
-      ? rgbaToCss({
-          ...base,
-          a: ((paint.opacity ?? 100) / 100) * base.a,
-        })
-      : paint.source;
+    const color =
+      (base
+        ? withCssColorAlpha(
+            paint.value,
+            ((paint.opacity ?? 100) / 100) * base.a,
+          )
+        : null) ?? paint.source;
     return buildSolidFillLayer(color);
   }
   return paint.source;
@@ -1821,7 +1852,7 @@ function solidFillPaint(
     stored.opacity === 0 && /^color-mix\(in srgb,/i.test(value.trim());
   return {
     kind: "solid",
-    value: rgbaToCss({ ...color, a: 1 }),
+    value: withCssColorAlpha(colorValue, 1) ?? rgbaToCss({ ...color, a: 1 }),
     source: value,
     property,
     ...(layerIndex === undefined ? {} : { layerIndex }),
@@ -2288,10 +2319,4 @@ export function selectionFillModel(
     stacks,
     targets,
   };
-}
-
-export function selectionDisplayHex(value: string): string {
-  const parsed = parseCssColor(value);
-  if (!parsed) return value.replace(/^#/, "").toUpperCase();
-  return rgbaToHex(parsed).replace(/^#/, "").toUpperCase();
 }

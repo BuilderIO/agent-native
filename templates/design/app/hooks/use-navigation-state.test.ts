@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { DESIGN_EDITOR_TOOLS } from "@/pages/design-editor/tool-state";
+
 import {
   designEditorCommandKeysForTab,
   designSelectionCleanupKeysForTab,
@@ -32,6 +34,17 @@ describe("design navigation state", () => {
     });
   });
 
+  it("round-trips every tool the editor knows, including agent, into the URL", () => {
+    for (const tool of DESIGN_EDITOR_TOOLS) {
+      const path = editorPathFromCommand({
+        view: "editor",
+        designId: "design_123",
+        tool,
+      });
+      expect(path, tool).toBe(`/design/design_123?tool=${tool}`);
+    }
+  });
+
   it("round-trips the active design tool through editor navigation", () => {
     const command = {
       view: "editor",
@@ -48,6 +61,28 @@ describe("design navigation state", () => {
       editorView: "overview",
       tool: "pen",
       path,
+    });
+  });
+
+  it("carries the Interact device and theme into the editor command without putting them in the URL", () => {
+    const command = {
+      view: "editor",
+      designId: "design_123",
+      editorView: "single" as const,
+      screen: "pricing.html",
+      interactDevice: "iPhone 17",
+      interactTheme: "dark" as const,
+    };
+
+    const path = editorPathFromCommand(command);
+
+    expect(path).toBe(
+      "/design/design_123?editorView=single&mode=interact&screen=pricing.html&zoom=100",
+    );
+    expect(editorCommandFromNavigate(command, path!)).toMatchObject({
+      designId: "design_123",
+      interactDevice: "iPhone 17",
+      interactTheme: "dark",
     });
   });
 

@@ -50,6 +50,7 @@ async function postAction(
   return response.json();
 }
 
+// oracle: none — app fill-layer behavior with no native Figma counterpart; only how the added row is located changed.
 test("Add fill creates a Solid row, opens its picker, and keeps existing fill layers aligned", async ({
   page,
   request,
@@ -127,10 +128,10 @@ test("Add fill creates a Solid row, opens its picker, and keeps existing fill la
     const addedSolid = paintRows.first();
     const addedSolidTrigger = addedSolid
       .getByRole("button")
-      .filter({ hasText: "#123456" })
+      .filter({ hasText: "123456" })
       .first();
     await expect(addedSolidTrigger).toBeVisible();
-    await expect(addedSolid).not.toContainText("Linear gradient");
+    await expect(addedSolid).not.toContainText("Linear");
     await expect(
       page
         .getByRole("dialog")

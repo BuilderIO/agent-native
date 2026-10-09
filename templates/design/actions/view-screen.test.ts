@@ -193,6 +193,106 @@ describe("view-screen", () => {
     expect(result.design?.designSystemId).toBeNull();
   });
 
+  it("shows the Interact preview's device and theme from the published selection", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "single",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "single",
+        mode: "interact",
+        activeFileId: "file_index",
+        activeFilename: "index.html",
+        interact: {
+          device: { name: "iPhone 17", width: 402, height: 874 },
+          theme: "dark",
+        },
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.designSelection.mode).toBe("interact");
+    expect(result.designSelection.interact).toEqual({
+      device: { name: "iPhone 17", width: 402, height: 874 },
+      theme: "dark",
+    });
+  });
+
+  it("hands the editor's mode and active tool to the agent as published, including the Agent tool", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "single",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "single",
+        activeFileId: "file_index",
+        activeFilename: "index.html",
+        mode: "interact",
+        activeTool: "agent",
+        leftPanel: "agent",
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.designSelection).toMatchObject({
+      mode: "interact",
+      activeTool: "agent",
+      leftPanel: "agent",
+    });
+  });
+
+  it("does not report an inspector tab, even when a stale selection record has one", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "single",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "single",
+        mode: "edit",
+        activeFileId: "file_index",
+        activeFilename: "index.html",
+        inspectorTab: "comments",
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.designSelection).toMatchObject({
+      mode: "edit",
+      activeFileId: "file_index",
+    });
+    expect(result.designSelection).not.toHaveProperty("inspectorTab");
+  });
+
   it("uses active file before overview multi-selection", async () => {
     mocks.readAppStateForCurrentTab
       .mockResolvedValueOnce({

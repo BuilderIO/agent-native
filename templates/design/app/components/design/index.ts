@@ -7,7 +7,6 @@ export type {
 export { DeviceFrame } from "./DeviceFrame";
 export { DrawOverlay } from "./DrawOverlay";
 export { EditPanel } from "./EditPanel";
-export type { InspectorTab } from "./EditPanel";
 export {
   MotionDock,
   type MotionDockProps,

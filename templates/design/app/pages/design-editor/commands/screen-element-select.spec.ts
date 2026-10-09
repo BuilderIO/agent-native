@@ -93,7 +93,6 @@ function harness(args: {
     applyFileContentUpdate: vi.fn(),
     clearPendingOverviewLayerSelectionTimer,
     createdOverviewLayerSelection: args.createdOverviewLayerSelection ?? null,
-    focusDesignInspectorForSelection: vi.fn(),
     getCodeLayerProjectionForScreen: (screenId: string) =>
       screenId === SCREEN_ID
         ? projection

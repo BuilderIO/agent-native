@@ -3,6 +3,7 @@ import {
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
+import type { InteractThemeMode } from "@shared/preview-color-scheme";
 import { useEffect } from "react";
 import { useLocation, useParams } from "react-router";
 
@@ -19,8 +20,13 @@ export interface NavigationState {
   templateId?: string;
   editorView?: "single" | "overview";
   mode?: "edit" | "annotate" | "interact";
-  inspectorTab?: "design" | "comments" | "tweaks" | "code" | "extensions";
-  inspector?: "design" | "comments" | "tweaks" | "code" | "extensions";
+  /**
+   * Ignored: the inspector has no tabs. Only the legacy `extensions` value is
+   * still read, as an alias for the Tools left panel.
+   */
+  inspectorTab?: string;
+  /** Alias for `inspectorTab`. */
+  inspector?: string;
   leftPanel?:
     | "file"
     | "agent"
@@ -37,6 +43,8 @@ export interface NavigationState {
   selection?: string;
   zoom?: number;
   tool?: string;
+  interactDevice?: string;
+  interactTheme?: InteractThemeMode;
   path?: string;
 }
 
@@ -55,6 +63,7 @@ const DESIGN_EDITOR_TOOLS = [
   "comment",
   "draw",
   "scale",
+  "agent",
 ] as const;
 
 export interface DesignEditorCommand {
@@ -62,8 +71,6 @@ export interface DesignEditorCommand {
   editorView?: "single" | "overview";
   viewMode?: "single" | "overview";
   mode?: "edit" | "annotate" | "interact";
-  inspectorTab?: "design" | "comments" | "tweaks" | "code" | "extensions";
-  inspector?: "design" | "comments" | "tweaks" | "code" | "extensions";
   leftPanel?:
     | "file"
     | "agent"
@@ -80,6 +87,8 @@ export interface DesignEditorCommand {
   selection?: string;
   zoom?: number;
   tool?: string;
+  interactDevice?: string;
+  interactTheme?: InteractThemeMode;
   path?: string;
   issuedAt: number;
 }
@@ -118,17 +127,6 @@ function normalizeEditorView(
   return value === "single" || value === "overview" ? value : undefined;
 }
 
-function normalizeInspectorTab(
-  value: unknown,
-): "design" | "comments" | "tweaks" | "code" | undefined {
-  return value === "design" ||
-    value === "comments" ||
-    value === "tweaks" ||
-    value === "code"
-    ? value
-    : undefined;
-}
-
 function normalizeLeftPanel(
   value: unknown,
 ):
@@ -141,6 +139,12 @@ function normalizeLeftPanel(
   | "code"
   | undefined {
   return normalizeDesignLeftPanel(value);
+}
+
+// `inspector=extensions` predates the left rail and still opens Tools. Every
+// other inspector value (design, comments, tweaks, code) is ignored.
+function legacyInspectorLeftPanel(value: unknown) {
+  return value === "extensions" ? normalizeLeftPanel(value) : undefined;
 }
 
 function normalizeEditorMode(
@@ -166,12 +170,9 @@ export function editorPathFromCommand(cmd: NavigationState): string | null {
   const editorView = normalizeEditorView(cmd.editorView);
   if (editorView) params.set("editorView", editorView);
   if (editorView === "single") params.set("mode", cmd.mode ?? "interact");
-  const rawInspectorTab = cmd.inspectorTab ?? cmd.inspector;
-  const inspectorTab = normalizeInspectorTab(rawInspectorTab);
-  if (inspectorTab) params.set("inspector", inspectorTab);
-  const leftPanel = normalizeLeftPanel(
-    cmd.leftPanel ?? cmd.panel ?? rawInspectorTab,
-  );
+  const leftPanel =
+    normalizeLeftPanel(cmd.leftPanel ?? cmd.panel) ??
+    legacyInspectorLeftPanel(cmd.inspectorTab ?? cmd.inspector);
   if (leftPanel) params.set("panel", leftPanel);
   const screen = cmd.fileId ?? cmd.screenId ?? cmd.filename ?? cmd.screen;
   if (screen) params.set("screen", screen);
@@ -194,11 +195,9 @@ export function editorCommandFromNavigate(
 ): DesignEditorCommand | null {
   if (cmd.view !== "editor" || !cmd.designId) return null;
   const editorView = normalizeEditorView(cmd.editorView);
-  const rawInspectorTab = cmd.inspectorTab ?? cmd.inspector;
-  const inspectorTab = normalizeInspectorTab(rawInspectorTab);
   const leftPanel =
     normalizeLeftPanel(cmd.leftPanel ?? cmd.panel) ??
-    normalizeLeftPanel(rawInspectorTab);
+    legacyInspectorLeftPanel(cmd.inspectorTab ?? cmd.inspector);
   const command: DesignEditorCommand = {
     designId: cmd.designId,
     issuedAt: Date.now(),
@@ -206,7 +205,6 @@ export function editorCommandFromNavigate(
   };
   if (editorView) command.editorView = editorView;
   if (editorView === "single") command.mode = cmd.mode ?? "interact";
-  if (inspectorTab) command.inspectorTab = inspectorTab;
   if (leftPanel) command.leftPanel = leftPanel;
   if (cmd.fileId) command.fileId = cmd.fileId;
   if (cmd.screenId) command.screenId = cmd.screenId;
@@ -220,6 +218,8 @@ export function editorCommandFromNavigate(
   }
   const tool = normalizeDesignTool(cmd.tool);
   if (tool) command.tool = tool;
+  if (cmd.interactDevice) command.interactDevice = cmd.interactDevice;
+  if (cmd.interactTheme) command.interactTheme = cmd.interactTheme;
   return command;
 }
 
@@ -249,12 +249,9 @@ export function useNavigationState(enabled = true) {
         if (editorView) state.editorView = editorView;
         const mode = normalizeEditorMode(searchParams.get("mode"));
         if (mode) state.mode = mode;
-        const rawInspectorTab = searchParams.get("inspector");
-        const inspectorTab = normalizeInspectorTab(rawInspectorTab);
-        if (inspectorTab) state.inspectorTab = inspectorTab;
-        const leftPanel = normalizeLeftPanel(
-          searchParams.get("panel") ?? rawInspectorTab,
-        );
+        const leftPanel =
+          normalizeLeftPanel(searchParams.get("panel")) ??
+          legacyInspectorLeftPanel(searchParams.get("inspector"));
         if (leftPanel) state.leftPanel = leftPanel;
         const screen = searchParams.get("screen");
         if (screen) state.screen = screen;

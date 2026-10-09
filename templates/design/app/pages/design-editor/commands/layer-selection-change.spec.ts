@@ -151,7 +151,6 @@ function selectLayer(args: {
           : []),
       ],
       getScreenContent: () => content,
-      focusDesignInspectorForSelection: vi.fn(),
       overviewSelectedScreenIds: [],
       pendingOverviewLayerSelectionRef: { current: null },
       pendingOverviewScreenSelectionRef: { current: null },

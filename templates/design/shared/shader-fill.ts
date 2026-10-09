@@ -20,6 +20,7 @@ function isSafeCssColor(value: unknown): value is string {
     /^rgba?\(\s*[0-9%,.\s/+-]+\)$/.test(trimmed) ||
     /^hsla?\(\s*[0-9%,.\s/+-]+(?:deg)?[0-9%,.\s/+-]*\)$/.test(trimmed) ||
     /^oklch\(\s*[0-9%.\s/+-]+\)$/.test(trimmed) ||
+    /^color\(\s*(?:display-p3|srgb)\s+[0-9%.\s/+-]+\)$/.test(trimmed) ||
     /^[a-zA-Z]+$/.test(trimmed)
   );
 }

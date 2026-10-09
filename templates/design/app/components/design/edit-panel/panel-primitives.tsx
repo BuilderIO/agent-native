@@ -1,8 +1,4 @@
-import {
-  parseCssColor,
-  rgbaToCss,
-  withColorOpacity,
-} from "@shared/color-utils";
+import { parseCssColor, withCssColorOpacity } from "@shared/color-utils";
 import { Children, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -24,8 +20,16 @@ import {
   type DesignGradientType,
   type ImageFillValue,
 } from "../inspector";
+import type { DesignColorContrast } from "../inspector/color-picker-contrast";
+import { FillFieldReadingText } from "../inspector/color-picker-fill-field";
+import {
+  tokenVarCss,
+  type DesignColorToken,
+} from "../inspector/color-picker-tokens";
 import type { DesignPaintType } from "../inspector/DesignColorPicker";
+import { readFillField } from "../inspector/fill-field-reading";
 import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
+import { useDesignColorTokenSource } from "./design-color-tokens";
 import {
   buildGradientLayer,
   defaultGradientStops,
@@ -196,6 +200,11 @@ export function ColorInput({
   supportedPaintTypes,
   pickerKey,
   glslShaderContext,
+  fillShader,
+  authoredValue,
+  bindTokens = false,
+  boundToken,
+  contrast,
   disabled = false,
 }: {
   label: string;
@@ -239,7 +248,18 @@ export function ColorInput({
   pickerKey?: string;
   disabled?: boolean;
   glslShaderContext?: GlslShaderPanelContext;
+  /** The shader painted as this fill: the picker opens on its controls. */
+  fillShader?: { name: string } | null;
+  /** The color as written in the design, for the field to read as written. */
+  authoredValue?: string;
+  /** Offers the design's color tokens in the picker's Libraries pane; picking one writes `var(--token)`. */
+  bindTokens?: boolean;
+  /** The custom property the authored fill is written as, when it is a `var()`. */
+  boundToken?: string;
+  /** Contrast against the screen behind a text layer's solid fill. */
+  contrast?: DesignColorContrast;
 }) {
+  const tokenSource = useDesignColorTokenSource();
   const [draft, setDraft] = useState(value);
   const [selectedFillId, setSelectedFillId] = useState(SOLID_FILL_ID);
   const [selectedStopId, setSelectedStopId] = useState<string | undefined>();
@@ -392,9 +412,11 @@ export function ColorInput({
       ? selectedGradient
         ? selectedGradient.type
         : "image"
-      : colorHasVisibleAlpha(draft || value)
-        ? "solid"
-        : "none";
+      : fillShader
+        ? "shader"
+        : colorHasVisibleAlpha(draft || value)
+          ? "solid"
+          : "none";
   const pickerValue = singlePaint
     ? singlePaintGradient
       ? value
@@ -407,6 +429,22 @@ export function ColorInput({
       : draft || DEFAULT_PAINT_COLOR;
   const selectedBackgroundLayerValue = (layers: string[]): string | undefined =>
     selectedLayerIndex !== null ? layers[selectedLayerIndex] : undefined;
+  // A token is bound as `var(--token)`, which `setNext` would drop as no color.
+  // With a gradient or image layer selected the token becomes the fill's solid
+  // color and the layer goes, as when Solid is picked.
+  const bindToken = (token: DesignColorToken) => {
+    const css = tokenVarCss(token.cssVar);
+    if (
+      selectedLayerIndex !== null &&
+      selectedLayerIndex < backgroundLayers.length
+    ) {
+      removeBackgroundLayer(selectedLayerIndex);
+    }
+    setSelectedFillId(SOLID_FILL_ID);
+    pendingGestureRef.current = false;
+    setDraft(css);
+    onChange(css, { phase: "commit" });
+  };
   const handlePaintTypeChange = (type: DesignPaintType) => {
     const selectedLayer = fillLayerIndex(selectedFillId);
     if (type === "solid") {
@@ -425,14 +463,13 @@ export function ColorInput({
       const parsedStop = firstStopColor ? parseCssColor(firstStopColor) : null;
       setNext(
         cssColorOrFallback(
-          parsedStop
-            ? rgbaToCss(
-                withColorOpacity(
-                  parsedStop,
-                  parsedStop.a * (removedGradient?.opacity ?? 100),
-                ),
+          (firstStopColor && parsedStop
+            ? withCssColorOpacity(
+                firstStopColor,
+                parsedStop.a * (removedGradient?.opacity ?? 100),
               )
-            : firstStopColor || draft || value,
+            : null) ??
+            (firstStopColor || draft || value),
           "#000000",
         ),
       );
@@ -531,7 +568,10 @@ export function ColorInput({
         className="flex h-6 w-full items-center rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] text-muted-foreground"
         onClick={() => onChange("#000000")}
       >
-        {MIXED_VALUE}
+        <FillFieldReadingText
+          reading={readFillField({ paint: "solid", value, mixed: true })}
+          mixedLabel={MIXED_VALUE}
+        />
       </button>
     );
   }
@@ -574,6 +614,13 @@ export function ColorInput({
       documentColors={documentColors}
       supportedPaintTypes={supportedPaintTypes}
       glslShaderContext={glslShaderContext}
+      authoredValue={authoredValue}
+      paintLabel={fillShader?.name}
+      tokens={bindTokens ? tokenSource?.tokens : undefined}
+      onRequestTokens={bindTokens ? tokenSource?.request : undefined}
+      onPickToken={bindTokens && tokenSource ? bindToken : undefined}
+      boundToken={boundToken}
+      contrast={contrast}
       allowDesignHistoryHotkeys={allowDesignHistoryHotkeys}
       disabled={disabled}
     />

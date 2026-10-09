@@ -301,7 +301,7 @@ describe("FillProperties base row — image layer prop wiring", () => {
     );
 
     expect(markup).not.toContain('data-testid="base-fill-color-input"');
-    expect(markup).toContain("Linear gradient 1");
+    expect(markup).toContain(">Linear</span>");
     expect(markup).toContain('aria-label="editPanel.labels.removeLayer"');
   });
 

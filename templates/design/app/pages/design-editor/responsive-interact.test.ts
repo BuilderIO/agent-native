@@ -6,8 +6,11 @@ import { readDesignEditorSource } from "./read-design-editor-source";
 import {
   computeInteractZoomToFit,
   DEFAULT_INTERACT_DEVICE_PRESET,
+  findSelectableInteractDevicePreset,
   formatInteractZoom,
+  INTERACT_CUSTOM_DEVICE_NAME,
   resolveInteractDeviceForScreen,
+  SELECTABLE_INTERACT_DEVICE_PRESETS,
 } from "./responsive-interact";
 
 describe("computeInteractZoomToFit", () => {
@@ -92,6 +95,40 @@ describe("responsive Interact defaults", () => {
   });
 });
 
+describe("Interact device choices", () => {
+  it("offers every preset except the Custom display state", () => {
+    expect(
+      SELECTABLE_INTERACT_DEVICE_PRESETS.map((preset) => preset.name),
+    ).not.toContain(INTERACT_CUSTOM_DEVICE_NAME);
+    expect(
+      SELECTABLE_INTERACT_DEVICE_PRESETS.every(
+        (preset) => preset.category !== "custom",
+      ),
+    ).toBe(true);
+    expect(SELECTABLE_INTERACT_DEVICE_PRESETS.length).toBeGreaterThan(0);
+  });
+
+  it("resolves a selectable preset by exact name only", () => {
+    expect(findSelectableInteractDevicePreset("iPhone 17")).toMatchObject({
+      width: 402,
+      height: 874,
+    });
+    expect(findSelectableInteractDevicePreset("Custom")).toBeUndefined();
+    expect(findSelectableInteractDevicePreset("iphone 17")).toBeUndefined();
+    expect(findSelectableInteractDevicePreset(undefined)).toBeUndefined();
+    expect(findSelectableInteractDevicePreset(402)).toBeUndefined();
+  });
+
+  it("names a screen whose size matches a preset by that preset, and any other size Custom", () => {
+    expect(
+      resolveInteractDeviceForScreen({ width: 402, height: 874 }).name,
+    ).toBe("iPhone 17");
+    expect(
+      resolveInteractDeviceForScreen({ width: 403, height: 874 }),
+    ).toMatchObject({ name: INTERACT_CUSTOM_DEVICE_NAME, width: 403 });
+  });
+});
+
 describe("responsive Interact wiring", () => {
   const source = readDesignEditorSource();
   const editorSurface =
@@ -107,9 +144,18 @@ describe("responsive Interact wiring", () => {
     );
   });
 
-  it("mounts the bar without disturbing either side rail", () => {
-    expect(source).toContain("<ResponsiveInteractBar");
-    expect(source).toContain("onClose={handleExitResponsiveInteract}");
+  it("mounts the controls in the docked top bar without disturbing either side rail", () => {
+    expect(source).not.toContain("<ResponsiveInteractBar");
+    // A ChatGPT widget has its own header, so its Interact controls float.
+    expect(source).toContain(
+      "const interactInTopBar = topBarVisible && !widgetEmbed;",
+    );
+    expect(source).toContain(
+      "responsiveInteractActive && interactInTopBar\n      ? renderInteractTopBarSlots(interactControlArgs)",
+    );
+    expect(source).toContain("leading={interactTopBarSlots?.leading}");
+    expect(source).toContain("interactTopBarSlots?.center ??");
+    expect(source).toContain("interactTopBarSlots?.zoomControl");
     expect(source).not.toContain("!uiHidden && !responsiveInteractActive");
     expect(source).not.toContain(
       "!initialGenerationChromeLimited &&\n        !responsiveInteractActive",
@@ -126,18 +172,11 @@ describe("responsive Interact wiring", () => {
     );
   });
 
-  it("pins a squeeze-immune close beside the docked bar", () => {
-    expect(source).toContain("showClose={floating}");
-    expect(source).toContain("ResponsiveInteractExitButton");
-    const pinnedExitIndex = source.indexOf(
-      "responsiveInteractActive && !minimalUi ? (",
-    );
-    expect(pinnedExitIndex).toBeGreaterThan(-1);
-    const pinnedExit = source.slice(pinnedExitIndex, pinnedExitIndex + 600);
-    expect(pinnedExit).toContain("<ResponsiveInteractExitButton");
-    expect(pinnedExit).toContain("onClose={handleExitResponsiveInteract}");
-    expect(pinnedExit).toContain(
-      "flex h-12 items-center border-b border-border bg-[var(--design-editor-panel-bg)] pl-1 pr-3",
+  it("leaves Interact through the mode switch, keeping an explicit Exit only where there is no mode switch", () => {
+    expect(source).not.toContain("ResponsiveInteractExitButton");
+    expect(source).not.toContain("responsiveInteractActive && !minimalUi ? (");
+    expect(source).toContain(
+      "responsiveInteractActive && !interactInTopBar && !hostOwnsChrome\n      ? renderInteractFloatingBar(interactControlArgs)",
     );
   });
 
@@ -279,22 +318,13 @@ describe("responsive Interact wiring", () => {
     expect(assetInsertion).toContain('setViewMode("overview")');
   });
 
-  it("keeps a way out of Interact into Edit/Annotate on the one canvas path", () => {
-    const barMountStart = source.indexOf("<ResponsiveInteractBar");
-    const barMount = source.slice(
-      barMountStart,
-      source.indexOf("onClose={handleExitResponsiveInteract}", barMountStart),
-    );
-    expect(barMount).toContain("onModeChange={(next) => {");
-    expect(barMount).toContain("setRuntimeLayerSnapshotRequest(");
-    expect(barMount).toContain("canAnnotate={canEditDesign}");
-    const bar = readFileSync(
-      "app/components/design/ResponsiveInteractBar.tsx",
-      "utf8",
-    );
-    expect(bar).toContain("onModeChange(exit.mode)");
-    expect(bar).not.toContain("setMode(");
-    expect(bar).not.toContain('"interact"');
+  it("keeps a way out of Interact into Design on the one canvas path", () => {
+    const handlerStart = source.indexOf("const handleTopBarModeChange =");
+    expect(handlerStart).toBeGreaterThan(-1);
+    const handler = source.slice(handlerStart, handlerStart + 320);
+    expect(handler).toContain('mode === "interact" && next === "edit"');
+    expect(handler).toContain("setRuntimeLayerSnapshotRequest(");
+    expect(handler).toContain("handleModeChange(next)");
   });
 
   it("refreshes live Layers when Interact returns to Edit", () => {
@@ -390,16 +420,5 @@ describe("responsive Interact wiring", () => {
     expect(escapeExitEffect).toContain(
       'window.addEventListener("keydown", handleKeyDown);',
     );
-  });
-
-  it("keeps responsive chrome values readable", () => {
-    const bar = readFileSync(
-      "app/components/design/ResponsiveInteractBar.tsx",
-      "utf8",
-    );
-    expect(bar).toContain("w-[88px]");
-    expect(bar).toContain("appearance:textfield");
-    expect(bar).not.toContain("zoomIn");
-    expect(bar).not.toContain("zoomOut");
   });
 });

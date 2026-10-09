@@ -14,7 +14,8 @@ export type DesignTool =
   | "hand"
   | "comment"
   | "draw"
-  | "scale";
+  | "scale"
+  | "agent";
 
 export type ShapeTool =
   | "rect"
@@ -64,6 +65,13 @@ export function isDesignLeftPanelEnabled(
   }
   return true;
 }
+
+/**
+ * The Comment tool (toolbar button, `C` / `Shift+C`, the viewer's pin button) is
+ * hidden until the Threads panel ships; without that panel a pinned comment has
+ * nowhere to be read or answered.
+ */
+export const SHOW_DESIGN_COMMENT_TOOL: boolean = false;
 
 export const FOCUSED_SCREEN_ZOOM = 100;
 

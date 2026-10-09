@@ -67,7 +67,6 @@ test.afterAll(async ({ request }) => {
 
 test.beforeEach(async ({ page }) => {
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
 });
 
 async function selectedElementBackgroundImage(page: Page): Promise<string> {
@@ -156,7 +155,6 @@ test("inline component prop dropdown persists on the selected component", async 
   await expect.poll(() => selectedComponentVariant(page)).toBe("secondary");
 
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await selectByText(page, "Variant CTA", { screenId: fileId });
   await expect(
     page.getByTestId("component-section").getByRole("combobox").first(),
@@ -195,7 +193,6 @@ test("Review panel runs an audit and applies an inline a11y fix", async ({
 });
 
 async function runReviewPanelAudit(page: Page): Promise<void> {
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   const reviewHeading = page.getByRole("heading", {
     name: "Review",
     exact: true,

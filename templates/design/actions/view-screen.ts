@@ -79,6 +79,24 @@ function objectProp(value: unknown, key: string): Record<string, unknown> {
     : {};
 }
 
+/**
+ * The inspector has no tabs. A selection record written by an editor tab that
+ * predates that still carries one, and reporting it would tell the agent the
+ * user is somewhere they cannot be.
+ */
+function withoutInspectorTab(designSelection: unknown): unknown {
+  if (
+    !designSelection ||
+    typeof designSelection !== "object" ||
+    !("inspectorTab" in designSelection)
+  ) {
+    return designSelection;
+  }
+  const { inspectorTab: _staleInspectorTab, ...selection } =
+    designSelection as Record<string, unknown>;
+  return selection;
+}
+
 function resolveActiveScreen(
   files: Array<{
     id: string;
@@ -212,7 +230,7 @@ function buildReviewSummary(
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design, comments, or tweaks), active left rail panel (file, agent, assets, import, tools, tokens, or code), active code file metadata, overview canvas state, live-collaboration opt-in, review status and feedback queue summary, plus any pending question overlay. Basic route context is included in <current-screen>; call this for a fresh or fuller snapshot when visible design details matter.",
+    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, the Interact preview's device and light/dark theme (designSelection.interact, null outside Interact), active left rail panel (file, agent, assets, import, tools, tokens, or code), active code file metadata, overview canvas state, live-collaboration opt-in, review status and feedback queue summary, plus any pending question overlay. Basic route context is included in <current-screen>; call this for a fresh or fuller snapshot when visible design details matter.",
   schema: z.object({}),
   http: false,
   readOnly: true,
@@ -237,7 +255,9 @@ export default defineAction({
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
-    if (designSelection) screen.designSelection = designSelection;
+    if (designSelection) {
+      screen.designSelection = withoutInspectorTab(designSelection);
+    }
     const templateId = stringProp(navigation, "templateId");
     if (templateId) {
       const preset = getDesignTemplatePreset(templateId);

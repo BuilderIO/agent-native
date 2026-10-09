@@ -118,6 +118,23 @@ describe("render-export-png action", () => {
     expect(playwrightMocks.launchChromium).not.toHaveBeenCalled();
   });
 
+  it("renders a color outside sRGB as its sRGB fallback, not the browser's clip", async () => {
+    const { page } = makeRenderer([
+      undefined,
+      completeResources,
+      { width: 800, height: 600 },
+    ]);
+
+    await runAction({
+      html: '<div style="background: oklch(0.7 0.3 150)"><svg><rect fill="color(display-p3 1 0 0)"/></svg></div>',
+    });
+
+    const rendered = String(page.setContent.mock.calls[0]?.[0]);
+    expect(rendered).toContain("background: #00c248");
+    expect(rendered).toContain('fill="#ff0b0c"');
+    expect(rendered).not.toMatch(/oklch|display-p3/);
+  });
+
   it("accepts bounded embedded PNG images", async () => {
     makeRenderer([undefined, completeResources, { width: 800, height: 600 }]);
 

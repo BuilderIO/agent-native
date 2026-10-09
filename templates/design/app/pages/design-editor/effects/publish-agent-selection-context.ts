@@ -1,9 +1,9 @@
 import { setClientAppState } from "@agent-native/core/client/hooks";
 import type { LayoutGridById } from "@shared/layout-grid";
+import type { InteractThemeMode } from "@shared/preview-color-scheme";
 import type { RefObject } from "react";
 
 import type { CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
-import type { InspectorTab } from "@/components/design/EditPanel";
 import type { ElementInfo } from "@/components/design/types";
 import type { ResponsiveEditScope } from "@/pages/design-editor/command-types";
 import { DESIGN_SELECTION_ZOOM_SAVE_DELAY_MS } from "@/pages/design-editor/editor-constants";
@@ -20,7 +20,6 @@ export interface PublishAgentSelectionContextArgs {
   activeBreakpointWidthState: number | undefined;
   activeCodeFile: CodeWorkbenchActiveFile | null;
   activeFile: DesignFile | undefined;
-  activeInspectorTab: InspectorTab;
   activeLeftPanel: DesignLeftPanel | null;
   activeTool: DesignTool;
   design: DesignData | null;
@@ -30,6 +29,8 @@ export interface PublishAgentSelectionContextArgs {
   files: DesignFile[];
   hoveredElement: ElementInfo | null;
   id: string | undefined;
+  interactDevice: { name: string; width: number; height: number };
+  interactTheme: InteractThemeMode;
   isSignedIn: boolean;
   mode: EditorMode;
   motionDockOpen: boolean;
@@ -53,7 +54,6 @@ export function runPublishAgentSelectionContext({
   activeBreakpointWidthState,
   activeCodeFile,
   activeFile,
-  activeInspectorTab,
   activeLeftPanel,
   activeTool,
   design,
@@ -63,6 +63,8 @@ export function runPublishAgentSelectionContext({
   files,
   hoveredElement,
   id,
+  interactDevice,
+  interactTheme,
   isSignedIn,
   mode,
   motionDockOpen,
@@ -95,7 +97,12 @@ export function runPublishAgentSelectionContext({
     hoveredElement,
     mode,
     activeTool,
-    inspectorTab: activeInspectorTab,
+    // Only meaningful while previewing; null elsewhere so a stale default
+    // device is never read as the user's choice.
+    interact:
+      mode === "interact"
+        ? { device: interactDevice, theme: interactTheme }
+        : null,
     leftPanel: activeLeftPanel,
     codeWorkspace: {
       open: activeLeftPanel === "code",
@@ -169,7 +176,7 @@ export function runPublishAgentSelectionContext({
     selectedElement: selection.selectedElement,
     mode: selection.mode,
     activeTool: selection.activeTool,
-    inspectorTab: selection.inspectorTab,
+    interact: selection.interact,
     leftPanel: selection.leftPanel,
     codeWorkspace: selection.codeWorkspace,
     dock: selection.dock,

@@ -114,8 +114,6 @@ export function useEditorLiveEditsAndPresence({
   } = editorCore;
   const {
     liveScreenIdsRef,
-    activeInspectorTab,
-    setActiveInspectorTab,
     setActiveLeftPanel,
     motionDockOpen,
     motionAutosaveFlushRef,
@@ -133,14 +131,12 @@ export function useEditorLiveEditsAndPresence({
     canEditDesign,
     canEditLiveScreens,
     publicVisualEdit,
-    tweaksEnabled,
     rawServerFilesByIdRef,
     pendingLocalFileContentsRef,
     pendingLocalFileContentsRevision,
     pendingLocalFileContentsSnapshot,
   } = editorGenerationAndAccess;
   const {
-    setShowTweakPrompt,
     publishCanonicalContent,
     files,
     codeLayerSourceForScreen,
@@ -1045,13 +1041,6 @@ export function useEditorLiveEditsAndPresence({
 
   const fullAppBuildingEnabled = useLab(FULL_APP_BUILDING_LAB);
   const designReviewPanelEnabled = useLab(DESIGN_REVIEW_TOOLS_LAB);
-
-  useEffect(() => {
-    if (!tweaksEnabled && activeInspectorTab === "tweaks") {
-      setActiveInspectorTab("design");
-    }
-    if (!tweaksEnabled) setShowTweakPrompt(false);
-  }, [activeInspectorTab, tweaksEnabled]);
 
   const designFusionUrl = useMemo(() => {
     const raw = (designDataJson as { fusionUrl?: unknown }).fusionUrl;

@@ -133,6 +133,7 @@ async function waitForGate(gate: Promise<void>, label: string) {
   }
 }
 
+// oracle: none — an upload race in app code with no native Figma counterpart; only the Choose image… button's name changed here.
 test("delayed Screen-root image upload stays with its original Screen", async ({
   page,
 }) => {
@@ -287,7 +288,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
       .first();
     await fill.getByRole("button", { name: "Open color picker" }).click();
     await page.getByRole("button", { name: "Image", exact: true }).click();
-    await page.getByRole("button", { name: "Upload image" }).click();
+    await page.getByRole("button", { name: "Choose image…" }).click();
 
     await page.route(uploadRoute, async (route) => {
       try {
@@ -521,7 +522,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
       .first();
     await retryFill.getByRole("button", { name: "Open color picker" }).click();
     await page.getByRole("button", { name: "Image", exact: true }).click();
-    await page.getByRole("button", { name: "Upload image" }).click();
+    await page.getByRole("button", { name: "Choose image…" }).click();
     const retryUploadResponsePromise = page.waitForResponse(
       (response) =>
         response.url().includes("/_agent-native/actions/upload-image"),
@@ -581,6 +582,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
   }
 });
 
+// oracle: none — an upload race in app code with no native Figma counterpart; only the Choose image… button's name changed here.
 test("active Screen upload conflict preserves SQL and live-collaboration source", async ({
   page,
 }) => {
@@ -719,7 +721,7 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
       .first();
     await fill.getByRole("button", { name: "Open color picker" }).click();
     await page.getByRole("button", { name: "Image", exact: true }).click();
-    await page.getByRole("button", { name: "Upload image" }).click();
+    await page.getByRole("button", { name: "Choose image…" }).click();
     await page
       .locator('input[type="file"][accept="image/*"]')
       .setInputFiles(IMAGE_FIXTURE);

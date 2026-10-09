@@ -65,25 +65,31 @@ test.beforeAll(async () => {
 
 test.beforeEach(async ({ page }) => {
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
 });
 
 test("editor renders the toolbar and the design iframe content", async ({
   page,
 }) => {
   const toolbar = page.locator("[data-design-bottom-toolbar]");
-  for (const tool of ["Move", "Frame", "Text", "Pen"]) {
+  // Text moved into the Frame menu, and Comment is hidden until Threads ships.
+  for (const tool of ["Move", "Frame", "Pen", "Agent"]) {
     await expect(
       toolbar.getByRole("button", { name: tool, exact: true }),
     ).toBeVisible();
   }
+  await expect(
+    toolbar.getByRole("button", { name: "Text", exact: true }),
+  ).toHaveCount(0);
+  await expect(toolbar.getByRole("button", { name: /comment/i })).toHaveCount(
+    0,
+  );
   const modeSwitch = page.locator(
     "[data-design-top-bar] [data-design-mode-switch]",
   );
+  // Annotate is behind a lab that is off by default (annotate-lab.spec.ts).
   await expect(modeSwitch.locator("[data-design-mode]")).toHaveText([
     "Interact",
     "Design",
-    "Annotate",
   ]);
   await expect(modeSwitch.locator('[data-design-mode="edit"]')).toHaveAttribute(
     "aria-pressed",
@@ -193,7 +199,6 @@ test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
   await setCreativeContextLab(page, true);
   try {
     await gotoEditor(page, designId);
-    await page.getByRole("tab", { name: "Design", exact: true }).click();
 
     await page
       .getByRole("button", { name: /^share(?: \(.+\))?$/i })
@@ -303,11 +308,14 @@ test("visual-edit route has no top bar and keeps Share, zoom and the mode tabs",
     rightPanel.getByRole("button", { name: /^\d+%$/ }),
   ).toBeVisible();
   const toolbar = page.locator("[data-design-bottom-toolbar]");
-  for (const tab of ["Annotate", "Edit", "Interact"]) {
+  for (const tab of ["Edit", "Interact"]) {
     await expect(
       toolbar.getByRole("button", { name: tab, exact: true }),
     ).toBeVisible();
   }
+  await expect(
+    toolbar.getByRole("button", { name: "Annotate", exact: true }),
+  ).toHaveCount(0);
 });
 
 test("top bar is 48px and keeps Share, presence and zoom inside the bar", async ({

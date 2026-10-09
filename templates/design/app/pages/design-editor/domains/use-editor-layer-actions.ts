@@ -219,7 +219,6 @@ export function useEditorLayerActions({
     activeBreakpointWidthState,
     activeBreakpointWidthStateRef,
     activeInteractionStateState,
-    focusDesignInspectorForSelection,
     contentUndoStackRef,
     selectedLayerIdsStateRef,
     explicitOverviewScreenSelectionRef,
@@ -1041,7 +1040,6 @@ export function useEditorLayerActions({
             effectiveCodeLayerState,
             files,
             getScreenContent,
-            focusDesignInspectorForSelection,
             overviewSelectedScreenIds,
             pendingOverviewLayerSelectionRef,
             pendingOverviewScreenSelectionRef,
@@ -1071,7 +1069,6 @@ export function useEditorLayerActions({
       codeLayerOwnerByNodeId,
       effectiveCodeLayerState,
       files,
-      focusDesignInspectorForSelection,
       getScreenContent,
       activeBreakpointWidthStateRef,
       overviewSelectedScreenIds,
@@ -1130,7 +1127,6 @@ export function useEditorLayerActions({
         runLayerMarqueeSelectionChange(
           {
             clearPendingOverviewLayerSelectionTimer,
-            focusDesignInspectorForSelection,
             getCodeLayerProjectionForScreen,
             hasActiveSelectionRef,
             lastMarqueeSelectionSignatureRef,
@@ -1154,7 +1150,6 @@ export function useEditorLayerActions({
     },
     [
       clearPendingOverviewLayerSelectionTimer,
-      focusDesignInspectorForSelection,
       getCodeLayerProjectionForScreen,
       recordMarqueeSelectionHistoryAroundChange,
     ],

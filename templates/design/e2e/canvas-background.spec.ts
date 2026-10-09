@@ -6,7 +6,7 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath } from "./helpers";
+import { appPath, selectTool } from "./helpers";
 
 async function boardHtml(
   request: APIRequestContext,
@@ -136,6 +136,7 @@ for (const { theme, canvasHex, expectedCanvasRgb, boardTextColor } of [
     boardTextColor: "currentcolor",
   },
 ] as const) {
+  // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
   test(`${theme} theme: the canvas keeps its colour when the board gains its first shape`, async ({
     page,
   }) => {
@@ -181,7 +182,7 @@ for (const { theme, canvasHex, expectedCanvasRgb, boardTextColor } of [
       ).toHaveValue(canvasHex);
       await expect(canvasSection).not.toContainText("NONE");
 
-      await page.locator('button[aria-label="Rectangle"]').first().click();
+      await selectTool(page, "Rectangle");
       await expect(
         page.locator('button[aria-label="Rectangle"]').first(),
       ).toHaveAttribute("aria-pressed", "true");
@@ -201,7 +202,7 @@ for (const { theme, canvasHex, expectedCanvasRgb, boardTextColor } of [
         .poll(() => pixelAt(page, sampleX, sampleY))
         .toBe(initialCanvasRgb);
 
-      await page.locator('button[aria-label="Text"]').first().click();
+      await selectTool(page, "Text");
       await expect(
         page.locator('button[aria-label="Text"]').first(),
       ).toHaveAttribute("aria-pressed", "true");

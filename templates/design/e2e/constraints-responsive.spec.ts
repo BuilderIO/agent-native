@@ -143,7 +143,6 @@ test("constraints preserve child geometry through nested and auto-layout parent 
     });
     await gotoEditor(page, designId);
     await enterDirectMode(page);
-    await page.getByRole("tab", { name: "Design", exact: true }).click();
     await expandAllLayers(page);
 
     await selectFixtureLayer(page, "right-bottom");

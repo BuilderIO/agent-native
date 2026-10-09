@@ -35,6 +35,10 @@ import {
   elementInfoForOwnedCodeLayerNode,
   elementInfoFromCodeLayerNode,
 } from "../code-layer-state";
+import {
+  runActivateAgentTool,
+  runSendAgentSkill,
+} from "../commands/agent-tool";
 import { runBooleanSubtractSelection } from "../commands/boolean-subtract-selection";
 import {
   readLocalVisualEditPendingState,
@@ -48,6 +52,7 @@ import {
   NO_LOCALHOST_CONNECTION_MESSAGE,
 } from "../editor-constants";
 import { getDesignEditorStateUrlSearch } from "../editor-state";
+import type { AgentSkillId } from "../floating-toolbar";
 import { runInIdleSlices } from "../idle-slices";
 import {
   reconcileLayerStateIds,
@@ -68,7 +73,10 @@ import {
 import { usePendingLiveEditUnloadGuard } from "../pending-live-edit-unload-guard";
 import { blurActiveDesignEditableTarget } from "../png-export-render";
 import { findDesignFileByScreenTarget } from "../screen-command-utils";
-import { SHOW_DESIGN_SECONDARY_LEFT_PANELS } from "../types";
+import {
+  SHOW_DESIGN_COMMENT_TOOL,
+  SHOW_DESIGN_SECONDARY_LEFT_PANELS,
+} from "../types";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
 import type { EditorClipboard } from "./use-editor-clipboard";
@@ -189,7 +197,6 @@ export function useEditorSourceAndSync({
     setHiddenLayerIds,
     layerStateOverridesRef,
     motionDockOpen,
-    focusDesignInspectorForSelection,
     undoManagerRef,
     contentUndoStackRef,
     selectedLayerIdsStateRef,
@@ -199,6 +206,7 @@ export function useEditorSourceAndSync({
     hasLocalPendingVisualEdits,
   } = editorHistory;
   const {
+    annotateLab,
     setDrawMode,
     setPinMode,
     generationIssue,
@@ -472,13 +480,47 @@ export function useEditorSourceAndSync({
   }, [activeFile, canEditDesign]);
 
   const handleDrawTool = useCallback(() => {
-    if (!activeFile || !canEditDesign) return;
+    if (!activeFile || !canEditDesign || annotateLab !== "on") return;
     setActiveTool("draw");
     setMode("annotate");
     setSelectedElement(null);
     setDrawMode(true);
     setPinMode(false);
-  }, [activeFile, canEditDesign]);
+  }, [activeFile, annotateLab, canEditDesign]);
+
+  const handleAgentTool = useCallback(() => {
+    runActivateAgentTool({ setActiveTool, setDrawMode, setMode, setPinMode });
+  }, []);
+
+  // Move in Interact only takes the pointer back from the Agent tool; the Design
+  // handler would switch the editor to Design.
+  const handleInteractMoveTool = useCallback(() => {
+    setActiveTool("move");
+  }, []);
+
+  const handleAgentSkill = useCallback(
+    (skill: AgentSkillId) => {
+      runSendAgentSkill(skill, {
+        designId: id,
+        designTitle: design?.title,
+        activeFile,
+        selectedScreens: files.filter((file) =>
+          overviewSelectedScreenIds.includes(file.id),
+        ),
+        selectedLayerIds: selectedLayerIdsState,
+        selectedElement,
+      });
+    },
+    [
+      activeFile,
+      design?.title,
+      files,
+      id,
+      overviewSelectedScreenIds,
+      selectedElement,
+      selectedLayerIdsState,
+    ],
+  );
 
   const handleBooleanSubtractSelection = useCallback(
     () =>
@@ -598,8 +640,12 @@ export function useEditorSourceAndSync({
     onTextTool: canEditDesign ? handleTextTool : undefined,
     onPenTool: canEditDesign ? handlePenTool : undefined,
     onHandTool: handleHandTool,
-    onCommentTool: canCommentDesign ? handlePinToolToggle : undefined,
-    onDrawTool: canEditDesign ? handleDrawTool : undefined,
+    onCommentTool:
+      SHOW_DESIGN_COMMENT_TOOL && canCommentDesign
+        ? handlePinToolToggle
+        : undefined,
+    onDrawTool:
+      canEditDesign && annotateLab === "on" ? handleDrawTool : undefined,
     onScaleTool: canEditDesign ? handleScaleTool : undefined,
     onCopy: handleCopySelection,
     onCopyAsPng:
@@ -745,7 +791,9 @@ export function useEditorSourceAndSync({
     onAddAutoLayout: canEditDesign ? handleAddAutoLayout : undefined,
     onToggleUi: handleToggleUi,
     onToggleMinimalUi: handleToggleMinimalUi,
-    onToggleComments: handleToggleComments,
+    onToggleComments: SHOW_DESIGN_COMMENT_TOOL
+      ? handleToggleComments
+      : undefined,
     onToggleLayoutGrids: canEditDesign ? handleToggleLayoutGrids : undefined,
     onShowKeyboardShortcuts: handleToggleKeyboardShortcuts,
   });
@@ -1334,16 +1382,12 @@ export function useEditorSourceAndSync({
     setHoveredElementScreenId(null);
     setActiveTool("move");
     setMode("edit");
-    if (!selectionBlocked) {
-      focusDesignInspectorForSelection();
-    }
     initialUrlSelectionHydratedForIdRef.current = id;
   }, [
     activeFileId,
     clearPendingOverviewLayerSelectionTimer,
     codeLayerOwnerByNodeId,
     effectiveCodeLayerState,
-    focusDesignInspectorForSelection,
     id,
     initialRouteSelectionId,
     selectedElementLayerId,
@@ -1790,6 +1834,9 @@ export function useEditorSourceAndSync({
     handleHandTool,
     handleScaleTool,
     handleDrawTool,
+    handleAgentTool,
+    handleInteractMoveTool,
+    handleAgentSkill,
     handleBooleanSubtractSelection,
     pendingVisualStyleNavigationBlocker,
     importPanelRef,

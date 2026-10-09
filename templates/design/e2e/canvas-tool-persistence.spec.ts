@@ -6,7 +6,7 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath } from "./helpers";
+import { appPath, selectTool } from "./helpers";
 
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SCREEN_HTML = `<!doctype html>
@@ -103,7 +103,8 @@ async function drawnEllipseRadii(page: Page) {
   });
 }
 
-test("the shape button keeps drawing the shape it was last set to", async ({
+// oracle: none — verifies which variant the Frame button keeps arming, not parity with a design reference.
+test("the Frame button keeps drawing the variant it was last set to", async ({
   page,
   request,
 }) => {
@@ -112,8 +113,7 @@ test("the shape button keeps drawing the shape it was last set to", async ({
     await openOverview(page, designId);
 
     const toolbar = page.locator("[data-design-bottom-toolbar]");
-    await toolbar.getByRole("button", { name: "Rectangle options" }).click();
-    await page.getByRole("menuitem", { name: "Ellipse" }).click();
+    await selectTool(page, "Ellipse");
     await drawShape(page, 0);
 
     const shapeButton = toolbar.getByRole("button", {
@@ -121,8 +121,11 @@ test("the shape button keeps drawing the shape it was last set to", async ({
       exact: true,
     });
     await expect(shapeButton).toBeVisible();
+    // Drawing hands the pointer back to Move, but the button still offers an Ellipse.
+    await expect(shapeButton).toHaveAttribute("aria-pressed", "false");
 
     await shapeButton.click();
+    await expect(shapeButton).toHaveAttribute("aria-pressed", "true");
     await drawShape(page, 200);
 
     const radii = await drawnEllipseRadii(page);

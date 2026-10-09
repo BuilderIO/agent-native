@@ -11,10 +11,6 @@ describe("DesignEditor keyboard shortcut wiring", () => {
     "app/components/design/LayersPanel.tsx",
     "utf8",
   );
-  const bottomToolbarSource = readFileSync(
-    "app/components/design/editor/DesignBottomToolbar.tsx",
-    "utf8",
-  );
 
   it("routes Find through the real LayersPanel search control", () => {
     expect(editorSource).toContain(
@@ -51,19 +47,6 @@ describe("DesignEditor keyboard shortcut wiring", () => {
       "window.addEventListener(DESIGN_UI_TOGGLE_EVENT, handleToggleUi)",
     );
     expect(editorSource).toContain("openCommandMenu();");
-  });
-
-  it("projects the active move-group sub-tool through the toolbar", () => {
-    expect(bottomToolbarSource).toContain(
-      "label: t(activeMoveGroupTool.labelKey)",
-    );
-    expect(bottomToolbarSource).toContain("onClick: handleActiveMoveGroupTool");
-    expect(bottomToolbarSource).toContain(
-      "shortcut: MOVE_GROUP_TOOL_PRESENTATIONS.hand.shortcut",
-    );
-    expect(bottomToolbarSource).toContain(
-      "shortcut: MOVE_GROUP_TOOL_PRESENTATIONS.scale.shortcut",
-    );
   });
 
   it("keeps support files out of the visual screen layer list and Cmd+A", () => {

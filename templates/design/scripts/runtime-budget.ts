@@ -677,6 +677,8 @@ async function runSession() {
       );
     });
     await step("color", async () => {
+      const computedColor = (el: Element) => getComputedStyle(el).color;
+      const originalColor = await heading.evaluate(computedColor);
       const fill = page
         .locator("section")
         .filter({ has: page.getByRole("heading", { name: /^Fill$/i }) })
@@ -685,7 +687,15 @@ async function runSession() {
         .getByRole("button", { name: "Open color picker" })
         .first()
         .click();
+      // The picker opens in the notation its color was written in, and the
+      // board's Tailwind v4 palette is OKLCH, so Hex is a mode to choose.
+      const modeSelect = page.getByRole("combobox", { name: "Color model" });
+      await modeSelect.waitFor({ timeout: 10_000 });
       const hex = page.locator('[aria-label="Hex"]').first();
+      if (!(await hex.isVisible())) {
+        await modeSelect.click();
+        await page.getByRole("option", { name: "Hex", exact: true }).click();
+      }
       await hex.fill(iteration % 2 ? "2563EB" : "DC2626");
       await hex.press("Enter");
       const applied = (await hex.inputValue())
@@ -693,8 +703,13 @@ async function runSession() {
         .includes(iteration % 2 ? "2563EB" : "DC2626");
       await page.keyboard.press("Escape");
       await page.waitForTimeout(1500);
-      await page.keyboard.press("ControlOrMeta+z");
-      await page.waitForTimeout(1500);
+      // Choosing Hex rewrites an OKLCH color as a history step of its own, so
+      // undo until the heading is back to the color it started with.
+      for (let undo = 0; undo < 3; undo += 1) {
+        await page.keyboard.press("ControlOrMeta+z");
+        await page.waitForTimeout(1500);
+        if ((await heading.evaluate(computedColor)) === originalColor) break;
+      }
       return applied;
     });
     await page.keyboard.press("Escape");

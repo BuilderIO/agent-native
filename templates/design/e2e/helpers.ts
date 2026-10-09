@@ -298,27 +298,56 @@ export async function expandAllLayers(page: Page): Promise<void> {
   }
 }
 
+/**
+ * The Frame group's main button. It arms whichever variant was used last (Frame,
+ * Screen, Text or a shape), so it is found by its group, not by a label.
+ */
 export function frameToolButton(page: Page): Locator {
   return page
     .locator(
-      '[data-design-bottom-toolbar] button[aria-label="Frame"],' +
-        ' [data-design-bottom-toolbar] button[aria-label="Screen"]',
+      '[data-design-bottom-toolbar] [data-design-toolbar-group="frame"] button',
     )
     .first();
+}
+
+/** Toolbar tools that sit in a group's menu, and the group each one is in. */
+const TOOL_GROUP = {
+  Move: "Move",
+  Hand: "Move",
+  Scale: "Move",
+  Frame: "Frame",
+  Screen: "Frame",
+  Text: "Frame",
+  Rectangle: "Frame",
+  Line: "Frame",
+  Arrow: "Frame",
+  Ellipse: "Frame",
+  Polygon: "Frame",
+  Star: "Frame",
+} as const;
+export type ToolbarMenuTool = keyof typeof TOOL_GROUP;
+
+/**
+ * Arm a tool the way a user does: open its group's menu from the chevron and
+ * pick the item. A group's main button only arms the variant used last, so it
+ * cannot be relied on to reach a particular tool.
+ */
+export async function selectTool(
+  page: Page,
+  tool: ToolbarMenuTool,
+): Promise<void> {
+  await page
+    .locator("[data-design-bottom-toolbar]")
+    .getByRole("button", { name: `${TOOL_GROUP[tool]} options`, exact: true })
+    .click();
+  await page.getByRole("menuitem", { name: new RegExp(`^${tool}\\b`) }).click();
 }
 
 export async function pickFrameMode(
   page: Page,
   mode: "Frame" | "Screen",
 ): Promise<void> {
-  await page
-    .locator(
-      '[data-design-bottom-toolbar] button[aria-label="Frame options"],' +
-        ' [data-design-bottom-toolbar] button[aria-label="Screen options"]',
-    )
-    .first()
-    .click();
-  await page.getByRole("menuitem").filter({ hasText: mode }).first().click();
+  await selectTool(page, mode);
 }
 
 export async function resetPersistedCanvasState(page: Page): Promise<void> {
@@ -494,7 +523,7 @@ export async function enterInteractView(
     "true",
   );
   await expect(
-    page.getByRole("button", { name: "Exit responsive preview" }),
+    page.locator("[data-design-top-bar] [data-design-interact-route]"),
   ).toBeVisible();
   expect(
     await previewIframeHandle.evaluate((before) =>

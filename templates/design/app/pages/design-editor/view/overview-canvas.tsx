@@ -29,6 +29,7 @@ import type { EditorSelectionAndStyles } from "../domains/use-editor-selection-a
 import type { EditorSourceAndSync } from "../domains/use-editor-source-and-sync";
 import type { EditorToolsAndVectors } from "../domains/use-editor-tools-and-vectors";
 import { findDesignFileByScreenTarget } from "../screen-command-utils";
+import { toCanvasTool } from "../tool-state";
 import type { DesignData } from "../types";
 
 export function renderOverviewCanvas({
@@ -344,7 +345,7 @@ export function renderOverviewCanvas({
         editableScreenIds={editableLiveScreenIds}
         previewDeviceFrame={deviceFrame}
         creation={{
-          activeTool,
+          activeTool: toCanvasTool(activeTool),
           onActiveToolChange: handleOverviewActiveToolChange,
           gradientEditTarget,
           vectorEdit: vectorEditOverlayState,
