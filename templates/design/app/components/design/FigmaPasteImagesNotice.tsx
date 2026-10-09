@@ -61,6 +61,12 @@ function isImageFile(file: File) {
   return file.type.startsWith("image/") || /\.svg$/i.test(file.name);
 }
 
+// The screen no longer carries this placeholder, so there is nothing left to fill on it.
+function isAlreadyFilledError(error: unknown): boolean {
+  const code = (error as { errorCode?: unknown } | null)?.errorCode;
+  return code === "no_missing_images" || code === "not_found";
+}
+
 export function FigmaPasteImagesNotice({
   count,
   designId,
@@ -76,8 +82,10 @@ export function FigmaPasteImagesNotice({
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [filled, setFilled] = useState<ReadonlySet<string>>(() => new Set());
-  // Screens already filled per hash, so a retry after a partial failure resumes at the failed screen.
-  const filledScreensRef = useRef<Set<string>>(new Set());
+  // A hash whose upload filled some screens before one failed; a retry reuses its URL so every screen gets the same image.
+  const partialFillsRef = useRef(
+    new Map<string, { imageUrl: string; fileIds: Set<string> }>(),
+  );
   const figInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   // The chooser can dismiss the popover, so the target outlives the list.
@@ -102,10 +110,12 @@ export function FigmaPasteImagesNotice({
   const remaining = Math.max(0, count - filled.size);
 
   function chooseImage(image: MissingFigmaImage) {
-    uploadTargetRef.current = {
-      image,
-      othersMissing: missingImages.length - 1,
-    };
+    const target = { image, othersMissing: missingImages.length - 1 };
+    if (partialFillsRef.current.has(image.hash)) {
+      void fillImage(target, null);
+      return;
+    }
+    uploadTargetRef.current = target;
     imageInputRef.current?.click();
   }
 
@@ -115,31 +125,61 @@ export function FigmaPasteImagesNotice({
     const file = event.target.files?.[0];
     event.target.value = "";
     const target = uploadTargetRef.current;
+    uploadTargetRef.current = null;
     if (!file || !target) return;
     if (!isImageFile(file)) {
       toast.error(t("designEditor.import.figmaPasteUploadImageInvalid"));
       return;
     }
+    await fillImage(target, file);
+  }
+
+  async function fillImage(
+    target: { image: MissingFigmaImage; othersMissing: number },
+    file: File | null,
+  ) {
+    const { hash } = target.image;
     setBusy(true);
     const loadingToastId = toast.loading(
       t("designEditor.toasts.imageUploading"),
     );
+    let wroteAny = false;
     try {
-      const imageUrl = await uploadImage(file);
+      const partial = partialFillsRef.current.get(hash);
+      const imageUrl =
+        partial?.imageUrl ?? (file ? await uploadImage(file) : "");
       // uploadImage already surfaced why: storage setup or an upload error.
       if (!imageUrl) return;
+      const filledFileIds = partial?.fileIds ?? new Set<string>();
+      let firstError: unknown = null;
       for (const fileId of target.image.fileIds) {
-        const screenKey = `${fileId}\u0000${target.image.hash}`;
-        if (filledScreensRef.current.has(screenKey)) continue;
-        await callAction("fill-figma-paste-image", {
-          fileId,
-          hash: target.image.hash,
-          imageUrl,
-        });
-        filledScreensRef.current.add(screenKey);
+        if (filledFileIds.has(fileId)) continue;
+        try {
+          await callAction("fill-figma-paste-image", {
+            fileId,
+            hash,
+            imageUrl,
+          });
+          wroteAny = true;
+        } catch (error) {
+          if (!isAlreadyFilledError(error)) {
+            firstError ??= error;
+            continue;
+          }
+        }
+        filledFileIds.add(fileId);
       }
-      onHydrated();
-      setFilled((current) => new Set(current).add(target.image.hash));
+      if (firstError) {
+        if (filledFileIds.size > 0) {
+          partialFillsRef.current.set(hash, {
+            imageUrl,
+            fileIds: filledFileIds,
+          });
+        }
+        throw firstError;
+      }
+      partialFillsRef.current.delete(hash);
+      setFilled((current) => new Set(current).add(hash));
       toast.success(t("designEditor.import.figmaPasteUploadImageSuccess"));
       if (target.othersMissing <= 0) onClose();
     } catch (error) {
@@ -149,6 +189,7 @@ export function FigmaPasteImagesNotice({
           (error instanceof Error ? error.message : t("common.genericError")),
       });
     } finally {
+      if (wroteAny) onHydrated();
       toast.dismiss(loadingToastId);
       setBusy(false);
     }

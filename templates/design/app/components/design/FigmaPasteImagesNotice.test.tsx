@@ -318,7 +318,7 @@ describe("FigmaPasteImagesNotice file picker", () => {
   });
 
   // oracle: none — exercises the notice's own upload and fill wiring, not measured Figma behavior.
-  it("retries a shared image only on the screens a failed attempt missed", async () => {
+  it("retries a partly filled shared image with the same upload and refreshes after each write", async () => {
     mocks.callAction
       .mockResolvedValueOnce({ resolved: 1, missing: 0 })
       .mockRejectedValueOnce(new Error("save failed"))
@@ -327,13 +327,12 @@ describe("FigmaPasteImagesNotice file picker", () => {
       "screen-1": missingImage("shared", "Logo"),
       "screen-2": missingImage("shared", "Logo"),
     });
-    const logo = () =>
-      new File(["<svg/>"], "logo.svg", { type: "image/svg+xml" });
 
     await chooseImageFile(
       buttonWithText("designEditor.import.figmaPasteUploadImage")!,
-      logo(),
+      new File(["<svg/>"], "logo.svg", { type: "image/svg+xml" }),
     );
+    expect(props.onHydrated).toHaveBeenCalledTimes(1);
     expect(props.onClose).not.toHaveBeenCalled();
 
     await act(async () =>
@@ -343,16 +342,70 @@ describe("FigmaPasteImagesNotice file picker", () => {
         )!
         .click(),
     );
+    const imageInput = container.querySelector<HTMLInputElement>(
+      'input[accept="image/*,.svg"]',
+    )!;
+    const openChooser = vi.spyOn(imageInput, "click");
+    openChooser.mockClear();
+    await act(async () =>
+      buttonWithText("designEditor.import.figmaPasteUploadImage")!.click(),
+    );
+
+    expect(openChooser).not.toHaveBeenCalled();
+    expect(props.uploadImage).toHaveBeenCalledTimes(1);
+    expect(
+      mocks.callAction.mock.calls.map(([, args]) => [
+        args.fileId,
+        args.imageUrl,
+      ]),
+    ).toEqual([
+      ["screen-1", "https://cdn.example.com/robot.svg"],
+      ["screen-2", "https://cdn.example.com/robot.svg"],
+      ["screen-2", "https://cdn.example.com/robot.svg"],
+    ]);
+    expect(props.onHydrated).toHaveBeenCalledTimes(2);
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // oracle: none — exercises the notice's own upload and fill wiring, not measured Figma behavior.
+  it("keeps filling other screens past a rejected one and retries only that screen", async () => {
+    const rejection = (errorCode: string) =>
+      Object.assign(new Error(errorCode), { errorCode });
+    mocks.callAction
+      .mockRejectedValueOnce(rejection("no_missing_images"))
+      .mockRejectedValueOnce(rejection("placeholder_changed"))
+      .mockResolvedValue({ resolved: 1, missing: 0 });
+    const props = await renderNotice({
+      "screen-1": missingImage("shared", "Logo"),
+      "screen-2": missingImage("shared", "Logo"),
+      "screen-3": missingImage("shared", "Logo"),
+    });
+
     await chooseImageFile(
       buttonWithText("designEditor.import.figmaPasteUploadImage")!,
-      logo(),
+      new File(["<svg/>"], "logo.svg", { type: "image/svg+xml" }),
+    );
+    expect(props.onHydrated).toHaveBeenCalledTimes(1);
+    expect(props.onClose).not.toHaveBeenCalled();
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="designEditor.import.figmaHydrationDialogTitle"]',
+        )!
+        .click(),
+    );
+    await act(async () =>
+      buttonWithText("designEditor.import.figmaPasteUploadImage")!.click(),
     );
 
     expect(mocks.callAction.mock.calls.map(([, args]) => args.fileId)).toEqual([
       "screen-1",
       "screen-2",
+      "screen-3",
       "screen-2",
     ]);
+    expect(props.uploadImage).toHaveBeenCalledTimes(1);
     expect(props.onClose).toHaveBeenCalledTimes(1);
   });
 
