@@ -100,9 +100,8 @@ it("offers an available connection to repair a legacy localhost Screen", async (
     localhostConnections: [{ id: "localhost-1", name: "Local app" }],
   });
 
-  const connection = container.querySelector<HTMLButtonElement>(
-    '[role="combobox"]',
-  );
+  const connection =
+    container.querySelector<HTMLButtonElement>('[role="combobox"]');
   expect(connection).not.toBeNull();
   await act(() => connection!.click());
 
@@ -112,14 +111,11 @@ it("offers an available connection to repair a legacy localhost Screen", async (
   expect(option).toBeDefined();
   await act(() => option!.click());
 
-  expect(onScreenSourceChange).toHaveBeenCalledWith(
-    "screen-1",
-    {
-      sourceType: "url",
-      url: "http://localhost:5173/students",
-      connectionId: "localhost-1",
-    },
-  );
+  expect(onScreenSourceChange).toHaveBeenCalledWith("screen-1", {
+    sourceType: "url",
+    url: "http://localhost:5173/students",
+    connectionId: "localhost-1",
+  });
 });
 
 function screenInspectorDependencies(
