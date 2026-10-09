@@ -97,6 +97,7 @@ const chatMocks = vi.hoisted(() => ({
   realComposerController: null as AgentKitClient | null,
   useRealChat: false,
   routeControllerPersistenceThroughTransport: false,
+  omitSnapshotPersistenceResult: false,
   omitSuggestionsSlot: false,
   voiceTranscriptRegistration: null as any,
   runtime: { kind: "runtime" },
@@ -292,36 +293,38 @@ vi.mock("../agentkit/react/index.js", async () => {
                 }
                 return chatMocks.persistThreadSnapshot(threadId, messages);
               },
-              persistThreadSnapshotWithResult: async (
-                threadId: string,
-                messages?: AgentMessage[],
-                context?: { signal?: AbortSignal },
-              ) => {
-                try {
-                  const persist =
-                    chatMocks.routeControllerPersistenceThroughTransport
-                      ? chatMocks.rootProps?.transport?.persistThreadSnapshot
-                      : undefined;
-                  if (typeof persist === "function") {
-                    await persist(
-                      {
-                        threadId,
-                        snapshot: {
-                          messages: messages ?? [],
-                          events: [],
-                          runs: [],
+              ...(!chatMocks.omitSnapshotPersistenceResult && {
+                persistThreadSnapshotWithResult: async (
+                  threadId: string,
+                  messages?: AgentMessage[],
+                  context?: { signal?: AbortSignal },
+                ) => {
+                  try {
+                    const persist =
+                      chatMocks.routeControllerPersistenceThroughTransport
+                        ? chatMocks.rootProps?.transport?.persistThreadSnapshot
+                        : undefined;
+                    if (typeof persist === "function") {
+                      await persist(
+                        {
+                          threadId,
+                          snapshot: {
+                            messages: messages ?? [],
+                            events: [],
+                            runs: [],
+                          },
                         },
-                      },
-                      context,
-                    );
-                  } else {
-                    await chatMocks.persistThreadSnapshot(threadId, messages);
+                        context,
+                      );
+                    } else {
+                      await chatMocks.persistThreadSnapshot(threadId, messages);
+                    }
+                    return true;
+                  } catch {
+                    return false;
                   }
-                  return true;
-                } catch {
-                  return false;
-                }
-              },
+                },
+              }),
               assertAiSetupReady: async () => {
                 const state = await chatMocks.fetchProviderState();
                 if (state === "configured") return;
@@ -939,6 +942,7 @@ beforeEach(() => {
   chatMocks.realComposerController = null;
   chatMocks.useRealChat = false;
   chatMocks.routeControllerPersistenceThroughTransport = false;
+  chatMocks.omitSnapshotPersistenceResult = false;
   chatMocks.omitSuggestionsSlot = false;
   chatMocks.voiceTranscriptRegistration = null;
   chatMocks.control.sendMessage.mockReset().mockResolvedValue(undefined);
@@ -6210,6 +6214,107 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(onSaveThread).toHaveBeenCalledOnce();
   });
 
+  it("supports legacy controllers until their snapshot save resolves", async () => {
+    const createTransport = () => chatMocks.transport;
+    chatMocks.omitSnapshotPersistenceResult = true;
+    let resolveSave: (() => void) | undefined;
+    chatMocks.persistThreadSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+    const onSaveThread = vi.fn().mockResolvedValue(true);
+    const onThreadSnapshotPersisted = vi.fn();
+    await mount(
+      baseProps({ createTransport, onSaveThread, onThreadSnapshotPersisted }),
+    );
+
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      messages: [
+        {
+          id: "legacy-controller-message",
+          role: "user",
+          status: "complete",
+          createdAt: "2026-10-07T12:00:00.000Z",
+          parts: [{ type: "text", text: "Save through the old controller" }],
+        },
+      ],
+    };
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({
+            createTransport,
+            onSaveThread,
+            onThreadSnapshotPersisted,
+          })}
+        />,
+      );
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+
+    expect(chatMocks.persistThreadSnapshot).toHaveBeenCalledOnce();
+    expect(onSaveThread).not.toHaveBeenCalled();
+    expect(onThreadSnapshotPersisted).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveSave?.();
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+    expect(onSaveThread).toHaveBeenCalledOnce();
+    expect(onThreadSnapshotPersisted).toHaveBeenCalledOnce();
+  });
+
+  it("does not confirm legacy controller snapshots when the save rejects", async () => {
+    const createTransport = () => chatMocks.transport;
+    chatMocks.omitSnapshotPersistenceResult = true;
+    chatMocks.persistThreadSnapshot.mockRejectedValueOnce(
+      new Error("The legacy controller did not save."),
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const onSaveThread = vi.fn().mockResolvedValue(true);
+    const onThreadSnapshotPersisted = vi.fn();
+    try {
+      await mount(
+        baseProps({ createTransport, onSaveThread, onThreadSnapshotPersisted }),
+      );
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        messages: [
+          {
+            id: "legacy-controller-failed-message",
+            role: "user",
+            status: "complete",
+            createdAt: "2026-10-07T12:00:00.000Z",
+            parts: [{ type: "text", text: "This save should fail" }],
+          },
+        ],
+      };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({
+              createTransport,
+              onSaveThread,
+              onThreadSnapshotPersisted,
+            })}
+          />,
+        );
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      expect(onSaveThread).not.toHaveBeenCalled();
+      expect(onThreadSnapshotPersisted).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => root.render(null));
+      consoleError.mockRestore();
+    }
+  });
+
   it("does not report a transcript save when transport persistence fails", async () => {
     const createTransport = () => chatMocks.transport;
     const onSaveThread = vi.fn().mockResolvedValue(true);
@@ -6247,7 +6352,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         for (let i = 0; i < 8; i++) await Promise.resolve();
       });
 
-      expect(onSaveThread).toHaveBeenCalledOnce();
+      expect(onSaveThread).not.toHaveBeenCalled();
       expect(onThreadSnapshotPersisted).not.toHaveBeenCalled();
       expect(chatMocks.persistThreadSnapshot).toHaveBeenCalledOnce();
 
@@ -6256,7 +6361,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         for (let i = 0; i < 8; i++) await Promise.resolve();
       });
 
-      expect(onSaveThread).toHaveBeenCalledTimes(2);
+      expect(onSaveThread).toHaveBeenCalledOnce();
       expect(onThreadSnapshotPersisted).toHaveBeenCalledOnce();
       expect(chatMocks.persistThreadSnapshot).toHaveBeenCalledTimes(2);
     } finally {
@@ -6410,7 +6515,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     );
   });
 
-  it("keeps thread metadata saves moving while transport snapshots serialize across remounts", async () => {
+  it("serializes transport and metadata saves across remounts", async () => {
     let resolveFirstTransport: (() => void) | undefined;
     const firstTransportSave = new Promise<void>((resolve) => {
       resolveFirstTransport = resolve;
@@ -6478,11 +6583,8 @@ describe("AgentKitAssistantChat host behavior", () => {
         baseProps({ createTransport, onSaveThread: firstOnSaveThread }),
       );
       await flush();
-      expect(saveOrder).toEqual([
-        "thread:first",
-        "transport:remount-first-message",
-      ]);
-      expect(firstOnSaveThread).toHaveBeenCalledOnce();
+      expect(saveOrder).toEqual(["transport:remount-first-message"]);
+      expect(firstOnSaveThread).not.toHaveBeenCalled();
 
       await unmount();
       const secondMessage = {
@@ -6501,24 +6603,19 @@ describe("AgentKitAssistantChat host behavior", () => {
       );
       await flush();
 
-      expect(saveOrder).toEqual([
-        "thread:first",
-        "transport:remount-first-message",
-        "thread:second",
-      ]);
-      expect(secondOnSaveThread).toHaveBeenCalledOnce();
+      expect(saveOrder).toEqual(["transport:remount-first-message"]);
+      expect(secondOnSaveThread).not.toHaveBeenCalled();
 
       resolveFirstTransport?.();
       await flush();
       await flush();
 
       expect(saveOrder).toEqual([
-        "thread:first",
         "transport:remount-first-message",
-        "thread:second",
         "transport:remount-second-message",
+        "thread:second",
       ]);
-      expect(firstOnSaveThread).toHaveBeenCalledOnce();
+      expect(firstOnSaveThread).not.toHaveBeenCalled();
       expect(secondOnSaveThread).toHaveBeenCalledOnce();
     } finally {
       resolveFirstTransport?.();
@@ -6526,22 +6623,29 @@ describe("AgentKitAssistantChat host behavior", () => {
     }
   });
 
-  it("unblocks both snapshot queues after a hung save times out and retries only the latest snapshot", async () => {
+  it("retries the latest snapshot after a transport save times out", async () => {
     const onSaveOrder: string[] = [];
     const onSaveThread = vi.fn(
       (_threadId: string, data: { preview: string }) => {
         onSaveOrder.push(data.preview);
-        return onSaveOrder.length === 1
-          ? new Promise<boolean>(() => undefined)
-          : Promise.resolve(true);
+        return Promise.resolve(true);
       },
     );
     const transportSaveOrder: string[] = [];
     chatMocks.transport.persistThreadSnapshot.mockImplementation(
-      (input: { snapshot: { messages: AgentMessage[] } }) => {
+      (
+        input: { snapshot: { messages: AgentMessage[] } },
+        context?: { signal?: AbortSignal },
+      ) => {
         transportSaveOrder.push(input.snapshot.messages.at(-1)?.id ?? "empty");
         return transportSaveOrder.length === 1
-          ? new Promise<void>(() => undefined)
+          ? new Promise<void>((_resolve, reject) => {
+              context?.signal?.addEventListener(
+                "abort",
+                () => reject(context.signal?.reason),
+                { once: true },
+              );
+            })
           : Promise.resolve();
       },
     );
@@ -6603,7 +6707,6 @@ describe("AgentKitAssistantChat host behavior", () => {
         for (let i = 0; i < 8; i++) await Promise.resolve();
       });
 
-      expect(onSaveOrder).toEqual(["Old snapshot"]);
       expect(transportSaveOrder).toEqual(["timeout-first-message"]);
 
       await act(async () => {
@@ -6611,13 +6714,116 @@ describe("AgentKitAssistantChat host behavior", () => {
         for (let i = 0; i < 12; i++) await Promise.resolve();
       });
 
-      expect(onSaveOrder).toEqual(["Old snapshot", "Latest snapshot"]);
+      expect(onSaveOrder).toEqual(["Latest snapshot"]);
       expect(transportSaveOrder).toEqual([
         "timeout-first-message",
         "timeout-latest-message",
       ]);
       expect(onThreadSnapshotPersisted).toHaveBeenCalledWith("thread-1", 2);
     } finally {
+      await act(async () => root.render(null));
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a timed-out legacy metadata write ahead of the latest snapshot", async () => {
+    const createTransport = () => chatMocks.transport;
+    const saveOrder: string[] = [];
+    let resolveFirstSave: ((saved: boolean) => void) | undefined;
+    const firstSave = new Promise<boolean>((resolve) => {
+      resolveFirstSave = resolve;
+    });
+    const onSaveThread = vi.fn(
+      (_threadId: string, data: { preview: string }) => {
+        saveOrder.push(`thread:${data.preview}`);
+        return data.preview === "Older snapshot"
+          ? firstSave
+          : Promise.resolve(true);
+      },
+    );
+    chatMocks.persistThreadSnapshot.mockImplementation(
+      async (_threadId: string, messages?: AgentMessage[]) => {
+        saveOrder.push(`transport:${messages?.at(-1)?.id ?? "empty"}`);
+      },
+    );
+    const onThreadSnapshotPersisted = vi.fn();
+    await mount(
+      baseProps({ createTransport, onSaveThread, onThreadSnapshotPersisted }),
+    );
+
+    vi.useFakeTimers();
+    try {
+      const firstMessage = {
+        id: "legacy-timeout-first-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:00:00.000Z",
+        parts: [{ type: "text", text: "Older snapshot" }],
+      } as AgentMessage;
+      chatMocks.thread = { ...chatMocks.thread, messages: [firstMessage] };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({
+              createTransport,
+              onSaveThread,
+              onThreadSnapshotPersisted,
+            })}
+          />,
+        );
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      const latestMessage = {
+        id: "legacy-timeout-latest-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:01:00.000Z",
+        parts: [{ type: "text", text: "Latest snapshot" }],
+      } as AgentMessage;
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        messages: [firstMessage, latestMessage],
+      };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({
+              createTransport,
+              onSaveThread,
+              onThreadSnapshotPersisted,
+            })}
+          />,
+        );
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      expect(saveOrder).toEqual([
+        "transport:legacy-timeout-first-message",
+        "thread:Older snapshot",
+      ]);
+      expect(onSaveThread).toHaveBeenCalledOnce();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+      expect(onSaveThread).toHaveBeenCalledOnce();
+      expect(onThreadSnapshotPersisted).not.toHaveBeenCalled();
+
+      await act(async () => {
+        resolveFirstSave?.(true);
+        for (let i = 0; i < 16; i++) await Promise.resolve();
+      });
+      expect(saveOrder).toEqual([
+        "transport:legacy-timeout-first-message",
+        "thread:Older snapshot",
+        "transport:legacy-timeout-latest-message",
+        "thread:Latest snapshot",
+      ]);
+      expect(onThreadSnapshotPersisted).toHaveBeenCalledWith("thread-1", 2);
+    } finally {
+      resolveFirstSave?.(true);
       await act(async () => root.render(null));
       vi.useRealTimers();
     }

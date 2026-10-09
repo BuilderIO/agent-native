@@ -1142,6 +1142,7 @@ export function MultiTabAssistantChat({
     evictedThreadIds,
     isNewThread,
     isThreadPersisted,
+    confirmThreadSnapshotPersisted,
     pinThread,
     renameThread,
   } = useChatThreads(apiUrl, storageKey, scope, {
@@ -1180,6 +1181,7 @@ export function MultiTabAssistantChat({
   const [, setThreadPersistenceVersion] = useState(0);
   const handleThreadSnapshotPersisted = useCallback(
     (threadId: string, messageCount: number) => {
+      confirmThreadSnapshotPersisted(threadId);
       if (newThreadIds.current.delete(threadId)) {
         setThreadPersistenceVersion((version) => version + 1);
       }
@@ -1191,7 +1193,7 @@ export function MultiTabAssistantChat({
         writeThreadUrl(threadId);
       }
     },
-    [writeThreadUrl],
+    [confirmThreadSnapshotPersisted, writeThreadUrl],
   );
   const latestOpenThreadRequestRef = useRef(0);
 

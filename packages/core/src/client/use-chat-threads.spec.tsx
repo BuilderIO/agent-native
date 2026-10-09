@@ -908,7 +908,7 @@ describe("useChatThreads", () => {
     expect(hook!.restoredThreadIdOnListFailure).toBe("thread-1");
   });
 
-  it("restores marked local drafts without probing them and clears the marker once listed", async () => {
+  it("keeps marked local drafts unconfirmed when they appear in the history list", async () => {
     let serverThread: ChatThreadSummary | null = null;
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/chat/threads" && !init) {
@@ -1008,7 +1008,8 @@ describe("useChatThreads", () => {
         await Promise.resolve();
       });
       expect(window.localStorage.getItem(draftMarker)).toBe("1");
-      expect(hook!.isNewThread(threadId)).toBe(false);
+      expect(hook!.isNewThread(threadId)).toBe(true);
+      expect(hook!.isThreadPersisted(threadId)).toBe(false);
     } finally {
       removeMarker.mockRestore();
     }
@@ -1016,8 +1017,9 @@ describe("useChatThreads", () => {
       await hook!.refreshThreads();
       await Promise.resolve();
     });
-    expect(window.localStorage.getItem(draftMarker)).toBeNull();
-    expect(hook!.isNewThread(threadId)).toBe(false);
+    expect(window.localStorage.getItem(draftMarker)).toBe("1");
+    expect(hook!.isNewThread(threadId)).toBe(true);
+    expect(hook!.isThreadPersisted(threadId)).toBe(false);
     expect(
       fetchMock.mock.calls.some(([url]) => url === `/chat/threads/${threadId}`),
     ).toBe(false);
@@ -1042,9 +1044,10 @@ describe("useChatThreads", () => {
       await Promise.resolve();
     });
 
-    expect(persistedInitialState).toBe(false);
+    expect(persistedInitialState).toBe(true);
     expect(hook!.activeThreadId).toBe(threadId);
-    expect(hook!.isNewThread(threadId)).toBe(false);
+    expect(hook!.isNewThread(threadId)).toBe(true);
+    expect(hook!.isThreadPersisted(threadId)).toBe(false);
     expect(
       fetchMock.mock.calls.some(([url]) => url === `/chat/threads/${threadId}`),
     ).toBe(false);
@@ -1733,6 +1736,75 @@ describe("useChatThreads", () => {
     expect(
       fetchMock.mock.calls.some(([url]) => url === `/chat/threads/${threadId}`),
     ).toBe(false);
+  });
+
+  it("keeps a restored draft unconfirmed through metadata saves and history refreshes", async () => {
+    const threadId = "metadata-route-draft";
+    window.localStorage.setItem(
+      `agent-chat-client-draft-thread:${encodeURIComponent(threadId)}`,
+      "1",
+    );
+    let metadataSaved = false;
+    const savedThread: ChatThreadSummary = {
+      id: threadId,
+      title: "Draft title",
+      preview: "Draft preview",
+      messageCount: 1,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: metadataSaved ? [savedThread] : [] });
+      }
+      if (url === `/chat/threads/${threadId}` && init?.method === "PUT") {
+        if (!metadataSaved) return new Response(null, { status: 404 });
+        metadataSaved = true;
+        return jsonResponse({ ok: true, scope: null });
+      }
+      if (url === "/chat/threads" && init?.method === "POST") {
+        metadataSaved = true;
+        return jsonResponse({ id: threadId });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "metadata-route-draft-test", null, {
+        routeThreadId: threadId,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+
+    await act(async () => {
+      await hook!.saveThreadData(threadId, {
+        threadData: "",
+        title: "Draft title",
+        preview: "Draft preview",
+        messageCount: 1,
+      });
+    });
+    expect(hook!.isNewThread(threadId)).toBe(true);
+    expect(hook!.isThreadPersisted(threadId)).toBe(false);
+
+    await act(async () => {
+      hook!.refreshThreads();
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+    expect(hook!.isNewThread(threadId)).toBe(true);
+    expect(hook!.isThreadPersisted(threadId)).toBe(false);
+
+    act(() => hook!.confirmThreadSnapshotPersisted(threadId));
+    expect(hook!.isNewThread(threadId)).toBe(false);
+    expect(hook!.isThreadPersisted(threadId)).toBe(true);
   });
 
   it("keeps a route thread unconfirmed when its by-id lookup is forbidden", async () => {

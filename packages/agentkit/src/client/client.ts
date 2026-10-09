@@ -341,7 +341,7 @@ export interface AgentKitController {
     messages?: AgentMessage[],
   ): Promise<void>;
   /** Persist the current snapshot and report whether the transport saved it. */
-  persistThreadSnapshotWithResult(
+  persistThreadSnapshotWithResult?(
     threadId: ThreadId,
     messages?: AgentMessage[],
     context?: AgentRequestContext,

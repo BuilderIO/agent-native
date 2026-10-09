@@ -146,6 +146,7 @@ const threadMocks = vi.hoisted(() => ({
   refreshThreads: vi.fn(async () => undefined),
   isNewThread: vi.fn(() => false),
   isThreadPersisted: vi.fn(() => true),
+  confirmThreadSnapshotPersisted: vi.fn(),
   pinThread: vi.fn(async () => true),
   renameThread: vi.fn(async () => true),
 }));
@@ -493,6 +494,7 @@ function resetThreadMocks() {
   threadMocks.isNewThread.mockReturnValue(false);
   threadMocks.isThreadPersisted.mockReset();
   threadMocks.isThreadPersisted.mockReturnValue(true);
+  threadMocks.confirmThreadSnapshotPersisted.mockReset();
   threadMocks.saveThreadData.mockReset();
   threadMocks.saveThreadData.mockResolvedValue(true);
   threadMocks.pinThread.mockReset();
