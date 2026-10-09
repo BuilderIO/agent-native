@@ -6,5 +6,5 @@ export function loader({ request }: LoaderFunctionArgs) {
     /\/integrations\/?$/,
     "/settings/integrations",
   );
-  return redirect(target.toString());
+  return redirect(`${target.pathname}${target.search}`);
 }

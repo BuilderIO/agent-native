@@ -378,6 +378,11 @@ describe("sign-in matrix", () => {
           "/dispatch/settings/integrations?provider=hubspot",
         ),
       ).toBe("/dispatch/settings/integrations?provider=hubspot");
+      expect(
+        normalizeOAuthReturnPath(
+          "/dispatch/admin/integrations?provider=hubspot",
+        ),
+      ).toBe("/dispatch/admin/integrations?provider=hubspot");
       expect(normalizeOAuthReturnPath("/dispatch/dispatch")).toBe("/dispatch");
       expect(normalizeOAuthReturnPath("/dispatch/mail/inbox")).toBe(
         "/mail/inbox",

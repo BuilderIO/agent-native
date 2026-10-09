@@ -41,6 +41,7 @@ export function normalizeOAuthReturnPath(
         "overview",
         "apps",
         "settings",
+        "admin",
         "metrics",
         "vault",
         "integrations",
