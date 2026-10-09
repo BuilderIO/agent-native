@@ -342,6 +342,7 @@ export const designBoardReplayScreenshots = table(
     mimeType: text("mime_type").notNull(),
     sizeBytes: integer("size_bytes").notNull(),
     blobHandle: text("blob_handle").notNull(),
+    sourceStageId: text("source_stage_id"),
     createdAt: text("created_at").default(now()),
     ...ownableColumns(),
   },

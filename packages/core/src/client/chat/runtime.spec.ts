@@ -595,6 +595,58 @@ describe("createHttpAgentChatRuntime", () => {
 });
 
 describe("createAgentNativeChatRuntime", () => {
+  it("keeps the original request context when a run-timeout stream closes without done", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "auto_continue", reason: "run_timeout" }]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "done", reason: "complete" }]),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      threadId: "thread-timeout-context",
+    });
+    const originalMessages: AgentChatRuntimeMessage[] = [
+      {
+        id: "prior-user",
+        role: "user",
+        content: [{ type: "text", text: "Earlier context" }],
+      },
+    ];
+    const first = await session.startTurn({
+      prompt: "Original request",
+      messages: originalMessages,
+      metadata: { source: "browser" },
+    });
+    const firstEvents = await drain(first.events);
+
+    expect(firstEvents).toMatchObject([{ type: "continuation" }]);
+    expect(firstEvents.some((event) => event.type === "done")).toBe(false);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      prompt: "Continue after the time limit",
+    });
+    expect(continuation).toBeDefined();
+    await drain(continuation!.events);
+
+    const continuationRequest = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body),
+    );
+    expect(continuationRequest).toMatchObject({
+      message: "Continue after the time limit",
+      threadId: "thread-timeout-context",
+      turnId: first.id,
+      history: [{ role: "user", content: "Earlier context" }],
+      metadata: { source: "browser" },
+    });
+  });
+
   it("sends the browser analytics session with agent-run requests", async () => {
     const storage = new Map<string, string>([
       ["agent-native.session_id", "browser-session-42"],

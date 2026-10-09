@@ -423,6 +423,26 @@ describe("parity oracle guard", () => {
     }
   });
 
+  it("does not treat RegExp.test calls as test declarations", async () => {
+    const root = makeRoot();
+    try {
+      writeEntry(root);
+      const result = await runParityOracleGuard({
+        repoRoot: root,
+        addedLines: addedLines(
+          root,
+          "templates/design/e2e/parity-inspector.spec.ts",
+          `// oracle: none — checks a saved style string, not native parity\ntest("keeps the selected frame size", () => {\n  const style = "width: 120px";\n  return /width:\\s*120px/i.test(style);\n});`,
+        ),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(result.exitCode, 0, result.message);
+      assert.match(result.message, /1 citation/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("requires oracle citations for parameterized test.each and it.each blocks", async () => {
     const root = makeRoot();
     try {

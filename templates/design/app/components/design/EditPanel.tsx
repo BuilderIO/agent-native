@@ -340,6 +340,7 @@ interface EditPanelProps {
       url?: string;
       connectionId?: string;
     },
+    onSettled?: () => void,
   ) => void;
   onScreenUrlChange?: (screenId: string, url: string) => void;
   onAddLocalhostScreen?: () => void;
@@ -1125,6 +1126,7 @@ function ScreenGeometryProperties({
       url?: string;
       connectionId?: string;
     },
+    onSettled?: () => void,
   ) => void;
   onScreenUrlChange?: (screenId: string, url: string) => void;
   onAddLocalhostScreen?: () => void;
@@ -1142,6 +1144,7 @@ function ScreenGeometryProperties({
   const [sourceMode, setSourceMode] = useState<"static" | "url">(
     persistedSourceType,
   );
+  const staticSourceTransitionInFlightRef = useRef(false);
   const [sourceUrlDraft, setSourceUrlDraft] = useState(
     selectedScreenSource?.url ?? "",
   );
@@ -1159,6 +1162,12 @@ function ScreenGeometryProperties({
     selectedScreenSource?.connectionId,
     selectedScreenSource?.url,
   ]);
+
+  useEffect(() => {
+    if (!screenSourcePending || persistedSourceType === "static") {
+      staticSourceTransitionInFlightRef.current = false;
+    }
+  }, [persistedSourceType, screen.id, screenSourcePending]);
 
   const commitUrl = useCallback(
     (nextConnectionId = connectionDraft) => {
@@ -1238,8 +1247,21 @@ function ScreenGeometryProperties({
                 setSourceMode("static");
                 return;
               }
+              if (
+                screenSourcePending ||
+                staticSourceTransitionInFlightRef.current
+              ) {
+                return;
+              }
+              staticSourceTransitionInFlightRef.current = true;
               setSourceMode("url");
-              onScreenSourceChange?.(screen.id, { sourceType: "static" });
+              onScreenSourceChange?.(
+                screen.id,
+                { sourceType: "static" },
+                () => {
+                  staticSourceTransitionInFlightRef.current = false;
+                },
+              );
             }}
             className="w-full"
           >

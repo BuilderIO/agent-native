@@ -840,6 +840,7 @@ export {
   type RecurringSweepContext,
   type RecurringSweepHandler,
 } from "../jobs/sweep-hooks.js";
+export { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 export {
   scheduledTriggerAvailability,
   type ScheduledTriggerAvailability,

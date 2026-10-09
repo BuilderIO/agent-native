@@ -1,4 +1,7 @@
+import { enUSJourneyCanvasMessages } from "../../shared/journey-canvas-messages.js";
+
 export default {
+  journeyCanvas: enUSJourneyCanvasMessages,
   composer: { menu: { integrations: "Integrations" } },
   creativeContext: {
     title: "Library",

@@ -7,14 +7,26 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- Opted-in pre-auth recordings appear in Sessions as anonymous replays
 - Agents can build the onboarding journey tree with drop-off per step and render a screenshot of each step from session replays.
 
 ### Improved
 
+- Set a chart's time range from its options menu.
+- A new Ask chat shows its heading and prompt immediately while existing chat history loads.
+- Sessions can show playable anonymous recordings without labeling them as signup-page captures.
 - Session replay screenshots capture directly without requesting screen sharing.
 
 ### Fixed
 
+- Agent-shared recording links now load across batched playback chunks
+- Fixed onboarding journey queries against BigQuery.
+- Session replay agent links can read their recording manifest and playback chunks.
+- Onboarding journey screenshots include dialogs at the recorded viewport. The
+  capture manifest discloses that remote assets were not fetched.
+- Onboarding journey replay links and screenshots now align with the selected step's recording timestamp.
+- Onboarding journeys preserve each skipped setup step
+- Onboarding journeys use the current Builder setup label
 - Analytics now reports uncertain storyboard saves without implying the export definitely failed.
 - Replay screenshot exports now report upload timeouts and incomplete cleanup.
 - Storyboard exports now ask you to check Design when Analytics cannot confirm a save.
