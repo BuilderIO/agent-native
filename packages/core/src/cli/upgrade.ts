@@ -660,16 +660,31 @@ function applyBumps(pkg: PackageJsonLike, bumps: AgentNativeDepBump[]): void {
   }
 }
 
+// pnpm reads the nearest pnpm-workspace.yaml at or above the directory it runs
+// in, so an upgrade started from a member app still installs under the
+// workspace root's release-age settings.
+function findPnpmWorkspaceFile(start: string): string | null {
+  let dir = start;
+  while (true) {
+    const file = path.join(dir, "pnpm-workspace.yaml");
+    if (fs.existsSync(file)) return file;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
 function alignReleaseAgeExclude(
   project: UpgradeProject,
   dryRun: boolean,
 ): UpgradeRunResult["steps"][number] | null {
-  const file = path.join(project.root, "pnpm-workspace.yaml");
-  if (!fs.existsSync(file)) return null;
+  const file = findPnpmWorkspaceFile(project.root);
+  if (!file) return null;
+  const displayFile = relativeTo(project.root, file);
   const failed = (error: unknown): UpgradeRunResult["steps"][number] => ({
     id: "release-age",
     status: "failed",
-    detail: `Could not update pnpm-workspace.yaml (${error instanceof Error ? error.message : String(error)}). Add ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude by hand, then re-run upgrade.`,
+    detail: `Could not update ${displayFile} (${error instanceof Error ? error.message : String(error)}). Add ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude by hand, then re-run upgrade.`,
   });
   let current: string;
   let updated: string;
@@ -687,7 +702,7 @@ function alignReleaseAgeExclude(
     return {
       id: "release-age",
       status: "planned",
-      detail: `Add ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude in pnpm-workspace.yaml`,
+      detail: `Add ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude in ${displayFile}`,
     };
   }
   try {
@@ -698,7 +713,7 @@ function alignReleaseAgeExclude(
   return {
     id: "release-age",
     status: "ok",
-    detail: `Added ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude in pnpm-workspace.yaml`,
+    detail: `Added ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude in ${displayFile}`,
   };
 }
 

@@ -1268,6 +1268,35 @@ describe("runUpgrade", () => {
       expect(out.join("\n")).not.toContain("release-age");
     });
 
+    it("updates the workspace root's file when run from a member app", async () => {
+      const root = makeTempProject({
+        kind: "workspace",
+        rootPkg: { name: "old-workspace", private: true },
+        workspaceYaml: olderWorkspaceYaml,
+        apps: {
+          web: {
+            name: "web",
+            dependencies: { "@agent-native/core": "latest" },
+          },
+        },
+      });
+      const memberDir = path.join(root, "apps", "web");
+      expect(detectUpgradeProject(memberDir)?.root).toBe(memberDir);
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", memberDir, ...skipArgs], io)).toBe(0);
+
+      expect(out.join("\n")).toContain("[ok] release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(
+        olderWorkspaceYaml.replace(
+          "minimumReleaseAgeExclude:\n",
+          'minimumReleaseAgeExclude:\n  - "@agent-native/*"\n',
+        ),
+      );
+    });
+
     it("recognizes a quoted minimumReleaseAgeExclude key", async () => {
       const quotedYaml = olderWorkspaceYaml.replace(
         "minimumReleaseAgeExclude:",
