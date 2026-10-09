@@ -1120,6 +1120,7 @@ export default {
   },
   sqlDashboard: {
     customRange: "Plage personnalisée",
+    allValues: "Tous",
     untitledDashboard: "Tableau de bord sans titre",
     dashboardFallback: "tableau de bord",
     viewOnly: "Vous disposez d'un accès en lecture seule à ce tableau de bord.",

@@ -59,7 +59,7 @@ export function isDesignLeftPanelEnabled(
   }
 
   if (value === "code") return SHOW_DESIGN_CODE_LEFT_PANEL;
-  if (value === "assets" || value === "tools" || value === "tokens") {
+  if (value === "assets" || value === "tools") {
     return SHOW_DESIGN_SECONDARY_LEFT_PANELS;
   }
   return true;

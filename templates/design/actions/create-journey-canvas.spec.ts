@@ -450,6 +450,78 @@ describe("create-journey-canvas run", () => {
     expect(mocks.seedFromText).toHaveBeenCalledTimes(3);
   });
 
+  it("persists an explicit recording-gap label through the action run", async () => {
+    const anonymousIdHash = "a".repeat(64);
+    const base = rawInput([]);
+    const source = {
+      ...base.tree.nodes[0]!,
+      examples: [
+        {
+          ...base.tree.nodes[0]!.examples[0]!,
+          sessionId: "synthetic-session",
+          recordingId: "synthetic-recording-entry",
+          anonymousIdHash,
+        },
+      ],
+    };
+    const target = {
+      key: "b",
+      label: "Later setup",
+      parentKey: "a",
+      depth: 2,
+      kind: "step",
+      referenceOnly: true,
+      examples: [
+        {
+          ...base.tree.nodes[1]!.examples[0]!,
+          sessionId: "synthetic-session",
+          recordingId: "synthetic-recording-setup",
+          anonymousIdHash,
+        },
+      ],
+    };
+    const input = (action as any).schema.parse({
+      ...base,
+      tree: { ...base.tree, nodes: [source, target] },
+      frames: [
+        frame("a", {
+          attachmentRef: "synthetic-private-source-frame",
+          recordingStartedAt: "2026-10-01T12:00:00.000Z",
+          recordingEndedAt: "2026-10-01T12:00:05.000Z",
+          screenshotOffsetMs: 1_000,
+        }),
+        frame("b", {
+          attachmentRef: "synthetic-private-target-frame",
+          recordingStartedAt: "2026-10-01T12:00:08.000Z",
+          screenshotOffsetMs: 1_000,
+        }),
+      ],
+      observedRecordingGaps: [
+        {
+          type: "recording-gap",
+          fromNodeKey: "a",
+          fromExampleIndex: 0,
+          toNodeKey: "b",
+          toExampleIndex: 0,
+          gapDurationMs: 3_000,
+        },
+      ],
+    });
+
+    const result = await action.run(input, { caller: "mcp" } as any);
+    const boardContent = mocks.state.boardWrites[0]!.content;
+
+    expect(result).toMatchObject({ nodeCount: 2, frameCount: 2 });
+    expect(boardContent).toContain('stroke-dasharray="6 6"');
+    expect(boardContent).toContain(
+      'data-agent-native-layer-name="Observed recording gap"',
+    );
+    expect(boardContent).toContain('aria-label="Recording gap · 3s"');
+    expect(boardContent).not.toContain("Same recording");
+    expect(boardContent).not.toMatch(/conversion|successful signup/i);
+    expect(mocks.putPrivateBlob).toHaveBeenCalledTimes(2);
+  });
+
   it("copies attachmentRef screenshots into private blobs and serves them through the authenticated route", async () => {
     const input = rawInput([
       frame("a", { attachmentRef: "ref-a", sourceApp: "chat" }),

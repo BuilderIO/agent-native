@@ -27,7 +27,7 @@ import {
 } from "@/components/editor/DocumentEditorSkeleton";
 import { DocumentToolbar } from "@/components/editor/DocumentToolbar";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { click, queryByLabel, renderUi } from "@/test-utils/render-ui";
+import { queryByLabel, renderUi } from "@/test-utils/render-ui";
 
 import { ContentStartupShell } from "./ContentStartupShell";
 import { Header } from "./Header";
@@ -114,7 +114,9 @@ describe.each([
   { inWidget: false, place: "in the app" },
 ])("the page $place", ({ inWidget }) => {
   it(
-    inWidget ? "shows no document toolbar" : "keeps the document toolbar",
+    inWidget
+      ? "draws the document toolbar's page title and a single Open link, without the app's agent chrome"
+      : "keeps the full document toolbar",
     async () => {
       openPage({ inWidget });
 
@@ -123,6 +125,7 @@ describe.each([
           <TooltipProvider>
             <DocumentToolbar
               documentId="doc-1"
+              documentTitle="Roadmap"
               utilityPanel={null}
               onUtilityPanelChange={() => {}}
             />
@@ -133,9 +136,18 @@ describe.each([
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
 
+      expect(
+        queryByLabel("editor.toolbar.pageBreadcrumb")?.textContent,
+      ).toContain("Roadmap");
+      // The app's toolbar keeps its menu and the agent toggle; the widget's
+      // holds the one link, which stands where the menu would.
       expect(queryByLabel("editor.toolbar.morePageActions") !== null).toBe(
         !inWidget,
       );
+      expect(queryByLabel("editor.toolbar.openInAgentNative") !== null).toBe(
+        inWidget,
+      );
+      expect(queryByLabel("agentPanel.toggleAgent") !== null).toBe(!inWidget);
     },
   );
 
@@ -151,32 +163,27 @@ describe.each([
     expect(container.querySelector("header") !== null).toBe(!inWidget);
   });
 
-  it(
-    inWidget
-      ? "drops the loading skeleton's toolbar row and keeps its page"
-      : "draws the loading skeleton's toolbar row",
-    async () => {
-      openPage({
-        inWidget,
-        extraStyles: await utilityStyles("flex", HIDDEN_IN_WIDGET_CLASS_NAME),
-      });
+  it("draws the loading skeleton's toolbar row ahead of its page", async () => {
+    openPage({
+      inWidget,
+      extraStyles: await utilityStyles("flex", HIDDEN_IN_WIDGET_CLASS_NAME),
+    });
 
-      const { container } = renderUi(
-        <main className="agent-native-app-main">
-          <DocumentEditorSkeleton title="Roadmap" />
-        </main>,
-      );
+    const { container } = renderUi(
+      <main className="agent-native-app-main">
+        <DocumentEditorSkeleton title="Roadmap" />
+      </main>,
+    );
 
-      // The skeleton's first row stands in for the toolbar, ahead of the page.
-      const toolbarRow =
-        container.querySelector("main > div")?.firstElementChild;
-      const title = container.querySelector('[data-startup-anchor="title"]');
-      expect(toolbarRow).toBeTruthy();
-      expect(title).toBeTruthy();
-      expect(isShown(toolbarRow!)).toBe(!inWidget);
-      expect(isShown(title!)).toBe(true);
-    },
-  );
+    // The skeleton's first row stands in for the toolbar, ahead of the page.
+    const toolbarRow = container.querySelector("main > div")?.firstElementChild;
+    const title = container.querySelector('[data-startup-anchor="title"]');
+    expect(toolbarRow).toBeTruthy();
+    expect(title).toBeTruthy();
+    // The widget has the toolbar now, so the skeleton holds its place.
+    expect(isShown(toolbarRow!)).toBe(true);
+    expect(isShown(title!)).toBe(true);
+  });
 
   it(
     inWidget
@@ -195,6 +202,29 @@ describe.each([
       const sidebar = container.querySelector(".agent-layout-left-drawer");
       expect(sidebar).toBeTruthy();
       expect(isShown(sidebar!)).toBe(!inWidget);
+    },
+  );
+
+  it(
+    inWidget
+      ? "draws no menu button in the startup toolbar row where the app narrows to a drawer"
+      : "draws the menu button in the startup toolbar row where the app narrows to a drawer",
+    async () => {
+      document.documentElement.setAttribute("data-content-sidebar-drawer", "");
+      const { container } = renderUi(
+        <ContentStartupShell pathname="/page/doc-1" label="Loading" />,
+      );
+      const classes = new Set(
+        Array.from(container.querySelectorAll("[class]")).flatMap((element) =>
+          (element.getAttribute("class") ?? "").split(/\s+/),
+        ),
+      );
+      openPage({ inWidget, extraStyles: await utilityStyles(...classes) });
+
+      const menuButton = container.querySelector("main [aria-hidden] svg");
+      expect(menuButton).toBeTruthy();
+      expect(isShown(menuButton!.parentElement!)).toBe(!inWidget);
+      document.documentElement.removeAttribute("data-content-sidebar-drawer");
     },
   );
 
@@ -233,9 +263,7 @@ describe.each([
   );
 });
 
-it("shows undo and redo controls in an editable directory widget", async () => {
-  const onUndo = vi.fn();
-  const onRedo = vi.fn();
+it("gives an editable directory widget Share and the page title, and leaves undo and redo to the formatting strip", async () => {
   openPage({ inWidget: true });
   widgetHost.writable = true;
 
@@ -244,11 +272,11 @@ it("shows undo and redo controls in an editable directory widget", async () => {
       <TooltipProvider>
         <DocumentToolbar
           documentId="doc-1"
+          documentTitle="Roadmap"
           canEdit
           canUndo
           canRedo
-          onUndo={onUndo}
-          onRedo={onRedo}
+          readOnly
           utilityPanel={null}
           onUtilityPanelChange={() => {}}
         />
@@ -260,25 +288,16 @@ it("shows undo and redo controls in an editable directory widget", async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  const toolbar = container.querySelector(
-    "[data-content-widget-editor-toolbar]",
+  expect(container.querySelector("[data-content-widget-editor-toolbar]")).toBe(
+    null,
   );
-  expect(toolbar).not.toBeNull();
-  expect(toolbar?.getAttribute("role")).toBe("toolbar");
-  expect(toolbar?.classList.contains("h-12")).toBe(true);
-
-  const undo = queryByLabel<HTMLButtonElement>(
-    "editor.toolbar.undo",
-    container,
-  );
-  const redo = queryByLabel<HTMLButtonElement>(
-    "editor.toolbar.redo",
-    container,
-  );
-  expect(undo).not.toBeNull();
-  expect(redo).not.toBeNull();
-  await click(undo!);
-  await click(redo!);
-  expect(onUndo).toHaveBeenCalledOnce();
-  expect(onRedo).toHaveBeenCalledOnce();
+  expect(queryByLabel("editor.toolbar.undo", container)).toBeNull();
+  expect(queryByLabel("editor.toolbar.redo", container)).toBeNull();
+  expect(
+    queryByLabel("editor.toolbar.pageBreadcrumb", container)?.textContent,
+  ).toContain("Roadmap");
+  expect(queryByLabel("editor.toolbar.share", container)).not.toBeNull();
+  expect(
+    queryByLabel("editor.toolbar.openInAgentNative", container),
+  ).not.toBeNull();
 });

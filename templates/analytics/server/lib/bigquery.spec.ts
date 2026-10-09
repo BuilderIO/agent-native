@@ -18,7 +18,12 @@ vi.mock("./credentials", () => ({ resolveCredential }));
 
 vi.mock("./gcloud", () => ({ getAccessToken }));
 
-const { dryRunQuery, dryRunQuerySchema, runQuery } = await import("./bigquery");
+const {
+  BigQueryMaximumBytesBilledError,
+  dryRunQuery,
+  dryRunQuerySchema,
+  runQuery,
+} = await import("./bigquery");
 
 function jsonResponse(data: unknown): Response {
   return {
@@ -318,6 +323,88 @@ describe("runQuery cancellation", () => {
       expect.objectContaining({ method: "POST" }),
     );
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/cancel");
+  });
+
+  it("applies the caller's BigQuery billed-byte cap", async () => {
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "0",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runQuery("SELECT 1 AS bounded_query", {
+      maxBytesBilled: 10_000_000_000,
+    });
+
+    const submission = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(submission.configuration.query.maximumBytesBilled).toBe(
+      "10000000000",
+    );
+  });
+
+  it("returns a typed error when BigQuery rejects the billed-byte cap", async () => {
+    const fetchMock = vi.fn<typeof globalThis.fetch>().mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () =>
+        JSON.stringify({
+          error: {
+            message:
+              "Query exceeded limit for bytes billed: 10000000000. 12000000000 or higher required.",
+          },
+        }),
+    } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      runQuery("SELECT 1 AS billed_bytes_limit_test", {
+        maxBytesBilled: 10_000_000_000,
+      }),
+    ).rejects.toBeInstanceOf(BigQueryMaximumBytesBilledError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("recognizes the billed-byte cap marker in a non-JSON response", async () => {
+    const fetchMock = vi.fn<typeof globalThis.fetch>().mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () =>
+        "Query exceeded limit for bytes billed: 10000000000. 12000000000 or higher required.",
+    } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      runQuery("SELECT 1 AS billed_bytes_limit_text_test", {
+        maxBytesBilled: 10_000_000_000,
+      }),
+    ).rejects.toBeInstanceOf(BigQueryMaximumBytesBilledError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("recognizes a billed-byte rejection returned by the completed query job", async () => {
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        errors: [
+          {
+            message:
+              "Query exceeded limit for bytes billed: 10000000000. 12000000000 or higher required.",
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      runQuery("SELECT 1 AS completed_job_billed_limit_test", {
+        maxBytesBilled: 10_000_000_000,
+      }),
+    ).rejects.toBeInstanceOf(BigQueryMaximumBytesBilledError);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("cancels a submitted job when the caller aborts before the response arrives", async () => {

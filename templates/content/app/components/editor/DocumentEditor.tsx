@@ -2528,6 +2528,8 @@ function PageEditorSessionBody({
   const widgetCanEditDatabaseRows = widgetEditability.canEditDatabaseRows;
   const canEdit = widgetEditability.canEditDocument;
   const canEditRef = useRef(canEdit);
+  const [widgetFormattingSlot, setWidgetFormattingSlot] =
+    useState<HTMLDivElement | null>(null);
   const contentSpacesQuery = useContentSpaces({
     enabled: !mcpDirectoryWidgetReadOnly,
   });
@@ -8656,6 +8658,7 @@ function PageEditorSessionBody({
             agentActive={agentActive}
             currentUserEmail={session?.email}
             canEdit={editorCanEdit}
+            canShare={!mcpDirectoryWidgetReadOnly || canEdit}
             readOnly={mcpDirectoryWidgetReadOnly}
             hideFromSearch={document.hideFromSearch}
             source={document.source}
@@ -8697,8 +8700,15 @@ function PageEditorSessionBody({
               void handleSuggestionModeChange(next);
             }}
           />
+          {mcpDirectoryWidgetReadOnly && widgetEditability.canEditDocument ? (
+            <div
+              ref={setWidgetFormattingSlot}
+              className="shrink-0 empty:hidden"
+              data-content-widget-formatting-slot=""
+            />
+          ) : null}
 
-          {!isLocalFileDocument ? (
+          {!isLocalFileDocument && !mcpDirectoryWidgetReadOnly ? (
             <NotionConflictBanner documentId={documentId} canEdit={canEdit} />
           ) : null}
 
@@ -9291,6 +9301,7 @@ function PageEditorSessionBody({
                                 mcpDirectoryWidgetReadOnly &&
                                 widgetEditability.canEditDocument
                               }
+                              widgetFormattingSlot={widgetFormattingSlot}
                               suggesting={isSuggesting}
                               localFileMode={isLocalFileDocument}
                               localFilePath={

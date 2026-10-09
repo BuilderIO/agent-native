@@ -249,6 +249,7 @@ const messages = {
     importCompleteFile: "Fichier importé depuis {{fileName}}.",
     backToDecks: "Retour aux decks",
     toggleSlideList: "Afficher/masquer la liste des diapositives",
+    openInAgentNative: "Ouvrir dans Agent-Native",
     designSystem: "Système de design",
     usingDesignSystem: "Utilisation de {{title}}",
     usingLinkedDesignSystem: "Utilisation d’un système de design lié",

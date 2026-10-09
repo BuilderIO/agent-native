@@ -243,6 +243,86 @@ describe("runApplyDesignEditorCommand: overview camera fit", () => {
   });
 });
 
+describe("runApplyDesignEditorCommand: widget open", () => {
+  const responsiveScreen: OverviewScreen = {
+    ...overviewScreen,
+    width: 1440,
+    height: 900,
+    breakpointWidths: [390],
+    breakpointHeights: { "390": 1181 },
+  };
+
+  it("fits the screen together with its breakpoint frames", () => {
+    const requestCameraFit = vi.fn();
+    const args = makeArgs({
+      files: [screenFile],
+      overviewScreens: [responsiveScreen],
+      canvasFrameGeometryById: {
+        "file-1": { x: 0, y: 0, width: 1440, height: 900 },
+      },
+      requestCameraFit,
+    });
+
+    runApplyDesignEditorCommand(args, {
+      designId: "design-1",
+      issuedAt: 0,
+      editorView: "overview",
+      screen: "file-1",
+    });
+
+    expect(requestCameraFit.mock.calls[0]![0].fitBounds).toMatchObject({
+      left: 0,
+      top: 0,
+      right: 1440 + 24 + 390,
+      bottom: 1181,
+    });
+  });
+
+  it("frames the opened screen without selecting it, so no inspector opens over the canvas", () => {
+    const requestCameraFit = vi.fn();
+    const args = makeArgs({
+      files: [screenFile],
+      overviewScreens: [overviewScreen],
+      requestCameraFit,
+      selectTargetScreen: false,
+    });
+
+    const applied = runApplyDesignEditorCommand(args, {
+      designId: "design-1",
+      issuedAt: 0,
+      editorView: "overview",
+      screen: "file-1",
+    });
+
+    expect(applied).toBe(true);
+    expect(args.setViewMode).toHaveBeenCalledWith("overview");
+    expect(args.setMode).toHaveBeenCalledWith("edit");
+    expect(args.setOverviewSelectedScreenIds).not.toHaveBeenCalled();
+    expect(args.setSelectedLayerIdsState).not.toHaveBeenCalled();
+    expect(requestCameraFit).toHaveBeenCalledTimes(1);
+  });
+
+  it("still selects an explicitly requested layer", () => {
+    const args = makeArgs({
+      files: [screenFile],
+      overviewScreens: [overviewScreen],
+      selectTargetScreen: false,
+    });
+
+    runApplyDesignEditorCommand(args, {
+      designId: "design-1",
+      issuedAt: 0,
+      editorView: "overview",
+      screen: "file-1",
+      selection: "code:layer-1",
+    });
+
+    expect(args.setSelectedLayerIdsState).toHaveBeenCalledWith([
+      "code:layer-1",
+    ]);
+  });
+});
+
 describe("runApplyDesignEditorCommand: screen focus stays on All screens", () => {
   it("keeps legacy single-screen focus commands in the overview and fits the target", () => {
     const requestCameraFit = vi.fn();

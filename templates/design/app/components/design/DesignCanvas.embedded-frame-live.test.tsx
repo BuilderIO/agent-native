@@ -95,7 +95,6 @@ describe("DesignCanvas live embedded-frame offset", () => {
           <DesignCanvas
             content="http://localhost:3102/library"
             contentKey="live-url-frame-focus"
-            sourceType="localhost"
             screenId="library"
             zoom={100}
             deviceFrame="none"
@@ -288,7 +287,6 @@ describe("DesignCanvas live embedded-frame offset", () => {
           <DesignCanvas
             content="https://clips.example/library"
             contentKey="cross-origin-live-frame-load-focus"
-            sourceType="localhost"
             screenId="library"
             zoom={100}
             deviceFrame="none"
@@ -339,7 +337,6 @@ describe("DesignCanvas live embedded-frame offset", () => {
           <DesignCanvas
             content="http://localhost:3102/library"
             contentKey="live-url-frame-delayed-focus"
-            sourceType="localhost"
             screenId="library"
             zoom={100}
             deviceFrame="none"
@@ -793,8 +790,6 @@ describe("DesignCanvas live embedded-frame offset", () => {
         content={content}
         contentKey="same-live-iframe"
         screenId="screen-a"
-        sourceType="localhost"
-        bridgeUrl="http://127.0.0.1:7331"
         zoom={100}
         deviceFrame="none"
         interactMode={interactMode}
