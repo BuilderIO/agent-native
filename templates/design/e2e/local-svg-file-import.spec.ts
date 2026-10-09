@@ -53,6 +53,7 @@ async function importedSvgFrame(page: Page): Promise<Frame> {
   );
 }
 
+// oracle: none - verifies local SVG import editing and persistence, not measured Figma parity.
 test("imported local SVG remains editable after reopening the design", async ({
   page,
 }) => {

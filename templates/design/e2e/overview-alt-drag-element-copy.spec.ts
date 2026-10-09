@@ -145,6 +145,7 @@ test("alt-dragging an element keeps every copy on the canvas, not just in state"
   }
 });
 
+// oracle: none - verifies cross-screen copy behavior and source preservation, not measured Figma parity.
 test("alt-dragging an element onto another screen copies it without moving the source", async ({
   page,
   request,
