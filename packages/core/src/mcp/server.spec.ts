@@ -2854,10 +2854,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         .spyOn(console, "error")
         .mockImplementation(() => {});
       try {
-        // Compact encoding can keep these ids within the read-scope budget.
+        // Force both builders to cover the post-action ticket fallback.
         widgetScopeOverride.readUnmintable = true;
         widgetScopeOverride.writeUnmintable = true;
-        const id = "x".repeat(256);
+        const id = "x".repeat(257);
         embedSessionMocks.createEmbedSessionTicket.mockClear();
 
         const created = await callCreate({
