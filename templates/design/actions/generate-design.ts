@@ -38,7 +38,10 @@ import {
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
-import { resolveCanvasIntent } from "../shared/canvas-dimensions.js";
+import {
+  assertSingleCanvasOutput,
+  resolveCanvasIntent,
+} from "../shared/canvas-dimensions.js";
 import {
   mergeCanvasFramePlacements,
   parseCanvasFrameGeometryById,
@@ -711,6 +714,7 @@ const generateDesignAction = defineAction({
     context,
   ) => {
     const canvasIntent = resolveCanvasIntent(prompt);
+    assertSingleCanvasOutput(canvasIntent);
     const promptCanvasDimensions =
       canvasIntent.kind === "fixed" ? canvasIntent.dimensions : undefined;
     await assertAccess("design", designId, "editor");

@@ -166,6 +166,30 @@ function guidedQuestionsPayload<T>(): T {
 }
 
 describe("present-design-variants", () => {
+  it("rejects multiple exact canvas sizes before writing variants", async () => {
+    await expect(
+      action.run({
+        designId: "design_123",
+        prompt: "Create a 300x250 ad and a 728x90 leaderboard",
+        variants: [
+          {
+            id: "ad",
+            label: "Ad",
+            content: "<!doctype html><html><body>Ad</body></html>",
+          },
+          {
+            id: "leaderboard",
+            label: "Leaderboard",
+            content: "<!doctype html><html><body>Leaderboard</body></html>",
+          },
+        ],
+      }),
+    ).rejects.toThrow("Use one exact canvas size per Design action call");
+
+    expect(mocks.db.insert).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.designData = {};

@@ -17,7 +17,10 @@ import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
-import { resolveCanvasIntent } from "../shared/canvas-dimensions.js";
+import {
+  assertSingleCanvasOutput,
+  resolveCanvasIntent,
+} from "../shared/canvas-dimensions.js";
 import {
   mergeCanvasFramePlacements,
   nextFreeCanvasRowY,
@@ -918,6 +921,7 @@ export default defineAction({
         : "");
     const intentPrompt = originalBrief;
     const canvasIntent = resolveCanvasIntent(intentPrompt);
+    assertSingleCanvasOutput(canvasIntent);
     const promptDimensions =
       canvasIntent.kind === "fixed" ? canvasIntent.dimensions : undefined;
     await snapshotDesignBeforeAgentEdit(designId, context);

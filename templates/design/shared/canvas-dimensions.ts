@@ -255,6 +255,14 @@ export function resolveCanvasIntent(prompt?: string): CanvasIntent {
   return { kind: "responsive" };
 }
 
+export function assertSingleCanvasOutput(intent: CanvasIntent): void {
+  if (intent.kind === "fixed" && intent.source === "multiple-dimensions") {
+    throw new Error(
+      "Use one exact canvas size per Design action call, with each prompt scoped to one screen.",
+    );
+  }
+}
+
 export function explicitCanvasDimensionsFromPrompt(
   prompt?: string,
 ): CanvasDimensions | undefined {
