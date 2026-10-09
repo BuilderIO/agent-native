@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import {
   createAgentNativeBrowserSessionBridge,
@@ -172,6 +172,13 @@ export function useAgentNativeEmbeddedBrowserSession({
     onRemount,
     onRequestApproval,
   });
+  const onBrowserSessionErrorRef = useRef(browserSession?.onError);
+  onBrowserSessionErrorRef.current = browserSession?.onError;
+  const reportBrowserSessionError = useCallback(
+    (error: unknown, source: AgentNativeBrowserSessionBridgeErrorSource) =>
+      onBrowserSessionErrorRef.current?.(error, source),
+    [],
+  );
 
   const getMergedContext = useCallback(async () => {
     const screenContext =
@@ -193,7 +200,7 @@ export function useAgentNativeEmbeddedBrowserSession({
       pollMs: browserSession?.pollMs,
       ttlMs: browserSession?.ttlMs,
       fetch: browserSession?.fetch,
-      onError: browserSession?.onError,
+      onError: reportBrowserSessionError,
       session,
       getContext: getMergedContext,
       actions,
@@ -210,7 +217,6 @@ export function useAgentNativeEmbeddedBrowserSession({
     browserSession?.heartbeatMs,
     browserSession?.label,
     browserSession?.onReady,
-    browserSession?.onError,
     browserSession?.pollMs,
     browserSession?.sessionId,
     browserSession?.ttlMs,
