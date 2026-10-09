@@ -39,6 +39,42 @@ describe("private replay screenshot preview bridge", () => {
     ).toEqual({ html, screenshotPaths: [], nonce: null });
   });
 
+  it("bridges private srcset-only candidates and preserves public candidates", () => {
+    const route = "/api/design-board-replay-screenshots/jcs_e2e_fixture";
+    const publicImage = "https://images.example.test/public.png";
+    const prepared = preparePrivateReplayScreenshotPreviewDocument(
+      `<img srcset="${publicImage} 1x, ${route} 2x">`,
+      {
+        designId: "design_fixture",
+        parentOrigin: "https://design.example.test",
+      },
+    );
+
+    expect(prepared.screenshotPaths).toEqual([route]);
+    expect(prepared.nonce).toBeTruthy();
+    expect(prepared.html).toContain(`srcset="${publicImage} 1x"`);
+    expect(prepared.html).toContain(
+      'data-agent-native-private-replay-screenshot-srcset="[{&quot;index&quot;:0,&quot;descriptor&quot;:&quot;2x&quot;}]"',
+    );
+    expect(prepared.html).not.toContain(route);
+    expect(prepared.html).toContain("image.srcset = combined");
+  });
+
+  it("bridges private picture sources through the opaque preview document", () => {
+    const route = "/api/design-board-replay-screenshots/jcs_e2e_fixture";
+    const prepared = preparePrivateReplayScreenshotPreviewDocument(
+      `<picture><source srcset="${route} 1x"><img alt="preview"></picture>`,
+      {
+        designId: "design_fixture",
+        parentOrigin: "https://design.example.test",
+      },
+    );
+
+    expect(prepared.screenshotPaths).toEqual([route]);
+    expect(prepared.html).toContain("source[' + srcsetMarker + ']');");
+    expect(prepared.html).not.toContain(route);
+  });
+
   it("removes private screenshot sources when there is no owning design scope", () => {
     const route = "/api/design-board-replay-screenshots/jcs_e2e_fixture";
     const prepared = preparePrivateReplayScreenshotPreviewDocument(
@@ -49,6 +85,23 @@ describe("private replay screenshot preview bridge", () => {
     expect(prepared.screenshotPaths).toEqual([]);
     expect(prepared.nonce).toBeNull();
     expect(prepared.html).not.toContain(`src="${route}"`);
+    expect(prepared.html).not.toContain(
+      "design-private-replay-screenshot:connect",
+    );
+  });
+
+  it("strips private srcset candidates without a design scope and keeps public fallbacks", () => {
+    const route = "/api/design-board-replay-screenshots/jcs_e2e_fixture";
+    const publicImage = "https://images.example.test/public.png";
+    const prepared = preparePrivateReplayScreenshotPreviewDocument(
+      `<img srcset="${publicImage} 1x, ${route} 2x">`,
+      { parentOrigin: "https://design.example.test" },
+    );
+
+    expect(prepared.screenshotPaths).toEqual([]);
+    expect(prepared.nonce).toBeNull();
+    expect(prepared.html).toContain(`srcset="${publicImage} 1x"`);
+    expect(prepared.html).not.toContain(route);
     expect(prepared.html).not.toContain(
       "design-private-replay-screenshot:connect",
     );

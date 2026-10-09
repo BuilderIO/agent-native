@@ -3,6 +3,10 @@ import { parse, serialize, type DefaultTreeAdapterMap } from "parse5";
 
 const PRIVATE_SCREENSHOT_ATTRIBUTE =
   "data-agent-native-private-replay-screenshot-index";
+const PRIVATE_SCREENSHOT_SRCSET_ATTRIBUTE =
+  "data-agent-native-private-replay-screenshot-srcset";
+const PRIVATE_SCREENSHOT_PUBLIC_SRCSET_ATTRIBUTE =
+  "data-agent-native-private-replay-screenshot-public-srcset";
 const PRIVATE_SCREENSHOT_PATH =
   /^\/api\/design-board-replay-screenshots\/(jcs_[A-Za-z0-9_-]+)$/;
 const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
@@ -25,26 +29,100 @@ function randomNonce(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
+interface SrcsetCandidate {
+  url: string;
+  descriptor: string;
+}
+
+function parseSrcset(value: string): SrcsetCandidate[] {
+  const candidates: SrcsetCandidate[] = [];
+  let position = 0;
+
+  while (position < value.length) {
+    while (position < value.length && /[\s,]/.test(value[position]!))
+      position += 1;
+    if (position >= value.length) break;
+
+    const urlStart = position;
+    while (position < value.length && !/\s/.test(value[position]!))
+      position += 1;
+    let url = value.slice(urlStart, position);
+    const hasTrailingSeparator = url.endsWith(",");
+    while (url.endsWith(",")) url = url.slice(0, -1);
+
+    let descriptor = "";
+    if (!hasTrailingSeparator) {
+      while (position < value.length && /\s/.test(value[position]!))
+        position += 1;
+      const descriptorStart = position;
+      let parentheses = 0;
+      while (position < value.length) {
+        const character = value[position]!;
+        if (character === "(") parentheses += 1;
+        if (character === ")" && parentheses > 0) parentheses -= 1;
+        if (character === "," && parentheses === 0) break;
+        position += 1;
+      }
+      descriptor = value.slice(descriptorStart, position).trim();
+      if (value[position] === ",") position += 1;
+    }
+
+    if (url) candidates.push({ url, descriptor });
+  }
+
+  return candidates;
+}
+
+function formatSrcsetCandidate(candidate: SrcsetCandidate): string {
+  return candidate.descriptor
+    ? `${candidate.url} ${candidate.descriptor}`
+    : candidate.url;
+}
+
 function previewBootstrap(nonce: string, parentOrigin: string): string {
   return `<script data-agent-native-private-replay-screenshot-bridge>
 (function() {
   var nonce = ${JSON.stringify(nonce)};
   var parentOrigin = ${JSON.stringify(parentOrigin)};
   var marker = ${JSON.stringify(PRIVATE_SCREENSHOT_ATTRIBUTE)};
+  var srcsetMarker = ${JSON.stringify(PRIVATE_SCREENSHOT_SRCSET_ATTRIBUTE)};
+  var publicSrcsetMarker = ${JSON.stringify(PRIVATE_SCREENSHOT_PUBLIC_SRCSET_ATTRIBUTE)};
   var port = null;
   var observer = null;
   var objectUrls = [];
+  var blobUrlsByIndex = Object.create(null);
   var announceTimer = window.setInterval(function() {
     if (port) return;
     parent.postMessage({ type: ${JSON.stringify(READY_MESSAGE)}, nonce: nonce }, parentOrigin);
   }, 100);
   function requestImage(image) {
     if (!port) return;
-    var index = Number(image.getAttribute(marker));
-    if (!Number.isInteger(index)) return;
     if (image.getAttribute('data-agent-native-private-replay-requested') === 'true') return;
     image.setAttribute('data-agent-native-private-replay-requested', 'true');
-    port.postMessage({ type: ${JSON.stringify(REQUEST_MESSAGE)}, index: index });
+    var indices = [];
+    var sourceValue = image.getAttribute(marker);
+    if (sourceValue !== null && sourceValue !== '') {
+      var sourceIndex = Number(sourceValue);
+      if (Number.isInteger(sourceIndex) && sourceIndex >= 0) indices.push(sourceIndex);
+    }
+    var candidates = JSON.parse(image.getAttribute(srcsetMarker) || '[]');
+    candidates.forEach(function(candidate) {
+      if (Number.isInteger(candidate.index) && candidate.index >= 0 && indices.indexOf(candidate.index) === -1) indices.push(candidate.index);
+    });
+    indices.forEach(function(index) {
+      port.postMessage({ type: ${JSON.stringify(REQUEST_MESSAGE)}, index: index });
+    });
+  }
+  function applyPrivateSrcset(image) {
+    var candidates = JSON.parse(image.getAttribute(srcsetMarker) || '[]');
+    var privateCandidates = candidates.filter(function(candidate) {
+      return typeof blobUrlsByIndex[candidate.index] === 'string';
+    }).map(function(candidate) {
+      return blobUrlsByIndex[candidate.index] + (candidate.descriptor ? ' ' + candidate.descriptor : '');
+    });
+    var publicSrcset = image.getAttribute(publicSrcsetMarker) || '';
+    var combined = [publicSrcset].concat(privateCandidates).filter(Boolean).join(', ');
+    if (combined) image.srcset = combined;
   }
   window.addEventListener('message', function(event) {
     if (event.source !== parent || event.origin !== parentOrigin) return;
@@ -54,14 +132,18 @@ function previewBootstrap(nonce: string, parentOrigin: string): string {
       port.onmessage = function(messageEvent) {
         var data = messageEvent.data;
         if (!data || data.type !== ${JSON.stringify(RESULT_MESSAGE)} || !Number.isInteger(data.index) || !(data.blob instanceof Blob)) return;
-        var images = document.querySelectorAll('img[' + marker + '="' + data.index + '"]');
-        if (!images.length) return;
         var objectUrl = URL.createObjectURL(data.blob);
         objectUrls.push(objectUrl);
-        images.forEach(function(image) { image.src = objectUrl; });
+        blobUrlsByIndex[data.index] = objectUrl;
+        document.querySelectorAll('img[' + marker + '="' + data.index + '"]').forEach(function(image) {
+          image.src = objectUrl;
+        });
+        document.querySelectorAll('[' + srcsetMarker + ']').forEach(applyPrivateSrcset);
       };
       if (port.start) port.start();
-      var images = document.querySelectorAll('img[' + marker + ']');
+      var images = document.querySelectorAll('img[' + marker + '], img[' + srcsetMarker + ']');
+      var sources = document.querySelectorAll('source[' + srcsetMarker + ']');
+      sources.forEach(requestImage);
       if (!('IntersectionObserver' in window)) {
         images.forEach(requestImage);
         return;
@@ -117,27 +199,75 @@ export function preparePrivateReplayScreenshotPreviewDocument(
     element.attrs = element.attrs.filter(
       (attribute) =>
         attribute.name !== PRIVATE_SCREENSHOT_ATTRIBUTE &&
+        attribute.name !== PRIVATE_SCREENSHOT_SRCSET_ATTRIBUTE &&
+        attribute.name !== PRIVATE_SCREENSHOT_PUBLIC_SRCSET_ATTRIBUTE &&
         attribute.name !== "data-agent-native-private-replay-requested",
     );
-    if (element.tagName !== "img") return;
-    const source = element.attrs.find((attribute) => attribute.name === "src");
-    if (!source) return;
-    const match = PRIVATE_SCREENSHOT_PATH.exec(source.value);
-    if (!match) return;
-
-    let index = indices.get(source.value);
-    if (index === undefined) {
-      index = screenshotPaths.length;
-      indices.set(source.value, index);
-      screenshotPaths.push(source.value);
-    }
-    element.attrs = element.attrs.filter(
-      (attribute) => attribute.name !== "src" && attribute.name !== "srcset",
+    if (element.tagName !== "img" && element.tagName !== "source") return;
+    const source =
+      element.tagName === "img"
+        ? element.attrs.find((attribute) => attribute.name === "src")
+        : undefined;
+    const srcset = element.attrs.find(
+      (attribute) => attribute.name === "srcset",
     );
-    element.attrs.push({
-      name: PRIVATE_SCREENSHOT_ATTRIBUTE,
-      value: String(index),
-    });
+    const getIndex = (path: string) => {
+      if (!PRIVATE_SCREENSHOT_PATH.test(path)) return undefined;
+      let index = indices.get(path);
+      if (index === undefined) {
+        index = screenshotPaths.length;
+        indices.set(path, index);
+        screenshotPaths.push(path);
+      }
+      return index;
+    };
+
+    const sourceIndex = source ? getIndex(source.value) : undefined;
+    const publicCandidates: SrcsetCandidate[] = [];
+    const privateCandidates: Array<SrcsetCandidate & { index: number }> = [];
+    if (srcset) {
+      for (const candidate of parseSrcset(srcset.value)) {
+        const index = getIndex(candidate.url);
+        if (index === undefined) publicCandidates.push(candidate);
+        else privateCandidates.push({ ...candidate, index });
+      }
+    }
+
+    if (sourceIndex !== undefined) {
+      element.attrs = element.attrs.filter(
+        (attribute) => attribute.name !== "src",
+      );
+      element.attrs.push({
+        name: PRIVATE_SCREENSHOT_ATTRIBUTE,
+        value: String(sourceIndex),
+      });
+    }
+    if (privateCandidates.length > 0) {
+      const publicSrcset = publicCandidates
+        .map(formatSrcsetCandidate)
+        .join(", ");
+      const existingSrcset = element.attrs.findIndex(
+        (attribute) => attribute.name === "srcset",
+      );
+      if (existingSrcset >= 0) {
+        element.attrs.splice(existingSrcset, 1);
+        if (publicSrcset)
+          element.attrs.push({ name: "srcset", value: publicSrcset });
+      }
+      element.attrs.push({
+        name: PRIVATE_SCREENSHOT_SRCSET_ATTRIBUTE,
+        value: JSON.stringify(
+          privateCandidates.map(({ index, descriptor }) => ({
+            index,
+            descriptor,
+          })),
+        ),
+      });
+      element.attrs.push({
+        name: PRIVATE_SCREENSHOT_PUBLIC_SRCSET_ATTRIBUTE,
+        value: publicSrcset,
+      });
+    }
   });
 
   if (screenshotPaths.length === 0) {
@@ -146,7 +276,10 @@ export function preparePrivateReplayScreenshotPreviewDocument(
   if (!parentOrigin || !designId) {
     visitElements(document, (element) => {
       element.attrs = element.attrs.filter(
-        (attribute) => attribute.name !== PRIVATE_SCREENSHOT_ATTRIBUTE,
+        (attribute) =>
+          attribute.name !== PRIVATE_SCREENSHOT_ATTRIBUTE &&
+          attribute.name !== PRIVATE_SCREENSHOT_SRCSET_ATTRIBUTE &&
+          attribute.name !== PRIVATE_SCREENSHOT_PUBLIC_SRCSET_ATTRIBUTE,
       );
     });
     return { html: serialize(document), screenshotPaths: [], nonce: null };

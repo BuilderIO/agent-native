@@ -139,7 +139,12 @@ test("renders an authorized private replay image in the opaque presentation fram
         designId,
         filename: "index.html",
         fileType: "html",
-        content: `<!doctype html><html><body><img data-e2e-private-preview alt="" width="1" height="1" src="${screenshotPath}"></body></html>`,
+        content: [
+          "<!doctype html><html><body>",
+          `<img data-e2e-private-preview alt="" width="1" height="1" src="${screenshotPath}">`,
+          `<img data-e2e-private-preview alt="" width="1" height="1" srcset="${screenshotPath} 1x">`,
+          "</body></html>",
+        ].join(""),
       },
     });
     expect(createFile.ok(), await createFile.text()).toBe(true);
@@ -226,14 +231,16 @@ test("renders an authorized private replay image in the opaque presentation fram
       "allow-same-origin",
     );
 
-    const image = screen
+    const images = screen
       .contentFrame()
       .locator("img[data-e2e-private-preview]");
     await expect
       .poll(() =>
-        image.evaluate((element) => (element as HTMLImageElement).naturalWidth),
+        images.evaluateAll((elements) =>
+          elements.map((element) => (element as HTMLImageElement).naturalWidth),
+        ),
       )
-      .toBe(1);
+      .toEqual([1, 1]);
     await expect
       .poll(() => screenshotResponseHeaders?.["cross-origin-resource-policy"])
       .toBe("same-origin");
