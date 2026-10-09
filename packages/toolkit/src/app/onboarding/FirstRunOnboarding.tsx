@@ -21,7 +21,6 @@ import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registr
 import {
   buildSettingsRoute,
   SETTINGS_PAGE_IDS,
-  STANDARD_APP_ROUTES,
 } from "@agent-native/core/navigation";
 import type {
   OnboardingAppProfile,
