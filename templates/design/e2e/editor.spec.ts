@@ -593,7 +593,21 @@ test("screen overview lets users select elements inside the active screen", asyn
 
   await frameTitle.click();
   await expect.poll(frameTitleColor).toBe(accentColor);
-  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  // Clicking the title fits the camera to the Screen, so the heading moves.
+  // Wait for it to settle before aiming the next click at it.
+  let settled = box!;
+  await expect
+    .poll(async () => {
+      const next = (await target.boundingBox())!;
+      const stable = next.x === settled.x && next.y === settled.y;
+      settled = next;
+      return stable;
+    })
+    .toBe(true);
+  await page.mouse.click(
+    settled.x + settled.width / 2,
+    settled.y + settled.height / 2,
+  );
 
   const selected = await waitForBridge(page, "element-select");
   const payload = selected?.payload ?? selected;
@@ -672,7 +686,18 @@ test("left sidebar switches between all screens and focused screens", async ({
   const screenCards = page.locator("[data-screen-card]");
   await expect(screenCards.first()).toBeVisible();
 
+  // A row focuses its Screen on the overview canvas: the Screen is selected and
+  // "All screens" stays current. Interact is what leaves the overview.
   await homeScreen.click();
+  await expect(
+    page.locator('[role="treeitem"][aria-selected="true"]').first(),
+  ).toContainText("Home");
+  await expect(allScreens).toHaveAttribute("aria-current", "page");
+  await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
+
+  await page
+    .locator('[data-design-top-bar] [data-design-mode="interact"]')
+    .click();
   await expect(homeScreen).toHaveAttribute("aria-current", "page");
   await expect(allScreens).not.toHaveAttribute("aria-current", "page");
   await expect(
