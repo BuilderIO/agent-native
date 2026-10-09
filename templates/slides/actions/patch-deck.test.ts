@@ -1877,6 +1877,57 @@ describe("run() — asynchronous layout fit metadata", () => {
     ]);
   });
 
+  it("allows only scalar deck tweaks for widget writes", async () => {
+    const tweakOperation = {
+      op: "patch-deck-fields",
+      fields: { tweaks: { accent: "#123456", density: 2, compact: true } },
+    } as const;
+
+    expect(isMcpWidgetPatchAllowed("mcp-widget-write", [tweakOperation])).toBe(
+      true,
+    );
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          ...tweakOperation,
+          fields: { ...tweakOperation.fields, title: "Deck" },
+        },
+      ] as unknown as Operation[]),
+    ).toBe(false);
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          op: "patch-deck-fields",
+          fields: { tweaks: { accent: { value: "#123456" } } },
+        } as unknown as Operation,
+      ]),
+    ).toBe(false);
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          op: "patch-deck-fields",
+          fields: { tweaks: null },
+        },
+      ]),
+    ).toBe(false);
+
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [tweakOperation],
+      },
+      { caller: "mcp-widget-write" },
+    );
+    expect(JSON.parse(String(mockDeckRow?.data)).tweaks).toEqual(
+      tweakOperation.fields.tweaks,
+    );
+  });
+
   it("allows widget background and slide-rail edits within the deck", () => {
     expect(
       isMcpWidgetPatchAllowed("mcp-widget-write", [

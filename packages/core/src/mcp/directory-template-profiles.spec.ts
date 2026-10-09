@@ -311,6 +311,69 @@ describe("ChatGPT directory template profiles", () => {
   );
 
   it(
+    "allows Content widget document icon updates without widening its write scope",
+    async () => {
+      const { actions } = await loadTemplateActions("content");
+      const actionProperties =
+        actions["update-document"]?.tool?.parameters?.properties;
+      const updateDocumentArguments =
+        contentProfile.widgetWriteActionArguments?.["update-document"];
+
+      expect(actionProperties).toHaveProperty("icon");
+      expect(updateDocumentArguments).toMatchObject({
+        id: "documentId",
+        icon: { type: "actionSchema" },
+      });
+      if (!updateDocumentArguments) {
+        throw new Error(
+          "Content update-document widget arguments are missing.",
+        );
+      }
+
+      const resourceUri = "ui://content/shell-v69";
+      const capability = createMcpDirectoryWidgetWriteCapability({
+        appId: "content",
+        resourceUri,
+        resourceIds: { documentId: "page-1" },
+        userEmail: "reviewer@example.test",
+        expiresAtMs: Date.now() + 60_000,
+        readActionArguments: {},
+        writeActionArguments: {
+          "update-document": {
+            ...updateDocumentArguments,
+            id: "page-1",
+          },
+        },
+      });
+      expect(capability).toBeDefined();
+      if (!capability) throw new Error("Failed to create test capability.");
+
+      const args = { id: "page-1", icon: "📕" };
+      expect(
+        normalizeMcpDirectoryWidgetWriteActionArguments(capability, {
+          actionName: "update-document",
+          appId: "content",
+          resourceUri,
+          userEmail: "reviewer@example.test",
+          args,
+          allowedArgumentNames: Object.keys(updateDocumentArguments),
+        }),
+      ).toEqual(args);
+      expect(
+        normalizeMcpDirectoryWidgetWriteActionArguments(capability, {
+          actionName: "update-document",
+          appId: "content",
+          resourceUri,
+          userEmail: "reviewer@example.test",
+          args: { ...args, description: "outside the widget edit scope" },
+          allowedArgumentNames: Object.keys(updateDocumentArguments),
+        }),
+      ).toBeUndefined();
+    },
+    ACTION_REGISTRY_TEST_TIMEOUT_MS,
+  );
+
+  it(
     "uses document-specific labels for Content's shared widget shell",
     async () => {
       const { actions } = await loadTemplateActions("content");

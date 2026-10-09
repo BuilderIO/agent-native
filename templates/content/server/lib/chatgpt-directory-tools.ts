@@ -95,6 +95,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
     "update-document": {
       id: "documentId",
       title: { type: "actionSchema" as const },
+      icon: { type: "actionSchema" as const },
       content: { type: "actionSchema" as const },
       loadedUpdatedAt: { type: "actionSchema" as const },
       loadedContentWasEmpty: { type: "actionSchema" as const },

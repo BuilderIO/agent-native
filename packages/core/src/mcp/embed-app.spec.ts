@@ -358,8 +358,9 @@ describe("embedApp", () => {
     expect(html).toContain("appFrameLoadTimer");
     expect(html).toContain("startFrameReadyTimer(frame)");
     expect(html).toContain(
-      "function embedSessionArgsFor(value, renewInPlace = false)",
+      'function embedSessionArgsFor(\n      value,\n      renewInPlace = false,\n      renewalSourceTicket = "",\n    )',
     );
+    expect(html).toContain("rememberActiveEmbedSessionTicket(src)");
     expect(html).toContain("? { path: value, chrome }");
     expect(html).toContain(
       "callEmbedSessionTool(embedSessionArgsFor(embedUrl))",
@@ -491,17 +492,21 @@ describe("embedApp", () => {
     });
 
     const functions = html.match(
-      /(function embedTicketFromStartUrl\(value\) \{[\s\S]*?\n    \})\n\n    (function embedSessionArgsFor\(value, renewInPlace = false\) \{[\s\S]*?\n    \})/,
+      /(function embedTicketFromStartUrl\(value\) \{[\s\S]*?\n    \})\n\n    (function rememberActiveEmbedSessionTicket\(value\) \{[\s\S]*?\n    \})\n\n    (function embedSessionArgsFor\([\s\S]*?\n    \})/,
     );
     expect(functions).toBeDefined();
-    const { embedSessionArgsFor } = new Function(
+    const {
+      embedSessionArgsFor,
+      rememberActiveEmbedSessionTicket,
+      activeTicket,
+    } = new Function(
       "window",
       "body",
       "toolInput",
       "toolResponseMetadata",
       "objectValue",
       "openStartUrl",
-      `${functions?.[1]}; ${functions?.[2]}; return { embedSessionArgsFor };`,
+      `let activeEmbedSessionTicket = ""; ${functions?.[1]}; ${functions?.[2]}; ${functions?.[3]}; return { embedSessionArgsFor, rememberActiveEmbedSessionTicket, activeTicket: () => activeEmbedSessionTicket };`,
     )(
       { location: { href: "https://content.agent-native.com/" } },
       { dataset: { catalogMode: "directory" } },
@@ -516,7 +521,10 @@ describe("embedApp", () => {
       embedSessionArgsFor: (
         value: string,
         renewInPlace?: boolean,
+        renewalSourceTicket?: string,
       ) => Record<string, unknown>;
+      rememberActiveEmbedSessionTicket: (value: string) => void;
+      activeTicket: () => string;
     };
 
     expect(embedSessionArgsFor("/page/document-1")).toEqual({
@@ -527,6 +535,19 @@ describe("embedApp", () => {
     );
     expect(embedSessionArgsFor("/page/document-1", true)).toEqual({
       sourceTicket: "saved-ticket",
+      renewInPlace: true,
+    });
+    rememberActiveEmbedSessionTicket(
+      "https://content.agent-native.com/_agent-native/embed/start?ticket=mounted-ticket",
+    );
+    expect(activeTicket()).toBe("mounted-ticket");
+    expect(embedSessionArgsFor("/page/document-1")).toEqual({
+      sourceTicket: "saved-ticket",
+    });
+    expect(
+      embedSessionArgsFor("/page/document-1", true, activeTicket()),
+    ).toEqual({
+      sourceTicket: "mounted-ticket",
       renewInPlace: true,
     });
 
@@ -682,6 +703,7 @@ describe("embedApp", () => {
           "body",
           "openUrl",
           "openStartUrl",
+          "activeEmbedSessionTicket",
           "embedSessionRefreshAttempts",
           "maxEmbedSessionRefreshAttempts",
           "callEmbedSessionTool",
@@ -707,11 +729,12 @@ describe("embedApp", () => {
           { dataset: { catalogMode: "directory" } },
           "https://app.example/slides/deck-1",
           "https://app.example/_agent-native/embed/start?ticket=old",
+          "mounted-current-ticket",
           0,
           2,
           options.callEmbedSessionTool,
-          (url: string, renewInPlace = false) => ({
-            sourceTicket: url.endsWith("ticket=old") ? "old-source" : "source",
+          (_url: string, renewInPlace = false, renewalSourceTicket = "") => ({
+            sourceTicket: renewalSourceTicket || "old-source",
             ...(renewInPlace ? { renewInPlace: true } : {}),
           }),
           (result: unknown) => result,
@@ -761,7 +784,7 @@ describe("embedApp", () => {
         await harness.renewExpiredEmbedSession("renew-1", frame, 3);
 
         expect(callEmbedSessionTool).toHaveBeenCalledWith({
-          sourceTicket: "old-source",
+          sourceTicket: "mounted-current-ticket",
           renewInPlace: true,
         });
         expect(frame.src).toBe("https://app.example/design/d1");

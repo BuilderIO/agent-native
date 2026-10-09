@@ -439,14 +439,30 @@ export function isMcpWidgetPatchAllowed(
 
   return operations.every((operation) => {
     if (operation.op === "patch-deck-fields") {
-      return (
-        hasOnlyMcpWidgetOperationKeys(
+      if (
+        !hasOnlyMcpWidgetOperationKeys(
           operation,
           ["op", "fields"],
           ["op", "fields"],
-        ) &&
-        Object.keys(operation.fields).length === 1 &&
-        typeof operation.fields.title === "string"
+        ) ||
+        Object.keys(operation.fields).length !== 1
+      ) {
+        return false;
+      }
+      if (typeof operation.fields.title === "string") return true;
+
+      const tweaks = operation.fields.tweaks;
+      return (
+        !!tweaks &&
+        typeof tweaks === "object" &&
+        !Array.isArray(tweaks) &&
+        Object.keys(tweaks).length > 0 &&
+        Object.values(tweaks).every(
+          (value) =>
+            typeof value === "string" ||
+            typeof value === "number" ||
+            typeof value === "boolean",
+        )
       );
     }
 
@@ -1177,7 +1193,7 @@ export default defineAction({
       })
     ) {
       fail(
-        "The Slides widget can edit slide content and structure and the deck title, not deck access or linked resources.",
+        "The Slides widget can edit slide content and structure, the deck title, and deck style tweaks, not deck access or linked resources.",
         {
           errorCode: "mcp_widget_write_outside_editor_scope",
           statusCode: 403,

@@ -158,6 +158,7 @@ export function embedApp(
     let toolResponseMetadata = {};
     let openUrl = "";
     let openStartUrl = "";
+    let activeEmbedSessionTicket = "";
     let startedFor = "";
     let appFrame = null;
     let appFrameReady = false;
@@ -594,16 +595,31 @@ export function embedApp(
         : null;
     }
 
-    function embedSessionArgsFor(value, renewInPlace = false) {
+    function rememberActiveEmbedSessionTicket(value) {
+      const ticket = embedTicketFromStartUrl(value);
+      if (ticket) activeEmbedSessionTicket = ticket;
+    }
+
+    function embedSessionArgsFor(
+      value,
+      renewInPlace = false,
+      renewalSourceTicket = "",
+    ) {
       if (body.dataset.catalogMode === "directory") {
         const widgetSource = objectValue(
           toolResponseMetadata["agent-native/widgetSource"],
         );
-        const sourceTicket =
+        const originalSourceTicket =
           typeof widgetSource.sourceTicket === "string" &&
           widgetSource.sourceTicket.trim()
             ? widgetSource.sourceTicket
             : embedTicketFromStartUrl(openStartUrl || value);
+        const sourceTicket =
+          renewInPlace &&
+          typeof renewalSourceTicket === "string" &&
+          renewalSourceTicket.trim()
+            ? renewalSourceTicket
+            : originalSourceTicket;
         if (typeof sourceTicket !== "string" || !sourceTicket.trim()) {
           throw new Error("The original widget session ticket is unavailable.");
         }
@@ -1102,6 +1118,7 @@ export function embedApp(
     }
 
     async function transplantAppDocument(src) {
+      rememberActiveEmbedSessionTicket(src);
       clearFrameReadyTimer();
       clearFrameLoadTimer();
       appFrame = null;
@@ -1467,6 +1484,7 @@ export function embedApp(
     }
 
     function renderFrame(src) {
+      rememberActiveEmbedSessionTicket(src);
       clearFrameReadyTimer();
       clearFrameLoadTimer();
       const frame = document.createElement("iframe");
@@ -1554,6 +1572,7 @@ export function embedApp(
           embedSessionArgsFor(
             directoryMode ? openStartUrl || openUrl : openUrl,
             directoryMode,
+            activeEmbedSessionTicket,
           ),
         );
         const data = parseToolResult(result);
@@ -1654,6 +1673,7 @@ export function embedApp(
     }
 
     function navigateToAppFrame(src) {
+      rememberActiveEmbedSessionTicket(src);
       if (isCurrentFrameUrl(src)) {
         clearFrameReadyTimer();
         clearFrameLoadTimer();
