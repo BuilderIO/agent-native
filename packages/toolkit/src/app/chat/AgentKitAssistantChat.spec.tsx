@@ -6174,6 +6174,62 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(onSaveThread).toHaveBeenCalledOnce();
   });
 
+  it("does not report a transcript save when transport persistence fails", async () => {
+    const createTransport = () => chatMocks.transport;
+    const onSaveThread = vi.fn().mockResolvedValue(true);
+    const onThreadSnapshotPersisted = vi.fn();
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    chatMocks.persistThreadSnapshot
+      .mockRejectedValueOnce(new Error("History storage is unavailable."))
+      .mockResolvedValue(undefined);
+    await mount(
+      baseProps({ createTransport, onSaveThread, onThreadSnapshotPersisted }),
+    );
+
+    vi.useFakeTimers();
+    try {
+      const message = {
+        id: "transport-failure-user-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:00:00.000Z",
+        parts: [{ type: "text", text: "Retry the transcript" }],
+      };
+      chatMocks.thread = { ...chatMocks.thread, messages: [message] };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({
+              createTransport,
+              onSaveThread,
+              onThreadSnapshotPersisted,
+            })}
+          />,
+        );
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      expect(onSaveThread).toHaveBeenCalledOnce();
+      expect(onThreadSnapshotPersisted).not.toHaveBeenCalled();
+      expect(chatMocks.persistThreadSnapshot).toHaveBeenCalledOnce();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      expect(onSaveThread).toHaveBeenCalledTimes(2);
+      expect(onThreadSnapshotPersisted).toHaveBeenCalledOnce();
+      expect(chatMocks.persistThreadSnapshot).toHaveBeenCalledTimes(2);
+    } finally {
+      await act(async () => root.render(null));
+      vi.useRealTimers();
+      consoleError.mockRestore();
+    }
+  });
+
   it("retries an unchanged snapshot after the previous save fails", async () => {
     const createTransport = () => chatMocks.transport;
     const onSaveThread = vi
@@ -6318,7 +6374,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     );
   });
 
-  it("serializes transport and thread saves across a chat remount", async () => {
+  it("keeps thread metadata saves moving while transport snapshots serialize across remounts", async () => {
     let resolveFirstTransport: (() => void) | undefined;
     const firstTransportSave = new Promise<void>((resolve) => {
       resolveFirstTransport = resolve;
@@ -6386,8 +6442,11 @@ describe("AgentKitAssistantChat host behavior", () => {
         baseProps({ createTransport, onSaveThread: firstOnSaveThread }),
       );
       await flush();
-      expect(saveOrder).toEqual(["transport:remount-first-message"]);
-      expect(firstOnSaveThread).not.toHaveBeenCalled();
+      expect(saveOrder).toEqual([
+        "thread:first",
+        "transport:remount-first-message",
+      ]);
+      expect(firstOnSaveThread).toHaveBeenCalledOnce();
 
       await unmount();
       const secondMessage = {
@@ -6406,19 +6465,22 @@ describe("AgentKitAssistantChat host behavior", () => {
       );
       await flush();
 
-      expect(saveOrder).toEqual(["transport:remount-first-message"]);
-      expect(firstOnSaveThread).not.toHaveBeenCalled();
-      expect(secondOnSaveThread).not.toHaveBeenCalled();
+      expect(saveOrder).toEqual([
+        "thread:first",
+        "transport:remount-first-message",
+        "thread:second",
+      ]);
+      expect(secondOnSaveThread).toHaveBeenCalledOnce();
 
       resolveFirstTransport?.();
       await flush();
       await flush();
 
       expect(saveOrder).toEqual([
-        "transport:remount-first-message",
         "thread:first",
-        "transport:remount-second-message",
+        "transport:remount-first-message",
         "thread:second",
+        "transport:remount-second-message",
       ]);
       expect(firstOnSaveThread).toHaveBeenCalledOnce();
       expect(secondOnSaveThread).toHaveBeenCalledOnce();
@@ -6480,7 +6542,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     }
   });
 
-  it("retries an in-flight snapshot save after the chat unmounts", async () => {
+  it("does not retry an in-flight snapshot save after the chat unmounts", async () => {
     const createTransport = () => chatMocks.transport;
     let resolveFirstSave: ((saved: boolean) => void) | undefined;
     const firstSave = new Promise<boolean>((resolve) => {
@@ -6526,10 +6588,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         await vi.advanceTimersByTimeAsync(1_000);
       });
 
-      expect(onSaveThread).toHaveBeenCalledTimes(2);
-      expect(onSaveThread.mock.calls[1]?.[1].threadData).toBe(
-        onSaveThread.mock.calls[0]?.[1].threadData,
-      );
+      expect(onSaveThread).toHaveBeenCalledOnce();
     } finally {
       await act(async () => root.render(null));
       vi.useRealTimers();

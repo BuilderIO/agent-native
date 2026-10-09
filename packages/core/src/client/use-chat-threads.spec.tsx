@@ -1486,7 +1486,10 @@ describe("useChatThreads", () => {
     });
 
     expect(hook!.isThreadPersisted("scoped-route-thread")).toBe(false);
-    expect(hook!.isNewThread("scoped-route-thread")).toBe(true);
+    expect(hook!.isNewThread("scoped-route-thread")).toBe(false);
+    expect(
+      hook!.threads.some((thread) => thread.id === "scoped-route-thread"),
+    ).toBe(false);
     expect(fetchMock).toHaveBeenCalledWith(
       "/chat/threads/scoped-route-thread?scopeType=workspace-app&scopeId=app-b",
     );
@@ -1549,13 +1552,16 @@ describe("useChatThreads", () => {
     });
 
     expect(hook!.isThreadPersisted("scope-cache-route-thread")).toBe(false);
-    expect(hook!.isNewThread("scope-cache-route-thread")).toBe(true);
+    expect(hook!.isNewThread("scope-cache-route-thread")).toBe(false);
+    expect(
+      hook!.threads.some((thread) => thread.id === "scope-cache-route-thread"),
+    ).toBe(false);
     expect(fetchMock).toHaveBeenCalledWith(
       "/chat/threads/scope-cache-route-thread?scopeType=workspace-app&scopeId=app-b",
     );
   });
 
-  it("classifies a missing route thread as a draft without exposing saved state", async () => {
+  it("keeps a missing route id unconfirmed without classifying it as a draft", async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/chat/threads" && !init) {
         return jsonResponse({ threads: [] });
@@ -1583,7 +1589,98 @@ describe("useChatThreads", () => {
 
     expect(hook!.activeThreadId).toBe("route-thread");
     expect(hook!.isThreadPersisted("route-thread")).toBe(false);
-    expect(hook!.isNewThread("route-thread")).toBe(true);
+    expect(hook!.isNewThread("route-thread")).toBe(false);
+    expect(hook!.threads.some((thread) => thread.id === "route-thread")).toBe(
+      false,
+    );
+  });
+
+  it("keeps an out-of-scope route id unconfirmed without replacing it with a draft", async () => {
+    const scopeA = { type: "workspace-app", id: "app-a" };
+    const scopeB = { type: "workspace-app", id: "app-b" };
+    const threadFromOtherScope: ChatThreadSummary = {
+      id: "out-of-scope-route-thread",
+      title: "Other scope",
+      preview: "not visible here",
+      messageCount: 1,
+      createdAt: 3,
+      updatedAt: 4,
+      scope: scopeA,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (
+        url === "/chat/threads?scopeType=workspace-app&scopeId=app-b" &&
+        !init
+      ) {
+        return jsonResponse({ threads: [] });
+      }
+      if (
+        url ===
+          "/chat/threads/out-of-scope-route-thread?scopeType=workspace-app&scopeId=app-b" &&
+        !init
+      ) {
+        return jsonResponse(threadFromOtherScope);
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "out-of-scope-route-test", scopeB, {
+        routeThreadId: "out-of-scope-route-thread",
+        isolateHistoryByScope: true,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("out-of-scope-route-thread");
+    expect(hook!.isThreadPersisted("out-of-scope-route-thread")).toBe(false);
+    expect(hook!.isNewThread("out-of-scope-route-thread")).toBe(false);
+    expect(
+      hook!.threads.some((thread) => thread.id === "out-of-scope-route-thread"),
+    ).toBe(false);
+  });
+
+  it("classifies a missing route id as a draft when its local draft marker exists", async () => {
+    const threadId = "marked-route-thread";
+    window.localStorage.setItem(
+      `agent-chat-client-draft-thread:${encodeURIComponent(threadId)}`,
+      "1",
+    );
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "marked-route-test", null, {
+        routeThreadId: threadId,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe(threadId);
+    expect(hook!.isThreadPersisted(threadId)).toBe(false);
+    expect(hook!.isNewThread(threadId)).toBe(true);
+    expect(hook!.threads.some((thread) => thread.id === threadId)).toBe(true);
+    expect(
+      fetchMock.mock.calls.some(([url]) => url === `/chat/threads/${threadId}`),
+    ).toBe(false);
   });
 
   it("keeps a route thread unconfirmed when its by-id lookup is forbidden", async () => {

@@ -105,6 +105,9 @@ const assistantChatMockState = vi.hoisted(() => ({
         },
       ) => boolean | void | Promise<boolean | void>)
     | undefined,
+  onThreadSnapshotPersisted: undefined as
+    | ((threadId: string) => void)
+    | undefined,
   branchNavigation: undefined as
     | {
         index: number;
@@ -392,6 +395,7 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         onForkedThread?: (threadId: string) => void;
         onGenerateTitle?: typeof assistantChatMockState.onGenerateTitle;
         onSaveThread?: typeof assistantChatMockState.onSaveThread;
+        onThreadSnapshotPersisted?: typeof assistantChatMockState.onThreadSnapshotPersisted;
         branchNavigation?: typeof assistantChatMockState.branchNavigation;
       };
       assistantChatMockState.onThreadRestoreNotFound =
@@ -401,6 +405,8 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
       assistantChatMockState.onForkedThread = props.onForkedThread;
       assistantChatMockState.onGenerateTitle = props.onGenerateTitle;
       assistantChatMockState.onSaveThread = props.onSaveThread;
+      assistantChatMockState.onThreadSnapshotPersisted =
+        props.onThreadSnapshotPersisted;
       assistantChatMockState.branchNavigation = props.branchNavigation;
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
@@ -460,6 +466,7 @@ function resetThreadMocks() {
   assistantChatMockState.onForkedThread = undefined;
   assistantChatMockState.onGenerateTitle = undefined;
   assistantChatMockState.onSaveThread = undefined;
+  assistantChatMockState.onThreadSnapshotPersisted = undefined;
   assistantChatMockState.branchNavigation = undefined;
   threadMocks.activeThreadId = "thread-1";
   threadMocks.isLoading = false;
@@ -2092,7 +2099,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(headerProps?.tabs.map((tab) => tab.id)).toEqual(["thread-clear"]);
   });
 
-  it("keeps route-backed drafts out of persisted-thread header state until save succeeds", async () => {
+  it("keeps route-backed drafts out of persisted-thread header state until full snapshot save succeeds", async () => {
     let headerProps: MultiTabAssistantChatHeaderProps | null = null;
 
     await act(async () => {
@@ -2176,6 +2183,23 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       await Promise.resolve();
     });
 
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+
+    expect(headerProps?.activeTabIsPersisted).toBe(false);
+
+    await act(async () => {
+      assistantChatMockState.onThreadSnapshotPersisted?.("thread-new");
+    });
     await act(async () => {
       root.render(
         <MultiTabAssistantChat

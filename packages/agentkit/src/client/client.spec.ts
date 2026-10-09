@@ -3191,6 +3191,26 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("rejects explicit snapshot persistence when the transport fails", async () => {
+    const transport = createTransport([]);
+    transport.persistThreadSnapshot = async () => {
+      throw new Error("History storage is unavailable.");
+    };
+    const client = new AgentKitClient({ transport });
+
+    await expect(client.persistThreadSnapshot("thread-1")).rejects.toThrow(
+      "History storage is unavailable.",
+    );
+    expect(client.getSnapshot()).toMatchObject({
+      connection: "error",
+      error: {
+        code: "thread_snapshot_persist_failed",
+        message: "History storage is unavailable.",
+      },
+    });
+    await client.shutdown();
+  });
+
   it("reloads the durable annotation after a concurrent snapshot update", async () => {
     const original = {
       id: "annotation-1",

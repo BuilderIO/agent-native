@@ -4068,7 +4068,10 @@ export class AgentKitClient implements AgentKitController {
       threadId,
       messages,
     );
-    if (result) this.fail(result.error, "thread_snapshot_persist_failed");
+    if (result) {
+      this.fail(result.error, "thread_snapshot_persist_failed");
+      throw result.error;
+    }
   }
 
   private persistThreadSnapshotToTransport(

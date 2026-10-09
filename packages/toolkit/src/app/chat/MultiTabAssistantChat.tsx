@@ -1177,6 +1177,11 @@ export function MultiTabAssistantChat({
   const [showHistory, setShowHistory] = useState(false);
   const [pageOverlayScrolled, setPageOverlayScrolled] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
+  const [, setThreadPersistenceVersion] = useState(0);
+  const handleThreadSnapshotPersisted = useCallback((threadId: string) => {
+    if (!newThreadIds.current.delete(threadId)) return;
+    setThreadPersistenceVersion((version) => version + 1);
+  }, []);
   const latestOpenThreadRequestRef = useRef(0);
 
   useEffect(() => {
@@ -2852,7 +2857,8 @@ export function MultiTabAssistantChat({
   const saveThreadDataForTab = useCallback(
     async (threadId: string, data: Parameters<typeof saveThreadData>[1]) => {
       const saved = await saveThreadData(threadId, data);
-      if (saved) newThreadIds.current.delete(threadId);
+      if (saved && data.threadData !== "")
+        newThreadIds.current.delete(threadId);
       return saved;
     },
     [saveThreadData],
@@ -3400,6 +3406,7 @@ export function MultiTabAssistantChat({
                     props.onMessageCountChange?.(count);
                   }}
                   onSaveThread={handleSaveThread}
+                  onThreadSnapshotPersisted={handleThreadSnapshotPersisted}
                   onGenerateTitle={handleGenerateTitle}
                   onSlashCommand={handleSlashCommand}
                   onForkedThread={(forkedId) =>

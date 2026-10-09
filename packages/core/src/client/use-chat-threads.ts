@@ -884,17 +884,6 @@ export function useChatThreads(
         setIsLoading(false);
         return;
       }
-      if (restoredThread) {
-        serverConfirmedThreadIdsRef.current.add(
-          serverConfirmedThreadKey(apiUrl, historyScopeKey, restoredThread.id),
-        );
-        knownThreadScopesRef.current.set(
-          restoredThread.id,
-          restoredThread.scope ?? null,
-        );
-        clearClientDraftThreadMarker(restoredThread.id);
-        newlyCreatedRef.current.delete(restoredThread.id);
-      }
       if (restoredThread === undefined && lookupRestored && !restoredOnPage) {
         initialRouteConfirmationPendingRef.current = null;
         setIsLoading(false);
@@ -910,14 +899,28 @@ export function useChatThreads(
           isolateHistory,
         ),
       );
+      if (restoredThread && !restoredBelongsElsewhere) {
+        serverConfirmedThreadIdsRef.current.add(
+          serverConfirmedThreadKey(apiUrl, historyScopeKey, restoredThread.id),
+        );
+        knownThreadScopesRef.current.set(
+          restoredThread.id,
+          restoredThread.scope ?? null,
+        );
+        clearClientDraftThreadMarker(restoredThread.id);
+        newlyCreatedRef.current.delete(restoredThread.id);
+      }
+      const restoredIdIsRouteThread =
+        routeControlsActiveThread && routeThreadId === restoredId;
       const restoredNeedsReplacement =
-        restoredBelongsElsewhere ||
+        (restoredBelongsElsewhere && !restoredIdIsRouteThread) ||
         (restoredIsMissing && autoCreate && !routeControlsActiveThread);
       if (restoredNeedsReplacement) setActiveThreadId(null);
       const savedId = restoredNeedsReplacement ? null : restoredId;
       const loadedHasSavedId = Boolean(
         savedId &&
-        (restoredThread || loadedThreads.some((t) => t.id === savedId)),
+        ((restoredThread && !restoredBelongsElsewhere) ||
+          loadedThreads.some((t) => t.id === savedId)),
       );
       const savedIdCameFromRoute =
         Boolean(savedId) &&
@@ -931,9 +934,8 @@ export function useChatThreads(
       ) {
         addOptimisticThread(savedId, scopeRef.current ?? null);
       } else if (savedId && savedIdCameFromRoute && !loadedHasSavedId) {
-        if (restoredIsMissing || hasClientDraftThreadMarker(savedId)) {
+        if (hasClientDraftThreadMarker(savedId)) {
           newlyCreatedRef.current.add(savedId);
-          markClientDraftThread(savedId);
           addOptimisticThread(savedId, scopeRef.current ?? null);
         }
         setActiveThreadId(savedId);
@@ -960,7 +962,11 @@ export function useChatThreads(
         addOptimisticThread(savedId, scopeRef.current ?? null, seenAt);
         // activeThreadId already === savedId from the localStorage
         // initializer; nothing else to set.
-      } else if (!savedId && autoCreate) {
+      } else if (
+        !savedId &&
+        autoCreate &&
+        (!routeControlsActiveThread || !routeThreadId)
+      ) {
         const id = createLocalThreadId();
         newlyCreatedRef.current.add(id);
         markClientDraftThread(id);
@@ -1026,9 +1032,6 @@ export function useChatThreads(
         return;
       }
       if (thread === null) {
-        newlyCreatedRef.current.add(routeThreadId);
-        markClientDraftThread(routeThreadId);
-        addOptimisticThread(routeThreadId, scopeRef.current ?? null);
         return;
       }
 
