@@ -360,6 +360,7 @@ function DesignTemplatePreviewDialog({
                   title={file.filename}
                   width={file.width}
                   height={file.height}
+                  recordSessionReplay
                 />
               ),
             }))
