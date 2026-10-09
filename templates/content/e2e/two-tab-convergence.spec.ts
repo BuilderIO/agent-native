@@ -1059,7 +1059,21 @@ test.describe("two tabs editing one page at beta cadence", () => {
         .toBe(true);
       expect(createRequests).toBe(1);
 
+      const createResponse = page.waitForResponse((response) => {
+        const request = response.request();
+        return (
+          request.method() === "POST" &&
+          new URL(response.url()).pathname ===
+            "/_agent-native/actions/create-document"
+        );
+      });
       await createGate.release();
+      const response = await createResponse;
+      const responseText = await response.text();
+      expect(
+        response.ok(),
+        `create-document (${response.status()}): ${responseText}`,
+      ).toBe(true);
       await expect
         .poll(async () => (await getDocument(page, documentId)).content ?? "", {
           message: "the first tab's draft should reach the saved page",
