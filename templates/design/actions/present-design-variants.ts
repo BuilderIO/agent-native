@@ -17,10 +17,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
-import {
-  resolveCanvasIntent,
-  type CanvasIntent,
-} from "../shared/canvas-dimensions.js";
+import { resolveCanvasIntent } from "../shared/canvas-dimensions.js";
 import {
   mergeCanvasFramePlacements,
   nextFreeCanvasRowY,
