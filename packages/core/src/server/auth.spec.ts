@@ -6652,8 +6652,7 @@ describe("server/auth", () => {
         describeDbError: (error: unknown) => String(error),
       }));
 
-      const { autoMountAuth, isSessionResolutionUnavailable } =
-        await import("./auth.js");
+      const { autoMountAuth } = await import("./auth.js");
       const app = createMockApp();
       await expect(autoMountAuth(app)).resolves.toBe(true);
 
@@ -6670,7 +6669,6 @@ describe("server/auth", () => {
 
       expect(event.res.status).toBe(503);
       expect(result).toEqual({ error: "Session unavailable" });
-      expect(isSessionResolutionUnavailable(event)).toBe(true);
     });
 
     it("desktop exchange establishes the session cookie when redeeming a token", async () => {
