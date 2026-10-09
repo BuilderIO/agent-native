@@ -1440,6 +1440,36 @@ describe("workspace deploy", () => {
     }
   });
 
+  it("waits for in-flight builds and reports every failure", async () => {
+    for (const app of ["alpha", "beta", "gamma"]) makeWorkspaceApp(tmpDir, app);
+    vi.stubEnv("AGENT_NATIVE_DEPLOY_CONCURRENCY", "2");
+    const finished: string[] = [];
+    const failingBuild = vi.fn(async (_cmd: string, args: string[]) => {
+      const app = String(args[1]);
+      await new Promise((resolve) =>
+        setTimeout(resolve, app === "alpha" ? 5 : 20),
+      );
+      finished.push(app);
+      throw new Error(`${app} build failed`);
+    });
+
+    try {
+      await expect(
+        runWorkspaceDeploy({
+          workspaceRoot: tmpDir,
+          preset: "netlify",
+          buildOnly: true,
+          execFile: failingBuild as unknown as typeof execFileSync,
+        }),
+      ).rejects.toThrow(/alpha build failed\nbeta build failed/);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    expect(finished).toEqual(["alpha", "beta"]);
+    expect(failingBuild).toHaveBeenCalledTimes(2);
+  });
+
   it("requires A2A_SECRET for hosted Netlify workspace deploy builds", async () => {
     process.env.NETLIFY = "true";
     makeWorkspaceApp(tmpDir, "dispatch");

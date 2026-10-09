@@ -524,7 +524,7 @@ type BuildRunner = (
 function workspaceBuildConcurrency(): number {
   const raw = process.env.AGENT_NATIVE_DEPLOY_CONCURRENCY?.trim();
   if (raw) {
-    const parsed = Number.parseInt(raw, 10);
+    const parsed = Number(raw);
     if (!Number.isInteger(parsed) || parsed < 1) {
       throw new Error(
         `AGENT_NATIVE_DEPLOY_CONCURRENCY must be a positive integer, got "${raw}"`,
@@ -542,20 +542,31 @@ async function runWithConcurrency<T>(
   fn: (item: T) => Promise<void>,
 ): Promise<void> {
   let next = 0;
-  let failed = false;
+  const errors: unknown[] = [];
   const worker = async () => {
-    while (!failed && next < items.length) {
+    while (errors.length === 0 && next < items.length) {
       try {
         await fn(items[next++]);
       } catch (error) {
-        failed = true;
-        throw error;
+        errors.push(error);
       }
     }
   };
+  // Let in-flight builds finish so none are orphaned when the CLI exits and
+  // every failure gets reported, not just the first.
   await Promise.all(
     Array.from({ length: Math.min(limit, items.length) }, worker),
   );
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) {
+    throw new Error(
+      errors
+        .map((error) =>
+          error instanceof Error ? error.message : String(error),
+        )
+        .join("\n"),
+    );
+  }
 }
 
 function spawnBuild(
