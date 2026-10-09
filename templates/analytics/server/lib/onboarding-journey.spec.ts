@@ -1112,11 +1112,10 @@ describe("getOnboardingJourney", () => {
 
   it("keeps the tree when an exact replay link has no visible recording", async () => {
     const rows = journeyRows();
-    rows[0] = {
-      ...rows[0],
+    Object.assign(rows[0], {
       session_replay_id: "client-recording-test",
       session_replay_started_at: "2026-10-01T12:00:00.000Z",
-    };
+    });
     mocks.queryFirstPartyAnalytics.mockResolvedValue({ rows, schema: [] });
     mocks.listJourneyRecordings.mockResolvedValue({
       recordings: [recordingFor("s2")],
