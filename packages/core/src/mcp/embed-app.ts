@@ -2410,10 +2410,7 @@ export function embedApp(
         void launchEmbed();
       };
       app.onhostcontextchanged = () => {
-        updateDirectoryWidgetLayout();
-        updateDisplayButton();
-        notifyHostHeight();
-        sendHostContext();
+        handleHostContextChanged();
       };
       await ensureHostAppConnected();
       notifyOuterMcpAppReady();
@@ -2421,6 +2418,20 @@ export function embedApp(
       updateDisplayButton();
       notifyHostHeight();
       sendHostContext();
+    }
+
+    function handleHostContextChanged() {
+      updateDirectoryWidgetLayout();
+      updateDisplayButton();
+      notifyHostHeight();
+      sendHostContext();
+      if (
+        fillsPane &&
+        !isCompactDirectoryWidget() &&
+        (openStartUrl || openUrl)
+      ) {
+        void launchEmbed();
+      }
     }
 
     ${
@@ -2448,10 +2459,7 @@ export function embedApp(
         void launchEmbed();
       };
       app.onhostcontextchanged = () => {
-        updateDirectoryWidgetLayout();
-        updateDisplayButton();
-        notifyHostHeight();
-        sendHostContext();
+        handleHostContextChanged();
       };
       await ensureHostAppConnected();
       notifyOuterMcpAppReady();

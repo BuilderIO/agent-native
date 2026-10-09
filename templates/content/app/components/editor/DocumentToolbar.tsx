@@ -936,12 +936,7 @@ export function DocumentToolbar(props: DocumentToolbarProps) {
   const writeWidget = useIsMcpDirectoryWidgetWriteEmbed();
 
   if (!inWidget) return <DocumentToolbarRow {...props} />;
-  if (
-    !writeWidget ||
-    readOnlyWidget ||
-    props.readOnly === true ||
-    props.canEdit !== true
-  ) {
+  if (!writeWidget || readOnlyWidget || props.canEdit !== true) {
     return null;
   }
 

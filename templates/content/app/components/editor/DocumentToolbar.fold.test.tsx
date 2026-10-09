@@ -201,7 +201,7 @@ describe("DocumentToolbar at narrow widths", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows only editor-safe controls for a writable widget at narrow and wide widths", async () => {
+  it("shows editor-safe controls for a writable widget even when its GET carries the read marker", async () => {
     mocks.widget.inWidget = true;
     mocks.widget.write = true;
     const onUndo = vi.fn();
@@ -210,7 +210,7 @@ describe("DocumentToolbar at narrow widths", () => {
     for (const width of [320, 560, 960]) {
       await renderToolbar(width, {
         canEdit: true,
-        readOnly: false,
+        readOnly: true,
         canUndo: true,
         canRedo: false,
         onUndo,

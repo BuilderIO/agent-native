@@ -928,6 +928,108 @@ return { mode: body.dataset.widgetMode, openRequested: directoryWidgetOpenReques
         expect(restored).toEqual({ mode: "inline", openRequested: false });
       });
 
+      it("mounts the widget when the native host expands an existing result", () => {
+        const html = htmlFor("directory");
+        const body = { dataset: { widgetMode: "inline" } };
+        const context = { displayMode: "fullscreen" };
+        const updateDirectoryWidgetLayout = new Function(
+          "fillsPane",
+          "hostState",
+          "body",
+          `let directoryWidgetOpenRequested = false;
+let lastHostDisplayMode = "inline";
+${functionSource(html, "updateDirectoryWidgetLayout")}
+return updateDirectoryWidgetLayout;`,
+        )(true, () => ({ context }), body) as () => boolean;
+        const isCompactDirectoryWidget = new Function(
+          "fillsPane",
+          "body",
+          `${functionSource(html, "isCompactDirectoryWidget")}; return isCompactDirectoryWidget;`,
+        )(true, body) as () => boolean;
+        const calls: string[] = [];
+        const handleHostContextChanged = new Function(
+          "fillsPane",
+          "updateDirectoryWidgetLayout",
+          "updateDisplayButton",
+          "notifyHostHeight",
+          "sendHostContext",
+          "isCompactDirectoryWidget",
+          "openStartUrl",
+          "openUrl",
+          "launchEmbed",
+          `${functionSource(html, "handleHostContextChanged")}; return handleHostContextChanged;`,
+        )(
+          true,
+          updateDirectoryWidgetLayout,
+          () => calls.push("display"),
+          () => calls.push("height"),
+          () => calls.push("context"),
+          isCompactDirectoryWidget,
+          "/_agent-native/embed/start?ticket=ready",
+          "/design/design-123",
+          () => calls.push("embed"),
+        ) as () => void;
+        const nativeBridge = {
+          onhostcontextchanged: () => handleHostContextChanged(),
+        };
+
+        nativeBridge.onhostcontextchanged();
+
+        expect(body.dataset.widgetMode).toBe("pane");
+        expect(calls).toEqual(["display", "height", "context", "embed"]);
+      });
+
+      it("does not try to launch before a tool result provides an app URL", () => {
+        const html = htmlFor("directory");
+        const body = { dataset: { widgetMode: "inline" } };
+        const updateDirectoryWidgetLayout = new Function(
+          "fillsPane",
+          "hostState",
+          "body",
+          `let directoryWidgetOpenRequested = false;
+let lastHostDisplayMode = "inline";
+${functionSource(html, "updateDirectoryWidgetLayout")}
+return updateDirectoryWidgetLayout;`,
+        )(
+          true,
+          () => ({ context: { displayMode: "fullscreen" } }),
+          body,
+        ) as () => boolean;
+        const isCompactDirectoryWidget = new Function(
+          "fillsPane",
+          "body",
+          `${functionSource(html, "isCompactDirectoryWidget")}; return isCompactDirectoryWidget;`,
+        )(true, body) as () => boolean;
+        let embedLaunchCount = 0;
+        const handleHostContextChanged = new Function(
+          "fillsPane",
+          "updateDirectoryWidgetLayout",
+          "updateDisplayButton",
+          "notifyHostHeight",
+          "sendHostContext",
+          "isCompactDirectoryWidget",
+          "openStartUrl",
+          "openUrl",
+          "launchEmbed",
+          `${functionSource(html, "handleHostContextChanged")}; return handleHostContextChanged;`,
+        )(
+          true,
+          updateDirectoryWidgetLayout,
+          () => {},
+          () => {},
+          () => {},
+          isCompactDirectoryWidget,
+          "",
+          "",
+          () => embedLaunchCount++,
+        ) as () => void;
+
+        handleHostContextChanged();
+
+        expect(body.dataset.widgetMode).toBe("pane");
+        expect(embedLaunchCount).toBe(0);
+      });
+
       describe("asking for fullscreen", () => {
         function shellFullscreen(options: {
           displayMode?: string;
