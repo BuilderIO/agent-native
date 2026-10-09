@@ -155,7 +155,7 @@ describe("toolbar deck import", () => {
     const importButton = await screen.findByRole("button", {
       name: "Importing...",
     });
-    expect(importButton.disabled).toBe(true);
+    expect((importButton as HTMLButtonElement).disabled).toBe(true);
     expect(importButton.getAttribute("aria-busy")).toBe("true");
     expect(screen.getByRole("status").textContent).toBe("Importing...");
 

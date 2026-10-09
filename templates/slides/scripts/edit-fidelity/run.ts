@@ -1368,7 +1368,7 @@ async function runMobileImportStatusRegression(page: Page, base: string) {
     }
 
     const importResponsePromise = page.waitForResponse(
-      (response) =>
+      (response: { url(): string; request(): { method(): string } }) =>
         response.url().includes("/_agent-native/actions/import-pptx") &&
         response.request().method() === "POST",
       { timeout: 10_000 },
