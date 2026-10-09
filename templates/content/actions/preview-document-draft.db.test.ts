@@ -7,6 +7,19 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+const { outcomeCounter } = vi.hoisted(() => ({ outcomeCounter: vi.fn() }));
+vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/tracking")>()),
+  countOutcome: outcomeCounter,
+}));
+vi.mock("@agent-native/core/application-state", async (importOriginal) => {
+  const original =
+    await importOriginal<
+      typeof import("@agent-native/core/application-state")
+    >();
+  return { ...original, writeAppState: vi.fn(original.writeAppState) };
+});
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `preview-drafts-${process.pid}-${Date.now()}.pglite`,
@@ -1235,6 +1248,134 @@ describe("private preview document drafts", () => {
     expect(
       (await asUser(OWNER, () => getDraft.run({ documentId }))).draft?.content,
     ).toBe("Local recovery");
+  });
+
+  it("counts a refused inner create separately from the winning recovery write", async () => {
+    const documentId = await createDocument();
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload("Local recovery"), deferredReason: "conflict" },
+      }),
+    );
+    const createAction = (await import("./create-document.js")).default;
+    const runCreate = createAction.run;
+    let insertFailure: unknown;
+    const createSpy = vi
+      .spyOn(createAction, "run")
+      .mockImplementationOnce(async (args, ctx) => {
+        await runCreate(args, ctx);
+        try {
+          return await runCreate(args, ctx);
+        } catch (error) {
+          insertFailure = error;
+          throw error;
+        }
+      });
+    const request = {
+      choice: "save_separately" as const,
+      documentId,
+      expectedDraftVersion: 1,
+      expectedDraftTitle: "Builder row",
+      expectedDraftContent: "Local recovery",
+      expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+    };
+    outcomeCounter.mockClear();
+    try {
+      const resolved = await asUser(OWNER, () => resolveDraft.run(request));
+      expect(resolved).toMatchObject({ status: "resolved" });
+      expect(insertFailure).toMatchObject({ cause: { code: "23505" } });
+      const [copy] = await getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, resolved.createdDocumentId!));
+      expect(copy).toMatchObject({
+        ownerEmail: OWNER,
+        title: "Builder row",
+        content: "Local recovery",
+      });
+      expect((await documentRowForDraftTest(documentId)).content).toBe(
+        "Server body",
+      );
+      const retry = await asUser(OWNER, () => resolveDraft.run(request));
+      expect(retry).toMatchObject({
+        status: "resolved",
+        createdDocumentId: resolved.createdDocumentId,
+      });
+      expect(createSpy).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => expect(outcomeCounter).toHaveBeenCalledTimes(2));
+      expect(
+        outcomeCounter.mock.calls.map(([, dimensions]) => dimensions),
+      ).toEqual([
+        expect.objectContaining({
+          operation: "create_document",
+          outcome: "written",
+          origin: "recovery",
+          history_effect: "none",
+        }),
+        expect.objectContaining({
+          operation: "create_document",
+          outcome: "refused",
+          origin: "recovery",
+          history_effect: "none",
+        }),
+      ]);
+    } finally {
+      createSpy.mockRestore();
+    }
+  });
+
+  it("counts a committed recovery create once when a post-save step fails", async () => {
+    const documentId = await createDocument();
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload("Local recovery"), deferredReason: "conflict" },
+      }),
+    );
+    const { writeAppState } =
+      await import("@agent-native/core/application-state");
+    const appStateWrite = vi.mocked(writeAppState);
+    appStateWrite.mockRejectedValueOnce(new Error("Post-save refresh failed"));
+    outcomeCounter.mockClear();
+    try {
+      const resolved = await asUser(OWNER, () =>
+        resolveDraft.run({
+          choice: "save_separately",
+          documentId,
+          expectedDraftVersion: 1,
+          expectedDraftTitle: "Builder row",
+          expectedDraftContent: "Local recovery",
+          expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+        }),
+      );
+      expect(resolved).toMatchObject({ status: "resolved" });
+      const [copy] = await getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, resolved.createdDocumentId!));
+      expect(copy).toMatchObject({
+        ownerEmail: OWNER,
+        title: "Builder row",
+        content: "Local recovery",
+      });
+      await vi.waitFor(() => expect(outcomeCounter).toHaveBeenCalledTimes(1));
+      expect(outcomeCounter).toHaveBeenCalledWith(
+        "content_save_outcome_counts",
+        expect.objectContaining({
+          operation: "create_document",
+          outcome: "written",
+          origin: "recovery",
+          history_effect: "none",
+        }),
+      );
+    } finally {
+      appStateWrite.mockReset();
+    }
   });
 
   it("preserves a matching leading H1 in a separate recovery page", async () => {
