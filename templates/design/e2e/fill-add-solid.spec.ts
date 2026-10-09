@@ -215,7 +215,7 @@ test("clicking an empty Fill heading adds the first fill", async ({
   }
 });
 
-test("Add fill uses SVG paint for a selection of different vector tags", async ({
+test("Add fill and stroke use SVG paints for different selected vector tags", async ({
   page,
   request,
   baseURL,
@@ -284,6 +284,38 @@ test("Add fill uses SVG paint for a selection of different vector tags", async (
         ),
       )
       .toEqual(["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)"]);
+
+    const stroke = page
+      .locator("section")
+      .filter({
+        has: page.getByRole("heading", { name: "Stroke", exact: true }),
+      })
+      .first();
+    await stroke.getByRole("button", { name: "Add stroke" }).first().click();
+
+    await expect
+      .poll(async () =>
+        Promise.all(
+          [pathShape, rectShape].map((shape) =>
+            shape.evaluate((node) => {
+              const style = getComputedStyle(node);
+              return `${style.stroke}|${style.strokeWidth}`;
+            }),
+          ),
+        ),
+      )
+      .toEqual(["rgb(0, 0, 0)|1px", "rgb(0, 0, 0)|1px"]);
+    await expect
+      .poll(async () =>
+        Promise.all(
+          ["vector-path", "vector-rect"].map((nodeId) =>
+            preview
+              .locator(`svg[data-agent-native-node-id="${nodeId}"]`)
+              .evaluate((node) => getComputedStyle(node).borderWidth),
+          ),
+        ),
+      )
+      .toEqual(["0px", "0px"]);
   } finally {
     await postAction(request, baseURL, "delete-design", { id: designId });
   }

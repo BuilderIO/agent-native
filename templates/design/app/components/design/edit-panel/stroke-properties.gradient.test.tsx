@@ -1,11 +1,17 @@
 // @vitest-environment happy-dom
 
-import { createElement } from "react";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ElementInfo } from "../types";
+import { mixedElementFromSelection } from "./selection-helpers";
 import { StrokeProperties } from "./stroke-properties";
+
+(
+  globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -75,6 +81,111 @@ describe("vector stroke gradient inspector", () => {
     expect(markup).toContain(
       'data-value="linear-gradient(90deg, #ff0000 0%, #0000ff 100%)"',
     );
+  });
+
+  it("adds SVG stroke styles to a mixed selection of vector shape tags", async () => {
+    const selected = mixedElementFromSelection([
+      {
+        tagName: "path",
+        primitiveKind: "path",
+        classes: [],
+        computedStyles: { stroke: "none", strokeWidth: "0px" },
+        boundingRect: { x: 0, y: 0, width: 80, height: 60 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      } as ElementInfo,
+      {
+        tagName: "rect",
+        primitiveKind: "rect",
+        classes: [],
+        computedStyles: { strokeWidth: "0px" },
+        boundingRect: { x: 100, y: 0, width: 80, height: 60 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      } as ElementInfo,
+    ]);
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        createElement(StrokeProperties, {
+          element: selected!,
+          onStyleChange,
+          onStylesChange,
+        }),
+      );
+    });
+    const addStroke = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="editPanel.labels.addStroke"]',
+    );
+    await act(async () => addStroke?.click());
+
+    expect(onStylesChange).toHaveBeenCalledWith(
+      { stroke: "#000000", strokeWidth: "1px" },
+      undefined,
+    );
+    expect(onStyleChange).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
+  it("keeps a mixed HTML and SVG selection on CSS border strokes", async () => {
+    const selected = mixedElementFromSelection([
+      {
+        tagName: "div",
+        classes: [],
+        computedStyles: { borderWidth: "0px", borderStyle: "none" },
+        boundingRect: { x: 0, y: 0, width: 80, height: 60 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      } as ElementInfo,
+      {
+        tagName: "path",
+        primitiveKind: "path",
+        classes: [],
+        computedStyles: { borderWidth: "0px", borderStyle: "none" },
+        boundingRect: { x: 100, y: 0, width: 80, height: 60 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      } as ElementInfo,
+    ]);
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        createElement(StrokeProperties, {
+          element: selected!,
+          onStyleChange,
+          onStylesChange,
+        }),
+      );
+    });
+    const addStroke = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="editPanel.labels.addStroke"]',
+    );
+    await act(async () => addStroke?.click());
+
+    expect(onStylesChange).toHaveBeenCalledWith(
+      {
+        borderWidth: "1px",
+        borderStyle: "solid",
+        borderColor: "#000000",
+      },
+      undefined,
+    );
+    expect(onStyleChange).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    host.remove();
   });
 
   it("offers linear paints for an inline square HTML rectangle border", () => {

@@ -9998,7 +9998,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               overlayMutationObserver.observe(selectedEl, {
                 attributes: true,
                 childList: true,
-                subtree: selectedEl.tagName.toLowerCase() === "svg"
+                subtree: selectedEl.tagName.toLowerCase() === "svg" || nextMeasurementParent === selectedEl
               });
             }
           }

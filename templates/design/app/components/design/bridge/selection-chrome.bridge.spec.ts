@@ -510,4 +510,76 @@ describe("editor chrome selection overlays", () => {
       await browser.close();
     }
   });
+
+  it("refreshes Alt measurements when the hovered target is nested in the selected element", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1000, height: 800 },
+      });
+      await page.setContent(`<!doctype html><html><head><style>
+        #selected { position:absolute; left:200px; top:200px; width:200px; height:120px; background:#d4d4d8; }
+        #layout-sibling { display:flow-root; }
+        #layout-content { height:200px; }
+        #layout-content.expanded { height:220px; }
+        #hovered { width:200px; height:120px; margin-left:319px; background:#ccc; }
+      </style></head><body style="margin:0">
+        <div id="selected" data-agent-native-node-id="selected">
+          <div id="layout-sibling"><div id="layout-content"></div></div>
+          <div id="hovered" data-agent-native-node-id="hovered"></div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await select(page, "#selected");
+      await page.keyboard.down("Alt");
+      await page.mouse.move(520, 410, { steps: 3 });
+
+      const readLabels = () =>
+        page
+          .locator("[data-agent-native-measurement-overlay]")
+          .evaluate((overlay) =>
+            [...overlay.children]
+              .map((node) => node.textContent)
+              .filter(Boolean)
+              .sort(),
+          );
+      await page.waitForFunction(
+        () => {
+          const overlay = document.querySelector(
+            "[data-agent-native-measurement-overlay]",
+          );
+          const labels = [...(overlay?.children ?? [])]
+            .map((node) => node.textContent)
+            .filter(Boolean)
+            .sort();
+          return labels.join(",") === "119,80";
+        },
+        undefined,
+        { timeout: 5_000 },
+      );
+      await page.waitForTimeout(1_200);
+
+      await page.locator("#layout-content").evaluate((element) => {
+        element.classList.add("expanded");
+      });
+      await page.waitForFunction(
+        () => {
+          const overlay = document.querySelector(
+            "[data-agent-native-measurement-overlay]",
+          );
+          const labels = [...(overlay?.children ?? [])]
+            .map((node) => node.textContent)
+            .filter(Boolean)
+            .sort();
+          return labels.join(",") === "100,119";
+        },
+        undefined,
+        { timeout: 5_000 },
+      );
+      expect(await readLabels()).toEqual(["100", "119"]);
+      await page.keyboard.up("Alt");
+    } finally {
+      await browser.close();
+    }
+  });
 });

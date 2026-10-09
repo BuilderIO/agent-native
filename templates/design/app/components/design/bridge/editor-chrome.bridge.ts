@@ -12522,7 +12522,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             overlayMutationObserver.observe(selectedEl, {
               attributes: true,
               childList: true,
-              subtree: selectedEl.tagName.toLowerCase() === "svg",
+              subtree:
+                selectedEl.tagName.toLowerCase() === "svg" ||
+                nextMeasurementParent === selectedEl,
             });
           }
         }
