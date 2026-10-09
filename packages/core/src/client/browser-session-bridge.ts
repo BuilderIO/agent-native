@@ -287,15 +287,22 @@ function serializeForBrowserSession<T>(value: T, label: string): T {
 
 async function resolveDirectContext(
   options: AgentNativeBrowserSessionBridgeOptions,
+  sessionId?: string,
 ): Promise<AgentNativeHostContext> {
   const raw = options.getContext ? await options.getContext() : {};
   const context = serializeForBrowserSession(
     raw ?? {},
     "Browser-session context",
   );
+  const configuredSessionId =
+    sessionId ??
+    options.sessionId ??
+    (typeof options.session === "string"
+      ? options.session
+      : options.session?.id);
   const session = createDirectHostSession(
     options.session,
-    options.sessionId,
+    configuredSessionId,
     context.url,
   );
   return {
@@ -303,6 +310,7 @@ async function resolveDirectContext(
     session: {
       ...session,
       ...(context.session ?? {}),
+      ...(configuredSessionId ? { id: configuredSessionId } : {}),
     },
   };
 }
@@ -419,9 +427,10 @@ async function runDirectCommand(
 async function executeDirectBrowserSessionRequest(
   request: AgentNativeBrowserSessionRequest,
   options: AgentNativeBrowserSessionBridgeOptions,
+  sessionId: string,
 ): Promise<unknown> {
   if (request.type === "get-context") {
-    return resolveDirectContext(options);
+    return resolveDirectContext(options, sessionId);
   }
   if (request.type === "list-actions") {
     return resolveDirectActionManifest(options);
@@ -438,10 +447,10 @@ async function executeDirectBrowserSessionRequest(
     if (!action) {
       throw new Error(`Client action "${request.name}" is not available`);
     }
-    const context = await resolveDirectContext(options);
+    const context = await resolveDirectContext(options, sessionId);
     const session =
       context.session ??
-      createDirectHostSession(options.session, options.sessionId, context.url);
+      createDirectHostSession(options.session, sessionId, context.url);
     return action.run(request.args, {
       requestId: request.id,
       origin: directOrigin(options),
@@ -503,6 +512,7 @@ function normalizeSession(
 async function executeBrowserSessionRequest(
   request: AgentNativeBrowserSessionRequest,
   options: AgentNativeBrowserSessionBridgeOptions,
+  sessionId: string,
 ): Promise<unknown> {
   const hostOptions = hostRequestOptions(options);
   if (options.webmcp === "host" && request.type === "list-webmcp-tools") {
@@ -519,7 +529,7 @@ async function executeBrowserSessionRequest(
     );
   }
   if (hasDirectHost(options)) {
-    return executeDirectBrowserSessionRequest(request, options);
+    return executeDirectBrowserSessionRequest(request, options, sessionId);
   }
 
   if (request.type === "get-context") {
@@ -563,6 +573,7 @@ export function createAgentNativeBrowserSessionBridge(
 ): AgentNativeBrowserSessionBridge {
   let currentSessionId: string | null = options.sessionId ?? null;
   let fallbackSessionId: string | null = null;
+  let stopGeneration = 0;
   let started = false;
   let onVisibility: (() => void) | undefined;
   let lastWebMcpTools: AgentNativeWebMcpTool[] | undefined;
@@ -576,7 +587,10 @@ export function createAgentNativeBrowserSessionBridge(
     const hostOptions = hostRequestOptions(options);
     const [context, actions, webmcpTools] = direct
       ? await Promise.all([
-          resolveDirectContext(options),
+          resolveDirectContext(
+            options,
+            currentSessionId ?? fallbackSessionId ?? undefined,
+          ),
           resolveDirectActionManifest(options).catch(() => []),
           resolveWebMcpTools(options),
         ])
@@ -619,26 +633,35 @@ export function createAgentNativeBrowserSessionBridge(
   async function claimOnce(
     signal?: AbortSignal,
   ): Promise<AgentNativeBrowserSessionRequest | null> {
+    const claimStopGeneration = stopGeneration;
     if (!currentSessionId) {
       await refreshRegistration(signal);
     }
     if (!currentSessionId) return null;
+    const sessionId = currentSessionId;
 
     let claim: any;
     try {
       claim = await postJson(
         options,
-        `/${encodePathSegment(currentSessionId)}/requests/claim`,
+        `/${encodePathSegment(sessionId)}/requests/claim`,
         {},
         signal,
       );
     } catch (error) {
       const timedOut = error instanceof BrowserSessionRequestTimeoutError;
-      if ((timedOut || (signal?.aborted && started)) && currentSessionId) {
-        const sessionId = currentSessionId;
+      if (
+        claimStopGeneration === stopGeneration &&
+        (timedOut || (signal?.aborted && started))
+      ) {
         try {
           await deleteJson(options, `/${encodePathSegment(sessionId)}`);
-          if (currentSessionId === sessionId) currentSessionId = null;
+          if (
+            claimStopGeneration === stopGeneration &&
+            currentSessionId === sessionId
+          ) {
+            currentSessionId = null;
+          }
         } catch (cleanupError) {
           const combinedError = new AggregateError(
             [error, cleanupError],
@@ -669,12 +692,16 @@ export function createAgentNativeBrowserSessionBridge(
     try {
       let result: unknown;
       try {
-        result = await executeBrowserSessionRequest(request, options);
+        result = await executeBrowserSessionRequest(
+          request,
+          options,
+          sessionId,
+        );
       } catch (error) {
         try {
           await postJson(
             options,
-            `/${encodePathSegment(currentSessionId)}/requests/${encodePathSegment(
+            `/${encodePathSegment(sessionId)}/requests/${encodePathSegment(
               request.id,
             )}/complete`,
             { ok: false, error: messageError(error).message },
@@ -692,7 +719,7 @@ export function createAgentNativeBrowserSessionBridge(
       try {
         await postJson(
           options,
-          `/${encodePathSegment(currentSessionId)}/requests/${encodePathSegment(
+          `/${encodePathSegment(sessionId)}/requests/${encodePathSegment(
             request.id,
           )}/complete`,
           { ok: true, result },
@@ -798,6 +825,7 @@ export function createAgentNativeBrowserSessionBridge(
     stop() {
       if (!started) return;
       started = false;
+      stopGeneration++;
       heartbeatEngine.stop();
       pollEngine.stop();
       for (const timer of requestExpiryTimers) clearTimeout(timer);
@@ -807,17 +835,17 @@ export function createAgentNativeBrowserSessionBridge(
         onVisibility = undefined;
       }
       if (currentSessionId) {
-        void deleteJson(
-          options,
-          `/${encodePathSegment(currentSessionId)}`,
-        ).catch((error) => {
-          requestPoll.onError(
-            new Error(
-              `Failed to disconnect browser session "${currentSessionId}" after stop; outstanding requests may remain active until expiry: ${messageError(error).message}`,
-            ),
-            { force: true },
-          );
-        });
+        const sessionId = currentSessionId;
+        void deleteJson(options, `/${encodePathSegment(sessionId)}`).catch(
+          (error) => {
+            requestPoll.onError(
+              new Error(
+                `Failed to disconnect browser session "${sessionId}" after stop; outstanding requests may remain active until expiry: ${messageError(error).message}`,
+              ),
+              { force: true },
+            );
+          },
+        );
       }
     },
     refreshRegistration,

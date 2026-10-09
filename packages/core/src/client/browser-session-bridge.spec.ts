@@ -446,6 +446,68 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     ).toBe(true);
   });
 
+  it("does not let a stopped claim disconnect a restarted session", async () => {
+    let claimSignal: AbortSignal | undefined;
+    let claimCount = 0;
+    const deletedSessionIds: string[] = [];
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (url === "/_agent-native/browser-sessions" && method === "POST") {
+        const body = JSON.parse(String(init?.body));
+        return Promise.resolve(
+          jsonResponse({
+            ok: true,
+            session: {
+              sessionId: body.sessionId,
+              session: body.session,
+              active: true,
+              actions: body.actions,
+            },
+          }),
+        );
+      }
+      if (url.endsWith("/requests/claim") && method === "POST") {
+        claimCount++;
+        if (claimCount > 1) {
+          return Promise.resolve(jsonResponse({ ok: true, request: null }));
+        }
+        claimSignal = init?.signal ?? undefined;
+        return new Promise<Response>((_resolve, reject) => {
+          claimSignal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      }
+      if (url.endsWith("/tab-1") && method === "DELETE") {
+        deletedSessionIds.push(url.split("/").at(-1) ?? "");
+        return Promise.resolve(jsonResponse({ ok: true, deleted: true }));
+      }
+      throw new Error(`Unexpected fetch ${method} ${url}`);
+    });
+    const bridge = createAgentNativeBrowserSessionBridge({
+      sessionId: "tab-1",
+      session: { id: "tab-1" },
+      pollMs: 500,
+      heartbeatMs: 500,
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    bridge.start();
+    await vi.waitFor(() => expect(claimSignal).toBeDefined());
+
+    bridge.stop();
+    bridge.start();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(claimSignal?.aborted).toBe(true);
+    expect(deletedSessionIds).toEqual(["tab-1"]);
+    expect(bridge.sessionId).toBe("tab-1");
+
+    bridge.stop();
+  });
+
   it("disconnects the session when a claim response body times out", async () => {
     vi.useFakeTimers();
     let claimSignal: AbortSignal | undefined;
@@ -518,6 +580,107 @@ describe("createAgentNativeBrowserSessionBridge", () => {
       ),
     ).toBe(true);
     expect(bridge.sessionId).toBeNull();
+  });
+
+  it("keeps direct-host identity when re-registering after a claim timeout", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValueOnce(0.1).mockReturnValueOnce(0.2);
+    let claimSignal: AbortSignal | undefined;
+    let claimCount = 0;
+    let completionBody: Record<string, unknown> | undefined;
+    const registrations: Array<{
+      sessionId: string;
+      contextSessionId: string;
+    }> = [];
+    const deletedSessionIds: string[] = [];
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (url === "/_agent-native/browser-sessions" && method === "POST") {
+        const body = JSON.parse(String(init?.body));
+        registrations.push({
+          sessionId: body.sessionId,
+          contextSessionId: body.context.session.id,
+        });
+        return Promise.resolve(
+          jsonResponse({
+            ok: true,
+            session: {
+              sessionId: body.sessionId,
+              session: body.session,
+              active: true,
+              actions: body.actions,
+            },
+          }),
+        );
+      }
+      if (url.endsWith("/requests/claim") && method === "POST") {
+        claimCount++;
+        if (claimCount === 1) {
+          claimSignal = init?.signal ?? undefined;
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () =>
+              new Promise((_resolve, reject) => {
+                claimSignal?.addEventListener(
+                  "abort",
+                  () => reject(new DOMException("Aborted", "AbortError")),
+                  { once: true },
+                );
+              }),
+          } as Response);
+        }
+        return Promise.resolve(
+          jsonResponse({
+            ok: true,
+            request: {
+              id: "get-context",
+              sessionId: registrations.at(-1)?.sessionId,
+              type: "get-context",
+              expiresAt: Date.now() + 60_000,
+            },
+          }),
+        );
+      }
+      if (url.endsWith("/requests/get-context/complete") && method === "POST") {
+        completionBody = JSON.parse(String(init?.body));
+        return Promise.resolve(jsonResponse({ ok: true }));
+      }
+      if (url.endsWith("/requests/claim") === false && method === "DELETE") {
+        deletedSessionIds.push(url.split("/").at(-1) ?? "");
+        return Promise.resolve(jsonResponse({ ok: true, deleted: true }));
+      }
+      throw new Error(`Unexpected fetch ${method} ${url}`);
+    });
+    const bridge = createAgentNativeBrowserSessionBridge({
+      getContext: () => ({ url: "https://app.example" }),
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    const claim = bridge.claimOnce();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(claimSignal).toBeDefined();
+
+    const rejected = expect(claim).rejects.toThrow(
+      "Browser-session request timed out after 10000ms",
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+    await rejected;
+    const originalSessionId = registrations[0]?.sessionId;
+
+    await bridge.refreshRegistration();
+    expect(registrations).toHaveLength(2);
+    expect(registrations[1]).toEqual({
+      sessionId: originalSessionId,
+      contextSessionId: originalSessionId,
+    });
+    expect(deletedSessionIds).toEqual([originalSessionId]);
+
+    await bridge.claimOnce();
+    expect(completionBody).toMatchObject({
+      ok: true,
+      result: { session: { id: originalSessionId } },
+    });
   });
 
   it("reports when stopping cannot confirm claimed-request cleanup", async () => {
