@@ -332,6 +332,7 @@ vi.mock("@agent-native/toolkit/composer", async () => {
       promptAttachments.AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES,
     readAgentPromptAttachment: promptAttachments.readAgentPromptAttachment,
     snapshotComposerContextItems: contextItems.snapshotComposerContextItems,
+    composerContextFits: contextItems.composerContextFits,
     AgentSuggestionBar: (props: any) => {
       chatMocks.suggestionBarProps = props;
       if (chatMocks.realComposerController) {
@@ -1963,6 +1964,30 @@ describe("AgentKitAssistantChat host behavior", () => {
 
     expect(chatMocks.composerProps.contextItems).toEqual([]);
     expect(publishAgentChatContextItems).not.toHaveBeenCalled();
+  });
+
+  it("reports whether a composer can hold a prefill with its current context", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+
+    expect(
+      ref.current!.canStageComposerContextItem({
+        key: "agent-chat-prefill-context",
+        title: "Selected rows",
+        context: "Selected rows: a, b",
+        composerOnly: true,
+        stagedAt: Date.now(),
+      }),
+    ).toBe(true);
+    expect(
+      ref.current!.canStageComposerContextItem({
+        key: "agent-chat-prefill-context",
+        title: "Selected rows",
+        context: "x".repeat(64 * 1024 + 1),
+        composerOnly: true,
+        stagedAt: Date.now(),
+      }),
+    ).toBe(false);
   });
 
   it("keeps composer-only context past its expiry out of the composer", async () => {

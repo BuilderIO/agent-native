@@ -74,6 +74,8 @@ export interface AssistantChatHandle {
     item: AgentChatContextItem,
     options?: { focus?: boolean },
   ): void;
+  /** Whether the composer can hold this item alongside the context it already has. */
+  canStageComposerContextItem(item: AgentChatContextItem): boolean;
   /** Remove a keyed context item from the composer. */
   removeComposerContextItem(key: string): void;
   /** Clear all staged context items from the composer. */

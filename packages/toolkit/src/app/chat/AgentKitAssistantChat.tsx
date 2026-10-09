@@ -88,6 +88,7 @@ import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   AgentSuggestionBar,
   agentSuggestionPrompt,
+  composerContextFits,
   snapshotComposerContextItems,
   type PromptComposerFile,
   type PromptComposerSubmitOptions,
@@ -2145,7 +2146,9 @@ const AgentKitAssistantChatBody = forwardRef<
           : [
               composerOptions.composerModeContext,
               formatAgentChatContextItemsForPrompt(
-                composerOptions.contextItems ?? contextItems,
+                unexpiredComposerContext(
+                  composerOptions.contextItems ?? contextItems,
+                ),
               ),
               pendingSelectionPromptContext(currentPendingSelection),
             ]
@@ -2460,7 +2463,9 @@ const AgentKitAssistantChatBody = forwardRef<
               : [
                   submittedComposerOptions.composerModeContext,
                   formatAgentChatContextItemsForPrompt(
-                    submittedComposerOptions.contextItems ?? contextItems,
+                    unexpiredComposerContext(
+                      submittedComposerOptions.contextItems ?? contextItems,
+                    ),
                   ),
                   pendingSelectionPromptContext(currentPendingSelection),
                 ]
@@ -3022,10 +3027,15 @@ const AgentKitAssistantChatBody = forwardRef<
       const item = normalizeAgentChatContextItem(rawItem);
       if (!item) return;
       if (item.composerOnly) {
-        // Publishing would make hidden context reachable from every open composer.
+        // Publishing would make composer-only context reachable from every open composer.
+        // Stamp the staging time so the expiry check always has an age to compare against.
+        const staged =
+          item.stagedAt === undefined
+            ? { ...item, stagedAt: Date.now() }
+            : item;
         setContextItems((items) => [
-          ...items.filter((candidate) => candidate.key !== item.key),
-          item,
+          ...items.filter((candidate) => candidate.key !== staged.key),
+          staged,
         ]);
       } else {
         const current = getAgentChatContextState().items;
@@ -3044,15 +3054,24 @@ const AgentKitAssistantChatBody = forwardRef<
   );
   const removeContextItem = useCallback(
     (key: string) => {
+      // A composer-only chip lives in this composer only, so a shared item that
+      // happens to share its key must stay in the store.
+      const removesComposerOnly = contextItems.some(
+        (item) => item.key === key && item.composerOnly,
+      );
       const current = getAgentChatContextState().items;
-      const next = current.filter((item) => item.key !== key);
-      if (next.length !== current.length) publishAgentChatContextItems(next);
+      const next = removesComposerOnly
+        ? current
+        : current.filter((item) => item.key !== key);
+      if (!removesComposerOnly && next.length !== current.length) {
+        publishAgentChatContextItems(next);
+      }
       setContextItems((items) => [
         ...filterAgentChatContextItems(next, props.contextNamespace),
         ...items.filter((item) => item.composerOnly && item.key !== key),
       ]);
     },
-    [props.contextNamespace],
+    [contextItems, props.contextNamespace],
   );
   const implementPlan = useCallback(() => {
     const canImplement =
@@ -3076,6 +3095,13 @@ const AgentKitAssistantChatBody = forwardRef<
       },
       setComposerContextItem: (item, options) =>
         setContextItem(item, options?.focus !== false),
+      canStageComposerContextItem: (item) =>
+        composerContextFits([
+          ...unexpiredComposerContext(contextItems).filter(
+            (candidate) => candidate.key !== item.key,
+          ),
+          item,
+        ]),
       removeComposerContextItem: removeContextItem,
       clearComposerContextItems: () => {
         for (const item of contextItems) removeContextItem(item.key);
@@ -3841,6 +3867,17 @@ function resolveAgentKitSuggestionInputs(
   return prompts.map((prompt) => byPrompt.get(prompt) ?? prompt);
 }
 
+// Expiry is checked where a submission is captured, not only at render: an idle
+// composer can hold a snapshot from before the expiry window passed.
+function unexpiredComposerContext<T extends AgentChatContextItem>(
+  items: readonly T[],
+): T[] {
+  return items.filter(
+    (item) =>
+      !item.composerOnly || !isComposerOnlyContextExpired(item.stagedAt),
+  );
+}
+
 function pendingSelectionPromptContext(
   selection: PendingSelectionContext | null,
 ): string {
@@ -4038,7 +4075,7 @@ function AgentKitComposerSurface({
       validateSubmissionScope: assertSubmissionScope,
     };
     const captured = snapshotComposerContextItems(
-      options.contextItems ?? visibleContextItems,
+      unexpiredComposerContext(options.contextItems ?? visibleContextItems),
     );
     let prepared: AssistantChatComposerContext["contextItems"] | undefined;
     await onSubmit(message, files, references, options, async () => {

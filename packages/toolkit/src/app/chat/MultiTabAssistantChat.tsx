@@ -76,7 +76,7 @@ import React, {
   useCallback,
 } from "react";
 
-import { snapshotComposerContextItems } from "../../composer/context-items.js";
+import { composerContextFits } from "../../composer/context-items.js";
 import { AgentKitAssistantChat } from "./AgentKitAssistantChat.js";
 import {
   ChatHistoryList,
@@ -135,6 +135,22 @@ interface PendingDelivery {
 function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
   if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
   if (!send.submit) {
+    // Checked against what the composer already holds, before the draft changes,
+    // so a refused prefill leaves no draft without its context.
+    if (
+      send.prefillContext &&
+      !ref.canStageComposerContextItem(send.prefillContext)
+    ) {
+      console.error(
+        "Prefill context does not fit alongside the composer's existing context; the prefill was not applied.",
+      );
+      reportAgentChatSubmitResult(
+        send.submitMessageId,
+        false,
+        "context-too-large",
+      );
+      return;
+    }
     // A context-only prefill has no text; it must not clear the user's draft.
     if (send.message.trim()) ref.prefillMessage(send.message);
     if (send.prefillContext) ref.setComposerContextItem(send.prefillContext);
@@ -2174,16 +2190,12 @@ export function MultiTabAssistantChat({
           // prefill would otherwise leave nothing visible to act on.
           ...(!contextLabel && hasPromptText ? { hidden: true } : {}),
         };
-        try {
-          // Validate the whole staged item the way a submit serializes it, so an
-          // accepted prefill cannot make every later submit fail.
-          snapshotComposerContextItems([candidate]);
-          prefillContext = candidate;
-        } catch (error) {
-          // Refused as a whole: a draft without its context would send an incomplete request.
+        // Checked the way a submit serializes it, so an accepted prefill cannot
+        // make every later submit fail. Refused as a whole: a draft without its
+        // context would send an incomplete request.
+        if (!composerContextFits([candidate])) {
           console.error(
             "Prefill context does not fit the composer context limit; the prefill was not applied.",
-            error,
           );
           reportAgentChatSubmitResult(
             submitMessageId,
@@ -2192,6 +2204,7 @@ export function MultiTabAssistantChat({
           );
           return;
         }
+        prefillContext = candidate;
       }
 
       const send: PendingSend = {

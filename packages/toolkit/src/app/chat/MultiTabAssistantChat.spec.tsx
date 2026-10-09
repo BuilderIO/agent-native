@@ -69,6 +69,7 @@ function legacyOpenTabsStorageKey(
 }
 
 const chatHandleMocks = vi.hoisted(() => ({
+  canStageComposerContextItem: vi.fn(() => true),
   sendMessage: vi.fn(async () => ({ status: "submitted" as const })),
   implementPlan: vi.fn(() => false),
   prefillMessage: vi.fn(),
@@ -406,6 +407,8 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         implementPlan: chatHandleMocks.implementPlan,
         prefillMessage: chatHandleMocks.prefillMessage,
         setComposerContextItem: chatHandleMocks.setComposerContextItem,
+        canStageComposerContextItem:
+          chatHandleMocks.canStageComposerContextItem,
         removeComposerContextItem: chatHandleMocks.removeComposerContextItem,
         clearComposerContextItems: chatHandleMocks.clearComposerContextItems,
         sendRecoveryMessage: chatHandleMocks.sendRecoveryMessage,
@@ -754,7 +757,28 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
     expect(consoleError).toHaveBeenCalledWith(
       expect.stringContaining("was not applied"),
-      expect.anything(),
+    );
+    consoleError.mockRestore();
+  });
+
+  it("refuses a prefill the composer cannot hold alongside its current context", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    chatHandleMocks.canStageComposerContextItem.mockReturnValueOnce(false);
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this",
+        context: "Selected rows: a, b",
+        submit: false,
+        openSidebar: true,
+      });
+    });
+
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+    expect(chatHandleMocks.setComposerContextItem).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("alongside the composer's existing context"),
     );
     consoleError.mockRestore();
   });

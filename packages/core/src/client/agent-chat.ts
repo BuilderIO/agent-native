@@ -488,12 +488,25 @@ function persistAgentChatContextState(state: AgentChatContextState): void {
   ).catch(() => {});
 }
 
+// The shared store reaches every open composer, so it never carries composer-only
+// context. A hidden item published here becomes an ordinary chip instead of vanishing.
+function sharedContextItem(item: AgentChatContextItem): AgentChatContextItem {
+  return {
+    key: item.key,
+    title: item.title,
+    context: item.context,
+    ...(item.contextNamespace
+      ? { contextNamespace: item.contextNamespace }
+      : {}),
+  };
+}
+
 export function publishAgentChatContextItems(
   items: readonly AgentChatContextItem[],
   options?: { persist?: boolean; updatedAt?: number },
 ): AgentChatContextState {
   const next: AgentChatContextState = {
-    items: normalizeAgentChatContextItems([...items]),
+    items: normalizeAgentChatContextItems([...items]).map(sharedContextItem),
     updatedAt: options?.updatedAt ?? Date.now(),
   };
   if (next.updatedAt < agentChatContextState.updatedAt) {

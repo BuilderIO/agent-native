@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+import {
+  getAgentChatContextState,
+  publishAgentChatContextItems,
+} from "./agent-chat.js";
+
 const parentPostMessageSpy = vi.fn();
 const selfPostMessageSpy = vi.fn();
 const windowListeners = new Map<
@@ -1381,6 +1386,23 @@ describe("sendToAgentChat", () => {
     expect(
       parseSubmitChatMessage({ data: submitted } as MessageEvent),
     ).toBeNull();
+  });
+
+  it("publishes only shared fields, so composer-only context cannot reach other composers", () => {
+    publishAgentChatContextItems([
+      {
+        key: "prefill-hidden",
+        title: "Hidden",
+        context: "Cast",
+        hidden: true,
+        composerOnly: true,
+        stagedAt: 1,
+      },
+    ]);
+
+    expect(getAgentChatContextState().items).toEqual([
+      { key: "prefill-hidden", title: "Hidden", context: "Cast" },
+    ]);
   });
 
   it("generates distinct tabIds across calls", () => {

@@ -56,6 +56,7 @@ export function snapshotComposerContextItems(
         ...(item.composerOnly === undefined
           ? {}
           : { composerOnly: item.composerOnly }),
+        ...(item.stagedAt === undefined ? {} : { stagedAt: item.stagedAt }),
         ...(item.blocksSubmission === undefined
           ? {}
           : { blocksSubmission: item.blocksSubmission }),
@@ -73,4 +74,20 @@ export function snapshotComposerContextItems(
     throw new ComposerContextError("too-large");
   }
   return snapshot;
+}
+
+// Whether the items fit the limits a submit enforces. Only the size and count
+// limits answer false; anything else is a bug and propagates.
+export function composerContextFits(
+  items: readonly AgentChatContextItem[],
+): boolean {
+  try {
+    snapshotComposerContextItems(items);
+    return true;
+  } catch (error) {
+    if (error instanceof ComposerContextError && error.code !== "not-ready") {
+      return false;
+    }
+    throw error;
+  }
 }
