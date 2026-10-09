@@ -17,14 +17,14 @@ import { defineAction } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { listResourceSuggestions } from "../review/suggestions/actions.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
-import listResourceShares from "../sharing/actions/list-resource-shares.js";
-import setResourceVisibility from "../sharing/actions/set-resource-visibility.js";
-import shareResource from "../sharing/actions/share-resource.js";
-import unshareResource from "../sharing/actions/unshare-resource.js";
 import {
   isMcpDirectoryWidgetReadCapabilityScope,
   isMcpDirectoryWidgetWriteCapabilityScope,
 } from "../shared/embed-auth.js";
+import listResourceShares from "../sharing/actions/list-resource-shares.js";
+import setResourceVisibility from "../sharing/actions/set-resource-visibility.js";
+import shareResource from "../sharing/actions/share-resource.js";
+import unshareResource from "../sharing/actions/unshare-resource.js";
 import {
   createMCPServerForRequest,
   selectMcpDirectoryWidgetReadActions,
@@ -2907,9 +2907,16 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       mcpAnnotations: annotations,
       run: async () => ({ updated: true }),
     });
+    const getDocument = defineAction({
+      description: "Read one Content document.",
+      schema: z.object({ id: z.string() }),
+      http: { method: "GET" },
+      run: async () => ({ id: "page-1" }),
+    });
     const registered = {
       "create-document": createDocument,
       "update-document": updateDocument,
+      "get-document": getDocument,
       "list-resource-shares": listResourceShares,
       "share-resource": shareResource,
       "unshare-resource": unshareResource,
@@ -2941,9 +2948,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
       widgetReadActionArguments: pick(
         contentDirectoryProfile.widgetReadActionArguments,
-        ["list-resource-shares"],
+        ["get-document", "list-resource-shares"],
       ) as Record<string, Record<string, string>>,
-      widgetReadAuthenticatedActions: ["list-resource-shares"],
+      widgetReadAuthenticatedActions: ["get-document", "list-resource-shares"],
+      widgetReadActionWriteGates: pick(
+        contentDirectoryProfile.widgetReadActionWriteGates,
+        ["list-resource-shares"],
+      ) as Record<string, string>,
       widgetWriteActionArguments: pick(
         contentDirectoryProfile.widgetWriteActionArguments,
         shareWriteNames,
@@ -2971,7 +2982,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       resourceUri: "ui://content/shell-v69",
       userEmail: "oauth@example.com",
     };
-    const create = async (id: number, scope?: string) => {
+    const create = async (
+      id: number,
+      scope?: string,
+      callConfig: typeof directoryConfig = directoryConfig,
+    ) => {
       const headers = await mcpAppsAuthHeaders({
         resource: `https://content.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
         issuer: "https://content.agent-native.com",
@@ -2986,13 +3001,17 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         },
         {
           headers: { ...headers, host: "content.agent-native.com" },
-          config: directoryConfig,
+          config: callConfig,
           routePath: MCP_DIRECTORY_ROUTE_PREFIX,
         },
       );
     };
-    const open = async (id: number, scope?: string) => {
-      const created = await create(id, scope);
+    const open = async (
+      id: number,
+      scope?: string,
+      callConfig?: typeof directoryConfig,
+    ) => {
+      const created = await create(id, scope, callConfig);
       expect(created.result.isError).not.toBe(true);
       return embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0];
     };
@@ -3107,22 +3126,17 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           name,
         ).toBeUndefined();
       }
-      expect(
-        embedAuth.allowsMcpDirectoryWidgetReadAction(scope, {
-          actionName: "list-resource-shares",
-          ...widget,
-          args: { resourceType: "document", resourceId: "page-1" },
-          allowedArgumentNames: ["resourceType", "resourceId"],
-        }),
-      ).toBe(true);
-      expect(
-        embedAuth.allowsMcpDirectoryWidgetReadAction(scope, {
-          actionName: "list-resource-shares",
-          ...widget,
-          args: { resourceType: "document", resourceId: "page-2" },
-          allowedArgumentNames: ["resourceType", "resourceId"],
-        }),
-      ).toBe(false);
+      // A read-only ticket never lists who has access.
+      for (const resourceId of ["page-1", "page-2"]) {
+        expect(
+          embedAuth.allowsMcpDirectoryWidgetReadAction(scope, {
+            actionName: "list-resource-shares",
+            ...widget,
+            args: { resourceType: "document", resourceId },
+            allowedArgumentNames: ["resourceType", "resourceId"],
+          }),
+        ).toBe(false);
+      }
     };
 
     authorizeWidgetWrite.mockClear();
@@ -3154,6 +3168,40 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     ).toEqual([...shareWriteNames].sort());
     expect(
       embedAuth.allowsMcpDirectoryWidgetReadAction(writeOnlyScope, {
+        actionName: "list-resource-shares",
+        ...widget,
+        args: { resourceType: "document", resourceId: "page-1" },
+        allowedArgumentNames: ["resourceType", "resourceId"],
+      }),
+    ).toBe(false);
+
+    // A write ticket for a target that cannot share, as the database widget's
+    // is, lists no collaborators either.
+    const realTarget = contentDirectoryProfile.widgetTargets["create-document"];
+    const noShareConfig = {
+      ...directoryConfig,
+      directoryProfile: {
+        ...directoryProfile,
+        widgetTargets: {
+          "create-document": (
+            args: Record<string, unknown>,
+            result: unknown,
+          ) => ({
+            ...realTarget(args, result)!,
+            writeActions: ["update-document"],
+          }),
+        },
+      },
+    };
+    const noShareScope = (await open(164, undefined, noShareConfig))
+      ?.scope as string;
+    expect(
+      embedAuth
+        .getMcpDirectoryWidgetWriteCapabilityGrant(noShareScope, widget)
+        ?.actionNames.sort(),
+    ).toEqual(["update-document"]);
+    expect(
+      embedAuth.allowsMcpDirectoryWidgetReadAction(noShareScope, {
         actionName: "list-resource-shares",
         ...widget,
         args: { resourceType: "document", resourceId: "page-1" },

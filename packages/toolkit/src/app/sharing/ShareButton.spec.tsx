@@ -1454,37 +1454,61 @@ describe("ShareButton", () => {
     expect(container.textContent).not.toContain("Could not load people.");
   });
 
-  // Keep the non-source-locale provider test last: react-i18next's global
-  // fallback instance otherwise leaks the selected language into tests that
-  // intentionally exercise providerless compatibility.
-  it("localizes the standardized text trigger", async () => {
+  it("does not offer the admin role or an email note when keeping to the basic share actions", async () => {
     await act(async () => {
       root.render(
-        <AgentNativeI18nProvider
-          catalog={toolkitI18nCatalog}
-          initialLocale="de-DE"
-          initialPreference="de-DE"
-          persistPreference={false}
-        >
-          <QueryClientProvider client={queryClient}>
-            <ShareButton
-              resourceType="plan"
-              resourceId="plan-1"
-              trigger="icon"
-            />
-          </QueryClientProvider>
-        </AgentNativeI18nProvider>,
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="deck"
+            resourceId="deck-1"
+            basicSharingOnly
+          />
+        </QueryClientProvider>,
       );
     });
 
-    await vi.waitFor(() => {
-      const trigger = container.querySelector(
-        'button[aria-label="Teilen"]',
-      ) as HTMLButtonElement | null;
-      expect(trigger, container.innerHTML).not.toBeNull();
-      expect(trigger?.textContent).toBe("Teilen");
-      expect(trigger?.querySelector("svg")).toBeFalsy();
+    const input = container.querySelector(
+      'input[placeholder="Add people by email"]',
+    ) as HTMLInputElement;
+    setInputValue(input, "guest@example.com");
+    expect(container.textContent).toContain("Notify people");
+    expect(container.textContent).not.toContain("Add a message");
+
+    const roleTrigger = container.querySelector(
+      'button[aria-label="Role"]',
+    ) as HTMLButtonElement | null;
+    await act(async () => roleTrigger?.click());
+    const options = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((option) => option.textContent ?? "");
+    expect(options.some((option) => option.includes("Editor"))).toBe(true);
+    expect(options.some((option) => option.includes("Admin"))).toBe(false);
+  });
+
+  it("offers the admin role and an email note outside the basic share actions", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="deck" resourceId="deck-1" />
+        </QueryClientProvider>,
+      );
     });
+
+    const input = container.querySelector(
+      'input[placeholder="Add people by email"]',
+    ) as HTMLInputElement;
+    setInputValue(input, "guest@example.com");
+    expect(container.textContent).toContain("Add a message");
+
+    const roleTrigger = container.querySelector(
+      'button[aria-label="Role"]',
+    ) as HTMLButtonElement | null;
+    await act(async () => roleTrigger?.click());
+    expect(
+      Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).some((option) => option.textContent?.includes("Admin")),
+    ).toBe(true);
   });
 
   it("lets a host size the joined copy control through quickCopy.className", async () => {
@@ -1517,5 +1541,38 @@ describe("ShareButton", () => {
     expect(
       joined?.contains(container.querySelector('button[aria-label="Share"]')),
     ).toBe(true);
+  });
+
+  // Keep the non-source-locale provider test last: react-i18next's global
+  // fallback instance otherwise leaks the selected language into tests that
+  // intentionally exercise providerless compatibility.
+  it("localizes the standardized text trigger", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={toolkitI18nCatalog}
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="plan"
+              resourceId="plan-1"
+              trigger="icon"
+            />
+          </QueryClientProvider>
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      const trigger = container.querySelector(
+        'button[aria-label="Teilen"]',
+      ) as HTMLButtonElement | null;
+      expect(trigger, container.innerHTML).not.toBeNull();
+      expect(trigger?.textContent).toBe("Teilen");
+      expect(trigger?.querySelector("svg")).toBeFalsy();
+    });
   });
 });

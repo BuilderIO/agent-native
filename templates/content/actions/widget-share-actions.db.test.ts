@@ -229,8 +229,9 @@ describe("document share actions under a widget write grant", () => {
     // that scope check themselves, so a call that reached them with another id
     // is rejected even for a user who could administer that document.
     const outOfScope = {
-      errorCode: "mcp_widget_write_scope_mismatch",
+      name: "ForbiddenError",
       statusCode: 403,
+      message: expect.stringContaining("scoped to a different resource"),
     };
 
     await expect(
@@ -273,4 +274,37 @@ describe("document share actions under a widget write grant", () => {
     expect(await sharesFor(RECIPIENT, FOREIGN_DOCUMENT_ID)).toHaveLength(0);
     expect(await visibilityOf(FOREIGN_DOCUMENT_ID)).toBe("private");
   });
+
+  it("does not let a widget hand out the admin role, or share with an organization or group", async () => {
+    const forbidden = { name: "ForbiddenError", statusCode: 403 };
+
+    await expect(
+      asWidget(OWNER, shareResource, {
+        ...shareArgs(RECIPIENT),
+        role: "admin" as const,
+      }),
+    ).rejects.toMatchObject(forbidden);
+    for (const principalType of ["org", "group"] as const) {
+      await expect(
+        asWidget(OWNER, shareResource, {
+          ...shareArgs("some-principal"),
+          principalType,
+        }),
+      ).rejects.toMatchObject(forbidden);
+    }
+    expect(await sharesFor(RECIPIENT)).toHaveLength(0);
+    expect(await sharesFor("some-principal")).toHaveLength(0);
+  });
+
+  it.each(["viewer", "commenter", "editor"] as const)(
+    "lets the owner share a document with a person as %s from a widget",
+    async (role) => {
+      await expect(
+        asWidget(OWNER, shareResource, { ...shareArgs(RECIPIENT), role }),
+      ).resolves.toMatchObject({ updated: false });
+      expect(await sharesFor(RECIPIENT)).toHaveLength(1);
+      await asWidget(OWNER, unshareResource, unshareArgs(RECIPIENT));
+      expect(await sharesFor(RECIPIENT)).toHaveLength(0);
+    },
+  );
 });

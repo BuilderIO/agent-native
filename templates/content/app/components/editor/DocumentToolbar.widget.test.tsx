@@ -352,6 +352,14 @@ describe("DocumentToolbar in an MCP App widget", () => {
       expect(open).not.toHaveBeenCalled();
     });
 
+    it("encodes the document id in the page URL", async () => {
+      await renderToolbar(1040, { documentId: "a b/c?d#e" });
+
+      expect(openLink()?.getAttribute("href")).toBe(
+        `${window.location.origin}${appPath("/page/a%20b%2Fc%3Fd%23e")}`,
+      );
+    });
+
     it("opens a tab itself when the host refuses", async () => {
       mocks.openLink.mockReturnValue(Promise.resolve(false));
       const open = vi.spyOn(window, "open").mockReturnValue(null);

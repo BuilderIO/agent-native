@@ -1167,14 +1167,15 @@ export function DocumentToolbar({
     pushDocument.isPending ||
     resolveConflict.isPending ||
     createAndLink.isPending;
+  const encodedDocumentId = encodeURIComponent(documentId);
   const shareUrl =
     typeof window === "undefined"
-      ? `/p/${documentId}`
-      : `${window.location.origin}${appPath(`/p/${documentId}`)}`;
+      ? `/p/${encodedDocumentId}`
+      : `${window.location.origin}${appPath(`/p/${encodedDocumentId}`)}`;
   const pageUrl =
     typeof window === "undefined"
-      ? `/page/${documentId}`
-      : `${window.location.origin}${appPath(`/page/${documentId}`)}`;
+      ? `/page/${encodedDocumentId}`
+      : `${window.location.origin}${appPath(`/page/${encodedDocumentId}`)}`;
   const copyPageUrl = isLocalFileDocument ? pageUrl : shareUrl;
   const effectiveHideFromSearch = pendingHideFromSearch ?? hideFromSearch;
   const editedLabel = formatEditedLabel(documentUpdatedAt);
