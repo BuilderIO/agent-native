@@ -500,6 +500,10 @@ export async function sessionEventFilterConditions(
     schema.sessionRecordingSessionAssociations,
     "session_event_excluded_association_presence",
   );
+  const completeAssociation = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_event_complete_association",
+  );
   const se = schema.analyticsSessionEvents;
   const coverage = schema.analyticsSessionEventCoverage;
   const gaps = schema.analyticsSessionEventGaps;
@@ -507,7 +511,7 @@ export async function sessionEventFilterConditions(
   const coverageStart = sql`(select ${coverage.startedAt} from ${coverage} where ${coverage.tenantKey} = ${recordingTenant})`;
   const sessionIndexed = (sessionId: AnyColumn, eventName?: string) =>
     sql`exists (select 1 from ${se} where ${se.tenantKey} = ${recordingTenant} and ${se.sessionId} = ${sessionId}${eventName === undefined ? sql`` : sql` and ${se.eventName} = ${eventName}`})`;
-  const sessionConditions = (sessionId: AnyColumn) => [
+  const sessionCoverageConditions = (sessionId: AnyColumn) => [
     // One analytics session can span tabs, each with its own recording. A
     // session that had a recording before coverage began may have events the
     // index never saw.
@@ -537,15 +541,18 @@ export async function sessionEventFilterConditions(
             and ${recordingTenantSql(sibling)} = ${recordingTenant}
             and ${sibling.startedAt} < ${coverageStart}
         )`,
-    ...didEvents.map((eventName) => sessionIndexed(sessionId, eventName)),
-    // "Didn't" needs one exact session the index saw completely, so a failed
-    // or pruned index write never reads as the event's absence.
+    // Every session in a "didn't" filter must have complete index coverage;
+    // failed or pruned writes cannot read as the event's absence.
     ...(didNotEvents.length
       ? [
           sessionIndexed(sessionId),
           sql`not exists (select 1 from ${gaps} where ${gaps.tenantKey} = ${recordingTenant} and ${gaps.sessionId} = ${sessionId})`,
         ]
       : []),
+  ];
+  const sessionConditions = (sessionId: AnyColumn) => [
+    ...sessionCoverageConditions(sessionId),
+    ...didEvents.map((eventName) => sessionIndexed(sessionId, eventName)),
   ];
 
   const sessionMatch = associationsReady
@@ -588,11 +595,21 @@ export async function sessionEventFilterConditions(
         )`
       : sql`not ${sessionIndexed(r.sessionId, eventName)}`,
   );
+  const allAssociatedSessionsCovered = didNotEvents.length
+    ? associationsReady
+      ? sql`not exists (
+          select 1 from ${schema.sessionRecordingSessionAssociations} as ${completeAssociation}
+          where ${completeAssociation.recordingId} = ${r.id}
+            and not (${and(...sessionCoverageConditions(completeAssociation.sessionId))})
+        )`
+      : and(...sessionCoverageConditions(r.sessionId))
+    : undefined;
 
   return [
     viewerReadsRecordingEventsSql(r, scope),
     sql`${r.startedAt} >= ${coverageStart}`,
     sessionMatch,
+    ...(allAssociatedSessionsCovered ? [allAssociatedSessionsCovered] : []),
     ...didNotEventConditions,
   ];
 }

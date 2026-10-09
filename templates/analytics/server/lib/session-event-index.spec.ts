@@ -410,6 +410,69 @@ describe("session event index on Postgres", () => {
     ]);
   });
 
+  it("requires every associated session to be complete before asserting event absence", async () => {
+    await index(
+      [
+        event({
+          eventName: "pageview",
+          sessionId: "s-clear",
+          timestamp: "2026-09-20T10:01:00.000Z",
+        }),
+        event({
+          eventName: "pageview",
+          sessionId: "s-gap",
+          timestamp: "2026-09-20T10:02:00.000Z",
+        }),
+        event({
+          eventName: "pageview",
+          sessionId: "s-before-coverage",
+          timestamp: "2026-09-20T10:03:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+    await client.query(
+      `INSERT INTO analytics_session_event_gaps
+         (id, tenant_key, owner_email, org_id, session_id, recorded_at)
+       VALUES ('gap-s-gap', $1, $2, $3, 's-gap', '2026-09-20T10:04:00.000Z')`,
+      [`org:${ORG}`, OWNER, ORG],
+    );
+    await addRecording(
+      "r-old-sibling",
+      "s-before-coverage",
+      "2026-09-19T09:00:00.000Z",
+    );
+    await addRecording("r-clear", "s-clear", "2026-09-20T10:00:30.000Z");
+    await addRecording(
+      "r-missing-index",
+      "s-clear",
+      "2026-09-20T10:00:30.000Z",
+      {},
+      ["s-clear", "s-unseen"],
+    );
+    await addRecording("r-gap", "s-clear", "2026-09-20T10:00:30.000Z", {}, [
+      "s-clear",
+      "s-gap",
+    ]);
+    await addRecording(
+      "r-precoverage",
+      "s-clear",
+      "2026-09-20T10:00:30.000Z",
+      {},
+      ["s-clear", "s-before-coverage"],
+    );
+
+    expect(await matchingRecordings({ didNotEvents: ["purchase"] })).toEqual([
+      "r-clear",
+    ]);
+    expect(await matchingRecordings({ didEvents: ["pageview"] })).toEqual([
+      "r-clear",
+      "r-gap",
+      "r-missing-index",
+      "r-precoverage",
+    ]);
+  });
+
   it("never treats a session the index never saw as not doing an event", async () => {
     await index(
       [
