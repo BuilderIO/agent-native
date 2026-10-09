@@ -89,6 +89,7 @@ describe("useCreatePage", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    window.history.replaceState({}, "", "/");
     container.remove();
   });
 
@@ -146,6 +147,7 @@ describe("useCreatePage", () => {
     };
 
     await act(async () => {
+      window.history.replaceState({}, "", `/page/${documentId}`);
       resolveCreation(persistedDocument);
       await Promise.resolve();
     });

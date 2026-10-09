@@ -159,6 +159,7 @@ import {
   writeDocumentToLinkedLocalSource,
 } from "@/lib/local-content-source-files";
 import {
+  clearDocumentCreationConfirmed,
   isDocumentCreationConfirmed,
   isDocumentCreationPending,
 } from "@/lib/optimistic-document";
@@ -1364,6 +1365,14 @@ export function PageEditorSurface({
   const creationConfirmed = document
     ? isDocumentCreationConfirmed(queryClient, document)
     : false;
+  const creationStartedRef = useRef(false);
+  if (creationPending || creationConfirmed) creationStartedRef.current = true;
+  useEffect(() => {
+    if (!creationConfirmed) return;
+    return () => {
+      clearDocumentCreationConfirmed(queryClient, { id: documentId });
+    };
+  }, [creationConfirmed, documentId, queryClient]);
   const authoritativeReadRef = useRef<{
     queryIdentity: string;
     succeeded: boolean;
@@ -1527,7 +1536,7 @@ export function PageEditorSurface({
           foreground && host === "page" && !isError && fetchedForThisOpen
         }
         documentFresh={!isError && fetchedForThisOpen}
-        creationConfirmed={creationConfirmed}
+        creationStarted={creationStartedRef.current}
         creationAwaitingFirstRead={creationAwaitingFirstRead}
         databaseId={databaseId}
         databaseDocumentId={databaseDocumentId}
@@ -1877,7 +1886,7 @@ interface DocumentEditorBodyProps {
   onTitleFocused?: () => void;
   foreground?: boolean;
   documentFresh?: boolean;
-  creationConfirmed?: boolean;
+  creationStarted?: boolean;
   creationAwaitingFirstRead?: boolean;
 }
 
@@ -2417,7 +2426,7 @@ function PageEditorSessionBody({
   onTitleFocused,
   foreground = false,
   documentFresh = false,
-  creationConfirmed = false,
+  creationStarted = false,
   creationAwaitingFirstRead = false,
 }: DocumentEditorBodyProps) {
   const acknowledgedDocumentRef = useRef<Document | null>(null);
@@ -2921,6 +2930,7 @@ function PageEditorSessionBody({
   const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
   const [initialCreationSaveInFlight, setInitialCreationSaveInFlight] =
     useState(false);
+  const initialCreationSaveStartedRef = useRef(false);
   const documentSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const activeContentSavesRef = useRef(0);
   const liveMarkdownRef = useRef<string | null>(null);
@@ -3281,7 +3291,7 @@ function PageEditorSessionBody({
     mcpDirectoryWidgetReadOnly,
   });
   const holdCollaborationForCreationSave =
-    creationConfirmed &&
+    isDocumentCreationConfirmed(queryClient, document) &&
     (initialCreationSaveInFlight || pendingDocumentSaveRef.current !== null);
   const collabDocumentId =
     collabEnabled &&
@@ -3316,7 +3326,8 @@ function PageEditorSessionBody({
   const collabInitializationFailed =
     collabEnabled && collabInitialization.status === "error";
   const creationCanEditWithoutCollaboration =
-    (creationConfirmed || creationAwaitingFirstRead) && !collabSynced;
+    (creationAwaitingFirstRead || holdCollaborationForCreationSave) &&
+    !collabSynced;
   const editorCanEdit =
     canEdit &&
     !bodyHydrationPending &&
@@ -4694,14 +4705,20 @@ function PageEditorSessionBody({
   );
   useEffect(() => {
     if (
+      !creationStarted ||
       !document?.revision ||
       creationAwaitingFirstRead ||
-      !isDocumentCreationConfirmed(queryClient, document)
+      !isDocumentCreationConfirmed(queryClient, document) ||
+      initialCreationSaveStartedRef.current
     ) {
       return;
     }
+    initialCreationSaveStartedRef.current = true;
     const pending = pendingDocumentSaveRef.current;
-    if (!pending) return;
+    if (!pending) {
+      clearDocumentCreationConfirmed(queryClient, document);
+      return;
+    }
 
     setInitialCreationSaveInFlight(true);
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -4742,10 +4759,21 @@ function PageEditorSessionBody({
       },
     );
     void flushPendingDocumentSave(createdDocumentSave).finally(() => {
+      const savedContent = lastSavedContentRef.current;
+      if (savedContent.content === createdDocumentSave.content) {
+        patchDocumentCaches(queryClient, documentId, {
+          content: savedContent.content,
+          ...(savedContent.updatedAt
+            ? { updatedAt: savedContent.updatedAt }
+            : {}),
+          ...(savedContent.revision ? { revision: savedContent.revision } : {}),
+        });
+      }
+      clearDocumentCreationConfirmed(queryClient, document);
       setInitialCreationSaveInFlight(false);
     });
   }, [
-    creationConfirmed,
+    creationStarted,
     creationAwaitingFirstRead,
     document,
     flushPendingDocumentSave,

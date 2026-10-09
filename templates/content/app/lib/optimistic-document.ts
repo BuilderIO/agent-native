@@ -53,6 +53,14 @@ export function isDocumentCreationPending(
   );
 }
 
+export function clearDocumentCreationPending<T extends Pick<Document, "id">>(
+  queryClient: QueryClient,
+  document: T,
+): T {
+  documentCreationStates.get(queryClient)?.pending.delete(document.id);
+  return document;
+}
+
 export function markDocumentCreationConfirmed(
   queryClient: QueryClient,
   document: Document,
@@ -76,9 +84,7 @@ export function clearDocumentCreationConfirmed<T extends Pick<Document, "id">>(
   queryClient: QueryClient,
   document: T,
 ): T {
-  const state = documentCreationStates.get(queryClient);
-  state?.confirmed.delete(document.id);
-  state?.pending.delete(document.id);
+  documentCreationStates.get(queryClient)?.confirmed.delete(document.id);
   return document;
 }
 

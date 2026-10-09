@@ -19,6 +19,7 @@ import {
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { documentQueryFilter } from "@/lib/document-query";
 import {
+  clearDocumentCreationConfirmed,
   markDocumentCreationConfirmed,
   markDocumentCreationPending,
 } from "@/lib/optimistic-document";
@@ -120,10 +121,17 @@ export function useCreatePage(opts?: {
           parentId: parentId ?? undefined,
           spaceId,
         });
+        const confirmed = markDocumentCreationConfirmed(queryClient, created);
         queryClient.setQueryData(
           ["action", "get-document", { id: created.id }],
-          markDocumentCreationConfirmed(queryClient, created),
+          confirmed,
         );
+        if (
+          !shouldNavigate ||
+          window.location.pathname !== `/page/${created.id}`
+        ) {
+          clearDocumentCreationConfirmed(queryClient, { id: created.id });
+        }
         void queryClient.invalidateQueries(documentQueryFilter(id));
         void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],

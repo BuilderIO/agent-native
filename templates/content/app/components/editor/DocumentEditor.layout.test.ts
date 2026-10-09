@@ -3009,7 +3009,22 @@ describe("document editor layout", () => {
     );
     expect(documentEditorSource).toContain("mcpDirectoryWidgetReadOnly,");
     expect(documentEditorSource).toContain(
-      "const holdCollaborationForCreationSave =\n    creationConfirmed &&\n    (initialCreationSaveInFlight || pendingDocumentSaveRef.current !== null);",
+      "const holdCollaborationForCreationSave =\n    isDocumentCreationConfirmed(queryClient, document) &&\n    (initialCreationSaveInFlight || pendingDocumentSaveRef.current !== null);",
+    );
+    expect(documentEditorSource).toContain(
+      "initialCreationSaveStartedRef.current = true;",
+    );
+    expect(documentEditorSource).toContain(
+      "const savedContent = lastSavedContentRef.current;",
+    );
+    expect(documentEditorSource).toContain(
+      "patchDocumentCaches(queryClient, documentId, {\n          content: savedContent.content,",
+    );
+    expect(documentEditorSource).toContain(
+      "clearDocumentCreationConfirmed(queryClient, document);",
+    );
+    expect(documentEditorSource).toContain(
+      "const creationCanEditWithoutCollaboration =\n    (creationAwaitingFirstRead || holdCollaborationForCreationSave) &&\n    !collabSynced;",
     );
     expect(documentEditorSource).toContain(
       "const collabDocumentId =\n    collabEnabled &&\n    !creationAwaitingFirstRead &&\n    !holdCollaborationForCreationSave &&\n    !isDocumentCreationPending(queryClient, document)",

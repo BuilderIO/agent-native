@@ -76,6 +76,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 import {
   clearDocumentCreationConfirmed,
+  clearDocumentCreationPending,
   markDocumentCreationConfirmed,
   markDocumentCreationPending,
 } from "../lib/optimistic-document";
@@ -692,6 +693,24 @@ describe("page open document reads", () => {
     startPageOpenDocumentReads(queryClient, "new-page");
 
     expect(server.calls).toEqual([]);
+  });
+
+  it("starts reading a created collection after its optimistic marker clears", async () => {
+    const pending = markDocumentCreationPending(queryClient, {
+      id: "new-collection",
+      title: "Untitled database",
+    } as Document);
+    queryClient.setQueryData(
+      ["action", "get-document", { id: pending.id }],
+      pending,
+    );
+    startPageOpenDocumentReads(queryClient, pending.id);
+    expect(server.calls).toEqual([]);
+
+    clearDocumentCreationPending(queryClient, pending);
+    startPageOpenDocumentReads(queryClient, pending.id);
+
+    await vi.waitFor(() => expect(reads("get-document")).toBe(1));
   });
 
   it("does not read a draft that cannot exist before a newly created page opens", () => {

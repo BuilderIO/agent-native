@@ -147,6 +147,8 @@ import {
   subscribeLiveLocalFolderActivation,
 } from "@/lib/local-folder-live-sync";
 import {
+  clearDocumentCreationConfirmed,
+  clearDocumentCreationPending,
   markDocumentCreationConfirmed,
   markDocumentCreationPending,
   shouldCreateDocumentOptimistically,
@@ -1772,13 +1774,17 @@ export function DocumentSidebar({
           spaceId: parentId ? undefined : rootSpaceId,
         });
         const nextId = created?.id || id;
+        const confirmed = markDocumentCreationConfirmed(queryClient, created);
         queryClient.setQueryData(
           ["action", "get-document", { id: nextId }],
-          markDocumentCreationConfirmed(queryClient, created),
+          confirmed,
         );
         if (nextId !== id) {
           queryClient.removeQueries(documentQueryFilter(id));
           navigateToDocument(nextId);
+        }
+        if (window.location.pathname !== `/page/${nextId}`) {
+          clearDocumentCreationConfirmed(queryClient, { id: nextId });
         }
         void queryClient.invalidateQueries(documentQueryFilter(nextId));
         settleOptimisticListRefresh(id);
@@ -1897,11 +1903,12 @@ export function DocumentSidebar({
           }),
         );
         const nextId = result.database.documentId;
+        clearDocumentCreationPending(queryClient, { id });
         if (nextId !== id) {
           queryClient.removeQueries(documentQueryFilter(id));
           navigateToDocument(nextId);
         }
-        void queryClient.invalidateQueries(documentQueryFilter(nextId));
+        startPageOpenDocumentReads(queryClient, nextId);
         settleOptimisticListRefresh(id);
         settleParentExpansion(true);
       } catch (err) {

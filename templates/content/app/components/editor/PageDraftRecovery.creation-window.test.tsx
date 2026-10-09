@@ -155,6 +155,37 @@ describe("Page draft recovery during the creation window", () => {
     expect(state.ensureDraftRead).not.toHaveBeenCalled();
   });
 
+  it("skips recovery for the creation mount, then checks drafts on a later visit", async () => {
+    state.draftQuery = { data: { draft: null }, isError: false };
+    const created = markDocumentCreationConfirmed(state.queryClient as never, {
+      ...page,
+      id: "fresh-page",
+    });
+    const renderCreated = () =>
+      act(() =>
+        root.render(
+          <PageDraftRecovery document={created}>
+            <textarea defaultValue="Live editor" />
+          </PageDraftRecovery>,
+        ),
+      );
+
+    renderCreated();
+    clearDocumentCreationConfirmed(state.queryClient as never, created);
+    renderCreated();
+    await act(async () => {});
+    expect(state.ensureDraftRead).not.toHaveBeenCalled();
+
+    act(() => root.render(null));
+    renderCreated();
+    await act(async () => {});
+    expect(state.ensureDraftRead).toHaveBeenCalledWith(
+      state.queryClient,
+      "fresh-page",
+      page.createdAt,
+    );
+  });
+
   it("mounts the editor once the created row answers", async () => {
     state.draftQuery = { data: { draft: null }, isError: false };
     render();

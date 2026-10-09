@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   clearDocumentCreationConfirmed,
+  clearDocumentCreationPending,
   isDocumentCreationConfirmed,
   isDocumentCreationPending,
   markDocumentCreationConfirmed,
@@ -39,6 +40,20 @@ describe("optimistic document creation", () => {
     expect(isDocumentCreationPending(otherQueryClient, optimistic)).toBe(false);
     queryClient.clear();
     otherQueryClient.clear();
+  });
+
+  it("clears only the creation state that has settled", () => {
+    const queryClient = new QueryClient();
+    const pending = markDocumentCreationPending(queryClient, document());
+
+    clearDocumentCreationConfirmed(queryClient, pending);
+    expect(isDocumentCreationPending(queryClient, pending)).toBe(true);
+
+    clearDocumentCreationPending(queryClient, pending);
+    expect(isDocumentCreationPending(queryClient, pending)).toBe(false);
+    expect(isDocumentCreationConfirmed(queryClient, pending)).toBe(false);
+
+    queryClient.clear();
   });
 
   it("preserves pending create state through query cache structural sharing", () => {

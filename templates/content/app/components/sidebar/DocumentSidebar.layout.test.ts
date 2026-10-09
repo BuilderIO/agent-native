@@ -334,19 +334,35 @@ describe("document sidebar layout", () => {
     expect(messages).toContain('files: "Files"');
   });
 
-  it("replaces an optimistic page with a confirmed create response", () => {
+  it("settles optimistic page and collection creation before the first read", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const collectionCreate = sidebar.slice(
+      sidebar.indexOf("const handleCreateDatabase = useCallback"),
+      sidebar.indexOf("const selectSpaceForCreation = useCallback"),
+    );
 
     expect(sidebar).toContain("shouldCreateDocumentOptimistically({");
     expect(sidebar).toContain("filesDatabaseId: rootFilesDatabaseId");
     expect(sidebar).toContain("markDocumentCreationPending(queryClient, {");
     expect(sidebar).toContain(
-      '["action", "get-document", { id: nextId }],\n          markDocumentCreationConfirmed(queryClient, created)',
+      "const confirmed = markDocumentCreationConfirmed(queryClient, created);",
+    );
+    expect(sidebar).toContain(
+      '["action", "get-document", { id: nextId }],\n          confirmed,',
     );
     expect(sidebar).toContain(
       "return withDocumentsCacheShape(old, [...docs, tempDoc])",
     );
     expect(sidebar).toContain("rollbackOptimisticCreatedDocument(");
+    expect(collectionCreate).toContain(
+      "clearDocumentCreationPending(queryClient, { id });",
+    );
+    expect(collectionCreate).toContain(
+      "startPageOpenDocumentReads(queryClient, nextId);",
+    );
+    expect(
+      collectionCreate.indexOf("clearDocumentCreationPending"),
+    ).toBeLessThan(collectionCreate.indexOf("startPageOpenDocumentReads"));
   });
 
   it("restores deleted list and page snapshots before refetching on failure", () => {
