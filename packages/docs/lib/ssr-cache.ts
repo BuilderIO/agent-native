@@ -48,11 +48,17 @@ export function isMutableCommunityAppPath(pathname: string): boolean {
 }
 
 function normalizeDocsCachePathname(pathname: string): string {
-  const normalized = stripChunkRecoveryPathSuffix(pathname)
-    .replace(/\/+$/, "")
-    .replace(/\.data$/, "")
-    .replace(/\/+$/, "");
+  let normalized = pathname.replace(/\/+$/, "");
+  normalized = stripReactRouterDataSuffix(normalized);
+  normalized = stripChunkRecoveryPathSuffix(normalized).replace(/\/+$/, "");
+  normalized = stripReactRouterDataSuffix(normalized).replace(/\/+$/, "");
   return normalized || "/";
+}
+
+function stripReactRouterDataSuffix(pathname: string): string {
+  if (pathname.endsWith("/_.data")) return pathname.slice(0, -"/_.data".length);
+  if (pathname.endsWith(".data")) return pathname.slice(0, -".data".length);
+  return pathname;
 }
 
 function stripChunkRecoveryPathSuffix(pathname: string): string {
@@ -74,9 +80,7 @@ export function applyCommunityAppSsrCacheHeaders(
   if (!isCacheableSsrResponse(headers, status, pathname)) return;
   if (!isMutableCommunityAppPath(pathname)) return;
 
-  const isRecoveryAlias =
-    pathname.endsWith(CHUNK_RECOVERY_PATH_SUFFIX) ||
-    pathname.endsWith(`${CHUNK_RECOVERY_PATH_SUFFIX}/`);
+  const isRecoveryAlias = isChunkRecoveryAliasPathname(pathname);
   const preservesBrowserRevalidation =
     isRecoveryAlias &&
     headers.get("cache-control") === CHUNK_RECOVERY_BROWSER_CACHE_CONTROL;
@@ -101,6 +105,11 @@ export function applyCommunityAppSsrCacheHeaders(
     if (name === "cache-control" && preservesBrowserRevalidation) continue;
     headers.set(name, value);
   }
+}
+
+function isChunkRecoveryAliasPathname(pathname: string): boolean {
+  const routePath = stripReactRouterDataSuffix(pathname).replace(/\/+$/, "");
+  return routePath.endsWith(CHUNK_RECOVERY_PATH_SUFFIX);
 }
 
 const CACHEABLE_ERROR_STATUSES = new Set([404, 410]);

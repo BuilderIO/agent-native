@@ -2318,6 +2318,16 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     ]);
   });
 
+  it("emits recovery matching for React Router data suffixes", () => {
+    const source = generateWorkerEntry([], []);
+
+    expect(source).toContain('pathWithoutTrailingSlash.endsWith("/_.data")');
+    expect(source).toContain('pathWithoutTrailingSlash.endsWith(".data")');
+    expect(source).toContain(
+      "const { routePath } = splitReactRouterDataPathname(pathname)",
+    );
+  });
+
   it("uses the full Netlify query key for marked public redirects", async () => {
     vi.stubEnv("NETLIFY", "true");
     const source = generateWorkerEntry([], []);

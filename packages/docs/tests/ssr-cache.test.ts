@@ -93,6 +93,45 @@ describe("Docs SSR cache key wrapper", () => {
         ),
       ),
     ).toBe(true);
+    expect(
+      isCloudGettingStartedPath(
+        new URL(
+          `https://www.agent-native.com/docs${CHUNK_RECOVERY_PATH_SUFFIX}.data?tab=cloud`,
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isCloudGettingStartedPath(
+        new URL(
+          `https://www.agent-native.com/docs${CHUNK_RECOVERY_PATH_SUFFIX}/_.data?tab=cloud`,
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("applies mutable community caching to recovery data responses", () => {
+    for (const suffix of [".data", "/_.data"]) {
+      const headers = new Headers({
+        ...resolveSsrCacheHeaders({}),
+        "cache-control": CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+        "content-type": "text/x-script",
+      });
+
+      applyCommunityAppSsrCacheHeaders(
+        headers,
+        `/apps/community/foo${CHUNK_RECOVERY_PATH_SUFFIX}${suffix}`,
+      );
+
+      expect(headers.get("cache-control")).toBe(
+        CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+      );
+      expect(headers.get("cdn-cache-control")).toBe(
+        "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600",
+      );
+      expect(headers.get("netlify-cdn-cache-control")).toBe(
+        "public, durable, s-maxage=600, stale-while-revalidate=604800, stale-if-error=3600",
+      );
+    }
   });
 
   it("keeps mutable community app routes in the durable cache", () => {

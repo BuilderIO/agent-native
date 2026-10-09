@@ -386,6 +386,39 @@ describe("createH3SSRHandler", () => {
     expect(mocks.requestHandler.mock.calls[2]?.[0].url).toContain("/page/?");
   });
 
+  it("normalizes recovery aliases before React Router data suffixes", async () => {
+    process.env.SITE_ID = "site-test";
+    const handler = createH3SSRHandler(() => ({})) as any;
+    const recoveryUrls = [
+      `/page${CHUNK_RECOVERY_PATH_SUFFIX}.data`,
+      `/page${CHUNK_RECOVERY_PATH_SUFFIX}/_.data`,
+    ];
+
+    for (const recoveryUrl of recoveryUrls) {
+      mocks.requestHandler.mockResolvedValueOnce(
+        new Response("loader data", {
+          headers: { "content-type": "text/x-script" },
+        }),
+      );
+      const response = await handler(createEvent(recoveryUrl));
+
+      expect(response.headers.get("cache-control")).toBe(
+        CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+      );
+      expect(response.headers.get("cdn-cache-control")).toBe(
+        DEFAULT_SSR_CACHE_HEADERS["cdn-cache-control"],
+      );
+      expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+        DEFAULT_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
+      );
+    }
+
+    expect(mocks.requestHandler.mock.calls[0]?.[0].url).toContain("/page.data");
+    expect(mocks.requestHandler.mock.calls[1]?.[0].url).toContain(
+      "/page/_.data",
+    );
+  });
+
   it("preserves disabled SSR caching for recovery aliases", async () => {
     process.env.AGENT_NATIVE_SSR_CACHE = "off";
     mocks.requestHandler.mockResolvedValueOnce(

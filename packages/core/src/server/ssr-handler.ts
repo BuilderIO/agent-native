@@ -58,22 +58,65 @@ function stripAppBasePath(pathname: string): string {
   return canonicalStripAppBasePath(pathname, getAppBasePath());
 }
 
-function stripChunkRecoveryPathSuffix(pathname: string): string {
-  const suffixWithTrailingSlash = `${CHUNK_RECOVERY_PATH_SUFFIX}/`;
-  if (pathname.endsWith(suffixWithTrailingSlash)) {
-    const routePath = pathname.slice(0, -suffixWithTrailingSlash.length);
-    return routePath ? `${routePath}/` : "/";
+function splitReactRouterDataPathname(pathname: string): {
+  routePath: string;
+  dataSuffix: string;
+  trailingSlash: string;
+} {
+  const trailingSlash = pathname.endsWith("/") ? "/" : "";
+  const pathWithoutTrailingSlash = trailingSlash
+    ? pathname.slice(0, -trailingSlash.length)
+    : pathname;
+  if (pathWithoutTrailingSlash.endsWith("/_.data")) {
+    return {
+      routePath: pathWithoutTrailingSlash.slice(0, -"/_.data".length),
+      dataSuffix: "/_.data",
+      trailingSlash,
+    };
   }
-  if (!pathname.endsWith(CHUNK_RECOVERY_PATH_SUFFIX)) return pathname;
-  const routePath = pathname.slice(0, -CHUNK_RECOVERY_PATH_SUFFIX.length);
-  return routePath || "/";
+  if (pathWithoutTrailingSlash.endsWith(".data")) {
+    return {
+      routePath: pathWithoutTrailingSlash.slice(0, -".data".length),
+      dataSuffix: ".data",
+      trailingSlash,
+    };
+  }
+  return {
+    routePath: pathWithoutTrailingSlash,
+    dataSuffix: "",
+    trailingSlash,
+  };
+}
+
+function stripChunkRecoveryPathSuffix(pathname: string): string {
+  const { routePath, dataSuffix, trailingSlash } =
+    splitReactRouterDataPathname(pathname);
+  const routeHasTrailingSlash = routePath.endsWith("/");
+  const routePathWithoutTrailingSlash = routeHasTrailingSlash
+    ? routePath.slice(0, -1)
+    : routePath;
+  if (!routePathWithoutTrailingSlash.endsWith(CHUNK_RECOVERY_PATH_SUFFIX)) {
+    return pathname;
+  }
+
+  const routePathWithoutAlias =
+    routePathWithoutTrailingSlash.slice(
+      0,
+      -CHUNK_RECOVERY_PATH_SUFFIX.length,
+    ) || "/";
+  const separator =
+    routePathWithoutAlias === "/" && dataSuffix.startsWith("/")
+      ? dataSuffix.slice(1)
+      : dataSuffix;
+  const suffix = `${separator}${trailingSlash}`;
+  return routePathWithoutAlias === "/" && suffix === "/"
+    ? "/"
+    : `${routePathWithoutAlias}${suffix}`;
 }
 
 function isChunkRecoveryPath(pathname: string): boolean {
-  return (
-    pathname.endsWith(CHUNK_RECOVERY_PATH_SUFFIX) ||
-    pathname.endsWith(`${CHUNK_RECOVERY_PATH_SUFFIX}/`)
-  );
+  const { routePath } = splitReactRouterDataPathname(pathname);
+  return routePath.replace(/\/+$/, "").endsWith(CHUNK_RECOVERY_PATH_SUFFIX);
 }
 
 function stripBasePath(pathname: string, basePath: string): string {
