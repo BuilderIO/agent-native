@@ -373,7 +373,7 @@ function MultiSelectOption({
       <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer truncate">
         {label}
       </label>
-      <span className="inline-flex sm:hidden sm:group-hover/option:inline-flex sm:group-focus-within/option:inline-flex">
+      <span className="inline-flex [@media(hover:hover)_and_(pointer:fine)]:hidden group-hover/option:inline-flex group-focus-within/option:inline-flex">
         <Button
           type="button"
           variant="ghost"
@@ -433,19 +433,15 @@ function MultiSelectFilter({
     setValue({
       [filter.id]: next.length > 0 ? next.join(",") : MULTI_SELECT_EMPTY,
     });
-  const selectAllFiltered = () => {
-    const filteredValues = new Set(
-      filteredOptions.map((option) => option.value),
-    );
+  const selectAllFiltered = () =>
     setSelected(
-      options
-        .filter(
-          (option) =>
-            selectedSet.has(option.value) || filteredValues.has(option.value),
-        )
-        .map((option) => option.value),
+      Array.from(
+        new Set([
+          ...selected,
+          ...filteredOptions.map((option) => option.value),
+        ]),
+      ),
     );
-  };
   const toggle = (optionValue: string, checked: boolean) =>
     setSelected(
       options

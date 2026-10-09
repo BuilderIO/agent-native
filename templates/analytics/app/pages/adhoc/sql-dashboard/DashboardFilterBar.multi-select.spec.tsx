@@ -206,6 +206,18 @@ describe("multi-select dashboard filter", () => {
     );
   });
 
+  it("keeps unknown URL values when selecting all search matches", () => {
+    render("/dashboards/test?f_plan=legacy,self_serve");
+    act(() => trigger().click());
+    setSearchQuery("free");
+    act(() => popoverButton("Select all").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe(
+      "legacy,self_serve,free",
+    );
+    expect(trigger().textContent).toContain("legacy, Self-Serve, Free");
+  });
+
   it("limits the selection to one option from its Only action", () => {
     render("/dashboards/test?f_plan=free,self_serve");
     act(() => trigger().click());
