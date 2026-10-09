@@ -3714,7 +3714,7 @@ describe("listJourneyRecordings", () => {
         {
           sessionId: "event-session",
           clientRecordingId: recording.clientRecordingId,
-          startedAt: recording.startedAt,
+          startedAt: "2026-10-01T14:00:00+02:00",
         },
       ],
     );
@@ -3805,5 +3805,37 @@ describe("listJourneyRecordings", () => {
       { id: "exact-valid", sessionId: "valid-event-session" },
     ]);
     expect(limits).toEqual([3, 2, 2]);
+  });
+
+  it("marks an unmatched exact replay link incomplete and keeps neighboring matches", async () => {
+    const clamped = {
+      ...row("clamped-start"),
+      clientRecordingId: "client-clamped",
+    };
+    const valid = {
+      ...row("exact-valid"),
+      clientRecordingId: "client-valid",
+    };
+    const { read } = await readWith(
+      [clamped, valid],
+      [],
+      [
+        {
+          sessionId: "clamped-event-session",
+          clientRecordingId: clamped.clientRecordingId,
+          startedAt: "2099-10-09T18:00:00.000Z",
+        },
+        {
+          sessionId: "valid-event-session",
+          clientRecordingId: valid.clientRecordingId,
+          startedAt: valid.startedAt,
+        },
+      ],
+    );
+
+    expect(read.complete).toBe(false);
+    expect(read.recordings).toMatchObject([
+      { id: "exact-valid", sessionId: "valid-event-session" },
+    ]);
   });
 });

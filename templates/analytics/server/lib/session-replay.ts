@@ -2185,7 +2185,7 @@ export interface JourneyReplayLink {
 
 export interface JourneyRecordingsRead {
   recordings: JourneyRecording[];
-  /** False when a batch hit its row ceiling or a row had no usable start time. */
+  /** False when a batch is capped or a recording/link is missing, ambiguous, or unusable. */
   complete: boolean;
 }
 
@@ -2287,20 +2287,21 @@ export async function listJourneyRecordings(
     { clientRecordingId: string; startedAt: string; sessionIds: Set<string> }
   >();
   for (const link of replayLinks) {
+    const startedAt = replayTimestamp(link.startedAt);
     if (
       !link.sessionId ||
       !link.clientRecordingId ||
       link.clientRecordingId.length > MAX_SESSION_ID_LENGTH ||
       link.startedAt.length > 64 ||
-      !Number.isFinite(Date.parse(link.startedAt))
+      !startedAt
     ) {
       complete = false;
       continue;
     }
-    const key = JSON.stringify([link.clientRecordingId, link.startedAt]);
+    const key = JSON.stringify([link.clientRecordingId, startedAt]);
     const pair = linkSessionsByPair.get(key) ?? {
       clientRecordingId: link.clientRecordingId,
-      startedAt: link.startedAt,
+      startedAt,
       sessionIds: new Set<string>(),
     };
     pair.sessionIds.add(link.sessionId);
@@ -2365,7 +2366,10 @@ export async function listJourneyRecordings(
           continue;
         }
         const row = matches[0];
-        if (!row) continue;
+        if (!row) {
+          complete = false;
+          continue;
+        }
         const startedAtMs = Date.parse(row.startedAt);
         const endedAtMs = row.endedAt ? Date.parse(row.endedAt) : null;
         if (!Number.isFinite(startedAtMs) || Number.isNaN(endedAtMs)) {

@@ -31,7 +31,7 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the v75-v83 incident documented on v75 below.
-const ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_TIMEOUT_MS = 15 * 60 * 1000;
+const ANALYTICS_INDEX_REPAIR_TIMEOUT_MS = 15 * 60 * 1000;
 
 function getAnalyticsMigrationDatabaseUrl(): string {
   const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
@@ -53,7 +53,7 @@ async function ensureAnalyticsDashboardCreatedByColumn(): Promise<void> {
   return;
 }
 
-async function repairAnalyticsEventCursorIndexes(): Promise<
+async function repairAnalyticsIndexes(): Promise<
   void | typeof MIGRATION_DEFERRED
 > {
   const repairIndexes = [
@@ -79,15 +79,34 @@ async function repairAnalyticsEventCursorIndexes(): Promise<
       createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_user_days_org_event_date_idx
         ON analytics_user_days (org_id, event_date)`,
     },
+    {
+      name: "session_recordings_client_started_idx",
+      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS session_recordings_client_started_idx
+        ON session_recordings (client_recording_id, started_at)`,
+    },
   ];
 
   const exec = await createDbExec({ url: getAnalyticsMigrationDatabaseUrl() });
   const query = (sql: string) =>
     exec.execute({
       sql,
-      timeoutMs: ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_TIMEOUT_MS,
+      timeoutMs: ANALYTICS_INDEX_REPAIR_TIMEOUT_MS,
       maxAttempts: 1,
     });
+
+  const readReadyIndexes = async () => {
+    const { rows } = await query(`
+      SELECT c.relname, i.indisvalid, i.indisready
+      FROM pg_class c
+      JOIN pg_index i ON i.indexrelid = c.oid
+      WHERE c.relname IN (${repairIndexes.map(({ name }) => `'${name}'`).join(", ")})
+    `);
+    return new Set(
+      rows
+        .filter((row) => row.indisvalid === true && row.indisready === true)
+        .map((row) => String(row.relname)),
+    );
+  };
 
   try {
     const lockResult = await query(
@@ -95,19 +114,8 @@ async function repairAnalyticsEventCursorIndexes(): Promise<
     );
     if (lockResult.rows[0]?.acquired !== true) return deferMigration();
 
-    let lockHeld = true;
     try {
-      const { rows } = await query(`
-      SELECT c.relname, i.indisvalid, i.indisready
-      FROM pg_class c
-      JOIN pg_index i ON i.indexrelid = c.oid
-      WHERE c.relname IN (${repairIndexes.map(({ name }) => `'${name}'`).join(", ")})
-    `);
-      const readyIndexes = new Set(
-        rows
-          .filter((row) => row.indisvalid === true && row.indisready === true)
-          .map((row) => String(row.relname)),
-      );
+      const readyIndexes = await readReadyIndexes();
       const expectedIndexes = repairIndexes.map(({ name }) => name);
       if (expectedIndexes.every((name) => readyIndexes.has(name))) return;
 
@@ -116,13 +124,14 @@ async function repairAnalyticsEventCursorIndexes(): Promise<
         await query(`DROP INDEX CONCURRENTLY IF EXISTS ${name}`);
         await query(createSql);
       }
-    } finally {
-      if (lockHeld) {
-        await query(
-          `SELECT pg_advisory_unlock(${ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_LOCK})`,
-        );
-        lockHeld = false;
+      const repairedIndexes = await readReadyIndexes();
+      if (!expectedIndexes.every((name) => repairedIndexes.has(name))) {
+        throw new Error("Analytics index repair did not create every index");
       }
+    } finally {
+      await query(
+        `SELECT pg_advisory_unlock(${ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_LOCK})`,
+      );
     }
   } finally {
     await exec.close?.();
@@ -1378,7 +1387,7 @@ export const runAnalyticsMigrations = runMigrations(
     {
       version: 145,
       name: "analytics-events-backfill-filtered-cursor-index-direct-repair",
-      run: repairAnalyticsEventCursorIndexes,
+      run: repairAnalyticsIndexes,
       sql: {
         postgres: "SELECT 1",
       },
@@ -1386,7 +1395,7 @@ export const runAnalyticsMigrations = runMigrations(
     {
       version: 146,
       name: "analytics-events-purge-inventory-index-direct-repair",
-      run: repairAnalyticsEventCursorIndexes,
+      run: repairAnalyticsIndexes,
       sql: {
         postgres: "SELECT 1",
       },
@@ -1737,8 +1746,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
     {
       version: 162,
       name: "session-recordings-client-started-index",
-      sql: `CREATE INDEX IF NOT EXISTS session_recordings_client_started_idx
-      ON session_recordings (client_recording_id, started_at)`,
+      run: repairAnalyticsIndexes,
+      sql: { postgres: "SELECT 1" },
     },
   ],
   { table: "analytics_migrations" },
