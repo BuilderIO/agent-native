@@ -218,6 +218,85 @@ describe("slide animation element parsing", () => {
     ]);
   });
 
+  it.each([
+    {
+      description: "native paragraphs",
+      html: `<div class="fmd-slide">
+        <div><p>First</p><p>Second</p></div>
+      </div>`,
+      expectedPaths: [
+        [0, 0],
+        [0, 1],
+      ],
+    },
+    {
+      description: "bullet list items",
+      html: `<div class="fmd-slide">
+        <div><ul><li>First</li><li>Second</li></ul></div>
+      </div>`,
+      expectedPaths: [
+        [0, 0, 0],
+        [0, 0, 1],
+      ],
+    },
+  ])("expands by paragraph for $description", ({ html, expectedPaths }) => {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "animation-1",
+        elementIndex: 0,
+        elementPath: [0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+
+    expect(
+      expanded?.map(({ id, elementPath, byParagraph, type }) => ({
+        id,
+        elementPath,
+        byParagraph,
+        type,
+      })),
+    ).toEqual(
+      expectedPaths.map((elementPath, paragraphIndex) => ({
+        id: `animation-1-paragraph-${paragraphIndex}`,
+        elementPath,
+        byParagraph: false,
+        type: "slide-up",
+      })),
+    );
+  });
+
+  it("expands by paragraph when one native paragraph is selected", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide"><div><p>First</p><p>Second</p></div></div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "animation-1",
+        elementIndex: 0,
+        elementPath: [0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+
+    expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+      [0, 0],
+      [0, 1],
+    ]);
+  });
+
   it("shares the configured effect timing between playback surfaces", () => {
     expect(getElementAnimationValue("appear")).toContain("elem-appear");
     expect(getElementAnimationValue("slide-up")).toContain("elem-slide-up");

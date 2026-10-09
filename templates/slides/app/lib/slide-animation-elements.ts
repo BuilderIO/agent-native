@@ -297,9 +297,37 @@ export function expandByParagraphAnimations<T extends AnimationTarget>(
     }
 
     const textObject = element.closest(".fmd-pptx-text");
-    const paragraphs = textObject
+    const importedParagraphs = textObject
       ? Array.from(textObject.querySelectorAll("p[data-pptx-paragraph]"))
       : [];
+    const tagName = element.tagName.toLowerCase();
+    const nativeParagraphs: Element[] = [];
+    if (importedParagraphs.length < 2) {
+      if ((tagName === "p" || tagName === "li") && element.parentElement) {
+        nativeParagraphs.push(
+          ...getPersistedChildren(element.parentElement).filter(
+            (sibling) =>
+              sibling.tagName.toLowerCase() === tagName &&
+              hasMeaningfulContent(sibling),
+          ),
+        );
+      } else {
+        const collectParagraphs = (parent: Element) => {
+          for (const child of getPersistedChildren(parent)) {
+            const childTagName = child.tagName.toLowerCase();
+            if (SKIPPED_TAGS.has(childTagName)) continue;
+            if (childTagName === "p" || childTagName === "li") {
+              if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
+              continue;
+            }
+            collectParagraphs(child);
+          }
+        };
+        collectParagraphs(element);
+      }
+    }
+    const paragraphs =
+      importedParagraphs.length > 1 ? importedParagraphs : nativeParagraphs;
     if (paragraphs.length < 2) {
       expanded.push(target);
       continue;
