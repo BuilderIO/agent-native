@@ -84,7 +84,9 @@ describe("MultiScreenCanvas auto-fit framing", () => {
       fitFocusedViewport,
       selectedScreenIds,
       paneSize,
+      breakpointWidths,
     }: {
+      breakpointWidths?: number[];
       height?: number;
       zoom?: number;
       chromeInsetLeft?: number;
@@ -103,6 +105,7 @@ describe("MultiScreenCanvas auto-fit framing", () => {
       content: "<!doctype html><html><body></body></html>",
       width,
       height,
+      ...(breakpointWidths ? { breakpointWidths } : {}),
     }));
     const geometryById = Object.fromEntries(
       widths.map((width, index) => [
@@ -355,6 +358,22 @@ describe("MultiScreenCanvas auto-fit framing", () => {
         expect(frame.top + frame.height).toBeLessThanOrEqual(paneSize.height);
       },
     );
+
+    it("fits a responsive screen together with its breakpoint frames, centered in the pane", async () => {
+      const view = await renderScreens([1440], {
+        height: 900,
+        initialFitScreenId: "screen-0",
+        fitFocusedViewport: true,
+        paneSize: NARROW_PANE,
+        breakpointWidths: [390],
+      });
+      const left = view.x + SURFACE_PADDING * view.scale;
+      const groupRight = left + (1440 + 24 + 390) * view.scale;
+
+      expect(left).toBeGreaterThanOrEqual(0);
+      expect(groupRight).toBeLessThanOrEqual(NARROW_PANE.width);
+      expect(left).toBeCloseTo(NARROW_PANE.width - groupRight, 0);
+    });
 
     it("refits the focused screen when the widget pane is resized", async () => {
       const observers = new Map<Element, ResizeObserverCallback>();
