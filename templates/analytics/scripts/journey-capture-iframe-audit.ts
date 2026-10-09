@@ -8,11 +8,23 @@ export interface ReplayIframeAudit {
   unavailableIframeCount: number;
 }
 
-/** Serialized into Playwright's page; tsx-rewritten nested functions cannot run there. */
+/**
+ * Playwright serializes this without tsx's module helper. Keep nested callbacks
+ * anonymous to avoid unresolved `__name` references.
+ */
 export function auditReplayIframeContent({
   dimensions,
   recordedIframeParentIds,
 }: ReplayIframeAuditInput): ReplayIframeAudit {
+  type Point = { x: number; y: number };
+  type LinearTransform = { a: number; b: number; c: number; d: number };
+  type BoxGeometry = {
+    bounds: DOMRect;
+    height: number;
+    transform: LinearTransform | null;
+    width: number;
+  };
+
   const MAX_REPLAY_IFRAME_DEPTH = 8;
   const state = (window as typeof window & { __anJourneyCapture?: any })
     .__anJourneyCapture;
@@ -22,15 +34,339 @@ export function auditReplayIframeContent({
 
   const recordedParents = new Set(recordedIframeParentIds);
   const mirror = state.replayer.getMirror?.();
+  const boxGeometries = new WeakMap<Element, BoxGeometry>();
+
+  const [multiply]: [
+    (left: LinearTransform, right: LinearTransform) => LinearTransform,
+  ] = [
+    (left, right) => ({
+      a: left.a * right.a + left.c * right.b,
+      b: left.b * right.a + left.d * right.b,
+      c: left.a * right.c + left.c * right.d,
+      d: left.b * right.c + left.d * right.d,
+    }),
+  ];
+
+  const [parentElement]: [(element: Element) => Element | null] = [
+    (element) => {
+      if (element.assignedSlot) return element.assignedSlot;
+      if (element.parentElement) return element.parentElement;
+      const root = element.getRootNode();
+      return root.nodeType === 11 && "host" in root
+        ? (root as ShadowRoot).host
+        : null;
+    },
+  ];
+
+  const [rotation]: [(value: string) => LinearTransform | null] = [
+    (value) => {
+      if (!value || value === "none") return { a: 1, b: 0, c: 0, d: 1 };
+      const parts = value.trim().split(/\s+/);
+      const match = parts[parts.length - 1]!.match(
+        /^(-?(?:\d+(?:\.\d*)?|\.\d+))(deg|rad|grad|turn)$/i,
+      );
+      if (!match) return null;
+
+      let degrees = Number(match[1]);
+      switch (match[2]!.toLowerCase()) {
+        case "rad":
+          degrees = (degrees * 180) / Math.PI;
+          break;
+        case "grad":
+          degrees *= 0.9;
+          break;
+        case "turn":
+          degrees *= 360;
+          break;
+      }
+
+      if (parts.length === 4) {
+        const x = Number(parts[0]);
+        const y = Number(parts[1]);
+        const z = Number(parts[2]);
+        if (Math.abs(x) > 1e-8 || Math.abs(y) > 1e-8) return null;
+        if (Math.abs(z) <= 1e-8) return { a: 1, b: 0, c: 0, d: 1 };
+        degrees *= Math.sign(z);
+      } else if (
+        parts.length !== 1 &&
+        !(parts.length === 2 && parts[0] === "z")
+      ) {
+        return null;
+      }
+
+      const radians = (degrees * Math.PI) / 180;
+      const cosine = Math.cos(radians);
+      const sine = Math.sin(radians);
+      return { a: cosine, b: sine, c: -sine, d: cosine };
+    },
+  ];
+
+  const [transformFor]: [
+    (element: Element, view: Window) => LinearTransform | null,
+  ] = [
+    (element, view) => {
+      let combined: LinearTransform = { a: 1, b: 0, c: 0, d: 1 };
+      for (
+        let current: Element | null = element;
+        current;
+        current = parentElement(current)
+      ) {
+        const styles = view.getComputedStyle(current);
+        if (
+          (styles.perspective && styles.perspective !== "none") ||
+          (styles.getPropertyValue("offset-path") &&
+            styles.getPropertyValue("offset-path") !== "none")
+        ) {
+          return null;
+        }
+        if (styles.display === "contents") continue;
+
+        let local: LinearTransform = { a: 1, b: 0, c: 0, d: 1 };
+        const transformValue = styles.transform;
+        if (transformValue && transformValue !== "none") {
+          const Matrix = (view as any).DOMMatrix;
+          if (!Matrix) return null;
+          const matrix = new Matrix(transformValue);
+          if (!matrix.is2D) return null;
+          local = {
+            a: matrix.a,
+            b: matrix.b,
+            c: matrix.c,
+            d: matrix.d,
+          };
+        }
+
+        const scaleValue = styles.getPropertyValue("scale");
+        if (scaleValue && scaleValue !== "none") {
+          const values = scaleValue.split(/\s+/).map(Number);
+          if (
+            values.length > 3 ||
+            values.some((value) => !Number.isFinite(value)) ||
+            (values.length === 3 && Math.abs(values[2]! - 1) > 1e-8)
+          ) {
+            return null;
+          }
+          local = multiply(
+            {
+              a: values[0]!,
+              b: 0,
+              c: 0,
+              d: values[1] ?? values[0]!,
+            },
+            local,
+          );
+        }
+
+        const rotationValue = styles.getPropertyValue("rotate");
+        const rotate = rotation(rotationValue);
+        if (!rotate) return null;
+        local = multiply(rotate, local);
+        combined = multiply(local, combined);
+      }
+      return combined;
+    },
+  ];
+
+  const [geometryFor]: [(element: Element, view: Window) => BoxGeometry] = [
+    (element, view) => {
+      const cached = boxGeometries.get(element);
+      if (cached) return cached;
+
+      const htmlElement = element as HTMLElement;
+      const bounds = element.getBoundingClientRect();
+      const width = htmlElement.offsetWidth || bounds.width;
+      const height = htmlElement.offsetHeight || bounds.height;
+      const unscaled = transformFor(element, view);
+      let transform: LinearTransform | null = null;
+      if (unscaled && width > 0 && height > 0) {
+        const expectedWidth =
+          Math.abs(unscaled.a) * width + Math.abs(unscaled.c) * height;
+        const expectedHeight =
+          Math.abs(unscaled.b) * width + Math.abs(unscaled.d) * height;
+        if (expectedWidth > 0 && expectedHeight > 0) {
+          const scaleX = bounds.width / expectedWidth;
+          const scaleY = bounds.height / expectedHeight;
+          const tolerance = Math.max(scaleX, scaleY) * 0.05;
+          if (
+            scaleX > 0 &&
+            scaleY > 0 &&
+            Math.abs(scaleX - scaleY) <= tolerance
+          ) {
+            const scale = (scaleX + scaleY) / 2;
+            transform = {
+              a: unscaled.a * scale,
+              b: unscaled.b * scale,
+              c: unscaled.c * scale,
+              d: unscaled.d * scale,
+            };
+          }
+        }
+      }
+
+      const result = { bounds, height, transform, width };
+      boxGeometries.set(element, result);
+      return result;
+    },
+  ];
+
+  const [pointToScreen]: [(geometry: BoxGeometry, point: Point) => Point] = [
+    (geometry, point) => {
+      const { bounds, height, transform, width } = geometry;
+      if (!transform) {
+        return {
+          x: bounds.left + (point.x / width) * bounds.width,
+          y: bounds.top + (point.y / height) * bounds.height,
+        };
+      }
+      const x = point.x - width / 2;
+      const y = point.y - height / 2;
+      return {
+        x: (bounds.left + bounds.right) / 2 + transform.a * x + transform.c * y,
+        y: (bounds.top + bounds.bottom) / 2 + transform.b * x + transform.d * y,
+      };
+    },
+  ];
+
+  const [pointToLocal]: [(geometry: BoxGeometry, point: Point) => Point] = [
+    (geometry, point) => {
+      const { bounds, height, transform, width } = geometry;
+      if (!transform) {
+        return {
+          x: ((point.x - bounds.left) / bounds.width) * width,
+          y: ((point.y - bounds.top) / bounds.height) * height,
+        };
+      }
+      const determinant = transform.a * transform.d - transform.b * transform.c;
+      if (Math.abs(determinant) <= 1e-12) return { x: NaN, y: NaN };
+      const x = point.x - (bounds.left + bounds.right) / 2;
+      const y = point.y - (bounds.top + bounds.bottom) / 2;
+      return {
+        x: width / 2 + (transform.d * x - transform.c * y) / determinant,
+        y: height / 2 + (-transform.b * x + transform.a * y) / determinant,
+      };
+    },
+  ];
+
+  const [polygonArea]: [(polygon: Point[]) => number] = [
+    (polygon) => {
+      let area = 0;
+      for (let index = 0; index < polygon.length; index += 1) {
+        const current = polygon[index]!;
+        const next = polygon[(index + 1) % polygon.length]!;
+        area += current.x * next.y - next.x * current.y;
+      }
+      return area / 2;
+    },
+  ];
+
+  const [intersectPolygons]: [(subject: Point[], clip: Point[]) => Point[]] = [
+    (subject, clip) => {
+      if (subject.length < 3 || clip.length < 3) return [];
+      const orientation = polygonArea(clip) >= 0 ? 1 : -1;
+      let output = subject;
+      for (let index = 0; index < clip.length; index += 1) {
+        const start = clip[index]!;
+        const end = clip[(index + 1) % clip.length]!;
+        const edgeX = end.x - start.x;
+        const edgeY = end.y - start.y;
+        const input = output;
+        output = [];
+        if (input.length === 0) break;
+
+        let previous = input[input.length - 1]!;
+        let previousDistance =
+          orientation *
+          (edgeX * (previous.y - start.y) - edgeY * (previous.x - start.x));
+        for (const current of input) {
+          const currentDistance =
+            orientation *
+            (edgeX * (current.y - start.y) - edgeY * (current.x - start.x));
+          const previousInside = previousDistance >= -1e-7;
+          const currentInside = currentDistance >= -1e-7;
+          if (previousInside !== currentInside) {
+            const ratio =
+              previousDistance / (previousDistance - currentDistance);
+            output.push({
+              x: previous.x + (current.x - previous.x) * ratio,
+              y: previous.y + (current.y - previous.y) * ratio,
+            });
+          }
+          if (currentInside) output.push(current);
+          previous = current;
+          previousDistance = currentDistance;
+        }
+      }
+      return output;
+    },
+  ];
+
+  const [clipLocalBound, clipLocalAxis, hasVisibleArea]: [
+    (
+      points: Point[],
+      geometry: BoxGeometry,
+      axis: "x" | "y",
+      boundary: number,
+      isMinimum: boolean,
+    ) => Point[],
+    (
+      polygon: Point[],
+      geometry: BoxGeometry,
+      axis: "x" | "y",
+      minimum: number,
+      maximum: number,
+    ) => Point[],
+    (polygon: Point[]) => boolean,
+  ] = [
+    (points, geometry, axis, boundary, isMinimum) => {
+      if (points.length === 0) return [];
+      const clipped: Point[] = [];
+      let previous = points[points.length - 1]!;
+      const previousLocal = pointToLocal(geometry, previous);
+      const previousValue = axis === "x" ? previousLocal.x : previousLocal.y;
+      let previousDistance = isMinimum
+        ? previousValue - boundary
+        : boundary - previousValue;
+      for (const current of points) {
+        const currentLocal = pointToLocal(geometry, current);
+        const currentValue = axis === "x" ? currentLocal.x : currentLocal.y;
+        const currentDistance = isMinimum
+          ? currentValue - boundary
+          : boundary - currentValue;
+        const previousInside = previousDistance >= -1e-7;
+        const currentInside = currentDistance >= -1e-7;
+        if (previousInside !== currentInside) {
+          const ratio = previousDistance / (previousDistance - currentDistance);
+          clipped.push({
+            x: previous.x + (current.x - previous.x) * ratio,
+            y: previous.y + (current.y - previous.y) * ratio,
+          });
+        }
+        if (currentInside) clipped.push(current);
+        previous = current;
+        previousDistance = currentDistance;
+      }
+      return clipped;
+    },
+    (polygon, geometry, axis, minimum, maximum) =>
+      clipLocalBound(
+        clipLocalBound(polygon, geometry, axis, minimum, true),
+        geometry,
+        axis,
+        maximum,
+        false,
+      ),
+    (polygon) => polygon.length >= 3 && Math.abs(polygonArea(polygon)) > 1e-4,
+  ];
+
   const documents = [
     {
       owner: replayDocument,
-      clip: {
-        left: 0,
-        top: 0,
-        right: dimensions.width,
-        bottom: dimensions.height,
-      },
+      clip: [
+        { x: 0, y: 0 },
+        { x: dimensions.width, y: 0 },
+        { x: dimensions.width, y: dimensions.height },
+        { x: 0, y: dimensions.height },
+      ],
       depth: 0,
     },
   ];
@@ -84,11 +420,7 @@ export function auditReplayIframeContent({
       const positioned = position === "absolute" || position === "fixed";
       let containingBlock: Element | null = null;
       if (positioned) {
-        for (
-          let current: Element | null =
-            frame.assignedSlot ?? frame.parentElement;
-          current;
-        ) {
+        for (let current: Element | null = parentElement(frame); current; ) {
           const styles = view.getComputedStyle(current);
           let establishesContainingBlock = false;
           if (styles.display !== "none" && styles.display !== "contents") {
@@ -122,17 +454,7 @@ export function auditReplayIframeContent({
             containingBlock = current;
             break;
           }
-          if (current.assignedSlot) {
-            current = current.assignedSlot;
-          } else if (current.parentElement) {
-            current = current.parentElement;
-          } else {
-            const root = current.getRootNode();
-            current =
-              root.nodeType === 11 && "host" in root
-                ? (root as ShadowRoot).host
-                : null;
-          }
+          current = parentElement(current);
         }
       }
       let reachedContainingBlock = !positioned;
@@ -152,23 +474,28 @@ export function auditReplayIframeContent({
         bodyStyle.contentVisibility !== "auto";
 
       let rendered = true;
-      const bounds = frame.getBoundingClientRect();
-      const frameScaleX =
-        frame.offsetWidth > 0
-          ? (bounds.right - bounds.left) / frame.offsetWidth
-          : 1;
-      const frameScaleY =
-        frame.offsetHeight > 0
-          ? (bounds.bottom - bounds.top) / frame.offsetHeight
-          : 1;
-      const contentLeft = bounds.left + frame.clientLeft * frameScaleX;
-      const contentTop = bounds.top + frame.clientTop * frameScaleY;
-      const contentRight = contentLeft + frame.clientWidth * frameScaleX;
-      const contentBottom = contentTop + frame.clientHeight * frameScaleY;
-      let visibleLeft = Math.max(contentLeft, clip.left);
-      let visibleTop = Math.max(contentTop, clip.top);
-      let visibleRight = Math.min(contentRight, clip.right);
-      let visibleBottom = Math.min(contentBottom, clip.bottom);
+      const frameGeometry = geometryFor(frame, view);
+      let visiblePolygon = intersectPolygons(
+        [
+          pointToScreen(frameGeometry, {
+            x: frame.clientLeft,
+            y: frame.clientTop,
+          }),
+          pointToScreen(frameGeometry, {
+            x: frame.clientLeft + frame.clientWidth,
+            y: frame.clientTop,
+          }),
+          pointToScreen(frameGeometry, {
+            x: frame.clientLeft + frame.clientWidth,
+            y: frame.clientTop + frame.clientHeight,
+          }),
+          pointToScreen(frameGeometry, {
+            x: frame.clientLeft,
+            y: frame.clientTop + frame.clientHeight,
+          }),
+        ],
+        clip,
+      );
 
       for (let current: Element | null = frame; current; ) {
         const styles = view.getComputedStyle(current);
@@ -185,15 +512,6 @@ export function auditReplayIframeContent({
           (!positioned || reachedContainingBlock || current === containingBlock)
         ) {
           const ancestor = current as HTMLElement;
-          const ancestorBounds = ancestor.getBoundingClientRect();
-          const scaleX =
-            ancestor.offsetWidth > 0
-              ? ancestorBounds.width / ancestor.offsetWidth
-              : 1;
-          const scaleY =
-            ancestor.offsetHeight > 0
-              ? ancestorBounds.height / ancestor.offsetHeight
-              : 1;
           const overflowX = styles.overflowX || styles.overflow;
           const overflowY = styles.overflowY || styles.overflow;
           const overflowAppliesToViewport =
@@ -212,57 +530,53 @@ export function auditReplayIframeContent({
           }
           const hasBox =
             styles.display !== "contents" && styles.display !== "inline";
-          if (
-            hasBox &&
-            (paintContainment ||
+          const geometry = geometryFor(ancestor, view);
+          if (hasBox) {
+            const clipsX =
+              paintContainment ||
               (!overflowAppliesToViewport &&
                 ["auto", "clip", "hidden", "overlay", "scroll"].includes(
                   overflowX,
-                )))
-          ) {
-            const left = ancestorBounds.left + ancestor.clientLeft * scaleX;
-            visibleLeft = Math.max(visibleLeft, left);
-            visibleRight = Math.min(
-              visibleRight,
-              left + ancestor.clientWidth * scaleX,
-            );
-          }
-          if (
-            hasBox &&
-            (paintContainment ||
+                ));
+            const clipsY =
+              paintContainment ||
               (!overflowAppliesToViewport &&
                 ["auto", "clip", "hidden", "overlay", "scroll"].includes(
                   overflowY,
-                )))
-          ) {
-            const top = ancestorBounds.top + ancestor.clientTop * scaleY;
-            visibleTop = Math.max(visibleTop, top);
-            visibleBottom = Math.min(
-              visibleBottom,
-              top + ancestor.clientHeight * scaleY,
-            );
+                ));
+            if (clipsX) {
+              visiblePolygon = clipLocalAxis(
+                visiblePolygon,
+                geometry,
+                "x",
+                paintContainment ? 0 : ancestor.clientLeft,
+                paintContainment
+                  ? geometry.width
+                  : ancestor.clientLeft + ancestor.clientWidth,
+              );
+            }
+            if (clipsY) {
+              visiblePolygon = clipLocalAxis(
+                visiblePolygon,
+                geometry,
+                "y",
+                paintContainment ? 0 : ancestor.clientTop,
+                paintContainment
+                  ? geometry.height
+                  : ancestor.clientTop + ancestor.clientHeight,
+              );
+            }
           }
         }
         if (positioned && current === containingBlock) {
           reachedContainingBlock = true;
         }
-        if (current.assignedSlot) {
-          current = current.assignedSlot;
-        } else if (current.parentElement) {
-          current = current.parentElement;
-        } else {
-          const root = current.getRootNode();
-          current =
-            root.nodeType === 11 && "host" in root
-              ? (root as ShadowRoot).host
-              : null;
-        }
+        current = parentElement(current);
       }
 
       if (
         !rendered ||
-        visibleRight <= visibleLeft ||
-        visibleBottom <= visibleTop ||
+        !hasVisibleArea(visiblePolygon) ||
         view.innerWidth <= 0 ||
         view.innerHeight <= 0
       ) {
@@ -291,39 +605,35 @@ export function auditReplayIframeContent({
           childView?.innerWidth || child.documentElement.clientWidth;
         const height =
           childView?.innerHeight || child.documentElement.clientHeight;
-        const contentScaleX = (frame.clientWidth * frameScaleX) / width;
-        const contentScaleY = (frame.clientHeight * frameScaleY) / height;
         if (
           !childView ||
           width <= 0 ||
           height <= 0 ||
-          contentScaleX <= 0 ||
-          contentScaleY <= 0
+          frame.clientWidth <= 0 ||
+          frame.clientHeight <= 0
         ) {
           unavailable = true;
         } else {
-          const childClip = {
-            left: Math.max(
-              0,
-              Math.min(width, (visibleLeft - contentLeft) / contentScaleX),
-            ),
-            top: Math.max(
-              0,
-              Math.min(height, (visibleTop - contentTop) / contentScaleY),
-            ),
-            right: Math.max(
-              0,
-              Math.min(width, (visibleRight - contentLeft) / contentScaleX),
-            ),
-            bottom: Math.max(
-              0,
-              Math.min(height, (visibleBottom - contentTop) / contentScaleY),
-            ),
-          };
-          if (
-            childClip.right <= childClip.left ||
-            childClip.bottom <= childClip.top
-          ) {
+          const childClip = visiblePolygon.map((point) => {
+            const local = pointToLocal(frameGeometry, point);
+            return {
+              x: Math.max(
+                0,
+                Math.min(
+                  width,
+                  ((local.x - frame.clientLeft) / frame.clientWidth) * width,
+                ),
+              ),
+              y: Math.max(
+                0,
+                Math.min(
+                  height,
+                  ((local.y - frame.clientTop) / frame.clientHeight) * height,
+                ),
+              ),
+            };
+          });
+          if (!hasVisibleArea(childClip)) {
             unavailable = true;
           } else {
             documents.push({ owner: child, clip: childClip, depth: depth + 1 });

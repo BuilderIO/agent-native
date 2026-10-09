@@ -397,4 +397,94 @@ describe("session replay iframe recording", () => {
     });
     await page.close();
   }, 30_000);
+
+  it("ignores rotated frames whose bounds only overlap an empty viewport corner", async () => {
+    const page = await browser.newPage();
+    await page.setContent(
+      '<!doctype html><iframe id="replay" style="width:300px;height:200px;border:0"></iframe>',
+    );
+    await page.locator("#replay").evaluate((replayFrame) => {
+      const replayDocument = replayFrame.contentDocument!;
+      replayDocument.body.style.cssText = "margin:0;position:relative";
+
+      const outside = replayDocument.createElement("iframe");
+      outside.id = "outside-corner";
+      outside.style.cssText =
+        "position:absolute;left:-20px;top:-20px;width:20px;height:20px;transform:rotate(45deg);transform-origin:center;border:0";
+      outside.srcdoc = "<!doctype html><html><body>frame</body></html>";
+      replayDocument.body.append(outside);
+
+      const transformedHost = replayDocument.createElement("div");
+      transformedHost.style.cssText =
+        "position:absolute;left:-5px;top:-5px;width:20px;height:20px;transform:rotate(45deg);transform-origin:center";
+      const visible = replayDocument.createElement("iframe");
+      visible.id = "visible-corner";
+      visible.style.cssText =
+        "position:absolute;left:0;top:0;width:20px;height:20px;border:0";
+      visible.srcdoc = "<!doctype html><html><body>frame</body></html>";
+      transformedHost.append(visible);
+      replayDocument.body.append(transformedHost);
+    });
+    await page.waitForFunction(() => {
+      const replayDocument = (
+        document.querySelector("#replay") as HTMLIFrameElement
+      )?.contentDocument;
+      const frames = Array.from(
+        replayDocument?.querySelectorAll("iframe") ?? [],
+      );
+      return (
+        frames.length === 2 &&
+        frames.every(
+          (frame) => frame.contentDocument?.readyState === "complete",
+        )
+      );
+    });
+
+    const result = await page.evaluate((auditSource) => {
+      const replayFrame = document.querySelector(
+        "#replay",
+      ) as HTMLIFrameElement;
+      const replayDocument = replayFrame.contentDocument!;
+      const outside = replayDocument.querySelector(
+        "#outside-corner",
+      ) as HTMLIFrameElement;
+      const visible = replayDocument.querySelector(
+        "#visible-corner",
+      ) as HTMLIFrameElement;
+      const ids = new Map<Element, number>([
+        [outside, 1],
+        [visible, 2],
+      ]);
+      (
+        window as typeof window & { __anJourneyCapture?: unknown }
+      ).__anJourneyCapture = {
+        replayer: {
+          getMirror: () => ({ getId: (element: Element) => ids.get(element) }),
+          iframe: replayFrame,
+        },
+      };
+      const audit = new Function(`return (${auditSource})`)() as (
+        input: unknown,
+      ) => unknown;
+      return {
+        outsideBounds: outside.getBoundingClientRect().toJSON(),
+        outsideHitTest: replayDocument.elementFromPoint(2, 2) === outside,
+        visibleHitTest: replayDocument.elementFromPoint(2, 2) === visible,
+        audit: audit({
+          dimensions: { width: 300, height: 200 },
+          recordedIframeParentIds: [],
+        }),
+      };
+    }, serializedAuditSource());
+
+    expect(result.outsideBounds.right).toBeGreaterThan(0);
+    expect(result.outsideBounds.bottom).toBeGreaterThan(0);
+    expect(result.outsideHitTest).toBe(false);
+    expect(result.visibleHitTest).toBe(true);
+    expect(result.audit).toEqual({
+      visibleIframeCount: 1,
+      unavailableIframeCount: 1,
+    });
+    await page.close();
+  }, 30_000);
 });
