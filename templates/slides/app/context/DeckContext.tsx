@@ -164,6 +164,7 @@ function addSlideFields(
   const {
     id: _id,
     imageLoading: _imageLoading,
+    imagePrompt: _imagePrompt,
     layoutFitRevision: _layoutFitRevision,
     ...fields
   } = slide;

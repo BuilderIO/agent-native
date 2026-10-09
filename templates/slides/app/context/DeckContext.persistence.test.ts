@@ -6917,6 +6917,7 @@ describe("DeckContext deck creation persistence", () => {
           notes: "",
           layout: "title",
           background: "bg-[#000000]",
+          imagePrompt: "server-only prompt",
           layoutFitRevision: "server-owned-revision",
         },
         {
@@ -6974,6 +6975,7 @@ describe("DeckContext deck creation persistence", () => {
       patchBody.operations as Array<{ fields: Record<string, unknown> }>
     )[0];
     expect(addOperation.fields).not.toHaveProperty("layoutFitRevision");
+    expect(addOperation.fields).not.toHaveProperty("imagePrompt");
   });
 
   it("normalizes legacy notes and omits server revision when pasting a slide", async () => {
@@ -6989,6 +6991,7 @@ describe("DeckContext deck creation persistence", () => {
           content: "<h1>One</h1>",
           notes: null,
           layout: "title",
+          imagePrompt: "server-only prompt",
           layoutFitRevision: "server-owned-revision",
         },
       ],
@@ -7034,6 +7037,7 @@ describe("DeckContext deck creation persistence", () => {
       }>
     )[0];
     expect(addOperation.fields).not.toHaveProperty("layoutFitRevision");
+    expect(addOperation.fields).not.toHaveProperty("imagePrompt");
   });
 
   it("omits server layout revisions when undo restores a deleted slide", async () => {
@@ -7051,6 +7055,7 @@ describe("DeckContext deck creation persistence", () => {
           content: "<h1>One</h1>",
           notes: "",
           layout: "title",
+          imagePrompt: "server-only prompt",
           layoutFitRevision: "server-owned-revision",
         },
         { id: "slide-2", content: "<h1>Two</h1>", notes: "", layout: "title" },
@@ -7092,6 +7097,7 @@ describe("DeckContext deck creation persistence", () => {
 
     expect(restoredSlide?.slideId).toBe("slide-1");
     expect(restoredSlide?.fields).not.toHaveProperty("layoutFitRevision");
+    expect(restoredSlide?.fields).not.toHaveProperty("imagePrompt");
   });
 
   it("sends an exact baseline when dismissing an overflow warning", async () => {
