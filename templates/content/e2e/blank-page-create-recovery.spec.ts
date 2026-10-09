@@ -56,7 +56,16 @@ test("a second tab waits for the first blank-page create to finish", async ({
     await expect(
       secondTab.getByRole("button", { name: /New —/ }).first(),
     ).toBeVisible();
-    await secondTab.waitForTimeout(1_000);
+    await expect
+      .poll(() =>
+        secondTab.evaluate(async () => {
+          const locks = await navigator.locks.query();
+          return locks.pending.some((lock) =>
+            lock.name?.includes("document-create"),
+          );
+        }),
+      )
+      .toBe(true);
     expect(createRequests).toBe(1);
 
     await createGate.release();
