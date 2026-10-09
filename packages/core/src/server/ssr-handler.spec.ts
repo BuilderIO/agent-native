@@ -386,6 +386,30 @@ describe("createH3SSRHandler", () => {
     expect(mocks.requestHandler.mock.calls[2]?.[0].url).toContain("/page/?");
   });
 
+  it("preserves disabled SSR caching for recovery aliases", async () => {
+    process.env.AGENT_NATIVE_SSR_CACHE = "off";
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(
+      createEvent(`/page${CHUNK_RECOVERY_PATH_SUFFIX}`),
+    );
+
+    expect(response.headers.get("cache-control")).toBe(
+      DISABLED_SSR_CACHE_HEADERS["cache-control"],
+    );
+    expect(response.headers.get("cdn-cache-control")).toBe(
+      DISABLED_SSR_CACHE_HEADERS["cdn-cache-control"],
+    );
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+      DISABLED_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
+    );
+  });
+
   it("preserves full Netlify query variation for marked public redirects", async () => {
     process.env.SITE_ID = "site-test";
     mocks.requestHandler.mockResolvedValueOnce(

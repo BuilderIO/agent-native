@@ -135,6 +135,15 @@ export function resolveSsrCacheHeaders(
   return memoizedHeaders;
 }
 
+export function resolveChunkRecoveryCacheControl(
+  cacheHeaders: Pick<SsrCacheHeaders, "cache-control"> =
+    resolveSsrCacheHeaders(),
+): string {
+  return cacheHeaders["cache-control"] === DISABLED_SSR_CACHE_CONTROL
+    ? DISABLED_SSR_CACHE_CONTROL
+    : CHUNK_RECOVERY_BROWSER_CACHE_CONTROL;
+}
+
 export function resolveSsrNetlifyQueryVary(varyByQuery = false): string {
   if (varyByQuery) return "query";
   return "query=_routes|index";

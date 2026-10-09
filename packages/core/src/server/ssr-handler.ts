@@ -4,8 +4,8 @@ import { createRequestHandler } from "react-router";
 import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
-  CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SPECULATION_RULES_PATH,
+  resolveChunkRecoveryCacheControl,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -294,7 +294,7 @@ function applyDefaultSsrCacheHeader(
   headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) {
     if (isRecoveryAlias) {
-      headers.set("cache-control", CHUNK_RECOVERY_BROWSER_CACHE_CONTROL);
+      headers.set("cache-control", resolveChunkRecoveryCacheControl());
     }
     return;
   }
@@ -335,7 +335,7 @@ function applyDefaultSsrCacheHeader(
   if (netlifyVary) headers.set("netlify-vary", netlifyVary);
   else headers.delete("netlify-vary");
   if (isRecoveryAlias) {
-    headers.set("cache-control", CHUNK_RECOVERY_BROWSER_CACHE_CONTROL);
+    headers.set("cache-control", resolveChunkRecoveryCacheControl());
   }
 }
 

@@ -2362,6 +2362,18 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
       expect(response.headers.get(name)).toBe(value);
     }
     expect(response.headers.get("set-cookie")).toBeNull();
+
+    const recoveryResponse = await worker.fetch(
+      new Request(
+        `https://app.test/docs/inbox${CHUNK_RECOVERY_PATH_SUFFIX}`,
+      ),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    for (const [name, value] of Object.entries(DISABLED_SSR_CACHE_HEADERS)) {
+      expect(recoveryResponse.headers.get(name)).toBe(value);
+    }
   });
 
   it("caps SSR freshness when AGENT_NATIVE_SSR_CACHE names a duration", async () => {
