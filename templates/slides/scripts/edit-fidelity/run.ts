@@ -666,8 +666,8 @@ async function action<T = any>(
   name: string,
   body: Record<string, unknown>,
   method: "DELETE" | "GET" | "POST" = "POST",
+  timeoutMs = 30_000,
 ): Promise<T> {
-  const timeoutMs = 30_000;
   const evaluation = page.evaluate(
     async ({ name, body, method, timeoutMs }: any) => {
       const url =
@@ -5302,7 +5302,7 @@ async function runAuthoringFuzzQa(
       try {
         if (createAttempted && !deckId) {
           try {
-            // An ambiguous create may commit after the first list-decks read.
+            // A timed-out create can commit after the client stops waiting.
             const recovery = await retryAuthoringFuzzScratchDeckLookup(
               async () => {
                 const lookupPage = await getCleanupPage();
@@ -5316,6 +5316,7 @@ async function runAuthoringFuzzQa(
                     limit: "10",
                   },
                   "GET",
+                  5_000,
                 );
               },
               scratchTitle,

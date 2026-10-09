@@ -362,6 +362,7 @@ it("retries an ambiguous scratch-deck lookup until the created deck appears", as
   const title = "[edit-fidelity] authoring fuzz 1 unique-run-id";
   let lookups = 0;
   let waits = 0;
+  let now = 0;
 
   const recovery = await retryAuthoringFuzzScratchDeckLookup(
     async () => {
@@ -371,7 +372,14 @@ it("retries an ambiguous scratch-deck lookup until the created deck appears", as
       return { decks: [{ id: "scratch", title }] };
     },
     title,
-    { wait: async () => void (waits += 1) },
+    {
+      now: () => now,
+      intervalMs: 5_000,
+      wait: async (ms) => {
+        waits += 1;
+        now += ms;
+      },
+    },
   );
 
   expect(recovery).toEqual({ status: "found", deckId: "scratch" });
@@ -379,9 +387,10 @@ it("retries an ambiguous scratch-deck lookup until the created deck appears", as
   expect(waits).toBe(2);
 });
 
-it("bounds scratch-deck recovery retries and returns the final lookup status", async () => {
+it("bounds scratch-deck recovery for the full late-create window", async () => {
   let lookups = 0;
   let waits = 0;
+  let now = 0;
 
   const recovery = await retryAuthoringFuzzScratchDeckLookup(
     async () => {
@@ -389,17 +398,25 @@ it("bounds scratch-deck recovery retries and returns the final lookup status", a
       return { decks: [] };
     },
     "missing scratch deck",
-    { attempts: 3, wait: async () => void (waits += 1) },
+    {
+      intervalMs: 5_000,
+      now: () => now,
+      wait: async (ms) => {
+        waits += 1;
+        now += ms;
+      },
+    },
   );
 
   expect(recovery).toEqual({ status: "not-found" });
-  expect(lookups).toBe(3);
-  expect(waits).toBe(2);
+  expect(lookups).toBe(12);
+  expect(waits).toBe(12);
 });
 
 it("preserves a final scratch-deck lookup error after a missing result", async () => {
   const failure = new Error("list-decks request timed out");
   let lookups = 0;
+  let now = 0;
 
   await expect(
     retryAuthoringFuzzScratchDeckLookup(
@@ -409,7 +426,14 @@ it("preserves a final scratch-deck lookup error after a missing result", async (
         throw failure;
       },
       "missing scratch deck",
-      { attempts: 2, wait: async () => undefined },
+      {
+        windowMs: 10_000,
+        intervalMs: 5_000,
+        now: () => now,
+        wait: async (ms) => {
+          now += ms;
+        },
+      },
     ),
   ).rejects.toBe(failure);
   expect(lookups).toBe(2);

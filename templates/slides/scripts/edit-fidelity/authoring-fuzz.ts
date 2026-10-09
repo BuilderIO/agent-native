@@ -244,22 +244,25 @@ export async function retryAuthoringFuzzScratchDeckLookup(
   lookup: () => Promise<{ decks?: Array<{ id?: string; title?: string }> }>,
   title: string,
   options: {
-    attempts?: number;
-    delayMs?: number;
+    windowMs?: number;
+    intervalMs?: number;
+    now?: () => number;
     wait?: (ms: number) => Promise<void>;
   } = {},
 ) {
-  const attempts = options.attempts ?? 5;
-  const delayMs = options.delayMs ?? 1000;
+  const windowMs = Math.max(1, options.windowMs ?? 60_000);
+  const intervalMs = Math.max(1, options.intervalMs ?? 5_000);
+  const now = options.now ?? Date.now;
   const wait =
     options.wait ??
     ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const deadline = now() + windowMs;
   let lastRecovery: ReturnType<typeof resolveAuthoringFuzzScratchDeck> | null =
     null;
   let lastError: unknown;
   let lastAttemptFailed = false;
 
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
+  while (now() < deadline) {
     try {
       lastRecovery = resolveAuthoringFuzzScratchDeck(await lookup(), title);
       lastError = undefined;
@@ -270,12 +273,14 @@ export async function retryAuthoringFuzzScratchDeckLookup(
       lastAttemptFailed = true;
     }
 
-    if (attempt < attempts - 1) await wait(delayMs);
+    const remainingMs = deadline - now();
+    if (remainingMs <= 0) break;
+    await wait(Math.min(intervalMs, remainingMs));
   }
 
   if (lastAttemptFailed) throw lastError;
   if (lastRecovery) return lastRecovery;
-  throw lastError;
+  throw new Error("scratch-deck lookup window expired before a lookup");
 }
 
 export function formatAuthoringFuzzCleanupIssue(
