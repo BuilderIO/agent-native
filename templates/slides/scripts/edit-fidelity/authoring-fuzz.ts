@@ -260,7 +260,6 @@ export function isExpectedSaveReloadWatchedRequestCorsConsoleError(
   return candidates.some(
     (candidate) =>
       candidate.url === match[1] &&
-      candidate.method === "POST" &&
       candidate.requestWasPendingAtReloadNavigation === true &&
       candidate.ageMs >= 0 &&
       candidate.ageMs < reloadNavigationAbortMaxRequestAgeMs &&
@@ -269,7 +268,9 @@ export function isExpectedSaveReloadWatchedRequestCorsConsoleError(
           typeof rule.path === "string"
             ? rule.path === candidate.pathname
             : rule.path.test(candidate.pathname);
-        return matchesPath && rule.method === candidate.method;
+        return (
+          matchesPath && (!rule.method || rule.method === candidate.method)
+        );
       }),
   );
 }

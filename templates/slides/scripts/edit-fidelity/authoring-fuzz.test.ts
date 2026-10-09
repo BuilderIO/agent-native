@@ -1158,7 +1158,7 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
   }
 });
 
-it("ignores only WebKit CORS console errors for pending claim requests canceled by reload", () => {
+it("ignores only WebKit CORS console errors for requests canceled by reload", () => {
   const url =
     "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim";
   const message = `Fetch API cannot load ${url} due to access control checks.`;
@@ -1180,6 +1180,23 @@ it("ignores only WebKit CORS console errors for pending claim requests canceled 
       `${message}\n    at fetch (native)`,
       "save/reload",
       [candidate],
+    ),
+  ).toBe(true);
+  const actionUrl =
+    "http://localhost:45715/_agent-native/actions/get-lab-states";
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(
+      `Fetch API cannot load ${actionUrl} due to access control checks.\n    at fetch (native)`,
+      "save/reload",
+      [
+        {
+          url: actionUrl,
+          pathname: "/_agent-native/actions/get-lab-states",
+          method: "POST",
+          ageMs: 100,
+          requestWasPendingAtReloadNavigation: true,
+        },
+      ],
     ),
   ).toBe(true);
   expect(
