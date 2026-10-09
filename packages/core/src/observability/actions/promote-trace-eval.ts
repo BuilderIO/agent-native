@@ -266,11 +266,20 @@ export default defineAction({
       .describe(
         `Optional manually reviewed history of up to ${PROMOTED_EVAL_REVIEW_LIMITS.historyTurns} turns; each text is up to ${PROMOTED_EVAL_REVIEW_LIMITS.historyTextLength} characters. Use only approved generic analytics words and entity placeholders. Unknown terms fail the promotion; production history is never copied automatically.`,
       ),
+    datasetName: z
+      .string()
+      .optional()
+      .describe(
+        `Optional manually reviewed dataset label (up to 120 characters). Only approved generic analytics words and entity placeholders are accepted.`,
+      ),
   }),
   http: { method: "POST" },
   maxBodyBytes: 24_000,
   readOnly: false,
-  run: async ({ runId, reviewedPrompt, reviewedHistory, mustContain }, ctx) => {
+  run: async (
+    { runId, reviewedPrompt, reviewedHistory, mustContain, datasetName },
+    ctx,
+  ) => {
     const userId = ctx?.userEmail;
     if (!userId) {
       fail("Sign in to promote a trace", {
@@ -279,7 +288,7 @@ export default defineAction({
       });
     }
     return promoteTraceEvalFromStore(
-      { runId, reviewedPrompt, reviewedHistory, mustContain },
+      { runId, reviewedPrompt, reviewedHistory, mustContain, datasetName },
       { userId },
     );
   },

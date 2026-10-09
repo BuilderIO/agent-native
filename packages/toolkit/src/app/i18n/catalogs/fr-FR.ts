@@ -88,6 +88,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Texte facultatif à rechercher dans la réponse…",
   "observability.promoteMustContainLabel":
     "Texte à vérifier dans la réponse de l’évaluation promue",
+  "observability.promoteReviewedPromptLabel":
+    "Prompt vérifié manuellement (jamais copié depuis la production)",
   "observability.promoteNeedsContains":
     "Cette exécution ne comporte aucun appel d’outil réussi. Saisissez le texte que la réponse doit contenir avant de promouvoir.",
   "observability.viewDetails": "Afficher les détails",

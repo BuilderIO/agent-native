@@ -84,6 +84,8 @@ const messages: ToolkitAgentChatTranslation = {
     "نص اختياري للتحقق من وجوده في الرد…",
   "observability.promoteMustContainLabel":
     "النص الذي سيتم التحقق منه في رد التقييم الذي تمت ترقيته",
+  "observability.promoteReviewedPromptLabel":
+    "مطالبة تمت مراجعتها يدويًا (لا تُنسخ من الإنتاج تلقائيًا)",
   "observability.promoteNeedsContains":
     "لا تتضمن هذه الجولة أي استدعاء ناجح للأداة. أدخل نصًا يجب أن تحتوي عليه الإجابة قبل الترويج.",
   "observability.viewDetails": "عرض التفاصيل",

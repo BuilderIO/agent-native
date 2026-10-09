@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+import enUS from "../app/i18n/en-US";
 import { appPath, designFrame, gotoEditor, selectByText } from "./helpers";
 
 const IMAGE_PROMPT = "Describe the attached image reference.";
@@ -293,7 +294,16 @@ async function openSidebarComposer(
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
   ).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  const workspaceRail = page.locator(
+    '[data-design-chrome-region="workspace-rail"]',
+  );
+  await expect(workspaceRail).toBeVisible({ timeout: 15_000 });
+  await workspaceRail
+    .getByRole("button", {
+      name: enUS.designEditor.leftRail.agent,
+      exact: true,
+    })
+    .click();
   await expect(
     page.locator(`iframe[data-screen-iframe-id="${fileId}"]`),
   ).toBeVisible({ timeout: 30_000 });

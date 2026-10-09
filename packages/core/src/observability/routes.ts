@@ -165,7 +165,11 @@ export function createObservabilityHandler() {
       parts[2] === "promote"
     ) {
       const runId = decodeURIComponent(parts[1]);
-      let body: { mustContain?: unknown; datasetName?: unknown };
+      let body: {
+        reviewedPrompt?: unknown;
+        mustContain?: unknown;
+        datasetName?: unknown;
+      };
       try {
         const raw = await readBody(event);
         // An unreadable or non-object payload is not the same as an absent
@@ -174,7 +178,11 @@ export function createObservabilityHandler() {
           setResponseStatus(event, 400);
           return { error: "Invalid JSON body" };
         }
-        body = raw as { mustContain?: unknown; datasetName?: unknown };
+        body = raw as {
+          reviewedPrompt?: unknown;
+          mustContain?: unknown;
+          datasetName?: unknown;
+        };
       } catch {
         setResponseStatus(event, 400);
         return { error: "Invalid JSON body" };
@@ -183,6 +191,10 @@ export function createObservabilityHandler() {
         return await promoteTraceEvalFromStore(
           {
             runId,
+            reviewedPrompt:
+              typeof body.reviewedPrompt === "string"
+                ? body.reviewedPrompt
+                : undefined,
             mustContain:
               typeof body.mustContain === "string"
                 ? body.mustContain

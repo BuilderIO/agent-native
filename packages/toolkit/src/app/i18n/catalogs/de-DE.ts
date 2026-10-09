@@ -87,6 +87,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Optionaler Text, nach dem in der Antwort gesucht wird…",
   "observability.promoteMustContainLabel":
     "Text, der in der Antwort der hochgestuften Auswertung geprüft wird",
+  "observability.promoteReviewedPromptLabel":
+    "Manuell geprüfter Prompt (wird nie aus der Produktion kopiert)",
   "observability.promoteNeedsContains":
     "Dieser Lauf enthält keinen erfolgreichen Tool-Aufruf. Gib Text ein, der in der Antwort vorkommen muss, bevor du ihn hochstufst.",
   "observability.viewDetails": "Details anzeigen",

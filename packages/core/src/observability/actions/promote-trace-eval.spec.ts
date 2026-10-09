@@ -156,6 +156,32 @@ describe("promote-trace-eval", () => {
     expect(result.sourceRunId).toBe("run-1");
   });
 
+  it("accepts and forwards a reviewed dataset name through the action", async () => {
+    store.getTraceSummary.mockResolvedValue(summary());
+    runStore.getRunById.mockResolvedValue(completedRun());
+    expect(
+      promoteTraceEval.schema.safeParse({
+        runId: "run-1",
+        reviewedPrompt: "show active users daily",
+        datasetName: "weekly analytics dataset",
+      }).success,
+    ).toBe(true);
+
+    const result = await promoteTraceEval.run(
+      {
+        runId: "run-1",
+        reviewedPrompt: "show active users daily",
+        datasetName: "weekly analytics dataset",
+      },
+      { userEmail: "alice@example.com" },
+    );
+
+    expect(result.dataset.name).toBe("weekly analytics dataset");
+    expect(store.savePromotedEvalDataset).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "weekly analytics dataset" }),
+    );
+  });
+
   it("uses reviewed text when events have no user-message", async () => {
     store.getTraceSummary.mockResolvedValue(summary());
     runStore.getRunById.mockResolvedValue(completedRun());

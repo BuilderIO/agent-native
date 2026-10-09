@@ -85,6 +85,8 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.promoteMustContainOptional": "返信で確認する任意のテキスト…",
   "observability.promoteMustContainLabel":
     "昇格した評価の返信で確認するテキスト",
+  "observability.promoteReviewedPromptLabel":
+    "手動で確認したプロンプト（本番環境から自動コピーされません）",
   "observability.promoteNeedsContains":
     "この実行には成功したツール呼び出しがありません。昇格する前に、返信に含めるテキストを入力してください。",
   "observability.viewDetails": "詳細を表示",

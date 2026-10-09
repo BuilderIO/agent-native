@@ -36,6 +36,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@agent-native/toolkit/ui/tabs";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -498,15 +499,37 @@ function RawTrace({ runId }: { runId: string }) {
   const [expandedSpanId, setExpandedSpanId] = useState<string | null>(null);
   const promote = usePromoteTraceEval();
   const [mustContain, setMustContain] = useState("");
+  const [reviewedPrompt, setReviewedPrompt] = useState("");
   const needle = mustContain.trim();
+  const prompt = reviewedPrompt.trim();
   const needsNeedle = !!data && data.summary.successfulTools === 0;
   const canPromote =
-    !!data && !promote.isPending && (!needsNeedle || needle.length > 0);
+    !!data &&
+    !promote.isPending &&
+    prompt.length > 0 &&
+    (!needsNeedle || needle.length > 0);
 
   if (isLoading) return <LoadingState />;
   if (!data) return null;
   return (
     <div className="space-y-3">
+      <div className="space-y-1">
+        <label
+          htmlFor={`promote-eval-prompt-${runId}`}
+          className="text-xs font-medium text-foreground"
+        >
+          {t("observability.promoteReviewedPromptLabel")}
+        </label>
+        <Textarea
+          id={`promote-eval-prompt-${runId}`}
+          value={reviewedPrompt}
+          onChange={(event) => setReviewedPrompt(event.target.value)}
+          disabled={promote.isPending}
+          maxLength={3000}
+          aria-label={t("observability.promoteReviewedPromptLabel")}
+          className="min-h-16 max-w-2xl text-xs"
+        />
+      </div>
       <div className="flex flex-wrap items-center justify-end gap-2">
         <input
           type="text"
@@ -529,6 +552,7 @@ function RawTrace({ runId }: { runId: string }) {
           onClick={() =>
             promote.mutate({
               runId,
+              reviewedPrompt: prompt,
               ...(needle ? { mustContain: needle } : {}),
             })
           }

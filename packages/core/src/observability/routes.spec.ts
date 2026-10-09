@@ -1003,7 +1003,11 @@ describe("observability routes", () => {
   });
 
   it("promotes a completed trace through POST /traces/:runId/promote", async () => {
-    mockReadBody.mockResolvedValue({ mustContain: "30 days" });
+    mockReadBody.mockResolvedValue({
+      reviewedPrompt: "show active users daily",
+      mustContain: "30 days",
+      datasetName: "weekly analytics dataset",
+    });
     mockPromoteTraceEvalFromStore.mockResolvedValue({
       sourceRunId: "run-1",
       dataset: { id: "ds-1", name: "from-trace:run-1" },
@@ -1017,7 +1021,12 @@ describe("observability routes", () => {
       dataset: { id: "ds-1" },
     });
     expect(mockPromoteTraceEvalFromStore).toHaveBeenCalledWith(
-      { runId: "run-1", mustContain: "30 days", datasetName: undefined },
+      {
+        runId: "run-1",
+        reviewedPrompt: "show active users daily",
+        mustContain: "30 days",
+        datasetName: "weekly analytics dataset",
+      },
       { userId: "alice@example.com" },
     );
   });

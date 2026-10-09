@@ -519,6 +519,46 @@ describe("promoteTraceToEval", () => {
     ]);
   });
 
+  it("preserves date ranges, analytics counts, and monetary values", () => {
+    const result = promoteTraceToEval({
+      runId: "run-reviewed-metric-values",
+      run: { status: "completed" },
+      events: events({ type: "user-message", text: "production prompt" }),
+      spans: [],
+      options: {
+        reviewedPrompt:
+          "show 123456 active users from 2025-01-01 to 2025-01-31 with $1250000 revenue",
+        mustContain: "Revenue was $1250000 for 2025-01-31",
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.spec.input.prompt).toBe(
+      "show 123456 active users from 2025-01-01 to 2025-01-31 with $1250000 revenue",
+    );
+    expect(result.value.spec.scorers).toEqual([
+      { type: "contains", needle: "Revenue was $1250000 for 2025-01-31" },
+    ]);
+  });
+
+  it.each(["account 48213", "account id: 48213", "user_123456"])(
+    "rejects numeric identifiers in reviewed text: %s",
+    (reviewedText) => {
+      const result = promoteTraceToEval({
+        runId: "run-reviewed-identifiers",
+        run: { status: "completed" },
+        events: events({ type: "user-message", text: "production prompt" }),
+        spans: [
+          { spanType: "tool_call", name: "search-docs", status: "success" },
+        ],
+        options: { reviewedPrompt: `find ${reviewedText}` },
+      });
+
+      expect(result).toEqual({ ok: false, error: "unsafe_reviewed_text" });
+    },
+  );
+
   it.each(["48213", "user_123456", "654321", "12-3456", "123-456"])(
     "rejects identifier-shaped number %s in reviewed text",
     (identifier) => {

@@ -9,19 +9,15 @@ import { searchAnalyticsQueryCatalog } from "../server/lib/analytics-query-catal
 
 export default defineAction({
   description:
-    "Find relevant Analytics data definitions, saved dashboard panels, and imported source-index metadata in one bounded search. Returns ranked reference metadata only, never live values. Within the Analytics app, use `search-bigquery-schema` after this when exact current columns or partition metadata are needed, then run one live source query before reporting data. External MCP callers should use their available provider metadata tools.",
+    "Find definitions, dashboard SQL, and source-index references. Returns ranked metadata only, never live values. Use `search-bigquery-schema` for exact columns or partitions, then run one live query before reporting values.",
   schema: z.object({
     question: z
       .string()
       .trim()
       .min(2)
-      .describe("The metric, entity, event, or data question to investigate"),
+      .describe("The metric, event, entity, or data question"),
     limit: z.number().int().min(1).max(12).optional().default(8),
-    nextPage: z
-      .string()
-      .max(64)
-      .optional()
-      .describe("Cursor returned by a previous `find-data` result"),
+    nextPage: z.string().max(64).optional().describe("Previous-page cursor"),
   }),
   readOnly: true,
   mcpTool: true,

@@ -37,12 +37,14 @@ export const PROMOTED_EVAL_REVIEW_LIMITS = {
 
 const EMAIL_PATTERN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
 const OPAQUE_ID_PATTERN = /\b(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{16,}\b/g;
-const IDENTIFIER_SHAPED_NUMBER_PATTERN =
-  /\b(?:\d{5,}(?:[-_]\d+)*|\d+(?:[-_]\d+)+|(?=[A-Za-z0-9_-]{6,}\b)(?=[A-Za-z0-9_-]*[A-Za-z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]+)\b/;
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const IDENTIFIER_CONTEXT_NUMBER_PATTERN =
+  /\b(?:account|user|org|organization|workspace|member|project|team|customer|record|contact)\s+(?:(?:id|identifier)\s*[:#=-]?\s*)?\d+\b|\b(?:id|identifier)\s*[:#=-]?\s*\d+\b|\b(?=[A-Za-z0-9_-]{6,}\b)(?=[A-Za-z0-9_-]*[A-Za-z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]+\b/i;
+const NUMERIC_COMPOSITE_PATTERN = /\b\d+(?:[-_]\d+)+\b/;
 const URL_PATTERN = /\b(?:https?:\/\/|www\.)[^\s<>\"'`]+/gi;
 const PHONE_LIKE_PATTERN = /\+?\d[\d ().-]{5,}\d/g;
 const REVIEWED_TEXT_WORDS = new Set(
-  `a account active an analytics and are as at average be been before between by call case cases compare compared conversion count created current daily data dataset datasets day days distinct does each eval evaluation example examples done event events every find for found from funnel group groups has have how id in inactive is it last least list many median member members metric metrics most my new number of on or organization organizations org over per previous production product prompt query queries rate recent redacted retention result results search session sessions set should show signup signups since source sources table tables team teams test tests the this today total trend under unique usage use user users was week weeks what when where which with without workspace workspaces year years yesterday yearly weekly monthly`.split(
+  `a account active an analytics and are as at average be been before between by call case cases compare compared conversion count created current daily data dataset datasets day days distinct does each eval evaluation example examples done event events every find for found from funnel group groups has have how id in inactive is it last least list many median member members metric metrics most my new number of on or organization organizations org over per previous production product prompt query queries rate recent redacted revenue retention result results search session sessions set should show signup signups since source sources table tables team teams test tests the this to today total trend under unique usage use user users was week weeks what when where which with without workspace workspaces year years yesterday yearly weekly monthly`.split(
     /\s+/,
   ),
 );
@@ -270,12 +272,23 @@ function sanitizeReviewedText(
     .replace(EMAIL_PATTERN, "[email]")
     .replace(OPAQUE_ID_PATTERN, "[id]")
     .replace(URL_PATTERN, "[url]")
-    .replace(PHONE_LIKE_PATTERN, (match) =>
-      (match.match(/\d/g)?.length ?? 0) >= 7 ? "[phone]" : match,
-    )
+    .replace(PHONE_LIKE_PATTERN, (match, offset: number, source: string) => {
+      if (
+        ISO_DATE_PATTERN.test(match) ||
+        /[$€£¥]\s*$/.test(source.slice(Math.max(0, offset - 4), offset))
+      ) {
+        return match;
+      }
+      return (match.match(/\d/g)?.length ?? 0) >= 7 ? "[phone]" : match;
+    })
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
     .trim();
-  if (IDENTIFIER_SHAPED_NUMBER_PATTERN.test(sanitized)) {
+  if (
+    IDENTIFIER_CONTEXT_NUMBER_PATTERN.test(sanitized) ||
+    NUMERIC_COMPOSITE_PATTERN.test(
+      sanitized.replace(/\b\d{4}-\d{2}-\d{2}\b/g, ""),
+    )
+  ) {
     return { ok: false, error: "unsafe_reviewed_text" };
   }
   const tokens = sanitized.match(/\[[A-Za-z_]+\]|[\p{L}]+/gu) ?? [];
