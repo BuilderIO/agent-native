@@ -64,6 +64,26 @@ describe("appMountPath", () => {
     expect(appBasePath()).toBe("");
   });
 
+  it("keeps a root wildcard route from becoming an omitted workspace mount", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "content", path: "/content" }]),
+    );
+    vi.stubGlobal("window", {
+      location: { pathname: "/settings/team" },
+      __reactRouterManifest: {
+        routes: {
+          root: { id: "root", path: "/" },
+          settings: { id: "settings", parentId: "root", path: "settings/*" },
+          team: { id: "team", parentId: "root", path: "team" },
+        },
+      },
+    });
+
+    expect(appBasePath()).toBe("");
+  });
+
   it("keeps a root route inside its live workspace mount when omitted by the manifest", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(

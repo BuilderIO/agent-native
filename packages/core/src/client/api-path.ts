@@ -157,26 +157,12 @@ function workspacePathBasePath(): string {
     const localPathname = pathname.slice(basePath.length) || "/";
     const routeForFullPath = routeTemplateForPath(pathname, routes);
     const routeForLocalPath = routeTemplateForPath(localPathname, routes);
-    if (
-      routeForLocalPath &&
-      (!routeForFullPath ||
-        routeTemplateSpecificity(routeForLocalPath) >
-          routeTemplateSpecificity(routeForFullPath))
-    ) {
+    if (routeForLocalPath && !routeForFullPath) {
       return basePath;
     }
     return "";
   }
   return basePath;
-}
-
-function routeTemplateSpecificity(template: string): number {
-  const segments = template.split("/").filter(Boolean);
-  return segments.reduce(
-    (score, segment) =>
-      score + (segment === "*" ? -2 : /^:[\w-]+$/.test(segment) ? 3 : 10),
-    segments.length,
-  );
 }
 
 function externalEmbedTargetBasePath(): string {
