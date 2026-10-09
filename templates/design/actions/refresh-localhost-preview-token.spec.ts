@@ -186,6 +186,43 @@ describe("refresh-localhost-preview-token", () => {
     });
   });
 
+  it("lets public commenters refresh registration credentials in the design scope", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "commenter",
+      resource: {
+        visibility: "public",
+        data: JSON.stringify({
+          sourceType: "localhost",
+          connectionId: "conn_2",
+        }),
+      },
+    });
+    mocks.connections = [
+      {
+        id: "conn_2",
+        previewToken: "legacy-random-preview",
+        bridgeToken: "stored-bridge-token",
+        bridgeUrl: "http://127.0.0.1:7331",
+      },
+    ];
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_2",
+      publicVisualEdit: true,
+    });
+
+    expect(result.previewToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.liveEditRegistrationCapability).toBe(
+      deriveLiveEditRegistrationCapability("stored-bridge-token", "design_1"),
+    );
+    expect(result).not.toHaveProperty("liveEditCapability");
+    expect(mocks.resolveScope).toHaveBeenCalledWith({
+      designId: "design_1",
+      allowPublicViewer: true,
+    });
+  });
+
   it("issues live-edit capabilities to the design owner", async () => {
     mocks.assertAccess.mockResolvedValueOnce({
       role: "owner",

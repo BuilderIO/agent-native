@@ -1841,6 +1841,34 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
     expect(container.textContent).toContain("Preparing live editor");
   });
 
+  it("surfaces unavailable preview credentials with a recovery message", async () => {
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/settings"
+          contentKey="screen-settings"
+          screenId="screen-settings"
+          sourceType="localhost"
+          localhostPreviewUnavailable
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "Local preview credentials are unavailable",
+    );
+    expect(container.textContent).toContain(
+      "Reconnect this Screen, then retry.",
+    );
+  });
+
   it("keeps an entitled viewer on the proxied document instead of the snapshot", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = requestInfoUrl(input);

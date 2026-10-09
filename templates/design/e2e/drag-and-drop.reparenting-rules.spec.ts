@@ -34,6 +34,7 @@ async function persistedNodeParent(
 }
 
 test.describe("reparenting rules", () => {
+  // oracle: none — verifies app drag persistence across parent changes, not native visual parity.
   test("dragging a flow child out places it directly above the exited frame in visible overlap and persists after reload", async ({
     page,
   }) => {
@@ -261,6 +262,7 @@ test.describe("reparenting rules", () => {
     }
   });
 
+  // oracle: none — verifies app parent assignment for drops, not a measured Figma result.
   test("an object smaller than a frame becomes its direct child when dropped in", async ({
     page,
   }) => {
@@ -302,6 +304,7 @@ test.describe("reparenting rules", () => {
     ).toBe("frame-a");
   });
 
+  // oracle: none — verifies the app-specific Space-key drag override, not visual parity.
   test("holding Space while dragging keeps the object in its current parent", async ({
     page,
   }) => {
@@ -397,6 +400,7 @@ test.describe("reparenting rules", () => {
     }
   });
 
+  // oracle: none — verifies nested auto-layout parent persistence, not a measured Figma result.
   test("holding Space keeps a flow child in its nested auto-layout parent", async ({
     page,
   }) => {

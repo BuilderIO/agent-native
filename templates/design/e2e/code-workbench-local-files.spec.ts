@@ -980,6 +980,7 @@ test("duplicates a URL-backed React component through undo and redo", async ({
   );
 });
 
+// oracle: none — validates recovery after a local preview snapshot fails, not visual parity.
 test("keeps a URL screen selected when its static snapshot fails", async ({
   page,
   request,
@@ -1029,6 +1030,7 @@ test("keeps a URL screen selected when its static snapshot fails", async ({
   ).toBeVisible({ timeout: 10_000 });
 });
 
+// oracle: none — validates bridge registration against app state, not a measured Figma result.
 test("registers an inactive local Screen at its current bridge endpoint", async ({
   page,
   request,

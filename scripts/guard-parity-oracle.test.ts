@@ -324,6 +324,26 @@ describe("parity oracle guard", () => {
     }
   });
 
+  it("does not treat RegExp.test calls as test blocks", async () => {
+    const root = makeRoot();
+    try {
+      writeEntry(root);
+      const result = await runParityOracleGuard({
+        repoRoot: root,
+        addedLines: addedLines(
+          root,
+          "templates/design/e2e/regex-check.spec.ts",
+          '// oracle: none — this checks app state, not a Figma observation\ntest("matches the saved value", () => {\n  expect(/saved/.test("saved")).toBe(true);\n});',
+        ),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(result.exitCode, 0, result.message);
+      assert.match(result.message, /1 entry, 1 citation/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("requires explicit classification for generic-named Design E2E tests", async () => {
     const root = makeRoot();
     try {

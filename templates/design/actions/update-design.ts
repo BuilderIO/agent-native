@@ -7,6 +7,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
+import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
 import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
 import { designConnectionIdsFromData } from "../shared/source-mode.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
@@ -410,7 +411,7 @@ export default defineAction({
       restoreClaims: z
         .array(screenRestoreClaimReferenceSchema)
         .min(1)
-        .max(100)
+        .max(101)
         .optional()
         .describe(
           "Server-issued one-use proof for restoring connection metadata after deleting a Screen.",
@@ -702,6 +703,9 @@ export default defineAction({
             .select({
               id: schema.designFiles.id,
               designId: schema.designFiles.designId,
+              filename: schema.designFiles.filename,
+              fileType: schema.designFiles.fileType,
+              content: schema.designFiles.content,
             })
             .from(schema.designFiles)
             .where(
@@ -726,6 +730,15 @@ export default defineAction({
             const snapshot = claim
               ? parseScreenRestoreClaimSnapshot(claim.snapshot)
               : null;
+            const fileMatchesClaim = Boolean(
+              file &&
+              snapshot &&
+              file.filename === snapshot.filename &&
+              file.fileType === snapshot.fileType &&
+              screenRestoreContentHashes(file.content, file.fileType).some(
+                (contentHash) => snapshot.contentHashes.includes(contentHash),
+              ),
+            );
             if (
               !claim ||
               claim.designId !== id ||
@@ -734,7 +747,8 @@ export default defineAction({
               claim.restoredFileId !== reference.targetFileId ||
               !file ||
               file.designId !== id ||
-              !snapshot
+              !snapshot ||
+              !fileMatchesClaim
             ) {
               continue;
             }

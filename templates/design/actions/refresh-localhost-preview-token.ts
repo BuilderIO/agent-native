@@ -14,7 +14,7 @@ import {
 
 export default defineAction({
   description:
-    "Refresh localhost preview credentials. Public visual-edit viewers receive only a design-scoped registration capability for ephemeral DOM editing; the publicVisualEdit flag grants no pending-edit read, write, or agent handoff access.",
+    "Refresh localhost preview credentials. Public visual-edit viewers and commenters receive only a design-scoped registration capability for ephemeral DOM editing; the publicVisualEdit flag grants no pending-edit read, write, or agent handoff access.",
   schema: z.object({
     designId: z.string().describe("Design project ID."),
     connectionId: z
@@ -92,7 +92,8 @@ export default defineAction({
     const canIssueRegistrationCapability =
       canIssueLiveEditCapability || publicVisualEdit === true;
     const connectionScope =
-      publicVisualEdit === true && access.role === "viewer"
+      publicVisualEdit === true &&
+      (access.role === "viewer" || access.role === "commenter")
         ? await resolveLocalhostConnectionScope({
             designId,
             allowPublicViewer: true,

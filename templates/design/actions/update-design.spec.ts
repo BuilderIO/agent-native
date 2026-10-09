@@ -349,6 +349,42 @@ describe("update-design data concurrency", () => {
     });
   });
 
+  it("accepts a restore claim for every file in the supported delete batch", () => {
+    const restoreClaims = Array.from({ length: 101 }, (_, index) => ({
+      claimId: `claim-${index}`,
+      sourceFileId: `source-${index}`,
+      targetFileId: `target-${index}`,
+    }));
+    const input = {
+      id: "design-1",
+      dataOperations: [
+        {
+          op: "set",
+          path: ["canvasFrames", "frame-a"],
+          value: { x: 0, y: 0, width: 400, height: 300 },
+        },
+      ],
+      restoreClaims,
+      operationSource: "restore-batch-test",
+      operationRevision: 1,
+    };
+
+    expect(action.schema.safeParse(input).success).toBe(true);
+    expect(
+      action.schema.safeParse({
+        ...input,
+        restoreClaims: [
+          ...restoreClaims,
+          {
+            claimId: "claim-101",
+            sourceFileId: "source-101",
+            targetFileId: "target-101",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects an ID-only update instead of reporting a content change", async () => {
     const previousUpdatedAt = mocks.state.row.updatedAt;
 
@@ -781,7 +817,7 @@ describe("update-design data concurrency", () => {
     expect(mocks.state.restoreClaims[0]?.consumedAt).toBeNull();
   });
 
-  it("keeps a restored connection when the restored Screen changes before save", async () => {
+  it("rejects a restored connection when the restored Screen content changes before save", async () => {
     const snapshot = {
       filename: "restored.html",
       fileType: "html",
@@ -853,10 +889,14 @@ describe("update-design data concurrency", () => {
         operationSource: "undo-session",
         operationRevision: 2,
       } as never),
-    ).resolves.toMatchObject({ changed: true });
-    expect(mocks.state.restoreClaims[0]?.consumedAt).toEqual(
-      expect.any(String),
-    );
+    ).rejects.toMatchObject({
+      errorCode: "localhost_connection_scope_mismatch",
+      statusCode: 403,
+    });
+    expect(mocks.state.restoreClaims[0]?.consumedAt).toBeNull();
+    expect(
+      JSON.parse(mocks.state.row.data!).screenMetadata["restored-file-1"],
+    ).toBeUndefined();
   });
 
   it("does not let a consumed restore claim reapply a removed connection", async () => {

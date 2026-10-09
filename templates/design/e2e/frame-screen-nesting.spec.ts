@@ -313,6 +313,7 @@ test("1:19 — the Screen tool makes a top-level screen, the Frame tool does not
   ).toBe(before.length + 1);
 });
 
+// oracle: none — verifies app geometry persistence after cross-screen drag, not visual parity.
 test("a board Frame keeps its drop position after it moves into a Screen", async ({
   page,
 }) => {
@@ -401,6 +402,7 @@ test("a board Frame keeps its drop position after it moves into a Screen", async
   ).toBeLessThanOrEqual(6);
 });
 
+// oracle: none — verifies app geometry after frame-to-frame drag, not a measured Figma result.
 test("a board Frame keeps its drop position when moved over another board Frame", async ({
   page,
 }) => {
@@ -535,6 +537,7 @@ test("a board Frame keeps its drop position when moved over another board Frame"
   ).toBeLessThanOrEqual(6);
 });
 
+// oracle: none — verifies locked-screen drop behavior in the app, not visual parity.
 test("a board Frame keeps its position when released over a locked Screen", async ({
   page,
 }) => {

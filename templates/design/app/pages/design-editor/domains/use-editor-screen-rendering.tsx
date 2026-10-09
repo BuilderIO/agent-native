@@ -664,6 +664,12 @@ export function useEditorScreenRendering({
         screenPreviewToken &&
         (screenLiveEditRegistrationCapability ?? screenLiveEditCapability),
       );
+      const localhostPreviewUnavailable = Boolean(
+        !screenSnapshotOnly &&
+        (canEditDesign || canEditLiveScreen(screen.id)) &&
+        screenSourceType === "localhost" &&
+        refreshedLocalhostConnection?.status === "unavailable",
+      );
       const screenSnapshot = liveScreenSnapshotsById[screen.id]?.html;
       const useRuntimeReplacement = shouldUseOverviewRuntimeReplacement({
         sourceType: screenSourceType,
@@ -803,6 +809,7 @@ export function useEditorScreenRendering({
           nativePreviewActive={screenIsActive}
           sharedSnapshotPollActive={screenIsActive}
           previewToken={screenSnapshotOnly ? undefined : screenPreviewToken}
+          localhostPreviewUnavailable={localhostPreviewUnavailable}
           liveEditCapability={
             screenSnapshotOnly ? undefined : screenLiveEditCapability
           }

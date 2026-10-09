@@ -69,6 +69,7 @@ async function zoomTo100(page: Page) {
   await expect(zoom).toHaveText(/100%/);
 }
 
+// oracle: none — verifies persisted app metadata after undo, not a Figma comparison.
 test("Undo restores deleted Screen metadata and variant membership", async ({
   page,
 }) => {
@@ -385,6 +386,7 @@ test("Undo restores deleted Screen metadata and variant membership", async ({
   }
 });
 
+// oracle: none — verifies multi-screen deletion and app state, not visual parity.
 test("Delete removes all selected Screens", async ({ page }) => {
   test.setTimeout(120_000);
   const created = await action(page, "create-design", {
@@ -454,6 +456,7 @@ test("Delete removes all selected Screens", async ({ page }) => {
   }
 });
 
+// oracle: none — verifies the app's final-screen deletion behavior, not a measured Figma result.
 test("Delete removes the last selected Screen", async ({ page }) => {
   test.setTimeout(120_000);
   const created = await action(page, "create-design", {
