@@ -152,6 +152,34 @@ describe("A2A continuations store", () => {
     expect(progressOwnerBackfillIndex).toBeLessThan(progressOwnerIndexIndex);
   });
 
+  it("rejects inline file payloads in incoming A2A continuation messages", async () => {
+    const { insertA2AContinuation } = await loadStore();
+
+    await expect(
+      insertA2AContinuation({
+        integrationTaskId: "task-1",
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        incoming: {
+          platform: "slack",
+          externalThreadId: "C123:123.456",
+          text: "review this image",
+          platformContext: { image: "data:image/png;base64,iVBORw0KGgo=" },
+          timestamp: 1,
+        },
+        ownerEmail: "owner@example.test",
+        agentName: "Design",
+        agentUrl: "https://design.agent-native.test",
+        a2aTaskId: "a2a-task-1",
+      }),
+    ).rejects.toMatchObject({ name: "A2APersistencePayloadError" });
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        querySql(query).includes("INSERT INTO integration_a2a_continuations"),
+      ),
+    ).toBe(false);
+  });
+
   it("applies terminal receipt and history migrations", async () => {
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
     const { getA2AContinuationForIntegrationTask } = await loadStore();
@@ -216,6 +244,22 @@ describe("A2A continuations store", () => {
     await expect(
       saveA2AVerifiedArtifactCheckpoint("cont-1", "x".repeat(16_001)),
     ).rejects.toThrow("exceeds 16000 characters");
+  });
+
+  it("rejects a data URL from an A2A artifact checkpoint before writing", async () => {
+    const { saveA2AVerifiedArtifactCheckpoint } = await loadStore();
+
+    await expect(
+      saveA2AVerifiedArtifactCheckpoint(
+        "cont-1",
+        "reference data:image/png;base64,iVBORw0KGgo=",
+      ),
+    ).rejects.toMatchObject({ name: "A2APersistencePayloadError" });
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        querySql(query).includes("SET verified_artifact_checkpoint = ?"),
+      ),
+    ).toBe(false);
   });
 
   it("retains an unconfirmed delivery claim until stale recovery", async () => {
@@ -450,6 +494,24 @@ describe("A2A continuations store", () => {
         artifacts: [],
       }),
     ).rejects.toThrow("exceeds 64000 characters");
+  });
+
+  it("rejects inline file payloads in terminal A2A history before writing", async () => {
+    const { recordA2ATerminalDeliveryReceipt } = await loadStore();
+
+    await expect(
+      recordA2ATerminalDeliveryReceipt("cont-1", "success", {
+        text: "Completed with data:image/png;base64,iVBORw0KGgo=",
+        deliveredAt: new Date().toISOString(),
+        messageRefs: [],
+        artifacts: [],
+      }),
+    ).rejects.toMatchObject({ name: "A2APersistencePayloadError" });
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        querySql(query).includes("SET status = 'delivering'"),
+      ),
+    ).toBe(false);
   });
 
   it("terminalizes and scrubs only after durable history persistence", async () => {

@@ -1,4 +1,5 @@
 import type { A2AArtifactIdentity } from "../a2a/artifact-response.js";
+import { assertA2APersistablePayload } from "../a2a/persistence-safety.js";
 import { getDbExec } from "../db/client.js";
 import {
   ensureTableExists,
@@ -344,6 +345,7 @@ export async function insertA2AContinuation(input: {
   a2aTaskId: string;
   a2aAuthToken?: string | null;
 }): Promise<A2AContinuation> {
+  assertA2APersistablePayload(input.incoming, "A2A incoming message");
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
@@ -871,6 +873,7 @@ export async function saveA2AVerifiedArtifactCheckpoint(
   await ensureTable();
   const normalized = checkpoint.trim();
   if (!normalized) return null;
+  assertA2APersistablePayload(normalized, "A2A artifact checkpoint");
   if (normalized.length > MAX_VERIFIED_ARTIFACT_CHECKPOINT_CHARS) {
     throw new Error(
       `Verified artifact checkpoint exceeds ${MAX_VERIFIED_ARTIFACT_CHECKPOINT_CHARS} characters`,
@@ -895,6 +898,8 @@ export async function recordA2ATerminalDeliveryReceipt(
   historyPayload: A2ATerminalHistoryPayload,
   errorMessage?: string,
 ): Promise<A2AContinuation> {
+  assertA2APersistablePayload(historyPayload, "A2A terminal history");
+  assertA2APersistablePayload(errorMessage, "A2A terminal error");
   await ensureTable();
   const serializedPayload = JSON.stringify(historyPayload);
   if (serializedPayload.length > MAX_TERMINAL_HISTORY_PAYLOAD_CHARS) {

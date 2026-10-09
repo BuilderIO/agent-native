@@ -38,7 +38,7 @@ import {
   createCapabilityUnavailableError,
   createCapabilityUnsupportedError,
   inferAgentActivityKind,
-  isInlineDataUrl,
+  isPersistableAttachmentUrl,
   negotiateAgentKitProtocolVersion,
   resumeEntryFromApproval,
   resumeOptionId,
@@ -4046,7 +4046,11 @@ export function createAgentKitProtocolAdapter(
         );
       }
       const attachments = (input.attachments ?? [])
-        .filter((part) => !isInlineDataUrl(part.url))
+        .filter(
+          (part) =>
+            !part.omitted &&
+            (part.fileId !== undefined || isPersistableAttachmentUrl(part.url)),
+        )
         .map(runtimeAttachmentFromFilePart);
       const turn = await session.continueTurn({
         turnId: state.turnId,

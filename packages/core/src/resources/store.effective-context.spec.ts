@@ -56,6 +56,108 @@ afterAll(async () => {
 });
 
 describe("resourceEffectiveContext", () => {
+  it("rejects inline image payloads at every SQL content writer and keeps durable URLs", async () => {
+    const {
+      SHARED_OWNER,
+      resourceDeleteByPath,
+      resourceGetByPath,
+      resourcePut,
+      resourcePutIfAbsent,
+      resourcePutIfCurrent,
+      resourcePutIfSnapshot,
+      resourcePutSnapshotBatchIfCurrent,
+      resourceRestoreSnapshotIfCurrent,
+    } = await import("./store.js");
+    const path = `context/image-url-${Date.now()}-${Math.random()}.png`;
+    const durableUrl = "https://cdn.builder.io/api/v1/image/example.png";
+    const inlineImage = "data:image/png;base64,ZmFrZQ==";
+    try {
+      const saved = await resourcePut(
+        SHARED_OWNER,
+        path,
+        durableUrl,
+        "image/png",
+      );
+      expect(saved.content).toBe(durableUrl);
+      await expect(
+        resourceGetByPath(SHARED_OWNER, path),
+      ).resolves.toMatchObject({ content: durableUrl });
+
+      const executeSpy = vi.spyOn(sharedClient, "execute");
+      try {
+        const metadata = {
+          preview: { type: "image", data: inlineImage },
+        };
+        const attempts = [
+          () => resourcePut(SHARED_OWNER, path, inlineImage, "image/png"),
+          () =>
+            resourcePut(
+              SHARED_OWNER,
+              `${path}-absent`,
+              "ordinary text",
+              undefined,
+              { metadata },
+            ),
+          () =>
+            resourcePutIfAbsent(
+              SHARED_OWNER,
+              `${path}-absent-image`,
+              inlineImage,
+              "image/png",
+            ),
+          () =>
+            resourcePutIfCurrent({
+              owner: SHARED_OWNER,
+              path,
+              content: inlineImage,
+              expectedId: saved.id,
+              expectedUpdatedAt: saved.updatedAt,
+              expectedContent: saved.content,
+              mimeType: "image/png",
+            }),
+          () =>
+            resourcePutIfSnapshot({
+              previous: null,
+              owner: SHARED_OWNER,
+              path: `${path}-snapshot`,
+              content: inlineImage,
+              mimeType: "image/png",
+            }),
+          () =>
+            resourcePutSnapshotBatchIfCurrent([
+              {
+                previous: null,
+                owner: SHARED_OWNER,
+                path: `${path}-batch-a`,
+                content: inlineImage,
+                mimeType: "image/png",
+              },
+              {
+                previous: null,
+                owner: SHARED_OWNER,
+                path: `${path}-batch-b`,
+                content: "ordinary text",
+              },
+            ]),
+          () =>
+            resourceRestoreSnapshotIfCurrent(
+              { ...saved, content: inlineImage },
+              null,
+            ),
+        ];
+
+        for (const attempt of attempts) {
+          await expect(attempt()).rejects.toThrow(/stores inline/);
+        }
+        expect(executeSpy).not.toHaveBeenCalled();
+      } finally {
+        executeSpy.mockRestore();
+      }
+    } finally {
+      await resourceDeleteByPath(SHARED_OWNER, path);
+    }
+  });
+
   it("isolates organization resources and preserves legacy app defaults", async () => {
     const {
       SHARED_OWNER,

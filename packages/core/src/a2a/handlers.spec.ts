@@ -1558,6 +1558,38 @@ describe("handleJsonRpc", () => {
     expect(result.error.code).toBe(-32602);
   });
 
+  it("rejects inline file bytes before creating or running an A2A task", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          message: {
+            role: "user",
+            parts: [
+              {
+                type: "file",
+                file: {
+                  name: "reference.png",
+                  mimeType: "image/png",
+                  bytes: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+                },
+              },
+            ],
+          },
+        },
+      },
+      mockEvent(),
+      { ...customHandler, handler },
+    );
+
+    expect(result.error).toMatchObject({ code: -32602 });
+    expect(result.error.message).toContain("send its URI instead");
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it("handles handler errors gracefully", async () => {
     const failConfig: A2AConfig = {
       ...customHandler,

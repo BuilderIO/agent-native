@@ -216,6 +216,172 @@ describe("task-store lifecycle (real pglite)", () => {
     });
   });
 
+  describe("inline file payload persistence", () => {
+    it("rejects incoming inline file bytes before creating a task", async () => {
+      const { createTask, listTasks } = await loadStore();
+      const message: Message = {
+        role: "user",
+        parts: [
+          {
+            type: "file",
+            file: {
+              name: "reference.png",
+              mimeType: "image/png",
+              bytes: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+            },
+          },
+        ],
+      };
+
+      await expect(createTask(message)).rejects.toMatchObject({
+        name: "A2APersistencePayloadError",
+        code: "A2A_INLINE_FILE_BYTES_NOT_PERSISTABLE",
+      });
+      await expect(listTasks()).resolves.toEqual([]);
+    });
+
+    it("rejects a FilePart bytes field even when its payload is empty", async () => {
+      const { createTask } = await loadStore();
+      const message: Message = {
+        role: "user",
+        parts: [{ type: "file", file: { name: "empty.png", bytes: "" } }],
+      };
+
+      await expect(createTask(message)).rejects.toMatchObject({
+        name: "A2APersistencePayloadError",
+      });
+    });
+
+    it("rejects a data URL or raw-base64 fileId in incoming structured data", async () => {
+      const { createTask, listTasks } = await loadStore();
+      const messages: Message[] = [
+        {
+          role: "user",
+          parts: [
+            {
+              type: "data",
+              data: { fileId: "data:image/png;base64,iVBORw0KGgo=" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          parts: [
+            { type: "data", data: { image: "iVBORw0KGgoAAAANSUhEUg==" } },
+          ],
+        },
+        {
+          role: "user",
+          parts: [
+            {
+              type: "data",
+              data: { fileId: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB" },
+            },
+          ],
+        },
+      ];
+
+      for (const message of messages) {
+        await expect(createTask(message)).rejects.toMatchObject({
+          name: "A2APersistencePayloadError",
+        });
+      }
+      await expect(listTasks()).resolves.toEqual([]);
+    });
+
+    it("rejects file bytes in follow-up messages and artifacts without changing the task", async () => {
+      const { createTask, getTask, updateTask } = await loadStore();
+      const task = await createTask(makeMessage("start"));
+      const fileMessage: Message = {
+        role: "agent",
+        parts: [
+          {
+            type: "file",
+            file: { name: "result.png", bytes: "iVBORw0KGgoAAAANSUhEUg==" },
+          },
+        ],
+      };
+
+      await expect(
+        updateTask(task.id, { state: "working", message: fileMessage }),
+      ).rejects.toMatchObject({
+        name: "A2APersistencePayloadError",
+      });
+      await expect(
+        updateTask(task.id, {
+          artifacts: [
+            {
+              name: "result",
+              parts: [
+                {
+                  type: "data",
+                  data: { image: "data:image/png;base64,iVBORw0KGgo=" },
+                },
+              ],
+            },
+          ],
+        }),
+      ).rejects.toMatchObject({
+        name: "A2APersistencePayloadError",
+      });
+
+      await expect(getTask(task.id)).resolves.toMatchObject({
+        status: { state: "submitted" },
+        history: [makeMessage("start")],
+        artifacts: [],
+      });
+    });
+
+    it("rejects unsafe status and settled artifacts before writing them", async () => {
+      const {
+        claimA2ATaskForProcessing,
+        createTask,
+        getTask,
+        settleProcessingA2ATask,
+        updateTaskStatusMessage,
+      } = await loadStore();
+      const task = await createTask(makeMessage("start"));
+      const unsafeStatus: Message = {
+        role: "agent",
+        parts: [
+          { type: "data", data: { fileId: "data:image/png;base64,abc" } },
+        ],
+      };
+
+      await expect(
+        updateTaskStatusMessage(task.id, unsafeStatus),
+      ).rejects.toMatchObject({
+        name: "A2APersistencePayloadError",
+      });
+      await claimA2ATaskForProcessing(task.id);
+      await expect(
+        settleProcessingA2ATask(task.id, {
+          state: "completed",
+          artifacts: [
+            {
+              parts: [
+                {
+                  type: "file",
+                  file: {
+                    name: "reference.png",
+                    bytes: "iVBORw0KGgoAAAANSUhEUg==",
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+      ).rejects.toMatchObject({
+        name: "A2APersistencePayloadError",
+      });
+
+      await expect(getTask(task.id)).resolves.toMatchObject({
+        status: { state: "processing", message: undefined },
+        artifacts: [],
+      });
+    });
+  });
+
   describe("claimA2ATaskForProcessing", () => {
     it("claims a freshly submitted task and flips it to processing", async () => {
       const { createTask, claimA2ATaskForProcessing, getTask } =
@@ -264,6 +430,31 @@ describe("task-store lifecycle (real pglite)", () => {
   });
 
   describe("A2A human approvals", () => {
+    it("does not persist inline file bytes in approval action inputs", async () => {
+      const { createA2AApproval, createTask } = await loadStore();
+      const task = await createTask(makeMessage("send it"));
+
+      await expect(
+        createA2AApproval({
+          taskId: task.id,
+          ownerEmail: "owner@example.com",
+          tool: "send-email",
+          toolInput: {
+            attachments: [{ fileId: "data:application/pdf;base64,JVBERi0=" }],
+          },
+          approvalKey: "private-key",
+          callId: "call-1",
+        }),
+      ).rejects.toMatchObject({
+        name: "A2APersistencePayloadError",
+      });
+      const { rows } = await dbExec.execute({
+        sql: `SELECT id FROM a2a_approvals WHERE task_id = ?`,
+        args: [task.id],
+      });
+      expect(rows).toEqual([]);
+    });
+
     it("binds approval to owner and org, claims it once, and settles the paused task", async () => {
       const {
         claimA2AApproval,

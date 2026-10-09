@@ -42,6 +42,27 @@ describe("stripInlineBytes", () => {
     expect(stored.content).toEqual([{ type: "image", image: DURABLE }]);
   });
 
+  it("removes a credentialed upload URL from nested attachment metadata", () => {
+    const stored = stripInlineBytes(
+      {
+        type: "image",
+        name: "shot.png",
+        metadata: {
+          uploadUrl: "https://files.example.test/shot.png?token=secret",
+          source: "composer",
+        },
+      },
+      "placeholder",
+    );
+
+    expect(stored).toEqual({
+      type: "image",
+      name: "shot.png",
+      metadata: { source: "composer" },
+    });
+    expect(() => assertNoInlineImageBytes(stored)).not.toThrow();
+  });
+
   it("drops bytes beside a durable file id without a placeholder", () => {
     expect(
       stripInlineBytes(
@@ -85,6 +106,95 @@ describe("stripInlineBytes", () => {
     });
   });
 
+  it("removes raw base64 fields from attachments", () => {
+    const stored = stripInlineBytes(
+      {
+        type: "image",
+        name: "legacy.png",
+        mediaType: "image/png",
+        base64: "iVBORw0KGgoAAAANSUhEUg==",
+      },
+      "placeholder",
+    );
+
+    expect(stored).toEqual({
+      type: "file",
+      name: "legacy.png",
+      mediaType: "image/png",
+      omitted: "inline-bytes",
+    });
+    expect(() => assertNoInlineImageBytes(stored)).not.toThrow();
+  });
+
+  it("replaces provider base64 image sources with a URL or visible stub", () => {
+    const image = {
+      type: "image",
+      name: "provider.png",
+      source: {
+        type: "base64",
+        media_type: "image/png",
+        data: "iVBORw0KGgoAAAANSUhEUg==",
+      },
+    };
+
+    expect(stripInlineBytes(image, "placeholder")).toEqual({
+      type: "file",
+      name: "provider.png",
+      mediaType: "image/png",
+      omitted: "inline-bytes",
+    });
+    expect(stripInlineBytes({ ...image, url: DURABLE }, "reject")).toEqual({
+      type: "file",
+      name: "provider.png",
+      mediaType: "image/png",
+      url: DURABLE,
+    });
+  });
+
+  it("removes raw-base64 and signed URLs from persisted attachment references", () => {
+    const stored = stripInlineBytes(
+      {
+        attachments: [
+          {
+            type: "image",
+            name: "short.png",
+            mediaType: "image/png",
+            url: "AQID",
+          },
+          {
+            type: "image",
+            name: "signed.png",
+            mediaType: "image/png",
+            url: "https://files.example.test/signed.png?token=secret",
+          },
+          { type: "image", name: "safe.png", url: DURABLE },
+        ],
+      },
+      "placeholder",
+    );
+
+    expect(stored).toEqual({
+      attachments: [
+        {
+          type: "file",
+          name: "short.png",
+          mediaType: "image/png",
+          omitted: "unsafe-url",
+        },
+        {
+          type: "file",
+          name: "signed.png",
+          mediaType: "image/png",
+          omitted: "unsafe-url",
+        },
+        { type: "image", name: "safe.png", url: DURABLE },
+      ],
+    });
+    expect(JSON.stringify(stored)).not.toContain("AQID");
+    expect(JSON.stringify(stored)).not.toContain("token=secret");
+    expect(() => assertNoInlineImageBytes(stored)).not.toThrow();
+  });
+
   it("scrubs data URLs embedded in any other string", () => {
     const stored = stripInlineBytes(
       { text: `before ${PIXELS} after`, metadata: "metadata: kept" },
@@ -120,6 +230,17 @@ describe("stripInlineBytes", () => {
     const json = '{"type":"text-delta","text":"hi"}';
     expect(stripInlineBytesFromJson(json, "placeholder")).toBe(json);
   });
+
+  it("sanitizes short raw-base64 references from serialized snapshots", () => {
+    const stored = stripInlineBytesFromJson(
+      '{"attachments":[{"type":"file","name":"x.png","url":"AQID"}]}',
+      "placeholder",
+    );
+    expect(stored).not.toContain("AQID");
+    expect(JSON.parse(stored)).toEqual({
+      attachments: [{ type: "file", name: "x.png", omitted: "unsafe-url" }],
+    });
+  });
 });
 
 describe("assertNoInlineImageBytes", () => {
@@ -127,7 +248,44 @@ describe("assertNoInlineImageBytes", () => {
     [{ content: [{ type: "image", image: PIXELS }] }, "content[0].image"],
     [{ parts: [{ type: "file", data: "JVBERi0=" }] }, "parts[0].data"],
     [{ images: [{ data: "aW1hZ2U=" }] }, "images[0].data"],
+    [
+      {
+        attachments: [
+          {
+            type: "image",
+            metadata: {
+              uploadUrl: "https://files.example.test/a.png?token=secret",
+            },
+          },
+        ],
+      },
+      "attachments[0].metadata.uploadUrl",
+    ],
     [JSON.stringify({ text: PIXELS }), "text"],
+    [
+      JSON.stringify({
+        content: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: "iVBORw0KGgo=",
+            },
+          },
+        ],
+      }),
+      "content[0].source.data",
+    ],
+    [
+      JSON.stringify({
+        content: [{ type: "file", file: { bytes: [37, 80, 68, 70] } }],
+      }),
+      "content[0].file.bytes",
+    ],
+    [{ state: { bytes: [137, 80, 78, 71] } }, "state.bytes"],
+    [{ state: { base64: "iVBORw0KGgo=" } }, "state.base64"],
+    [{ state: { imageData: new Uint8Array([1, 2, 3]) } }, "state.imageData"],
   ])("names the path of stored bytes", (value, path) => {
     expect(() => assertNoInlineImageBytes(value, "row")).toThrow(
       `row stores inline`,
@@ -141,5 +299,13 @@ describe("assertNoInlineImageBytes", () => {
         attachments: [{ type: "image", url: DURABLE, data: DURABLE }],
       }),
     ).not.toThrow();
+  });
+
+  it("rejects non-durable attachment URLs in persisted rows", () => {
+    expect(() =>
+      assertNoInlineImageBytes({
+        attachments: [{ type: "file", name: "x.png", url: "AQID" }],
+      }),
+    ).toThrow("attachments[0].url");
   });
 });

@@ -17,6 +17,7 @@ import {
 } from "../org/service-principal-guard.js";
 import { captureError } from "../server/capture-error.js";
 import {
+  assertNoInlineImageBytes,
   stripInlineBytes,
   stripInlineBytesFromJson,
 } from "../shared/inline-bytes.js";
@@ -382,7 +383,9 @@ export async function writeLedgerEntry(
   try {
     await ensureRunTables();
     const client = getDbExec();
-    let boundedChatUIResultJson = chatUIResultJson ?? null;
+    let boundedChatUIResultJson = chatUIResultJson
+      ? stripInlineBytesFromJson(chatUIResultJson, "placeholder")
+      : null;
     const chatUIResultBytes = boundedChatUIResultJson
       ? new TextEncoder().encode(boundedChatUIResultJson).byteLength
       : 0;
@@ -401,11 +404,12 @@ export async function writeLedgerEntry(
       });
       boundedChatUIResultJson = null;
     }
+    const safeResultSummary = stripInlineBytes(resultSummary, "placeholder");
     const capped =
-      resultSummary.length > LEDGER_RESULT_MAX_CHARS
-        ? resultSummary.slice(0, LEDGER_RESULT_MAX_CHARS) +
+      safeResultSummary.length > LEDGER_RESULT_MAX_CHARS
+        ? safeResultSummary.slice(0, LEDGER_RESULT_MAX_CHARS) +
           `\n...[ledger truncated at ${LEDGER_RESULT_MAX_CHARS} chars]`
-        : resultSummary;
+        : safeResultSummary;
     await client.execute({
       sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, artifacts_json, result_is_string, chat_ui_result_json, completed_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -419,7 +423,7 @@ export async function writeLedgerEntry(
         threadId,
         toolKey,
         capped,
-        JSON.stringify(artifacts),
+        JSON.stringify(stripInlineBytes(artifacts, "placeholder")),
         resultIsString ?? null,
         boundedChatUIResultJson,
         Date.now(),
@@ -543,6 +547,9 @@ export async function insertRun(
     turnInitiator?: AgentTurnInitiator;
   },
 ): Promise<void> {
+  if (options?.dispatchPayload) {
+    assertNoInlineImageBytes(options.dispatchPayload, "dispatch_payload");
+  }
   await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
@@ -1155,6 +1162,9 @@ export async function tryClaimRunSlot(
   turnAborted?: boolean;
   continueRefused?: ContinueRefusalCode;
 }> {
+  if (options?.dispatchPayload) {
+    assertNoInlineImageBytes(options.dispatchPayload, "dispatch_payload");
+  }
   await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();

@@ -23,6 +23,7 @@ import {
   parseAgentThreadSnapshot,
   parseStartRunInput,
   persistableFilePart,
+  isPersistableAttachmentUrl,
 } from "./index.js";
 
 const event = {
@@ -624,7 +625,40 @@ describe("AgentKit protocol validation", () => {
       name: "photo.png",
       url: "https://storage.example.test/photo.png",
     };
-    expect(persistableFilePart(durable)).toBe(durable);
+    expect(persistableFilePart(durable)).toEqual(durable);
+    expect(
+      persistableFilePart({
+        ...durable,
+        data: "data:image/png;base64,INLINE_BYTES",
+      }),
+    ).toEqual(durable);
+
+    expect(isPersistableAttachmentUrl(durable.url)).toBe(true);
+    expect(isPersistableAttachmentUrl("AQID")).toBe(false);
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        mediaType: "image/png",
+        url: "AQID",
+      }),
+    ).toEqual({
+      type: "file",
+      name: "photo.png",
+      mediaType: "image/png",
+      omitted: "unsafe-url",
+    });
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        url: "https://storage.example.test/photo.png?token=secret",
+      }),
+    ).toEqual({
+      type: "file",
+      name: "photo.png",
+      omitted: "unsafe-url",
+    });
 
     const snapshot = {
       id: "thread-1",
@@ -635,6 +669,24 @@ describe("AgentKit protocol validation", () => {
     expect(parseAgentThreadSnapshot(snapshot).messages[0]?.parts).toEqual([
       marker,
     ]);
+    expect(
+      parseAgentThreadSnapshot({
+        ...snapshot,
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            parts: [
+              persistableFilePart({
+                type: "file",
+                name: "photo.png",
+                url: "AQID",
+              }),
+            ],
+          },
+        ],
+      }).messages[0]?.parts,
+    ).toEqual([{ type: "file", name: "photo.png", omitted: "unsafe-url" }]);
     expect(() =>
       parseAgentThreadSnapshot({
         ...snapshot,

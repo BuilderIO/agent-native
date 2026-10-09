@@ -29,6 +29,7 @@ import {
 } from "./auth-policy.js";
 import { callAction } from "./client.js";
 import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
+import { assertA2APersistablePayload } from "./persistence-safety.js";
 import {
   createTask,
   createOrReuseTask,
@@ -747,6 +748,19 @@ async function handleSend(
       _id: 0,
     };
   }
+  try {
+    assertA2APersistablePayload(message, "A2A message");
+    assertA2APersistablePayload(params.metadata, "A2A metadata");
+  } catch (error) {
+    return {
+      ...jsonRpcError(
+        0,
+        -32602,
+        error instanceof Error ? error.message : "Invalid A2A message payload",
+      ),
+      _id: 0,
+    };
+  }
   if (hasUnboundVerifiedOrgIdentity(event)) {
     return {
       ...jsonRpcError(
@@ -974,6 +988,24 @@ async function handleStream(
   if (!message || !message.role || !Array.isArray(message.parts)) {
     res.write(
       `data: ${JSON.stringify(jsonRpcError(0, -32602, "Invalid params"))}\n\n`,
+    );
+    res.end();
+    return;
+  }
+  try {
+    assertA2APersistablePayload(message, "A2A message");
+    assertA2APersistablePayload(params.metadata, "A2A metadata");
+  } catch (error) {
+    res.write(
+      `data: ${JSON.stringify(
+        jsonRpcError(
+          0,
+          -32602,
+          error instanceof Error
+            ? error.message
+            : "Invalid A2A message payload",
+        ),
+      )}\n\n`,
     );
     res.end();
     return;
