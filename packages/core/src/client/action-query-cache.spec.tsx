@@ -56,6 +56,7 @@ vi.mock("./analytics.js", () => ({ trackEvent: vi.fn() }));
 import {
   ActionQueryCacheGate,
   actionQueryCacheScope,
+  bindActionQueryCache,
   clearActionQueryCache,
   setActionQueryCacheStorage,
   type ActionQueryCacheStorage,
@@ -467,5 +468,25 @@ describe("ActionQueryCacheGate", () => {
     await settle(50);
 
     expect(titles).not.toContain("fetched-two-hours-ago");
+  });
+
+  it("keeps a result fetched before the session resolved, without a second request", async () => {
+    const { storage } = memoryStorage();
+    setActionQueryCacheStorage(storage);
+    const client = new QueryClient();
+    const requestCount = stubFetch(() => designsResponse("preloaded"));
+    const key = ["action", "list-designs", undefined] as const;
+    await client.prefetchQuery({
+      queryKey: key,
+      queryFn: async () => (await fetch("/list-designs")).json(),
+    });
+    expect(requestCount()).toBe(1);
+
+    await bindActionQueryCache(client, ALICE_SCOPE);
+
+    expect(client.getQueryData<Designs>(key)?.designs[0]?.title).toBe(
+      "preloaded",
+    );
+    expect(requestCount()).toBe(1);
   });
 });

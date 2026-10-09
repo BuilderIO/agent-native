@@ -105,6 +105,8 @@ interface ScopedPersister extends Persister {
   /** Drops a write still waiting on the debounce, then deletes the record. */
   discard(): void;
   close(): void;
+  /** The query hashes and data ages the last restore hydrated from the record. */
+  restoredStates(): ReadonlyMap<string, number>;
 }
 
 // ponytail: one record holds every persisted result for the scope, with no size cap; split per query or cap bytes if restore shows up in traces.
@@ -112,6 +114,7 @@ function scopedPersister(scope: string): ScopedPersister {
   let open = true;
   let latest: PersistedClient | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let restored = new Map<string, number>();
 
   const flush = () => {
     timer = undefined;
@@ -136,7 +139,17 @@ function scopedPersister(scope: string): ScopedPersister {
       const stored = await storage.get(scope);
       // Closed while the read was in flight: the record belongs to a scope the
       // page has left, so it must not be hydrated into this client.
-      return open ? withinMaxAge(stored) : undefined;
+      const record = open ? withinMaxAge(stored) : undefined;
+      restored = new Map(
+        record?.clientState.queries.map((query) => [
+          query.queryHash,
+          query.state.dataUpdatedAt,
+        ]),
+      );
+      return record;
+    },
+    restoredStates() {
+      return restored;
     },
     removeClient() {
       return storage.del(scope);
@@ -212,8 +225,10 @@ export async function bindActionQueryCache(
   client: QueryClient,
   scope: string,
 ): Promise<void> {
+  // Nothing is cleared here: closeBinding has already dropped any previous
+  // scope's results, and results fetched before the session resolved (a hinted
+  // preload) belong to this session and must survive the bind.
   closeBinding();
-  client.removeQueries({ queryKey: ACTION_QUERY_KEY });
   const generation = bindingGeneration;
 
   // One record at a time: a record for any other scope belongs to another user
@@ -257,9 +272,15 @@ export async function bindActionQueryCache(
 
   await waitForRestore(restored);
   // A scope change during the restore can hydrate the old scope after the new
-  // one has started; drop those results before the new scope saves them.
+  // one has started; drop those results before the new scope saves them. A
+  // query the new scope has refetched since holds newer data and is kept.
   if (generation !== bindingGeneration) {
-    client.removeQueries({ queryKey: ACTION_QUERY_KEY });
+    const restoredStates = persister.restoredStates();
+    client.removeQueries({
+      predicate: (query) =>
+        query.queryKey[0] === "action" &&
+        restoredStates.get(query.queryHash) === query.state.dataUpdatedAt,
+    });
   }
 }
 
