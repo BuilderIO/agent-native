@@ -569,20 +569,20 @@ export function useEditorScreenRendering({
   const [openZoomControl, setOpenZoomControl] = useState<
     "toolbar" | "inspector" | "topbar" | null
   >(null);
-  const [zoomInputValue, setZoomInputValue] = useState(zoomLabel);
+  const zoomInputDigits = String(Math.round(zoom));
+  const [zoomInputValue, setZoomInputValue] = useState(zoomInputDigits);
   useEffect(() => {
-    if (!openZoomControl) setZoomInputValue(zoomLabel);
-  }, [zoomLabel, openZoomControl]);
+    if (!openZoomControl) setZoomInputValue(zoomInputDigits);
+  }, [zoomInputDigits, openZoomControl]);
   const commitZoomInput = useCallback(() => {
-    const next = Number(zoomInputValue.replace("%", "").trim());
-    if (!Number.isFinite(next)) {
-      setZoomInputValue(zoomLabel);
+    if (zoomInputValue === "") {
+      setZoomInputValue(zoomInputDigits);
       return;
     }
     suppressOverviewPopForExplicitZoomRef.current = true;
-    setZoom(clampZoom(next));
+    setZoom(clampZoom(Number(zoomInputValue)));
     setOpenZoomControl(null);
-  }, [setZoom, zoomInputValue, zoomLabel]);
+  }, [setZoom, zoomInputValue, zoomInputDigits]);
   const renderEditableScreenContent = useCallback(
     (
       screen: OverviewScreenRendererArgs[0],
@@ -1387,6 +1387,7 @@ export function useEditorScreenRendering({
     handleKScaleStyleBatchChange,
     handleApplyToSource,
     zoomLabel,
+    zoomInputDigits,
     openZoomControl,
     setOpenZoomControl,
     zoomInputValue,

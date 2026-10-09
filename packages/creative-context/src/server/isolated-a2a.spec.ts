@@ -174,6 +174,29 @@ describe("isolated Creative Context A2A", () => {
     expect(() => decodeCreativeContextA2ARequest(requestToken)).toThrow();
   });
 
+  it("rejects the unsigned persisted-snapshot bypass flag", () => {
+    const requestToken = Buffer.from(
+      JSON.stringify({
+        protocol: "creative-context-a2a-v1",
+        requestId: "87f466ae-32f4-4d0f-9de7-96f955e69f7b",
+        operation: "record",
+        payload: {
+          appId: "slides",
+          artifactType: "deck",
+          artifactId: "guessed-deck",
+          contextMode: "pinned",
+          contextPackId: "private-pack",
+          reuseLabels: [],
+          onlyIfMissing: true,
+          persistedSnapshot: true,
+        },
+      }),
+      "utf8",
+    ).toString("base64url");
+
+    expect(() => decodeCreativeContextA2ARequest(requestToken)).toThrow();
+  });
+
   it("fails closed when the isolated URL has no signing secret", async () => {
     delete process.env.CREATIVE_CONTEXT_A2A_KEY;
     delete process.env.A2A_SECRET;
