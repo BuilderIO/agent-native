@@ -374,10 +374,14 @@ describe("createH3SSRHandler", () => {
           : DEFAULT_SSR_CACHE_HEADERS["cache-control"],
       );
       expect(response.headers.get("cdn-cache-control")).toBe(
-        DEFAULT_SSR_CACHE_HEADERS["cdn-cache-control"],
+        isRecoveryAlias
+          ? "no-store"
+          : DEFAULT_SSR_CACHE_HEADERS["cdn-cache-control"],
       );
       expect(response.headers.get("netlify-cdn-cache-control")).toBe(
-        DEFAULT_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
+        isRecoveryAlias
+          ? "no-store"
+          : DEFAULT_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
       );
       expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
     }
@@ -406,11 +410,9 @@ describe("createH3SSRHandler", () => {
       expect(response.headers.get("cache-control")).toBe(
         CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
       );
-      expect(response.headers.get("cdn-cache-control")).toBe(
-        DEFAULT_SSR_CACHE_HEADERS["cdn-cache-control"],
-      );
+      expect(response.headers.get("cdn-cache-control")).toBe("no-store");
       expect(response.headers.get("netlify-cdn-cache-control")).toBe(
-        DEFAULT_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
+        "no-store",
       );
     }
 
@@ -434,6 +436,10 @@ describe("createH3SSRHandler", () => {
 
     expect(legacyResponse.headers.get("cache-control")).toBe(
       CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(legacyResponse.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(legacyResponse.headers.get("netlify-cdn-cache-control")).toBe(
+      "no-store",
     );
     expect(legacyResponse.headers.get("netlify-vary")).toBe(
       `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,

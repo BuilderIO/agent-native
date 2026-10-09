@@ -49,7 +49,7 @@ import {
 import { resolveAgentNativeBuildId } from "../shared/build-id.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
-  resolveChunkRecoveryCacheControl,
+  resolveChunkRecoveryCacheHeaders,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -1362,8 +1362,8 @@ export function generateWorkerEntry(
 ): string {
   const includeReactRouterSsr = options.includeReactRouterSsr ?? true;
   const ssrCacheHeaders = resolveSsrCacheHeaders();
-  const chunkRecoveryCacheControl =
-    resolveChunkRecoveryCacheControl(ssrCacheHeaders);
+  const chunkRecoveryCacheHeaders =
+    resolveChunkRecoveryCacheHeaders(ssrCacheHeaders);
   const ssrCacheKeyHeaders = resolveSsrCacheKeyHeaders();
   const ssrAuthRedirectCookieName = frameworkSessionHintCookieName(
     resolveAuthCookieNamespace().frameworkCookieName,
@@ -2068,7 +2068,7 @@ function injectHeadScript(html, script) {
 
 // Resolved from AGENT_NATIVE_SSR_CACHE at build time.
 const SSR_CACHE_HEADERS = ${JSON.stringify(ssrCacheHeaders)};
-const CHUNK_RECOVERY_ALIAS_CACHE_CONTROL = ${JSON.stringify(chunkRecoveryCacheControl)};
+const CHUNK_RECOVERY_ALIAS_CACHE_HEADERS = ${JSON.stringify(chunkRecoveryCacheHeaders)};
 const SSR_CACHE_KEY_HEADERS = ${JSON.stringify(ssrCacheKeyHeaders)};
 const SSR_QUERY_CACHE_KEY_HEADER = ${JSON.stringify(SSR_QUERY_CACHE_KEY_HEADER)};
 const CHUNK_RECOVERY_PATH_SUFFIX = ${JSON.stringify(CHUNK_RECOVERY_PATH_SUFFIX)};
@@ -2199,7 +2199,9 @@ function applyDefaultSsrCacheHeader(headers, status, pathname, isRecoveryAlias =
   if (netlifyVary) headers.set("netlify-vary", netlifyVary);
   else headers.delete("netlify-vary");
   if (isRecoveryAlias || isLegacyRecovery) {
-    headers.set("cache-control", CHUNK_RECOVERY_ALIAS_CACHE_CONTROL);
+    for (const [name, value] of Object.entries(CHUNK_RECOVERY_ALIAS_CACHE_HEADERS)) {
+      headers.set(name, value);
+    }
   }
 }
 

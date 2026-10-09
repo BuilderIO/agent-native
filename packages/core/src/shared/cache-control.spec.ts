@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SSR_CACHE_HEADERS,
   DISABLED_SSR_CACHE_CONTROL,
   DISABLED_SSR_CACHE_HEADERS,
   isSsrCacheEnabled,
   parseSsrCacheSetting,
   resolveSsrCacheHeaders,
+  resolveChunkRecoveryCacheHeaders,
   resolveSsrCacheKeyHeaders,
   SSR_CACHE_ENV_VAR,
   SSR_HTML_CONTENT_TYPE,
@@ -192,6 +194,24 @@ describe("resolveSsrCacheHeaders", () => {
     expect(resolveSsrCacheHeaders(envWith("banana"))).toEqual({
       ...DEFAULT_SSR_CACHE_HEADERS,
     });
+  });
+});
+
+describe("resolveChunkRecoveryCacheHeaders", () => {
+  it("revalidates recovery shells in browsers and bypasses shared CDNs", () => {
+    expect(resolveChunkRecoveryCacheHeaders(DEFAULT_SSR_CACHE_HEADERS)).toEqual(
+      {
+        "cache-control": CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+        "cdn-cache-control": DISABLED_SSR_CACHE_CONTROL,
+        "netlify-cdn-cache-control": DISABLED_SSR_CACHE_CONTROL,
+      },
+    );
+  });
+
+  it("keeps recovery responses disabled when the deployment opts out", () => {
+    expect(
+      resolveChunkRecoveryCacheHeaders(DISABLED_SSR_CACHE_HEADERS),
+    ).toEqual(DISABLED_SSR_CACHE_HEADERS);
   });
 });
 

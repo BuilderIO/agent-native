@@ -5,7 +5,10 @@ import {
   resolveSsrNetlifyQueryVary,
 } from "@agent-native/core/server/ssr-handler";
 
-import { CHUNK_RECOVERY_BROWSER_CACHE_CONTROL } from "../../core/src/shared/cache-control.js";
+import {
+  CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+  resolveChunkRecoveryCacheHeaders,
+} from "../../core/src/shared/cache-control.js";
 import { CHUNK_RECOVERY_PATH_SUFFIX } from "../../core/src/shared/route-chunk-recovery-bootstrap.js";
 
 export const COMMUNITY_APP_SSR_CACHE_HEADERS = {
@@ -107,9 +110,14 @@ export function applyCommunityAppSsrCacheHeaders(
     }
   }
 
+  const recoveryHeaders = preservesBrowserRevalidation
+    ? resolveChunkRecoveryCacheHeaders(deploymentHeaders)
+    : null;
   for (const [name, value] of Object.entries(COMMUNITY_APP_SSR_CACHE_HEADERS)) {
-    if (name === "cache-control" && preservesBrowserRevalidation) continue;
-    headers.set(name, value);
+    headers.set(
+      name,
+      recoveryHeaders?.[name as keyof typeof recoveryHeaders] ?? value,
+    );
   }
 }
 

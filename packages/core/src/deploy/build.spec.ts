@@ -2263,6 +2263,10 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     expect(legacyRecovery.headers.get("cache-control")).toBe(
       CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
     );
+    expect(legacyRecovery.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(legacyRecovery.headers.get("netlify-cdn-cache-control")).toBe(
+      "no-store",
+    );
     expect(legacyRecovery.headers.get("netlify-vary")).toBe(
       `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
     );
@@ -2308,12 +2312,8 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     expect(recovery.headers.get("cache-control")).toBe(
       CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
     );
-    expect(recovery.headers.get("cdn-cache-control")).toBe(
-      DEFAULT_SSR_CACHE_HEADERS["cdn-cache-control"],
-    );
-    expect(recovery.headers.get("netlify-cdn-cache-control")).toBe(
-      DEFAULT_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
-    );
+    expect(recovery.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(recovery.headers.get("netlify-cdn-cache-control")).toBe("no-store");
     expect(recovery.headers.get("netlify-vary")).toBe("query=_routes|index");
     expect(await recovery.clone().text()).toContain("GET /inbox/</body>");
 
@@ -2366,12 +2366,8 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     expect(response.headers.get("cache-control")).toBe(
       CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
     );
-    expect(response.headers.get("cdn-cache-control")).toBe(
-      DEFAULT_SSR_CACHE_HEADERS["cdn-cache-control"],
-    );
-    expect(response.headers.get("netlify-cdn-cache-control")).toBe(
-      DEFAULT_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
-    );
+    expect(response.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe("no-store");
     expect(requestedPaths).toEqual([
       `/docs${CHUNK_RECOVERY_PATH_SUFFIX}`,
       "/index.html",
@@ -2426,12 +2422,8 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     expect(response.headers.get("cache-control")).toBe(
       CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
     );
-    expect(response.headers.get("cdn-cache-control")).toBe(
-      DEFAULT_SSR_CACHE_HEADERS["cdn-cache-control"],
-    );
-    expect(response.headers.get("netlify-cdn-cache-control")).toBe(
-      DEFAULT_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
-    );
+    expect(response.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe("no-store");
     expect(response.headers.get("netlify-vary")).toBe("query");
     expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
   });

@@ -137,15 +137,19 @@ export function resolveSsrCacheHeaders(
   return memoizedHeaders;
 }
 
-export function resolveChunkRecoveryCacheControl(
+export function resolveChunkRecoveryCacheHeaders(
   cacheHeaders: Pick<
     SsrCacheHeaders,
     "cache-control"
   > = resolveSsrCacheHeaders(),
-): string {
+): Readonly<SsrCacheHeaders> {
   return cacheHeaders["cache-control"] === DISABLED_SSR_CACHE_CONTROL
-    ? DISABLED_SSR_CACHE_CONTROL
-    : CHUNK_RECOVERY_BROWSER_CACHE_CONTROL;
+    ? DISABLED_SSR_CACHE_HEADERS
+    : {
+        "cache-control": CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+        "cdn-cache-control": DISABLED_SSR_CACHE_CONTROL,
+        "netlify-cdn-cache-control": DISABLED_SSR_CACHE_CONTROL,
+      };
 }
 
 export function resolveSsrNetlifyQueryVary(

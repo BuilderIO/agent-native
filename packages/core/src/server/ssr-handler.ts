@@ -5,7 +5,7 @@ import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
-  resolveChunkRecoveryCacheControl,
+  resolveChunkRecoveryCacheHeaders,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -295,11 +295,11 @@ function isSsrHtmlOrDataResponse(
  * ┌──────────────────────────────────────────────────────────────────────────┐
  * │ SSR IS A PUBLIC, HARD-CDN-CACHED SHELL — SERVED IDENTICALLY TO EVERYONE.   │
  * │                                                                            │
- * │ Normal SSR HTML / React Router `.data` responses get the same public       │
- * │ stale-while-revalidate policy for ALL visitors, authenticated or not, so   │
- * │ the edge serves one shared copy and never stampedes origin. Recovery via  │
- * │ the fixed path or exact legacy marker revalidates in browsers while using │
- * │ the shared CDN cache, which Netlify invalidates on deploy.                  │
+ * │ Normal SSR HTML / React Router `.data` responses get the same public      │
+ * │ stale-while-revalidate policy for ALL visitors, authenticated or not, so  │
+ * │ the edge serves one shared copy and never stampedes origin. Recovery via │
+ * │ the fixed path or exact legacy marker revalidates in browsers and bypasses│
+ * │ CDN storage so the reload always gets the current shell.                  │
  * │                                                                            │
  * │ DO NOT reintroduce per-user / cookie-based cache variation here (no        │
  * │ `private`, no `Vary: Cookie`, no "authenticated → don't                    │
@@ -317,8 +317,8 @@ function isSsrHtmlOrDataResponse(
  * │ AGENT_NATIVE_SSR_CACHE (see `resolveSsrCacheHeaders`), for hosts that do   │
  * │ not purge their CDN on deploy. What remains forbidden is PER-REQUEST /     │
  * │ PER-USER response variation — no `private`, no `Vary: Cookie`, and no     │
- * │ request-specific content. The recovery path or exact legacy marker       │
- * │ selects the same shell without varying on a nonce or arbitrary query.     │
+ * │ request-specific content. Recovery keeps a bounded alias and never adds  │
+ * │ arbitrary query-key variation to the normally cached shell.               │
  * └──────────────────────────────────────────────────────────────────────────┘
  *
  * The same sharing rule governs any DIAGNOSTIC header on this response. A
@@ -343,8 +343,8 @@ function applyDefaultSsrCacheHeader(
 
   // Current recovery uses one fixed path alias. Still-deployed clients use the
   // exact legacy marker below, which varies only on that allowlisted query key.
-  // Keep Netlify's default cache ID so deploy-context invalidation refreshes
-  // these recovery responses.
+  // Do not cache recovery responses at the CDN: a stale alias shell can make
+  // the recovery reload repeat the same missing-chunk failure.
   const varyByQuery = responseRequestsQueryVary;
 
   // A public shell must never set a viewer cookie or vary by credentials.
@@ -379,7 +379,11 @@ function applyDefaultSsrCacheHeader(
   if (netlifyVary) headers.set("netlify-vary", netlifyVary);
   else headers.delete("netlify-vary");
   if (isRecoveryAlias || isLegacyRecovery) {
-    headers.set("cache-control", resolveChunkRecoveryCacheControl());
+    for (const [name, value] of Object.entries(
+      resolveChunkRecoveryCacheHeaders(),
+    )) {
+      headers.set(name, value);
+    }
   }
 }
 

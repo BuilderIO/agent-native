@@ -135,16 +135,12 @@ describe("Docs SSR cache key wrapper", () => {
       expect(headers.get("cache-control")).toBe(
         CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
       );
-      expect(headers.get("cdn-cache-control")).toBe(
-        "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600",
-      );
-      expect(headers.get("netlify-cdn-cache-control")).toBe(
-        "public, durable, s-maxage=600, stale-while-revalidate=604800, stale-if-error=3600",
-      );
+      expect(headers.get("cdn-cache-control")).toBe("no-store");
+      expect(headers.get("netlify-cdn-cache-control")).toBe("no-store");
     }
   });
 
-  it("preserves browser revalidation and community CDN TTL for legacy recovery", () => {
+  it("bypasses CDN caches for legacy recovery", () => {
     const headers = new Headers({
       ...resolveSsrCacheHeaders({}),
       "cache-control": CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
@@ -158,12 +154,8 @@ describe("Docs SSR cache key wrapper", () => {
     expect(headers.get("cache-control")).toBe(
       CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
     );
-    expect(headers.get("cdn-cache-control")).toBe(
-      "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600",
-    );
-    expect(headers.get("netlify-cdn-cache-control")).toBe(
-      "public, durable, s-maxage=600, stale-while-revalidate=604800, stale-if-error=3600",
-    );
+    expect(headers.get("cdn-cache-control")).toBe("no-store");
+    expect(headers.get("netlify-cdn-cache-control")).toBe("no-store");
   });
 
   it("keeps mutable community app routes in the durable cache", () => {
@@ -194,12 +186,8 @@ describe("Docs SSR cache key wrapper", () => {
     expect(recoveryHeaders.get("cache-control")).toBe(
       CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
     );
-    expect(recoveryHeaders.get("cdn-cache-control")).toBe(
-      "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600",
-    );
-    expect(recoveryHeaders.get("netlify-cdn-cache-control")).toBe(
-      "public, durable, s-maxage=600, stale-while-revalidate=604800, stale-if-error=3600",
-    );
+    expect(recoveryHeaders.get("cdn-cache-control")).toBe("no-store");
+    expect(recoveryHeaders.get("netlify-cdn-cache-control")).toBe("no-store");
 
     const staticHeaders = new Headers();
     applyCommunityAppSsrCacheHeaders(staticHeaders, "/docs/getting-started/");
