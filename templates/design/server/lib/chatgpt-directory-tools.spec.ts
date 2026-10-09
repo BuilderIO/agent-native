@@ -42,12 +42,81 @@ describe("Design ChatGPT directory widget targets", () => {
     expect(target).toMatchObject({
       targetPath:
         "/design/design-1?editorView=overview&screen=screen%2Fdesktop",
-      resourceIds: { designId: "design-1" },
+      resourceIds: { designId: "design-1", resourceType: "design" },
     });
-    expect(target?.writeActions).toHaveLength(3);
+    expect(target?.writeActions).toHaveLength(6);
     expect(target?.writeActions).toEqual(
-      expect.arrayContaining(["create-file", "update-design", "update-file"]),
+      expect.arrayContaining([
+        "create-file",
+        "update-design",
+        "update-file",
+        "share-resource",
+        "unshare-resource",
+        "set-resource-visibility",
+      ]),
     );
+  });
+
+  it("scopes the Share dialog reads and writes to the widget design", () => {
+    expect(CHATGPT_DIRECTORY_PROFILE.widgetReadActionArguments).toMatchObject({
+      "list-resource-shares": {
+        resourceType: "resourceType",
+        resourceId: "designId",
+      },
+    });
+    expect(CHATGPT_DIRECTORY_PROFILE.widgetReadOnlyActions).toContain(
+      "list-resource-shares",
+    );
+    expect(CHATGPT_DIRECTORY_PROFILE.widgetReadAuthenticatedActions).toContain(
+      "list-resource-shares",
+    );
+    expect(CHATGPT_DIRECTORY_PROFILE.connectorCatalog).not.toContain(
+      "list-resource-shares",
+    );
+    expect(
+      CHATGPT_DIRECTORY_PROFILE.widgetWriteActionArguments["share-resource"],
+    ).toMatchObject({
+      resourceType: "resourceType",
+      resourceId: "designId",
+    });
+    expect(
+      CHATGPT_DIRECTORY_PROFILE.widgetWriteActionArguments["unshare-resource"],
+    ).toMatchObject({
+      resourceType: "resourceType",
+      resourceId: "designId",
+    });
+    expect(
+      CHATGPT_DIRECTORY_PROFILE.widgetWriteActionArguments[
+        "set-resource-visibility"
+      ],
+    ).toMatchObject({
+      resourceType: "resourceType",
+      resourceId: "designId",
+    });
+  });
+
+  it.each([
+    "create-design",
+    "create-design-from-template",
+    "generate-design",
+    "present-design-variants",
+  ] as const)("grants the app-chrome actions for %s widgets", (toolName) => {
+    const target = CHATGPT_DIRECTORY_PROFILE.widgetTargets[toolName](
+      { designId: "design-1" },
+      { id: "design-1", designId: "design-1" },
+    );
+    expect(target?.resourceIds).toEqual({
+      designId: "design-1",
+      resourceType: "design",
+    });
+    expect(target?.writeActions).toEqual([
+      "update-design",
+      "update-file",
+      "create-file",
+      "share-resource",
+      "unshare-resource",
+      "set-resource-visibility",
+    ]);
   });
 
   it("falls back to the design canvas when no generated screen is in the result", () => {

@@ -398,6 +398,12 @@ const sharedDirectoryActionsByApp: Record<string, Record<string, unknown>> = {
     "unshare-resource": unshareResource,
     "set-resource-visibility": setResourceVisibility,
   },
+  design: {
+    "list-resource-shares": listResourceShares,
+    "share-resource": shareResource,
+    "unshare-resource": unshareResource,
+    "set-resource-visibility": setResourceVisibility,
+  },
   slides: {
     "list-resource-shares": listResourceShares,
     "share-resource": shareResource,
@@ -2836,9 +2842,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         .spyOn(console, "error")
         .mockImplementation(() => {});
       try {
-        // Resource ids at the 256-character cap overflow the read scope as
+        // An id past the 256-character cap invalidates the read scope as
         // well as the write scope, so no widget capability can be built.
-        const id = "x".repeat(256);
+        const id = "x".repeat(257);
         embedSessionMocks.createEmbedSessionTicket.mockClear();
 
         const created = await callCreate({
