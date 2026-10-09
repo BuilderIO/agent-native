@@ -7,7 +7,7 @@ import { eq, inArray, notInArray } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
 import type { DesignDataMutationTransaction } from "./design-data-mutation.js";
 
-const CLEANUP_BATCH_SIZE = 50;
+export const VISUAL_EDIT_SNAPSHOT_BLOB_CLEANUP_BATCH_SIZE = 50;
 
 export function parseVisualEditSnapshotBlobHandle(
   value: string,
@@ -55,9 +55,10 @@ export async function deleteVisualEditSnapshotBlobs(
         .select({ blobHandle: table.blobHandle })
         .from(table)
         .where(inArray(table.blobHandle, handles))
-        .limit(CLEANUP_BATCH_SIZE)
+        .limit(VISUAL_EDIT_SNAPSHOT_BLOB_CLEANUP_BATCH_SIZE)
     : [];
-  const backlogCapacity = CLEANUP_BATCH_SIZE - prioritized.length;
+  const backlogCapacity =
+    VISUAL_EDIT_SNAPSHOT_BLOB_CLEANUP_BATCH_SIZE - prioritized.length;
   const backlog =
     backlogCapacity === 0
       ? []
@@ -101,7 +102,7 @@ export async function deleteVisualEditSnapshotBlobs(
     : await db
         .select({ blobHandle: table.blobHandle })
         .from(table)
-        .limit(CLEANUP_BATCH_SIZE);
+        .limit(VISUAL_EDIT_SNAPSHOT_BLOB_CLEANUP_BATCH_SIZE);
   return remaining.length > 0;
 }
 

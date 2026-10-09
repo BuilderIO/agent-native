@@ -98,11 +98,12 @@ omits entries below 16 ms, the report uses all keydowns and shows a `<=16 ms`
 bound when the p95 is below that threshold. It gates the p95 time from keydown
 through the first animation frame and forced layout at 16 ms only when Event
 Timing is unavailable; that measurement is a proxy, not paint. When Event
-Timing is available, the proxy is reported but the keydown-to-paint measurement
-is the latency flag. Slides with `data:` URLs are excluded from the authoring
-rounds; the largest-slide latency copy replaces those URLs with `about:blank`
-while preserving source geometry, so embedded image bytes are never copied into
-the scratch database:
+Timing is available, the first-frame proxy does not force layout, and the gate
+reports beforeinput/input handler time separately. The Event Timing
+keydown-to-paint measurement remains the latency flag. Slides with `data:` URLs
+are excluded from the authoring rounds; the largest-slide latency copy replaces
+those URLs with `about:blank` while preserving source geometry, so embedded
+image bytes are never copied into the scratch database:
 
 ```bash
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus
@@ -126,6 +127,11 @@ pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seeds 20
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seeds 20 --browser webkit
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seeds 20 --browser firefox
 ```
+
+The `slides-authoring-fuzz-soak.yml` workflow is manual (`workflow_dispatch`). It
+runs 20 seeds of 500 steps for Chromium, WebKit, and Firefox in four five-seed
+shards per browser. PR CI runs one bounded 80-step smoke seed (seed 16) per
+browser. It does not run the full soak.
 
 ## Authoring parity checklist
 
