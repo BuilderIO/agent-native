@@ -467,7 +467,9 @@ describe("planJourneyCanvas", () => {
     expect(root.html).toContain("Recording ID rec-signup-1");
     expect(root.html).toContain("Replay offset 4,000 ms");
     expect(root.html).toContain("Screenshot captured 2026-10-08");
-    expect(root.frame.height).toBe(CARD_PROVENANCE_HEADER_HEIGHT + 20 + 225);
+    expect(root.frame.height).toBe(
+      CARD_PROVENANCE_HEADER_HEIGHT + 20 + 12 + 225,
+    );
   });
 
   it("shows the replay screenshot offset and observation time separately from its source event", () => {
@@ -495,7 +497,9 @@ describe("planJourneyCanvas", () => {
     expect(root.html).toContain("Replay offset 4,600 ms");
     expect(root.html).toContain("Source event offset 4,000 ms");
     expect(root.html).toContain("Replay observed 2026-10-01T12:00:00.600Z UTC");
-    expect(root.frame.height).toBe(CARD_PROVENANCE_HEADER_HEIGHT + 20 + 225);
+    expect(root.frame.height).toBe(
+      CARD_PROVENANCE_HEADER_HEIGHT + 20 + 12 + 225,
+    );
   });
 
   it("labels cohort sessions that continue beyond pictured child paths", () => {
@@ -509,7 +513,7 @@ describe("planJourneyCanvas", () => {
     const root = result.screens.find((screen) => screen.nodeKey === "signup")!;
 
     expect(root.html).toContain(
-      "200 sessions continued on unpictured paths · 20% of this step",
+      "360 sessions continued on unpictured paths · 36% of this step",
     );
     expect(root.html).toContain("header .coverage-note");
     expect(root.frame.height).toBe(
@@ -773,7 +777,9 @@ describe("planJourneyCanvas", () => {
     )!;
     const mobile = screens.find((s) => s.nodeKey === "signup > prompt")!;
     expect(root.frame.width).toBe(360);
-    expect(root.frame.height).toBe(CARD_PROVENANCE_HEADER_HEIGHT + 20 + 225);
+    expect(root.frame.height).toBe(
+      CARD_PROVENANCE_HEADER_HEIGHT + 20 + 12 + 225,
+    );
     expect(mobile.frame.width).toBe(360);
     expect(mobile.frame.height).toBe(CARD_PROVENANCE_HEADER_HEIGHT + 12 + 720);
     expect(mobile.html).toContain(
@@ -782,7 +788,7 @@ describe("planJourneyCanvas", () => {
     const wide = plan(
       rawInput({ frames: [frame("signup", 0, { width: 5000, height: 500 })] }),
     ).screens[0]!;
-    expect(wide.frame.height).toBe(CARD_PROVENANCE_HEADER_HEIGHT + 180);
+    expect(wide.frame.height).toBe(CARD_PROVENANCE_HEADER_HEIGHT + 12 + 180);
   });
 
   it("stacks extra examples behind the front card", () => {

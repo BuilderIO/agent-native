@@ -700,9 +700,25 @@ export function planJourneyCanvas(
 ): JourneyCanvasPlan {
   const { tree, cardWidth, maxExamplesPerNode, includeScreenshotless } = input;
   const nodeIndex = new Map(tree.nodes.map((node, index) => [node.key, index]));
+  const framesByNode = new Map<string, JourneyFrame[]>();
+  for (const frame of input.frames) {
+    if (frame.exampleIndex >= maxExamplesPerNode) continue;
+    const list = framesByNode.get(frame.nodeKey) ?? [];
+    list.push(frame);
+    framesByNode.set(frame.nodeKey, list);
+  }
+  for (const list of framesByNode.values()) {
+    list.sort((a, b) => a.exampleIndex - b.exampleIndex);
+  }
+
   const childSessionsByParent = new Map<string, number>();
   for (const node of tree.nodes) {
     if (node.parentKey === null || !hasCohortMetrics(node)) continue;
+    const pictured =
+      node.kind === "other" ||
+      (framesByNode.get(node.key)?.length ?? 0) > 0 ||
+      (node.kind === "step" && includeScreenshotless);
+    if (!pictured) continue;
     childSessionsByParent.set(
       node.parentKey,
       (childSessionsByParent.get(node.parentKey) ?? 0) + node.n,
@@ -721,17 +737,6 @@ export function planJourneyCanvas(
       node.key,
       `${formatInt(continued)} ${sessionLabel} continued on unpictured paths · ${formatPercent((continued / Math.max(1, node.n)) * 100)} of this step`,
     );
-  }
-
-  const framesByNode = new Map<string, JourneyFrame[]>();
-  for (const frame of input.frames) {
-    if (frame.exampleIndex >= maxExamplesPerNode) continue;
-    const list = framesByNode.get(frame.nodeKey) ?? [];
-    list.push(frame);
-    framesByNode.set(frame.nodeKey, list);
-  }
-  for (const list of framesByNode.values()) {
-    list.sort((a, b) => a.exampleIndex - b.exampleIndex);
   }
 
   const skippedNodes: Array<{ key: string; reason: string }> = [];
