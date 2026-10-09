@@ -298,30 +298,55 @@ function collectDashboardConfigIssues(
       if (!id) return dashboardIssue(`config.filters[${i}].id is required`);
       if (f.type === "multi-select") {
         // The selection is comma-joined in the URL, so a value cannot be empty or contain ",". MULTI_SELECT_EMPTY is reserved for the cleared state.
-        const options = Array.isArray(f.options)
-          ? (f.options as Array<{ value?: unknown } | null>)
-          : [];
-        const badIndex = options.findIndex(
-          (option) =>
-            typeof option?.value === "string" &&
-            (option.value === "" ||
-              option.value.includes(",") ||
-              option.value === MULTI_SELECT_EMPTY),
-        );
-        if (badIndex !== -1) {
+        if (f.options !== undefined && !Array.isArray(f.options)) {
           return dashboardIssue(
-            `config.filters[${i}].options[${badIndex}].value must be non-empty, cannot contain ",", and cannot be "${MULTI_SELECT_EMPTY}" in a multi-select filter`,
+            `config.filters[${i}].options must be an array`,
           );
         }
-        // A default that normalizes to nothing would show All while the query still gets a non-empty value.
-        if (
-          typeof f.default === "string" &&
-          f.default !== "" &&
-          normalizeMultiSelectValue(f.default) === ""
-        ) {
-          return dashboardIssue(
-            `config.filters[${i}].default must name at least one option value in a multi-select filter`,
+        const options: unknown[] = Array.isArray(f.options) ? f.options : [];
+        for (let j = 0; j < options.length; j++) {
+          const option = options[j] as {
+            value?: unknown;
+            label?: unknown;
+          } | null;
+          if (
+            !option ||
+            typeof option !== "object" ||
+            typeof option.value !== "string" ||
+            typeof option.label !== "string"
+          ) {
+            return dashboardIssue(
+              `config.filters[${i}].options[${j}] must be an object with string value and label`,
+            );
+          }
+          if (
+            option.value === "" ||
+            option.value.includes(",") ||
+            option.value === MULTI_SELECT_EMPTY
+          ) {
+            return dashboardIssue(
+              `config.filters[${i}].options[${j}].value must be non-empty, cannot contain ",", and cannot be "${MULTI_SELECT_EMPTY}" in a multi-select filter`,
+            );
+          }
+        }
+        if (typeof f.default === "string" && f.default !== "") {
+          const named = normalizeMultiSelectValue(f.default);
+          // A default that normalizes to nothing would show All while the query still gets a non-empty value.
+          if (named === "") {
+            return dashboardIssue(
+              `config.filters[${i}].default must name at least one option value in a multi-select filter`,
+            );
+          }
+          // Each default token must be a configured option: a token with no checkbox would be applied to SQL unseen.
+          const values = new Set(
+            options.map((option) => (option as { value: string }).value),
           );
+          const unknown = named.split(",").find((token) => !values.has(token));
+          if (unknown !== undefined) {
+            return dashboardIssue(
+              `config.filters[${i}].default names "${unknown}", which is not one of its options`,
+            );
+          }
         }
       }
       if (seen.has(id)) continue;

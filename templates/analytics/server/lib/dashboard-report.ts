@@ -153,18 +153,20 @@ export async function collectReportSnapshot(
   }
 
   const config = dashboardConfigFromRecord(dashboard.config);
-  const filters = normalizeReportFilters(config.filters, {
+  const linkFilters = {
     ...defaultFilterValues(config),
     ...sub.filters,
-  });
+  };
+  // Links keep a cleared multi-select's marker, because a link without it reopens with the default selected. The query and filter line read the normalized map.
+  const filters = normalizeReportFilters(config.filters, linkFilters);
 
   return {
     dashboardId: sub.dashboardId,
     title: config.name || dashboard.title,
     description: config.description,
     filters,
-    dashboardUrl: buildDashboardUrl(sub.dashboardId, filters),
-    reportSettingsUrl: buildDashboardUrl(sub.dashboardId, filters, {
+    dashboardUrl: buildDashboardUrl(sub.dashboardId, linkFilters),
+    reportSettingsUrl: buildDashboardUrl(sub.dashboardId, linkFilters, {
       reportSettings: true,
     }),
     generatedAt: new Date().toISOString(),

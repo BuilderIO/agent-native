@@ -421,9 +421,9 @@ describe("multi-select filters", () => {
     expect(normalizeMultiSelectValue("free,,self_serve")).toBe(
       "free,self_serve",
     );
-    expect(
-      resolveFilterVars([{ ...tier, default: "," }], noParams).tier,
-    ).toBe("");
+    expect(resolveFilterVars([{ ...tier, default: "," }], noParams).tier).toBe(
+      "",
+    );
   });
 
   it("treats the empty marker as no selection even when a default is set", () => {

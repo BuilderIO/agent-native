@@ -568,6 +568,8 @@ describe("dashboard report email", () => {
     });
 
     expect(snapshot.filters).toEqual({ f_tier: "pro" });
+    // The link must reopen with the selection cleared, not with the default.
+    expect(snapshot.dashboardUrl).toContain("f_plan=__empty__");
   });
 
   it("reads the dashboard under the subscription owner's access scope", async () => {
