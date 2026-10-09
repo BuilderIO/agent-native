@@ -3086,6 +3086,80 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(JSON.stringify(sent.metadata.custom)).not.toContain("data:image");
   });
 
+  it("sends multiple resized images by durable URL without exceeding the inline payload cap", async () => {
+    const bitmap = {
+      width: 2560,
+      height: 1440,
+      close: vi.fn(),
+    } as unknown as ImageBitmap;
+    vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue(bitmap));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      clearRect: vi.fn(),
+      drawImage: vi.fn(),
+      save: vi.fn(),
+      fillRect: vi.fn(),
+      restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+      (callback, type) =>
+        callback(
+          new Blob([new Uint8Array(2 * 1024 * 1024)], {
+            type: type ?? "image/png",
+          }),
+        ),
+    );
+    const names = ["reference-1.png", "reference-2.png", "reference-3.png"];
+    const originals = names.map((name, index) => ({
+      type: "file" as const,
+      name,
+      mediaType: "image/png",
+      url: `https://files.example.test/original-${index}.png`,
+    }));
+    const resized = names.map((name, index) => ({
+      type: "file" as const,
+      name,
+      mediaType: "image/png",
+      url: `https://files.example.test/resized-${index}.png`,
+    }));
+    for (const original of originals) {
+      chatMocks.control.uploadFiles.mockResolvedValueOnce([original]);
+    }
+    chatMocks.control.uploadFiles.mockResolvedValueOnce(resized);
+    await mount(baseProps());
+    const files = names.map(
+      (name) =>
+        new File([largePngBytes()], name, {
+          type: "image/png",
+        }),
+    );
+
+    await act(async () => {
+      await chatMocks.composerProps.onSubmit(
+        "Use these references",
+        files,
+        [],
+        { intent: "immediate" },
+      );
+    });
+
+    const perImageDataUrlChars =
+      4 * Math.ceil((2 * 1024 * 1024) / 3) + "data:image/png;base64,".length;
+    expect(perImageDataUrlChars * files.length).toBeGreaterThan(6_000_000);
+    const sent = chatMocks.control.sendMessage.mock.calls[0]?.[0] as any;
+    expect(sent.requestAttachments).toEqual(
+      resized.map((attachment, index) => ({
+        type: "image",
+        name: attachment.name,
+        contentType: "image/png",
+        url: attachment.url,
+        referenceUrl: originals[index]!.url,
+      })),
+    );
+    expect(
+      sent.requestAttachments.every((attachment: any) => !attachment.data),
+    ).toBe(true);
+  });
+
   it.each(["immediate", "queued"] as const)(
     "sends resized vision bytes with a durable retry payload for %s when the original reference upload fails",
     async (intent) => {

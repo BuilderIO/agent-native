@@ -5,6 +5,7 @@ import {
   type AgentKitUploadDriver,
   type AgentThreadState,
 } from "@agent-native/agentkit";
+import { MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS } from "@agent-native/agentkit/protocol";
 import type {
   AgentActionResult,
   AgentApprovalRequest,
@@ -2317,12 +2318,19 @@ const AgentKitAssistantChatBody = forwardRef<
               control,
               requestAttachments,
             );
-            requestAttachments = requestAttachments.map((attachment, index) => {
-              const durable = durableAttachments[index];
-              return attachment.data && durable?.url
-                ? { ...attachment, url: durable.url }
-                : attachment;
-            });
+            const inlineImageDataChars = requestAttachments.reduce(
+              (total, attachment) => total + (attachment.data?.length ?? 0),
+              0,
+            );
+            requestAttachments =
+              inlineImageDataChars > MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS
+                ? durableAttachments
+                : requestAttachments.map((attachment, index) => {
+                    const durable = durableAttachments[index];
+                    return attachment.data && durable?.url
+                      ? { ...attachment, url: durable.url }
+                      : attachment;
+                  });
             retryRequestAttachments = durableAttachments.filter(
               (attachment) => !attachment.data && attachment.url,
             );
