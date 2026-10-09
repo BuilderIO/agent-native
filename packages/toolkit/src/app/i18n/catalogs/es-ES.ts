@@ -821,7 +821,6 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.retryWithoutAttachment": "Reintentar sin el archivo adjunto",
   "recovery.retryAttachmentUnavailable":
     "Esta solicitud incluía un archivo que no se puede volver a enviar. Vuelve a adjuntarlo en el cuadro de mensaje y vuelve a intentarlo.",
-  "recovery.retryWithoutAttachment": "Reintentar sin el adjunto",
   "recovery.deferredSubmissionFailed":
     "No se pudo enviar este mensaje. Comprueba tu conexión o la configuración del chat y vuelve a intentarlo.",
   "recovery.credentialRejected":

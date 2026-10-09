@@ -828,7 +828,6 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.retryWithoutAttachment": "Réessayer sans pièce jointe",
   "recovery.retryAttachmentUnavailable":
     "Cette demande incluait un fichier qui ne peut pas être réessayé. Joignez-le de nouveau dans le champ de message, puis réessayez.",
-  "recovery.retryWithoutAttachment": "Réessayer sans la pièce jointe",
   "recovery.deferredSubmissionFailed":
     "Impossible d’envoyer ce message. Vérifiez votre connexion ou la configuration du chat, puis réessayez.",
   "recovery.credentialRejected":

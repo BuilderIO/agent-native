@@ -554,7 +554,7 @@ async function openSidebarComposer(
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
   ).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  await page.getByRole("button", { name: "Agents", exact: true }).click();
   await expect(
     page.locator(`iframe[data-screen-iframe-id="${fileId}"]`),
   ).toBeVisible({ timeout: 30_000 });

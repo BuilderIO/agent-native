@@ -1167,7 +1167,6 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.retryWithoutAttachment": "إعادة المحاولة بدون مرفق",
   "recovery.retryAttachmentUnavailable":
     "تضمّن هذا الطلب ملفًا لا يمكن إعادة المحاولة به. أرفقه مجددًا في مربع الرسالة، ثم حاول مرة أخرى.",
-  "recovery.retryWithoutAttachment": "إعادة المحاولة بدون المرفق",
   "recovery.deferredSubmissionFailed":
     "تعذّر إرسال هذه الرسالة. تحقّق من اتصالك أو إعدادات الدردشة، ثم أعد المحاولة.",
   "recovery.credentialRejected":

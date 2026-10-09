@@ -1089,7 +1089,6 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.retryWithoutAttachment": "不附帶附件重試",
   "recovery.retryAttachmentUnavailable":
     "此要求包含無法重試的檔案。請在訊息輸入框中重新附加檔案，然後再試一次。",
-  "recovery.retryWithoutAttachment": "不含附件重試",
   "recovery.deferredSubmissionFailed":
     "無法傳送這則訊息。請檢查連線或聊天設定，然後再試一次。",
   "recovery.credentialRejected":

@@ -8,7 +8,6 @@ import {
 } from "@agent-native/agentkit";
 import {
   MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS,
-  isInlineDataUrl,
   persistableFilePart,
 } from "@agent-native/agentkit/protocol";
 import type {
