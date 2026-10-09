@@ -53,7 +53,12 @@ vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => {
     await importOriginal<
       typeof import("@agent-native/core/client/mcp-app-host")
     >();
-  return { ...actual, ...openAiHost };
+  return {
+    ...actual,
+    ...openAiHost,
+    useIsMcpDirectoryWidgetReadOnlyEmbed: () => false,
+    useIsMcpDirectoryWidgetWriteEmbed: () => false,
+  };
 });
 vi.mock("@agent-native/core/client/hooks", () => {
   const callAction = (name: string, params: unknown) => {

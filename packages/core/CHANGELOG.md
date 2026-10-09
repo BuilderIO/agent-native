@@ -51,6 +51,90 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.206.0
+
+### Minor Changes
+
+- e88f35c: Prevent new AI chat work from dispatching without an eligible provider, and provide a consistent Connect AI flow.
+
+  `createProductionAgentHandler` now requires the `assertAiSetupReady` callback. Existing callers must provide a readiness assertion before upgrading; refusals can use the existing `onRunNotStarted` callback to retain the user's prompt and retry context.
+
+  AgentKit transports must provide `assertAiSetupReady`, or clients for transports where shared Agent-Native provider setup does not apply must set `aiSetupReadiness: "not-applicable"` explicitly.
+
+- 02fc73f: Support artifact-scoped write capabilities for editable MCP app widgets.
+- 58b7507: Refresh Builder and BYOK model catalogs, including Claude Haiku 5.5, current provider IDs, and model picker options.
+- f6a7c17: Allow query-token routes to bypass session auth only when their handler's credential is present, while retaining workspace-app checks for session requests.
+
+### Patch Changes
+
+- 4ae41fd: Correct the bundled Automations, Recurring Jobs, and Workflow Connectors docs: document webhook triggers and Run now, point to Settings › Automations, describe how condition failures are recorded, narrow what fire-test exercises, and use the n8n integration's `N8N_WEBHOOK_CREDENTIAL` key.
+- 9e2d5f5: Record scheduled automation runs under the automation's stored owner and scope so personal jobs show their scheduled and manual executions together in Past runs.
+
+  Return that same stored-owner scope to Dispatch's automation list so personal jobs with legacy execution organization metadata query their personal run history.
+
+  Add an opt-in maintenance backfill that moves completed misfiled history, including skipped runs, to personal scope only when execution traces identify one stable job id and the matching stored owner.
+
+- d6f1e18: Keep inline attachment bytes out of durable chat payloads, reject data URLs in queued file references, and distinguish stored references from unreadable malformed uploads.
+- 0b1175a: Attach browser session context to Builder lifecycle tracking.
+- e6a3764: Serve the Builder Code starter's home page again. Since the Nitro update, the `[...page]` catch-all no longer matches `/`, so the starter's root returned "Cannot find any route matching [GET] /".
+- 72e4ca7: Remove retired Design workflow guidance from generated templates.
+- 80e66f8: Persist a sanitized first-prompt title for chat threads without replacing an existing title, hide prompt context from extracted previews, match context tags by exact name, and remove unused browser-installer dependencies from serverless functions.
+- 599ea41: Connect tokens work again in an organization whose A2A secret matches the deployment's `A2A_SECRET`. Tokens from the `/mcp/connect` terminal flow and from "Generate a static token" lost their subject there and got a bare 401 at `/mcp` and the action routes, while OAuth connectors kept working. Connect now always mints an MCP OAuth access token, bound to the audience `verifyAuth` accepts, so tokens minted through a deployment alias or under a base path verify too. `verifyAuth` classifies a bearer by the credential it claims to be: every credential the app issued, including connect tokens in the earlier A2A format, is verified and admitted through one path before any cross-app A2A rule runs. Earlier-format connect tokens verify only with the deployment `A2A_SECRET`, and their stored row supplies their identity.
+
+  A refused bearer token now says why. The 401 body carries a `reason` (`invalid`, `revoked`, `unknown-connect-token`, `identity-mismatch`, `not-member`, `email-retired`, or `service-principal-inactive`) and a message naming the reconnect URL. On `/mcp` the `WWW-Authenticate` challenge adds `error="invalid_token"` and the same `error_description`. Org service tokens now carry service identity assurance, not user assurance, and are signed with a credential version that earlier releases refuse, so a rollback cannot admit one as a person. `create-org-service-token` binds the token to the app it was called through, including from the CLI, and refuses to mint when neither the request nor `APP_URL` names the app, instead of guessing a URL the app would then refuse.
+
+- 58b7507: Show custom-agent model choices using the active engine's supported models and label Builder fallbacks clearly.
+- 0889356: Redirect the deprecated Dispatch integrations route into Settings and preserve mounted OAuth return paths.
+- af6c95a: Event automations created on another server instance now start receiving events within about 5 seconds instead of up to a minute. The trigger dispatcher re-checks its cached list of event automations with a cheap fingerprint read of `jobs/` (a digest of each row's id, owner, path, write time and content hash; content is hashed in the database) at most every 5 seconds, and reads the full list only when the fingerprint changed. `hasEventAutomation` answers "no" from that fingerprint instead of a full read. Adds `resourceFingerprintAllOwners` and `resourceListAllOwnersWithFingerprint` to the resource store; each full read carries the fingerprint of exactly the rows it returned.
+- 3f0fe0f: Let an app open the extension iframe's `img-src` and `media-src` to remote origins.
+
+  The sandboxed extension iframe shipped `img-src 'self' data: blob:` and `media-src 'self' data: blob:`, so an extension could not show a product photo, avatar, or CDN asset without proxying the bytes through the app. `extensions.iframeImageSources` and `extensions.iframeMediaSources` (env `AGENT_NATIVE_EXTENSION_IFRAME_IMAGE_SOURCES` / `AGENT_NATIVE_EXTENSION_IFRAME_MEDIA_SOURCES`) now replace those two lists, comma-separated, defaulting to the previous values. Each entry is validated as a single CSP source expression, so a configured value cannot terminate the directive and append a new one. `connect-src` stays `'self'`. A remote image or media origin is an explicit egress permission: the browser requests that URL, so it can carry data out of the sandbox. API calls still go through the permission-gated host bridge.
+
+  The configured lists reach every extension frame: the server render route, and the client-rendered `srcDoc` frames in `ExtensionViewer` and `InlineExtensionFrame`, which read them from the authenticated `/_agent-native/extensions/iframe/display-sources` endpoint. The lists are validated again wherever the policy is built, so a resolved config mutated after validation cannot inject a directive, and a client that cannot load valid lists falls back to the default policy.
+
+- 4ccff57: Allow apps to opt into a fallback permission role for active members with no app-role assignments and an exemption for organization owners/admins. Membership checks remain required; organization permission overrides apply to assigned and fallback roles, while opted-in owners/admins bypass app-permission checks.
+- b10b188: Queue an event for every matching automation even when one of their queue writes fails. A single failed enqueue used to abort the fan-out, silently dropping the event for every later automation; each match is now attempted, and the failures are surfaced once with the first failing path.
+- af6c95a: Event automations no longer stop firing in a serverless instance whose startup database read timed out. The trigger dispatcher now does no database work at plugin init: it loads which events have automations when the first event is emitted, retries that load on the next event after a failure instead of treating it as "no automations", and reloads it every minute so automations created on another instance are picked up. Adds `subscribeAll` to the event bus and `hasEventAutomation` to `@agent-native/core/triggers`.
+- Release all public npm packages with a patch version bump.
+- 792ba44: Mask run failure messages and diagnostic details in session replays, preserving the default privacy marker with app-specific text selectors.
+- 8f0ffa5: Preserve browser session correlation across signup and same-origin agent chat, resolve onboarding identity before handoff, keep credential and local endpoint outcomes accurate through dismissals and pending saves, and preserve attempts across idle session rotation.
+- 6e9fccf: Scope first-run onboarding event dedupe to the analytics session and allow later step views to be observed.
+- d6f1e18: Hydrate readable images and documents from owned storage URLs into model requests and report attachment processing failures to the model.
+  Send resized image payloads through their durable URLs so multiple references stay within the request's inline data limit.
+- 51d58ed: Support pglite:memory: and pglite:/memory: as in-memory PGlite data dirs in the runtime client, matching the drizzle-kit config path.
+- d6f1e18: Preserve image MIME types through shared chat attachments, report active engine configuration errors instead of treating them as missing provider credentials, validate queued image sizes before decoding, keep legacy queued messages readable, and avoid misleading storage setup guidance for generic upload failures.
+- 6897c01: Preserve browser session attribution for Google OAuth signups.
+- be0d784: Add opt-in, privacy-masked session replay for signup and login pages.
+- 7869c35: Preserve app and template attribution when provisioning Builder accounts in one click.
+- 98e7e9c: Keep agent run and tool failure messages out of server Analytics, Monitoring, and optional OpenTelemetry exports, including gateway captures and exception flood summaries. Preserve error codes, causes, exception types, HTTP statuses, and stack frames for diagnosis while retaining local owner-scoped run and trace details.
+- 42658bc: Allow exact dynamic public route patterns for token-verified framework endpoints.
+- 116fdc9: Allow authenticated organization service identities to read org-visible resources in their own organization.
+- 74512d9: Remove server source maps from Nitro output before creating serverless function bundles.
+- 113e8af: Export `hasSessionHint()` from `@agent-native/core/client/use-session`, so an app can start a read that needs a signed-in visitor alongside the session check instead of after it. It reads the same cookie, with the same rule, as the early session read.
+
+  Also export `isSessionFromFirstRead()`, which says whether the session the tab holds answered the page load's own session read. A read started before the session was known carried the same cookies only while it holds; after a retry or an invalidation, another tab may have switched accounts, so the app should drop that read rather than show it.
+
+- 217260d: Start a signed-in visitor's early session read from the top of `<head>`, before the page's stylesheets and module preloads, instead of from the body after them, where it waited for every stylesheet to load. `AppProviders` reports the read during the server render, so pages that skip the session check still start none.
+
+  Toolkit now requires `@agent-native/core` 0.205.1 or later, the first release that exports `@agent-native/core/shared/ssr-session-bootstrap-slot`, which `AppProviders` imports.
+
+- 72e4ca7: Expose recorded session-resolution failures so routes can return retryable responses instead of treating outages as anonymous access.
+- f3d2b81: Recover completed chat runs when terminal replay is briefly incomplete, keep invalid gateway requests from retrying as transient errors, classify completion timeouts with a stable error code, preserve retries for no-detail transient gateway codes, continue recoverable run timeouts, and reject partial completion when a stream ends cleanly after timeout.
+- fb94f8d: Export the concurrent index and in-process sweep helpers for bounded, lazy
+  maintenance work.
+- 6e9fccf: Improve onboarding telemetry attribution and setup completion redirects.
+- de15567: Export the pinned recorder URL used by cooperative session replay iframes.
+- 7e103bd: Use the HTTP access gate's application identity when explaining access, so standalone apps check permissions and resource shares without requiring a workspace app registration.
+- Updated dependencies [e88f35c]
+- Updated dependencies [d6f1e18]
+- Updated dependencies [116fdc9]
+- Updated dependencies [80e66f8]
+- Updated dependencies
+- Updated dependencies [d6f1e18]
+- Updated dependencies [f3d2b81]
+  - @agent-native/agentkit@0.206.0
+  - @agent-native/recap-cli@0.5.68
+
 ## 0.205.0
 
 ### Minor Changes
@@ -3744,11 +3828,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 - Updated dependencies [10de7b9]
   - @agent-native/recap-cli@0.5.6
   - @agent-native/toolkit@0.16.9
-
-## 0.166.0
-
-### Minor Changes
-
-- c50b009: Allow request action resolvers to preserve the default tool-loading surface.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

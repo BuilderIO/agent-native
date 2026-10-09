@@ -161,7 +161,13 @@ type PendingPersistedResultHandler = {
 function addSlideFields(
   slide: Slide,
 ): Extract<GranularOp, { op: "add-slide" }>["fields"] {
-  const { id: _id, imageLoading: _imageLoading, ...fields } = slide;
+  const {
+    id: _id,
+    imageLoading: _imageLoading,
+    imagePrompt: _imagePrompt,
+    layoutFitRevision: _layoutFitRevision,
+    ...fields
+  } = slide;
   return {
     ...fields,
     content: normalizeSlidePadding(fields.content),
@@ -412,6 +418,7 @@ export interface Deck {
   shareToken?: string;
   visibility?: "private" | "org" | "public";
   createdByMe?: boolean;
+  widgetAccessRole?: "owner" | "viewer" | "commenter" | "editor" | "admin";
   designSystemId?: string;
   tweaks?: Record<string, string | number | boolean>;
   starred?: boolean;

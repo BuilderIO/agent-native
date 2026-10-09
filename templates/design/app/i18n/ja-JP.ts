@@ -779,6 +779,9 @@ export default {
       tools: "ツール",
       tokens: "トークン",
       label: "デザインワークスペース",
+      account: "アカウント",
+      collapse: "サイドバーを折りたたむ",
+      expand: "サイドバーを展開",
     },
     breakpointBar: {
       base: "ベース",
@@ -870,12 +873,10 @@ export default {
       "{{path}} は開いた後にディスク上で変更されています。画面を再読み込みしてもう一度お試しください。",
     applyToSourceError: "ソースへの保存に失敗しました: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "トークンをインポート",
       importTitle: "トークンをインポート",
       importHint:
@@ -887,6 +888,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "貼り付けたトークンをインポート",
       importedCount: "{{count}} 個のトークンをインポートしました",
+      count: "{{count}} 個のトークン",
+      search: "トークンを検索",
+      noMatches: "一致するトークンがありません",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -1629,6 +1633,7 @@ export default {
     fork: "分岐",
     fullView: "全体表示",
     preview: "プレビュー",
+    focusScreen: "画面にフォーカス",
     openAndDuplicate:
       "{{display}} を選択します。集中してスクロールするには操作モードを使用。",
     openAndPreview:

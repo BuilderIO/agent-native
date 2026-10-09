@@ -3,10 +3,41 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
-## 2026-10-08
+## 2026-10-09
+
+### Improved
+
+- Slide text editing keeps formatting controls responsive while you type.
+- The Slides chat stays responsive while you type on a slide.
 
 ### Fixed
 
+- Crop animations respect active container-query styles
+- Crop edits preserve in-progress transitions and keep transforms aligned with animated font sizes.
+- Deck style tweaks save when edited from a ChatGPT widget.
+- Slides widget edits remain available after reopening a chat.
+
+## 2026-10-08
+
+### Improved
+
+- PowerPoint imports show a clear pending state while they finish.
+- Signup and login sessions are available in Analytics with all form inputs masked.
+- Alt-dragging several selected objects now duplicates them instead of moving the originals.
+- Clicking just outside a text box inside a group now selects the group, and filled shapes, images and tables no longer have an invisible click margin.
+- Snap guides span the objects they align and show equal spacing
+- The AI now gets a warning when a slide has typed page numbers, fixed-height text or content the editor strips
+- The Slides editor fits ChatGPT's panel sizes and supports direct edits in the widget.
+- Undo and redo select the objects they changed
+
+### Fixed
+
+- Slide slash menus keep opening when the browser updates the caret late.
+- Slides keeps prompts ready, shows one provider retry hint, and blocks generation until a provider is connected.
+- Typing / in a slide text box reliably opens the slash-command menu.
+- CSS animations written in a slide's style block now play in the editor
+- Objects styled with the CSS rotate, scale and translate properties or a stylesheet rule now rotate, crop and drag without jumping, and the rotation field shows every angle from 0 to 360 degrees
+- PowerPoint and Google Slides export now keeps radial-gradient backgrounds, gradient headline text, and slide-number footers, and no longer turns inset or stacked shadows into stray glows.
 - Image uploads work reliably in Slides.
 - Right-click menus on slides open instantly without the browser menu or image dragging
 
@@ -14,10 +45,13 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Added
 
+- Footers can use slide-number tokens so page numbers like 04 / 08 stay correct when slides are reordered, added, or deleted
 - Videos can be added to slides and played on click or automatically.
 
 ### Improved
 
+- Clicking, dragging and selecting in the slide editor now works like Google Slides, including nested content in AI-generated slides
+- The AI can now plan slide height before writing and apply comments end to end
 - Decks opened in a chat side pane now fill the whole pane with a compact slide strip and the current slide scaled to the pane width from the top, with no toolbar rows or speaker-notes strip.
 - Decks in a chat side pane keep going below a short slide with the following slides, so the pane has no empty space
 - Google Drive setup now explains that pasted document links still work when the file picker is unavailable.
@@ -27,6 +61,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Text boxes grow with their text and the selection outline follows
 - A deck deleted while someone else has it open now shows as unavailable within seconds
 - A new deck that could not be saved now says so, instead of reporting that you lost access
 - A teammate's edit to a different text box now appears on your slide while you are still typing in another one

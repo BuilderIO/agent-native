@@ -772,12 +772,15 @@ export default {
     },
     leftRail: {
       file: "Arquivo",
-      agent: "Agente",
+      agent: "Agentes",
       assets: "Recursos",
       import: "Importar",
       tools: "Ferramentas",
       tokens: "Tokens de design",
       label: "Área de trabalho de design",
+      account: "Conta",
+      collapse: "Recolher barra lateral",
+      expand: "Expandir barra lateral",
     },
     breakpointBar: {
       base: "Base",
@@ -869,12 +872,10 @@ export default {
       "{{path}} foi alterado no disco desde que foi aberto. Recarregue a tela e tente novamente.",
     applyToSourceError: "Não foi possível salvar na origem: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "Importar tokens",
       importTitle: "Importar tokens",
       importHint:
@@ -886,6 +887,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "Importar tokens colados",
       importedCount: "{{count}} tokens importados",
+      count: "{{count}} tokens",
+      search: "Pesquisar tokens",
+      noMatches: "Nenhum token correspondente",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -1627,6 +1631,7 @@ export default {
     fork: "Ramificar",
     fullView: "Vista completa",
     preview: "Prévia",
+    focusScreen: "Focar tela",
     openAndDuplicate:
       "Selecione {{display}}. Use Interagir para rolagem focada.",
     openAndPreview: "Selecione {{display}}. Use Interagir para rolagem focada.",
