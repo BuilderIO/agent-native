@@ -10145,7 +10145,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var measurementPositionFrame = null;
     var measurementPositionSnapshot = null;
     function currentMeasurementGeometry() {
-      if (!measurementModifierActive || !selectedEl || !measurementTargetEl || selectedEl === measurementTargetEl || !document.documentElement.contains(selectedEl) || !document.documentElement.contains(measurementTargetEl)) {
+      if (!measurementModifierActive || readOnly || interactionMode || !selectedEl || !measurementTargetEl || selectedEl === measurementTargetEl || !document.documentElement.contains(selectedEl) || !document.documentElement.contains(measurementTargetEl)) {
         return null;
       }
       var selectedRect = selectedEl.getBoundingClientRect();
@@ -21773,6 +21773,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         readOnly = nextReadOnly;
         textEditingEnabled = !readOnly && !interactionMode && textEditingEnabledFlag;
         if (readOnly) {
+          hideMeasurements();
           if (activeTextEditEl) {
             activeTextEditEl.blur();
           }
@@ -21797,6 +21798,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         interactionMode = nextInteractionMode;
         if (interactionMode) {
+          hideMeasurements();
           var releaseSpacePan = bridgeSpaceKeyPressed;
           clearPendingShieldDrag();
           cancelActiveBridgeDrag();
@@ -23173,6 +23175,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (readOnly !== nextReadOnly) {
           readOnly = nextReadOnly;
           if (readOnly) {
+            hideMeasurements();
             clearPendingShieldDrag();
             cancelActiveBridgeDrag();
           }

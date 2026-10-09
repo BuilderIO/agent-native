@@ -12711,6 +12711,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function currentMeasurementGeometry() {
     if (
       !measurementModifierActive ||
+      readOnly ||
+      interactionMode ||
       !selectedEl ||
       !measurementTargetEl ||
       selectedEl === measurementTargetEl ||
@@ -27856,6 +27858,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       textEditingEnabled =
         !readOnly && !interactionMode && textEditingEnabledFlag;
       if (readOnly) {
+        hideMeasurements();
         if (activeTextEditEl) {
           activeTextEditEl.blur();
         }
@@ -27880,6 +27883,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       interactionMode = nextInteractionMode;
       if (interactionMode) {
+        hideMeasurements();
         var releaseSpacePan = bridgeSpaceKeyPressed;
         clearPendingShieldDrag();
         cancelActiveBridgeDrag();
@@ -29670,6 +29674,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (readOnly !== nextReadOnly) {
         readOnly = nextReadOnly;
         if (readOnly) {
+          hideMeasurements();
           clearPendingShieldDrag();
           cancelActiveBridgeDrag();
         }
