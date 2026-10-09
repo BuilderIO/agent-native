@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  getAgentEngineStatusCacheSizeForTests,
   getMemoizedAgentEngineStatus,
   invalidateAgentEngineStatusCache,
   memoizeAgentEngineStatus,
@@ -73,6 +74,28 @@ describe("memoizeAgentEngineStatus", () => {
       chatEligible: false,
     });
     expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it("evicts expired identities when later status requests arrive", async () => {
+    await memoizeAgentEngineStatus(
+      { userEmail: "inactive@example.test", orgId: "org-1" },
+      async () => ({ chatEligible: false }),
+    );
+    expect(getAgentEngineStatusCacheSizeForTests()).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(1001);
+    await memoizeAgentEngineStatus(
+      { userEmail: "active@example.test", orgId: "org-1" },
+      async () => ({ chatEligible: true }),
+    );
+
+    expect(
+      getMemoizedAgentEngineStatus({
+        userEmail: "inactive@example.test",
+        orgId: "org-1",
+      }),
+    ).toBeUndefined();
+    expect(getAgentEngineStatusCacheSizeForTests()).toBe(1);
   });
 
   it("lets the server gate reuse the same live identity snapshot", async () => {

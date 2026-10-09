@@ -10,6 +10,7 @@ import {
   upsertUserMessage,
 } from "../../agent/thread-data-builder.js";
 import { agentTroubleCauseForCode } from "../../shared/analytics-events.js";
+import { resetAgentEngineReadinessForTests } from "../agent-engine-readiness.js";
 import { createAgentNativeAgentKitTransport as createAgentNativeAgentKitTransportImplementation } from "./agentkit-agent-native.js";
 import { AGENT_NATIVE_PROTOCOL_METADATA_KEY } from "./agentkit-protocol.js";
 import type { RunOutcomeReport } from "./run-outcome.js";
@@ -66,6 +67,36 @@ function resumableNativeRuntime(
 }
 
 describe("createAgentNativeAgentKitTransport", () => {
+  it("uses the transport engine when checking AI readiness", async () => {
+    resetAgentEngineReadinessForTests();
+    const localFetch = vi.fn(async () => json({ chatEligible: true }));
+    const localTransport = createAgentNativeAgentKitTransportImplementation({
+      apiUrl: "https://mobile.example.test/_agent-native/agent-chat",
+      engine: "codex-cli",
+      fetch: localFetch as typeof fetch,
+    });
+
+    await expect(
+      localTransport.assertAiSetupReady?.({}),
+    ).resolves.toBeUndefined();
+    expect(localFetch).not.toHaveBeenCalled();
+
+    const providerFetch = vi.fn(async () => json({ chatEligible: true }));
+    const providerTransport = createAgentNativeAgentKitTransportImplementation({
+      apiUrl: "https://provider.example.test/_agent-native/agent-chat",
+      engine: "openai",
+      fetch: providerFetch as typeof fetch,
+    });
+    await expect(
+      providerTransport.assertAiSetupReady?.({}),
+    ).resolves.toBeUndefined();
+    expect(providerFetch).toHaveBeenCalledOnce();
+    expect(String(providerFetch.mock.calls[0]?.[0])).toBe(
+      "https://provider.example.test/_agent-native/agent-engine/status",
+    );
+    resetAgentEngineReadinessForTests();
+  });
+
   it("creates a missing thread when its first snapshot races the user-message save", async () => {
     const requests: Array<{ url: string; method: string; body?: string }> = [];
     let created = false;

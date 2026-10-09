@@ -7,9 +7,11 @@ import {
   agentEngineStatusUrlForChatApi,
   ensureAgentEngineReadiness,
   getAgentEngineReadiness,
+  getAgentEngineReadinessStoreCountForTests,
   resetAgentEngineReadinessForTests,
   subscribeAgentEngineReadiness,
 } from "./agent-engine-readiness.js";
+import { agentNativePath } from "./api-path.js";
 import {
   fetchEnvironmentStatus,
   invalidateClientStatusRequests,
@@ -450,6 +452,40 @@ describe("useAgentEngineConfigured", () => {
     );
   });
 
+  it("preserves a custom public framework prefix in the readiness URL", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      runtime: { frameworkRoutePrefix: "/an" },
+    });
+    vi.stubEnv("VITE_APP_BASE_PATH", "/docs");
+
+    const chatApiUrl = agentNativePath("/_agent-native/agent-chat");
+
+    expect(chatApiUrl).toBe("/docs/an/agent-chat");
+    expect(agentEngineStatusUrlForChatApi(chatApiUrl)).toBe(
+      "/docs/an/agent-engine/status",
+    );
+  });
+
+  it("prunes expired idle readiness stores for old transport URLs", async () => {
+    vi.useFakeTimers();
+    const makeSource = (host: string) => ({
+      statusUrl: `https://${host}.example.test/_agent-native/agent-engine/status`,
+      fetch: vi.fn(async () =>
+        jsonResponse({ chatEligible: true }),
+      ) as typeof fetch,
+    });
+
+    for (const host of ["old-a", "old-b", "old-c"]) {
+      await ensureAgentEngineReadiness({ source: makeSource(host) });
+    }
+    expect(getAgentEngineReadinessStoreCountForTests()).toBe(3);
+
+    await vi.advanceTimersByTimeAsync(10_001);
+    await ensureAgentEngineReadiness({ source: makeSource("current") });
+
+    expect(getAgentEngineReadinessStoreCountForTests()).toBe(1);
+  });
+
   it("fails closed when a reachable server omits chat eligibility", async () => {
     const fetch = vi.fn(async (_url: string | URL | Request) =>
       jsonResponse({ configured: true }),
@@ -707,5 +743,39 @@ describe("useAgentEngineConfigured", () => {
     });
 
     expect(container.textContent).toBe("configured");
+  });
+
+  it("refreshes an unscoped composer after a scoped missing-key event", async () => {
+    let chatEligible = true;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/_agent-native/agent-engine/status")) {
+        return jsonResponse({ chatEligible });
+      }
+      throw new Error(`Unexpected status route: ${String(input)}`);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    await act(async () => {
+      root.render(<Probe />);
+    });
+    await flushAfterPaint();
+    expect(container.textContent).toBe("configured");
+
+    chatEligible = false;
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:missing-api-key", {
+          detail: { threadId: "thread-a" },
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(
+      fetch.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/agent-engine/status"),
+      ),
+    ).toHaveLength(2);
+    expect(container.textContent).toBe("missing");
   });
 });

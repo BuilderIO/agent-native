@@ -274,6 +274,51 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("checks readiness before a user-initiated run continuation", async () => {
+    const assertAiSetupReady = vi.fn(async () => undefined);
+    const continueRun = vi.fn(async () => ({ runId: "run-1" }));
+    const transport: AgentTransport = {
+      ...createTransport([
+        protocolEvent(1, { type: "run.started" }),
+        protocolEvent(2, { type: "run.completed" }),
+      ]),
+      assertAiSetupReady,
+      continueRun,
+    };
+    const client = new AgentKitClientImplementation({ transport });
+
+    await expect(
+      client.continueRun("thread-1", "run-1"),
+    ).resolves.toBeUndefined();
+
+    expect(assertAiSetupReady).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: "thread-1" }),
+      expect.any(Object),
+    );
+    expect(continueRun).toHaveBeenCalledOnce();
+    await client.shutdown();
+  });
+
+  it("blocks a user-initiated run continuation when AI setup is missing", async () => {
+    const assertAiSetupReady = vi.fn(async () => {
+      throw new AgentKitOperationError("AI setup readiness validation");
+    });
+    const continueRun = vi.fn(async () => ({ runId: "run-1" }));
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      assertAiSetupReady,
+      continueRun,
+    };
+    const client = new AgentKitClientImplementation({ transport });
+
+    await expect(
+      client.continueRun("thread-1", "run-1"),
+    ).rejects.toBeInstanceOf(AgentKitOperationError);
+
+    expect(continueRun).not.toHaveBeenCalled();
+    await client.shutdown();
+  });
+
   it("bounds nested tool-history values before serializing them", async () => {
     const messages = await assistantPartsAfterToolHistory({
       toolInput: { nested: { text: "x".repeat(1024 * 1024) } },

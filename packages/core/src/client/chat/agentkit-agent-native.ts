@@ -1951,7 +1951,7 @@ export function createAgentNativeAgentKitTransport(
     _context?: AgentRequestContext,
   ): Promise<void> {
     return requireAgentEngineConfiguredForDispatch({
-      engine: input.engine,
+      engine: input.engine ?? options.engine,
       source: {
         statusUrl: agentEngineStatusUrlForChatApi(apiUrl),
         fetch: fetcher,

@@ -71,6 +71,12 @@ function statusCacheKey(url: string): string {
   }
 }
 
+function pruneExpiredStatusCache(now: number): void {
+  for (const [key, entry] of cache) {
+    if (entry.expiresAt <= now) cache.delete(key);
+  }
+}
+
 function expireClientStatusCache(): void {
   statusGeneration += 1;
   const sessionUrl = statusCacheKey(agentNativePath(SESSION_STATUS_PATH));
@@ -132,6 +138,7 @@ async function fetchClientStatus<T>(
   installInvalidationListeners();
   const url = options?.url ?? agentNativePath(path);
   const key = statusCacheKey(url);
+  pruneExpiredStatusCache(Date.now());
   const cached = cache.get(key);
   if (!options?.fresh && cached && cached.expiresAt > Date.now()) {
     return cached.result as ClientStatusResult<T>;

@@ -42,6 +42,7 @@ const LOCAL_RUNTIME_ENGINES = new Set<string>(LOCAL_RUNTIME_ENGINE_IDS);
 const AGENT_ENGINE_STATUS_PATH = "/_agent-native/agent-engine/status";
 const CHAT_API_PATH_SUFFIX = "/_agent-native/agent-chat";
 const AGENT_ENGINE_READINESS_TTL_MS = 10_000;
+const MAX_READINESS_STORES = 128;
 
 interface ReadinessSubscriber {
   listener: () => void;
@@ -56,6 +57,7 @@ interface AgentEngineReadinessStore {
   source?: AgentEngineReadinessSource;
   state: AgentEngineConfiguredState;
   resolvedAt: number;
+  lastUsedAt: number;
   inFlight: Promise<AgentEngineConfiguredState> | null;
   revision: number;
   listeners: Map<() => void, ReadinessSubscriber>;
@@ -79,6 +81,24 @@ export class AgentChatAiSetupRequiredError extends Error {
   }
 }
 
+function pruneIdleStores(now: number): void {
+  for (const [key, store] of stores) {
+    if (store.listeners.size > 0 || store.inFlight) continue;
+    if (now - store.lastUsedAt >= AGENT_ENGINE_READINESS_TTL_MS) {
+      stores.delete(key);
+    }
+  }
+
+  if (stores.size <= MAX_READINESS_STORES) return;
+  const idleStores = [...stores.entries()]
+    .filter(([, store]) => store.listeners.size === 0 && !store.inFlight)
+    .sort((left, right) => left[1].lastUsedAt - right[1].lastUsedAt);
+  for (const [key] of idleStores) {
+    if (stores.size <= MAX_READINESS_STORES) break;
+    stores.delete(key);
+  }
+}
+
 function canonicalStatusUrl(url: string): string {
   try {
     const base =
@@ -99,11 +119,16 @@ export function agentEngineStatusUrlForChatApi(apiUrl?: string): string {
         ? "http://agent-native.invalid"
         : window.location.href;
     const chatUrl = new URL(apiUrl, base);
-    const chatPathIndex = chatUrl.pathname.lastIndexOf(CHAT_API_PATH_SUFFIX);
-    if (chatPathIndex >= 0) {
-      chatUrl.pathname = `${chatUrl.pathname.slice(0, chatPathIndex)}${AGENT_ENGINE_STATUS_PATH}`;
+    const chatPathSuffix = "/agent-chat";
+    if (chatUrl.pathname.endsWith(chatPathSuffix)) {
+      chatUrl.pathname = `${chatUrl.pathname.slice(0, -chatPathSuffix.length)}/agent-engine/status`;
     } else {
-      chatUrl.pathname = AGENT_ENGINE_STATUS_PATH;
+      const internalChatPathIndex =
+        chatUrl.pathname.lastIndexOf(CHAT_API_PATH_SUFFIX);
+      chatUrl.pathname =
+        internalChatPathIndex >= 0
+          ? `${chatUrl.pathname.slice(0, internalChatPathIndex)}${AGENT_ENGINE_STATUS_PATH}`
+          : agentNativePath(AGENT_ENGINE_STATUS_PATH);
     }
     chatUrl.search = "";
     chatUrl.hash = "";
@@ -116,6 +141,8 @@ export function agentEngineStatusUrlForChatApi(apiUrl?: string): string {
 function storeFor(
   source?: AgentEngineReadinessSource,
 ): AgentEngineReadinessStore {
+  const now = Date.now();
+  pruneIdleStores(now);
   const statusUrl =
     source?.statusUrl ?? agentNativePath(AGENT_ENGINE_STATUS_PATH);
   const key = canonicalStatusUrl(statusUrl);
@@ -127,6 +154,7 @@ function storeFor(
       ...(source ? { source } : {}),
       state: "unknown",
       resolvedAt: 0,
+      lastUsedAt: now,
       inFlight: null,
       revision: 0,
       listeners: new Map(),
@@ -136,6 +164,7 @@ function storeFor(
     store.statusUrl = statusUrl;
     store.source = source;
   }
+  store.lastUsedAt = now;
   return store;
 }
 
@@ -156,6 +185,12 @@ function refreshStores(scope?: { tabId?: unknown; threadId?: unknown }): void {
       (entry) => {
         if (!entry.enabled) return false;
         if (!hasScope) return true;
+        if (
+          typeof entry.tabId !== "string" &&
+          typeof entry.threadId !== "string"
+        ) {
+          return true;
+        }
         return (
           (typeof scope?.tabId !== "string" || entry.tabId === scope.tabId) &&
           (typeof scope?.threadId !== "string" ||
@@ -405,6 +440,12 @@ export function resetAgentEngineReadinessForTests(): void {
   stores.clear();
   pendingRefreshStores.clear();
   invalidationQueued = false;
+}
+
+/** @internal Test assertion for bounded, idle readiness-store retention. */
+export function getAgentEngineReadinessStoreCountForTests(): number {
+  pruneIdleStores(Date.now());
+  return stores.size;
 }
 
 export function isAgentChatAiSetupRequiredError(
