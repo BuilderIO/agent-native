@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   shareButton: vi.fn(() => null),
   exportMenu: vi.fn(),
   registerEditorCommands: vi.fn(),
+  widgetEmbed: { value: false },
   creativeContextLabEnabled: { value: true },
   uploadPromptFiles: vi.fn(),
   cleanupUploadedPromptFiles: vi.fn(),
@@ -47,7 +48,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@agent-native/core/client/mcp-app-host", () => ({
-  useIsMcpAppWidgetEmbed: () => false,
+  useIsMcpAppWidgetEmbed: () => mocks.widgetEmbed.value,
   useIsMcpDirectoryWidgetReadOnlyEmbed: () =>
     mocks.readOnlyDirectoryWidget.value,
 }));
@@ -208,6 +209,7 @@ const deckWithSlides: Deck = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.widgetEmbed.value = false;
   mocks.creativeContextLabEnabled.value = true;
   mocks.deckContentConflicts = [];
   mocks.saveError.value = undefined;
@@ -259,6 +261,42 @@ describe("<EditorToolbar>", () => {
     render(viewerToolbar());
 
     expect(screen.queryByTestId("save-status")).toBeNull();
+  });
+
+  it("keeps the embedded toolbar within slide editing controls", () => {
+    mocks.widgetEmbed.value = true;
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deckWithSlides}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          canEdit
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          currentSlide={deckWithSlides.slides[0]}
+          sidebarOpen
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+          onToggleComments={vi.fn()}
+          onUndo={vi.fn()}
+          onRedo={vi.fn()}
+          onToggleLayers={vi.fn()}
+          onToggleAnimations={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(mocks.shareButton).not.toHaveBeenCalled();
+    expect(screen.queryByText("editorToolbar.present")).toBeNull();
+    screen.getByRole("button", { name: "editorToolbar.more" }).click();
+    expect(screen.queryByText("editorToolbar.comments")).toBeNull();
+    expect(screen.queryByText("editorToolbar.savedVersions")).toBeNull();
+    expect(screen.queryByText("editorToolbar.importFile")).toBeNull();
+    expect(mocks.exportMenu).not.toHaveBeenCalled();
   });
 
   it("waits for a retry to settle before refetching the role", () => {

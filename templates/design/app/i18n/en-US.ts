@@ -1548,6 +1548,7 @@ export default {
     fork: "Fork",
     fullView: "Full view",
     preview: "Preview",
+    focusScreen: "Focus screen",
     openAndDuplicate: "Select {{display}}. Use Interact for focused scrolling.",
     openAndPreview: "Select {{display}}. Use Interact for focused scrolling.",
     doubleClickToEdit: "Use Interact for focused scrolling",

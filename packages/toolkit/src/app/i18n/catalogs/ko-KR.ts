@@ -498,10 +498,19 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "스킬 파일 업로드",
   "composer.upload": "업로드",
   "composer.uploadFailed": "선택한 파일을 업로드할 수 없습니다.",
-  "composer.fileTooLarge": "이 파일은 업로드 크기 제한을 초과했습니다.",
+  "composer.fileTooLarge": "이 파일은 {{size}}MB 업로드 제한보다 큽니다.",
   "composer.sessionExpired":
-    "세션이 만료되었습니다. 페이지를 새로고침한 후 다시 시도하세요.",
+    "세션이 만료되었습니다. 다시 로그인한 후 메시지를 보내세요.",
   "composer.unsupportedFileType": "지원되지 않는 파일 형식입니다.",
+  "composer.uploadUnavailable":
+    "지금은 파일을 업로드할 수 없습니다. 잠시 후 다시 시도하세요.",
+  "composer.uploadOffline":
+    "업로드가 서버에 연결되지 못했습니다. 연결 상태를 확인한 후 다시 시도하세요.",
+  "composer.submissionNotReady":
+    "채팅을 아직 보낼 준비가 되지 않았습니다. 잠시 기다린 후 다시 보내세요.",
+  "composer.submissionScopeChanged":
+    "메시지가 전송되기 전에 이 채팅이 변경되었습니다. 다시 보내세요.",
+  "composer.attachmentNotSaved": "이 채팅에 저장되지 않음",
   "composer.useAttachedContext": "첨부된 컨텍스트를 사용하세요.",
   "mentions.commands": "명령",
   "mentions.learnMore": "자세히 알아보기",
@@ -1141,6 +1150,7 @@ const messages: ToolkitAgentChatTranslation = {
     "이 실행은 더 이상 계속할 수 없습니다. 계속하려면 메시지를 보내세요.",
   "recovery.retryAttachmentUnavailable":
     "이 요청에는 다시 시도할 수 없는 파일이 포함되어 있습니다. 메시지 입력란에 파일을 다시 첨부한 다음 다시 시도하세요.",
+  "recovery.retryWithoutAttachment": "첨부 파일 없이 다시 시도",
   "recovery.deferredSubmissionFailed":
     "이 메시지를 보내지 못했습니다. 연결 또는 채팅 설정을 확인한 다음 다시 시도하세요.",
   "recovery.credentialRejected":

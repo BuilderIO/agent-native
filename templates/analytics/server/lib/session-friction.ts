@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import {
   AGENT_SIGNALS_PAGEVIEW_PROPERTY,
   AGENT_SIGNALS_VERSION,
+  AGENT_TROUBLE_CAUSES,
   agentErrorCodeForTelemetry,
   agentTroubleCauseForCode,
   isAgentTroubleCause,
@@ -12,6 +13,7 @@ import { accessFilter } from "@agent-native/core/sharing";
 import {
   type AnyColumn,
   and,
+  asc,
   eq,
   gte,
   inArray,
@@ -62,6 +64,7 @@ import {
   type ReplayFrictionDelta,
   type ReplayFrictionDetectorState,
 } from "./session-friction-detector.js";
+import { sessionRecordingAssociationsReady } from "./session-recording-associations.js";
 
 /**
  * Session friction, measured at ingest into Analytics' own Postgres tables so
@@ -101,7 +104,7 @@ const MAX_PAGE_LOAD_ID_LENGTH = 64;
 const MAX_TROUBLE_LABEL_LENGTH = 120;
 const MAX_TROUBLE_STATUS_LENGTH = 80;
 const MAX_PATH_LENGTH = 2_000;
-const TROUBLE_GROUPS_PER_SESSION = 3;
+const TROUBLE_GROUPS_PER_RECORDING = 3;
 const FRICTION_RETENTION_BUFFER_DAYS = 2;
 const WARN_INTERVAL_MS = 60_000;
 
@@ -545,6 +548,23 @@ function eventCountsBySignal(
   ) as Record<EventFrictionSignal, number | null>;
 }
 
+function combineEventCounts(
+  rows: readonly Parameters<typeof eventCountsBySignal>[0][],
+): Record<EventFrictionSignal, number | null> {
+  const sessionCounts = rows.map(eventCountsBySignal);
+  return Object.fromEntries(
+    EVENT_FRICTION_SIGNALS.map((signal) => {
+      const values = sessionCounts.map((counts) => counts[signal]);
+      return [
+        signal,
+        values.some((value) => value === null)
+          ? null
+          : values.reduce<number>((sum, value) => sum + Number(value), 0),
+      ];
+    }),
+  ) as Record<EventFrictionSignal, number | null>;
+}
+
 function measuredCounts(
   counts: Partial<Record<string, number | null>>,
 ): FrictionCounts {
@@ -981,18 +1001,140 @@ async function writeSessionEventFriction(
 }
 
 /** True when the recording's session events were measured completely. */
-function eventFrictionCoveredSql(scope: SessionEventScope): SQL {
+function eventFrictionCoveredSql(
+  scope: SessionEventScope,
+  associationsReady: boolean,
+): SQL {
   const r = schema.sessionRecordings;
-  const sibling = alias(schema.sessionRecordings, "session_friction_sibling");
   const coverage = schema.analyticsSessionFrictionCoverage;
   const gaps = schema.analyticsSessionEventGaps;
   const frictionGaps = schema.analyticsSessionFrictionGaps;
   const events = schema.analyticsSessionEvents;
   const tenant = recordingTenantSql(r);
   const coverageStart = sql`(select ${coverage.startedAt} from ${coverage} where ${coverage.tenantKey} = ${tenant})`;
+  if (!associationsReady) {
+    const sibling = alias(
+      schema.sessionRecordings,
+      "session_friction_legacy_sibling",
+    );
+    // Before the association migration lands, reads retain the legacy session lookup.
+    return sql`(
+      ${viewerReadsRecordingEventsSql(r, scope)}
+      and ${r.startedAt} >= ${coverageStart}
+      and not exists (
+        select 1 from ${schema.sessionRecordings} as ${sibling}
+        where ${sibling.sessionId} = ${r.sessionId}
+          and ${recordingTenantSql(sibling)} = ${tenant}
+          and ${sibling.startedAt} < ${coverageStart}
+      )
+      and not exists (
+        select 1 from ${events}
+        where ${events.tenantKey} = ${tenant}
+          and ${events.sessionId} = ${r.sessionId}
+          and ${events.firstAt} < ${coverageStart}
+      )
+      and not exists (
+        select 1 from ${gaps}
+        where ${gaps.tenantKey} = ${tenant}
+          and ${gaps.sessionId} = ${r.sessionId}
+      )
+      and not exists (
+        select 1 from ${frictionGaps}
+        where ${frictionGaps.tenantKey} = ${tenant}
+          and ${frictionGaps.sessionId} = ${r.sessionId}
+      )
+    )`;
+  }
+  const sibling = alias(schema.sessionRecordings, "session_friction_sibling");
+  const siblingAssociation = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_friction_sibling_association",
+  );
+  const siblingAnyAssociation = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_friction_sibling_any_association",
+  );
+  const association = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_friction_association",
+  );
+  const anyAssociation = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_friction_any_association",
+  );
+  const incompleteAssociation = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_friction_incomplete_association",
+  );
+  const associationComplete = (candidate: { sessionId: AnyColumn }) =>
+    sql`${r.startedAt} >= ${coverageStart}
+      and not exists (
+        select 1 from ${schema.sessionRecordings} as ${sibling}
+        where ${recordingTenantSql(sibling)} = ${tenant}
+          and ${sibling.startedAt} < ${coverageStart}
+          and exists (
+            select 1 from ${schema.sessionRecordingSessionAssociations} as ${siblingAssociation}
+            where ${siblingAssociation.recordingId} = ${sibling.id}
+              and ${siblingAssociation.sessionId} = ${candidate.sessionId}
+          )
+      )
+      and not exists (
+        select 1 from ${schema.sessionRecordings} as ${sibling}
+        where ${sibling.sessionId} = ${candidate.sessionId}
+          and ${recordingTenantSql(sibling)} = ${tenant}
+          and ${sibling.startedAt} < ${coverageStart}
+          and not exists (
+            select 1 from ${schema.sessionRecordingSessionAssociations} as ${siblingAnyAssociation}
+            where ${siblingAnyAssociation.recordingId} = ${sibling.id}
+          )
+      )
+      and not exists (
+        select 1 from ${events}
+        where ${events.tenantKey} = ${tenant}
+          and ${events.sessionId} = ${candidate.sessionId}
+          and ${events.firstAt} < ${coverageStart}
+      )
+      and not exists (
+        select 1 from ${gaps}
+        where ${gaps.tenantKey} = ${tenant}
+          and ${gaps.sessionId} = ${candidate.sessionId}
+      )
+      and not exists (
+        select 1 from ${frictionGaps}
+        where ${frictionGaps.tenantKey} = ${tenant}
+          and ${frictionGaps.sessionId} = ${candidate.sessionId}
+      )`;
   // The event index predates friction coverage, so an event it holds from
   // before coverage began is one friction never aggregated.
-  return sql`(${viewerReadsRecordingEventsSql(r, scope)} and ${r.startedAt} >= ${coverageStart} and not exists (select 1 from ${r} as ${sibling} where ${sibling.sessionId} = ${r.sessionId} and ${recordingTenantSql(sibling)} = ${tenant} and ${sibling.startedAt} < ${coverageStart}) and not exists (select 1 from ${events} where ${events.tenantKey} = ${tenant} and ${events.sessionId} = ${r.sessionId} and ${events.firstAt} < ${coverageStart}) and not exists (select 1 from ${gaps} where ${gaps.tenantKey} = ${tenant} and ${gaps.sessionId} = ${r.sessionId}) and not exists (select 1 from ${frictionGaps} where ${frictionGaps.tenantKey} = ${tenant} and ${frictionGaps.sessionId} = ${r.sessionId}))`;
+  return sql`(
+    ${viewerReadsRecordingEventsSql(r, scope)}
+    and (
+      (
+        exists (
+          select 1 from ${schema.sessionRecordingSessionAssociations} as ${anyAssociation}
+          where ${anyAssociation.recordingId} = ${r.id}
+        )
+        and exists (
+          select 1 from ${schema.sessionRecordingSessionAssociations} as ${association}
+          where ${association.recordingId} = ${r.id}
+            and ${associationComplete(association)}
+        )
+        and not exists (
+          select 1 from ${schema.sessionRecordingSessionAssociations} as ${incompleteAssociation}
+          where ${incompleteAssociation.recordingId} = ${r.id}
+            and not (${associationComplete(incompleteAssociation)})
+        )
+      )
+      or (
+        not exists (
+          select 1 from ${schema.sessionRecordingSessionAssociations} as ${anyAssociation}
+          where ${anyAssociation.recordingId} = ${r.id}
+        )
+        and ${r.sessionId} is not null
+        and ${associationComplete({ sessionId: r.sessionId })}
+      )
+    )
+  )`;
 }
 
 function replayValueSql(column: AnyColumn): SQL {
@@ -1004,17 +1146,76 @@ function replayValueSql(column: AnyColumn): SQL {
 function eventValueSql(
   scope: SessionEventScope,
   column: AnyColumn,
+  associationsReady: boolean,
   markedClient = false,
 ): SQL {
   const r = schema.sessionRecordings;
   const f = schema.analyticsSessionFriction;
-  return sql`(case when ${eventFrictionCoveredSql(scope)} then (select ${column} from ${f} where ${f.tenantKey} = ${recordingTenantSql(r)} and ${f.sessionId} = ${r.sessionId}${markedClient ? sql` and ${f.agentSignalsMeasured} and not ${f.agentSignalsMissing}` : sql``}) end)`;
+  if (!associationsReady) {
+    return sql`(
+      case when ${eventFrictionCoveredSql(scope, false)} then (
+        select ${column}
+        from ${f}
+        where ${f.tenantKey} = ${recordingTenantSql(r)}
+          and ${f.sessionId} = ${r.sessionId}
+          ${markedClient ? sql`and ${f.agentSignalsMeasured} and not ${f.agentSignalsMissing}` : sql``}
+      ) end
+    )`;
+  }
+  const association = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_friction_value_association",
+  );
+  const missingAssociation = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_friction_missing_association",
+  );
+  const anyAssociation = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_friction_value_any_association",
+  );
+  const hasMeasuredValue = (candidate: { sessionId: AnyColumn }) =>
+    sql`exists (
+      select 1 from ${f}
+      where ${f.tenantKey} = ${recordingTenantSql(r)}
+        and ${f.sessionId} = ${candidate.sessionId}
+      ${markedClient ? sql`and ${f.agentSignalsMeasured} and not ${f.agentSignalsMissing}` : sql``}
+    )`;
+  return sql`(
+    case when ${eventFrictionCoveredSql(scope, true)} then
+      case when exists (
+        select 1 from ${schema.sessionRecordingSessionAssociations} as ${anyAssociation}
+        where ${anyAssociation.recordingId} = ${r.id}
+      ) then case when not exists (
+        select 1 from ${schema.sessionRecordingSessionAssociations} as ${missingAssociation}
+        where ${missingAssociation.recordingId} = ${r.id}
+          and not ${hasMeasuredValue(missingAssociation)}
+      ) then (
+        select sum(${column})
+        from ${schema.sessionRecordingSessionAssociations} as ${association}
+        inner join ${f}
+          on ${f.tenantKey} = ${recordingTenantSql(r)}
+          and ${f.sessionId} = ${association.sessionId}
+        where ${association.recordingId} = ${r.id}
+          ${markedClient ? sql`and ${f.agentSignalsMeasured} and not ${f.agentSignalsMissing}` : sql``}
+      ) end else case when ${hasMeasuredValue({ sessionId: r.sessionId })}
+        then (
+          select ${column}
+          from ${f}
+          where ${f.tenantKey} = ${recordingTenantSql(r)}
+            and ${f.sessionId} = ${r.sessionId}
+            ${markedClient ? sql`and ${f.agentSignalsMeasured} and not ${f.agentSignalsMissing}` : sql``}
+        )
+      end end
+    end
+  )`;
 }
 
 /** A signal's count for the outer recording, or null when unmeasured. */
 function signalValueSql(
   scope: SessionEventScope,
   signal: SessionFrictionSignal,
+  associationsReady: boolean,
 ): SQL {
   if (signal in REPLAY_COLUMNS) {
     const key = REPLAY_COLUMNS[signal as ReplayFrictionSignal];
@@ -1024,13 +1225,17 @@ function signalValueSql(
   return eventValueSql(
     scope,
     schema.analyticsSessionFriction[key],
+    associationsReady,
     isMarkedClientFrictionSignal(signal),
   );
 }
 
 /** Replay plus event score; null only when neither part was measured. */
-function frictionScoreSql(scope: SessionEventScope): SQL {
-  return sql`(select sum(part) from (values (${replayValueSql(schema.sessionRecordingFriction.score)}), (${eventValueSql(scope, schema.analyticsSessionFriction.score)})) as friction_parts(part))`;
+function frictionScoreSql(
+  scope: SessionEventScope,
+  associationsReady: boolean,
+): SQL {
+  return sql`(select sum(part) from (values (${replayValueSql(schema.sessionRecordingFriction.score)}), (${eventValueSql(scope, schema.analyticsSessionFriction.score, associationsReady)})) as friction_parts(part))`;
 }
 
 /**
@@ -1043,9 +1248,11 @@ export async function sessionFrictionFilterConditions(
   signals: readonly SessionFrictionSignal[] | undefined,
 ): Promise<SQL[]> {
   if (!signals?.length) return [];
-  if (!(await sessionFrictionReady(getDb()))) return [sql`false`];
+  const db = getDb();
+  if (!(await sessionFrictionReady(db))) return [sql`false`];
+  const associationsReady = await sessionRecordingAssociationsReady(db);
   return [...new Set(signals)].map(
-    (signal) => sql`${signalValueSql(scope, signal)} > 0`,
+    (signal) => sql`${signalValueSql(scope, signal, associationsReady)} > 0`,
   );
 }
 
@@ -1116,16 +1323,19 @@ export async function sessionFrictionSortOrder(
   scope: SessionEventScope,
   sort: SessionFrictionSort,
 ): Promise<SQL | null> {
-  if (!(await sessionFrictionReady(getDb()))) return null;
+  const db = getDb();
+  if (!(await sessionFrictionReady(db))) return null;
+  const associationsReady = await sessionRecordingAssociationsReady(db);
   const value =
-    sort === "friction" ? frictionScoreSql(scope) : signalValueSql(scope, sort);
+    sort === "friction"
+      ? frictionScoreSql(scope, associationsReady)
+      : signalValueSql(scope, sort, associationsReady);
   return sql`${value} desc nulls last`;
 }
 
 export interface SessionFrictionRecording {
   id: string;
   clientRecordingId: string;
-  sessionId: string;
   chunkCount: number;
   ownerEmail: string;
   orgId: string | null;
@@ -1150,6 +1360,92 @@ function unmeasuredFriction(
  * Friction, trouble groups, and Monitoring issues for one page of recordings
  * the caller already listed through its access filter.
  */
+export function buildSessionTroubleQuery(
+  db: any,
+  eligibleRecordingIds: readonly string[],
+  associationsReady: boolean,
+) {
+  const r = schema.sessionRecordings;
+  const f = schema.analyticsSessionFriction;
+  const t = schema.analyticsSessionTrouble;
+  const safeCause = sql<
+    string | null
+  >`case when ${inArray(t.cause, [...AGENT_TROUBLE_CAUSES])}
+    then ${t.cause} else null end`;
+  let troubleQuery = db
+    .select({
+      recordingId: r.id,
+      kind: t.kind,
+      label: t.label,
+      status: t.status,
+      cause: safeCause.as("cause"),
+      count: sql<number>`sum(${t.eventCount})`.as("count"),
+    })
+    .from(r)
+    .where(inArray(r.id, [...eligibleRecordingIds]));
+  if (associationsReady) {
+    const association = schema.sessionRecordingSessionAssociations;
+    const eventSessionId = sql`case when ${association.recordingId} is null
+      then ${r.sessionId} else ${association.sessionId} end`;
+    troubleQuery = troubleQuery.leftJoin(
+      association,
+      eq(association.recordingId, r.id),
+    );
+    troubleQuery = troubleQuery.innerJoin(
+      f,
+      and(
+        eq(f.tenantKey, recordingTenantSql(r)),
+        sql`${f.sessionId} = ${eventSessionId}`,
+      ),
+    );
+  } else {
+    troubleQuery = troubleQuery.innerJoin(
+      f,
+      and(eq(f.tenantKey, recordingTenantSql(r)), eq(f.sessionId, r.sessionId)),
+    );
+  }
+  troubleQuery = troubleQuery.innerJoin(
+    t,
+    and(eq(t.tenantKey, f.tenantKey), eq(t.sessionId, f.sessionId)),
+  );
+  const groupedTroubles = troubleQuery
+    // Use the selected sanitized cause: repeating its whitelist binds changes the GROUP BY expression.
+    .groupBy(r.id, t.kind, t.label, t.status, sql.raw("5"))
+    .as("grouped_troubles");
+  const rankedTroubles = db
+    .select({
+      recordingId: groupedTroubles.recordingId,
+      kind: groupedTroubles.kind,
+      label: groupedTroubles.label,
+      status: groupedTroubles.status,
+      cause: groupedTroubles.cause,
+      count: groupedTroubles.count,
+      rank: sql<number>`row_number() over (
+        partition by ${groupedTroubles.recordingId}
+        order by ${groupedTroubles.count} desc,
+          ${groupedTroubles.label} asc,
+          ${groupedTroubles.kind} asc,
+          ${groupedTroubles.status} asc,
+          ${groupedTroubles.cause} asc
+      )`.as("rank"),
+    })
+    .from(groupedTroubles)
+    .where(inArray(groupedTroubles.recordingId, [...eligibleRecordingIds]))
+    .as("ranked_troubles");
+  return db
+    .select({
+      recordingId: rankedTroubles.recordingId,
+      kind: rankedTroubles.kind,
+      label: rankedTroubles.label,
+      status: rankedTroubles.status,
+      cause: rankedTroubles.cause,
+      count: rankedTroubles.count,
+    })
+    .from(rankedTroubles)
+    .where(lte(rankedTroubles.rank, TROUBLE_GROUPS_PER_RECORDING))
+    .orderBy(asc(rankedTroubles.recordingId), asc(rankedTroubles.rank));
+}
+
 export async function getSessionFrictionDetails(
   scope: ErrorReadScope,
   recordings: readonly SessionFrictionRecording[],
@@ -1164,11 +1460,11 @@ export async function getSessionFrictionDetails(
     }
     return result;
   }
+  const associationsReady = await sessionRecordingAssociationsReady(db);
   const ids = recordings.map((recording) => recording.id);
   const r = schema.sessionRecordings;
   const rf = schema.sessionRecordingFriction;
   const f = schema.analyticsSessionFriction;
-  const t = schema.analyticsSessionTrouble;
 
   const replayRows: Array<typeof rf.$inferSelect> = await db
     .select()
@@ -1181,32 +1477,45 @@ export async function getSessionFrictionDetails(
       ? row
       : undefined;
   };
-  const [eventRows, issues] = await Promise.all([
-    db
-      .select({
-        recordingId: r.id,
-        covered: sql<boolean>`${eventFrictionCoveredSql(scope)}`,
-        tenantKey: f.tenantKey,
-        sessionId: f.sessionId,
-        failedActions: f.failedActions,
-        stuckChats: f.stuckChats,
-        thumbsDown: f.thumbsDown,
-        cancelledRuns: f.cancelledRuns,
-        agentFailures: f.agentFailures,
-        quickBacks: f.quickBacks,
-        agentSignalsMeasured: f.agentSignalsMeasured,
-        agentSignalsMissing: f.agentSignalsMissing,
-        score: f.score,
-      })
-      .from(r)
+  let eventRowsQuery = db
+    .select({
+      recordingId: r.id,
+      covered: sql<boolean>`${eventFrictionCoveredSql(scope, associationsReady)}`,
+      tenantKey: f.tenantKey,
+      sessionId: f.sessionId,
+      failedActions: f.failedActions,
+      stuckChats: f.stuckChats,
+      thumbsDown: f.thumbsDown,
+      cancelledRuns: f.cancelledRuns,
+      agentFailures: f.agentFailures,
+      quickBacks: f.quickBacks,
+      agentSignalsMeasured: f.agentSignalsMeasured,
+      agentSignalsMissing: f.agentSignalsMissing,
+      score: f.score,
+    })
+    .from(r)
+    .where(inArray(r.id, ids));
+  if (associationsReady) {
+    const association = schema.sessionRecordingSessionAssociations;
+    const eventSessionId = sql`case when ${association.recordingId} is null
+      then ${r.sessionId} else ${association.sessionId} end`;
+    eventRowsQuery = eventRowsQuery
+      .leftJoin(association, eq(association.recordingId, r.id))
       .leftJoin(
         f,
         and(
           eq(f.tenantKey, recordingTenantSql(r)),
-          eq(f.sessionId, r.sessionId),
+          sql`${f.sessionId} = ${eventSessionId}`,
         ),
-      )
-      .where(inArray(r.id, ids)),
+      );
+  } else {
+    eventRowsQuery = eventRowsQuery.leftJoin(
+      f,
+      and(eq(f.tenantKey, recordingTenantSql(r)), eq(f.sessionId, r.sessionId)),
+    );
+  }
+  const [eventRows, issues] = await Promise.all([
+    eventRowsQuery,
     listRecordingErrorIssues(
       scope,
       recordings.map((recording) => ({
@@ -1216,67 +1525,64 @@ export async function getSessionFrictionDetails(
     ),
   ]);
 
-  const eventsById = new Map<string, any>(
-    eventRows.map((row: any) => [row.recordingId, row]),
-  );
-  const coveredSessions = eventRows.filter(
-    (row: any) => row.covered === true && row.tenantKey,
-  );
-  const troublesBySession = new Map<string, SessionTroubleGroup[]>();
-  if (coveredSessions.length) {
-    const ranked = db
-      .select({
-        tenantKey: t.tenantKey,
-        sessionId: t.sessionId,
-        kind: t.kind,
-        label: t.label,
-        status: t.status,
-        cause: t.cause,
-        eventCount: t.eventCount,
-        rank: sql<number>`row_number() over (partition by ${t.tenantKey}, ${t.sessionId} order by ${t.eventCount} desc, ${t.lastAt} desc, ${t.id})`.as(
-          "rank",
-        ),
-      })
-      .from(t)
-      .where(
-        and(
-          inArray(t.tenantKey, [
-            ...new Set<string>(
-              coveredSessions.map((row: any) => row.tenantKey),
-            ),
-          ]),
-          inArray(t.sessionId, [
-            ...new Set<string>(
-              coveredSessions.map((row: any) => row.sessionId),
-            ),
-          ]),
-        ),
+  const eventRowsById = new Map<string, any[]>();
+  for (const row of eventRows) {
+    const rows = eventRowsById.get(row.recordingId) ?? [];
+    rows.push(row);
+    eventRowsById.set(row.recordingId, rows);
+  }
+  const eligibleRecordingIds = recordings.flatMap((recording) => {
+    const rows = eventRowsById.get(recording.id) ?? [];
+    return rows.length > 0 &&
+      rows.every(
+        (row) => row.covered === true && row.tenantKey && row.sessionId,
       )
-      .as("ranked_trouble");
-    const troubleRows = await db
-      .select()
-      .from(ranked)
-      .where(lte(ranked.rank, TROUBLE_GROUPS_PER_SESSION));
-    for (const row of troubleRows) {
-      const key = JSON.stringify([row.tenantKey, row.sessionId]);
-      const groups = troublesBySession.get(key) ?? [];
-      groups.push({
-        kind: row.kind,
-        label: row.label,
-        status: row.status ?? null,
-        cause: isAgentTroubleCause(row.cause) ? row.cause : null,
-        count: Number(row.eventCount),
-      });
-      troublesBySession.set(key, groups);
+      ? [recording.id]
+      : [];
+  });
+  const troubleRows: Array<{
+    recordingId: string;
+    kind: string;
+    label: string;
+    status: string | null;
+    cause: string | null;
+    count: number | string;
+  }> = eligibleRecordingIds.length
+    ? await buildSessionTroubleQuery(
+        db,
+        eligibleRecordingIds,
+        associationsReady,
+      )
+    : [];
+  const troublesByRecording = new Map<string, SessionTroubleGroup[]>();
+  for (const row of troubleRows) {
+    if (row.kind !== "agent" && row.kind !== "action") {
+      throw new Error("Session trouble query returned an unknown kind");
     }
+    const groups = troublesByRecording.get(row.recordingId) ?? [];
+    groups.push({
+      kind: row.kind,
+      label: row.label,
+      status: row.status,
+      cause: isAgentTroubleCause(row.cause) ? row.cause : null,
+      count: Number(row.count),
+    });
+    troublesByRecording.set(row.recordingId, groups);
   }
 
   for (const recording of recordings) {
     const replayRow = completeReplayRow(recording);
     const replay = replayRow ? replayCountsBySignal(replayRow) : null;
-    const eventRow = eventsById.get(recording.id);
-    const eventsCovered = eventRow?.covered === true && eventRow.tenantKey;
-    const events = eventsCovered ? eventCountsBySignal(eventRow) : null;
+    const sessionEventRows = eventRowsById.get(recording.id) ?? [];
+    const eventsCovered =
+      sessionEventRows.length > 0 &&
+      sessionEventRows.every(
+        (row) => row.covered === true && row.tenantKey && row.sessionId,
+      );
+    const events = eventsCovered ? combineEventCounts(sessionEventRows) : null;
+    const eventScore = eventsCovered
+      ? sessionEventRows.reduce((sum, row) => sum + Number(row.score ?? 0), 0)
+      : 0;
     const errorIssues = issues.get(recording.id) ?? null;
     if (!replay && !events) {
       result.set(recording.id, unmeasuredFriction(errorIssues));
@@ -1293,15 +1599,10 @@ export async function getSessionFrictionDetails(
       ...measuredCounts(events ?? {}),
     };
     // The stored scores, computed at ingest, are what the friction sort used.
-    const score =
-      (replay ? Number(replayRow!.score) : 0) +
-      (events ? Number(eventRow.score) : 0);
+    const score = (replay ? Number(replayRow!.score) : 0) + eventScore;
     const troubles = events
-      ? (troublesBySession.get(
-          JSON.stringify([eventRow.tenantKey, eventRow.sessionId]),
-        ) ?? [])
+      ? (troublesByRecording.get(recording.id) ?? [])
       : [];
-    troubles.sort((a, b) => b.count - a.count);
     result.set(recording.id, {
       score,
       replay,
@@ -1326,7 +1627,6 @@ export async function listRecordingFriction(
     .select({
       id: r.id,
       clientRecordingId: r.clientRecordingId,
-      sessionId: r.sessionId,
       chunkCount: r.chunkCount,
       ownerEmail: r.ownerEmail,
       orgId: r.orgId,

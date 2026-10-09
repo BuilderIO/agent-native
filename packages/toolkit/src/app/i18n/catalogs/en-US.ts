@@ -501,10 +501,20 @@ const messages = {
   "composer.skill.uploadFile": "Upload skill file",
   "composer.upload": "Upload",
   "composer.uploadFailed": "Could not upload the selected file.",
-  "composer.fileTooLarge": "This file exceeds the upload size limit.",
+  "composer.fileTooLarge":
+    "This file is larger than the {{size}} MB upload limit.",
   "composer.sessionExpired":
-    "Your session expired. Refresh the page and try again.",
+    "Your session expired. Sign in again, then send your message.",
   "composer.unsupportedFileType": "This file type isn't supported.",
+  "composer.uploadUnavailable":
+    "File uploads are unavailable right now. Try again in a moment.",
+  "composer.uploadOffline":
+    "The upload couldn't reach the server. Check your connection and try again.",
+  "composer.submissionNotReady":
+    "Chat isn't ready to send yet. Wait a moment, then send again.",
+  "composer.submissionScopeChanged":
+    "This chat changed before your message was sent. Send it again.",
+  "composer.attachmentNotSaved": "Not saved with this chat",
   "composer.useAttachedContext": "Use the attached context.",
   "mentions.commands": "Commands",
   "mentions.learnMore": "Learn more",
@@ -1149,6 +1159,7 @@ const messages = {
     "This run can't be continued anymore. Send a message to keep going.",
   "recovery.retryAttachmentUnavailable":
     "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
+  "recovery.retryWithoutAttachment": "Retry without attachment",
   "recovery.deferredSubmissionFailed":
     "This message couldn't be sent. Check your connection or chat setup, then retry.",
   "recovery.credentialRejected":

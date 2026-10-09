@@ -84,7 +84,7 @@ import {
 import {
   IconCopy,
   IconDots,
-  IconHandClick,
+  IconFocus2,
   IconLoader2,
   IconPlus,
 } from "@tabler/icons-react";
@@ -343,6 +343,7 @@ import {
   getBoardSurfaceStaticPreviewViewport,
   getFocusedLineupFillHeight,
   getFocusedLineupScale,
+  getFocusedLineupFitScale,
   isLineupShrinkOnlyChange,
   OVERVIEW_FRAME_WIDTH,
   resolveFocusedLineupScreenId,
@@ -669,6 +670,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     gradientEditTarget,
   } = {},
   onPick,
+  onSelectForGesture,
   onEdit,
   metadataById,
   screenRootComputedStylesById,
@@ -704,6 +706,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     deferLineupZoomChange = false,
     initialFitScreenId,
     fillFocusedViewport = false,
+    fitFocusedViewport = false,
     chromeInsetLeft = 0,
     chromeInsetRight = 0,
     visibleCanvasRectRef,
@@ -2527,16 +2530,24 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       totalHeight > 0
         ? Math.max(minFitScale, (rect.height - 96) / totalHeight)
         : scale;
-    // A focused screen fills the pane width edge to edge up to 100% display
-    // zoom, in either direction, and starts flush at the top of the pane;
-    // fitting every screen only ever zooms out.
+    // Focused widget screens fit entirely inside the pane; ordinary focused
+    // lineups retain their edge-to-edge width framing.
     const focusScale = focusScreen
-      ? getFocusedLineupScale({
-          frameWidth: totalWidth,
-          availableWidth,
-          minScale: minFitScale,
-          maxScale: getResolvedMetadata(focusScreen).width / totalWidth,
-        })
+      ? fitFocusedViewport
+        ? getFocusedLineupFitScale({
+            frameWidth: totalWidth,
+            frameHeight: totalHeight,
+            availableWidth,
+            availableHeight: Math.max(0, rect.height - 96),
+            minScale: minFitScale,
+            maxScale: getResolvedMetadata(focusScreen).width / totalWidth,
+          })
+        : getFocusedLineupScale({
+            frameWidth: totalWidth,
+            availableWidth,
+            minScale: minFitScale,
+            maxScale: getResolvedMetadata(focusScreen).width / totalWidth,
+          })
       : null;
     const nextScale = deferLineupZoomChange
       ? scale
@@ -2553,9 +2564,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     }
     const visualLeft =
       chromeInsetLeft + (availableWidth - totalWidth * nextScale) / 2;
-    const visualTop = focusScreen
-      ? 0
-      : (rect.height - totalHeight * nextScale) / 2;
+    const visualTop =
+      focusScreen && !fitFocusedViewport
+        ? 0
+        : (rect.height - totalHeight * nextScale) / 2;
     const nextPan = {
       x: visualLeft - (SURFACE_PADDING + boundsLeft) * nextScale,
       y: visualTop - (SURFACE_PADDING + boundsTop) * nextScale,
@@ -2567,13 +2579,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       y: nextPan.y,
       zoom: zoomRef.current,
     };
-    // Only on mount, screen-count or chrome-inset changes, or device-preview changes.
+    // Only on mount or when the focused route, screen count, pane, or device changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     chromeInsetLeft,
     chromeInsetRight,
     preserveCameraOnScreenCountChange,
     deferLineupZoomChange,
+    fitFocusedViewport,
+    fitFocusedViewport ? surfaceSize.width : 0,
+    fitFocusedViewport ? surfaceSize.height : 0,
+    initialFitScreenId,
     previewDeviceFrame,
     screens.length,
   ]);
@@ -8128,7 +8144,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (e.shiftKey && !wasAlreadySelected) return;
       if (!e.shiftKey) {
         if (activeId !== id) {
-          onPick(id);
+          if (onSelectForGesture) onSelectForGesture(id);
+          else onPick(id);
         }
         if (!currentSelectedIds.includes(id)) {
           updateSelectedIds(() => [id]);
@@ -8400,6 +8417,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       installDragListeners,
       lockedScreenIdSet,
       onPick,
+      onSelectForGesture,
       readOnly,
       resolvePrimitiveScreenId,
       updateFrameGeometry,
@@ -8421,7 +8439,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       suppressNextPick.current = true;
 
       if (activeId !== id) {
-        onPick(id);
+        if (onSelectForGesture) onSelectForGesture(id);
+        else onPick(id);
       }
 
       const currentSelectedIds = selectedIdsRef.current;
@@ -8712,6 +8731,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       installDragListeners,
       lockedScreenIdSet,
       onPick,
+      onSelectForGesture,
       showTransformFeedback,
       updateFrameGeometryPreview,
       updateSelectedIds,
@@ -9032,7 +9052,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       suppressNextPick.current = true;
 
       if (activeId !== id) {
-        onPick(id);
+        if (onSelectForGesture) onSelectForGesture(id);
+        else onPick(id);
       }
 
       const originFrame = getCurrentFrameEntries().find(
@@ -9142,6 +9163,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       installDragListeners,
       lockedScreenIdSet,
       onPick,
+      onSelectForGesture,
       showTransformFeedback,
       updateFrameGeometry,
       updateFrameGeometryRefOnly,
@@ -13471,7 +13493,7 @@ const Screen = memo(function Screen({
     : FRAME_LABEL_HEIGHT * chromeScale;
   const frameScreenWidth = geometry.width / Math.max(chromeScale, 0.001);
   const compactFullView = frameScreenWidth < FRAME_HEADER_BUTTON_COMPACT_WIDTH;
-  const frameActionLabel = t("designEditor.modes.interact");
+  const frameActionLabel = t("multiScreenCanvas.focusScreen");
   const labelInfoMaxWidth = Math.min(
     frameScreenWidth,
     Math.max(
@@ -13644,7 +13666,7 @@ const Screen = memo(function Screen({
           onMouseEnter={() => updateDirectHover(true)}
           onMouseLeave={() => updateDirectHover(false)}
         >
-          <IconHandClick className="size-3 shrink-0" />
+          <IconFocus2 className="size-3 shrink-0" />
           <span className={cn("truncate", compactFullView && "sr-only")}>
             {frameActionLabel}
           </span>
@@ -14112,7 +14134,7 @@ function BreakpointPreviewRow({
   const t = useT();
   const browserOrigin = useBrowserOrigin();
   const externalPreviewPendingOrigin = Boolean(previewUrl && !browserOrigin);
-  const frameActionLabel = t("designEditor.modes.interact");
+  const frameActionLabel = t("multiScreenCanvas.focusScreen");
   const primaryWidthPx = metadata.width ?? primaryGeometry.width;
   const breakpointWidths = visibleBreakpointWidths(
     screen.breakpointWidths,
@@ -14433,7 +14455,7 @@ function BreakpointPreviewRow({
                     e.stopPropagation();
                   }}
                 >
-                  <IconHandClick className="size-3" />
+                  <IconFocus2 className="size-3" />
                 </button>
               ) : null}
               <span

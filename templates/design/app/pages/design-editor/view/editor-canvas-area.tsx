@@ -329,6 +329,7 @@ export function renderEditorCanvasArea({
     visible: rightSidebarVisible,
     width: rightSidebarWidth,
     widgetEmbed,
+    minimalUi,
   });
 
   const selectedLayerId =

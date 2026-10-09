@@ -1,10 +1,19 @@
-import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { assertNoInlineImageBytes } from "@agent-native/core/testing";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { appPath, designFrame, gotoEditor, selectByText } from "./helpers";
+import {
+  CANARY_SESSION_ID,
+  INLINE_BYTES_CANARIES,
+  newInlineBytesHits,
+  readChatRows,
+  scanSqlForInlineBytes,
+  scanSqlWithPoisonedRows,
+} from "./sql-inline-bytes-scan";
 
 const IMAGE_PROMPT = "Describe the attached image reference.";
 const LINKEDIN_AD_PROMPT =
@@ -136,6 +145,7 @@ type ProviderProof = {
   callNames: string[];
   modelsSeen: string[];
   imageSha256Seen: string[];
+  imageUrlsSeen: string[];
   toolCallsSeen: Array<{
     name: string;
     designId?: string;
@@ -222,6 +232,23 @@ async function configureProvider(
     { data: { designId, fileId, mode } },
   );
   expect(response.status()).toBe(204);
+}
+
+async function holdProviderResponseTo(page: Page, userMessage: string) {
+  const port = test.info().config.metadata.sidebarLoopbackPort as number;
+  const response = await page.request.post(
+    `http://127.0.0.1:${port}/__hold-next-response`, // e2e-harness-ignore: pause the separate deterministic test provider.
+    { data: { userMessageStartsWith: userMessage } },
+  );
+  expect(response.status()).toBe(204);
+}
+
+async function releaseHeldProviderResponse(page: Page): Promise<number> {
+  const port = test.info().config.metadata.sidebarLoopbackPort as number;
+  const response = await page.request.post(
+    `http://127.0.0.1:${port}/__release-held-response`, // e2e-harness-ignore: resume the separate deterministic test provider.
+  );
+  return response.status();
 }
 
 async function readProviderProof(page: Page): Promise<ProviderProof> {
@@ -785,6 +812,7 @@ test("Design editor downscales a 6 MB PNG for vision and retains the original up
     localStorage.setItem("agent-native:chat-models:selection", selection);
   });
 
+  const sqlBefore = await scanSqlForInlineBytes(test.info());
   const { designId, fileId } = await createDesign(page);
   await configureProvider(page, designId, fileId, "linkedin-ad");
   const { sidebarComposer, sidebarPrompt } = await openSidebarComposer(
@@ -1036,6 +1064,11 @@ test("Design editor downscales a 6 MB PNG for vision and retains the original up
       breakpointWidths: [],
       breakpointSet: null,
     });
+
+  // The reference image reached generate-design; none of it may land in SQL.
+  expect(
+    newInlineBytesHits(sqlBefore, await scanSqlForInlineBytes(test.info())),
+  ).toEqual([]);
 });
 
 test("Design editor sidebar applies a same-thread edit and persists it", async ({
@@ -1284,4 +1317,241 @@ test("Design chat preserves EXIF-rotated JPEG dimensions and orientation", async
     .join("\n");
   expect(providerText).not.toContain("<chat-attachment-read-error");
   expect(providerText).not.toContain("<chat-attachment-processing-error");
+});
+
+test("Design chat keeps uploaded image bytes out of every SQL table", async ({
+  page,
+}) => {
+  test.skip(
+    process.env.E2E_AI_SIDEBAR_LOOPBACK !== "1",
+    "requires E2E_AI_SIDEBAR_LOOPBACK=1",
+  );
+  test.setTimeout(240_000);
+  await page.context().addInitScript(() => {
+    if (location.origin === "null") return;
+    const selection = JSON.stringify({
+      model: "agentkit-loopback",
+      engine: "ai-sdk:openai",
+      effort: "medium",
+    });
+    localStorage.setItem(
+      "agent-native:chat-models:selection:design",
+      selection,
+    );
+    localStorage.setItem("agent-native:chat-models:selection", selection);
+  });
+
+  const sqlBefore = await scanSqlForInlineBytes(test.info());
+  const marker = `sql-scan-${randomUUID()}`;
+  const { designId, fileId } = await createDesign(page);
+  await configureProvider(page, designId, fileId, "observe");
+  const { sidebarComposer, sidebarPrompt } = await openSidebarComposer(
+    page,
+    designId,
+    fileId,
+  );
+  const replies = page
+    .getByRole("article", { name: "Agent" })
+    .getByText("I received the uploaded image reference.", { exact: true });
+  const providerImages = async () =>
+    (await readProviderProof(page)).imageSha256Seen;
+  const providerPoll = { timeout: 45_000, intervals: [250, 500, 1_000] };
+
+  // At most 2 MiB: the PNG travels inline as a data URL.
+  const inline = await uploadImage(page, sidebarComposer);
+  await sidebarPrompt.fill(`${IMAGE_PROMPT} ${marker} inline`);
+  await sidebarPrompt.press("Enter");
+  await expect.poll(providerImages, providerPoll).toEqual([inline.sha256]);
+  await expect(replies).toHaveCount(1, { timeout: 15_000 });
+
+  // Over 2 MiB: the request names only the owned upload, which the server hydrates.
+  const uploaded = await uploadImage(page, sidebarComposer, 2_300_000);
+  const rewrittenRequests = await routeImageAsOwnedStorageUrl(
+    page,
+    "responsive-card-art-photo.png",
+    { useOriginalReference: true },
+  );
+  await sidebarPrompt.fill(`${IMAGE_PROMPT} ${marker} uploaded`);
+  await sidebarPrompt.press("Enter");
+  await expect
+    .poll(providerImages, providerPoll)
+    .toEqual([inline.sha256, uploaded.sha256]);
+  expect(rewrittenRequests()).toBe(1);
+  await page.unroute(/\/_agent-native\/agent-chat$/);
+  await expect(replies).toHaveCount(2, { timeout: 15_000 });
+
+  // A 6 MB PNG queued behind a running turn is uploaded before it is sent.
+  const busyPrompt = `Keep this turn running. ${marker}`;
+  await holdProviderResponseTo(page, busyPrompt);
+  await sidebarPrompt.fill(busyPrompt);
+  await sidebarPrompt.press("Enter");
+  await expect(
+    sidebarComposer.getByRole("button", { name: "Stop response" }),
+  ).toBeVisible();
+  await uploadImage(page, sidebarComposer, 6_000_000);
+  await sidebarPrompt.fill(`${IMAGE_PROMPT} ${marker} queued`);
+  await sidebarPrompt.press("Enter");
+  await expect(
+    page.getByRole("region", { name: "Queued messages" }),
+  ).toBeVisible();
+  await expect.poll(() => releaseHeldProviderResponse(page)).toBe(204);
+  await expect(replies).toHaveCount(4, { timeout: 45_000 });
+
+  // Absent is not clean: each image turn must be persisted with its stored upload.
+  const persistedImageTurnUrls = async () => {
+    const [thread] = (await readChatRows(test.info(), marker)).threads;
+    const snapshot = JSON.parse(thread?.thread_data ?? "{}") as {
+      agentKit?: {
+        messages: Array<{
+          role: string;
+          parts: Array<{ type: string; text?: string; url?: string }>;
+        }>;
+      };
+    };
+    return (snapshot.agentKit?.messages ?? [])
+      .filter(
+        (message) =>
+          message.role === "user" &&
+          message.parts.some((part) => part.text?.includes(IMAGE_PROMPT)),
+      )
+      .map((message) =>
+        message.parts.flatMap((part) =>
+          part.type === "file" ? [part.url] : [],
+        ),
+      );
+  };
+  const storedUpload = expect.arrayContaining([
+    expect.stringMatching(/^https:\/\/[^/]+\/objects\/[a-f0-9-]{36}$/),
+  ]);
+  await expect
+    .poll(persistedImageTurnUrls, { timeout: 30_000 })
+    .toEqual([storedUpload, storedUpload, storedUpload]);
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(replies).toHaveCount(4, { timeout: 30_000 });
+  await expect
+    .poll(persistedImageTurnUrls, { timeout: 30_000 })
+    .toEqual([storedUpload, storedUpload, storedUpload]);
+
+  const chat = await readChatRows(test.info(), marker);
+  expect(chat.threads).toHaveLength(1);
+  const [thread] = chat.threads;
+  assertNoInlineImageBytes(thread!.thread_data, "chat_threads.thread_data");
+  for (const run of chat.runs) {
+    assertNoInlineImageBytes(run, `agent_runs ${String(run.id)}`);
+  }
+  for (const event of chat.events) {
+    assertNoInlineImageBytes(
+      event.event_data,
+      `agent_run_events ${event.run_id}#${event.seq}`,
+    );
+  }
+  expect(chat.runs.length).toBeGreaterThanOrEqual(4);
+  expect(chat.events.length).toBeGreaterThan(0);
+
+  const sqlAfter = await scanSqlForInlineBytes(test.info());
+  await writeFile(
+    test.info().outputPath("sql-inline-bytes-scan.json"),
+    JSON.stringify(
+      {
+        tableCount: sqlAfter.tables.length,
+        columnCount: sqlAfter.columnCount,
+        before: sqlBefore.hits,
+        after: sqlAfter.hits,
+      },
+      null,
+      2,
+    ),
+  );
+  expect(sqlAfter.tables).toEqual(
+    expect.arrayContaining([
+      "chat_threads",
+      "agent_runs",
+      "agent_run_events",
+      "application_state",
+      "settings",
+      "resources",
+    ]),
+  );
+  expect(newInlineBytesHits(sqlBefore, sqlAfter)).toEqual([]);
+
+  // Negative control: planted rows must be flagged, then rolled back.
+  const control = await scanSqlWithPoisonedRows(test.info(), thread!.id);
+  expect(
+    newInlineBytesHits(sqlAfter, control.poisoned)
+      .map(({ table, column, row }) => `${table}.${column}#${row}`)
+      .sort(),
+  ).toEqual(
+    [
+      ...Object.keys(INLINE_BYTES_CANARIES).map(
+        (key) => `application_state.value#${CANARY_SESSION_ID}|${key}`,
+      ),
+      `chat_threads.thread_data#${thread!.id}`,
+    ].sort(),
+  );
+  expect(newInlineBytesHits(sqlBefore, control.afterRollback)).toEqual([]);
+});
+
+test("Design chat sends a queued image to model vision input", async ({
+  page,
+}) => {
+  test.skip(
+    process.env.E2E_AI_SIDEBAR_LOOPBACK !== "1",
+    "requires E2E_AI_SIDEBAR_LOOPBACK=1",
+  );
+  await page.context().addInitScript(() => {
+    if (location.origin === "null") return;
+    const selection = JSON.stringify({
+      model: "agentkit-loopback",
+      engine: "ai-sdk:openai",
+      effort: "medium",
+    });
+    localStorage.setItem(
+      "agent-native:chat-models:selection:design",
+      selection,
+    );
+    localStorage.setItem("agent-native:chat-models:selection", selection);
+  });
+
+  const { designId, fileId } = await createDesign(page);
+  await configureProvider(page, designId, fileId, "observe");
+  const { sidebarComposer, sidebarPrompt } = await openSidebarComposer(
+    page,
+    designId,
+    fileId,
+  );
+  const busyPrompt = `Keep this turn running. ${randomUUID()}`;
+  await holdProviderResponseTo(page, busyPrompt);
+  await sidebarPrompt.fill(busyPrompt);
+  await sidebarPrompt.press("Enter");
+  await expect(
+    sidebarComposer.getByRole("button", { name: "Stop response" }),
+  ).toBeVisible();
+  const image = await uploadImage(page, sidebarComposer);
+  await sidebarPrompt.fill(IMAGE_PROMPT);
+  await sidebarPrompt.press("Enter");
+  await expect(
+    page.getByRole("region", { name: "Queued messages" }),
+  ).toBeVisible();
+  await expect.poll(() => releaseHeldProviderResponse(page)).toBe(204);
+
+  await expect
+    .poll(
+      async () => {
+        const proof = await readProviderProof(page);
+        return {
+          imageSha256Seen: proof.imageSha256Seen,
+          imageUrlsSeen: proof.imageUrlsSeen,
+          queuedTurnInput: proof.requestSummaries
+            .map((summary) => summary.userMessages.slice(-1)[0] ?? "")
+            .filter((text) => text.includes(IMAGE_PROMPT)),
+        };
+      },
+      { timeout: 45_000, intervals: [250, 500, 1_000] },
+    )
+    .toEqual(expect.objectContaining({ imageSha256Seen: [image.sha256] }));
+  const providerText = (await readProviderProof(page)).requestSummaries
+    .flatMap((summary) => summary.userMessages)
+    .join("\n");
+  expect(providerText).not.toContain("reference-only-unavailable");
 });

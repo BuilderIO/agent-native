@@ -906,9 +906,9 @@ export default function EditorToolbar({
               window.location.reload();
             }
           }}
-          onDownloadBackup={onDownloadBackup}
+          onDownloadBackup={!widgetEmbed ? onDownloadBackup : undefined}
           onImportBackup={
-            canEdit && onImportDeckBackup
+            !widgetEmbed && canEdit && onImportDeckBackup
               ? () => backupInputRef.current?.click()
               : undefined
           }
@@ -1032,7 +1032,7 @@ export default function EditorToolbar({
               </>
             )}
 
-            {onToggleComments && (
+            {!widgetEmbed && onToggleComments && (
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
@@ -1080,40 +1080,44 @@ export default function EditorToolbar({
                 <DropdownMenuSeparator />
               </>
             )}
-            <DropdownMenuGroup>
-              <DropdownMenuItem onSelect={onShowHistory}>
-                <IconHistory className="size-4" />
-                {t("editorToolbar.savedVersions")}
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <ExportMenu
-              ref={exportMenuRef}
-              inline
-              hideExportDialog
-              onExportStatusChange={setExportStatus}
-              hasSlides={hasSlides}
-              deckId={deckId}
-              deckTitle={deckTitle}
-              onDuplicate={onDuplicateDeck ?? (() => {})}
-              onExportPdf={onExportPdf ?? (() => {})}
-              onExportPptx={onExportPptx ?? (() => {})}
-              onExportGoogleSlides={onExportGoogleSlides}
-            />
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled={importing}
-              onSelect={() => void openFileImport()}
-            >
-              {importing ? (
-                <IconLoader2 className="size-4 animate-spin" />
-              ) : (
-                <IconDownload className="size-4" />
-              )}
-              {importing
-                ? t("editorToolbar.importing")
-                : t("editorToolbar.importFile")}
-            </DropdownMenuItem>
+            {!widgetEmbed && (
+              <>
+                <DropdownMenuGroup>
+                  <DropdownMenuItem onSelect={onShowHistory}>
+                    <IconHistory className="size-4" />
+                    {t("editorToolbar.savedVersions")}
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <ExportMenu
+                  ref={exportMenuRef}
+                  inline
+                  hideExportDialog
+                  onExportStatusChange={setExportStatus}
+                  hasSlides={hasSlides}
+                  deckId={deckId}
+                  deckTitle={deckTitle}
+                  onDuplicate={onDuplicateDeck ?? (() => {})}
+                  onExportPdf={onExportPdf ?? (() => {})}
+                  onExportPptx={onExportPptx ?? (() => {})}
+                  onExportGoogleSlides={onExportGoogleSlides}
+                />
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={importing}
+                  onSelect={() => void openFileImport()}
+                >
+                  {importing ? (
+                    <IconLoader2 className="size-4 animate-spin" />
+                  ) : (
+                    <IconDownload className="size-4" />
+                  )}
+                  {importing
+                    ? t("editorToolbar.importing")
+                    : t("editorToolbar.importFile")}
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
         <ExportStatusDialog
@@ -1123,53 +1127,55 @@ export default function EditorToolbar({
       </div>
 
       {/* Framework share (ownership, per-user/org grants, visibility) */}
-      <div className="flex-shrink-0">
-        <ShareButton
-          resourceType="deck"
-          resourceId={deckId}
-          resourceTitle={deckTitle}
-          panelTitle={t("share.title")}
-          roleCopy={{
-            commenter: {
-              label: t("editorToolbar.commenterRoleLabel"),
-              description: t("editorToolbar.commenterRoleDescription"),
-            },
-          }}
-          shareUrl={showShareLink ? primaryShareLink.url : undefined}
-          shareUrlLabel={primaryShareLink.label}
-          shareUrlDescription={primaryShareLink.description}
-          showShareLinks={showShareLink}
-          shareTabs={
-            creativeContextEnabled
-              ? {
-                  tabs: [
-                    {
-                      value: "context",
-                      label: t("creativeContext.share.tabLabel"),
-                      content: (
-                        <CreativeContextShareTab
-                          resource={{
-                            appId: "slides",
-                            resourceType: "deck",
-                            resourceId: deckId,
-                            title: deckTitle,
-                            updatedAt: deck.updatedAt,
-                            preview: {
-                              kind: "document",
-                              label: t("header.deck"),
-                            },
-                          }}
-                        />
-                      ),
-                    },
-                  ],
-                }
-              : undefined
-          }
-        />
-      </div>
+      {!widgetEmbed && (
+        <div className="flex-shrink-0">
+          <ShareButton
+            resourceType="deck"
+            resourceId={deckId}
+            resourceTitle={deckTitle}
+            panelTitle={t("share.title")}
+            roleCopy={{
+              commenter: {
+                label: t("editorToolbar.commenterRoleLabel"),
+                description: t("editorToolbar.commenterRoleDescription"),
+              },
+            }}
+            shareUrl={showShareLink ? primaryShareLink.url : undefined}
+            shareUrlLabel={primaryShareLink.label}
+            shareUrlDescription={primaryShareLink.description}
+            showShareLinks={showShareLink}
+            shareTabs={
+              creativeContextEnabled
+                ? {
+                    tabs: [
+                      {
+                        value: "context",
+                        label: t("creativeContext.share.tabLabel"),
+                        content: (
+                          <CreativeContextShareTab
+                            resource={{
+                              appId: "slides",
+                              resourceType: "deck",
+                              resourceId: deckId,
+                              title: deckTitle,
+                              updatedAt: deck.updatedAt,
+                              preview: {
+                                kind: "document",
+                                label: t("header.deck"),
+                              },
+                            }}
+                          />
+                        ),
+                      },
+                    ],
+                  }
+                : undefined
+            }
+          />
+        </div>
+      )}
       {/* Present button — matches Share trigger height (h-9) */}
-      {hasSlides ? (
+      {!widgetEmbed && hasSlides ? (
         <Link
           to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
           onClick={onPresent ? handlePresentClick : undefined}
@@ -1179,7 +1185,7 @@ export default function EditorToolbar({
           <IconPlayerPlay className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
         </Link>
-      ) : (
+      ) : !widgetEmbed ? (
         <Button
           type="button"
           disabled
@@ -1188,7 +1194,7 @@ export default function EditorToolbar({
           <IconPlayerPlay className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
         </Button>
-      )}
+      ) : null}
 
       {/* Hidden file input for "Import" overflow menu item */}
       <input
