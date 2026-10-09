@@ -57,9 +57,17 @@
   margin-inline-start: auto;
 }
 
+.slides-home-import-status {
+  display: none;
+}
+
 @media (max-width: 40rem) {
   .slides-home-mobile-toolbar .slides-home-import-label {
     display: none;
+  }
+
+  .slides-home-mobile-toolbar .slides-home-import-status {
+    display: inline;
   }
 }
 
